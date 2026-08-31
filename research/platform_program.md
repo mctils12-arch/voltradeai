@@ -165,3 +165,17 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   OpenAPI doc's `200` response schemas are deliberately generic
   (`{type:"object"}`) — hand-verified per-field response schemas for the
   highest-value endpoints is a valid future P2 follow-up, not started.
+- 2026-08-31 (two scheduled-routine sessions, same UTC day): the P2
+  follow-up named directly above is now COMPLETE. First session
+  (v1.0.824, PR #973) hand-verified 32/37 tools' `data` schemas plus the
+  real universal `v1Envelope()` wrapper on all 37 responses. Second
+  session (v1.0.825, this entry) finished the remaining 5
+  (`voltrade_get_track`/`voltrade_get_graph`/`voltrade_archive_stats`/
+  `voltrade_secftd_stats`/`voltrade_midas_stats`), reaching 37/37 —
+  `server/apiProduct.ts`'s `RESPONSE_DATA_SCHEMAS` now covers every live
+  tool. A stale duplicate draft (PR #971, an earlier session's own
+  parallel attempt at the same follow-up, superseded by #973) was closed
+  same-session. Full trace in experiments.md. Program queue remains: P5
+  only (HUMAN-GATED) — no more OpenAPI-schema queue item; a future
+  session should re-check this file's P1-P4 status fresh rather than
+  assume this specific thread continues.

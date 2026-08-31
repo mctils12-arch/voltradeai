@@ -674,11 +674,11 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
  *  license/gate claims. Endpoints branch on query params (the `*-history`
  *  companions, cot-history's `?code=`/`?q=` modes) list every branch's
  *  fields as optional properties on one object rather than a fabricated
- *  `oneOf` split this session can't verify is exhaustive. A tool absent
- *  from this map (get_track, get_graph, archive/secftd/midas stats — pure
- *  opaque `hit.summary`/imported-function spreads not read field-by-field
- *  this session) falls back to openApiSpec()'s pre-existing generic
- *  `{type:"object"}`, unchanged. */
+ *  `oneOf` split this session can't verify is exhaustive. Every one of the
+ *  37 live tools now has an entry (the last 5 — get_track, get_graph,
+ *  archive/secftd/midas stats — were read field-by-field this session);
+ *  a future new tool without an entry still falls back to openApiSpec()'s
+ *  generic `{type:"object"}` until it, too, is read and added. */
 const ARR = { type: "array", items: {} } as const;
 const STR = { type: "string" } as const;
 const INT = { type: "integer" } as const;
@@ -766,6 +766,60 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
   voltrade_jodi_oil_stocks: dataObj({
     product: STR, archiveLatestPeriod: ANY, seriesCount: INT, countriesReporting: ANY, note: STR, rows: ARR,
   }, ["product", "seriesCount", "note", "rows"]),
+  // routes.ts's `res.json(v1Envelope(mark, { id: req.params.id, kind, points: track }))`
+  // — `track` from datacoreArchive.ts's recentTrackCached()'s own declared
+  // return type `Array<{ t: number; la: number; lo: number; al?: number }>`.
+  voltrade_get_track: dataObj({
+    id: STR, kind: STR,
+    points: { type: "array", items: dataObj({ t: INT, la: { type: "number" }, lo: { type: "number" }, al: { type: "number" } }, ["t", "la", "lo"]) },
+  }, ["id", "kind", "points"]),
+  // datacoreArchive.ts's archiveStats(): `kinds` is a per-archive-directory
+  // dict keyed by whatever kind names exist on disk (not a fixed set), so
+  // it's additionalProperties rather than a named property list; oldest/
+  // newest are `string | null` in the found-dir branch and ABSENT entirely
+  // in the missing-dir branch, so they stay ANY/not-required rather than a
+  // fabricated "always a string" claim.
+  voltrade_archive_stats: dataObj({
+    base: STR,
+    kinds: { type: "object", additionalProperties: dataObj({ files: INT, bytes: INT, oldest: ANY, newest: ANY }, ["files", "bytes"]) },
+    totalBytes: INT,
+  }, ["base", "kinds", "totalBytes"]),
+  // routes.ts's GET /api/v1/graph branches on ?entity=: omitted returns
+  // {counts, caveat, note}; given, returns {entity, hops, caveat,
+  // ...neighborhood()} i.e. {nodes, edges}. `counts`/GraphNode/GraphEdge
+  // shapes read directly from entityGraph.ts's own exported interfaces
+  // (EverythingGraph.counts, GraphNode, GraphEdge) — only `caveat` is
+  // common to both branches, so it's the only required field.
+  voltrade_get_graph: dataObj({
+    counts: dataObj({
+      nodes: INT, edges: INT, company: INT, person: INT, facility: INT, vessel: INT, institution: INT,
+      insider_of: INT, operates: INT, calls_at: INT, owns: INT,
+    }, ["nodes", "edges", "company", "person", "facility", "vessel", "institution", "insider_of", "operates", "calls_at", "owns"]),
+    caveat: STR, note: STR, entity: STR, hops: INT,
+    nodes: { type: "array", items: dataObj({ id: STR, type: STR, label: STR, attrs: ANY }, ["id", "type", "label", "attrs"]) },
+    edges: { type: "array", items: dataObj({
+      type: STR, from: STR, to: STR, source: STR, confidence: STR, first_seen: ANY, last_seen: ANY, attrs: ANY,
+    }, ["type", "from", "to", "source", "confidence", "first_seen", "last_seen", "attrs"]) },
+  }, ["caveat"]),
+  // routes.ts's `res.json(v1Envelope("stats/secftd", hit.summary, hit.at))`
+  // — `hit.summary` typed by secFtd.ts's own exported FtdSummary interface,
+  // no optional fields there.
+  voltrade_secftd_stats: dataObj({
+    period: STR, settlement_dates: INT, newest_date: STR, rows: INT,
+    top_fails: { type: "array", items: dataObj({ symbol: STR, name: STR, qty: INT, price: ANY }, ["symbol", "name", "qty", "price"]) },
+    qty_floor: INT, top_cap: INT,
+  }, ["period", "settlement_dates", "newest_date", "rows", "top_fails", "qty_floor", "top_cap"]),
+  // routes.ts's `res.json(v1Envelope("stats/midas", hit.summary, hit.at))`
+  // — `hit.summary` typed by secMidas.ts's own exported MidasSummary
+  // interface, no optional fields there.
+  voltrade_midas_stats: dataObj({
+    period: STR, kind_counts: dataObj({ stock: INT, etf: INT }, ["stock", "etf"]),
+    newest_date: STR, rows: INT,
+    smallcap_watch: { type: "array", items: dataObj({
+      ticker: STR, mcapRank: INT, cancelToTrade: ANY, hiddenRatePct: ANY, oddLotRatePct: ANY,
+    }, ["ticker", "mcapRank", "cancelToTrade", "hiddenRatePct", "oddLotRatePct"]) },
+    smallcap_max_rank: INT, min_trades_for_hidden: INT, top_cap: INT,
+  }, ["period", "kind_counts", "newest_date", "rows", "smallcap_watch", "smallcap_max_rank", "min_trades_for_hidden", "top_cap"]),
 };
 
 /** OpenAPI 3.0 document for the live /api/v1 surface — the standard-tooling

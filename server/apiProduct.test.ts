@@ -668,11 +668,63 @@ test("openapi spec: a tool WITH a hand-verified schema gets the v1Envelope shell
   assert.ok((schema.schema.required as string[]).includes("data"), "envelope's own data field must be required");
 });
 
-test("openapi spec: a tool with NO schema entry keeps the exact pre-existing generic-object fallback (never fabricated)", () => {
-  const doc = openApiSpec();
-  assert.equal(RESPONSE_DATA_SCHEMAS.voltrade_get_track, undefined, "precondition: get_track must stay unmapped for this test to mean anything");
-  const trackSchema = doc.paths["/api/v1/tracks/{kind}/{id}"].get.responses["200"].content!["application/json"] as { schema: Record<string, unknown> };
-  assert.deepEqual(trackSchema.schema, { type: "object" });
+test("openapi spec: full coverage — every one of the 37 live tools now has a hand-verified RESPONSE_DATA_SCHEMAS entry, no stale extras", () => {
+  const toolNames = agentToolSpec().tools.map((t) => t.name);
+  for (const name of toolNames) {
+    assert.ok(RESPONSE_DATA_SCHEMAS[name], `"${name}" has no RESPONSE_DATA_SCHEMAS entry`);
+  }
+  assert.equal(Object.keys(RESPONSE_DATA_SCHEMAS).length, toolNames.length,
+    "RESPONSE_DATA_SCHEMAS must have exactly one entry per live tool");
+});
+
+test("openapi spec: the generic-object fallback path still exists in source for any FUTURE tool without a schema entry (unexercised today at 100% coverage, but must not silently disappear)", () => {
+  const src = fs.readFileSync(path.join(here, "apiProduct.ts"), "utf8");
+  assert.ok(src.includes("const dataSchema = RESPONSE_DATA_SCHEMAS[tool.name];"), "response builder must still look up by tool.name");
+  assert.ok(src.includes(': { type: "object" };'), "the untyped-object fallback must still exist for a future tool without a hand-verified schema");
+});
+
+test("openapi spec: get_track schema matches recentTrackCached()'s own declared return type (datacoreArchive.ts), not a guess", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_get_track as { properties: Record<string, any>; required: string[] };
+  assert.deepEqual(data.required, ["id", "kind", "points"]);
+  const pointItem = data.properties.points.items;
+  assert.deepEqual(pointItem.required, ["t", "la", "lo"]);
+  assert.ok("al" in pointItem.properties, "al is present (optional) on the source type");
+  const src = fs.readFileSync(path.join(here, "datacoreArchive.ts"), "utf8");
+  assert.ok(src.includes("Array<{ t: number; la: number; lo: number; al?: number }>"),
+    "recentTrackCached's declared return type changed — re-verify the schema against it");
+});
+
+test("openapi spec: archive_stats schema matches archiveStats()'s own object construction (datacoreArchive.ts), including the additionalProperties dict shape for `kinds`", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_archive_stats as any;
+  assert.deepEqual(data.required, ["base", "kinds", "totalBytes"]);
+  assert.equal(data.properties.kinds.type, "object");
+  assert.deepEqual(data.properties.kinds.additionalProperties.required, ["files", "bytes"]);
+});
+
+test("openapi spec: get_graph schema's counts/node/edge fields match entityGraph.ts's own EverythingGraph/GraphNode/GraphEdge interfaces", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_get_graph as any;
+  assert.deepEqual(data.required, ["caveat"], "only caveat is common to both the counts-only and entity-neighborhood branches");
+  const countsReq = data.properties.counts.required;
+  for (const f of ["nodes", "edges", "company", "person", "facility", "vessel", "institution", "insider_of", "operates", "calls_at", "owns"]) {
+    assert.ok(countsReq.includes(f), `EverythingGraph.counts field "${f}" missing`);
+  }
+  const src = fs.readFileSync(path.join(here, "entityGraph.ts"), "utf8");
+  for (const f of ["id", "type", "label", "attrs"]) assert.ok(new RegExp(`\\b${f}[?:]`).test(src), `GraphNode field "${f}" not found in entityGraph.ts`);
+  for (const f of ["from", "to", "source", "confidence", "first_seen", "last_seen"]) assert.ok(new RegExp(`\\b${f}[?:]`).test(src), `GraphEdge field "${f}" not found in entityGraph.ts`);
+});
+
+test("openapi spec: secftd_stats schema matches secFtd.ts's own exported FtdSummary interface field-for-field", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_secftd_stats as any;
+  assert.deepEqual(data.required, ["period", "settlement_dates", "newest_date", "rows", "top_fails", "qty_floor", "top_cap"]);
+  const src = fs.readFileSync(path.join(here, "secFtd.ts"), "utf8");
+  for (const f of data.required) assert.ok(new RegExp(`\\b${f}[?:]`).test(src), `FtdSummary field "${f}" not found in secFtd.ts`);
+});
+
+test("openapi spec: midas_stats schema matches secMidas.ts's own exported MidasSummary interface field-for-field", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_midas_stats as any;
+  assert.deepEqual(data.required, ["period", "kind_counts", "newest_date", "rows", "smallcap_watch", "smallcap_max_rank", "min_trades_for_hidden", "top_cap"]);
+  const src = fs.readFileSync(path.join(here, "secMidas.ts"), "utf8");
+  for (const f of data.required) assert.ok(new RegExp(`\\b${f}[?:]`).test(src), `MidasSummary field "${f}" not found in secMidas.ts`);
 });
 
 test("openapi spec: the GNSS integrity signal schema's nested field names match the real GnssIntegritySignalSummary interface (gnssIntegritySignal.ts), not a guess", () => {
