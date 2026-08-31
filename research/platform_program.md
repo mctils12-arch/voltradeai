@@ -165,3 +165,18 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   OpenAPI doc's `200` response schemas are deliberately generic
   (`{type:"object"}`) — hand-verified per-field response schemas for the
   highest-value endpoints is a valid future P2 follow-up, not started.
+- 2026-08-31 (scheduled-routine session, third session this UTC day): P2
+  surface EXTENDED again (v1.0.823) — the follow-up named directly above
+  is no longer "not started". `openApiSpec()`'s 200 responses now encode
+  the REAL, universal `v1Envelope()` wrapper (verified true for all 37
+  live endpoints by reading every route handler in server/routes.ts) on
+  every operation, plus a fully hand-verified inner `data` schema for
+  `voltrade_gnss_integrity_signal` — the one root that has reached
+  gate2_pass on the ROOT VALIDATION LADDER, checked field-for-field
+  against its real TS return type. Every other endpoint keeps an honest
+  generic `data: {type:"object"}`, deliberately not fabricated; the new
+  `VERIFIED_RESPONSE_DATA_SCHEMAS` map in `server/apiProduct.ts` is meant
+  to grow one hand-verified endpoint per session (opportunistic
+  migration, not a big-bang guess). Full trace in experiments.md. Program
+  queue remains: P5 only (HUMAN-GATED); NEXT hand-verified-schema
+  candidates named in that entry's own NEXT section.

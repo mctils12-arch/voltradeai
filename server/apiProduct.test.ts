@@ -653,3 +653,62 @@ test("openapi spec: /api/v1/openapi.json is wired and public (docs, not data —
   const specLine = routes.split("\n").find((l) => l.includes('"/api/v1/openapi.json"')) || "";
   assert.ok(!specLine.includes("requireApiKey"), "the spec itself is public documentation");
 });
+
+test("openapi spec: gnss-integrity-signal (the ONE gate2_pass root) gets a hand-verified `data` schema matching its real TS return type, not a fabricated one", () => {
+  const doc = openApiSpec();
+  const op = doc.paths["/api/v1/data/gnss-integrity-signal"].get;
+  const schema = (op.responses["200"].content as any)["application/json"].schema;
+  assert.equal(schema.type, "object");
+  assert.deepEqual(schema.required, ["api_version", "license", "attribution", "resell", "generated_at", "disclaimer", "data"]);
+  const dataSchema = schema.properties.data;
+  assert.deepEqual(dataSchema.required,
+    ["kind", "root_id", "generated_at", "gate", "verdict", "bands", "region", "freshness", "methodology_note", "caveats", "license"]);
+  assert.deepEqual(dataSchema.properties.kind.enum, ["signal"]);
+  assert.deepEqual(dataSchema.properties.gate.properties.status.enum, ["gate2_pass"]);
+  assert.deepEqual(dataSchema.properties.verdict.enum, ["PASS", "FAIL", "INCONCLUSIVE"]);
+  assert.equal(dataSchema.properties.bands.type, "array");
+  assert.equal(dataSchema.properties.bands.items.properties.p_value.type, "number");
+  assert.equal(dataSchema.properties.region.properties.candidate_bbox.minItems, 4);
+  assert.ok(op.responses["200"].description.includes("hand-verified"));
+
+  // Cross-check every top-level `data` field this schema claims actually
+  // exists in the real producer's own return statement — not just against
+  // this test's own copy of the schema (which could drift in lockstep with
+  // a bad edit to apiProduct.ts and still pass a same-file comparison).
+  const src = fs.readFileSync(path.join(here, "gnssIntegritySignal.ts"), "utf8");
+  for (const field of Object.keys(dataSchema.properties)) {
+    assert.ok(new RegExp(`\\b${field}:`).test(src), `schema field "${field}" not found in gnssIntegritySignal.ts's own source`);
+  }
+});
+
+test("openapi spec: every OTHER endpoint gets the real v1Envelope shape but an honest generic `data` (never a fabricated inner schema)", () => {
+  const doc = openApiSpec();
+  const genericOp = doc.paths["/api/v1/stats/fred-macro"].get;
+  const schema = (genericOp.responses["200"].content as any)["application/json"].schema;
+  assert.deepEqual(schema.properties.data, { type: "object" }, "unverified endpoints must not get an invented inner schema");
+  assert.ok(genericOp.responses["200"].description.includes("not yet hand-verified"));
+  // the envelope itself is real and identical on every operation, verified vs. fabricated alike.
+  assert.deepEqual(Object.keys(schema.properties).sort(),
+    ["api_version", "attribution", "data", "disclaimer", "generated_at", "license", "resell"].sort());
+  assert.deepEqual(schema.properties.resell.enum, ["ok", "share-alike", "conditional"]);
+});
+
+test("openapi spec: the universal v1Envelope claim is checked, not assumed — every live path's own route handler actually calls v1Envelope()", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  const lines = routes.split("\n");
+  const starts: number[] = [];
+  lines.forEach((l, i) => { if (/app\.get\("\/api\/v1\//.test(l)) starts.push(i); });
+  const docOnlyPaths = ["/api/v1/meta", "/api/v1/agent-tools", "/api/v1/openapi.json"];
+  let checked = 0;
+  for (const s of starts) {
+    const pathMatch = lines[s].match(/"(\/api\/v1\/[^"]+)"/);
+    if (!pathMatch || docOnlyPaths.includes(pathMatch[1])) continue;
+    const nextStart = starts.find((x) => x > s);
+    const end = nextStart !== undefined ? nextStart : Math.min(s + 100, lines.length);
+    const block = lines.slice(s, end).join("\n");
+    assert.ok(block.includes("v1Envelope("), `${pathMatch[1]}'s handler does not call v1Envelope() — the universal envelope schema would be a lie for it`);
+    checked++;
+  }
+  assert.equal(checked, Object.keys(openApiSpec().paths).length,
+    "must have checked exactly the live data paths openApiSpec() covers, not a subset");
+});

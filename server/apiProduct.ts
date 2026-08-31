@@ -668,12 +668,22 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
  *  `endpoint` template ("GET /path/{p}?q={q}") are the one place param
  *  names/types/required-ness are already verified against the real route
  *  handlers, so this reuses that structure instead of inventing a second,
- *  possibly-drifting parse of the same information. Response bodies are
- *  intentionally left as an untyped object with a pointer to the live
- *  preview/provenance rather than a fabricated field-level schema — no
- *  endpoint here has a hand-verified OpenAPI response schema, and claiming
- *  one would violate the "never fabricate" rule the rest of this module
- *  follows for license/gate claims. */
+ *  possibly-drifting parse of the same information.
+ *
+ *  Response bodies: every one of the 37 live /api/v1 data/stats/tracks/graph
+ *  routes wraps its payload in `routes.ts`'s own `v1Envelope()` helper
+ *  (api_version/license/attribution/resell/generated_at/disclaimer/data) —
+ *  checked by reading every route handler in server/routes.ts, not assumed
+ *  from convention (research/experiments.md, this session). That envelope
+ *  shape is real and universal, so v1EnvelopeSchema() below encodes it for
+ *  EVERY operation. The inner `data` payload's exact shape is a different
+ *  claim per endpoint — fabricating one would violate the "never fabricate"
+ *  rule this module follows for license/gate claims, so it stays a bare
+ *  `{type:"object"}` UNLESS the endpoint has a hand-verified entry in
+ *  VERIFIED_RESPONSE_DATA_SCHEMAS below. MIGRATION IS OPPORTUNISTIC here,
+ *  the same discipline PROGRAM_STATE.md's layer-registry migration uses:
+ *  one endpoint verified against its real TS return type at a time, never a
+ *  big-bang guess across all ~30 tools. */
 export interface OpenApiParam {
   name: string;
   in: "path" | "query";
@@ -692,6 +702,118 @@ export interface OpenApiOperation {
   responses: Record<string, { description: string; content?: Record<string, unknown> }>;
 }
 export type OpenApiPaths = Record<string, Record<string, OpenApiOperation>>;
+
+/** The `data` field's own shape for one high-value endpoint per entry, HAND-
+ *  VERIFIED against its route's actual TypeScript return type (never against
+ *  the free-text tool description). First entry: `voltrade_gnss_integrity_signal`
+ *  — the ONE root that has reached gate2_pass on the ROOT VALIDATION LADDER
+ *  (datacore/signal_ladder.json), i.e. the single highest-value SIGNAL
+ *  endpoint on the API today. Checked field-for-field against
+ *  `GnssIntegritySignalSummary` (server/gnssIntegritySignal.ts) and its
+ *  producer `computeGnssIntegritySignal()`'s own return statement — every
+ *  key, nesting level, and literal enum value below exists in that file. */
+export const VERIFIED_RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
+  voltrade_gnss_integrity_signal: {
+    type: "object",
+    required: ["kind", "root_id", "generated_at", "gate", "verdict", "bands", "region", "freshness", "methodology_note", "caveats", "license"],
+    properties: {
+      kind: { type: "string", enum: ["signal"] },
+      root_id: { type: "string", enum: ["gnss_integrity_adsb"] },
+      generated_at: { type: "string", format: "date-time" },
+      gate: {
+        type: "object",
+        required: ["current_gate", "status"],
+        properties: {
+          current_gate: { type: "integer", enum: [2] },
+          status: { type: "string", enum: ["gate2_pass"] },
+        },
+      },
+      verdict: { type: "string", enum: ["PASS", "FAIL", "INCONCLUSIVE"] },
+      bands: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["band", "candidate_k", "candidate_n", "control_rate", "expected_under_null", "p_value", "elevated", "expected_to_elevate"],
+          properties: {
+            band: { type: "string" },
+            candidate_k: { type: "integer", description: "observed nic==0 count in the candidate region for this band." },
+            candidate_n: { type: "integer", description: "total broadcast-origin rows sampled in the candidate region for this band." },
+            control_rate: { type: "number", description: "control region's own observed nic==0 rate, used as the null." },
+            expected_under_null: { type: "number" },
+            p_value: { type: "number", description: "one-tailed exact binomial p-value; elevated requires p < 0.01." },
+            elevated: { type: "boolean" },
+            expected_to_elevate: { type: "boolean", description: "true for the pre-registered cruise/mid bands." },
+          },
+        },
+      },
+      region: {
+        type: "object",
+        required: ["candidate_bbox", "candidate_label", "control_bbox", "control_label"],
+        properties: {
+          candidate_bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "[lamin, lamax, lomin, lomax]" },
+          candidate_label: { type: "string" },
+          control_bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "[lamin, lamax, lomin, lomax]" },
+          control_label: { type: "string" },
+        },
+      },
+      freshness: {
+        type: "object",
+        required: ["writer_live_since", "candidate", "control"],
+        properties: {
+          writer_live_since: { type: "string", format: "date" },
+          candidate: {
+            type: "object",
+            required: ["days_read", "days_missing", "rows_scanned", "truncated"],
+            properties: {
+              days_read: { type: "array", items: { type: "string", format: "date" } },
+              days_missing: { type: "array", items: { type: "string", format: "date" } },
+              rows_scanned: { type: "integer" },
+              truncated: { type: "boolean" },
+            },
+          },
+          control: {
+            type: "object",
+            required: ["days_read", "days_missing", "rows_scanned", "truncated"],
+            properties: {
+              days_read: { type: "array", items: { type: "string", format: "date" } },
+              days_missing: { type: "array", items: { type: "string", format: "date" } },
+              rows_scanned: { type: "integer" },
+              truncated: { type: "boolean" },
+            },
+          },
+        },
+      },
+      methodology_note: { type: "string" },
+      caveats: { type: "array", items: { type: "string" } },
+      license: {
+        type: "object",
+        required: ["source", "note"],
+        properties: { source: { type: "string" }, note: { type: "string" } },
+      },
+    },
+  },
+};
+
+/** The envelope every /api/v1 data endpoint wraps its payload in
+ *  (routes.ts's `v1Envelope()`), verified true for all 37 live data/stats/
+ *  tracks/graph routes by reading each handler (see comment above
+ *  openApiSpec). `dataSchema` is the per-endpoint inner shape — a verified
+ *  one from VERIFIED_RESPONSE_DATA_SCHEMAS, or the honest fallback. */
+function v1EnvelopeSchema(dataSchema: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: "object",
+    required: ["api_version", "license", "attribution", "resell", "generated_at", "disclaimer", "data"],
+    properties: {
+      api_version: { type: "string", enum: ["v1"] },
+      license: { type: "string", description: "human-readable license terms for this response's data." },
+      attribution: { type: "string" },
+      resell: { type: "string", enum: ["ok", "share-alike", "conditional"] },
+      generated_at: { type: "string", format: "date-time" },
+      disclaimer: { type: "string" },
+      data: dataSchema,
+    },
+  };
+}
 
 export function openApiSpec(baseUrl = "https://voltradeai.com") {
   const spec = agentToolSpec(baseUrl);
@@ -714,6 +836,7 @@ export function openApiSpec(baseUrl = "https://voltradeai.com") {
       description: properties[name]?.description,
     });
     const tag = (tool.returns_provenance[0] || "data").split("/")[0];
+    const verifiedData = VERIFIED_RESPONSE_DATA_SCHEMAS[tool.name];
     paths[pathTemplate] = {
       [method.toLowerCase()]: {
         operationId: tool.name,
@@ -725,8 +848,10 @@ export function openApiSpec(baseUrl = "https://voltradeai.com") {
         "x-license-marks": tool.returns_provenance,
         responses: {
           "200": {
-            description: "Live data — exact field shape not pinned here; see x-license-marks and the endpoint's own /api/v1/meta preview for a live example.",
-            content: { "application/json": { schema: { type: "object" } } },
+            description: verifiedData
+              ? "Live data — envelope and `data` payload shape both hand-verified below."
+              : "Live data — envelope shape verified below; the `data` field's exact inner shape is not yet hand-verified for this endpoint (see the endpoint's own /api/v1/meta preview for a live example).",
+            content: { "application/json": { schema: v1EnvelopeSchema(verifiedData || { type: "object" }) } },
           },
           "401": { description: "missing or invalid x-api-key." },
           "429": { description: "rate limit exceeded for this key's tier." },

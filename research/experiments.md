@@ -71333,3 +71333,150 @@ matured, previously-flagged experiment to completion (run → apply full
 REASONING STANDARD rigor → record honestly including why a positive-
 looking result does not yet clear the gate), the highest-priority
 fall-through item available this session.
+
+## 2026-08-31 (scheduled-routine session, third session this UTC day) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the OpenAPI doc's 200 responses stop being a fully-opaque `{type:"object"}` — the v1Envelope shape is now real for all 37 live endpoints, and the one gate2_pass SIGNAL (gnss-integrity-signal) gets a fully hand-verified inner schema (v1.0.823)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+experiments.md tail — including today's two prior scheduled sessions, #968
+PRODUCT and #969 RESEARCH — open_questions.md tail, wishlist.md tail,
+platform_program.md in full). `python3 scripts/session_health_check.py`:
+all 7 OK, no LIVENESS ALARM (server_version 1.0.822 matched this
+checkout's package.json at session start). `python3
+scripts/research_state_check.py`: audits_register none overdue,
+thrash_ratio 0/10 REPAIR, known_broken 38 items/3 advisory-only without a
+close marker (already dispositioned per prior sessions), starvation_signal
+0. Not a [REPAIR] session — no critical trading-loop break to note.
+
+PRIMARY ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+still 0/2 gate2_pending roots ready (cftc_cot_positioning,
+sec_8k_earnings_language, both WAITING, unchanged from this morning's
+first session). `python3 scripts/data_stream_registry_check.py --unbuilt`
+— same 10/35 not-built roots, all declined/blocked, no new axis-(a)
+candidate. Read `datacore/signal_ladder.json` fully (42 roots): both
+gate1_pending roots (space_weather_swpc, port_dwell_maritime_transit) are
+genuinely time-gated per their own extensively-probed history in this
+file (storm window / accumulating archive depth) — re-attempting either
+today would be the exact "recurrence" pattern RECURRENCE ESCALATES warns
+against without a new angle. Checked the 14 gate1_pass roots against
+`client/src/pages/` per the 2026-08-27-ish precedent session's own method
+(same one that shipped `dtccSwaps.tsx`): all 14 now have a live client
+page (dtcc_sbsdr_equity_swaps closed since that session); the one
+gate1_pass root with no dedicated `/data` page,
+`entity_map_operator_ticker`, is intentionally NOT a standalone
+time-series signal — it is the Everything Graph's own operator->ticker
+lookup table, already surfaced via `client/src/pages/graph.tsx` +
+`server/entityGraph.ts`, so no gap there. Checked
+`research/platform_program.md`: the PLATFORM INTEGRATION PROGRAM queue is
+clear except P5 (HUMAN-GATED, FROZEN paths), but its own most recent
+dated entry (2026-08-27, P2 EXTENDED, v1.0.799) named a concrete,
+unclaimed follow-up in its own text: "the OpenAPI doc's `200` response
+schemas are deliberately generic (`{type:"object"}`) — hand-verified
+per-field response schemas for the highest-value endpoints is a valid
+future P2 follow-up, not started." Confirmed unclaimed by reading
+`server/apiProduct.ts`'s `openApiSpec()` directly before starting — the
+generic `{type:"object"}` response schema was still there, untouched by
+either of today's two earlier sessions. This is squarely option (d) of
+this routine's own menu (improve datacore's API boundary toward
+spinout-readiness) and was queued in writing by an earlier session,
+which SESSION BUDGET ranks above starting fresh research.
+
+WHAT SHIPPED:
+1. Verified, by reading every one of the 37 live `/api/v1` data/stats/
+   tracks/graph route handlers in `server/routes.ts` (not assumed from
+   convention), that EVERY one wraps its payload in the same
+   `v1Envelope()` helper (`api_version`/`license`/`attribution`/`resell`/
+   `generated_at`/`disclaimer`/`data`). That shape is real and universal,
+   so it is now safe to encode for every OpenAPI operation without
+   fabricating anything — unlike the per-endpoint `data` payload, which
+   stays a genuinely different claim per root.
+2. `server/apiProduct.ts` gained `v1EnvelopeSchema()` (applied to every
+   operation's 200 response — replaces the old bare `{type:"object"}`
+   at the top level with the real, universal envelope) and
+   `VERIFIED_RESPONSE_DATA_SCHEMAS`, a per-tool-name override map for the
+   INNER `data` field, populated with exactly one entry:
+   `voltrade_gnss_integrity_signal` — the ONE root that has reached
+   gate2_pass on the ROOT VALIDATION LADDER (datacore/signal_ladder.json),
+   i.e. the single highest-value SIGNAL endpoint on the API today. Every
+   field/nesting-level/enum-literal in that schema was checked against
+   `GnssIntegritySignalSummary` (server/gnssIntegritySignal.ts) and
+   `computeGnssIntegritySignal()`'s own return statement, not invented
+   from the tool's free-text description. Every OTHER endpoint still
+   gets an honest `data: {type:"object"}` — no other schema was
+   fabricated; the doc comment above `openApiSpec()` states this is
+   deliberately opportunistic (one endpoint hand-verified at a time),
+   the same discipline PROGRAM_STATE.md's own layer-registry migration
+   uses, not a big-bang guess across all ~30 tools.
+3. `server/apiProduct.test.ts` gained 4 new tests: (a) the
+   gnss-integrity-signal schema matches its real TS return type
+   field-for-field, PLUS a cross-check that reads
+   `gnssIntegritySignal.ts`'s own source and asserts every schema
+   property name actually appears there (so a bad edit to the schema
+   can't drift in lockstep with a same-file assumption); (b) every other
+   endpoint keeps the honest generic `data` and the "not yet
+   hand-verified" description, with the envelope fields present and
+   correct; (c) a permanent regression guard for the doc comment's own
+   universal-envelope claim — reads `routes.ts`, finds every live
+   `/api/v1/...` route registration, and asserts each one's handler body
+   actually calls `v1Envelope(` (so if a future endpoint bypasses the
+   envelope, this test catches the schema becoming a lie, not just an
+   omission).
+
+RATCHET: `npm ci` was required this session (fresh sandbox, `node_modules`
+missing entirely — same recurring provisioning gap prior sessions have
+noted) then `pip install -r requirements.txt -r requirements-dev.txt`.
+`npx tsx --test server/apiProduct.test.ts`: 50/50 pass (46 pre-existing +
+4 new). `bash scripts/gated_tests.sh`: GATE PASSED (client 1075/1075,
+python 1557/1 skipped/54 subtests, quarantine 0/1 none overdue) — first
+attempt before `npm ci` correctly FAILED with `ERR_MODULE_NOT_FOUND:
+express`, confirming the gate gates. `bash scripts/tsc_ratchet.sh`:
+reported the total DROPPED 12 -> 3 — verified via `git stash` that this
+is 100% pre-existing (identical 12->3 drop with none of this session's
+changes applied), not this session's own effect, so per PROMOTION RULE 5
+the pin in `ci/tsc_baseline.txt` is left UNCHANGED here (attribution
+would die bundling an unrelated improvement from an earlier merged PR
+into this PR's log — same precedent Q23 set for `tests_run_in_ci`/
+`tests_gating_merge` drift). `bash scripts/counter_ratchet.sh`: first
+run reported `assertions` IMPROVED 12648 -> 12665 (this session's own 4
+new test assertions) — re-pinned in `ci/counter_baseline.txt` in this
+same PR, all other 24 counters unchanged; re-ran clean, 25/25 OK. `npm
+run build`: clean (no new warnings; pre-existing chunk-size warnings
+only). No `.ts`/`.tsx` under `client/src/` touched, so no visual harness
+run needed (server-only change).
+
+BACKTEST: N/A per PROMOTION RULE 3 — API documentation/schema surface
+over already-live read paths; no strategy, threshold, sizing, or scoring
+change; no trading behavior touched.
+
+VERSION: v1.0.823 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base, v1.0.822/
+PR #970 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS CHECK: session work finished 2026-08-31 ~13:21 UTC = 09:21
+ET, 9 minutes before the 9:30 ET open on a Monday — by the time this PR
+is opened it will be inside or immediately adjacent to market hours.
+Per CLAUDE.md's PRODUCT-session guidance ("prefer merging PRs outside
+9:30-16:00 ET; if working mid-market, prepare the PR and note in it that
+the merge should wait for the close"), this PR is opened as a DRAFT
+(the documented, verified-working mechanism from the 2026-08-20 PROCESS
+GAP entry above — draft status is a real automerge gate, a prose note is
+not) with an explicit note to mark it ready-for-review after the 16:00
+ET close.
+
+NEXT: the doc comment and this log both name the obvious continuation —
+hand-verify a `VERIFIED_RESPONSE_DATA_SCHEMAS` entry for the next
+highest-value endpoint (candidates in rough value order: `voltrade_get_track`
+[the id/kind/points shape is simple and widely used], `voltrade_fred_macro`/
+`voltrade_eu_macro` [both gate1_pass, structurally simple], then working
+down the remaining gate1_pass roots) — one endpoint per session per the
+opportunistic-migration discipline this PR establishes, never a bulk
+guess. Separately: if a future session marks THIS PR ready-for-review
+after the close, that session should re-verify `origin/main` hasn't
+moved and merge conflicts are resolved before doing so, per the same
+2026-08-20 PROCESS GAP entry's own lesson about stale drafts.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely pre-queued P2 follow-up from an earlier
+session's own text), used in full including the cross-file verification
+work (reading every one of the 37 route handlers) needed to make the
+new schema claim honest rather than assumed.
