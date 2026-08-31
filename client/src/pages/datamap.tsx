@@ -13177,12 +13177,12 @@ export default function DataMapPage() {
   // below — GROUP_ROW_CAP progressive disclosure lives here once, not
   // duplicated per call site.
   // ── ALL POWER GRIDS master switch (human request 2026-07-31): one motion
-  // shows everything mapped so far — the four continental OSM masters (US,
-  // Canada, South America, Europe; lib/gridMaster.ts holds the state rules:
-  // derived position, masters-only ON, whole-family OFF). Rendered pinned
-  // above the first per-region grid group, where a user hunting "power
-  // grid" is already looking. Coverage note stays honest about what is NOT
-  // mapped yet. ──
+  // shows everything mapped so far — the continental OSM masters (US,
+  // Canada, South America, Europe, Asia; lib/gridMaster.ts's GRID_MASTER_IDS
+  // holds the state rules: derived position, masters-only ON, whole-family
+  // OFF). Rendered pinned above the first per-region grid group, where a
+  // user hunting "power grid" is already looking. Coverage note stays
+  // honest about what is NOT mapped yet. ──
   const renderAllGridsRow = () => {
     const on = allGridsOn(enabled);
     return (
@@ -13198,7 +13198,7 @@ export default function DataMapPage() {
             <span className="vt-kind-badge raw">RAW</span>
             <span className="vt-layer-status">
               <i style={{ background: on ? "var(--accent-green)" : "var(--text-tertiary)" }} />
-              {on ? "US · Canada · S. America · Europe" : "off"}
+              {on ? "US · Canada · S. America · Europe · Asia" : "off"}
             </span>
           </span>
           <button
@@ -13214,9 +13214,10 @@ export default function DataMapPage() {
         {!!descOpen["powergrid_all"] && (
           <div className="vt-layer-desc" role="note">
             Every grid mapped so far in one switch: the US (all 50 states + DC),
-            Canada (13 provinces/territories), South America (13 countries) and
-            Europe (48 countries/territories) continental masters together.
-            Not yet mapped: Africa, Asia, Oceania — coming in later waves.
+            Canada (13 provinces/territories), South America (13 countries),
+            Europe (48 countries/territories) and Asia (37 countries/regions +
+            Russia) continental masters together.
+            Not yet mapped: Africa, Oceania — coming in later waves.
             Off clears the whole power-grid family, including any per-state or
             per-country picks. HIFLD (US authoritative transmission) stays a
             separate toggle under Facilities — it overlays the same US lines.

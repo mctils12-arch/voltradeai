@@ -5249,23 +5249,26 @@ item, so a future session can pick ONE without re-deriving the other three.
    pole-crossing sweep the original PR used (up-vector must never jump
    >0.05) plus orthonormality at `(0,0,±1)` exactly.
 
-2. **"All power grids" master switch still omits Asia/Africa/Oceania
-   (STILL PRESENT on main, re-verified 2026-08-28).**
-   `client/src/lib/gridMaster.ts`'s `GRID_MASTER_IDS` still lists only 4
-   continents (`powergrid`, `powergrid_canada`, `powergrid_southamerica`,
-   `powergrid_europe`) with a comment "Africa/Asia/Oceania pending" — so
-   `powergrid_asia`/`powergrid_africa`/`powergrid_oceania`, if they are live
-   registry entries and served tiles today, remain unreachable from the
-   master switch exactly as PR #817 found. NOT re-verified this session
-   whether those three continental masters and their ~78 per-country tiles
-   are still live in the bucket/registry (PR #817 measured this 2026-08-13;
-   16 days of subsequent registry churn make it unsafe to assume unchanged)
-   — first step for whoever picks this up is `GET` the registry for any
-   `powergrid_asia`/`powergrid_africa`/`powergrid_oceania` layer with
-   `status: "live"` and confirm the tiles still 206. If confirmed, the fix
-   is a one-line `GRID_MASTER_IDS` append per continent plus the parity
-   test PR #817 added (every live continental master must be listed).
-   RAW OVERLAY, no ladder gating needed (map layer, not a signal).
+2. **[FIXED 2026-08-31, scheduled-routine session, v1.0.822]** ~~"All power
+   grids" master switch still omits Asia/Africa/Oceania~~ — Africa/Oceania
+   have no registry entries at all yet (grep of `datacore/layers.json`
+   confirms), so only Asia was actually actionable. Re-verified live before
+   fixing: `GET /api/data/layers` on the deployed site shows `powergrid_asia`
+   `status: "live"`, and `curl -H "Range: bytes=0-100"
+   .../tiles-r2/power_asia.pmtiles` returns `206` — the continent is fully
+   served, just unreachable from the master switch. Fix: `powergrid_asia`
+   added to `GRID_MASTER_IDS` (`client/src/lib/gridMaster.ts`); the
+   datamap.tsx "All power grids" row's status text and description note
+   updated to list Asia among the mapped continents instead of the
+   not-yet-mapped ones. RATCHET: `gridMaster.test.ts` gained the parity
+   test PR #817 described — reads `datacore/layers.json` directly and
+   fails if any of `canada/southamerica/europe/asia/africa/oceania` ships
+   `status: "live"` without a matching `GRID_MASTER_IDS` entry, so this
+   exact drift (a continent shipping live and the master switch not
+   growing to match) cannot recur silently. A/B-verified: removing
+   `powergrid_asia` from `GRID_MASTER_IDS` alone makes the new test fail;
+   restoring it passes. RAW OVERLAY, no ladder gating (map layer, not a
+   signal) — no backtest applicable.
 
 3. **Moon patch fuzz — `MOON_PATCH_COVER_MARGIN` still 2.8 (STILL PRESENT
    on main, re-verified 2026-08-28).** `spaceFrame.ts:642` still defines
