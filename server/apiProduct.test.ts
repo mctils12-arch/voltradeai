@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta, agentToolSpec, openApiSpec,
-  LICENSE_MARKS, TIER_LIMITS, type OpenApiOperation, type OpenApiParam,
+  LICENSE_MARKS, TIER_LIMITS, RESPONSE_DATA_SCHEMAS, type OpenApiOperation, type OpenApiParam,
 } from "./apiProduct";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -643,6 +643,55 @@ test("openapi spec: valid 3.0 shape, apiKey security scheme, and params derived 
     for (const marks of [item.get["x-license-marks"]]) {
       for (const m of marks) assert.ok(LICENSE_MARKS[m], `unknown license mark ${m}`);
     }
+  }
+});
+
+test("openapi spec: RESPONSE_DATA_SCHEMAS keys are all real, live tool names — no stale/typo'd entry", () => {
+  const toolNames = new Set(agentToolSpec().tools.map((t) => t.name));
+  for (const key of Object.keys(RESPONSE_DATA_SCHEMAS)) {
+    assert.ok(toolNames.has(key), `RESPONSE_DATA_SCHEMAS has an entry for "${key}", which is not a live agent-tools name`);
+  }
+});
+
+test("openapi spec: a tool WITH a hand-verified schema gets the v1Envelope shell wrapping its own data shape, not the generic fallback", () => {
+  const doc = openApiSpec();
+  const cotOp = doc.paths["/api/v1/data/cot"].get;
+  const schema = cotOp.responses["200"].content!["application/json"] as { schema: Record<string, unknown> };
+  assert.equal(schema.schema.type, "object");
+  const props = schema.schema.properties as Record<string, unknown>;
+  // envelope shell fields (routes.ts's own v1Envelope: api_version + LICENSE_MARKS spread + generated_at + disclaimer + data)
+  for (const envelopeField of ["api_version", "license", "attribution", "resell", "generated_at", "disclaimer", "data"]) {
+    assert.ok(props[envelopeField], `envelope field "${envelopeField}" missing from the wrapped schema`);
+  }
+  assert.deepEqual((props.data as Record<string, unknown>).properties, RESPONSE_DATA_SCHEMAS.voltrade_cot.properties);
+  assert.notEqual(schema.schema, undefined);
+  assert.ok((schema.schema.required as string[]).includes("data"), "envelope's own data field must be required");
+});
+
+test("openapi spec: a tool with NO schema entry keeps the exact pre-existing generic-object fallback (never fabricated)", () => {
+  const doc = openApiSpec();
+  assert.equal(RESPONSE_DATA_SCHEMAS.voltrade_get_track, undefined, "precondition: get_track must stay unmapped for this test to mean anything");
+  const trackSchema = doc.paths["/api/v1/tracks/{kind}/{id}"].get.responses["200"].content!["application/json"] as { schema: Record<string, unknown> };
+  assert.deepEqual(trackSchema.schema, { type: "object" });
+});
+
+test("openapi spec: the GNSS integrity signal schema's nested field names match the real GnssIntegritySignalSummary interface (gnssIntegritySignal.ts), not a guess", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_gnss_integrity_signal as { properties: Record<string, any>; required: string[] };
+  for (const f of ["kind", "root_id", "generated_at", "gate", "verdict", "bands", "region", "methodology_note", "caveats", "license"]) {
+    assert.ok(f in data.properties, `GnssIntegritySignalSummary field "${f}" missing`);
+    assert.ok(data.required.includes(f), `GnssIntegritySignalSummary field "${f}" should be required — it's non-optional on the source interface`);
+  }
+  const bandItem = data.properties.bands.items.properties;
+  for (const f of ["band", "candidate_k", "candidate_n", "control_rate", "expected_under_null", "p_value", "elevated", "expected_to_elevate"]) {
+    assert.ok(f in bandItem, `BandVerdict field "${f}" missing from the bands[] item schema`);
+  }
+});
+
+test("openapi spec: every RESPONSE_DATA_SCHEMAS entry is a well-formed JSON-Schema object type with an array `required`", () => {
+  for (const [name, schema] of Object.entries(RESPONSE_DATA_SCHEMAS)) {
+    assert.equal((schema as any).type, "object", `${name}'s data schema must be type object`);
+    assert.ok(Array.isArray((schema as any).required), `${name}'s data schema must declare a required[] (possibly empty)`);
+    assert.ok(typeof (schema as any).properties === "object", `${name}'s data schema must declare properties`);
   }
 });
 
