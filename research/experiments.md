@@ -71333,3 +71333,145 @@ matured, previously-flagged experiment to completion (run → apply full
 REASONING STANDARD rigor → record honestly including why a positive-
 looking result does not yet clear the gate), the highest-priority
 fall-through item available this session.
+
+## 2026-08-31 (scheduled-routine session, third session this UTC day) [RESEARCH] — SHARED-but-minimal (scripts/hazard_rate_probe.py, test_hazard_rate_probe.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FOREIGN-FIELD IMPORT (axis c) FOLLOW-UP, variant (a) — renewal-process hazard rate BROADER UNIVERSE run (QQQ/IWM/AAPL/MSFT), CV<1 replicated 5/5 but a shared-VXX coupling flaw means most of that isn't independent evidence — STILL GATE 2 NOT PASSED (v1.0.823)
+
+TERRITORY: SHARED-but-minimal, matching every prior foreign-field-import
+follow-up session's precedent — this diff touches `scripts/hazard_rate_
+probe.py` (adds a `ticker` param), its test, `ci/counter_baseline.txt`,
+`package.json`/`package-lock.json` (version bump), and `research/*` only.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: 6 OK, 1 WARN (`daemon_memory` rss=
+432.5MB >= trim_mb=400MB, deep_score running in trimmed mode — the
+same recurring, self-correcting, non-blocking condition dozens of prior
+sessions have logged at this exact threshold; not a new break, no
+action needed). No LIVENESS ALARM, server_version=1.0.822 matched this
+checkout's package.json at session start. `python3 scripts/
+research_state_check.py`: audits_register none overdue, thrash_ratio
+0/10 REPAIR, known_broken 38 items/3 advisory-only without a close
+marker (already dispositioned by prior sessions), starvation_signal 0.
+`list_pull_requests(state=open)`: 2 open PRs — #971 (today, draft, a
+different session's in-flight work, not touched) and #604 (the standing
+"[BACKLOG] ... do not merge as-is" draft, correctly excluded). No
+stale-PR backlog this session (the 2026-08-20 finding's 8-PR queue has
+been fully worked through by intervening sessions).
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): no bug found via the
+health checks. `ladder_readiness_check.py` showed 0/2 gate2_pending
+roots ready for re-run (cftc_cot_positioning, sec_8k_earnings_language —
+both still waiting on elapsed time). The immediately-prior session
+(same UTC day) had just judged the hazard-rate probe's real-data run as
+"provisional positive, underpowered" and named two concrete, additive
+follow-ups (broader universe / longer window) — picked up variant (a),
+the smaller and more mechanically scoped of the two, as this session's
+matured-experiment-extension action.
+
+READ BEFORE WRITE: read `scripts/hazard_rate_probe.py` in full this
+session before touching it (`run_probe()`'s hardcoded `"SPY"` call to
+`bt.fetch_bars`, `regime_series(spy, vxx)`'s two-argument shape) and
+`backtest_v2.regime_series()`'s actual body (`backtest_v2.py:303-331`)
+to confirm what "ticker" would mean before assuming — found that
+`spy_vs_ma50`/`above200`/`below_200_run` are all computed from the
+PRIMARY series' own close prices (so a `ticker` param genuinely changes
+what regime the classifier reports, not just cosmetics), while `vxx_by_
+date` stays keyed off the separately-fetched VXX series regardless —
+this asymmetry is exactly what produced this session's main finding
+below, not assumed in advance.
+
+WHAT SHIPPED: `scripts/hazard_rate_probe.py`'s `run_probe()` gained a
+`ticker: str = "SPY"` parameter (default preserves every existing call
+site's behavior byte-for-bit); the primary series is fetched via that
+ticker instead of a hardcoded `"SPY"` literal, VXX stays the shared
+volatility backdrop (documented in the docstring why, so this session's
+finding doesn't need re-deriving). CLI gained `--ticker`.
+`test_hazard_rate_probe.py` gained one new structural test
+(`inspect.signature`, no network call) pinning that `run_probe` accepts
+`ticker` and still defaults to `"SPY"`.
+
+RUN (`PYTHONPATH=. python3 scripts/hazard_rate_probe.py --days 2520
+--ticker <X>` for X in QQQ/IWM/AAPL/MSFT, SPY's own number reused from
+the immediately-prior session's entry):
+| ticker | n_onsets | gap_cv | bootstrap [lo,hi] |
+|---|---|---|---|
+| SPY | 7 | 0.6227 | [0.139,0.664] |
+| QQQ | 7 | 0.6227 | [0.139,0.664] |
+| AAPL | 8 | 0.6046 | [0.353,0.645] |
+| MSFT | 9 | 0.5814 | [0.212,0.648] |
+| IWM | 6 | 0.4007 | [0.205,0.475] |
+
+On the surface, 5/5 replication (every bootstrap range excludes 1 on
+the low side). Full disposition below is NOT that flattering a read.
+
+THE FINDING THAT ACTUALLY MATTERS: inspecting the raw `gaps_trading_
+days` arrays (not just the summary CV numbers) showed SPY/QQQ/AAPL/MSFT
+share byte-identical onset gap sequences for their first six onsets —
+verified this wasn't a caching bug first (`bt.fetch_bars('SPY', ...)`
+and `bt.fetch_bars('QQQ', ...)` return genuinely different close-price
+series, different cache files, `spy is qqq` is `False`). Root cause:
+`regime_util.classify_regime_5level()`'s PANIC/BEAR(-via-VXX)/CAUTION
+branches (`regime_util.py:95-126`) all trigger on the shared VXX ratio
+alone, evaluated BEFORE any ticker-specific branch — so every one of
+this probe's severity-escalation "onsets" for SPY/QQQ/AAPL/MSFT
+happened to be a shared VXX spike, not an idiosyncratic single-name
+trend break. Only IWM (Russell 2000, genuinely decoupled trend timing
+from the mega-cap names) produced a materially different gap sequence.
+AAPL/MSFT each added exactly one extra idiosyncratic onset on top of
+the shared six — real but minority signal.
+
+LADDER DISPOSITION: **STILL GATE 2 NOT PASSED.** Per REASONING STANDARD
+#4 (distrust in proportion to what was tried) and #10 (demand real
+out-of-sample confirmation): 4 of the 5 "replications" are mechanically
+coupled through a shared input, not independent trials, so this
+broader-universe run does not materially strengthen the provisional-
+positive read from the prior session — it mostly reveals that the
+follow-up spec itself needs to be redesigned to get real independent
+confirmation. Full reasoning, and the honest table distinguishing
+"replicated" from "independently confirmed," is in the open_questions.md
+entry for this session.
+
+RATCHET/GATES: `pip install -r requirements-dev.txt -r requirements.txt`
++ `npm ci` both required (fresh sandbox missing `pytest` and most of
+`node_modules`, the same recurring provisioning gap prior sessions have
+logged — confirmed via `git status --short` showing zero tracked-file
+changes before concluding this wasn't a regression; `bash
+scripts/gated_tests.sh` correctly FAILED first, before installing,
+confirming the gate actually gates). After installing: `python3 -m
+pytest -q`: 1558 passed, 1 skipped, 54 subtests (1557 baseline + 1 new,
+zero regressions). `bash scripts/gated_tests.sh`: GATE PASSED (server
+all green, client 1024/1024, python 1558/1 skipped/54 subtests,
+quarantine 0/1 none overdue). `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304 0, unchanged (no `.ts` touched). `bash scripts/counter_ratchet.sh`:
+`assertions` 12648 -> **12650** (this session's own new test's direct
+and sole effect, re-pinned in `ci/counter_baseline.txt` in this same
+PR); all other 24 counters unchanged; re-ran clean. `npm run build`:
+clean (pre-existing chunk-size/dynamic-import warning classes only).
+
+BACKTEST: N/A per PROMOTION RULE 3 — gate-2 SIGNAL follow-up only
+(still not passed); no strategy, threshold, sizing, or scoring change;
+no trading behavior touched.
+
+VERSION: v1.0.823 (`package.json`/`package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before
+the bump confirmed `origin/main` was still v1.0.822/PR #970 — no
+concurrent session had merged ahead of this one).
+
+NEXT: two concrete, still-additive follow-ups (neither claimed by this
+session), full spec in the open_questions.md entry: (c) a genuinely
+independent broader-universe variant (a non-VXX-coupled per-ticker
+regime classifier, or isolating each ticker's idiosyncratic onsets from
+the shared VXX-driven ones); (b) the still-open longer-window variant
+from the immediately-prior session (`fetch_bars('SPY', 3650,
+use_cache=False)` confirmed this session to reach back to 2016-09-02
+with no hard floor at the 2520-day default).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (the immediately-prior entry's own named follow-up),
+used in full including investigating why the flattering 5/5 top-line
+number was actually a coupling artifact rather than reporting it
+uncritically.
+
+MARKET-HOURS NOTE: this scheduled run occurred during market hours; the
+PR opened from this session states in its body that merge should wait
+until after 4:00 PM ET (no live trading logic touched, so this is a
+courtesy per the routine's own instruction, not a live-break exception).

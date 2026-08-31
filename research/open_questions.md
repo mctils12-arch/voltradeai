@@ -13357,3 +13357,149 @@ data → apply REASONING STANDARD rigor → record honestly, including why
 an interesting-looking positive result does not yet clear the gate),
 the highest-priority fall-through item available this session per
 SESSION BUDGET's own ordering.
+
+## 2026-08-31 (scheduled-routine session, third session this UTC day) — FOREIGN-FIELD IMPORT (axis c) FOLLOW-UP: renewal-process hazard rate, variant (a) BROADER UNIVERSE run — replicated CV<1 in every ticker tried, BUT surfaced a methodology flaw that means most of that replication isn't real out-of-sample evidence; STILL GATE 2 NOT PASSED
+
+CONTEXT: took the immediately-prior entry's own named follow-up (a)
+"broader universe" — `scripts/hazard_rate_probe.py` gained a `ticker`
+param (default `"SPY"`, back-compat verified) so `run_probe()` can be
+called against QQQ/IWM/AAPL/MSFT through the identical
+`find_transition_onsets`/`gap_cv`/`bootstrap_cv_range` machinery, no new
+statistical core (EDGE DOCTRINE #3). Real data access confirmed working
+this session (`backtest_v2.fetch_bars` succeeded, no ALPACA_KEY needed —
+Yahoo fallback).
+
+RESULTS (`--days 2520`, 2019-10-07 to 2026-08-31 for all five):
+| ticker | n_onsets | gaps | gap_cv | bootstrap [lo,hi] |
+|---|---|---|---|---|
+| SPY (prior session) | 7 | [127,176,134,426,98,121] | 0.6227 | [0.139,0.664] |
+| QQQ | 7 | [127,176,134,426,98,121] | 0.6227 | [0.139,0.664] |
+| AAPL | 8 | [127,176,134,426,98,121,389] | 0.6046 | [0.353,0.645] |
+| MSFT | 9 | [127,176,134,426,98,121,201,105] | 0.5814 | [0.212,0.648] |
+| IWM | 6 | [127,310,426,219,201] | 0.4007 | [0.205,0.475] |
+
+Every single bootstrap range sits entirely below CV=1 — on its face, a
+5-for-5 replication of the SPY finding.
+
+THE HONEST CATCH (found by inspecting the raw gap sequences, not just
+the summary CV — REASONING STANDARD #4, distrust proportional to what
+was tried): **SPY's, QQQ's, AAPL's, and MSFT's first six gaps are
+byte-identical.** This is not a coincidence of correlated markets — it
+is a property of `regime_util.classify_regime_5level()`'s own decision
+order (`regime_util.py:95-126`): the PANIC branch (`vxx >=
+PANIC_VXX_THRESHOLD`), the VXX half of the BEAR branch (`vxx >=
+BEAR_VXX_THRESHOLD`), and the CAUTION branch (`vxx >=
+CAUTION_VXX_THRESHOLD`) are evaluated **before** any ticker-specific
+term and trigger on VXX alone — only the BEAR-via-`spy_below_200_days`
+and BULL branches depend on the primary ticker's own price series at
+all. Verified directly: `bt.fetch_bars` returns genuinely different
+close-price series per ticker (checked SPY vs. QQQ first/last close were
+different, not a caching bug), yet the onset *dates* line up exactly for
+SPY/QQQ/AAPL/MSFT because every one of this probe's severity-escalation
+events happened to be a shared VXX spike, not a ticker-specific trend
+break. AAPL and MSFT each add exactly one extra, idiosyncratic onset on
+top of the identical six (their own price series broke a regime
+boundary VXX alone didn't trigger) — the closest thing to real
+independent signal in the batch, and even those are minority
+contributions layered on a shared, non-independent backbone.
+
+**IWM is the one case that differs meaningfully** — Russell 2000 small-
+caps decouple from SPY/QQQ/AAPL/MSFT's trend timing enough that its own
+`spy_below_200_days`/`spy_vs_ma50` terms produced a different severity-
+jump pattern (6 onsets, none matching the others' gap values past the
+first). This is the only genuinely distinct data point in the batch —
+and it, too, showed CV<1 (0.40, tightest range of the five).
+
+WHY THIS MATTERS FOR THE LADDER (REASONING STANDARD #4 + #10 applied
+honestly rather than declared and dropped): this session's own "broader
+universe" execution does NOT deliver the out-of-sample confirmation the
+prior entry's follow-up spec intended. Four of five tickers are
+mechanically coupled through the shared VXX regime input by
+construction — testing SPY, QQQ, AAPL, and MSFT through
+`classify_regime_5level` is much closer to re-running the same VXX
+series four times with cosmetic equity-price differences than to four
+independent trials. The base rate this directive's four foreign-field
+imports have now produced (CSD killed, R_t killed, Omori-Utsu killed,
+hazard-rate 1-for-5-tickers-but-really-2-independent-samples
+provisionally positive) does not improve with this update — if
+anything the finding that the "broader universe" follow-up spec itself
+was methodologically weaker than assumed is reason to raise the
+confirmation bar further, not treat 5 green checkmarks as 5 real votes.
+
+LADDER DISPOSITION: **STILL GATE 2 NOT PASSED.** Updated from
+"provisional positive, underpowered" to "provisional positive,
+underpowered, AND the one replication attempt made so far mostly
+doesn't count as independent" — a materially different and more
+cautious state than a naive read of "5/5 tickers show CV<1" would
+suggest. Only IWM (n=1) and the AAPL/MSFT idiosyncratic-onset residual
+constitute anything resembling new independent evidence; that is not
+enough to promote past gate 2.
+
+NEXT (two concrete, still-additive follow-ups, neither claimed by this
+session):
+  (c) **genuinely independent broader-universe variant** — the real fix
+      for the coupling this session found: either (i) test tickers
+      whose regime classification does NOT route through
+      `classify_regime_5level`'s VXX-dominant branches at all (a
+      ticker-specific realized-volatility regime classifier instead of
+      the shared VXX ratio — a real design change to `regime_series()`,
+      not just a different call), or (ii) restrict the CV comparison to
+      onsets NOT shared with SPY's own onset set (i.e. count only each
+      ticker's idiosyncratic severity jumps, the AAPL/MSFT "+1 onset"
+      pattern this session found) as its own separate, smaller-n gap
+      series — likely underpowered on its own (n<=2 idiosyncratic onsets
+      per name) unless pooled across many single names.
+  (b) **longer window** (from the prior entry, still open, unclaimed):
+      confirmed this session `backtest_v2.fetch_bars('SPY', 3650,
+      use_cache=False)` returns 2511 days back to 2016-09-02 (vs. 2520's
+      2019-10-07) — no hard floor at the prior default, so extending
+      `--days` on SPY alone (the one ticker with the longest, least-
+      confounded history) to accumulate more real onset events and
+      shrink the bootstrap range is still the cleaner, uncontested path
+      to more statistical power than adding more VXX-coupled tickers.
+
+WHAT SHIPPED: `scripts/hazard_rate_probe.py`'s `run_probe()` gained a
+`ticker: str = "SPY"` parameter (VXX stays the shared backdrop
+regardless — documented in the function's own docstring why, so a
+future session doesn't have to re-derive this session's finding from
+scratch); CLI gained `--ticker`. Purely additive, no existing call site
+changed behavior (default unchanged). `test_hazard_rate_probe.py` gained
+one new structural test (`inspect.signature` — no network) pinning the
+`ticker` param exists and defaults to `"SPY"`.
+
+GATES: `python3 -m pytest -q`: 1558 passed, 1 skipped, 54 subtests
+(1557 baseline + 1 new, zero regressions). `bash scripts/gated_tests.sh`:
+first attempt correctly FAILED (fresh sandbox missing `node_modules`
+entirely and `pytest` not yet installed — confirmed via `git status
+--short` that no tracked file was touched, so this was the provisioning
+gap, not a regression); after `npm ci` + `pip install -r
+requirements-dev.txt -r requirements.txt`: GATE PASSED (server all
+green, client 1024/1024, python 1558/1 skipped/54 subtests, quarantine
+0/1 none overdue). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0,
+unchanged (no `.ts` touched). `bash scripts/counter_ratchet.sh`:
+`assertions` 12648 -> **12650** (this session's own new test's direct
+effect, re-pinned in `ci/counter_baseline.txt` in this same PR); all
+other 24 counters unchanged; re-ran clean. `npm run build`: clean
+(pre-existing chunk-size/dynamic-import warnings only).
+
+BACKTEST: N/A per PROMOTION RULE 3 — gate-2 SIGNAL follow-up only
+(still not passed); no strategy, threshold, sizing, or scoring change.
+
+VERSION: v1.0.823 (`package.json`/`package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before
+the bump confirmed `origin/main` was still v1.0.822/PR #970, no
+concurrent session had moved it).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (the immediately-prior entry's own named follow-up),
+used in full including running the probe against five real tickers and
+investigating why the raw gap sequences looked suspicious rather than
+reporting the flattering top-line "5/5 replicate" number uncritically.
+
+MARKET-HOURS NOTE: this session ran during trading hours per the
+scheduling task's own instruction — the PR this entry accompanies is a
+research-script/docs-only change (no trading logic, no order path) but
+its PR description still states merge should wait until after 4:00 PM
+ET per the routine's standing instruction, since automerge has no
+time-of-day gate (`.github/workflows/` is FROZEN, per the existing
+wishlist.md PROCESS GAP finding).
