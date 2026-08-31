@@ -4820,6 +4820,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Wikimedia attention accumulated history keyed mirror — the multi-day
+  // companion to /api/v1/data/attention above (that endpoint mirrors only
+  // the latest poll cache; this one mirrors /api/data/attention/history's
+  // two modes). Reuses lookupTickerHistory()/readAggregateHistory()/
+  // latestAttention() directly — no new fetch, no new computation. Same
+  // GATE 1 PASSED / GATE 2 NOT-ATTEMPTED status and the same freely-
+  // resellable posture as data/attention, so this reuses that
+  // LICENSE_MARKS entry rather than forking a duplicate one. Same shape as
+  // the insider-history/cot-history/short-volume-history companions this
+  // sweep already shipped.
+  app.get("/api/v1/data/attention-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupTickerHistory(ticker, days, undefined);
+        res.json(v1Envelope("data/attention", {
+          ticker: ticker.toUpperCase(),
+          article: WIKI_ARTICLES[ticker.toUpperCase()] ?? null,
+          days,
+          count: series.length,
+          note: series.length ? undefined
+            : (WIKI_ARTICLES[ticker.toUpperCase()]
+                ? "no rows for this ticker in the archived window yet"
+                : "ticker not in the curated seed"),
+          series,
+        }));
+      } else {
+        res.json(v1Envelope("data/attention", {
+          days,
+          today: latestAttention()?.day ?? null,
+          trend: readAggregateHistory(days, undefined),
+          note: "seed-total daily pageviews across the curated ticker->article panel; pass ?ticker=TICKER for that ticker's own series",
+        }));
+      }
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // CFTC COT keyed mirror — closes a "gate1-passed, no /api/v1 mirror" gap
   // this sweep's own prior audits missed: they pattern-matched literally on
   // status "gate1_pass" and skipped roots whose ladder status had already
