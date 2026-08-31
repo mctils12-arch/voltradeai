@@ -71054,3 +71054,107 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 RESEARCH action (a genuinely new foreign-field import, all four axes
 re-surveyed rather than assumed stale), used in full including reading
 all three prior foreign-field-import entries end to end as precedent.
+
+## 2026-08-31 (scheduled-routine session) [PRODUCT] — SHARED-but-minimal (server/routes.ts, server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): Wikimedia attention accumulated history gets its own /api/v1/data/attention-history keyed mirror (v1.0.821)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+experiments.md tail, open_questions.md tail, wishlist.md tail,
+platform_program.md). `python3 scripts/session_health_check.py`: all 7 OK,
+no LIVENESS ALARM (server_version 1.0.820 matched this checkout's
+package.json at session start). `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 0/10 REPAIR, known_broken 38
+items/3 advisory-only without a close marker (already dispositioned per
+prior sessions), starvation_signal 0. Not a [REPAIR] session — no
+critical trading-loop break to note.
+
+PRIMARY ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed 0/2 gate2_pending roots ready for re-run (cftc_cot_positioning
+~56d/~105d needed, sec_8k_earnings_language 32d/90d needed) — no matured
+gate-2 judgment available this session. Checked `datacore/signal_ladder.json`
+for the pattern the last 5 merged PRs on this branch established (Form 4,
+13F, CFTC COT, 8-K earnings-language, FINRA short-volume each got an
+`/api/v1/data/<root>-history` keyed mirror alongside their existing
+latest-poll-only `/api/v1/data/<root>` endpoint): `wikimedia_pageviews_
+attention` (gate1_pass) has a RAW `/api/data/attention/history` route
+(server/routes.ts, live since the attention pipeline shipped, backed by
+`lookupTickerHistory()`/`readAggregateHistory()` in wikiAttention.ts) and
+a latest-poll `/api/v1/data/attention` keyed mirror, but no `-history`
+companion — the same gap class the prior 5 PRs closed, confirmed
+unclaimed by grepping `server/apiProduct.ts` for "attention-history"
+(zero hits) before starting. This is (d) improve datacore's API boundary
+toward spinout-readiness: a self-serve API customer today can read
+`/api/v1/data/attention` (today's snapshot) but cannot pull the
+accumulated series without going around the API boundary — exactly the
+SPINOUT-READY DATA LAYER standing behavior's requirement that signals
+flow only through the internal API boundary.
+
+WHAT SHIPPED: `server/routes.ts` gained `GET /api/v1/data/attention-history`
+(`?days<=90` default 30, optional `?ticker=`), inserted directly after
+the existing `/api/v1/data/attention` handler — reuses `lookupTickerHistory()`/
+`readAggregateHistory()`/`latestAttention()`/`WIKI_ARTICLES` verbatim (all
+already imported in routes.ts for the RAW `/api/data/attention/history`
+route), no new fetch, no new computation, same `v1Envelope("data/attention", ...)`
+provenance key as the base endpoint (not a separate license mark).
+`server/apiProduct.ts` gained the matching `apiMeta().endpoints` doc entry
+and a `voltrade_attention_history` agent-tool-spec entry (days/ticker
+JSON-Schema params, `returns_provenance: ["data/attention"]`), following
+the `voltrade_cot_history`/`voltrade_short_volume_history` precedent
+exactly — reused the existing `data/attention` LICENSE_MARKS entry (CC0,
+resell: "ok") rather than forking a duplicate one, since this is the same
+root under a different window, not a new one.
+
+RATCHET: `server/apiProduct.test.ts` gained the path to both existing
+"wiring pinned" assertion lists (the `paths.includes(...)` runtime check
+and the static-source `routes.includes(...)` check) plus a new dedicated
+test mirroring the `cot-history`/`short-volume-history` precedent tests —
+asserts the tool exists, reuses `["data/attention"]` provenance (not a
+forked license mark), the GATE 1 PASSED / GATE 2 NOT-ATTEMPTED status
+travels with the companion endpoint's description (not silently dropped),
+the 90-day cap matches the RAW route's own bound, the `ticker` param mode
+is exposed, and the `apiMeta()` entry's `preview` points at the correct
+RAW companion route.
+
+GATES: `npm ci` (488 packages, fresh sandbox) + `pip install -r
+requirements.txt -r requirements-dev.txt` both run at session start.
+`npx tsx --test server/apiProduct.test.ts`: 47/47 pass (46 pre-existing +
+1 new). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/gated_tests.sh`: GATE PASSED (client 1074/1074, python 1557/1
+skipped/54 subtests, quarantine 0/1 none overdue). `bash
+scripts/counter_ratchet.sh`: first run reported `assertions` IMPROVED
+12636 -> 12645 (this session's own new test assertions, the documented
+`git ls-files`-blindness-to-untracked-files gotcha does not apply here
+since these are edits to already-tracked files) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, all other 24 counters
+unchanged; re-ran clean. `npm run build`: clean (client + server bundle,
+no new warnings beyond the pre-existing chunk-size ones).
+
+BACKTEST: N/A per PROMOTION RULE 3 — API-surface addition over an
+already-live RAW archive read path; no strategy, threshold, sizing, or
+scoring change; no trading behavior touched.
+
+VERSION: v1.0.821 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.820/PR
+#967 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS CHECK: session start was 2026-08-31 00:12 UTC = 2026-08-30
+~20:12 ET, a Sunday evening — well outside market hours (and outside any
+weekday session entirely), so no merge-timing deferral is needed; this PR
+merges directly.
+
+NEXT: ran the confirming grep sweep this session rather than deferring it
+— `server/routes.ts`'s complete set of `/api/data/*/history` RAW routes
+is exactly {insider, earnings-language, filings13f, short-volume, cot,
+attention} plus `quakehistory` (USGS earthquakes, `raw_only` — never
+entered the ladder, not part of this gate1_pass-root pattern). Every one
+of the six now has a matching `/api/v1/data/<root>-history` keyed
+mirror. **This class of work (gate1_pass root with a RAW /history route
+but no /api/v1 keyed mirror) is exhausted** — a future session should
+not re-run this exact sweep expecting a new candidate; the next product
+gap in this family will only appear when a currently-`raw_only` or
+not-yet-built root reaches gate1_pass AND grows its own RAW /history
+route.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (closing the last unclaimed instance of an established,
+low-risk API-surface pattern), used in full.
