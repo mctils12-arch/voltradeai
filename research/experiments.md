@@ -71158,3 +71158,77 @@ route.
 STARVED: no — this session had capacity for exactly one clean, scoped
 PRODUCT action (closing the last unclaimed instance of an established,
 low-risk API-surface pattern), used in full.
+
+## 2026-08-31 (scheduled-routine session, second session this UTC day) [RESEARCH] — SHARED-but-minimal (research/* only, no code/test/version change): FOREIGN-FIELD IMPORT (axis c) FOLLOW-UP — reliability engineering's renewal-process hazard rate run against real SPY/VXX data, GATE 2 RESULT: provisional positive, underpowered, does not clear the ladder yet
+
+TERRITORY: research/* only — no T-DATACORE/T-CLIENT/T-BOT file touched,
+no code or test changed (existing `scripts/hazard_rate_probe.py` +
+`test_hazard_rate_probe.py`, both shipped 2026-08-29 v1.0.809, run as-is).
+
+CONTEXT: the 2026-08-29 session built and unit-tested this probe but
+could not run it against real data (no data access in that sandbox).
+This session had working `backtest_v2.fetch_bars` access (verified
+directly before committing to the run) and no higher-priority queued
+item (0/2 ladder-ready roots, no new axis-a candidate) — SESSION
+BUDGET's "judge a matured experiment" step, same precedent the
+2026-08-30 Omori-Utsu follow-up session established.
+
+RUN: `PYTHONPATH=. python3 scripts/hazard_rate_probe.py --days 2520` —
+SPY/VXX, 2019-10-07 to 2026-08-28, n_onsets=7 (matches the CSD entry's
+own count exactly), gaps=[127,176,134,426,98,121], **gap_cv=0.6227**,
+bootstrap 10th-90th pct range **[0.1393, 0.6644]** — entirely below 1.
+
+RESULT vs. PRIOR: this entry's own pre-registered prior expected CV > 1
+(bursty, from known volatility clustering); the real result is CV < 1
+with a bootstrap range excluding 1 in either direction — the OPPOSITE of
+the prior, and per the entry's own pre-stated criterion, the
+"genuinely novel, actionable" outcome class. Unlike the three prior
+foreign-field imports this directive has produced (CSD 2026-08-18/21
+killed, R_t 2026-08-26 killed, Omori-Utsu 2026-08-30 killed), this is
+**not a clean negative**.
+
+WHY NOT PROMOTED TO "GATE 2 PASSED" DESPITE THE CLEAN DIRECTIONAL
+RESULT (full reasoning in the open_questions.md entry, REASONING
+STANDARD #4/#10 applied explicitly): n=6 gaps is at the reporting floor,
+not comfortably above it; single ticker, single spec, zero
+out-of-sample confirmation; one 426-day outlier gap dominates a 6-point
+CV estimate; and this foreign-field-import series is now 1-for-4
+positive, which is within what a false-positive base rate alone would
+produce — reason to raise the confirmation bar, not lower it. Logged as
+**PROVISIONAL POSITIVE, GATE 2 NOT YET PASSED**, with two concrete,
+additive (not re-derived) follow-up specs named for a future session:
+broader universe (QQQ/IWM/large-caps through the same onset machinery)
+and a longer window (more `--days` to shrink the bootstrap range). Both
+reuse the existing pure statistical core unmodified per EDGE DOCTRINE #3.
+
+GATES: `npm ci` was required this session (node_modules was essentially
+empty — 1 entry — not just missing two packages as some prior sessions
+found; `bash scripts/gated_tests.sh` correctly FAILED first before `npm
+ci`, confirming the gate gates rather than silently passing). After
+`npm ci`: `bash scripts/gated_tests.sh` GATE PASSED (server 173 files,
+client 1074/1074, python 1557 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0,
+unchanged. `bash scripts/counter_ratchet.sh`: 25/25 at or better than
+baseline, zero movement (no file touched this session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — gate-2 SIGNAL result only
+(provisional, not passed); no strategy, threshold, sizing, or scoring
+change; no trading behavior touched.
+
+VERSION: unchanged (v1.0.821) — no code, config, or test file touched,
+matching every prior probe-follow-up session's precedent (CSD, R_t,
+Omori-Utsu all ran with zero version bump for a data-only run).
+
+NEXT: a future session should run the broader-universe variant
+(QQQ/IWM/a handful of large-caps through `find_transition_onsets` +
+`inter_onset_gaps`/`gap_cv`/`bootstrap_cv_range`) before this proceeds
+any further down the ROOT VALIDATION LADDER — see the open_questions.md
+entry's LADDER DISPOSITION section for the full two-variant follow-up
+spec (broader universe / longer window), both additive to the existing
+reusable probe code.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion (run → apply full
+REASONING STANDARD rigor → record honestly including why a positive-
+looking result does not yet clear the gate), the highest-priority
+fall-through item available this session.

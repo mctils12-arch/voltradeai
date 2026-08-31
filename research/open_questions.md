@@ -13192,3 +13192,165 @@ records a gate-2 SIGNAL result for an already-shipped research probe.
 STARVED: no — this session's one primary action was judging this exact
 matured, previously-flagged experiment to completion (build → run →
 record), the highest-priority fall-through item available this session.
+
+## [2026-08-31 (scheduled-routine session, second session this UTC day) — FOREIGN-FIELD IMPORT (axis c) FOLLOW-UP: reliability engineering's renewal-process hazard rate — RUN AGAINST REAL DATA, GATE 2 RESULT: PROVISIONAL POSITIVE, UNDERPOWERED — does not clear the ladder yet]
+
+SESSION-START CHECKS: CLAUDE.md read in full (special attention to EDGE
+DOCTRINE per this routine's own brief), then research/ in order
+(experiments.md tail, open_questions.md KNOWN BROKEN + tail, wishlist.md
+tail). `python3 scripts/session_health_check.py`: all 7 OK, no LIVENESS
+ALARM (server_version 1.0.821 matched this checkout at session start —
+the immediately-prior session today, PR #968, had already bumped it).
+`python3 scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 0/10 REPAIR (well under the 7+ trigger); known_broken 38
+items/3 without an explicit close marker (#26, #34, #38) — re-read all
+three in full per the now-standard practice: all three are FIXED (the
+detector's regex only checks the opening line; a cosmetic marker-
+placement gap, not an open repair item, exactly as the last four
+sessions in a row have independently confirmed). NOT a [REPAIR] session.
+starvation_signal 0/10.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order — "judge a matured
+experiment" outranks "start a new experiment" and outranks new
+research): `python3 scripts/ladder_readiness_check.py` — 0/2 gate2_pending
+roots ready (cftc_cot_positioning, sec_8k_earnings_language both still
+WAITING, unchanged). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — same 10/35 not-built roots, all declined/blocked except
+`un_comtrade` (already-noted too-lagged-for-alpha), no new axis-(a)
+candidate. This routine's own brief named four axes; before picking a
+NEW angle, checked for a QUEUED, already-flagged item first, per SESSION
+BUDGET step 1 — the 2026-08-29 session's own entry (immediately above,
+minus the 2026-08-30 Omori-Utsu entries in between) ends with a concrete
+queued NEXT: "for whichever future session has real Alpaca/Yahoo data
+access, run `python3 scripts/hazard_rate_probe.py --days 2520`." Checked
+data access directly this session (`backtest_v2.fetch_bars('SPY',
+days=30)` returned real bars) before committing to this action — same
+precedent the Omori-Utsu follow-up session (2026-08-30) established.
+Picked this over starting a fifth foreign-field import.
+
+RUN: `PYTHONPATH=. python3 scripts/hazard_rate_probe.py --days 2520`
+(same `PYTHONPATH=.` requirement the Omori-Utsu follow-up session
+documented — `scripts/hazard_rate_probe.py`'s own `sys.path` is
+`scripts/`, not repo root; still not fixed, same low-priority
+script-ergonomics nit across all four probe scripts, noted again so a
+future session doesn't rediscover it a third time).
+
+RESULT (real run, SPY/VXX, 2019-10-07 to 2026-08-28, n_days=1733,
+n_onsets=7 — matching the CSD entry's own real-data onset count exactly,
+confirming `find_transition_onsets` is being reused unmodified as
+intended):
+
+| metric | value |
+|---|---|
+| gaps_trading_days | [127, 176, 134, 426, 98, 121] |
+| gap_cv | 0.6227 |
+| gap_cv_insufficient_n | False (n=6 gaps, at the MIN_GAPS_FOR_STATS=5 floor) |
+| gap_cv_bootstrap_range (10th-90th pct, seed 1337, 2000 draws) | [0.1393, 0.6644] |
+| base_rate_onset_within_horizon (10d) | 0.0404 |
+
+`hazard_by_duration_bucket` (10-day forward horizon): 0.0 hazard in every
+bucket from 0-80 days since the last onset (35/35/70/140/280 days
+respectively, all well above the 30-day `min_days` floor so none are
+`insufficient_n`), then 0.0558 in the >=80-day bucket (n=1075 days) —
+above the 0.0404 base rate.
+
+VERDICT — this is NOT a clean negative, unlike the three prior
+foreign-field imports (CSD, R_t, Omori-Utsu all killed). `gap_cv` came
+back BELOW 1, and the bootstrap range [0.139, 0.664] sits ENTIRELY below
+1 — the OPPOSITE of this entry's own pre-registered PRIOR (which
+expected CV > 1, bursty/clustering, from known volatility clustering).
+Per the entry's own pre-stated read-the-result criterion ("the
+interesting result is the sign of gap_cv relative to 1 and whether the
+bootstrap range excludes 1"): both conditions for "the genuinely novel,
+actionable result" are met. The duration-bucket breakdown is directionally
+consistent too (hazard is flat-zero at short/medium durations then rises
+above the base rate only past 80 days since the last onset) — a
+qualitatively bathtub/wear-out-shaped read, exactly the aviation-
+maintenance "overdue" signature this import was testing for.
+
+WHY THIS IS LOGGED AS "PROVISIONAL POSITIVE, UNDERPOWERED" RATHER THAN
+"GATE 2 PASSED" (REASONING STANDARD #4, DISTRUST YOUR OWN RESULTS in
+proportion to how many things you tried, and REASONING STANDARD #10,
+demand out-of-sample confirmation before believing anything):
+1. **n=6 gaps is not enough to trust a point estimate, and this entry
+   said so before ever seeing the result** — MIN_GAPS_FOR_STATS=5 is
+   satisfied only at the floor, not comfortably above it. The bootstrap
+   range is wide in relative terms (0.14 to 0.66, nearly 5x) even though
+   it happens to clear the CV=1 threshold cleanly.
+2. **Single ticker, single spec, no out-of-sample confirmation.** This
+   is the exact same SPY-only, one-parameterization test the CSD entry
+   ran and that entry's own NEXT explicitly named "a broader universe
+   than SPY alone" as the follow-up that would constitute a materially
+   different spec, not a re-run of the same one.
+3. **One extreme gap dominates the estimate.** The 426-day gap (the
+   2022 bear-market-to-2023 quiet stretch, roughly) is more than 2x any
+   other gap in the series; a CV computed from 6 points is highly
+   sensitive to a single outlier gap, and this metric does not
+   distinguish "genuinely regular spacing" from "five short gaps plus
+   one long quiet patch, coincidentally." The bootstrap does resample
+   this concern in (some of the 2000 draws omit the outlier entirely),
+   which is exactly why the range is reported instead of the point
+   estimate — and even the resampled range stays below 1 — but n=6
+   itself is fundamentally too small to fully separate the two stories.
+4. **Base rate for this list of foreign-field imports run under this
+   directive is now 1-for-4 positive (CSD killed, R_t killed,
+   Omori-Utsu killed, hazard-rate provisionally positive)** — a
+   plausible outcome under the null (roughly what you'd expect if none
+   of the four techniques added anything and one in four looks
+   interesting by chance at typical significance thresholds), so this
+   result alone should raise, not lower, the bar for what "confirmed"
+   means before this proceeds to gate 3.
+5. The duration-bucket breakdown, while directionally consistent, is
+   explicitly flagged by the script's own docstring as descriptive-only
+   with day-level autocorrelation (consecutive days share nearly the
+   same duration value) — it corroborates the CV read qualitatively but
+   is not independent statistical confirmation of it.
+
+LADDER DISPOSITION: **GATE 2 NOT YET PASSED** — provisional positive,
+held pending out-of-sample confirmation. Per this entry's own prior NEXT
+guidance (written for the symmetric >=1 case but the same logic applies
+in reverse): do not proceed to GATE 3 (backtest-by-ablation) on this
+single SPY-only result. The two concrete follow-up variants that would
+constitute a materially different, confirmatory spec rather than a
+re-run of the same untested premise:
+  (a) **broader universe** — run the identical CV/bootstrap diagnostic
+      against QQQ, IWM, and/or a handful of large-cap single names using
+      the same `find_transition_onsets` machinery, and check whether the
+      CV<1 pattern replicates independently rather than resting on one
+      6-gap SPY sample;
+  (b) **longer window** — extend `--days` beyond 2520 (SPY regime data
+      goes back further than the current 2019-10-07 start; check what
+      `backtest_v2.fetch_bars` actually supports before assuming a hard
+      floor) to accumulate more onset events and shrink the bootstrap
+      range's width, the direct fix for concern #1 above.
+Both are additive to the existing reusable probe code
+(`inter_onset_gaps`/`gap_cv`/`bootstrap_cv_range`/the bucket machinery
+all take an onset-index list, not a hardcoded ticker) — no new
+statistical core needed, only a different call to `run_probe()` or a
+small loop over tickers, consistent with EDGE DOCTRINE #3.
+
+RATCHET: no code change this session (existing script + existing tests
+run as-is against real data). `npm ci` (488 packages; fresh sandbox
+missing `node_modules` entirely this time, not just two packages — same
+recurring provisioning gap, confirmed via `git status --short` showing
+zero tracked-file changes before concluding this wasn't a regression)
+then `bash scripts/gated_tests.sh`: GATE PASSED (server 173 files,
+client 1074/1074, python 1557/1 skipped/54 subtests, quarantine
+0/1 none overdue) — first attempt before `npm ci` correctly FAILED on
+the missing-`node_modules` case (confirming the gate actually gates).
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/counter_ratchet.sh`: 25/25 counters at or better than baseline,
+no movement (no file touched). No code, config, or test file changed —
+no version bump, matching every prior probe-follow-up session's
+precedent (CSD, R_t, Omori-Utsu).
+
+BACKTEST: N/A — no strategy/scoring/sizing/threshold change; this
+records a gate-2 SIGNAL result (provisional, not passed) for an
+already-shipped research probe.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion (run against real
+data → apply REASONING STANDARD rigor → record honestly, including why
+an interesting-looking positive result does not yet clear the gate),
+the highest-priority fall-through item available this session per
+SESSION BUDGET's own ordering.
