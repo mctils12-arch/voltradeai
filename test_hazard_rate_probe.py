@@ -182,6 +182,18 @@ class TestRunProbeIntegrationShape(unittest.TestCase):
         self.assertEqual(len(onsets), 1)
         self.assertEqual(onsets[0]["index"], 25)
 
+    def test_run_probe_defaults_to_spy_and_accepts_a_ticker_param(self):
+        """run_probe's broader-universe follow-up (2026-08-31 GATE 2
+        provisional-positive entry) added a `ticker` param without a
+        network call — assert the signature accepts it and still defaults
+        to "SPY" for backward compatibility, without actually invoking
+        run_probe (which needs network/Alpaca access this sandbox may not
+        have, per the class docstring)."""
+        import inspect
+        sig = inspect.signature(probe.run_probe)
+        self.assertIn("ticker", sig.parameters)
+        self.assertEqual(sig.parameters["ticker"].default, "SPY")
+
 
 if __name__ == "__main__":
     unittest.main()

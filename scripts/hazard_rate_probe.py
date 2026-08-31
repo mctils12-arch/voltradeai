@@ -202,13 +202,23 @@ def bucket_hazard(durations: Sequence[int | None], forward_flags: Sequence[bool]
     return out
 
 
-def run_probe(days: int = 2520, horizon: int = 10,
+def run_probe(days: int = 2520, horizon: int = 10, ticker: str = "SPY",
               bucket_edges: Sequence[int] = DEFAULT_BUCKET_EDGES) -> dict:
     """Orchestrates the full gate-2 probe against REAL data. Requires
     network/Alpaca access this sandbox did not have — see module
     docstring. Reuses backtest_v2.fetch_bars/regime_series and the CSD
     entry's find_transition_onsets verbatim (EDGE DOCTRINE #3: don't
-    re-derive already-verified data plumbing or onset detection)."""
+    re-derive already-verified data plumbing or onset detection).
+
+    `ticker` is the primary equity series whose own regime-severity onsets
+    are measured (spy_vs_ma50/ma200 computed from ITS OWN close series,
+    same as the original SPY-only run); VXX stays the shared market-wide
+    volatility backdrop regardless of `ticker`, since VXX is a broad-market
+    vol index, not SPY-specific — this is the additive broader-universe
+    follow-up the 2026-08-31 GATE 2 provisional-positive entry named
+    (`research/open_questions.md`), not a re-derivation: every downstream
+    function here (`inter_onset_gaps`/`gap_cv`/the bucket machinery) already
+    took an onset-index list, not a hardcoded ticker."""
     import backtest_v2 as bt
 
     import importlib.util
@@ -218,9 +228,9 @@ def run_probe(days: int = 2520, horizon: int = 10,
     csd = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(csd)
 
-    spy = bt.fetch_bars("SPY", days)
+    primary = bt.fetch_bars(ticker, days)
     vxx = bt.fetch_bars("VXX", days)
-    labels, quality = bt.regime_series(spy, vxx)
+    labels, quality = bt.regime_series(primary, vxx)
     n = len(labels)
 
     onsets = csd.find_transition_onsets(labels)
@@ -236,9 +246,10 @@ def run_probe(days: int = 2520, horizon: int = 10,
     base_rate = (sum(forward) / n) if n else None
 
     return {
+        "ticker": ticker,
         "vxx_data_quality": quality,
         "n_days": n,
-        "date_range": [spy["date"][0], spy["date"][-1]] if spy["date"] else [],
+        "date_range": [primary["date"][0], primary["date"][-1]] if primary["date"] else [],
         "n_onsets": len(onsets),
         "gaps_trading_days": gaps,
         "gap_cv": cv,
@@ -253,12 +264,14 @@ def run_probe(days: int = 2520, horizon: int = 10,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--days", type=int, default=2520,
-                     help="calendar days of SPY/VXX history to pull (default ~10y)")
+                     help="calendar days of history to pull (default ~10y)")
     ap.add_argument("--horizon", type=int, default=10,
                      help="trading-day forward window defining 'a new onset soon'")
+    ap.add_argument("--ticker", type=str, default="SPY",
+                     help="primary equity series to measure onsets on (VXX stays the shared vol backdrop)")
     args = ap.parse_args()
     try:
-        out = run_probe(days=args.days, horizon=args.horizon)
+        out = run_probe(days=args.days, horizon=args.horizon, ticker=args.ticker)
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         sys.exit(1)
