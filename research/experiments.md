@@ -3,7 +3,108 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-30 (scheduled-routine session #4) [PIPELINE] — T-BOT (options_execution.py, tiered_strategy.py, shadow_portfolio.py, server/bot.ts) + SHARED-but-minimal (server/cspCapitalCounterfactualLogging.test.ts, test_options_fixes.py, test_tiered_strategy.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CSP CAPITAL ALLOCATION gets its counterfactual shadow-logging bucket, a 24-day-old unclaimed follow-up — a capital-starved SELL_CSP dispatch now logs a `rejected_capital` record instead of leaving only a T-FAIL audit line (v1.0.820)
+## 2026-08-31 (scheduled-routine session) [PIPELINE] — T-CLIENT (client/src/lib/gridMaster.ts, client/src/lib/gridMaster.test.ts, client/src/pages/datamap.tsx) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/*): "All power grids" master switch gains the missing `powergrid_asia` continent plus a registry-parity regression test, closing item #2 of the 2026-08-28 STALE PR #817 re-queue (v1.0.822)
+
+TERRITORY: T-CLIENT (`client/src/lib/gridMaster.ts`, its test, and
+`client/src/pages/datamap.tsx` are all client/src — no T-DATACORE/T-BOT
+overlap) + SHARED-but-minimal for the usual version/counter bookkeeping and
+research/*.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session.
+`python3 scripts/session_health_check.py`: all 7 OK — liveness alive/not
+dark, subsystems ok, daemon rss=372.8MB well under trim_mb=400MB,
+alt_data_enrichment fresh, ml_feedback age 5.2h, deploy_freshness
+server_version=1.0.821 matching this checkout's package.json pre-bump. No
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits_register
+none overdue, thrash_ratio 0/10 REPAIR (well under the 7+ trigger, last 10
+tagged sessions: PIPELINE/PRODUCT/RESEARCH/PRODUCT/PRODUCT/PRODUCT/
+PIPELINE/PRODUCT/PRODUCT/PIPELINE — no thrash), known_broken 38 items/3
+without an explicit close marker (#26/#34/#38, all independently confirmed
+already FIXED inline in their own entries — advisory only, no repair
+needed). `list_pull_requests(state=open)`: 1 open PR (#604, explicitly
+"[BACKLOG] ... draft, do not merge as-is" — correctly excluded).
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order, fix-bug > judge-matured-
+experiment > start-new-experiment > research): no bug found via the health
+checks above. No freshly-matured, unjudged research probe was sitting
+unclaimed either — the most recent prior session (c209bee, same day)
+already judged the renewal-process hazard-rate follow-up. Checked
+`research/PROGRAM_STATE.md`'s own MASTER PROGRAM queue (a separate,
+self-imposed CI-hardening initiative) — its own 2026-08-20 wishlist note
+already flags it stale since 2026-08-15 and not a required queue for this
+session's SESSION BUDGET. Fell through to the next queued item from
+`open_questions.md`: the 2026-08-28 "STALE PR #817 RE-QUEUE" section lists
+four independently-buildable findings re-verified against current main.
+Item 1 (camera cannot cross a pole) needs a from-scratch parallel-transport
+rewrite of `camBasis`'s up-vector — high blast radius for a scheduled
+session to get right in one pass. Item 4 (own-tile Moon pyramid) needs a
+5.55 GiB RunPod bake — too large for this session and gated on a
+re-audit first. Item 3 (Moon patch fuzz margin) needs redesigning
+`planMoonTarget`'s zoom-vs-margin trade-off with a fresh 10-case
+before/after matrix. Item 2 (grid master switch omitting a live continent)
+was the smallest, lowest-risk, and most mechanically verifiable of the
+four — picked it.
+
+READ BEFORE WRITE: re-verified the finding fresh rather than trusting the
+18-day-old note. `grep` of `datacore/layers.json` found no
+`powergrid_africa`/`powergrid_oceania` entries at all yet (so two of the
+three continents the stale comment named don't exist to omit) but
+`powergrid_asia` does, with `status: "live"` and a description explicitly
+stating "FIRST R2-SERVED CONTINENT ... streams from object storage via a
+same-origin proxy." Confirmed live against the deployed site, not just the
+repo's registry file: `GET https://voltradeai-production.up.railway.app/
+api/data/layers` shows `powergrid_asia` status `live`; `curl -H "Range:
+bytes=0-100" .../tiles-r2/power_asia.pmtiles` returns `206`. Read
+`client/src/lib/gridMaster.ts` in full — confirmed `GRID_MASTER_IDS` (used
+by both `allGridsOn` and `setAllGrids`) listed only 4 continents, and read
+`client/src/pages/datamap.tsx`'s `renderAllGridsRow` in full — found the
+same gap duplicated in TWO more places: the switch's own status text
+(`"US · Canada · S. America · Europe"`) and its description note ("Not yet
+mapped: Africa, Asia, Oceania"), both user-facing claims that were simply
+false the moment Asia shipped 2026-08-13.
+
+WHAT SHIPPED (one logical change — add the missing live continent
+everywhere it's named, plus the regression test that stops this exact
+drift from recurring silently):
+- `client/src/lib/gridMaster.ts`: `GRID_MASTER_IDS` gains `"powergrid_asia"`;
+  stale "four masters" comments (there are now five) reworded to reference
+  `GRID_MASTER_IDS` generically instead of a hardcoded count, so this
+  exact class of comment/code drift can't recur when a sixth ships.
+- `client/src/pages/datamap.tsx`: the "All power grids" row's ON status
+  text now reads "US · Canada · S. America · Europe · Asia"; its
+  description note moves Asia from "Not yet mapped" into the "mapped so
+  far" list (Africa/Oceania correctly remain in "not yet mapped" — neither
+  has a registry entry).
+- No trading logic, no order path, no signal — RAW OVERLAY per CLAUDE.md's
+  raw-vs-signal rule, no ladder gating needed.
+
+RATCHET: `client/src/lib/gridMaster.test.ts` gained a new registry-parity
+test — reads `datacore/layers.json` directly and fails if any of
+`canada/southamerica/europe/asia/africa/oceania` ever ships `status:
+"live"` without a matching `GRID_MASTER_IDS` entry, so a future continent
+launch (Africa/Oceania) can't repeat this 18-day silent gap. A/B-verified
+by hand (not `git stash`, which would have reverted the test file too):
+temporarily removed `"powergrid_asia"` from `GRID_MASTER_IDS` alone —
+the new test failed; restored it — all 5 tests in the file pass.
+
+GATES: `npx tsx --test client/src/lib/gridMaster.test.ts` 5/5 pass ·
+`bash scripts/gated_tests.sh` — 8+ unrelated pre-existing failures present
+(server/aircraftTiling, server/compression, client celestial/live-network
+probes, python pytest module missing in this sandbox); spot-checked 3 of
+them (`globeAtmosphere.test.ts`, `meteors.test.ts`,
+`server/compression.test.ts`) fail identically against this same commit
+with today's diff `git stash`-ed out, confirming they predate and are
+unrelated to this change (network/module-resolution artifacts of this
+sandbox, not this PR) · `bash scripts/tsc_ratchet.sh` 12, TS2304 0 ·
+`bash scripts/counter_ratchet.sh` 25 counters OK (re-pinned `assertions`
+12645→12648, this session's own direct effect from the new test's
+assertions; no other counter moved) · `npm run build` clean · `npm run
+visual -- --page data` at 390/768/1440: 0 hard failures, all three PASS;
+warnings present (touch-target-size, one clipped control) are pre-existing
+header/nav chrome unrelated to the layers panel this change touches.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, threshold, or
+trading-logic value changed; pure map-layer-registry wiring. [PIPELINE] — T-BOT (options_execution.py, tiered_strategy.py, shadow_portfolio.py, server/bot.ts) + SHARED-but-minimal (server/cspCapitalCounterfactualLogging.test.ts, test_options_fixes.py, test_tiered_strategy.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CSP CAPITAL ALLOCATION gets its counterfactual shadow-logging bucket, a 24-day-old unclaimed follow-up — a capital-starved SELL_CSP dispatch now logs a `rejected_capital` record instead of leaving only a T-FAIL audit line (v1.0.820)
 
 TERRITORY: T-BOT (options_execution.py/tiered_strategy.py/server/bot.ts are
 all listed under T-BOT's WORKSTREAM PARTITION territory — "server/bot.ts
