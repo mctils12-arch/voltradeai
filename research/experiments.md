@@ -3,6 +3,159 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-31 (scheduled-routine session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the last 5 unmapped `/api/v1` tools (get_track, get_graph, archive/secftd/midas stats) get hand-verified `RESPONSE_DATA_SCHEMAS` entries — full 37/37 coverage (v1.0.825)
+
+TERRITORY: SHARED-but-minimal — touches only server/apiProduct.ts (+its
+test) and the SHARED bookkeeping files; no T-CLIENT/T-BOT/T-DATACORE file
+touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md,
+open_questions.md, wishlist.md tails. `python3 scripts/session_health_check.py`:
+all 7 OK, no LIVENESS ALARM (server_version 1.0.824 matched this checkout's
+package.json at session start). `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 0/10 REPAIR (last 10 tags:
+PRODUCT x7, PIPELINE x2, RESEARCH x1 — no thrash), known_broken 38
+items/3 advisory-only (already dispositioned per prior sessions),
+starvation_signal 0. Not a [REPAIR] session.
+
+PRIMARY ACTION SELECTION: `ladder_readiness_check.py` — still 0/2
+gate2_pending roots ready (cftc_cot_positioning, sec_8k_earnings_language,
+both WAITING). `data_stream_registry_check.py --unbuilt` — same 10/35
+not-built roots, all declined/blocked, no new axis-(a) candidate. The
+immediately-prior merged session (v1.0.824, PR #973, `478c4af`) explicitly
+named its own unclaimed NEXT in experiments.md: "the 5 unmapped tools
+(voltrade_get_track/voltrade_get_graph/voltrade_archive_stats/
+voltrade_secftd_stats/voltrade_midas_stats) are real candidates for a
+future session willing to read [their source] field-by-field first —
+flagged rather than guessed at here." This is SESSION BUDGET's own
+"next queued item" (ranks above starting fresh research) and squarely
+option (d) of the routine's PRODUCT menu (improve datacore's API boundary
+toward spinout-readiness).
+
+HOUSEKEEPING FIRST: found and closed a stale duplicate draft PR before
+starting the primary action. PR #971 ("OpenAPI response schemas gain the
+real v1Envelope shape + a hand-verified gnss-integrity-signal payload,"
+opened 13:25 UTC same day by an earlier session) diffed byte-for-byte
+against current `main`: every change it proposed (the universal
+v1Envelope wrapper on all 37 responses, plus the one gnss-integrity-signal
+hand-verified schema) is already present in `main` via the since-merged
+PR #973/v1.0.824, done more comprehensively (32 hand-verified schemas vs.
+#971's one). Zero unique delta survived the diff. Per the WORKSTREAM
+PARTITION supersession precedent ("first-merged wins, the duplicate
+salvages its unique delta" — same precedent applied to PR #867 in
+wishlist.md's 2026-08-20 entry), closed #971 as a duplicate with a PR
+comment naming #973. This is administrative cleanup, not itself the
+session's PRIMARY action — logged here for the record, no version bump
+attached to it.
+
+READ BEFORE WRITE: read every one of the 5 target route handlers in
+server/routes.ts this session before writing any schema — `GET
+/api/v1/tracks/:kind/:id` (routes.ts:3906), `GET /api/v1/stats/archive`
+(3964), `GET /api/v1/graph` (4083, both the no-entity and
+entity+neighborhood branches), `GET /api/v1/stats/secftd` (4154), `GET
+/api/v1/stats/midas` (4178). For each, traced the response payload to its
+real producer and read that source directly rather than infer from the
+route: `recentTrackCached()`'s declared return type
+(server/datacoreArchive.ts:728-729, `Array<{ t: number; la: number; lo:
+number; al?: number }>`); `archiveStats()`'s own object-construction body
+(datacoreArchive.ts:886-917 — confirmed `kinds` is a disk-enumerated dict
+keyed by whatever archive-kind directories exist, not a fixed property
+list, and that `oldest`/`newest` are ABSENT entirely in the
+missing-directory branch, not just nullable, so they could not honestly be
+typed as always-present strings); `neighborhood()`'s return type plus the
+`EverythingGraph`/`GraphNode`/`GraphEdge` interfaces
+(server/entityGraph.ts:46-75, 484); `FtdSummary` (server/secFtd.ts:269-277)
+and `MidasSummary` (server/secMidas.ts:393-402), both fully-required
+interfaces with no optional fields.
+
+WHAT SHIPPED: `server/apiProduct.ts`'s `RESPONSE_DATA_SCHEMAS` gained 5
+new entries, bringing coverage to 37/37 live tools (up from 32/37):
+1. `voltrade_get_track` — `{id, kind, points: [{t, la, lo, al?}]}`, `al`
+   left optional per the source type.
+2. `voltrade_archive_stats` — `{base, kinds: <dict, additionalProperties:
+   {files, bytes, oldest, newest}>, totalBytes}`; `oldest`/`newest` left
+   as the untyped `{}` fallback (not `string`) and not `required`, since
+   the source proved their presence and type are NOT stable across
+   branches — typing them as `string` would have been a fabrication the
+   "never fabricate" discipline this map already follows forbids.
+3. `voltrade_get_graph` — both query-branches' fields (`counts`+`note` for
+   the counts-only call, `entity`+`hops`+`nodes`+`edges` for a
+   neighborhood query) listed as optional properties on one object, same
+   pattern the existing `*_history` query-branching entries already use;
+   only `caveat` (present in both branches) is `required`. `counts`'s own
+   11 fields, and the `nodes`/`edges` array item shapes, are typed
+   precisely from the exported TS interfaces, not the route's inline
+   object literal.
+4. `voltrade_secftd_stats` / `voltrade_midas_stats` — both fully typed
+   and fully `required` (their source interfaces have zero optional
+   fields), including the nested `top_fails[]`/`smallcap_watch[]` array
+   item shapes.
+Updated the doc comment above `RESPONSE_DATA_SCHEMAS` to state full
+coverage instead of naming the 5 as still-unmapped.
+
+RATCHET: `server/apiProduct.test.ts` gained 6 new tests. (1) full-coverage
+milestone: every one of the 37 live tool names now resolves to a
+`RESPONSE_DATA_SCHEMAS` entry, and the map has exactly 37 keys (no stale
+extras). (2) a source-level guard for the generic-object fallback branch
+in `openApiSpec()` — since 100% coverage today means no LIVE tool
+exercises that code path, this pins its continued existence in source
+(`RESPONSE_DATA_SCHEMAS[tool.name]` lookup + the `{type:"object"}`
+literal) so it isn't silently deleted before a future new tool needs it.
+(3)-(6) one correctness test per new schema, each cross-checking the
+schema's field names against the real source file text (same
+cross-check-the-source pattern the pre-existing GNSS test uses) —
+`datacoreArchive.ts` (x2, get_track + archive_stats), `entityGraph.ts`
+(get_graph), `secFtd.ts` (secftd_stats), `secMidas.ts` (midas_stats). Also
+REMOVED the now-obsolete precondition test asserting `get_track` stays
+unmapped (that assumption is no longer true after this PR, by design).
+`npx tsx --test server/apiProduct.test.ts`: 58/58 pass (52 pre-existing +
+6 new, -1 obsolete test removed and replaced net +6 vs. the 52 baseline
+this session started from... 52+6=58, matches). `bash
+scripts/gated_tests.sh`: GATE PASSED — python 1558 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue (client/server suite counts scrolled
+past this session's own `tail -40` capture but the gate's own final line
+is authoritative). `bash scripts/tsc_ratchet.sh`: reported the pinned
+total DROPPED 12 -> 3 — verified via `git stash` this is 100%
+pre-existing (identical 12->3 drop with none of this session's changes
+applied, same sandbox-provisioning artifact the immediately-prior session
+already documented) — left `ci/tsc_baseline.txt` UNCHANGED per PROMOTION
+RULE 5 (attribution stays clean; the drop is not this PR's effect). `bash
+scripts/counter_ratchet.sh`: `assertions` IMPROVED 12664 -> 12681 (this
+session's own 6 new tests' worth of `assert.*` calls) — RE-PINNED in
+`ci/counter_baseline.txt` in this same PR; re-ran clean, 25/25 OK. `npm
+run build`: clean, same pre-existing warnings prior sessions have logged
+(maplibre-gl chunk size, astronomy-engine default-export interop,
+mapIcons dynamic/static dual import) — none touched this session. No
+`.tsx`/client files touched — no visual harness run needed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-documentation enrichment on
+an already-live surface, no strategy/scoring/sizing/threshold change, no
+FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed; `/api/v1/openapi.json` stays public
+documentation, the DATA behind each tool still requires a key, unchanged.
+
+VERSION: v1.0.825 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`478c4af`/v1.0.824 — no concurrent session had merged ahead of this one).
+
+NEXT: the OpenAPI response-schema sweep this session and the
+immediately-prior one together started is now COMPLETE — all 37 live
+`/api/v1` tools have a hand-verified `data` schema; there is no more
+"next unmapped tool" queue item. A future PRODUCT session should check
+`research/platform_program.md`'s P1-P4 queue fresh rather than assume
+this specific thread continues, and re-run `ladder_readiness_check.py`/
+`data_stream_registry_check.py --unbuilt` since both gate2_pending roots
+(cftc_cot_positioning ~63d/~105d, sec_8k_earnings_language ~59d/90d) are
+approaching but have not yet cleared their re-run windows.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely pre-queued continuation of an earlier
+session's own work) plus one small piece of administrative cleanup
+(closing a superseded duplicate PR), both logged.
+
 ## 2026-08-31 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the /api/v1 OpenAPI spec's response bodies get hand-verified per-endpoint `data` schemas for 32/37 tools, replacing most of the blanket `{type:"object"}` fallback (v1.0.824)
 
 TERRITORY: SHARED-but-minimal — touches only server/apiProduct.ts (+its
