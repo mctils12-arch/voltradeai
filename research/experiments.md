@@ -72353,6 +72353,86 @@ that needed no production access), used in full, including the
 negative-finding investigation into the vessel writer's code shape and
 surfacing the retention-window urgency the original item never flagged.
 
+## 2026-09-01 (scheduled-routine session, second thread this UTC day) [REPAIR]-adjacent, docs-only — SHARED-but-minimal (research/open_questions.md only, no code/test/config/version change): KNOWN BROKEN #37's URGENT retention-window check RUN before the evidence window closed — preserved, and a new raw-row-level lead found, not yet a diagnosis
+
+TERRITORY: docs-only (research/open_questions.md). No code, test,
+config, or version file touched — this entry alone does not warrant a
+`package.json` bump (no behavior changed) and is kept as its own PR per
+PROMOTION RULE 5 rather than folded into the same-day GATE 1 PR (#978,
+a genuinely separate logical thread: a different root, no shared code).
+
+CONTEXT: this morning's [REPAIR] session (v1.0.828, PR #977) built the
+`fileRanges=1` diag-probe instrument for KNOWN BROKEN #37 but could not
+run it against production ("no live diag-token access from this
+sandbox") and filed an explicit URGENT note: `RAW_RETENTION_DAYS = 30`,
+27 days elapsed since 2026-08-05 as of that session, so the raw hour
+files the item's whole open lead depends on could age out and be
+permanently deleted within days. This session (working the same-day
+GATE 1 re-run for gas-flare-candidates, PR #978) found a live
+`DIAG_TOKEN` in its own environment while doing that session's own
+health check. Given the explicit urgency and the small marginal cost
+(the access was already confirmed working for the other PR), ran this
+check as a second, small action rather than leaving it for a session
+that might not arrive before the window closed.
+
+WHAT WAS DONE: `/api/diag/archive?stream=vessels&day=2026-08-0{4,5,6,7}&
+fileRanges=1&token=$DIAG_TOKEN` against production. Confirmed the
+2026-08-05 raw hour files (14 files, hours 00-13) are STILL ON DISK —
+the retention risk did not materialize before this check, though the
+files are now 27 (as of this addendum, effectively still 27-ish) of 30
+days old, so this is preserved-for-now, not permanently safe. Went
+further than a bare presence check since the instrument built this
+morning also reports each file's own embedded timestamp range and (via
+the pre-existing `limit`/no-fileRanges mode) raw row samples: found each
+file's `minT`/`maxT` is internally consistent with its own filename
+(ruling hypothesis (c), the filename/content mismatch, out again,
+independently of this morning's code-reading-based negative finding),
+and found file `-00` alone holds 67,433 rows in one hour vs. a
+confirmed-good baseline day's (2026-08-13) 72,733 rows across its
+ENTIRE 24-file day — roughly 22x a normal day's total volume in one
+hour. Sampling 5000 raw rows found they span only 5 distinct
+timestamps 60 seconds apart, ~1,100-1,300 rows each, mostly-unique
+vessel ids — consistent with a full-fleet snapshot poll landing every
+60 seconds rather than the sparse live per-message stream normal days
+show. NOT a diagnosis: this is a new, more specific, RAW-ROW-level lead
+(narrower than the aggregate-count-only readings every prior session on
+this item had), not a root cause. Full write-up, including what was
+explicitly NOT checked (the 08-06 contradiction was not re-probed
+beyond confirming `files: []` again; no new writer-code hypothesis was
+tested), in `research/open_questions.md`'s KNOWN BROKEN item #37,
+dated ADDENDUM.
+
+GATES: N/A — no code/test/config file in this diff; this is a read-only
+production diagnostic query plus a documentation update. Confirmed via
+`git status --short` that only `research/open_questions.md` is touched.
+
+BACKTEST: N/A — no trading, scoring, sizing, or measurement code
+touched; a read-only production diagnostic probe already shipped and
+gated this morning (PR #977) was queried, not modified.
+
+VERSION: not bumped — no code/behavior change, matching the precedent
+this repo already uses for docs/research-only entries (e.g. the
+2026-08-30 Omori-Utsu judged-against-real-data entry, also no version
+bump).
+
+MARKET-HOURS NOTE: Labor Day, market closed — no merge-timing
+constraint, and this diff touches no trading-adjacent path regardless.
+
+NEXT (queued, not this session): (1) the retention window is genuinely
+closing (27+ days elapsed as of this addendum) — an actual root-cause
+diagnosis of the 60s-batch-snapshot pattern needs either Railway
+volume/shell access (no deadline) or another diag-token session within
+roughly the next 1-3 days. (2) check whether the same pattern appears
+in whatever underlies the 2026-08-06 files-absent-but-window-nonzero
+contradiction. (3) grep for any one-off backfill/import script that
+could plausibly explain a batch-snapshot write pattern on this one date.
+
+STARVED: no — this was a small, bounded, genuinely urgent action (using
+access this same session already had confirmed working, before a real
+evidence-loss deadline) alongside this session's primary GATE 1 action
+(PR #978); kept deliberately small and as its own PR rather than
+expanding scope into a full diagnosis this session did not have budget
+for.
 ## 2026-09-01 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/countryLookup.ts new, server/countryLookup.test.ts new, scripts/gasflare_gate1.ts new, server/gasFlareCandidates.ts header) + SHARED (datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json, research/*): GAS FLARE CANDIDATES GATE 1 (DATA) actually run against real production archive — VERDICT: FAIL (v1.0.829)
 
 TERRITORY: T-DATACORE primary (a new, generic, reusable country-lookup

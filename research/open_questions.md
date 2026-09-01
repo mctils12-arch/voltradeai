@@ -5220,6 +5220,84 @@
     whenever" to "queued now, or evidence-expired."
     NOT A SPEND REQUEST.
 
+    **ADDENDUM 2026-09-01 (scheduled-routine [PRODUCT] session, later the
+    same day) — the URGENT retention check above was RUN, before the
+    window aged out. Evidence PRESERVED, and a real NEW lead on anomaly
+    (b) found — still not diagnosed to a final root cause.** This
+    session's environment carried a live `DIAG_TOKEN`; confirmed real
+    production access (`/api/health` reachable) before anything else,
+    then ran exactly the check the fileRanges=1 PR asked for.
+
+    RETENTION STATUS: NOT expired. `/api/diag/archive?stream=vessels&
+    day=2026-08-0{4,5,6,7}&fileRanges=1` — 08-04/06/07 all still return
+    `files: []` (matches every prior reading; not new). **08-05's 14
+    hour-files (00-13) are STILL ON DISK**, byte-identical in filename
+    set to every prior reading this item has logged. The 27-30-day
+    retention-boundary risk this session's own predecessor flagged did
+    NOT materialize before this session could check — but it is close:
+    as of today the files are 27 days old against a 30-day retention
+    floor, so this is not a permanently closed question, just not lost
+    YET.
+
+    NEW EVIDENCE (fileRanges data, not available to any prior session on
+    this item): each of the 14 files' own embedded `t` min/max is
+    INTERNALLY CONSISTENT with its filename hour (file `-00` spans
+    00:00:28-00:59:28 UTC, file `-13` spans 13:00-13:36, etc., no
+    cross-file jumbling) — this independently confirms this morning's
+    [REPAIR] session's negative finding that hypothesis (c) (a filename/
+    content timestamp mismatch from the writer) does not fit. What
+    fileRanges ALSO surfaces, which no prior reading of this item had
+    (aggregate vessel counts and a file-presence list, but never
+    per-file ROW counts): file `-00` alone holds **67,433 rows** in one
+    hour. A same-day live-probed baseline (2026-08-13, a day this item
+    already treats as "confirmed-good") holds **72,733 rows across its
+    entire 24-file day** — i.e. ONE hour of 2026-08-05 carries roughly
+    **22x** an entire normal DAY's total row volume on the nearby
+    known-good baseline. Sampling the raw rows directly (`/api/diag/
+    archive?stream=vessels&day=2026-08-05&limit=5000`, no fileRanges):
+    5000 consecutive rows span only **5 distinct timestamps**, each
+    exactly 60 seconds apart, each carrying ~1,100-1,300 rows, with
+    4,384 of the 5,000 vessel ids UNIQUE (i.e., not simply the same
+    handful of vessels re-pinging many times a second) — the archive
+    for this window looks like a full-fleet snapshot poll landing every
+    60 seconds (~1,000+ distinct vessels per snapshot), not the sparse,
+    per-message live AIS stream the confirmed-good baseline days show.
+
+    NOT YET A DIAGNOSIS, stated as narrowing per this item's own
+    established discipline (L21-style: a lead is not a finding until
+    it survives being read further): this is consistent with either
+    (i) a genuine one-off BULK BACKFILL/IMPORT job that ran against
+    this stream on 2026-08-05 and wrote historical or third-party
+    snapshot data stamped with its own batch-fetch time rather than
+    per-vessel report time, or (ii) some other writer-side behavior
+    change specific to that window that this session did not identify
+    (this session did not re-read `server/shadowFleet.ts`'s writer path
+    again beyond what this morning's [REPAIR] session already did — no
+    new writer-code hypothesis was tested, only the raw archive
+    contents). Does not resolve anomaly (b); narrows it further than any
+    prior reading (aggregate counts only) by showing the anomaly is
+    real at the RAW ROW level, not an artifact of the `portdwell_window`
+    aggregation path, and gives a specific, checkable shape (repeating
+    ~60s full-population batches) for whichever session attempts a full
+    diagnosis next.
+
+    NEXT: (1) the retention window is genuinely closing (27 of 30 days
+    elapsed as of this addendum) — if the actual root-cause diagnosis
+    (not just evidence preservation) is going to happen from raw-byte
+    inspection, it needs a session within the next ~1-3 days, or Railway
+    volume/shell access instead (which does not have this deadline).
+    (2) if a session gets volume/shell access, or diag-token access
+    again before the window closes, check whether this ~60s-batch
+    snapshot pattern also appears on 2026-08-06's contradiction (files
+    absent per `archiveDayFiles()`, yet a nonzero window read) — this
+    session did not re-probe 08-06 specifically beyond confirming
+    `files: []` again (already known). (3) grep the codebase (this
+    session did not) for any one-off/manual backfill script or import
+    path that could plausibly have run against the vessel archive
+    around 2026-08-05 — if one exists, this whole anomaly may already
+    have a known, benign, non-recurring explanation. NOT A SPEND
+    REQUEST.
+
 38. **[FOUND AND FIXED 2026-08-28, scheduled-routine session — via live
     `/api/diag/audit`] `server/bot.ts`'s `DEPLOY_TIMESTAMP` reset on every
     Railway redeploy, not just the one historical "post-27-bug-fix" cutover
