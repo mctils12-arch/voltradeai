@@ -72433,3 +72433,238 @@ evidence-loss deadline) alongside this session's primary GATE 1 action
 (PR #978); kept deliberately small and as its own PR rather than
 expanding scope into a full diagnosis this session did not have budget
 for.
+## 2026-09-01 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/countryLookup.ts new, server/countryLookup.test.ts new, scripts/gasflare_gate1.ts new, server/gasFlareCandidates.ts header) + SHARED (datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json, research/*): GAS FLARE CANDIDATES GATE 1 (DATA) actually run against real production archive — VERDICT: FAIL (v1.0.829)
+
+TERRITORY: T-DATACORE primary (a new, generic, reusable country-lookup
+module + a one-off gate-1 analysis script). SHARED kept last-and-minimal
+per WORKSTREAM PARTITION.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/
+PROGRAM_STATE.md, open_questions.md's KNOWN BROKEN section (37 items;
+none block PRODUCT work — items #30/#35/#36 are unfixed T-BOT/T-DATACORE
+repair items, noted per this routine's own instruction, not preempted),
+wishlist.md's register (STALE-PR BACKLOG note, not this session's
+territory), and the tail of experiments.md (today's two prior sessions:
+a [PIPELINE] ML-attribution session and the [PRODUCT] gas-flare-
+candidates build, plus a [REPAIR] session closing KNOWN BROKEN #37's
+diag-probe NEXT step). Live `/api/health`: `status:"ok"`, bot `active`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, all three
+feeds `dead:false` — no LIVENESS ALARM. `TZ=America/New_York date`:
+Monday 2026-09-01, Labor Day — market holiday, no trading session either
+way, no merge-timing constraint.
+
+PRIMARY-ACTION SELECTION: this session's environment carries a live
+`DIAG_TOKEN` — checked because the immediately-prior [REPAIR] session's
+own NEXT note flagged an URGENT, time-sensitive KNOWN BROKEN #37
+retention-window check that needed exactly this ("whichever session next
+has production diag-token... access"). Confirmed real production HTTP
+access (`/api/health` reachable, `/api/diag/archive` responds with real
+data). Rather than only chase that one repair-adjacent lead, surveyed
+what this same rare capability unblocks on the PRODUCT side per this
+routine's own instruction (gate 1/gate 2 IS product work): the earlier
+same-day gas-flare-candidates session had built a fully pre-registered
+GATE 1 plan and explicitly could not run it ("no production /data/
+voltrade FIRMS archive exists in this sandbox"). Live-checked: FIRMS
+archive files exist and are populated back through at least 2026-08-01
+(31+ days), clearing the module's own stated ">=30 days" prerequisite.
+Chose this as the primary action — a same-day module's own already-
+specified, previously-blocked test, now genuinely attemptable, over
+starting a new unrelated thread. (The KNOWN BROKEN #37 retention check
+was also run this session, using the same access, and is filed
+separately — see the immediately following entry — kept as its own
+commit per PROMOTION RULE 5, a genuinely distinct logical thread from
+this one.)
+
+READ BEFORE WRITE: read `server/gasFlareCandidates.ts` in full (the
+`FlareCandidateInput`/`GasFlareCandidate` shapes, `findGasFlareCandidates`'s
+actual grid/persistence logic and its stated defaults, `candidatesByRegion`'s
+injected-join contract) and `server/plantsUnderAlerts.ts` in full (its
+existing, tested `pointInRing`/`pointInAnyRing`/`ringsBbox` — reused
+rather than re-implemented) before writing anything. Read
+`server/bot.ts`'s `case "archive"` (the diag probe, including the
+`bbox` param added 2026-08-21 and the `fileRanges` param added by this
+morning's REPAIR session) to confirm the exact query contract. Read
+`scripts/crop_conditions_gate1.ts` and `scripts/dtcc_swaps_gate1.ts` as
+house-style precedent for a standalone gate-1 script (standalone
+`npx tsx`, JSON verdict to stdout, hand-cited TRUTH source, never wired
+into a production code path).
+
+TRUTH SOURCE: web-searched this session (not assumed from training) —
+the World Bank's 2026 Global Gas Flaring Tracker Report (2025 data),
+independently corroborated by two summaries (downtoearth.org.in,
+businessamlive.com): "The nine largest flaring countries in descending
+order are Russia, Iran, Iraq, Venezuela, Mexico, Libya, Algeria, Nigeria
+and the United States."
+
+WHAT SHIPPED:
+- `server/countryLookup.ts` (new) — `countryOf(lat, lon)`, the
+  `regionOf` join `candidatesByRegion()` was built to accept, over the
+  already-vendored `datacore/boundaries/ne_110m_admin0.json` (public
+  domain, already served raw as the "boundaries" map layer,
+  `server/routes.ts:1759`). Reuses `plantsUnderAlerts.ts`'s existing
+  even-odd ray-cast rather than a second implementation. Handles both
+  Polygon and MultiPolygon admin0 geometries. Smallest-bbox-area-first
+  scan order resolves the enclave case (a country's outer ring has no
+  hole cut for an enclave it fully surrounds, in this 110m dataset) —
+  live-verified, not assumed: Lesotho resolves to LSO, not ZAF, and a
+  genuine South African point still resolves to ZAF. Also exports
+  `countryBboxParam(iso3)` (the exact `lamin,lamax,lomin,lomax` string
+  the archive diag probe's `bbox` param expects) and `countryName(iso3)`.
+- `server/countryLookup.test.ts` (new) — 7 tests: known cities across
+  both geometry types, open-ocean null match, the enclave resolution
+  order, bbox/name helper correctness, unknown-iso3 null handling.
+- `scripts/gasflare_gate1.ts` (new) — the actual GATE 1 script. For
+  each of 8 countries (Russia excluded — see SCOPE CUT), for each of 14
+  days (2026-08-15 through 2026-08-28, chosen to sit clear of the KNOWN
+  BROKEN #37 vessel-archive anomaly window on general principle),
+  queries `/api/diag/archive?stream=fires&day=...&bbox=<country
+  bbox>&limit=5000` against production, re-filters every returned row
+  through the EXACT `countryOf()` polygon test (the bbox is a coarse
+  server-side pre-filter only, and several of these countries share
+  borders), and feeds the accumulated nighttime rows straight into the
+  REAL, UNMODIFIED `findGasFlareCandidates()` (no reimplementation of
+  its logic). Computes Spearman rank correlation between per-country
+  candidate count and the published truth order; pre-registered pass
+  bar rho >= 0.738 (n=8, alpha=0.05 two-tailed critical value, standard
+  table). Prints a full JSON verdict; touches no production code path.
+- `server/gasFlareCandidates.ts` header comment updated from "GATE 1
+  PLAN, documented not executed" to the actual result and a pointer to
+  the full account.
+- `datacore/signal_ladder.json` gains the `gas_flare_candidates` entry
+  (status `gate1_fail`) — this root had deliberately not been entered
+  before today per its own build session's note ("pre-gate-1
+  infrastructure... not just the code existing"); now that gate 1 has
+  actually been attempted, it belongs in the ladder.
+
+SCOPE CUT (found live, not anticipated when this morning's plan was
+written): Russia's admin0 polygon crosses the antimeridian (Chukotka
+extends past 180°, represented as separate coordinate pieces). A single
+bbox query for "Russia" (`lat 41-81`) is therefore a query for the
+ENTIRE GLOBE at that latitude band, not Russia specifically — confirmed
+live: that bbox returned `count:5000, truncated:true` on ordinary
+August wildfire-season noise (Canada, Scandinavia, Kazakhstan, Mongolia,
+China all share the latitude band), vs. every one of the 8 tested
+countries' bboxes coming back well under the 5000 cap on the identical
+day. Excluded rather than shipping a rushed 2-bbox workaround under
+session time pressure; filed as NEXT. This narrows the test to n=8
+(ranks 2-9 of the published 9) — not the full "top-15" the original
+same-day plan named, since no independently-sourced rank data beyond
+these 9 was found this session and CLAUDE.md's anti-fabrication rule
+forbids inventing ranks 10-15.
+
+RESULT: **rho = -0.4762 — GATE 1 FAIL, negative, not merely
+non-significant** (critical value +0.738 at n=8/alpha=0.05). Real
+per-country candidate counts (default detector thresholds, unmodified):
+USA 192 (HIGHEST of the 8, despite ranking LOWEST of the 8 by published
+flaring volume — 10 of its 14 days hit the 5000-row truncation cap,
+strong circumstantial evidence of western-US wildfire-season
+contamination the persistence/grid filter did not exclude), Algeria
+111, Libya 79, Venezuela 62, Mexico 45, Iraq 6, Iran 0, Nigeria 0.
+Exploratory robustness check (post-hoc, explicitly labeled as NOT the
+pre-registered test, reported per MEASUREMENT INTEGRITY rather than
+discarded because it was inconvenient): excluding the USA outlier, rho
+on the remaining 7 is STILL negative (-0.214) — the failure is not
+solely a single-country artifact.
+
+DIAGNOSIS (REASONING STANDARD #1 — trace the mechanism, don't stop at
+the headline number): the grid+persistence method alone does not
+adequately separate large, slow-moving/re-igniting wildfire complexes
+from true flare stacks at country-aggregate scale in August (Northern
+Hemisphere fire season) — a big Western US wildfire complex can occupy
+roughly the same footprint for well over half of a 14-night window and
+clear the same persistence bar a genuinely stable flare does. Distinct
+second miss: Iran (the #1 remaining flarer in this subset) returned
+ZERO candidates — not explained by wildfire contamination, and not
+diagnosed further this session (candidate causes not yet distinguished:
+real Iranian flare sites failing the current grid/persistence
+parameters, vs. a genuine archive-coverage gap for that specific
+bbox/window — left as NEXT item (3) below rather than guessed at).
+
+HONESTY (BUILD-FIRST HONESTY CLAUSE, applied as the module's own header
+said it would be): this clean negative is exactly the condition that
+was pre-named as the trigger for recommending VIIRS Nightfire's free
+registration. NOT recommending it yet, deliberately: a specific,
+concrete, low-cost, UNTRIED refinement exists (a wildfire discriminator
+— e.g. a per-night grid-cluster spatial-extent cap, or an FRP-stability
+check across nights, since a flare's radiant output is far steadier
+night-to-night than a spreading wildfire's) and REASONING STANDARD #4
+counsels against escalating to a paid/gated ask after a single untuned
+attempt. This is a considered, stated decision, not an oversight.
+
+RATCHET: `server/countryLookup.test.ts`'s 7 tests are the ratchet — they
+pin the exact behavior (including the enclave-resolution order) any
+future edit to this reusable join must preserve. `scripts/
+gasflare_gate1.ts` is a one-off analysis script (house precedent:
+`crop_conditions_gate1.ts`/`dtcc_swaps_gate1.ts` carry no test files of
+their own either — the reusable logic they call IS the tested part).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (fresh sandbox, both absent at session start).
+`npx tsx --test server/countryLookup.test.ts`: 7/7 pass. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (the two new .ts
+files introduce no new `any`/type-error surface). `bash scripts/
+gated_tests.sh`: GATE PASSED — client 1075/1075, python 1567/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: FIRST run under-counted (`tests_run_in_ci`/
+`assertions` showed no change) — root cause was the same "untracked
+files blind spot" PROGRAM_STATE.md's own L-series findings have logged
+before (the counters scan tracked files); `git add`-ing the 3 new files
+before re-running fixed it. Isolated this session's own contribution
+via a disposable `git worktree add /tmp/main_check_gf origin/main
+--detach` (same discipline prior sessions established): origin/main
+matched this branch's unmodified base exactly (`tests_run_in_ci`/
+`tests_gating_merge` 411, `assertions` 12727), so the full observed
+delta (412, 12746) is this session's own two new tests' direct effect —
+re-pinned both in `ci/counter_baseline.txt` in this same PR. All 25
+counters OK after the re-pin. `npm run build`: clean (same pre-existing
+warning classes every recent session logs — maplibre-gl chunk size,
+astronomy-engine default-export interop, mapIcons dynamic/static dual
+import — none touched here). No visual harness run: zero `client/src`
+files touched (`git status --short` confirms), same exemption
+zero-rendering-delta PRs have used before.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 statistical validation of a
+RAW candidate-detector module; no trading path, scoring, sizing, or
+threshold touched. Zero customer-facing or trading-loop impact either
+way: `gas_flare_candidates` was pre-gate-1 infrastructure with no
+`/data` or `/api/v1` surface before today, so a gate-1 FAIL here only
+stops this specific detector design from advancing without the
+refinement named above — nothing live degrades.
+
+CROSS-SYSTEM INTEGRATION: `countryLookup.ts` is new, generic,
+reusable infrastructure — any future country-aggregate gate-1/gate-2
+test (the module's own header notes this explicitly) can reuse it
+without re-parsing the boundary file. No new archive, external
+dependency, or join beyond the already-served boundary dataset and
+`plantsUnderAlerts.ts`'s existing algorithm.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+VERSION: v1.0.829 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before
+the bump confirmed `origin/main` was still exactly this branch's base,
+v1.0.828/PR #977 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Labor Day, market closed (`TZ=America/New_York date`
+confirmed) — no merge-timing constraint.
+
+DOCS: `research/open_questions.md`'s GAS FLARE CANDIDATES entry gained
+a dated ADDENDUM with the full result, diagnosis, and NEXT list (not
+duplicated here in full — see that entry).
+
+NEXT (queued, not this session): (1) the wildfire-discriminator
+refinement, re-run against the SAME 2026-08-15..28 window (still inside
+the 30-day raw-retention boundary through roughly 2026-09-27) so the
+comparison stays apples-to-apples. (2) a correctly-scoped 2-bbox Russia
+query (split at the antimeridian), or wait for the archive diag probe
+to gain pagination past its 5000-row cap. (3) investigate Iran's
+zero-candidate result specifically before drawing any conclusion about
+it. (4) if (1) also comes back negative, the VIIRS Nightfire free
+registration ask becomes the honest next step per the HONESTY CLAUSE.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the same-day module's own pre-registered, previously
+untested GATE 1 plan, made newly attemptable by this session's own
+production access), used in full, including building genuinely reusable
+country-join infrastructure rather than a script-local one-off hack.
