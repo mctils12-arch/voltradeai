@@ -13990,3 +13990,119 @@ untested GATE 1 plan, made newly attemptable by this session's own
 production access), used in full including building the reusable
 country-join infrastructure the plan required rather than a one-off
 script-local hack.
+
+**SECOND ADDENDUM 2026-09-01 (scheduled-routine session, later the same
+day) [PIPELINE] — NEXT step (1), the wildfire-discriminator refinement,
+attempted. RESULT: also a clean negative.**
+
+PRIOR (REASONING STANDARD #10, stated before running): web-searched
+VIIRS Nightfire's own published methodology (Elvidge et al., "VIIRS
+Nightfire: Satellite Pyrometry at Night") this session — its algorithm
+separates flares from biomass burning on "temperature and persistence":
+flares hold a stable, persistent retrieved temperature; wildfires are
+"far more variable." This module has no Planck-fit temperature (needs
+bands FIRMS doesn't expose), so FRP is the nearest available proxy for
+radiant-output stability. Expected the refined candidate counts to
+shrink (especially USA, the diagnosed wildfire-contaminated outlier)
+and rho to move toward positive; stated as a real prior, not written
+after seeing the result.
+
+BUILT: `server/gasFlareCandidates.ts` gained an opt-in `maxFrpCV`
+filter (default undefined — existing default-detector behavior
+byte-for-byte unchanged unless a caller opts in) plus a new `frpCV`
+field on every `GasFlareCandidate` (coefficient of variation of a
+site's per-night mean FRP across its active nights; `null` when fewer
+than 2 nights carry FRP data, and a `null` frpCV is never treated as
+failing the filter — fail-open against thin records, not fail-closed).
+Threshold `MAX_FRP_CV = 0.6` in `scripts/gasflare_gate1.ts` was chosen
+a priori from the qualitative literature claim above, NOT fit to this
+dataset's own rho (REASONING STANDARD #4 — no threshold fishing).
+`scripts/gasflare_gate1.ts` now computes BOTH the baseline (unmodified,
+2026-09-01 first-addendum) and refined verdicts from the exact same
+fetched archive rows in one run, so the comparison is apples-to-apples
+against identical raw data, not a fresh sample.
+
+RE-RUN (same 2026-08-15..28 window, live production `/api/diag/archive`,
+same 8 countries, same `DAYS`/`TRUTH_RANK` constants — nothing else
+changed): refined per-country candidate counts shrank materially in
+every country — USA 192->156, Algeria 111->86, Libya 79->71, Venezuela
+62->40, Mexico 45->33 — while Iraq/Iran/Nigeria (6/0/0) were unaffected
+(too few FRP-bearing nights to compute a CV, so the fail-open rule kept
+them as-is). **Spearman rho: -0.4762, identical to 4 decimal places to
+the baseline run — GATE1_FAIL, unchanged.** The rank ORDER by candidate
+count did not move at all (USA still highest, Algeria still second,
+etc.) — the filter thinned every country's candidate set by roughly the
+same proportion (Mexico shed the largest share, ~27%; Libya the
+smallest, ~10%) rather than disproportionately correcting USA's
+specific over-representation relative to its lowest-of-8 published
+rank.
+
+DIAGNOSIS: FRP coefficient-of-variation, as implemented (per-night MEAN
+FRP across a site's active nights, at this module's 0.0075-degree grid
+resolution), does not distinguish this specific wildfire-contamination
+pattern. A plausible reason, not tested further this session
+(REASONING STANDARD #4 — one shot, not a second variant back-to-back
+without a fresh prior): western-US wildfire complexes that persist at
+roughly one grid cell for the required minNights=3 may ALSO burn with a
+fairly steady radiant output night-to-night at VIIRS's coarse spatial
+resolution (a large, slow-moving fire front looks locally stable in
+aggregate FRP even while the fire itself is clearly not a flare) — FRP
+stability alone, without a spatial-extent or true multi-band
+temperature signal, may not carry enough information to separate the
+two source types at this detector's resolution.
+
+HONESTY (BUILD-FIRST HONESTY CLAUSE, applied as designed by the
+2026-09-01 first-addendum's own NEXT note): this was the reserved
+"cheap refinement" attempt before escalating to VIIRS Nightfire's free
+registration ask. It also came back negative — both conditions the
+first addendum named as the escalation trigger are now met. Filed as an
+ACTIVE (not urgent) recommendation in `research/wishlist.md`'s matching
+2026-09-01 addendum for the human's weekly review — a free ID.me-style
+signup this session cannot complete itself, not a payment. NOT
+recommending abandoning the free detector entirely: `gas_flare_
+candidates` was never surfaced on `/data` or `/api/v1` (pre-gate-1
+infrastructure only), so this FAIL has zero live customer or trading
+impact, and the two untried items below could still change the picture
+before the human spends the signup.
+
+NEXT for whichever session picks this up: (1) a correctly-scoped Russia
+query (two bboxes split at the antimeridian, or wait for the diag probe
+to gain pagination) to reach the full top-9 truth rank instead of the
+current n=8. (2) investigate Iran's zero-candidate count specifically —
+the region's #1 remaining flarer by published volume returning zero
+candidates is either a genuine detector miss (its known flare sites not
+clearing minNights=3/minPersistence=0.5 as tuned) or an archive-coverage
+gap for that bbox/window, and the two have very different implications
+for whether the whole detector design or just this refinement is the
+problem. (3) if a future session wants a genuinely different refinement
+angle rather than re-tuning this one's threshold (REASONING STANDARD #4
+forbids threshold-fishing MAX_FRP_CV itself), a spatial-extent cap
+(max grid-cell footprint touched by one contiguous burn per night,
+which a spreading wildfire complex would violate even with steady FRP)
+is the more promising untried mechanism per the diagnosis above.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (fresh sandbox, same recurring provisioning gap).
+`npx tsx --test server/gasFlareCandidates.test.ts`: 18/18 pass (14
+pre-existing + 4 new: frpCV null on thin data, frpCV low/high on
+steady/erratic synthetic fixtures, maxFrpCV rejects the erratic site
+while leaving the steady one and leaving unfiltered behavior unchanged
+when maxFrpCV is omitted, maxFrpCV never rejects a null-frpCV site).
+`bash scripts/tsc_ratchet.sh`: 12/12 (exact match to `ci/
+tsc_baseline.txt`'s pin after `npm ci`; TS2304=0). `bash scripts/
+gated_tests.sh`: GATE PASSED — client 1075/1075, python 1567 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 statistical validation of a
+RAW candidate-detector module; no trading path, scoring, sizing, or
+threshold touched. Zero live customer or trading impact either way, per
+the HONESTY paragraph above.
+
+CROSS-SYSTEM INTEGRATION: none new this addendum — same as the first
+addendum, `countryLookup.ts`/`gasFlareCandidates.ts` reuse already-served
+datasets; no new archive, join, or external dependency added.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+action (the first addendum's own reserved NEXT step (1)), used in full,
+including the honest reporting of a second clean negative rather than
+threshold-fishing a pass.

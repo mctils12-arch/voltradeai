@@ -3592,3 +3592,41 @@ unrequested — the free `gasFlareCandidates.ts` path is the active one.
 **NOT A SPEND REQUEST** — no payment involved either way; the only
 possible future ask is a free registration, and that ask is explicitly
 deferred pending GATE 1 evidence, not made now.
+
+**ADDENDUM 2026-09-01 (same day, two sessions later) — GATE 1 evidence
+is now in, and the deferred registration recommendation is ACTIVE.**
+GATE 1 ran (research/open_questions.md's dated addendum): Spearman rho
+-0.4762 against the World Bank published country-flaring order (n=8,
+critical value +0.738) — a clean negative, not merely non-significant.
+The one cheap free-side refinement this entry's own HONESTY CLAUSE
+reserved before escalating — a wildfire-discriminator (FRP
+coefficient-of-variation filter, grounded in VIIRS Nightfire's own
+published "temperature and persistence" separation method) — was
+attempted this same day and also produced a clean negative: candidate
+counts shrank in every country but the rank correlation did not move
+(rho unchanged to 4 decimal places), because the filter thinned every
+country proportionally rather than correcting USA's specific
+over-representation. Both conditions this entry named as triggers for
+escalation ("GATE 1 fails" AND, per the module's own header, "a cheap
+refinement also fails") are now met.
+
+**RECOMMENDATION (human action needed — free signup only, no
+payment)**: register for `eogdata.mines.edu` (EOG/Colorado School of
+Mines VIIRS Nightfire), a human ID.me-style signup this autonomous
+session cannot complete on its own. This still is NOT urgent —
+`gas_flare_candidates` was never surfaced on `/data` or `/api/v1`
+(pre-gate-1 infrastructure only), so nothing customer-facing regresses
+by leaving this pending. Two untried items remain that could still
+change the picture cheaply before spending the registration ask
+(both filed as NEXT in research/open_questions.md): a correctly-scoped
+Russia query (currently excluded — its polygon crosses the
+antimeridian) would complete the full top-9 test rather than the
+current n=8; and Iran's anomalous zero-candidate count (the #1
+remaining flarer in the tested set) has not been root-caused — if it
+turns out to be an archive-coverage gap rather than a genuine detector
+miss, the correlation picture could look different. A future session
+should try those two before the human spends the signup, but this is
+now the honest disposition either way.
+
+**NOT A SPEND REQUEST** — still a free signup, not payment; recorded
+here for the human's weekly wishlist review, not self-actioned.
