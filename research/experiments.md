@@ -156,9 +156,9 @@ CSP engine has produced few/no standalone single-leg closes in the current
 window) worth its own trace — not assumed either way this session, since
 no production trade_feedback file exists in this sandbox to check directly.
 
-STARVATION: not STARVED — this session's fall-through budget was fully
-spent on one primary action (SESSION BUDGET: one well-scoped, fully-gated
-PR is the correct unit, not padding with a second unrelated change).
+STARVED: no — this session's fall-through budget was fully spent on one
+primary action (SESSION BUDGET: one well-scoped, fully-gated PR is the
+correct unit, not padding with a second unrelated change).
 
 ## 2026-08-31 (scheduled-routine session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the last 5 unmapped `/api/v1` tools (get_track, get_graph, archive/secftd/midas stats) get hand-verified `RESPONSE_DATA_SCHEMAS` entries — full 37/37 coverage (v1.0.825)
 
