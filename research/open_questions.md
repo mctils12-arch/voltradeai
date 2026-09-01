@@ -5176,6 +5176,48 @@
     2026-08-19(2)/v1.0.744 session's `oldestRawHour()`/`coverage_caveat`
     work) is closed this session as superseded, its unique un-landed
     delta salvaged into this entry.
+
+    **ADDENDUM 2026-09-01 (scheduled-routine session, [REPAIR]-adjacent,
+    v1.0.828) — NEXT step (2) SHIPPED; a negative finding on the
+    hypothesis; an URGENT retention-window caveat.** `/api/diag/archive`
+    gained an opt-in `fileRanges=1` param
+    (`archiveFileTimestampRanges()` in `server/datacoreArchive.ts`):
+    for a given stream/day, reports each file's OWN embedded `t`
+    min/max next to its filename, via a full streaming pass uncapped by
+    any row `limit`. Not yet run against production (no live diag-token
+    access from this sandbox) — this closes the "build the instrument"
+    half of NEXT (2), not the diagnosis itself.
+    NEGATIVE FINDING (read-before-write on the live writer code, not
+    assumed): re-read `server/shadowFleet.ts`'s `readVesselTracks`/
+    `foldVesselArchiveAsync` (the reader behind `portdwell_window`) and
+    `archiveVessels`/`hourFile` (the writer) in full. There is NO vessel
+    equivalent of `archiveAircraftAt` (the aircraft "trace backfill"
+    writer that CAN bucket a row under an hour different from the row's
+    own timestamp) — `archiveVessels` derives both a row's `t` field AND
+    its file's hour bucket from the exact same `now` value in the same
+    function call, every time. Under the CURRENT vessel writer, a row's
+    `t` and its own file's name cannot diverge. This means this entry's
+    own hypothesis (c) ("a timezone or clock-skew defect in the AIS
+    ingestion writer") does not fit the live code as written — whatever
+    produced the archiveDayFiles()-zero/window-spike contradiction is
+    not a simple row-t-vs-filename mismatch from a wall-clock-derived
+    write path. Does not resolve the item; narrows it. (Does not rule
+    out a mismatch from some OTHER writer path this session did not
+    find, or a filesystem-level issue outside the application code
+    entirely — e.g. a partial write, a rollup race, or manual
+    intervention on the volume.)
+    URGENT RETENTION CAVEAT (new, not previously stated on this item):
+    `RAW_RETENTION_DAYS = 30`. As of this addendum (2026-09-01), 27 days
+    have elapsed since 2026-08-05 — close to, and possibly already past,
+    the point where those raw hour files are rolled into coarse daily
+    track summaries and the raw files DELETED. If that has already
+    happened, the raw-byte inspection NEXT (1) and (2) both depend on is
+    permanently gone; only the aggregate counts already recorded in this
+    entry would survive. Whichever session next has production diag-
+    token or Railway volume access should run `/api/diag/archive?
+    stream=vessels&day=2026-08-05&fileRanges=1` (and 08-06) BEFORE this
+    window ages out — this changes the item's urgency from "queued
+    whenever" to "queued now, or evidence-expired."
     NOT A SPEND REQUEST.
 
 38. **[FOUND AND FIXED 2026-08-28, scheduled-routine session — via live
