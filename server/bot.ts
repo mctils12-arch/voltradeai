@@ -10,7 +10,7 @@ import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
-import { readArchiveDay, oldestRawHour } from "./datacoreArchive";
+import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
@@ -2456,10 +2456,29 @@ print(json.dumps(s))
             : undefined;
           const result = await readArchiveDay(stream, day, undefined, limit, rowFilter);
           if (!result) return res.status(404).json({ error: "unknown stream (no archive directory on this instance)" });
+          // ADDED 2026-09-01 (scheduled-routine session): KNOWN BROKEN #37's
+          // own filed NEXT step (2) (research/open_questions.md, item 37,
+          // 2026-08-27) — report each of this day's files' OWN embedded `t`
+          // range next to its filename, so a filename/content mismatch (the
+          // vessel archive's still-unexplained 2026-08-05/06 anomaly: zero
+          // files reported for day=2026-08-06 by archiveDayFiles(), yet a
+          // window read ending 2026-08-06T12:00 reported a 6-20x traffic
+          // spike) becomes visible from THIS sandbox without Railway
+          // volume/shell access, which item #37 named as the alternative
+          // when volume access isn't available. Opt-in (`fileRanges=1`) and
+          // computed SEPARATELY from `result` — never capped by `limit`,
+          // since a truncated read could hide a later file's mismatch
+          // entirely — so every existing caller that omits the param gets
+          // the byte-identical pre-existing response.
+          let fileRanges: Awaited<ReturnType<typeof archiveFileTimestampRanges>> | undefined;
+          if (String(req.query.fileRanges || "") === "1") {
+            fileRanges = await archiveFileTimestampRanges(archiveDayFiles(result.dir, day));
+          }
           return res.json({
             probe: "archive", stream, day, bbox: bbox || null,
             files: result.files, count: result.rows.length, truncated: result.truncated,
             rows: result.rows.map((r) => sanitizeDiag(r)),
+            ...(fileRanges ? { fileRanges } : {}),
           });
         }
         case "gnss_integrity": {

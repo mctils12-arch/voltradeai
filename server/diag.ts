@@ -41,7 +41,12 @@ export const DIAG_PROBES = [
   // surface (/api/data/*) serves only an in-memory recent-cache window.
   // Read-only, token-gated, one-day-per-call passthrough of an existing
   // archive directory; see readArchiveDay in datacoreArchive.ts and the
-  // "archive" case in bot.ts for the stream/day validation.
+  // "archive" case in bot.ts for the stream/day validation. ADDED
+  // 2026-09-01: optional `fileRanges=1` reports each file's own embedded
+  // `t` min/max next to its filename (archiveFileTimestampRanges in
+  // datacoreArchive.ts) — a filename/content mismatch detector, filed to
+  // close KNOWN BROKEN #37's own NEXT step for a sandbox with no Railway
+  // volume access.
   "archive",
   // ADDED 2026-08-03 (scheduled-routine session): shadow_portfolio.py's
   // get_shadow_stats() (win/loss counts by decision bucket, incl. the

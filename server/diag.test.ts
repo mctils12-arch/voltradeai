@@ -185,6 +185,20 @@ test("archive probe (2026-08-21): optional bbox param is validated and threaded 
     "the bbox filter must be passed into readArchiveDay itself (inline, before the row budget is spent), not applied after the fact on a truncated result");
 });
 
+test("archive probe (2026-09-01): optional fileRanges=1 reports per-file embedded t ranges via the dedicated reader, byte-identical response when omitted", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes("archiveFileTimestampRanges") && bot.includes('from "./datacoreArchive"'),
+    "must reuse the shared archiveFileTimestampRanges reader, not re-implement per-file range scanning");
+  const start = bot.indexOf('case "archive"');
+  const end = bot.indexOf("default:", start);
+  const block = bot.slice(start, end);
+  assert.ok(block.includes('req.query.fileRanges'), "must read an optional fileRanges query param");
+  assert.ok(block.includes("archiveFileTimestampRanges(archiveDayFiles(result.dir, day))"),
+    "fileRanges must be computed via archiveDayFiles + archiveFileTimestampRanges, over the SAME day's file list the archive probe itself resolved");
+  assert.ok(block.includes("...(fileRanges ? { fileRanges } : {})"),
+    "when fileRanges is not requested, the response object must be byte-identical to the pre-2026-09-01 shape (no fileRanges key at all)");
+});
+
 test("shadow probe (2026-08-03): wired, reuses get_shadow_stats() unchanged, sanitized like every other probe", () => {
   assert.ok((DIAG_PROBES as readonly string[]).includes("shadow"));
   const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
