@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-01 (scheduled-routine session) [PIPELINE] — SHARED-but-minimal (ml_model_v2.py, server/bot.ts, test_options_outcome_breakdown.py, research/*, package.json): options-vs-equity attribution added to the `/api/diag/ml` probe, answering KNOWN BROKEN #12(c)'s own NEXT step (1) — is the live win/loss/open growth attributable to the standalone single-leg options exit path? (v1.0.827)
+
+TERRITORY: SHARED-but-minimal — touches `bot_engine.py`/`ml_model_v2.py`/
+`system_config.py`/`strategies/` territory (T-BOT) plus SHARED bookkeeping
+files (`research/*`, `package.json`); no T-CLIENT/T-DATACORE file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full (including EDGE DOCTRINE per
+this session's brief), then all of `research/`. `python3
+scripts/research_state_check.py`: `audits_register` none overdue,
+`thrash_ratio` 0/10 REPAIR, `known_broken` 38 items/3 advisory-only
+(#26/#34/#38 — spot-checked this session, all fully fixed with tests, just
+missing the script's literal close-marker string), `starvation_signal` 0.
+Live `/api/health` (production): `status: "ok"`, bot `active`, `liveness.
+dark: false`, `drawdownPct: "0.0"`, feeds not dead. No LIVENESS ALARM — NOT
+a [REPAIR] session.
+
+PRIMARY ACTION SELECTION (per this session's brief — pick ONE EDGE
+DOCTRINE axis): checked all four before choosing.
+- (a) free-data pipeline: `python3 scripts/data_stream_registry_check.py
+  --unbuilt` — 10/35 unbuilt, and every one is `declined_dead_source`,
+  `blocked_free_key`/`blocked_registration` (human action required, not
+  buildable this session per BUILD-FIRST), or `un_comtrade`
+  (`candidate_unbuilt` but self-flagged "too lagged for direct alpha,
+  structural-thesis input only" — weak). Every CLAUDE.md-named axis-(a)
+  candidate (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+  FDA calendar, Google Trends) is already `built` or `declined_gate1_fail`
+  per the registry. No viable candidate this session.
+- (b) capacity-constrained/illiquid research: this session's own brief
+  already names the blocker — grepped `research/open_questions.md` and
+  confirmed the "Options fill realism" entry is still open, explicitly
+  gated on KNOWN BROKEN #12(b)/(c). Doing illiquid-universe research
+  without that fix would be exactly the "simulator fiction" the brief
+  warns against.
+- (c) foreign-field import: the two most recent [RESEARCH] entries
+  (renewal-process hazard rate 2026-08-19/09-01, Omori-Utsu aftershock
+  decay 2026-08-19) both already ran this exact play this cycle, one GATE
+  2-killed and one still provisional/underpowered. Not the highest-EV
+  repeat right now.
+- (d) compile recurring reasoning into code: re-reading #12(c) found its
+  own explicit unclaimed NEXT step (1), open since 2026-08-22 — "confirm
+  `/api/diag/ml`'s outcome breakdown gains real win/loss/open records
+  attributable to options tickers" — a question this session could ask
+  live but the diag probe had no way to answer (ticker is deliberately
+  never exposed, per `server/diag.ts`'s hard whitelist). Chose (d): build
+  the missing diagnostic once, rather than re-deriving "is this options
+  attribution real" from raw aggregate counts by hand again next time —
+  exactly the EDGE DOCTRINE #3 "never analyze the same thing twice with
+  reasoning" case, and it directly unblocks (b)'s stated blocker's own
+  gating question.
+
+PRIOR (REASONING STANDARD #10, stated before building): live `/api/diag/ml`
+(production, `server_version` matched this session's checkout) showed
+`live_outcome_breakdown: {orphan_exit: 219, win: 7, loss: 22, open: 16}` —
+45 real (non-orphan) records, up from the 9 `#12(c)` recorded as of
+2026-08-07, before the 2026-08-22 single-leg options wiring shipped. My
+prior: a material share of the +36 new records are attributable to that
+options path, since CSP is the standing Tier-1 engine — but I could not
+confirm this from the aggregate alone (no ticker field exposed, and no
+other field previously classified records by instrument), which is
+precisely why the tool needed building rather than guessing at a verdict.
+
+READ BEFORE WRITE: traced every `_record_options_exit_feedback(...)` call
+site in `options_manager.py` (8 sites, one per standalone single-leg CLOSE
+type — `dte_critical`, `assignment_close`, `dte_close`, `dte_close_bought`,
+`profit_target`, `loss_limit`, `bought_loss_limit`, `gamma_risk`) and the
+single equity/ETF exit-payload builder `server/exitFill.ts`
+(`buildExitFillPayload`, whose own doc comment already names its full
+5-value vocabulary: `stop_loss | trailing_stop | take_profit | time_stop |
+position_kill`) — confirmed by direct read, not assumed, that the two
+vocabularies share zero values, and that `exitFill.ts` is the ONLY equity
+exit-payload builder (per KNOWN BROKEN #35's fix, both live equity exit
+sites — POS-KILL and `checkPositionOnTick` — route through it).
+
+CHANGE:
+- `ml_model_v2.py`: new `OPTIONS_EXIT_REASONS` frozenset (the 8 strings
+  above) + pure function `options_outcome_breakdown(feedback: list) ->
+  dict`, computing the identical win/loss/open/flat bucketing as the
+  existing (untouched) `live_outcome_breakdown` logic, restricted to
+  records whose `exit_reason` is in that set. A strict SUBSET of the
+  existing aggregate, not an independently-computed number.
+- `server/bot.ts`: `/api/diag/ml`'s python heredoc now imports
+  `options_outcome_breakdown` and sets a new
+  `s['live_options_outcome_breakdown']` field alongside the existing
+  `live_outcome_breakdown`. No existing field's computation touched.
+- No new field on trade_feedback records themselves — works retroactively
+  on every record already recorded (including the 45 live ones above),
+  since `exit_reason` has been stamped by both writers since before this
+  session.
+- Aggregate counts only, same hard-whitelist posture (`server/diag.ts`) as
+  every other diag probe field — no ticker, no price ever leaves this
+  endpoint.
+
+WHY NOT MEASUREMENT-INTEGRITY GATED: no existing metric's computation
+changed on any input, historical or live — `live_outcome_breakdown` (and
+everything it feeds, e.g. `adjustStrategyWeights()`) is byte-identical
+before/after this change. This is a new, additive read, not a tuned ruler.
+
+RATCHET: `test_options_outcome_breakdown.py` (9 tests) — empty/None
+feedback, seeded/non-dict records excluded, equity-vocabulary records
+correctly excluded, options-vocabulary records correctly bucketed by
+outcome, missing-outcome defaults to `'open'` (matching the existing
+probe's own convention exactly, so the two numbers stay comparable), mixed
+options+equity+orphan input only counts the options subset, the constant
+pins its exact 8 members, and a static source-scan test greps
+`options_manager.py`'s real call sites and fails if `OPTIONS_EXIT_REASONS`
+and the actual literals ever drift apart in either direction (protects
+this diagnostic's own honesty against a future 9th close site). A/B
+verification: temporarily deleted `"bought_loss_limit"` from the constant
+via a scripted `sed`-equivalent swap, re-ran the suite — 3 of 9 tests fail
+(the bucketing fixture that uses it, the exact-8-members pin, and the
+drift-scan test), restored, all 9 pass again. End-to-end sanity check with
+a synthetic 6-record mixed trade_feedback file confirmed the field isolates
+exactly the options-attributed records (1 win/1 loss/1 open) out of the
+full breakdown (2 win/2 loss/2 open), correctly excluding two equity
+records and one null-`exit_reason` orphan-style record.
+
+GATES (installed missing sandbox deps first — `numpy`, `pytest`,
+`openpyxl` — via `pip install`, then `npm ci`; matches the documented
+"incomplete sandbox" gap prior sessions have hit, not a new finding):
+`bash scripts/gated_tests.sh` — GATE PASSED: server 1472/1472 node tests
+(incl. the 9 new Python tests are separate — python suite: 1564
+passed/2 skipped, 5 pre-existing warnings unrelated to this change),
+client 1075/1075, quarantine 0/1 none overdue. `bash
+scripts/tsc_ratchet.sh` — 12/12, exact match to `ci/tsc_baseline.txt`'s
+pin, TS2304=0 (no new TS errors — the pre-existing 12 are all in
+unrelated files: TradeChart.tsx, datamap.tsx, billing.ts, bot.ts's own
+unrelated pre-existing errors, owmTiles.ts). `bash
+scripts/counter_ratchet.sh` — 25/25 counters at or better than baseline.
+`npm run build` — clean (client + server bundle both built).
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, threshold, or
+order-submission logic touched; this is a read-only diagnostic addition
+over already-recorded data.
+
+VERSION: v1.0.827 (package.json bumped at commit time, read-and-increment
+per MERGE-ORDER PROTOCOL; origin/main tip re-fetched immediately before
+bumping — no drift, `1.0.826` matched).
+
+HYPOTHESIS / NEXT (falsifiable, for a future session with live access): a
+single `/api/diag/ml?token=$DIAG_TOKEN` call now answers KNOWN BROKEN
+#12(c)'s NEXT step (1) directly via the new `live_options_outcome_breakdown`
+field. If it shows real non-empty win/loss counts, NEXT step (2) — the
+"Options fill realism" quote-based-pricing design question, gated on this
+exact evidence since 2026-07-23 — can finally move from "deferred forever"
+to "evaluate against real numbers," which in turn is what axis (b) of this
+session's own brief (illiquid-universe/capacity-constrained research) is
+blocked on. If the field stays empty despite `live_outcome_breakdown`
+continuing to grow, that is itself a new, narrower finding (single-leg
+options closes are happening but not reaching `track_fill`, or the live
+CSP engine has produced few/no standalone single-leg closes in the current
+window) worth its own trace — not assumed either way this session, since
+no production trade_feedback file exists in this sandbox to check directly.
+
+STARVED: no — this session's fall-through budget was fully spent on one
+primary action (SESSION BUDGET: one well-scoped, fully-gated PR is the
+correct unit, not padding with a second unrelated change).
+
 ## 2026-08-31 (scheduled-routine session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the last 5 unmapped `/api/v1` tools (get_track, get_graph, archive/secftd/midas stats) get hand-verified `RESPONSE_DATA_SCHEMAS` entries — full 37/37 coverage (v1.0.825)
 
 TERRITORY: SHARED-but-minimal — touches only server/apiProduct.ts (+its

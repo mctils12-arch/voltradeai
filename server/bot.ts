@@ -2229,7 +2229,7 @@ try:
     from storage_config import ML_MODEL_PATH, TRADE_FEEDBACK_PATH
 except ImportError:
     ML_MODEL_PATH = '/tmp/voltrade_ml_model.pkl'; TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-from ml_model_v2 import fills_slippage_stats
+from ml_model_v2 import fills_slippage_stats, options_outcome_breakdown
 from diagnostics import check_model_health
 s = {'model_exists': os.path.exists(ML_MODEL_PATH)}
 if s['model_exists']: s['model_age_hours'] = round((time.time() - os.path.getmtime(ML_MODEL_PATH)) / 3600, 1)
@@ -2269,6 +2269,12 @@ for _r in _feedback:
     _k = _r.get('outcome') if _r.get('outcome') is not None else 'open'
     _outcomes[_k] = _outcomes.get(_k, 0) + 1
 s['live_outcome_breakdown'] = _outcomes
+# ADDED 2026-09-01 (KNOWN BROKEN #12(c) NEXT step (1)): SUBSET of the
+# breakdown above, restricted to records attributable to the standalone
+# single-leg options exit path via exit_reason (never ticker — the hard
+# whitelist above still holds). See ml_model_v2.options_outcome_breakdown's
+# own docstring for why exit_reason is a safe, already-recorded proxy.
+s['live_options_outcome_breakdown'] = options_outcome_breakdown(_feedback)
 # REPAIR 2026-07-06 pt.3: the pt.2 breakdown REFUTED the orphan_exit theory
 # (500 live records, all bucketed 'open', zero orphan_exit) — but 'open' only
 # says outcome-is-missing; it cannot say WHICH writer created the records.

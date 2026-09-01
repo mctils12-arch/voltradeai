@@ -912,6 +912,72 @@
     natural next slices of this same item, whenever a future session picks
     them up.
 
+    **NEXT step (1) TOOLING SHIPPED 2026-09-01 (scheduled-routine session,
+    [PIPELINE], v1.0.827) — the diagnostic itself, not yet a verdict.**
+    PRIOR stated before building (REASONING STANDARD #10): live
+    `/api/diag/ml` already showed `live_outcome_breakdown` growing from
+    9 real (non-orphan) records as of 2026-08-07 to 45 (`win:7, loss:22,
+    open:16`, plus 219 `orphan_exit`) as of this session, 2026-09-01 — my
+    prior was that a material share of the NEW 36 records are attributable
+    to the single-leg options exit path shipped 2026-08-22, since CSP is
+    the standing Tier-1 engine, but the probe could not confirm this: it
+    deliberately never exposes ticker (server/diag.ts's hard whitelist),
+    so classifying by ticker format was never an option and no other field
+    existed to answer NEXT step (1) with. This session built the missing
+    field rather than guess.
+    HOW: `exit_reason` is a safe, already-recorded classification proxy —
+    read-before-write confirmed the 8 standalone single-leg CLOSE sites in
+    `options_manager.py` (this same item's own list: `dte_critical`,
+    `assignment_close`, `dte_close`, `dte_close_bought`, `profit_target`,
+    `loss_limit`, `bought_loss_limit`, `gamma_risk`) and `exitFill.ts`'s
+    single equity/ETF exit-payload builder (`stop_loss`, `trailing_stop`,
+    `take_profit`, `time_stop`, `position_kill`) share ZERO values — a
+    disjoint vocabulary, not assumed from memory. New
+    `ml_model_v2.OPTIONS_EXIT_REASONS` (frozenset) + pure function
+    `options_outcome_breakdown(feedback)` compute the exact same
+    win/loss/open/flat bucketing as the existing `live_outcome_breakdown`,
+    restricted to records whose `exit_reason` falls in that set — a
+    SUBSET, directly comparable to the existing number, not an independent
+    metric. Wired into `/api/diag/ml` as a new
+    `live_options_outcome_breakdown` field (server/bot.ts); no existing
+    field's computation changed, so this is additive tooling, not a
+    MEASUREMENT INTEGRITY-gated metric change. Works retroactively on
+    every record already recorded, including before this function existed
+    — no backfill needed. Aggregate counts only; no ticker, no price — same
+    hard-whitelist posture as every other diag probe field.
+    RATCHET: new `test_options_outcome_breakdown.py` (9 tests) — bucketing
+    correctness, seeded/non-dict records excluded, missing-outcome
+    defaults to `'open'` matching the existing probe's own convention, and
+    a static source-scan test
+    (`test_exit_reason_constant_matches_options_manager_call_sites`) that
+    greps `options_manager.py`'s actual call sites and fails if a future
+    9th close site's reason string isn't added to `OPTIONS_EXIT_REASONS`
+    (or vice versa) — this is the drift-prevention this diagnostic itself
+    needs to stay honest. A/B-verified by temporarily deleting
+    `bought_loss_limit` from the constant: 3 of the 9 tests fail (the
+    bucketing test whose fixture uses it, the exact-8-members pin, and the
+    drift-scan test itself), all 9 pass restored.
+    VERDICT DEFERRED: this session did NOT read the field live (no
+    production `/data/voltrade` trade_feedback file exists in this
+    sandbox; the earlier `/api/diag/ml` numbers above were fetched from
+    production directly, but the new field only exists once this PR
+    deploys). NEXT for a future session: once deployed, one
+    `/api/diag/ml?token=$DIAG_TOKEN` call answers NEXT step (1) directly —
+    if `live_options_outcome_breakdown` shows real win/loss counts, NEXT
+    step (2) (the "Options fill realism" quote-based-pricing design
+    question, gated on this since 2026-07-23) can finally be evaluated
+    against real evidence; if it stays empty despite `live_outcome_breakdown`
+    growing, that itself is a new, narrower finding (single-leg options
+    exits are firing but not reaching `track_fill`, or the CSP engine has
+    produced few/no standalone single-leg closes in this window) worth its
+    own trace.
+    GATES: `bash scripts/gated_tests.sh` — PASSED (server 1472/1472 node
+    tests incl. the 9 new ones, client 1075/1075, python 1564 passed/2
+    skipped); `bash scripts/tsc_ratchet.sh` — 12/12, exact match to
+    `ci/tsc_baseline.txt`'s pin (no new TS errors); `bash
+    scripts/counter_ratchet.sh` — 25/25 counters at or better than
+    baseline; `npm run build` clean. Full trace in experiments.md.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/
