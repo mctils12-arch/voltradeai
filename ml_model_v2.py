@@ -2554,6 +2554,51 @@ def track_fill(order_data: dict) -> None:
 # stats directly from feedback records that actually carry them (entry
 # fills only — exit-fill updates and orphan-exit records never set
 # expected_price/slippage_pct, so they're excluded by construction).
+# ══ options_outcome_breakdown — options-vs-equity attribution for /api/diag/ml ═
+# ADDED 2026-09-01 (scheduled-routine session, [PIPELINE]): answers KNOWN
+# BROKEN #12(c)'s own NEXT step (1) in research/open_questions.md — "confirm
+# /api/diag/ml's outcome breakdown gains real win/loss/open records
+# attributable to options tickers" — which the diag probe could not answer
+# on its own: the probe's HARD WHITELIST (server/diag.ts) deliberately never
+# exposes ticker, so classifying by ticker format is off the table. Every
+# standalone single-leg options CLOSE this repo records
+# (options_manager.py's 8 `_record_options_exit_feedback` call sites, wired
+# 2026-08-22 per KNOWN BROKEN #12(c)) stamps one of these 8 exit_reason
+# strings; exitFill.ts's equity/ETF exit path (the only other live writer of
+# a non-orphan record) uses a disjoint 5-value vocabulary (stop_loss,
+# trailing_stop, take_profit, time_stop, position_kill) — confirmed by
+# reading both call-site sets this session, not assumed. A record whose
+# exit_reason falls in this set can only have been written by the options
+# exit path, so it is a safe options-attribution proxy that needs no new
+# field and works retroactively on records already recorded before this
+# function existed. test_options_manager_exit_reason_drift.py statically
+# scans options_manager.py's call sites and fails if a 9th reason string
+# is ever added here without a matching update to this constant.
+OPTIONS_EXIT_REASONS = frozenset({
+    "dte_critical", "assignment_close", "dte_close", "dte_close_bought",
+    "profit_target", "loss_limit", "bought_loss_limit", "gamma_risk",
+})
+
+
+def options_outcome_breakdown(feedback: list) -> dict:
+    """Outcome-bucket counts (win/loss/open/flat/orphan_exit/...) restricted
+    to records attributable to the standalone single-leg options exit path,
+    via OPTIONS_EXIT_REASONS. Mirrors the live_outcome_breakdown bucketing
+    in server/bot.ts's /api/diag/ml probe (missing 'outcome' defaults to
+    'open', seeded backtest records excluded) so the two numbers are
+    directly comparable — this is a SUBSET of that same breakdown, not an
+    independent computation."""
+    outcomes: dict = {}
+    for r in feedback or []:
+        if not isinstance(r, dict) or r.get("_seed"):
+            continue
+        if r.get("exit_reason") not in OPTIONS_EXIT_REASONS:
+            continue
+        k = r.get("outcome") if r.get("outcome") is not None else "open"
+        outcomes[k] = outcomes.get(k, 0) + 1
+    return outcomes
+
+
 def fills_slippage_stats(feedback: list) -> dict:
     """Aggregate entry-fill slippage stats from trade_feedback records.
 
