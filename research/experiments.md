@@ -72873,3 +72873,190 @@ PRODUCT action (the same-day module's own pre-registered, previously
 untested GATE 1 plan, made newly attemptable by this session's own
 production access), used in full, including building genuinely reusable
 country-join infrastructure rather than a script-local one-off hack.
+
+## 2026-09-01 (scheduled-routine session, later the same day) [PRODUCT] — T-DATACORE (server/shadowFleet.ts, server/shadowFleet.test.ts, server/shadowFleetGate1.ts caller only, server/bot.ts, server/diag.ts, server/diag.test.ts) + SHARED (ci/counter_baseline.txt, package.json, package-lock.json, research/*): shadow_fleet_maritime GATE 1 (DATA) — tanker-pool + case-control instrumentation BUILT and wired to a new bounded-memory diag probe, run itself deferred to next deploy (v1.0.831)
+
+TERRITORY: T-DATACORE primary (shadow-fleet detection module + its diag
+surface) + SHARED-but-minimal (counter pin, version bump, research/*).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+(a separate rendering/harness-hardening program, T-CLIENT/shared territory,
+not this session's), research/open_questions.md's KNOWN BROKEN section
+(38 items; #37, the vessel-archive anomaly, remains open and REPAIR-owned —
+noted, not preempted, per this routine's own instruction), and the tail of
+experiments.md (three prior sessions today: gas-flare-candidates GATE 1
+FAIL + wildfire-discriminator follow-up, both now escalated to a wishlist
+VIIRS Nightfire recommendation; a KNOWN BROKEN #37 fileRanges probe +
+retention-window check). `python3 scripts/session_health_check.py`: 7/7 OK,
+no LIVENESS ALARM, server_version 1.0.830 matched this checkout at session
+start. `python3 scripts/research_state_check.py`: audits register none
+overdue, thrash_ratio 2/10 REPAIR (below the 7+ trigger), known_broken 38
+items/3 advisory-only, starvation_signal 0. `mcp__github__list_pull_requests`
+(state=open): exactly one open PR, #604, an intentional "do not merge"
+backlog draft — no duplicate-work risk.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` — 0/2
+gate2_pending roots ready (both still waiting on elapsed time).
+`python3 scripts/data_stream_registry_check.py --unbuilt` — the one
+buildable-but-unbuilt candidate (un_comtrade) is a low-priority, heavily-
+lagged structural-thesis root, not worth a full session. Surveyed
+`datacore/signal_ladder.json` fresh instead of re-touching gas-flare
+(already 3 sessions deep today, its own HONESTY CLAUSE escalation already
+filed — REASONING STANDARD #4 argues against a 4th same-day pass without a
+genuinely new angle) or KNOWN BROKEN #37 (REPAIR-owned, not blocking
+product work). Found two `gate1_pending` roots: `space_weather_swpc`
+(blocked on an actual G2+ geomagnetic storm landing in the archive — not
+actionable) and `shadow_fleet_maritime`, whose own 2026-08-29 NEXT note
+named two fully-specified, previously-blocked-only-on-production-access
+steps. This session's confirmed `DIAG_TOKEN` access (verified live
+`/api/health` before anything else) unblocks exactly that — chosen as the
+highest-value action: advancing a datacore pipeline through its next
+ladder gate is explicitly named product work by this routine's own
+instruction.
+
+READ BEFORE WRITE: read `server/shadowFleet.ts` in full (readVesselTracks/
+readVesselTracksAsync/foldVesselArchiveAsync, detectGapEvents/
+detectLoitering/detectIdentityCandidates, and — critically — the
+2026-07-05 OOM REPAIR comments explaining why the materializing readers
+are restricted to tests/small archives) and `server/shadowFleetGate1.ts`/
+`server/shadowFleetReference.ts` in full before writing anything. Read
+`server/diag.ts` and the `portdwell_window`/`midas_quarter` cases in
+`server/bot.ts` as the house pattern for a new bounded-exposure diag
+probe, and `server/diag.test.ts`'s wiring-test style for each existing
+probe.
+
+FINDING THAT CHANGED THE PLAN (REASONING STANDARD #1 — trace before
+building): the 2026-08-29 NEXT note's literal instruction — "build the
+tanker-only universe... now that the reader carries `st`" — reads as an
+instruction to call `readVesselTracksAsync`. Doing that against a live
+72h+ window would materialize the whole vessel archive into a Map (>800MB
+of JS objects at current scale per the module's own OOM REPAIR comment),
+inside the same process the trading loop runs in under a 512MB-class
+memory ceiling — the exact defect this codebase already fixed once
+(2026-07-05, prod OOM-crash-looped every ~61s). `server/
+archiveFoldMemory.test.ts` already asserts, as a REQUIRED test, that no
+runtime module outside shadowFleet.ts/portDwell.ts's own sync wrapper
+paths may call the materializing readers — a rule this session's first
+draft violated and the gate caught immediately (see GATES below).
+
+WHAT SHIPPED (memory-safe path instead):
+- `server/shadowFleet.ts`: `TANKER_SHIP_TYPE_MIN`/`MAX` (80/89, AIS
+  ITU-R M.1371 tanker range) as named exported constants.
+  `ShadowAggregator` (the bounded-memory online fold `computeShadowStatsAsync`
+  already uses in production) gained a `tankers: Set<string>` populated in
+  `push()` from the archive's own `st` field, and a new `gate1Inputs()`
+  method reducing its EXISTING bounded `gaps`/`inZone` state (no new
+  materialization) into `{ gapMmsis, loiterMmsis, tankerPool }`. The
+  loitering predicate itself was factored out of `detectLoitering` into a
+  shared `loiteringMatches()` helper so the per-zone COUNT view (existing,
+  unchanged behavior) and two new MMSI-identity views (`gate1Inputs()` and
+  a new test-only `detectLoiteringMmsis()`, mirroring `detectGapEvents`'s
+  existing sync-materializing-family pattern) can never drift against each
+  other — both are pure reductions of the one predicate.
+- `server/bot.ts` + `server/diag.ts`: new token-gated probe `GET
+  /api/diag/shadowfleet_gate1?hours=&seed=` — folds the real archive
+  through `ShadowAggregator` (never the materializing readers), restricts
+  the gap/loiter MMSIs to the tanker population, loads the committed OFAC
+  reference list (`datacore/ofac_sdn_vessels.json`), and calls
+  `shadowFleetGate1.ts`'s `evaluateEnrichment()` UNCHANGED — returning only
+  the aggregate `Gate1Verdict` (odds ratio, 95% CI, contingency counts, n's).
+  No per-vessel MMSI, position, or identity leaves the endpoint — same
+  reduced-exposure posture as every other diag probe.
+- Tests: `shadowFleet.test.ts` gained a `detectLoiteringMmsis` unit test
+  and a `ShadowAggregator.gate1Inputs` test that cross-checks the online
+  fold's output against the materializing detectors on an identical
+  synthetic archive (tanker gapper, tanker loiterer, non-tanker loiterer,
+  quiet tanker — confirms tanker-pool restriction and gap/loiter agreement
+  both hold). `diag.test.ts` gained the standard wiring test (probe
+  registered in `DIAG_PROBES`, reuses the shared aggregator/case-control
+  test, hours capped at 2880, never spreads the raw candidate set into the
+  response, and — new relative to the existing probes' tests — an explicit
+  assertion that the probe block never calls the materializing readers).
+
+CAUGHT AND FIXED DURING THIS SESSION'S OWN GATES (not swept under the rug):
+(1) first draft used `readVesselTracksAsync` directly in the new probe —
+caught by `archiveFoldMemory.test.ts`'s REQUIRED test failing immediately;
+rewritten to the `ShadowAggregator`/`gate1Inputs()` path above. (2) an
+explicit `(v: any)` parameter annotation pushed `ts_any` 1239->1240 in
+`test_ts_code_only.py`'s pinned counter — caught by the gate, fixed by
+typing the OFAC vessels array instead of annotating the callback param
+(no `: any` needed). (3) the diag.test.ts wiring test's own negative
+assertion ("must never call the materializing readers") initially failed
+against the PROBE'S OWN EXPLANATORY COMMENT, which had written out
+`readVesselTracksAsync(Async)`-shaped text — the same "prose defeats a
+source-scraping check" pattern this repo's PROGRAM_STATE.md has logged
+several times before (L9/L11/L15); reworded the comment rather than
+loosening the check.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the already-committed OFAC
+reference list, the existing STS-zone catalog, and the archive's own `st`
+field (already threaded through all three readers by the 2026-08-29
+session). No new external dependency.
+
+HONESTY / FACTUAL CORRECTION (filed in open_questions.md's matching
+addendum, not repeated in full here): 2026-09-01 is a regular Tuesday
+trading session, NOT Labor Day (2026-09-07, per `market_calendar.py`).
+Five entries logged earlier this same day incorrectly called today the
+holiday and concluded no merge-timing constraint applied. This session
+started at 14:44 ET, inside 9:30-16:00 — this PR's own body notes the
+market-hours situation honestly (see MARKET-HOURS NOTE below) rather than
+repeat the error.
+
+MARKET-HOURS NOTE: this session started mid-market-hours on a genuine
+trading day (see correction above). Per the filed, still-unresolved
+PROCESS GAP (wishlist.md, 2026-08-15/16): a "wait for close" note in a PR
+body does not actually gate this repo's `automerge` CI job (FROZEN PATH;
+confirmed unconditional on green CI, no time-of-day check exists). Opening
+as a draft to work around that has its own documented failure mode
+(PR #763, stranded 9 days). This change has ZERO trading-loop blast
+radius — a new read-only, token-gated GET diagnostic route; no file in
+bot_engine.py/system_config.py/risk_kill_switch.py/order-submission paths
+touched — matching the PROCESS GAP finding's own prior conclusion that
+substantively no harm results from such a change merging at any time of
+day. Noted honestly rather than via a decorative note.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(fresh sandbox). `npx tsx --test server/shadowFleet.test.ts`: 14/14 pass.
+`npx tsx --test server/diag.test.ts`: 19/19 pass. `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash scripts/gated_tests.sh`:
+GATE PASSED — client OK (101 files), python 1567 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue (first run caught the `ts_any`
+regression above; fixed and re-verified green). `bash scripts/
+counter_ratchet.sh`: isolated this session's own contribution via `git
+fetch origin main` (HEAD matched this branch's unmodified base, cb5d065/
+v1.0.830, exactly — no concurrent merge), so the full observed delta
+(`assertions` 12754->12776) is this session's own new tests; re-pinned in
+`ci/counter_baseline.txt` in this same PR. All 25 counters OK after the
+re-pin. `npm run build`: clean (same pre-existing warning classes every
+recent session logs — maplibre-gl chunk size, astronomy-engine
+default-export interop — none touched here). No visual harness run: zero
+`client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 (DATA) instrumentation for a
+raw candidate-detector root; no trading path, scoring, sizing, or
+threshold touched.
+
+VERSION: v1.0.831 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.830/PR #980
+— no concurrent session had merged ahead of this one).
+
+DOCS: `research/open_questions.md`'s SHADOW-FLEET SIGNAL section gained a
+dated addendum with the full architecture-change account, the Labor Day
+correction, and the exact NEXT call (`GET /api/diag/shadowfleet_gate1`)
+for whichever session runs it once this PR deploys.
+`datacore/signal_ladder.json`'s `shadow_fleet_maritime` entry updated
+in place (status held at `raw_only`/gate 0 — instrumentation is not a
+verdict).
+
+NEXT (queued, not this session): once this PR merges and deploys, call
+`GET /api/diag/shadowfleet_gate1?hours=720&token=$DIAG_TOKEN` (or wider,
+capped at 2880h) and record the verdict (odds ratio, 95% CI, enriched/
+insufficient_n) in both research files, promoting the ladder status only
+if `enriched` is true per the plan's own pre-registered PASS criterion.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the ladder's own stated next steps for a `gate1_pending`
+root, made newly attemptable by this session's production access), used
+in full, including catching and fixing an architecture mistake (the OOM
+risk) that a less careful session would have shipped.

@@ -305,3 +305,32 @@ test("midas_quarter probe (2026-08-25, MIDAS gate-2 support): wired, validates p
   assert.ok(mod.includes("MIDAS_MIN_DAYS_FOR_AGG") && mod.includes("cancelToTrade: a.litTrades > 0 ? a.cancels / a.litTrades : null"),
     "the aggregator must compute ratios from summed numerator/denominator across the quarter, not average per-day ratios");
 });
+
+test("shadowfleet_gate1 probe (2026-09-01, shadow-fleet GATE 1 support): wired, reuses the shared case-control test, never leaks per-vessel identities", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("shadowfleet_gate1"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./shadowFleetGate1"') && bot.includes("evaluateEnrichment"),
+    "shadowfleet_gate1 probe must reuse the shared evaluateEnrichment case-control test, not re-derive the odds ratio inline");
+  assert.ok(bot.includes('from "./shadowFleet"') && bot.includes("foldVesselArchiveAsync")
+    && bot.includes("ShadowAggregator") && bot.includes("gate1Inputs"),
+    "shadowfleet_gate1 probe must reuse the shared bounded-memory fold + aggregator, not the materializing readers");
+  assert.ok(!bot.match(/case "shadowfleet_gate1"[\s\S]*?readVesselTracks(Async)?\(/),
+    "shadowfleet_gate1 probe must never call the materializing vessel readers (OOM risk on the live archive) — see archiveFoldMemory.test.ts");
+  const start = bot.indexOf('case "shadowfleet_gate1"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "shadowfleet_gate1 probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes(", 2880)"), "hours must be capped (bounded read volume per call)");
+  assert.ok(block.includes("evaluateEnrichment("), "must call the shared case-control test");
+  assert.ok(block.includes("sanitizeDiag"), "shadowfleet_gate1 probe must pass the sanitizer like every other probe");
+  assert.ok(!block.includes("candidates: [...") && !block.includes("Array.from(candidates)"),
+    "response must never spread the raw candidate MMSI set into the returned JSON");
+  const mod = fs.readFileSync(path.join(here, "shadowFleetGate1.ts"), "utf8");
+  assert.ok(mod.includes("export interface Gate1Verdict") && mod.includes("ci_95") && mod.includes("odds_ratio"),
+    "the reused test module must already be aggregate-only in its output shape (odds ratio + CI, no MMSI list)");
+  const shadowFleetMod = fs.readFileSync(path.join(here, "shadowFleet.ts"), "utf8");
+  assert.ok(shadowFleetMod.includes("TANKER_SHIP_TYPE_MIN = 80") && shadowFleetMod.includes("TANKER_SHIP_TYPE_MAX = 89"),
+    "tanker population must be built from AIS ship-type codes 80-89, per the open_questions.md plan");
+  assert.ok(shadowFleetMod.includes("gate1Inputs("),
+    "ShadowAggregator must expose the bounded-memory gate-1 candidate/tanker-pool reduction, not require a materializing scan");
+});

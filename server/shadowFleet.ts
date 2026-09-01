@@ -242,11 +242,16 @@ export function detectIdentityCandidates(tracks: Map<string, Pt[]>,
   return count;
 }
 
-export function detectLoitering(tracks: Map<string, Pt[]>, zones: ShadowZone[],
-                                minHours = 4, maxMedianKts = 2): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const z of zones) out[z.id] = 0;
-  for (const pts of tracks.values()) {
+/** Shared predicate behind detectLoitering/detectLoiteringMmsis — one
+ *  (mmsi, zone) entry per vessel-zone pair that clears the sustained-slow-
+ *  presence bar. Factored out 2026-09-01 so the per-zone COUNT view
+ *  (detectLoitering, the existing RAW-stats surface) and the per-vessel
+ *  MMSI view (detectLoiteringMmsis, GATE 1 case-control support) can never
+ *  drift against each other — both are pure reductions of this one list. */
+function loiteringMatches(tracks: Map<string, Pt[]>, zones: ShadowZone[],
+                          minHours: number, maxMedianKts: number): Array<{ mmsi: string; zone: string }> {
+  const out: Array<{ mmsi: string; zone: string }> = [];
+  for (const [mmsi, pts] of tracks) {
     for (const z of zones) {
       const inZone = pts.filter((p) => kmBetween(p.la, p.lo, z.lat, z.lon) <= z.radius_km);
       if (inZone.length < 3) continue;
@@ -254,10 +259,28 @@ export function detectLoitering(tracks: Map<string, Pt[]>, zones: ShadowZone[],
       if (spanH < minHours) continue;
       const speeds = inZone.map((p) => p.v ?? 0).sort((a, b) => a - b);
       const median = speeds[Math.floor(speeds.length / 2)];
-      if (median <= maxMedianKts) out[z.id] = (out[z.id] || 0) + 1;
+      if (median <= maxMedianKts) out.push({ mmsi, zone: z.id });
     }
   }
   return out;
+}
+
+export function detectLoitering(tracks: Map<string, Pt[]>, zones: ShadowZone[],
+                                minHours = 4, maxMedianKts = 2): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const z of zones) out[z.id] = 0;
+  for (const m of loiteringMatches(tracks, zones, minHours, maxMedianKts)) out[m.zone] = (out[m.zone] || 0) + 1;
+  return out;
+}
+
+/** GATE 1 support (2026-09-01, shadow_fleet_maritime case-control test):
+ *  the same loitering predicate as detectLoitering, but returns the vessel
+ *  IDENTITIES rather than per-zone counts, so shadowFleetGate1.ts's
+ *  case-control test can build its candidate set. A vessel loitering in
+ *  more than one zone appears once. */
+export function detectLoiteringMmsis(tracks: Map<string, Pt[]>, zones: ShadowZone[],
+                                     minHours = 4, maxMedianKts = 2): Set<string> {
+  return new Set(loiteringMatches(tracks, zones, minHours, maxMedianKts).map((m) => m.mmsi));
 }
 
 /** [REPAIR 2026-07-05] Async streaming variant of readVesselTracks — the
@@ -366,6 +389,12 @@ export function foldVesselArchiveAsync(windowHours: number,
  *  membership, and per-zone in-zone speed runs (in-zone points only — a
  *  tiny subset of the archive). Produces output IDENTICAL to
  *  statsFromTracks on time-ordered input (pinned by the ratchet test). */
+// AIS ship-type codes 80-89 = tanker (ITU-R M.1371 Table 39); the exact
+// range research/open_questions.md's SHADOW-FLEET SIGNAL gate-1 plan names
+// for building "the tanker-only universe."
+export const TANKER_SHIP_TYPE_MIN = 80;
+export const TANKER_SHIP_TYPE_MAX = 89;
+
 export class ShadowAggregator {
   private zones: ShadowZone[];
   private points = 0;
@@ -374,12 +403,14 @@ export class ShadowAggregator {
   private byName = new Map<string, Set<string>>();
   private inZone = new Map<string, { t0: number; t1: number; speeds: number[] }>(); // key mmsi|zone
   private gaps: GapEvent[] = [];
+  private tankers = new Set<string>();        // GATE 1 support: MMSIs ever seen with st in [80,89]
   constructor(zones: ShadowZone[], private minGapHours = 6, private minDistanceKm = 100) {
     this.zones = zones;
   }
   push(mmsi: string, p: Pt): void {
     this.points++;
     if (!this.first.has(mmsi)) this.first.set(mmsi, p);
+    if (p.st != null && p.st >= TANKER_SHIP_TYPE_MIN && p.st <= TANKER_SHIP_TYPE_MAX) this.tankers.add(mmsi);
     const prev = this.prev.get(mmsi);
     if (prev && p.t > prev.t) {
       const dtH = (p.t - prev.t) / 3600;
@@ -442,6 +473,27 @@ export class ShadowAggregator {
               "and gated until validated against documented shadow-fleet vessels " +
               "(ladder gate 1; see research/open_questions.md).",
     };
+  }
+  /** GATE 1 support (2026-09-01, shadow_fleet_maritime case-control test):
+   *  the MMSI-level detector output the online fold already has bounded
+   *  state for, PLUS the tanker population — without materializing the
+   *  full per-vessel point archive the way readVesselTracks(Async) does
+   *  (the exact OOM this class exists to avoid; see the class doc comment
+   *  and the 2026-07-05 OOM REPAIR note on foldVesselArchiveAsync). Reuses
+   *  the identical loiter predicate `finish()` already computes for the
+   *  per-zone COUNT view — this is a second, MMSI-identity reduction of
+   *  the same `inZone` state, not a re-derivation. */
+  gate1Inputs(minLoiterHours = 4, maxMedianKts = 2): { gapMmsis: string[]; loiterMmsis: string[]; tankerPool: string[] } {
+    const gapMmsis = Array.from(new Set(this.gaps.map((g) => g.mmsi)));
+    const loiterMmsis = new Set<string>();
+    this.inZone.forEach((run, key) => {
+      if (run.speeds.length < 3) return;
+      if ((run.t1 - run.t0) / 3600 < minLoiterHours) return;
+      const speeds = run.speeds.slice().sort((a, b) => a - b);
+      if (speeds[Math.floor(speeds.length / 2)] > maxMedianKts) return;
+      loiterMmsis.add(key.slice(0, key.indexOf("|")));
+    });
+    return { gapMmsis, loiterMmsis: Array.from(loiterMmsis), tankerPool: Array.from(this.tankers) };
   }
 }
 

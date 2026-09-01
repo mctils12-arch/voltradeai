@@ -8,7 +8,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readVesselTracks, detectGapEvents, detectIdentityCandidates,
-  detectLoitering, computeShadowStats, ShadowZone,
+  detectLoitering, detectLoiteringMmsis, computeShadowStats, ShadowZone,
+  ShadowAggregator, foldVesselArchiveAsync, TANKER_SHIP_TYPE_MIN, TANKER_SHIP_TYPE_MAX,
 } from "./shadowFleet";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +81,36 @@ test("loitering: sustained slow presence inside a zone counts once per vessel", 
   assert.equal(loiter.laconian_gulf, 1);
 });
 
+test("detectLoiteringMmsis: same predicate as detectLoitering, MMSI identities instead of zone counts", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-loiter-mmsi-"));
+  const zoneA: ShadowZone = { id: "laconian_gulf", name: "Laconian Gulf", lat: 36.55, lon: 22.75, radius_km: 45 };
+  const zoneB: ShadowZone = { id: "fujairah", name: "Fujairah", lat: 25.12, lon: 56.34, radius_km: 45 };
+  writeArchive(base, [
+    // loiters in BOTH zones (>=3 points, >=4h span, each) — must appear
+    // once, not twice, in the MMSI set
+    { t: t(20), i: "111000111", c: "DUAL", la: 36.5, lo: 22.7, v: 0.4 },
+    { t: t(17), i: "111000111", c: "DUAL", la: 36.52, lo: 22.72, v: 0.6 },
+    { t: t(15), i: "111000111", c: "DUAL", la: 36.51, lo: 22.71, v: 0.2 },
+    { t: t(9), i: "111000111", c: "DUAL", la: 25.12, lo: 56.34, v: 0.2 },
+    { t: t(6), i: "111000111", c: "DUAL", la: 25.13, lo: 56.35, v: 0.5 },
+    { t: t(3), i: "111000111", c: "DUAL", la: 25.12, lo: 56.34, v: 0.3 },
+    // fast transiter — must NOT appear
+    { t: t(6.5), i: "888000888", c: "TRANSIT", la: 36.4, lo: 22.6, v: 14 },
+    { t: t(5.5), i: "888000888", c: "TRANSIT", la: 36.6, lo: 22.9, v: 14 },
+    { t: t(4.5), i: "888000888", c: "TRANSIT", la: 36.8, lo: 23.2, v: 14 },
+  ]);
+  const tracks = readVesselTracks(72, base, NOW);
+  const mmsis = detectLoiteringMmsis(tracks, [zoneA, zoneB]);
+  assert.deepEqual([...mmsis], ["111000111"]);
+  // cross-check against detectLoitering's own counts on the identical input:
+  // one vessel loitering in 2 zones must show up as 1 in EACH zone's count
+  // (detectLoitering counts per zone) while detectLoiteringMmsis reports it
+  // once overall — both are reductions of the same shared predicate.
+  const counts = detectLoitering(tracks, [zoneA, zoneB]);
+  assert.equal(counts.laconian_gulf, 1);
+  assert.equal(counts.fujairah, 1);
+});
+
 test("computeShadowStats aggregates with the honest caveat; wiring pinned", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-agg-"));
   writeArchive(base, [
@@ -98,6 +129,44 @@ test("computeShadowStats aggregates with the honest caveat; wiring pinned", () =
   assert.ok(l.description.includes("coverage loss"), "user-facing description must carry the caveat");
   const zones = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "shadow_zones.json"), "utf8"));
   assert.ok(zones.zones.length >= 5);
+});
+
+test("ShadowAggregator.gate1Inputs (2026-09-01, GATE 1 support): bounded-memory fold reports the same gap/loiter MMSIs as the materializing detectors, plus the tanker pool", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-gate1-"));
+  const zone: ShadowZone = { id: "laconian_gulf", name: "Laconian Gulf", lat: 36.55, lon: 22.75, radius_km: 45 };
+  writeArchive(base, [
+    // tanker that gaps (dark 10h, reappears ~400km away)
+    { t: t(20), i: "111000111", c: "GAPPER", la: 36.0, lo: 20.0, v: 12, st: 80 },
+    { t: t(10), i: "111000111", c: "GAPPER", la: 36.0, lo: 24.5, v: 12, st: 80 },
+    // tanker that loiters in the zone
+    { t: t(9), i: "222000222", c: "IDLER", la: 36.5, lo: 22.7, v: 0.4, st: 89 },
+    { t: t(7), i: "222000222", c: "IDLER", la: 36.52, lo: 22.72, v: 0.6, st: 89 },
+    { t: t(5), i: "222000222", c: "IDLER", la: 36.51, lo: 22.71, v: 0.2, st: 89 },
+    // cargo ship (NOT a tanker) that also loiters — must be in loiterMmsis
+    // but NOT in tankerPool
+    { t: t(9), i: "333000333", c: "CARGO", la: 36.4, lo: 22.6, v: 0.3, st: 70 },
+    { t: t(7), i: "333000333", c: "CARGO", la: 36.42, lo: 22.62, v: 0.5, st: 70 },
+    { t: t(5), i: "333000333", c: "CARGO", la: 36.41, lo: 22.61, v: 0.2, st: 70 },
+    // quiet tanker — in the tanker pool, no gap or loiter candidate
+    { t: t(6), i: "444000444", c: "QUIET", la: 50.0, lo: 50.0, v: 10, st: 84 },
+  ]);
+  const agg = new ShadowAggregator([zone]);
+  await foldVesselArchiveAsync(72, (mmsi, p) => agg.push(mmsi, p), base, NOW);
+  const inputs = agg.gate1Inputs();
+  assert.deepEqual(inputs.gapMmsis.sort(), ["111000111"]);
+  assert.deepEqual(inputs.loiterMmsis.sort(), ["222000222", "333000333"]);
+  assert.deepEqual(inputs.tankerPool.sort(), ["111000111", "222000222", "444000444"]);
+
+  // cross-check against the materializing detectors on the identical
+  // archive — the online fold and the sync scan must agree (same
+  // discipline as the existing RATCHET test pinning readVesselTracksAsync
+  // against readVesselTracks).
+  const tracks = readVesselTracks(72, base, NOW);
+  assert.deepEqual(new Set(detectGapEvents(tracks).map((e) => e.mmsi)), new Set(inputs.gapMmsis));
+  assert.deepEqual(detectLoiteringMmsis(tracks, [zone]), new Set(inputs.loiterMmsis));
+
+  assert.equal(TANKER_SHIP_TYPE_MIN, 80);
+  assert.equal(TANKER_SHIP_TYPE_MAX, 89);
 });
 
 test("RATCHET [REPAIR 2026-07-05]: async streaming reader is byte-identical to the sync scan (incl. gz)", async () => {

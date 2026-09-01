@@ -99,6 +99,15 @@ export const DIAG_PROBES = [
   // portdwell_window. See the "midas_quarter" case in bot.ts for the
   // `period` query param.
   "midas_quarter",
+  // ADDED 2026-09-01 (scheduled-routine PRODUCT session): unblocks the
+  // shadow_fleet_maritime GATE 1 (DATA) case-control enrichment test —
+  // see the "shadowfleet_gate1" case in bot.ts for the hours/seed query
+  // params. Runs evaluateEnrichment (shadowFleetGate1.ts) server-side over
+  // the real vessel archive and returns ONLY the aggregate verdict (odds
+  // ratio, CI, contingency counts) — no per-vessel MMSI, position, or
+  // identity leaves this endpoint, same reduced-exposure posture as every
+  // other probe here.
+  "shadowfleet_gate1",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
