@@ -883,6 +883,40 @@ export async function readArchiveDayEvenSample(
   return { dir, files: files.map((f) => path.basename(f)), rows, truncated };
 }
 
+/**
+ * Per-file embedded timestamp range: for each file, the min/max `t` (unix
+ * seconds) actually present in its own rows, read via a full streaming pass
+ * — deliberately NOT capped by any row `limit`, unlike readArchiveDay/
+ * readArchiveDayEvenSample above. Built to close KNOWN BROKEN #37's own
+ * filed NEXT step (research/open_questions.md, 2026-08-27): whether a
+ * file's NAME (its hour bucket) matches the timestamps its rows actually
+ * carry — a mismatch that a row-limited reader could hide entirely (a busy
+ * early file could exhaust `limit` before a later, mismatched file is ever
+ * opened). This makes that mismatch visible from a sandbox with no direct
+ * Railway volume/shell access, one caller of `archiveDayFiles()`'s own file
+ * list at a time. O(1) memory per file — only min/max/count are retained,
+ * never the rows themselves.
+ */
+export async function archiveFileTimestampRanges(
+  files: string[],
+): Promise<Array<{ file: string; rows: number; minT: number | null; maxT: number | null }>> {
+  const out: Array<{ file: string; rows: number; minT: number | null; maxT: number | null }> = [];
+  for (const fp of files) {
+    let rows = 0, minT: number | null = null, maxT: number | null = null;
+    await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
+      let row: Record<string, unknown>;
+      try { row = JSON.parse(line); } catch { return; }
+      const t = Number((row as any).t);
+      if (!Number.isFinite(t)) return;
+      rows++;
+      if (minT === null || t < minT) minT = t;
+      if (maxT === null || t > maxT) maxT = t;
+    });
+    out.push({ file: path.basename(fp), rows, minT, maxT });
+  }
+  return out;
+}
+
 export function archiveStats(baseDir?: string): any {
   const base = baseDir || archiveBaseDir();
   const out: any = { base, kinds: {} };

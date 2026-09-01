@@ -72175,3 +72175,180 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 PRODUCT action (completing a required-but-never-done BUILD-FIRST
 analysis, then acting on its own conclusion by building the free
 alternative rather than only writing the analysis up), used in full.
+
+## 2026-09-01 (scheduled-routine session) [REPAIR] — T-DATACORE (server/datacoreArchive.ts, server/bot.ts, server/diag.ts + tests): /api/diag/archive gets an opt-in fileRanges probe, closing KNOWN BROKEN #37's own filed NEXT step (v1.0.828)
+
+TERRITORY: T-DATACORE-primary (datacore diagnostic surface, no trading
+imports) + SHARED-but-minimal (counter pin, version bump, research/*).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `deploy_freshness`
+server_version=1.0.827 matched this checkout's `package.json` at
+session start. `python3 scripts/research_state_check.py`: audits
+register none overdue, thrash_ratio 0/10 REPAIR (well below the 7+
+trigger), known_broken 38 items/3 without an explicit close marker
+(#26/#34/#38, all three previously investigated and confirmed
+genuinely fixed, advisory only), starvation_signal 0/10. `mcp__github__
+list_pull_requests` (state=open): exactly one open PR, #604, a
+long-standing draft explicitly marked "do not merge as-is" — no
+in-flight duplicate-work risk for this session's territory.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): checked `python3
+scripts/ladder_readiness_check.py` (0/2 gate2_pending roots ready,
+both still WAITING on elapsed time) and `python3 scripts/
+data_stream_registry_check.py --unbuilt` (10/35 not built, all either
+declined/blocked-on-registration or already covered by the prior
+session's viirs_nightfire BUILD-FIRST writeup — nothing new to fell
+through to there). Fell through to reading `research/open_questions.md`'s
+KNOWN BROKEN section directly for an unresolved, buildable item: items
+#35 and #36 (both flagged NOT-fixed at some point) are in fact fully
+CLOSED on re-read (both have later "FIXED"/"CLOSED" sub-entries this
+session verified by reading in full). Item #37 (vessel-archive
+2026-08-05/06 anomaly, found 2026-08-19, re-confirmed live 2026-08-27)
+is genuinely still open, has NOT been touched by any session since, and
+its own filed NEXT list names a concrete, buildable-without-production-
+access step: "(2) if no volume access, extend /api/diag/archive... to
+report a file's OWN embedded timestamp range... next to its filename,
+so a name/content mismatch would be visible from this sandbox without
+volume access." This sandbox has no Railway volume/shell access
+(confirmed, same constraint every prior session touching this item
+logged) — so step (2), not step (1), is what this session could
+actually execute. Took it as this session's primary action: a REPAIR-
+adjacent action (builds the diagnostic instrument a future REPAIR
+session needs, does not itself fix the anomaly — no root cause was
+found this session, see INVESTIGATION below).
+
+READ BEFORE WRITE: read `server/datacoreArchive.ts`'s `archiveDayFiles`
+(the exact/day-prefix file lister item #37's finding is built on),
+`readArchiveDay`/`readArchiveDayEvenSample` (existing readers, to match
+their contract shape and NOT duplicate row-limit logic), and
+`streamJsonlLines` (the shared per-line streaming primitive, including
+its documented error-handling gotcha) before writing anything new. Read
+`server/shadowFleet.ts`'s `readVesselTracks`/`readVesselTracksAsync`/
+`foldVesselArchiveAsync` in full to understand exactly how the
+window-based vessel reader selects files (parses each filename's own
+YYYY-MM-DD-HH stamp via `fs.readdirSync` + `Date.parse`, INDEPENDENT of
+`archiveDayFiles()`'s day-string-prefix match) and filters rows (by the
+row's own embedded `p.t`, independent of the filename). Read
+`archiveVessels`/`hourFile` (the live vessel writer) and confirmed there
+is NO vessel equivalent of `archiveAircraftAt` (the aircraft "trace
+backfill" writer that buckets by a row's OWN timestamp rather than
+wall-clock `now`) — every vessel archive write derives both the row's
+`t` field AND the file's hour bucket from the SAME `now` value in the
+SAME function call, so a vessel row's `t` and its file's name cannot
+diverge under the current writer code. This is a genuine (negative)
+finding, not assumed: it means item #37's "clock-skew defect in the AIS
+ingestion writer" hypothesis, as stated, does not fit the live vessel
+writer's actual code shape — whatever produced the archiveDayFiles()
+zero-files/window-spike contradiction is not a simple writer-side
+row-t-vs-filename mismatch for a wall-clock-only write path. Recorded as
+a new note on item #37 in open_questions.md (see WHAT SHIPPED) rather
+than silently discarded, per REASONING STANDARD #1 (trace the chain,
+state what you found even when it narrows rather than resolves the
+question).
+
+WHAT SHIPPED: `archiveFileTimestampRanges(files)` (new, datacoreArchive.
+ts) — for each file, a full streaming pass (via the existing
+`streamJsonlLines`, uncapped by any row `limit`, since a limited read
+could hide a later file's mismatch entirely) reporting `{file, rows,
+minT, maxT}` from the row's own `t` field. O(1) memory per file (only
+min/max/count retained, rows never materialized). Wired into the
+existing `/api/diag/archive` probe (`server/bot.ts`) behind a new
+opt-in `fileRanges=1` query param, computed separately from the
+existing `result` (via `archiveDayFiles(result.dir, day)`, the exact
+file list the probe itself already resolves for that stream/day) so
+every existing caller that omits the param gets a byte-identical
+response to the pre-2026-09-01 shape. `server/diag.ts`'s DIAG_PROBES
+comment updated to document the new param (no whitelist change needed
+— "archive" was already listed).
+
+INVESTIGATION, NOT A FIX: this session did NOT resolve KNOWN BROKEN
+#37's underlying anomaly — no production archive data exists in this
+sandbox to run the new probe against. What shipped is the INSTRUMENT a
+future session (or this routine, once production has fresh 2026-08-05/06-
+adjacent... actually that window has long since rolled past the 30-day
+RAW_RETENTION_DAYS boundary by now, 2026-09-01 vs the 2026-08-05/06
+event — noted as a NEW caveat below, not previously flagged) would need
+to settle the mismatch by inspection. The negative finding above (the
+vessel writer cannot itself produce a row-t/filename mismatch under
+current code) is filed as a note on item #37, narrowing but not closing
+it.
+
+RETENTION CAVEAT (found this session, filed as a NEW addendum to item
+#37, not previously stated there): `RAW_RETENTION_DAYS = 30` — as of
+this session (2026-09-01), the 2026-08-05/06 raw hour files this item's
+whole NEXT plan depends on inspecting are likely already rolled up
+into coarse daily track summaries and DELETED from the raw archive (27
+days elapsed since 2026-08-05, well past the 30-day floor is close but
+not yet certain without a live check — the exact rollup date depends on
+when each file's OWN 30-day clock started, which is exactly the kind of
+detail this session cannot verify without production access). Filed as
+an urgent addendum: whichever session next has Railway volume/shell OR
+production diag-token access should check `/api/diag/archive?
+stream=vessels&day=2026-08-05&fileRanges=1` (or a plain volume `ls`)
+BEFORE this window rolls off entirely, or item #37 becomes permanently
+unresolvable — the raw evidence, not just the aggregate counts already
+recorded, would be gone for good. This is a genuine time-sensitive
+finding, not padding: it changes the item's urgency from "queued
+whenever" to "queued before ~2026-09-05ish, or moot."
+
+HONESTY (MEASUREMENT INTEGRITY scope check): this change adds a new
+read-only diagnostic capability; it does not alter any existing metric,
+P&L computation, or fill/slippage model, so the MEASUREMENT INTEGRITY
+before/after-on-identical-inputs requirement does not apply — the
+existing archive probe's response is unchanged byte-for-byte when the
+new param is omitted (verified by test, see GATES).
+
+GATES: `npm ci` + `pip install -r requirements-dev.txt -r
+requirements.txt` required (fresh sandbox, node_modules/pytest both
+missing at session start — the same recurring provisioning gap prior
+sessions have logged; confirmed via `git status --short` showing zero
+unexpected tracked-file changes before concluding this wasn't a
+regression). `npx tsx --test server/datacoreArchive.test.ts`: 42/42
+pass (34 baseline + 8 new: 5 for `archiveFileTimestampRanges` covering
+multi-file ranges, the exact filename/content-mismatch shape item #37
+describes as a synthetic fixture, empty files, non-numeric/missing `t`
+rows excluded not coerced to 0, and gzip transparency). `npx tsx --test
+server/diag.test.ts`: 18/18 pass (17 baseline + 1 new, pinning the
+opt-in param's wiring and its byte-identical-when-omitted contract).
+`npx tsx --test server/shadowFleet.test.ts`: 12/12 pass, unchanged
+(read for context, not modified). `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304 0, unchanged (pre-existing errors in unrelated code, none in
+files this diff touches). `bash scripts/gated_tests.sh`: GATE PASSED
+(client 1075/1075, python 1567/1 skipped/54 subtests, quarantine 0/1
+none overdue). `bash scripts/counter_ratchet.sh`: `assertions` 12705 ->
+**12727**, `tests_run_in_ci`/`tests_gating_merge` 410 -> **411** (this
+session's own new tests, re-pinned in `ci/counter_baseline.txt` in this
+same PR); all other 22 counters unchanged; re-ran clean after the
+re-pin. `npm run build`: clean (pre-existing chunk-size and
+`astronomy-engine` default-export warning classes only, neither
+touched by this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — read-only diagnostic addition, no
+strategy/threshold/sizing/scoring change, no trading behavior touched.
+
+VERSION: v1.0.828 (`package.json`/`package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before
+the bump confirmed `origin/main` was still v1.0.827/PR #976 — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS CHECK: session start 2026-09-01 (Labor Day, market
+holiday — no live trading session either way). This diff also has zero
+trading-loop blast radius regardless (a new opt-in query param on an
+existing read-only diagnostic route, no caller wiring beyond the probe
+itself) — no merge-timing caveat applies.
+
+NEXT (queued, not this session): (1) URGENT per the RETENTION CAVEAT
+above — a session with production diag-token or Railway volume access
+should run `fileRanges=1` against the vessels stream for 2026-08-05/06
+before that raw window ages out of RAW_RETENTION_DAYS, or item #37's
+raw evidence is lost for good. (2) if the files are already gone,
+item #37 should be marked "evidence expired, unresolved" rather than
+left implying a fresh investigation is still possible. (3) both
+`gate2_pending` ladder roots remain WAITING on elapsed time.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR-adjacent action (closing a specific, already-filed NEXT step
+that needed no production access), used in full, including the
+negative-finding investigation into the vessel writer's code shape and
+surfacing the retention-window urgency the original item never flagged.

@@ -15,6 +15,7 @@ import {
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
   readArchiveDayEvenSample, originOfPosType, oldestRawHour,
+  archiveFileTimestampRanges, archiveDayFiles,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -538,6 +539,78 @@ test("readArchiveDay: rowFilter applied inline keeps only matching rows and does
   const unfiltered = await readArchiveDay("fires", "2026-08-20", base, 2);
   assert.deepEqual(unfiltered!.rows.map((r) => r.id), ["far0", "far1"],
     "omitting rowFilter is byte-identical to the pre-2026-08-21 behavior");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// archiveFileTimestampRanges (2026-09-01, closes KNOWN BROKEN #37's own
+// filed NEXT step (2): report each file's OWN embedded `t` range so a
+// filename/content mismatch is visible without Railway volume access).
+test("archiveFileTimestampRanges: reports the true min/max t per file, unaffected by any row limit", async () => {
+  const base = tmp();
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  const rows0 = [100, 200, 150].map((t) => JSON.stringify({ t, i: "m1" }));
+  fs.writeFileSync(path.join(dir, "2026-08-05-00.jsonl"), rows0.join("\n") + "\n");
+  const rows1 = [9000, 9500].map((t) => JSON.stringify({ t, i: "m2" }));
+  fs.writeFileSync(path.join(dir, "2026-08-05-01.jsonl"), rows1.join("\n") + "\n");
+  const files = archiveDayFiles(dir, "2026-08-05");
+  const ranges = await archiveFileTimestampRanges(files);
+  assert.deepEqual(ranges.map((r) => r.file), ["2026-08-05-00.jsonl", "2026-08-05-01.jsonl"]);
+  assert.deepEqual(ranges[0], { file: "2026-08-05-00.jsonl", rows: 3, minT: 100, maxT: 200 });
+  assert.deepEqual(ranges[1], { file: "2026-08-05-01.jsonl", rows: 2, minT: 9000, maxT: 9500 });
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("archiveFileTimestampRanges: a file NAMED for one hour but whose rows carry a DIFFERENT hour's t is exactly the mismatch this exists to surface", async () => {
+  const base = tmp();
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  // Named 2026-08-06-00 (the day the live anomaly's archiveDayFiles listing
+  // found zero files for) but its rows' own t values fall on 2026-08-05.
+  const mismatchedRowT = Math.floor(Date.parse("2026-08-05T23:50:00Z") / 1000);
+  fs.writeFileSync(path.join(dir, "2026-08-06-00.jsonl"), JSON.stringify({ t: mismatchedRowT, i: "m3" }) + "\n");
+  const ranges = await archiveFileTimestampRanges(archiveDayFiles(dir, "2026-08-06"));
+  assert.equal(ranges.length, 1);
+  const namedHourStartSec = Math.floor(Date.parse("2026-08-06T00:00:00Z") / 1000);
+  assert.ok(ranges[0].maxT! < namedHourStartSec,
+    "row t predates the hour the filename claims — this is the mismatch item #37 needs made visible");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("archiveFileTimestampRanges: empty file reports zero rows and null min/max rather than throwing", async () => {
+  const base = tmp();
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-08-05-02.jsonl"), "");
+  const ranges = await archiveFileTimestampRanges([path.join(dir, "2026-08-05-02.jsonl")]);
+  assert.deepEqual(ranges, [{ file: "2026-08-05-02.jsonl", rows: 0, minT: null, maxT: null }]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("archiveFileTimestampRanges: rows with a missing/non-numeric t are excluded from the count and range, not crashing or coercing to 0", async () => {
+  const base = tmp();
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = [
+    JSON.stringify({ i: "no-t" }),
+    JSON.stringify({ t: "not-a-number", i: "bad-t" }),
+    JSON.stringify({ t: 500, i: "good" }),
+    "not even json",
+  ];
+  fs.writeFileSync(path.join(dir, "2026-08-05-03.jsonl"), lines.join("\n") + "\n");
+  const ranges = await archiveFileTimestampRanges([path.join(dir, "2026-08-05-03.jsonl")]);
+  assert.deepEqual(ranges, [{ file: "2026-08-05-03.jsonl", rows: 1, minT: 500, maxT: 500 }]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("archiveFileTimestampRanges: reads gzipped files transparently, same as readArchiveDay", async () => {
+  const base = tmp();
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-08-05-04.jsonl.gz"),
+    zlib.gzipSync(Buffer.from(JSON.stringify({ t: 42, i: "gz1" }) + "\n")));
+  const ranges = await archiveFileTimestampRanges([path.join(dir, "2026-08-05-04.jsonl.gz")]);
+  assert.deepEqual(ranges, [{ file: "2026-08-05-04.jsonl.gz", rows: 1, minT: 42, maxT: 42 }]);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
