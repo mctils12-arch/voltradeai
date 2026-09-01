@@ -3522,3 +3522,73 @@ that lists ALL open Claude PRs regardless of draft/code-vs-docs status
 would have caught PR #888 sitting idle too, not just #763.
 
 **NOT A SPEND REQUEST.**
+
+## 2026-09-01 — BUILD-FIRST ANALYSIS: VIIRS Nightfire (gas flaring) — VERDICT: BUILD the free alternative, do not request registration yet
+
+Required before `viirs_nightfire` could even enter this file
+(`research/open_questions.md`'s 2026-07-25 DATA STREAM EXPANSION entry,
+item 4: "the strongest pure EDGE-DOCTRINE candidate here... free-
+alternative analysis required before it may enter wishlist"). This
+entry IS that writeup, and it also records the action taken on its own
+conclusion.
+
+WHAT VIIRS NIGHTFIRE OFFERS: EOG (Colorado School of Mines)'s dedicated
+flare-detection/characterization product — per-flare temperature and
+radiant-heat retrieval from VIIRS's low-gain multi-band data, used
+academically to estimate flared-gas volume (BCM) per site. Access:
+`eogdata.mines.edu`, gated behind free registration (a human ID.me-
+style signup — not a payment, same class as `uspto_patents`'s ODP key).
+
+BUILD-FIRST LADDER (CLAUDE.md order):
+1. **Do we already receive the raw material?** YES. `server/
+   nasaFirms.ts` already ingests VIIRS active-fire detections keylessly
+   (free `NASA_FIRMS_MAP_KEY`, commercial-lawful per this file's own
+   GEOSPATIAL LICENSING REGISTER "(c) FIRES" verdict) from the same
+   satellite family Nightfire's own flare-classification step consumes
+   as input. This alone is usually decisive per the rule's own ordering
+   — the paid/gated product is processing on top of data we already
+   have, not a data source we lack.
+2. Accumulation — n/a, already covered by (1).
+3. **Can inference substitute for ground truth?** Web-searched this
+   session (not assumed from training): temporal persistence at a fixed
+   pixel (a flare re-triggers the active-fire detector at the SAME
+   location night after night; a wildfire spreads, moves, or
+   extinguishes) is a real, published pre-Nightfire technique for
+   separating flares from wildfires in VIIRS/MODIS active-fire products
+   — confirmed via NOAA/NESDIS's own public explainer and arXiv:
+   2301.04141 ("Application of machine learning to gas flaring"), not
+   invented for this entry.
+4. Genuinely-paid-only capability — not reached; (1) and (3) together
+   make the free path viable.
+
+WHAT SHIPPED THIS SESSION (acting on the analysis, not just filing it):
+`server/gasFlareCandidates.ts` — a persistent-hotspot gas-flare
+CANDIDATE detector over the existing FIRMS archive, pure functions, no
+new fetch/archive/dependency. `server/gasFlareCandidates.test.ts` — 14
+unit tests, synthetic fixtures. Full account + the GATE 1 (DATA) plan
+(rank-correlate per-country candidate density against the World Bank
+GGFR's free, public annual country flaring-volume rankings — a genuine
+external ground-truth source) in `research/open_questions.md`'s
+matching dated entry. Not run against real data — no production
+`/data/voltrade` FIRMS archive exists in this sandbox.
+
+HONESTY (HONESTY CLAUSE — "build-first is not build-always"): the free
+version is DELIBERATELY cruder than Nightfire — it flags candidate
+sites and a coarse activity proxy (nights active, mean FRP), not
+per-flare temperature or volume (BCM). If the future GATE 1
+country-rank correlation against GGFR comes back a clean negative, or a
+later product need specifically requires per-site flared-gas VOLUME
+(not just candidate location), Nightfire's free registration becomes
+the honest next ask — the barrier is a signup, not money, so revisiting
+this verdict costs little. Filed here as a placeholder for that
+possibility, NOT as an active request:
+
+**IF GATE 1 fails or a volume-specific need arises**: register for
+`eogdata.mines.edu` free access (human ID.me-style signup, no cost) and
+wire the historical/near-real-time flare CSVs the same way
+`nasaFirms.ts` wires FIRMS. Until then, this stays unbuilt and
+unrequested — the free `gasFlareCandidates.ts` path is the active one.
+
+**NOT A SPEND REQUEST** — no payment involved either way; the only
+possible future ask is a free registration, and that ask is explicitly
+deferred pending GATE 1 evidence, not made now.
