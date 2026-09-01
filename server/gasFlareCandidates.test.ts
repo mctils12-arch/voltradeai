@@ -133,6 +133,58 @@ test("findGasFlareCandidates: custom minNights/minPersistence thresholds are hon
   assert.equal(findGasFlareCandidates(dets, { minNights: 5, minPersistence: 0.5 }).length, 0);
 });
 
+test("findGasFlareCandidates: frpCV is null when fewer than 2 nights carry FRP data", () => {
+  const dets = [
+    det(6, 6, "2026-08-01", "N", 50),
+    det(6, 6, "2026-08-02", "N", null),
+    det(6, 6, "2026-08-03", "N", null),
+  ];
+  const out = findGasFlareCandidates(dets, { minNights: 3, minPersistence: 0 });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].frpCV, null);
+});
+
+test("findGasFlareCandidates: frpCV is low for a steady-FRP site and high for an erratic one", () => {
+  const steady: FlareCandidateInput[] = [];
+  for (const [day, frp] of [["2026-08-01", 100], ["2026-08-02", 105], ["2026-08-03", 98]] as const) {
+    steady.push(det(7, 7, day, "N", frp));
+  }
+  const erratic: FlareCandidateInput[] = [];
+  for (const [day, frp] of [["2026-08-01", 10], ["2026-08-02", 300], ["2026-08-03", 20]] as const) {
+    erratic.push(det(8, 8, day, "N", frp));
+  }
+  const outSteady = findGasFlareCandidates(steady, { minNights: 3, minPersistence: 0 });
+  const outErratic = findGasFlareCandidates(erratic, { minNights: 3, minPersistence: 0 });
+  assert.ok(outSteady[0].frpCV! < 0.1, `expected low CV, got ${outSteady[0].frpCV}`);
+  assert.ok(outErratic[0].frpCV! > 1.0, `expected high CV, got ${outErratic[0].frpCV}`);
+});
+
+test("findGasFlareCandidates: maxFrpCV rejects an erratic-FRP site but keeps a steady one, at the same persistence/nights bar", () => {
+  const dets: FlareCandidateInput[] = [];
+  for (const [day, frp] of [["2026-08-01", 100], ["2026-08-02", 102], ["2026-08-03", 99]] as const) {
+    dets.push(det(9, 9, day, "N", frp)); // steady
+  }
+  for (const [day, frp] of [["2026-08-01", 5], ["2026-08-02", 400], ["2026-08-03", 15]] as const) {
+    dets.push(det(10, 10, day, "N", frp)); // erratic
+  }
+  const unfiltered = findGasFlareCandidates(dets, { minNights: 3, minPersistence: 0 });
+  assert.equal(unfiltered.length, 2, "no maxFrpCV set: both sites still qualify (default behavior unchanged)");
+
+  const filtered = findGasFlareCandidates(dets, { minNights: 3, minPersistence: 0, maxFrpCV: 0.6 });
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].siteKey, gridKey(9, 9));
+});
+
+test("findGasFlareCandidates: maxFrpCV never rejects a site whose frpCV is null (insufficient FRP data, fail-open)", () => {
+  const dets = [
+    det(11, 11, "2026-08-01", "N", 50),
+    det(11, 11, "2026-08-02", "N", null),
+    det(11, 11, "2026-08-03", "N", null),
+  ];
+  const out = findGasFlareCandidates(dets, { minNights: 3, minPersistence: 0, maxFrpCV: 0.1 });
+  assert.equal(out.length, 1, "frpCV===null must not be treated as failing the CV bar");
+});
+
 test("candidatesByRegion: sums candidate counts per region via the injected join, dropping unmatched ones", () => {
   const dets: FlareCandidateInput[] = [];
   for (const day of ["2026-08-01", "2026-08-02", "2026-08-03"]) {

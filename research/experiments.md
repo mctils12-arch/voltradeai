@@ -3,6 +3,211 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-01 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED-but-minimal (server/gasFlareCandidates.ts, server/gasFlareCandidates.test.ts, scripts/gasflare_gate1.ts, datacore/signal_ladder.json, research/open_questions.md, research/wishlist.md, ci/counter_baseline.txt, package.json, package-lock.json): wildfire-discriminator refinement for the GAS FLARE CANDIDATES detector — the same-day GATE 1 FAIL's own reserved NEXT step (1) — built and re-run against the identical production archive window; RESULT: clean negative, rho unchanged, escalates the VIIRS Nightfire free-registration ask from deferred to active in wishlist.md (v1.0.830)
+
+TERRITORY: SHARED-but-minimal — touches `server/gasFlareCandidates.ts`/
+`.test.ts` and `scripts/gasflare_gate1.ts` (T-DATACORE-adjacent, but this
+module has no trading-path callers yet — pre-gate-1 infrastructure only,
+per its own header) plus SHARED bookkeeping (`datacore/signal_ladder.json`,
+`research/*`, `ci/counter_baseline.txt`, `package.json`,
+`package-lock.json`). No T-CLIENT or T-BOT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full per this session's brief,
+then `research/experiments.md` (last ~15 entries), `research/
+open_questions.md` KNOWN BROKEN section + tail, `research/wishlist.md`
+top. `python3 scripts/research_state_check.py`: `audits_register` none
+overdue, `thrash_ratio` 2/10 REPAIR in the last 10 tagged sessions
+(below the 7+ trigger), `known_broken` 38 items/3 advisory-only (#26/
+#34/#38, unchanged from the prior session's spot-check), `starvation_
+signal` 0. Live `/api/health` (production): `status: "ok"`, bot
+`active`, `liveness.dark: false`, `drawdownPct: "0.0"`, `feeds.dead: []`
+(aircraft/vessels/trains all silent <1.1h). No LIVENESS ALARM — NOT a
+[REPAIR] session. Confirmed local `HEAD` already matched `origin/main`
+tip (`0aaa176`, v1.0.829) before starting — no merged-PR branch-reset
+needed this session.
+
+PRIMARY ACTION SELECTION (per SESSION BUDGET's own ordering — a matured/
+queued item beats starting fresh research): the most recent entry at
+the tail of `research/open_questions.md` (this same day's GAS FLARE
+CANDIDATES GATE 1 FAIL addendum) named an explicit, unclaimed NEXT step
+(1) — "a wildfire-discriminator refinement... re-run against the SAME
+2026-08-15..28 archive window... so the comparison is apples-to-apples
+with this result, not a new sample" — filed specifically because the
+module's own HONESTY CLAUSE requires trying it BEFORE escalating to the
+VIIRS Nightfire registration ask. This is the textbook "next queued item
+from open_questions.md" case SESSION BUDGET's fall-through order (1)
+names, and doing it now (same session-day, same archive window still
+within retention) is exactly what the addendum's own apples-to-apples
+framing asked for — waiting risks the 2026-08-15..28 window aging out of
+the ~30-day archive retention before a later session picks it up.
+
+PRIOR (REASONING STANDARD #10, stated before running, not after): web-
+searched VIIRS Nightfire's own published methodology this session
+(Elvidge et al., "VIIRS Nightfire: Satellite Pyrometry at Night";
+corroborated by NOAA/NESDIS's public explainer) — its algorithm
+separates flares from wildfires on "temperature and persistence":
+flares hold a stable, persistent retrieved temperature; wildfires are
+"far more variable." This module has no Planck-fit temperature (needs
+bands the FIRMS active-fire product doesn't expose), so FRP — the one
+radiant-output measure this module does have — was chosen as the
+nearest available proxy for that stability signal. PRIOR: refined
+candidate counts would shrink (especially USA, the diagnosed wildfire-
+contaminated outlier from the first addendum) and the Spearman
+correlation would move toward positive, though possibly not all the way
+to GATE1_PASS. The threshold `maxFrpCV=0.6` was fixed from this
+qualitative claim before running — not fit to this dataset's own
+outcome (REASONING STANDARD #4).
+
+READ BEFORE WRITE: read `server/gasFlareCandidates.ts` (both `Find
+CandidatesOptions` and `findGasFlareCandidates`'s full accumulator
+logic) and `scripts/gasflare_gate1.ts` in full this session before
+touching either — confirmed by direct read that `findGasFlareCandidates`
+had exactly one call site in production code (`scripts/
+gasflare_gate1.ts`, itself not a production execution path per its own
+header) plus its own test file, so the new opt-in `maxFrpCV` parameter
+could not silently change behavior anywhere unaudited.
+
+CHANGE:
+- `server/gasFlareCandidates.ts`: `GasFlareCandidate` gains a `frpCV`
+  field (coefficient of variation of a site's PER-NIGHT mean FRP across
+  its active nights; `null` when fewer than 2 nights carried FRP data).
+  `FindCandidatesOptions` gains an opt-in `maxFrpCV?: number` — omitted
+  (the default), the detector's output is byte-for-byte unchanged from
+  before this session; when set, sites with `frpCV > maxFrpCV` are
+  excluded, EXCEPT a `null` frpCV (insufficient data to judge) is never
+  treated as failing the filter — fail-open, not fail-closed, against
+  thin records, a deliberate design choice stated in the code comment.
+- `scripts/gasflare_gate1.ts`: now computes BOTH the baseline
+  (unmodified, matches the first addendum's own result exactly as a
+  sanity check) and the refined (`maxFrpCV=0.6`) verdict from the
+  IDENTICAL fetched archive rows in a single run, so the two numbers
+  are never subject to a fresh-sample confound.
+- `datacore/signal_ladder.json`: `gas_flare_candidates` entry's `note`
+  and `source_ref` updated in place (single-line JSON, edited via exact
+  string match rather than a full Python re-dump — confirmed re-dumping
+  the whole file with `json.dumps(..., indent=2)` produces a ~2350-byte
+  diff against the original even with ZERO content changes, so a full
+  rewrite would have touched all 43 unrelated `roots` entries; `status`
+  stays `gate1_fail`, unchanged — this refinement did not pass the gate,
+  it only tested one more idea against it).
+- `research/open_questions.md` / `research/wishlist.md`: append-only
+  addenda (see below), no history rewritten.
+
+RE-RUN (`DIAG_TOKEN=... npx tsx scripts/gasflare_gate1.ts` against live
+production, same 8-country/14-day window as the first addendum):
+baseline reproduced exactly (`rho -0.4762`, same per-country order —
+confirms the archive window is stable and the refactor introduced no
+regression in the unmodified path). Refined counts (`maxFrpCV=0.6`):
+USA 192->156, Algeria 111->86, Libya 79->71, Venezuela 62->40, Mexico
+45->33; Iraq/Iran/Nigeria unchanged at 6/0/0 (too few FRP-bearing nights
+to compute a CV, so the fail-open rule left them untouched). **Refined
+Spearman rho: -0.4762 — identical to 4 decimal places, GATE1_FAIL,
+unchanged.** The rank ORDER by candidate count did not move: the filter
+thinned every country by roughly the same proportion (Mexico lost the
+largest share, ~27%; Libya the smallest, ~10%) rather than
+disproportionately correcting USA's specific over-representation
+relative to its lowest-of-8 published rank. PRIOR NOT CONFIRMED — the
+expected shrinkage happened exactly as predicted, but the correlation
+did not move as hypothesized. Reported as a clean negative, not re-tried
+with a second threshold this session (REASONING STANDARD #4 — one shot;
+threshold-fishing `maxFrpCV` until something passes would be exactly the
+multiple-hypothesis fishing REASONING STANDARD #4 warns against).
+
+DIAGNOSIS: FRP coefficient-of-variation, as implemented (per-night MEAN
+FRP at this module's 0.0075-degree/~830m grid resolution), does not
+separate this specific wildfire-contamination pattern. Plausible reason,
+not tested further this session: a large, slow-moving western-US
+wildfire complex that persists at roughly one grid cell for
+`minNights=3` can ALSO burn with a fairly steady aggregate radiant
+output night-to-night at VIIRS's coarse resolution — FRP stability
+alone, without a spatial-extent or true multi-band temperature signal,
+may not carry enough information to separate source types here.
+
+HONESTY (BUILD-FIRST HONESTY CLAUSE, applied as designed): this was the
+first addendum's own reserved "cheap refinement" attempt before
+escalating to VIIRS Nightfire's free registration ask. Both conditions
+that addendum named as the escalation trigger (GATE 1 fails AND a cheap
+refinement also fails) are now met. `research/wishlist.md`'s matching
+entry updated from "deferred, not an active request" to an ACTIVE (but
+not urgent — the detector was never surfaced on `/data` or `/api/v1`,
+so this has zero live customer/trading impact) recommendation for the
+human's weekly review: a free `eogdata.mines.edu` ID.me-style signup
+this session cannot complete itself, not a payment. Two untried items
+(a correctly-scoped Russia query; root-causing Iran's anomalous
+zero-candidate count) are flagged as worth trying before the human
+spends that signup, per the same HONESTY CLAUSE's spirit of exhausting
+cheap options first.
+
+RATCHET: `server/gasFlareCandidates.test.ts` gained 4 new tests (14 ->
+18): `frpCV` is `null` when fewer than 2 nights carry FRP data; `frpCV`
+is low for a synthetic steady-FRP site and high for an erratic one;
+`maxFrpCV` rejects the erratic site while keeping the steady one at the
+same persistence/nights bar, AND confirms unfiltered behavior is
+unchanged when `maxFrpCV` is omitted; `maxFrpCV` never rejects a
+`null`-frpCV site (the fail-open rule, directly tested, not just
+asserted in a comment). All 18 pass (`npx tsx --test server/
+gasFlareCandidates.test.ts`).
+
+GATES: `npm ci` required first (node_modules was near-empty — the same
+recurring sandbox-provisioning gap prior sessions have logged, not a new
+finding) + `pip install -r requirements.txt -r requirements-dev.txt`.
+`bash scripts/tsc_ratchet.sh`: 12/12 exact match to `ci/
+tsc_baseline.txt`'s pin (a pre-`npm ci` run misleadingly showed 3 due to
+missing `@types/node` in an empty `node_modules`, same class of
+false-negative prior sessions have hit — resolved by installing, not
+reported as a real gain). `bash scripts/gated_tests.sh`: GATE PASSED —
+client 1075/1075 (includes the 4 new tests), python 1567 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: `assertions` improved 12746 -> 12754 (the 4 new
+tests' own assertions), re-pinned in `ci/counter_baseline.txt`; all 25
+counters OK after the re-pin. `npm run build`: clean (client + server
+bundle both built; same pre-existing warning classes — astronomy-engine
+default-export interop, chunk-size — every recent session logs, none
+touched here). No visual harness run: zero `client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 statistical validation of a
+pre-gate-1 candidate-detector module with no trading-path caller; no
+scoring, sizing, threshold, or order-submission logic touched. Zero live
+customer or trading impact either way (module never surfaced on `/data`
+or `/api/v1`).
+
+VERSION: v1.0.830 (package.json + package-lock.json bumped at commit
+time via `npm install --package-lock-only`, read-and-increment per
+MERGE-ORDER PROTOCOL; `origin/main` tip re-fetched immediately before
+bumping — no drift, `1.0.829`/`0aaa176` matched).
+
+HYPOTHESIS / NEXT (falsifiable, for a future session): (1) a correctly-
+scoped Russia query (antimeridian-split bbox, or archive-probe
+pagination) would complete the full published top-9 truth rank instead
+of today's n=8 — worth trying before the Nightfire ask, since a
+different truth-rank composition could plausibly change the sign. (2)
+Root-cause Iran's zero-candidate count (the #1 remaining flarer
+returning zero is either a genuine detector miss or an archive-coverage
+gap — the two have very different implications for whether the whole
+grid+persistence design or just this refinement attempt is the
+problem). (3) If a future session wants a genuinely different
+refinement rather than re-tuning `maxFrpCV` itself (REASONING STANDARD
+#4 forbids that), a spatial-extent cap (max grid-cell footprint touched
+by one contiguous burn per night) is the more promising untried
+mechanism per this session's diagnosis. (4) If (1)-(3) don't change the
+picture, the wishlist.md ACTIVE recommendation stands — a future session
+or the human should register for VIIRS Nightfire.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action (the first addendum's own reserved NEXT step (1)), used
+in full, including the honest reporting of a second clean negative
+rather than threshold-fishing toward a pass.
+
+**MARKET-HOURS NOTE**: this session ran while the market was open. This
+PR is docs/research/detector-module only — no scoring, sizing, order-
+submission, or live trading-path code touched (confirmed above, zero
+trading-path caller exists for this module) — but per this session's own
+brief, merge should still wait until after 4:00 PM ET unless a reviewer
+judges otherwise; nothing here is a critical live-break fix that would
+justify merging early.
+
+---
+
 ## 2026-09-01 (scheduled-routine session) [PIPELINE] — SHARED-but-minimal (ml_model_v2.py, server/bot.ts, test_options_outcome_breakdown.py, research/*, package.json): options-vs-equity attribution added to the `/api/diag/ml` probe, answering KNOWN BROKEN #12(c)'s own NEXT step (1) — is the live win/loss/open growth attributable to the standalone single-leg options exit path? (v1.0.827)
 
 TERRITORY: SHARED-but-minimal — touches `bot_engine.py`/`ml_model_v2.py`/

@@ -51,10 +51,27 @@
  * significant at n=8, two-tailed, alpha=0.05 -> critical rho ~0.738,
  * per the standard Spearman critical-value table for small n).
  *
+ * WILDFIRE DISCRIMINATOR RE-RUN (2026-09-01, same-day follow-up, NEXT step
+ * (1) from the GATE 1 FAIL addendum): this run additionally computes a
+ * REFINED verdict from the exact same fetched rows using
+ * findGasFlareCandidates()'s new opt-in `maxFrpCV` filter (see
+ * server/gasFlareCandidates.ts header — FRP coefficient-of-variation as a
+ * proxy for VIIRS Nightfire's own "stable temperature" flare criterion).
+ * PRIOR (REASONING STANDARD #10, stated before this rerun): maxFrpCV=0.6
+ * was chosen from the qualitative literature claim (flares hold a
+ * "stable, persistent temperature"; wildfires are "far more variable") —
+ * not fit to this dataset's own rho. Expect the refined candidate counts
+ * to shrink (especially for USA, the diagnosed wildfire-contaminated
+ * outlier) and rho to move toward positive; if it doesn't, that is a
+ * genuine negative for this specific refinement, reported as such per
+ * MEASUREMENT INTEGRITY, not re-tried with a second threshold in the same
+ * session (REASONING STANDARD #4 — one shot, no post-hoc threshold
+ * fishing).
+ *
  * Usage: DIAG_TOKEN=... npx tsx scripts/gasflare_gate1.ts [prodBaseUrl]
- * Prints a JSON verdict to stdout. Touches no production code path; the
- * result is recorded in research/experiments.md +
- * datacore/signal_ladder.json by the session running it, not by this
+ * Prints a JSON verdict (baseline + refined) to stdout. Touches no
+ * production code path; the result is recorded in research/experiments.md
+ * + datacore/signal_ladder.json by the session running it, not by this
  * script.
  */
 import { countryOf, countryBboxParam, countryName } from "../server/countryLookup.ts";
@@ -66,6 +83,13 @@ const TOKEN = process.env.DIAG_TOKEN;
 // Published order (World Bank 2026 Global Gas Flaring Tracker Report,
 // descending flaring volume), Russia excluded per the SCOPE CUT above.
 const TRUTH_RANK: string[] = ["IRN", "IRQ", "VEN", "MEX", "LBY", "DZA", "NGA", "USA"];
+
+// Two-tailed critical value for Spearman rho at n=8, alpha=0.05 (standard table).
+const CRITICAL_RHO_N8_ALPHA05 = 0.738;
+
+// Wildfire-discriminator threshold, chosen a priori per the header PRIOR —
+// not fit to this run's own outcome.
+const MAX_FRP_CV = 0.6;
 
 // Clean window: after the KNOWN BROKEN #37 vessel-stream anomaly window,
 // well before "today" so no partial/still-accumulating day is included.
@@ -110,7 +134,10 @@ async function main() {
     return;
   }
 
-  const perCountry: Record<string, { candidateCount: number; rowCount: number; truncatedDays: number; sample: unknown }> = {};
+  const perCountry: Record<string, {
+    candidateCount: number; refinedCandidateCount: number;
+    rowCount: number; truncatedDays: number; sample: unknown;
+  }> = {};
   for (const iso3 of TRUTH_RANK) {
     const bbox = countryBboxParam(iso3);
     if (!bbox) throw new Error(`no bbox for ${iso3}`);
@@ -123,40 +150,49 @@ async function main() {
         allRows.push({ lat: r.lat, lon: r.lon, acq_date: r.acq_date, daynight: r.daynight, frp: r.frp });
       }
     }
+    // Baseline (unmodified 2026-09-01 gate-1 run) and the same-day
+    // wildfire-discriminator REFINED variant, both computed from the
+    // identical fetched rows so the comparison is apples-to-apples.
     const candidates = findGasFlareCandidates(allRows);
+    const refinedCandidates = findGasFlareCandidates(allRows, { maxFrpCV: MAX_FRP_CV });
     perCountry[iso3] = {
       candidateCount: candidates.length,
+      refinedCandidateCount: refinedCandidates.length,
       rowCount: allRows.length,
       truncatedDays,
       sample: candidates.slice(0, 3).map((c) => ({
         lat: Number(c.lat.toFixed(3)), lon: Number(c.lon.toFixed(3)),
-        nightsActive: c.nightsActive, persistence: Number(c.persistence.toFixed(2)), meanFrp: c.meanFrp,
+        nightsActive: c.nightsActive, persistence: Number(c.persistence.toFixed(2)),
+        meanFrp: c.meanFrp, frpCV: c.frpCV != null ? Number(c.frpCV.toFixed(3)) : null,
       })),
     };
-    console.error(`[gasflare_gate1] ${iso3} (${countryName(iso3)}): ${allRows.length} nighttime rows, ${candidates.length} candidates, ${truncatedDays} truncated days`);
+    console.error(`[gasflare_gate1] ${iso3} (${countryName(iso3)}): ${allRows.length} nighttime rows, ${candidates.length} candidates (${refinedCandidates.length} after maxFrpCV=${MAX_FRP_CV} refinement), ${truncatedDays} truncated days`);
   }
 
-  const ourRank = [...TRUTH_RANK].sort((a, b) => perCountry[b].candidateCount - perCountry[a].candidateCount);
-  const truthPositions = TRUTH_RANK.map((_, i) => i + 1); // published order IS the truth rank
-  const ourCandidateCounts = TRUTH_RANK.map((iso3) => perCountry[iso3].candidateCount);
   // Spearman needs matched-order rank pairs: truth rank position vs our
   // candidate count (higher count should correlate with a LOWER — i.e.
   // more senior — truth rank number for a positive-correlation pass, so
   // we correlate candidate count against (9 - truthPosition) to keep the
   // sign intuitive: higher count, higher (better) published rank -> +1.
   const truthScore = TRUTH_RANK.map((_, i) => TRUTH_RANK.length - i); // 8..1, best-flarer=8
-  const rho = spearman(ourCandidateCounts, truthScore);
 
-  // Two-tailed critical value for Spearman rho at n=8, alpha=0.05 (standard table).
-  const CRITICAL_RHO_N8_ALPHA05 = 0.738;
-  const verdict = rho >= CRITICAL_RHO_N8_ALPHA05 ? "GATE1_PASS" : (rho > 0 ? "GATE1_INCONCLUSIVE_WEAK_POSITIVE" : "GATE1_FAIL");
+  function summarize(countKey: "candidateCount" | "refinedCandidateCount") {
+    const counts = TRUTH_RANK.map((iso3) => perCountry[iso3][countKey]);
+    const rho = spearman(counts, truthScore);
+    const verdict = rho >= CRITICAL_RHO_N8_ALPHA05 ? "GATE1_PASS" : (rho > 0 ? "GATE1_INCONCLUSIVE_WEAK_POSITIVE" : "GATE1_FAIL");
+    const order = [...TRUTH_RANK].sort((a, b) => perCountry[b][countKey] - perCountry[a][countKey]);
+    return {
+      verdict,
+      spearman_rho: Number(rho.toFixed(4)),
+      our_order_by_candidate_count: order.map((iso3) => `${iso3} (${countryName(iso3)}): ${perCountry[iso3][countKey]}`),
+    };
+  }
 
   console.log(JSON.stringify({
-    verdict,
-    spearman_rho: Number(rho.toFixed(4)),
+    baseline: summarize("candidateCount"),
+    refined: { ...summarize("refinedCandidateCount"), maxFrpCV: MAX_FRP_CV },
     critical_rho_n8_alpha05: CRITICAL_RHO_N8_ALPHA05,
     truth_order_published: TRUTH_RANK.map((iso3) => `${iso3} (${countryName(iso3)})`),
-    our_order_by_candidate_count: ourRank.map((iso3) => `${iso3} (${countryName(iso3)}): ${perCountry[iso3].candidateCount}`),
     per_country: perCountry,
     window: { days: DAYS, count: DAYS.length },
     excluded: { RUS: "antimeridian bbox truncates at the 5000-row/day cap on non-Russia wildfire-season noise; see header SCOPE CUT" },
