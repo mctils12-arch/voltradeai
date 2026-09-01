@@ -71830,3 +71830,191 @@ MARKET-HOURS NOTE: this scheduled run occurred during market hours; the
 PR opened from this session states in its body that merge should wait
 until after 4:00 PM ET (no live trading logic touched, so this is a
 courtesy per the routine's own instruction, not a live-break exception).
+
+## 2026-09-01 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/gasFlareCandidates.ts new, server/gasFlareCandidates.test.ts new) + SHARED (ci/counter_baseline.txt, package.json, package-lock.json, research/*): GAS FLARE CANDIDATES — BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive already ingested (v1.0.826)
+
+TERRITORY: T-DATACORE-primary (a new server/ module reading a datacore
+data shape, no trading-logic import) + SHARED-but-minimal (counter pin,
+version bump, research/*).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM,
+`deploy_freshness` server_version=1.0.825 matched this checkout's
+`package.json` at session start. `python3 scripts/
+research_state_check.py`: audits_register none overdue, thrash_ratio
+0/10 REPAIR (well below the 7+ trigger — not a [REPAIR] session),
+known_broken 38 items/3 without an explicit close marker (#26, #34,
+#38 — all three previously investigated and confirmed genuinely fixed
+by prior sessions per PROGRAM_STATE.md/open_questions.md's own notes,
+re-verified as advisory-only this session, not a repair blocker),
+starvation_signal 0/10. No critical trading-loop KNOWN BROKEN item —
+product work proceeds per this routine's own instruction.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order, full survey this
+session): PLATFORM INTEGRATION PROGRAM queue clear (P5 only,
+HUMAN-GATED, `research/platform_program.md`'s own 2026-08-31 RESUME
+STATE). The "gate1_pass root, RAW `/history` route, no `/api/v1`
+mirror" sweep that the last ~15 [PRODUCT] sessions worked through is
+explicitly declared exhausted by the 2026-08-31 session's own NEXT
+note. `sec_midas`'s HFT-colonization gate-2 hypothesis (the standing
+item named by name across five sessions 2026-08-24 through 2026-08-26)
+turned out to already be resolved — re-checked `datacore/
+signal_ladder.json` directly and found `status: gate2_fail`,
+`last_update_date: 2026-08-25`: a clean 36-comparison negative already
+ran and was logged, just never removed from the "still valid" language
+several sessions kept restating without re-checking the ladder file
+itself (a small instance of the same "unverified assumption compounds
+across sessions" pattern this program's own L-notes warn about — no
+correction filed separately since nothing about the underlying facts
+was wrong, only the restated NEXT text was stale). `python3 scripts/
+ladder_readiness_check.py`: 0/2 gate2_pending roots ready (`cftc_cot_
+positioning`, `sec_8k_earnings_language`, both still WAITING on
+elapsed time). Shadow-fleet gate-1's real-archive run (the 2026-08-29
+session's own queued NEXT item) is still blocked: verified this
+session that `/data/voltrade` does not exist in this sandbox and
+`storage_config.py` falls back to `/tmp`, which carries no real vessel
+archive — same constraint, re-confirmed rather than assumed stale.
+
+With no matured experiment or ready-to-run queued item, fell through
+to SESSION BUDGET step 2 (RESEARCH terminating in filed artifacts).
+`python3 scripts/data_stream_registry_check.py --unbuilt`: 10/35 not
+built, including `viirs_nightfire` — flagged in this file's own
+2026-07-25 open_questions.md entry as "the strongest pure
+EDGE-DOCTRINE candidate here" but explicitly gated: "free-alternative
+analysis required before it may enter wishlist" (CLAUDE.md's
+BUILD-FIRST RULE). That analysis had never been done across at least
+five prior sessions that re-listed the item without doing it (verified
+via grep across experiments.md — every prior mention is a listing, not
+an analysis). Took it as this session's primary action.
+
+READ BEFORE WRITE: read `server/nasaFirms.ts` in full before writing
+anything downstream of it — confirmed `FireDetection`'s exact field
+shapes (`lat`/`lon`/`acq_date`/`daynight`/`frp`), that `firmsKey()`
+already reads a free, registration-free `NASA_FIRMS_MAP_KEY` (this
+file's own header comment: "free MAP_KEY, commercial-lawful, VIIRS
+375m"), and `readFireHistory()`'s existing archive-read shape (so a
+future gate-1 script has an established entry point to call, not one
+this session invented). Read `server/shadowFleetGate1.ts` (the closest
+precedent — a pure-statistics gate-1 module built and unit-tested
+without live-archive access) to match its contract shape (no fs/
+network, synthetic-fixture-testable, gate status held at raw_only/0
+until an actual run happens) rather than reinventing a different
+pattern.
+
+WEB RESEARCH (this session, not from training — queries and sources
+in the matching open_questions.md entry): confirmed (1) temporal-
+persistence flare/wildfire discrimination in VIIRS/MODIS active-fire
+products is a real, published pre-Nightfire technique (NOAA/NESDIS's
+own public VIIRS-flare explainer; arXiv:2301.04141), not invented for
+this session; (2) the World Bank's Global Gas Flaring Reduction
+Partnership publishes free, public annual country-level flaring-volume
+estimates (datacatalog.worldbank.org/search/dataset/0037743) — a real
+external ground-truth source for a future GATE 1 country-rank
+correlation check.
+
+WHAT SHIPPED: `server/gasFlareCandidates.ts` (new) — pure functions,
+no fs/network access, matching `shadowFleetGate1.ts`'s contract:
+`gridKey()` (~830m grid-cell bucketing), `findGasFlareCandidates()`
+(nighttime-only persistence detector — `nightsActive`/`nightsInWindow`
+ratio against tunable `minNights`/`minPersistence` bars, centroid as
+the mean of a site's own detections not its last-seen point, null-FRP
+excluded from the mean rather than counted as zero, sorted by
+persistence then mean FRP), and `candidatesByRegion()` (aggregates by
+an INJECTED `regionOf` join — this module carries no country-boundary
+data itself, so a future gate-1 session supplies that join without
+touching this file). `server/gasFlareCandidates.test.ts` (new) — 14
+tests, synthetic fixtures only: grid collapse/separation, the "5 of 6
+nights" pass case, single-night and below-persistence-bar failures,
+daytime-only exclusion, a moving/spreading synthetic wildfire never
+accumulating persistence, mean-centroid vs. last-seen, null-FRP
+handling, firstSeen/lastSeen bracketing, sort order, empty input,
+custom threshold overrides, and the region-aggregation join.
+
+HONESTY (BUILD-FIRST HONESTY CLAUSE, applied not just cited): the
+module's own header comment states plainly that this is a CANDIDATE/
+estimate product, materially cruder than Nightfire (no per-flare
+temperature/volume retrieval), and any future `/data` surface must
+carry that label — never presented as Nightfire-equivalent ground
+truth. Not entered into `datacore/signal_ladder.json` — deliberately:
+this is pre-gate-1 infrastructure, the same posture
+`shadow_fleet_maritime`'s OFAC statistical module holds at raw_only/
+gate 0 until an actual gate-1 RUN happens (infrastructure existing is
+not the same as a run verdict, per that root's own ladder note).
+
+WISHLIST DISPOSITION: filed a matching `research/wishlist.md` entry
+(dated today) completing the required BUILD-FIRST writeup. VERDICT:
+build the free alternative (done, above), do not request Nightfire
+registration now. The registration ask (free, not paid — a human
+ID.me-style signup) is recorded as a deferred fallback, conditional on
+a future GATE 1 clean-negative or a volume-specific product need,
+never a spend request.
+
+GATES: `npm ci` required (node_modules was near-empty at session
+start, the same recurring provisioning gap prior sessions have
+logged — confirmed via `git status --short` showing zero unexpected
+tracked-file changes before concluding this wasn't a regression). A
+pre-`npm ci` `tsc_ratchet.sh` run misleadingly reported 3 errors
+(missing `@types/node`/`@types/vite` in the empty `node_modules`, not
+a real code change) — re-ran clean after installing, not reported as a
+gain. `npx tsx --test server/gasFlareCandidates.test.ts`: 14/14 pass.
+`npx tsx --test server/nasaFirms.test.ts`: 31/31 pass, unchanged (this
+diff reads FIRMS detection shapes but does not modify `nasaFirms.ts`
+itself). `bash scripts/gated_tests.sh`: GATE PASSED (client 1075/1075,
+python 1558/1 skipped/54 subtests after `pip install -r requirements-
+dev.txt -r requirements.txt`, quarantine 0/1 none overdue). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no existing `.ts`
+file's behavior touched). `bash scripts/counter_ratchet.sh`:
+`assertions` 12681 -> **12705** (this session's own 14 new tests' 24
+assertions, re-pinned in `ci/counter_baseline.txt` in this same PR);
+`tests_run_in_ci`/`tests_gating_merge` 409 -> **410** (this session's
+own new gated test file, re-pinned in the same PR — not left as
+unrelated drift, since it IS this session's direct effect); all other
+23 counters unchanged; re-ran clean after both re-pins. `npm run
+build`: clean (client + server bundle; pre-existing chunk-size and
+`astronomy-engine` default-export warning classes only, neither
+touched by this diff). No visual harness run: zero `client/src` files
+touched (`git status --short` confirms only `server/`, `ci/`,
+`package.json`/`package-lock.json`, `research/*`), same exemption
+every prior zero-rendering-delta session in this file has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — new pre-gate-1 analysis
+infrastructure over an already-live RAW archive read path; no
+strategy, threshold, sizing, or scoring change; no trading behavior
+touched; not yet run against real data.
+
+VERSION: v1.0.826 (`package.json` + `package-lock.json`,
+read-and-increment at commit time; `git fetch origin main` immediately
+before the bump confirmed `origin/main` still matched this branch's
+base, v1.0.825/PR #974 — no concurrent session had merged ahead of
+this one).
+
+MARKET-HOURS CHECK: session start was 2026-09-01 00:16 UTC = 2026-08-31
+20:16 ET, a Monday evening (2026-09-01 is also the Labor Day market
+holiday — no live trading session either way) — well outside market
+hours, so no merge-timing deferral is needed; this PR merges directly.
+This diff also has zero trading-loop blast radius regardless (a new
+server/ module with no route/caller wiring yet), so no merge-timing
+caveat would apply even mid-market.
+
+CROSS-SYSTEM INTEGRATION: named honestly, not built — once a future
+GATE 1 run passes, candidate sites join naturally against
+`wri_power_plant_registry` and `hifld_power_grid_vector` (already-live
+oil/gas and midstream infrastructure layers) per CLAUDE.md's
+CROSS-SYSTEM INTEGRATION PRINCIPLE. Not wired this session — no
+candidate data exists yet without a real archive to run against.
+
+NEXT (queued, not this session): (1) the GATE 1 (DATA) plan filed in
+open_questions.md — run `findGasFlareCandidates()` over real production
+FIRMS archive once >=30 days accumulate, build the injected
+country-boundary `regionOf` join, rank-correlate against GGFR's
+published country flaring-volume rankings; (2) both `gate2_pending`
+ladder roots remain WAITING on elapsed time; (3) `finra_short_volume`/
+`gem_methane_plume_proximity`-class `/api/v1` mirror sweep is
+exhausted — a future session should re-survey `datacore/
+signal_ladder.json` fresh rather than assume this specific thread
+continues.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (completing a required-but-never-done BUILD-FIRST
+analysis, then acting on its own conclusion by building the free
+alternative rather than only writing the analysis up), used in full.

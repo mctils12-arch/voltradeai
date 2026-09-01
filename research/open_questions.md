@@ -13503,3 +13503,161 @@ its PR description still states merge should wait until after 4:00 PM
 ET per the routine's standing instruction, since automerge has no
 time-of-day gate (`.github/workflows/` is FROZEN, per the existing
 wishlist.md PROCESS GAP finding).
+
+## 2026-09-01 (scheduled-routine session) [PRODUCT] — GAS FLARE CANDIDATES: a BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive we already ingest — module + 14 unit tests, GATE 1 designed not run
+
+CONTEXT: this session's queue survey found the PLATFORM INTEGRATION
+PROGRAM clear (P5 only, HUMAN-GATED), the "gate1_pass root with a RAW
+`/history` route but no `/api/v1` mirror" sweep explicitly declared
+exhausted by the 2026-08-31 session, `sec_midas`'s HFT-colonization gate
+2 already resolved (FAIL, 2026-08-25), the shadow-fleet gate-1 real-
+archive run still blocked on production `/data/voltrade` access this
+sandbox lacks (same as 2026-08-29), and both `gate2_pending` ladder
+roots (`cftc_cot_positioning`, `sec_8k_earnings_language`) still WAITING
+per `ladder_readiness_check.py`. No matured experiment or queued item
+fit. Fell through to SESSION BUDGET step 2 (RESEARCH that terminates in
+filed artifacts) — checked `scripts/data_stream_registry_check.py
+--unbuilt`, which surfaces `viirs_nightfire` flagged in this file's own
+2026-07-25 entry (item 4 of that session's DATA STREAM EXPANSION list)
+as "the strongest pure EDGE-DOCTRINE candidate here" but explicitly
+**blocked from even entering wishlist.md** ("free-alternative analysis
+required before it may enter wishlist") per CLAUDE.md's BUILD-FIRST
+RULE. That writeup had never been done — took it as this session's
+primary action.
+
+HYPOTHESIS / PRIOR: EOG (Colorado School of Mines)'s VIIRS Nightfire
+product identifies and characterizes gas flares from VIIRS's low-gain
+multi-band data; `eogdata.mines.edu` gates the download behind free
+registration (not payment — a human ID.me-style signup, same class as
+`uspto_patents`'s ODP key). BUILD-FIRST rule item 1 ("do we already
+receive the raw material?") applies directly: `server/nasaFirms.ts`
+already ingests VIIRS active-fire detections keylessly (a free
+NASA_FIRMS_MAP_KEY, no registration blocker) from the SAME satellite
+family Nightfire's own flare-classification step consumes as input.
+PRIOR stated before building: temporal persistence at a fixed pixel is
+a real, published pre-Nightfire technique for separating flares from
+wildfires in VIIRS/MODIS active-fire products (confirmed by web search
+this session, not assumed from training — see SOURCES below), so a
+free candidate-detector should be buildable now; the open question is
+whether the free version is "materially worse" than Nightfire (BUILD-
+FIRST's HONESTY CLAUSE) or good enough to defer the registration ask
+entirely.
+
+SOURCES (web search, this session, dated 2026-09-01):
+- NOAA/NESDIS public explainer: "Revealing the Night Sky: Detecting
+  Natural Gas Flares With VIIRS" — confirms VIIRS active-fire products
+  (the same feed FIRMS serves) detect flares as a subset of hotspots,
+  with Nightfire adding a dedicated multi-band temperature/radiant-heat
+  retrieval on top.
+- "Application of machine learning to gas flaring", arXiv:2301.04141 —
+  discusses hotspot recurrence/persistence as a discriminating feature
+  for flare identification independent of Nightfire's own algorithm.
+- World Bank Global Gas Flaring Reduction Partnership (GGFR):
+  publishes free, public annual country-level flaring-VOLUME estimates
+  (datacatalog.worldbank.org/search/dataset/0037743, Excel format,
+  years through the 2026 tracker report) — a genuine external ground-
+  truth source for a future GATE 1 country-aggregate check (NOT
+  site-exact; volume, not site-count, so any correlation test compares
+  RANKS, not raw counts, against candidate-site density).
+
+WHAT SHIPPED: `server/gasFlareCandidates.ts` (new, pure functions, no
+fs/network access — same contract as `shadowFleetGate1.ts`):
+- `gridKey(lat, lon)` — buckets a detection into a ~830m grid cell
+  (`GRID_DEG = 0.0075`), coarse enough to absorb VIIRS pass-to-pass
+  geolocation jitter, fine enough that distinct well-pad/flare-stack
+  sites stay separate.
+- `findGasFlareCandidates(detections, opts)` — NIGHTTIME-ONLY (flares
+  burn continuously so recur at night regardless of season; a wildfire's
+  daytime-dominant detections would dilute the persistence signal this
+  depends on, so daytime rows are never consulted). Groups detections by
+  grid cell, computes `nightsActive` (distinct nighttime dates at that
+  cell) against `nightsInWindow` (distinct nighttime dates ANYWHERE in
+  the input — the archive window size), and keeps sites clearing both a
+  `minNights` floor (default 3) and a `minPersistence` ratio (default
+  0.5). Returns centroid lat/lon (mean of the site's own detections, not
+  the last one seen), mean FRP (nulls excluded from the average, not
+  treated as zero), first/last-seen dates, and detection count. Sorted
+  by persistence descending, mean-FRP descending as the tiebreak.
+- `candidatesByRegion(candidates, regionOf)` — aggregates candidates by
+  an INJECTED region-lookup function (this module has no country-
+  boundary data of its own) — the concrete hook the future GATE 1
+  country-aggregate join plugs into without touching this file.
+- `server/gasFlareCandidates.test.ts` — 14 tests, synthetic fixtures
+  only: grid-cell collapse/separation, the "5 of 6 nights" pass case,
+  single-night and below-persistence-bar failures, daytime-only
+  exclusion, a moving/spreading synthetic "wildfire" (new grid cell
+  every night) never accumulating persistence, centroid-is-a-mean (not
+  last-seen), null-FRP handled as excluded-not-zero, firstSeen/lastSeen
+  bracketing, sort order, empty input, custom threshold overrides, and
+  the region-aggregation join with an unmatched-region case.
+
+HONESTY (BUILD-FIRST clause, applied explicitly): this is a CANDIDATE/
+estimate product, not a Nightfire-equivalent — it does not reproduce
+Nightfire's own temperature/radiant-heat retrieval (needs low-gain
+multi-band data this module doesn't have). The module's own header
+comment states this; any future `/data` surface for these candidates
+must carry the same "candidate"/"inferred" label per the HONESTY
+CLAUSE ("free substitutes are labeled estimates... never passed off as
+the ground-truth equivalent"), never as validated Nightfire-grade flare
+data.
+
+LADDER PATH (not entered into `datacore/signal_ladder.json` yet —
+deliberately: this is pre-gate-1 infrastructure, the identical posture
+`shadow_fleet_maritime`'s OFAC statistical module held at raw_only/gate
+0 until an actual gate-1 RUN happens, not just the code existing).
+GATE 1 (DATA) PLAN, documented not executed this session — no
+production `/data/voltrade` FIRMS archive exists in this sandbox (same
+constraint the 2026-08-29 shadow-fleet gate-1 session logged, verified
+again this session: `/data/voltrade` does not exist, `storage_config.py`
+falls back to `/tmp`, and `/tmp` here carries no real archive):
+1. Once >=30 days of real FIRMS archive has accumulated in production,
+   run `findGasFlareCandidates()` over `readFireHistory()`'s output.
+2. Build (separately — not this module's job) a country-boundary
+   `regionOf(lat, lon)` join; `candidatesByRegion()` already accepts it.
+3. Rank-correlate per-country candidate COUNT against GGFR's published
+   country flaring-VOLUME ranking (Spearman, pre-registered bar: GGFR's
+   top-15 flaring countries). PASS = a significant positive rank
+   correlation; anything else is a clean negative for this exact free-
+   alternative design, at which point VIIRS Nightfire registration
+   becomes the honest next ask (per the HONESTY CLAUSE) rather than
+   continuing to iterate on the free version.
+4. A future session should also sanity-check `minNights`/`minPersistence`/
+   `GRID_DEG` against real detection density before trusting the
+   default thresholds chosen here from the literature, not from a live
+   fit (REASONING STANDARD #10 — priors stated before running, none run
+   yet).
+
+WISHLIST DISPOSITION: per BUILD-FIRST's own instruction ("a paid/gated
+capability may not even enter wishlist.md without this analysis
+first"), this analysis is now filed — see the matching `research/
+wishlist.md` entry dated today. Verdict: BUILD, not yet request access.
+The free alternative's raw material was already flowing and the build
+cost was one session (this one); VIIRS Nightfire registration is
+recorded in wishlist.md as a fallback ask, to be revisited only if the
+GATE 1 correlation above comes back a clean negative (HONESTY CLAUSE:
+"build-first is not build-always").
+
+CROSS-SYSTEM INTEGRATION: real (not fabricated) — once GATE 1 passes,
+candidate sites join naturally against `wri_power_plant_registry`
+(oil/gas facility proximity) and `hifld_power_grid_vector` (pipeline/
+midstream infrastructure context) already on the map, the same
+cross-tie pattern CLAUDE.md's CROSS-SYSTEM INTEGRATION PRINCIPLE asks
+every new stream to assess. Not built this session — no candidate data
+exists yet to join.
+
+GATES: `npm ci` required (node_modules was near-empty, same recurring
+provisioning gap prior sessions have logged). `npx tsx --test server/
+gasFlareCandidates.test.ts`: 14/14 pass. `npx tsx --test server/
+nasaFirms.test.ts`: 31/31 pass, unchanged (this module reads FIRMS
+detection shapes but does not modify nasaFirms.ts). `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304 0 (a stale pre-`npm ci` run misleadingly
+showed 3 due to missing `@types/node`/`@types/vite` in an empty
+`node_modules` — resolved by installing, not a real code change; not
+reported as a gain). Full `gated_tests.sh`/`counter_ratchet.sh`/build
+results in the matching experiments.md entry for this session.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (completing the BUILD-FIRST analysis a prior session's
+own census had flagged as required-before-wishlist, then acting on its
+own conclusion by building the free alternative rather than only
+writing the analysis), used in full.
