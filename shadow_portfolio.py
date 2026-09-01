@@ -863,6 +863,74 @@ def _change_pct_band_stats(records: List[dict], min_n: int = 5) -> dict:
     }
 
 
+# REPAIR 2026-09-01 (KNOWN BROKEN item #20 follow-up, RULE-REVIEW evidence
+# gate): tiered_strategy.master_kill_switch() has THREE independent kill
+# conditions (portfolio drawdown, daily loss limit, whole-portfolio invested
+# ceiling) but log_masterkill_csp_shadow() logs every rejected Tier-1 CSP
+# candidate under one flat "rejected_masterkill" decision regardless of
+# which condition fired. Live evidence this session
+# (win_rate_by_decision["rejected_masterkill"]: 85.8% @ +5d n=127, 91.2% @
+# +10d n=114 — far above "taken"'s 42-45%) looks like a strong loosening
+# signal for item #20's (b) finding (the exposure ceiling kills CSP even
+# though CSP holds none of the exposure that trips it) — but REASONING
+# STANDARD #1 (variables interact, don't reason about an aggregate in
+# isolation) applies directly: that same aggregate also includes drawdown
+# and daily-loss kills, where continuing to sell CSPs would be a real,
+# not spurious, risk decision. Acting on the flat number would risk
+# loosening a genuine safety trigger on evidence that actually only
+# supports loosening the unrelated exposure-ceiling one. This function
+# splits the SAME already-collected win/loss labels by which kill reason
+# produced them (parsed from decision_reason's existing, already-fixed
+# message prefixes in master_kill_switch — no new logging field needed,
+# no re-run required), so a future session can check whether the high win
+# rate survives when isolated to reason="exposure_ceiling" before treating
+# it as evidence for a threshold/design change. Visibility only — reused
+# by get_shadow_stats() below, never consulted by the kill switch itself.
+_MASTERKILL_REASON_PREFIXES = {
+    "Portfolio DD kill": "drawdown",
+    "Daily loss limit": "daily_loss",
+    "Portfolio invested": "exposure_ceiling",
+}
+
+
+def _masterkill_reason_category(decision_reason: str) -> str:
+    """Classify a rejected_masterkill record's decision_reason string into
+    the kill condition that produced it. See _MASTERKILL_REASON_PREFIXES'
+    docstring above for why this exists. Falls back to "unknown" for any
+    reason text that doesn't match a known master_kill_switch() message
+    (e.g. records logged before a future wording change)."""
+    reason = decision_reason or ""
+    for prefix, category in _MASTERKILL_REASON_PREFIXES.items():
+        if reason.startswith(prefix):
+            return category
+    return "unknown"
+
+
+def _win_rate_by_masterkill_reason(records: List[dict], min_n: int = 5) -> dict:
+    by_category: Dict[str, list] = defaultdict(list)
+    for r in records:
+        if r.get("decision") != "rejected_masterkill":
+            continue
+        by_category[_masterkill_reason_category(r.get("decision_reason", ""))].append(r)
+
+    result = {}
+    for category, recs in by_category.items():
+        win_rate = {}
+        for h in FORWARD_HORIZONS_DAYS:
+            key = f"+{h}d"
+            wins = sum(1 for r in recs
+                       if isinstance(r.get("outcomes", {}).get(key), dict)
+                       and r["outcomes"][key].get("label") == 1)
+            losses = sum(1 for r in recs
+                         if isinstance(r.get("outcomes", {}).get(key), dict)
+                         and r["outcomes"][key].get("label") == 0)
+            total = wins + losses
+            if total >= min_n:
+                win_rate[key] = {"win_rate": round(wins / total * 100, 1), "n": total}
+        result[category] = {"candidate_count": len(recs), "win_rate": win_rate}
+    return result
+
+
 def get_shadow_stats() -> dict:
     """
     Summary stats for dashboards / health checks.
@@ -976,6 +1044,7 @@ def get_shadow_stats() -> dict:
         "win_rate_by_decision":  win_rate_by_decision,
         "backfill_progress_by_decision": backfill_progress_by_decision,
         "win_rate_by_change_pct_band": _change_pct_band_stats(records),
+        "win_rate_by_masterkill_reason": _win_rate_by_masterkill_reason(records),
     }
 
 

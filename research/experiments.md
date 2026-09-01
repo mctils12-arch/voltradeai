@@ -3,6 +3,167 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-01 (scheduled-routine session, later the same day) [RULE-REVIEW] — T-BOT (shadow_portfolio.py, test_shadow_portfolio.py) + SHARED (research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): rejected_masterkill's flat win-rate check (item #20's own NEXT step since 2026-07-11) finally has enough history to run — but the raw number is a conflated aggregate, so a finer evidence gate was built instead of a threshold change (v1.0.832)
+
+TERRITORY: T-BOT (`shadow_portfolio.py` is under `tiered_strategy.py`'s
+own RULE REVIEW evidence-gate umbrella per item #20's prior sessions,
+consumed only by `tiered_strategy.master_kill_switch`/
+`log_masterkill_csp_shadow`) + SHARED bookkeeping (`research/*`,
+`ci/counter_baseline.txt`, `package.json`, `package-lock.json`). No
+T-CLIENT or T-DATACORE file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full per this session's brief,
+then `research/experiments.md` (last ~15 entries), `research/
+open_questions.md` KNOWN BROKEN section + item #20's full history,
+`research/wishlist.md` top + tail. `python3 scripts/research_state_check.py`:
+`audits_register` none overdue, `thrash_ratio` 2/10 REPAIR in the last 10
+tagged sessions (below the 7+ trigger), `known_broken` 38 items/3
+advisory-only (#26/#34/#38, unchanged), `starvation_signal` 0. Live
+`/api/health` (production): `status: "ok"`, bot `active`,
+`liveness.dark: false`, `drawdownPct: "0.0"`, `feeds.dead: []` — no
+LIVENESS ALARM, not a [REPAIR] session. `list_pull_requests(state=open)`:
+1 open PR (#604, an intentionally-labeled draft backlog, no action) — the
+2026-08-20 stale-PR-backlog wishlist entry's 11 PRs have all since been
+resolved by other sessions, confirming that finding is stale/closed
+(not re-actioned here; leaving the wishlist entry as historical record
+per append-only spirit). `/api/diag/audit?limit=60` (live production):
+routine TIER1/TIER2/TIER3/OPTIONS-SLOT-FULL/POS-KILL/MANIPULATION
+traffic, no new failure signature; one `EVENTLOOP-LAG` (~527ms) —
+matches KNOWN BROKEN #18's already-CLOSED benign-blip pattern, not a
+regression. Confirmed local `HEAD` already matched `origin/main` tip
+(`7b0e66c`, v1.0.831) before starting.
+
+PRIMARY ACTION SELECTION (SESSION BUDGET order: fix a bug seen in audit
+logs > judge a matured experiment > start a new experiment > research):
+no new audit-log bug found (see above). `/api/diag/shadow` (live
+production) showed `win_rate_by_decision["rejected_masterkill"]` had
+finally cleared the n>=5 reporting floor at BOTH tracked horizons —
+85.8% @ +5d (n=127), 91.2% @ +10d (n=114) — the exact evidence check
+item #20's NEXT step has asked for since 2026-07-11 (first blocked by
+the win-rate check being literally unsatisfiable — see the item's
+2026-08-04/08-05/08-17 updates fixing the nightly backfill job — then by
+insufficient elapsed history). This is the textbook "judge a matured
+experiment" case SESSION BUDGET's ordering ranks above starting new
+research.
+
+PRIOR (REASONING STANDARD #10, stated before digging further): expected
+the flat win rate to look like strong evidence for item #20's (b)
+finding (loosen the exposure-ceiling kill for Tier 1 CSP) — and it does,
+taken at face value (85.8%/91.2% vs. `"taken"`'s 45.4%/42.4% over the
+same horizons is a large gap). Read `tiered_strategy.master_kill_switch`
+and `log_masterkill_csp_shadow` in full before acting on that number
+(READ BEFORE WRITE) and found the aggregate conflates THREE independent
+kill conditions (drawdown, daily loss limit, whole-portfolio exposure
+ceiling) under one flat `"rejected_masterkill"` decision — the shadow
+logger fires identically regardless of which one triggered. REASONING
+STANDARD #1 (variables interact) says this aggregate cannot safely
+license a design change: a high "would-have-won" rate during a genuine
+drawdown/daily-loss kill is not evidence the kill was wrong (continuing
+CSP sales into a real drawdown is a risk decision, not a false-positive
+block) — only the exposure-ceiling slice, isolated, would actually
+confirm or refute item #20's specific (b) claim. PRIOR, stated before
+building anything: expected the win-rate split by reason to be
+buildable from data already on disk (`decision_reason` was always
+stored verbatim), with no re-run of history needed.
+
+CHANGE (measurement/visibility only — MEASUREMENT INTEGRITY: own PR, no
+strategy/threshold/mechanism change bundled):
+- `shadow_portfolio.py`: new `_MASTERKILL_REASON_PREFIXES` +
+  `_masterkill_reason_category()` classify a `rejected_masterkill`
+  record's `decision_reason` by which of `master_kill_switch()`'s three
+  already-fixed message prefixes ("Portfolio DD kill" / "Daily loss
+  limit" / "Portfolio invested") produced it, with an `unknown` fallback
+  for any future wording change. New `_win_rate_by_masterkill_reason()`
+  re-splits the SAME already-collected win/loss labels by that category,
+  same n>=5 floor and shape as the existing `win_rate_by_decision`. Wired
+  into `get_shadow_stats()`'s return dict as a new
+  `win_rate_by_masterkill_reason` key — exposed automatically via the
+  existing `/api/diag/shadow` passthrough probe (`server/bot.ts`'s
+  "shadow" case), no route change needed.
+- Nothing in `tiered_strategy.py` touched — `master_kill_switch`,
+  `log_masterkill_csp_shadow`, and the kill decision itself are byte-for-
+  byte unchanged. This session builds evidence, it does not act on it.
+
+MEASUREMENT INTEGRITY (stated per CLAUDE.md's own requirement): BEFORE —
+`get_shadow_stats()` had no way to distinguish which kill condition
+produced a `rejected_masterkill` record; only the flat aggregate was
+visible. AFTER — the flat aggregate (`win_rate_by_decision`) is reported
+completely unchanged; a new `win_rate_by_masterkill_reason` key adds a
+read-only filter on the same existing records. BIAS DIRECTION: neutral —
+no record is relabeled, reweighted, or dropped from any existing metric;
+this cannot make any strategy or rule look better or worse by itself,
+since it doesn't change any number that already existed, only adds a new
+breakdown. Not verifiable against the real live split this session (no
+production shadow archive exists in this sandbox) — the new tests below
+verify the categorization/aggregation logic in isolation against
+synthetic fixtures instead.
+
+RATCHET: `test_shadow_portfolio.py` gained `TestWinRateByMasterkillReason`
+(4 new tests, 16 -> 20 in this file): `_masterkill_reason_category` maps
+each of the three known prefixes to its category plus an unrecognized
+string to `unknown`; a category clearing n>=5 reports a correct win rate
+while a category with only 3 labeled records reports `candidate_count`
+but an empty `win_rate` dict (distinguishable from "doesn't exist", same
+discipline `backfill_progress_by_decision` established for the sibling
+gap in 2026-08-19); `taken`/`rejected_score` records never leak into the
+breakdown; an unrecognized reason string is still counted (bucketed
+`unknown`), never silently dropped. Full gates: `npm ci` + `pip install
+-r requirements.txt -r requirements-dev.txt` (fresh sandbox). `python3 -m
+pytest -q`: 1571 passed, 1 skipped, 54 subtests (1567 baseline + 4 new,
+zero regressions). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0,
+unchanged (no `.ts`/`.tsx` file touched). `bash scripts/gated_tests.sh`:
+GATE PASSED — server/client/python suites green, quarantine 0/1, none
+overdue. `bash scripts/counter_ratchet.sh`: isolated this session's own
+contribution via a disposable `git worktree add ... origin/main --detach`
+(same discipline prior sessions established) after `git fetch origin
+main` confirmed the true current tip (the first worktree attempt used a
+stale cached `origin/main` ref and showed a false pre-existing drift,
+caught and re-run) — origin/main matched this branch's unmodified base
+exactly (0 counters off-pin), so the full delta (assertions 12776 ->
+12789, tests_run_in_ci/tests_gating_merge unchanged at 412 since no new
+test FILE was added) is this session's own contribution alone; re-pinned
+`assertions` in `ci/counter_baseline.txt`. All 25 counters OK after the
+re-pin. `npm run build`: clean (same pre-existing chunk-size warning
+class every recent session logs, none touched here). No visual harness
+run: zero `client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure measurement/visibility change;
+touches no scoring, sizing, threshold, or trading decision, and cannot
+affect what the bot does live. `master_kill_switch`'s actual kill logic
+is unmodified.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `shadow_portfolio`'s
+existing outcome-backfill/`get_shadow_stats()` pipeline and the existing
+`/api/diag/shadow` probe; no new archive, join, or external dependency.
+
+HONESTY: this is deliberately NOT the (a)/(b) threshold/design change
+item #20 has been building toward — the flat aggregate looked like
+enough evidence to act on, and REASONING STANDARD #4 ("distrust your own
+results in proportion to how many things you tried" — here, in
+proportion to how many conflated causes went into one number) says
+otherwise. Isolating the exposure-ceiling slice first is the honest
+next step, not a delay tactic: RULE REVIEW explicitly requires
+counterfactual evidence "one change at a time," and the flat number
+mixes three changes' worth of counterfactual into one bucket.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RULE-REVIEW action (isolating item #20's own long-queued NEXT check into
+something safely actionable), used in full.
+
+NEXT for whichever session picks this up, once this deploy has served
+`/api/diag/shadow` for a few hours: query
+`win_rate_by_masterkill_reason.exposure_ceiling`. If it independently
+clears n>=5 and still shows a strongly positive (winners-blocked) rate
+in isolation from `drawdown`/`daily_loss`, that is the clean counterfactual
+item #20's (a)/(b) design question has needed since 2026-07-11 — propose
+exempting Tier 1 CSP from the exposure-ceiling-only kill (never the
+drawdown or daily-loss kills) as its own dedicated PR, one threshold/
+design change at a time, prior mechanism logged, rollback trigger stated.
+If `exposure_ceiling` alone doesn't clear n>=5 yet or shows a materially
+lower rate than the flat aggregate, that is itself the answer (no change
+warranted) and the flat number should not be cited as evidence for (b)
+again.
+
 ## 2026-09-01 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED-but-minimal (server/gasFlareCandidates.ts, server/gasFlareCandidates.test.ts, scripts/gasflare_gate1.ts, datacore/signal_ladder.json, research/open_questions.md, research/wishlist.md, ci/counter_baseline.txt, package.json, package-lock.json): wildfire-discriminator refinement for the GAS FLARE CANDIDATES detector — the same-day GATE 1 FAIL's own reserved NEXT step (1) — built and re-run against the identical production archive window; RESULT: clean negative, rho unchanged, escalates the VIIRS Nightfire free-registration ask from deferred to active in wishlist.md (v1.0.830)
 
 TERRITORY: SHARED-but-minimal — touches `server/gasFlareCandidates.ts`/

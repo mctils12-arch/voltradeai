@@ -479,5 +479,104 @@ class TestBackfillProgressByDecision(unittest.TestCase):
         self.assertEqual(progress["rejected_masterkill"]["+5d"]["not_yet_attempted"], 1)
 
 
+class TestWinRateByMasterkillReason(unittest.TestCase):
+    """
+    REPAIR 2026-09-01 (KNOWN BROKEN item #20 follow-up, RULE-REVIEW evidence
+    gate): rejected_masterkill's flat win_rate_by_decision (85.8% @ +5d,
+    91.2% @ +10d live this session) conflates three independent kill
+    conditions — drawdown, daily loss limit, and the whole-portfolio
+    exposure ceiling item #20 actually questions. These tests pin
+    get_shadow_stats()'s new win_rate_by_masterkill_reason field, which
+    splits that same win rate by which condition's message (parsed from
+    the exact decision_reason prefixes master_kill_switch() already emits)
+    produced the rejection, so a future session can check the exposure-
+    ceiling slice in isolation before proposing any threshold change.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_log_path = shadow_portfolio.SHADOW_LOG_PATH
+        self._orig_lock_path = shadow_portfolio.SHADOW_LOCK_PATH
+        shadow_portfolio.SHADOW_LOG_PATH = os.path.join(self._tmpdir.name, "shadow.json")
+        shadow_portfolio.SHADOW_LOCK_PATH = shadow_portfolio.SHADOW_LOG_PATH + ".lock"
+
+    def tearDown(self):
+        shadow_portfolio.SHADOW_LOG_PATH = self._orig_log_path
+        shadow_portfolio.SHADOW_LOCK_PATH = self._orig_lock_path
+        self._tmpdir.cleanup()
+
+    def _seed(self, ticker, decision, decision_reason, label=None, age_days=90):
+        ts = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+        outcomes = {"+5d": None, "+10d": None, "+20d": None}
+        if label is not None:
+            outcomes["+5d"] = {
+                "label": label, "return_pct": 3.0 if label == 1 else -4.0,
+                "exit_price": 51.5, "exit_date": "2026-05-01",
+                "exit_reason": "target" if label == 1 else "stop",
+                "label_method": "path_dependent_v2",
+            }
+        records = shadow_portfolio._load_shadow_log()
+        records.append({
+            "ticker": ticker, "timestamp": ts, "score": 0.0,
+            "decision": decision, "decision_reason": decision_reason,
+            "entry_price": 50.0, "vxx_ratio": 1.0, "regime_label": "BULL",
+            "features": {}, "outcomes": outcomes,
+            "code_version": "test-shadow",
+        })
+        shadow_portfolio._save_shadow_log(records)
+
+    def test_categorizes_known_prefixes(self):
+        self.assertEqual(
+            shadow_portfolio._masterkill_reason_category("Portfolio DD kill: -25.3% <= -20%"),
+            "drawdown")
+        self.assertEqual(
+            shadow_portfolio._masterkill_reason_category("Daily loss limit: -5.1% <= -5%"),
+            "daily_loss")
+        self.assertEqual(
+            shadow_portfolio._masterkill_reason_category(
+                "Portfolio invested 96.2% >= 95% (regime=BULL)"),
+            "exposure_ceiling")
+        self.assertEqual(shadow_portfolio._masterkill_reason_category("something else"),
+                          "unknown")
+        self.assertEqual(shadow_portfolio._masterkill_reason_category(""), "unknown")
+
+    def test_win_rate_split_by_category_meets_floor(self):
+        for i in range(5):
+            self._seed(f"EXP{i}", "rejected_masterkill",
+                       "Portfolio invested 96.2% >= 95% (regime=BULL)", label=1)
+        for i in range(3):
+            self._seed(f"DD{i}", "rejected_masterkill",
+                       "Portfolio DD kill: -25.3% <= -20%", label=0)
+
+        stats = shadow_portfolio.get_shadow_stats()
+        by_reason = stats["win_rate_by_masterkill_reason"]
+        self.assertEqual(by_reason["exposure_ceiling"]["candidate_count"], 5)
+        self.assertEqual(by_reason["exposure_ceiling"]["win_rate"]["+5d"]["win_rate"], 100.0)
+        self.assertEqual(by_reason["exposure_ceiling"]["win_rate"]["+5d"]["n"], 5)
+        # drawdown bucket has only 3 labeled records — below the n>=5 floor,
+        # so it must exist (candidate_count visible) but report no win_rate
+        self.assertEqual(by_reason["drawdown"]["candidate_count"], 3)
+        self.assertEqual(by_reason["drawdown"]["win_rate"], {})
+
+    def test_non_masterkill_decisions_excluded(self):
+        for i in range(5):
+            self._seed(f"TAKEN{i}", "taken", "seed", label=1)
+        self._seed("REJ", "rejected_score", "seed", label=1)
+
+        stats = shadow_portfolio.get_shadow_stats()
+        total_in_breakdown = sum(
+            v["candidate_count"] for v in stats["win_rate_by_masterkill_reason"].values())
+        self.assertEqual(total_in_breakdown, 0)
+
+    def test_unrecognized_reason_bucketed_unknown_not_dropped(self):
+        for i in range(5):
+            self._seed(f"U{i}", "rejected_masterkill", "some future wording", label=1)
+
+        stats = shadow_portfolio.get_shadow_stats()
+        by_reason = stats["win_rate_by_masterkill_reason"]
+        self.assertEqual(by_reason["unknown"]["candidate_count"], 5)
+        self.assertEqual(by_reason["unknown"]["win_rate"]["+5d"]["win_rate"], 100.0)
+
+
 if __name__ == "__main__":
     unittest.main()

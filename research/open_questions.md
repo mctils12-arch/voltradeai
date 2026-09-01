@@ -3124,6 +3124,92 @@
     Backtest: N/A — no trading/scoring/sizing logic touched, pure
     attribution-metadata fix.
 
+    **UPDATE 2026-09-01 (scheduled-routine session, [RULE-REVIEW], v1.0.832)
+    — the win-rate check this item's NEXT step has asked for since
+    2026-07-11 finally has enough labeled history to run, but the raw
+    number is NOT safe to act on as-is — a finer evidence gate was built
+    instead of a threshold change.** Live `/api/diag/shadow` this session:
+    `win_rate_by_decision["rejected_masterkill"]` — 85.8% @ +5d (n=127),
+    91.2% @ +10d (n=114) — vastly higher than `"taken"`'s 45.4%/42.4% over
+    the same horizons. On its face this looks like exactly the "blocks
+    winners → loosening candidate" signal CLAUDE.md's RULE REVIEW section
+    describes, and would seem to confirm this item's (b) finding (the
+    exposure ceiling kills Tier 1 CSP even though CSP holds none of the
+    exposure that trips it).
+    NOT ACTED ON THIS SESSION — REASONING STANDARD #1 (variables interact,
+    never reason about one in isolation) applies directly:
+    `log_masterkill_csp_shadow()` logs every rejected CSP candidate under
+    one flat `"rejected_masterkill"` decision regardless of WHICH of
+    `master_kill_switch()`'s three independent conditions fired (portfolio
+    drawdown kill, daily loss limit, or the whole-portfolio exposure
+    ceiling this item actually questions). The aggregate 85.8%/91.2% could
+    be driven entirely by the exposure-ceiling case (supports loosening,
+    per (b)) — or it could be diluted or even dominated by genuine
+    drawdown/daily-loss kills, where a high "would-have-won" rate is not
+    evidence the kill was wrong (continuing to sell CSPs mid-drawdown is a
+    real risk decision, not a false-positive block) — acting on the flat
+    number without knowing which is true would risk loosening a genuine
+    safety trigger on evidence that actually only supports loosening the
+    unrelated exposure-ceiling one.
+    BUILT (visibility only, no kill-switch or trading logic touched):
+    `shadow_portfolio.py` gains `_masterkill_reason_category()` (parses the
+    exact, already-fixed message prefixes `master_kill_switch()` already
+    emits — `"Portfolio DD kill"` / `"Daily loss limit"` / `"Portfolio
+    invested"` — into `drawdown` / `daily_loss` / `exposure_ceiling`, with
+    an `unknown` fallback for any future wording change) and
+    `_win_rate_by_masterkill_reason()`, which re-splits the SAME
+    already-collected `rejected_masterkill` win/loss labels by that
+    category — no new logging field, no re-run of history needed, since
+    `decision_reason` was already being stored verbatim. Wired into
+    `get_shadow_stats()`'s return dict as a new `win_rate_by_masterkill_reason`
+    key, exposed automatically via the existing `/api/diag/shadow` probe
+    (pure passthrough, no route change).
+    MEASUREMENT INTEGRITY (own PR, no strategy/threshold change bundled):
+    BEFORE — `get_shadow_stats()` had no way to distinguish which kill
+    condition produced a `rejected_masterkill` record; the only visible
+    number was the flat aggregate above. AFTER — the same aggregate is
+    still reported unchanged (`win_rate_by_decision` untouched), plus a new
+    breakdown by kill-reason category. BIAS DIRECTION: neutral — this adds
+    a filter on existing data, it does not relabel, reweight, or drop any
+    existing record from any existing metric, and by itself it makes NO
+    strategy look better or worse (it currently reports nothing until a
+    future session reads the live split, since this sandbox has no
+    production shadow archive to test the real breakdown against).
+    RATCHET: `test_shadow_portfolio.py` gained `TestWinRateByMasterkillReason`
+    (4 new tests): `_masterkill_reason_category` maps each of the three
+    known prefixes correctly plus an unrecognized-string fallback to
+    `unknown`; win rate computed correctly per category once n>=5 (matching
+    `win_rate_by_decision`'s existing floor) while a below-floor category
+    reports `candidate_count` but an empty `win_rate` (distinguishable from
+    "doesn't exist" the same way `backfill_progress_by_decision` already
+    made "never reached" distinguishable from "still empty"); non-
+    `rejected_masterkill` decisions (`taken`, `rejected_score`) never leak
+    into the breakdown; an unrecognized reason string still gets counted
+    (bucketed `unknown`) rather than silently dropped. Full gates:
+    `python3 -m pytest -q` — 1571 passed, 1 skipped (1567 baseline + 4 new,
+    zero regressions). `bash scripts/tsc_ratchet.sh` — 12/12, TS2304=0,
+    unchanged (no `.ts`/`.tsx` file touched — this is a pure-Python
+    change consumed by the existing passthrough probe). No visual harness
+    run: zero `client/src` files touched.
+    Backtest: N/A per PROMOTION RULE 3 — pure measurement/visibility
+    change; does not touch any scoring, sizing, threshold, or trading
+    decision, and cannot affect what the bot does live.
+    **NEXT** for whichever session picks this up once the deploy has had a
+    few hours to serve live `/api/diag/shadow` reads: query
+    `win_rate_by_masterkill_reason.exposure_ceiling`. If it independently
+    clears the same n>=5 floor and still shows a strongly positive
+    (winners-blocked) rate in isolation from `drawdown`/`daily_loss`, THAT
+    is the clean, isolated counterfactual evidence this item's (a)/(b)
+    design question has needed since 2026-07-11 — propose exempting Tier 1
+    CSP from the exposure-ceiling-only kill (not from the drawdown or
+    daily-loss kills, which stay untouched) as its own dedicated PR, one
+    threshold/design change at a time per RULE REVIEW, with the prior
+    mechanism logged and a rollback trigger stated. If `exposure_ceiling`
+    alone does NOT clear n>=5 yet, or its rate is materially lower than the
+    flat aggregate (meaning `drawdown`/`daily_loss` were doing the heavy
+    lifting), that is itself the answer — no change would be warranted,
+    and the flat aggregate should not be cited as evidence for (b) again.
+
 21. **[CONFIRMED 2026-07-14 — visibility gap FIXED, v1.0.310; underlying
     analyze.py root cause still open] `deep_score()`'s alt-data enrichment
     (wikipedia/fred/gdelt) may not be running at all this
