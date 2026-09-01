@@ -32,20 +32,21 @@
  * ground-truth flare temperature/volume; label it "candidate"/"inferred"
  * wherever it surfaces.
  *
- * GATE 1 (DATA) PLAN, documented not executed this session (no production
- * /data/voltrade archive exists in this sandbox — the same constraint the
- * 2026-08-29 shadow-fleet gate-1 session logged): once >=30 days of real
- * FIRMS archive has accumulated, aggregate candidate sites per country
- * (needs a country-boundary join — candidatesByRegion() below takes that
- * join as an injected function so a future session can supply it without
- * touching this module) and rank-correlate the per-country candidate count
- * against the World Bank Global Gas Flaring Reduction Partnership's public,
- * free annual country flaring-volume rankings
- * (datacatalog.worldbank.org/search/dataset/0037743) — a genuine external
- * ground-truth source at country-aggregate resolution. Pre-registered pass
- * bar for a future gate-1 script: Spearman rank correlation against GGFR's
- * published top-15 flaring countries, same discipline as this repo's other
- * gate-1 designs (dtcc_swaps_gate1.ts, shadowFleetGate1.ts).
+ * GATE 1 (DATA): RUN this same day, a later session with live production
+ * DIAG_TOKEN access (scripts/gasflare_gate1.ts, server/countryLookup.ts —
+ * the country-boundary join this module's own candidatesByRegion() was
+ * built to accept). RESULT: GATE 1 FAIL — Spearman rho -0.4762 (n=8,
+ * critical value +0.738) between per-country candidate density and the
+ * World Bank 2026 Global Gas Flaring Tracker Report's published country
+ * order; USA's candidate count led the sample despite ranking lowest of
+ * the 8 tested, with evidence of wildfire-season contamination the
+ * persistence filter did not exclude. Full account, including the scope
+ * cut (Russia untestable via a single bbox — its polygon crosses the
+ * antimeridian) and the diagnosis: datacore/signal_ladder.json's
+ * `gas_flare_candidates` entry and research/open_questions.md's GAS FLARE
+ * CANDIDATES entry, 2026-09-01 addendum. Per the HONESTY CLAUSE, a cheap
+ * wildfire-discriminator refinement is the next thing to try before this
+ * clean negative escalates to recommending VIIRS Nightfire registration.
  *
  * Pure functions only — no fs/network access. Consumes a FIRMS-detection
  * shape (structurally compatible with nasaFirms.ts's FireDetection, not
