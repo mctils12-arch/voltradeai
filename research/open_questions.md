@@ -7402,6 +7402,74 @@ R6. **Dashboards from monitoring we already emit (charter directive
   risk, not tanker-rate positioning) is the structural reason a small
   player can still extract the market signal.
 
+**ADDENDUM 2026-09-01 (scheduled-routine [PRODUCT] session, v1.0.831) —
+NEXT steps (2) and (3) BUILT and unit-tested; the run itself still not
+attempted, and a deliberate architecture change from the plan as filed.**
+This session had confirmed production access (`/api/health` reachable
+via `DIAG_TOKEN`) and set out to run the 2026-08-29 NEXT list's two
+remaining items — but read `server/shadowFleet.ts`'s own 2026-07-05 OOM
+REPAIR history first (per READ-BEFORE-WRITE) and found that step (2)'s
+literal instruction ("build the tanker-only universe... now that the
+reader carries `st`") would mean calling `readVesselTracks`/
+`readVesselTracksAsync` — the exact MATERIALIZING readers that class of
+comment (and `server/archiveFoldMemory.test.ts`'s own REQUIRED test)
+exists to keep off any live code path, because at the archive's current
+size a full 72h+ vessel-tracks Map is >800MB of JS objects in the same
+512MB-capped process the trading loop runs in.
+
+BUILT INSTEAD (same outcome, memory-safe path): `ShadowAggregator` (the
+bounded-memory online fold `computeShadowStatsAsync` already uses)
+gained a `tankers` set (populated in `push()` from the archive's own
+`st` field, AIS ship-type 80-89 — now named constants
+`TANKER_SHIP_TYPE_MIN`/`MAX` in shadowFleet.ts) and a new
+`gate1Inputs()` method that reduces its existing bounded `gaps`/`inZone`
+state into `{ gapMmsis, loiterMmsis, tankerPool }` — a second reduction
+of state the class already carries, not new materialization. A new
+token-gated diag probe, `GET /api/diag/shadowfleet_gate1?hours=&seed=`,
+folds the real archive through this aggregator, restricts the gap/loiter
+MMSIs to the tanker population, loads the committed OFAC reference list
+(`datacore/ofac_sdn_vessels.json`), and calls `shadowFleetGate1.ts`'s
+`evaluateEnrichment()` unchanged — returning ONLY the aggregate
+`Gate1Verdict` (odds ratio, 95% CI, contingency counts), never a
+per-vessel MMSI, matching every other diag probe's reduced-exposure
+posture. Also added (test-only, mirroring `detectGapEvents`/
+`detectLoitering`'s existing sync-materializing family):
+`detectLoiteringMmsis()`, an MMSI-identity reduction of the same
+loitering predicate `detectLoitering` already counts by zone — used to
+cross-check `gate1Inputs()` against the materializing detectors on
+identical synthetic archives in the new tests, not called from any
+production path.
+
+NOT RUN YET: this is new code on an unmerged branch — calling the
+production `/api/diag/shadowfleet_gate1` today would hit the OLD
+deployed server, which doesn't have this route. Also caught mid-session
+(REASONING STANDARD #10 discipline — stated so the next session doesn't
+repeat it): 2026-09-01 is a regular Tuesday trading session, NOT Labor
+Day — Labor Day 2026 is 2026-09-07 per `market_calendar.py`. Five
+entries logged earlier THIS SAME DAY (the two gas-flare-candidates
+[PRODUCT] sessions, the fileRanges [REPAIR] session, its
+[REPAIR]-adjacent follow-up, and the wildfire-discriminator [PIPELINE]
+session) all asserted "2026-09-01 is the Labor Day market holiday" and
+concluded no merge-timing constraint applied — that premise was false
+in all five; corrected here rather than edited into their history
+(MEMORY PROTOCOL is append-only). Substantively low-stakes either way
+(every one of those changes had zero trading-loop blast radius, by
+their own account), but this session's own PR genuinely does land mid-
+market-hours and says so honestly in its own body rather than repeating
+the error.
+
+NEXT for whichever session picks this up once the PR merges and
+deploys: `curl` (or the diag helper pattern other sessions use)
+`GET /api/diag/shadowfleet_gate1?hours=720&token=$DIAG_TOKEN` (a wider
+window than the default 72h buys more candidates/tanker-pool depth,
+capped at 2880h=120 days by the probe like `portdwell_window`) and
+record the verdict — odds ratio, 95% CI, `enriched`/`insufficient_n` —
+here and in `datacore/signal_ladder.json`, promoting the status only if
+`enriched` is true (CI entirely above 1) per this entry's own
+pre-registered PASS criterion. An `insufficient_n` result (fewer than 5
+reference-list hits in the whole case-control universe) is INCONCLUSIVE,
+not a fail — widen `hours` before concluding anything.
+
 ## NEW DATA ROOTS (charter gap execution 2026-07-04 — licensing verified from primary sources by a 10-agent research pass; build order = expected signal × coverage × time-to-testable)
 
 BUILD ORDER RATIONALE: 8-K language first because EDGAR history already
