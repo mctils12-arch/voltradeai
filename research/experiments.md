@@ -3,6 +3,147 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (scheduled-routine session, fifth session that UTC day, market-hours run) [REPAIR] — T-DATACORE-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #37's vessel-archive 2026-08-05 anomaly — NEXT items (2) and (3) both run, hypothesis (i) [manual backfill script] RULED OUT, and a new cross-referenced timing synthesis reframes the "implausibly HIGH" spike as the SAME upstream aisstream.io incident already diagnosed for the SILENCE half, not a second unexplained defect
+
+TERRITORY: T-DATACORE-adjacent (`research/open_questions.md` only — no
+server/client/python code touched, same docs-only class as this
+session's own predecessor entry above).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git log --oneline -5`
+showed the four most recent PRs already merged today (#986 identity-swap
+GATE 1 FAIL, #985 track_fill exit_reason repair, #984/#983 identity-swap
+build+run). Loop-health ratio: last 10 tagged sessions in
+`research/experiments.md` = 1 REPAIR, 1 RULE-REVIEW, 4 PIPELINE (2 of
+which are PRODUCT-as-PIPELINE), 3 PRODUCT, 1 RESEARCH — well under the
+7+ REPAIR thrash-ratio trigger, no meta-problem to address.
+`python3 scripts/session_health_check.py`: 7/7 OK/WARN, no LIVENESS
+ALARM (`daemon_memory` WARN at 419.3MB is the same known, self-managing,
+non-critical condition prior sessions have logged repeatedly).
+`deploy_freshness` confirmed `server_version` 1.0.834 matches this
+checkout.
+
+PRIMARY ACTION CHOICE: per SESSION BUDGET, a bug seen in the KNOWN
+BROKEN section outranks starting a new experiment. `research/
+open_questions.md` item #37 (the vessel/AIS archive's 2026-08-05
+anomaly) is the only KNOWN BROKEN item still open with a concrete,
+time-sensitive NEXT queue (`RAW_RETENTION_DAYS=30`; the 2026-09-01
+addendum flagged the 08-05 raw files as 27 of 30 days old and closing —
+today makes it 28 of 30, i.e. ~2 days of runway left before the
+evidence this item depends on is deleted by the retention rollup).
+Took this over the alternative queued item (a materially-deeper-window
+identity-swap re-run per the immediately-prior session's own NEXT note)
+because that alternative has no expiry and this one does — REASONING
+STANDARD priority, not just SESSION BUDGET ordering.
+
+WHAT WAS RUN: verified `/api/health` (production, `status:"ok"`, bot
+`active`, `liveness.dark:false`) before spending probe budget. Then
+NEXT item (2) from the 2026-09-01 addendum — re-checked
+`/api/diag/archive?stream=vessels&day=2026-08-0{5,6}&fileRanges=1&
+token=$DIAG_TOKEN` against production: 08-05's 14 hour-files (00-13)
+are still on disk, byte-identical filename set and per-file row counts
+to the 2026-09-01 reading (retention has NOT yet claimed them); 08-06
+still returns `files:[]`. This answers NEXT (2) directly: the
+~60s-batch pattern cannot be checked on 08-06 because zero files exist
+there to check — the gap and the spike are not the same file-level
+shape, ruling out "08-06 is a quieter instance of the same spike
+pattern, just missed by the day-prefix listing" as a live hypothesis.
+
+Then NEXT item (3): `grep -rn` across `server/`, `scripts/`, and root
+`*.py` for `backfill|bulk.?import|seedVessel|vesselBackfill|
+historicalVessel` (47 files matched) — none call into the vessel/AIS
+archive; the one vessel-archive-adjacent name collision
+(`server/shadowBackfillVisibility.test.ts`) pins an unrelated daily job
+(`shadow_portfolio.backfill_outcomes()`). Confirmed via
+`grep -rn "archiveVessels("` that `server/routes.ts:1307`'s single
+unconditional 60s `setInterval` is the ONLY call site in the repo —
+there is no manual/one-off backfill path for this stream at all.
+Hypothesis (i) from the 2026-09-01 addendum ("a genuine one-off bulk
+backfill/import job") is now RULED OUT, not merely unconfirmed.
+
+NEW SYNTHESIS (the session's main finding): `git log --oneline --all
+--since="2026-07-25" --until="2026-08-06" -- server/routes.ts
+server/aisFeed.ts server/datacoreArchive.ts` returns zero commits —
+nothing in this codebase touched the vessel ingest/subscribe/archive
+path anywhere near 2026-08-05, ruling out a code or deploy cause for
+the spike (the same conclusion `research/wishlist.md`'s 2026-08-12
+AIS-outage runbook independently reached, via `git log -L`, for the
+SILENCE half of this item). Re-read `ensureVesselStream()`
+(`server/routes.ts:1116-1136`): the aisstream.io `BoundingBoxes`
+subscription is hardcoded globally (`[[-90,-180],[90,180]]`), ruling
+out a temporary config widening too.
+
+Cross-referenced `wishlist.md`'s independently-filed AIS-outage entry
+(filed by a different session, for a different half of this same
+underlying event): aisstream/issues#269, an unrelated third-party
+operator, reports the provider went silent for everyone at "~13:31 UTC"
+on 2026-08-05 — and that entry already notes our archive's last vessel
+file is `2026-08-05-13.jsonl.gz`, "the same hour, a different
+operator." This session adds the piece that entry didn't have: file
+`2026-08-05-13.jsonl.gz` is TRUNCATED (40,767 rows and `maxT`
+1785936989 vs. 60-72k rows for every earlier hour in the spike), and
+`1785936989` converts (verified via `python3 -c
+"datetime.datetime.utcfromtimestamp(...)"`) to **2026-08-05T13:36:29
+UTC** — five minutes after the independently-reported outage start. A
+partial final hour ending almost exactly when an unrelated deployment
+independently clocked the same provider going dark is strong
+circumstantial evidence that the HIGH-volume window (00:00-13:36) and
+the SILENT window (13:36 onward) are two phases of ONE upstream
+aisstream.io incident — not the "TWO ANOMALIES, deliberately not
+conflated" this item's own original framing assumed.
+
+HONESTY (not overclaimed): this session cannot see inside aisstream.io's
+own backend, so the exact mechanism of the pre-outage flood stays
+unproven — only that it is upstream, not local, and that its timing
+lines up with the documented incident's own start to within ~5 minutes.
+`vesselIntervalMs()`'s adaptive thinning (`server/datacoreArchive.ts:
+186-191`) is unchanged code across the window, so the ~1,100-1,300
+distinct vessels written every 60s tick during the spike reflects a
+genuinely larger population reaching `archiveVessels`, not a local
+thinning-logic failure.
+
+WHAT SHIPPED: `research/open_questions.md` item #37 gained a dated
+addendum with this evidence and synthesis; item's disposition
+downgraded from "two unexplained anomalies" to "one well-evidenced,
+already-closed third-party incident, still not byte-level-proven" — no
+code changed.
+
+CROSS-SYSTEM INTEGRATION: none new — read-only cross-reference of two
+already-filed research entries plus one new `git log` check; no new
+archive, dependency, or join.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VERSION: no bump — docs-only change (one research file), same
+precedent as the immediately-prior session's own entry and PR #979.
+
+GATES: N/A — no test suite, typecheck, build, or counter ratchet
+exercises a `.md` diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — diagnostic research on a
+non-trading datacore archive; no scoring, sizing, or threshold touched.
+
+MARKET-HOURS NOTE: this session ran during market hours (per the
+scheduling prompt). The resulting PR touches zero code (research/
+open_questions.md only) — no deploy-coupling risk regardless of
+merge timing — but the PR description still states the standard
+market-hours merge-timing note per this run's own instructions, since
+the instruction was procedural (state it in the PR) rather than
+conditioned on the diff's own risk.
+
+NEXT (queued, not this session): (1) if a session gets Railway
+volume/shell access, a geographic-plausibility check on the spike's
+sampled `la`/`lo` fields (data already available via the same
+`/api/diag/archive` endpoint, no new instrumentation needed) would be
+the one remaining test to fully close this rather than leave it at
+"strong circumstantial link." (2) the retention window closes in ~2
+days (2026-09-04) — after that, close item #37 as "diagnosed to the
+boundary of what this sandbox can see" rather than continuing to
+re-poll `fileRanges` with no new evidence to gain.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR-adjacent diagnostic action (the two concrete NEXT items a
+time-sensitive KNOWN BROKEN entry already queued), used in full.
+
 ## 2026-09-02 (scheduled-routine session, fourth session that UTC day) [PRODUCT] — T-DATACORE-adjacent (datacore/signal_ladder.json, research/open_questions.md only; docs-only, no code changed): shadow_fleet_maritime's identity-swap detector GATE 1 (DATA) statistical test RUN against production — VERDICT: FAIL, but directionally distinct from the gap/loiter FAIL; all 3 detector types now gate-1-tested, whole-root disposition filed
 
 TERRITORY: T-DATACORE-adjacent (`datacore/signal_ladder.json`,
