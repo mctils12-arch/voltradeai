@@ -978,6 +978,86 @@
     scripts/counter_ratchet.sh` — 25/25 counters at or better than
     baseline; `npm run build` clean. Full trace in experiments.md.
 
+    **NEXT step (1) VERDICT 2026-09-02 (scheduled-routine session,
+    [REPAIR]) — the narrower finding the prior session anticipated, ROOT
+    CAUSE FOUND AND FIXED, v1.0.834.** Live `/api/diag/ml?token=
+    $DIAG_TOKEN` this session: `live_outcome_breakdown: {orphan_exit:
+    225, win: 7, loss: 22, open: 16}` (270 non-seed records) but
+    `live_options_outcome_breakdown: {}` — completely empty, not merely
+    small. Per the prior session's own stated fork, this is the "narrower
+    finding" case, not the "options attribution confirmed" case. Before
+    concluding the single-leg options exit path (v1.0.762) had stopped
+    firing, checked live evidence first (REASONING STANDARD #9): `/api/
+    diag/orders?limit=200` shows 17 real `buy`+`filled` single-leg put
+    orders in the 2026-08-28 through 2026-09-01 window alone (e.g.
+    `AAL260918P00012500`, `PBR261016P00019000`, `SLB261016P00052500`) —
+    unambiguous buy-to-close fills on short puts, so standalone CSP
+    closes ARE happening live in volume; the options exit path is not
+    silent.
+    ROOT CAUSE (READ BEFORE WRITE trace of `ml_model_v2.track_fill`):
+    `_record_options_exit_feedback` (options_manager.py) always passes
+    `exit_reason` into `track_fill`'s `order_data`, exactly as designed —
+    but `track_fill`'s own orphan-exit write paths (both of them: entry
+    found with `entry_price<=0`, and no entry found at all) construct
+    their appended dict from a fixed, hand-written field list that never
+    included `exit_reason`, unlike the matched-entry update path a few
+    lines above it which does (`entry["exit_reason"] = ...`). Since
+    `orphan_exit` is 225/270 (83%) of all live non-seed records — vastly
+    more common than the 45 that find a matching entry — this silently
+    discarded the reason string on the large majority of exits,
+    independent of asset class. `options_outcome_breakdown()` itself was
+    never at fault: it already buckets an `orphan_exit`-outcome record
+    correctly (same as any other outcome value) — it simply never once
+    saw a record where `exit_reason` was both present and options-shaped,
+    because track_fill was the actual point of loss. Confirmed by A/B
+    `git stash` on `ml_model_v2.py` alone: 4 new regression tests fail
+    with `KeyError: 'exit_reason'` against the pre-fix orphan writes, all
+    pass post-fix.
+    FIX (`ml_model_v2.py`, pure visibility — no matching/outcome/pnl_pct
+    logic touched): both orphan-write sites now include `"exit_reason":
+    _orphan_exit_reason`, a value computed once per exit call from the
+    same fallback order the matched-entry path already used
+    (`order_data.get("exit_reason")` then `exit_context.get(
+    "exit_reason")`, defaulting to `""` — never a missing key, so
+    downstream consumers can rely on it always existing). Retroactive on
+    every future orphan write; does NOT backfill the 225 already-recorded
+    orphan records missing the field (no safe way to reconstruct a
+    dropped value after the fact — honestly left as unknown, not
+    guessed).
+    SCOPE NOTE (deliberately NOT fixed this session — a separate,
+    already-visible root cause, not this item's bug): `server/bot.ts`'s
+    per-position POS-KILL branch (`~line 5741`, `-25%` forced liquidation)
+    iterates ALL Alpaca positions — the live audit log this session
+    showed `POS-WARN` firing on `IREN261009P00030000`, an OCC options
+    symbol — and stamps every liquidation with the flat equity-vocabulary
+    `exitReason: "position_kill"` regardless of `pos.asset_class`. An
+    options position killed via THIS path (as opposed to
+    `options_manager.py`'s own 8 close reasons) will correctly reach
+    `track_fill` now (this session's fix doesn't change that path at
+    all — it already worked) but will forever classify as equity in
+    `live_options_outcome_breakdown`, understating true options volume.
+    Distinct bug, distinct file/territory (T-BOT `server/bot.ts`, not
+    `ml_model_v2.py`), and arguably a design question (should a
+    liquidation-tier kill get its own options-flavored reason string, or
+    should `OPTIONS_EXIT_REASONS` grow an asset-class-aware check
+    instead of a pure string-set?) rather than a pure mechanical fix —
+    left as this item's own NEXT step for a future session, not bundled
+    here per PROMOTION RULE 5 (one logical change per PR).
+    NEXT: (1) once this deploys, `/api/diag/ml`'s
+    `live_options_outcome_breakdown` should finally show real non-empty
+    counts on the NEXT standalone options close (the 17 fills already
+    observed this session predate the fix and won't retroactively
+    populate it) — a future session should re-check; (2) decide the
+    POS-KILL asset-class question above; (3) NEXT steps (2)/(3) from the
+    2026-08-22 update (quote-based-pricing design evaluation; multi-leg
+    and ROLL-path attribution) remain open, now one layer closer to
+    real evidence once (1) confirms live.
+    GATES: `python3 -m pytest -q` — 1576 passed, 1 skipped, 54 subtests
+    (1571 baseline + 4 new `test_fixes_pr8.py` orphan-exit-reason tests +
+    1 new `test_options_outcome_breakdown.py` integration test, zero
+    regressions). Full trace incl. `gated_tests.sh`/`tsc_ratchet.sh`/
+    `counter_ratchet.sh`/`npm run build` in experiments.md.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/
