@@ -3,6 +3,108 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (3) (scheduled-routine session) [REPAIR] — T-DATACORE-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #39's 2026-07-20..23 vessel-archive gap — ROOT CAUSE DIAGNOSED and CLOSED; the fix already shipped forward 2.5 weeks after the incident (PR #718/#769), no new code needed
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, server_version
+1.0.835 matched this checkout. `python3 scripts/research_state_check.py`:
+audits none overdue, thrash_ratio 2/10 REPAIR in the last 10 tagged
+sessions (below the 7+ trigger), known_broken 39 items/4 without an
+explicit close marker (#26, #34, #38, #39 — advisory only), starvation
+0/10. `list_pull_requests(state=open)`: only PR #604, the long-standing
+"[BACKLOG] ... draft, do not merge as-is" stale-PR entry — nothing else
+in flight to duplicate.
+
+TERRITORY: T-DATACORE-adjacent (server/vesselStream.ts,
+server/datacoreArchive.ts, server/routes.ts read-only this session — no
+edits) + docs-only (research/open_questions.md, research/experiments.md).
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET's own priority order ("fix a
+bug seen in audit logs" outranks judging a matured experiment or starting
+new research), and per the REPAIR MANDATE ("consult KNOWN BROKEN section
+first"), took KNOWN BROKEN #39 — filed by this repo's own immediately-
+prior session today, unclaimed, with a concrete 3-item NEXT list already
+written by that session. No other KNOWN BROKEN item lacked an explicit
+close marker AND had a concrete, unclaimed, immediately-actionable NEXT
+list (#26/#34/#38 all already carry FOUND-AND-FIXED headers; #39 was the
+only genuinely open one).
+
+WHAT HAPPENED: worked the filed NEXT list in order, live, using this
+session's own `DIAG_TOKEN` access.
+- NEXT (2) first (cheapest falsification): `/api/diag/archive` for
+  `aircraft_tracks` and `trains_tracks` across 2026-07-19..25 returned a
+  populated file for every single day — no gap. This rules out a shared
+  rollup-job or whole-Node-process outage and confirms the defect is
+  VESSEL-STREAM-SPECIFIC. It also rules out the same-week `[REPAIR] Live
+  break: Tier2 scanning dead since 15:27 UTC` incident (commit 3e625f08,
+  2026-07-20, PR #568) as a candidate cause — that bug lived entirely in
+  the Python daemon's RPC dispatch path with no code route into the
+  Node-side vessel archive, and aircraft/trains archiving (sharing the
+  same Node archive tick as vessels) never gapped in this window.
+  `fileRanges=1` on the boundary days additionally showed a clean, abrupt
+  edge (one full file per day outside the window, `files: []` AND
+  `fileRanges: []` — not partial/corrupted data — inside it), satisfying
+  NEXT (1)'s file-range check.
+- NEXT (1): read `server/vesselStream.ts`'s own header comment, which
+  already documents the exact defect class active in production during
+  this window ("the socket never redialed after a close without visitor
+  traffic — permanent, unrefillable archive gaps"), and confirmed via
+  `search_commits` that the fix for it — PR #718, v1.0.617, committed
+  2026-08-07T14:00:19Z — postdates this gap by ~2.5 weeks. Before that
+  PR, a dropped/half-open AIS socket had NO self-heal path: only
+  `bootVesselStream()` at process startup (KNOWN BROKEN #9, fixed much
+  earlier, v1.0.44) could reconnect it. Corroborating timing: the first
+  `vessels_tracks` row on 2026-07-24 is stamped 00:22:56Z, one minute
+  before a real merge/deploy lands in this repo's commit history at
+  00:24:07Z — consistent with the boot-time connect reviving the feed at
+  that restart, not any redial logic (which didn't exist yet).
+- NEXT (3): confirmed the fix is already shipped forward and no new code
+  is needed — PR #718 (2026-08-07) added the 60s reconnect watchdog,
+  hardened by PR #769 (v1.0.658, 2026-08-11) for the "connected but zero
+  frames ever" case. `VESSEL_SILENT_THRESHOLD_MS = 3 * 60_000` today means
+  an equivalent drop self-heals within 3 minutes instead of persisting
+  for days — read live at `server/vesselStream.ts` and its wire-up at
+  `server/routes.ts:1278-1293`. Raw hours behind the gap are
+  unrecoverable (`RAW_RETENTION_DAYS=30`, this gap is 44+ days old), per
+  NEXT (3)'s own stated expectation — the mechanism that let a gap
+  persist for days no longer exists, which is the actionable part.
+
+VERDICT: the July gap is the SAME defect class PR #718 later fixed, hit
+~2.5 weeks before that fix shipped, and self-resolved only by chance when
+an unrelated deploy restarted the process on 2026-07-24 — not a
+rollup-job bug, not a multi-day upstream aisstream.io outage, and not the
+Tier2/RPC dispatch incident. KNOWN BROKEN #39 closed with an explicit
+close marker in `research/open_questions.md`.
+
+WHAT SHIPPED: `research/open_questions.md` only — KNOWN BROKEN #39's
+header updated to record the close, and a full diagnosis addendum
+appended below the original entry (append-only within the item, original
+text untouched). No production code, test, or config file touched — this
+is a diagnosis-only REPAIR closure, the same shape as the 2026-09-02
+(fifth session) entry above for KNOWN BROKEN #37's own "rule out, don't
+build" closure.
+
+GATES: no code changed — nothing to run beyond the read-only live diag
+probes recorded above (all against `/api/diag/archive`, no state
+mutated).
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, trading, or
+measurement-code path touched; this is a historical data-gap diagnosis.
+
+CROSS-SYSTEM INTEGRATION: none new.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT: none remaining for this specific item — closed. The general lesson
+(a defect class fixed once can still explain an OLDER, previously
+undiscovered gap from before the fix shipped) is worth a future session
+checking whether any other archive-gap KNOWN BROKEN items predate a
+since-shipped reliability fix the same way, but that is a new research
+thread, not queued here.
+
+STARVED: no — this was the queue's own highest-priority unclaimed KNOWN
+BROKEN item, worked to a clean, evidenced close in one session.
+
 ## 2026-09-02 (2) (scheduled-routine session, same session as the immediately-following entry, continued after PR #988 merged/deployed) [PRODUCT] — T-DATACORE-adjacent (scripts/portdwell_gate1_rollup.ts — one timeout bump) + SHARED (research/*, datacore/signal_ladder.json): port_dwell_maritime_transit's rollup-based GATE 1 actually RUN against production — VERDICT: PASS (reader-validity gate); byproduct finding logged as new KNOWN BROKEN #39 (undocumented 2026-07-20..23 vessel-archive gap)
 
 TERRITORY: same as the entry immediately below (T-DATACORE-adjacent,
