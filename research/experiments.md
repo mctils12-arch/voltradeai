@@ -3,6 +3,98 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (2) (scheduled-routine session, same session as the immediately-following entry, continued after PR #988 merged/deployed) [PRODUCT] — T-DATACORE-adjacent (scripts/portdwell_gate1_rollup.ts — one timeout bump) + SHARED (research/*, datacore/signal_ladder.json): port_dwell_maritime_transit's rollup-based GATE 1 actually RUN against production — VERDICT: PASS (reader-validity gate); byproduct finding logged as new KNOWN BROKEN #39 (undocumented 2026-07-20..23 vessel-archive gap)
+
+TERRITORY: same as the entry immediately below (T-DATACORE-adjacent,
+port-dwell files) — this is the same session's own direct continuation,
+not a new session picking up a queued item.
+
+WHAT HAPPENED: PR #988 (the entry below) was intended to be left unmerged
+through the 16:00 ET market-hours window per this routine's own
+instruction. It was merged mid-market anyway (~14:44 ET) — by another
+concurrent session or an automated process, not by this session, and not
+reversed here (no destructive action taken to undo a merge). Once merged,
+this session waited for the Railway redeploy (confirmed live via
+`server_version` 1.0.835 on `/api/data/layers`) and then ran the queued
+NEXT step itself — the actual GATE 1 script — rather than leaving a
+completed, deployed capability unexercised.
+
+ONE CODE CHANGE this update: `scripts/portdwell_gate1_rollup.ts`'s
+`fetchFreshRawBaseline()` used a 30s timeout, which undershot the real
+observed latency (the first live run timed out there after successfully
+completing all 31 daily rollup fetches) — bumped to 180s, matching the
+74-235s latencies other 168h-window diag probes have already logged live
+this week (shadow-fleet gate1, this same file's 2026-09-02 entries).
+Re-ran clean on the second attempt.
+
+RESULT (full account in `research/open_questions.md`'s PORT DWELL
+ANALYTICS section, "UPDATE 2026-09-02 (2)"): July 2026 rollup-derived,
+LA-basin bbox — 649 unique vessels tracked; `port_la` 498 calls/287
+unique vessels/89 ongoing at month-end; `port_lb` 577 calls/355 unique
+vessels/85 ongoing. Fresh raw baseline (current rolling 168h, pulled the
+same run for a contemporary comparison): `port_la` 282
+visits_completed/122 unique_vessels/8.1h median dwell; `port_lb`
+284/149/7.4h — both ports read as healthy, non-outlier entries against
+the SAME 9-port baseline (Norfolk/NY-NJ comparably high, Charleston much
+lower). Per-day call rate comparison (~16.1/day July vs ~40.3/day fresh
+week) reads ~2.5x lower, not an order-of-magnitude drop — explained by
+the rollup detector's own documented day-granularity call-counting
+(multiple same-day/same-week raw dock events merge into fewer coarser
+"calls"), not a data problem. `unique_vessels` growth (122->287 for a
+4.43x-longer window) is a sub-linear 2.35x, consistent with ordinary
+fleet-cycling saturation. **VERDICT: GATE 1 PASSES for the reader's own
+validity** (July reads as a real, populated, high-activity month at both
+ports, matching the qualitative Port of LA TEU release framing) — this
+is a DATA-layer pass, not a signal validation; GATE 2 (dwell anomalies
+vs. XRT/IYT forward returns) remains untouched.
+
+BYPRODUCT (logged, not chased further — out of this PRODUCT session's
+scope): the per-day fetch log surfaced a previously undocumented 4-day
+`vessels_tracks` gap, 2026-07-20 through 2026-07-23 — confirmed via a
+follow-up no-bbox check (`files: []`, not a bbox artifact of this
+session's own script). No existing research/ entry mentioned it. Filed
+as new KNOWN BROKEN #39 in `research/open_questions.md` for a future
+REPAIR session, per the REPAIR MANDATE ("consult KNOWN BROKEN section
+first" — filing loudly now is what makes that possible next time).
+
+WHAT SHIPPED THIS UPDATE: `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry moved `gate1_pending` ->
+`gate1_pass` (current_gate 1). `research/open_questions.md` gained the
+full result writeup (PORT DWELL ANALYTICS section) and new KNOWN BROKEN
+#39. `scripts/portdwell_gate1_rollup.ts`'s one-line timeout fix.
+
+GATES: no test-suite-relevant change (a numeric timeout constant in a
+one-off diagnostic script, already excluded from the gated suites the
+same way `gasflare_gate1.ts`/`crop_conditions_gate1.ts` are) — the
+code-carrying PR's own gates already passed pre-merge (server 175/175,
+client 101/101, python 1576/1 skipped, tsc 12/12, counter_ratchet
+`assertions` re-pinned 12806->12836), unaffected by this update.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this update only records a
+read-only diagnostic result against already-shipped, already-tested
+infrastructure; no trading path, scoring, sizing, or threshold touched.
+
+CROSS-SYSTEM INTEGRATION: none new.
+
+MONETIZATION TRIPWIRE: not touched.
+
+MARKET-HOURS NOTE: the code PR merged mid-market despite the hold note
+— see above. This session did not force or attempt to reverse that
+merge (both destructive and outside the "prefer" framing's own intent,
+which is to avoid deploy-timing risk, not to treat an already-completed
+merge as something to undo). Logged as a process observation for
+whichever session next reviews the AUDITS & DEBT register or the
+market-hours convention itself, not re-litigated further here.
+
+NEXT: GATE 2 (dwell-median/queue-anomaly vs. forward XRT/IYT returns) is
+the next real step for this root — untouched by this session. KNOWN
+BROKEN #39 (the July 20-23 gap) needs a REPAIR session's own diagnosis.
+
+STARVED: no — this was a direct, same-session continuation of the
+entry below's own queued NEXT step once the unplanned early merge and
+subsequent deploy made it runnable, used in full including a live
+byproduct finding filed rather than silently dropped.
+
 ## 2026-09-02 (scheduled-routine session, market-hours run) [PRODUCT] — T-DATACORE-adjacent (server/datacoreArchive.ts, server/datacoreArchive.test.ts, server/bot.ts, server/portDwell.ts, server/portDwell.test.ts, scripts/portdwell_gate1_rollup.ts new) + SHARED (research/*, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json): port_dwell_maritime_transit's GATE 1 gets a rollup-summary-format reader — the alternative NEXT step the 2026-08-19 closure named and no session had picked up since — built and unit-tested; the actual July-2026 run is queued for after this PR deploys, held unmerged through the market-hours window (v1.0.835)
 
 TERRITORY: T-DATACORE-adjacent (server/datacoreArchive.ts, server/bot.ts's

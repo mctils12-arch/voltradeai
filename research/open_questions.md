@@ -5632,6 +5632,52 @@
     `/api/diag/audit?type=LEARN` for whether the weight-shift cadence has
     settled down (fewer, more stable transitions) now that the window
     persists across redeploys instead of resetting every few hours.
+39. **[FOUND 2026-09-02, scheduled-routine PRODUCT session, NOT diagnosed
+    — found as a byproduct of running the new port-dwell rollup GATE 1
+    script (see PORT DWELL ANALYTICS), not the session's primary target]
+    a previously undocumented 4-day vessel-archive gap: 2026-07-20
+    through 2026-07-23 has ZERO `vessels_tracks` rollup data, globally
+    (not just LA-basin-scoped).** Live evidence:
+    `/api/diag/archive?stream=vessels_tracks&day=2026-07-21&limit=5&token=$DIAG_TOKEN`
+    returns `files: []` — no rollup file exists for that day at all,
+    confirmed with no bbox filter applied (rules out a bbox/script bug on
+    this session's own read path). The surrounding days are populated
+    normally: 2026-07-19 and every day 2026-07-24 onward read 150-192
+    in-LA-basin-bbox rows in the same script's own run this session. This
+    is DISTINCT from the already-documented 2026-07-01/02 zero reads
+    (those are correctly explained — the archive itself didn't start
+    until 2026-07-03 — and served as a useful internal consistency check
+    that this session's read path is honest, not the bug being reported
+    here) and from the already-documented KNOWN BROKEN #37 (2026-08-05/06
+    anomaly) and the aisstream.io outage in wishlist.md (2026-08-05
+    through 08-12) — neither covers July, and no existing research/ entry
+    mentions a July gap. NOT YET DIAGNOSED: could be a genuine ~4-day
+    upstream AIS provider outage (same class as the August aisstream
+    incident, just earlier and previously unnoticed because nothing had
+    read this specific archive slice until this session), a rollup-job
+    failure specific to those 4 days (`rollupOldDaysAsync`'s own
+    "unreadable file -> skip the whole day, retry next run" guard could
+    in principle leave a permanent gap if the underlying raw hours were
+    ALSO already evicted/corrupted before a successful retry — not
+    confirmed either way this session), or something else. Filed per the
+    REPAIR MANDATE rather than investigated further this session (this
+    was a byproduct finding mid-PRODUCT-session, not the primary task;
+    diagnosing it properly needs the same kind of file-range/live-archive
+    inspection KNOWN BROKEN #37's own sessions used).
+    NEXT for whichever REPAIR session picks this up: (1) check
+    `fileRanges=1` on the neighboring days /
+    `git log` around 2026-07-20..23 for any deploy/config change touching
+    the vessel archive or rollup path; (2) check whether this is a purely
+    VESSEL-stream problem or also hits `aircraft_tracks`/`trains_tracks`
+    for the same 4 days (a cross-kind gap would point at the rollup job
+    itself or a shared infra issue, not a vessel-provider-specific
+    outage); (3) since the raw hours for this window are long past
+    `RAW_RETENTION_DAYS`, if raw data was in fact captured at the time
+    but the ROLLUP step itself failed, that raw data is very likely
+    unrecoverable now (same "archive gap never refills" lesson as KNOWN
+    BROKEN #37) — the fix, if any exists, is almost certainly forward-
+    looking (harden the rollup job) rather than backward (recover this
+    specific window).
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
@@ -10308,6 +10354,84 @@ territory in their first commit)
   pre-build verifications (rollup data really is still there; the
   existing bbox filter really would have silently broken this) rather
   than assuming either from the prior session's notes.
+- **UPDATE 2026-09-02 (2), same session, after the PR above merged and
+  deployed (`server_version` 1.0.835) — the actual GATE 1 run: PASS.**
+  Ran `DIAG_TOKEN=... npx tsx scripts/portdwell_gate1_rollup.ts` against
+  production (one 30s-timeout retry needed: the fresh-baseline
+  `portdwell_window` fetch undershot the real ~1-3min latency other
+  168h-window probes have already logged live this week — bumped to
+  180s in the same script, not a new finding).
+  RESULT — July 2026 rollup-derived (LA-basin bbox, `port_la`/`port_lb`
+  only): 649 unique vessels tracked in the bbox across the month;
+  `port_la` 498 calls / 287 unique vessels / 89 still-ongoing at
+  month-end; `port_lb` 577 calls / 355 unique vessels / 85 ongoing.
+  FRESH raw-pipeline baseline (current rolling 168h, pulled the same
+  run, not reused from the stale mid-August figure): `port_la` 282
+  visits_completed / 122 unique_vessels / dwell_median_h 8.1; `port_lb`
+  284 / 149 / 7.4h. Both LA-basin ports are healthy, populated,
+  mid-pack-to-busy entries in the SAME baseline's 9-port list (Norfolk
+  and NY/NJ read comparably high; Charleston reads much lower — LA/Long
+  Beach are not outliers in either direction).
+  BAR CHECK (this entry's own pre-registered bar, restated not
+  redesigned): July's per-day call rate (~16.1/day at port_la, 31 days)
+  vs. the fresh week's per-day visit rate (~40.3/day, 7 days) is
+  ~2.5x lower, not the order-of-magnitude drop that would signal a data
+  problem. The gap has a clean, ALREADY-DOCUMENTED mechanistic
+  explanation rather than needing a new one: the rollup detector counts
+  one "call" per maximal run of CONSECUTIVE CALENDAR DAYS with any
+  in-fence point (portDwell.ts's own header states this), so several
+  same-day or same-week raw dock/undock cycles that `detectVisits`'s
+  hour-precision, 6h-gap-tolerant logic would count separately collapse
+  into fewer, coarser day-runs under the rollup method — exactly the
+  "lower bound on call count... over-counts undercounts" tradeoff that
+  function's own docstring already named as the honest cost of this
+  method, now confirmed as the operative one rather than a hypothetical.
+  `unique_vessels` tells the same story more cleanly (less sensitive to
+  the counting-granularity mechanism above): 122/week -> 287/month is
+  2.35x growth for a 4.43x-longer window — consistent with ordinary
+  fleet-cycling saturation (the same rotation of regular callers
+  re-appearing across multiple weeks of one month), not with missing
+  data. **VERDICT: GATE 1 PASSES for the reader tool's basic validity**
+  (July reads as a real, populated, order-of-magnitude-sane high-
+  activity month at both LA-basin ports, matching the qualitative
+  "2nd-busiest July on record" framing of the Port of LA TEU release)
+  — this validates the ROLLUP READER, not a trading signal: dwell-
+  anomaly SIGNAL work is still GATE 2, untouched by this result, and the
+  exact-TEU-count reconciliation this root originally wanted remains
+  impossible in principle (different units — container throughput vs.
+  vessel-presence count — per this entry's own restated bar).
+  `datacore/signal_ladder.json`'s `port_dwell_maritime_transit` entry
+  updated in this same session to `gate1_pass` (current_gate 1) — the
+  READER capability gate, consistent with how `sec_form4_bulk_archive`'s
+  own entry already distinguishes "gate 1 pass for the parser/reader
+  itself" from a separate, still-ungated downstream hypothesis.
+  BYPRODUCT FINDING (not this session's target, logged and NOT chased
+  further per scope discipline): the per-day fetch log surfaced a
+  previously undocumented 4-day vessels_tracks gap, 2026-07-20 through
+  2026-07-23 (zero rows globally, not a bbox artifact — confirmed via a
+  no-bbox re-check). Filed as new KNOWN BROKEN #39 above; NOT diagnosed
+  this session (out of scope for a PRODUCT session's fall-through, and
+  this root's own July reading is unaffected in aggregate — the 4
+  missing days are a small fraction of the 31-day month and the
+  surrounding days read normally).
+  GATES: no new code this update (results-recording + KNOWN BROKEN
+  filing only) — the code-carrying PR's own gates (server 175/175,
+  client 101/101, python 1576/1 skipped, tsc 12/12, counter_ratchet
+  assertions re-pinned 12806->12836) already passed pre-merge, per the
+  entry above.
+  BACKTEST: N/A — same PROMOTION RULE 3 reasoning as the entry above;
+  this update only records a read-only diagnostic result, no
+  code/threshold change.
+  MARKET-HOURS NOTE: the PR merged mid-market (~14:44 ET) — the routine
+  instruction asked for a hold until the 16:00 ET close, but another
+  concurrent session (or an automated process) merged it before that;
+  this session did not force the merge and had no means to un-merge it
+  cleanly without a destructive action, so it proceeded with the
+  now-live deploy rather than leaving the completed GATE 1 run
+  unrecorded. Logged here as a process note, not re-litigated further.
+  NEXT: GATE 2 (below) remains the next real step for this root — the
+  dwell-median/queue-anomaly-vs-forward-returns hypothesis is untouched
+  by this session's work, which only validated the DATA layer.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

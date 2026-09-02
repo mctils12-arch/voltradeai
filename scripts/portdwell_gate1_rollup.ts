@@ -77,8 +77,10 @@ async function fetchFreshRawBaseline(): Promise<any> {
   // A FRESH raw-pipeline reading (current rolling 168h) for the same ports,
   // pulled this same session rather than reused from the 2026-08-19 entry's
   // now-stale mid-August figure, so the comparison baseline is contemporary.
+  // A full 168h raw-archive fold is slow (other diag probes over a
+  // comparable window observed 74-235s live) -- 30s undershot that.
   const url = `${BASE}/api/diag/portdwell_window?hours=168&token=${TOKEN}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(30000) as any });
+  const r = await fetch(url, { signal: AbortSignal.timeout(180000) as any });
   if (!r.ok) throw new Error(`${url} -> ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
 }
