@@ -2642,13 +2642,16 @@ print(json.dumps(get_shadow_stats()))
           // OFAC MMSI set — and returns ONLY the AGGREGATE Gate1Verdict
           // (counts, odds ratio, CI). No per-vessel MMSI, position, or
           // identity ever leaves this endpoint, same reduced-exposure
-          // posture as every other probe here.
+          // posture as every other probe here. UPDATED 2026-09-02: also
+          // runs the identity-swap detector (name reuse + hull-swap
+          // proximity) as its own independent case-control test — see the
+          // `identity_swap` block below.
           const hours = Math.min(Math.max(parseInt(String(req.query.hours || "72"), 10) || 72, 1), 2880);
           const seed = Math.max(1, parseInt(String(req.query.seed || "1"), 10) || 1);
           const zones: ShadowZone[] = (shadowZonesData as any).zones || [];
           const agg = new ShadowAggregator(zones);
           await foldVesselArchiveAsync(hours, (mmsi, p) => agg.push(mmsi, p));
-          const { gapMmsis, loiterMmsis, tankerPool } = agg.gate1Inputs();
+          const { gapMmsis, loiterMmsis, identitySwapMmsis, tankerPool } = agg.gate1Inputs();
           const tankerSet = new Set(tankerPool);
           const candidates = new Set<string>();
           for (const m of gapMmsis) if (tankerSet.has(m)) candidates.add(m);
@@ -2656,6 +2659,18 @@ print(json.dumps(get_shadow_stats()))
           const ofacVessels = (ofacSdnVessels as any).vessels as Array<{ mmsi: string }>;
           const reference = new Set<string>(ofacVessels.map((v) => String(v.mmsi)));
           const verdict = evaluateEnrichment(candidates, reference, tankerPool, seed);
+          // ADDED 2026-09-02 (scheduled-routine PRODUCT session): the
+          // 2026-09-02 gap/loiter GATE 1 FAIL (research/open_questions.md)
+          // explicitly excluded the identity-swap detector (name-reuse +
+          // hull-swap proximity) from that verdict — it needed this same
+          // bounded-memory reduction, which didn't exist yet. Tested here
+          // as its OWN independent candidate set against the SAME tanker
+          // pool/reference/seed, never merged into `candidates` above, per
+          // that FAIL's own queued NEXT step ("gate-1-test it independently
+          // ... before concluding the whole root is non-signal").
+          const identitySwapCandidates = new Set<string>();
+          for (const m of identitySwapMmsis) if (tankerSet.has(m)) identitySwapCandidates.add(m);
+          const identitySwapVerdict = evaluateEnrichment(identitySwapCandidates, reference, tankerPool, seed);
           return res.json(sanitizeDiag({
             probe: "shadowfleet_gate1",
             window_hours: hours,
@@ -2666,6 +2681,11 @@ print(json.dumps(get_shadow_stats()))
             reference_list_fetched_at: (ofacSdnVessels as any).fetched_at,
             reference_list_size: reference.size,
             ...verdict,
+            identity_swap: {
+              n_identity_swap_candidates_total: identitySwapMmsis.length,
+              n_tanker_candidates: identitySwapCandidates.size,
+              ...identitySwapVerdict,
+            },
           }));
         }
         default:

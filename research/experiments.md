@@ -73355,3 +73355,196 @@ PRODUCT action (the prior session's own stated NEXT item, made newly
 runnable by this session's production access and the intervening
 deploy), used in full including running the probe at two independently
 chosen window depths rather than stopping at the first result.
+
+## 2026-09-02 (scheduled-routine session, same day, third session) [PRODUCT] — T-DATACORE-adjacent (server/shadowFleet.ts, server/shadowFleet.test.ts, server/bot.ts, server/diag.test.ts) + SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json): shadow_fleet_maritime's identity-swap detector gets its own bounded-memory GATE 1 candidate reduction — built and wired, NOT yet run against production (v1.0.833)
+
+TERRITORY: server/shadowFleet.ts and server/bot.ts's `shadowfleet_gate1`
+probe are the same files the 2026-09-01/09-02 shadow-fleet GATE 1 sessions
+already owned this week (SHARED-minimal precedent, not T-BOT/T-CLIENT).
+Touched: server/shadowFleet.ts, server/shadowFleet.test.ts, server/bot.ts,
+server/diag.test.ts, ci/counter_baseline.txt, package.json,
+package-lock.json, research/experiments.md, research/open_questions.md.
+
+SESSION-START CHECKS: CLAUDE.md read in full, special attention to EDGE
+DOCTRINE per this routine's own brief. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `server_version`
+1.0.832 matched this checkout. `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash_ratio 2/10 REPAIR (well under 7+
+trigger), known_broken 38 items/3 without an explicit close marker
+(#26/#34/#38 — all previously dispositioned as genuinely fixed by prior
+sessions' own inspection, not re-litigated here), starvation_signal 0/10.
+NOT a [REPAIR] session — no critical unfixed item.
+
+AXIS SURVEY (this routine's brief named 4 axes; all checked before
+picking, same discipline as every prior session this week):
+- Axis (a) free-data pipeline: `data_stream_registry_check.py --unbuilt`
+  still shows 10/35 unbuilt, all declined/blocked except `un_comtrade`
+  (already noted structural-thesis-only, not worth building blind) —
+  confirmed exhausted, same finding as every session back to 2026-08-18.
+- Axis (b) capacity-constrained/illiquid research: `research/
+  open_questions.md`'s "Options fill realism" entry unchanged since
+  2026-08-28 — options-side quote-based fills still gated on KNOWN
+  BROKEN #12(b)/(c). Skipped, same precedent.
+- Axis (c)/(d) foreign-field import: this session checked whether real
+  backtest data access (Alpaca/Yahoo) had become available, since the
+  built-but-unrun Omori-aftershock probe (2026-08-30) and prior imports
+  are all blocked on exactly that. `env | grep -iE "alpaca|yahoo"`:
+  empty. `pip install -r requirements.txt -r requirements-dev.txt` then
+  a live `yfinance.Ticker('SPY').history()` call: hard connection reset
+  at the egress proxy (`ws_closed_mid_exchange` on query2.finance.yahoo.com/
+  guce.yahoo.com/fc.yahoo.com), same failure class the 2026-08-30 session
+  hit (that session got HTTP 429; this one got a harder proxy-level
+  block) — access is not just unavailable but has gotten stricter, not
+  better. Confirmed still blocked, not assumed from a stale prior finding.
+
+PRIMARY-ACTION SELECTION: with all four named axes independently
+re-confirmed exhausted/blocked this session (not inherited on faith),
+GOAL priority order applies: priority 3 (GROW BOTH COMPOUNDING LINES —
+"grow validated signals... product surface") outranks priority 4
+(EXPAND CAPABILITY, which is what the axis menu serves) whenever both
+compete for the same session. `research/open_questions.md`'s SHADOW-FLEET
+SIGNAL section carried a concrete, fully-specified, unblocked NEXT item
+from the 2026-09-02(1) session earlier today (the gap/loiter GATE 1 FAIL):
+"a bounded-memory reduction of detectIdentityCandidates()'s predicate onto
+ShadowAggregator... so the identity-swap case set... can be tested on its
+own via evaluateEnrichment(), without a second run of the gap/loiter test
+that already failed." This is squarely priority-3 work (advancing a
+signal through its own validation ladder) with a DIAG_TOKEN this session
+also has, and SESSION BUDGET's own fall-through order (§1: "take the next
+queued item... own PR, own tagged log entry, never bundled") names exactly
+this pattern. Took it as this session's primary action rather than
+starting a fifth axis-(c) import or re-surveying already-exhausted ground.
+
+PRIOR (REASONING STANDARD #10, stated before building): expected the
+identity-swap detector's own case-control result to differ from the
+gap/loiter FAIL, because it targets a mechanistically different
+phenomenon — deliberate identity spoofing (a name reused under two
+MMSIs, or a new MMSI appearing where another just went dark) rather than
+raw AIS silence, which the diagnosis in the prior FAIL entry named as
+plausibly dominated by ordinary coverage loss common to sanctioned and
+legitimate tankers alike. No result exists yet this session (see NEXT) —
+this prior is recorded now specifically so a future run can be judged
+against it rather than rationalized after the fact.
+
+READ BEFORE WRITE: read the full `server/shadowFleet.ts` (536 lines) and
+`server/shadowFleetGate1.ts` (173 lines) before touching either. Traced
+every call site of `countHullSwapCandidates` (2, both internal to
+shadowFleet.ts), `detectIdentityCandidates` (1 production call site in
+`statsFromTracks`, plus this session's own new test), and `gate1Inputs`
+(1 call site, `server/bot.ts`'s `shadowfleet_gate1` case) before changing
+any signature.
+
+BUILT:
+1. `server/shadowFleet.ts` — refactored `countHullSwapCandidates`'s
+   internal grid-scan into a new `hullSwapMatches()` that returns the
+   actual matched (lastMmsi, firstMmsi) pairs instead of only a count;
+   `countHullSwapCandidates` is now `hullSwapMatches(...).length` — same
+   algorithm, zero behavior change (pinned by the existing hull-swap test
+   still passing unmodified). Same factoring discipline
+   `loiteringMatches`/`detectLoitering`/`detectLoiteringMmsis` already
+   established 2026-09-01 for the loiter predicate, applied here to the
+   hull-swap predicate so the count and MMSI views can never drift.
+2. New `detectIdentitySwapMmsis(tracks, nearKm=20, withinHours=12)` — the
+   materializing counterpart to `detectIdentityCandidates`, returning
+   vessel IDENTITIES (both endpoints of a hull-swap match, plus every
+   MMSI in a >1-MMSI name-collision set) instead of a scalar count. Not
+   claiming which endpoint of a hull-swap pair is "the" candidate — both
+   are, since the detector cannot tell which hull the reference-list
+   vessel would be.
+3. `ShadowAggregator.identitySwapMmsis()` — the BOUNDED-MEMORY version,
+   built from state the aggregator already carries (`byName`, `prev`,
+   `first` — one point per vessel each, not the full per-vessel point
+   archive `readVesselTracks`/`detectIdentitySwapMmsis` need). Stays
+   O(vessels), not O(points), exactly like the existing gap/loiter
+   reductions — the aggregator's whole reason for existing since the
+   2026-07-05 OOM REPAIR.
+4. `ShadowAggregator.gate1Inputs()` gained a fourth field,
+   `identitySwapMmsis: string[]`, alongside the existing `gapMmsis`/
+   `loiterMmsis`/`tankerPool`.
+5. `server/bot.ts`'s `shadowfleet_gate1` probe now ALSO runs
+   `evaluateEnrichment()` independently over
+   `identitySwapMmsis ∩ tankerPool` (same reference list, same tanker
+   pool, same seed) and returns the result under a nested `identity_swap`
+   key — deliberately NOT merged into the existing gap/loiter `candidates`
+   set, per the prior FAIL entry's own instruction ("without a second run
+   of the gap/loiter test that already failed"). No per-vessel MMSI,
+   position, or identity leaves the endpoint in either block — same
+   reduced-exposure posture the whole probe already holds.
+
+RATCHET: `server/shadowFleet.test.ts` gained 1 new test
+(`detectIdentitySwapMmsis`, both predicates, cross-checked against
+`detectIdentityCandidates`'s count on the identical fixture) and the
+existing `gate1Inputs` test was extended with a 3rd synthetic vessel pair
+(a name-collision candidate that neither gaps nor loiters) plus a parity
+assertion (`detectIdentitySwapMmsis(tracks)` on the materializing scan ==
+`inputs.identitySwapMmsis` from the bounded-memory fold — same discipline
+the existing gap/loiter parity assertions already apply). `server/
+diag.test.ts`'s `shadowfleet_gate1` probe-wiring test extended to assert
+the `identity_swap` block exists, calls `evaluateEnrichment` a second
+time, and never spreads its own raw candidate MMSI set into the response
+(mirroring the existing gap/loiter leak-check).
+
+GATES (fresh sandbox — `npm ci` required, node_modules was near-empty,
+same recurring provisioning gap prior sessions log; the misleading
+"tsc dropped 12->3" reading before `npm ci` was exactly that stale-
+node_modules artifact, not a real gain — reproduced via `git stash`,
+confirmed present on unmodified `origin/main` too, NOT re-pinned):
+`npx tsx --test server/shadowFleet.test.ts server/diag.test.ts
+server/shadowFleetGate1.test.ts`: 51/51 pass. `bash scripts/
+tsc_ratchet.sh` (post `npm ci`): 12/12, TS2304=0, unchanged. `bash
+scripts/gated_tests.sh`: GATE PASSED — server 175/175, client 1075/1075,
+python 1571 passed/1 skipped/54 subtests, quarantine 0/1 none overdue.
+`bash scripts/counter_ratchet.sh`: `assertions` 12789->12795 (this
+session's own 2 new/extended tests' direct effect, re-pinned in
+`ci/counter_baseline.txt` in this same PR); all 25 counters OK after.
+`npm run build`: clean (pre-existing astronomy-engine default-export
+warning and >500kB chunk warnings, same classes every recent session
+logs, none touched here).
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 (DATA) infrastructure for a
+RAW candidate-detector's own sub-signal; no trading path, scoring,
+sizing, or threshold touched either way. Zero live customer or trading
+impact: `shadow_fleet_maritime` was never surfaced past RAW overlay
+status regardless of this PR (already `gate1_fail` for the gap/loiter
+half since this morning), and this PR does not change that ladder status
+— it only builds the tooling to test the still-untested identity-swap
+half independently, per the RAW OVERLAYS vs SIGNALS rule (raw counts
+stay live and unaffected either way).
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing OFAC reference
+list, tanker pool, and archive; no new archive, join, or external
+dependency.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+NEXT (queued, not this session — mirrors the exact "built, not yet run"
+pattern the 2026-08-29->09-01 shadow-fleet gate1 sessions and the
+2026-08-30 Omori probe already established): once this PR merges and
+Railway redeploys (`server_version` >= 1.0.833 on `/api/health`), call
+`GET /api/diag/shadowfleet_gate1?hours=720&token=$DIAG_TOKEN` (or the
+168h window first, per the 2026-09-02(1) session's own latency-check
+precedent) and record the `identity_swap` block's verdict — odds ratio,
+95% CI, `enriched`/`insufficient_n` — in both this file and
+`research/open_questions.md`'s SHADOW-FLEET SIGNAL section, judging it
+against this entry's own pre-registered PRIOR. If `enriched` comes back
+true, this is the first positive result anywhere in the shadow-fleet
+root and should be flagged prominently (a genuine signal candidate,
+still needing GATE 2 before any trading/product use). If it also fails
+non-enriched, per the prior FAIL entry's own NEXT (2): "this root's
+honest status is 'we can observe shadow-fleet-adjacent AIS behavior but
+cannot yet statistically distinguish it from ordinary tanker/coverage
+noise'" — at that point all three of this root's own detector types will
+have been independently gate-1-tested, and the root-level verdict should
+move from "one detector type failed" to a considered whole-root
+disposition (not necessarily "dead" — a case-control design against a
+coarse reference list has real power limits, discussed but not resolved
+in the prior FAIL entry's diagnosis).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the same-day prior session's own queued NEXT item, the
+single unblocked, fully-specified, high-priority item across all
+research/ this session's own axis survey found), used in full including
+the read-before-write trace of every call site before any signature
+change and the parity tests proving the bounded-memory reduction matches
+the materializing scan exactly.
