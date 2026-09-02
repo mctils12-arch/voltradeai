@@ -15,7 +15,7 @@ import {
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
   readArchiveDayEvenSample, originOfPosType, oldestRawHour,
-  archiveFileTimestampRanges, archiveDayFiles,
+  archiveFileTimestampRanges, archiveDayFiles, rowInBbox,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -540,6 +540,39 @@ test("readArchiveDay: rowFilter applied inline keeps only matching rows and does
   assert.deepEqual(unfiltered!.rows.map((r) => r.id), ["far0", "far1"],
     "omitting rowFilter is byte-identical to the pre-2026-08-21 behavior");
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+// rowInBbox (2026-09-02): the point-row path is a straight port of the
+// pre-existing inline lat/lon check the "archive" diag case used before
+// this session — pinned here so a future refactor can't silently change
+// point-stream (fires, etc.) behavior while "also" fixing rollup streams.
+const LA_BBOX = { lamin: 33.68, lamax: 33.82, lomin: -118.35, lomax: -118.15 };
+
+test("rowInBbox: point row (lat/lon) — inside, outside, and boundary-inclusive", () => {
+  assert.equal(rowInBbox({ lat: 33.74, lon: -118.272 }, LA_BBOX), true, "Port of LA itself");
+  assert.equal(rowInBbox({ lat: 60, lon: -140 }, LA_BBOX), false, "far away");
+  assert.equal(rowInBbox({ lat: LA_BBOX.lamin, lon: LA_BBOX.lomin }, LA_BBOX), true, "exact min corner is inclusive");
+  assert.equal(rowInBbox({ lat: LA_BBOX.lamax, lon: LA_BBOX.lomax }, LA_BBOX), true, "exact max corner is inclusive");
+});
+
+test("rowInBbox: rollup-summary row (bbox array, no top-level lat/lon) — overlap, not containment", () => {
+  // A day's track that passes through the query box (its own bbox straddles
+  // the query box's edge) must match on OVERLAP even though the row's own
+  // bbox is not fully contained within the query box.
+  const straddling = { i: "123456", d: "2026-07-15", n: 40, t0: 1, t1: 2, bbox: [33.70, -118.40, 33.80, -118.30], pl: [] };
+  assert.equal(rowInBbox(straddling, LA_BBOX), true, "overlapping bbox is a match even though not fully contained");
+  const wellInside = { i: "654321", d: "2026-07-15", n: 40, t0: 1, t1: 2, bbox: [33.74, -118.28, 33.75, -118.27], pl: [] };
+  assert.equal(rowInBbox(wellInside, LA_BBOX), true, "fully-contained bbox matches");
+  const farAway = { i: "999999", d: "2026-07-15", n: 40, t0: 1, t1: 2, bbox: [50, -140, 51, -139], pl: [] };
+  assert.equal(rowInBbox(farAway, LA_BBOX), false, "non-overlapping bbox does not match");
+});
+
+test("rowInBbox: a row with neither lat/lon nor a valid 4-element numeric bbox array never matches (fail-closed, not a throw)", () => {
+  assert.equal(rowInBbox({ id: "no-position-fields" }, LA_BBOX), false);
+  assert.equal(rowInBbox({ bbox: [1, 2, 3] }, LA_BBOX), false, "malformed (3-element) bbox array");
+  assert.equal(rowInBbox({ bbox: ["a", "b", "c", "d"] }, LA_BBOX), false, "non-numeric bbox array");
+  assert.equal(rowInBbox({ lat: NaN, lon: NaN, bbox: [33.7, -118.3, 33.8, -118.2] }, LA_BBOX), true,
+    "NaN lat/lon correctly falls through to the bbox-array path rather than false-matching on NaN comparisons");
 });
 
 // archiveFileTimestampRanges (2026-09-01, closes KNOWN BROKEN #37's own

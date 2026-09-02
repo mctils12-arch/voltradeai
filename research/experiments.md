@@ -3,6 +3,164 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (scheduled-routine session, market-hours run) [PRODUCT] — T-DATACORE-adjacent (server/datacoreArchive.ts, server/datacoreArchive.test.ts, server/bot.ts, server/portDwell.ts, server/portDwell.test.ts, scripts/portdwell_gate1_rollup.ts new) + SHARED (research/*, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json): port_dwell_maritime_transit's GATE 1 gets a rollup-summary-format reader — the alternative NEXT step the 2026-08-19 closure named and no session had picked up since — built and unit-tested; the actual July-2026 run is queued for after this PR deploys, held unmerged through the market-hours window (v1.0.835)
+
+TERRITORY: T-DATACORE-adjacent (server/datacoreArchive.ts, server/bot.ts's
+"archive" diag case, server/portDwell.ts — the same files the 2026-08-18/
+08-19 port-dwell GATE 1 sessions already owned) + SHARED bookkeeping
+(research/*, datacore/signal_ladder.json, ci/counter_baseline.txt,
+package.json/-lock.json).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, server_version
+1.0.834 matched this checkout at session start. `python3 scripts/
+research_state_check.py`: audits none overdue, thrash_ratio 3/10 REPAIR
+(below the 7+ trigger), known_broken 38 items/3 without an explicit close
+marker (advisory only, not re-litigated), starvation_signal 0/10. Not a
+[REPAIR] session — no critical unfixed item blocked this one.
+
+PRIMARY-ACTION SELECTION: this is (per the session count in today's own
+earlier entries) at least the sixth scheduled-routine session against this
+repo today. Before picking a primary action, checked whether the most
+recently completed PRODUCT thread (shadow-fleet's identity-swap GATE 1,
+this file's immediately-following entry) had a live, unclaimed NEXT item —
+live-probed it first (see below) and found it had ALREADY been run and
+recorded (commit ee1dc57/PR #986, already on this branch's own history) —
+avoided duplicating that work once confirmed, rather than re-running an
+already-answered test. Surveyed the signal_ladder.json roster for other
+concrete, unblocked NEXT items instead: gas_flare_candidates' two remaining
+NEXT items (Russia antimeridian scoping, Iran's zero-count root cause) were
+judged LOW expected value — the 2026-09-01 GATE 1 FAIL's own robustness
+check already showed the negative correlation persists (rho -0.214) even
+with the dominant USA-wildfire-contamination outlier excluded, so neither
+remaining item is likely to flip the verdict. port_dwell_maritime_transit's
+2026-08-19 closure, by contrast, had a concrete, still-unclaimed, genuinely
+unblocked alternative path ("build a rollup-summary-format reader") with
+already-gathered ground truth (the Port of LA July TEU figure) sitting
+unused since — the highest-value unclaimed item found this session.
+
+READ BEFORE WRITE: read `server/portDwell.ts` (293 lines, pre-session),
+`server/datacoreArchive.ts`'s `readArchiveDay`/rollup sections, and
+`server/bot.ts`'s `"archive"`/`"portdwell_window"` diag cases in full
+before writing anything. Traced every call site of `readArchiveDay`'s
+`rowFilter` parameter (2: the `"archive"` diag case in bot.ts, and
+`readArchiveDayEvenSample`'s own separate inline rowFilter, left
+untouched — this session's change is additive to the shared predicate
+`rowInBbox`, not a signature change to either caller) before writing the
+fix.
+
+LIVE VERIFICATION BEFORE BUILDING (not assumed from the 2026-08-19 entry's
+notes): confirmed `vessels_tracks` rollup rows for July genuinely still
+exist and are queryable —
+`/api/diag/archive?stream=vessels_tracks&day=2026-07-15&limit=5&token=$DIAG_TOKEN`
+returned real populated rows against live production this session. Also
+confirmed the SPECIFIC gap that made this unbuildable-until-now: the
+existing bbox filter (2026-08-21, built for the identical "global-
+population stream, e.g. fires" problem) only ever checks `row.lat`/
+`row.lon` — a rollup row has neither (its position is a `[minLa,minLo,
+maxLa,maxLo]` `bbox` array over the whole day's track), so a bbox-scoped
+`stream=vessels_tracks` query would have silently matched zero rows, or
+without a bbox param at all, spent the whole 5000-row/day cap on a
+near-random slice of the GLOBAL vessel population (this week's TANKER-only
+universe alone ran 5,900-9,100 MMSIs — total cross-type daily population is
+plausibly well above the per-day cap).
+
+BUILT (this PR):
+1. `datacoreArchive.ts`: new exported `rowInBbox(row, bbox)` — point-row
+   path is byte-identical to the pre-existing inline check (pinned by a
+   new test); rollup-row path matches on bbox OVERLAP against the row's
+   own `bbox` array. `bot.ts`'s `"archive"` case now calls it instead of
+   its own inline closure.
+2. `server/portDwell.ts`: new `portPresenceFromRollup()` (one vessel's
+   day-ascending rollup rows -> maximal consecutive-day-presence runs per
+   port) and `summarizeRollupPresence()` (aggregates across every vessel
+   into the same visits_completed/unique_vessels/in_port_now shape
+   `computePortDwellAsync` already reports). Day-granularity, not hour —
+   the rollup's `pl` field has no per-point timestamp, so `detectVisits`'s
+   exact-hour logic cannot run on it directly. Two biases stated in the
+   docstring, not corrected: a day whose ~50-point subsample misses the
+   in-fence point ends a run early (undercount, same "lower bound" posture
+   the raw pipeline's own dwell figures already carry); symmetrically, one
+   real multi-day call can split into two shorter ones (overcounts call
+   count).
+3. `scripts/portdwell_gate1_rollup.ts` (new, one-off script, same
+   established pattern as `gasflare_gate1.ts`): fetches every July 2026
+   day bbox-scoped to the LA/Long Beach basin, groups by vessel, asserts
+   day-ascending order (rather than silently re-sorting), runs
+   `summarizeRollupPresence`, and pulls a FRESH current-week raw baseline
+   via the existing `portdwell_window` probe for a contemporary
+   comparison. Restates (does not re-fetch) the 2026-08-19 session's own
+   gathered truth: Port of LA July 2026 — 960,464 TEUs (2nd-busiest July
+   on record), 6,083,067 TEUs YTD (+1.8% YoY). Bar restated, not
+   redesigned: order-of-magnitude vs. the scaled fresh baseline, not exact
+   reconciliation (different units — TEU vs. vessel-presence count).
+
+RATCHET: 3 new tests in `server/datacoreArchive.test.ts` (`rowInBbox`:
+point-row parity, rollup-row overlap-not-containment, fail-closed on a
+malformed/absent position field — never a throw). 7 new tests in `server/
+portDwell.test.ts` (`portPresenceFromRollup`: single day, consecutive-day
+merge, a missed-point day splits a run, a missing archive day splits a
+run, a port switch splits a run; `summarizeRollupPresence`: multi-vessel/
+multi-port aggregation, ongoing vs. completed).
+
+GATES (fresh sandbox — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` both required): `npx tsx --test server/
+datacoreArchive.test.ts`: 48/48 (45 pre-existing + 3 new). `npx tsx --test
+server/portDwell.test.ts`: 15/15 (8 + 7 new). `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `bash scripts/
+gated_tests.sh`: GATE PASSED — server 175/175 files, client 101/101
+files, python 1576 passed/1 skipped/54 subtests, quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: `assertions` 12806 -> 12836
+(this session's own 10 new tests' direct effect, re-pinned in `ci/
+counter_baseline.txt` in this same PR); all 25 counters OK after.
+`DIAG_TOKEN=test VOLTRADE_PROD_URL=http://127.0.0.1:1 npx tsx
+scripts/portdwell_gate1_rollup.ts` smoke-tested against an unreachable
+host: fails cleanly on the network call (no import/syntax defect) before
+attempting the real run. No `npm run build`/visual harness run this
+session — `client/src` untouched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 (DATA) reader infrastructure
+for a still-`gate1_pending` RAW candidate root; no trading path, scoring,
+sizing, or threshold touched. Zero live customer or trading impact: the
+RAW `/api/data/portdwell` overlay is unaffected (a display-layer route,
+untouched this PR) and `port_dwell_maritime_transit` stays `gate1_pending`
+either way — this PR only builds and tests the tool, it does not itself
+change the root's ladder status.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing rollup archive,
+the existing strategic-sites port registry, and the existing OFAC-style
+diag-probe posture (token-gated, read-only, no per-vessel row leaves any
+endpoint beyond what the pre-existing `"archive"` probe already returned).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating code,
+no `/api/v1`/`/data` surface added or changed.
+
+MARKET-HOURS NOTE: session ran inside 9:30-16:00 ET (~14:30 ET,
+Wednesday — `TZ=America/New_York date` checked live, not assumed). Per
+this routine's own instruction, this PR is prepared and left UNMERGED
+with a note on the PR itself that merge should wait for the 16:00 ET
+close.
+
+NEXT for whichever session merges this and confirms the deploy
+(`server_version` >= 1.0.835 on `/api/data/layers`): run `DIAG_TOKEN=...
+npx tsx scripts/portdwell_gate1_rollup.ts` against production and record
+the verdict (July rollup-derived stats vs. the fresh raw baseline,
+PASS/FAIL against the restated bar) here and in `datacore/
+signal_ladder.json`. If the July reading comes back anomalously low,
+check the script's own per-day row/truncation output before concluding
+a data problem rather than the detector's known coarseness bias — same
+MEASUREMENT INTEGRITY discipline the gas-flare/shadow-fleet gate-1
+sessions already applied to their own null results.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the still-unclaimed alternative NEXT step from port-dwell's
+own 2026-08-19 closure), used in full including the two live pre-build
+verifications (rollup data is still there; the existing bbox filter really
+would have silently broken this) rather than assuming either from a prior
+session's notes, and including a first-pass survey of other candidate
+NEXT items (shadow-fleet identity-swap, already done; gas-flare Iran/
+Russia follow-ups, judged low-value) before settling on this one.
+
 ## 2026-09-02 (scheduled-routine session, fifth session that UTC day, market-hours run) [REPAIR] — T-DATACORE-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #37's vessel-archive 2026-08-05 anomaly — NEXT items (2) and (3) both run, hypothesis (i) [manual backfill script] RULED OUT, and a new cross-referenced timing synthesis reframes the "implausibly HIGH" spike as the SAME upstream aisstream.io incident already diagnosed for the SILENCE half, not a second unexplained defect
 
 TERRITORY: T-DATACORE-adjacent (`research/open_questions.md` only — no

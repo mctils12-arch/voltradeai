@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   portsFromSites, assignPort, detectVisits, computePortDwell, computePortDwellAsync, PortDef,
+  portPresenceFromRollup, summarizeRollupPresence, RollupTrackRow,
 } from "./portDwell";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -169,4 +170,83 @@ test("computePortDwellAsync: an `end` in the past sees a visit invisible to the 
   const la = historical.ports.find((p) => p.id === "port_la")!;
   assert.equal(la.visits_completed, 1, "a window ending near the old visit must see it");
   assert.ok(Math.abs((la.dwell_median_h ?? 0) - 10) < 0.2, `median ${la.dwell_median_h} ≠ ~10h`);
+});
+
+// ── portPresenceFromRollup / summarizeRollupPresence (2026-09-02) ──────────
+// GATE 1's rollup-summary reader — see portDwell.ts's own header comment on
+// these two functions for why (reaches months the raw archive above cannot).
+
+const row = (mmsi: string, day: string, pl: Array<[number, number]>): RollupTrackRow =>
+  ({ i: mmsi, d: day, n: pl.length || 1, t0: 0, t1: 86399, bbox: [0, 0, 0, 0], pl });
+
+const IN_LA: [number, number] = [LA.lat + 0.001, LA.lon + 0.001];
+const IN_LB: [number, number] = [LB.lat + 0.001, LB.lon + 0.001];
+const AT_SEA: [number, number] = [10, -140];
+
+test("portPresenceFromRollup: single presence day is one completed run, ongoing only if it's the window's last day", () => {
+  const rows = [row("111", "2026-07-15", [AT_SEA, IN_LA])];
+  const closed = portPresenceFromRollup(rows, [LA, LB], "2026-07-20");
+  assert.deepEqual(closed, [{ mmsi: "111", portId: "port_la", firstDay: "2026-07-15", lastDay: "2026-07-15", daysPresent: 1, ongoing: false }]);
+  const open = portPresenceFromRollup(rows, [LA, LB], "2026-07-15");
+  assert.equal(open[0].ongoing, true, "lastDay === lastWindowDay must right-censor as ongoing");
+});
+
+test("portPresenceFromRollup: consecutive presence days merge into one run", () => {
+  const rows = [
+    row("222", "2026-07-15", [IN_LA]),
+    row("222", "2026-07-16", [IN_LA]),
+    row("222", "2026-07-17", [IN_LA]),
+  ];
+  const runs = portPresenceFromRollup(rows, [LA, LB], "2026-07-20");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].daysPresent, 3);
+  assert.equal(runs[0].firstDay, "2026-07-15");
+  assert.equal(runs[0].lastDay, "2026-07-17");
+});
+
+test("portPresenceFromRollup: a day with no in-fence point ends the run (no gap-bridging) even if presence resumes later", () => {
+  const rows = [
+    row("333", "2026-07-15", [IN_LA]),
+    row("333", "2026-07-16", [AT_SEA]),   // no in-fence point this day — breaks the run
+    row("333", "2026-07-17", [IN_LA]),
+  ];
+  const runs = portPresenceFromRollup(rows, [LA, LB], "2026-07-20");
+  assert.equal(runs.length, 2, "one real dwell split into two runs by the missed day — a stated, not corrected, undercount bias");
+  assert.equal(runs[0].daysPresent, 1);
+  assert.equal(runs[1].daysPresent, 1);
+});
+
+test("portPresenceFromRollup: a missing archive day (calendar gap between rows) also ends the run", () => {
+  const rows = [
+    row("444", "2026-07-15", [IN_LA]),
+    row("444", "2026-07-17", [IN_LA]), // 07-16 has no row at all (e.g. archive gap)
+  ];
+  const runs = portPresenceFromRollup(rows, [LA, LB], "2026-07-20");
+  assert.equal(runs.length, 2);
+});
+
+test("portPresenceFromRollup: switching ports on consecutive days closes the first run and opens a second", () => {
+  const rows = [
+    row("555", "2026-07-15", [IN_LA]),
+    row("555", "2026-07-16", [IN_LB]),
+  ];
+  const runs = portPresenceFromRollup(rows, [LA, LB], "2026-07-20");
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].portId, "port_la");
+  assert.equal(runs[1].portId, "port_lb");
+});
+
+test("summarizeRollupPresence: aggregates completed/ongoing/unique-vessel counts per port across vessels", () => {
+  const byVessel = new Map<string, RollupTrackRow[]>([
+    ["111", [row("111", "2026-07-15", [IN_LA]), row("111", "2026-07-16", [IN_LA])]], // completed call, port_la
+    ["222", [row("222", "2026-07-18", [IN_LA])]],                                     // ongoing (last window day), port_la
+    ["333", [row("333", "2026-07-15", [IN_LB])]],                                     // completed call, port_lb
+  ]);
+  const summary = summarizeRollupPresence(byVessel, [LA, LB], "2026-07-18");
+  assert.equal(summary.port_la.visits_completed, 1);
+  assert.equal(summary.port_la.unique_vessels, 2);
+  assert.equal(summary.port_la.in_port_now, 1);
+  assert.equal(summary.port_lb.visits_completed, 1);
+  assert.equal(summary.port_lb.unique_vessels, 1);
+  assert.equal(summary.port_lb.in_port_now, 0);
 });

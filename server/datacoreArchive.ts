@@ -794,6 +794,42 @@ export function archiveDayFiles(dir: string, day: string): string[] {
  * generic (a plain predicate) so this stays a no-op, zero-risk change for
  * every existing caller that doesn't pass one.
  */
+export interface ArchiveBbox { lamin: number; lamax: number; lomin: number; lomax: number }
+
+/**
+ * Does an archive row fall inside `bbox`? Handles both shapes this archive
+ * writes: point rows (top-level `lat`/`lon`, every raw stream) and
+ * ROLLUP-SUMMARY rows (`vessels_tracks`/`aircraft_tracks`/`trains_tracks` —
+ * one row per entity per day, past RAW_RETENTION_DAYS, carrying a
+ * `[minLa, minLo, maxLa, maxLo]` `bbox` array covering that whole day's
+ * track instead of a single point — see rollupOldDaysAsync/emitDaySummary
+ * above). A rollup row counts as a match on any bbox OVERLAP, not full
+ * containment: the day's track may pass through the query box without
+ * every point of it doing so, and this is a coarse day-level filter, not a
+ * per-point one — callers needing per-point precision inside a matched day
+ * still have to re-check the row's own `pl` polyline themselves.
+ * ADDED 2026-09-02 (scheduled-routine PRODUCT session): the existing bbox
+ * rowFilter callers built (readArchiveDay's `bbox` query param) only ever
+ * checked `row.lat`/`row.lon`, which a rollup row doesn't carry — so a
+ * bbox-scoped `stream=vessels_tracks` query silently matched ZERO rows
+ * before this fix, forcing any port-scoped historical read to eat the
+ * whole global per-day population against the 5000-row/day cap (the same
+ * failure mode the 2026-08-21 bbox addition itself was built to fix for
+ * `fires`, just not extended to rollup streams yet).
+ */
+export function rowInBbox(row: Record<string, unknown>, bbox: ArchiveBbox): boolean {
+  const lat = Number(row.lat), lon = Number(row.lon);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    return lat >= bbox.lamin && lat <= bbox.lamax && lon >= bbox.lomin && lon <= bbox.lomax;
+  }
+  const rb = row.bbox;
+  if (Array.isArray(rb) && rb.length === 4 && rb.every((n) => typeof n === "number" && Number.isFinite(n))) {
+    const [minLa, minLo, maxLa, maxLo] = rb as number[];
+    return maxLa >= bbox.lamin && minLa <= bbox.lamax && maxLo >= bbox.lomin && minLo <= bbox.lomax;
+  }
+  return false;
+}
+
 export async function readArchiveDay(
   stream: string, day: string, baseDir?: string, limit = 1000,
   rowFilter?: (row: Record<string, unknown>) => boolean,
