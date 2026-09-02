@@ -3,6 +3,160 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (scheduled-routine session, fourth session that UTC day) [PRODUCT] — T-DATACORE-adjacent (datacore/signal_ladder.json, research/open_questions.md only; docs-only, no code changed): shadow_fleet_maritime's identity-swap detector GATE 1 (DATA) statistical test RUN against production — VERDICT: FAIL, but directionally distinct from the gap/loiter FAIL; all 3 detector types now gate-1-tested, whole-root disposition filed
+
+TERRITORY: T-DATACORE-adjacent (`datacore/signal_ladder.json`,
+`research/open_questions.md` — no server/client/python code touched,
+same docs-only class as the earlier same-day session that first ran
+the gap/loiter half of this test).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git log --oneline -10`
+showed the most recent PRs already merged today: #984 (v1.0.833, this
+root's own identity-swap detector reduction, built but explicitly not
+yet run — its own NEXT step is what this session executes) and #985
+(v1.0.834, an unrelated [REPAIR] to `track_fill`'s exit_reason
+handling). `python3 scripts/session_health_check.py`: 7/7 checks OK/WARN,
+no LIVENESS ALARM — `daemon_memory` WARN (rss 400.5MB >= 400MB trim
+threshold, deep_score running in trimmed mode) is a known, non-critical,
+self-managing condition (the daemon's own memory guard, not a break);
+`deploy_freshness` confirmed `server_version` 1.0.834 matches this
+checkout's `package.json`, meaning the 1.0.833 identity-swap route was
+already live in production at session start — no deploy-wait needed
+before running the probe, unlike the prior addendum which had to defer
+exactly that check.
+
+Not a [REPAIR] session — no critical unfixed KNOWN BROKEN item blocked
+this work; `research/open_questions.md`'s own SHADOW-FLEET SIGNAL
+section named a single, concrete, fully-specified, already-unblocked
+NEXT item from earlier the same day (2026-09-02, third session): run
+the identity-swap `evaluateEnrichment()` block the prior session built
+against the live archive and record the verdict. Took it directly per
+SESSION BUDGET's "take the next queued item... own PR, own tagged log
+entry, never bundled" — no axis survey needed since a specific queued
+item was already sitting unblocked.
+
+WHAT WAS RUN: verified `/api/health` first (`status: "ok"`, bot
+`active`, `liveness.dark: false`) before spending the multi-minute probe
+budget. Then `GET /api/diag/shadowfleet_gate1?hours=168&token=
+$DIAG_TOKEN` (113.2s) as the same sanity-check-before-depth precedent
+the gap/loiter session set, then `?hours=720` for statistical depth.
+The first 720h attempt hit a transient connection reset at the egress
+proxy (~200s in, `curl: (56) Failure when receiving data from the
+peer`) — distinct from an application-level failure since `/api/health`
+was reachable and healthy immediately before and after; a bare retry
+succeeded at 251.1s, closely matching the prior session's own 235.3s
+reading at the identical window depth. Logged so a future session
+reads this as one flaky network hop, not a new latency regime for the
+endpoint.
+
+RESULT (full table and diagnosis in `research/open_questions.md`'s
+SHADOW-FLEET SIGNAL section, 2026-09-02 fourth-session addendum — not
+repeated in full here):
+
+| window | n_universe | contingency (a,b,c,d) | odds ratio | 95% CI | insufficient_n |
+|---|---|---|---|---|---|
+| 168h | 7,054 | (9, 3972, 4, 3069) | 1.738 | [0.535, 5.651] | false |
+| 720h | 9,208 | (13, 4953, 7, 4235) | 1.588 | [0.633, 3.984] | false |
+
+Both windows clear the `insufficient_n` floor (13 and 20 reference hits,
+against the n=5 floor) — adequately powered, not underpowered nulls.
+Neither 95% CI lies entirely above 1, the pre-registered PASS bar this
+root's own GATE 1 plan set 2026-07-04, so this is a **GATE 1 FAIL** by
+the stated rule, reported as such rather than rounded up on the point
+estimate (MEASUREMENT INTEGRITY — same discipline the gap/loiter FAIL,
+`occ_options_volume`'s reversed result, and `gas_flare_candidates`'s
+clean negative already applied).
+
+HONEST DIFFERENCE FROM THE GAP/LOITER FAIL, stated rather than
+collapsed into an identical label: gap/loiter's two windows both landed
+BELOW 1 (0.499, 0.643) — a genuine null, no enrichment in either
+direction. Identity-swap's two windows both landed ABOVE 1 (1.738,
+1.588), matching this session's own pre-registered PRIOR (see the
+2026-09-02 third-session entry, stated before this result existed: "the
+identity-swap detector's own case-control result [would] differ from
+the gap/loiter FAIL... because it targets a mechanistically different
+phenomenon"). REASONING STANDARD #4 applies before reading too much
+into that: this is one detector type at two window depths where the
+longer window fully contains the shorter one, not independent
+replication on independent data, and both lower CI bounds sit close to
+1 (0.535, 0.633) — genuinely inconclusive, not a near-miss worth
+re-testing with a third threshold in the same session (which would be
+the exact threshold-fishing REASONING STANDARD #4 warns against).
+
+DIAGNOSIS / WHOLE-ROOT DISPOSITION (REASONING STANDARD #1/#5): all
+three of `shadow_fleet_maritime`'s detector types — gap, loiter,
+identity-swap — have now been independently gate-1-tested against the
+same OFAC reference list, tanker pool, and case-control machinery. Two
+(gap, loiter) are clean nulls. One (identity-swap) is inconclusive but
+directionally suggestive across two windows. Whole-root verdict: the
+root **cannot yet statistically distinguish shadow-fleet-adjacent AIS
+behavior from ordinary tanker/coverage noise** using an OFAC-only
+reference list at these window depths, for any of its three heuristics
+as currently built. This is NOT the same as "dead" — identity-swap's
+consistent above-1 direction is the one piece of evidence in this root
+that isn't a clean negative, and is worth one more look (a materially
+deeper archive window, now cheap given the bounded-memory aggregator;
+or a broader/independent reference source such as KSE Institute's
+still-narrative dark-fleet publications, the original GATE 1 plan's
+declined-but-not-impossible second source) before a final close-out —
+but no future session should re-run this exact 168h/720h identity-swap
+test unchanged and expect a different verdict.
+
+WHAT SHIPPED: `research/open_questions.md`'s SHADOW-FLEET SIGNAL section
+gained a dated addendum with the full result table, the honest
+gap/loiter-vs-identity-swap direction comparison, and the whole-root
+disposition. `datacore/signal_ladder.json`'s `shadow_fleet_maritime`
+entry rewritten to carry both the gap/loiter and identity-swap results
+together with the whole-root verdict (status stays `gate1_fail` —
+no detector type has passed — `current_gate` stays 1). The RAW
+counts-only overlay (gap events, identity-swap candidates, STS-zone
+loitering) is explicitly UNCHANGED and stays live — this gate blocks
+only the interpreted-signal path, per the RAW OVERLAYS vs SIGNALS
+standing rule; no client-facing map layer, route, or UI copy needed
+touching.
+
+CROSS-SYSTEM INTEGRATION: none new — this session read two existing
+research files and called one already-built, already-deployed probe;
+no new archive, dependency, or join.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+VERSION: no bump — docs-only change (two research/data files, zero
+lines of runtime code), same precedent as the third-session entry
+above and PR #979.
+
+GATES: N/A for the same reason — no test suite, typecheck, build, or
+counter ratchet exercises a `.md`/`.json` research-file diff. Verified
+`datacore/signal_ladder.json` still parses (`python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"`) before committing.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 (DATA) statistical read of
+an already-built, already-deployed detector; no trading path, scoring,
+sizing, or threshold touched either way.
+
+MARKET-HOURS NOTE: session ran outside 9:30-16:00 ET. Moot anyway: this
+PR touches zero code, so it carries no deploy-coupling risk at any time
+of day.
+
+NEXT (queued, not this session): either (a) a materially deeper-window
+identity-swap re-run once the archive has grown further, to see whether
+the CI tightens toward or away from 1 with more data — the real test of
+"inconclusive" vs "real but weak" — or (b) treat this root as gate-1-
+closed at its current design and redirect effort to a genuinely
+different candidate detector or reference source rather than re-testing
+the same three heuristics again.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the same-day prior session's own queued, fully-
+specified, already-unblocked NEXT item — running an already-built,
+already-deployed probe was the single highest-value item available;
+no axis survey or new-build was needed to reach it), used in full
+including running both window depths, diagnosing a transient network
+failure rather than mis-attributing it, and filing the whole-root
+disposition the queue itself asked for once all three detector types
+were tested.
+
 ## 2026-09-02 (scheduled-routine session) [REPAIR] — T-BOT (ml_model_v2.py, test_fixes_pr8.py, test_options_outcome_breakdown.py) + SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json): track_fill's orphan-exit write paths were silently dropping exit_reason, which is the actual reason KNOWN BROKEN #12(c)'s live_options_outcome_breakdown stayed empty despite real CSP closes firing live — fixed (v1.0.834)
 
 TERRITORY: T-BOT (`ml_model_v2.py`'s `track_fill`, no bot_engine/

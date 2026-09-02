@@ -7756,6 +7756,97 @@ shadowfleet_gate1?hours=720&token=$DIAG_TOKEN` and record the
 PRIOR just stated. See `research/experiments.md`'s matching entry for the
 full disposition of either outcome.
 
+**ADDENDUM 2026-09-02 (scheduled-routine [PRODUCT] session, fourth
+session that day) — identity-swap RUN against production at two
+independent windows. RESULT: FAILS the pre-registered pass bar at both,
+but NOT the same shape of null as gap/loiter — a directionally
+consistent OR>1 that the CI does not clear. All three of this root's
+detector types have now been gate-1-tested; whole-root disposition
+below.**
+
+`server_version` was already 1.0.834 (past the 1.0.833 build) at session
+start, confirmed via `/api/health` before running anything — the prior
+addendum's deploy precondition was satisfied without this session needing
+to wait. Ran the same two-window protocol the gap/loiter FAIL used
+(168h sanity check, then 720h for depth), both authenticated via
+`$DIAG_TOKEN`, read-only, no per-vessel identity leaving the endpoint.
+The 168h call succeeded at 113.2s; the first 720h attempt hit a
+transient proxy-level connection reset at ~200s (`curl: (56)`, distinct
+from any application error — `/api/health` was healthy immediately
+before and after), and a bare retry succeeded at 251.1s, consistent with
+the prior session's own 235.3s reading at the same window depth — logged
+so a future session doesn't mistake one flaky attempt for a new latency
+regime.
+
+| window | n_universe | contingency (a,b,c,d) | odds ratio | 95% CI | insufficient_n |
+|---|---|---|---|---|---|
+| 168h | 7,054 | (9, 3972, 4, 3069) | 1.738 | [0.535, 5.651] | false |
+| 720h | 9,208 | (13, 4953, 7, 4235) | 1.588 | [0.633, 3.984] | false |
+
+Both windows clear the `insufficient_n` floor by a wide margin (13 and
+20 reference hits respectively) — adequately powered, not underpowered
+nulls. Neither 95% CI lies entirely above 1 (the pre-registered PASS
+bar), so **this is a GATE 1 FAIL by the stated rule**, same verdict
+class as gap/loiter. Reported as such rather than rounded up on the
+point estimate (MEASUREMENT INTEGRITY, same discipline the gap/loiter
+FAIL and `occ_options_volume`/`gas_flare_candidates` already applied).
+
+HONEST DIFFERENCE FROM THE GAP/LOITER RESULT, worth stating plainly
+rather than folding into an identical "FAIL" label: gap/loiter's two
+windows both landed BELOW 1 (0.499, 0.643) — a genuine negative, the
+detector shows no enrichment in either direction. Identity-swap's two
+windows both landed ABOVE 1 (1.738, 1.588) — direction consistent with
+this addendum's own pre-registered PRIOR (expected it to differ from
+the gap/loiter null because it targets deliberate-spoofing-shaped
+behavior). Two independently-windowed runs landing on the same side of
+1 is not nothing, but REASONING STANDARD #4 applies: this is one
+detector type tested at two window depths, not independent replication
+on independent data (the 720h window fully contains the 168h one), and
+the lower CI bound sits close to 1 in both (0.535, 0.633) — genuinely
+inconclusive, not "almost passing." Framing this as a near-miss and
+re-running with a third threshold or window in the same session would
+be exactly the threshold-fishing REASONING STANDARD #4 warns against;
+it is reported as inconclusive and left there.
+
+WHOLE-ROOT DISPOSITION (all three detector types — gap, loiter,
+identity-swap — now independently gate-1-tested, closing out the
+question the 2026-09-02 FAIL entry's own NEXT (2) posed): shadow-fleet
+detection **as currently built cannot yet statistically distinguish
+shadow-fleet-adjacent AIS behavior from ordinary tanker/coverage noise**
+against an OFAC-only reference list at these window depths, for any of
+the three heuristics. This is a real, useful finding — it forecloses
+trading or selling this signal as currently built — not a failure to
+report. It does NOT mean the root is dead: identity-swap's consistent
+above-1 direction across two windows is the one piece of this root's
+evidence that isn't a clean null, and is worth one more look before a
+final close-out, specifically with either (a) a materially deeper
+archive window than 720h now that the aggregator's memory bound makes
+that cheap to try, or (b) a broader/independent reference list (KSE
+Institute's dark-fleet publications, still narrative/PDF and not
+machine-readable — the original GATE 1 plan's declined-but-not-
+impossible second source) to reduce reference-list sparsity (804 MMSIs
+against tanker pools of 7-9k). Absent either of those, the honest
+status to carry forward is: two of three detector types are clean
+nulls, one is inconclusive-but-directionally-suggestive, and none has
+passed. `datacore/signal_ladder.json`'s `shadow_fleet_maritime` entry
+updated to reflect all three results and this disposition; RAW overlay
+(gap events, identity-swap candidates, STS-zone loitering, counts only)
+stays live and UNCHANGED — this gate blocks only the interpreted-signal
+path, per the RAW OVERLAYS vs SIGNALS standing rule.
+
+NEXT (queued, not this session): either (a) a deeper-window identity-
+swap re-run once the archive has grown further (a materially longer
+window than 720h, to see whether the CI tightens toward or away from 1
+with more data — the honest test of "inconclusive" vs "real but weak"),
+or (b) treat this root as gate-1-closed at its current design and move
+effort to a genuinely different candidate detector / reference source
+rather than re-testing the same three heuristics again. No session
+should re-run the existing 168h/720h identity-swap test unchanged and
+expect a different verdict — that would be re-litigating a result, not
+advancing it, per HEALTH OF THE LOOP ITSELF's RECURRENCE ESCALATES rule
+applied by analogy (this is a research finding, not a bug fix, but the
+same discipline against repeating an unchanged action applies).
+
 ## NEW DATA ROOTS (charter gap execution 2026-07-04 — licensing verified from primary sources by a 10-agent research pass; build order = expected signal × coverage × time-to-testable)
 
 BUILD ORDER RATIONALE: 8-K language first because EDGAR history already
