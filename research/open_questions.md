@@ -10180,6 +10180,134 @@ territory in their first commit)
   preceding session's own NEXT note, fully worked to a real,
   evidence-backed conclusion (bug ruled out, genuine cause found and
   documented, tooling hardened for next time) rather than left open.
+- **UPDATE 2026-09-02 (scheduled-routine PRODUCT session, market-hours
+  run) — the "build a rollup-summary-format reader" alternative NEXT
+  step from the 2026-08-19 closure above is now BUILT and unit-tested;
+  the actual GATE 1 run against real July data is queued for the next
+  session after this PR deploys (merge deliberately held for after the
+  16:00 ET close — see below), not attempted this session.**
+  READ BEFORE WRITE: re-read `server/portDwell.ts`, `server/
+  datacoreArchive.ts` (the `readArchiveDay`/rollup sections), and
+  `server/bot.ts`'s `"archive"`/`"portdwell_window"` diag cases in full
+  before touching any of them.
+  FIRST CONFIRMED LIVE (before writing any code) that the 2026-08-19
+  entry's own diagnostic finding is still true and durable: rolled-up
+  per-vessel daily track summaries for July genuinely exist and are
+  queryable today — `/api/diag/archive?stream=vessels_tracks&day=2026-07-15&limit=5&token=$DIAG_TOKEN`
+  returned real, populated rows (`{i, d, n, t0, t1, bbox, pl}`) against
+  live production this session, not just as of 2026-08-19. The raw data
+  really was folded, not deleted — the only missing piece was a reader.
+  SECOND FINDING (also live, before building): the existing generic
+  `/api/diag/archive` `bbox` query param — built 2026-08-21 for exactly
+  this class of problem (a global-population stream like `fires`
+  spending its whole row budget on rows outside the region a caller
+  wants) — only ever checked `row.lat`/`row.lon`. A rollup row has
+  neither field (its position is a `bbox` array covering the whole
+  day's track); passing `bbox=` against `stream=vessels_tracks` would
+  silently match ZERO rows, which would have made this session's own
+  July fetch either read the wrong subset or spend its whole 5000-row/
+  day cap on a near-random slice of the GLOBAL vessel population
+  instead of the LA-basin ports specifically (global daily vessel
+  counts across all AIS types are plausibly well above 5000 — this
+  week's tanker-only universe alone ran 5,900-9,100 MMSIs, and tankers
+  are one ship-type band out of many). Confirmed this would have been a
+  real, silent bug, not a hypothetical, by testing the pre-fix
+  `rowInBbox`-equivalent logic against a synthetic rollup row in a
+  throwaway REPL check before writing the fix.
+  BUILT (own PR, this session, v1.0.835 pending deploy):
+  1. `datacoreArchive.ts` gained `rowInBbox(row, bbox)` — matches a
+     point row on containment (byte-identical to the pre-existing
+     inline check) OR a rollup row's own `bbox` array on OVERLAP (not
+     containment — a day's track may cross the query box without every
+     point of it doing so). `server/bot.ts`'s `"archive"` case now
+     calls it instead of its own inline lat/lon-only closure — zero
+     behavior change for every existing point-stream caller (pinned by
+     a new test asserting the point-row path is unchanged), strictly
+     additive capability for rollup streams.
+  2. `server/portDwell.ts` gained `portPresenceFromRollup` (one
+     vessel's day-ascending rollup rows -> maximal runs of consecutive
+     calendar days with >=1 sampled point inside a port fence) and
+     `summarizeRollupPresence` (aggregates runs across every vessel
+     into the same visits_completed/unique_vessels/in_port_now shape
+     `computePortDwellAsync` already reports, so a GATE 1 script can
+     compare rollup- and raw-derived readings order-of-magnitude for
+     order-of-magnitude). Deliberately DAY-granularity, not hour: the
+     rollup's own `pl` field caps at ~50 index-subsampled points/day
+     with no per-point timestamp, so `detectVisits`'s exact-hour
+     dwell/speed logic cannot run on it. Two honestly-stated,
+     NOT-corrected biases in the docstring: a day whose 50-point
+     subsample happens to miss the one in-fence point ends a run early
+     (undercounts dwell length, same "lower bound" posture the raw
+     pipeline's own dwell figures already carry) and, symmetrically,
+     can split one real multi-day call into two shorter ones
+     (over-counts call count) — both are the honest cost of reaching
+     months the raw archive itself no longer has, not a defect to
+     silently paper over.
+  3. `scripts/portdwell_gate1_rollup.ts` (new, one-off — same
+     established pattern as `gasflare_gate1.ts`/`crop_conditions_
+     gate1.ts`): fetches every July 2026 day's `vessels_tracks` rows
+     bbox-scoped to the LA/Long Beach basin, groups by vessel,
+     verifies day-ascending order (asserts rather than blindly
+     re-sorting — a silent re-sort could hide an upstream ordering
+     bug), runs `summarizeRollupPresence`, and ALSO pulls a FRESH
+     current-week raw-pipeline baseline via the existing
+     `portdwell_window` probe (rather than reusing the 2026-08-19
+     entry's now-3-week-stale mid-August figure) so the order-of-
+     magnitude comparison is contemporary. Restates (not re-fetches)
+     the 2026-08-19 session's own gathered truth source verbatim: Port
+     of LA's July 2026 release — 960,464 TEUs (2nd-busiest July on
+     record, after an even stronger >1M-TEU June), 6,083,067 TEUs YTD
+     through July (+1.8% YoY). Pre-registered bar restated from that
+     same entry, not redesigned: TEU (container throughput) and
+     vessel-presence count are different units, so an exact
+     reconciliation was never the right standard — a same-order-of-
+     magnitude reading vs. the fresh baseline (scaled ~4.3x week-to-
+     month) is PASS, an order of magnitude below it is FAIL.
+  RATCHET: 3 new tests in `server/datacoreArchive.test.ts`
+  (`rowInBbox` — point-row parity, rollup-row overlap-not-containment,
+  fail-closed on a malformed/absent position field) and 7 new tests in
+  `server/portDwell.test.ts` (`portPresenceFromRollup`: single day,
+  consecutive-day merge, a missed-point day splits a run, a missing
+  archive day splits a run, a port switch splits a run;
+  `summarizeRollupPresence`: multi-vessel/multi-port aggregation).
+  GATES: `npx tsx --test server/datacoreArchive.test.ts`: 48/48 (45 +
+  3 new). `npx tsx --test server/portDwell.test.ts`: 15/15 (8 + 7
+  new). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+  `bash scripts/gated_tests.sh`: GATE PASSED (full account in
+  experiments.md — same session, same PR). `npx tsx
+  scripts/portdwell_gate1_rollup.ts` smoke-tested against an
+  unreachable host with a dummy token: fails cleanly on the network
+  call (`fetch failed`), confirming no import/syntax defect before the
+  real run — the real run needs the deployed `rowInBbox` fix and is
+  explicitly NOT attempted this session (see MARKET-HOURS NOTE below).
+  MARKET-HOURS NOTE: session ran inside 9:30-16:00 ET (~14:30 ET,
+  Wednesday). Per this routine's own instruction ("prefer merging PRs
+  outside 9:30-16:00 ET; if working mid-market, prepare the PR and
+  note in it that merge should wait for the close"), this PR is
+  prepared and left UNMERGED, with that note on the PR itself — merge
+  after the 16:00 ET close, whether by this session's own later
+  fall-through or a subsequent session.
+  NEXT for whichever session merges this and confirms the deploy
+  (`server_version` >= 1.0.835 on `/api/data/layers`): run
+  `DIAG_TOKEN=... npx tsx scripts/portdwell_gate1_rollup.ts` against
+  production and record the verdict (July rollup-derived
+  visits_completed/unique_vessels/in_port_now for port_la/port_lb vs.
+  the fresh raw baseline, PASS/FAIL against the restated bar) here and
+  in `datacore/signal_ladder.json`. If July reads anomalously low
+  (order of magnitude below the scaled fresh baseline), the honest
+  next question is whether that's the detector's real coarseness bias
+  (the "misses a point, ends a run early" undercount named above) or a
+  genuine data problem — check per-day row counts/truncation flags in
+  the script's own output before concluding either way, same
+  MEASUREMENT INTEGRITY discipline the gas-flare/shadow-fleet gate-1
+  sessions already applied to their own null results.
+  STARVED: no — this session had capacity for exactly one clean,
+  scoped PRODUCT action (the still-open "build a rollup-summary-format
+  reader" alternative this root's own 2026-08-19 closure named and no
+  session had picked up since), used in full including the two live
+  pre-build verifications (rollup data really is still there; the
+  existing bbox filter really would have silently broken this) rather
+  than assuming either from the prior session's notes.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

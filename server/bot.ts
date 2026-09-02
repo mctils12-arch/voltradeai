@@ -10,7 +10,7 @@ import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
-import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges } from "./datacoreArchive";
+import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
@@ -2451,13 +2451,12 @@ print(json.dumps(s))
             }
             bbox = { lamin: parts[0], lamax: parts[1], lomin: parts[2], lomax: parts[3] };
           }
-          const rowFilter = bbox
-            ? (row: Record<string, unknown>) => {
-                const lat = Number(row.lat), lon = Number(row.lon);
-                return Number.isFinite(lat) && Number.isFinite(lon) &&
-                  lat >= bbox!.lamin && lat <= bbox!.lamax && lon >= bbox!.lomin && lon <= bbox!.lomax;
-              }
-            : undefined;
+          // ADDED 2026-09-02: rowInBbox also matches ROLLUP-summary rows
+          // (vessels_tracks/aircraft_tracks/trains_tracks — a `bbox` array,
+          // not top-level lat/lon; see its own comment in
+          // datacoreArchive.ts). Point-stream behavior (fires, etc.) is
+          // byte-identical to before — rowInBbox checks lat/lon first.
+          const rowFilter = bbox ? (row: Record<string, unknown>) => rowInBbox(row, bbox!) : undefined;
           const result = await readArchiveDay(stream, day, undefined, limit, rowFilter);
           if (!result) return res.status(404).json({ error: "unknown stream (no archive directory on this instance)" });
           // ADDED 2026-09-01 (scheduled-routine session): KNOWN BROKEN #37's

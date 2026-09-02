@@ -291,3 +291,117 @@ function aggregateVisits(visitsByPort: Map<string, PortVisit[]>, ports: PortDef[
             "research/open_questions.md).",
   };
 }
+
+// ── rollup-based (coarse, months-deep) port presence ────────────────────────
+//
+// GATE 1 (research/open_questions.md "PORT DWELL ANALYTICS"): the raw-archive
+// pipeline above (detectVisits/computePortDwellAsync) can only ever see the
+// last RAW_RETENTION_DAYS (30) — the 2026-08-19 GATE 1 session found the
+// specific July-2026-vs-Port-of-LA-TEU comparison this root has queued since
+// 2026-08-04 "CLOSED AS PERMANENTLY UNATTAINABLE via this data path" for
+// exactly that reason, and filed "build a rollup-summary-format reader" as
+// the alternative NEXT step (never attempted until this session).
+//
+// datacoreArchive.ts's rollupOldDaysAsync does not delete data past
+// RAW_RETENTION_DAYS — it folds each entity's raw hour-points for that day
+// into ONE summary row (`vessels_tracks/<day>.jsonl.gz`: {i, d, n, t0, t1,
+// bbox, pl: up to ~50 index-subsampled [lat,lon] points}) and keeps that
+// forever. This is real, queryable history reaching back to the archive's
+// 2026-07-03 start (confirmed live this session via
+// `/api/diag/archive?stream=vessels_tracks&day=2026-07-15`) — it just isn't
+// PER-POINT-TIMESTAMPED, so detectVisits's exact-hour dwell computation
+// cannot run on it directly.
+//
+// portPresenceFromRollup trades that precision for reach: a coarse,
+// DAY-granularity presence detector instead of an hour-granularity dwell
+// one. Same lower-bound honesty posture as detectVisits' own dwell figures,
+// just at day resolution instead of hour resolution.
+export interface RollupTrackRow {
+  i: string; d: string; n: number; t0: number; t1: number;
+  bbox: [number, number, number, number]; pl: Array<[number, number]>;
+}
+
+export interface RollupPortPresence {
+  mmsi: string; portId: string;
+  firstDay: string; lastDay: string;
+  daysPresent: number;  // count of days in this run with >=1 in-fence sampled point
+  ongoing: boolean;      // lastDay is the queried window's own last day (right-censored)
+}
+
+function daysBetweenIso(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * Coarse port-presence detector over ROLLUP-summary track rows for ONE
+ * vessel, already sorted by day ascending (caller's job — this function
+ * does not sort, so a multi-vessel caller can group once and reuse the
+ * order the archive read already produced).
+ *
+ * A "presence day" is: at least one of that day's (up to ~50, index-
+ * subsampled) polyline points falls inside a port's geofence
+ * (`assignPort`). A "call" is a maximal run of CONSECUTIVE calendar days
+ * with the SAME vessel present at the SAME port — a single day without a
+ * detected in-fence point (whether the vessel truly left, or the day's
+ * subsample simply missed the one in-fence point) ends the run. No
+ * gap-bridging, matching detectVisits' own conservative posture on the raw
+ * side — this is a LOWER BOUND on true dwell length and, symmetrically, can
+ * OVER-count call count (one real multi-day call split by a missed day
+ * reads as two shorter calls) — both biases are stated here, not corrected,
+ * per MEASUREMENT INTEGRITY.
+ */
+export function portPresenceFromRollup(
+  rowsByDayAscending: RollupTrackRow[], ports: PortDef[], lastWindowDay: string,
+): RollupPortPresence[] {
+  const out: RollupPortPresence[] = [];
+  let cur: { mmsi: string; portId: string; firstDay: string; lastDay: string; daysPresent: number } | null = null;
+  let prevDay: string | null = null;
+  const flush = () => {
+    if (!cur) return;
+    out.push({ ...cur, ongoing: cur.lastDay === lastWindowDay });
+    cur = null;
+  };
+  for (const row of rowsByDayAscending) {
+    let portId: string | null = null;
+    for (const [la, lo] of row.pl) { portId = assignPort(la, lo, ports); if (portId) break; }
+    const gapDays = prevDay != null ? daysBetweenIso(prevDay, row.d) : 0;
+    if (cur && (cur.portId !== portId || gapDays > 1)) flush();
+    if (portId) {
+      if (!cur) cur = { mmsi: row.i, portId, firstDay: row.d, lastDay: row.d, daysPresent: 1 };
+      else { cur.lastDay = row.d; cur.daysPresent++; }
+    }
+    prevDay = row.d;
+  }
+  flush();
+  return out;
+}
+
+/** Aggregates portPresenceFromRollup's per-vessel runs across an entire
+ *  fetched window into the same shape of summary computePortDwellAsync
+ *  reports (visits_completed/unique_vessels/in_port_now), so a GATE 1
+ *  script can compare rollup-derived and raw-derived readings order-of-
+ *  magnitude-for-order-of-magnitude. `rowsByVessel` values must each
+ *  already be sorted by day ascending (same contract as
+ *  portPresenceFromRollup itself). */
+export function summarizeRollupPresence(
+  rowsByVessel: Map<string, RollupTrackRow[]>, ports: PortDef[], lastWindowDay: string,
+): Record<string, { visits_completed: number; unique_vessels: number; in_port_now: number; calls: RollupPortPresence[] }> {
+  const byPort: Record<string, { completed: RollupPortPresence[]; ongoing: RollupPortPresence[]; vessels: Set<string> }> = {};
+  for (const p of ports) byPort[p.id] = { completed: [], ongoing: [], vessels: new Set() };
+  for (const rows of rowsByVessel.values()) {
+    for (const run of portPresenceFromRollup(rows, ports, lastWindowDay)) {
+      const bucket = byPort[run.portId];
+      if (!bucket) continue;
+      bucket.vessels.add(run.mmsi);
+      (run.ongoing ? bucket.ongoing : bucket.completed).push(run);
+    }
+  }
+  const out: Record<string, { visits_completed: number; unique_vessels: number; in_port_now: number; calls: RollupPortPresence[] }> = {};
+  for (const [portId, b] of Object.entries(byPort)) {
+    out[portId] = {
+      visits_completed: b.completed.length, unique_vessels: b.vessels.size,
+      in_port_now: b.ongoing.length, calls: [...b.completed, ...b.ongoing],
+    };
+  }
+  return out;
+}
