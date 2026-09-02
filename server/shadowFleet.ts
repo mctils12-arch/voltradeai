@@ -159,8 +159,15 @@ const EARTH_KM_PER_DEG = 111.0;
 // zones (Gibraltar, Malta, Fujairah, Laconian Gulf) are near the date line;
 // accepted as a known gap in a heuristic RAW statistic rather than adding
 // dateline-wrap bucket logic for a real-world-irrelevant case.
-function countHullSwapCandidates(lasts: Endpoint[], firsts: Endpoint[],
-                                 nearKm: number, withinHours: number): number {
+interface HullSwapMatch { lastMmsi: string; firstMmsi: string }
+
+/** Every (A last-seen, B first-seen) pair within `nearKm`/`withinHours` —
+ *  the actual matched identities behind `countHullSwapCandidates`'s count
+ *  and `identitySwapMmsis`'s MMSI reduction. Factored out 2026-09-02 so the
+ *  two views can never drift against each other, same discipline
+ *  `loiteringMatches` already applies to detectLoitering/detectLoiteringMmsis. */
+function hullSwapMatches(lasts: Endpoint[], firsts: Endpoint[],
+                         nearKm: number, withinHours: number): HullSwapMatch[] {
   const windowSec = withinHours * 3600;
   const cellDeg = nearKm / EARTH_KM_PER_DEG;
   const grid = new Map<string, { pts: Endpoint[]; times: number[] }>();
@@ -176,7 +183,7 @@ function countHullSwapCandidates(lasts: Endpoint[], firsts: Endpoint[],
     bucket.times = bucket.pts.map((f) => f.t);
   });
 
-  let count = 0;
+  const out: HullSwapMatch[] = [];
   for (const last of lasts) {
     const latCell = Math.floor(last.la / cellDeg);
     const lonCell = Math.floor(last.lo / cellDeg);
@@ -195,12 +202,19 @@ function countHullSwapCandidates(lasts: Endpoint[], firsts: Endpoint[],
         for (let i = lo; i < hi; i++) {
           const f = bucket.pts[i];
           if (f.mmsi === last.mmsi) continue;
-          if (kmBetween(last.la, last.lo, f.la, f.lo) <= nearKm) count++;
+          if (kmBetween(last.la, last.lo, f.la, f.lo) <= nearKm) {
+            out.push({ lastMmsi: last.mmsi, firstMmsi: f.mmsi });
+          }
         }
       }
     }
   }
-  return count;
+  return out;
+}
+
+function countHullSwapCandidates(lasts: Endpoint[], firsts: Endpoint[],
+                                 nearKm: number, withinHours: number): number {
+  return hullSwapMatches(lasts, firsts, nearKm, withinHours).length;
 }
 
 /** First index i such that sorted[i] > value (sorted ascending). */
@@ -240,6 +254,46 @@ export function detectIdentityCandidates(tracks: Map<string, Pt[]>,
   }
   count += countHullSwapCandidates(lasts, firsts, nearKm, withinHours);
   return count;
+}
+
+/** GATE 1 support (2026-09-02, shadow_fleet_maritime identity-swap detector
+ *  independent test — see research/open_questions.md's queued NEXT item
+ *  from the 2026-09-02 gap/loiter GATE 1 FAIL): the same two predicates
+ *  detectIdentityCandidates counts (name reused under >1 MMSI; hull-swap
+ *  proximity), but returns the vessel IDENTITIES rather than a scalar
+ *  count, so a case-control test can build its candidate set — mirroring
+ *  detectLoiteringMmsis's relationship to detectLoitering. For a hull-swap
+ *  match BOTH the vessel that went dark and the vessel that appeared in
+ *  its place are candidates: either could be the reference-list vessel
+ *  (an OFAC-listed hull could be the one going dark under a swapped
+ *  identity, or the one reappearing under a new one) and the detector
+ *  itself makes no claim about which. */
+export function detectIdentitySwapMmsis(tracks: Map<string, Pt[]>,
+                                        nearKm = 20, withinHours = 12): Set<string> {
+  const out = new Set<string>();
+  const byName = new Map<string, Set<string>>();
+  for (const [mmsi, pts] of tracks) {
+    for (const p of pts) {
+      if (!p.c) continue;
+      let s = byName.get(p.c);
+      if (!s) { s = new Set(); byName.set(p.c, s); }
+      s.add(mmsi);
+    }
+  }
+  for (const s of byName.values()) if (s.size > 1) for (const m of s) out.add(m);
+
+  const lasts: Endpoint[] = [];
+  const firsts: Endpoint[] = [];
+  for (const [mmsi, pts] of tracks) {
+    const f = pts[0], l = pts[pts.length - 1];
+    firsts.push({ mmsi, t: f.t, la: f.la, lo: f.lo });
+    lasts.push({ mmsi, t: l.t, la: l.la, lo: l.lo });
+  }
+  for (const m of hullSwapMatches(lasts, firsts, nearKm, withinHours)) {
+    out.add(m.lastMmsi);
+    out.add(m.firstMmsi);
+  }
+  return out;
 }
 
 /** Shared predicate behind detectLoitering/detectLoiteringMmsis — one
@@ -483,7 +537,7 @@ export class ShadowAggregator {
    *  the identical loiter predicate `finish()` already computes for the
    *  per-zone COUNT view — this is a second, MMSI-identity reduction of
    *  the same `inZone` state, not a re-derivation. */
-  gate1Inputs(minLoiterHours = 4, maxMedianKts = 2): { gapMmsis: string[]; loiterMmsis: string[]; tankerPool: string[] } {
+  gate1Inputs(minLoiterHours = 4, maxMedianKts = 2): { gapMmsis: string[]; loiterMmsis: string[]; identitySwapMmsis: string[]; tankerPool: string[] } {
     const gapMmsis = Array.from(new Set(this.gaps.map((g) => g.mmsi)));
     const loiterMmsis = new Set<string>();
     this.inZone.forEach((run, key) => {
@@ -493,7 +547,32 @@ export class ShadowAggregator {
       if (speeds[Math.floor(speeds.length / 2)] > maxMedianKts) return;
       loiterMmsis.add(key.slice(0, key.indexOf("|")));
     });
-    return { gapMmsis, loiterMmsis: Array.from(loiterMmsis), tankerPool: Array.from(this.tankers) };
+    return {
+      gapMmsis, loiterMmsis: Array.from(loiterMmsis),
+      identitySwapMmsis: Array.from(this.identitySwapMmsis()),
+      tankerPool: Array.from(this.tankers),
+    };
+  }
+  /** GATE 1 support (2026-09-02): the identity-swap-candidate reduction of
+   *  this aggregator's already-bounded `byName`/`first`/`prev` state — same
+   *  two predicates detectIdentitySwapMmsis computes from a materializing
+   *  scan (name reuse, hull-swap proximity), computed here without ever
+   *  holding the full per-vessel point archive (the OOM this class exists
+   *  to avoid; see the class doc comment). `first`/`prev` are one point per
+   *  vessel each, so this stays O(vessels), not O(points), exactly like the
+   *  existing gap/loiter reductions above. */
+  identitySwapMmsis(nearKm = 20, withinHours = 12): Set<string> {
+    const out = new Set<string>();
+    this.byName.forEach((s) => { if (s.size > 1) for (const m of s) out.add(m); });
+    const lasts: Endpoint[] = [];
+    const firsts: Endpoint[] = [];
+    this.prev.forEach((p, mmsi) => lasts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    this.first.forEach((p, mmsi) => firsts.push({ mmsi, t: p.t, la: p.la, lo: p.lo }));
+    for (const m of hullSwapMatches(lasts, firsts, nearKm, withinHours)) {
+      out.add(m.lastMmsi);
+      out.add(m.firstMmsi);
+    }
+    return out;
   }
 }
 

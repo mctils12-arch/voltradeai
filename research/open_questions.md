@@ -7635,6 +7635,47 @@ ordinary tanker/coverage noise" — a real, useful finding to log even
 though it forecloses trading on this signal as currently built, not a
 failure to hide.
 
+**ADDENDUM 2026-09-02 (scheduled-routine [PRODUCT] session, later the
+same day, third session) — NEXT step (1) above BUILT and wired; NOT yet
+run against production (queued below).** Full account in
+`research/experiments.md`'s matching entry (v1.0.833); summarized here
+per this section's own convention.
+
+`server/shadowFleet.ts`'s `ShadowAggregator` gained `identitySwapMmsis()`
+— a bounded-memory reduction (built from the aggregator's existing
+per-vessel `byName`/`prev`/`first` state, O(vessels) not O(points), same
+discipline the gap/loiter reductions already use) of the same two
+predicates `detectIdentityCandidates()` counts: a name reused under >1
+MMSI, and a hull-swap proximity match (a new MMSI first-seen near another
+MMSI's last position). `gate1Inputs()` now returns this as a fourth
+field. `server/bot.ts`'s `shadowfleet_gate1` probe runs it as an
+INDEPENDENT `evaluateEnrichment()` call (own `identity_swap` response
+block, same tanker pool/reference list/seed, never merged into the
+already-failed gap/loiter candidate set) — exactly the "tested on its own
+... without a second run of the [failed] test" this addendum's own prior
+NEXT item asked for.
+
+PRIOR (stated before any result exists): expect the identity-swap
+detector's enrichment to differ from the gap/loiter FAIL above, because
+it targets deliberate-spoofing-shaped behavior (a reused name, a
+suspiciously-placed new MMSI) rather than raw AIS silence, which the
+FAIL's own diagnosis named as plausibly dominated by ordinary coverage
+loss shared by sanctioned and legitimate tankers alike.
+
+NOT RUN YET: this PR has not merged/deployed as of this addendum — the
+`identity_swap` field does not exist on the live `/api/diag/
+shadowfleet_gate1` response until `server_version` >= 1.0.833. `datacore/
+signal_ladder.json`'s `shadow_fleet_maritime` status is UNCHANGED
+(`gate1_fail`, from the gap/loiter result only) — this addendum builds
+the tool, it does not itself constitute a gate-1 run for the
+identity-swap detector.
+
+NEXT (queued, concrete): once deployed, `GET /api/diag/
+shadowfleet_gate1?hours=720&token=$DIAG_TOKEN` and record the
+`identity_swap` block's odds ratio/CI/`enriched` here, judged against the
+PRIOR just stated. See `research/experiments.md`'s matching entry for the
+full disposition of either outcome.
+
 ## NEW DATA ROOTS (charter gap execution 2026-07-04 — licensing verified from primary sources by a 10-agent research pass; build order = expected signal × coverage × time-to-testable)
 
 BUILD ORDER RATIONALE: 8-K language first because EDGAR history already

@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  readVesselTracks, detectGapEvents, detectIdentityCandidates,
+  readVesselTracks, detectGapEvents, detectIdentityCandidates, detectIdentitySwapMmsis,
   detectLoitering, detectLoiteringMmsis, computeShadowStats, ShadowZone,
   ShadowAggregator, foldVesselArchiveAsync, TANKER_SHIP_TYPE_MIN, TANKER_SHIP_TYPE_MAX,
 } from "./shadowFleet";
@@ -61,6 +61,26 @@ test("identity candidates: name under two MMSIs + hull-swap proximity heuristic"
   const tracks = readVesselTracks(72, base, NOW);
   const n = detectIdentityCandidates(tracks);
   assert.ok(n >= 2, `expected >=2 candidates (name reuse + hull swap), got ${n}`);
+});
+
+test("detectIdentitySwapMmsis (2026-09-02, GATE 1 support): same two predicates as detectIdentityCandidates, MMSI identities instead of a count", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-id-mmsi-"));
+  writeArchive(base, [
+    // same NAME on two MMSIs — both must appear
+    { t: t(30), i: "333000333", c: "TWIN STAR", la: 10, lo: 10, v: 5 },
+    { t: t(29), i: "444000444", c: "TWIN STAR", la: 30, lo: 30, v: 5 },
+    // hull swap: A last seen, B first seen 3h later 5km away — both must appear
+    { t: t(20), i: "555000555", c: "OLD ID", la: 36.5, lo: 22.7, v: 0 },
+    { t: t(17), i: "666000666", c: "NEW ID", la: 36.53, lo: 22.72, v: 0 },
+    // untouched vessel — must NOT appear
+    { t: t(15), i: "777000777", c: "CLEAN", la: 0, lo: 0, v: 8 },
+  ]);
+  const tracks = readVesselTracks(72, base, NOW);
+  const mmsis = detectIdentitySwapMmsis(tracks);
+  assert.deepEqual(mmsis, new Set(["333000333", "444000444", "555000555", "666000666"]));
+  // cross-check against detectIdentityCandidates's own count on the
+  // identical input — both are reductions of the same shared predicates.
+  assert.equal(detectIdentityCandidates(tracks), 2);
 });
 
 test("loitering: sustained slow presence inside a zone counts once per vessel", () => {
@@ -149,13 +169,18 @@ test("ShadowAggregator.gate1Inputs (2026-09-01, GATE 1 support): bounded-memory 
     { t: t(5), i: "333000333", c: "CARGO", la: 36.41, lo: 22.61, v: 0.2, st: 70 },
     // quiet tanker — in the tanker pool, no gap or loiter candidate
     { t: t(6), i: "444000444", c: "QUIET", la: 50.0, lo: 50.0, v: 10, st: 84 },
+    // identity-swap: name reused under two MMSIs, neither gapping nor
+    // loitering — must show up ONLY in identitySwapMmsis
+    { t: t(30), i: "555000555", c: "TWIN STAR", la: 60, lo: 60, v: 5, st: 81 },
+    { t: t(29), i: "666000666", c: "TWIN STAR", la: 61, lo: 61, v: 5, st: 81 },
   ]);
   const agg = new ShadowAggregator([zone]);
   await foldVesselArchiveAsync(72, (mmsi, p) => agg.push(mmsi, p), base, NOW);
   const inputs = agg.gate1Inputs();
   assert.deepEqual(inputs.gapMmsis.sort(), ["111000111"]);
   assert.deepEqual(inputs.loiterMmsis.sort(), ["222000222", "333000333"]);
-  assert.deepEqual(inputs.tankerPool.sort(), ["111000111", "222000222", "444000444"]);
+  assert.deepEqual(inputs.identitySwapMmsis.sort(), ["555000555", "666000666"]);
+  assert.deepEqual(inputs.tankerPool.sort(), ["111000111", "222000222", "444000444", "555000555", "666000666"]);
 
   // cross-check against the materializing detectors on the identical
   // archive — the online fold and the sync scan must agree (same
@@ -164,6 +189,7 @@ test("ShadowAggregator.gate1Inputs (2026-09-01, GATE 1 support): bounded-memory 
   const tracks = readVesselTracks(72, base, NOW);
   assert.deepEqual(new Set(detectGapEvents(tracks).map((e) => e.mmsi)), new Set(inputs.gapMmsis));
   assert.deepEqual(detectLoiteringMmsis(tracks, [zone]), new Set(inputs.loiterMmsis));
+  assert.deepEqual(detectIdentitySwapMmsis(tracks), new Set(inputs.identitySwapMmsis));
 
   assert.equal(TANKER_SHIP_TYPE_MIN, 80);
   assert.equal(TANKER_SHIP_TYPE_MAX, 89);

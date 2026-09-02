@@ -325,6 +325,11 @@ test("shadowfleet_gate1 probe (2026-09-01, shadow-fleet GATE 1 support): wired, 
   assert.ok(block.includes("sanitizeDiag"), "shadowfleet_gate1 probe must pass the sanitizer like every other probe");
   assert.ok(!block.includes("candidates: [...") && !block.includes("Array.from(candidates)"),
     "response must never spread the raw candidate MMSI set into the returned JSON");
+  assert.ok(block.includes("identitySwapMmsis") && block.includes("identity_swap")
+    && (block.match(/evaluateEnrichment\(/g) || []).length >= 2,
+    "identity-swap detector must be gate-1-tested as its own independent case-control run, not merged into the gap/loiter candidate set (2026-09-02)");
+  assert.ok(!block.includes("identitySwapCandidates: [...") && !block.includes("Array.from(identitySwapCandidates)"),
+    "identity-swap response must never spread the raw candidate MMSI set either");
   const mod = fs.readFileSync(path.join(here, "shadowFleetGate1.ts"), "utf8");
   assert.ok(mod.includes("export interface Gate1Verdict") && mod.includes("ci_95") && mod.includes("odds_ratio"),
     "the reused test module must already be aggregate-only in its output shape (odds ratio + CI, no MMSI list)");
