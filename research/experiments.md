@@ -73221,3 +73221,137 @@ PRODUCT action (the ladder's own stated next steps for a `gate1_pending`
 root, made newly attemptable by this session's production access), used
 in full, including catching and fixing an architecture mistake (the OOM
 risk) that a less careful session would have shipped.
+
+## 2026-09-02 (scheduled-routine session) [PRODUCT] — T-DATACORE (research/open_questions.md, datacore/signal_ladder.json only; docs-only, no code changed): shadow_fleet_maritime GATE 1 (DATA) statistical test RUN against production — VERDICT: FAIL
+
+TERRITORY: SHARED-only (research/*, datacore/signal_ladder.json). No
+code file touched — this session ran an already-deployed diag probe
+and recorded the result, per the 2026-09-01 session's own queued NEXT
+item.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/
+PROGRAM_STATE.md (T-CLIENT rendering-harness program, not this
+session's territory), tail of experiments.md (prior session shipped
+the shadowfleet_gate1 probe, v1.0.831, but explicitly deferred running
+it — "new code on an unmerged branch"). `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `server_version`
+1.0.832 matched this checkout — confirms PR #981 (and the follow-on
+#982) merged and deployed, so the probe named in the prior session's
+NEXT list was finally callable. `git fetch origin main`: this branch
+already equalled `origin/main` at 0da8cfa/v1.0.832 — no rebase needed.
+KNOWN BROKEN section scanned (38 items, none newly critical; #37
+remains open and REPAIR-owned, not blocking, per this routine's own
+instruction to note-and-proceed).
+
+PRIMARY-ACTION SELECTION: the prior session's NEXT list named one
+concrete, fully-specified, previously-blocked-only-on-deploy action —
+advancing `shadow_fleet_maritime` through GATE 1 (DATA) is explicitly
+named product work by this routine's own instruction ((a): "advance a
+datacore/ pipeline through its next ladder gate"). Took it directly
+rather than surveying alternatives — the ladder had exactly one
+actionable, unblocked item this session's own access newly unblocked.
+
+WHAT WAS RUN: `GET /api/diag/shadowfleet_gate1?hours=168&token=$DIAG_TOKEN`
+first (16.9s, sanity-checking the probe's live latency before
+committing to a longer window — insufficient_n:true at this depth
+would have meant widening further before anything else), then the
+prior session's own recommended `?hours=720` (235.3s — run in the
+background given the observed non-linear-but-still-multi-minute
+latency at 168h; the 24h/168h/720h latency curve is well above linear
+in the fixed-overhead term but sublinear in hours, consistent with the
+online-fold cost dominating at larger windows). Both authenticated via
+`$DIAG_TOKEN` against the live Railway deployment, read-only, no
+per-vessel identity ever left the endpoint (same reduced-exposure
+posture the prior session built).
+
+RESULT (full table in open_questions.md's 2026-09-02 addendum, not
+repeated in full here):
+
+| window | n_universe | contingency (a,b,c,d) | odds ratio | 95% CI | insufficient_n |
+|---|---|---|---|---|---|
+| 168h | 5,938 | (4, 2965, 8, 2961) | 0.499 | [0.150, 1.660] | false |
+| 720h | 9,124 | (10, 5542, 10, 3562) | 0.643 | [0.267, 1.546] | false |
+
+Both windows clear the `insufficient_n` floor (n=5 reference hits) by
+a wide margin (12 and 20 respectively) — this is an adequately-powered
+result, not an underpowered null. Both point estimates sit BELOW 1
+(gap/loiter candidates trend, if anything, slightly LESS likely to be
+OFAC-listed than a random tanker control) and neither 95% CI comes
+close to lying entirely above 1 — the pre-registered PASS bar this
+root's own GATE 1 plan set 2026-07-04. Two independent windows landing
+on the same side of 1, both well-powered, is a genuine negative result,
+not a coin-flip.
+
+DIAGNOSIS (REASONING STANDARD #1/#5, full account in open_questions.md):
+the tested case set (`gate1Inputs()`) is gap-OR-loiter MMSIs only — it
+excludes `detectIdentityCandidates()`'s name/MMSI-swap output, the
+detector type most specific to deliberate identity spoofing, because
+that path still needs the materializing archive reader the 2026-09-01
+session deliberately avoided wiring into this probe (documented OOM
+risk). Two non-exclusive candidate explanations, neither confirmed
+this session: raw AIS gaps are dominated by ordinary coverage loss
+that hits sanctioned and legitimate tankers about equally (which is
+exactly the confound the case-control design exists to cancel — a
+negative result here is consistent with that cancellation working as
+intended, not with the design being broken); STS-zone loitering is
+common legitimate ship-to-ship-transfer behavior a coarse zone-presence
+filter can't separate from evasion-motivated loitering.
+
+HONESTY (per HONESTY CLAUSE / MEASUREMENT INTEGRITY, same discipline as
+`occ_options_volume`'s reversed result and `gas_flare_candidates`'s
+clean negative): reported as a genuine, adequately-powered test outcome
+against the pre-registered bar, not retried with a new threshold or a
+looser bar in the same session (REASONING STANDARD #4 — this was one
+pre-registered test, at two windows chosen for statistical depth, not
+threshold-fishing).
+
+WHAT SHIPPED: `research/open_questions.md`'s SHADOW-FLEET SIGNAL entry
+gained a dated addendum with the full result table, diagnosis, and a
+concrete NEXT item (a bounded-memory reduction of the identity-swap
+detector onto `ShadowAggregator`, mirroring `gate1Inputs()`, so that
+detector can be gate-1-tested on its own before concluding the whole
+root is non-signal). `datacore/signal_ladder.json`'s
+`shadow_fleet_maritime` entry status changed `raw_only`/gate 0 ->
+`gate1_fail`/gate 1. The RAW counts-only overlay (gap events,
+identity-swap candidates, STS-zone loitering) is explicitly UNCHANGED
+and stays live — this gate blocks only the interpreted-signal path,
+per the RAW OVERLAYS vs SIGNALS standing rule; no client-facing map
+layer, route, or UI copy needed touching.
+
+CROSS-SYSTEM INTEGRATION: none new — this session read an existing
+probe and two existing research files; no new archive, dependency, or
+join.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+VERSION: no bump — docs-only change (two research/data files, zero
+lines of runtime code), same precedent as PR #979's
+"repair-adjacent... (docs-only)" entry above. `server_version` stays
+1.0.832 until the next code-carrying PR.
+
+GATES: N/A for the same reason — no test suite, typecheck, build, or
+counter ratchet exercises a `.md`/`.json` research-file diff. Verified
+both new JSON blocks parse (`python3 -c "import json; json.load(...)"`
+on `datacore/signal_ladder.json`) before committing.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 (DATA) statistical read of
+an already-built, already-tested detector; no trading path, scoring,
+sizing, or threshold touched either way.
+
+MARKET-HOURS NOTE: session ran outside 9:30-16:00 ET (`TZ=America/
+New_York date` — Wednesday, after the 2026-09-02 close). Moot anyway:
+this PR touches zero code, so it carries no deploy-coupling risk at
+any time of day.
+
+NEXT (queued, not this session): build the bounded-memory identity-
+swap-candidate reduction named above and gate-1-test it independently;
+only after that also comes back non-enriched should this root's
+overall verdict move from "one detector type failed gate 1" to "the
+root as currently built is non-signal."
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the prior session's own stated NEXT item, made newly
+runnable by this session's production access and the intervening
+deploy), used in full including running the probe at two independently
+chosen window depths rather than stopping at the first result.
