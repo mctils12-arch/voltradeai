@@ -88,6 +88,27 @@ class TestOptionsOutcomeBreakdown(unittest.TestCase):
             {"win": 1, "open": 1},
         )
 
+    def test_orphan_exit_with_options_reason_is_attributed(self):
+        # ORPHAN-EXIT-REASON REPAIR 2026-09-02 (ml_model_v2.track_fill):
+        # before that fix, every orphan_exit record (no matching open
+        # entry found) was written WITHOUT an exit_reason field at all,
+        # even when the caller passed one — so a genuine options close
+        # that became an orphan (ticker mismatch, entry never recorded,
+        # etc.) was permanently invisible to this function no matter how
+        # many CSP closes actually fired. This function's own bucketing
+        # logic already handled the shape correctly (an 'orphan_exit'
+        # outcome bucket, same as any other outcome value) — the record
+        # just never carried the reason to test it against. Pins that
+        # once track_fill writes the reason, this function attributes it.
+        feedback = [
+            {"exit_reason": "profit_target", "outcome": "orphan_exit"},
+            {"exit_reason": "position_kill", "outcome": "orphan_exit"},  # equity — excluded
+        ]
+        self.assertEqual(
+            options_outcome_breakdown(feedback),
+            {"orphan_exit": 1},
+        )
+
     def test_options_exit_reasons_constant_has_exactly_the_documented_8(self):
         self.assertEqual(
             OPTIONS_EXIT_REASONS,

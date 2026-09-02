@@ -219,6 +219,74 @@ class TestTrackFillValidation(unittest.TestCase):
         self.assertEqual(records[0]["outcome"], "win")
         self.assertEqual(records[0]["code_version"], "1.0.200")
 
+    def test_orphan_exit_preserves_exit_reason_no_matching_entry(self):
+        """ORPHAN-EXIT-REASON REPAIR 2026-09-02: an exit fill with no
+        matching open entry used to become an orphan_exit record with no
+        exit_reason field at all, silently dropping information callers
+        like options_manager.py's single-leg CLOSE sites always pass —
+        the exact defect that left live /api/diag/ml's
+        live_options_outcome_breakdown permanently empty despite real
+        options closes firing live (confirmed via /api/diag/orders: 17
+        real buy-to-close put fills in the prior 5 days alone). The
+        reason must now survive onto the orphan record."""
+        self._call_track_fill({
+            "ticker": "AAL", "side": "buy", "qty": 5,
+            "fill_price": 0.42, "exit_reason": "profit_target",
+            "exit_context": {"pnl_pct": 12.0, "exit_reason": "profit_target"},
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["outcome"], "orphan_exit")
+        self.assertEqual(records[0]["exit_reason"], "profit_target")
+
+    def test_orphan_exit_falls_back_to_exit_context_reason(self):
+        """exit_reason may arrive only inside exit_context (the
+        bot_engine/exitFill.ts payload shape) rather than as a top-level
+        key — the orphan path must check both, same fallback order the
+        matched-entry path (line ~2441) already used."""
+        self._call_track_fill({
+            "ticker": "TLT", "side": "buy", "qty": 2,
+            "fill_price": 79.5,
+            "exit_context": {"pnl_pct": -3.0, "exit_reason": "loss_limit"},
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["exit_reason"], "loss_limit")
+
+    def test_orphan_exit_missing_reason_is_empty_string_not_missing_key(self):
+        """No caller-supplied reason at all — the key must still be
+        present (empty string), never silently absent, so
+        options_outcome_breakdown() and any future consumer can rely on
+        exit_reason always existing on an orphan_exit record."""
+        self._call_track_fill({
+            "ticker": "KWEB", "side": "sell", "qty": 3,
+            "fill_price": 30.0, "exit_context": {"pnl_pct": 1.0},
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["exit_reason"], "")
+
+    def test_orphan_exit_preserves_exit_reason_when_entry_price_zero(self):
+        """The OTHER orphan-write site (matching entry found by ticker,
+        but that entry's own fill_price is <=0 — a malformed/legacy
+        entry): also an orphan write, also needs exit_reason preserved,
+        same bug class as the no-match path above."""
+        with open(self.feedback_path, "w") as f:
+            json.dump([{
+                "ticker": "PBR", "side": "sell", "qty": 4,
+                "fill_price": 0, "outcome": None, "pnl_pct": None,
+            }], f)
+        self._call_track_fill({
+            "ticker": "PBR", "side": "buy", "qty": 4,
+            "fill_price": 19.0, "exit_reason": "dte_close",
+            "exit_context": {"pnl_pct": 5.0, "exit_reason": "dte_close"},
+        })
+        records = self._read_feedback()
+        self.assertEqual(len(records), 2)
+        orphan = records[1]
+        self.assertEqual(orphan["outcome"], "orphan_exit")
+        self.assertEqual(orphan["exit_reason"], "dte_close")
+
     def test_valid_record_has_all_fields(self):
         """Valid record should contain all expected fields."""
         self._call_track_fill({

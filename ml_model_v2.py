@@ -2407,6 +2407,29 @@ def track_fill(order_data: dict) -> None:
 
             if _is_exit_fill(order_data):
                 # ── EXIT FILL: update the matching entry record ──
+                # ORPHAN-EXIT-REASON REPAIR (KNOWN BROKEN #12(c) narrower
+                # finding, discovered live 2026-09-02): both orphan-exit
+                # append sites below used to write a record with no
+                # `exit_reason` field at all, even though the caller (e.g.
+                # options_manager.py's 8 single-leg CLOSE sites) always
+                # passes one. Since orphan_exit is 225/270 (83%) of live
+                # non-seed records — vastly more than the 45 records that
+                # find a matching entry — dropping exit_reason here meant
+                # `options_outcome_breakdown()` (ml_model_v2.py, added
+                # v1.0.827) could never attribute an orphaned options exit
+                # back to the options path, no matter how many CSP closes
+                # actually fired: live `/api/diag/ml` showed
+                # `live_options_outcome_breakdown: {}` (completely empty)
+                # despite `/api/diag/orders` confirming 17 real single-leg
+                # put buy-to-close fills in the prior 5 days alone. This is
+                # a pure visibility fix (an already-known reason string,
+                # just not written down) — it changes no matching logic,
+                # no outcome/pnl_pct computation, and no existing field.
+                _orphan_exit_reason = str(
+                    order_data.get("exit_reason")
+                    or (order_data.get("exit_context") or {}).get("exit_reason")
+                    or ""
+                )
                 idx = _find_entry_record(raw_feedback, ticker)
                 if idx >= 0:
                     entry = raw_feedback[idx]
@@ -2452,6 +2475,7 @@ def track_fill(order_data: dict) -> None:
                             "qty": qty, "fill_price": fill_price,
                             "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
                             "outcome": "orphan_exit", "pnl_pct": None,
+                            "exit_reason": _orphan_exit_reason,
                             "note": "Exit fill with no matching open entry",
                             "code_version": str(order_data.get("code_version") or "1.0.34"),
                         })
@@ -2469,6 +2493,7 @@ def track_fill(order_data: dict) -> None:
                         "qty": qty, "fill_price": fill_price,
                         "time_filled": str(order_data.get("time_filled", datetime.now().isoformat())),
                         "outcome": "orphan_exit", "pnl_pct": None,
+                        "exit_reason": _orphan_exit_reason,
                         "note": "Exit fill with no matching open entry",
                         "code_version": str(order_data.get("code_version") or "1.0.34"),
                     })

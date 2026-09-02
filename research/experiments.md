@@ -3,6 +3,192 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-02 (scheduled-routine session) [REPAIR] — T-BOT (ml_model_v2.py, test_fixes_pr8.py, test_options_outcome_breakdown.py) + SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json): track_fill's orphan-exit write paths were silently dropping exit_reason, which is the actual reason KNOWN BROKEN #12(c)'s live_options_outcome_breakdown stayed empty despite real CSP closes firing live — fixed (v1.0.834)
+
+TERRITORY: T-BOT (`ml_model_v2.py`'s `track_fill`, no bot_engine/
+system_config/strategies file touched) + SHARED bookkeeping
+(`research/*`, `ci/counter_baseline.txt`, `package.json`,
+`package-lock.json`). No T-CLIENT/T-DATACORE file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/
+experiments.md` (last ~15 entries), `research/open_questions.md`'s
+KNOWN BROKEN section in full, `research/wishlist.md` top + tail.
+Loop-health ratio, last 10 tagged sessions (2026-08-29 through
+2026-09-01): 0/10 [REPAIR] — well under the 7+ thrash trigger, no
+starvation (0 consecutive STARVED), no audit overdue
+(`python3 scripts/research_state_check.py` all `[OK]`). Live
+`/api/health` (production): `status: "ok"`, bot `active`, `liveness.
+dark: false`, `drawdownPct: "0.0"`, `feeds.dead: []` — no LIVENESS
+ALARM, not a repair-mandated session by that trigger.
+`list_pull_requests(state=open)`: only PR #604 (the known intentional
+backlog draft) — no collision. Live `/api/diag/audit?limit=100`
+(token-gated production probe): routine TIER2/OPTIONS-SLOT-FULL/TIERS/
+MANIPULATION/TIER3 traffic, no ERROR/FAIL signature — but a recurring
+`TIER3-DIAG`/`DIAGNOSTIC` line every ~30 min: `[MEDIUM] ml_model: Low
+win rate: 24.1% over 29 trades`.
+
+PRIMARY ACTION SELECTION (SESSION BUDGET order: fix a bug seen in audit
+logs > judge a matured experiment > start a new experiment > research):
+the recurring low-win-rate diagnostic is real, live, and >20-trade
+(diagnostics.py's own reporting floor), so read it fully before treating
+it as either a bug or a research question. `/api/diag/ml` (production):
+`live_performance: {total_trades: 29, win_rate: 24.1, avg_win: 6.14,
+avg_loss: -4.78, recent_win_rate_20: 15}`. The auto-fix machinery
+(`diagnostics.get_auto_fix_params` -> `state.minScoreThreshold` in
+`server/bot.ts`, checked every 5th Tier-2 cycle) is already correctly
+wired end-to-end (traced both the Python computation and the two
+TypeScript consumption sites) and already raises the live score
+threshold to 75 in response — so this MEDIUM diagnostic is not itself an
+un-repaired bug, the designed self-correction is working. But the same
+probe response carried `live_options_outcome_breakdown: {}` —
+completely empty — which is exactly the "narrower finding" the
+2026-09-01 session (v1.0.827, which built this field) explicitly
+flagged as worth its own trace if it ever stayed empty despite
+`live_outcome_breakdown` growing. It has: `live_outcome_breakdown:
+{orphan_exit: 225, win: 7, loss: 22, open: 16}`, 270 non-seed records.
+Chose this as the primary action — a real, live, currently-reproducing,
+previously-un-repaired visibility gap in the exact diagnostic KNOWN
+BROKEN #12(c) built and left as an open NEXT step, which SESSION
+BUDGET's "fix a bug seen in audit logs" / "judge a matured experiment"
+tiers both rank above starting fresh research.
+
+PRIOR (REASONING STANDARD #10, stated before digging further): my prior
+was that the single-leg options exit path (v1.0.762, shipped 2026-08-22)
+had regressed or simply hadn't fired in this window — I did NOT assume
+this without checking. `/api/diag/orders?limit=200&token=$DIAG_TOKEN`
+(live production) shows 17 real `side:"buy", status:"filled"` single-leg
+put orders across 2026-08-28 through 2026-09-01 alone (e.g.
+`AAL260918P00012500`, `PBR261016P00019000`, `SLB261016P00052500`,
+`HYG260918P00078500`) — unambiguous buy-to-close fills on short puts.
+Standalone CSP closes ARE firing live, in volume, in exactly the window
+the empty breakdown covers. This falsified the "path isn't firing"
+hypothesis before any code was touched (REASONING STANDARD #9 — believe
+live data, don't guess).
+
+READ BEFORE WRITE: traced `options_manager._record_options_exit_feedback`
+(all 8 call sites already confirmed correct in the 2026-08-22 session,
+re-verified unchanged this session) into `ml_model_v2.track_fill`. Found
+the actual defect: `track_fill`'s matched-entry update path stamps
+`entry["exit_reason"] = str(order_data.get("exit_reason", exit_ctx.get(
+"exit_reason", "close")))` — correct — but its TWO orphan-exit append
+paths (entry found with `entry_price<=0`; no entry found at all)
+construct their appended dict from a fixed field list
+(`ticker`/`side`/`qty`/`fill_price`/`time_filled`/`outcome`/`pnl_pct`/
+`note`/`code_version`) that has never once included `exit_reason`, even
+though `order_data` always carries it when the caller is
+`options_manager.py`. Since `orphan_exit` is 225/270 (83%) of ALL live
+non-seed records — far more common than the 45 that find a matching
+entry — this silently discarded the reason string on the large majority
+of exits, options and equity alike, and is why
+`options_outcome_breakdown()` (whose own bucketing logic was never at
+fault — it already treats `orphan_exit` as just another outcome value,
+per its own existing test coverage) could never once attribute an
+orphaned options exit: no record it ever saw carried both an
+options-shaped `exit_reason` and a surviving key to read it from.
+
+CHANGE (`ml_model_v2.py`, pure visibility — zero matching/outcome/
+pnl_pct logic touched, so no MEASUREMENT INTEGRITY gate applies beyond
+stating that plainly): both orphan-write sites now include
+`"exit_reason": _orphan_exit_reason`, computed once per exit call
+(`order_data.get("exit_reason")` then `exit_context.get("exit_reason")`,
+defaulting to `""` — the key always exists now, never silently absent).
+Retroactive on every future orphan write; does NOT and cannot backfill
+the 225 already-recorded orphan records missing the field — no way to
+reconstruct a dropped value after the fact, left honestly as unknown
+rather than guessed or synthesized.
+
+SCOPE NOTE (a second, real root cause found but deliberately NOT fixed
+this session — PROMOTION RULE 5, one logical change per PR): live
+`/api/diag/audit` also showed `POS-WARN: IREN261009P00030000: down
+-17.0%` this session — an OCC options symbol hitting `server/bot.ts`'s
+generic per-position POS-KILL/-WARN branch (~line 5741), which iterates
+ALL Alpaca positions and stamps every forced liquidation with the flat
+equity-vocabulary `exitReason: "position_kill"` regardless of
+`pos.asset_class`. An options position killed via THAT path (as opposed
+to `options_manager.py`'s own 8 close reasons) reaches `track_fill`
+correctly today — this session's fix doesn't touch that path — but will
+forever classify as equity in `live_options_outcome_breakdown`,
+understating true options volume even after this fix deploys. Different
+file (T-BOT `server/bot.ts`, not `ml_model_v2.py`), different
+territory, and arguably a design question (a new options-flavored
+`position_kill` reason string, vs. `OPTIONS_EXIT_REASONS` growing an
+asset-class-aware check instead of a pure string set) rather than a pure
+mechanical fix. Filed as this item's own NEXT step in open_questions.md,
+not bundled here.
+
+RATCHET: `test_fixes_pr8.py` gained 4 tests in
+`TestTrackFillValidation` — orphan-exit-reason preserved when no
+matching entry is found; falls back to `exit_context.exit_reason` when
+`exit_reason` isn't a top-level key; defaults to `""` (never a missing
+key) when neither is present; and the OTHER orphan path (entry found by
+ticker but that entry's own `fill_price<=0`) preserves the reason too,
+same bug class. `test_options_outcome_breakdown.py` gained 1 integration
+test pinning that once an orphan record carries an options-shaped
+`exit_reason`, `options_outcome_breakdown()` correctly attributes it
+(and still excludes an equity-shaped orphan, e.g. `position_kill`, from
+the same bucket). A/B-verified via `git stash` on `ml_model_v2.py`
+alone: all 4 new `test_fixes_pr8.py` tests fail with `KeyError:
+'exit_reason'` against the pre-fix orphan writes (the 5th, integration
+test doesn't touch `track_fill` so it's unaffected either way); all 5
+pass restored. Full gates (fresh sandbox — installed
+`requirements.txt`/`requirements-dev.txt` via pip, `npm ci`): `python3
+-m pytest -q` — 1576 passed, 1 skipped, 54 subtests (1571 baseline + 5
+new, zero regressions). `bash scripts/gated_tests.sh` — GATE PASSED:
+server 1472/1472, client 1075/1075, python 1576/1 skip, quarantine
+0/1 none overdue. `bash scripts/tsc_ratchet.sh` — 12/12, TS2304=0,
+unchanged (no `.ts`/`.tsx` file touched). `bash
+scripts/counter_ratchet.sh` — isolated this session's own contribution
+via a disposable `git worktree add ... origin/main --detach` (after
+`git fetch origin main` confirmed the true current tip, 8712f5d/
+v1.0.833, matching this branch's unmodified base exactly, 0 counters
+off-pin) — the full `assertions` delta (12795 -> 12806) is this
+session's own 5 new tests' assertions alone; re-pinned in
+`ci/counter_baseline.txt`. All 25 counters OK after the re-pin. `npm
+run build`: clean (same pre-existing chunk-size/browserslist/
+astronomy-engine warnings every recent session logs, none touched
+here). No visual harness run: zero `client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure measurement/visibility fix;
+touches no scoring, sizing, threshold, or trading decision. `track_fill`'s
+outcome/pnl_pct computation and every existing field it already wrote
+are byte-identical before/after; this only adds one previously-dropped
+field to two record shapes.
+
+MEASUREMENT INTEGRITY (stated per CLAUDE.md's own requirement, even
+though this is closer to a repair than a "ruler" tune): BEFORE — an
+orphan_exit record could carry any `outcome`/`pnl_pct` value already
+computed identically to today, but never `exit_reason`. AFTER — the
+exact same `outcome`/`pnl_pct` computation, plus a new `exit_reason`
+field carrying a value that was always available in scope but never
+written down. BIAS DIRECTION: neutral — no existing metric's value
+changes for any historical or live input; `live_outcome_breakdown`,
+`win_rate`, `recent_win_rate_20`, and everything `adjustStrategyWeights()`
+or `check_model_health()` compute from `trade_feedback` are byte-for-byte
+unchanged. This cannot make any strategy or rule look better or worse —
+it only makes a previously-invisible attribution possible.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing `trade_feedback`
+pipeline, `/api/diag/ml` probe, and `options_outcome_breakdown()`
+function (all pre-existing); no new archive, join, or external
+dependency.
+
+HONESTY: this is deliberately the narrower, more mechanical finding, not
+the larger "is options fill realism trustworthy" design question
+KNOWN BROKEN #12(c)'s own NEXT step (2) still gates on — REASONING
+STANDARD #1 (trace before acting) found the actual defect was one layer
+upstream of where the prior session's own falsifiable test expected to
+look (in `track_fill`'s orphan-write shape, not in whether the options
+exit path fires at all), and RULE REVIEW discipline says fix the
+mechanical bug found by tracing before speculating about the bigger
+question it was meant to unblock. The POS-KILL asset-class gap (SCOPE
+NOTE above) is left honestly open, not silently absorbed into this PR's
+scope.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR action (closing a genuine, previously-un-repaired visibility bug
+found while judging KNOWN BROKEN #12(c)'s matured NEXT step), chosen
+over starting fresh research per SESSION BUDGET's own priority order.
+
 ## 2026-09-01 (scheduled-routine session, later the same day) [RULE-REVIEW] — T-BOT (shadow_portfolio.py, test_shadow_portfolio.py) + SHARED (research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): rejected_masterkill's flat win-rate check (item #20's own NEXT step since 2026-07-11) finally has enough history to run — but the raw number is a conflated aggregate, so a finer evidence gate was built instead of a threshold change (v1.0.832)
 
 TERRITORY: T-BOT (`shadow_portfolio.py` is under `tiered_strategy.py`'s
