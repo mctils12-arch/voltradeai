@@ -7556,6 +7556,85 @@ pre-registered PASS criterion. An `insufficient_n` result (fewer than 5
 reference-list hits in the whole case-control universe) is INCONCLUSIVE,
 not a fail — widen `hours` before concluding anything.
 
+**ADDENDUM 2026-09-02 (scheduled-routine [PRODUCT] session, docs-only) —
+GATE 1 (DATA) statistical test RUN against production. VERDICT: FAIL,
+not merely inconclusive.** `python3 scripts/session_health_check.py`
+confirmed 7/7 OK, no LIVENESS ALARM, `server_version` 1.0.832 matched
+this checkout — the PR from the 2026-09-01 addendum (#981) was merged
+and deployed, so the probe named above was finally reachable. Ran it
+twice, at two window sizes, deliberately (not fished — both are
+pre-registered by the prior addendum's own text: the default reasoning
+was "wider buys more depth", so a shorter window was checked first to
+confirm the probe's live latency before committing to the full one):
+
+| window | n_universe | n_candidates/controls | ref hits (a+c) | contingency (a,b,c,d) | odds ratio | 95% CI | insufficient_n |
+|---|---|---|---|---|---|---|---|
+| 168h (7d) | 5,938 | 2,969 / 2,969 | 12 | (4, 2965, 8, 2961) | 0.499 | [0.150, 1.660] | false |
+| 720h (30d) | 9,124 | 5,552 / 3,572 | 20 | (10, 5542, 10, 3562) | 0.643 | [0.267, 1.546] | false |
+
+(720h's controls are smaller than its candidates — not a bug: the
+tanker pool at that window, 9,124 MMSIs, is smaller than the case-
+control design's usual 1:1 split once 5,552 of them are already gap/
+loiter candidates, so the control draw is capped at the remaining pool,
+3,572, exactly as "a size-matched random tanker sample... EXCLUDING the
+cases" implies when cases are the majority.)
+
+Both runs clear the `insufficient_n` floor (n=5) by a wide margin (12
+and 20 reference-list hits respectively) — this is not an underpowered
+read. Both point estimates sit BELOW 1 (our gap/loiter candidates are,
+if anything, very slightly *less* likely to be OFAC-listed than a
+random tanker control, though neither CI excludes 1 either direction).
+Neither CI comes close to "entirely above 1", the pre-registered PASS
+bar this entry itself set. Two independent windows (168h and 720h,
+overlapping data but different universes and Woolf CIs computed fresh
+each time) landing on the same side of 1 is a real, honestly negative
+result — not a coin-flip that happened to miss once.
+
+DIAGNOSIS (REASONING STANDARD #1/#5 — trace the mechanism, don't stop
+at the number): `gate1Inputs()`'s case set is gap MMSIs UNION loiter
+MMSIs, restricted to the tanker pool — it does NOT include
+`detectIdentityCandidates()`'s name/MMSI-swap output (the one detector
+type most specific to intentional identity spoofing), because that
+detector still requires the materializing `tracks` Map the 2026-09-01
+session deliberately avoided wiring into this probe for OOM-safety
+reasons. Two plausible, non-exclusive explanations, neither confirmed
+this session: (a) raw AIS gaps are dominated by ordinary terrestrial/
+satellite coverage loss that afflicts sanctioned and legitimate tankers
+about equally (the case-control design was built to cancel exactly
+this confound, and the result is consistent with it doing its job —
+coverage loss is NOT what distinguishes the two cohorts); (b) STS-zone
+loitering is common commercial behavior (legitimate ship-to-ship
+transfers happen in the same 7 public zones) that a coarse
+zone-presence filter can't tell apart from sanctions-evasion loitering.
+Under either, a coarser "gap OR loiter" heuristic is the wrong
+instrument for this specific hypothesis, independent of the archive's
+real data quality.
+
+Per HONESTY CLAUSE discipline (same as `occ_options_volume`'s reversed
+result and `gas_flare_candidates`'s clean negative): this is reported
+as a genuine test outcome, not retried with a new threshold in the same
+session (REASONING STANDARD #4 — one pre-registered test, not fishing).
+Status updated to `gate1_fail`/gate 1 in `datacore/signal_ladder.json`
+in this same commit — the RAW counts-only overlay (gap events,
+loitering, identity-swap candidates) is UNCHANGED and stays live per
+the RAW OVERLAYS vs SIGNALS rule; only the interpreted-signal path
+(any future claim that gap/loiter behavior predicts sanctions status)
+is what this gate blocks.
+
+NEXT (queued, not this session, concrete and specific): (1) a
+bounded-memory reduction of `detectIdentityCandidates()`'s predicate
+onto `ShadowAggregator` (mirroring how `gate1Inputs()` already reduces
+gap/loiter state) so the identity-swap case set — the detector most
+plausibly specific to deliberate spoofing rather than ordinary
+coverage loss — can be tested on its own via the same
+`evaluateEnrichment()` machinery, without a second run of the gap/loiter
+test that already failed cleanly. (2) if (1) also comes back non-
+enriched, this root's honest status is "we can observe shadow-fleet-
+adjacent AIS behavior but cannot yet statistically distinguish it from
+ordinary tanker/coverage noise" — a real, useful finding to log even
+though it forecloses trading on this signal as currently built, not a
+failure to hide.
+
 ## NEW DATA ROOTS (charter gap execution 2026-07-04 — licensing verified from primary sources by a 10-agent research pass; build order = expected signal × coverage × time-to-testable)
 
 BUILD ORDER RATIONALE: 8-K language first because EDGAR history already
