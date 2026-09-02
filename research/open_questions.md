@@ -5632,9 +5632,9 @@
     `/api/diag/audit?type=LEARN` for whether the weight-shift cadence has
     settled down (fewer, more stable transitions) now that the window
     persists across redeploys instead of resetting every few hours.
-39. **[FOUND 2026-09-02, scheduled-routine PRODUCT session, NOT diagnosed
-    — found as a byproduct of running the new port-dwell rollup GATE 1
-    script (see PORT DWELL ANALYTICS), not the session's primary target]
+39. **[FOUND 2026-09-02, scheduled-routine PRODUCT session; ROOT CAUSE
+    DIAGNOSED 2026-09-02 (2), scheduled-routine REPAIR session — FIX
+    ALREADY SHIPPED FORWARD, no new code needed, CLOSED]
     a previously undocumented 4-day vessel-archive gap: 2026-07-20
     through 2026-07-23 has ZERO `vessels_tracks` rollup data, globally
     (not just LA-basin-scoped).** Live evidence:
@@ -5678,6 +5678,80 @@
     BROKEN #37) — the fix, if any exists, is almost certainly forward-
     looking (harden the rollup job) rather than backward (recover this
     specific window).
+
+    **ROOT CAUSE DIAGNOSED 2026-09-02 (scheduled-routine REPAIR session,
+    same UTC day, picking up this item's own unclaimed NEXT list) —
+    CLOSED, no code change needed.** Worked the three NEXT items in
+    order, live, with `DIAG_TOKEN` access this session had:
+    (2) CROSS-KIND CHECK (run first — cheapest way to falsify the
+    infra-wide-outage branch): `/api/diag/archive?stream=X&day=Y` for
+    `aircraft_tracks` and `trains_tracks` across 2026-07-19 through
+    2026-07-25 returned `files: ["<day>.jsonl.gz"]` for every single
+    day, no gap — ruling out a shared rollup-job/infra outage
+    (`rollupOldDaysAsync` itself, or the whole Node process being down)
+    and confirming this is a VESSEL-STREAM-SPECIFIC failure. Also ruled
+    out, for the same reason, the same-week `[REPAIR] Live break: Tier2
+    scanning dead since 15:27 UTC` incident (commit 3e625f08,
+    2026-07-20 16:21 UTC, PR #568) — that bug lived entirely in the
+    Python daemon's RPC dispatch/trading-scan path, has no code path
+    into `vesselStream.ts`/`datacoreArchive.ts`, and aircraft/trains
+    archiving (which share the Node archive tick with vessels) never
+    gapped, so a whole-process-down theory doesn't fit either.
+    `fileRanges=1` on the boundary days shows a clean, ABRUPT edge, not
+    a partial/degraded one: 2026-07-19 and 2026-07-24/25 each return
+    exactly one full `<day>.jsonl.gz` file; 2026-07-20 through
+    2026-07-23 each return `files: []` AND `fileRanges: []` — zero
+    partial data, not corrupted/truncated data, satisfying NEXT (1)'s
+    file-range check.
+    (1) GIT HISTORY: `server/vesselStream.ts`'s own header comment
+    documents the actual defect class still live in production during
+    this exact window: "the socket never redialed after a close without
+    visitor traffic — permanent, unrefillable archive gaps" (repair
+    2026-08-06/07). Confirmed via `search_commits`: PR #718 (v1.0.617,
+    committed 2026-08-07T14:00:19Z) is the commit that FIRST added any
+    reconnect watchdog for the AIS websocket — its own message states
+    "the aisstream websocket had no reconnect path — a dropped or
+    half-open socket left the vessels layer dead forever while the
+    layers registry kept reporting it live from key-presence alone."
+    Before that PR (i.e., for the entire 2026-07-20..23 window, ~2.5
+    weeks earlier), a dropped/half-open socket had no self-heal path in
+    the running process at all — `ensureVesselStream()`'s only trigger
+    was `bootVesselStream()` at process startup (KNOWN BROKEN #9, fixed
+    far earlier, v1.0.44) or the pre-08-06 visitor-driven lazy path;
+    nothing periodic re-armed a socket that closed cleanly (no error,
+    just closed) between visits. FIRST ROW TIMING CORROBORATES A
+    PROCESS-RESTART RECOVERY, not a mid-day self-heal: the very first
+    `vessels_tracks` row on 2026-07-24 is timestamped 00:22:56Z
+    (`t0=1784852576`), one minute before a real merge/deploy in this
+    repo's commit history lands at 00:24:07Z ("PRODUCT: superfund +
+    waterviolators hazard layers... v1.0.481") — consistent with
+    `bootVesselStream()` re-connecting the socket fresh at that boot,
+    exactly as KNOWN BROKEN #9's eager-boot-connect mechanism is
+    designed to do, rather than any redial logic (which didn't exist
+    yet) doing the recovery.
+    VERDICT: the July gap is the SAME defect class PR #718 fixed
+    (no reconnect path for a dropped/half-open AIS socket), hit ~2.5
+    weeks before that fix shipped, self-resolved only by chance when an
+    unrelated deploy happened to restart the process on 2026-07-24 —
+    not a rollup-job bug, not an upstream aisstream.io multi-day outage
+    (the socket was most likely just closed and silently unrefilled,
+    not the provider being down for 4 straight days), and not the
+    Tier2/RPC dispatch incident.
+    (3) FORWARD-LOOKING FIX STATUS: already shipped, before this gap
+    was even discovered. PR #718 (2026-08-07) added the 60s reconnect
+    watchdog (`vesselFeedHealth()` zombie/dead detection +
+    `ensureVesselStream()` re-arm); PR #769 (v1.0.658, 2026-08-11)
+    hardened it further for the "connected but zero frames ever" case
+    that a closed-then-reopened-but-starved socket can produce.
+    `VESSEL_SILENT_THRESHOLD_MS = 3 * 60_000` (`server/vesselStream.ts`)
+    means an equivalent drop today self-heals within 3 minutes instead
+    of persisting for days — verified by reading the live watchdog wire-
+    up at `server/routes.ts:1278-1293` (runs on the 60s archive tick,
+    ahead of the empty-map early-return, exactly the mechanism this
+    window lacked). No new code needed; the raw hours behind this gap
+    are unrecoverable (past `RAW_RETENTION_DAYS=30`, per NEXT(3)'s own
+    expectation) but the mechanism that let a gap persist for days
+    instead of minutes no longer exists. CLOSED.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
