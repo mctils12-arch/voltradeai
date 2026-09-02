@@ -5464,6 +5464,117 @@
     have a known, benign, non-recurring explanation. NOT A SPEND
     REQUEST.
 
+    **ADDENDUM 2026-09-02 (scheduled-routine session, [REPAIR]-adjacent,
+    docs-only) — NEXT items (2) and (3) both run; retention window
+    RE-CONFIRMED not expired; a NEW synthesis reframes anomaly (a) as
+    the SAME upstream incident as the already-diagnosed anomaly (b),
+    not a second unexplained event.** Health check clean (`/api/health`
+    ok, no LIVENESS ALARM); `DIAG_TOKEN` live this session.
+
+    RETENTION STATUS (re-checked, 28 of 30 days elapsed as of today):
+    `/api/diag/archive?stream=vessels&day=2026-08-05&fileRanges=1` — the
+    same 14 hour-files (00-13) are STILL ON DISK, byte-identical
+    filename set and per-file row counts to the 2026-09-01 reading
+    (file `-00`: 67,433 rows, `minT`/`maxT` internally consistent with
+    its filename hour). `day=2026-08-06` still returns `files: [],
+    fileRanges: []` — unchanged. NEXT item (2) ("check whether the
+    ~60s-batch pattern also appears on 08-06") is therefore answered:
+    it cannot, because zero files exist for that day to check — the
+    08-06 gap and the 08-05 spike are not the same file-level
+    phenomenon; 08-06 is genuinely absent, not present-but-anomalous.
+
+    NEXT item (3) RUN: grepped the full repo (`server/`, `scripts/`,
+    root `*.py`) for `backfill|bulk.?import|seedVessel|vesselBackfill|
+    historicalVessel` — 47 files matched, none touch the vessel/AIS
+    archive; the one vessel-archive-adjacent hit
+    (`server/shadowBackfillVisibility.test.ts`) pins an unrelated daily
+    job (`shadow_portfolio.backfill_outcomes()`, a shadow-portfolio P&L
+    replay, not vessel data). Confirmed by reading `archiveVessels`'s
+    only call site (`server/routes.ts:1307`, one unconditional 60s
+    `setInterval`, no other caller anywhere in the repo via
+    `grep -rn "archiveVessels("`): there is no manual/one-off backfill
+    path for this stream. This hypothesis (i) from the 2026-09-01
+    addendum is now RULED OUT, not just unconfirmed.
+
+    NEW EVIDENCE AND SYNTHESIS: `git log --oneline --all --since=
+    "2026-07-25" --until="2026-08-06" -- server/routes.ts
+    server/aisFeed.ts server/datacoreArchive.ts` returns **zero
+    commits** — nothing in this repo's own code touched the vessel
+    ingest, the AIS subscription, or the archive writer anywhere near
+    2026-08-05. This rules out a code/deploy cause for the spike, same
+    conclusion the wishlist.md AIS-outage runbook already reached for
+    the SILENCE half via `git log -L` on the same file (2026-08-12,
+    step 4 of THE LADDER). Re-read `ensureVesselStream()`
+    (`server/routes.ts:1116-1136`, unchanged in the window above): the
+    aisstream.io subscription's `BoundingBoxes` is hardcoded
+    `[[-90,-180],[90,180]]` — unconditionally GLOBAL, not something a
+    config flip could have temporarily widened that day. This rules out
+    "our own bounding box was misconfigured on 08-05" as well.
+
+    Cross-referencing `research/wishlist.md`'s 2026-08-12 AIS-outage
+    entry (filed independently, for the SILENCE half of this item, by a
+    different session): aisstream/issues#269 (a third-party, unrelated
+    operator) reports *"Since 2026-08-05 ~13:31 UTC our client...
+    receives zero messages indefinitely"* — and that entry already
+    notes *"Our archive's last vessel file is
+    `vessels/2026-08-05-13.jsonl.gz` — the same hour, a different
+    operator."* This item's own file-level data adds the piece that
+    entry did not have: file `2026-08-05-13.jsonl.gz` is not merely
+    "the last file" — it is TRUNCATED relative to every other hour in
+    the spike (40,767 rows and `maxT` 1785936989, vs. 60,000-72,000
+    rows for hours 00-12), and 1785936989 converts to **2026-08-05
+    13:36:29 UTC** — five minutes after the independently-reported
+    13:31 UTC outage start. A partial final hour ending almost exactly
+    when a third-party, unrelated deployment independently clocked the
+    same provider going silent is strong circumstantial evidence that
+    the HIGH-volume window (00:00-13:36) and the SILENT window
+    (13:36 onward) are two phases of ONE upstream aisstream.io
+    incident, not two unrelated anomalies as this item's own earlier
+    framing ("TWO ANOMALIES, deliberately not conflated") assumed.
+
+    STILL NOT A FULL ROOT CAUSE (stated honestly, not overclaimed): this
+    session cannot see inside aisstream.io's own backend, so the
+    mechanism of the pre-outage flood (a receiver-network replay, a
+    caching/dedup failure on their end delivering many more distinct
+    vessels than usual, or something else) remains unproven — only that
+    it originates upstream, not in this repo's code or config, and that
+    its timing lines up with the documented incident's own start to
+    within ~5 minutes. `vesselIntervalMs()`'s adaptive thinning
+    (`server/datacoreArchive.ts:186-191` — 10min open-water / 2min
+    near-site / 30min anchored) is unchanged code across the window, so
+    the ~1,100-1,300 distinct vessels written on EVERY 60s tick during
+    the spike (per the 2026-09-01 addendum's raw-row sample) reflects a
+    genuinely larger population of concurrently-first-seen vessels
+    reaching `archiveVessels`, not a thinning-logic failure — consistent
+    with an upstream flood rather than a local bug.
+
+    DISPOSITION: downgrades this item's urgency. What remained
+    officially "unexplained" (anomaly a) now has a well-evidenced,
+    non-fabricated causal link to an already-understood, already-closed,
+    one-time third-party outage — not a distinct, possibly-recurring
+    defect in this codebase. The retention-window urgency from the
+    2026-09-01 addendum stands independently (2 days left as of today)
+    for whichever session wants the final confirming byte-level read,
+    but this is no longer a live-system risk requiring urgent code
+    action; no code changed this session.
+
+    NEXT (low priority, evidence-preservation only before ~2026-09-04):
+    (1) if a session gets Railway volume/shell access, or wants to
+    fully close this rather than leave it at "strong circumstantial
+    link," the one remaining test is whether the per-vessel identity
+    set in the spike (67,433 rows/hour, ~1,100-1,300 concurrent) looks
+    like real, geographically-plausible AIS traffic (a genuine
+    receiver-network firehose) or repeats/replays (evidence of a
+    caching bug on aisstream's end) — this session did not attempt a
+    geographic plausibility check on the sampled rows' `la`/`lo` fields
+    (available in the same `/api/diag/archive?stream=vessels&
+    day=2026-08-05&limit=5000` response already pulled this session and
+    prior ones), which would need no new instrumentation. (2) otherwise,
+    once the raw files age out past `RAW_RETENTION_DAYS=30`, close this
+    item as "diagnosed to the boundary of what this sandbox can see"
+    rather than continuing to re-poll `fileRanges` with no new evidence
+    to gain.
+
 38. **[FOUND AND FIXED 2026-08-28, scheduled-routine session — via live
     `/api/diag/audit`] `server/bot.ts`'s `DEPLOY_TIMESTAMP` reset on every
     Railway redeploy, not just the one historical "post-27-bug-fix" cutover
