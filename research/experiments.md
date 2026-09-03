@@ -3,6 +3,249 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-03 (scheduled-routine session, second session this UTC day) [RULE-REVIEW] — SHARED-but-minimal (backtest_v2.py, test_backtest_v2_regime_quality.py new, ci/counter_baseline.txt, package.json): regime_series()'s VXX data-quality flag silently reported "ok" on windows that mixed real VXX with a synthetic neutral fallback for years at a time — found while running hazard_rate_probe.py's own queued "longer window" GATE 2 follow-up, fixed at the shared measurement-code root (v1.0.837)
+
+SESSION-START CHECKS: CLAUDE.md read in full, special attention to EDGE
+DOCTRINE per this routine's own brief. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `server_version`
+1.0.836 matched this checkout (PR #991 already merged/deployed).
+`python3 scripts/research_state_check.py`: audits_register none
+overdue; thrash_ratio 3/10 REPAIR (below the 7+ trigger); known_broken
+39 items/3 without an explicit close marker (#26/#34/#38, re-read all
+three — all genuinely FIXED, same cosmetic marker-placement gap the
+last several sessions have independently confirmed); starvation_signal
+0/10. NOT a [REPAIR] session — no critical unfixed item.
+
+TERRITORY: SHARED-but-minimal (`backtest_v2.py` is not inside any of
+the three declared territories — T-DATACORE/T-CLIENT/T-BOT all list
+specific files and none names it; treated as SHARED per the partition's
+own catch-all, kept to the single function this finding required, no
+unrelated refactor).
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order — judge a matured
+experiment before starting a new one): this routine's own brief named
+four axes. `python3 scripts/data_stream_registry_check.py --unbuilt`:
+10/35 unbuilt, all declined/blocked except `un_comtrade`
+(`candidate_unbuilt`, structural-thesis-only, too lagged for direct
+alpha — the same low-priority conclusion at least 6 prior sessions have
+already independently reached; not re-litigated). `python3 scripts/
+ladder_readiness_check.py`: 0/2 gate2_pending roots ready
+(cftc_cot_positioning, sec_8k_earnings_language both still WAITING).
+Axis (a) confirmed exhausted again, axis (b) still gated on the
+options-side fill-realism fix (unchanged, per open_questions.md's own
+"Options fill realism" entry — still gated behind KNOWN BROKEN
+#12(b)/(c), not attempted here to avoid exactly the out-of-order risk
+the 2026-07-23 update on that item already flagged). Checked for a
+QUEUED, unclaimed item before starting new axis (c)/(d) work, per
+SESSION BUDGET step 1: the 2026-08-31 hazard-rate GATE 2 entry
+("provisional positive, underpowered") named two concrete, still-open,
+unclaimed follow-ups — (a) broader universe (already run 2026-08-31,
+found VXX-coupling confound, produced its own new NEXT (c)/(b)) and
+(b) **longer window**, confirmed feasible in that same entry
+(`backtest_v2.fetch_bars('SPY', 3650, use_cache=False)` returns data
+back to 2016-09-02) but never run. Verified real data access this
+session (`backtest_v2.fetch_bars('SPY', 30)` returned 22 real bars via
+the Yahoo fallback, no ALPACA_KEY needed) before committing.
+
+READ BEFORE WRITE: read `scripts/hazard_rate_probe.py` in full (all
+three of its prior sessions' entries first) before running anything;
+read `backtest_v2.py`'s `regime_series()` and its only three
+call-sites' consumption of the `quality`/`vxx_data_quality` return
+value (`scripts/critical_slowing_down_probe.py`,
+`scripts/hazard_rate_probe.py`, `scripts/illiquid_universe_probe_regime.py`
+— all three only report the string, none branch on it) before touching
+the function's contract.
+
+WHAT HAPPENED (the queued (b) follow-up, run honestly, is what surfaced
+this session's real finding — not the plan going in):
+
+1. `PYTHONPATH=. python3 scripts/hazard_rate_probe.py --days 3650` —
+   `n_onsets` stayed 7 but the FIRST gap changed from 127 to 272 trading
+   days (`gap_cv` 0.6227 -> 0.5565, bootstrap [0.139,0.664] ->
+   [0.276,0.629], still entirely <1). Investigated why rather than
+   accepting the tighter-looking range at face value (REASONING
+   STANDARD #4): calling `find_transition_onsets` directly at both
+   window lengths showed the SAME six later onset dates
+   (2020-08-27..2024-06-14) but a DIFFERENT first onset — 2020-02-27
+   (COVID crash) in the 2520-day window vs. 2019-07-31 in the 3650-day
+   window. The 2019-07-31 event exists in reality but was invisible to
+   the shorter window because the fetch itself didn't reach back that
+   far — not a warm-up artifact, genuinely new history.
+2. Pushed further past the (b) item's own suggested ceiling to see
+   whether even more history kept helping, exactly the kind of
+   verification-before-trusting-a-tighter-CI move REASONING STANDARD #4
+   calls for: `--days 5000` (back to 2012) gave `n_onsets=9`, `gap_cv`
+   JUMPED to 0.9252 with a bootstrap range [0.445,1.049] that now
+   STRADDLES 1 — the opposite of every result on file so far. `--days
+   7300` (back to 2006) gave 12 onsets, `gap_cv=0.8291` [0.610,0.962].
+   `--days 10000` (back to 1999) gave 15 onsets, `gap_cv=0.8605`
+   [0.669,0.989]. Non-monotonic, and the sign of "does CV clearly clear
+   below 1" flips depending on window length in a way a genuinely more-
+   regular-than-random renewal process should not.
+3. ROOT CAUSE (found by checking the actual VXX series behind these
+   numbers, not just re-running the probe a third time): `backtest_v2.
+   fetch_bars('VXX', 10000, use_cache=False)` returns real data only
+   back to **2018-01-25** (2,162 rows) even though the SPY request for
+   the same window reaches back to 1999. `regime_series()`'s own
+   existing code (`vr = vxx_by_date.get(d, 1.0)`) already degrades any
+   day missing from VXX to a synthetic neutral ratio — exactly as its
+   docstring always said ("1.0 (degraded) when VXX data is missing")
+   — but the `quality` flag that was supposed to surface this
+   (`"ok" if vxx_by_date else "degraded"`) only checked whether VXX was
+   TOTALLY empty, not whether it covered the REQUESTED range. Every one
+   of the `--days 3650/5000/7300/10000` runs above reported
+   `vxx_data_quality: "ok"` despite 14%/41%/61%/70% of their SPY days
+   (respectively) having no real VXX behind them — a silent
+   MEASUREMENT INTEGRITY gap in shared code, not a hazard-rate-probe-
+   specific bug.
+4. BLAST RADIUS CHECK (before deciding this was worth its own fix,
+   not just a caveat in the probe write-up): `regime_series()`'s return
+   is exposed all the way through `simulate()`'s `data_quality` field,
+   which is part of `run_backtest()`'s actual output contract
+   (`backtest.py`'s stdout, per this file's own header docstring "bot.ts
+   JSON-parses stdout"). `backtest.py --days` accepts `years` up to 10
+   (3650 days) — PROMOTION RULE 3's own ceiling — which already crosses
+   the 2018-01-25 boundary found above. This is a live gap in the
+   promotion ladder's own honesty signal, not only a research-probe
+   curiosity: a strategy change evaluated against a near-10-year
+   backtest could have silently priced in ~1.4 years of synthetic-VXX
+   regime labels while reporting itself fully healthy.
+
+FIX (`backtest_v2.py`, `regime_series()`): tracks the count of SPY days
+NOT covered by real VXX data (`missing_vxx_days`) alongside the existing
+per-day fallback (unchanged — still `vxx_ratio=1.0`, still the same
+labels for the same inputs; this is a REPORTING fix, not a label
+change). `quality` is now `"degraded"` when VXX is either totally
+absent (preserved, pre-fix behavior) OR when more than a new
+`_VXX_COVERAGE_DEGRADED_THRESHOLD` (5%) of SPY's date range falls
+outside VXX's real coverage. 5% was picked empirically, not guessed:
+the ordinary live-fetch case already carries a ~0.16% single-trailing-
+day VXX-lag (VXX data arrives about a day behind SPY at the live edge,
+confirmed by fetching a real 900-day window and diffing the date sets)
+that must NOT trip this — while the real bug cases above start at 14%.
+This is a mechanical fix restoring the function's own already-documented
+intent (the docstring's "flags data_quality" promise), not a new
+threshold policy, but tagged [RULE-REVIEW] regardless per MEASUREMENT
+INTEGRITY's blanket rule that any change to measurement code gets its
+own PR and this tag.
+
+METRIC BEFORE VS. AFTER, same historical inputs (MEASUREMENT INTEGRITY's
+required disclosure): a request for the same ticker/window reports
+IDENTICAL `labels`/onset detection either way (no trading, scoring,
+sizing, or backtest-return-value changed) — only the `quality`/
+`data_quality` string can now read "degraded" where it used to read
+"ok". Verified directly, same inputs, pre-fix vs. post-fix
+(`git stash` on `backtest_v2.py` alone):
+| days | date range | pre-fix quality | post-fix quality |
+|---|---|---|---|
+| 900 | ~2.5y | ok | ok (unchanged) |
+| 2520 | ~6.9y | ok | ok (unchanged) |
+| 3650 | ~10y (PROMOTION RULE 3's own ceiling) | ok | **degraded** |
+| 5000/7300/10000 | 13.7y/20y/27.5y | ok | **degraded** |
+BIAS DIRECTION: this can only ever make a quality read WORSE
+("ok"->"degraded"), never better — the exact "suspect by default"
+concern MEASUREMENT INTEGRITY raises about a metric change does not
+apply in the improving direction here (same precedent as the
+2026-08-28 tick-floor-cost fix: a change that can only raise a flagged
+cost/lower a flagged quality, never the reverse, does not make any
+strategy or probe look artificially better). No strategy, scoring, or
+sizing code path reads this flag today (confirmed by the three-call-site
+grep above) — the exposure is informational (`backtest.py`'s JSON
+output, the three research probes' own printed reports) — so nothing
+downstream silently changed behavior; the fix closes an honesty gap for
+whichever future session or human reads that field, not a live decision
+path.
+
+RATCHET: `test_backtest_v2_regime_quality.py` (NEW, 6 tests, synthetic
+bars only — no network): full VXX coverage stays "ok"; VXX totally
+absent stays "degraded" (pre-fix behavior preserved, pinned so a future
+edit can't silently regress it back to only checking existence); a 50%
+partial gap (mirrors the real bug) is now "degraded"; a single-day
+trailing lag (mirrors the ordinary live-fetch case) stays "ok" — the
+regression guard that would have stopped a naive "any missing day ->
+degraded" overcorrection; an exact-threshold boundary test pinning the
+comparison operator itself (`>`, not `>=`); a contract test confirming
+`labels` length and fallback behavior are unchanged when degraded.
+A/B-verified: `git stash push -- backtest_v2.py` then running this test
+file fails at IMPORT time (`_VXX_COVERAGE_DEGRADED_THRESHOLD` doesn't
+exist pre-fix) — the whole file, not a subset, confirming these tests
+exercise code this session actually added, not a pre-existing pass.
+`test_audit_critical.py`'s existing `test_neutral_default_blocks_all_entries`
+(the one pre-existing test that pins `data_quality == "degraded"` for
+`vxx=None`) still passes unmodified — that is the "totally absent"
+branch, explicitly preserved.
+
+GATES (fresh sandbox — `pip install -r requirements.txt -r
+requirements-dev.txt`, `npm ci`, both needed): `python3 -m unittest
+test_backtest_v2_regime_quality -v`: 6/6 pass. `python3 -m pytest -q`:
+1582 passed, 1 skipped, 54 subtests (1576 baseline + 6 new, zero
+regressions). `bash scripts/gated_tests.sh`: GATE PASSED — client
+101 files/1075/1075, python 1582/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged
+(no `.ts` file touched). `bash scripts/counter_ratchet.sh`: first run
+(before `git add` on the new test file) showed no movement — the
+counter script only sees `git ls-files`-tracked files, a process nit
+worth a future session noting if it recurs; staging the new file before
+re-running showed the real effect: `assertions` 12848->12857,
+`tests_run_in_ci`/`tests_gating_merge` 412->413 (all three this
+session's own direct effect, isolated by `git status`/`git diff
+--stat` showing only this session's 3 changed files), re-pinned in
+`ci/counter_baseline.txt` in this same PR; all 25 counters OK after.
+`npm run build`: clean (same pre-existing astronomy-engine
+default-export and >500kB-chunk warning classes every recent session
+logs, none touched here).
+
+VERSION: v1.0.837 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` still matched this branch's base, v1.0.836/PR #991 — no
+concurrent session had merged ahead of this one).
+
+DOCS: `research/open_questions.md`'s hazard-rate GATE 2 entry gains a
+dated addendum with this session's full window-sweep table and the
+measurement-integrity finding; the (b) "longer window" follow-up is
+now CLOSED as originally scoped (it directly caused this finding) but
+reopens a narrower, better-specified successor (see NEXT).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a MEASUREMENT INTEGRITY
+fix to a diagnostic flag, not a strategy/scoring/sizing/threshold
+change; `labels`/trade/return outputs are byte-identical before and
+after for every input tested (see table above). No RULE REVIEW
+evidence-gate applies either (same class as the KNOWN BROKEN #3 CSP
+fix precedent: mechanical restoration of already-documented intended
+behavior, not a new policy).
+
+CROSS-SYSTEM INTEGRATION: none new — no archive, join, or external
+dependency added; the fix is internal to the existing SPY+VXX backtest
+plumbing three research probes and `backtest.py` already shared.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT (queued, not this session, concrete): now that `quality`
+correctly flags the 2018-01-25 VXX-coverage boundary, a future session
+should re-run the hazard-rate "longer window" follow-up BOUNDED to
+VXX's real coverage — e.g. `--days` chosen so `date_range[0]` sits at
+or after 2018-01-25 (roughly 3140 calendar days as of this session,
+narrower than this session's own 3650 test) — to get a valid,
+apples-to-apples higher-n result without the pre-2018 price-only-onset
+contamination this session found. The `--days 5000/7300/10000` results
+recorded here (`gap_cv` straddling or approaching 1) should NOT be read
+as "the hazard-rate hypothesis is dead" — they mix two structurally
+different onset-detection regimes (VXX-gated post-2018 vs. price-only
+pre-2018) into one gap sequence, which REASONING STANDARD #7's
+lookahead/survivorship discipline treats as invalid evidence either
+way, not as a clean negative. `research/open_questions.md`'s hazard-rate
+entry records this explicitly so a future session doesn't read the
+straddles-1 numbers as a kill.
+
+STARVED: no — this session's primary action was the queued (b) "longer
+window" follow-up in full (run it, honestly investigate why the result
+looked too good before trusting it, keep pushing past the item's own
+suggested ceiling once the first anomaly appeared), and falling through
+into the MEASUREMENT INTEGRITY fix the investigation surfaced rather
+than filing it as a caveat and stopping — CLAUDE.md's own priority order
+(2. PROTECT THE INTEGRITY OF LEARNING outranks 3/4) puts a shared-
+measurement-code honesty gap ahead of any single probe's ladder status.
+
 ## 2026-09-03 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/countryLookup.ts, server/countryLookup.test.ts, scripts/gasflare_gate1.ts) + SHARED (research/*, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json): gas_flare_candidates' two remaining GATE 1 NEXT items (Russia antimeridian query, Iran zero-candidate root cause) both closed — third clean negative on the correlation test, two new root-caused per-country findings (v1.0.836)
 
 SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/

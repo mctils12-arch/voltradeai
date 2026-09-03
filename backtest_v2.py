@@ -299,28 +299,56 @@ def compute_metrics(equity: list, n_days: int) -> dict:
             "max_drawdown_pct": round(abs(maxdd) * 100, 2)}
 
 
+# MEASUREMENT INTEGRITY (2026-09-03): the real VXX series this system fetches
+# only goes back to ~2018-01-25 (this ETN's data history at our provider) —
+# any SPY date before that falls back to the synthetic vxx_ratio=1.0 below.
+# A request spanning further back (a 10-year PROMOTION RULE 3 backtest, or a
+# research probe's own --days) silently mixed real VXX-gated regime labels
+# with pre-2018 labels computed from a constant neutral proxy, while the old
+# `quality` check (`"ok" if vxx_by_date else "degraded"`) only detected VXX
+# being TOTALLY absent, not partially short of the requested range — found by
+# hazard_rate_probe.py's own "longer window" GATE 2 follow-up, whose onset
+# set changed shape depending on --days in a way a real 10-year renewal
+# process should not. This threshold (5%) is picked to stay silent on the
+# ~0.1-0.2% single-trailing-day VXX-lag every normal fetch already carries
+# (VXX data arrives a day behind SPY at the live edge) while still catching
+# the real multi-year gap above (14%+ missing at 10 years, 40-70% beyond
+# that) — restores the behavior this function's own docstring already
+# promised ("flags data_quality" when VXX is unavailable), not a new policy.
+_VXX_COVERAGE_DEGRADED_THRESHOLD = 0.05
+
+
 # ── Regime series from SPY + VXX (same inputs as live macro_data) ───────────
 def regime_series(spy: dict, vxx: dict | None) -> tuple[list, str]:
     """Per-SPY-day regime labels. vxx_ratio = VXX close / VXX 30d avg
-    (macro_data.py definition); 1.0 (degraded) when VXX data is missing."""
+    (macro_data.py definition); 1.0 (degraded) for any SPY day VXX doesn't
+    cover. `quality` is "degraded" both when VXX is totally absent and when
+    more than `_VXX_COVERAGE_DEGRADED_THRESHOLD` of the SPY date range falls
+    outside VXX's real coverage (see the constant's own comment) — a request
+    window longer than VXX's history is real degradation, not just VXX being
+    a day behind at the live edge."""
     vxx_by_date = {}
     if vxx:
         vc = vxx["close"]
         for i, d in enumerate(vxx["date"]):
             avg30 = sma(vc, i, 30)
             vxx_by_date[d] = (vc[i] / avg30) if avg30 else 1.0
-    quality = "ok" if vxx_by_date else "degraded"
 
     labels = []
     below_200_run = 0
     sc = spy["close"]
+    missing_vxx_days = 0
     for i, d in enumerate(spy["date"]):
         ma50 = sma(sc, i, 50)
         ma200 = sma(sc, i, 200)
         spy_vs_ma50 = (sc[i] / ma50) if ma50 else 1.0
         above200 = bool(ma200 and sc[i] > ma200)
         below_200_run = 0 if above200 else below_200_run + 1
-        vr = vxx_by_date.get(d, 1.0)
+        if d in vxx_by_date:
+            vr = vxx_by_date[d]
+        else:
+            vr = 1.0
+            missing_vxx_days += 1
         if classify_regime_5level is not None:
             labels.append(classify_regime_5level(vr, spy_vs_ma50,
                                                  spy_below_200_days=below_200_run,
@@ -328,6 +356,11 @@ def regime_series(spy: dict, vxx: dict | None) -> tuple[list, str]:
         else:  # minimal inline fallback mirroring regime_util thresholds
             labels.append("BULL" if (vr <= 0.90 and spy_vs_ma50 >= 1.0 and above200)
                           else "NEUTRAL")
+
+    missing_frac = (missing_vxx_days / len(spy["date"])) if spy["date"] else 0.0
+    quality = ("degraded" if (not vxx_by_date
+                               or missing_frac > _VXX_COVERAGE_DEGRADED_THRESHOLD)
+               else "ok")
     return labels, quality
 
 

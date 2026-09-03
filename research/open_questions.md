@@ -14572,6 +14572,66 @@ ET per the routine's standing instruction, since automerge has no
 time-of-day gate (`.github/workflows/` is FROZEN, per the existing
 wishlist.md PROCESS GAP finding).
 
+**ADDENDUM 2026-09-03 (scheduled-routine session, [RULE-REVIEW]) — the
+(b) "longer window" follow-up named above was RUN, and it surfaced a
+real MEASUREMENT INTEGRITY bug rather than a clean higher-n result. Full
+account in `research/experiments.md`'s tagged entry for this session;
+summary here:**
+
+`--days 3650` (the ceiling this entry itself confirmed feasible):
+`n_onsets` stayed 7 but the first gap changed 127->272 trading days
+(`gap_cv` 0.6227->0.5565, bootstrap [0.139,0.664]->[0.276,0.629]) —
+traced to a genuinely earlier real onset (2019-07-31) becoming visible
+that the shorter window's fetch simply didn't reach. Pushing further
+(REASONING STANDARD #4 — don't stop at the first flattering-looking
+number) found the finding does NOT hold up: `--days 5000` (back to
+2012) gave `gap_cv=0.9252`, bootstrap **[0.445, 1.049] — straddling
+1**; `--days 7300` (2006) gave 0.8291 [0.610,0.962]; `--days 10000`
+(1999) gave 0.8605 [0.669,0.989]. Non-monotonic, sign-flipping behavior
+a real single renewal process should not show.
+
+ROOT CAUSE: `backtest_v2.fetch_bars('VXX', ...)` only has real data back
+to **2018-01-25** regardless of how far back SPY's own history goes —
+`regime_series()` already degraded any day missing from VXX to a
+synthetic neutral ratio (by design, per its own docstring), but its
+`quality` flag only checked whether VXX was TOTALLY empty, not whether
+it covered the requested range, so all four extended runs above
+silently reported `vxx_data_quality: "ok"` while 14-70% of their days
+had no real VXX behind them. This mixes two structurally different
+onset-detection regimes (VXX-gated post-2018, price-only pre-2018) into
+one gap sequence — REASONING STANDARD #7 (lookahead/survivorship
+discipline) treats that as invalid evidence, not a clean negative. THE
+`gap_cv` STRADDLING/APPROACHING 1 IN THE LONGER WINDOWS ABOVE MUST NOT
+BE READ AS "the hazard-rate hypothesis is dead" — it is contaminated
+evidence, filed here explicitly so a future session doesn't
+misinterpret it as a kill.
+
+FIXED (own PR, `backtest_v2.py`'s `regime_series()`, v1.0.837):
+`quality` now reads "degraded" when more than 5% of the requested SPY
+range falls outside VXX's real coverage, not just when VXX is totally
+absent — a mechanical restore of the function's own already-documented
+intent, not a new policy. This also means a `years=10` (3650-day)
+`backtest.py` run, PROMOTION RULE 3's own ceiling, now correctly
+self-reports "degraded" instead of silently "ok" — a live gap in the
+promotion ladder's own honesty signal, not only a research-probe
+curiosity. `labels`/trade outputs are byte-identical before and after
+(reporting-only fix); 6 new tests in `test_backtest_v2_regime_quality.py`.
+
+LADDER DISPOSITION: hazard-rate stays **GATE 2 NOT YET PASSED**
+(unchanged) — this session neither confirmed nor killed it, it
+disqualified its own longer-window evidence and fixed the shared bug
+that produced the confound.
+
+NEXT (queued, not this session, concrete): re-run the "longer window"
+follow-up bounded to VXX's real coverage (`date_range[0]` at or after
+2018-01-25 — roughly `--days 3140` as of this session, narrower than
+the `--days 3650` this addendum already spent) for a valid,
+apples-to-apples higher-n result without the pre-2018 contamination.
+Separately, `_VXX_COVERAGE_DEGRADED_THRESHOLD`'s fix is generic to
+`regime_series()` — any future `backtest.py`/probe request spanning
+back past 2018-01-25 will now self-report "degraded" without further
+action.
+
 ## 2026-09-01 (scheduled-routine session) [PRODUCT] — GAS FLARE CANDIDATES: a BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive we already ingest — module + 14 unit tests, GATE 1 designed not run
 
 CONTEXT: this session's queue survey found the PLATFORM INTEGRATION
