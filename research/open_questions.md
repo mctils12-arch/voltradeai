@@ -10506,6 +10506,63 @@ territory in their first commit)
   NEXT: GATE 2 (below) remains the next real step for this root — the
   dwell-median/queue-anomaly-vs-forward-returns hypothesis is untouched
   by this session's work, which only validated the DATA layer.
+- **UPDATE 2026-09-03 (scheduled-routine PRODUCT session, v1.0.838) — GATE 2
+  INFRASTRUCTURE: a durable weekly-snapshot accumulator, built and run.**
+  The GATE 2 test plan below needs a weekly series, but
+  `RAW_RETENTION_DAYS` (30 days, PR #760) is a ROLLING window off "now" —
+  confirmed live this session (`raw_vessel_archive_from` read
+  `2026-08-05T00:00:00Z` against a `2026-09-03` "now", exactly 29 days
+  back) — so an on-demand query can never see more than ~4 weeks of raw
+  history AT ANY POINT IN TIME, no matter how many future sessions re-run
+  it; the window doesn't grow, it just slides. The only way to build a
+  real multi-month series is to CAPTURE each completed week into a durable
+  file before it ages out — same "accumulation substitutes for purchase"
+  principle CLAUDE.md's BUILD-FIRST RULE names for flight-track history and
+  the position archive itself. Built `server/portDwellWeekly.ts` (pure
+  accumulator: a fixed archive-start-anchored weekly grid so two sessions a
+  week apart append two DIFFERENT weeks rather than a "today"-shifted one;
+  `extractWeeklySnapshot`/`mergeWeeklySnapshot`/`missingWeekIndices`,
+  append-only, a captured week is never overwritten -- provably correct
+  since retention only ever gets a SHORTER look at a past week over time,
+  never a longer one) + `scripts/portdwell_weekly_snapshot.ts` (the live
+  capture script over the existing, unchanged `portdwell_window` probe).
+  Snapshots are aggregate-only per port (dwell_median_h/dwell_p90_h/
+  dwell_max_h/visits_completed/unique_vessels/in_port_now) -- no per-vessel
+  MMSI, name, or position.
+  MEASUREMENT INTEGRITY CATCH, live, same session: the first attempted week
+  (index 5, 2026-08-07..08-14) read `visits_completed: 0`/`in_port_now: 0`
+  at ALL 9 ports despite `vessels_seen: 1349` -- the exact all-zero
+  signature a broken reader would produce. Root-caused, not just detected:
+  that week overlaps the ALREADY-DIAGNOSED 2026-08-05 13:00 -> 2026-08-12
+  10:00 UTC aisstream.io outage (wishlist.md "AIS VESSEL FEED DARK",
+  RESOLVED 2026-08-15) almost entirely -- the same known cause the
+  2026-08-19(2) update above already used to explain a different
+  non-monotonic reading. Added `isDegenerateAllZeroRead()` as a standing
+  guard (all-9-ports-zero-despite-vessels-seen -> skip, never persist) so
+  no future run of this script can silently write a degraded week into the
+  series looking identical to a genuine quiet one.
+  FIRST LIVE CAPTURE: weeks 6 and 7 (2026-08-14..08-21, 2026-08-21..08-28)
+  written to `datacore/port_dwell_weekly.json` -- both read as plausible
+  and internally consistent across all 9 ports (e.g. port_la 126
+  visits/78 unique vessels/11.1h median week 6, 214/111/8.6h week 7;
+  port_lb/port_nynj/port_savannah/port_houston/port_oakland/port_seattle/
+  port_charleston/port_norfolk all comparably sane).
+  Also confirmed live this session, for whenever the return-side test
+  becomes reachable: `backtest_v2.fetch_bars('XRT'|'IYT', 400)` both
+  returned 275 real daily bars (2025-07-30..2026-09-02) via the Yahoo
+  fallback -- price-data access is NOT this root's bottleneck, archive
+  depth is.
+  `datacore/signal_ladder.json`'s `port_dwell_maritime_transit` entry
+  updated with this addendum; `current_gate` stays 1/`gate1_pass` -- 2 data
+  points is GATE 2 infrastructure and a start, not a gate-2 result
+  (REASONING STANDARD #4).
+  NEXT: re-run `scripts/portdwell_weekly_snapshot.ts` every future session
+  that touches this root -- idempotent, cheap, adds up to a few weeks for
+  free each time. Once the file holds roughly 15-20+ clean weeks, attempt
+  GATE 2 proper: first reconcile the series against a published congestion
+  proxy (this entry's own test-plan point (2) below), then the
+  anomaly-vs-forward-XRT/IYT-returns test against a random-entry base rate,
+  regime-split, discounted for variants tried.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay
