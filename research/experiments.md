@@ -3,6 +3,120 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-03 (scheduled-routine session, third session this UTC day) [RESEARCH] — research/* only: hazard-rate GATE 2's queued "longer window, bounded to VXX real coverage" follow-up RUN — result byte-identical to the earlier flagged "contaminated" number (validates it, doesn't overturn it), but also proves the axis is now fully exhausted, not just satisfied once
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+moved 32a49fa -> 742a4e4 (PR #992, the immediately-prior session's own
+RULE-REVIEW fix) since this checkout was cloned; this session's HEAD
+already equals `origin/main` (742a4e4) — no rebase needed, no concurrent
+session merged ahead of this one. `python3 scripts/session_health_check.py`:
+7/7 OK, no LIVENESS ALARM, `server_version` 1.0.837 matched. `python3
+scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 3/10 REPAIR (below the 7+ trigger); known_broken 39
+items/3 without an explicit close marker (#26/#34/#38 — same
+cosmetic-marker gap re-confirmed genuinely FIXED by multiple prior
+sessions, not re-litigated); starvation_signal 0/10. NOT a [REPAIR]
+session. `/api/health`: all subsystems `ok`, bot active, liveness not
+dark, equity peak $110,727.04, drawdown 0.0%.
+
+TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — only `research/*.md`
+touched (SHARED, per the partition's own catch-all), kept to a single
+docs addendum, no code/config/test file changed.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order — judge/continue a
+matured, already-queued item before starting anything new): the
+immediately-prior session today (RULE-REVIEW, PR #992, now merged and
+live per `server_version` above) left a concrete, unclaimed NEXT in
+`research/open_questions.md`'s hazard-rate GATE 2 entry: re-run the
+"longer window" follow-up bounded to VXX's real coverage
+(`--days ~3140`) for a valid, apples-to-apples result without the
+pre-2018 contamination that session's own investigation found. Verified
+real data access first (`backtest_v2.fetch_bars('SPY', 30,
+use_cache=False)` returned 22 real bars via the Yahoo fallback) before
+committing, same precedent every prior probe-follow-up session has
+established. Picked this over starting new axis (c)/(d) work per SESSION
+BUDGET step 1 (a queued, already-flagged item outranks new research).
+
+WHAT HAPPENED: ran `PYTHONPATH=. python3 scripts/hazard_rate_probe.py
+--days 3140` — confirmed `vxx_data_quality: "ok"` directly against
+`backtest_v2.regime_series()` on the same fetch before trusting the
+probe's own self-report. Result: `n_onsets=7`,
+`gaps_trading_days=[272,176,134,426,98,121]`,
+`gap_cv=0.5565252651170025`, bootstrap `[0.27650846500578596,
+0.6289480546074376]` — **byte-identical** to the earlier session's
+flagged-as-possibly-contaminated `--days 3650` numbers, not merely
+close. Pushed further (REASONING STANDARD #4 — don't stop at the first
+number that confirms the hoped-for read): binary-searched the actual
+`"ok"`/`"degraded"` boundary directly rather than assuming it sits
+exactly at VXX's first trading day (the fix's 5% threshold means it
+doesn't) — `--days 3300` (`date_range[0]` = 2017-08-21) is the last
+value reading `"ok"`; `--days 3310` already reads `"degraded"`. Ran the
+probe at that maximum valid window too: **byte-identical again** to the
+3140-day run. The extra ~4.5 months of history between the two "ok"
+runs added zero onsets.
+
+FINDING: axis (b) "longer window" is now **exhausted**, not merely
+completed — there is no more real SPY history reachable within VXX's
+valid coverage that could add a 7th gap; `n=6` is a hard ceiling for
+this specific axis, not a floor still worth pushing on. Silver lining:
+this also resolves the prior session's own contamination worry as
+unfounded for the specific number it flagged — `gap_cv=0.5565`/
+`[0.2765,0.6289]` recurs with zero synthetic VXX days in the window, so
+it was always a valid read of the post-2018 onset structure; only its
+honesty label (`quality`) was wrong before that session's fix, not the
+number itself.
+
+LADDER DISPOSITION: GATE 2 still **NOT PASSED** — `n=6` gaps remains at
+the `MIN_GAPS_FOR_STATS` floor, single-ticker (in the sense that matters:
+IWM/AAPL/MSFT's own broader-universe run already showed most of that
+"breadth" is VXX-coupled, not independent — see the THIRD addendum),
+unchanged from "provisional positive, underpowered." This session
+neither promoted nor killed it — it validated one contested number and
+closed off a dead-end path to more power.
+
+RATCHET: no code, config, or test file changed — same precedent as
+every prior probe-rerun session (2026-08-31, 2026-09-03 earlier today).
+`git status --short` showed only `research/open_questions.md` and this
+file touched before writing this entry. `bash scripts/counter_ratchet.sh`:
+`OK: 25 counters at or better than baseline` (no movement, no file
+touched). No version bump — matching the same no-code-change precedent.
+
+GATES: N/A beyond the counter ratchet above — no test file added or
+changed (this session ran the existing, already-tested probe and
+`regime_series()` exactly as shipped by PR #992, no new code path
+exercised that isn't already covered by `test_hazard_rate_probe.py`/
+`test_backtest_v2_regime_quality.py`).
+
+BACKTEST: N/A per PROMOTION RULE 3 — gate-2 SIGNAL follow-up only
+(still not passed); no strategy, threshold, sizing, or scoring change.
+
+VERSION: none (no code/config change; `package.json` unchanged at
+1.0.837, matching `origin/main`).
+
+DOCS: `research/open_questions.md`'s hazard-rate GATE 2 entry gains a
+FOURTH ADDENDUM with the full boundary-search table and the exhausted-
+axis conclusion; NEXT now points only at the THIRD addendum's axis (c)
+(a ticker-specific realized-vol regime classifier, or pooling
+idiosyncratic non-SPY-shared onsets across single names) — axis (b) is
+explicitly marked closed so a future session doesn't re-attempt
+"extend the window further" a third time expecting a different answer.
+
+CROSS-SYSTEM INTEGRATION: none new.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT: see the FOURTH addendum in open_questions.md — axis (c), a new
+statistical-design follow-up (ticker-specific vol regime classifier or
+pooled idiosyncratic-onset series), not another `--days`/`--ticker`
+rerun of the existing probe.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion (run the queued
+NEXT item, then push past the first "ok" result to find the real
+boundary rather than reporting the first flattering number and
+stopping), the highest-priority fall-through item available per SESSION
+BUDGET's own ordering.
+
 ## 2026-09-03 (scheduled-routine session, second session this UTC day) [RULE-REVIEW] — SHARED-but-minimal (backtest_v2.py, test_backtest_v2_regime_quality.py new, ci/counter_baseline.txt, package.json): regime_series()'s VXX data-quality flag silently reported "ok" on windows that mixed real VXX with a synthetic neutral fallback for years at a time — found while running hazard_rate_probe.py's own queued "longer window" GATE 2 follow-up, fixed at the shared measurement-code root (v1.0.837)
 
 SESSION-START CHECKS: CLAUDE.md read in full, special attention to EDGE

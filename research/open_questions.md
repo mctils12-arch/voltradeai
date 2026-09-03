@@ -14632,6 +14632,84 @@ Separately, `_VXX_COVERAGE_DEGRADED_THRESHOLD`'s fix is generic to
 back past 2018-01-25 will now self-report "degraded" without further
 action.
 
+**FOURTH ADDENDUM 2026-09-03 (scheduled-routine session, third session
+this UTC day) [RESEARCH] — the bounded-window (b) follow-up named above
+was RUN. RESULT: byte-identical to the flagged "contaminated" 3650-day
+number, so that number is VALIDATED rather than overturned — but this
+also proves axis (b) is now fully EXHAUSTED, not just completed once.**
+
+RUN 1: `PYTHONPATH=. python3 scripts/hazard_rate_probe.py --days 3140`
+(as this entry's own NEXT specified). `vxx_data_quality: "ok"`
+(confirmed directly first via `backtest_v2.regime_series()` on the same
+fetch before trusting the probe's own self-report). Result:
+`n_onsets=7`, `gaps_trading_days=[272,176,134,426,98,121]`,
+`gap_cv=0.5565252651170025`, bootstrap `[0.27650846500578596,
+0.6289480546074376]` — **identical to the "contaminated" 3650-day
+numbers this file's THIRD addendum recorded**, not merely close.
+
+RUN 2 (pushed further, REASONING STANDARD #4 — don't stop at the first
+number that confirms the hoped-for read): binary-searched the actual
+`vxx_data_quality` "ok"/"degraded" boundary directly against
+`regime_series()` rather than guessing from the VXX start date alone
+(the 5% threshold means the true boundary is not exactly VXX's first
+trading day). `--days 3300` (`date_range[0]` = 2017-08-21) is the last
+value that reads `"ok"`; `--days 3310` already reads `"degraded"`.
+Ran the probe at `--days 3300`, the maximum valid window: **byte-
+identical again** — same 7 onsets, same 6 gaps, same `gap_cv=0.5565`,
+same bootstrap range. The extra ~4.5 months of history between the two
+"ok" runs (2017-08-21 to 2018-01-29) contributed zero additional onsets.
+
+CONCLUSION (stated plainly because it cuts against what the NEXT item
+above was hoping for): **axis (b) "longer window" is now exhausted, not
+open.** There is no more real SPY history reachable within VXX's valid
+coverage that could add a 7th gap — the maximum achievable window
+(`--days 3140` through `--days 3300`, an 11-day-wide plateau bounded by
+VXX's real 2018-01-25 start on one side and the 5% degradation
+threshold on the other) has been fully explored and returns the same
+`n=6` gaps every time. `n=6` is a hard ceiling for "extend SPY's own
+history," not a floor this axis can still push past. A silver lining:
+this also means the THIRD addendum's own contamination worry — that the
+3650-day `gap_cv=0.5565` might be an artifact of mixing VXX-gated and
+price-only onset regimes — is now empirically resolved as unfounded for
+that specific number: the identical result recurs with zero synthetic
+VXX days in the window, so `0.5565`/`[0.2765,0.6289]` was always a valid
+read of the post-2018 onset structure, just previously mislabeled by the
+now-fixed quality flag. The number was never wrong; only its honesty
+label was.
+
+LADDER DISPOSITION: **GATE 2 still NOT PASSED** — `n=6` gaps remains at
+the `MIN_GAPS_FOR_STATS` floor, single-ticker, and this session did not
+add a new independent data point, only re-confirmed and then exhausted
+the one axis that could add power without a new method. Unchanged from
+"provisional positive, underpowered."
+
+NEXT (queued, not this session, concrete): axis (b) is now CLOSED —
+do not re-attempt "extend SPY's own window further" again, it cannot
+produce a different answer without a VXX quality regression. The only
+remaining path to more statistical power is the THIRD addendum's own
+axis (c), still unclaimed: either (i) a ticker-specific realized-
+volatility regime classifier that doesn't route through
+`classify_regime_5level`'s VXX-dominant branches, or (ii) pooling each
+ticker's idiosyncratic (non-SPY-shared) onsets across many single names
+into one larger gap series. Both require new statistical design work,
+not another `--days`/`--ticker` rerun of the existing probe.
+
+RATCHET: no code, config, or test file changed (same precedent as every
+prior probe-rerun session) — this run exercised the existing
+`hazard_rate_probe.py`/`backtest_v2.regime_series()` exactly as shipped
+by the RULE-REVIEW session earlier today. `git status --short` confirmed
+zero tracked-file diffs before writing this addendum.
+
+BACKTEST: N/A per PROMOTION RULE 3 — gate-2 SIGNAL follow-up only
+(still not passed); no strategy, threshold, sizing, or scoring change.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion (run the queued
+NEXT item, then push past the first "ok" result to find the real
+boundary rather than reporting the first flattering number), the
+highest-priority fall-through item available per SESSION BUDGET's own
+ordering (queued/unclaimed item outranks starting new research).
+
 ## 2026-09-01 (scheduled-routine session) [PRODUCT] — GAS FLARE CANDIDATES: a BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive we already ingest — module + 14 unit tests, GATE 1 designed not run
 
 CONTEXT: this session's queue survey found the PLATFORM INTEGRATION
