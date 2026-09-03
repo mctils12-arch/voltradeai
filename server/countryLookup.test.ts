@@ -4,7 +4,7 @@
 // ring) resolution order, and the bbox-param/name helpers.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countryOf, countryBboxParam, countryName } from "./countryLookup.ts";
+import { countryOf, countryBboxParam, countryBboxParams, countryName } from "./countryLookup.ts";
 
 test("countryOf: known cities resolve to their ISO3 code", () => {
   assert.equal(countryOf(55.7558, 37.6173), "RUS"); // Moscow
@@ -54,4 +54,48 @@ test("countryBboxParam / countryName: unknown iso3 returns null", () => {
 test("countryName: known iso3 returns the dataset's own display name", () => {
   assert.equal(countryName("nga"), "Nigeria"); // case-insensitive
   assert.equal(countryName("USA"), "United States of America");
+});
+
+test("countryBboxParams: a non-crossing country returns exactly one bbox, matching countryBboxParam", () => {
+  const params = countryBboxParams("IRQ");
+  assert.ok(params);
+  assert.equal(params!.length, 1);
+  assert.equal(params![0], countryBboxParam("IRQ"));
+});
+
+test("countryBboxParams: Russia (dateline-crossing) splits into two tight bboxes, not one global-spanning box", () => {
+  const naive = countryBboxParam("RUS")!.split(",").map(Number);
+  const [, , naiveLomin, naiveLomax] = naive;
+  // The naive single bbox spans nearly the whole globe's longitude range —
+  // this is the defect countryBboxParams() exists to avoid.
+  assert.ok(naiveLomax - naiveLomin > 180, "naive RUS bbox should span >180deg of longitude");
+
+  const params = countryBboxParams("RUS");
+  assert.ok(params);
+  assert.equal(params!.length, 2);
+  for (const p of params!) {
+    const [lamin, lamax, lomin, lomax] = p.split(",").map(Number);
+    assert.ok(lamin < lamax);
+    assert.ok(lomin < lomax);
+    // Neither split piece should itself span the whole globe.
+    assert.ok(lomax - lomin < 180, `split RUS bbox ${p} should not itself span >=180deg`);
+  }
+  // Moscow falls inside exactly one of the two pieces.
+  const moscow = { lat: 55.7558, lon: 37.6173 };
+  const hits = params!.filter((p) => {
+    const [lamin, lamax, lomin, lomax] = p.split(",").map(Number);
+    return moscow.lat >= lamin && moscow.lat <= lamax && moscow.lon >= lomin && moscow.lon <= lomax;
+  });
+  assert.equal(hits.length, 1);
+  // The Chukotka exclave (near -180..-169.9 lon) falls inside the other piece.
+  const chukotka = { lat: 66.0, lon: -175.0 };
+  const chukotkaHits = params!.filter((p) => {
+    const [lamin, lamax, lomin, lomax] = p.split(",").map(Number);
+    return chukotka.lat >= lamin && chukotka.lat <= lamax && chukotka.lon >= lomin && chukotka.lon <= lomax;
+  });
+  assert.equal(chukotkaHits.length, 1);
+});
+
+test("countryBboxParams: unknown iso3 returns null", () => {
+  assert.equal(countryBboxParams("ZZZ"), null);
 });

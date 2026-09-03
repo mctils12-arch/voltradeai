@@ -3,6 +3,155 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-03 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/countryLookup.ts, server/countryLookup.test.ts, scripts/gasflare_gate1.ts) + SHARED (research/*, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json): gas_flare_candidates' two remaining GATE 1 NEXT items (Russia antimeridian query, Iran zero-candidate root cause) both closed — third clean negative on the correlation test, two new root-caused per-country findings (v1.0.836)
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK (one WARN, `daemon_memory` rss over its
+trim threshold — not a LIVENESS ALARM, deep_score just runs in trimmed
+mode; not a repair blocker), server_version 1.0.835 matched this
+checkout. `python3 scripts/research_state_check.py`: audits none
+overdue, thrash_ratio 3/10 REPAIR (below the 7+ trigger), known_broken
+39 items/3 without an explicit close marker (#26/#34/#38 — all
+previously dispositioned as genuinely fixed, not re-litigated), 0/10
+starved. Not a [REPAIR] session — no critical unfixed item.
+
+TERRITORY: T-DATACORE (server/countryLookup.ts, scripts/gasflare_gate1.ts)
++ SHARED (research/*, datacore/signal_ladder.json, ci/counter_baseline.txt,
+package.json), last and minimal.
+
+PRIMARY-ACTION SELECTION, and a wasted first attempt worth logging
+honestly: this session's first instinct, reading PROGRAM_STATE.md's own
+NEXT pointer and the shadow-fleet root's "NEXT" note in
+open_questions.md, was to run the shadow_fleet_maritime identity-swap
+GATE 1 probe (168h then 720h windows) against production — both
+completed live (168h: odds ratio 0.696, 95% CI [0.226, 2.252]; 720h:
+odds ratio 1.258, 95% CI [0.514, 3.081], both straddling 1, both FAIL).
+Before writing either result up, a fuller read of experiments.md's OWN
+top-of-file entries (not just PROGRAM_STATE.md, which turned out to be
+tracking an unrelated CI/tooling-debt program, not the datacore/product
+ladder) found the 2026-09-02 "fourth session" entry had ALREADY run this
+exact probe and filed a whole-root verdict — this session's re-run
+duplicated already-completed work. No code or docs were touched before
+catching this (the duplicate probe calls cost production round-trip
+time only, no state was written), so nothing needed reverting — logged
+here, and in the open_questions.md addendum below, purely so a future
+session's own axis survey checks experiments.md's actual head before
+re-deriving a stale PROGRAM_STATE.md pointer's target.
+
+Re-surveyed properly: shadow-fleet fully dispositioned (confirmed
+above); port_dwell_maritime_transit GATE 1 passed 2026-09-02, its GATE 2
+next step needs XRT/IYT forward-return data — checked live this session
+(`env | grep -iE alpaca`: empty; `query1.finance.yahoo.com`: HTTP 429 on
+3 consecutive tries; `stooq.com`: proxy-level connection reset) — still
+blocked, not improved since the 2026-08-30/09-02 sessions found the same;
+`data_stream_registry_check.py --unbuilt` and `data_census.md`'s own
+"axis (a) fully exhausted" line both re-confirmed nothing new to build.
+`gas_flare_candidates` (GATE 1 FAIL as of 2026-09-01) had exactly two
+concrete, unclaimed, fully-specified NEXT items that needed neither
+market data nor production volume access this sandbox lacks — took both,
+same script and archive window, in one session per SESSION BUDGET's
+fall-through ordering.
+
+READ BEFORE WRITE: read `scripts/gasflare_gate1.ts`, `server/
+countryLookup.ts`, and `server/gasFlareCandidates.ts` in full before
+touching any of them. Traced `countryBboxParam`'s only production call
+site (the gate1 script) and its own test file before adding the new
+plural function alongside it (not replacing it — no other caller needed
+a behavior change).
+
+BUILT:
+1. `server/countryLookup.ts` gained `countryBboxParams(iso3): string[]`
+   — antimeridian-aware: a country whose naive bbox spans >180 degrees
+   of longitude (Russia's Chukotka exclave signature) gets its rings
+   split into a "far west" cluster (any ring entirely under -90 lon) and
+   everything else, bboxed separately. Every non-crossing country still
+   returns the same single bbox `countryBboxParam` would. 3 new tests
+   in `server/countryLookup.test.ts`.
+2. `scripts/gasflare_gate1.ts`: TRUTH_RANK now carries the full
+   published top-9 (Russia first); the fetch loop queries every bbox
+   `countryBboxParams` returns per country per day and unions the
+   (geographically disjoint, so no dedup needed) results; a day counts
+   as truncated if ANY of its bboxes truncated. Critical rho for n=9
+   RECOMPUTED exactly via full permutation of the null distribution
+   (362,880 permutations) rather than read off an approximate table —
+   cross-checked by running the identical method at n=8 first and
+   confirming it reproduces the standing 0.7381/0.738 pin before
+   trusting the new n=9 value (0.7000).
+
+RAN against production (identical 2026-08-15..28 window):
+**baseline rho -0.4667, refined rho -0.5 — both still GATE1_FAIL, same
+negative direction as the n=8 runs.** Russia: only 6 candidates (5
+refined), landing 6th of 9 in our own ordering despite being published
+#1, with 14/14 days truncated at the archive probe's 5000-row/day cap —
+the antimeridian fix is unit-test-verified correct, but Russia's
+main-landmass bbox alone still spans the whole breadth of Eurasia and
+saturates the cap on ordinary boreal background detections before
+flare-specific signal survives (a genuine measurement limitation, not a
+fix or detector defect). Iran's long-standing zero-candidate result was
+root-caused via a scratch diagnostic (built, run, and deleted this
+session — not committed): only 165 of 3,726 fetched rows (4.4%) are
+nighttime-tagged, spanning just 3 of the 14 window nights, vs Libya's
+3,545/5,520 (64%) spanning 14/14 nights — confirming Iran-specific
+nighttime-coverage sparsity, not a global archive tagging bug (loosened
+thresholds surface real candidates at Ahvaz/Khuzestan and South
+Pars/Assaluyeh, genuine Iranian flare regions, once the 3-night ceiling
+relaxes) and not a detector-logic defect. WHY Iran's nighttime coverage
+is this sparse in this window is unresolved — filed as open, not chased
+with a third variant this session (REASONING STANDARD #4).
+
+Full account, both findings, and the NEXT recommendation (weigh the
+already-filed VIIRS Nightfire registration ask against further patching
+of this free alternative): `research/open_questions.md` GAS FLARE
+CANDIDATES entry, THIRD ADDENDUM. `datacore/signal_ladder.json`'s
+`gas_flare_candidates` entry updated to match in the same PR.
+
+RATCHET: 3 new tests in `server/countryLookup.test.ts` (listed above).
+
+GATES: `npm ci` (fresh sandbox; a pre-`npm ci` tsc reading of 12->3 was
+the same stale-`node_modules` artifact the 2026-09-02(3) session logged
+— reproduced, not trusted) + `pip install -r requirements.txt -r
+requirements-dev.txt`. `npx tsx --test server/countryLookup.test.ts`:
+10/10 (7 pre-existing + 3 new). `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304=0, unchanged post-`npm ci`. `bash scripts/gated_tests.sh`: GATE
+PASSED — client 101 files/1075 tests, python 1576 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`:
+`assertions` 12836->12848 (this session's own 3 new tests' direct
+effect — isolated via `git status`/`git diff --stat` showing only this
+session's 4 changed files), re-pinned in `ci/counter_baseline.txt` in
+this same PR; all 25 counters OK after. `npm run build`: clean (same
+pre-existing warning classes every recent session logs, none touched
+here).
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 statistical validation of a
+RAW candidate-detector module; no trading path, scoring, sizing, or
+threshold touched. `gas_flare_candidates` was never surfaced on `/data`
+or `/api/v1` (pre-gate-1 infrastructure only), so this result has zero
+live customer or trading impact either way.
+
+CROSS-SYSTEM INTEGRATION: `countryBboxParams()` is a new, generically
+reusable capability (any future country-aggregate gate-1/gate-2 check
+gains correct antimeridian handling for free) — not itself a new
+archive, join, or external dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+MARKET-HOURS NOTE: session ran ~20:15-21:00 ET, after the 16:00 ET
+close — no merge-timing hold needed.
+
+NEXT: see the open_questions.md addendum's own NEXT section — two
+bigger paths remain (Russia oblast-level sub-bboxing; a second, disjoint
+window to check whether Iran's coverage sparsity is a one-window fluke),
+neither recommended over the already-filed VIIRS Nightfire ask without
+further evidence.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (both filed NEXT items from the gas-flare root's own
+2026-09-01 second addendum, taken together since they share the same
+script/window), used in full including root-causing both anomalies
+rather than merely re-observing them, and catching + logging its own
+duplicate-work mistake on the shadow-fleet root rather than silently
+discarding it.
+
 ## 2026-09-02 (3) (scheduled-routine session) [REPAIR] — T-DATACORE-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #39's 2026-07-20..23 vessel-archive gap — ROOT CAUSE DIAGNOSED and CLOSED; the fix already shipped forward 2.5 weeks after the incident (PR #718/#769), no new code needed
 
 SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
