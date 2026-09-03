@@ -3,6 +3,206 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-03 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/portDwellWeekly.ts new, server/portDwellWeekly.test.ts new, scripts/portdwell_weekly_snapshot.ts new, datacore/port_dwell_weekly.json new) + SHARED (datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, research/*): port_dwell_maritime_transit's GATE 2 gets a durable weekly-snapshot accumulator — built, tested, and run live: 2 clean weeks captured, 1 correctly rejected as an archive-outage artifact (v1.0.838)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+experiments.md tail, open_questions.md, wishlist.md tail). `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `server_version` 1.0.837
+matched this checkout at session start. `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 3/10 REPAIR (below the 7+ trigger),
+known_broken 39 items/3 without an explicit close marker (#26/#34/#38 — same
+cosmetic-marker gap re-confirmed genuinely FIXED by many prior sessions, not
+re-litigated), starvation_signal 0/10. NOT a [REPAIR] session — no critical
+unfixed trading-loop item; proceeding with PRODUCT work per this routine's
+own brief.
+
+TERRITORY: server/portDwell*.ts is the same file family the 2026-08-18
+through 2026-09-02 port-dwell GATE 1 sessions already own (T-DATACORE-adjacent
+precedent, not T-BOT). `datacore/port_dwell_weekly.json` is new but lives
+alongside the same root's other datacore/ artifacts.
+
+PRIMARY-ACTION SELECTION: `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry read `gate1_pass`/current_gate 1 as of
+this morning's 2026-09-02(2) session (rollup GATE 1 PASS), with its own
+filed NEXT: "GATE 2 (dwell-median/queue-anomaly-vs-forward-returns)". This
+routine's own brief names "advance a datacore/ pipeline through its next
+ladder gate... gate 2 signal testing ARE product work" as choice (a) — the
+single highest-value, most-recently-unblocked queued item found this
+session (checked PROGRAM_STATE.md's own "NEXT" too — a different, stale
+2026-08-15 client-quality track, "Track 2/3 — the moon", not touched since;
+out of scope for a datacore/PRODUCT-brief session and not chosen).
+
+READ BEFORE WRITE before designing anything: read `server/portDwell.ts` in
+full (`computePortDwellAsync`/`PortDwellStats` shape) and `server/diag.ts`/
+`server/bot.ts`'s `portdwell_window` case (added 2026-08-18, fixed
+2026-08-19) — confirmed live via `datacoreArchive.ts`'s `oldestRawHour`
+header comment and a direct probe (see below) that `RAW_RETENTION_DAYS`
+(30, since PR #760) is a ROLLING window from "now", not a fixed date. This
+is the load-bearing fact the whole session's design rests on: an on-demand
+query taken today reads a SHORTER history a month from now, never a
+longer one — raw retention cannot accumulate by itself, ever, no matter how
+many future sessions re-query it. GATE 2's own test plan (open_questions.md,
+"weekly archive-derived series {median dwell, in-port count} per port")
+needs many weeks of history; the only way to get there is to CAPTURE one
+small, aggregate-only snapshot per completed week into a DURABLE file
+before that week ages out of the rolling window — the same "accumulation
+substitutes for purchase" principle CLAUDE.md's BUILD-FIRST RULE names for
+other roots (flight-track history, the position archive itself).
+
+VERIFIED LIVE BEFORE BUILDING (not assumed): `curl .../api/diag/
+portdwell_window?hours=168&token=$DIAG_TOKEN` (64.7s) returned
+`raw_vessel_archive_from: "2026-08-05T00:00:00.000Z"` — 29 days before "now"
+(2026-09-03), confirming the rolling-30-day read directly rather than
+trusting the doc comment. Also checked real XRT/IYT price-data access
+(needed eventually for the actual returns test, not this session's build):
+`backtest_v2.fetch_bars('XRT', 400)`/`fetch_bars('IYT', 400)` both returned
+275 real daily bars (2025-07-30 through 2026-09-02) via the Yahoo fallback
+— access is fine; archive DEPTH, not price-data access, is this root's
+actual GATE 2 bottleneck, confirmed directly rather than assumed from a
+different session's unrelated network-restriction finding earlier today.
+
+BUILT:
+1. `server/portDwellWeekly.ts` — pure accumulator module (no fs/network):
+   a fixed weekly grid anchored to the archive's own documented start
+   (`ARCHIVE_START_MS` = 2026-07-03, the same date every other archive-
+   boundary comment in this repo already cites, not re-derived), so two
+   sessions a week apart append two DIFFERENT weeks off the same grid
+   rather than recomputing a shifted boundary from "today".
+   `extractWeeklySnapshot()` strips a live `PortDwellStats` read down to
+   aggregate-only, per-vessel-identity-free fields (dwell_median_h/
+   dwell_p90_h/dwell_max_h/visits_completed/unique_vessels/in_port_now per
+   port — no MMSI, name, or position, matching the anomaly_examples-
+   stripping posture other diag-fed research artifacts in this repo already
+   use). `mergeWeeklySnapshot()` appends keyed by week_index and NEVER
+   overwrites an already-captured week (once inside the rolling window, a
+   later re-read of the SAME historical week can only see an equal or
+   SHORTER raw tail — retention rolls forward, never back — so the first
+   capture is provably the most complete one obtainable). `missingWeekIndices()`
+   computes exactly which completed weeks the file still lacks.
+2. `isDegenerateAllZeroRead()` — MEASUREMENT INTEGRITY guard: a week where
+   EVERY one of the 9 ports reads zero completed AND zero ongoing visits
+   despite `vessels_seen > 0` is the signature of either a broken reader
+   (the exact all-zero pattern the 2026-08-19 GATE 1 session found and
+   fixed for a different bug) or a week fully swallowed by a known archive-
+   feed outage — either way, not a plausible "quiet week," and persisting
+   it as one would poison every future statistic computed over the series.
+3. `scripts/portdwell_weekly_snapshot.ts` — the live capture script.
+   Determines the earliest attemptable week from a live `raw_vessel_archive_from`
+   read (never assumes week 0/archive start is reachable — it almost never
+   is), then calls the EXISTING, unchanged `portdwell_window` probe once
+   per missing week with `end` pinned to that week's own boundary. Skips
+   (never persists) a week carrying a `coverage_caveat` (partial raw
+   coverage) or failing `isDegenerateAllZeroRead`. One shared fetch helper
+   (one `AbortSignal.timeout(...) as unknown as AbortSignal` cast site, not
+   one per call site — avoided the `as any` idiom every other `scripts/*
+   gate*.ts` probe in this repo uses, to not add new `ts_any` count).
+   Idempotent: safe to run every session, a captured week is never
+   re-fetched.
+
+RATCHET: `server/portDwellWeekly.test.ts` — 19 tests, no network/fs
+(fixture-driven): week-grid boundary arithmetic (contiguous, no gap/
+overlap, exact edge-instant semantics), `extractWeeklySnapshot` strips
+exactly the aggregate fields (asserted via a full `Object.keys` set
+comparison, not a spot-check), `mergeWeeklySnapshot` append/sort/no-mutate/
+never-overwrite (including an explicit test that a LATER, degraded re-read
+of an already-captured week does NOT clobber the original good value),
+`missingWeekIndices` correctness, and `isDegenerateAllZeroRead` across 4
+cases (all-zero-with-vessels true; real activity false; zero vessels_seen
+false — a coverage question, not this one; one port with only an ONGOING
+visit false).
+
+GATES: fresh `npm ci` run first (node_modules was stale/near-empty; a
+pre-`npm ci` `tsc_ratchet.sh` read a misleading 12->3 "improvement", the
+same stale-artifact mirage a 2026-09-02 session already documented and
+warned future sessions about — reproduced, not re-pinned). Post-`npm ci`:
+`npx tsx --test server/portDwellWeekly.test.ts`: 19/19 pass. `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `bash scripts/gated_tests.sh`
+(after `pip install -r requirements.txt -r requirements-dev.txt`): GATE
+PASSED — client 1075/1075 (101 files), python 1582 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`:
+first run (before `git add`) showed no movement because the assertions
+counter only scans TRACKED files; after staging, `tests_run_in_ci`/
+`tests_gating_merge` 413->414 and `assertions` 12857->12882 (this session's
+own new test file, all three re-pinned in `ci/counter_baseline.txt` in
+this same PR per PROMOTION RULE 5) — `ts_any`/`boundary_any` UNCHANGED
+(the `as unknown as AbortSignal` choice above was the direct reason; an
+earlier draft using the repo's usual `as any` idiom did trip `ts_any`
+1239->1240, caught by this same ratchet before it was fixed, not after).
+`npm run build`: clean (pre-existing astronomy-engine/>500kB-chunk
+warnings, same classes every recent session logs, none touched here).
+
+LIVE RUN (production, read-only, token-gated, same posture as every other
+diag probe in this repo): `DIAG_TOKEN=... npx tsx scripts/
+portdwell_weekly_snapshot.ts`. First run attempted weeks 5/6/7 (the 3 weeks
+inside the then-current raw-retention boundary): week 5 (2026-08-07 ->
+2026-08-14) came back with `visits_completed: 0`/`in_port_now: 0` at ALL 9
+ports despite `vessels_seen: 1349` — caught live by `isDegenerateAllZeroRead`
+before this script existed to catch it (the first draft, run once before
+the guard was added, persisted it; deleted and re-run after the guard
+shipped). ROOT CAUSE, not merely detected: week 5 (2026-08-07..08-14)
+overlaps the ALREADY-DIAGNOSED 2026-08-05 13:00 -> 2026-08-12 10:00 UTC
+aisstream.io outage (`wishlist.md` "AIS VESSEL FEED DARK," RESOLVED
+2026-08-15) almost entirely — not a new bug, the same known cause the
+2026-08-19(2) GATE 1 session already used to explain a different non-
+monotonic `portdwell_window` reading. Weeks 6 and 7 (2026-08-14..08-21,
+2026-08-21..08-28) both read as plausible, populated, internally consistent
+across all 9 ports (e.g. port_la: 126 visits/78 unique vessels/11.1h median
+week 6, 214 visits/111 unique/8.6h median week 7; port_lb, port_nynj,
+port_savannah, port_houston, port_oakland, port_seattle, port_charleston,
+port_norfolk all read comparably sane) — captured into `datacore/
+port_dwell_weekly.json`, 2 weeks, aggregate-only, no per-vessel identity.
+
+LADDER DISPOSITION: `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry gains a dated addendum. `current_gate`
+stays 1 / `gate1_pass` — this session shipped GATE 2 INFRASTRUCTURE and its
+first 2 data points, not a gate-2 result. 2 weeks is nowhere near enough
+for the anomaly-vs-forward-XRT/IYT-returns test to carry any statistical
+power (REASONING STANDARD #4) — no test was attempted this session, only
+the tool that lets one exist eventually.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 2 infrastructure/first captures
+only; no trading path, scoring, sizing, or threshold touched either way.
+Zero live customer or trading impact (this root has never surfaced past
+RAW overlay status; unaffected either way).
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing `portdwell_window`
+probe, the existing 9-port geofence set, and the existing archive; no new
+external dependency.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating code,
+no `/api/v1`/`/data` surface added or changed.
+
+MARKET-HOURS NOTE: session ran starting ~09:29 ET (`TZ=America/New_York
+date`), i.e. essentially at/inside the 9:30-16:00 ET window this routine's
+own brief asks to avoid merging in. Per that instruction: this PR is
+prepared and left for the after-close merge window rather than merged by
+this session; noting here (not self-merging) in case CI's own `automerge`
+job (documented elsewhere in this repo as not gating on market hours) acts
+on it before then — that would be the same already-logged precedent other
+sessions have noted, not a new problem.
+
+NEXT: run `scripts/portdwell_weekly_snapshot.ts` again every future session
+that touches this root (idempotent, ~1-4 min live depending on how many
+weeks are missing, safe to run even with zero missing weeks) — each run
+adds at most a few weeks for free. Once `datacore/port_dwell_weekly.json`
+holds roughly 15-20+ clean weeks (at the current capture rate, several more
+weeks of calendar time, faster if a future session backfills more
+aggressively right after this PR's own raw-retention boundary moves further
+forward), attempt GATE 2 proper: correlate the archive-derived weekly
+series against a published congestion proxy first (open_questions.md's own
+test-plan point (2)), then the anomaly-vs-forward-XRT/IYT-returns test
+against a random-entry base rate, regime-split, discounted for variants
+tried (REASONING STANDARDS #2-#4). XRT/IYT price-data access is already
+confirmed working (see above) — archive depth is the only remaining gate.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the port-dwell root's own filed NEXT, the single most
+recently unblocked datacore/ pipeline gate this session's own survey
+found), used in full including catching and fixing a real data-quality
+defect (the week-5 all-zero read) before it could have silently entered
+the series, rather than stopping at the first script that ran without
+crashing.
+
 ## 2026-09-03 (scheduled-routine session, third session this UTC day) [RESEARCH] — research/* only: hazard-rate GATE 2's queued "longer window, bounded to VXX real coverage" follow-up RUN — result byte-identical to the earlier flagged "contaminated" number (validates it, doesn't overturn it), but also proves the axis is now fully exhausted, not just satisfied once
 
 SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
