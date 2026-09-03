@@ -75391,3 +75391,221 @@ including live-verifying the calendar claim, hand-verifying both
 tickers against primary sources before writing either into the join
 table, and reporting a confound honestly rather than fabricating a
 result.
+
+## 2026-09-03 (scheduled-routine session, fifth PRODUCT session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/fdicGate2.ts new, server/fdicGate2.test.ts new, server/fdicBanks.ts, server/fdicBanks.test.ts, server/bot.ts, server/diag.ts, server/diag.test.ts) + SHARED (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json): fdic_bank_failures GATE 2 (SIGNAL) event study — KRE forward-return bootstrap test built and unit-tested, run deferred to deploy (v1.0.841)
+
+SESSION-START: read CLAUDE.md in full, `research/experiments.md`'s last
+10 tagged sessions (thrash ratio 2/10 REPAIR, well under the 7+ trigger
+— confirmed via `scripts/research_state_check.py`, not eyeballed),
+`open_questions.md`, `wishlist.md`. `/api/health`: all subsystems ok, no
+LIVENESS ALARM, `bot.status active`, `drawdownPct 0.0`. Only one open
+PR (#604, an intentional draft backlog marker) — the 2026-08-20 stale-PR
+backlog `wishlist.md` flagged is confirmed resolved, nothing to act on
+there.
+
+AXIS SURVEY: the immediately preceding four sessions today had already
+independently re-confirmed gas-flare/shadow-fleet/port-dwell exhausted
+and closed out fleet-utilization's own trigger (blocked until
+2026-11-02). Rather than re-run those same checks a fifth time, went
+straight to `datacore/signal_ladder.json` (per that same prior
+session's own finding: 14 roots at `gate1_pass`, only shadow-fleet and
+port-dwell carry an on-file GATE 2 test plan). Read all 14 gate1_pass
+entries. Twelve are either calendar-blocked (13F clustering: needs a
+second quarterly filing period, ~Oct-Nov 2026; app-store/GitHub
+momentum: need ~90 days of accumulation, not yet elapsed) or not
+standalone signal claims (FRED/EU macro: regime-conditioning inputs
+only, no gate-2 claim; entity-map: infrastructure, not a signal).
+`fdic_bank_failures` stood out: its own module docstring
+(`server/fdicBanks.ts`) has specified an exact GATE 2 test since
+2026-07-06 ("failure events vs forward KRE / regional-bank returns"),
+and the 2026-08-18 GATE 1 session's own NEXT explicitly left it unbuilt
+only for lack of live market-data access — a concrete, fully-specified,
+aged (16 days), unclaimed item, exactly SESSION BUDGET's fall-through
+tier 1.
+
+PRIOR (REASONING STANDARD #10, stated before building or running
+anything): expected FDIC failures to be too sparse and too widely
+telegraphed (regulators seize banks over a weekend after signs of
+trouble are already public) for a clean signal — this is exactly the
+"who's on the other side" question REASONING STANDARD #5 demands, and
+the honest prior is skeptical, not optimistic. Recorded now so a future
+session judges the eventual run against this stated skepticism rather
+than a retrofitted story either way.
+
+READ BEFORE WRITE: read `server/fdicBanks.ts` in full (confirmed no
+existing multi-year historical fetch — only the 50-row recent fetch);
+`server/shadowFleetGate1.ts` in full (reused its xorshift32 PRNG
+pattern, small-n floor precedent, and "pure stats module, no fs/network"
+scope discipline for the new `fdicGate2.ts`); the `/api/diag/:probe`
+switch and the existing `shadowfleet_gate1`/`portdwell_window` cases in
+`server/bot.ts` (probe registration, `sanitizeDiag` convention, hours/
+seed query-param validation pattern); `server/diag.ts`'s `DIAG_PROBES`
+whitelist and `diag.test.ts`'s wiring-test pattern (every probe must
+have a `case "<probe>"` in bot.ts, checked mechanically); the existing
+`/api/bars` route's own Alpaca bars-fetch (host, feed=iex, adjustment=
+split — bars reject `delayed_sip`, per that route's own 2026-07-20/27
+comment) before writing the new date-range variant. Traced every call
+site of nothing renamed (this is new code only, no existing signature
+changed).
+
+BUILT:
+1. `server/fdicGate2.ts` (new) — `eventStudy(bars, eventDates,
+   horizonDays, seed)`: for each event date, computes KRE's forward
+   `horizonDays`-trading-day return (bar-index based, not calendar-day,
+   so weekends/holidays don't distort the horizon); builds an eligible
+   base-rate pool from every OTHER bar index with a valid forward
+   return, EXCLUDING a ±horizonDays window around each event's own
+   entry (prevents an event's own price move from leaking into the
+   "random" comparison pool — the return-study analogue of
+   `shadowFleetGate1.ts`'s case/control non-overlap); draws a seeded
+   bootstrap (2000 iterations, same count `hazard_rate_probe.py` uses)
+   of `n_events`-sized samples from that pool to build the null
+   distribution of the mean; reports `signal_detected` = the real event
+   mean falling outside the bootstrap's 95% band (equivalently
+   two-sided p<0.05) — never a bare "event mean beats base rate"
+   read. `insufficient_n` floor at 5 events, same value as
+   `shadowFleetGate1.ts`'s `MIN_REFERENCE_HITS`/`hazard_rate_probe.py`'s
+   `MIN_GAPS_FOR_STATS`.
+2. `server/fdicGate2.test.ts` (new, 8 tests) — forward-return edge
+   cases (insufficient future depth, non-positive close); the n<5 floor
+   returning `insufficient_n:true` and never also `signal_detected:
+   true`; a hand-verifiable CLEAN NULL fixture (constant daily return
+   everywhere — event mean exactly equals the base rate to floating-
+   point precision, `signal_detected:false`); a hand-verifiable
+   ENRICHED fixture (a flat series with an isolated, deliberately
+   non-overlapping +20% jump starting exactly `horizon` bars after each
+   of 6 event dates — event mean ~20%, base rate ~0%, `signal_detected:
+   true`, p=0 exactly since the base-rate pool has zero variance);
+   event-date dedup; same-seed reproducibility (`assert.deepEqual` on
+   two calls) and a different-seed sanity check using a second,
+   variance-bearing fixture (the constant-return fixture would make
+   every bootstrap draw identical regardless of seed, so a separate
+   sinusoidal-return fixture was built specifically for this test — a
+   real bug caught while writing it, not assumed).
+3. `server/fdicBanks.ts` — new `fetchHistoricalFailures(sinceDate,
+   fetchImpl, limit=500)`: reuses `fetchRecentFailures`'s host/fields/
+   DESC-sort exactly, just a larger limit + client-side date filter
+   rather than a server-side FAILDATE range filter (that filter's exact
+   query syntax was never verified live against this API, and a
+   silently-wrong filter would return too few/zero rows rather than
+   erroring — a plain larger fetch filtered client-side can't have that
+   failure mode). limit=500 comfortably covers every failure back to
+   well before any plausible GATE 2 window, since the module's own
+   docstring already establishes recent failure rates are well under
+   10/year.
+4. `server/bot.ts` — new (unexported, local) `fetchDailyBarsRange(
+   symbol, startISO, endISO)`, the date-range sibling of the existing
+   `/api/bars` route's latest-N-bars fetch, same host/feed/adjustment
+   choice; new `case "fdic_gate2"` in the `/api/diag/:probe` switch:
+   validates `since` (YYYY-MM-DD) and `horizons` (CSV, 1-60 each,
+   default "5,10,20" matching `shadow_portfolio.py`'s own 5/10/20-day
+   forward-return convention), fetches failures + KRE bars, runs
+   `eventStudy()` once per horizon, returns only the aggregate verdicts
+   through `sanitizeDiag` — no raw bar series, no per-failure fields
+   beyond what `api.fdic.gov` already publishes.
+5. `server/diag.ts` — `fdic_gate2` added to `DIAG_PROBES` with a full
+   context comment, same posture as every other probe (closed by
+   default, sanitized, read-only).
+6. `server/diag.test.ts` — new wiring test mirroring the
+   `shadowfleet_gate1` probe's own test: confirms the probe reuses the
+   shared `eventStudy`/`fetchHistoricalFailures` modules rather than
+   re-deriving the math inline, validates `since`/`horizons`, confirms
+   `sanitizeDiag` is applied, confirms the raw bar series is never
+   spread into the response, confirms the reused module's own exported
+   shape is already aggregate-only.
+7. `server/fdicBanks.test.ts` — 2 new tests for
+   `fetchHistoricalFailures` (non-200 → `[]` with the same host/DESC/
+   fields pins as the existing `fetchRecentFailures` test; client-side
+   date filtering keeps only rows on/after `sinceDate`; default limit
+   is 500, not silently reusing the 50-row recent-fetch limit).
+8. `datacore/signal_ladder.json` — `fdic_bank_failures` entry's `note`
+   field extended via a targeted string replacement (2 insertions, 1
+   deletion per `git diff --stat` — not a full `json.dump` reformat,
+   same discipline the 2026-08-18 FDIC session and the 2026-08-16
+   gnss_integrity session both already established for this exact
+   file) with the full account below, including a correction to the
+   2026-08-18 UPDATE's own framing: GATE 2 as `fdicBanks.ts`'s own
+   docstring specifies it needs NO per-bank ticker/entity-graph join at
+   all (KRE is a single always-listed sector ETF) — that join is real,
+   separate, HARDER follow-on work for testing individual peer bank
+   stocks, not a precondition for the base test. The true and only
+   blocker was always live market-data access.
+9. `research/open_questions.md` — matching UPDATE appended under DATA
+   STREAM EXPANSION #3 (FDIC BANK DATA), same content and correction as
+   above, plus the NEXT step's exact diag-probe call.
+
+TS_ANY DISCIPLINE (`ci/counter_baseline.txt`'s `ts_any` counter is
+`non-increasing`): the first draft of `fetchDailyBarsRange` used
+`(b: any) =>` for the raw Alpaca bar shape and the new
+`fetchHistoricalFailures` catch block used `catch (e: any)`, matching
+this file's own pre-existing style everywhere else — but `bash scripts/
+counter_ratchet.sh` caught both as a net +2 over the 1239 pin before
+this session's own new files were even staged (git-tracked-only counter
+— the new `fdicGate2.ts`/`fdicGate2.test.ts` files hadn't been `git
+add`-ed yet and so weren't measured at all). Fixed by using an explicit
+inline type (`{ t: string; c: number }`) for the bars-map callback and
+`catch (e: unknown)` + `e instanceof Error` for the new fetch's error
+path, rather than reflexively copying this file's dominant `: any`
+style — `ts_any` held exactly at 1239 after the fix, confirmed via
+`python3 -m pytest -q test_ts_code_only.py` (11/11) in addition to the
+shell ratchet.
+
+GATES (fresh sandbox — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` both run; the same misleading pre-`npm ci`
+"tsc dropped 12->3" artifact every recent session in this file logs was
+seen and NOT re-pinned, confirmed stale by re-running post-`npm ci`):
+`npx tsx --test server/fdicBanks.test.ts server/fdicGate2.test.ts
+server/diag.test.ts server/signalLadder.test.ts`: 40/40 pass. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `bash scripts/
+gated_tests.sh`: GATE PASSED — python 1582 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue (client suite not separately
+listed by this run — no client/ files touched by this diff). `bash
+scripts/counter_ratchet.sh`: `assertions` improved 12917->12932 (this
+session's own 10 new/extended tests), re-pinned in `ci/
+counter_baseline.txt` in this same PR per the script's own instruction;
+`ts_any` held exactly at the 1239 pin (see TS_ANY DISCIPLINE above); all
+25 counters OK. `npm run build`: clean (only the pre-existing
+astronomy-engine default-export warning, >500kB chunk warnings, and
+mapIcons dynamic/static dual-import notice — none related to this
+diff, no client/ files touched).
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched by this diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 2 (SIGNAL) infrastructure for
+a still-`raw_only`-in-practice root; no trading path, scoring, sizing,
+or threshold touched either way, regardless of what the eventual run's
+verdict turns out to be.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing FDIC failures
+feed and this instance's own existing Alpaca credentials; no new
+archive, join, or external dependency. The correction filed above (no
+ticker/entity-graph join needed for the base test) is itself a small
+cross-system-scoping clarification, not a new tie.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+NEXT (queued, not this session — same "built, not yet run" pattern the
+2026-09-01/02 shadow-fleet GATE 1 probes and the 2026-08-30 Omori probe
+already established): once PR #997 merges and Railway redeploys
+(`server_version` on `/api/health` reflects v1.0.841 or later), call
+`GET /api/diag/fdic_gate2?since=2022-01-01&horizons=5,10,20&token=
+$DIAG_TOKEN` and record the per-horizon verdict (event mean, base rate,
+bootstrap CI, p-value, `signal_detected`) in both this file and
+`research/open_questions.md`, judged against this entry's own stated
+skeptical PRIOR rather than a retrofitted story. If `n_events_valid`
+comes back too thin even at the 2022-01-01 window (unlikely given the
+2023 regional-bank crisis wave sits inside it, but possible if very few
+of those failures resolve to a valid forward-return window), widen
+`since` further back — FDIC's API serves full history to 1934 — rather
+than re-running the same window with a different seed.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely-specified, 16-day-unclaimed GATE 2 test
+plan already on file, the single unblocked, fully-specified,
+high-priority item this session's own read of all 14 gate1_pass
+ladder entries found), used in full including the read-before-write
+trace of the reused RNG/probe/wiring patterns before writing any new
+code and a full local gate run (build + all touched test files + tsc +
+python suite + counters) before opening the PR.
