@@ -14988,3 +14988,158 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 action (the first addendum's own reserved NEXT step (1)), used in full,
 including the honest reporting of a second clean negative rather than
 threshold-fishing a pass.
+
+**THIRD ADDENDUM 2026-09-03 (scheduled-routine [PRODUCT] session) — NEXT
+items (1) and (2) from the second addendum both attempted. RESULT: a
+third clean negative on the correlation test (now full n=9), plus two
+new, unrelated root-cause findings (one per item) that change what a
+future session should try next.**
+
+SESSION-START: this session's own axis survey (shadow-fleet, port-dwell,
+data-census) found every other unblocked PRODUCT item either already
+fully dispositioned (shadow_fleet_maritime's identity-swap GATE 1 was
+already run and whole-root-verdicted by the 2026-09-02 "fourth session"
+entry above in this file — this session independently re-ran it BEFORE
+finding that out and confirms the same qualitative result, 168h/720h OR
+0.696/1.258 respectively, both CIs straddling 1; not re-filed as new
+evidence since it duplicates already-recorded work, logged here only so
+a future session doesn't waste the same production round-trips) or
+blocked on market-return data access, re-confirmed blocked this session
+too (`env | grep -iE alpaca`: empty; `query1.finance.yahoo.com`: hard
+HTTP 429 on 3 consecutive attempts; `stooq.com`: proxy-level connection
+reset — same class of failure the 2026-08-30/2026-09-02 sessions logged,
+not improved). This gas-flare root's two filed-but-unclaimed NEXT items
+needed neither, so they became this session's primary action.
+
+**NEXT (1) — Russia antimeridian query — BUILT, TESTED, RUN.**
+`server/countryLookup.ts` gained `countryBboxParams(iso3): string[]`:
+for a country whose naive single bbox spans >180 degrees of longitude
+(the antimeridian-crossing signature), it splits the country's own
+constituent rings into the Chukotka-shaped exclave cluster (any ring
+entirely under -90 lon) and everything else, and returns one tight bbox
+per cluster instead of one bbox spanning the globe. 3 new tests in
+`server/countryLookup.test.ts` (non-crossing country still returns
+exactly 1 bbox identical to the existing `countryBboxParam`; Russia
+returns exactly 2, neither itself spanning >=180 degrees, with Moscow
+and a Chukotka point each falling in exactly one of the two; unknown
+iso3 still returns null). `scripts/gasflare_gate1.ts` updated to fetch
+per-bbox-per-day (unioning disjoint-by-construction results, no dedup
+needed) and TRUTH_RANK now carries the full published top-9 (Russia
+first). The pre-registered pass bar's critical rho was RECOMPUTED, not
+looked up approximately: full permutation of the n=9 null distribution
+(9! = 362,880 permutations, exact) gives 0.7000 — cross-checked by
+running the same exact method at n=8 first and confirming it reproduces
+the standing 0.7381 the 2026-09-01 session cited from a standard table
+to 4 decimal places, before trusting the new n=9 number.
+
+RUN (identical 2026-08-15..28 window, same production archive):
+**baseline rho = -0.4667, refined (maxFrpCV) rho = -0.5 — both still
+GATE1_FAIL, both still NEGATIVE, same direction as the n=8 result
+(-0.4762/-0.5).** Russia itself is a NEW finding, not a confirmation of
+anything predicted: despite being the published #1 flarer, it returned
+only 6 baseline candidates (5 refined) — landing 6th of 9 in our own
+ranking, not 1st — and **14 of 14 days were truncated at the archive
+probe's 5000-row/day cap** (worse than USA's 10/14, the previously
+worst-truncated country). DIAGNOSIS: the antimeridian fix is verified
+correct (the unit tests prove neither split bbox spans the globe), but
+Russia's MAIN-landmass bbox alone still spans the entire east-west
+breadth of Eurasia (19.66 to 180 degrees longitude) at high latitude —
+geographically correct for "Russia," but far larger than any other
+country in this test, so it still saturates the per-day row cap on
+ordinary background nighttime detections (boreal-forest fire activity
+at this latitude in August is itself a known, large, non-flare source)
+before enough flare-specific signal survives. This is a genuine
+MEASUREMENT limitation of the 5000-row/day archive probe against a
+country this large, not a bug in the antimeridian fix or the underlying
+detector logic — filed as open, not chased further this session (a real
+fix needs per-region sub-bboxing of Russia specifically, e.g. by
+oblast/economic-region, which is a materially bigger undertaking than
+this NEXT item scoped for).
+
+**NEXT (2) — Iran's zero-candidate count — INVESTIGATED, ROOT CAUSE
+FOUND.** Not a detector-logic miss: loosening thresholds
+(minNights/minPersistence 3/0.5 -> 2/0.3 -> 1/0.1) surfaces real
+candidate hotspots as the bar relaxes (0 -> 3 -> 129), and the
+loosened-threshold hotspots sit at geographically plausible real
+flaring regions — 30.75N/48.28E (Ahvaz/Khuzestan oil fields) and
+27.72N/52.18E (South Pars/Assaluyeh gas complex), both genuine,
+well-known Iranian flare sites, not random noise. ROOT CAUSE (found by
+comparing Iran's own night/day row split against Libya's, a country the
+detector DOES score well): of 3,726 total FIRMS rows fetched for Iran
+in the 14-day window, only 165 (4.4%) carry `daynight: "N"` — the
+detector's `findGasFlareCandidates()` uses ONLY nighttime rows by
+design (flares recur nightly regardless of season; daytime detections
+would dilute the persistence signal, per the module's own header). Of
+those 165 night rows, only **3 of the 14 calendar nights** have ANY
+nighttime detection anywhere in the country — nightsInWindow=3, which
+mechanically caps the maximum achievable nightsActive at 3 for every
+grid cell, and no single 0.0075-degree cell in Iran hit all 3.
+COMPARISON (same window, same method): Libya has 3,545 of 5,520 rows
+(64%) tagged night, spanning **14 of 14** calendar nights — a
+qualitatively different coverage regime, confirming this is
+Iran-specific, not a global archive daynight-tagging defect. WHAT THIS
+DOES NOT YET EXPLAIN: why Iran's archived nighttime FIRMS coverage is
+this sparse in this specific window while Libya's is complete — VIIRS
+overpass local-solar-time geometry at Iran's latitude/longitude
+combination, an archive ingestion gap specific to this bbox, or a
+genuine seasonal/orbital artifact are all plausible and NOT
+distinguished this session (would need either a second, disjoint
+window for Iran alone, or reading NASA FIRMS' own overpass-schedule
+documentation — neither attempted, filed as open per REASONING STANDARD
+#4's "one diagnostic pass" discipline rather than chased with a third
+variant in the same session).
+
+`datacore/signal_ladder.json`'s `gas_flare_candidates` entry updated in
+this same session with both findings and the n=9 verdict.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (fresh sandbox). `npx tsx --test
+server/countryLookup.test.ts`: 10/10 (7 pre-existing + 3 new).
+`bash scripts/tsc_ratchet.sh`: 12/12 post-`npm ci` (a pre-`npm ci` 12->3
+reading was the same stale-`node_modules` artifact the 2026-09-02(3)
+session logged, reproduced and NOT trusted here either). `bash
+scripts/gated_tests.sh`: GATE PASSED — client 101 files/1075 tests
+(1075/1075), python 1576 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/counter_ratchet.sh`: `assertions`
+12836->12848, this session's own 3 new tests' direct effect (isolated
+by `git status`/`git diff --stat` showing only this session's 4 changed
+files — no other counter moved), re-pinned in `ci/counter_baseline.txt`
+in this same PR; all 25 counters OK after. `npm run build`: clean (same
+pre-existing warning classes every recent session logs).
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1 statistical validation of a
+RAW candidate-detector module; no trading path, scoring, sizing, or
+threshold touched. `gas_flare_candidates` was never surfaced on `/data`
+or `/api/v1` (pre-gate-1 infrastructure only), so this result has zero
+live customer or trading impact either way.
+
+CROSS-SYSTEM INTEGRATION: `countryBboxParams()` is a new, generically
+reusable capability in `server/countryLookup.ts` (any future
+country-aggregate gate-1/gate-2 check gains correct antimeridian
+handling for free) — not itself a new archive, join, or external
+dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT for whichever session picks this up: this root has now had 3
+independent negative correlation runs (n=8 baseline, n=8 refined, n=9
+baseline/refined) plus two root-caused (not just observed) per-country
+anomalies. Two genuinely different paths remain, both bigger than a
+single-session NEXT item: (a) Russia-specific sub-bboxing (split by
+oblast/economic region rather than the whole country) to get it below
+the archive probe's per-day cap; (b) a second, disjoint archive window
+for Iran to see whether the 3-night nighttime-coverage sparsity found
+here is a one-window fluke or a standing gap. Neither is recommended as
+an immediate next step over the VIIRS Nightfire free-registration ask
+already filed in wishlist.md (2026-09-01) — that path sidesteps both
+problems at once (a purpose-built flare product, not a FIRMS
+repurposing) and should be weighed against these two before a future
+session spends more sessions patching this free alternative further.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (both filed NEXT items from the immediately-preceding
+addendum, taken together since they share the same script and archive
+window), used in full including root-causing rather than merely
+re-observing each anomaly, and cross-checking the new exact-permutation
+critical-value method against the existing n=8 pin before trusting its
+n=9 output.

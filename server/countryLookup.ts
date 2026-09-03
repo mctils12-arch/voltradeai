@@ -109,3 +109,38 @@ export function countryBboxParam(iso3: string): string | null {
 export function countryName(iso3: string): string | null {
   return loadCountries().find((x) => x.iso3 === iso3.toUpperCase())?.name ?? null;
 }
+
+/** Antimeridian-aware version of countryBboxParam(): a country whose admin0
+ *  geometry crosses the dateline (e.g. Russia's Chukotka exclave, part of the
+ *  110m dataset's own separate MultiPolygon rings at lon -180..-169.9) has a
+ *  naive single min/max-lon bbox spanning almost the ENTIRE GLOBE's longitude
+ *  range, not just that country — confirmed live 2026-09-01
+ *  (research/experiments.md, GAS FLARE CANDIDATES gate-1 run) when that bbox
+ *  truncated at an archive probe's per-day row cap on ordinary global
+ *  wildfire noise before enough real rows for the country came through.
+ *  Splits the country's rings into a "far west" exclave cluster (any ring
+ *  whose own lon span sits entirely under -90 — the dateline-wrapped part)
+ *  and everything else, and returns ONE bbox per cluster instead of one bbox
+ *  spanning both. Every non-crossing country returns the same single bbox
+ *  countryBboxParam() would. Null if the iso3 code isn't in the dataset. */
+export function countryBboxParams(iso3: string): string[] | null {
+  const c = loadCountries().find((x) => x.iso3 === iso3.toUpperCase());
+  if (!c) return null;
+  const [minLon, , maxLon] = c.bbox;
+  if (maxLon - minLon <= 180) return [countryBboxParam(iso3)!];
+  const exclave: Ring[] = [];
+  const main: Ring[] = [];
+  for (const ring of c.rings) {
+    const lons = ring.map((pt) => pt[0]);
+    (Math.max(...lons) < -90 ? exclave : main).push(ring);
+  }
+  const params: string[] = [];
+  for (const rings of [main, exclave]) {
+    if (!rings.length) continue;
+    const bbox = ringsBbox(rings);
+    if (!bbox) continue;
+    const [lo, la, hi, ha] = bbox;
+    params.push(`${la},${ha},${lo},${hi}`);
+  }
+  return params.length ? params : [countryBboxParam(iso3)!];
+}
