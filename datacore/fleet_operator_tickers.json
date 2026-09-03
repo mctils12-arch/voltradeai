@@ -1,0 +1,21 @@
+{
+  "_doc": "CORPORATE-FLEET UTILIZATION x EARNINGS TIMING (CLAUDE.md EDGE DOCTRINE ACTIVE ANGLE-HUNTING #1's own named example). Sibling table to datacore/entity_map.json -- same {operator, ticker, confidence, note} shape and same hand-verification discipline (SEC filings / company IR pages / live web search, never a guessed ticker) -- but keyed against server/fleetUtilization.ts's FAA-registrant 'owner' strings (datacore/entity_map.json is scoped to power-plant/strategic-site operators only, a disjoint source; see that file's own _doc). Deliberately small: an entry exists here ONLY when a session has both (a) hand-verified the ticker against a primary source and (b) recorded whether the fleet has a THESIS reason to move with company-specific news (owns/operates its own aircraft for an operational purpose tied to volume/revenue) vs. is a control/comparison case (aircraft use is incidental, e.g. generic executive travel or a demo/leasing fleet) -- confidence and thesis fields both come from that check, not from name-recognition alone. Unmapped fleet-utilization owners are an honest gap, not evidence of anything.",
+  "schema_version": 1,
+  "built": "2026-09-03",
+  "entries": [
+    {
+      "operator": "TRANSMEDICS INC",
+      "ticker": "TMDX",
+      "confidence": "high",
+      "thesis": "operational_proxy",
+      "note": "TransMedics Aviation operates a dedicated owned fleet of Phenom 300E aircraft (acquired via the Summit Aviation purchase) flying National OCS Program (NOP) organ-transport missions -- flight activity is a direct proxy for organ-retrieval case volume, not incidental executive travel. Verified live via web search 2026-09-03 against TransMedics' own investor/aviation pages and SEC 8-K fleet-acquisition filings. Genuine candidate for the GATE 2 hypothesis; see research/open_questions.md's 2026-09-03 CORPORATE-FLEET UTILIZATION x EARNINGS TIMING entry for why GATE 2 could not yet be attempted this session."
+    },
+    {
+      "operator": "LABORATORY CORPORATION OF AMERICA HOLDINGS",
+      "ticker": "LH",
+      "confidence": "high",
+      "thesis": "control_comparison",
+      "note": "Labcorp's registered aircraft support specimen-logistics transport between labs, not an event-driven or growth-linked activity -- sober prior (stated before looking at any data, per REASONING STANDARD #10) is near-zero earnings-linked signal, the same steady-state-logistics prior CLAUDE.md's port-dwell GATE 2 hypothesis already states for Houston's energy-terminal dwell readings. Kept in this table as the CONTROL case alongside TMDX's operational-proxy case, not because it is itself expected to show a signal."
+    }
+  ]
+}
