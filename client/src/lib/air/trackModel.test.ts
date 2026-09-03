@@ -10,6 +10,8 @@ import {
   sampleAt,
   headingAt,
   distMeters,
+  decimateForCap,
+  remapIndices,
   trimToCurrentFlight, trimToCurrentFlightWithAirborne,
   TRACK_DENSIFY_M,
   TRACK_MAX_SAMPLES,
@@ -21,6 +23,7 @@ import {
   CURTAIN_BELOW_TERRAIN_M,
   TRACE_ABOVE_TERRAIN_M,
   type RawTrackPoint,
+  type TrackSample,
 } from './trackModel.js';
 
 const near = (a: number, b: number, tol: number, msg: string) =>
@@ -232,4 +235,89 @@ test("currently-airborne plane: identical to trimToCurrentFlight (no behavior ch
 test("pure ground log (never airborne anywhere): unchanged old behavior", () => {
   const raw = [0, 60, 120].map((t) => ({ t, la: 40, lo: -74, al: null }));
   assert.deepEqual(trimToCurrentFlightWithAirborne(raw), trimToCurrentFlight(raw));
+});
+
+// ── decimateForCap / remapIndices (rendering_motion_overhaul.md "trail
+// decimation" — the FT_MAX_FEATURES GPU cap `buildTrackVertices` only
+// reports, never enforces) ──────────────────────────────────────────────
+
+/** A straight-line synthetic track: `n` samples along a great circle,
+ *  ~`spacingM` apart, all with real altitude (gap: false) unless `gapAt`
+ *  names indices to force into a gap. */
+function straightTrack(n: number, spacingM: number, gapAt: Set<number> = new Set()): TrackSample[] {
+  const degPerM = 1 / 111_320; // ~1 degree latitude per 111.32 km, good enough for a synthetic fixture
+  const out: TrackSample[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({
+      t: i, lon: -100, lat: 40 + i * spacingM * degPerM,
+      altM: gapAt.has(i) ? NaN : 5000, gap: gapAt.has(i), held: false, gsKt: 0, vsFpm: 0,
+    });
+  }
+  return out;
+}
+
+test("decimateForCap: under the cap is an untouched identity", () => {
+  const samples = straightTrack(300, 120);
+  const kept = decimateForCap(samples, 512);
+  assert.deepEqual(kept, Array.from({ length: 300 }, (_, i) => i));
+});
+
+test("decimateForCap: over the cap keeps first/last and lands near maxPoints", () => {
+  const samples = straightTrack(6000, 120); // ~720 km at full density, mirrors TRACK_MAX_SAMPLES's own worked example
+  const kept = decimateForCap(samples, 512);
+  assert.equal(kept[0], 0, "first sample always kept");
+  assert.equal(kept[kept.length - 1], samples.length - 1, "last sample always kept");
+  // no fixed exact count is guaranteed (see the function's own comment) but
+  // it must land close to the cap, not merely "smaller than 6000"
+  assert.ok(kept.length <= 512 * 1.05, `kept ${kept.length} should sit near the 512 cap`);
+  assert.ok(kept.length >= 512 * 0.9, `kept ${kept.length} should not over-decimate`);
+  // strictly ascending, no duplicates
+  for (let i = 1; i < kept.length; i++) assert.ok(kept[i] > kept[i - 1], `ascending at ${i}`);
+});
+
+test("decimateForCap: a gap-state transition survives even inside the target spacing", () => {
+  // a short, isolated 2-sample gap in the middle of an otherwise dense
+  // track — narrower than the spacing decimation alone would keep, so the
+  // gap boundary is the only reason these two indices survive
+  const samples = straightTrack(2000, 5, new Set([1000, 1001]));
+  const kept = decimateForCap(samples, 100);
+  assert.ok(kept.includes(1000), "gap start kept despite fine spacing");
+  // the sample immediately after the gap (1002, back to real altitude) is
+  // itself a transition and must survive too
+  assert.ok(kept.includes(1002), "gap end kept despite fine spacing");
+});
+
+test("decimateForCap: maxPoints below 2 or equal to sample count is a safe no-op identity", () => {
+  const samples = straightTrack(50, 120);
+  assert.deepEqual(decimateForCap(samples, 1), Array.from({ length: 50 }, (_, i) => i));
+  assert.deepEqual(decimateForCap(samples, 50), Array.from({ length: 50 }, (_, i) => i));
+});
+
+test("remapIndices: exact matches map to their own position in kept", () => {
+  const kept = [0, 5, 12, 30, 99];
+  assert.deepEqual(remapIndices([0, 12, 99], kept), [0, 2, 4]);
+});
+
+test("remapIndices: an index between two kept points snaps to the nearer one", () => {
+  const kept = [0, 10, 20];
+  assert.equal(remapIndices([12], kept)[0], 1, "12 is closer to kept[1]=10 than kept[2]=20");
+  assert.equal(remapIndices([16], kept)[0], 2, "16 is closer to kept[2]=20 than kept[1]=10");
+  assert.equal(remapIndices([15], kept)[0], 1, "tie breaks toward the earlier (lower) kept index");
+});
+
+test("remapIndices: out-of-range indices clamp to the nearest end", () => {
+  const kept = [5, 10, 15];
+  assert.equal(remapIndices([0], kept)[0], 0, "before the first kept index clamps to position 0");
+  assert.equal(remapIndices([999], kept)[0], 2, "after the last kept index clamps to the last position");
+});
+
+test("decimateForCap composed with remapIndices: a tz-crossing index inside a dropped run still lands within one decimated step of the truth", () => {
+  const samples = straightTrack(3000, 100); // 300 km at full density
+  const kept = decimateForCap(samples, 200);
+  const trueCrossingIdx = 1500; // roughly the midpoint, wherever the real crossing sample sits
+  const [mapped] = remapIndices([trueCrossingIdx], kept);
+  assert.ok(mapped >= 0 && mapped < kept.length, "mapped position is a valid index into the decimated array");
+  const landedAtOriginalIdx = kept[mapped];
+  assert.ok(Math.abs(landedAtOriginalIdx - trueCrossingIdx) < samples.length / 200 * 2,
+    `remapped crossing (orig idx ${landedAtOriginalIdx}) stays within ~one decimation step of ${trueCrossingIdx}`);
 });
