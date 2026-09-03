@@ -8715,6 +8715,65 @@ nowcast, sector-level stress/quality events. Priors stated per item.)
    against `api.fdic.gov` again in a few weeks — if they still don't
    reconcile to a Call Report by then, the index-lag explanation above
    should be treated as rejected, not confirmed, and re-investigated.
+
+   **UPDATE 2026-09-03 (scheduled-routine PRODUCT session) — GATE 2
+   (SIGNAL) event-study BUILT and unit-tested; run itself deferred to a
+   deployed instance (this sandbox has no live market-data access, same
+   constraint re-confirmed by this same session's own axis survey
+   earlier today).** `server/fdicGate2.ts`'s `eventStudy()` is a seeded-
+   bootstrap event study: for each real FDIC failure date, computes
+   KRE's forward N-trading-day return, then tests that mean against a
+   bootstrap null built from the SAME bar series' ordinary (non-event)
+   entry points — REASONING STANDARD #3's own base-rate discipline
+   ("what would random entry with the same holding period have
+   returned?"), never a bare eyeballed point estimate (REASONING
+   STANDARD #4, same posture `shadowFleetGate1.ts`'s odds-ratio CI and
+   `hazard_rate_probe.py`'s bootstrap CV range already hold this
+   codebase to). 8 unit tests cover: forward-return edge cases (not
+   enough future depth, non-positive close), the small-n floor (n<5
+   events → `insufficient_n`, never also `signal_detected`), a
+   hand-verifiable clean-null fixture (constant daily return — event
+   mean exactly equals the base rate), a hand-verifiable enriched
+   fixture (an isolated +20% post-event jump correctly detected against
+   a flat base rate, p=0), event-date dedup, and same-seed
+   reproducibility.
+
+   New token-gated `fdic_gate2` diag probe (`server/bot.ts`,
+   `server/diag.ts`) fetches failure dates live from `api.fdic.gov` via
+   a new `fetchHistoricalFailures()` (`server/fdicBanks.ts` — the full
+   public history back to any `since` date, not the local day-limited
+   archive) and KRE daily bars live from this deployed instance's own
+   Alpaca credentials (`server/bot.ts`'s new `fetchDailyBarsRange`),
+   then runs `eventStudy()` per horizon (default 5/10/20 trading days,
+   matching `shadow_portfolio.py`'s own forward-return convention) and
+   returns ONLY the aggregate verdicts — no raw bar series or
+   per-failure detail beyond what `api.fdic.gov` already publishes
+   leaves the endpoint.
+
+   CORRECTION to the 2026-08-18 UPDATE's own framing above: gate 2 as
+   `fdicBanks.ts`'s own docstring actually specifies it tests failures
+   against KRE — a single, always-known, always-listed sector ETF — so
+   it needs NO ticker/entity-graph join at all. The "CERT → public-
+   parent ticker join" NEXT item that update filed is real, separate,
+   *harder* follow-on work (testing individual peer bank stocks, most
+   of which are non-public) that would deepen this root beyond the
+   base test, not a precondition for it. The true and only blocker was
+   always live market-data access, which this sandbox still lacks
+   (`ALPACA_KEY`/`ALPACA_SECRET` unset locally; `yfinance` hard-blocked
+   at the egress proxy — re-confirmed live this session, not assumed
+   stale).
+
+   NEXT: once `server_version` >= this PR's version (`/api/health`),
+   `GET /api/diag/fdic_gate2?since=2022-01-01&horizons=5,10,20&token=
+   $DIAG_TOKEN` and record the per-horizon verdict (event mean, base
+   rate, bootstrap CI, p-value, `signal_detected`) here and in
+   `datacore/signal_ladder.json`, judged honestly regardless of
+   direction — `since=2022-01-01` captures the 2023 regional-bank
+   crisis wave (SVB/Signature/First Republic and the smaller failures
+   around them) plus the pre-crisis quiet period as contrast. If `n`
+   comes back too thin at 5-year depth, widening `since` further back
+   is the correct next lever (FDIC's API serves full history to 1934),
+   not re-running the same window and hoping for a different seed.
 4. NHTSA COMPLAINTS VELOCITY (api.nhtsa.gov keyless JSON +
    static.nhtsa.gov FLAT_CMPL.zip daily bulk, updated even Sundays;
    complaints to mid-1990s, recalls to 1960s; public domain).

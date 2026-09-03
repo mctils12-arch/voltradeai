@@ -113,6 +113,43 @@ export async function fetchRecentFailures(fetchImpl: FetchFn = fetch as any, now
   }
 }
 
+/**
+ * Historical failures since `sinceDate` ("YYYY-MM-DD"), for the
+ * fdic_bank_failures GATE 2 (SIGNAL) event study (see fdicGate2.ts) —
+ * independent of the day-file archive below, since FDIC's own API already
+ * serves full history back to 1934 (module docstring). Reuses
+ * fetchRecentFailures's DESC-sort/fields/host, just with a larger `limit`
+ * and a client-side date filter rather than a server-side FAILDATE range
+ * filter — this API's filter query syntax for date ranges was never
+ * verified live, and a silently-wrong filter would return too few/zero
+ * rows rather than erroring, which a client-side filter over a plain
+ * larger fetch cannot do. Failures have run well under 10/year since
+ * ~2013 (module docstring's 4,115-since-1934 count), so `limit=500`
+ * comfortably covers everything back to well before any plausible GATE 2
+ * window without needing the exact filter syntax.
+ */
+export async function fetchHistoricalFailures(
+  sinceDate: string, fetchImpl: FetchFn = fetch as any, limit = 500,
+): Promise<BankFailure[]> {
+  const rt = new Date().toISOString().slice(0, 10);
+  const url = `${FAILURES_URL}?limit=${limit}&sort_by=FAILDATE&sort_order=DESC&fields=${encodeURIComponent(FIELDS)}`;
+  try {
+    const r = await fetchImpl(url, {
+      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+      signal: AbortSignal.timeout(30000) as any,
+    });
+    if (!r.ok) {
+      console.error(`[datacore] fdicfailures historical -> ${r.status}`);
+      return [];
+    }
+    const all = parseFailures(JSON.parse(await r.text()), rt);
+    return all.filter((f) => f.fail_date >= sinceDate);
+  } catch (e: unknown) {
+    console.error("[datacore] fdicfailures historical:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
 // ── Archive (event-identity dedup, day-file per FETCH date — FAA/CBP pattern) ─
 
 const seenEvents = new Set<string>();   // cert|fail_date
