@@ -314,6 +314,84 @@ export function altRampColor(altM: number, altMin: number, altMax: number): [num
 }
 
 /**
+ * GEOMETRY DECIMATION (rendering_motion_overhaul.md "Remaining queue" item
+ * 2, PR8b's own reserved NEXT step): `buildTrackVertices` (flightTrackLayer.ts)
+ * has a hard GPU feature cap (FT_MAX_FEATURES) it only REPORTS when exceeded
+ * — decimating there was ruled out because `tzMarkIdx` indexes directly into
+ * the geometry-input arrays, and dropping samples inside the vertex builder
+ * would desync the v1.0.671 timezone marks. This is the correct home instead
+ * — TRACK ASSEMBLY, one level up, pure and index-safe: `decimateForCap`
+ * chooses which samples survive, `remapIndices` carries any index computed
+ * against the FULL sample array (tz crossings) onto the decimated one.
+ *
+ * Callers keep the full-resolution `samples`/derived arrays for anything
+ * that isn't GPU-bounded (the profile chart, scrub/tail continuity, which
+ * index by `samples.length` and must stay full-resolution) and only apply
+ * `decimateForCap` to the subset actually handed to the 3D layer.
+ */
+
+/**
+ * Ascending indices into `samples` to keep so the count fits `maxPoints`,
+ * preserving the first and last sample and any GAP-STATE TRANSITION (a
+ * dropped altitude gap boundary would visibly move where the curtain
+ * breaks) regardless of spacing. Spacing between kept points is DERIVED
+ * from the track's own total great-circle length — `total / (maxPoints-1)`
+ * — rather than a fixed constant, so the result is never more aggressive
+ * than the cap actually requires and a track already under `maxPoints`
+ * decimates to nothing (identity). A gap-dense track can still end up over
+ * `maxPoints` (every transition is kept unconditionally); the caller's
+ * existing `reportTrackPointCap` surfaces that residual honestly rather
+ * than this function silently dropping a real gap boundary to force an
+ * exact count.
+ */
+export function decimateForCap(samples: TrackSample[], maxPoints: number): number[] {
+  const n = samples.length;
+  const identity = () => Array.from({ length: n }, (_, i) => i);
+  if (n <= maxPoints || maxPoints < 2) return identity();
+  let total = 0;
+  for (let i = 1; i < n; i++) {
+    total += distMeters(samples[i - 1].lat, samples[i - 1].lon, samples[i].lat, samples[i].lon);
+  }
+  const targetSpacingM = total / (maxPoints - 1);
+  if (targetSpacingM <= 0) return identity();
+  const kept: number[] = [0];
+  let lastLat = samples[0].lat, lastLon = samples[0].lon, lastGap = samples[0].gap;
+  for (let i = 1; i < n - 1; i++) {
+    const s = samples[i];
+    const d = distMeters(lastLat, lastLon, s.lat, s.lon);
+    if (d >= targetSpacingM || s.gap !== lastGap) {
+      kept.push(i);
+      lastLat = s.lat; lastLon = s.lon; lastGap = s.gap;
+    }
+  }
+  kept.push(n - 1);
+  return kept;
+}
+
+/**
+ * Remaps indices computed against the FULL sample array (e.g. tz-crossing
+ * `idx`) onto a decimated array, by nearest surviving index. `kept` must be
+ * ascending (as `decimateForCap` returns). Pure; a mark whose exact sample
+ * was dropped lands on whichever neighbor — kept-before or kept-after — is
+ * numerically closer, so the amber line still sits within one decimation
+ * step of the true crossing rather than being lost.
+ */
+export function remapIndices(idx: number[], kept: number[]): number[] {
+  const m = kept.length;
+  return idx.map((v) => {
+    if (m === 0) return 0;
+    if (v <= kept[0]) return 0;
+    if (v >= kept[m - 1]) return m - 1;
+    let lo = 0, hi = m - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (kept[mid] <= v) lo = mid; else hi = mid;
+    }
+    return (v - kept[lo] <= kept[hi] - v) ? lo : hi;
+  });
+}
+
+/**
  * Time-interpolated sample for playback/scrub. Clamps to the track's time
  * range. Interpolating INTO or OUT OF a gap keeps position but reports
  * gap=true (readouts show "—", the marker keeps moving — position is real,

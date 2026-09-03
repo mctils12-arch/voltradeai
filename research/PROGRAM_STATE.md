@@ -160,7 +160,42 @@ it — without a false claim that 248 layers were migrated this session (they
 were not; this is instrumentation, not backfill). Full account in
 experiments.md.
 
-**NEXT**, then Track 2/3 — the moon.
+**Q26 is DONE** (2026-09-03, scheduled-routine session — TRAIL DECIMATION,
+`rendering_motion_overhaul.md`'s "Remaining queue" item 2, PR8b's own
+reserved NEXT step, unclaimed since 2026-08-12). `buildTrackVertices`
+(flightTrackLayer.ts) had only ever REPORTED an over-`FT_MAX_FEATURES`
+trail, never enforced the cap — PR8b deliberately left decimation undone
+there because `tzMarkIdx` indexes directly into the geometry arrays, and
+decimating inside the vertex builder would desync it. Fixed one level up,
+at track assembly, where index alignment is cheap to keep correct:
+`trackModel.ts` gained `decimateForCap(samples, maxPoints)` (spacing
+derived from the track's own total length, not a fixed constant; a
+gap-state transition is always kept even inside the target spacing) and
+`remapIndices(idx, kept)` (nearest-neighbor remap for indices computed
+against the full array, e.g. tz-crossing marks). `datamap.tsx`'s
+`repaintTrail3d` applies both ONLY to the separate view built for the 3D
+layer's `TrackGeomInput` — `trackSamplesRef` (flight-tail glide, replay
+marker — both index by `samples.length`, confirmed by tracing every
+consumer before touching anything) and the profile chart keep the
+full-resolution arrays, untouched. 9 new tests in `trackModel.test.ts`.
+Full account in experiments.md. NOT verified end-to-end on a real
+>512-point track in this sandbox (no track in local test data is that
+long) — a future session with a long-haul or 48h-archive-range trail
+selected live should confirm the decimated render path visually, per
+that entry's own NEXT (1).
+
+`/api/data/trains` (rendering_motion_overhaul.md's other "8c" item)
+remains an unbounded live-position fetch — checked this session, not
+fixed: it is a small national feed, not an archive scan, so lower
+priority than the trail cap was. `/api/data/chokepoints` no longer
+exists as a route name (renamed/merged since 2026-08-12; the "8c" item
+naming it is stale).
+
+**NEXT**, then Track 2/3 — the moon. Track 2/3 (the moon bake) itself
+needs `basisu`/KTX2 tooling and a live RunPod GPU job neither of which
+this sandbox has (checked this session: `which basisu`/`toktx` both
+empty, no PIL/rasterio) — a dedicated session should set that up
+end-to-end rather than start it piecemeal.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -216,6 +251,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
 | Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX, ^VIX) reachable from 4 gated test files that don't mock it — the suite is not hermetic | T1.2 | **DONE** — this session (scheduled-routine). Session-scoped autouse fixture in `conftest.py` defaults `yfinance.Ticker` to empty history repo-wide; the 4 real offending files (found by a diagnostic probe, not by the "at import time" guess) needed no per-file changes. 1348/1348 unchanged, 117.99s → 32.94s |
+| Q26 | rendering_motion_overhaul.md "Remaining queue" item 2 — trail decimation: `buildTrackVertices` only REPORTS an over-`FT_MAX_FEATURES` trail, never enforces the cap | T2/flightTrack | **DONE** — 2026-09-03, scheduled-routine session. `decimateForCap`/`remapIndices` in `trackModel.ts`, applied in `datamap.tsx` only to the separate view built for the 3D layer (`trackSamplesRef`'s tail/marker arrays and the profile chart stay full-resolution — both index by `samples.length`, traced before touching anything). 9 new tests. NOT yet visually verified on a real >512-point track live (none in this sandbox's test data) — see experiments.md NEXT (1) |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q19 | 3 uncapped render surfaces (5 sites) | T2 | **DONE** — PR #837. `uncapped_surface` 3 → **0**. My "small login canvas" caveat was BACKWARDS — login's is a full-viewport animated canvas with its own rAF loop, the largest of the three |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **DONE** — PR #838. 495 → **494**, 1251 → **1237**; all 15 excluded sites named. The directive's "strip comments" was WRONG for `empty_ts_catch`: stripping sends it UP to 516 by merging it into D4. Rule is exclude-by-LOCATION, scan per line (L20) |

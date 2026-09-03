@@ -99,11 +99,11 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 // ground trace draped on terrain, THE CURTAIN (40m below-terrain drape,
 // 34% alpha, double-sided, depth-test-no-write), altitude line on the
 // teal→blue→violet ramp, and the selected-flight marker/drop-line/tag.
-import { FlightTrackLayer, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
+import { FlightTrackLayer, FT_MAX_FEATURES, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
 import { holdGroundZ, resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
-  CURTAIN_BELOW_TERRAIN_M, type TrackSample,
+  CURTAIN_BELOW_TERRAIN_M, decimateForCap, remapIndices, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
@@ -4339,13 +4339,39 @@ export default function DataMapPage() {
           if (v > dMax) dMax = v;
         }
         if (!Number.isFinite(dMin)) { dMin = 0; dMax = 1; }
+        // GEOMETRY DECIMATION (rendering_motion_overhaul.md "Remaining
+        // queue" item 2 — trail decimation, PR8b's own reserved NEXT step):
+        // the 3D layer's GPU buffer is capped at FT_MAX_FEATURES points,
+        // which `buildTrackVertices` only REPORTS when exceeded (decimating
+        // there would desync tzMarkIdx — see that function's own comment).
+        // Decimate HERE, one level up, where index alignment is cheap to
+        // keep correct — trackSamplesRef below keeps the FULL-resolution
+        // merc/altDisp/groundZ (the flight tail and profile chart index
+        // them by samples.length, which must stay untouched); only the
+        // geometry actually handed to the 3D layer is thinned.
+        const geomIdx = decimateForCap(samples, FT_MAX_FEATURES);
+        let gMerc = merc, gAltDisp = altDisp, gGroundZ = groundZ;
+        let gTzMarkIdx = tzX.length ? tzX.map((c) => c.idx) : undefined;
+        if (geomIdx.length !== n) {
+          gMerc = new Float32Array(geomIdx.length * 2);
+          gAltDisp = new Float32Array(geomIdx.length);
+          gGroundZ = new Float32Array(geomIdx.length);
+          for (let i = 0; i < geomIdx.length; i++) {
+            const s = geomIdx[i];
+            gMerc[i * 2] = merc[s * 2];
+            gMerc[i * 2 + 1] = merc[s * 2 + 1];
+            gAltDisp[i] = altDisp[s];
+            gGroundZ[i] = groundZ[s];
+          }
+          if (gTzMarkIdx) gTzMarkIdx = remapIndices(gTzMarkIdx, geomIdx);
+        }
         const input: TrackGeomInput | null = n >= 2 ? {
-          merc, altM: altDisp, groundZ, altMin: dMin, altMax: dMax,
+          merc: gMerc, altM: gAltDisp, groundZ: gGroundZ, altMin: dMin, altMax: dMax,
           // the drape overlap seals ridges against the DEM — scaled by the
           // exaggeration so the seal survives stretched relief; a flat
           // sea-level base (terrain off) has nothing to seal against
           drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (altScale > 0 ? altScale : 1) : 0,
-          tzMarkIdx: tzX.length ? tzX.map((c) => c.idx) : undefined,
+          tzMarkIdx: gTzMarkIdx,
         } : null;
         // altScale 1: every input above is ALREADY in display meters
         layer.setTrack(input, 1);

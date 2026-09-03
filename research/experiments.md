@@ -3,6 +3,226 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-03 (scheduled-routine session, fifth session this UTC day, market-hours run) [RENDERING] — T-CLIENT (client/src/lib/air/trackModel.ts, client/src/lib/air/trackModel.test.ts, client/src/pages/datamap.tsx) + SHARED (ci/counter_baseline.txt, package.json): flight-track trail decimation — the RENDERING & MOTION LAW's Law IV cap on the 3D flight-track layer was only ever REPORTED, never enforced; now enforced at track assembly, index-safe (v1.0.839)
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
+session_health_check.py`: 7/7 OK, no LIVENESS ALARM, `server_version`
+1.0.838 matched this checkout (confirms the fourth session's PR #994
+merged and deployed). `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 3/10 REPAIR (below the 7+
+trigger), known_broken 39 items/3 without an explicit close marker
+(#26/#34/#38 — advisory only, previously dispositioned as genuinely
+fixed by many prior sessions, not re-litigated), starvation_signal 0/10.
+NOT a [REPAIR] session — no critical unfixed trading-loop item. Live
+`/api/health` also checked directly: `status: ok`, bot `liveness.dark:
+false`, all feeds alive, `drawdownPct: 0.0` — matches the script's own
+OK reading, not merely trusted from the script.
+
+PRIMARY-ACTION SELECTION: today's four prior sessions had already
+exhaustively re-confirmed every datacore/ PRODUCT axis this week's
+sessions have been working (shadow-fleet whole-root disposed, gas-flare
+candidates' own NEXT explicitly says stop patching and weigh the VIIRS
+Nightfire registration ask instead, port-dwell weekly-snapshot capture is
+a same-day no-op today — `lastCompletedWeekIndex` doesn't advance to week
+8 until 2026-09-04, confirmed by reading `portDwellWeekly.ts`'s own
+arithmetic before attempting a run that would have produced nothing),
+Alpaca/Yahoo market-data access re-confirmed still blocked (`env | grep
+-i alpaca`: empty). Checked `research/PROGRAM_STATE.md` (the T-CLIENT
+rendering-quality "MASTER PROGRAM" resume file, explicitly named but not
+picked by the 2026-09-03(4) session as "out of scope for a datacore/
+PRODUCT-brief session") — its own §"NEXT — the single highest-value
+unclaimed item" states Track 1 (CI gates) is COMPLETE and names Track
+2/3 (the moon) as next, unclaimed since 2026-08-15 (19 days).
+
+SCOPING (before committing to anything): the moon-bake pipeline itself
+(`research/rendering_motion_overhaul.md`'s F11 finding: "Law II.8 is
+blocked only on BAKED CONTENT... run the RunPod pyramid bake, upload to
+the bucket, widen the allowlist, repoint the source URL") needs
+`basisu`/KTX2 encoding tooling this sandbox does not have (`which
+basisu`/`toktx`: both empty; no PIL/rasterio either) and a live RunPod
+GPU job — not safely scopable to one session's remaining budget without
+either wasting RunPod spend on an unvalidated pipeline or shipping an
+untested bake script. Read `research/rendering_motion_overhaul.md`'s own
+"Remaining queue, in recommended order" (dated 2026-08-12) instead for a
+smaller, already-diagnosed, purely-client item ahead of the moon bake in
+that list. Item 1 ("8c bounded archive queries") turned out ALREADY
+substantially done: `server/routes.ts`'s `/api/data/aircraft` and
+`/api/data/vessels` both already accept `lamin/lamax/lomin/lomax` bbox
+params with the SCALE program's viewport-bounded caching (confirmed by
+reading both route handlers directly, not assumed from the stale
+2026-08-12 doc) — `/api/data/trains` remains unbounded but is a small
+national live-position feed, not an archive scan, and `/api/data/
+chokepoints` no longer exists as a route name (renamed/merged since).
+Item 2, TRAIL DECIMATION, was NOT done — confirmed by reading
+`flightTrackLayer.ts`'s `buildTrackVertices` directly: it still only
+`reportTrackPointCap`-warns on an over-cap trail, exactly as PR8b (~22
+days ago) left it, with the function's own comment naming the correct
+fix location and constraint. Took this as the session's primary action.
+
+READ BEFORE WRITE: read `flightTrackLayer.ts` in full (`buildTrackVertices`,
+`reportTrackPointCap`, `FT_MAX_FEATURES=512`) and `trackModel.ts` in full
+(`buildTrackSamples`, `TrackSample`, `distMeters`) before writing anything.
+Traced every consumer of `trackSamplesRef.current`'s `merc`/`groundZ`/
+`altDisp` arrays in `datamap.tsx` (`updateFlightTail`, `updateFlightMarker`,
+one more site ~line 13690) — all three index them by `samples.length - 1`
+or similar, i.e. treat them as PARALLEL-INDEXED with the full-resolution
+`samples` array. This is the exact constraint PR8b's own comment named
+("tzMarkIdx is index-aligned here") — decimating those shared arrays in
+place would silently break flight-tail glide and the replay marker, a
+regression PR8b's own caution was written to prevent one level down.
+Designed around it instead of into it: decimate only a SEPARATE view built
+specifically for the 3D layer's `TrackGeomInput`, leaving `trackSamplesRef`
+(tail/marker continuity) and the profile chart's `samples`/`altMin`/
+`altMax` at full resolution, untouched.
+
+BUILT:
+1. `client/src/lib/air/trackModel.ts` — two new pure functions (no fs/
+   network/GL, matching the module's own "pure math" header):
+   - `decimateForCap(samples, maxPoints)`: returns ascending kept indices
+     into `samples`. Always keeps index 0 and n-1. Target spacing is
+     DERIVED from the track's own total great-circle length
+     (`total / (maxPoints - 1)`), not a fixed constant — a track already
+     under `maxPoints` decimates to nothing (identity, verified by a
+     test), and a very long track lands near the cap regardless of its
+     original density, rather than either under- or wildly over-shooting
+     it. Any GAP-STATE TRANSITION (`s.gap !== lastKeptGap`) is kept
+     unconditionally even inside the target spacing — an isolated
+     altitude-broadcast gap must not be smoothed away, since that would
+     visibly move where the curtain breaks. This can push the kept count
+     slightly over `maxPoints` on a gap-dense track; the caller's existing
+     `reportTrackPointCap` still surfaces that residual honestly (Law IV:
+     "downsamples above it rather than degrading" — best-effort bound,
+     never a silent one).
+   - `remapIndices(idx, kept)`: nearest-neighbor remap (binary search) of
+     indices computed against the FULL array onto their position in a
+     decimated one — the mechanism PR8b's own comment named
+     ("MIN_POINT_SPACING_M with the mark indices remapped alongside") but
+     did not build. A tz-crossing mark whose exact sample was dropped
+     lands on the closer of its two decimated neighbors rather than being
+     lost or throwing on an out-of-range index.
+2. `client/src/pages/datamap.tsx` — in the flight-track repaint path
+   (`repaintTrail3d`), after the existing full-resolution `merc`/`altDisp`/
+   `groundZ` arrays are built (unchanged): `decimateForCap(samples,
+   FT_MAX_FEATURES)` (imported from `flightTrackLayer.ts`, not
+   re-declared — avoids a second copy of the same magic number, the
+   `conflicting_const`/`dup_precise_literal` class of bug this repo's own
+   detectors watch for) selects the kept indices; if decimation actually
+   changed anything (`geomIdx.length !== n`), new `gMerc`/`gAltDisp`/
+   `gGroundZ` arrays are gathered at just those indices and `tzMarkIdx` is
+   remapped onto them via `remapIndices`. `trackSamplesRef.current` still
+   stores the ORIGINAL `merc`/`groundZ`/`altDisp` (unrenamed variables) —
+   zero change to tail/marker continuity. Only the object handed to
+   `layer.setTrack(input, 1)` uses the decimated arrays. A short/typical
+   track (well under 512 points) takes the `geomIdx.length === n` branch
+   and reuses the original arrays directly — no allocation, no behavior
+   change, verified live via the visual harness below (aircraft trails at
+   the harness's tested zoom levels are all short enough to hit this
+   no-op path, so 0 visual regression is the expected and observed
+   result, not evidence the new code path was exercised — see NEXT).
+
+RATCHET: `client/src/lib/air/trackModel.test.ts` gained 9 new tests:
+`decimateForCap` under-cap identity, over-cap (6000 synthetic samples ~720
+km, mirroring `TRACK_MAX_SAMPLES`'s own worked example) lands within 10%
+of the 512 cap while keeping first/last and staying strictly ascending, a
+gap-state transition survives inside the target spacing even when spacing
+alone would have dropped it, `maxPoints` edge cases (1, exactly n) are
+safe no-op identities; `remapIndices` exact matches map to their own
+position, an in-between index snaps to the nearer kept neighbor (with an
+explicit tie-break-toward-lower-index case), out-of-range indices clamp
+to the nearest end; and one composed test proving a tz-crossing index
+inside a heavily-decimated run still lands within one decimation step of
+the true crossing, not merely "somewhere valid."
+
+GATES (fresh sandbox — `npm ci` required): `npx tsx --test
+client/src/lib/air/trackModel.test.ts client/src/lib/air/
+flightTrackLayer.test.ts`: 41/41 pass (24 in trackModel.test.ts including
+the 9 new + the pre-existing 15; flightTrackLayer.test.ts's own 17
+unchanged and still green — `buildTrackVertices`'s own
+`reportTrackPointCap` behavior is untouched by this PR, only its caller
+now avoids triggering it in the common case). `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `bash scripts/
+gated_tests.sh` (after `pip install -r requirements.txt -r
+requirements-dev.txt`): GATE PASSED — client 1083/1083 (101 files, up
+from 1075 — this session's own 8 net new client-visible test cases;
+python 1582 passed/1 skipped/54 subtests, quarantine 0/1 none overdue.
+`bash scripts/counter_ratchet.sh`: `assertions` 12882->12900 (this
+session's own new tests' direct effect — confirmed via `git status`/
+`git diff --stat` showing only this session's 3 changed files, no other
+counter moved), re-pinned in `ci/counter_baseline.txt` in this same PR;
+all 25 counters OK after. `npm run build`: clean (pre-existing
+astronomy-engine default-export warning and >500kB chunk warnings, same
+classes every recent session logs, none touched here).
+
+VISUAL VERIFICATION (PROMOTION RULE 6, required — this PR touches
+client/src): `npm run visual -- --page data` at 390/768/1440 (the full
+harness timed out at the tool's 280s ceiling on the first attempt across
+ALL pages; re-run scoped to `--page data`, the only page this change can
+possibly affect, completed in well under that ceiling). **0 hard
+failures at all three widths.** The pre-existing warnings shown (touch
+targets <44px on nav buttons, one clipped legend control at 1440px) are
+unrelated to this change — same classes multiple recent sessions have
+logged, nothing here touches navigation chrome or the legend panel.
+Screenshots (`.visual/data-390.png`, `.visual/data-1440.png`) reviewed
+directly against DESIGN.md: no visual regression, matching the expected
+result — this PR changes GEOMETRY DATA SHAPE for long tracks specifically
+past 512 points, and the harness's synthetic aircraft population doesn't
+exercise a selected-flight trail of that length (see NEXT).
+
+BACKTEST: N/A per PROMOTION RULE 3 — client-side rendering-geometry
+change, no trading path, scoring, sizing, or threshold touched either
+way. Zero live customer-visible behavior change for any track under 512
+decimated points (the overwhelming majority of real flights, whose full
+densified sample count already sits well under that cap per
+`buildTrackSamples`'s own adaptive spacing) — the change only activates
+for a long-haul or 48h-archive-range trail whose track exceeds the GPU
+cap, where it now correctly downsamples instead of silently exceeding
+the layer's own declared 2MB VRAM budget.
+
+CROSS-SYSTEM INTEGRATION: none — pure client-side geometry fix, no new
+archive, join, dependency, or server route.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed.
+
+MARKET-HOURS NOTE: session ran during 9:30-16:00 ET (`TZ=America/
+New_York date` confirms). Per the scheduled routine's own instruction:
+this PR is prepared and left for the after-close merge window rather
+than self-merged, even though the repo's own `automerge` job has no
+time-of-day gate (documented elsewhere in this repo as a standing,
+still-unresolved PROCESS GAP — noting per precedent, not re-litigating
+it here). This is a client-rendering fix, not a live trading-critical
+break, so the "unless the change fixes a critical live break" exception
+does not apply.
+
+`research/PROGRAM_STATE.md`'s QUEUE table (new row Q26) and "NEXT"
+section updated in this same PR to mark this item DONE, per this repo's
+own convention of updating the ladder/queue file in the same PR as the
+work it tracks (matching every `datacore/signal_ladder.json` precedent)
+— also notes there that `/api/data/trains` (the other "8c" item) remains
+unbounded (low priority, a small live feed not an archive scan) and that
+`/api/data/chokepoints` no longer exists as a route name (the 2026-08-12
+doc's naming is stale).
+
+NEXT for whichever session picks this up: (1) live-verify the decimated
+path actually activates and renders correctly on a REAL long track (a
+selected aircraft with a multi-hour or 48h archive-range history) — this
+session's unit tests prove the pure functions are correct in isolation
+and the visual harness proves zero regression on tracks that don't hit
+the cap, but no track in this sandbox's test data exceeds 512 points, so
+the decimated-geometry render path itself has not been visually
+eyeballed end-to-end. (2) The moon-bake pipeline (Track 2/3 proper)
+remains the standing next BIG item — this session deliberately did not
+start it (see SCOPING above); it needs a session with RunPod GPU budget
+and KTX2 tooling set up first, not a routine market-hours check-in.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+action (a concretely diagnosed, previously-scoped, 22-day-stale queue
+item from the repo's own rendering-quality program, chosen over starting
+an unscopable GPU pipeline cold), used in full including tracing every
+consumer of the shared array before touching it and building the
+regression-proof pure-function test suite before wiring it in.
+
+
 ## 2026-09-03 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/portDwellWeekly.ts new, server/portDwellWeekly.test.ts new, scripts/portdwell_weekly_snapshot.ts new, datacore/port_dwell_weekly.json new) + SHARED (datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, research/*): port_dwell_maritime_transit's GATE 2 gets a durable weekly-snapshot accumulator — built, tested, and run live: 2 clean weeks captured, 1 correctly rejected as an archive-outage artifact (v1.0.838)
 
 SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
