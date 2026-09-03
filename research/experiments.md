@@ -75307,3 +75307,87 @@ research/ this session's own axis survey found), used in full including
 the read-before-write trace of every call site before any signature
 change and the parity tests proving the bounded-memory reduction matches
 the materializing scan exactly.
+
+## 2026-09-03 (scheduled-routine session, fourth PRODUCT session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/fleetOperatorTickers.ts, datacore/fleet_operator_tickers.json, datacore/signal_ladder.json) + SHARED (research/*, package.json): corporate-fleet aircraft utilization × earnings timing — the join built and hand-verified, GATE 2 hand-check attempted and honestly rejected on a measurement-integrity confound (v1.0.840)
+
+Full account (session-start axis survey, PRIOR statement, both steps, the
+confound diagnosis, and the new readiness_trigger) logged in
+`research/open_questions.md`'s matching 2026-09-03 CORPORATE-FLEET
+UTILIZATION x EARNINGS TIMING entry — not duplicated here in full to
+avoid the two files drifting apart on the same finding. Summary:
+
+- Chose this action because `fleet_utilization_aircraft` (`datacore/
+  signal_ladder.json`, `gate1_pass`) carried a concrete, dated,
+  unclaimed trigger ("verify accumulated week count live... no earlier
+  than ~2026-08-31") unclaimed since 2026-08-19, while every other
+  active root today (gas-flare, shadow-fleet, port-dwell) was
+  independently re-checked and found already exhausted for today.
+- Live-verified the calendar claim against production rather than
+  trusting the date: 6 real weeks (2026-07-27..2026-08-31) exist in
+  `/api/data/fleet-utilization`.
+- Built `datacore/fleet_operator_tickers.json` + `server/
+  fleetOperatorTickers.ts` (`tickerForFleetOwner`/
+  `allFleetOperatorTickers`) — a hand-verified, entity_map.json-style
+  join from FAA fleet-utilization registrant names to public tickers.
+  2 entries this session, both web-search-verified live 2026-09-03:
+  TRANSMEDICS INC/TMDX (operational_proxy — TransMedics Aviation owns
+  and flies a dedicated organ-transport aircraft fleet, a genuine
+  case-volume proxy) and LABORATORY CORPORATION OF AMERICA HOLDINGS/LH
+  (control_comparison — specimen-logistics use, sober near-zero prior).
+- Attempted the GATE-1.5 hand-check (wikiattention's own precedent):
+  both tickers' real Q2 2026 earnings dates (TMDX 2026-08-04, LH
+  2026-07-30, web-confirmed) fall inside the archived window. RESULT:
+  REJECTED, not reported as a finding — TMDX's apparent post-earnings
+  utilization jump (0.67h/3.45h -> 68.0h/84.6h/55.9h/49.0h) sits almost
+  exactly on the v1.0.578 permanent-weekly-archive fix's own rollout
+  boundary (~2026-07-31), so a real earnings effect and an archive-
+  completeness artifact predict the identical shape in this one data
+  point — genuinely not distinguishable, not weak evidence either way.
+- `datacore/signal_ladder.json`'s `fleet_utilization_aircraft` entry
+  updated with the full account and a new `readiness_trigger` (`date`,
+  `not_before: 2026-11-02`, sourced from TMDX's own Q3 2025 report date
+  2026-10-29, explicitly flagged as an estimate to live-verify, not an
+  official date).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (fresh sandbox). `npx tsx --test server/
+fleetOperatorTickers.test.ts`: 4/4 pass (new file, 9 assertions).
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `python3 -m
+pytest -q test_ladder_readiness_check.py`: 15/15 pass unmodified —
+confirms the new `readiness_trigger` parses under the existing `date`
+handler with zero code changes needed. `python3 scripts/
+ladder_readiness_check.py`: 3/3 gated roots WAITING (was 2/2),
+`fleet_utilization_aircraft` now listed with the new trigger, live-
+confirmed. `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"`: valid JSON. `bash scripts/gated_tests.sh` and
+`bash scripts/counter_ratchet.sh`: see this entry's own follow-up note
+below once the full run completes (started in background — this
+sandbox's full client+python suite runs past the 120s foreground
+timeout).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a GATE-1.5 diagnostic join and
+hand-check over a RAW derived route (`fleet_utilization_aircraft` was
+never surfaced as a SIGNAL); no trading path, scoring, sizing, or
+threshold touched.
+
+CROSS-SYSTEM INTEGRATION: `fleet_operator_tickers.json` is new,
+generically reusable infrastructure (a future Everything Graph
+`operates_aircraft` edge, or any session extending this root's
+candidate list, can reuse it) — no new archive, fetch, or external
+dependency added.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT: see the open_questions.md entry's own NEXT — do not re-attempt
+before 2026-11-02, live-verify TMDX's actual confirmed Q3 2026 date
+first even then, and treat any future hand-check result as n=1
+descriptive evidence, not a GATE 2 statistical pass, until several more
+clean quarters accumulate.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (an EDGE-DOCTRINE-named cross-connection hypothesis with
+a concrete, dated, unclaimed trigger already on file), used in full,
+including live-verifying the calendar claim, hand-verifying both
+tickers against primary sources before writing either into the join
+table, and reporting a confound honestly rather than fabricating a
+result.

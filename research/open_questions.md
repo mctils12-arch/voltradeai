@@ -15338,3 +15338,197 @@ window), used in full including root-causing rather than merely
 re-observing each anomaly, and cross-checking the new exact-permutation
 critical-value method against the existing n=8 pin before trusting its
 n=9 output.
+
+## 2026-09-03 (scheduled-routine session, fourth PRODUCT session this UTC day) [PRODUCT] — CORPORATE-FLEET UTILIZATION x EARNINGS TIMING (EDGE DOCTRINE ACTIVE ANGLE-HUNTING #1's own named cross-connection example): join built and hand-verified, GATE 2 hand-check ATTEMPTED and REJECTED on a measurement-integrity confound, not on the data
+
+SESSION-START: gas-flare, shadow-fleet, and port-dwell — the three roots
+every prior session today (2026-09-01 through this session) had touched —
+were each independently re-checked and found exhausted for today: gas
+flare's honest disposition is the human VIIRS-registration ask
+(wishlist.md 2026-09-01); shadow-fleet's identity-swap root has been
+whole-root-verdicted; port-dwell's own NEXT ("re-run
+scripts/portdwell_weekly_snapshot.ts every future session") would add
+zero new weeks today since the next completed week (index 8) does not
+end until 2026-09-04, and it was run twice already today per this file's
+third addendum above. `python3 scripts/data_stream_registry_check.py
+--unbuilt`: 10/35, all declined/blocked or already-noted-exhausted
+(`un_comtrade`), same as every session since 2026-08-18. Turned to
+`datacore/signal_ladder.json` directly (not yet done today) and found
+13 roots sitting at `gate1_pass` with GATE 2 "not yet attempted" and no
+GATE 2 test plan on file anywhere in this document (grepped
+`GATE 2 test plan\|GATE 2 (SIGNAL)` — only shadow-fleet and port-dwell
+have one, both exhausted for today). Of those 13, `fleet_utilization_
+aircraft`'s own note carries a concrete, dated, unclaimed trigger:
+"a real trailing-4-week baseline can't exist before ~2026-08-31... a
+future session should verify accumulated week count live before
+trusting it." Today is 2026-09-03, past that date, and no session
+since the 2026-08-19 UI-only session had checked it live. Took this as
+the session's primary action — the queue's own stated NEXT for this
+root, unclaimed for 15 days.
+
+PRIOR (REASONING STANDARD #10, stated before building or looking at any
+production data): expected the calendar trigger to be technically true
+(6 weeks have elapsed) but expected the real blocker to be something the
+calendar can't see — either too few *events* (earnings dates) inside
+that window to power anything, or the archive-fix rollout itself
+(v1.0.578, ~2026-07-31) sitting close enough to the window's start to
+contaminate the earliest weeks. Recorded before checking either.
+
+STEP 1 — live-verify the calendar claim, not just the date (as the
+trigger's own note demanded): `GET /api/data/fleet-utilization?token=
+$DIAG_TOKEN&top=200` against production. Confirmed 6 real weeks
+(2026-07-27 through 2026-08-31) across 2,479 registrant owners, all
+internally consistent (United/American/Delta/Southwest/NetJets/Ryanair
+etc. all show plausible weekly flight/hour figures at their real scale).
+The calendar trigger's factual premise holds.
+
+STEP 2 — find genuine (non-airline) GATE 2 candidates. Scheduled
+airlines dominate the owner list by n_airframes, but their utilization
+duplicates information airlines already self-report monthly (traffic/
+ASM releases) — not novel, per REASONING STANDARD #2 (second-order:
+who's on the other side, and this signal is already public). Scanned
+the top-200 owners for non-airline, non-trustee, non-flight-school
+corporate/LLC registrants with a plausible OPERATIONAL (not just
+executive-travel) reason for aircraft use tied to company-specific news.
+Two stood out: **TRANSMEDICS INC** (8 airframes) and **LABORATORY
+CORPORATION OF AMERICA HOLDINGS** (4 airframes, i.e. Labcorp).
+Web-searched both live (2026-09-03, not assumed from training):
+TransMedics Aviation genuinely owns and operates a dedicated fleet of
+Phenom 300E aircraft (via its Summit Aviation acquisition) flying
+National OCS Program organ-transport missions — flight activity is a
+direct proxy for organ-retrieval case volume, a materially different
+claim than "an executive flies somewhere." Labcorp's registered
+aircraft support specimen-logistics transport — a genuine operational
+use, but steady-state and not obviously event-linked, so it was kept as
+a **control/comparison** case with a stated sober near-zero prior, not
+a second thesis candidate.
+
+BUILT: `datacore/fleet_operator_tickers.json` (schema mirrors
+`entity_map.json`'s {operator, ticker, confidence, note}, plus a new
+`thesis` field distinguishing `operational_proxy` from
+`control_comparison` — a sibling table, not a merge into `entity_map.
+json`, since that file's own _doc scopes it to power-plant/site
+operators only, a disjoint source) with exactly these 2 hand-verified
+entries — no other owner in the top-200 list was both verifiable and
+had a stated operational thesis in the time this session had, and per
+CLAUDE.md's own discipline (entity_map.json's own precedent) an
+unverified guess is worse than an honest gap. `server/
+fleetOperatorTickers.ts` (`tickerForFleetOwner()`/`allFleetOperatorTickers()`)
++ `server/fleetOperatorTickers.test.ts` (9 assertions: required-field/
+confidence/thesis shape, both known lookups resolve correctly, unknown
+owners return null rather than guessing, the module's export count
+matches the JSON file exactly).
+
+STEP 3 — attempt the GATE-1.5 HAND-CHECK (wikiattention's own precedent:
+real archive data around a real, independently-sourced event date, not
+yet a statistical GATE 2 test). Web-searched both tickers' actual Q2
+2026 report dates: TMDX 2026-08-04, LH 2026-07-30 (both SEC-filing- and
+IR-page-confirmed) — both fall inside the archived 07-27..08-31 window,
+so the hand-check looked immediately attemptable.
+
+RESULT: **REJECTED on a measurement-integrity confound, not run as a
+finding.** TMDX's weekly airborne hours: 0.67h (07-27), 3.45h (08-03,
+the earnings week) then a jump to 68.0h/84.6h/55.9h/49.0h for the four
+following weeks (08-10 through 08-31). Read naively this looks like
+exactly the post-earnings level-shift the hypothesis would predict.
+It is not trustworthy: `research/PROGRAM_STATE.md`'s own record of
+v1.0.578 places the permanent-weekly-archive fix's rollout at
+"~2026-07-31" — one to four days after the 08-03 week START and
+essentially on top of the 08-04 earnings date itself. The fix's own
+documented HONEST COST is that "everything the pre-existing rollup
+already deleted... is UNRECOVERABLE," meaning the two earliest weeks
+in this series (07-27, 08-03) are plausibly measuring against a
+partially-warmed, not-yet-fully-populated permanent archive while every
+week from 08-10 onward is measuring against the fully-operational one —
+the exact same week boundary as the observed "jump." A real
+earnings-driven signal and a pure measurement-completeness artifact
+predict the IDENTICAL shape in this one data point, so it cannot be
+attributed to either (REASONING STANDARD #4/#7 — this is precisely a
+lookahead/instrumentation-change confound, not weak evidence for the
+hypothesis). Labcorp's own series (21/11/12/10/7 flights across the same
+6 weeks, no jump, declining rather than spiking around its 07-30 earnings
+date) is NOT treated as disconfirming evidence either, for the same
+reason applied symmetrically: the control case sitting on the opposite
+side of the same contaminated boundary is not a clean comparison either.
+**Zero conclusions drawn about the hypothesis itself** — this is a
+NOT-YET-TESTABLE verdict, not a GATE 2 result of any polarity.
+
+HONESTY (REASONING STANDARD #4 — one diagnostic pass, not a second
+variant chased in the same session): the obvious next attempt (try
+Labcorp's OWN earlier-quarter earnings, or another owner already in the
+top-200 list with an even older event) was NOT tried this session —
+every alternative event this session could reach still sits inside or
+adjacent to the same 07-27..08-10 contaminated boundary, since the
+archive itself only began accumulating real depth from the fix onward.
+There is no clean historical event to substitute; the fix's rollout
+date is a hard floor under any test this root can run until enough
+NEW calendar time passes entirely after it.
+
+`datacore/signal_ladder.json`'s `fleet_utilization_aircraft` entry
+updated this session with the full account and a new `readiness_trigger`
+(type `date`, `not_before: 2026-11-02` — TMDX's Q3 2025 report landed
+2026-10-29, web-confirmed, used as the best available estimate for Q3
+2026 since no official date has been announced yet; the trigger's own
+`source_note` explicitly tells a future session to live-verify the real
+confirmed date and that it falls fully clear of the 2026-08-01 fix-
+rollout boundary before trusting readiness — the same "estimate, don't
+just trust the calendar" discipline `ladder_readiness_check.py` already
+applies to `weekly_reports`-type triggers). `python3 scripts/
+ladder_readiness_check.py` now reports 3/3 gated roots WAITING
+(previously 2/2), confirmed live.
+
+CROSS-SYSTEM INTEGRATION: `fleet_operator_tickers.json` is a new,
+generically reusable join (any future session extending this root's
+candidate list, or building the Everything Graph's `operates_aircraft`
+edge type the way `entityGraph.ts` already builds `operates` from
+`entity_map.json`, can reuse it without re-deriving the mapping) — not
+itself a new archive, join, or external dependency; no new fetch, no new
+provider.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/paid-gating
+code, no `/api/v1`/`/data` surface added or changed (the existing
+`/api/data/fleet-utilization` and `/api/v1/data/fleet-utilization`
+routes are read-only consumers of the same archive, untouched by this
+session).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(fresh sandbox). `npx tsx --test server/fleetOperatorTickers.test.ts`:
+4/4 pass. `python3 -m pytest -q test_ladder_readiness_check.py`: 15/15
+pass (pre-existing, unmodified — confirms the new readiness_trigger
+parses under the existing `date`-type handling with no code change
+needed). `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"`: valid JSON. `python3 scripts/
+ladder_readiness_check.py`: 3/3 WAITING, `fleet_utilization_aircraft`
+now listed with the new trigger, live-confirmed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 1.5 diagnostic join-and-
+hand-check over a RAW derived route; no trading path, scoring, sizing,
+or threshold touched. `fleet_utilization_aircraft` was never surfaced
+as a SIGNAL (its `/data` page is explicitly RAW, `kind: 'derived'`, no
+ladder gate applies to the UI itself), so this session's finding changes
+nothing customer-facing or trading-facing either way.
+
+NEXT for whichever session picks this up: do NOT re-attempt the hand-
+check before 2026-11-02, and even then, live-verify TMDX's actual
+confirmed Q3 2026 report date first (the trigger is an estimate). When
+it is genuinely ready: re-pull `/api/data/fleet-utilization`, confirm
+the relevant weeks all postdate 2026-08-01 by a comfortable margin, and
+repeat the same hand-check this session designed — if TMDX shows a
+comparable utilization level-shift around a report date that is NOT
+adjacent to any known archive-completeness event, that is real
+(non-statistical, n=1) evidence worth logging; if it also fails to show
+one, the operational-proxy thesis itself would be the more likely
+explanation to revisit, not the archive. A genuine multi-quarter GATE 2
+statistical test (regime-split, base-rate-compared, per REASONING
+STANDARD #2/#3) still needs several MORE clean quarters beyond that
+single hand-check before it could carry real weight — this session's
+scope was deliberately the smaller, honest first step, not the full
+ladder gate.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (an EDGE-DOCTRINE-named cross-connection hypothesis with
+a concrete, dated, unclaimed trigger already on file), used in full
+including live-verifying the calendar claim rather than trusting it,
+hand-verifying both tickers against primary sources before writing
+either into the join table, and reporting a confound honestly instead
+of either fabricating a result or silently dropping the attempt.
