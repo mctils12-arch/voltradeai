@@ -9,7 +9,7 @@ import path from "node:path";
 import {
   parseFailures, normalizeFailDate, fetchRecentFailures,
   archiveNewFailures, gzipOldFailureDays, refreshFailures,
-  latestFailures, FAILURES_FETCH_LIMIT,
+  latestFailures, FAILURES_FETCH_LIMIT, fetchHistoricalFailures,
 } from "./fdicBanks";
 
 // Mirrors the live FDIC envelope verified 2026-07-06: rows nested under
@@ -59,6 +59,32 @@ test("fetchRecentFailures: non-200 -> []; url pins api.fdic.gov host + fields + 
     "host is api.fdic.gov — banks.data.fdic.gov 301s (probe finding 2026-07-06)");
   assert.ok(urls[0].includes(`limit=${FAILURES_FETCH_LIMIT}`) && urls[0].includes("sort_order=DESC"));
   assert.ok(urls[0].includes("FAILDATE"), "explicit fields list travels on the request");
+});
+
+test("fetchHistoricalFailures: non-200 -> []; url pins host/DESC/fields, and filters client-side to sinceDate", async () => {
+  const urls: string[] = [];
+  const bad = async (url: string) => { urls.push(url); return { ok: false, status: 500, text: async () => "" }; };
+  assert.deepEqual(await fetchHistoricalFailures("2023-01-01", bad as any), []);
+  assert.ok(urls[0].startsWith("https://api.fdic.gov/banks/failures"));
+  assert.ok(urls[0].includes("sort_order=DESC") && urls[0].includes("FAILDATE"));
+
+  const rows = ENVELOPE([
+    WRAP("RECENT BANK", 1, "5/1/2026", null),
+    WRAP("2023 CRISIS BANK", 2, "3/10/2023", 20000),
+    WRAP("OLD BANK", 3, "6/1/2010", 500),
+  ]);
+  const ok = async (url: string) => { urls.push(url); return { ok: true, status: 200, text: async () => JSON.stringify(rows) }; };
+  const since2023 = await fetchHistoricalFailures("2023-01-01", ok as any);
+  assert.deepEqual(since2023.map((f) => f.name), ["RECENT BANK", "2023 CRISIS BANK"],
+    "the pre-2023 row must be filtered out client-side, the two 2023+ rows kept");
+});
+
+test("fetchHistoricalFailures: default limit is wider than the recent-fetch limit (needs multi-year depth, not just the latest handful)", async () => {
+  const urls: string[] = [];
+  const bad = async (url: string) => { urls.push(url); return { ok: false, status: 500, text: async () => "" }; };
+  await fetchHistoricalFailures("2020-01-01", bad as any);
+  assert.ok(!urls[0].includes(`limit=${FAILURES_FETCH_LIMIT}&`), "must not silently reuse the 50-row recent-fetch limit");
+  assert.ok(urls[0].includes("limit=500"));
 });
 
 test("archive: event-identity dedup within and across fetches; restart re-seeds from disk", () => {

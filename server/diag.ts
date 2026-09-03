@@ -108,6 +108,20 @@ export const DIAG_PROBES = [
   // identity leaves this endpoint, same reduced-exposure posture as every
   // other probe here.
   "shadowfleet_gate1",
+  // ADDED 2026-09-03 (scheduled-routine session): unblocks the
+  // fdic_bank_failures GATE 2 (SIGNAL) event study — fdicBanks.ts's own
+  // docstring names it ("gate 2 = failure events vs forward KRE /
+  // regional-bank returns") but it was explicitly left unbuilt by the
+  // 2026-08-18 GATE 1 session (no live market-data access from that
+  // sandbox). Runs fdicGate2.ts's eventStudy() server-side over real FDIC
+  // failure dates (api.fdic.gov, fetched live, not the day-limited local
+  // archive) and real KRE daily bars (Alpaca, this instance's own trading
+  // credentials) and returns ONLY the aggregate verdict per horizon (mean
+  // returns, bootstrap CI, p-value) — no raw bar series or per-bank detail
+  // leaves this endpoint, same reduced-exposure posture as every other
+  // probe here. See the "fdic_gate2" case in bot.ts for the since/horizons
+  // query params.
+  "fdic_gate2",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

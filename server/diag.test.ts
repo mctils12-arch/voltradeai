@@ -339,3 +339,24 @@ test("shadowfleet_gate1 probe (2026-09-01, shadow-fleet GATE 1 support): wired, 
   assert.ok(shadowFleetMod.includes("gate1Inputs("),
     "ShadowAggregator must expose the bounded-memory gate-1 candidate/tanker-pool reduction, not require a materializing scan");
 });
+
+test("fdic_gate2 probe (2026-09-03, fdic_bank_failures GATE 2 support): wired, reuses the shared event-study module, validates since/horizons, never leaks raw bars", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("fdic_gate2"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./fdicGate2"') && bot.includes("eventStudy"),
+    "fdic_gate2 probe must reuse the shared eventStudy module, not re-derive the bootstrap test inline");
+  assert.ok(bot.includes('from "./fdicBanks"') && bot.includes("fetchHistoricalFailures"),
+    "fdic_gate2 probe must reuse the shared FDIC historical-failures fetch, not re-derive it");
+  const start = bot.indexOf('case "fdic_gate2"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "fdic_gate2 probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(/since.*\d{4}-\d{2}-\d{2}/.test(block), "since query param must validate a YYYY-MM-DD shape");
+  assert.ok(block.includes("horizons") && block.includes("eventStudy("), "must run eventStudy per requested horizon");
+  assert.ok(block.includes("sanitizeDiag"), "fdic_gate2 probe must pass the sanitizer like every other probe");
+  assert.ok(!block.includes("bars.map") && !block.includes("...bars"),
+    "response must never spread the raw KRE bar series into the returned JSON");
+  const mod = fs.readFileSync(path.join(here, "fdicGate2.ts"), "utf8");
+  assert.ok(mod.includes("export interface EventStudyVerdict") && mod.includes("bootstrap_ci_95") && mod.includes("two_sided_p"),
+    "the reused event-study module must already be aggregate-only in its output shape (mean/CI/p-value, no per-day return list)");
+});

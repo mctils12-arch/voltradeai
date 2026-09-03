@@ -17,6 +17,8 @@ import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./shadowFleet";
 import { evaluateEnrichment } from "./shadowFleetGate1";
+import { fetchHistoricalFailures } from "./fdicBanks";
+import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
@@ -2191,6 +2193,23 @@ print(json.dumps(result, default=str))
     res.json(persisted.map((e: any) => ({ time: e.time, action: e.type, type: e.type, detail: e.message, message: e.message })));
   });
 
+  // Daily-bar fetch over an explicit [start, end] date range (distinct
+  // from the /api/bars route above, which only serves the latest `limit`
+  // bars) — needed by the "fdic_gate2" diag probe below to pull several
+  // years of KRE history for the event study. Same host/feed/adjustment
+  // choice as /api/bars (data.alpaca.markets, feed=iex — bars reject
+  // delayed_sip, see that route's own 2026-07-20/27 comment).
+  async function fetchDailyBarsRange(symbol: string, startISO: string, endISO: string): Promise<Gate2Bar[]> {
+    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${startISO}&end=${endISO}&limit=10000&adjustment=split&feed=iex`;
+    const r = await fetch(url, {
+      headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
+      signal: AbortSignal.timeout(30000) as any,
+    });
+    if (!r.ok) throw new Error(`alpaca bars ${symbol} -> ${r.status}: ${await r.text().catch(() => "")}`);
+    const data = await r.json();
+    return (data.bars || []).map((b: { t: string; c: number }) => ({ date: String(b.t).slice(0, 10), close: b.c }));
+  }
+
   // ── Token-gated READ-ONLY diagnostics (wishlist option (d), human-
   // approved 2026-07-04). HARD WHITELIST: audit tail, ml status, daemon
   // health, positions SUMMARY (counts/exposure — never symbols). Closed
@@ -2685,6 +2704,49 @@ print(json.dumps(get_shadow_stats()))
               n_tanker_candidates: identitySwapCandidates.size,
               ...identitySwapVerdict,
             },
+          }));
+        }
+        case "fdic_gate2": {
+          // ADDED 2026-09-03 (scheduled-routine PRODUCT session): unblocks
+          // fdic_bank_failures GATE 2 (SIGNAL) — see fdicBanks.ts's own
+          // docstring ("gate 2 = failure events vs forward KRE / regional-
+          // bank returns") and diag.ts's DIAG_PROBES entry for full context.
+          // `since` = earliest FAILDATE to include (default 2022-01-01,
+          // ahead of the 2023 regional-bank crisis wave); `horizons` = CSV
+          // trading-day windows (default "5,10,20", matching
+          // shadow_portfolio.py's own 5/10/20-day forward-return
+          // convention). Fetches failure dates live from FDIC's own API
+          // (not the local day-limited archive — full history is already
+          // public) and KRE daily bars live from Alpaca (this instance's
+          // own credentials), then runs eventStudy() per horizon and
+          // returns ONLY the aggregate verdicts — no raw bar series and no
+          // per-failure detail beyond the dates already public at
+          // api.fdic.gov leaves this endpoint.
+          const since = String(req.query.since || "2022-01-01").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+            return res.status(400).json({ error: "invalid since (expected YYYY-MM-DD)" });
+          }
+          const horizons = String(req.query.horizons || "5,10,20")
+            .split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0 && n <= 60);
+          if (!horizons.length) {
+            return res.status(400).json({ error: "invalid horizons (expected a CSV list of 1-60, e.g. 5,10,20)" });
+          }
+          const seed = Math.max(1, parseInt(String(req.query.seed || "1"), 10) || 1);
+          const failures = await fetchHistoricalFailures(since);
+          const eventDates = failures.map((f) => f.fail_date);
+          // Bar window needs to run a bit past `now` is impossible (no
+          // future bars exist yet); the max horizon just means the most
+          // recent events near the series end score `insufficient_n`-style
+          // nulls in forwardReturn rather than a hard failure — eventStudy
+          // already handles that per-event, not per-request.
+          const bars = await fetchDailyBarsRange("KRE", since, new Date().toISOString().slice(0, 10));
+          const results = horizons.map((h) => eventStudy(bars, eventDates, h, seed));
+          return res.json(sanitizeDiag({
+            probe: "fdic_gate2",
+            since,
+            n_failure_events_fetched: failures.length,
+            n_kre_bars: bars.length,
+            results,
           }));
         }
         default:
