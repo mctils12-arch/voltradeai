@@ -4791,9 +4791,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // datacore/signal_ladder.json's gate1_pass roots (wikimedia_pageviews_attention).
   // Reuses the existing latestAttention() cache the RAW /api/data/attention
   // route already populates via bootAttentionPoll() above — no new fetch,
-  // no new poller. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked
-  // tickers, see datacore/signal_ladder.json). GATE 2 (spike leads volume/
-  // vol 1-5d) NOT attempted — RAW daily views only, no spike/z-score claim.
+  // no new poller. GATE 1 (DATA) PASSED 2026-08-18; GATE 2 (spike leads
+  // forward volume) PASSED 2026-09-04 for small/mid-cap names net of a
+  // same-day-8-K control (see datacore/signal_ladder.json). This route
+  // still serves RAW daily views only, no spike/z-score/signal claim — a
+  // derived-signal surface is a separate future PRODUCT decision, not
+  // implied by the ladder promotion.
   // Computed by Wikimedia itself from server logs, CC0 — freely resellable,
   // unlike the issuer-authored insider/13F/earnings-language mirrors above.
   app.get("/api/v1/data/attention", (req, res) => {

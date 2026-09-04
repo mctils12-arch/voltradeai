@@ -3,6 +3,121 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-04 (scheduled-routine session, fifth scheduled session this UTC day) [PRODUCT] — TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate2_newsfree.py, test_wikiattention_gate2_newsfree.py, datacore/signal_ladder.json, server/routes.ts comment, research/*, package.json): wikimedia_pageviews_attention "attention without same-day 8-K" NEWS-FREE CONTROL, built and run against real data — GATE 2 PROMOTED for the small/mid-cap VOLUME channel, v1.0.845, PR #1004
+
+SESSION-START: CLAUDE.md read in full. `curl .../api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, all feeds alive — no
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits none
+overdue, thrash 1/10 REPAIR, known_broken 41/4-advisory, starvation 0/10 —
+no loop-health blocker. `python3 scripts/ladder_readiness_check.py`: 0/3
+gated roots ready. `python3 scripts/data_stream_registry_check.py
+--unbuilt`: 10/35, all declined/blocked, unchanged. `list_pull_requests
+(state=open)`: exactly one, PR #604 (the pre-existing intentional
+draft backlog, correctly left untouched) — no in-flight PR to judge or
+cherry-pick this session.
+
+PRIMARY-ACTION SELECTION: with no ladder-gated root newly ready, no
+unbuilt stream newly buildable, and no PR to judge, walked
+open_questions.md's own tail for the most recent concretely-buildable,
+unclaimed NEXT item (SESSION BUDGET fall-through #1). The immediately
+preceding same-day session (WIKIMEDIA PAGEVIEWS GATE 2, v1.0.844, PR
+#1003, merged before this session started) named exactly one: build the
+"attention without same-day 8-K" control it deferred under REASONING
+STANDARD #4 (one diagnostic design per pass). Pre-flight verified live
+before building anything (REASONING STANDARD #10): `data.sec.gov/
+submissions/CIK0000320193.json` 200 with coverage back to 2015 (past the
+~2yr lookback), `sec.gov/files/company_tickers.json` 200 with all 23 seed
+tickers resolving a CIK, `backtest_v2.fetch_bars('AAPL', 30)` returning
+real bars. All three data legs reachable — no synthetic-only fallback
+needed.
+
+BUILT + RAN LIVE: full account, pooled numbers table, and the honest
+sign-test-weakening caveat are filed in research/open_questions.md's
+2026-09-04 "WIKIMEDIA PAGEVIEWS GATE 2 NEWS-FREE CONTROL" entry (not
+restated here per this file's own established pointer convention).
+Headline: ~30% of small/mid-cap and ~20% of mega-cap spike days were
+news-contaminated (a same-day-or-prior-day 8-K); the primary small/mid-cap
+pooled forward-volume effect SURVIVED the control at every horizon
+(1/3/5d), clearing the pre-registered Bonferroni bar (α/10=0.005) even at
+its weakest (h=5, p=0.0014) — 56-74% of the original unfiltered effect
+size remains. `datacore/signal_ladder.json`'s wikimedia_pageviews_
+attention entry PROMOTED gate1_pass -> gate2_pass for the volume channel
+specifically; realized-volatility stays unproven, no directional/trading
+claim made or implied. GATE 3 (backtestable entry/exit rule vs. a
+same-universe random-entry base rate, net of costs) is the next,
+not-yet-attempted ladder step.
+
+GATES (fresh sandbox — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt`, run AFTER an initial tsc_ratchet false-alarm this
+session's own pre-npm-ci environment produced — see NEXT/lesson below):
+`python3 -m pytest -q test_wikiattention_gate2_newsfree.py`: 18/18.
+`python3 -m pytest -q` (full suite): 1648 passed, 1 skipped, 54 subtests,
+0 regressions (unchanged from the immediately-preceding session's own
+count — this session's 18 new tests replace, not add to, that number
+since both sessions' commits are now both on main). `python3 -c "import
+json; json.load(open('datacore/signal_ladder.json'))"`: valid. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304=0 — RE-RUN CLEAN after `npm ci`
+(see LESSON below). `bash scripts/counter_ratchet.sh`: OK, 25 counters at
+or better than baseline, none improved (the assertions counter does not
+count pytest assertions the way this session initially guessed — verified
+by observation, not assumed). `bash scripts/gated_tests.sh`: GATE PASSED
+— server 1535/1535, client 1083/1083, python green, quarantine 0/1 none
+overdue — RE-RUN CLEAN after killing two accidentally-concurrent copies of
+the same script (see LESSON below). `npm run build`: clean (only the
+pre-existing >500kB chunk-size/mapIcons-dual-import warnings, unrelated to
+this diff — no client/ files touched by this session's own changes).
+`package.json` bumped 1.0.844 -> 1.0.845 (read-and-increment at commit
+time; verified against a fresh `git fetch origin main` immediately before
+committing, per WORKSTREAM PARTITION MERGE-ORDER PROTOCOL).
+
+LESSON (HARNESS-ENV, filed for a future session rather than left as an
+unexplained war story): this session ran `bash scripts/tsc_ratchet.sh`
+BEFORE `npm ci` (only `pip install` had been run) and got a false "12 -> 3
+IMPROVED" reading — `npx tsc` was actually failing on missing `@types/
+node`/`vite/client` (TS2688, TS5101), an incomplete-`node_modules`
+artifact, not 9 real fixed errors. Caught by noticing the reported error
+CODES didn't match the baseline's own codes before trusting the drop and
+lowering a pin on a false signal (MEASUREMENT INTEGRITY — "if CI reports a
+count that does NOT match this file and your diff cannot explain it, that
+is an environment divergence, not a regression"). Re-ran clean (12/12)
+after `npm ci`. Separately, an initial attempt to background `gated_tests.
+sh` via a raw `&`/`wait` shell pattern left a stale duplicate process
+running when a second invocation was started after a tool-call timeout —
+the two concurrent copies contended for the same ports/resources and
+produced a spurious "8 client tests failed" reading; killed both, re-ran
+once clean (server 1535/1535, client 1083/1083). Neither false signal was
+acted on before being caught — but both cost real session time, and a
+future session should default to `npm ci` before any gate script, and to
+the Bash tool's own `run_in_background` (never a manual `&`/`wait`) for
+anything that might outlive a single tool-call timeout.
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a GATE 2 (SIGNAL) control and
+its result, not a strategy/threshold/scoring/sizing change; the root
+remains untraded (no LOGIC-layer rule exists) and its /data and /api/v1
+surfaces stay RAW-daily-views-only (server/routes.ts comment corrected to
+state this explicitly, no behavior change).
+
+CROSS-SYSTEM INTEGRATION: none new — reuses wikiattention_gate2.py's
+plumbing (EDGE DOCTRINE #3) plus EDGAR's company_tickers.json/submissions
+endpoints, already-established free/public-domain sources this repo's
+sec8kEarnings.ts/edgarForm4.ts already rely on for other roots.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+PR #1004 opened from claude/funny-fermat-k3yqb6, subscribed for CI/review
+activity per standing practice for PRs created this session.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a named, unclaimed, concretely-buildable control on a
+same-day root, verifying all three data legs live before building,
+running the real control rather than stopping at "built but not run,"
+applying the same pre-registered composite design and Bonferroni bar as
+the session it followed, and reporting the sign-test power-loss honestly
+rather than omitting it because the primary verdict was already
+favorable).
+
 ## 2026-09-04 (scheduled-routine session, market-hours run) [RESEARCH] — SHARED-but-minimal (scripts/hazard_rate_probe.py, test_hazard_rate_probe.py, research/*, ci/counter_baseline.txt, package.json): hazard-rate GATE 2 pooled follow-up (PR #999's own queued, unrun NEXT) RUN against real production data — GATE 2 NOT PASSED, still underpowered even with pooling, v1.0.843
 
 TERRITORY: SHARED-but-minimal, same class as every prior foreign-field
