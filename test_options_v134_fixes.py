@@ -143,7 +143,15 @@ class TestFix2_HighEdgeSetupsOnly(unittest.TestCase):
             "duration_secs": 5.0,
         }
 
-        with patch("options_scanner.scan_options", return_value=mock_scan_result):
+        # REPAIR (KNOWN BROKEN #40): get_options_trades() calls
+        # market_calendar.should_skip_new_options() with no args, defaulting
+        # to date.today() — this test asserts setup-filtering behavior and
+        # must not depend on which real-world day it happens to run (it was
+        # failing every pre-long-weekend/half-day, e.g. the Friday before
+        # Labor Day). Pin the calendar check to a normal trading day so only
+        # the HIGH_EDGE_SETUPS filter under test is exercised.
+        with patch("options_scanner.scan_options", return_value=mock_scan_result), \
+             patch("market_calendar.should_skip_new_options", return_value=(False, "")):
             trades = get_options_trades(100000, [], max_new=10, min_score=65)
 
         # Only earnings_iv_crush and vxx_panic_put_sale should pass
@@ -175,7 +183,11 @@ class TestFix2_HighEdgeSetupsOnly(unittest.TestCase):
             "duration_secs": 5.0,
         }
 
-        with patch("options_scanner.scan_options", return_value=mock_scan_result):
+        # REPAIR (KNOWN BROKEN #40): see the same-shape fix + comment in
+        # test_get_options_trades_filters_low_edge above — this test also
+        # asserts on real trades and must not depend on the wall-clock date.
+        with patch("options_scanner.scan_options", return_value=mock_scan_result), \
+             patch("market_calendar.should_skip_new_options", return_value=(False, "")):
             trades = get_options_trades(100000, [], max_new=10)
 
         strategies = [t["options_strategy"] for t in trades]
@@ -269,9 +281,15 @@ class TestFix3_AllocationCaps(unittest.TestCase):
             "duration_secs": 5.0,
         }
 
-        with patch("options_scanner.scan_options", return_value=mock_scan_result):
+        # REPAIR (KNOWN BROKEN #40): same wall-clock dependency as
+        # TestFix2_HighEdgeSetupsOnly above — without pinning the calendar
+        # check this could pass vacuously (trades == []) on any pre-long-
+        # weekend/half-day instead of actually checking sizing.
+        with patch("options_scanner.scan_options", return_value=mock_scan_result), \
+             patch("market_calendar.should_skip_new_options", return_value=(False, "")):
             trades = get_options_trades(100000, [])
 
+        self.assertTrue(trades, "fixture trades must actually pass through to check sizing")
         for t in trades:
             self.assertLessEqual(t["position_pct"], 0.08,
                 f"Trade {t['ticker']} sized at {t['position_pct']}, exceeds 8%")
@@ -741,9 +759,15 @@ class TestFix7_EarningsAlwaysIronCondor(unittest.TestCase):
              "action_label": "SELL STRADDLE", "reasoning": "Test"},
         ]
 
+        # REPAIR (KNOWN BROKEN #40): same wall-clock dependency as the two
+        # fixes above. Without pinning the calendar check, this test could
+        # pass vacuously on any pre-long-weekend/half-day (trades == [], the
+        # loop below never runs) instead of actually exercising the filter.
         with patch("options_scanner.scan_options",
-                   return_value={"opportunities": test_opps}):
+                   return_value={"opportunities": test_opps}), \
+             patch("market_calendar.should_skip_new_options", return_value=(False, "")):
             trades = get_options_trades(equity=100000, current_tickers=[])
+            self.assertTrue(trades, "fixture's iron_condor trade must actually pass through")
             for trade in trades:
                 self.assertNotEqual(trade.get("options_strategy"), "short_straddle",
                     f"Trade for {trade.get('ticker')} should not use short_straddle")
