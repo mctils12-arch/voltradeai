@@ -3,6 +3,156 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-04 (scheduled-routine session, market-hours run) [RESEARCH] — SHARED-but-minimal (scripts/hazard_rate_probe.py, test_hazard_rate_probe.py, research/*, ci/counter_baseline.txt, package.json): hazard-rate GATE 2 pooled follow-up (PR #999's own queued, unrun NEXT) RUN against real production data — GATE 2 NOT PASSED, still underpowered even with pooling, v1.0.843
+
+TERRITORY: SHARED-but-minimal, same class as every prior foreign-field
+probe session — `scripts/`+root-test-file pair, no T-BOT/T-CLIENT/
+T-DATACORE files touched.
+
+SESSION-START: CLAUDE.md read in full. `research/experiments.md` tail
+(the immediately-preceding same-day session, PR #1000/#1001, both
+already merged — main at v1.0.842). `research/open_questions.md` KNOWN
+BROKEN section walked end to end: items #1-#40 all RESOLVED/CLOSED or
+explicitly advisory-only (#26/#34/#38's advisory status not
+re-litigated, matching every recent session's own disposition).
+`python3 scripts/research_state_check.py`: audits_register none
+overdue (3 tracked), thrash_ratio 1/10 REPAIR (well under the 7+
+trigger), known_broken 40 items/3 advisory-only, starvation_signal
+0/10. `curl https://voltradeai.com/api/health`: `status:"ok"`, bot
+`status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, all
+feeds alive — no LIVENESS ALARM.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`:
+0/3 gated roots newly unblocked (same 3 as this morning's session,
+waiting 28-59d). `python3 scripts/data_stream_registry_check.py
+--unbuilt`: 10/35, unchanged. Checked open Claude PRs
+(`mcp__github__list_pull_requests`, state=open) before starting
+anything: PR #999 (`claude/dazzling-planck-o6mzxz`) — the hazard-rate
+GATE 2 pooled idiosyncratic-onset follow-up — fully built and
+unit-tested (24 new tests, 44/44 passing) but explicitly NOT run
+against real data, blocked in that session's sandbox by no Yahoo/Alpaca
+network access. This session verified LIVE (`urllib` probe against
+`query1.finance.yahoo.com`) that this sandbox DOES have working Yahoo
+access — the network constraint is a per-session sandbox property, not
+a standing fact about this environment. Per SESSION BUDGET's own
+priority order ("judge a matured experiment" ranks above "start a new
+experiment"), and since #999's own NEXT is exactly "run `--pool`
+against real data" with nothing else to build, this was the highest-
+value action available: no KNOWN BROKEN item was live/actionable, no
+ladder-gated root was newly unblocked, and no unbuilt data stream was
+newly buildable — a fully-built, already-reviewed, one-command-away
+experiment outranks starting fresh research from nothing.
+
+WHY CHERRY-PICK RATHER THAN MERGE #999 OR WAIT: this session's own
+branch instructions forbid pushing to any branch but its own
+(`claude/eloquent-dijkstra-o3xlbf`), and the scheduled task's own
+market-hours instruction ("prepare the PR but note merge should wait
+until after 4:00pm ET") argues for not merging anything — including
+#999 itself — mid-session today, since either merge triggers a Railway
+deploy. Re-deriving #999's pooling code from scratch would violate EDGE
+DOCTRINE #3 (never analyze/build the same thing twice) for code that
+already exists, is already reviewed by CI, and is already unit-tested.
+The resolution: `git fetch origin claude/dazzling-planck-o6mzxz` (read-
+only) then `git cherry-pick 45a9f16` onto this session's own branch —
+this pushes only to this session's own branch, carries #999's diff
+forward intact, and lets this session add the real run as a second
+commit. Two conflicts from #999's branch point (main has since advanced
+through PR #1000/#1001): `ci/counter_baseline.txt`'s `assertions`
+counter (resolved to HEAD's re-pinned value, corrected properly below
+via a fresh `counter_ratchet.sh` run rather than trusting either stale
+number) and `research/experiments.md` (append-only conflict, both
+sides' entries kept per WORKSTREAM PARTITION's MERGE-ORDER PROTOCOL —
+sessions that touched research/* concurrently, not a real content
+conflict). `research/open_questions.md`'s KNOWN BROKEN #40 auto-merged
+to TWO "40." entries (this session's predecessor's own CLOSED text plus
+#999's original FOUND/NOT-PATCHED text) — this exact outcome was
+explicitly anticipated and pre-approved by the predecessor session's own
+log entry ("a future session resolving that merge conflict should keep
+both... not treat either as redundant"), so left as-is, no further
+action.
+
+RAN: `PYTHONPATH=. python3 scripts/hazard_rate_probe.py --pool --tickers
+QQQ,AAPL,MSFT,IWM` (defaults otherwise: reference SPY, `--days 2520`,
+`--min-days-apart 5`) — per-ticker idiosyncratic onset counts QQQ 0,
+AAPL 1, MSFT 2, IWM 1; pooled 4 raw onsets -> 1 dropped as a correlated
+duplicate -> `n_pooled_onsets: 3`, `gap_cv: 0.1159`,
+`gap_cv_bootstrap_range: [0.0, 0.1159]`, `gap_cv_insufficient_n: true`
+(2 gaps vs. the `MIN_GAPS_FOR_STATS=5` floor). Sensitivity check per the
+FIFTH ADDENDUM's own NEXT (`--min-days-apart 0`, undeduplicated):
+`n_pooled_onsets: 4` (IWM+MSFT both onset 2025-04-04, the week of the
+April-2025 tariff-shock selloff — a genuine broad-market coincidence,
+not two independent idiosyncratic events), `gap_cv: 0.7212`,
+`gap_cv_bootstrap_range: [0.105, 1.414]`, still `insufficient_n: true`
+(3 gaps). Full numbers, reasoning, and disposition filed in
+`research/open_questions.md`'s hazard-rate entry, SIXTH ADDENDUM
+(search "SIXTH ADDENDUM 2026-09-04") — not restated here, per this
+file's own established precedent of pointing at the fuller account.
+
+VERDICT: GATE 2 NOT PASSED — even the cross-ticker pooling fix,
+specifically designed to solve the "n<=2 per ticker" underpowering the
+FOURTH ADDENDUM diagnosed, could not clear the n>=5 gap floor (3-4
+pooled onsets across 4 tickers over 2019-2026). REASONING STANDARD #4
+applied deliberately: this axis has had six addenda in ~10 days, every
+escalation landing on "contaminated" or "underpowered" — this session's
+own log entry recommends PAUSING further mechanical widening of this
+exact axis (a seventh `--tickers` expansion would be more-of-the-same
+with no new theoretical reason to expect a different result) in favor
+of either a structurally different approach (variant (i), the
+ticker-specific realized-vol classifier) or accepting this as a filed,
+honest inconclusive and moving capacity elsewhere — both left as real
+decisions for a future session, not assumed here.
+
+PR #999 is being closed this session with a comment pointing at this
+PR, crediting its diagnosis/implementation and noting no unique delta
+is lost (its full diff is carried forward by this PR's first commit)
+per the WORKSTREAM PARTITION supersession precedent ("first-merged
+wins, the duplicate salvages its unique delta" — here, #999 hasn't
+merged at all, so this PR salvages the whole thing rather than a
+delta).
+
+GATES (fresh sandbox — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt`): `python3 -m pytest -q`: 1600 passed, 1 skipped,
+54 subtests (24 new from #999's cherry-picked commit, zero regressions).
+`bash scripts/counter_ratchet.sh`: flagged 3 counters IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 415->416, `assertions`
+12959->12989) — re-pinned all three in `ci/counter_baseline.txt` per
+the script's own instruction; clean after. `bash scripts/tsc_ratchet.sh`:
+12/12, TS2304=0, unchanged. `bash scripts/gated_tests.sh`: GATE PASSED —
+client 1083/1083, python 1600/1 skipped/54 subtests, quarantine 0/1
+none overdue. `npm run build`: clean (only the pre-existing >500kB
+chunk-size, mapIcons dual-import, and astronomy-engine default-export
+warnings, all unrelated to this diff — no client/ files touched).
+`package.json` bumped 1.0.842 -> 1.0.843 (read-and-increment at commit
+time; #999's own diff already carried 841->842, which this session's
+commit inherited verbatim before its own bump).
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure research probe run + its
+logged result; no strategy/threshold/scoring/sizing change, and this
+axis has not cleared GATE 2 so nothing downstream (LOGIC/SIZING/
+EXECUTION) is reachable yet regardless.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing
+`backtest_v2`/CSD-probe plumbing #999 already built on top of, no new
+archive, join, fetch, or dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+MARKET-HOURS NOTE (per this session's own scheduling instruction): this
+PR is prepared but merge should wait until after 4:00pm ET today unless
+a critical live break is found in the meantime — this change is a
+research-log/docs-plus-test-infra change with zero trading-path impact,
+so there is no urgency argument for an early merge.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a fully-built, already-reviewed experiment's own
+queued run), used in full including a sensitivity check, an honest
+underpowered verdict (not dressed up as either a positive or a clean
+kill), and a deliberate recommendation to pause further mechanical
+widening of an axis that has now been tried six ways.
+
 ## 2026-09-04 (scheduled-routine session) [REPAIR] — T-BOT (test_options_v134_fixes.py) + SHARED (package.json, ci/counter_baseline.txt, research/open_questions.md): options v1.0.34 tests were wall-clock dependent on pre-long-weekend/half-day gating — root-caused and fixed same day, PR #1000, v1.0.842
 
 SESSION-START: CLAUDE.md read in full, then `research/experiments.md`

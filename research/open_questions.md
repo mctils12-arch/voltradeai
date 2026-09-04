@@ -15221,6 +15221,92 @@ concrete, unclaimed follow-up), used in full including stating a prior
 for the still-unrun result and confirming both alternative axes were
 genuinely exhausted/blocked this session rather than inherited on faith.
 
+**SIXTH ADDENDUM 2026-09-04 (scheduled-routine session, market-hours run)
+[RESEARCH] — the FIFTH ADDENDUM's own queued NEXT (run `--pool` against
+real data) RUN. RESULT: still short of `MIN_GAPS_FOR_STATS=5` even with
+the pooling fix — GATE 2 NOT PASSED, axis (c)/(d) recommended PAUSED at
+current ticker universe.** This session had working Yahoo network access
+(the exact constraint that blocked the FIFTH ADDENDUM session — verified
+live this session via a direct `urllib` probe against
+`query1.finance.yahoo.com`, HTTP 200 — is not a standing property of this
+sandbox, it varies session to session). Rather than re-deriving PR #999's
+already-built, already-unit-tested (24 tests, synthetic-only) pooling
+code from scratch — EDGE DOCTRINE #3, never analyze/build the same thing
+twice — this session cherry-picked PR #999's single commit
+(`45a9f16`, branch `claude/dazzling-planck-o6mzxz`, still open/unmerged
+as of this session) onto its own branch and ran the queued NEXT verbatim.
+
+RUN 1 (defaults — reference SPY, pool QQQ/AAPL/MSFT/IWM, `--days 2520`,
+`--min-days-apart 5`): `PYTHONPATH=. python3 scripts/hazard_rate_probe.py
+--pool --tickers QQQ,AAPL,MSFT,IWM`. Per-ticker idiosyncratic onset
+counts: QQQ 0, AAPL 1, MSFT 2, IWM 1 (n_onsets_total 6-9 each, matching
+the FOURTH ADDENDUM's broader-universe range). Pooled: 4 raw idiosyncratic
+onsets -> 1 dropped as a correlated duplicate (min-days-apart=5) ->
+`n_pooled_onsets: 3`, dates `2025-04-04` (IWM), `2025-09-05` (MSFT),
+`2026-01-05` (AAPL). `gaps_calendar_days: [154, 122]`, `gap_cv:
+0.1159`, `gap_cv_bootstrap_range: {lo: 0.0, hi: 0.1159}`,
+`gap_cv_insufficient_n: true` (2 gaps, floor is 5).
+
+RUN 2 (sensitivity check, per this entry's own NEXT — `--min-days-apart
+0`, the undeduplicated pool): `n_pooled_onsets: 4` (the dropped MSFT
+onset restored), dates now include a genuine same-calendar-day
+coincidence — IWM and MSFT both onset on **2025-04-04** — giving
+`gaps_calendar_days: [0, 154, 122]`, `gap_cv: 0.7212`,
+`gap_cv_bootstrap_range: {lo: 0.105, hi: 1.414}`, still
+`gap_cv_insufficient_n: true` (3 gaps, still short of 5). The CV moved
+by 6x between the two settings (0.116 -> 0.721) purely from how one
+same-day pair is handled — this is itself evidence FOR keeping the
+correlated-duplicate guard rather than against it: two different tickers
+independently regime-flipping on the exact same trading day (2025-04-04,
+the week of the April 2025 tariff-shock selloff — a known broad-market
+event, not ticker-specific idiosyncrasy) is the textbook case the guard
+exists to catch, and dropping it is the more honest read of "SPY-
+idiosyncratic," not an arbitrary choice.
+
+VERDICT: **GATE 2 NOT PASSED.** The FOURTH ADDENDUM's own diagnosis was
+"any single ticker's idiosyncratic onset count alone (n<=2) is
+structurally underpowered" — pooling across 4 major-index/mega-cap
+tickers was the specific, well-motivated fix for that, built and unit-
+tested in PR #999, and it still could not clear the n>=5 gap floor (3-4
+pooled onsets over a 2019-2026 window across 4 tickers). This is not a
+new methodology flaw like the THIRD ADDENDUM's VXX-contamination finding
+— it is a direct, honest read of real event scarcity: SPY-idiosyncratic
+regime-severity onsets (as this ladder's own onset definition requires —
+a jump that ISN'T shared with the broad-market VXX-driven regime) are
+genuinely rare events in liquid large-caps, pooling or not.
+
+DISPOSITION (REASONING STANDARD #4 applied deliberately, not just
+formally invoked): this axis has now had SIX addenda across ~10 days —
+broader single-ticker universe (FOURTH), a VXX-contamination methodology
+fix (THIRD/RULE-REVIEW), a pooling fix (FIFTH, this ADDENDUM's run) —
+and every escalation has landed on either "contaminated" or
+"underpowered," never a clean, adequately-powered read either way. Per
+CLAUDE.md's own words, "distrust your own results in proportion to how
+many things you tried" — the mechanical next move the FIFTH ADDENDUM's
+own NEXT names (widen `--tickers` further) would be a SEVENTH variant on
+the identical axis with no new theoretical reason to expect a different
+outcome; the honest event-scarcity read above suggests widening the
+ticker list alone will not fix an underlying-rarity problem, only mask
+it with more multiple-comparison risk. RECOMMENDATION: pause further
+mechanical widening of this exact axis; the two paths that remain
+genuinely distinct (not just "try more of the same") are variant (i) —
+the ticker-specific realized-vol classifier, a structurally different
+statistical approach, not a bigger `--tickers` list — or accepting this
+as a filed, honest inconclusive (neither confirmed nor refuted;
+genuinely underpowered) and moving research capacity to a different
+FOREIGN-FIELD axis. Both stay real decisions for a future session, not
+assumed here.
+
+PR #999 (source of the pooling implementation this addendum ran) is
+being closed with a pointer to this session's PR, since its own unrun
+NEXT step is now run and logged here — no unique delta of #999's is
+lost, per the WORKSTREAM PARTITION supersession precedent.
+
+GATES this session: `python3 -m pytest -q test_hazard_rate_probe.py`:
+44/44 (unchanged, no code touched beyond the cherry-picked commit).
+Full suite and version/counter bookkeeping recorded in
+`research/experiments.md`'s matching dated entry.
+
 ## 2026-09-01 (scheduled-routine session) [PRODUCT] — GAS FLARE CANDIDATES: a BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive we already ingest — module + 14 unit tests, GATE 1 designed not run
 
 CONTEXT: this session's queue survey found the PLATFORM INTEGRATION
