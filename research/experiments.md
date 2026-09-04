@@ -3,6 +3,159 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-04 (scheduled-routine session) [REPAIR] — T-BOT (test_options_v134_fixes.py) + SHARED (package.json, ci/counter_baseline.txt, research/open_questions.md): options v1.0.34 tests were wall-clock dependent on pre-long-weekend/half-day gating — root-caused and fixed same day, PR #1000, v1.0.842
+
+SESSION-START: CLAUDE.md read in full, then `research/experiments.md`
+tail, `research/open_questions.md` KNOWN BROKEN section (checked #26/
+#34/#38's advisory-only status, not re-litigated). `python3 scripts/
+research_state_check.py`: audits_register none overdue (3 tracked),
+thrash_ratio 1/10 REPAIR in the last 10 tagged sessions (well under the
+7+ trigger), known_broken 39 items/3 without an explicit close marker
+(advisory only, per every prior session's own disposition),
+starvation_signal 0/10. `curl https://voltradeai.com/api/health`:
+`status:"ok"`, bot `status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, all feeds alive (aircraft/vessels/trains
+silent_hours 0.08) — no LIVENESS ALARM.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`:
+0/3 gated roots ready (cftc_cot_positioning waiting 49d, sec_8k_earnings
+waiting 28d, fleet_utilization_aircraft waiting 59d until 2026-11-02 —
+none newly unblocked today). `python3 scripts/
+data_stream_registry_check.py --unbuilt`: 10/35, all declined/blocked
+on a human registration or free key, or already-noted-exhausted
+(un_comtrade) — nothing actionable without human action. Checked open
+Claude PRs before starting anything (`mcp__github__list_pull_requests`,
+state=open): PR #999 (`claude/dazzling-planck-o6mzxz`, hazard-rate GATE
+2 pooled follow-up, unmerged) and PR #604 (a 2026-07-25 draft backlog
+PR, out of scope, long-stale). Read PR #999's own body rather than
+assuming — its own text names a concrete, real, currently-reproducible
+defect it deliberately left unfixed as out-of-scope for its own
+territory (T-DATACORE vs this defect's T-BOT): `get_options_trades()`
+calls `market_calendar.should_skip_new_options()` with no date arg
+(defaults to `date.today()`), and two tests in
+`test_options_v134_fixes.py::TestFix2_HighEdgeSetupsOnly` call it for
+real without pinning that check — PR #999's own body states this fails
+"on any day inside `market_calendar.should_skip_new_options()`'s
+pre-long-weekend window" and today (2026-09-04) is the Friday before
+Labor Day (2026-09-07), squarely inside that window. Per CLAUDE.md's
+REPAIR MANDATE ("fixing known breaks outranks new research... consult
+KNOWN BROKEN first"), took this as the session's primary action rather
+than starting new PRODUCT/RESEARCH work — a live, reproducible, cheaply
+fixable defect beats an unclaimed queue item.
+
+READ BEFORE WRITE: read `market_calendar.py`'s `should_skip_new_options`/
+`is_pre_long_weekend`/`is_half_day` and `options_scanner.py`'s
+`get_options_trades` in full before touching anything. Confirmed the
+production behavior is CORRECT and INTENTIONAL (v1.0.34's own comment:
+"Pre-long-weekend means unmonitored gamma risk over 3+ consecutive
+closed days") — this is a real risk-management gate, not a bug to
+relax. The defect is entirely in the TEST's determinism, not the
+gated code. Reproduced live: `python3 -m pytest -q
+test_options_v134_fixes.py::TestFix2_HighEdgeSetupsOnly` → 2 failed
+(confirmed with `pip install -r requirements.txt -r
+requirements-dev.txt` in this fresh sandbox first). Grepped every
+`get_options_trades(` call site in the test file (4 total, not just
+the 2 PR #999 named) and found a THIRD instance with the same
+dependency but a weaker assertion shape
+(`TestFix3_AllocationCaps::test_sizing_never_exceeds_eight_pct`'s
+`for t in trades: assertLessEqual(...)`) that was passing VACUOUSLY on
+these dates rather than failing loud, plus a fourth
+(`TestFix7_EarningsAlwaysIronCondor::
+test_get_options_trades_blocks_straddle_for_all_setups`) with the same
+vacuous shape (`for trade in trades: assertNotEqual(...)`) — neither
+reported by PR #999, found by this session's own read of the whole
+file rather than stopping at the two named failures.
+
+FIXED: all four sites now
+`patch("market_calendar.should_skip_new_options", return_value=(False,
+""))` around their `get_options_trades()` call, so each tests only
+what it claims to test (HIGH_EDGE_SETUPS filtering / sizing cap /
+straddle blocking) independent of the real calendar. The two
+vacuous-pass sites (`test_sizing_never_exceeds_eight_pct`,
+`test_get_options_trades_blocks_straddle_for_all_setups`) also gained
+an explicit `self.assertTrue(trades, ...)` so they can no longer pass
+without the fixture actually flowing through — closing the SAME defect
+class PR #999 only found half of, in the one PR, per PROMOTION RULE 5
+(this is one logical change — test-determinism for
+`get_options_trades()`'s calendar dependency — not four unrelated
+edits). `get_options_trades()` and `should_skip_new_options()`
+themselves are UNCHANGED.
+
+A/B VERIFIED (not just re-run after fixing): `git stash` (fix removed)
+→ `test_options_v134_fixes.py::TestFix2_HighEdgeSetupsOnly` +
+`TestFix3_AllocationCaps::test_sizing_never_exceeds_eight_pct` → 2
+failed, 4 passed (the sizing test still passed vacuously, as expected —
+its own bug is silence, not failure); `git stash pop` (fix restored) →
+0 failed, same commit, same date.
+
+`research/open_questions.md` KNOWN BROKEN #40 filed and CLOSED same
+entry, crediting PR #999's diagnosis explicitly (that PR named this
+"KNOWN BROKEN #40" in its own body but correctly left it unfixed as
+out-of-territory) and recording the two additional vacuous-pass sites
+this session found on top of it. `package.json` bumped 1.0.841 →
+1.0.842 (read-and-increment at commit time, main still at 1.0.841 since
+PR #999 has not merged). `ci/counter_baseline.txt`'s `assertions`
+counter re-pinned 12932 → 12959: this session's own 2 new
+`assertTrue` calls plus 25 pre-existing unrelated drift folded into one
+re-pin, matching this repo's own established convention for this
+specific non-decreasing counter (unlike `tests_run_in_ci`/
+`tests_gating_merge`, which are left unpinned per PROMOTION RULE 5 when
+a PR adds no new test file).
+
+GATES (fresh sandbox — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` both run): `python3 -m pytest -q
+test_options_v134_fixes.py`: 50/50 pass. Full suite `python3 -m pytest
+-q`: 1582 passed, 1 skipped, 54 subtests — identical count to
+before this fix (no new tests added, two existing assertions
+hardened). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+`bash scripts/counter_ratchet.sh`: clean after the `assertions` re-pin;
+`tests_run_in_ci`/`tests_gating_merge` showed unrelated pre-existing
+drift (415→416), left unpinned per PROMOTION RULE 5. `bash scripts/
+gated_tests.sh`: GATE PASSED — python 1582/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `npm run build`: clean (only the
+pre-existing >500kB chunk-size and mapIcons dynamic/static dual-import
+warnings, unrelated to this diff — no client/ files touched).
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure test-determinism fix; no
+strategy, threshold, scoring, or sizing logic touched in either
+direction. The underlying pre-long-weekend gating RULE's own cost/
+benefit (does skipping new options before long weekends leave edge on
+the table, or correctly avoid unmonitored gamma risk?) is a separate
+RULE REVIEW question with its own counterfactual-logging requirement —
+explicitly out of scope here and not conflated with this fix.
+
+CROSS-SYSTEM INTEGRATION: none — no new archive, join, fetch, or
+external dependency; pure test-file + version/counter/docs change.
+
+MONETIZATION TRIPWIRE: not touched.
+
+WORKSTREAM NOTE: this session's own designated PR branch
+(`claude/busy-fermi-kpdeil`) is disjoint from PR #999's
+(`claude/dazzling-planck-o6mzxz`) — no shared code files touched by
+both, only `research/open_questions.md` (append-only, new section) and
+`package.json`/`ci/counter_baseline.txt` (SHARED, this session's edit
+is the last commit before opening the PR, per WORKSTREAM PARTITION's
+MERGE-ORDER PROTOCOL). If PR #999 also lands its own KNOWN BROKEN #40
+text when it eventually merges, the two entries describe the same
+defect from two different vantage points (diagnosis vs. fix) — a
+future session resolving that merge conflict should keep both per the
+append-only convention, not treat either as redundant.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR action (a live, reproducible, already-partially-diagnosed defect
+found by checking in-flight PRs before starting new work, exactly the
+gap `research/wishlist.md`'s own "check open Claude PRs at session
+start" note flags), used in full including reading the actual gated
+production code before concluding the test was the defect (not the
+calendar rule), A/B-verifying the fix rather than trusting a single
+green run, and finding two additional vacuous-pass instances of the
+same class beyond what the diagnosing PR reported.
+
+
+
 ## 2026-09-03 (scheduled-routine session, fifth session this UTC day, market-hours run) [RENDERING] — T-CLIENT (client/src/lib/air/trackModel.ts, client/src/lib/air/trackModel.test.ts, client/src/pages/datamap.tsx) + SHARED (ci/counter_baseline.txt, package.json): flight-track trail decimation — the RENDERING & MOTION LAW's Law IV cap on the 3D flight-track layer was only ever REPORTED, never enforced; now enforced at track assembly, index-safe (v1.0.839)
 
 SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/
