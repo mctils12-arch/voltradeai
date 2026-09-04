@@ -76295,3 +76295,112 @@ RESEARCH action (the immediately-preceding matured entry's own named,
 concrete, unclaimed follow-up), used in full including re-confirming
 (not inheriting on faith) that axes (a)/(b) were exhausted and axis
 (c)/(d)'s real-data path was blocked this session specifically.
+
+## 2026-09-04 (scheduled-routine session, third PRODUCT session this UTC day) [PRODUCT] — v1.0.844 — WIKIMEDIA PAGEVIEWS GATE 2: real-data run, volume-elevation finding survives Bonferroni, promotion blocked on same-day-news confound
+
+TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate2.py +
+test_wikiattention_gate2.py, root-level; datacore/signal_ladder.json;
+research/*; package.json/ci/counter_baseline.txt last-and-minimal).
+
+Full account (session-start checks, pre-flight data-access verification,
+pre-registered hypothesis, build, the live 23-ticker/516-trading-day
+run, the pooled Bonferroni-corrected result table, the sign-consistency
+robustness check, and the honest reason this is NOT promoted to
+gate2_pass) is in `research/open_questions.md`'s dated entry
+"WIKIMEDIA PAGEVIEWS GATE 2" (search that heading) — not restated here
+in full per this file's own established precedent of pointing at the
+fuller account. Summary:
+
+- Confirmed this sandbox's yfinance PACKAGE path is network-blocked
+  (`ws_closed_mid_exchange` at the egress proxy against Yahoo hosts,
+  same failure class the immediately-preceding hazard-rate-probe
+  session hit today) but `backtest_v2.fetch_bars`'s OWN direct
+  `query1.finance.yahoo.com` call succeeded live — a distinction this
+  session found by testing rather than assuming either always/never
+  works, worth a future session re-checking rather than inheriting as
+  fact.
+- Built `scripts/wikiattention_gate2.py` (pure no-lookahead z-score/
+  forward-metric/welch-test/pool_group functions + Wikimedia+
+  backtest_v2 network orchestration) and `test_wikiattention_gate2.py`
+  (30 synthetic-data tests, no network).
+- Ran the full pre-registered test live against real data: 23 seed
+  tickers, 516 real trading days each (2024-08-14..2026-09-04). Pooled
+  per cap-tier group (19 small/mid primary, 4 mega-cap comparison),
+  Bonferroni bar applied across the 10 non-degenerate cells tested
+  (2 metrics x 3 horizons x 2 groups, minus 2 structurally-degenerate
+  h=1 realized-vol cells where stdev-of-one-day is always 0 by
+  construction). RESULT: forward volume_ratio elevation is real, clears
+  p<0.0006 at every horizon in BOTH groups, and the small/mid-cap
+  effect (18-43pp excess over baseline) is roughly double the mega-cap
+  effect (13-19pp) — the predicted asymmetry. Sign-consistency check
+  (21/23 tickers individually mean>baseline at h=3, binomial p=6.6e-5)
+  corroborates independently of magnitude. Forward realized_vol shows
+  NO significant elevation at h=3/h=5 in either group (p=0.18-0.85).
+- NOT promoted to gate2_pass: the volume finding is real and unusually
+  clean for a first gate-2 pass in this repo, but uncontrolled for the
+  exact "attention without same-day news" confound the hypothesis's own
+  header already named — a pageview spike and a volume spike could
+  share one common cause (news breaking that day) rather than pageviews
+  leading anything. scripts/wikiattention_gate1.ts already proved the
+  needed EDGAR 8-K control is buildable; not attempted this session
+  (one diagnostic design per pass, REASONING STANDARD #4).
+- `datacore/signal_ladder.json`'s `wikimedia_pageviews_attention` entry
+  updated with the full account; status LEFT at `gate1_pass` (current_gate
+  1), not promoted — the confound is real, not a formality.
+
+GATES: `npm ci` (node_modules was essentially empty at session start —
+a single dangling entry, not the ~488-package install `npm ci` restored;
+confirmed this explains an initial gated_tests.sh run's 16 scattered
+ERR_MODULE_NOT_FOUND failures across unrelated server/client test files,
+none touched by this session's diff — re-ran clean after `npm ci`, see
+below). `python3 -m pytest -q test_wikiattention_gate2.py`: 30/30.
+`python3 -m pytest -q` (full suite, after `pip install -r
+requirements.txt -r requirements-dev.txt`): 1630 passed, 1 skipped, 54
+subtests, 0 new failures. `bash scripts/gated_tests.sh` (post `npm ci`):
+GATE PASSED — server (178 files) OK, client (101 files) OK, python OK,
+quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304=0, unchanged (no `.ts`/`.tsx` touched by this session's own
+diff). `bash scripts/counter_ratchet.sh`: `assertions` 12989 -> 13041,
+`tests_run_in_ci`/`tests_gating_merge` 416 -> 417 (this session's own
+30 new tests in one new file, the direct and sole cause) — all three
+re-pinned in `ci/counter_baseline.txt` in this same PR; every other
+counter unchanged. `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"`: valid. `npm run build`/visual harness: not
+run — no client/ files touched, matching every pure-Python
+research-probe session's own precedent (PROMOTION RULE 6 N/A).
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a GATE 2 (SIGNAL) statistical
+test and its result, not a strategy/threshold/scoring change;
+`wikimedia_pageviews_attention` stays ungated for trading (current_gate
+1) and its `/data` page is RAW-only, so nothing customer-facing or
+trading-facing changes either way.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `backtest_v2.fetch_bars`
+(EDGE DOCTRINE #3) and the existing `datacore/wiki_articles.json` seed
+table; no new archive, join, fetch host, or dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.844 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 5e0f501/v1.0.843/PR #1002, no concurrent
+session had moved it).
+
+NEXT: build the "attention without same-day 8-K" control (EDGAR
+submissions per spike day, mirroring wikiattention_gate1.ts's own
+EARNINGS_EVENTS lookup) and re-run `pool_group` restricted to the
+news-free subset — full detail and rationale in the open_questions.md
+entry's own NEXT.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (an already-gate-1-passed root's own "gate 2 remains
+untouched" line, with a concretely buildable test design), used in full
+including verifying live data access before committing to a
+synthetic-only plan, running the real test once access turned out to
+work rather than stopping at "built but blocked," pre-registering the
+hypothesis and cap-tier split before computing any statistic, applying
+a multiple-comparison correction across every cell tested, and
+declining to promote a real-but-confounded result to a clean gate-2
+pass.
