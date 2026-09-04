@@ -5752,6 +5752,49 @@
     are unrecoverable (past `RAW_RETENTION_DAYS=30`, per NEXT(3)'s own
     expectation) but the mechanism that let a gap persist for days
     instead of minutes no longer exists. CLOSED.
+40. **[FOUND 2026-09-04, open PR #999 (hazard-rate GATE 2 pooled follow-up,
+    branch `claude/dazzling-planck-o6mzxz`, unmerged as of this session) —
+    ROOT-CAUSED AND FIXED SAME DAY, scheduled-routine session, T-BOT
+    territory, v1.0.842. CLOSED.] `test_options_v134_fixes.py`'s
+    `TestFix2_HighEdgeSetupsOnly` (and, found by this session while fixing
+    the same class, `TestFix3_AllocationCaps::test_sizing_never_exceeds_eight_pct`
+    and `TestFix7_EarningsAlwaysIronCondor::test_get_options_trades_blocks_straddle_for_all_setups`)
+    call `options_scanner.get_options_trades()` for real, which internally
+    calls `market_calendar.should_skip_new_options()` with no date argument
+    — defaulting to `date.today()`.** On any day inside a pre-long-weekend
+    window (`is_pre_long_weekend()`, 3+ consecutive market-closed days
+    ahead) or a half-day, `get_options_trades()` correctly returns `[]` —
+    this is real, intentional production risk management (unmonitored
+    gamma exposure over a long closure), not a bug. But two of these tests
+    assert specific mocked trades survive the filter, so they FAIL on any
+    such date with zero relation to the HIGH_EDGE_SETUPS/sizing/straddle
+    logic actually under test — reproduced live today (2026-09-04, the
+    Friday before Labor Day 2026-09-07): `python3 -m pytest -q
+    test_options_v134_fixes.py::TestFix2_HighEdgeSetupsOnly` → 2 failed.
+    A third test in the same file had the SAME dependency but a weaker
+    assertion shape (`for trade in trades: assertNotEqual(...)`), so it
+    was passing VACUOUSLY on these dates (`trades == []` never enters the
+    loop) rather than failing loud — found by inspection while fixing the
+    other two, not itself a reported failure. PR #999 diagnosed the first
+    two failures (root cause exactly as above) while building an unrelated
+    hazard-rate probe, correctly filed it as out-of-scope for that PR
+    (different territory, T-DATACORE vs T-BOT) rather than fixing it, and
+    left it as a documented pointer. This session picked up that pointer
+    and fixed it: all three tests now `patch("market_calendar.
+    should_skip_new_options", return_value=(False, ""))` around their
+    `get_options_trades()` call, so they test what they claim to test
+    regardless of the real calendar; the third test also gained
+    `assertTrue(trades, ...)` so it can no longer pass vacuously. A/B
+    verified live: 2 failures before the fix, 0 after, on this exact
+    commit/date. `get_options_trades()`/`should_skip_new_options()`
+    themselves are UNCHANGED — this was purely a test-determinism defect,
+    confirmed by reading both functions before touching anything (READ
+    BEFORE WRITE). Full suite `python3 -m pytest -q`: 1582 passed, 1
+    skipped, 54 subtests, unchanged in count from before this fix (no new
+    tests added, two existing assertions hardened with `assertTrue`
+    guards). Not itself evidence the underlying pre-long-weekend gating
+    RULE is right or wrong — that would be a RULE REVIEW question with its
+    own counterfactual-logging requirement, out of scope here.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
