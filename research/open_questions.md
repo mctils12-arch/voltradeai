@@ -10749,6 +10749,30 @@ territory in their first commit)
   proxy (this entry's own test-plan point (2) below), then the
   anomaly-vs-forward-XRT/IYT-returns test against a random-entry base rate,
   regime-split, discounted for variants tried.
+  UPDATE 2026-09-04 (scheduled-routine session): re-ran the same
+  idempotent script against production (`server_version` verified
+  1.0.842, matching HEAD, before calling any probe). Captured week 8
+  (2026-08-28..09-04) -- the earliest currently-attemptable week (6) and
+  the most recently completed one (8) advance together each session, so
+  this is the routine, expected step, not a special case. Neither skip
+  condition fired (`coverage_caveat` clear, not a degenerate all-zero
+  read) -- all 9 ports report plausible, internally consistent
+  visits_completed/unique_vessels/dwell figures. File now holds 3 weeks
+  (6, 7, 8), still short of the ~15-20 this entry's own NEXT sets as the
+  GATE 2 attempt threshold. Noted, NOT interpreted as a finding
+  (REASONING STANDARD #4 -- 3 points is not a trend): visits_completed
+  rose at every port across all three weeks (e.g. port_la 126->214->301,
+  port_lb 139->191->293), materially faster than unique_vessels grew
+  over the same span (78->111->124, 94->133->152) -- plausibly ordinary
+  week-to-week AIS coverage variance, plausibly a late-August/September
+  volume pattern, plausibly still-warming archive depth this early in
+  the series. No attempt made to explain it with 3 data points; a future
+  session with more weeks accumulated should watch whether the ratio of
+  visits to unique vessels keeps climbing (would suggest an archive
+  artifact) or stabilizes (would suggest a real seasonal read).
+  `datacore/signal_ladder.json`'s `port_dwell_maritime_transit` entry
+  unchanged in gate/status (`current_gate` 1/`gate1_pass`) -- still GATE
+  2 infrastructure accumulation, not a result.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay
