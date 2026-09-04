@@ -5796,6 +5796,67 @@
     RULE is right or wrong — that would be a RULE REVIEW question with its
     own counterfactual-logging requirement, out of scope here.
 
+40. **[FOUND 2026-09-04, scheduled-routine session, NOT PATCHED —
+    root-caused fully, out of this session's SHARED-but-minimal
+    territory (T-BOT owns `options_scanner.py`/`test_options_v134_
+    fixes.py`), per PROMOTION RULE 5 one-logical-change-per-PR.]
+    `test_options_v134_fixes.py::TestFix2_HighEdgeSetupsOnly` (2 tests:
+    `test_get_options_trades_filters_low_edge`,
+    `test_short_straddle_blocked_for_high_iv`) fails on any day within
+    `market_calendar.should_skip_new_options()`'s pre-long-weekend
+    window — the SAME wall-clock/calendar-dependent-test defect class
+    the 2026-07-05 REPAIR session already found and fixed once in this
+    same file's `TestFix7`, recurring in a different test class that
+    fix never touched.**
+    ROOT CAUSE, confirmed by direct execution, not inferred: both
+    failing tests call `options_scanner.get_options_trades()` with a
+    mocked `scan_options` but do NOT mock `market_calendar.
+    should_skip_new_options()`. `get_options_trades()`'s own v1.0.34
+    market-calendar check (options_scanner.py:1999-2003) runs BEFORE
+    touching the mocked scanner result at all and returns `[]`
+    unconditionally when `should_skip_new_options()` is True — by
+    design, to avoid opening new options positions with unmonitored
+    gamma risk over a 3+ day closure. This session ran
+    `python3 -c "from market_calendar import should_skip_new_options;
+    print(should_skip_new_options())"` directly against the real
+    calendar and got `(True, 'Pre-long-weekend — unmonitored gamma
+    exposure over 3+ day closure')` — 2026-09-04 is the Friday before
+    Labor Day (Monday 2026-09-07). The test's mocked opportunities never
+    get a chance to be evaluated; `get_options_trades()` is behaving
+    exactly as documented and intended — this is NOT a live trading bug.
+    IMPACT: purely a CI/test-hygiene defect, not a production risk — the
+    underlying pre-long-weekend skip is CORRECT behavior. But it means
+    `python3 -m pytest -q`/`bash scripts/gated_tests.sh` reads RED on
+    every day immediately preceding a 3+ day market closure — a
+    recurring several-times-a-year event, not a one-off — which will
+    keep costing every session that hits one of those dates a "confirm
+    pre-existing via git stash" detour until fixed. Confirmed via `git
+    stash` A/B this session (identical 2 failures with this session's
+    own unrelated diff — hazard-rate probe pooling code — fully
+    stashed) that this is not caused by any change in this PR.
+    NOT PATCHED (deliberately, scope discipline): the fix is a
+    `test_options_v134_fixes.py`-only change (mock `market_calendar.
+    should_skip_new_options` to return `(False, "")` in
+    `TestFix2_HighEdgeSetupsOnly`'s two affected tests, mirroring
+    whatever pattern `TestFix7`'s 2026-07-05 fix already established for
+    `_is_regular_hours` in the same file — not re-derived this session,
+    should be read first) — T-BOT territory per WORKSTREAM PARTITION,
+    not this session's SHARED-but-minimal scope, and RECURRENCE
+    ESCALATES's spirit (a second instance of the same defect CLASS)
+    argues for a session that reads both fixes side by side and
+    considers whether a shared, reusable time/calendar-mocking fixture
+    (this repo already has a session-scoped autouse `yfinance` mock
+    precedent in `conftest.py`, per KNOWN BROKEN item #22/Q22) would
+    prevent a THIRD recurrence in a different test class, rather than a
+    second one-off patch.
+    NEXT: whichever session next touches `options_scanner.py`/T-BOT
+    territory should fix `TestFix2_HighEdgeSetupsOnly` (read `TestFix7`'s
+    own 2026-07-05 fix first, per READ BEFORE WRITE) and consider the
+    shared-fixture generalization named above. Not urgent (self-resolves
+    every Tuesday after a long weekend) — filed so the root cause is on
+    record instead of re-diagnosed by the next session that happens to
+    run full pytest on one of these dates.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -14976,6 +15037,189 @@ NEXT item, then push past the first "ok" result to find the real
 boundary rather than reporting the first flattering number), the
 highest-priority fall-through item available per SESSION BUDGET's own
 ordering (queued/unclaimed item outranks starting new research).
+
+**FIFTH ADDENDUM 2026-09-04 (scheduled-routine session) [RESEARCH] —
+took the FOURTH addendum's own named, unclaimed axis-(c)/(ii): pooled
+idiosyncratic-onset code shipped and unit-tested; NOT yet run against
+real data (this sandbox's network access is blocked this session, see
+below).**
+
+AXIS SURVEY (all four EDGE DOCTRINE axes checked before picking, same
+discipline as every prior session): (a) `python3 scripts/
+data_stream_registry_check.py --unbuilt` — 10/35 unbuilt, all declined/
+blocked except `un_comtrade` (already noted structural-thesis-only,
+unchanged since 2026-08-28). (b) `research/open_questions.md`'s
+illiquid-universe/mean_reversion thread (line ~12106) has all 5 of its
+own steps CLOSED, and the separate MIN_PRICE/MIN_VOLUME-loosening
+question it surfaced was priced 2026-08-14 and found to argue AGAINST
+loosening — no unblocked equity-side axis-(b) action; the OPTIONS-side
+"Options fill realism" item is still open but unrelated to this thread.
+(c)/(d): checked whether real market-data access had returned since the
+2026-09-02(3) session's hard proxy-level block — `pip install -r
+requirements.txt -r requirements-dev.txt` then `yfinance.Ticker('SPY').
+history(period='5d')`: hard timeout/connection reset at the egress proxy
+(`ws_closed_mid_exchange` on guce.yahoo.com/query2.finance.yahoo.com/
+fc.yahoo.com, the same failure class, this session's own timeout even
+harder than 2026-09-02's — command killed after 30s with zero bytes
+back). No `ALPACA_KEY`/`ALPACA_SECRET` in `env` either. Confirmed
+blocked, not assumed.
+
+PRIMARY-ACTION SELECTION: with (a)/(b) exhausted and (c)/(d)'s real-data
+path blocked, this entry's own FOURTH addendum already named a concrete,
+fully-specified, unclaimed follow-up — (ii), pooling idiosyncratic
+onsets across tickers — that (like the CSD/hazard-rate/Omori probes
+before it) can be BUILT and unit-tested without live data access, per
+this routine's own "deliverable is a script... not an analysis"
+instruction and the established build-now-run-later precedent for every
+prior foreign-field import in this file. Picked over (i) (a new
+ticker-specific realized-vol regime classifier) because (ii) is smaller,
+more mechanical, and was named FIRST in the FOURTH addendum's own list
+— (i) is a real design change to `regime_series()` itself and stays
+open for a future session with more budget.
+
+PRIOR (REASONING STANDARD #10, stated before building — this entry
+cannot be run this session, so the prior is stated for whichever future
+session runs it): the pooled series mixes tickers whose idiosyncratic
+onsets are individually plausible renewal events (AAPL/MSFT each
+contributed exactly one, per the 2026-08-31 broader-universe run) with
+whatever QQQ/IWM (and any newly-added ticker) turn up. Expect the pooled
+n to land somewhere in the 4-10 range for 4-5 tickers over ~7 years
+(each ticker contributing 0-2 idiosyncratic onsets per the one sample
+already on file) — i.e. this pooling MAY just barely clear
+`MIN_GAPS_FOR_STATS=5`, not comfortably. My prior on the pooled CV
+itself is genuinely uncertain (no reason to expect pooling across
+uncorrelated idiosyncratic events to preserve the single-ticker CV<1
+reading one way or the other) — this is the interesting, undetermined
+question the code below exists to answer, not a foregone conclusion.
+
+WHAT SHIPPED (`scripts/hazard_rate_probe.py`, `test_hazard_rate_probe.py`
+— both existing files from the 2026-08-29/31 sessions, extended not
+re-derived, EDGE DOCTRINE #3):
+1. `onset_dates(onsets, dates)` — maps `find_transition_onsets`'s
+   bar-index onsets to calendar-date strings via the SAME ticker's own
+   date array (never assumes index comparability across tickers with
+   potentially different trading-day arrays).
+2. `idiosyncratic_onset_dates(ticker_dates, reference_dates)` — the
+   filter this addendum's own PRIOR session (2026-08-31) diagnosed as
+   necessary: keeps only onset dates NOT also in SPY's own onset-date
+   set, so one shared VXX-driven event isn't counted once per ticker.
+3. `pool_idiosyncratic_onsets(per_ticker_dates, min_days_apart=5)` —
+   pools idiosyncratic dates from many tickers into one combined,
+   chronologically-sorted renewal-process gap series (CALENDAR days
+   between pooled dates, not trading-day bar indices — pooled dates come
+   from different tickers' own bar arrays with no guaranteed shared
+   index space, stated explicitly as a real methodology difference from
+   `inter_onset_gaps()` elsewhere in this file). Deliberately surfaces,
+   rather than silently resolves, the one real unresolved judgment call
+   this design raises: two DIFFERENT tickers going idiosyncratic within
+   a few days of each other could be two independent renewals or one
+   correlated shock landing on both. `min_days_apart` (default 5
+   calendar days) drops the later of any two pooled dates closer than
+   that as a likely-correlated duplicate, and `n_dropped_as_correlated_
+   duplicate` is always reported so a future reader can see how much
+   that choice cost; `min_days_apart=0` recovers the undeduplicated pool
+   for comparison.
+4. `run_pooled_probe(tickers=("QQQ","AAPL","MSFT","IWM"),
+   reference_ticker="SPY", days=2520, min_days_apart=5)` — orchestrates
+   1-3 against real data exactly like `run_probe()` does for the
+   single-ticker case (same `fetch_bars`/`regime_series`/
+   `find_transition_onsets` reuse); reports each ticker's total vs.
+   idiosyncratic onset count individually plus the pooled result, so a
+   future reader can see the per-ticker contribution, not just the
+   aggregate.
+5. `_load_csd_module()` — the CSD-module import-by-path boilerplate
+   `run_probe()` already had, factored out so `run_pooled_probe()` reuses
+   it instead of duplicating it (a small EDGE DOCTRINE #3 cleanup, not a
+   behavior change — `run_probe()`'s own output is unchanged).
+6. CLI gained `--pool` (switches to the pooled follow-up),
+   `--tickers` (default `QQQ,AAPL,MSFT,IWM`, pooled against `--ticker`
+   as the reference), `--min-days-apart` (default 5).
+
+WHY NOT RUN AGAINST REAL DATA THIS SESSION: see AXIS SURVEY above —
+network access to Yahoo Finance is blocked at the egress proxy this
+session (no `ALPACA_KEY`/`ALPACA_SECRET` either), the identical
+constraint every prior foreign-field-import probe in this file
+(CSD/2026-08-18, hazard-rate/2026-08-29, Omori/2026-08-30) hit at first
+build. `python3 scripts/hazard_rate_probe.py --pool` (or
+`run_pooled_probe()` directly) is ready for the next session with
+working data access.
+
+RATCHET: `test_hazard_rate_probe.py` gained 24 new tests across 4 new
+classes (`TestOnsetDates`, `TestIdiosyncraticOnsetDates`,
+`TestPoolIdiosyncraticOnsets`, `TestRunPooledProbeIntegrationShape`), all
+synthetic-data-only, no network — `onset_dates`'s out-of-range-index
+skip and empty-input cases; `idiosyncratic_onset_dates`'s filter/
+no-overlap/full-overlap cases and an explicit order-preservation check
+(filtering must not silently sort); `pool_idiosyncratic_onsets`'s
+cross-ticker sort, the calendar-vs-trading-day gap distinction (a
+hand-verified exactly-7-day case), the near-duplicate-drop mechanism AND
+its `min_days_apart=0` escape hatch, the `insufficient_n` floor, and
+degenerate empty/single-onset inputs; a `run_pooled_probe` signature
+check (mirroring the existing `run_probe` ticker-param precedent) and a
+`_load_csd_module()` smoke test. `python3 -m pytest -q
+test_hazard_rate_probe.py`: 44/44 (20 baseline + 24 new, zero
+regressions). Full-suite `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`): 1598 passed, 1 skipped, 54
+subtests — 2 PRE-EXISTING failures in `test_options_v134_fixes.py`
+(`TestFix2_HighEdgeSetupsOnly`) confirmed via `git stash` A/B on this
+session's own two changed files alone: identical 2 failures with this
+session's diff fully stashed, so not caused by or in scope for this
+session's diff (no `options_scanner.py`/`options_execution.py` touched)
+— left as-is per RECURRENCE ESCALATES (not this session's subsystem to
+patch) rather than bundled into an unrelated fix.
+
+GATES: `bash scripts/tsc_ratchet.sh` (after `npm ci`, which this sandbox
+needed run first — the pre-`npm ci` reading showed the same misleading
+"12->3" artifact prior sessions have repeatedly logged and correctly not
+trusted): 12/12, TS2304=0, unchanged (no `.ts`/`.tsx` file touched, pure
+Python diff). `bash scripts/counter_ratchet.sh`: `assertions` improved
+12932 -> 12987 (this session's own 24 new tests' assertions, the direct
+and sole cause — re-pinned in `ci/counter_baseline.txt` in this same
+PR); `tests_run_in_ci`/`tests_gating_merge` read 415->416 live but
+NOT re-pinned — this session added zero new test FILES (only new test
+methods inside the existing `test_hazard_rate_probe.py`), confirmed via
+`git status --short` showing only the two already-tracked files
+modified, so this movement is pre-existing drift from concurrent
+merges since the pins were last set, not this session's own effect
+(PROMOTION RULE 5); all other 23 counters unchanged. `npm run build`/
+`npx tsx --test`: not re-run — no `.ts`/`.tsx`/client files touched,
+matching this file's own established precedent for pure-Python research
+diffs.
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a research probe extension
+and its tests, not a strategy/threshold/scoring change; no trading path
+touched.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing `backtest_v2`
+data plumbing and the CSD probe's onset detection, no new archive, join,
+or external dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+NEXT (for whichever future session has real Alpaca/Yahoo data access):
+run `python3 scripts/hazard_rate_probe.py --pool` (defaults: reference
+SPY, pool QQQ/AAPL/MSFT/IWM, `--days 2520`, `--min-days-apart 5`) and
+record `pooled.n_pooled_onsets`, `pooled.gap_cv`, and
+`pooled.gap_cv_bootstrap_range` here per this entry's own PRIOR above.
+If `n_pooled_onsets` clears `MIN_GAPS_FOR_STATS=5`, this is the first
+statistically-adequate, non-VXX-coupling-confounded test this
+hypothesis has had — judge the bootstrap range against CV=1 honestly,
+including a sensitivity check at `--min-days-apart 0` (the
+undeduplicated pool) to see whether the correlated-duplicate judgment
+call materially changes the verdict. If it still falls short of n=5, the
+remaining path is adding more tickers to `--tickers` (widening the
+universe further) or attempting variant (i) (the ticker-specific
+realized-vol classifier) instead — both real, separate follow-on
+decisions for that session, not assumed here.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (the immediately-preceding matured entry's own named,
+concrete, unclaimed follow-up), used in full including stating a prior
+for the still-unrun result and confirming both alternative axes were
+genuinely exhausted/blocked this session rather than inherited on faith.
 
 ## 2026-09-01 (scheduled-routine session) [PRODUCT] — GAS FLARE CANDIDATES: a BUILD-FIRST free alternative to VIIRS Nightfire, built over the NASA FIRMS archive we already ingest — module + 14 unit tests, GATE 1 designed not run
 
