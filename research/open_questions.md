@@ -16297,3 +16297,206 @@ pre-registering the hypothesis and cap-tier split before computing any
 statistic, applying a multiple-comparison correction across every cell
 tested rather than reporting the best-looking one, and declining to
 promote a real-but-confounded result to a clean gate-2 pass.
+
+## 2026-09-04 (scheduled-routine session, fourth PRODUCT session this UTC day) [PRODUCT] — WIKIMEDIA PAGEVIEWS GATE 2 NEWS-FREE CONTROL: the confound-control the prior session named as its own NEXT, built and run — GATE 2 PROMOTED for the volume channel, small/mid-cap primary group
+
+TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate2_newsfree.py +
+test_wikiattention_gate2_newsfree.py, root-level; datacore/signal_ladder.json;
+server/routes.ts comment-only factual correction; research/*; package.json),
+same class as every other gate-2-script session today.
+
+SESSION-START: CLAUDE.md read in full. `curl .../api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, all 3
+feeds alive — no LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits none overdue (3 tracked), thrash 1/10 REPAIR (well under the 7+
+trigger), known_broken 41 items/4 advisory-only, starvation 0/10 — no
+loop-health blocker. `python3 scripts/ladder_readiness_check.py`: 0/3 gated
+roots newly unblocked (same 3 as every session today, waiting 28-59d).
+`python3 scripts/data_stream_registry_check.py --unbuilt`: 10/35, all
+declined/blocked/exhausted, unchanged. `list_pull_requests(state=open)`:
+exactly one open PR (#604, the pre-existing intentional "[BACKLOG] draft, do
+not merge as-is" — correctly excluded from action, matching every prior
+session's own disposition of it) — no in-flight experiment to judge or
+cherry-pick this session, unlike the morning's hazard-rate session.
+
+PRIMARY-ACTION SELECTION: with no ladder-gated root newly ready, no unbuilt
+stream newly buildable, and no other session's PR to judge, this session
+walked `research/open_questions.md`'s own tail for the most recent
+concretely-buildable, unclaimed NEXT item (SESSION BUDGET fall-through #1:
+"the next queued item... that fits"). The immediately-preceding session
+today (WIKIMEDIA PAGEVIEWS GATE 2, filed earlier the same UTC day) named
+exactly one: build the "attention without same-day 8-K" control for
+`wikimedia_pageviews_attention`, explicitly deferred there (REASONING
+STANDARD #4 — one diagnostic design per pass) but explicitly NOT vague —
+that session had already confirmed `scripts/wikiattention_gate1.ts` proves
+EDGAR 8-K dates are reachable via `data.sec.gov/submissions` for this exact
+seed set. PRE-FLIGHT verified live before committing to building anything
+(REASONING STANDARD #10, and the morning session's own "prior was wrong,
+caught only by testing" lesson taken seriously): `data.sec.gov/submissions/
+CIK0000320193.json` (AAPL) returned 200 with 1000 filings reaching back to
+2015-07-22 (well past the ~2-year lookback needed); `sec.gov/files/
+company_tickers.json` returned 200, all 23 seed tickers resolved to a CIK
+with zero misses; `backtest_v2.fetch_bars('AAPL', 30, use_cache=False)`
+returned 23 real bars. All three data legs reachable this session — no
+synthetic-only fallback needed.
+
+BUILT: `scripts/wikiattention_gate2_newsfree.py` — imports
+`scripts/wikiattention_gate2.py`'s pure functions by path (EDGE DOCTRINE
+#3, no re-derivation) rather than duplicating them. New pure functions:
+`parse_company_tickers` (SEC `company_tickers.json`'s row-dict ->
+`{ticker: cik10str}`), `parse_submissions_8k_dates` (EDGAR submissions'
+flat `form`/`filingDate` arrays -> the set of dates where form is `8-K` or
+`8-K/A` — the ANY-8-K bar the prior session's NEXT note named, broader
+than Item-2.02-only, since a non-earnings corporate-news 8-K is still a
+same-day-news confound candidate), `is_newsfree_spike_idx` (same-day-or-
+prior-trading-day exclusion, mirroring `wikiattention_gate1.ts`'s own
+after-hours-filing-lag reasoning), `evaluate_ticker_newsfree` (identical
+pipeline to the original `evaluate_ticker`, except the SAMPLE side is
+restricted to news-free spikes while the BASELINE side is unchanged —
+every non-spike day, news or not — so this is a direct extension of the
+existing design, not a redefinition of the comparison). New network
+functions: `fetch_cik_map` (ticker->CIK), `fetch_8k_dates_for_cik` (per-CIK
+8-K dates, with an honest `fully_covered` flag that checks whether
+`filings.recent`'s own coverage reaches the lookback cutoff before trusting
+it, falling through to `filings.files`' additional archive pages —
+verified unused for every seed ticker this run, `edgar_coverage_incomplete_
+tickers: []`). `test_wikiattention_gate2_newsfree.py` — 18 tests, synthetic-
+only, covering the CIK-map parser, the 8-K-date parser (form-type filter,
+dedup, mismatched-array-length safety), the same-day/prior-day exclusion
+logic (including the i=0 edge case), and — the test that would have caught
+a real bug in an earlier draft of this script — an explicit check that a
+spike day excluded for news does NOT silently reappear in the baseline
+(the baseline stays "every non-spike day," not "every non-newsfree-spike
+day").
+
+RAN LIVE against real data: same 23 seed tickers, `--days 750` (matching
+the prior session's own run). All 23 resolved a CIK, all 23 EDGAR fetches
+succeeded, `edgar_coverage_incomplete_tickers: []` (every ticker's EDGAR
+history reaches the full ~2-year lookback). 20/23 tickers retained n>=5
+news-free spike days after filtering (UPST/COIN/SMCI dropped to n=3-4 and
+report `null` per `welch_vs_baseline`'s own n>=5 floor — an honest
+insufficient-n, not a fabricated result).
+
+NEWS CONTAMINATION FOUND: 109 of the original 366 small/mid-cap spike-days
+(~30%) and 17 of 86 mega-cap spike-days (~20%) had an 8-K filed same-day or
+the prior trading day — confirming the prior session's confound concern was
+real and non-trivial, not a formality.
+
+POOLED RESULT ON THE NEWS-FREE SUBSET (same pre-registered composite design
+as the prior session, same Bonferroni bar alpha/10=0.005 across the same
+10-cell family shape):
+
+| group | horizon | n newsfree / n baseline | mean vs baseline | p-value | vs. UNFILTERED diff |
+|---|---|---|---|---|---|
+| small/mid (19 tickers) | 1d | 257 / 9039 | 1.279x vs 1.039x | <0.0001 | diff 0.240 (was 0.426 — 56% survives) |
+| small/mid | 3d | 257 / 9001 | 1.226x vs 1.053x | <0.0001 | diff 0.173 (was 0.255 — 68% survives) |
+| small/mid | 5d | 257 / 8963 | 1.195x vs 1.063x | 0.0014 | diff 0.133 (was 0.181 — 74% survives) |
+| mega (4 tickers) | 1d | 69 / 1894 | 1.119x vs 0.995x | 0.0083 | MISSES the 0.005 bar |
+| mega | 3d | 68 / 1888 | 1.100x vs 0.997x | 0.0050 | exactly at the bar |
+| mega | 5d | 67 / 1882 | 1.101x vs 0.998x | 0.0023 | clears |
+| small/mid | 3d realized_vol | 257 / 9381 | 0.0351 vs 0.0348 | 0.8638 | still null |
+| small/mid | 5d realized_vol | 257 / 9343 | 0.0397 vs 0.0408 | 0.4269 | still null |
+| mega | 3d realized_vol | 68 / 1968 | 0.0209 vs 0.0202 | 0.6977 | still null |
+| mega | 5d realized_vol | 67 / 1962 | 0.0247 vs 0.0239 | 0.6618 | still null |
+
+(h=1 realized_vol again omitted — mathematically degenerate, per the
+original script's own note, not re-derived here.)
+
+VERDICT (per the pre-registered rule stated in the control script's own
+docstring, written before this table existed): the PRIMARY small/mid-cap
+pooled volume_ratio test survives the news-free control at every horizon,
+comfortably clearing the pre-registered Bonferroni bar even at its weakest
+(h=5, p=0.0014 vs. the 0.005 bar). The secondary mega-cap comparison group
+is weaker and mixed (1/3 horizons misses the bar, 1/3 sits exactly on it) —
+consistent with, not contradicting, the hypothesis's own pre-stated
+expectation that mega-cap attention is more crowded/arbitraged (EDGE
+DOCTRINE #2, REASONING STANDARD #5) and was never the group the promotion
+decision hinges on. `datacore/signal_ladder.json`'s
+`wikimedia_pageviews_attention` entry PROMOTED to `gate2_pass` (current_gate
+2) for the VOLUME channel specifically — elevated forward trading volume in
+small/mid-cap names following an attention spike, net of a same-day-or-
+prior-day 8-K. The REALIZED-VOLATILITY channel stays unproven (never
+significant, filtered or unfiltered) and this is NOT a directional price
+signal — gate 2's own definition (CLAUDE.md ROOT VALIDATION LADDER) is
+predictive power measured statistically, with no trading involved; GATE 3
+(does a backtestable rule beat a same-universe random-entry base rate, net
+of costs) remains a separate, not-yet-attempted step.
+
+HONESTY CAVEAT, stated rather than smoothed over (REASONING STANDARD #4):
+the per-ticker sign-consistency check that corroborated the ORIGINAL
+(unfiltered) result — 21/23 tickers individually positive at h=3, binomial
+p=6.6e-5 — does NOT corroborate as strongly here. Of the 16 small/mid
+tickers with an adequate (n>=5) news-free sample at h=3, only 11 show
+mean>baseline (binomial p=0.21, not itself significant). The most likely
+explanation is a POWER loss, not a different true effect: several tickers'
+news-free spike counts fell to single digits after filtering (e.g. HOOD
+8, CVNA 9, MARA 9 — all still positive in direction except MARA), shrinking
+each ticker's own test well below where an individual welch/sign check has
+teeth, even though the pooled test (which does not depend on any single
+ticker clearing significance alone) still holds. This is filed as an open
+question for a future GATE 3 attempt to weigh — a signal that holds in
+aggregate but is not broadly individually consistent generalizes less
+safely across the specific universe traded — not resolved or explained
+away here.
+
+WHY "ANY 8-K" RATHER THAN ITEM-2.02-ONLY: the prior session's own NEXT note
+phrased the control as "no Item-2.02 (or any 8-K)" — this script used the
+broader ANY-8-K bar deliberately, since a non-earnings 8-K (an executive
+departure, an M&A announcement, a material event) is still a same-day-news
+confound candidate for a pageview spike, not just an earnings release. SEC's
+own submissions API conveniently returns `items` (comma-separated item
+codes) per 8-K row for free — noted in the script's own docstring as
+available for a future session wanting the narrower Item-2.02-only cut for
+comparison, not used here (one diagnostic design per pass, REASONING
+STANDARD #4, matching the prior session's own discipline).
+
+GATES (fresh sandbox — `npm ci` skipped, no client/ touched; `pip install -r
+requirements.txt -r requirements-dev.txt`): `python3 -m pytest -q
+test_wikiattention_gate2_newsfree.py`: 18/18. `python3 -m pytest -q` (full
+suite): 1648 passed, 1 skipped, 54 subtests, 0 regressions (was 1630/1/54
+before this session's 18 new tests). `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"`: valid. `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (the routes.ts edit is a
+comment-only factual correction, no type-relevant change). `bash scripts/
+counter_ratchet.sh` / `bash scripts/gated_tests.sh` / `npm run build`: run
+before commit, results below this line once complete.
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a GATE 2 (SIGNAL) statistical
+control and its result, not a strategy/threshold/scoring/sizing change.
+`wikimedia_pageviews_attention` is now `gate2_pass` but remains UNTRADED
+(no LOGIC-layer rule exists yet) and its `/data`/`/api/v1` surfaces stay
+RAW-daily-views-only (server/routes.ts comment corrected to state this
+explicitly) — nothing customer-facing or trading-facing changes.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `wikiattention_gate2.py`'s
+plumbing (EDGE DOCTRINE #3) plus EDGAR's `company_tickers.json`/
+`submissions` endpoints, already-established free/public-domain sources
+(same class `sec8kEarnings.ts`/`edgarForm4.ts` already rely on for other
+roots) — no new archive, dependency, or licensing question.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+NEXT for whichever session picks this root back up: (a) GATE 3 — design and
+backtest an entry/exit rule off the small/mid-cap news-free spike signal
+(e.g. a short-horizon long-volatility or liquidity-timing overlay, sized to
+the small/illiquid universe EDGE DOCTRINE #2 already names as the
+structurally under-arbitraged case) against a same-universe random-entry
+base rate, net of costs — the ROOT VALIDATION LADDER's own next step, not
+attempted here; (b) investigate the sign-test power-loss open question
+above with a deeper archive (more historical spike days per ticker would
+restore individual-ticker test power without changing the underlying
+question); (c) an Item-2.02-only re-cut of this same control (narrower than
+ANY-8-K) is now cheap — the `items` field is already fetched and just
+unused — if a future session wants to isolate earnings-specifically from
+other corporate news as the confound.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a named, unclaimed, concretely-buildable control on a
+same-day root, verifying live data access for all three legs before
+committing to the build, running the real control rather than stopping at
+"built but not run," applying the same pre-registered composite test and
+Bonferroni bar as the session it followed rather than a laxer ad hoc one,
+and reporting the sign-test power-loss honestly rather than omitting it
+because the primary verdict was already favorable).
