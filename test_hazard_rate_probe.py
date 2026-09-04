@@ -195,5 +195,138 @@ class TestRunProbeIntegrationShape(unittest.TestCase):
         self.assertEqual(sig.parameters["ticker"].default, "SPY")
 
 
+class TestOnsetDates(unittest.TestCase):
+    def test_maps_indices_to_dates(self):
+        onsets = [{"index": 0}, {"index": 2}]
+        dates = ["2020-01-01", "2020-01-02", "2020-01-03"]
+        self.assertEqual(probe.onset_dates(onsets, dates),
+                          ["2020-01-01", "2020-01-03"])
+
+    def test_out_of_range_index_is_skipped_not_raised(self):
+        onsets = [{"index": 5}]
+        dates = ["2020-01-01", "2020-01-02"]
+        self.assertEqual(probe.onset_dates(onsets, dates), [])
+
+    def test_empty_onsets_yields_empty_dates(self):
+        self.assertEqual(probe.onset_dates([], ["2020-01-01"]), [])
+
+
+class TestIdiosyncraticOnsetDates(unittest.TestCase):
+    def test_filters_out_reference_shared_dates(self):
+        ticker = ["2020-01-01", "2020-02-01", "2020-03-01"]
+        reference = ["2020-01-01", "2020-03-01"]
+        self.assertEqual(probe.idiosyncratic_onset_dates(ticker, reference),
+                          ["2020-02-01"])
+
+    def test_no_overlap_keeps_everything(self):
+        ticker = ["2020-05-01", "2020-06-01"]
+        reference = ["2020-01-01"]
+        self.assertEqual(probe.idiosyncratic_onset_dates(ticker, reference),
+                          ticker)
+
+    def test_full_overlap_yields_empty(self):
+        ticker = ["2020-01-01", "2020-02-01"]
+        reference = ["2020-01-01", "2020-02-01", "2020-03-01"]
+        self.assertEqual(probe.idiosyncratic_onset_dates(ticker, reference), [])
+
+    def test_preserves_input_order_of_ticker_dates(self):
+        # deliberately unsorted input -- filtering must not silently sort
+        ticker = ["2020-03-01", "2020-01-01", "2020-02-01"]
+        reference = ["2020-01-01"]
+        self.assertEqual(probe.idiosyncratic_onset_dates(ticker, reference),
+                          ["2020-03-01", "2020-02-01"])
+
+
+class TestPoolIdiosyncraticOnsets(unittest.TestCase):
+    def test_pools_and_sorts_across_tickers(self):
+        per_ticker = {
+            "AAPL": ["2020-03-01"],
+            "MSFT": ["2020-01-01", "2020-06-01"],
+        }
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=0)
+        self.assertEqual(out["pooled_dates"],
+                          ["2020-01-01", "2020-03-01", "2020-06-01"])
+        self.assertEqual(out["pooled_tickers"], ["MSFT", "AAPL", "MSFT"])
+        self.assertEqual(out["n_pooled_onsets"], 3)
+        self.assertEqual(out["n_dropped_as_correlated_duplicate"], 0)
+
+    def test_gaps_are_calendar_days_not_trading_days(self):
+        per_ticker = {"A": ["2020-01-01", "2020-01-08"]}  # exactly one week
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=0)
+        self.assertEqual(out["gaps_calendar_days"], [7])
+
+    def test_near_duplicate_across_tickers_is_dropped(self):
+        # two different tickers going idiosyncratic 2 days apart, under
+        # min_days_apart=5 -- treated as one likely-correlated event, the
+        # earlier one kept
+        per_ticker = {
+            "AAPL": ["2020-01-01"],
+            "MSFT": ["2020-01-03"],
+        }
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=5)
+        self.assertEqual(out["pooled_dates"], ["2020-01-01"])
+        self.assertEqual(out["n_dropped_as_correlated_duplicate"], 1)
+
+    def test_min_days_apart_zero_recovers_full_undeduplicated_pool(self):
+        per_ticker = {
+            "AAPL": ["2020-01-01"],
+            "MSFT": ["2020-01-02"],
+        }
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=0)
+        self.assertEqual(out["n_pooled_onsets"], 2)
+        self.assertEqual(out["n_dropped_as_correlated_duplicate"], 0)
+
+    def test_far_apart_dates_from_different_tickers_both_kept(self):
+        per_ticker = {
+            "AAPL": ["2020-01-01"],
+            "MSFT": ["2020-06-01"],
+        }
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=5)
+        self.assertEqual(out["n_pooled_onsets"], 2)
+        self.assertEqual(out["n_dropped_as_correlated_duplicate"], 0)
+
+    def test_insufficient_n_flagged_below_min_gaps_floor(self):
+        per_ticker = {"A": ["2020-01-01", "2020-02-01"]}
+        out = probe.pool_idiosyncratic_onsets(per_ticker, min_days_apart=0)
+        self.assertEqual(len(out["gaps_calendar_days"]), 1)
+        self.assertTrue(out["gap_cv_insufficient_n"])
+
+    def test_empty_input_yields_empty_pool(self):
+        out = probe.pool_idiosyncratic_onsets({}, min_days_apart=5)
+        self.assertEqual(out["n_pooled_onsets"], 0)
+        self.assertEqual(out["gaps_calendar_days"], [])
+        self.assertIsNone(out["gap_cv"])
+
+    def test_single_onset_yields_no_gaps(self):
+        out = probe.pool_idiosyncratic_onsets({"A": ["2020-01-01"]}, min_days_apart=5)
+        self.assertEqual(out["n_pooled_onsets"], 1)
+        self.assertEqual(out["gaps_calendar_days"], [])
+
+    def test_min_days_apart_reported_back_in_output(self):
+        out = probe.pool_idiosyncratic_onsets({"A": ["2020-01-01"]}, min_days_apart=7)
+        self.assertEqual(out["min_days_apart"], 7)
+
+
+class TestRunPooledProbeIntegrationShape(unittest.TestCase):
+    """run_pooled_probe() requires network/Alpaca access this sandbox does
+    not have (see module docstring) — not exercised end-to-end here, same
+    precedent as TestRunProbeIntegrationShape above."""
+
+    def test_signature_has_pooling_params_with_documented_defaults(self):
+        import inspect
+        sig = inspect.signature(probe.run_pooled_probe)
+        self.assertEqual(sig.parameters["reference_ticker"].default, "SPY")
+        self.assertEqual(sig.parameters["tickers"].default,
+                          ("QQQ", "AAPL", "MSFT", "IWM"))
+        self.assertEqual(sig.parameters["min_days_apart"].default, 5)
+
+    def test_load_csd_module_helper_is_shared_and_reusable(self):
+        """_load_csd_module() was factored out of run_probe so
+        run_pooled_probe can reuse it without duplicating the import-by-
+        path boilerplate — confirm it still loads a working module."""
+        csd = probe._load_csd_module()
+        self.assertTrue(callable(csd.find_transition_onsets))
+
+
 if __name__ == "__main__":
     unittest.main()
