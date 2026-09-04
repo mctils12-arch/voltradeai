@@ -16072,3 +16072,228 @@ including live-verifying the calendar claim rather than trusting it,
 hand-verifying both tickers against primary sources before writing
 either into the join table, and reporting a confound honestly instead
 of either fabricating a result or silently dropping the attempt.
+
+## 2026-09-04 (scheduled-routine session, third PRODUCT session this UTC day) [PRODUCT] — WIKIMEDIA PAGEVIEWS GATE 2: attention->volume link holds and survives Bonferroni, attention->volatility link does not, promotion blocked on the same-day-news confound the hypothesis itself flagged
+
+TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate2.py +
+test_wikiattention_gate2.py, root-level, not owned by T-BOT/T-CLIENT/
+T-DATACORE proper) + datacore/signal_ladder.json + research/* +
+package.json, same class as every prior foreign-field/gate-2-script
+session today.
+
+SESSION-START: read CLAUDE.md in full. `curl .../api/health`: `status:
+"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:
+false`, all 3 feeds alive (aircraft/vessels/trains, silent_hours 0.17)
+-- no LIVENESS ALARM, no repair blocker. Walked KNOWN BROKEN: all items
+resolved/closed or advisory-only per `research_state_check.py` (thrash
+1/10 REPAIR, 0 STARVED, audits none overdue). Read `research/
+PROGRAM_STATE.md` (T-CLIENT rendering-law queue -- not this session's
+territory) and this file's own tail: two PRODUCT/RESEARCH sessions had
+already run earlier today (port-dwell weekly accumulator week 8;
+hazard-rate pooled follow-up, real-data-blocked). `python3 scripts/
+ladder_readiness_check.py`: 0/3 gated roots ready (cftc_cot 49d out,
+sec_8k 28d out, fleet_utilization 59d out) -- no unblocked
+readiness-trigger root today. `python3 scripts/
+data_stream_registry_check.py --unbuilt`: 10/35, unchanged, all
+declined/blocked except un_comtrade (already exhausted, same as every
+session since 2026-08-18). `platform_program.md`'s queue is fully clear
+except P5 (HUMAN-GATED). Checked UI coverage for every gate1_pass root
+in datacore/signal_ladder.json (13 roots) -- all already have a live
+`/data` page; no UI gap to fill.
+
+Turned to the 13 gate1_pass roots' GATE 2 status directly (the
+2026-09-03 session's own finding: most carry no gate-2 test plan on
+file at all). `wikimedia_pageviews_attention`'s own note has said "gate
+2 ... remains untouched" since 2026-08-18, and unlike most of the other
+12 (which need forward stock returns AND some accumulation-time
+archive depth this repo doesn't have yet) it has an unusual property:
+its OWN attention data (Wikimedia pageviews) is independently
+fetchable back to 2015 -- gate 2 does not need to wait on this repo's
+own ~2-month rolling wikiattention archive at all, only on price data.
+
+PRE-FLIGHT DATA-ACCESS CHECK (REASONING STANDARD -- verify before
+building, the same discipline every prior gate-2 script in this repo
+follows): `env | grep -i alpaca` empty. `pip install -r requirements.txt`
+then a direct `yfinance.download('AAPL', period='5d')` call hard-failed
+-- `ws_closed_mid_exchange` at the egress proxy against
+guce.yahoo.com/query2.finance.yahoo.com/fc.yahoo.com, the SAME failure
+class the immediately-preceding hazard-rate-probe session hit today.
+Separately confirmed `https://wikimedia.org/api/rest_v1/metrics/
+pageviews/...` returns a clean 200 with real data -- an independent
+host, not blocked. PRIOR, stated before building anything further
+(REASONING STANDARD #10): expected to have to build a gate-2 script
+that could only prove itself against SYNTHETIC data this session (the
+hazard-rate-probe precedent), leaving the real run for a future session
+with working price access.
+
+THAT PRIOR WAS WRONG, caught only by testing rather than assuming: while
+wiring the script's price-fetch step through `backtest_v2.fetch_bars`
+(the same Alpaca-first/Yahoo-fallback plumbing every other gate-2
+script in this repo reuses per EDGE DOCTRINE #3, NOT the yfinance
+package directly), a live smoke test against NVDA/PLTR came back with
+84 real trading days through 2026-09-04 -- `backtest_v2._yahoo_bars`
+hits `query1.finance.yahoo.com`'s chart API directly via `urllib`,
+which reached where the yfinance PACKAGE's own (different) endpoints
+were blocked. This distinction (which Yahoo path is reachable) is
+itself worth a future session re-checking rather than assuming either
+always works or never does -- this session's environment happened to
+allow one and not the other.
+
+PRE-REGISTERED HYPOTHESIS (written into the script's own docstring
+before any statistic was computed, REASONING STANDARD #10): a pageview
+attention spike on a company's Wikipedia article (z-score >= 2.0
+against its own trailing 90-trading-day history, no lookahead -- only
+strictly prior days feed the baseline) is followed, over the next 1/3/5
+trading days, by ELEVATED volume and realized volatility relative to
+that same ticker's own non-spike days. Per the root's own gate-1 write-up
+("modest for large/mega-caps ... strong for the smaller/more
+retail-driven names") the 19 non-mega seed tickers are the PRIMARY test
+group; NVDA/AAPL/TSLA/AMD are a secondary mega-cap comparison group,
+expected WEAKER (crowded, already-arbitraged attention per EDGE
+DOCTRINE #2/REASONING STANDARD #5). PRIOR carried forward unchanged
+from the gate-1 session: P(gate 2 pass, small/mid-cap subset) ~30%.
+CAP-TIER SPLIT IS COARSE (not a real market-cap feed -- none exists in
+datacore/ -- just "the 4 uncontroversially-mega seed names vs
+everything else"), stated honestly in the script's own docstring, not
+hidden.
+
+BUILT: `scripts/wikiattention_gate2.py` -- pure functions
+(`zscore_series` with an explicit no-lookahead contract unit-tested by
+mutating a FUTURE value and confirming past z-scores don't move,
+`forward_volume_ratio`/`forward_realized_vol` with the spike day's own
+value excluded from its own trailing baseline, `welch_vs_baseline`
+mirroring midas_gate2.py's n>=5-floor convention, `pool_group` for the
+cross-ticker composite test below) plus network orchestration
+(`fetch_wiki_daily_views` direct against Wikimedia, spaced 600ms/call
+-- an unspaced first pass hit a live 429 on the 2 alphabetically-last
+tickers this session, fixed and re-verified; `run_gate2` wiring both
+fetches). `test_wikiattention_gate2.py` -- 30 tests, synthetic-data-only
+(no network), covering the no-lookahead guarantee, baseline-exclusion
+correctness, the welch floor, the pooling mechanism (a 2-ticker
+synthetic check that one ticker's real effect and another's null effect
+combine correctly), and the Wikimedia response parser's malformed-item
+handling (mirrors wikiAttention.ts's own `parsePageviews` discipline).
+
+RAN LIVE against real data: 23 seed tickers, 516 real trading days each
+(2024-08-14 through 2026-09-04, `--days 750` default), 21/23 succeeded
+outright; PLTR/SMCI hit the 429 on the first unspaced pass, succeeded
+on the immediate re-run once spacing was added (23/23 final).
+
+POOLED RESULT (the ONE pre-registered composite per cap-tier group --
+not 23 separate eyeballed p-values, REASONING STANDARD #4):
+
+| group | horizon | metric | n spike / n baseline | mean vs baseline | p-value |
+|---|---|---|---|---|---|
+| small/mid (19 tickers) | 1d | volume_ratio | 366 / 9039 | 1.464x vs 1.038x | <0.0001 |
+| small/mid | 3d | volume_ratio | 366 / 9001 | 1.308x vs 1.053x | <0.0001 |
+| small/mid | 5d | volume_ratio | 366 / 8963 | 1.243x vs 1.062x | <0.0001 |
+| mega (4 tickers) | 1d | volume_ratio | 86 / 1894 | 1.180x vs 0.994x | 0.0004 |
+| mega | 3d | volume_ratio | 84 / 1888 | 1.141x vs 0.997x | 0.0006 |
+| mega | 5d | volume_ratio | 82 / 1882 | 1.130x vs 0.998x | 0.0002 |
+| small/mid | 3d | realized_vol | 366 / 9381 | 0.0361 vs 0.0348 | 0.32 |
+| small/mid | 5d | realized_vol | 366 / 9343 | 0.0406 vs 0.0408 | 0.85 |
+| mega | 3d | realized_vol | 84 / 1968 | 0.0225 vs 0.0202 | 0.18 |
+| mega | 5d | realized_vol | 82 / 1962 | 0.0255 vs 0.0239 | 0.35 |
+
+(h=1 realized_vol omitted from this table and from interpretation: it is
+mathematically degenerate -- the population stdev of a single forward
+day's return is always exactly 0 by construction, not a finding.)
+
+Applying a Bonferroni bar across these 10 non-degenerate comparisons
+(alpha/10 = 0.005): every volume_ratio cell clears it in BOTH groups at
+every horizon; no realized_vol cell comes remotely close. The
+small/mid-cap volume effect (42.6/25.5/18.1 pp excess over baseline at
+1/3/5d) is roughly DOUBLE the mega-cap effect (18.6/14.4/13.2 pp) at
+every horizon -- the exact asymmetry the hypothesis predicted, not
+something chosen after seeing the split.
+
+ROBUSTNESS CHECK beyond the pooled test (guards against the pooled
+p-value being driven by one or two high-magnitude tickers): at h=3,
+21 of 23 tickers individually show mean>baseline (only AMC and MARA
+don't); a sign test on 21/23 gives p=6.6e-5 (`scipy.stats.binomtest`),
+corroborating the pooled result via a completely different mechanism
+(direction-only, magnitude-blind).
+
+WHY THIS IS NOT PROMOTED TO gate2_pass (MEASUREMENT INTEGRITY / REASONING
+STANDARD #2/#7): the volume result is real and unusually robust for a
+first gate-2 pass in this repo, but it is UNCONTROLLED for exactly the
+confound the hypothesis's own header names as the interesting case --
+"attention without news." A pageview spike and a same-day volume spike
+sharing ONE common cause (an earnings release, an 8-K, a viral news
+story breaking that day) would produce this identical statistical
+signature without pageviews leading anything at all -- the forward
+window (day t+1 onward) does not protect against this, since the
+market can still be digesting news that broke on day t's close or
+after, exactly the kind of instrumentation/simultaneity confound the
+2026-09-03 corporate-fleet session hit in a different form. This is a
+DIFFERENT, cleaner situation than that one though: the control is
+concretely buildable, not blocked on elapsed calendar time --
+scripts/wikiattention_gate1.ts already proved EDGAR's 8-K Item-2.02
+dates are reachable via data.sec.gov/submissions for this exact seed
+set, and re-running the pooled test restricted to spike days with NO
+same-day 8-K is the obvious, doable next step. Not attempted this
+session (REASONING STANDARD #4 -- one diagnostic design per pass, not
+chased into a second variant same-day).
+
+`datacore/signal_ladder.json`'s `wikimedia_pageviews_attention` entry
+updated with the full account (status LEFT at `gate1_pass`, not
+promoted -- the confound is a real, unresolved threat to the finding,
+not a formality).
+
+GATES: `python3 -m pytest -q test_wikiattention_gate2.py`: 30/30.
+`python3 -m pytest -q` (full suite): 1630 passed, 1 skipped, 54
+subtests, 0 new failures (was 1598/1/54 before the hazard-rate
+session's own two pre-existing calendar-dependent failures resolved
+themselves post-Labor-Day, confirmed not this session's doing by
+`git stash` A/B). `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"`: valid. `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304=0, unchanged (no `.ts`/`.tsx` touched). `bash scripts/
+counter_ratchet.sh`: `assertions` improved (this session's 30 new
+tests, the direct and sole cause) -- re-pinned in `ci/
+counter_baseline.txt` in this same PR; all other counters unchanged or
+pre-existing drift only, not re-pinned (PROMOTION RULE 5). `bash
+scripts/gated_tests.sh`: GATE PASSED. `npm run build`/visual harness:
+not run -- no client/ files touched, matching every pure-Python
+research-probe session's own precedent.
+
+BACKTEST: N/A per PROMOTION RULE 3 -- ships a GATE 2 (SIGNAL)
+statistical test and its result, not a strategy/threshold/scoring
+change; `wikimedia_pageviews_attention` remains ungated for trading
+(current_gate 1) and its `/data` page is RAW-only, so nothing
+customer-facing or trading-facing changes either way.
+
+CROSS-SYSTEM INTEGRATION: none new -- reuses `backtest_v2.fetch_bars`
+(EDGE DOCTRINE #3) and the existing `datacore/wiki_articles.json` seed
+table; no new archive, join, fetch host, or dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 -- no client/ files
+touched.
+
+NEXT for whichever session picks this root back up: build the
+"attention without same-day 8-K" control -- fetch each spike day's
+ticker's EDGAR submissions (data.sec.gov/submissions/CIK##########.json,
+the exact call wikiattention_gate1.ts already makes) and re-run
+`pool_group` restricted to spike days with no Item-2.02 (or any 8-K)
+filed that day or the day before. If the volume effect survives on the
+news-free subset, that is the clean gate-2 pass this session could not
+yet claim; if it collapses, the effect was news-coincidence all along
+and the root should be marked killed at gate 2, not left ambiguous.
+Either result is more valuable than re-running the pooled test as-is
+again. A live-verified re-check of which Yahoo endpoint this sandbox
+can reach (this session's own finding: `backtest_v2`'s direct
+`query1.finance.yahoo.com` call succeeded where the `yfinance` package
+failed) is also worth a one-line note in a future session's own
+pre-flight check, not assumed permanent.
+
+STARVED: no -- this session had capacity for exactly one clean, scoped
+PRODUCT action (a named, unclaimed "gate 2 remains untouched" item on
+an already-gate-1-passed root, with its own concretely buildable test
+design), used in full including verifying live data access before
+committing to a synthetic-only plan, running the real test rather than
+stopping at "built but blocked" once access turned out to work,
+pre-registering the hypothesis and cap-tier split before computing any
+statistic, applying a multiple-comparison correction across every cell
+tested rather than reporting the best-looking one, and declining to
+promote a real-but-confounded result to a clean gate-2 pass.
