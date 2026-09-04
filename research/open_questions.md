@@ -8774,6 +8774,90 @@ nowcast, sector-level stress/quality events. Priors stated per item.)
    comes back too thin at 5-year depth, widening `since` further back
    is the correct next lever (FDIC's API serves full history to 1934),
    not re-running the same window and hoping for a different seed.
+
+   **UPDATE 2026-09-04 (scheduled-routine [PRODUCT] session) — GATE 2
+   RUN, GATE FAILED.** `server_version` confirmed `1.0.841` live on
+   `/api/health` (matches PR #997's tag) before calling the probe. `GET
+   /api/diag/fdic_gate2?since=2022-01-01&horizons=5,10,20&token=
+   $DIAG_TOKEN` against production:
+
+   | horizon | n_events | event mean | base rate | 95% bootstrap CI | p (two-sided) | signal_detected |
+   |---|---|---|---|---|---|---|
+   | 5d  | 13 | -1.247% | +0.106% | [-2.02%, +2.28%] | 0.208 | false |
+   | 10d | 13 | -1.083% | +0.043% | [-2.70%, +3.03%] | 0.4395 | false |
+   | 20d | 13 | -0.305% | +0.148% | [-3.47%, +4.26%] | 0.818 | false |
+
+   `n_failure_events_fetched=13` (2022-01-01 to today — the 2023
+   regional-bank wave plus the quiet years either side of it, as
+   planned), `n_kre_bars=1172`, `insufficient_n:false` at all three
+   horizons (13 > the module's own 5-event floor). VERDICT: GATE 2
+   (SIGNAL) FAILED — no horizon clears the pre-committed 95%
+   significance bar. This matches the PRIOR stated in the 2026-09-03
+   build session BEFORE this probe existed ("expected FDIC failures to
+   be too sparse and too widely telegraphed... for a clean signal"):
+   the honest prediction and the honest result agree, which is the
+   REASONING STANDARD #10 discipline working as intended, not a
+   coincidence to read extra meaning into.
+
+   Two things worth naming without over-reading them (both point the
+   same direction, neither is significant on its own):
+   - Event-mean KRE return is NEGATIVE at all three horizons while the
+     base rate is POSITIVE at all three — consistent with "regulators
+     seize banks only after trouble is already visible, and regional-
+     bank stress bleeds into the sector ETF around the same time" (the
+     REASONING STANDARD #5 "who's on the other side" answer this root
+     always expected: no informational edge, just correlated distress
+     already priced by the time a failure is announced).
+   - The p-value and the |event-mean| both SHRINK monotonically as the
+     horizon lengthens (0.208→0.4395→0.818; -1.25%→-1.08%→-0.31%) — the
+     signature of a short-lived correlated dip reverting toward the
+     base rate, not a persistent, tradeable lead/lag relationship
+     building over time.
+
+   Neither observation clears the bar this root pre-committed to, and
+   dressing a p=0.21 non-result up as "a promising negative correlation"
+   would be exactly the multiple-hypothesis-fishing / story-after-the-
+   fact failure REASONING STANDARD #4 and #10 exist to prevent. Logged
+   as a clean GATE 2 FAIL, ROOT VALIDATION LADDER: "root that fails a
+   gate is logged with its layer of death... may not skip gates
+   regardless of how promising they looked."
+
+   NOT done this session, and stated honestly as a real limitation
+   rather than closed over: `n=13` is a small sample even though it
+   clears the module's own insufficient-n floor, and `since=2022-01-01`
+   deliberately excludes the 2008-2009 financial crisis and the 2010-12
+   post-crisis wind-down — the two historical periods with by far the
+   most FDIC failure events (hundreds vs. this window's 13) and the
+   periods most likely to contain a genuine signal if one exists at
+   all. KRE itself has traded since 2006-06, so a `since=2007-01-01`
+   pull is mechanically possible with the exact same probe and no code
+   change. This session did not widen the window: REASONING STANDARD #4
+   ("distrust results in proportion to variants tried") argues against
+   immediately re-running the same test with a different window in the
+   same session chasing a different answer, and the crisis-era sample
+   is a materially different regime (mass, correlated, systemic
+   failures) from the sparse, idiosyncratic post-2022 sample this test
+   was designed around — conflating them without RULE REVIEW's
+   regime-conditioning would itself be a REASONING STANDARD #2
+   violation. Filed here as the honest next lever, not run speculatively
+   this session.
+
+   DISPOSITION: `fdic_bank_failures` GATE 2 (SIGNAL) status is
+   `gate2_fail` in `datacore/signal_ladder.json` as of this session.
+   GATE 1 (DATA) remains PASSED and unaffected — the failures feed
+   itself is still accurate; it is the KRE-forward-return hypothesis on
+   TOP of that feed that did not clear its bar. The `/data` and `/api/v1`
+   surfaces stay exactly as they are (RAW overlay, `kind:'derived'`, no
+   predictive claim) — nothing here changes what is shown, because
+   nothing predictive was ever surfaced from this root. NEXT for a
+   future session, if this root is revisited: (a) a
+   `since=2007-01-01` crisis-era-inclusive re-run on the same probe,
+   explicitly regime-split (pre-2008 / 2008-2012 / 2013-2021 / 2022+)
+   rather than pooled, per RULE REVIEW's own "never evaluate on pooled
+   results alone" — or (b) treat this as a closed, negative result and
+   redirect session capacity elsewhere; either is a legitimate call for
+   whichever session picks it up, not a decision this session needed to
+   make.
 4. NHTSA COMPLAINTS VELOCITY (api.nhtsa.gov keyless JSON +
    static.nhtsa.gov FLAT_CMPL.zip daily bulk, updated even Sundays;
    complaints to mid-1990s, recalls to 1960s; public domain).
