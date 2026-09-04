@@ -75887,3 +75887,130 @@ had just become unblocked), used in full including verifying the live
 deploy version before calling the probe, and reporting the honest
 negative result without dressing up a non-significant directional
 hint as a finding.
+
+## 2026-09-04 (scheduled-routine session, second PRODUCT session this UTC day) [PRODUCT] — T-DATACORE, docs+data-only (datacore/port_dwell_weekly.json, datacore/signal_ladder.json, research/open_questions.md): port-dwell weekly accumulator gains week 8, still GATE 2 infrastructure accumulation
+
+SESSION-START: read CLAUDE.md in full, `research/PROGRAM_STATE.md`,
+`research/experiments.md`'s tail (the immediately-preceding 2026-09-04
+session had already run the `fdic_gate2` probe and logged an honest
+GATE 2 negative — that root is now closed for the day, per its own
+NEXT). `python3 scripts/research_state_check.py`: thrash ratio 2/10
+REPAIR, 0 consecutive STARVED, audits register none overdue, KNOWN
+BROKEN advisory-only. `curl https://voltradeai.com/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, all feeds alive — no LIVENESS ALARM, no repair
+blocker.
+
+AXIS SURVEY: `python3 scripts/data_stream_registry_check.py --unbuilt`:
+10/35, unchanged from every session since 2026-08-18 (all
+declined/blocked-on-human-signup or already-exhausted). Scanned
+`datacore/signal_ladder.json`'s `gate1_pass` roots for a concrete,
+dated, unclaimed trigger the way the 2026-09-03(4) session's own method
+did. `port_dwell_maritime_transit`'s own entry names the exact
+condition: its weekly accumulator (`datacore/port_dwell_weekly.json`,
+built 2026-09-03) had captured through week 7 (2026-08-21..08-28); week
+8 (2026-08-28..09-04) completes at 2026-09-04T00:00:00Z — already past
+as of this session's start (13:06Z) — so a new week was live-capturable
+today, exactly the "re-run every future session that touches this root"
+NEXT the prior session filed. This is `datacore/signal_ladder.json`'s
+own queued, cheapest, cleanest PRODUCT action available this session:
+zero new code, an existing idempotent probe, direct progress toward a
+named GATE 2 threshold (~15-20 weeks).
+
+READ BEFORE WRITE: read `server/portDwellWeekly.ts` in full (the
+archive-start-anchored week grid, `lastCompletedWeekIndex`,
+`missingWeekIndices`, `isDegenerateAllZeroRead` guard) and
+`scripts/portdwell_weekly_snapshot.ts` in full before running it —
+confirmed both skip conditions (`coverage_caveat`, degenerate all-zero
+read) are still the only ways a week gets silently dropped, and that a
+week already in the file is never re-fetched (idempotent by
+construction, safe to run without first diffing state by hand).
+
+RAN: verified `server_version` via `/api/data/layers` reads `1.0.842`,
+matching this branch's `package.json` HEAD (the deploy-lag discipline
+every recent probe session in this file follows), then `DIAG_TOKEN=...
+npx tsx scripts/portdwell_weekly_snapshot.ts https://voltradeai.com`.
+Result: `last_completed_week_index: 8`, `weeks_captured_this_run: [8]`,
+`weeks_skipped_this_run: []` — week 8 captured cleanly, neither skip
+condition fired. `datacore/port_dwell_weekly.json` now holds 3 weeks
+(6, 7, 8), all 9 ports, aggregate-only fields unchanged in shape.
+
+Read the resulting numbers before writing anything about them
+(MEASUREMENT INTEGRITY discipline — never claim a series is healthy
+without looking): all 9 ports read plausible dwell medians (7.3h-13h)
+and internally consistent visit/vessel counts for week 8. Noted but
+explicitly NOT interpreted as a finding (REASONING STANDARD #4 — 3
+points is not a trend, and this session is not chasing a story out of
+an accumulation task): `visits_completed` rose at every one of the 9
+ports across all three captured weeks so far (e.g. port_la
+126->214->301, port_lb 139->191->293), materially faster than
+`unique_vessels` grew over the same span (78->111->124, 94->133->152).
+Three candidate explanations are equally plausible with this little
+data — ordinary week-to-week AIS coverage variance, a real
+late-August/September seasonal volume pattern, or the series still
+being early enough that some residual archive-completeness ramp is
+still resolving — and none is favored here. Filed as a thing a future
+session with more weeks on file should watch (does the
+visits-per-unique-vessel ratio keep climbing, or stabilize), not as a
+hypothesis to test now.
+
+UPDATED: `research/open_questions.md`'s PORT DWELL ANALYTICS section
+(the existing GATE 2 infrastructure bullet) with the capture result and
+the above observation, verbatim reasoning preserved rather than
+duplicated with different wording. `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry: `last_update_date` 2026-09-03 ->
+2026-09-04, targeted string append to its existing `note`/`source_ref`
+fields (2 insertions, same discipline the 2026-08-18 FDIC and
+2026-08-16 gnss_integrity sessions established for this file — never a
+full `json.dump` reformat). `current_gate`/`status` unchanged
+(1/`gate1_pass`) — 3 weeks is still accumulation, not a gate result.
+
+GATES: this PR touches only `datacore/*.json` (data + a targeted note
+append) and `research/open_questions.md` — no application code, no
+test file reads either JSON structurally (`grep -rl port_dwell_weekly
+server/ scripts/` finds only the writer script itself, confirmed before
+editing). `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"` and the equivalent for `port_dwell_weekly.json`:
+both valid. `python3 scripts/ladder_readiness_check.py`: 3/3 gated
+roots unaffected (`port_dwell_maritime_transit` is not itself a
+readiness-trigger root — its gate is time/volume-accumulation gated by
+this same script's own weekly-capture NEXT, not a calendar trigger).
+`python3 scripts/research_state_check.py`: all four checks OK,
+unchanged. No `npm ci`/`pytest`/`tsc`/build/visual run required or
+performed, matching the precedent PR #990/#998 (docs/data-only research
+changes) set for this exact shape of PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 2 infrastructure accumulation
+for a root still at `gate1_pass`; no trading path, scoring, sizing, or
+threshold touched. `port_dwell_maritime_transit` has no `/data` or
+`/api/v1` surface gated on this file (the existing `/api/data/portdwell`
+route serves the live rolling window, unaffected), so this session's
+change has zero live customer or trading impact.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses the existing
+`portdwell_window` diagnostic probe and this instance's own existing
+DIAG_TOKEN; no new archive, join, fetch, or external dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+NEXT: same as the prior session's own NEXT, now advanced by one week —
+keep running `scripts/portdwell_weekly_snapshot.ts` every future
+session that touches this root until the file holds ~15-20+ clean
+weeks (currently 3), then attempt GATE 2 proper per the test plan
+already on file (reconcile against a published congestion proxy first,
+then the anomaly-vs-forward-XRT/IYT-returns test, regime-split,
+discounted for variants tried). A future session with more weeks
+accumulated should also revisit the visits-vs-unique-vessels ratio
+noted above rather than this one speculating further on 3 points.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the immediately-preceding sessions' own stated,
+concretely-specified NEXT item for this root — an idempotent,
+zero-new-code accumulation step that had just become newly available),
+used in full including verifying the live deploy version before
+calling the probe, reading the resulting numbers before writing
+anything about them, and explicitly declining to over-interpret a
+3-point series.
