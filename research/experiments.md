@@ -75609,3 +75609,128 @@ ladder entries found), used in full including the read-before-write
 trace of the reused RNG/probe/wiring patterns before writing any new
 code and a full local gate run (build + all touched test files + tsc +
 python suite + counters) before opening the PR.
+
+## 2026-09-04 (scheduled-routine session) [PRODUCT] — T-DATACORE-adjacent, docs-only (datacore/signal_ladder.json, research/open_questions.md, research/experiments.md): fdic_bank_failures GATE 2 (SIGNAL) event study RUN against production — GATE FAILED, honest negative result logged
+
+SESSION-START: read CLAUDE.md in full, `research/PROGRAM_STATE.md`, the
+tail of `research/experiments.md` (last several tagged sessions —
+`python3 scripts/research_state_check.py`: thrash ratio 1/10 REPAIR,
+well under the 7+ trigger; 0 consecutive STARVED sessions; audits
+register none overdue), `research/open_questions.md`'s DATA STREAM
+EXPANSION #3 (FDIC BANK DATA) entry. KNOWN BROKEN: all 39 items closed
+or advisory-only per the script's own note (3 without an explicit
+close marker — #26/#34/#38 — already investigated and confirmed either
+fixed-with-test or independently closed by prior sessions per that
+entry's own text; nothing live to repair). `curl https://voltradeai.com
+/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, feeds all non-dead — no LIVENESS ALARM.
+
+Went straight to the immediately-preceding session's own stated NEXT
+(2026-09-03, fifth PRODUCT session that day, PR #997): the
+`fdic_gate2` diagnostic probe was built and unit-tested but deliberately
+left UNRUN pending deploy ("run deferred to deploy"). Verified
+`server_version` on `/api/data/layers` reads `1.0.841`, matching
+`package.json` at PR #997's own HEAD and confirming the deploy landed
+before calling the probe — same discipline the 2026-09-01/02 shadow-
+fleet and 2026-08-30 Omori probes established (build now, verify deploy,
+run once live).
+
+RAN: `GET /api/diag/fdic_gate2?since=2022-01-01&horizons=5,10,20&token=
+$DIAG_TOKEN` against production. Full result table and analysis in
+`research/open_questions.md`'s 2026-09-04 UPDATE under DATA STREAM
+EXPANSION #3 (reproduced in full there — not duplicated verbatim here
+per this file's own precedent of pointing to the fuller account rather
+than restating it twice). Summary: n=13 failure events (2022-01-01 to
+today), n_kre_bars=1172. All three horizons (5/10/20 trading days)
+FAILED the pre-committed 95% bootstrap significance bar —
+`signal_detected:false` at every horizon, `insufficient_n:false` (13
+clears the module's own 5-event floor so this is a real negative, not
+a data-starved non-result). p-values 0.208 / 0.4395 / 0.818 (5d/10d/
+20d) — not close to the bar at any horizon.
+
+This matches the PRIOR this root's own 2026-09-03 build session stated
+BEFORE the probe existed: "expected FDIC failures to be too sparse and
+too widely telegraphed... for a clean signal — this is exactly the
+'who's on the other side' question REASONING STANDARD #5 demands, and
+the honest prior is skeptical, not optimistic." The honest prediction
+and the honest result agree — REASONING STANDARD #10 (state the prior,
+then update) working as intended, not being retrofitted after the fact.
+
+Noted but NOT oversold: event-mean KRE return is negative at all three
+horizons (base rate positive at all three), and both |event mean| and
+the p-value shrink monotonically as the horizon lengthens — the shape
+of a short correlated dip reverting toward the base rate, not a
+persistent lead/lag relationship. Neither observation clears the
+pre-registered bar. Writing this up as "a promising negative
+correlation" would be exactly the multiple-hypothesis / after-the-fact-
+story failure mode REASONING STANDARD #4 and #10 exist to prevent, so
+it is reported as noise consistent with the null, not as a soft
+finding.
+
+DISPOSITION: `datacore/signal_ladder.json`'s `fdic_bank_failures` entry
+updated: `status` `gate1_pass` → `gate2_fail`, `current_gate` 1 → 2,
+per ROOT VALIDATION LADDER ("a root that fails a gate is logged with
+its layer of death... may not skip gates regardless of how promising
+they looked"). GATE 1 (DATA) is unaffected and stays PASSED — the
+failures feed itself is still verified-accurate; only the KRE-forward-
+return hypothesis built on top of it failed to clear its bar. No
+`/data` or `/api/v1` surface changes: this root was always RAW/derived
+with no predictive claim surfaced, so a failed SIGNAL gate changes
+nothing customer-facing (RAW OVERLAYS vs SIGNALS rule — nothing gated
+was ever shown, so nothing needs to be un-shown).
+
+Real limitation stated honestly, not closed over: `since=2022-01-01`
+excludes the 2008-2009 financial crisis and 2010-12 wind-down, the
+periods with by far the most FDIC failure events and the likeliest
+place for a genuine signal if one exists at all. KRE has traded since
+2006-06, so a `since=2007-01-01` re-run is mechanically possible with
+the exact same probe and zero code changes. Deliberately NOT run this
+session — REASONING STANDARD #4 (distrust results in proportion to
+variants tried) argues against immediately re-running the same test
+with a wider window in the same sitting the first result came back
+negative, and the crisis era is a materially different regime (mass,
+correlated, systemic failures vs. this window's sparse, idiosyncratic
+ones) that RULE REVIEW's own "never evaluate on pooled results alone"
+says should be regime-split, not pooled in with the post-2022 sample.
+Filed as the honest NEXT lever for whichever future session revisits
+this root, not attempted speculatively here.
+
+GATES: this PR touches only `datacore/signal_ladder.json` and
+`research/*.md` — no application code, no test surface. Validated
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+(valid) and re-ran `python3 scripts/ladder_readiness_check.py` (3/3
+gated roots unaffected — this root moved off `gate1_pass`/no-trigger
+into a terminal `gate2_fail`, which the readiness script correctly does
+not list as a WAITING/READY row since there is no future re-run
+condition attached). No `npm ci`/`pytest`/`tsc`/build/visual run
+required or performed, matching the precedent PR #990 (docs-only KNOWN
+BROKEN closure) set for pure research-file changes.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a GATE 2 (SIGNAL)
+validation result for a root that was never a SIGNAL and never touched
+any trading path, scoring, sizing, or threshold, regardless of the
+gate's outcome.
+
+CROSS-SYSTEM INTEGRATION: none — no new archive, join, fetch, or
+external dependency; this session only ran an already-shipped read-only
+probe and recorded its result.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+NEXT: a future session may (a) run the same probe with
+`since=2007-01-01`, explicitly regime-split (pre-2008 / 2008-2012 /
+2013-2021 / 2022+) rather than pooled, per RULE REVIEW's own
+regime-conditioning discipline, or (b) treat this as a closed negative
+result and spend capacity elsewhere. Either is a legitimate call for
+that session, not a decision this one needed to make.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the immediately-preceding session's own stated,
+concretely-specified NEXT item — a deploy-gated diagnostic run that
+had just become unblocked), used in full including verifying the live
+deploy version before calling the probe, and reporting the honest
+negative result without dressing up a non-significant directional
+hint as a finding.
