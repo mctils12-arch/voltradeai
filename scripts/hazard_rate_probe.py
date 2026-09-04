@@ -202,6 +202,20 @@ def bucket_hazard(durations: Sequence[int | None], forward_flags: Sequence[bool]
     return out
 
 
+def _load_csd_module():
+    """Loads critical_slowing_down_probe.py by path for find_transition_
+    onsets reuse (EDGE DOCTRINE #3 — don't re-derive already-built onset
+    detection). Factored out of run_probe so run_pooled_probe below can
+    share the same import-by-path boilerplate instead of duplicating it."""
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location(
+        "critical_slowing_down_probe",
+        os.path.join(os.path.dirname(__file__), "critical_slowing_down_probe.py"))
+    csd = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(csd)
+    return csd
+
+
 def run_probe(days: int = 2520, horizon: int = 10, ticker: str = "SPY",
               bucket_edges: Sequence[int] = DEFAULT_BUCKET_EDGES) -> dict:
     """Orchestrates the full gate-2 probe against REAL data. Requires
@@ -221,12 +235,7 @@ def run_probe(days: int = 2520, horizon: int = 10, ticker: str = "SPY",
     took an onset-index list, not a hardcoded ticker."""
     import backtest_v2 as bt
 
-    import importlib.util
-    _spec = importlib.util.spec_from_file_location(
-        "critical_slowing_down_probe",
-        os.path.join(os.path.dirname(__file__), "critical_slowing_down_probe.py"))
-    csd = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(csd)
+    csd = _load_csd_module()
 
     primary = bt.fetch_bars(ticker, days)
     vxx = bt.fetch_bars("VXX", days)
@@ -261,17 +270,179 @@ def run_probe(days: int = 2520, horizon: int = 10, ticker: str = "SPY",
     }
 
 
+# ---------------------------------------------------------------------------
+# POOLED IDIOSYNCRATIC-ONSET FOLLOW-UP (2026-08-31 GATE 2 entry's own named
+# NEXT (ii), open_questions.md — queued and unclaimed until this session).
+#
+# The 2026-08-31 broader-universe run found SPY/QQQ/AAPL/MSFT's onset DATES
+# were mostly byte-identical: classify_regime_5level's PANIC/BEAR/CAUTION
+# branches fire on VXX alone, before any ticker-specific term, so testing
+# five tickers through that classifier was much closer to re-running the
+# same VXX series five times than to five independent trials. Only AAPL and
+# MSFT contributed one genuinely idiosyncratic onset each (their own price
+# series broke a boundary VXX alone did not trigger) — real signal, but at
+# n<=2 per ticker, far too underpowered on its own (MIN_GAPS_FOR_STATS=5).
+#
+# This section implements that entry's own follow-up (ii): strip each
+# ticker's SPY-shared onsets, then POOL the idiosyncratic remainder across
+# many tickers into one combined renewal-process gap series, the only way
+# to reach a usable n without re-coupling through the shared VXX backdrop
+# the filter exists to remove.
+# ---------------------------------------------------------------------------
+
+def onset_dates(onsets: Sequence[dict], dates: Sequence[str]) -> list[str]:
+    """Maps onset bar-indices (from find_transition_onsets) to calendar-date
+    strings via THAT ticker's own date array. Indices are bar positions
+    into one ticker's own bars and are never assumed comparable across
+    tickers with a potentially different trading-day array (a listing gap,
+    a different fetch window) — this always looks the date up rather than
+    reusing another ticker's index against a different array."""
+    return [dates[o["index"]] for o in onsets if 0 <= o["index"] < len(dates)]
+
+
+def idiosyncratic_onset_dates(ticker_dates: Sequence[str],
+                               reference_dates: Sequence[str]) -> list[str]:
+    """Keeps only the onset dates NOT also present in the reference
+    ticker's (SPY's) own onset-date set — see the module-level note above
+    for why: a shared VXX-driven onset date, counted once per ticker,
+    would silently multiply one market-wide event into N 'independent'
+    onsets. What survives is the part of each ticker's onset history
+    attributable to its OWN price series, not the shared vol backdrop."""
+    ref = set(reference_dates)
+    return [d for d in ticker_dates if d not in ref]
+
+
+def pool_idiosyncratic_onsets(per_ticker_dates: dict[str, Sequence[str]],
+                               min_days_apart: int = 5) -> dict:
+    """Pools idiosyncratic onset dates from MANY tickers into one combined
+    chronological renewal-process gap series.
+
+    UNRESOLVED JUDGMENT CALL, stated rather than hidden (REASONING
+    STANDARD #7/#10): two DIFFERENT tickers going idiosyncratic within a
+    few days of each other could be two genuinely independent renewals, or
+    one correlated shock landing on both (e.g. two names in the same
+    sector). `min_days_apart` drops any pooled date within that many
+    calendar days of an already-kept date (earliest kept, later dropped)
+    as a likely-correlated duplicate rather than counting it as a second
+    independent renewal — a real methodology choice that trades away some
+    genuine independent signal to avoid inflating n with correlated
+    near-duplicates. `n_dropped_as_correlated_duplicate` is always
+    reported so a future reader can see how much this cost;
+    `min_days_apart=0` recovers the undeduplicated pool for comparison.
+
+    Gaps here are CALENDAR days between pooled dates, not trading-day bar
+    indices like inter_onset_gaps() elsewhere in this module — pooled
+    dates come from different tickers' own bar arrays, not guaranteed to
+    share one common index space, so calendar-day subtraction on the date
+    strings themselves is the only sound common ground. A real (if usually
+    0-3-day) numeric difference from the trading-day convention used
+    elsewhere in this file, stated explicitly rather than silently mixed
+    with it."""
+    from datetime import date as _date
+
+    all_dated = sorted(
+        (d, tkr) for tkr, dates in per_ticker_dates.items() for d in dates
+    )
+    kept: list[tuple[str, str]] = []
+    dropped_dup = 0
+    last_kept: "_date | None" = None
+    for d, tkr in all_dated:
+        dt = _date.fromisoformat(d)
+        if last_kept is not None and (dt - last_kept).days < min_days_apart:
+            dropped_dup += 1
+            continue
+        kept.append((d, tkr))
+        last_kept = dt
+
+    gaps = [
+        (_date.fromisoformat(kept[i][0]) - _date.fromisoformat(kept[i - 1][0])).days
+        for i in range(1, len(kept))
+    ]
+    return {
+        "pooled_dates": [d for d, _ in kept],
+        "pooled_tickers": [t for _, t in kept],
+        "n_pooled_onsets": len(kept),
+        "n_dropped_as_correlated_duplicate": dropped_dup,
+        "min_days_apart": min_days_apart,
+        "gaps_calendar_days": gaps,
+        "gap_cv": gap_cv(gaps),
+        "gap_cv_insufficient_n": len(gaps) < MIN_GAPS_FOR_STATS,
+        "gap_cv_bootstrap_range": bootstrap_cv_range(gaps),
+    }
+
+
+def run_pooled_probe(tickers: Sequence[str] = ("QQQ", "AAPL", "MSFT", "IWM"),
+                      reference_ticker: str = "SPY", days: int = 2520,
+                      min_days_apart: int = 5) -> dict:
+    """Orchestrates the 2026-08-31 entry's own named follow-up (ii) against
+    REAL data. Requires network/Alpaca access this sandbox did not have at
+    build time — see module docstring; a future session with real data
+    access can call this directly or via `--pool`. Reuses fetch_bars/
+    regime_series/find_transition_onsets verbatim, same as run_probe
+    (EDGE DOCTRINE #3)."""
+    import backtest_v2 as bt
+    csd = _load_csd_module()
+
+    vxx = bt.fetch_bars("VXX", days)
+
+    def _onset_dates_for(tkr: str) -> tuple[list[str], dict]:
+        primary = bt.fetch_bars(tkr, days)
+        labels, quality = bt.regime_series(primary, vxx)
+        onsets = csd.find_transition_onsets(labels)
+        meta = {
+            "ticker": tkr, "vxx_data_quality": quality,
+            "n_days": len(labels),
+            "date_range": [primary["date"][0], primary["date"][-1]] if primary["date"] else [],
+        }
+        return onset_dates(onsets, primary["date"]), meta
+
+    ref_dates, ref_meta = _onset_dates_for(reference_ticker)
+    ref_meta["n_onsets_total"] = len(ref_dates)
+    ref_meta["n_onsets_idiosyncratic"] = None  # the reference DEFINES "shared"; it has no idiosyncratic count of its own
+
+    per_ticker_idio: dict[str, list[str]] = {}
+    per_ticker_meta: dict[str, dict] = {reference_ticker: ref_meta}
+    for tkr in tickers:
+        dates, meta = _onset_dates_for(tkr)
+        idio = idiosyncratic_onset_dates(dates, ref_dates)
+        meta["n_onsets_total"] = len(dates)
+        meta["n_onsets_idiosyncratic"] = len(idio)
+        per_ticker_idio[tkr] = idio
+        per_ticker_meta[tkr] = meta
+
+    pooled = pool_idiosyncratic_onsets(per_ticker_idio, min_days_apart=min_days_apart)
+
+    return {
+        "reference_ticker": reference_ticker,
+        "tickers": list(tickers),
+        "per_ticker": per_ticker_meta,
+        "pooled": pooled,
+    }
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--days", type=int, default=2520,
                      help="calendar days of history to pull (default ~10y)")
     ap.add_argument("--horizon", type=int, default=10,
-                     help="trading-day forward window defining 'a new onset soon'")
+                     help="trading-day forward window defining 'a new onset soon' (single-ticker mode only)")
     ap.add_argument("--ticker", type=str, default="SPY",
-                     help="primary equity series to measure onsets on (VXX stays the shared vol backdrop)")
+                     help="primary equity series to measure onsets on in single-ticker mode; the REFERENCE ticker in --pool mode (VXX stays the shared vol backdrop either way)")
+    ap.add_argument("--pool", action="store_true",
+                     help="run the pooled-idiosyncratic-onset follow-up (2026-08-31 NEXT (ii)) across --tickers instead of the single-ticker probe")
+    ap.add_argument("--tickers", type=str, default="QQQ,AAPL,MSFT,IWM",
+                     help="comma-separated tickers pooled against --ticker as the reference (--pool mode only)")
+    ap.add_argument("--min-days-apart", type=int, default=5,
+                     help="drop a pooled onset within this many calendar days of an already-kept one, as a likely-correlated duplicate (--pool mode only)")
     args = ap.parse_args()
     try:
-        out = run_probe(days=args.days, horizon=args.horizon, ticker=args.ticker)
+        if args.pool:
+            out = run_pooled_probe(
+                tickers=[t.strip() for t in args.tickers.split(",") if t.strip()],
+                reference_ticker=args.ticker, days=args.days,
+                min_days_apart=args.min_days_apart)
+        else:
+            out = run_probe(days=args.days, horizon=args.horizon, ticker=args.ticker)
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         sys.exit(1)
