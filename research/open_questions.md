@@ -16848,3 +16848,172 @@ believing the codebase's own output, and surfacing the higher-value
 structural finding (the onset-counting scaffold's own five-times-repeated
 power ceiling) rather than stopping at "this one field didn't pass
 either."
+
+## 2026-09-05 (scheduled-routine session, market-hours run) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC): the one question gate 2 left open, ATTEMPTED against real data — NOT PASSED, and a Wikimedia rate-limit finding worth a future session's attention
+
+SESSION-START: `/api/health` via `DIAG_TOKEN`-free public check: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, all feeds alive — no
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits none
+overdue, thrash 1/10 REPAIR (below trigger), known_broken 41/4-advisory,
+starvation 0/10 — no loop-health blocker, not a REPAIR session.
+`python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready (cftc_cot
+waiting 49d/needs ~15 more reports, sec_8k_earnings_language waiting 27d/
+needs 90d total, fleet_utilization_aircraft waiting 58d until its 2026-11-02
+earnings-date trigger). `python3 scripts/data_stream_registry_check.py
+--unbuilt`: 10/35, all declined/blocked, unchanged. `list_pull_requests
+(state=open)`: exactly one, PR #604 (the pre-existing intentional draft
+backlog) — no in-flight PR to judge or cherry-pick.
+
+PRIMARY-ACTION SELECTION: with no ladder-gated root newly ready, no unbuilt
+stream newly buildable, and no PR to judge, checked the immediately
+preceding sessions' own NEXT notes (SESSION BUDGET fall-through #1).
+wikimedia_pageviews_attention's `datacore/signal_ladder.json` entry ends
+with an unambiguous, concretely-buildable, unclaimed item: "GATE 3
+(backtested entry/exit rule) remains the ladder's own next step." This is
+the ladder's own next real step for the root this UTC day's first two
+sessions already advanced twice (a live SIGNAL surface, then its v1
+mirror) — judged higher-value than starting a brand-new foreign-field probe
+(RESEARCH tier fallback #2), since it closes out an already-open thread
+rather than opening a new one, and GATE 3 has never been attempted for ANY
+root in this codebase (`grep -r gate3 scripts/` returns nothing), making it
+a genuinely new capability, not a repeat of a known-working pattern.
+
+PRE-REGISTRATION (REASONING STANDARD #10, written into scripts/
+wikiattention_gate3.py's own docstring before any statistic below was
+computed): GATE 2 validated exactly one thing — forward TRADING VOLUME is
+elevated after a news-free attention spike in small/mid-cap names. It made
+NO price-direction claim and found NO realized-volatility effect. GATE 3
+asks the question gate 2 left open: does a tradeable rule exist? RULE
+UNDER TEST (one, chosen before seeing any result, REASONING STANDARD #4 —
+no variant chasing): long-only, buy at the close of a news-free attention-
+spike day (the exact validated signal — same z>=2.0/90-day/no-8-K-on-day-
+or-day-before filter as wikiattention_gate2_newsfree.py, reused by import),
+sell at close h={1,3,5} trading days later. BASELINE: every non-spike day,
+same convention as every prior gate-2 script (the same-universe,
+same-holding-period random entry REASONING STANDARD #3 demands). COSTS:
+read directly from system_config.py's own BASE_CONFIG (READ BEFORE WRITE
+#3, not invented) — SLIPPAGE_ILLIQUID=0.2%/side for the small/mid-cap
+primary group (2x = 0.40% round trip, this root's own less-liquid EDGE
+DOCTRINE #2 target group), SLIPPAGE_PCT=0.05%/side for the mega-cap
+secondary group (0.10% round trip). VERDICT RULE, stated in advance: GATE 3
+passes only if the primary small/mid-cap group's pooled forward return
+BOTH (a) significantly exceeds baseline at the Bonferroni bar for this
+3-horizon family (alpha/3~=0.0167) AND (b) is itself positive net of the
+round-trip cost above — beating a base rate while being cost-negative is
+not a tradeable rule. PRIOR, stated before running (LOW, ~15-20%): (1)
+gate 2 is a volume finding, not a direction finding — no direct evidential
+support for a directional rule exists yet; (2) SECOND-ORDER THINKING
+(REASONING STANDARD #5): Barber & Odean (2008), the canonical retail-
+attention paper, documents attention-driven buying pressure that tends to
+PARTIALLY REVERSE over the following days — the opposite of what a
+long-only continuation rule needs; (3) COSTS FIRST (REASONING STANDARD
+#6): 0.40% round-trip is large relative to plausible short-horizon mean
+effects, even a real one.
+
+LIVE RUN, ATTEMPT 1 (23 tickers, 0.6s wiki-fetch spacing, matching gate-2's
+own spacing): 9/19 small-mid tickers + 1/4 mega tickers (AMD) succeeded;
+the other 13 hit Wikimedia's own HTTP 429 rate limit after 3 retries each
+(NVDA/AAPL/TSLA/GME/AMC/SOFI/HOOD/RIVN/RDDT/SMCI/CVNA/UPST/MARA), COIN
+succeeded but had only 3 news-free spike days (below the n>=5 welch-test
+floor at the per-ticker level, still pooled). RESULT (small/mid pooled,
+n=135 spike-day observations / n_baseline=4433 across 9 tickers): p=0.956/
+0.7108/0.9884 at h=1/3/5, mean_diff -0.0003/-0.0029/-0.0002 — nowhere near
+the 0.0167 bar, essentially zero point estimate. Mega comparison (AMD
+alone, n=11, informational-only per this root's own established secondary-
+group convention): p=0.81/0.48/0.31, also null.
+
+COVERAGE HONESTY CHECK BEFORE TRUSTING ATTEMPT 1: a 13/23-ticker (57%)
+dropout from rate-limiting is a real coverage gap, not a rounding error —
+before writing this up as the final answer, three more live attempts were
+made (REASONING STANDARD: don't trust a result you haven't stress-tested
+when the tools to stress-test it are cheap and available). ATTEMPT 2
+(retry of the 13 failed tickers, 3.0s spacing): 4 more succeeded (AAPL,
+TSLA, RIVN, MARA), 9 still 429'd — CONFIRMING THE RATE LIMIT IS NOT A FIXED
+PER-TICKER BLOCK but something closer to a rolling/shared-egress limit
+(this sandbox's outbound IP is very likely shared across concurrent
+sessions in this execution environment, consistent with the exact same
+"different random subset succeeds each time" pattern this file's own
+2026-08-20 stale-PR entry already documented for GitHub Actions concurrency
+contention — a second independent instance of the same underlying
+constraint). ATTEMPT 3 (union of all previously-successful tickers,
+re-run in one call, 2.5s spacing): only 3/14 succeeded this time (OKLO,
+JOBY, AAPL) — a THIRD different random subset. Pooled result on this
+2-ticker small-mid draw: mean_diff -0.0075/-0.0226/-0.0238 at h=1/3/5,
+p=0.5879/0.2396/0.4186 — still null, but notably NEGATIVE this time (n=27,
+n_baseline=997). ATTEMPT 4 (11 confirmed-fetchable small-mid tickers + 3
+mega, 10.0s spacing — the widest spacing tried): 6/11 small-mid succeeded
+(PLTR, COIN, LCID, IONQ, RKLB, ASTS) + AMD mega (identical numbers to
+attempt 1's AMD row, confirming determinism of a successful fetch). RESULT
+(n=83, n_baseline=2955): mean_diff +0.0045/+0.007/+0.0106 at h=1/3/5,
+p=0.4961/0.5068/0.4767 — null again, this time POSITIVE.
+
+FOUR independent live attempts, four different random ticker subsets (11
+of the 19 small-mid seed tickers were fetched successfully at least once
+across all four; NVDA and 8 others never succeeded in any attempt),
+NEVER a p-value under 0.24 for the primary pooled comparison at any
+horizon in any draw, and the point estimate's SIGN FLIPPING between draws
+(near-zero, then negative, then positive) on resamples of what should be
+the same underlying effect if one existed. Sign instability under
+resampling is itself informative, not just "more noise to shrug off" — a
+real effect, even a modest and noisy one, tends to hold its sign across
+overlapping partial samples of the same population; an effect that flips
+sign as the ticker composition changes is the signature of pure noise
+around a true zero, which is exactly what the pre-registered LOW prior
+(15-20%) anticipated.
+
+VERDICT (per the rule stated in advance, before any of the four runs):
+GATE 3 NOT PASSED for the pre-registered long-only spec. This is a LOGIC-
+layer fault, localized per the ROOT VALIDATION LADDER's own fault-
+localization design (DATA and SIGNAL both independently verified already —
+this finding does not reopen either). `datacore/signal_ladder.json`'s
+wikimedia_pageviews_attention entry gained an UPDATE paragraph documenting
+this; status/current_gate are UNCHANGED (2/gate2_pass) — the live /data
+SIGNAL board and its v1 API mirror remain valid, now carrying an honest
+"GATE 3 attempted and not passed" footnote in server/apiProduct.ts instead
+of an untested "not yet attempted" one (both LICENSE_MARKS description
+strings updated, matching the existing precedent style used for cftc_cot's
+own "explicitly NOT promoted to logic gate 3" language).
+
+SECOND FINDING, worth a future session's attention: Wikimedia's pageviews
+API rate limit is materially tighter in this execution environment than
+gate-2/gate-2-newsfree's own spacing constants (0.6s) assumed, and
+increasing spacing alone (tried up to 10s/ticker) does not reliably fix
+it — the successful subset changes randomly between calls regardless of
+spacing, consistent with a SHARED/rolling limit (likely shared egress IP
+across concurrent sessions in this environment, not a per-request-rate
+problem this script's own retry/backoff can solve alone). Any future
+Wikimedia-sourced probe in this repo (there are none currently queued)
+should expect the same constraint and budget multiple attempts, or
+consider this repo's own server/wikiAttention.ts rolling archive as a
+partial substitute for tickers it already covers (traded off explicitly:
+that archive's own RAW_RETENTION_DAYS window is far shorter than the
+multi-year lookback gate-2/gate-3 scripts need directly from Wikimedia,
+so it cannot fully replace the live fetch — see wikiattention_gate2.py's
+own docstring for why the live fetch was chosen originally). NOT filed as
+a wishlist.md item (no paid capability implicated, no spend decision
+needed) — filed here as a research/tooling finding instead.
+
+NEXT: (1) this exact long-only spec is CLOSED — not to be re-attempted
+without genuinely new evidence, per RECURRENCE ESCALATES-style discipline
+(re-testing an already-killed spec is not a repair, it is p-hacking by
+attrition). (2) A future session could pre-register a genuinely DIFFERENT
+rule as its own fresh experiment — the momentum-vs-reversal question this
+session's own docstring named but deliberately did not test (REASONING
+STANDARD #4, one diagnostic design per pass): does the spike day's OWN
+same-day return predict continuation or reversal over the next 1-5 days,
+independent of the (now-closed) unconditional long-only question? That is
+a different, separately-pre-registerable hypothesis, not a variant chase
+of this one. (3) per the AUDITS & DEBT register, staleness/constitutional
+audit last-run dates should be checked by the next session whose
+fall-through reaches the research tier (not checked this session — the
+primary action plus its own honest four-attempt verification filled full
+capacity).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (the ladder's own next-queued step for an already-advanced
+root, matched to capacity), used in full including four independent live
+verification attempts rather than trusting a single rate-limited partial
+draw, applying a pre-registered verdict rule computed before any result was
+seen, reusing existing cost constants rather than inventing new ones, and
+surfacing a second, independent tooling finding (the Wikimedia rate-limit
+behavior) rather than silently working around it.
