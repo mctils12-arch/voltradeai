@@ -161,6 +161,10 @@ const PAGES = {
   // the Phase 5 ratchet this session (GATE 1 pass + honesty-note addition,
   // 2026-08-18) alongside the other /data detail views above.
   attention: { route: "/app#/data/attention", map: false },
+  // Attention spike -> forward volume SIGNAL (2026-09-05) — the second
+  // live gate2_pass SIGNAL detail page, after gnssintegrity above — same
+  // Phase 5 ratchet rule.
+  wikiattentionsignal: { route: "/app#/data/wiki-attention-signal", map: false },
   // EPA CAMD power-plant utilization — same Phase 5 ratchet rule as
   // contracts/attention above; closes the "shipped-data-no-client-page"
   // gap for plant_operations (map layer only since 2026-07-20).
@@ -1535,6 +1539,43 @@ const FIXTURES = {
       "Not tradeable — this is GATE 2 statistical discrimination, not a trading signal (fixture text).",
     ],
     license: { source: "adsb.lol (ODbL 1.0) + adsb.fi/airplanes.live (non-commercial fallbacks)", note: "Fixture license note." },
+  },
+  // Wikimedia attention spike -> forward volume signal (2026-09-05) — the
+  // second live gate2_pass SIGNAL detail page. Fixture mirrors the real
+  // shape from server/wikiAttentionSignal.ts's computeWikiAttentionSignal(),
+  // with one spiking row and one normal row so both status badge colors
+  // render, plus a mix of complete/incomplete baselines and a null-z row.
+  "/api/data/wiki-attention-signal": {
+    kind: "signal", root_id: "wikimedia_pageviews_attention", generated_at: "2026-09-05T00:00:00.000Z",
+    gate: { current_gate: 2, status: "gate2_pass", channel: "trading_volume_elevation" },
+    z_threshold: 2.0, trailing_window_days: 90, min_baseline_days: 20,
+    tickers: [
+      { ticker: "GME", article: "GameStop", cap_tier: "small_mid", latest_date: "2026-09-04", current_views: 42000, baseline_mean: 8200.5, baseline_days: 62, baseline_complete: false, z_score: 3.41, spike: true },
+      { ticker: "PLTR", article: "Palantir", cap_tier: "small_mid", latest_date: "2026-09-04", current_views: 6100, baseline_mean: 5850.2, baseline_days: 62, baseline_complete: false, z_score: 0.62, spike: false },
+      { ticker: "NVDA", article: "Nvidia", cap_tier: "mega", latest_date: "2026-09-04", current_views: 15200, baseline_mean: 14980.0, baseline_days: 62, baseline_complete: false, z_score: 0.18, spike: false },
+      { ticker: "ACHR", article: "Archer_Aviation", cap_tier: "small_mid", latest_date: null, current_views: null, baseline_mean: null, baseline_days: 0, baseline_complete: false, z_score: null, spike: false },
+    ],
+    spike_count: 1,
+    validated_effect: {
+      study_date: "2026-09-04", bonferroni_alpha: 0.005,
+      small_mid: [
+        { horizon_days: 1, mean_ratio: 1.279, baseline_ratio: 1.039, p_value: 0.0001 },
+        { horizon_days: 3, mean_ratio: 1.226, baseline_ratio: 1.053, p_value: 0.0001 },
+        { horizon_days: 5, mean_ratio: 1.195, baseline_ratio: 1.063, p_value: 0.0014 },
+      ],
+      mega: [
+        { horizon_days: 1, mean_ratio: 1.119, baseline_ratio: 0.995, p_value: 0.0083 },
+        { horizon_days: 3, mean_ratio: 1.100, baseline_ratio: 0.997, p_value: 0.0050 },
+        { horizon_days: 5, mean_ratio: 1.101, baseline_ratio: 0.998, p_value: 0.0023 },
+      ],
+    },
+    methodology_note: "Live board: each seed ticker's latest archived daily pageview count, z-scored against its own trailing baseline (fixture text).",
+    caveats: [
+      "This live board does NOT re-check today's spikes against EDGAR for a same-day-or-prior-day 8-K (fixture text).",
+      "Realized volatility showed NO significant elevation at any horizon in the validated study (fixture text).",
+      "GATE 3 (a backtested, cost-net entry/exit rule) has not been attempted for this root (fixture text).",
+    ],
+    license: { source: "Wikimedia pageviews API (CC0/CC-BY) + SEC EDGAR (public domain, offline study only)", note: "Fixture license note." },
   },
   // EPA CAMD power-plant utilization full view — three facilities of
   // varying unit count/fuel mix so the table renders multiple rows at

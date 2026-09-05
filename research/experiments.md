@@ -76519,3 +76519,194 @@ hypothesis and cap-tier split before computing any statistic, applying
 a multiple-comparison correction across every cell tested, and
 declining to promote a real-but-confounded result to a clean gate-2
 pass.
+
+## 2026-09-05 (scheduled-routine session) [PRODUCT] — v1.0.846 — WIKIMEDIA ATTENTION SIGNAL: first live gate2_pass SIGNAL surface for wikimedia_pageviews_attention, mirroring gnss_integrity_adsb's own precedent
+
+TERRITORY: SHARED-but-minimal (server/routes.ts + client/src/pages/
+datamap.tsx wiring kept last and minimal per MERGE-ORDER PROTOCOL;
+scripts/visual_check.mjs harness registration; datacore/signal_ladder.json
+targeted string append, never a full json.dump reformat; ci/
+counter_baseline.txt re-pin) around one new standalone module pair
+(server/wikiAttentionSignal.ts + .test.ts) and one new client page
+(client/src/pages/wikiAttentionSignal.tsx).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+experiments.md tail, open_questions.md's KNOWN BROKEN section, wishlist.md
+tail). No LIVENESS ALARM condition found in research/ (no session this UTC
+day logged a health-check failure); this session's own scope never touches
+the trading loop, so a live /api/health check was not re-run (PRODUCT
+sessions do not gate on it unless a KNOWN BROKEN item blocks the chosen
+work — none did). Loop-health: last several tagged entries are PRODUCT/
+RESEARCH, no thrash signal. Delegated an Explore-agent survey (this
+session's own research step, not a duplicate of the agent's work) across
+KNOWN BROKEN, wishlist.md's stall flags, gate1_pass roots with a concretely
+buildable gate-2 design, and datacore/signal_ladder.json vs open_questions.md
+cross-reference. FINDING: every gate1/gate2-pending root is genuinely
+time-blocked (readiness_trigger dates not yet reached, or archive depth
+still accumulating) — option (a) (advance a pipeline through its next
+ladder gate) had no ready candidate today. The one clearly-ready, well-
+scoped action was option (b): wikimedia_pageviews_attention reached
+gate2_pass YESTERDAY (2026-09-04, two sessions: the original gate-2 run and
+the same-day news-free control that promoted it) but had zero live SIGNAL
+surface — attention.tsx and both /api/data/attention routes still carried
+stale "no spike claims until gate 2 runs" comments/notes, a real (if minor)
+accuracy gap between the codebase and the ladder file.
+
+WHAT SHIPPED: `server/wikiAttentionSignal.ts` — mirrors gnssIntegritySignal.ts's
+established shape for a "gated-SIGNAL /data surface" (SPINOUT-READY DATA
+LAYER rule): `latestZScore()` (pure, no-lookahead — baseline uses only
+strictly-prior days, capped at TRAILING_WINDOW_DAYS=90, matching scripts/
+wikiattention_gate2.py's own DEFAULT_TRAILING_WINDOW/DEFAULT_Z_THRESHOLD
+constants, hand-duplicated with a comment explaining why no shared import
+path exists between the Python study script and this TS server module),
+`computeTickerRows()` (one row per seed ticker, sorted by z-score
+descending, null-safe for tickers with no baseline yet), and
+`computeWikiAttentionSignal()` (the full payload: the live board + the
+validated study's own frozen result table — VALIDATED_SMALL_MID/
+VALIDATED_MEGA constants transcribed exactly from datacore/
+signal_ladder.json's "POOLED RESULT ON THE NEWS-FREE SUBSET" table — +
+methodology/caveats/license). UNLIKE gnssIntegritySignal's async, eager-
+polled computation (a multi-day AIS archive scan), this reads only the
+~23-ticker seed's own small local jsonl archive (server/wikiAttention.ts),
+cheap enough to compute synchronously per request with no new poller —
+matching the existing /api/data/attention/history route's own precedent
+for the same archive.
+
+HONESTY DESIGN (stated explicitly on the page, not just in the module
+header): (1) the validated effect is a POOLED, historical, small/mid-cap
+group result — not a per-ticker or per-spike confirmation; a ticker
+crossing the live z-threshold matches the study's statistical PROFILE, not
+a fresh validation of that exact spike. (2) the live board does NOT
+re-check today's spikes against EDGAR for a same-day-or-prior-day 8-K — the
+validated study's own news-free control was an offline, historical re-run
+(scripts/wikiattention_gate2_newsfree.py), not a live per-spike classifier,
+so a spike shown live could still be news-driven. (3) realized volatility
+showed no significant elevation at any horizon in the validated study —
+this is a VOLUME signal only, never framed as volatility or directional-
+price. (4) GATE 3 (backtested entry/exit rule) has not been attempted —
+explicit "nothing here is a trading signal" language on the page. (5) this
+repo's own archive (live since 2026-07-05, ~62 days old today) is younger
+than the validated study's 90-day full trailing window for most tickers —
+every row's baseline_days/baseline_complete fields say so per-ticker
+instead of silently computing a shorter, unlabeled baseline.
+
+WIRING: `/api/data/wiki-attention-signal` (server/routes.ts, public, no
+diag token, same privacy/no-auth posture as gnss-integrity-signal — only
+aggregate per-ticker counts/statistics, no PII of any kind existed to leak
+in the first place). `client/src/pages/wikiAttentionSignal.tsx`
+(#/data/wiki-attention-signal) wired into datamap.tsx exactly like
+gnssIntegritySignal.tsx: state hook + hash-listener line + an "Open
+attention→volume signal" button under the existing attention layer row
+(same "doesn't belong in a layer-toggle sidebar" pattern as gnss under
+aircraft) + the render block. `datacore/signal_ladder.json`'s
+wikimedia_pageviews_attention entry gained `detail_route:
+"#/data/wiki-attention-signal"` (the field signalLadder.tsx already reads
+generically to render a "view live signal →" link — no signalLadder.tsx
+code change needed) plus a targeted UPDATE append to its note/source_ref
+(never a full json.dump reformat — confirmed via git diff --stat showing
+exactly 1 changed line before committing, after an initial json.dump
+attempt caused a 498-line reformat diff that was reverted and redone as
+targeted string edits).
+
+STALE-COMMENT CORRECTIONS: server/routes.ts's RAW `/api/data/attention`
+route and its `/api/v1/data/attention` mirror both said "no spike claims
+until gate 2 runs" — inaccurate since yesterday. Corrected to state that
+gate 1+2 (volume channel) have passed but these endpoints deliberately
+stay RAW-only per the RAW OVERLAYS vs SIGNALS rule, pointing at the new
+gated endpoint for the interpreted signal. This is a comment/note-text fix
+only — no route behavior changed (RAW stays RAW, by design, not by
+oversight).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run build` then `node
+scripts/visual_check.mjs --page wikiattentionsignal` at all three canonical
+widths (390/768/1440) — 0 hard failures. Reviewed screenshots directly:
+the live-board table (spike/normal/no-data-yet badges, all three color
+variants render correctly — vt-ladder-badge-pass/raw/pending, all
+pre-existing CSS classes, no new styles needed) and the validated-effect
+table (Bonferroni pass/fail badges correctly distinguish the mega h=1
+miss, h=3 exact-boundary, and h=5 clear from the small/mid clean sweep)
+both read correctly at mobile (390px card layout) and desktop (table
+layout). Caught and fixed one honesty gap during this review: a ticker
+with no archived data yet (baseline_days=0) was rendering a "normal"
+status badge, which overclaims — a ticker with zero data has not been
+observed as normal, it has simply not been observed. Fixed to a distinct
+"no data yet" / vt-ladder-badge-pending badge before finalizing, re-built,
+re-ran the targeted harness to confirm the fix rendered, and reviewed the
+new screenshot directly. Additionally started a broader `node scripts/
+visual_check.mjs` run with no --page filter (all pages) as an extra,
+non-required diligence check on the two shared-file touches (server/
+routes.ts's new route is additive-only; datamap.tsx's new state/button/
+render-block follows the exact established per-page pattern used by
+dozens of existing pages) — this full sweep did not finish inside the
+session's own working window (every OTHER individual page it reached
+before being superseded by this write-up showed no hard failures, but
+the run was not watched to completion, so it is NOT claimed as a
+verified 0-regressions result). The one PROMOTION RULE 6-required check
+(the touched page, wikiattentionsignal, at all three widths) DID
+complete and pass, per above; the untouched pages rely on the same
+`gated_tests.sh`/`tsc_ratchet.sh` coverage this PR already reports green,
+not on this optional sweep.
+
+GATES: `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+`npm run test:node`: 1545/1545 (10 new tests in server/
+wikiAttentionSignal.test.ts — deterministic, no Math.random per the
+KNOWN BROKEN #40 lesson on flaky tests, day-files written directly to
+disk rather than via archiveAttention() to avoid that function's
+module-level archivedKeys/seeded dedup state bleeding across tests,
+matching wikiAttention.test.ts's own established precedent for its
+history-read tests). `python3 -m pytest -q` (full suite, no Python
+touched): 1648 passed, 1 skipped, 54 subtests, 0 regressions — identical
+to the immediately-preceding session's own reported count. `bash scripts/
+gated_tests.sh`: GATE PASSED — server/client/python all OK, quarantine
+none overdue. `bash scripts/counter_ratchet.sh`: caught and fixed a real
+regression before committing — the new route's first draft used
+`catch (e: any)`, moving `ts_any` 1239->1240 (FAIL, non-increasing
+counter); switched to the `catch (e: unknown)` + `(e as Error)?.message`
+pattern gnss-integrity-signal's own route already established, back to
+1239, unchanged. `assertions`/`tests_run_in_ci`/`tests_gating_merge`
+improved (13041->13069, 417->418, 417->418 — this session's own 10 new
+tests, the direct and sole cause) and re-pinned in `ci/
+counter_baseline.txt` in this same PR; all other 22 counters unchanged.
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+valid.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure /data UI/API surface addition
+over an already-`gate2_pass` computation; no strategy, threshold, scoring,
+or sizing code touched. wikimedia_pageviews_attention's trading-facing
+status is unchanged (GATE 3 not attempted, nothing here is tradeable).
+
+CROSS-SYSTEM INTEGRATION: none new — reuses server/wikiAttention.ts's
+existing archive/lookupTickerHistory plumbing (EDGE DOCTRINE #3) and the
+already-established gnssIntegritySignal.tsx/datamap.tsx wiring pattern; no
+new archive, join, fetch host, or dependency.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription code
+in this diff.
+
+VERSION: v1.0.846 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed `origin/main`
+was still at 5c34e47/v1.0.845/PR #1004, no concurrent session had moved
+it).
+
+NEXT: (a) a v1 keyed mirror of /api/data/wiki-attention-signal (same shape
+as gnss-integrity-signal's own v1 mirror, shipped in a later, separate
+session per that root's own precedent) plus an apiProduct.ts LICENSE_MARKS
+entry and agent tool, if/when this root is monetized; (b) a live per-ticker
+EDGAR 8-K check so the board could flag which live spikes are news-free
+vs. news-confounded, rather than only caveating that this isn't checked —
+a concretely buildable follow-up (scripts/wikiattention_gate2_newsfree.py
+already proves the CIK-resolution + submissions-fetch path), not attempted
+here (one logical change per PR); (c) GATE 3 itself — design and backtest
+an entry/exit rule off the small/mid-cap news-free spike signal against a
+same-universe random-entry base rate net of costs, the ladder's own next
+step for this root, unaffected by this UI/API-surface session.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely-identified "shipped-data-no-live-signal-
+surface" gap on a root that reached gate2_pass the day before), used in
+full including a research-agent survey to confirm no gate-1/gate-2
+candidate was actually ready today (not assumed), reviewing its own
+screenshots before finalizing and catching + fixing a real honesty gap
+(the "normal" mislabeling of a no-data ticker) rather than shipping the
+first-draft render, and catching + fixing a real ts_any regression via the
+counter ratchet rather than only checking that tests passed.

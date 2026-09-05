@@ -52,6 +52,7 @@ import FredMacroView from "./fredMacro";
 import NrcReactorStatusView from "./nrcReactorStatus";
 import PlantOperationsView from "./plantOperations";
 import GnssIntegritySignalView from "./gnssIntegritySignal";
+import WikiAttentionSignalView from "./wikiAttentionSignal";
 import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
 import FleetUtilizationView from "./fleetUtilization";
@@ -2751,6 +2752,9 @@ export default function DataMapPage() {
   const [shortvolOpen, setShortvolOpen] = useState(() => window.location.hash === "#/data/short-volume");
   // Full Wikipedia attention view (#/data/attention) — same overlay pattern.
   const [attentionOpen, setAttentionOpen] = useState(() => window.location.hash === "#/data/attention");
+  // Wikipedia attention spike->volume SIGNAL (#/data/wiki-attention-signal)
+  // — the second gate-2-passed live SIGNAL surface, after gnss-integrity.
+  const [wikiAttentionSignalOpen, setWikiAttentionSignalOpen] = useState(() => window.location.hash === "#/data/wiki-attention-signal");
   // Full CFTC COT view (#/data/cot) — same overlay pattern.
   const [cotOpen, setCotOpen] = useState(() => window.location.hash === "#/data/cot");
   // Everything Graph full view (#/data/graph) — same overlay pattern.
@@ -3225,6 +3229,7 @@ export default function DataMapPage() {
       setEarningsOpen(window.location.hash === "#/data/earnings");
       setShortvolOpen(window.location.hash === "#/data/short-volume");
       setAttentionOpen(window.location.hash === "#/data/attention");
+      setWikiAttentionSignalOpen(window.location.hash === "#/data/wiki-attention-signal");
       setCotOpen(window.location.hash === "#/data/cot");
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
@@ -13141,6 +13146,19 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "attention" && on && (
+          // Attention spike -> forward volume SIGNAL derived from this RAW
+          // layer's own archive (gate 2 passed for the volume channel, see
+          // datacore/signal_ladder.json) — same "doesn't belong in a
+          // layer-toggle sidebar" pattern as the GNSS integrity signal
+          // under the aircraft layer above.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/wiki-attention-signal"; setWikiAttentionSignalOpen(true); }}>
+              Open attention→volume signal — gate 2 validated, live board →
+            </button>
+          </div>
+        )}
         {l.id === "cot" && on && (
           // Same pattern as insider/earnings/shortvol/attention: a market
           // search + weekly positioning table doesn't belong in a
@@ -13351,6 +13369,9 @@ export default function DataMapPage() {
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />
+      )}
+      {wikiAttentionSignalOpen && (
+        <WikiAttentionSignalView onBack={() => { window.location.hash = "#/data"; setWikiAttentionSignalOpen(false); }} />
       )}
       {cotOpen && (
         <CotView onBack={() => { window.location.hash = "#/data"; setCotOpen(false); }} />
