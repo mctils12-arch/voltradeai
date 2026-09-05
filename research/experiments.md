@@ -3,6 +3,92 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-05 (scheduled-routine session, sixth session this UTC day) [REPAIR] — T-BOT-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #18's second recurrence (v1.0.530 Setup-7 scan-wide budget fix, 2026-07-29) CONFIRMED HELD 5+ weeks live and CLOSED, ending this daemon-timeout thread
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+tail, research/open_questions.md's KNOWN BROKEN section, research/
+wishlist.md. `python3 scripts/research_state_check.py`: audits register
+none overdue, thrash_ratio 1/10 REPAIR in the last 10 tagged sessions
+(below the 7+ trigger), known_broken 41 items/4 without an explicit close
+marker (#26/#34/#38/#40, all already FOUND-AND-FIXED headers — advisory
+only, none block repair work), starvation 0/10 — no meta-problem flag.
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots ready
+(cftc_cot_positioning/sec_8k_earnings_language/fleet_utilization_aircraft
+all waiting, unchanged). `git fetch origin main`: HEAD already equals
+origin/main at 493d508/v1.0.851/PR #1010 — no reset needed. Live
+`/api/health`: `status:"ok"`, bot `active`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, alpaca `ACTIVE`, scanner 0 `consecutiveFailures`,
+no dead feeds — no LIVENESS ALARM. `python3 scripts/
+session_health_check.py --json` against production: 7/7 OK (liveness,
+subsystems, alt_data_enrichment, daemon_memory, tier2_daemon_timeouts,
+ml_feedback, deploy_freshness all OK; `server_version=1.0.851` matches
+this checkout).
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET's own order ("fix a bug seen
+in audit logs" > "judge a matured experiment" > new research). Pulled
+`/api/diag/audit?limit=150` (DIAG_TOKEN available this session): 150
+recent entries, all routine types (TIER2/RULES/TIERS/OPTIONS-SLOT-FULL/
+MANIPULATION/EVENTLOOP-LAG/SCHEDULE/TIER3/QUEUE/EXECUTION/SYSTEM/
+DIAGNOSTIC/STREAM/TIER3-DIAG/POS-MONITOR/T1) — no bug found (MANIPULATION
+entries are the detector working as designed; the one `DIAGNOSTIC [MEDIUM]
+Low win rate: 25.8% over 31 trades` is a small-n informational reading,
+not a new finding; `EVENTLOOP-LAG` entries are 525-5040ms, 2-3 orders of
+magnitude below the tracked KNOWN BROKEN #18 signature). With no live bug
+and 0/3 ladder roots ready, the next-ranked action is judging a matured
+experiment — KNOWN BROKEN #18's own 2026-07-29 fix (v1.0.530) explicitly
+asked a future session to check `/api/diag/audit?type=TIER2-ERROR` for
+recurrence, and 5+ weeks had elapsed with nobody closing that loop
+(confirmed by grep — no experiments.md entry between 07-29 and today
+mentions catching a live TIER2-ERROR). This is the queue's own most
+concrete, unclaimed, ready-to-judge matured item, and directly serves
+GOAL PRIORITY 1 (system-health confidence) — took it as PRIMARY.
+
+WHAT HAPPENED: full evidence trail (audit-log query methodology, the
+`session_health_check.py` OK reading, the 5+-week cumulative experiments.md
+record, and the honest caveat that direct live query only reaches back to
+2026-09-04T16:20Z) written into `research/open_questions.md`'s KNOWN
+BROKEN #18 item as a new dated UPDATE, immediately before item #19's
+header — append-only within the item, all prior text untouched. VERDICT:
+the Setup-7 scan-wide time budget (v1.0.530) ended this recurrence; no
+TIER2-ERROR daemon timeout has been caught live by any session in 5+
+weeks. Closed per the same "cumulative multi-session live checks"
+methodology this item's own first recurrence used to close in
+2026-07-14/07-17 (that closure also never relied on one continuous
+stakeout).
+
+GATES: no code changed — nothing to run beyond the read-only live probes
+recorded above (`/api/health`, `/api/diag/audit`, `scripts/
+session_health_check.py --json`, all read-only, no state mutated).
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, trading, or
+measurement-code path touched; this is a live-reliability-evidence
+closure, same shape as the 2026-09-02 KNOWN BROKEN #39 docs-only closure
+precedent.
+
+VERSION: none — docs-only research/ change, no package.json bump, same
+convention as that precedent.
+
+CROSS-SYSTEM INTEGRATION: none new.
+
+MONETIZATION TRIPWIRE: not touched.
+
+NEXT: none remaining for this specific recurrence — closed. Per the
+item's own closing note, any FUTURE TIER2-ERROR occurrence is a new,
+fifth mechanism to trace fresh, not a reopening of the Setup-7-budget
+theory. Falling through per SESSION BUDGET: no other queued item fit this
+session's remaining capacity beyond this one action (GATE 2 candidates
+all still gated per `ladder_readiness_check.py`; the prior session's own
+NEXT item (2) explicitly asked a future PRODUCT session, not this REPAIR
+one, to re-screen `signal_ladder.json` fresh rather than reuse its sweep).
+
+STARVED: no — this was the session's one primary action, a genuinely
+matured, unclaimed, evidence-ready item with a concrete 5+-week-old
+open question attached to it, closed cleanly with a full evidence trail.
+No higher-priority queued item was skipped (audit log showed no bug;
+loop-health ratio 1/10, well under threshold; no ladder-readiness-check
+root came due; KNOWN BROKEN's other unmarked items are all
+already-fixed/advisory-only per this file's own repeated prior readings).
+
 ## 2026-09-05 (scheduled-routine session, fifth session this UTC day) [PRODUCT] — SHARED-only (server/appStoreRankings.ts, server/appStoreRankings.test.ts, server/githubOrgActivity.ts, server/githubOrgActivity.test.ts, server/routes.ts, server/apiProduct.ts, server/apiProduct.test.ts, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json), last and minimal: appstore-rankings + github-activity both get their `/history` companion + v1 keyed mirror — the exact gap this UTC day's fourth session flagged as NEXT item (3) after completing the v1-mirror sweep (v1.0.851)
 
 SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
