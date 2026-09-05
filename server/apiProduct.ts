@@ -280,7 +280,9 @@ export function apiMeta() {
       { path: "/api/v1/data/earnings-language", params: "-", desc: "Most-recent SEC 8-K Item 2.02 (earnings-results) filings: as-filed Exhibit 99 press-release text, resolved ticker, filing/acceptance timestamps (lookahead-free). RAW as-filed display, no predictive claim — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot (research/open_questions.md). Exhibit text is issuer-authored, not government work product — conditional resell, see license_marks.", preview: "/api/data/earnings-language" },
       { path: "/api/v1/data/earnings-language-history", params: "?days<=90 (default 30)", desc: "Accumulated SEC 8-K Item 2.02 filing archive (recording since 2026-07-04) merged with the latest poll — the multi-day companion to /api/v1/data/earnings-language above, which mirrors only the newest poll cache. Same filing shape, same GATE 1 PASS / GATE 2 INCOMPLETE-pilot status, and the same conditional-resell posture as data/earnings-language (not a separate root, not a separate license).", preview: "/api/data/earnings-language/history" },
       { path: "/api/v1/data/appstore-rankings", params: "-", desc: "Daily App Store chart rank + rating counts for a 16-app hand-verified consumer watchlist (US/GB/CA storefronts, top-free/top-grossing). RAW display, no predictive claim — GATE 2 (vs company-reported metrics) needs ~90 days of history, not attempted before ~2026-10-30 (research/open_questions.md NEW DATA ROOTS #3). Android excluded (ToS-blocked); rank:null means outside the top 100 that day, never fabricated. Conditional resell, see license_marks.", preview: "/api/data/appstore-rankings" },
+      { path: "/api/v1/data/appstore-rankings-history", params: "?days<=90 (default 30), ?ticker=TICKER (optional)", desc: "Accumulated App Store rank/rating archive — the multi-day companion to /api/v1/data/appstore-rankings above, which mirrors only the latest poll cache. No ticker: the watchlist-wide daily trend (ranked_slots/total_slots is the day's own fetched-row ratio, never a hardcoded denominator). ?ticker=TICKER: that app's own rank+rating series read directly from the day-archive. Same GATE 1 PASS / GATE 2 NOT-ATTEMPTED status and the same conditional-resell posture as data/appstore-rankings (not a separate root, not a separate license).", preview: "/api/data/appstore-rankings/history" },
       { path: "/api/v1/data/github-activity", params: "-", desc: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (small-cap devtools through large-cap controls). RAW display, no predictive claim — GATE 2 (does public commit/PR velocity lead or confirm market-priced trends) has NOT been attempted; the module's own sober prior expects real structure for at most a third of the panel. mergedPRs excludes bot-app PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true undercounts). Conditional resell, see license_marks.", preview: "/api/data/github-activity" },
+      { path: "/api/v1/data/github-activity-history", params: "?weeks<=90 (default 26), ?ticker=TICKER (optional)", desc: "Accumulated GitHub org activity archive — the multi-week companion to /api/v1/data/github-activity above, which mirrors only the latest poll cache. No ticker: the watchlist-wide per-week trend (orgs_reporting + summed merged-PR/commit totals, nulls excluded from sums not coerced to zero). ?ticker=TICKER: that org's own weekly series, read from a full archive scan (records for a given week can land in any day's file under this root's poll design, unlike the daily-file archivers). Same GATE 1 PASS / GATE 2 NOT-ATTEMPTED status and the same conditional-resell posture as data/github-activity (not a separate root, not a separate license).", preview: "/api/data/github-activity/history" },
       { path: "/api/v1/data/crop-conditions", params: "-", desc: "Most-recent week's USDA NASS national weekly condition ratings (5 classes via short_desc) for corn + soybeans, Monday releases in season. GATE 1 (DATA) PASSED 2026-08-04 (0pp difference vs. USDA's own published Crop Progress bulletin) — condition-DELTA signals stay gate-2-locked (research/open_questions.md), this endpoint mirrors the validated raw levels only. Requires the server's NASS_API_KEY to be configured; returns 503 if not. Public-domain US federal data, freely resellable.", preview: "/api/data/crop-conditions" },
       { path: "/api/v1/stats/vix-term-structure", params: "-", desc: "Cboe VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close term structure plus two derived ratios (vix/vix3m contango-vs-backwardation, vix9d/vix front-end stress), latest day + a 30-day recent window. GATE 1 (DATA) PASSED 2026-08-07 (exact match vs. FRED's independent VIXCLS series for 3/3 spot-checked dates) — RAW/regime-feature framing only, no predictive claim; gate-2 signal testing not attempted. Cboe informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/vix-term-structure" },
       { path: "/api/v1/stats/nrc-reactor-status", params: "-", desc: "Daily percent-of-rated-thermal-power per operating NRC reactor unit (unit granularity), plus a per-plant join (units grouped onto the WRI/HIFLD registry's lat/lon, mean power bucketed into full/reduced/outage/unknown) for the newest reporting day. GATE 1 (DATA) PASSED 2026-08-04 (registry-match check, see scripts/nrc_gate1_registry_match.ts). RAW display only — outage-adjacent SIGNAL hypothesis stays gate-2-locked (research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES). Public-domain US federal data, freely resellable.", preview: "/api/data/nrc-reactor-status" },
@@ -437,10 +439,38 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       returns_provenance: ["data/appstore-rankings"],
     },
     {
+      name: "voltrade_appstore_rankings_history",
+      description: "Accumulated App Store rank/rating archive — the multi-day companion to voltrade_appstore_rankings above, which returns only the latest poll cache. Same watchlist and RAW shape, same GATE 1 (DATA) PASSED / GATE 2 NOT-ATTEMPTED status, and the same conditional-resell posture as voltrade_appstore_rankings — not a separate root or a separate license. No ticker param: the watchlist-wide daily trend (ranked_slots/total_slots is the day's own fetched-row ratio). ticker param: that app's own rank+rating series read directly from the day-archive.",
+      input_schema: {
+        type: "object",
+        properties: {
+          days: { type: "integer", minimum: 1, maximum: 90, default: 30, description: "Lookback window in days (max 90)." },
+          ticker: { type: "string", description: "Optional ticker from the 16-app watchlist — returns that app's own rank+rating series instead of the watchlist-wide trend." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/data/appstore-rankings-history?days={days}&ticker={ticker}",
+      returns_provenance: ["data/appstore-rankings"],
+    },
+    {
       name: "voltrade_github_activity",
       description: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (MDB/NET/DDOG/PLTR-class). RAW display — GATE 2 (does commit/PR velocity lead or confirm market-priced trends) has NOT been attempted, and the module's own sober prior expects real structure for at most a third of the panel, not the whole watchlist.",
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/github-activity",
+      returns_provenance: ["data/github-activity"],
+    },
+    {
+      name: "voltrade_github_activity_history",
+      description: "Accumulated GitHub org activity archive — the multi-week companion to voltrade_github_activity above, which returns only the latest poll cache. Same watchlist and RAW shape, same GATE 1 (DATA) PASSED / GATE 2 NOT-ATTEMPTED status, and the same conditional-resell posture as voltrade_github_activity — not a separate root or a separate license. No ticker param: the watchlist-wide per-week trend (orgs_reporting + summed merged-PR/commit totals, nulls excluded from sums not coerced to zero). ticker param: that org's own weekly series, read from a full archive scan (a given week's record can land in any day's file under this root's poll design).",
+      input_schema: {
+        type: "object",
+        properties: {
+          weeks: { type: "integer", minimum: 1, maximum: 90, default: 26, description: "Lookback window in weeks (max 90)." },
+          ticker: { type: "string", description: "Optional ticker from the 15-org watchlist — returns that org's own weekly series instead of the watchlist-wide trend." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/data/github-activity-history?weeks={weeks}&ticker={ticker}",
       returns_provenance: ["data/github-activity"],
     },
     {
@@ -714,7 +744,11 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
   voltrade_earnings_language: dataObj({ count: INT, filings: ARR }, ["count", "filings"]),
   voltrade_earnings_language_history: dataObj({ days: INT, count: INT, filings: ARR }, ["count", "filings"]),
   voltrade_appstore_rankings: dataObj({ count: INT, records: ARR }, ["count", "records"]),
+  // branches on ?ticker= (single-app series) vs. no query (watchlist-wide trend).
+  voltrade_appstore_rankings_history: dataObj({ ticker: STR, days: INT, count: INT, note: STR, series: ARR, today: ANY, trend: ARR }),
   voltrade_github_activity: dataObj({ count: INT, records: ARR }, ["count", "records"]),
+  // branches on ?ticker= (single-org series) vs. no query (watchlist-wide trend).
+  voltrade_github_activity_history: dataObj({ ticker: STR, weeks: INT, count: INT, note: STR, series: ARR, today: ANY, trend: ARR }),
   voltrade_crop_conditions: dataObj({ latest_week: STR, count: INT, rows: ARR }, ["latest_week", "count", "rows"]),
   voltrade_vix_term_structure: dataObj({ latest: ANY, recent: ANY }),
   voltrade_nrc_reactor_status: dataObj({

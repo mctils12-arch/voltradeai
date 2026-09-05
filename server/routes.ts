@@ -120,8 +120,8 @@ import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, ty
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
-import { bootAppStorePoll, latestAppStoreRankings } from "./appStoreRankings";
-import { bootGithubActivityPoll, latestGithubActivity } from "./githubOrgActivity";
+import { bootAppStorePoll, latestAppStoreRankings, lookupAppStoreTickerHistory, readAppStoreAggregateHistory } from "./appStoreRankings";
+import { bootGithubActivityPoll, latestGithubActivity, lookupGithubOrgHistory, readGithubActivityAggregateHistory } from "./githubOrgActivity";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
@@ -3700,6 +3700,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // App Store rankings history (#/data/appstore-rankings full view). Two
+  // modes, same shape as attention/history: (1) no ticker — the
+  // watchlist-wide trend (ranked-slot ratio + summed rating counts per
+  // archived day); (2) ?ticker=X — that ticker's own rank+rating series
+  // read directly from the day-archive.
+  app.get("/api/data/appstore-rankings/history", (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupAppStoreTickerHistory(ticker, days);
+        return res.json({
+          kind: "raw",
+          source: "Apple marketingtools RSS top-free/top-grossing charts (US/GB/CA) + iTunes Lookup rating counts (US)",
+          ticker: ticker.toUpperCase(),
+          days,
+          count: series.length,
+          note: series.length ? undefined : "no archived rows for this ticker in the requested window yet",
+          series,
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "Apple marketingtools RSS top-free/top-grossing charts (US/GB/CA) + iTunes Lookup rating counts (US)",
+        days,
+        today: latestAppStoreRankings()?.at ?? null,
+        trend: readAppStoreAggregateHistory(days),
+        note: "watchlist-wide daily trend: ranked_slots/total_slots is the day's own fetched-row ratio (a dead storefront/chart cycle shrinks the denominator too, never fabricated); pass ?ticker=TICKER for that app's own rank+rating series",
+      });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "history read failed" });
+    }
+  });
+
   // GitHub org engineering-momentum archiver (RAW display — EDGE DOCTRINE
   // axis (a), NEW DATA ROOTS #5, the last unbuilt item in that charter):
   // weekly merged-PR + commit counts for a 15-org hand-verified
@@ -3724,6 +3758,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "GATE 1 (DATA) only — no signal validated yet. mergedPRs excludes dependabot/renovate/github-actions bot PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true means it undercounts).",
       records: hit.records,
     });
+  });
+
+  // GitHub org activity history (#/data/github-activity full view). Two
+  // modes, same shape as cot/history (weeks-keyed rather than days-keyed,
+  // matching this root's own weekly cadence): (1) no ticker — the
+  // watchlist-wide per-week trend (org count reporting + summed merged-PR/
+  // commit totals); (2) ?ticker=X — that org's own weekly series read
+  // directly from the full archive scan (readArchivedGithubActivity).
+  app.get("/api/data/github-activity/history", (req, res) => {
+    const weeks = Math.min(90, Math.max(1, parseInt(String(req.query.weeks || "26"), 10) || 26));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupGithubOrgHistory(ticker, weeks);
+        return res.json({
+          kind: "raw",
+          source: "GitHub REST Search API (search/issues, search/commits) — keyless",
+          ticker: ticker.toUpperCase(),
+          weeks,
+          count: series.length,
+          note: series.length ? undefined : "no archived weeks for this ticker in the requested window yet",
+          series,
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "GitHub REST Search API (search/issues, search/commits) — keyless",
+        weeks,
+        today: latestGithubActivity()?.at ?? null,
+        trend: readGithubActivityAggregateHistory(weeks),
+        note: "watchlist-wide per-week trend: orgs_reporting counts orgs with at least one non-null field that week; totals exclude nulls (never coerced to 0); pass ?ticker=TICKER for that org's own weekly series",
+      });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "history read failed" });
+    }
   });
 
   // USAspending federal contract awards (RAW display — stream #4 of the
@@ -4339,6 +4408,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // App Store rank + rating-velocity accumulated HISTORY keyed mirror — the
+  // multi-day companion to /api/v1/data/appstore-rankings above (that
+  // endpoint mirrors only the latest poll cache; this one mirrors
+  // /api/data/appstore-rankings/history's up-to-90-day accumulated archive).
+  // Reuses lookupAppStoreTickerHistory()/readAppStoreAggregateHistory()
+  // directly — no new fetch, no new computation. Same GATE 1 PASS / GATE 2
+  // NOT-ATTEMPTED status and the same conditional-resell posture as
+  // data/appstore-rankings (not a separate root, not a separate license) —
+  // same pattern as the earnings-language/insider/attention/cot -history
+  // mirrors in this sweep.
+  app.get("/api/v1/data/appstore-rankings-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupAppStoreTickerHistory(ticker, days);
+        res.json(v1Envelope("data/appstore-rankings", { ticker: ticker.toUpperCase(), days, count: series.length, series }));
+      } else {
+        res.json(v1Envelope("data/appstore-rankings", { days, trend: readAppStoreAggregateHistory(days) }));
+      }
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/appstore-rankings-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/appstore-rankings-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // GitHub org engineering-momentum keyed mirror (same "shipped-data-no-v1-
   // API" sweep as earnings-language/appstore-rankings above — this exact
   // gap was named as NEXT by the 2026-08-05 session that shipped this
@@ -4365,6 +4463,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity", status: 500, tier: auth.tier });
+    }
+  });
+
+  // GitHub org engineering-momentum accumulated HISTORY keyed mirror — the
+  // multi-week companion to /api/v1/data/github-activity above (that
+  // endpoint mirrors only the latest poll cache; this one mirrors
+  // /api/data/github-activity/history's own full-archive-scan weekly
+  // series, weeks-keyed like cot-history rather than days-keyed). Reuses
+  // lookupGithubOrgHistory()/readGithubActivityAggregateHistory() directly
+  // — no new fetch, no new computation. Same GATE 1 PASS / GATE 2
+  // NOT-ATTEMPTED status and the same conditional-resell posture as
+  // data/github-activity (not a separate root, not a separate license).
+  app.get("/api/v1/data/github-activity-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const weeks = Math.min(90, Math.max(1, parseInt(String(req.query.weeks || "26"), 10) || 26));
+    const ticker = typeof req.query.ticker === "string" ? req.query.ticker.trim() : "";
+    try {
+      if (ticker) {
+        const series = lookupGithubOrgHistory(ticker, weeks);
+        res.json(v1Envelope("data/github-activity", { ticker: ticker.toUpperCase(), weeks, count: series.length, series }));
+      } else {
+        res.json(v1Envelope("data/github-activity", { weeks, trend: readGithubActivityAggregateHistory(weeks) }));
+      }
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity-history", status: 500, tier: auth.tier });
     }
   });
 

@@ -9,6 +9,10 @@ import {
   parseLookup,
   fetchAppStoreSnapshot,
   archiveAppStoreRecords,
+  listArchivedAppStoreDates,
+  readArchivedAppStoreDay,
+  lookupAppStoreTickerHistory,
+  readAppStoreAggregateHistory,
   WATCHLIST,
 } from "./appStoreRankings";
 
@@ -87,6 +91,59 @@ test("archive round-trip with dedup by key", () => {
   const rows = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2026-08-01");
   assert.equal(archiveAppStoreRecords(rows, dir, t0), 2);
   assert.equal(archiveAppStoreRecords(rows, dir, t0), 0, "same keys never archive twice");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// NOTE: archiveAppStoreRecords' dedup Set is module-level (shared across
+// every test in this process, regardless of tmpdir), so each test below
+// uses dates no other test in this file touches — reusing "2026-08-01"
+// a second time would silently no-op the write (see the "archive
+// round-trip" test just above, which already claims that date).
+
+test("history: listArchivedAppStoreDates + readArchivedAppStoreDay round-trip across two days", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  const day1 = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-01-04");
+  const day2 = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-01-05");
+  archiveAppStoreRecords(day1, dir, Date.parse("2027-01-04T12:00:00Z"));
+  archiveAppStoreRecords(day2, dir, Date.parse("2027-01-05T12:00:00Z"));
+  const dates = listArchivedAppStoreDates(dir, 90);
+  assert.deepEqual(dates, ["2027-01-05", "2027-01-04"], "newest first");
+  const rows = readArchivedAppStoreDay("2027-01-04", dir);
+  assert.equal(rows.length, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("lookupAppStoreTickerHistory: one ticker's rank + rating series, ascending, other tickers excluded, unfetched days never zero-filled", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  const ranks1 = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-02-01");
+  const ratings1 = parseLookup(LOOKUP_JSON, TEST_WATCHLIST, "2027-02-01");
+  archiveAppStoreRecords([...ranks1, ...ratings1], dir, Date.parse("2027-02-01T12:00:00Z"));
+  const ranks2 = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-02-02");
+  archiveAppStoreRecords(ranks2, dir, Date.parse("2027-02-02T12:00:00Z")); // no ratings fetched this day
+  const series = lookupAppStoreTickerHistory("duol", 10, dir);
+  assert.equal(series.length, 2, "ascending across both archived days");
+  assert.deepEqual(series.map((p) => p.date), ["2027-02-01", "2027-02-02"]);
+  assert.equal(series[0].ranks.length, 1);
+  assert.equal(series[0].ranks[0].rank, 2);
+  assert.ok(series[0].rating, "2027-02-01 has a rating row");
+  assert.equal(series[0].rating!.ratingCount, 5357702);
+  assert.equal(series[1].rating, null, "2027-02-02 never fetched ratings — honestly null, not carried over");
+  const bmbl = lookupAppStoreTickerHistory("bmbl", 10, dir);
+  assert.equal(bmbl[0].ranks[0].rank, null, "BMBL was outside the top 100 in the fixture chart");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("readAppStoreAggregateHistory: ranked-slot ratio + summed rating counts per day, ascending", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  const ranks1 = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-03-01");
+  const ratings1 = parseLookup(LOOKUP_JSON, TEST_WATCHLIST, "2027-03-01");
+  archiveAppStoreRecords([...ranks1, ...ratings1], dir, Date.parse("2027-03-01T12:00:00Z"));
+  const trend = readAppStoreAggregateHistory(10, dir);
+  assert.equal(trend.length, 1);
+  assert.equal(trend[0].date, "2027-03-01");
+  assert.equal(trend[0].total_slots, 2, "both watchlist apps fetched for this one chart");
+  assert.equal(trend[0].ranked_slots, 1, "only DUOL landed a non-null rank; BMBL was outside the top 100");
+  assert.equal(trend[0].total_rating_count, 5357702, "BMBL's missing rating row contributes 0, not a crash");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
