@@ -82,6 +82,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/insider-history"), "SEC Form 4 accumulated filing-history keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/attention"), "Wikimedia pageviews attention proxy keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/attention-history"), "Wikimedia pageviews accumulated history keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/wiki-attention-signal"), "Wikimedia attention SIGNAL keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/cot"), "CFTC Commitments of Traders keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/cot-history"), "CFTC COT accumulated weekly-archive keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/contracts"), "USAspending federal contract awards keyed mirror shipped — must be a live endpoint");
@@ -97,7 +98,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -302,6 +303,20 @@ test("gnss-integrity-signal license mark: aircraft-archive-derived ODbL share-al
   assert.deepEqual(tool.returns_provenance, ["data/gnss-integrity-signal"]);
   assert.ok(tool.description.includes("GATE 2"), "honesty: gate-2-pass status must travel with the tool description");
   assert.ok(tool.description.includes("PARTIAL"), "honesty: gate-1's partial (not full) status must travel with the tool description");
+  assert.ok(tool.description.includes("NOT tradeable"), "honesty: this is a statistical signal, not a trading decision — must say so");
+});
+
+test("wiki-attention-signal license mark: computed z-score interpretation of CC0 Wikimedia data stays freely resellable like data/attention, not share-alike like the ADS-B-derived gnss signal; agent tool documents it as the second gate-2-passed signal on the API", () => {
+  assert.equal(LICENSE_MARKS["data/wiki-attention-signal"].resell, "ok",
+    "a computed statistic over our own CC0 Wikimedia archive — must not be mismarked conditional/share-alike like the issuer-authored or ADS-B-derived streams");
+  assert.ok(LICENSE_MARKS["data/wiki-attention-signal"].license.includes("CC0"));
+  assert.ok(LICENSE_MARKS["data/wiki-attention-signal"].license.includes("GATE 2"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_wiki_attention_signal");
+  assert.ok(tool, "voltrade_wiki_attention_signal tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/wiki-attention-signal"]);
+  assert.ok(tool.description.includes("GATE 2"), "honesty: gate-2-pass status must travel with the tool description");
+  assert.ok(tool.description.includes("does NOT re-check"), "honesty: the live board's own news-free-recheck gap must travel with the tool description");
   assert.ok(tool.description.includes("NOT tradeable"), "honesty: this is a statistical signal, not a trading decision — must say so");
 });
 
@@ -668,7 +683,7 @@ test("openapi spec: a tool WITH a hand-verified schema gets the v1Envelope shell
   assert.ok((schema.schema.required as string[]).includes("data"), "envelope's own data field must be required");
 });
 
-test("openapi spec: full coverage — every one of the 37 live tools now has a hand-verified RESPONSE_DATA_SCHEMAS entry, no stale extras", () => {
+test("openapi spec: full coverage — every one of the 38 live tools now has a hand-verified RESPONSE_DATA_SCHEMAS entry, no stale extras", () => {
   const toolNames = agentToolSpec().tools.map((t) => t.name);
   for (const name of toolNames) {
     assert.ok(RESPONSE_DATA_SCHEMAS[name], `"${name}" has no RESPONSE_DATA_SCHEMAS entry`);
@@ -736,6 +751,28 @@ test("openapi spec: the GNSS integrity signal schema's nested field names match 
   const bandItem = data.properties.bands.items.properties;
   for (const f of ["band", "candidate_k", "candidate_n", "control_rate", "expected_under_null", "p_value", "elevated", "expected_to_elevate"]) {
     assert.ok(f in bandItem, `BandVerdict field "${f}" missing from the bands[] item schema`);
+  }
+});
+
+test("openapi spec: the wiki-attention-signal schema's nested field names match the real WikiAttentionSignalSummary interface (wikiAttentionSignal.ts), not a guess", () => {
+  const data = RESPONSE_DATA_SCHEMAS.voltrade_wiki_attention_signal as { properties: Record<string, any>; required: string[] };
+  for (const f of ["kind", "root_id", "generated_at", "gate", "z_threshold", "trailing_window_days",
+      "min_baseline_days", "tickers", "spike_count", "validated_effect", "methodology_note", "caveats", "license"]) {
+    assert.ok(f in data.properties, `WikiAttentionSignalSummary field "${f}" missing`);
+    assert.ok(data.required.includes(f), `WikiAttentionSignalSummary field "${f}" should be required — it's non-optional on the source interface`);
+  }
+  const tickerItem = data.properties.tickers.items.properties;
+  for (const f of ["ticker", "article", "cap_tier", "latest_date", "current_views", "baseline_mean",
+      "baseline_days", "baseline_complete", "z_score", "spike"]) {
+    assert.ok(f in tickerItem, `TickerZRow field "${f}" missing from the tickers[] item schema`);
+  }
+  const effect = data.properties.validated_effect.properties;
+  for (const f of ["study_date", "bonferroni_alpha", "small_mid", "mega"]) {
+    assert.ok(f in effect, `validated_effect field "${f}" missing`);
+  }
+  const effectRow = effect.small_mid.items.properties;
+  for (const f of ["horizon_days", "mean_ratio", "baseline_ratio", "p_value"]) {
+    assert.ok(f in effectRow, `ValidatedEffectRow field "${f}" missing from the validated_effect.small_mid[] item schema`);
   }
 });
 

@@ -76951,3 +76951,192 @@ significance check via a scratch script before believing the codebase's
 own output, and surfacing the higher-value structural finding (the
 onset-counting scaffold's own five-times-repeated power ceiling) rather
 than stopping at "this one field didn't pass either."
+
+## 2026-09-05 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — SHARED-only (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json), last and minimal: wikimedia_pageviews_attention SIGNAL gets its v1 keyed API mirror — the exact NEXT item this UTC day's first session left queued (v1.0.849)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail, open_questions.md KNOWN BROKEN section, wishlist.md tail),
+`datacore/signal_ladder.json` for the current per-root ladder state, and
+`python3 scripts/research_state_check.py` (thrash 1/10 REPAIR, known_broken
+41/4-advisory-only, starvation 0/10 — no meta-problem flag, KNOWN BROKEN's
+4 unmarked items are all advisory per this file's own prior readings, none
+block product work). Live `/api/health`: `status:"ok"`, bot `active`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, all three archive feeds alive
+(aircraft/vessels/trains, silent_hours 0.06 each) — no LIVENESS ALARM.
+
+PRIMARY-ACTION SELECTION: this session's own scheduled task named four
+option classes ((a) advance a ladder gate, (b) build product UI, (c)
+propose a new hypothesis, (d) improve datacore's API boundary toward
+spinout-readiness). Screened `datacore/signal_ladder.json`'s 39 roots for
+a fresh GATE 2 candidate first (option (a)): `scripts/ladder_readiness_
+check.py` reported 0/3 ready (cftc_cot_positioning waiting 49d of a
+weekly-report accumulation, sec_8k_earnings_language waiting 27d of a
+90-day archive-depth requirement, fleet_utilization_aircraft waiting 58d
+until its stated 2026-11-02 date) — none unblocked since the last session
+to check. Rather than force a premature re-run against an unchanged prior
+(the same discipline the 2026-08-07 github-activity session used), took
+option (d).
+
+READ BEFORE WRITE caught the exact target before writing any code: this
+UTC day's FIRST session (v1.0.846, `datacore/signal_ladder.json`'s
+`wikimedia_pageviews_attention` entry, its own dated UPDATE paragraph)
+shipped the first live SIGNAL surface for this root
+(`server/wikiAttentionSignal.ts` + `/api/data/wiki-attention-signal` +
+the `/data` page) and explicitly logged as its own NEXT: "a v1 keyed
+mirror of this endpoint (same shape as gnss-integrity-signal's own v1
+mirror) plus an apiProduct.ts LICENSE_MARKS entry and agent tool." Before
+assuming the gap was real, grepped `server/routes.ts` for every
+`/api/v1/data/*` and `/api/v1/stats/*` path to rule out (1) a stale
+NEXT note (the exact mistake a 2026-08-09 session caught and corrected
+for a different root, "sec_form4_bulk_archive/nrc_outage_reports still
+without a standalone /data page" — 13F's part of that claim was already
+stale) and (2) the possibility the v1 sweep uses a `/api/v1/stats/`
+prefix rather than `/api/v1/data/` for some roots (it does — nrc-reactor-
+status/fred-macro/eu-macro/portdwell/shadow/secftd/midas/occ-volume/
+plant-operations/vix-term-structure all already have mirrors there,
+which would have made a naive "no /api/v1/data/nrc-reactor-status found"
+read a false gap). Confirmed against the full combined list: every other
+`signal_ladder.json` root already has a v1 mirror; `wiki-attention-signal`
+specifically did not. Read `server/wikiAttentionSignal.ts` in full
+(exports, `WikiAttentionSignalSummary`/`TickerZRow`/`ValidatedEffectRow`
+interfaces, the RAW route's own comment confirming the computation is
+cheap/synchronous/no-poller-needed) and the `gnss-integrity-signal` v1
+mirror block (route, `LICENSE_MARKS` entry, `apiMeta()` endpoint entry,
+`agentToolSpec()` tool, `RESPONSE_DATA_SCHEMAS` entry, and its four
+matching tests) as the structurally closest precedent — the SECOND
+gate2_pass root to reach this milestone, so the pattern was followed
+exactly rather than invented fresh.
+
+WHAT SHIPPED: `server/routes.ts` — new `app.get("/api/v1/data/wiki-
+attention-signal", ...)` handler placed directly after the `attention-
+history` mirror block: `requireApiKey` guard, calls
+`computeWikiAttentionSignal()` directly (no new poller/cache, matching
+the RAW route's own "cheap enough to run synchronously per request"
+reasoning — unlike gnss's eager-poller cache, there is no warming-up
+state to report), `v1Envelope("data/wiki-attention-signal", summary,
+Date.parse(summary.generated_at))`, `meterUsage` on the 200/500
+branches. `server/apiProduct.ts` — new `LICENSE_MARKS["data/wiki-
+attention-signal"]` entry (resell "ok", NOT "share-alike" like gnss —
+this is a computed statistic over CC0 Wikimedia data, not an ODbL-
+derived aircraft archive, so the freely-resellable posture of
+`data/attention` carries over unchanged rather than being mismarked);
+new `/api/v1/data/wiki-attention-signal` entry in `apiMeta().endpoints`;
+new `voltrade_wiki_attention_signal` tool in `agentToolSpec().tools`
+(description states GATE 2 pass, the live board's own EDGAR-recheck
+gap, and "NOT tradeable" per the honesty pattern every gate-2-passed
+tool description already carries); new `voltrade_wiki_attention_signal`
+entry in `RESPONSE_DATA_SCHEMAS` — the FULL nested shape (`tickers[]`
+item fields, `validated_effect.small_mid[]`/`mega[]` item fields) read
+from the real interfaces in `wikiAttentionSignal.ts`, not reconstructed
+from a route handler literal, same discipline as the gnss entry's own
+comment states. `server/apiProduct.test.ts` — added the path to the
+"keyed mirror shipped" list and the "wiring pinned" path list; one new
+license-mark test (byte-for-byte structural mirror of the gnss test:
+resell=="ok" not mismarked, license text includes "CC0"/"GATE 2", tool
+exists with correct `returns_provenance`, description honesty on GATE
+2/the EDGAR-recheck gap/NOT-tradeable); one new openapi nested-schema
+test (mirrors the gnss nested-schema test exactly: every top-level
+`WikiAttentionSignalSummary` field present and required, every
+`TickerZRow` field present in the `tickers[]` item schema, every
+`ValidatedEffectRow` field present in `validated_effect.small_mid[]`);
+corrected the pre-existing "37 live tools" test title to "38" (the
+assertion itself is dynamic — `Object.keys(RESPONSE_DATA_SCHEMAS).length
+=== toolNames.length` — only the title string was stale). `datacore/
+signal_ladder.json` — `wikimedia_pageviews_attention` entry's `note`
+appended (minimal bookkeeping, same pattern the github-activity mirror
+session used: this is an API-surface change, not a ladder-gate advance,
+so `status`/`current_gate` are unchanged).
+
+GATES: `npx tsx --test server/apiProduct.test.ts` 60/60 pass (58 before
+this session's 2 net-new tests). Full suite `npx tsx --test
+server/*.test.ts scripts/*.test.ts`: 1601/1601 pass, 0 fail (ran after
+`npm ci` — this session's container had zero `node_modules`). `npx tsc
+--noEmit`: 12 errors, byte-identical to `bash scripts/tsc_ratchet.sh`'s
+own pinned baseline (`ci/tsc_baseline.txt`, TS2304=0) — all 12 are the
+same pre-existing errors this file's prior sessions have repeatedly
+logged as unrelated (TradeChart.tsx chart-options typings, datamap.tsx
+never-callable/layer-id-union, billing.ts Stripe-type drift, bot.ts
+QueuedTrade/BotStatus field drift, owmTiles.ts missing @types/pngjs),
+none in any file this session touched. `bash scripts/gated_tests.sh`
+(after `pip install -r requirements.txt -r requirements-dev.txt` — a
+fresh container had no pytest either): GATE PASSED — client 1083/1083
+(101 files), python 1681 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/counter_ratchet.sh`: reported `assertions`
+13170 -> 13184 IMPROVED (this session's own 2 net-new tests, the direct
+and sole cause) — re-pinned in `ci/counter_baseline.txt` in this same
+PR; all other 24 counters unchanged, re-ran clean (25 counters OK).
+`npm run build`: clean (client 1859 modules transformed, server bundle
+built, dist/ populated) — the two pre-existing warnings (astronomy-
+engine default-export interop, maplibre-gl/index chunk size) are
+unrelated, present before this session's changes too.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a pure API-surface addition (a
+keyed mirror of an already-live, already-computed RAW/SIGNAL display),
+no scoring/sizing/threshold value touched, no new computation, no
+trading path involved. Gate status of `wikimedia_pageviews_attention`
+itself (gate2_pass, VOLUME channel) is unchanged by this session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring path, or any Python file (nothing in `bot_engine.py`/
+`system_config.py`/`ml_model_v2.py` touched). The only effect: an API
+customer (or an LLM agent via `agentToolSpec()`) can now pull the
+volume-elevation z-score board and its frozen validated-study result
+table the same way one already could for `gnss-integrity-signal` —
+directly serves GOAL priority 3's platform line (the product surface
+customers pay for) and the SPINOUT-READY DATA LAYER standing behavior
+(signals exposed only through the internal API boundary, the bot
+consuming them the way an external customer would — this endpoint is
+not consumed by any trading-path code, confirmed by grep).
+
+MONETIZATION TRIPWIRE: not touched — this root has no aircraft-archive/
+adsb.lol lineage (unlike gnss/fleet-utilization), so
+`server/providerCompliance.ts` is not implicated; `resell: "ok"` mirrors
+`data/attention`'s own already-reviewed CC0 posture exactly rather than
+re-deriving a new licensing judgment.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched (this is a server-only API-surface addition; the `/data` page
+itself shipped in this UTC day's first session and is unaffected).
+
+VERSION: v1.0.849 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 6619bdd/v1.0.848/PR #1007, no concurrent
+session had moved it). `package-lock.json` resynced via `npm install
+--package-lock-only`, diff confirms only the two version-string lines
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — exposes an existing, already-live,
+already-computed SIGNAL root through the existing v1 API boundary; no
+new archive, no new entity-graph join, no new poller, no new /data-
+facing surface. The AGENT-GROUNDING tie already documented for gnss-
+integrity-signal extends mechanically: an AI agent using
+`agentToolSpec()`'s tool-calling surface can now ground itself in this
+root's live attention-spike board the same way it already could for
+GNSS integrity.
+
+NEXT (queued, not this session): (1) GATE 3 (a backtested, cost-net
+entry/exit rule for the volume-elevation channel) remains the ladder's
+own next real step for `wikimedia_pageviews_attention` and is unaffected
+by this API-surface change. (2) per this session's own audit while
+building the "wiring pinned" path diff, EVERY `signal_ladder.json` root
+now has a v1 mirror — the "shipped-data-no-v1-API sweep" this file has
+logged across many prior sessions (github-activity, crop-conditions,
+gnss, dtcc-swaps, fleet-utilization, bank-failures, and now wiki-
+attention-signal) is COMPLETE as of this session; a future PRODUCT
+session choosing option (d) should re-screen from scratch (a newly
+gate-1-shipped root, or a `/history` companion gap) rather than assume
+this specific sweep continues. (3) `/history`+trend-sparkline endpoints
+for appstore-rankings/github-activity, queued since 2026-08-05/08-07,
+remain unbuilt. (4) per the AUDITS & DEBT register, the STALENESS/
+CONSTITUTIONAL audits' last-run dates should be checked by the next
+session whose fall-through reaches the research tier (not checked this
+session — PRIMARY action filled full capacity).
+
+STARVED: no — this was the session's one primary action, explicitly
+the exact NEXT item this UTC day's first session queued, matched to
+capacity, with a live-verified (not assumed-stale) gap, tests/gates all
+completed, and a counter-ratchet improvement locked in. No higher-
+priority queued item was skipped (KNOWN BROKEN's remaining items are
+evidence-blocked per this file's own repeated prior readings; no
+LIVENESS ALARM; thrash ratio 1/10, well under threshold; no ladder-
+readiness-check root came due).
