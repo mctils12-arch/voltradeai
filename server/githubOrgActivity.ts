@@ -315,6 +315,79 @@ export function archiveGithubActivity(records: GithubActivityRecord[], baseDir?:
   }
 }
 
+// ── history (accumulated archive, /history companion) ─────────────────────
+// Unlike the daily-file archivers (wikiAttention/appstore), a week's record
+// for a given org can land in ANY day's file (fetchGithubActivity runs on a
+// 24h poll but only writes a NEW week once it completes — see
+// bootGithubActivityPoll's own comment), so a history read must scan every
+// archived file, not just the last N days. Cheap at this volume (<=15
+// orgs/week, growing by one row/org/week — the same "full-history scan on
+// boot is cheap at this row count" reasoning seedSeen already uses).
+
+/** Every archived record across every day-file, deduped by key (last
+ *  write wins — archiveGithubActivity never re-writes an already-archived
+ *  key, so in practice there is at most one write per key). */
+export function readArchivedGithubActivity(baseDir?: string): GithubActivityRecord[] {
+  const dir = githubActivityDir(baseDir);
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir); } catch { return []; }
+  const byKey = new Map<string, GithubActivityRecord>();
+  for (const f of files) {
+    if (!f.endsWith(".jsonl") && !f.endsWith(".jsonl.gz")) continue;
+    let text: string | null = null;
+    try {
+      text = f.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(path.join(dir, f))).toString("utf8")
+        : fs.readFileSync(path.join(dir, f), "utf8");
+    } catch { continue; }
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        const r = JSON.parse(line) as GithubActivityRecord;
+        if (r?.key) byKey.set(r.key, r);
+      } catch { continue; }
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** One org's weekly record series across its last `weeks` archived weeks,
+ *  ascending by weekStart. A week never fetched for this ticker (dead
+ *  cycle, or before it joined the watchlist) is honestly omitted, never
+ *  zero-filled. */
+export function lookupGithubOrgHistory(ticker: string, weeks: number, baseDir?: string): GithubActivityRecord[] {
+  const t = ticker.trim().toUpperCase();
+  return readArchivedGithubActivity(baseDir)
+    .filter((r) => r.ticker.toUpperCase() === t)
+    .sort((a, b) => (a.weekStart < b.weekStart ? -1 : a.weekStart > b.weekStart ? 1 : 0))
+    .slice(-Math.max(1, weeks));
+}
+
+export interface GithubActivityTrendPoint {
+  weekStart: string; weekEnd: string; orgs_reporting: number; total_merged_prs: number; total_commits: number;
+}
+
+/** Watchlist-wide trend: per archived week, how many orgs reported at
+ *  least one non-null field and the summed merged-PR/commit counts across
+ *  them (nulls excluded from the sums, never coerced to zero) — ascending
+ *  by weekStart. */
+export function readGithubActivityAggregateHistory(weeks: number, baseDir?: string): GithubActivityTrendPoint[] {
+  const byWeek = new Map<string, GithubActivityRecord[]>();
+  for (const r of readArchivedGithubActivity(baseDir)) {
+    if (!byWeek.has(r.weekStart)) byWeek.set(r.weekStart, []);
+    byWeek.get(r.weekStart)!.push(r);
+  }
+  const out = [...byWeek.entries()].map(([weekStart, rows]) => ({
+    weekStart,
+    weekEnd: rows[0].weekEnd,
+    orgs_reporting: rows.filter((r) => r.mergedPRs !== null || r.commits !== null).length,
+    total_merged_prs: rows.reduce((s, r) => s + (r.mergedPRs ?? 0), 0),
+    total_commits: rows.reduce((s, r) => s + (r.commits ?? 0), 0),
+  }));
+  out.sort((a, b) => (a.weekStart < b.weekStart ? -1 : a.weekStart > b.weekStart ? 1 : 0));
+  return out.slice(-Math.max(1, weeks));
+}
+
 // ── cache + poll ─────────────────────────────────────────────────────────────
 
 let cache: { at: number; records: GithubActivityRecord[] } | null = null;

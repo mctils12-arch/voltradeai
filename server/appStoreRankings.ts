@@ -253,6 +253,100 @@ export function gzipOldAppStoreDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+// ── History (accumulated archive, /history companion) ──────────────────────
+// Same bounded read pattern as wikiAttention.ts's listArchivedDates/
+// readArchivedDay/readAggregateHistory: this archive is one small file per
+// day (16 apps x 3 storefronts x 2 charts + 16 ratings <= 112 rows/day), so
+// scanning up to 90 archived days on request is cheap — no separately
+// persisted trend log needed at this seed size.
+
+/** Archived rank/rating-dates, newest first (jsonl or jsonl.gz only). */
+export function listArchivedAppStoreDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(appstoreDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+/** Read one archived day back (plain or gz). */
+export function readArchivedAppStoreDay(iso: string, baseDir?: string): AppStoreRecord[] {
+  const dir = appstoreDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: AppStoreRecord[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch { continue; }
+    }
+    return out;
+  }
+  return [];
+}
+
+export interface AppStoreTickerHistoryPoint {
+  date: string;
+  ranks: Array<{ storefront: Storefront; chart: Chart; rank: number | null }>;
+  rating: { avgRating: number | null; ratingCount: number | null; version: string | null } | null;
+}
+
+/** One ticker's rank + rating series across its last `days` archived dates,
+ *  ascending by date. A day this ticker was never fetched (dead cycle, or
+ *  before the ticker joined the watchlist) is honestly omitted, never
+ *  zero/null-filled — matches lookupTickerHistory's own convention. */
+export function lookupAppStoreTickerHistory(ticker: string, days: number, baseDir?: string): AppStoreTickerHistoryPoint[] {
+  const t = ticker.trim().toUpperCase();
+  const dates = listArchivedAppStoreDates(baseDir, days);
+  const out: AppStoreTickerHistoryPoint[] = [];
+  for (const iso of dates) {
+    const rows = readArchivedAppStoreDay(iso, baseDir).filter((r) => r.ticker.toUpperCase() === t);
+    if (!rows.length) continue;
+    const ranks = rows.filter((r): r is RankRecord => r.t === "rank").map((r) => ({ storefront: r.storefront, chart: r.chart, rank: r.rank }));
+    const ratingRow = rows.find((r): r is RatingRecord => r.t === "rating") || null;
+    out.push({
+      date: iso,
+      ranks,
+      rating: ratingRow ? { avgRating: ratingRow.avgRating, ratingCount: ratingRow.ratingCount, version: ratingRow.version } : null,
+    });
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
+export interface AppStoreTrendPoint { date: string; ranked_slots: number; total_slots: number; total_rating_count: number; }
+
+/** Watchlist-wide trend: how many (ticker,storefront,chart) slots landed a
+ *  non-null rank that day, out of the slots actually fetched, plus summed
+ *  rating counts across whichever apps returned a Lookup row — ascending by
+ *  date. total_slots is the day's OWN fetched-row count (not a hardcoded
+ *  16*3*2), so a dead storefront/chart cycle (fetchAppStoreSnapshot's own
+ *  per-source try/catch) never silently deflates the ratio's denominator. */
+export function readAppStoreAggregateHistory(days: number, baseDir?: string): AppStoreTrendPoint[] {
+  const dates = listArchivedAppStoreDates(baseDir, days);
+  const out = dates.map((iso) => {
+    const rows = readArchivedAppStoreDay(iso, baseDir);
+    const rankRows = rows.filter((r): r is RankRecord => r.t === "rank");
+    const ratingRows = rows.filter((r): r is RatingRecord => r.t === "rating");
+    return {
+      date: iso,
+      ranked_slots: rankRows.filter((r) => r.rank !== null).length,
+      total_slots: rankRows.length,
+      total_rating_count: ratingRows.reduce((s, r) => s + (r.ratingCount ?? 0), 0),
+    };
+  });
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; records: AppStoreRecord[] } | null = null;

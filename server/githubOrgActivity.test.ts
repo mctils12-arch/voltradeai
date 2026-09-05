@@ -13,6 +13,9 @@ import {
   fetchGithubActivity,
   archiveGithubActivity,
   isArchived,
+  readArchivedGithubActivity,
+  lookupGithubOrgHistory,
+  readGithubActivityAggregateHistory,
   WATCHLIST,
 } from "./githubOrgActivity";
 
@@ -123,6 +126,67 @@ test("archiveGithubActivity keeps a partial record (one leg failed) rather than 
     uniqueActorsSample: 4, actorSampleCapped: false, rt: "2026-08-05",
   };
   assert.equal(archiveGithubActivity([rec], dir, t0), 1, "commits succeeded, so the week is worth keeping");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// NOTE: archiveGithubActivity's dedup Set is module-level (shared across
+// every test in this process, regardless of tmpdir), so each test below
+// uses weekStart dates no other test in this file touches — reusing a key
+// like "2026-07-27|mongodb" a second time would silently no-op the write.
+
+test("readArchivedGithubActivity: scans every day-file (not just the newest), dedups by key", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-"));
+  const week1 = {
+    t: "org_week" as const, key: "2027-01-04|mongodb", ticker: "MDB", org: "mongodb",
+    weekStart: "2027-01-04", weekEnd: "2027-01-10", mergedPRs: 12, commits: 88,
+    uniqueActorsSample: 6, actorSampleCapped: true, rt: "2027-01-13",
+  };
+  const week2 = {
+    t: "org_week" as const, key: "2027-01-11|mongodb", ticker: "MDB", org: "mongodb",
+    weekStart: "2027-01-11", weekEnd: "2027-01-17", mergedPRs: 20, commits: 100,
+    uniqueActorsSample: 8, actorSampleCapped: false, rt: "2027-01-20",
+  };
+  // Written on two different days -> two different day-files, same dir.
+  archiveGithubActivity([week1], dir, Date.parse("2027-01-13T12:00:00Z"));
+  archiveGithubActivity([week2], dir, Date.parse("2027-01-20T12:00:00Z"));
+  const all = readArchivedGithubActivity(dir);
+  assert.equal(all.length, 2, "must read across both day-files, not just the latest");
+  assert.deepEqual(new Set(all.map((r) => r.key)), new Set(["2027-01-04|mongodb", "2027-01-11|mongodb"]));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("lookupGithubOrgHistory: one ticker's weekly series, ascending, other orgs excluded, unfetched weeks never zero-filled", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-"));
+  const t0 = Date.parse("2027-02-09T12:00:00Z");
+  archiveGithubActivity([
+    { t: "org_week" as const, key: "2027-02-01|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2027-02-01", weekEnd: "2027-02-07", mergedPRs: 12, commits: 88, uniqueActorsSample: 6, actorSampleCapped: true, rt: "2027-02-09" },
+    { t: "org_week" as const, key: "2027-02-08|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2027-02-08", weekEnd: "2027-02-14", mergedPRs: 20, commits: 100, uniqueActorsSample: 8, actorSampleCapped: false, rt: "2027-02-09" },
+    { t: "org_week" as const, key: "2027-02-08|elastic", ticker: "ESTC", org: "elastic", weekStart: "2027-02-08", weekEnd: "2027-02-14", mergedPRs: 5, commits: 30, uniqueActorsSample: 3, actorSampleCapped: false, rt: "2027-02-09" },
+  ], dir, t0);
+  const series = lookupGithubOrgHistory("mdb", 10, dir);
+  assert.equal(series.length, 2, "only MDB's own rows, ESTC excluded");
+  assert.deepEqual(series.map((r) => r.weekStart), ["2027-02-01", "2027-02-08"], "ascending by weekStart");
+  assert.equal(series[1].mergedPRs, 20);
+  const capped = lookupGithubOrgHistory("mdb", 1, dir);
+  assert.equal(capped.length, 1, "weeks param caps the series to the most recent N");
+  assert.equal(capped[0].weekStart, "2027-02-08");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("readGithubActivityAggregateHistory: per-week org count + summed PR/commit totals, nulls excluded from sums not coerced to zero", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-"));
+  const t0 = Date.parse("2027-03-02T12:00:00Z");
+  archiveGithubActivity([
+    { t: "org_week" as const, key: "2027-03-01|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2027-03-01", weekEnd: "2027-03-07", mergedPRs: 20, commits: 100, uniqueActorsSample: 8, actorSampleCapped: false, rt: "2027-03-02" },
+    { t: "org_week" as const, key: "2027-03-01|elastic", ticker: "ESTC", org: "elastic", weekStart: "2027-03-01", weekEnd: "2027-03-07", mergedPRs: null, commits: 30, uniqueActorsSample: 3, actorSampleCapped: false, rt: "2027-03-02" },
+  ], dir, t0);
+  const trend = readGithubActivityAggregateHistory(10, dir);
+  assert.equal(trend.length, 1);
+  assert.equal(trend[0].weekStart, "2027-03-01");
+  assert.equal(trend[0].weekEnd, "2027-03-07");
+  assert.equal(trend[0].orgs_reporting, 2, "both orgs reported at least one non-null field");
+  assert.equal(trend[0].total_merged_prs, 20, "elastic's null mergedPRs excluded from the sum, not coerced to 0");
+  assert.equal(trend[0].total_commits, 130);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
