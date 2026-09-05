@@ -76710,3 +76710,104 @@ screenshots before finalizing and catching + fixing a real honesty gap
 (the "normal" mislabeling of a no-data ticker) rather than shipping the
 first-draft render, and catching + fixing a real ts_any regression via the
 counter ratchet rather than only checking that tests passed.
+
+## 2026-09-05 (scheduled-routine session, second scheduled session this UTC day) [RESEARCH] — SHARED-but-minimal (scripts/permutation_entropy_probe.py new, test_permutation_entropy_probe.py new, ci/counter_baseline.txt, package.json, research/*): FOREIGN-FIELD IMPORT (axis c/d): information theory's permutation entropy (Bandt & Pompe 2002) as a market-order/complexity diagnostic, script built and unit-tested, not yet run against real data (v1.0.847)
+
+TERRITORY: SHARED-but-minimal — one new standalone probe script + its
+test file (no T-DATACORE/T-CLIENT/T-BOT territory file touched),
+`ci/counter_baseline.txt` (targeted re-pin, 3 lines), `package.json`
+(version bump), `research/*` (this entry + the full account in
+open_questions.md).
+
+SESSION-START CHECKS: CLAUDE.md read in full (special attention to EDGE
+DOCTRINE per this routine's own instruction), then research/ tail
+(PROGRAM_STATE.md, open_questions.md's KNOWN BROKEN section end-to-end,
+wishlist.md/data_census.md tails, experiments.md tail). Live
+`/api/health` via `DIAG_TOKEN`: status ok, bot active, drawdownPct 0.0,
+`liveness.dark: false`, all three feeds (aircraft/vessels/trains) alive
+— no LIVENESS ALARM. Walked every numbered KNOWN BROKEN item lacking an
+explicit close marker in its own header (#20, #30, #35, #36, #37, #39,
+#40 x2) individually: #30/#35/#36/#39/#40(first) all show a later CLOSED/
+FIXED disposition in their own text; #20 is an explicitly-gated
+design/threshold judgment call (RULE REVIEW evidence required, no live
+break); #37 is a downgraded-urgency datacore data-integrity question
+with no trading-path effect; #40(second) is an explicitly non-urgent,
+self-resolving CI/test-hygiene defect (pre-long-weekend calendar mock
+gap). None block or outrank this session's work — confirmed NOT a
+[REPAIR] session. `python3 scripts/research_state_check.py`: audits
+none overdue, thrash 1/10 REPAIR (well under trigger), known_broken 41/4
+advisory-only (matches the above), starvation 0/10.
+
+AXIS SURVEY: full account in the open_questions.md entry (same date).
+Summary: (a) `data_stream_registry_check.py --unbuilt` — 10/35, all
+declined/blocked except `un_comtrade` (unchanged, structural-thesis-only)
+— exhausted. (b) "Options fill realism" still gated behind KNOWN BROKEN
+#12(c)'s partial-only resolution (single-leg CSP only). (c)/(d): live
+network check this session — no `ALPACA_KEY`/`ALPACA_SECRET`, and
+`yfinance.Ticker('SPY').history(period='5d')` hard-timed-out at the
+egress proxy (`ws_closed_mid_exchange`, same failure class as every
+recent prior blocked session) — confirmed, not assumed. Picked a NEW
+foreign-field import (information theory / permutation entropy) rather
+than a variant on one of the four already-killed/underpowered imports in
+this file (CSD, R_t, Omori-Utsu all GATE 2 killed; hazard-rate GATE 2 not
+passed even pooled) — full reasoning in the open_questions.md entry's
+"WHY A NEW FIELD" paragraph.
+
+WHAT SHIPPED: see open_questions.md (same date) for the full technical
+account — `scripts/permutation_entropy_probe.py` (ordinal-pattern
+extraction, normalized Shannon entropy with an honest minimum-sample
+floor, rolling computation with no lookahead, an onset-vs-regime-matched-
+control comparison mirroring the CSD probe's own methodology exactly,
+and a descriptive AR1-correlation independence check against
+re-discovering CSD's own effect under a new name) plus
+`test_permutation_entropy_probe.py` (29 tests, including two
+hand-derived EXACT values — 0.0 for a monotonic series, 1.0 for a
+21-value perfectly-alternating m=2 series — not just bounds checks).
+
+GATES: `python3 -m pytest -q test_permutation_entropy_probe.py`: 29/29.
+Full suite (after `pip install -r requirements.txt -r
+requirements-dev.txt`): 1677 passed, 1 skipped, 54 subtests — 1648 (prior
+session's own reported count) + this session's 29 new, zero regressions.
+`bash scripts/gated_tests.sh` (after `npm ci`, node_modules empty at
+session start): GATE PASSED, python OK, quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh` (after `npm ci`): 12/12, TS2304=0,
+unchanged (no `.ts`/`.tsx` touched; the pre-`npm ci` reading showed the
+same misleading "12->3" artifact this file has repeatedly logged and
+correctly not trusted). `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 418->419, `assertions`
+13069->13111 — this session's own new file/tests, the direct and sole
+cause, re-pinned in `ci/counter_baseline.txt` in this same PR; all other
+22 counters unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — research probe + tests only, no
+strategy/threshold/scoring change, no trading path touched.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `backtest_v2.fetch_bars`/
+`regime_series` (EDGE DOCTRINE #3) and the CSD probe's
+`find_transition_onsets`/`rolling_ar1`; no new archive, join, fetch host,
+or dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+VERSION: v1.0.847 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 5ce64a1/v1.0.846/PR #1005, no concurrent
+session had moved it).
+
+NEXT: run `python3 scripts/permutation_entropy_probe.py --days 2520`
+against real SPY/VXX data once Alpaca/Yahoo access exists, and read BOTH
+the onset-vs-control comparison and the built-in `ar1_entropy_correlation`
+honesty check before calling any result a clean, independent GATE 2 pass
+— full detail in the open_questions.md entry's own NEXT.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (confirmed axis (a) exhausted and axis (b) gated live
+rather than from memory, confirmed the real-data block live rather than
+assumed, and picked a genuinely new field rather than a fifth variant on
+an already-killed one), used in full including hand-deriving exact-value
+unit tests instead of only bounds checks and building the AR1-
+independence check into the probe itself rather than leaving that
+honesty gap for whichever future session runs it against real data.

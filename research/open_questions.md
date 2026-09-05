@@ -16500,3 +16500,180 @@ committing to the build, running the real control rather than stopping at
 Bonferroni bar as the session it followed rather than a laxer ad hoc one,
 and reporting the sign-test power-loss honestly rather than omitting it
 because the primary verdict was already favorable).
+
+## [2026-09-05 (scheduled-routine session) — FOREIGN-FIELD IMPORT (axis c/d): information theory's permutation entropy (Bandt & Pompe 2002) as a market-order/complexity diagnostic — script built and unit-tested, NOT yet run against real data (v1.0.847)]
+
+AXIS SURVEY (all four EDGE DOCTRINE axes checked live this session, not
+inherited): `/api/health` (production, via live `DIAG_TOKEN`) — status
+ok, bot active, drawdownPct 0.0, liveness.dark false, all feeds alive, no
+LIVENESS ALARM; NOT a [REPAIR] session. `python3
+scripts/research_state_check.py` — thrash 1/10 REPAIR (well under the
+7+ trigger), known_broken 41 items/4 advisory-only (already
+re-verified fixed by prior sessions, not re-litigated), starvation 0/10.
+Axis (a): `python3 scripts/data_stream_registry_check.py --unbuilt` —
+identical 10/35 unbuilt roots to every recent prior session's own reading
+(all declined_dead_source/declined_gate1_fail/blocked_registration/
+blocked_free_key except `un_comtrade`, still structural-thesis-only/too
+lagged) — confirmed exhausted, not assumed stale. Axis (b): grep-verified
+the "Options fill realism" entry (this file) still shows the options-side
+quote-based-fill model explicitly deferred behind KNOWN BROKEN #12(c),
+which is itself only PARTIALLY resolved (single-leg CSP only; multi-leg
+and rolls remain unattributed) — still gated, unchanged. Axis (c)/(d):
+confirmed real-data access is blocked THIS session before picking
+anything (not assumed from a prior session's note) — no `ALPACA_KEY`/
+`ALPACA_SECRET` in `env`, and a live `yfinance.Ticker('SPY').
+history(period='5d')` call hard-timed-out at the egress proxy
+(`ws_closed_mid_exchange` on query2.finance.yahoo.com/guce.yahoo.com/
+fc.yahoo.com — the identical failure class the 2026-08-18/29/30 and
+2026-09-04 sessions all independently hit). With (a) exhausted and (b)
+gated, and (c)/(d)'s real-data path blocked, this session followed the
+established precedent (CSD 2026-08-18, hazard-rate 2026-08-29, Omori
+2026-08-30, hazard-rate-pooled 2026-09-04): build and unit-test a NEW
+foreign-field import now, defer the real-data run to a future session
+with access — "deliverable is a script... not an analysis."
+
+WHY A NEW FIELD, NOT A FIFTH VARIANT ON AN EXISTING ONE: four prior
+foreign-field imports in this file have each been run to a real
+conclusion — critical-slowing-down (ecology) GATE 2 KILLED, contagion
+R_t (epidemiology) GATE 2 KILLED, Omori-Utsu (seismology) GATE 2 KILLED,
+hazard-rate (reliability engineering) GATE 2 NOT PASSED even pooled
+(underpowered). Per REASONING STANDARD #4, four killed/underpowered
+variants argue for discounting any fifth similarly-shaped one, not for
+abandoning the axis — EDGE DOCTRINE #4 and the ACTIVE ANGLE-HUNTING
+standing behavior both frame the named fields (epidemiology, ecology,
+aviation maintenance) as standing EXAMPLES, and ACTIVE ANGLE-HUNTING's
+own text separately names "signal processing" as a candidate field none
+of the four prior imports used. Information theory (Bandt-Pompe
+permutation entropy) is that fifth, genuinely different field, not a
+sixth pass dressed up as new.
+
+FOREIGN FIELD: Bandt & Pompe 2002, "Permutation Entropy: A Natural
+Complexity Measure for Time Series" (Phys. Rev. Lett. 88, 174102).
+Instead of measuring a time series' raw magnitudes or linear
+autocorrelation, permutation entropy measures the Shannon entropy of the
+distribution of ORDINAL PATTERNS (the relative rank order of m
+consecutive values) — a fully random (i.i.d.) sequence visits all m!
+possible orderings with equal frequency (normalized entropy -> 1); a
+strongly trending/herding sequence concentrates on a few orderings
+(entropy -> 0). A finance-specific literature (Zunino et al. 2009;
+Bariviera 2021 survey) has used rolling permutation entropy of returns as
+a market-(in)efficiency / regime diagnostic.
+
+HYPOTHESIS (pre-registered): rolling normalized permutation entropy of
+SPY daily log returns falls in the days before a regime transition into
+a MORE SEVERE regime (same severity order, same onset definition, same
+regime-matched control methodology as the existing CSD entry — reused
+verbatim via `_load_csd_module()`, not re-derived).
+
+PRIOR (stated before ever running against real data, REASONING STANDARD
+#10): expect entropy to FALL before a severity-increasing transition —
+panic/selloff price action is more directional/herding than calm-regime
+chop, which is the SAME underlying intuition as the already-tested CSD
+"rising AR1" finding. Because of that overlap, the honestly interesting
+question is not "does entropy move" but "does it carry INDEPENDENT
+information beyond AR1" — permutation entropy is a genuinely different
+statistic (ordinal structure across an m-length window vs. a single
+lag-1 linear correlation) but the two could still covary strongly in
+practice. Given four prior imports in this file were all killed or
+underpowered, my prior on this one clearing GATE 2 outright is not high
+either — this is a fair test, not a foregone one.
+
+WHAT SHIPPED: `scripts/permutation_entropy_probe.py` (new) —
+`ordinal_pattern()` (deterministic tie-breaking by original position, so
+literal zero-return days don't produce implementation-defined output),
+`permutation_entropy()` (normalized Shannon entropy of ordinal-pattern
+frequencies, bounded [0,1], returns None below an `m!+1`-sample floor
+rather than fabricating a number from too few observations),
+`rolling_permutation_entropy()` (left-aligned trailing window, no
+lookahead — mirrors `rolling_ar1`/`rolling_variance`'s own convention),
+`pearson_correlation()` (a plain descriptive independence check, NOT
+itself a gate-2 statistic), `compute_entropy_lead_signal()` (onset-vs-
+regime-matched-control comparison, structurally identical to the CSD
+probe's own `compute_lead_signal` — same `MIN_ONSETS_FOR_STATS` floor,
+same regime-matched-control-with-honest-fallback mechanism, same
+fixed-seed reproducible sampling, deliberately mirrored rather than
+redesigned so results are comparable apples-to-apples against CSD's
+already-published one), and `run_probe()` (orchestrates against real
+data via `backtest_v2.fetch_bars`/`regime_series` and the CSD module's
+`find_transition_onsets`/`rolling_ar1`, EDGE DOCTRINE #3 reuse — also
+computes `ar1_entropy_correlation`, the honesty check against
+re-discovering CSD's own AR1 effect under a new name). Rolling window
+defaults to 60 trading days (not CSD's 20) — with m=3 (6 possible
+ordinal patterns) a 20-day window yields only ~18 extractable
+subsequences (~3/pattern), too thin to estimate a 6-outcome
+distribution; 60 days yields ~58 (~9-10/pattern), the smallest window
+this probe considers honest, stated explicitly in the module docstring
+rather than silently reusing CSD's window.
+
+RATCHET: `test_permutation_entropy_probe.py` (new, root, 29 tests) —
+hand-verified exact cases (a strictly monotonic series -> entropy
+exactly 0.0, since every length-3 window is the same ordinal pattern; a
+21-value perfectly-alternating series with m=2 -> entropy exactly 1.0,
+hand-computed as 10 of each of the 2 possible patterns with zero
+remainder), the `m!+1` sample floor, tie-breaking determinism,
+`rolling_permutation_entropy`'s left-alignment and direct-call
+equivalence, `pearson_correlation`'s perfect ±1 cases and None-below-3
+and degenerate-zero-variance guards, `compute_entropy_lead_signal`'s
+insufficient-n reporting, regime-matched-control fallback, and seed
+reproducibility, and (mirroring the CSD/hazard-rate precedent)
+integration-shape tests confirming the CSD-module import wiring and
+`run_probe`'s parameter defaults without invoking network access.
+
+WHY THIS SESSION DID NOT RUN IT AGAINST REAL DATA: see AXIS SURVEY above
+— confirmed live this session, not assumed.
+
+GATES: `python3 -m pytest -q test_permutation_entropy_probe.py`: 29/29.
+Full-suite `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`): 1677 passed, 1 skipped, 54
+subtests — up from the immediately-preceding session's 1648 reported
+count by exactly this session's own 29 new tests, zero regressions.
+`bash scripts/gated_tests.sh` (after `npm ci`, this sandbox's
+node_modules was empty at session start — matching the same recurring
+sandbox-state note every prior session in this file has logged and
+correctly not trusted the pre-`npm ci` reading of): GATE PASSED —
+python OK, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`
+(after `npm ci`): 12/12, TS2304=0, unchanged (no `.ts`/`.tsx` touched,
+pure Python diff — the pre-`npm ci` reading showed the same misleading
+"12->3" artifact this file's own 2026-09-04(5) entry already documented
+and correctly did not trust). `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 418->419 and `assertions`
+13069->13111 (this session's own one new test file/29 new tests, the
+direct and sole cause) — all three re-pinned in `ci/
+counter_baseline.txt` in this same PR; all other 22 counters unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a research probe script and
+its tests, not a strategy/threshold/scoring change; no trading path
+touched.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `backtest_v2.fetch_bars`/
+`regime_series` and the CSD probe's `find_transition_onsets`/
+`rolling_ar1` (EDGE DOCTRINE #3); no new archive, join, fetch host, or
+dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+VERSION: v1.0.847 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 5ce64a1/v1.0.846/PR #1005, no concurrent
+session had moved it).
+
+NEXT: for whichever future session has real Alpaca/Yahoo data access,
+run `python3 scripts/permutation_entropy_probe.py --days 2520` (or call
+`run_probe()` directly) against SPY/VXX and record the GATE 2 result —
+both the onset-vs-control comparison AND the `ar1_entropy_correlation`
+honesty check, since a high |r| there would mean a clean gate-2 pass on
+entropy might not add information beyond CSD's already-tested AR1
+statistic, which should be stated even if the raw comparison looks
+favorable (REASONING STANDARD #4).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a genuinely new foreign-field import, chosen only after
+confirming live that axes (a)/(b) were exhausted/gated and (c)/(d)'s
+real-data path was blocked, not assumed from memory), used in full
+including hand-deriving exact-value test cases (0.0 and 1.0) rather than
+only asserting bounds, and building the AR1-independence check into the
+probe itself so a future session's real-data run cannot accidentally
+overclaim a rediscovery of CSD's own effect as a new one.
