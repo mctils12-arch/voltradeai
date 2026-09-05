@@ -100,6 +100,7 @@ import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootCboeVixPoll, latestCboeVix } from "./cboeVix";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
+import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached, preserveWeeklyBeforeRollup } from "./fleetUtilization";
@@ -3499,8 +3500,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Wikipedia pageviews attention proxy (RAW — BUILD ORDER 5 #3, the
-  // pytrends replacement). Curated 23-ticker seed, raw daily views
-  // only — no spike/z-score claims until gate 1 + trailing history.
+  // pytrends replacement). Curated 23-ticker seed, raw daily views only.
+  // GATE 1 (DATA) passed 2026-08-18; GATE 2 (SIGNAL, volume channel)
+  // passed 2026-09-04 (datacore/signal_ladder.json) — this endpoint stays
+  // intentionally RAW-only regardless (RAW OVERLAYS vs SIGNALS rule): the
+  // interpreted spike/z-score signal now lives at the dedicated gated
+  // endpoint below, /api/data/wiki-attention-signal (server/
+  // wikiAttentionSignal.ts), not here.
   bootAttentionPoll();
   app.get("/api/data/attention", (_req, res) => {
     const hit = latestAttention();
@@ -3519,7 +3525,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       date: hit.day.date,
       seed_size: Object.keys(WIKI_ARTICLES).length,
       count: hit.day.tickers.length,
-      note: "RAW daily user pageviews for a curated ticker->article seed (stated size above); an attention PROXY, not a signal — no spike claims until the archive holds trailing history and gate 1 passes",
+      note: "RAW daily user pageviews for a curated ticker->article seed (stated size above); ladder gate 1+2 (volume channel) have passed for this root, but this endpoint deliberately stays RAW-only — see /api/data/wiki-attention-signal for the interpreted signal",
       tickers: hit.day.tickers,
     });
   });
@@ -3559,6 +3565,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
+    }
+  });
+
+  // WIKIMEDIA ATTENTION SIGNAL — the second root to reach the "gated-SIGNAL
+  // /data surface" milestone gnss-integrity-signal established first
+  // (datacore/signal_ladder.json's wikimedia_pageviews_attention entry:
+  // GATE 2 (SIGNAL) PASS 2026-09-04 for the volume channel, small/mid-cap
+  // group, net of a same-day-or-prior-day SEC 8-K news-free control).
+  // Public, no diag token: reads this repo's own small local pageviews
+  // archive (server/wikiAttention.ts) directly per request — unlike gnss's
+  // multi-day AIS scan, this is cheap enough (~23 tickers x <=91 rows) that
+  // no eager-poller cache is needed, same as /api/data/attention/history
+  // above.
+  app.get("/api/data/wiki-attention-signal", (_req, res) => {
+    try {
+      res.set("Cache-Control", "public, max-age=300");
+      res.json(computeWikiAttentionSignal());
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "signal computation failed" });
     }
   });
 
@@ -4794,9 +4819,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // no new poller. GATE 1 (DATA) PASSED 2026-08-18; GATE 2 (spike leads
   // forward volume) PASSED 2026-09-04 for small/mid-cap names net of a
   // same-day-8-K control (see datacore/signal_ladder.json). This route
-  // still serves RAW daily views only, no spike/z-score/signal claim — a
-  // derived-signal surface is a separate future PRODUCT decision, not
-  // implied by the ladder promotion.
+  // still serves RAW daily views only, no spike/z-score/signal claim — the
+  // interpreted signal now has its own dedicated surface,
+  // /api/data/wiki-attention-signal (server/wikiAttentionSignal.ts,
+  // shipped this session); a v1 keyed mirror of THAT endpoint, matching
+  // gnss-integrity-signal's own v1 mirror, is still a separate future
+  // PRODUCT step, not implied by the ladder promotion.
   // Computed by Wikimedia itself from server logs, CC0 — freely resellable,
   // unlike the issuer-authored insider/13F/earnings-language mirrors above.
   app.get("/api/v1/data/attention", (req, res) => {
@@ -4813,7 +4841,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         date: hit.day.date,
         seed_size: Object.keys(WIKI_ARTICLES).length,
         count: hit.day.tickers.length,
-        note: "RAW daily user pageviews for a curated ticker->article seed; an attention PROXY, not a signal — no spike claims until gate 2 runs",
+        note: "RAW daily user pageviews for a curated ticker->article seed; an attention PROXY — this endpoint deliberately stays RAW-only even though ladder gate 2 (volume channel) has passed, see /api/data/wiki-attention-signal for the interpreted signal",
         tickers: hit.day.tickers,
       }, hit.at));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention", status: 200, tier: auth.tier });
