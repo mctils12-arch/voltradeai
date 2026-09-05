@@ -4895,6 +4895,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Wikimedia attention SIGNAL keyed mirror — the SECOND gate2_pass root to
+  // get a v1 mirror (after data/gnss-integrity-signal). Reuses
+  // computeWikiAttentionSignal() directly, same as the RAW
+  // /api/data/wiki-attention-signal route above — cheap/local/synchronous
+  // (~23 tickers x <=91 rows), no eager-poller cache needed unlike gnss's
+  // multi-day AIS scan, so there is no warming-up state to report.
+  app.get("/api/v1/data/wiki-attention-signal", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const summary = computeWikiAttentionSignal();
+      res.json(v1Envelope("data/wiki-attention-signal", summary, Date.parse(summary.generated_at)));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/wiki-attention-signal", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/wiki-attention-signal", status: 500, tier: auth.tier });
+    }
+  });
+
   // CFTC COT keyed mirror — closes a "gate1-passed, no /api/v1 mirror" gap
   // this sweep's own prior audits missed: they pattern-matched literally on
   // status "gate1_pass" and skipped roots whose ladder status had already

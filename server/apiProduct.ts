@@ -219,6 +219,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Wikimedia pageviews API (Wikimedia Foundation, CC0)",
     resell: "ok",
   },
+  "data/wiki-attention-signal": {
+    license: "Our own z-score interpretation of the same CC0 Wikimedia pageviews archive as data/attention above — a computed statistic, not a re-licensed third-party product, so the freely-resellable posture carries over unchanged. GATE 2 (SIGNAL) PASSED 2026-09-04 for the trading-volume-elevation channel (small/mid-cap group, Bonferroni-corrected, news-free-controlled — datacore/signal_ladder.json, wikimedia_pageviews_attention, gate2_pass) — THE SECOND gate-2-passed root exposed on this API after data/gnss-integrity-signal. Not tradeable: gate 2 (statistical discrimination), not gate 3 (backtested entry/exit).",
+    attribution: "Wikimedia pageviews API (Wikimedia Foundation, CC0) — VolTradeAI z-score interpretation",
+    resell: "ok",
+  },
   "data/cot": {
     license: "CFTC Commitments of Traders (disaggregated futures-only) — publicreporting.cftc.gov Socrata dataset 72hh-3qpy. The weekly report is compiled and published BY the CFTC itself from clearing-member position filings, a US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention streams above (server/cftcCot.ts's own header: 'US government work, public domain') — not submitted-content conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams.",
     attribution: "CFTC Commitments of Traders (disaggregated)",
@@ -291,6 +296,7 @@ export function apiMeta() {
       { path: "/api/v1/data/insider-history", params: "?days<=90 (default 30)", desc: "Accumulated SEC EDGAR Form 4 filing archive (recording since 2026-07-04) merged with the latest poll — the multi-day companion to /api/v1/data/insider above, which mirrors only the newest poll cache. Same filing shape, same GATE 1 PASS / GATE 2 KILL status, and the same conditional-resell posture as data/insider (not a separate root, not a separate license).", preview: "/api/data/insider/history" },
       { path: "/api/v1/data/attention", params: "-", desc: "Daily Wikimedia pageviews for a curated 23-ticker company-article seed (en.wikipedia, all-access/agent=user) — RAW daily view counts, an attention PROXY, no spike/z-score claim until the archive holds trailing history and gate 2 runs. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked tickers show pageviews peaking above trailing baseline in the [8-K Item 2.02 filing date, +1] window; a redirect-stub undercount affecting 3 seed pairs was found and fixed the same session). GATE 2 (does an attention spike lead volume/volatility 1-5d) NOT attempted. Computed by the Wikimedia Foundation from its own server logs, CC0 — freely resellable, see license_marks.", preview: "/api/data/attention" },
       { path: "/api/v1/data/attention-history", params: "?days<=90 (default 30), ?ticker=TICKER (optional)", desc: "Accumulated Wikimedia pageviews archive — the multi-day companion to /api/v1/data/attention above, which mirrors only the newest poll cache. No ticker: the seed-total daily pageview trend log. ?ticker=TICKER: that ticker's own pageview series read directly from the day-archive. Same GATE 1 PASS / GATE 2 NOT-ATTEMPTED status and the same freely-resellable posture as data/attention (not a separate root, not a separate license).", preview: "/api/data/attention/history" },
+      { path: "/api/v1/data/wiki-attention-signal", params: "-", desc: "Live per-ticker pageview z-score board (23-ticker seed) plus the frozen result table of the validated study behind it: a pageview attention spike (z>=2.0 vs a trailing up-to-90-day baseline) on a small/mid-cap ticker's article is followed by elevated forward trading volume, net of a same-day-or-prior-day SEC 8-K (Bonferroni-corrected across a 10-cell family, alpha=0.005). THE SECOND GATE 2 (SIGNAL)-PASSED root exposed on this API after data/gnss-integrity-signal (datacore/signal_ladder.json, wikimedia_pageviews_attention, gate2_pass, 2026-09-04). This board does NOT re-check today's flagged spikes against EDGAR live — a shown spike could be news-driven; see the response's own caveats[]. No volatility or directional-price claim (the study found none). Not tradeable: gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. Same freely-resellable CC0 lineage as data/attention above.", preview: "/api/data/wiki-attention-signal" },
       { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
       { path: "/api/v1/data/cot-history", params: "?weeks<=90 (default 26); or ?code=<contract code> for one market's series; or ?q=<name/code substring> to search markets", desc: "Accumulated CFTC Commitments of Traders weekly archive — the multi-week companion to /api/v1/data/cot above, which mirrors only the newest poll. Default mode returns seed-wide total open interest + market count per archived week; ?code= returns one market's managed-money net-positioning series; ?q= searches markets by name/code against the newest archived week. Same filing shape, same GATE 1 PASS / GATE 2 first-pass-screen KILL status, and the same freely-resellable posture as data/cot (not a separate root, not a separate license).", preview: "/api/data/cot/history" },
       { path: "/api/v1/data/contracts", params: "-", desc: "Most-recent USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000; each row carries a precision-first ticker match — persistent UEI cache -> exact SEC company-name match -> award-detail FPDS parent, never fuzzy; unmatched rows return tkr:null and must be skipped, never guessed). GATE 1 (recipient->ticker matcher) PASSED 2026-07-24. GATE 2 (large award/market-cap ratio predicts better forward returns for small caps) was REJECTED 2026-08-15 (adequately powered at 5d, n=50 high_ratio/n=43 low_ratio, no positive separation at any horizon; the one nominally-interesting result was WRONG-SIGNED and fails the multi-comparison Bonferroni bar) — RAW as-seen display only, no predictive claim. action_date is the contract's signature date, not an event date; rt (as-seen date) is the only honest event date, and DoD/USACE awards publish roughly 90 days late. Public-domain US federal data, freely resellable.", preview: "/api/data/contracts" },
@@ -505,6 +511,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/gnss-integrity-signal",
       returns_provenance: ["data/gnss-integrity-signal"],
+    },
+    {
+      name: "voltrade_wiki_attention_signal",
+      description: "Live per-ticker Wikimedia pageview z-score board (23-ticker seed) plus the frozen result table of the validated study behind it: a pageview attention spike (z>=2.0 vs a trailing up-to-90-day baseline, at least 20 days of baseline) on a small/mid-cap ticker's article is followed by elevated forward trading volume, net of a same-day-or-prior-day SEC 8-K (small/mid-cap and mega-cap effect tables, Bonferroni-corrected across a 10-cell family at alpha=0.005). THE SECOND GATE 2 (SIGNAL)-PASSED root on this API after voltrade_gnss_integrity_signal (datacore/signal_ladder.json, wikimedia_pageviews_attention, gate2_pass, 2026-09-04). This live board does NOT re-check today's flagged spikes against EDGAR — a spike shown here could be news-driven, per its own caveats[]. No volatility or directional-price claim (the validated study found none at any horizon). NOT tradeable — this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit); no position sizing or trading decision is made from it. Same freely-resellable CC0 Wikimedia lineage as the attention tool above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/wiki-attention-signal",
+      returns_provenance: ["data/wiki-attention-signal"],
     },
     {
       name: "voltrade_dtcc_swaps",
@@ -727,6 +740,31 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
     region: dataObj({ candidate_bbox: ARR, candidate_label: STR, control_bbox: ARR, control_label: STR }),
     freshness: ANY, methodology_note: STR, caveats: ARR, license: dataObj({ source: STR, note: STR }),
   }, ["kind", "root_id", "generated_at", "gate", "verdict", "bands", "region", "methodology_note", "caveats", "license"]),
+  // wikiAttentionSignal.ts's own WikiAttentionSignalSummary interface — the
+  // full nested shape (tickers[]/validated_effect), same discipline as
+  // voltrade_gnss_integrity_signal above.
+  voltrade_wiki_attention_signal: dataObj({
+    kind: STR, root_id: STR, generated_at: STR,
+    gate: dataObj({ current_gate: INT, status: STR, channel: STR }, ["current_gate", "status", "channel"]),
+    z_threshold: ANY, trailing_window_days: INT, min_baseline_days: INT,
+    tickers: { type: "array", items: dataObj({
+      ticker: STR, article: STR, cap_tier: STR, latest_date: ANY, current_views: ANY,
+      baseline_mean: ANY, baseline_days: INT, baseline_complete: { type: "boolean" }, z_score: ANY,
+      spike: { type: "boolean" },
+    }) },
+    spike_count: INT,
+    validated_effect: dataObj({
+      study_date: STR, bonferroni_alpha: ANY,
+      small_mid: { type: "array", items: dataObj({
+        horizon_days: INT, mean_ratio: ANY, baseline_ratio: ANY, p_value: ANY,
+      }) },
+      mega: { type: "array", items: dataObj({
+        horizon_days: INT, mean_ratio: ANY, baseline_ratio: ANY, p_value: ANY,
+      }) },
+    }, ["study_date", "bonferroni_alpha", "small_mid", "mega"]),
+    methodology_note: STR, caveats: ARR, license: dataObj({ source: STR, note: STR }),
+  }, ["kind", "root_id", "generated_at", "gate", "z_threshold", "trailing_window_days", "min_baseline_days",
+      "tickers", "spike_count", "validated_effect", "methodology_note", "caveats", "license"]),
   voltrade_dtcc_swaps: dataObj({
     file_date: STR, source_date: STR, us_underlier_rows_today: INT, new_rows_archived: INT, total_archived: INT,
     top_rows: { type: "array", items: dataObj({
