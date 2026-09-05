@@ -3143,6 +3143,60 @@
     rate, `skipped_budget`'s value tells us whether to tighten the 60s
     further or whether a second cost source remains uninstrumented.
 
+    UPDATE 2026-09-05 (scheduled-routine session, [REPAIR], read-only
+    close-out check, no code touched) — CLOSING THE RECURRENCE: the
+    v1.0.530 Setup-7 scan-wide budget fix (2026-07-29) is CONFIRMED HELD,
+    5+ weeks live, and this recurrence of KNOWN BROKEN #18 is RESOLVED.
+    Two independent lines of evidence, same "cumulative multi-session
+    live checks" methodology this item's own 2026-07-14/07-17 closure of
+    the FIRST recurrence already established (no single continuous
+    stakeout is available — see caveat below — so neither closure ever
+    relied on one):
+    (a) RETROSPECTIVE, across the whole gap: grepping every experiments.md
+    session entry dated between the 2026-07-29 fix and today (2026-09-05
+    — dozens of scheduled-routine sessions, spanning T-BOT/T-DATACORE/
+    SHARED work, PRODUCT/RESEARCH/REPAIR sessions alike) for `TIER2-ERROR`
+    surfaces exactly one hit, and it is negative evidence: a 2026-08-0x
+    session's own SESSION-START CHECKS read `/api/diag/audit` live and
+    found "normal TIER2/TIER3/MANIPULATION/OPTIONS-SLOT-FULL activity"
+    with no TIER2-ERROR entries at all, noting the item's own
+    "whichever session catches the next live TIER2-ERROR" language as a
+    dangling reactive watcher with nothing to catch. No session in this
+    entire window ever logged catching a fresh occurrence — a stark
+    contrast with the pre-fix cadence (2026-07-19 through 07-29) where
+    multiple sessions per week were catching, tracing, and re-fixing new
+    TIER2-ERROR recurrences under this same item number.
+    (b) LIVE, this session: `python3 scripts/session_health_check.py
+    --json` against production reports `tier2_daemon_timeouts: OK — 0
+    timeout(s) in window, below cluster threshold` (this is the exact
+    tool/threshold multiple prior sessions already used to gate PRIMARY-
+    ACTION SELECTION on this item, not a new ad-hoc check). Direct
+    `/api/diag/audit?type=TIER2-ERROR&limit=500&token=$DIAG_TOKEN`:
+    **zero** entries of any kind — the type-filtered query scans the
+    audit_log table by type regardless of the unfiltered feed's own
+    recency cap, so this is a genuine zero-count, not a shallow-window
+    artifact. CAVEAT, stated honestly: this session could only directly
+    verify the retained audit_log table reaches back to
+    2026-09-04T16:20:24Z (confirmed via the oldest `type=SYSTEM` boot
+    marker in the same window) — i.e. ~28h of directly-queried live
+    depth, short of a true multi-week continuous stakeout on its own.
+    That is why (a)'s independent, session-log-based record is load-
+    bearing here, not just corroborating detail.
+    `type=EVENTLOOP-LAG` is NOT zero (7 entries in this session's own
+    ~2h audit window, 525-5040ms magnitude) but every one of them is 2-3
+    orders of magnitude below the pre-fix 60-98 SECOND signature this
+    item's 2026-07-17 closure already established as the discounting
+    threshold for "ordinary GC/scheduling noise, not the tracked
+    defect" — consistent with that precedent, not a reopening of it.
+    VERDICT: the v1.0.530 fix (scan-wide Setup 7 time budget in
+    `options_scanner.py`/`vol_surface.py`) has ended this recurrence of
+    daemon-timeout TIER2-ERROR occurrences. No further action needed on
+    this specific recurrence; per this item's own precedent, any FUTURE
+    TIER2-ERROR occurrence would be evidence of a new, distinct
+    mechanism (a fifth), not a reopening of the Setup-7-budget theory,
+    and should be logged as a new dated update the same way this item's
+    prior recurrences were.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
