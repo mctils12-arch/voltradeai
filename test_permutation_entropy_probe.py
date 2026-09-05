@@ -141,6 +141,36 @@ class TestPearsonCorrelation(unittest.TestCase):
         self.assertIsNone(probe.pearson_correlation([5.0, 5.0, 5.0], [1.0, 2.0, 3.0]))
 
 
+class TestWelchVsControl(unittest.TestCase):
+    def test_none_below_five_per_side(self):
+        self.assertIsNone(probe.welch_vs_control([1.0, 2.0, 3.0, 4.0], [1.0] * 10))
+        self.assertIsNone(probe.welch_vs_control([1.0] * 10, [1.0, 2.0, 3.0, 4.0]))
+
+    def test_identical_distributions_high_p_value(self):
+        vals = [0.98, 0.99, 0.97, 0.985, 0.975, 0.982]
+        result = probe.welch_vs_control(vals, list(vals))
+        self.assertAlmostEqual(result["t_stat"], 0.0)
+        self.assertAlmostEqual(result["mean_diff"], 0.0)
+        self.assertGreater(result["p_value"], 0.9)
+
+    def test_clearly_separated_distributions_low_p_value(self):
+        # two tight, non-overlapping clusters -> Welch t-test must reject
+        # the null at a stringent bar, not just "point the right direction"
+        onset = [0.10, 0.11, 0.09, 0.105, 0.095, 0.102]
+        control = [0.90, 0.91, 0.89, 0.905, 0.895, 0.902]
+        result = probe.welch_vs_control(onset, control)
+        self.assertLess(result["p_value"], 0.001)
+        self.assertLess(result["mean_diff"], 0)
+        self.assertLess(result["t_stat"], 0)
+
+    def test_mean_diff_sign_matches_direction(self):
+        onset = [0.5, 0.6, 0.55, 0.58, 0.52]
+        control = [0.2, 0.25, 0.22, 0.24, 0.21]
+        result = probe.welch_vs_control(onset, control)
+        self.assertGreater(result["mean_diff"], 0)
+        self.assertGreater(result["t_stat"], 0)
+
+
 class TestComputeEntropyLeadSignal(unittest.TestCase):
     def _synthetic_returns_and_onsets(self, n=400, seed=11):
         import random
@@ -178,6 +208,9 @@ class TestComputeEntropyLeadSignal(unittest.TestCase):
                 self.assertIn("onset_mean_entropy", entry)
                 self.assertIn("control_mean_entropy", entry)
                 self.assertIn("control_regime_matched", entry)
+                self.assertIn("welch", entry)
+                self.assertIn("t_stat", entry["welch"])
+                self.assertIn("p_value", entry["welch"])
 
     def test_regime_matched_control_falls_back_when_pool_too_small(self):
         returns, onsets, labels = self._synthetic_returns_and_onsets()

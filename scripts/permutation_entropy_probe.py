@@ -202,6 +202,29 @@ def pearson_correlation(a: Sequence[float], b: Sequence[float]) -> float | None:
     return sxy / math.sqrt(sxx * syy)
 
 
+def welch_vs_control(onset_vals: Sequence[float], control_vals: Sequence[float]
+                      ) -> dict | None:
+    """Welch two-sample t-test, onset-window entropy vs. the regime-matched
+    control sample — mirrors `wikiattention_gate2.welch_vs_baseline`'s exact
+    shape and n>=5/side floor (this repo's established significance-test
+    convention for an onset/spike-vs-baseline comparison), added because
+    neither this probe nor `critical_slowing_down_probe.compute_lead_signal`
+    computed a significance test previously — both reported only means, so
+    a real effect and sampling noise were indistinguishable without it.
+    Returns None (never fabricated) below the n=5/side floor."""
+    if len(onset_vals) < MIN_ONSETS_FOR_STATS or len(control_vals) < MIN_ONSETS_FOR_STATS:
+        return None
+    from scipy.stats import ttest_ind
+    t_stat, p_value = ttest_ind(onset_vals, control_vals, equal_var=False)
+    onset_mean = sum(onset_vals) / len(onset_vals)
+    control_mean = sum(control_vals) / len(control_vals)
+    return {
+        "t_stat": round(float(t_stat), 3),
+        "p_value": round(float(p_value), 4),
+        "mean_diff": round(onset_mean - control_mean, 6),
+    }
+
+
 def compute_entropy_lead_signal(returns: Sequence[float], onsets: list[dict],
                                  window: int = 60, m: int = 3, tau: int = 1,
                                  lead_offsets: Sequence[int] = (20, 10, 5, 1),
@@ -265,6 +288,7 @@ def compute_entropy_lead_signal(returns: Sequence[float], onsets: list[dict],
             "control_from_regimes": sorted(from_regimes),
             "onset_mean_entropy": _mean(onset_ent),
             "control_mean_entropy": _mean(control_ent),
+            "welch": welch_vs_control(onset_ent, control_ent),
         }
     return result
 

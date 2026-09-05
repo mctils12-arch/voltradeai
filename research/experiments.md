@@ -76811,3 +76811,143 @@ an already-killed one), used in full including hand-deriving exact-value
 unit tests instead of only bounds checks and building the AR1-
 independence check into the probe itself rather than leaving that
 honesty gap for whichever future session runs it against real data.
+
+## 2026-09-05 (scheduled-routine session, third session this UTC day) [RESEARCH] — SHARED-only (scripts/permutation_entropy_probe.py, test_permutation_entropy_probe.py, ci/counter_baseline.txt, package.json, research/*): permutation entropy FOREIGN-FIELD IMPORT run against real data — GATE 2 NOT PASSED (directionally consistent, not significant, n=7), plus a significance-test gap found and fixed as reusable code, plus a structural meta-finding about the onset-counting probe family (v1.0.848)
+
+TERRITORY: SHARED-only, no T-DATACORE/T-CLIENT/T-BOT file touched — a
+standalone research probe script + its test file, matching this file's
+own established precedent for this exact probe family.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+tail, open_questions.md's KNOWN BROKEN section, wishlist.md tail. Live
+`/api/health` via `DIAG_TOKEN`: status ok, bot active, drawdownPct 0.0,
+liveness.dark false, all feeds alive — no LIVENESS ALARM. `python3
+scripts/research_state_check.py`: thrash 1/10 REPAIR (below the 7+
+trigger), known_broken 41 items/4 advisory-only, starvation 0/10. Not a
+[REPAIR] session. Per SESSION BUDGET priority (fix-a-bug > judge-a-
+matured-experiment > start-new > research-new), checked the immediately
+preceding session's own queued NEXT first: run
+`scripts/permutation_entropy_probe.py` against real data once access
+exists. Tested live rather than assuming this sandbox's own recent
+blocked-access streak still held: `pip install -r requirements.txt`
+(scipy/pandas absent at session start) then `backtest_v2.fetch_bars`
+called directly succeeded (real SPY bars returned) even though the bare
+`yfinance` package import is still absent — confirms the 2026-09-04
+wikimedia session's own finding that these are two distinct paths, not
+interchangeable.
+
+WHAT RAN: `PYTHONPATH=. python3 scripts/permutation_entropy_probe.py
+--days 2520` against real SPY/VXX daily bars, 2019-10-14..2026-09-04
+(1733 days), 7 qualifying regime-severity-onset transitions.
+
+GAP FOUND BEFORE TRUSTING THE RESULT: neither this probe's
+`compute_entropy_lead_signal` nor the CSD entry's `compute_lead_signal`
+it explicitly claims to mirror computes a significance test — both
+reported only onset/control means, no p-value, meaning every real-data
+GATE 2 verdict this file has logged for this entire probe family (CSD/
+R_t/Omori/hazard-rate) was reached by eyeballing means, not a computed
+bar. FIXED as reusable code (EDGE DOCTRINE #3): added
+`welch_vs_control()` to `scripts/permutation_entropy_probe.py`, a direct
+port of `wikiattention_gate2.welch_vs_baseline`'s already-established
+shape (`scipy.stats.ttest_ind(equal_var=False)`, n=5/side floor, never
+fabricated below it), wired into every `by_lead_days[lead]` entry as a
+new `"welch"` field. Scoped to this one probe only this session (one
+logical change per PR) — backporting into the sibling CSD/Omori/
+hazard-rate probe modules is filed as NEXT, not attempted here.
+
+RESULT: direction matched the pre-registered PRIOR (entropy falls before
+a severity-increasing transition) at all 4 of 4 lead offsets (20/10/5/1
+days) — better than CSD's own 1-of-8 hit rate on the same archive — but
+none of the 4 leads is remotely significant (Welch p = 0.57-0.88, t_stat
+-0.16 to -0.61) and the raw effect (mean diffs of 0.0012-0.0043 against
+an overall entropy stdev of 0.0117, Cohen's d -0.11 to -0.36) is small.
+`ar1_entropy_correlation` = 0.137 — entropy is NOT simply AR1 restated,
+an honest independence finding even though the entropy result itself
+does not clear gate 2. VERDICT: GATE 2 NOT PASSED — directionally
+consistent but statistically indistinguishable from noise at n=7, logged
+per the ROOT VALIDATION LADDER rather than promoted on direction alone.
+Full numbers, the reading against REASONING STANDARD #4/#8/#10, and the
+scratch verification (hand-computed Cohen's d before trusting the
+probe's own output) are in `research/open_questions.md`'s matching dated
+entry (kept there per this file's own established convention of not
+duplicating a full research finding across both files).
+
+STRUCTURAL META-FINDING (the higher-value output of this session): this
+is the FIFTH regime-severity-onset-based foreign-field probe run against
+the same SPY/VXX single-ticker ~7-year archive (CSD, R_t, Omori,
+hazard-rate, entropy) and the qualifying-onset count has been stuck at
+6-13 every time regardless of statistic or pooling attempt (the
+2026-09-04 hazard-rate pooled follow-up already tried widening the
+universe and still reported underpowered). Per REASONING STANDARD #4,
+five failed/underpowered attempts at the same underlying onset-counting
+DESIGN — not the same statistic — is evidence the bottleneck is the
+scaffold's own archive depth, not any one field's lack of edge. Filed a
+concrete recommendation in open_questions.md (widen onset-COUNTING
+itself across a multi-ticker cross-section, untried and distinct from
+hazard-rate's own value-pooling attempt; or retire the onset-counting
+scaffold for new foreign-field work in favor of a continuous-signal
+design like wikimedia_pageviews_attention's own already-gate2-passed
+z-score approach) for a future session/human decision — not self-applied,
+a design choice per this repo's own convention.
+
+RATCHET: `test_permutation_entropy_probe.py` gained `TestWelchVsControl`
+(4 new tests: below-floor None, identical-distributions high-p sanity
+check, a hand-built clearly-separated pair asserting p<0.001, and a
+mean_diff-sign-matches-direction check) plus an extension to the existing
+`test_shape_with_sufficient_onsets` asserting the new `welch` field's
+presence — 33/33 total (29 prior + 4 new).
+
+GATES: `python3 -m pytest -q test_permutation_entropy_probe.py`: 33/33.
+Full suite `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`): 1681 passed, 1 skipped, 54
+subtests — up from the immediately-preceding session's 1677 by exactly
+this session's own 4 new tests, zero regressions. `bash scripts/
+gated_tests.sh` (after `npm ci`): GATE PASSED — python OK, quarantine
+0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0,
+unchanged (no `.ts`/`.tsx` touched). `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 419->420, `assertions`
+13111->13170 — this session's own 4 new tests, the direct and sole
+cause, re-pinned in `ci/counter_baseline.txt` in this same PR; all other
+22 counters unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a research probe result plus a
+significance-test utility addition to that probe, not a strategy/
+threshold/scoring change; no trading path touched.
+
+CROSS-SYSTEM INTEGRATION: none new — reuses `backtest_v2.fetch_bars`/
+`regime_series`, the CSD probe's onset detection (EDGE DOCTRINE #3), and
+`wikiattention_gate2.welch_vs_baseline`'s established significance-test
+shape; no new archive, join, fetch host, or dependency.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+VERSION: v1.0.848 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 1d29ecd/v1.0.847/PR #1006, no concurrent
+session had moved it).
+
+NEXT: (a) backport `welch_vs_control` (or an equivalent) into
+`critical_slowing_down_probe.compute_lead_signal` and the Omori/hazard-
+rate probes' own signal functions, so every onset-based probe in this
+family gets the same significance rigor, not just this one; (b) act on
+the STRUCTURAL META-FINDING — either the multi-ticker onset-count-
+widening design or scaffold-retirement recommendation in
+open_questions.md's matching entry; (c) `datacore/signal_ladder.json`
+intentionally not touched, matching every prior onset-based probe
+entry's own precedent (pure research/strategy-layer, not a datacore
+root).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (judging a matured, fully-specified queued experiment
+per SESSION BUDGET's own priority order, ahead of starting anything
+new), used in full including live-verifying real-data access rather than
+inheriting a prior session's note, finding and fixing a genuine
+significance-testing gap shared across an entire probe family as
+reusable code before trusting any real-data verdict, hand-computing the
+significance check via a scratch script before believing the codebase's
+own output, and surfacing the higher-value structural finding (the
+onset-counting scaffold's own five-times-repeated power ceiling) rather
+than stopping at "this one field didn't pass either."
