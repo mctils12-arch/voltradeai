@@ -16677,3 +16677,174 @@ including hand-deriving exact-value test cases (0.0 and 1.0) rather than
 only asserting bounds, and building the AR1-independence check into the
 probe itself so a future session's real-data run cannot accidentally
 overclaim a rediscovery of CSD's own effect as a new one.
+
+## [2026-09-05 (scheduled-routine session, third session this UTC day) — FOREIGN-FIELD IMPORT FOLLOW-UP: permutation entropy — RUN AGAINST REAL DATA, GATE 2 RESULT: DIRECTIONALLY CONSISTENT BUT NOT SIGNIFICANT, NOT PASSED — and a structural finding about the onset-counting design itself]
+
+AXIS SURVEY / WHY THIS ACTION: `/api/health` live via `DIAG_TOKEN`: status
+ok, bot active, drawdownPct 0.0, liveness.dark false, all feeds alive — no
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: thrash 1/10
+REPAIR (below trigger), known_broken 41/4 advisory-only (unchanged),
+starvation 0/10. Loop-health clean, not a [REPAIR] session. This session's
+own primary-action check (SESSION BUDGET: fix-a-bug > judge-a-matured-
+experiment > start-new > research-new) found the immediately-preceding
+session's own NEXT — "run permutation_entropy_probe.py against real data
+once access exists" — was a live, ready, fully-specified queued item
+(judge-a-matured-experiment tier), so this session tested real-data access
+FIRST rather than assuming this sandbox's own well-documented recent
+blocked-access streak still held: `pip install -r requirements.txt`
+(scipy/pandas/etc. absent at session start) then `backtest_v2.fetch_bars`
+called directly — succeeded live (30 real SPY daily bars returned,
+2026-08-06..2026-09-04) even though the bare `yfinance` package import
+itself is still absent from this sandbox's default environment (matches
+the 2026-09-04 wikimedia session's own finding: `backtest_v2`'s own direct
+`query1.finance.yahoo.com` call and the standalone `yfinance` package path
+are NOT the same thing and must be tested separately, never assumed
+identical).
+
+WHAT RAN: `PYTHONPATH=. python3 scripts/permutation_entropy_probe.py
+--days 2520` — real SPY/VXX daily bars, 2019-10-14..2026-09-04 (1733 days,
+`vxx_data_quality: "ok"`), 7 qualifying regime-severity-onset transitions
+(clears `MIN_ONSETS_FOR_STATS=5`).
+
+A GAP FOUND BEFORE TRUSTING THE RESULT: neither this probe's own
+`compute_entropy_lead_signal` nor the CSD entry's `compute_lead_signal`
+(which this probe's own docstring explicitly claims to mirror "so this
+entry's result is comparable apples-to-apples") computes a significance
+test — both report only `onset_mean_*`/`control_mean_*`, with no p-value.
+Every mean-only real-data GATE 2 verdict this file has logged for the CSD/
+R_t/Omori/hazard-rate family was therefore reached by eyeballing a
+directional/magnitude comparison, not a computed significance bar — a real
+methodology gap, not merely this probe's own. FIXED as reusable code
+(EDGE DOCTRINE #3, same class of fix as the CSD session's own regime-
+matching-control fix): added `welch_vs_control()` to
+`scripts/permutation_entropy_probe.py`, a direct port of
+`wikiattention_gate2.welch_vs_baseline`'s own established shape (Welch
+two-sample t-test via `scipy.stats.ttest_ind(equal_var=False)`, `t_stat`/
+`p_value`/`mean_diff`, None below the n=5/side floor — this repo's
+existing significance-test convention, not a new one invented for this
+entry) and wired it into every `by_lead_days[lead]` entry as a `"welch"`
+field. Scoped to this probe only — NOT backported into
+`critical_slowing_down_probe.compute_lead_signal` this session (one
+logical change per PR; that backport is a legitimate, narrow follow-up for
+a future session, filed below).
+
+RESULT (with the new significance field):
+
+| lead | onset mean | control mean | mean_diff | t_stat | p_value |
+|------|-----------|---------------|-----------|--------|---------|
+| 20d  | 0.98200   | 0.98416       | -0.00216  | -0.285 | 0.7845  |
+| 10d  | 0.98193   | 0.98318       | -0.00125  | -0.163 | 0.8756  |
+| 5d   | 0.97909   | 0.98336       | -0.00427  | -0.606 | 0.5656  |
+| 1d   | 0.98170   | 0.98302       | -0.00132  | -0.222 | 0.8310  |
+
+`ar1_entropy_correlation`: 0.137 (low — entropy is NOT simply restating
+CSD's own AR1 statistic under a new name; the two carry mostly independent
+information, an honest positive even though the entropy result below does
+not itself clear GATE 2).
+
+READING THE RESULT (REASONING STANDARD #8/#10, asymmetry and stated-prior
+discipline, not just "is p small"): the PRIOR stated at build time
+(2026-09-05, same file) was "entropy FALLS before a severity-increasing
+transition." The direction matches at **all 4 of 4 leads** — a materially
+better directional hit-rate than CSD's own AR1 statistic scored on this
+exact SPY archive (1 of 8 cells, per the 2026-08-21 entry) — but none of
+the 4 leads comes remotely close to significance (p = 0.57–0.88, i.e. what
+a coin flip's own p-value distribution looks like), and the raw effect
+size is tiny relative to the metric's own range (entropy sits within
+~0.02 of its ceiling of 1.0 throughout; mean differences of 0.001–0.004
+are 2–4% of the archive's own overall entropy standard deviation of
+0.0117, computed this session via a scratch check, i.e. Cohen's d of only
+-0.11 to -0.36 across the four leads). A directionally-consistent-but-
+non-significant small effect, at n=7, is not evidence of a real
+independent-variable relationship — it is what would-be-expected under
+the null given the same random-control-sampling mechanism this repo's own
+methodology already accounts for (`rng_seed=1337` reproducibility, not a
+lucky draw: re-running with the same seed reproduces these exact numbers,
+confirmed).
+
+**VERDICT: GATE 2 NOT PASSED.** Not a "clean negative" in the R_t/Omori
+sense (those showed a null or opposite-direction result); this is a
+directionally-consistent-but-statistically-indistinguishable-from-noise
+result at n=7 — closer in character to the hazard-rate entry's own
+"provisional, underpowered" framing than to a confident kill, except here
+even the "provisional positive" language would overstate it (hazard-rate's
+own p-values were materially closer to conventional significance than
+this entropy result's 0.57-0.88 range). Logged at GATE 2 per the ROOT
+VALIDATION LADDER — not silently dropped, not promoted on a favorable-
+looking direction alone (REASONING STANDARD #10).
+
+STRUCTURAL META-FINDING (the more valuable output of this session, per
+REASONING STANDARD #4 — discount a result in proportion to how many
+similarly-shaped variants have already been tried): this is now the
+**fifth** regime-severity-onset-based foreign-field probe run against
+this exact SPY/VXX single-ticker ~7-year `regime_series` archive (CSD
+2026-08-18/21, R_t 2026-08-26, Omori 2026-08-30, hazard-rate 2026-08-29/
+08-31/09-04, entropy today) and the count of qualifying onsets has been
+**stuck at 6-13 every single time** regardless of which statistic was
+measured or how pooling was attempted (the 2026-09-04 hazard-rate pooled
+follow-up explicitly tried widening the universe and still reported "NOT
+PASSED, underpowered even with pooling"). Five different statistics
+(AR1/variance, a contagion reproduction number, aftershock decay, a
+renewal hazard rate, and now ordinal-pattern entropy) have now been run
+against structurally the same onset-scarcity ceiling, with results
+ranging from opposite-direction to directionally-consistent-but-null —
+never once clearing a real significance bar. Per REASONING STANDARD #4,
+five failed/underpowered attempts at the SAME underlying design (not the
+same statistic — the design: "count severity-escalating regime
+transitions in this one archive, compare a small pre-onset window against
+a control") is strong evidence the bottleneck is the **onset-counting
+methodology's own archive depth**, not any individual field's
+lack of a real edge. A sixth or seventh new foreign-field statistic
+plugged into the identical onset-counting scaffold would very likely
+reproduce the same "insufficient discriminating power at n<15" outcome
+regardless of the field chosen — REASONING STANDARD #4 says that sixth
+attempt should be explicitly discounted before it is ever run, not judged
+fresh.
+
+RECOMMENDATION (not self-applied — a design decision, not a code change):
+before any future onset-counting foreign-field import is attempted on
+this exact scaffold, a future RESEARCH session should either (a) design a
+genuinely different onset-counting universe (e.g., using `bt.regime_series`
+across a broad multi-ticker cross-section and counting each ticker's OWN
+regime-severity onsets as an independent event — NOT the same thing as
+the hazard-rate session's own pooling attempt, which pooled hazard-rate
+VALUES across tickers rather than multiplying the onset COUNT itself, so
+this is untried, not a repeat) to actually raise n past the ~10-15 range
+this design has capped out at five times running, or (b) retire the
+onset-counting scaffold for new foreign-field work entirely and redirect
+axis (c)/(d) effort toward a design that does not require counting rare
+discrete regime transitions at all (e.g. a continuous rolling-correlation-
+style statistic scored against forward returns directly, matching this
+file's own already-passed continuous-signal gate-2 designs like
+wikimedia_pageviews_attention's z-score/forward-metric approach, rather
+than an onset/control comparison). Filed here for a human/future-session
+decision per this repo's own convention of proposing structural process
+changes rather than self-applying them mid-session.
+
+NEXT: (a) the `welch_vs_control` significance-test addition is narrow to
+`permutation_entropy_probe.py` only — a future session could backport the
+identical function into `critical_slowing_down_probe.compute_lead_signal`
+and `omori_aftershock_probe`/`hazard_rate_probe`'s own signal functions so
+every onset-based probe in this family gets the same rigor, closing the
+gap this session found rather than leaving it fixed in only one place;
+(b) act on the STRUCTURAL META-FINDING above — either the multi-ticker
+onset-count-widening design or the scaffold-retirement recommendation,
+per whichever the next RESEARCH session (or the human) judges higher
+value; (c) `datacore/signal_ladder.json` is intentionally NOT touched by
+this or any prior onset-based foreign-field probe entry — these are pure
+research/strategy-layer probes, not datacore roots, matching this file's
+own established precedent (CSD/R_t/Omori/hazard-rate never touched
+`signal_ladder.json` either).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (judging a matured, fully-specified queued experiment
+rather than starting a new one, per SESSION BUDGET's own priority order),
+used in full including live-testing real-data access rather than
+inheriting the prior session's own note, finding and fixing a genuine
+significance-testing gap shared across this probe family as reusable code
+before trusting any real-data verdict, computing the significance test by
+hand this session (Welch t-test + Cohen's d via a scratch check) before
+believing the codebase's own output, and surfacing the higher-value
+structural finding (the onset-counting scaffold's own five-times-repeated
+power ceiling) rather than stopping at "this one field didn't pass
+either."
