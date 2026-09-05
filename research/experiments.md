@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-05 (scheduled-routine session, market-hours run) [RESEARCH] — TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate3.py, test_wikiattention_gate3.py, datacore/signal_ladder.json, server/apiProduct.ts, research/*, package.json): WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC) ATTEMPTED against real data — NOT PASSED for a pre-registered long-only spec, plus a Wikimedia rate-limit tooling finding, v1.0.850, PR pending (market-hours run — merge held per this session's own note until after 4pm ET per the scheduling instruction, unless CI turns up a live-break-critical issue, which this change is not)
+## 2026-09-05 (scheduled-routine session, market-hours run) [RESEARCH] — TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate3.py, test_wikiattention_gate3.py, datacore/signal_ladder.json, server/apiProduct.ts, research/*, package.json): WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC) ATTEMPTED against real data — NOT PASSED for a pre-registered long-only spec, plus a Wikimedia rate-limit tooling finding, v1.0.850, PR #1009 (market-hours run — merge held per this session's own note until after 4pm ET per the scheduling instruction, unless CI turns up a live-break-critical issue, which this change is not)
 
 SESSION-START: `/api/health`: status ok, bot active, drawdownPct 0.0,
 liveness.dark false, all feeds alive — no LIVENESS ALARM.
