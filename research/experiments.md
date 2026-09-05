@@ -3,6 +3,137 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-05 (scheduled-routine session, market-hours run) [RESEARCH] — TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate3.py, test_wikiattention_gate3.py, datacore/signal_ladder.json, server/apiProduct.ts, research/*, package.json): WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC) ATTEMPTED against real data — NOT PASSED for a pre-registered long-only spec, plus a Wikimedia rate-limit tooling finding, v1.0.850, PR #1009 (market-hours run — merge held per this session's own note until after 4pm ET per the scheduling instruction, unless CI turns up a live-break-critical issue, which this change is not)
+
+SESSION-START: `/api/health`: status ok, bot active, drawdownPct 0.0,
+liveness.dark false, all feeds alive — no LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits none overdue, thrash
+1/10 REPAIR (below trigger), known_broken 41/4-advisory, starvation 0/10.
+`python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready.
+`python3 scripts/data_stream_registry_check.py --unbuilt`: 10/35, all
+declined/blocked, unchanged. `list_pull_requests(state=open)`: exactly
+one, PR #604 (pre-existing intentional draft backlog) — no PR to judge.
+
+PRIMARY-ACTION SELECTION: no ladder-gated root ready, no unbuilt stream
+buildable, no PR to judge — walked the most recently-touched root's own
+NEXT note (SESSION BUDGET fall-through #1). wikimedia_pageviews_attention's
+signal_ladder.json entry named exactly one concretely-buildable item: GATE
+3 (backtested entry/exit rule), the ladder's own next step, never before
+attempted for ANY root in this codebase.
+
+BUILT + RAN LIVE: full pre-registration (rule, baseline, costs from
+system_config.py's own SLIPPAGE_ILLIQUID/SLIPPAGE_PCT, verdict rule, stated
+prior), all four live-data attempts' numbers, and the Wikimedia rate-limit
+finding are filed in research/open_questions.md's 2026-09-05 WIKIMEDIA
+PAGEVIEWS GATE 3 entry (not restated here per this file's own established
+pointer convention). Headline: a pre-registered long-only rule (buy at a
+news-free attention-spike day's close, sell h={1,3,5} days later) was
+tested against real Wikimedia/EDGAR/Alpaca data across four independent
+live attempts (Wikimedia's own API rate-limited a different random subset
+of the 23-ticker seed set on every attempt, 0.6s-10s spacing tried) — the
+primary small/mid-cap pooled forward-return effect never approached the
+pre-registered Bonferroni bar (p=0.24-0.99 across all draws/horizons) and
+its sign flipped between draws (near-zero, then negative, then positive),
+itself evidence of a genuine null rather than an underpowered real effect.
+GATE 3 NOT PASSED per the rule stated before any run. `datacore/
+signal_ladder.json`'s wikimedia_pageviews_attention entry gained an UPDATE
+paragraph; status/current_gate UNCHANGED (2/gate2_pass — the live SIGNAL
+board and v1 mirror remain valid). `server/apiProduct.ts`'s two
+LICENSE_MARKS/agent-tool description strings for data/wiki-attention-signal
+updated from an implicit "not yet attempted" gate-3 footnote to an honest
+"attempted 2026-09-05, not passed" one (substring-only test assertions
+there, verified no exact-match breakage).
+
+GATES: `python3 -m pytest -q`: 1701 passed, 1 skipped, 54 subtests (20 net
+new in test_wikiattention_gate3.py — pure functions unit-tested with
+synthetic data, no network, mirrors every prior wikiattention gate-N test
+file's own no-network convention). `npx tsx --test server/*.test.ts
+scripts/*.test.ts`: 1601/1601 pass, 0 fail (unchanged count — no .ts test
+file touched this session, only .py). `bash scripts/tsc_ratchet.sh`: 12
+errors, byte-identical to the pinned baseline (TS2304=0). `bash
+scripts/counter_ratchet.sh`: 25/25 counters at or better than baseline
+(assertions counter unchanged at 13184 — it only scans .ts test files, and
+this session's new tests are Python; correctly not flagged as a
+regression). `bash scripts/gated_tests.sh`: GATE PASSED, quarantine 0/1
+none overdue. `npm run build`: clean, same two pre-existing warnings
+(astronomy-engine default-export interop, maplibre-gl chunk size) as every
+recent session, none from this session's changes.
+
+BACKTEST: this session IS the backtest — GATE 3 is precisely PROMOTION
+RULE 3's own bar (Sharpe/drawdown-style comparison against a base rate),
+and it was recorded as an EXPLORATORY experiment with its own kill date
+(none needed — the pre-registered rule already resolved NOT PASSED, no
+value ships that could regress anything live). No trading-path code
+touched (bot_engine.py/system_config.py/ml_model_v2.py untouched) — this
+is a pure research probe against a SIGNAL-layer root that was never
+tradeable to begin with (gate 2 explicitly made no directional claim), so
+PROMOTION RULE 3's Sharpe-vs-main comparison does not apply the way it
+would to a strategy change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop,
+scoring path, or position sizing — this root has never been wired into any
+trading decision (RAW OVERLAYS vs SIGNALS / SPINOUT-READY DATA LAYER: it is
+exposed only via the /data API boundary, gate-2-only, and this session's
+NOT PASSED result closes off the one path (a directional trading rule)
+that could have changed that). The only downstream effect: two customer-
+facing API description strings now say "attempted, not tradeable" instead
+of "not yet attempted, not tradeable" — a strictly more honest, not more or
+less permissive, claim.
+
+MEASUREMENT INTEGRITY: not implicated — no change to backtest_v2.py, the
+fills/slippage model, or any P&L computation. This session's cost model
+(0.40%/0.10% round-trip) READS system_config.py's existing SLIPPAGE_PCT/
+SLIPPAGE_ILLIQUID constants rather than defining new ones, so there is no
+new "ruler" to audit.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.850 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed `origin/main`
+was still at 50dae8a/v1.0.849/PR #1008, no concurrent session had moved
+it). `package-lock.json` resynced via `npm install --package-lock-only`,
+diff confirms only the two version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a pure research probe against
+an already-live root's own next ladder gate, no new archive/poller/entity-
+graph join. The Wikimedia rate-limit finding (filed in open_questions.md,
+not wishlist.md — no spend decision, no paid capability implicated) is a
+tooling note for any FUTURE Wikimedia-sourced probe, not a cross-system tie
+in itself.
+
+MARKET-HOURS NOTE (this run occurs during market hours, per the scheduling
+instruction): this PR should NOT be merged until after 4:00pm ET today
+unless it fixes a critical live break — it does not (pure research/probe
+change, zero trading-path code touched, zero effect on the live loop or
+site). Stated explicitly in the PR body as well as here.
+
+NEXT: (1) this exact long-only GATE 3 spec is CLOSED, not to be
+re-attempted without new evidence (re-testing an already-killed spec is
+p-hacking by attrition, not repair). (2) A future session could
+pre-register a genuinely different rule — conditioning entry direction on
+the spike day's own realized return (momentum vs. reversal), named but
+deliberately not tested this session (REASONING STANDARD #4) — as its own
+fresh, separately-pre-registered experiment. (3) The Wikimedia rate-limit
+behavior (a different random ticker subset succeeds on every call,
+independent of spacing from 0.6s-10s) is worth a future session's
+attention if it recurs on another Wikimedia-sourced probe. (4) per the
+AUDITS & DEBT register, staleness/constitutional audit last-run dates
+should be checked by the next session whose fall-through reaches the
+research tier (not checked this session — the primary action plus its own
+four-attempt live verification filled full capacity).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (the ladder's own next-queued step for an already-advanced
+root), used in full including four independent live-data verification
+attempts rather than trusting a single rate-limited partial draw, a
+verdict rule stated and coded before any real-data run, reusing existing
+cost constants rather than inventing new ones, and surfacing a second,
+independent tooling finding (the Wikimedia rate-limit pattern) rather than
+silently working around it or hiding the coverage gap.
+
 ## 2026-09-04 (scheduled-routine session, fifth scheduled session this UTC day) [PRODUCT] — TERRITORY: SHARED-but-minimal (scripts/wikiattention_gate2_newsfree.py, test_wikiattention_gate2_newsfree.py, datacore/signal_ladder.json, server/routes.ts comment, research/*, package.json): wikimedia_pageviews_attention "attention without same-day 8-K" NEWS-FREE CONTROL, built and run against real data — GATE 2 PROMOTED for the small/mid-cap VOLUME channel, v1.0.845, PR #1004
 
 SESSION-START: CLAUDE.md read in full. `curl .../api/health`: status ok,
