@@ -9,6 +9,8 @@ import path from "node:path";
 import {
   cropConditionsEnabled, parseConditions, conditionsUrl, fetchConditions,
   archiveConditions, refreshConditions, latestConditions, COMMODITIES,
+  readArchivedConditions, classFromItem, lookupCropConditionHistory,
+  readConditionsAggregateHistory,
 } from "./cropConditions";
 
 // Documented QuickStats row shape (live verification pending — the key is
@@ -82,4 +84,64 @@ test("refresh: one call per commodity; cache holds the NEWEST week only", async 
   assert.ok(hit);
   assert.equal(hit!.latest_week, "2026-07-06");
   assert.ok(hit!.rows.every((r) => r.week_ending === "2026-07-06"), "cache = newest week only");
+});
+
+// NOTE: archiveConditions's dedup Set is module-level (shared across every
+// test in this process, regardless of tmpdir — same quirk documented in
+// githubOrgActivity.test.ts), so the tests below use week_ending dates no
+// other test in this file touches.
+
+test("classFromItem: extracts the condition class verbatim from short_desc, null for anything that doesn't match", () => {
+  assert.equal(classFromItem("CORN - CONDITION, MEASURED IN PCT EXCELLENT"), "EXCELLENT");
+  assert.equal(classFromItem("SOYBEANS - CONDITION, MEASURED IN PCT VERY POOR"), "VERY POOR");
+  assert.equal(classFromItem("soybeans - condition, measured in pct fair"), "FAIR", "case-insensitive");
+  assert.equal(classFromItem("CORN - PLANTED, MEASURED IN PCT COMPLETE"), null, "a non-CONDITION item has no condition class");
+});
+
+test("readArchivedConditions: scans every day-file (not just the newest), dedups by commodity|week|item", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crop-hist-"));
+  const week1 = { commodity: "CORN", week_ending: "2027-01-04", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 40, rt: "2027-01-05" };
+  const week2 = { commodity: "CORN", week_ending: "2027-01-11", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 42, rt: "2027-01-12" };
+  // Written on two different days -> two different day-files, same dir.
+  archiveConditions([week1], dir, Date.parse("2027-01-05T20:00:00Z"));
+  archiveConditions([week2], dir, Date.parse("2027-01-12T20:00:00Z"));
+  const all = readArchivedConditions(dir);
+  assert.equal(all.length, 2, "must read across both day-files, not just the latest");
+  assert.deepEqual(new Set(all.map((o) => o.week_ending)), new Set(["2027-01-04", "2027-01-11"]));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("lookupCropConditionHistory: one commodity's rows across weeks, ascending, the other commodity excluded, unfetched weeks never zero-filled", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crop-hist-"));
+  const t0 = Date.parse("2027-02-09T20:00:00Z");
+  archiveConditions([
+    { commodity: "CORN", week_ending: "2027-02-01", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 40, rt: "2027-02-09" },
+    { commodity: "CORN", week_ending: "2027-02-08", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 44, rt: "2027-02-09" },
+    { commodity: "SOYBEANS", week_ending: "2027-02-08", item: "SOYBEANS - CONDITION, MEASURED IN PCT GOOD", pct: 50, rt: "2027-02-09" },
+  ], dir, t0);
+  const series = lookupCropConditionHistory("corn", 10, dir);
+  assert.equal(series.length, 2, "only CORN's own rows, SOYBEANS excluded");
+  assert.deepEqual(series.map((o) => o.week_ending), ["2027-02-01", "2027-02-08"], "ascending by week_ending");
+  assert.equal(series[1].pct, 44);
+  const capped = lookupCropConditionHistory("CORN", 1, dir);
+  assert.equal(capped.length, 1, "weeks param caps the series to the most recent N distinct weeks");
+  assert.equal(capped[0].week_ending, "2027-02-08");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("readConditionsAggregateHistory: pivots both commodities to {class: pct} per week, ascending, an unmatched item is skipped rather than mis-keyed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crop-hist-"));
+  const t0 = Date.parse("2027-03-02T20:00:00Z");
+  archiveConditions([
+    { commodity: "CORN", week_ending: "2027-03-01", item: "CORN - CONDITION, MEASURED IN PCT EXCELLENT", pct: 14, rt: "2027-03-02" },
+    { commodity: "CORN", week_ending: "2027-03-01", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 45, rt: "2027-03-02" },
+    { commodity: "SOYBEANS", week_ending: "2027-03-01", item: "SOYBEANS - CONDITION, MEASURED IN PCT FAIR", pct: 22, rt: "2027-03-02" },
+    { commodity: "CORN", week_ending: "2027-03-01", item: "CORN - PLANTED, MEASURED IN PCT COMPLETE", pct: 99, rt: "2027-03-02" },
+  ], dir, t0);
+  const trend = readConditionsAggregateHistory(10, dir);
+  assert.equal(trend.length, 1);
+  assert.equal(trend[0].week_ending, "2027-03-01");
+  assert.deepEqual(trend[0].corn, { EXCELLENT: 14, GOOD: 45 }, "the non-CONDITION PLANTED row must not appear under any class key");
+  assert.deepEqual(trend[0].soybeans, { FAIR: 22 });
+  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -242,6 +242,21 @@ test("crop-conditions license mark: USDA NASS is public-domain US-gov data like 
   assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
 });
 
+test("crop-conditions-history (accumulated USDA NASS archive) shares the crop-conditions license mark and gate status — not a separate root, and it must not silently drop the gate-2 not-attempted status just because it's a windowed companion endpoint", () => {
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_crop_conditions_history");
+  assert.ok(tool, "voltrade_crop_conditions_history tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/crop-conditions"], "must reuse the data/crop-conditions license mark, not fork a duplicate one for the same root under a different window");
+  assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1 status must travel with the tool description");
+  assert.ok(tool.description.includes("NOT-ATTEMPTED"), "honesty: gate-2's not-yet-attempted status must travel with this companion endpoint's description too");
+  assert.equal(tool.input_schema.properties.weeks.maximum, 104, "must cap the lookback at the same 104-week bound the RAW /api/data/crop-conditions/history route enforces");
+  assert.ok(tool.input_schema.properties.commodity, "must expose the RAW route's per-commodity lookup mode");
+  const meta = apiMeta();
+  const entry = meta.endpoints.find((e) => e.path === "/api/v1/data/crop-conditions-history");
+  assert.ok(entry, "voltrade_crop_conditions_history must have a matching apiMeta().endpoints entry");
+  assert.equal(entry.preview, "/api/data/crop-conditions/history");
+});
+
 test("vix-term-structure license mark: Cboe informational-use terms are CONDITIONAL resell, not ok like the government-produced CAMD/FTD/MIDAS/crop-conditions streams; agent tool documents gate-1-pass/gate-2-unattempted status", () => {
   assert.equal(LICENSE_MARKS["stats/vix-term-structure"].resell, "conditional",
     "Cboe's own terms require permission for raw bulk resale — must not be mismarked resell:ok like the SEC/EPA/USDA public-domain streams");

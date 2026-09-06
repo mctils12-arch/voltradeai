@@ -78219,3 +78219,203 @@ materially changes what a future retry should do differently rather than
 just reporting a clean negative. No higher-priority queued item was
 skipped (no LIVENESS ALARM; thrash ratio 1/10, well under threshold; no
 ladder-readiness-check root came due).
+
+## 2026-09-06 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — crop_conditions_usda_nass gets a /history companion + v1 mirror (v1.0.855)
+
+TERRITORY: SHARED-but-minimal (server/cropConditions.ts, server/routes.ts,
+server/apiProduct.ts + their .test.ts files, ci/counter_baseline.txt,
+package.json, package-lock.json, datacore/signal_ladder.json), no T-BOT/
+T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/PROGRAM_STATE.md
+read (a T-CLIENT rendering-law/harness-tooling resume file, unclaimed
+NEXT item is the moon bake — out of scope for a PRODUCT session, noted
+not claimed). research/open_questions.md KNOWN BROKEN section read (41
+items, 4 without a close marker, all advisory per
+scripts/research_state_check.py). `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash_ratio 1/10 REPAIR (below the 7+
+trigger), known_broken 41/4-advisory (none a live blocker), starvation
+0/10 — no meta-problem flag. `python3 scripts/ladder_readiness_check.py`:
+still 0/3 gated roots ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all time-blocked, unchanged). Live
+`curl https://voltradeai.com/api/health`: status "ok", bot active,
+drawdownPct "0.0", liveness.dark false, alpaca ACTIVE, all three archive
+feeds alive (silent_hours ~0.09/0.09/0.09) — no LIVENESS ALARM.
+`git fetch origin main`: HEAD already equals origin/main at
+39e6906/v1.0.854/PR #1014 — no reset needed.
+
+PRIMARY-ACTION SELECTION: read datacore/signal_ladder.json's full 45-root
+table (this UTC day's three prior sessions had already worked
+nhtsa_vehicle_complaints through gate 1 and a gate-2 attempt, and
+wikimedia_pageviews_attention through gate 2 pass — re-running either
+today would be redundant or, for nhtsa, explicitly forbidden by that
+session's own "re-running this exact spec unchanged... would be
+p-hacking by attrition" note). Scanned every gate1_pass root for one
+that is READY NOW (no time-based wait, unlike sec_edgar_13f/app_store/
+cftc_cot/sec_8k) and where GATE 2 has NOT yet been attempted:
+crop_conditions_usda_nass and github_org_engineering_momentum both
+qualify. Checked github's actual live history depth first
+(`/api/data/github-activity/history?weeks=52`): only 6 archived weeks
+exist (2026-07-20..2026-08-30, the root shipped 2026-08-05) — 6 weeks x
+15 orgs is too thin to run a real gate-2 test today (REASONING STANDARD
+#4: an underpowered result teaches nothing, and running one now just to
+say a session ran it would waste the one shot before the archive is
+deep enough to matter). Checked crop-conditions the same way and found
+the more valuable, immediately actionable gap instead: `/api/data/
+crop-conditions` only ever serves the LATEST week (`latestConditions()`
+cache); there is no history-reading path at all, RAW or v1, even though
+`cropConditions.ts`'s own `conditionsUrl()` requests the WHOLE current
+year on every single poll (no week filter) — meaning the archive
+(polling live since 2026-07-06) already holds the season's real
+week-over-week history, unlike github's genuinely-just-started clock.
+This is the exact "shipped-data-no-history-companion" gap the
+2026-09-05 session (#1010) closed for appstore-rankings and
+github-activity, just not yet found for this root. Chose it over a
+fresh crop-conditions GATE 2 attempt itself: building the history path
+first is a smaller, cleanly-scoped, one-logical-change PRODUCT action
+(per PROMOTION RULE 5, "never bundle a parameter tune with a new data
+source" generalizes to "never bundle infra with the statistical test it
+enables"), and it is a prerequisite either way — a gate-2 test needs
+this reader regardless of who builds it or when.
+
+READ BEFORE WRITE: read server/cropConditions.ts, server/routes.ts's
+existing /api/data/crop-conditions and /api/v1/data/crop-conditions
+routes, and server/apiProduct.ts's crop-conditions LICENSE_MARKS/
+DEVELOPER_ENDPOINTS/agent-tool/RESPONSE_DATA_SCHEMAS entries, in full,
+before writing anything. Also read server/githubOrgActivity.ts's
+existing readArchivedGithubActivity/lookupGithubOrgHistory/
+readGithubActivityAggregateHistory (the #1010 session's own
+full-archive-scan design, chosen there because a github week's record
+can land in any day's file) and reused that exact shape rather than the
+day-window scan wikiAttention/appstore use — crop-conditions has the
+identical property: `archiveConditions()`'s obsKey dedup
+(commodity|week_ending|item) is a full-archive Set, so a week fetched
+today lands in TODAY's day-file regardless of which calendar week it
+covers, same as github's poll design. Read server/cropConditions.test.ts
+and server/githubOrgActivity.test.ts's matching history tests before
+writing new ones, to match the existing dedup-collision-avoidance
+convention (future-dated 2027-xx-xx week_ending values, since
+archiveConditions's seenObs Set is module-level and shared across every
+test in the process).
+
+WHAT SHIPPED:
+- server/cropConditions.ts: `readArchivedConditions(baseDir?)` (full
+  day-file scan, dedup by the same commodity|week|item obsKey
+  archiveConditions already uses — a direct port of
+  readArchivedGithubActivity's shape); `classFromItem(item)` (the
+  VERY POOR/POOR/FAIR/GOOD/EXCELLENT class-extraction regex, previously
+  only living inline in scripts/crop_conditions_gate1.ts, given one home
+  here); `lookupCropConditionHistory(commodity, weeks, baseDir?)` (one
+  commodity's rows across its last N distinct archived weeks, ascending,
+  unfetched weeks never zero-filled); `readConditionsAggregateHistory
+  (weeks, baseDir?)` (both commodities pivoted to {CLASS: pct} per week —
+  the shape a condition-DELTA gate-2 test needs directly, so a future
+  session doesn't re-derive the same pivot from flat rows).
+- server/routes.ts: `GET /api/data/crop-conditions/history`
+  (?weeks<=104 default 52, ?commodity=CORN|SOYBEANS optional — same
+  503-when-disabled honesty as the base route, since this root alone
+  among the sweep is server-side key-gated on NASS_API_KEY) and its
+  keyed mirror `GET /api/v1/data/crop-conditions-history`, reusing
+  LICENSE_MARKS["data/crop-conditions"] (not a separate root or
+  license).
+- server/apiProduct.ts: new `voltrade_crop_conditions_history` agent
+  tool + matching apiMeta().endpoints DEVELOPER_ENDPOINTS entry +
+  RESPONSE_DATA_SCHEMAS entry (branches on ?commodity= like the
+  github/appstore -history schemas already do).
+- Tests: 4 new server/cropConditions.test.ts tests (classFromItem,
+  readArchivedConditions cross-day-file scan, lookupCropConditionHistory
+  commodity-exclusion + weeks-cap, readConditionsAggregateHistory pivot +
+  unmatched-item-skip) and 1 new server/apiProduct.test.ts test (license
+  mark reuse, GATE 1/GATE 2 honesty strings travel to the companion tool,
+  weeks cap matches the RAW route's own bound, apiMeta().endpoints entry
+  exists with the right preview path) — direct structural mirrors of the
+  #1010 session's github-activity-history tests.
+- datacore/signal_ladder.json: crop_conditions_usda_nass's note appended
+  (minimal bookkeeping, same pattern the wikimedia/appstore/github
+  sessions used) — this is an API-surface change, not a ladder-gate
+  advance, so status/current_gate stay gate1_pass/1.
+
+GATES: `npx tsx --test server/cropConditions.test.ts`: 9/9 pass (5
+pre-existing + 4 new). `npx tsx --test server/apiProduct.test.ts
+server/cropConditions.test.ts`: 72/72 pass. Full JS/TS suite
+`npx tsx --test server/*.test.ts scripts/*.test.ts` (after `npm ci` —
+this session's container had zero node_modules): 1614/1614 pass, 0 fail.
+`npx tsc --noEmit` via `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0,
+unchanged (no type touched by this diff beyond what already
+typechecked). `bash scripts/gated_tests.sh` (after
+`pip install -r requirements.txt -r requirements-dev.txt` — this
+session's container had zero pytest either): GATE PASSED — client
+1083/1083, python 1733 passed/1 skipped/54 subtests, quarantine 0/1 none overdue.
+`bash scripts/counter_ratchet.sh`: `assertions` 13348 -> 13371 IMPROVED
+(this session's own 5 net-new tests, the direct and sole cause) —
+re-pinned in `ci/counter_baseline.txt` in this same PR; all other 24
+counters unchanged, re-ran clean (25/25 OK). `npm run build`: clean
+(client 1859 modules transformed, server bundle built) — no client/
+file touched by this diff, run for completeness per the fresh-container
+gate above.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a pure API-surface addition over an
+already-live, already-computed RAW display root (GATE 1 already passed
+2026-08-04, unaffected and unchanged), no scoring/sizing/threshold
+value touched, no new computation, no trading path involved.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring path, or any Python file (bot_engine.py/system_config.py/
+ml_model_v2.py untouched, confirmed by the diff's file list). The only
+effect: an API customer (or an LLM agent via `agentToolSpec()`) can now
+pull the full accumulated season's weekly crop-condition history the
+same way one already could for github-activity/appstore-rankings; a
+future GATE 2 session for this root can now query real week-over-week
+condition deltas immediately instead of first having to build this
+reader — directly serves GOAL priority 3's platform line and the
+SPINOUT-READY DATA LAYER standing behavior (signals exposed only
+through the internal API boundary).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(server-only API-surface addition; client/src/pages/cropConditions.tsx,
+which already shipped 2026-08-04, is unaffected and was not touched).
+
+VERSION: v1.0.855 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+origin/main was still at 39e6906/v1.0.854/PR #1014, no concurrent
+session had moved it). package-lock.json resynced via
+`npm install --package-lock-only`; diff confirms only the two
+version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — exposes an existing, already-live,
+already-computed RAW root's own archive through the existing v1 API
+boundary; no new archive, no new entity-graph join, no new poller, no
+new /data-facing surface (the existing #/data/crop-conditions page is
+unaffected).
+
+NEXT (queued, not this session): (1) GATE 2 (condition-delta vs forward
+grain futures returns — corn/soybean futures via backtest_v2's Alpaca/
+Yahoo fetch) is now directly runnable against real archived history
+without further infra work; the exact analogous design used for
+wikimedia_pageviews_attention/nhtsa_vehicle_complaints (z-score or a
+count-appropriate transform on the weekly delta, pre-registered
+verdict rule, Bonferroni-corrected multi-horizon test) is the template
+to reuse rather than re-derive, per EDGE DOCTRINE #3. (2)
+github_org_engineering_momentum's own GATE 2 remains genuinely
+time-blocked, not just unclaimed — only 6 archived weeks exist against
+a 15-org panel; a future session should re-check the archive depth
+before attempting it, not assume this session's "too thin" finding is
+permanent. (3) Per the AUDITS & DEBT register, the STALENESS/
+CONSTITUTIONAL audits' last-run dates should be checked by the next
+session whose fall-through reaches the research tier — not checked this
+session, capacity was fully used by this primary action.
+
+STARVED: no — this was the session's one primary action, a live-verified
+(not assumed) gap found by directly comparing this root's own fetch
+design against the already-completed appstore/github-activity history
+sweep, matched to capacity, with tests written before the route wiring,
+gates all green, and a counter-ratchet improvement locked in. No
+higher-priority queued item was skipped (no LIVENESS ALARM; thrash
+ratio 1/10, well under threshold; no ladder-readiness-check root came
+due; the two other candidate gate1_pass/gate-2-unattempted roots were
+checked and correctly deferred — github for insufficient archive depth,
+crop-conditions itself chosen as the smaller prerequisite step rather
+than jumping straight to an undersupported gate-2 test).
