@@ -3,6 +3,206 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-06 (scheduled-routine session) [PRODUCT] — SHARED-only, docs/registry-only (datacore/signal_ladder.json, package.json/package-lock.json): closes a spinout-readiness tracking gap — Treasury Daily Statement and NHTSA vehicle complaints (BUILD ORDER 6 #2/#4, both live since 2026-07-06) were never entered into the ladder registry, unlike their BUILD ORDER 6 siblings CFTC TFF and FDIC bank failures (v1.0.852)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail — corrected mid-session on realizing the file is "newest at top", not
+newest at bottom, after an initial `tail`-based read mis-scoped the current
+state to v1.0.849 when HEAD was actually at v1.0.851/c6b9c73; re-read from
+the top to get the real current state before proceeding), open_questions.md
+KNOWN BROKEN section (41 items, 4 without an explicit close marker —
+#26/#34/#38/#40, all advisory-only per this file's own repeated prior
+readings), wishlist.md tail. `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash 2/10 REPAIR (below the 7+ trigger),
+known_broken 41/4-advisory, starvation 0/10 — no meta-problem flag, no
+LIVENESS ALARM evidence either way (no live deploy credentials in this
+sandbox). `python3 scripts/ladder_readiness_check.py`: still 0/3 gated
+roots ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all waiting, unchanged). `git fetch origin
+main`: HEAD already equals origin/main at c6b9c73/v1.0.851/PR #1011 — no
+reset needed.
+
+PRIMARY-ACTION SELECTION: per this session's own scheduled task (options
+a-d) and SESSION BUDGET order, checked for a fresh GATE 2 candidate first
+(option a) — none ready, unchanged from the last several sessions'
+readings. The immediately preceding PRODUCT session's own NEXT (2) said
+the v1-mirror + /history sweep across every `signal_ladder.json` root is
+now COMPLETE and a future PRODUCT session choosing option (b)/(d) should
+"re-screen `signal_ladder.json` and `server/routes.ts` from scratch"
+rather than assume the sweep continues — took that instruction literally
+rather than re-running the same completed sweep. Did the reverse direction
+of every prior sweep: instead of checking "does every ladder root have a
+v1 mirror," checked "does every LIVE `/api/data/*` RAW pipeline with a
+documented build-order hypothesis have a ladder entry at all." Extracted
+every `app.get("/api/data/<x>", ...)` route path from `server/routes.ts`
+(76 distinct RAW routes) and diffed against `signal_ladder.json`'s 43
+root ids. Most of the difference is legitimate — many `/api/data/*`
+routes are static reference geography or one-off site markers with no
+EDGE-DOCTRINE hypothesis attached (military_installations, nucleartests,
+superfund, cancer-rates, etc.) and correctly have no ladder entry, matching
+this file's own `_doc` framing that raw_only ladder entries exist for
+pipelines with a filed hypothesis, not every overlay. Cross-referenced the
+remainder against `research/open_questions.md`'s BUILD ORDER 6 filing
+(2026-07-06, 7 items, each with an explicit HYPOTHESIS + numbered LADDER
+gate-1/gate-2 plan) and found two of its four non-declined items —
+Treasury Daily Statement (#2) and NHTSA vehicle complaints (#4) — live
+and archiving since the same day (`server/treasuryDts.ts`/
+`server/nhtsaComplaints.ts`, v1.0.157/v1.0.159) but never entered into
+`signal_ladder.json`, while the other two (#1 CFTC TFF, #3 FDIC bank
+failures) both got ladder entries once a gate later ran on them. Verified
+this was not already logged as a deliberate exclusion: grepped
+`open_questions.md`/`experiments.md` for "not entered into
+signal_ladder.json" (the exact phrase a 2026-09-01 gas-flare-candidates
+entry uses for its own deliberate pre-gate-1 exclusion) — found only that
+one, unrelated hit, confirming DTS/NHTSA's omission was never a stated
+decision. Also confirmed via `grep -rl` that both roots already got a
+`/data` client view + `datacore/layers.json` registry entry back on
+2026-08-17/2026-08-18 (a DIFFERENT registry, for UI wiring, that the
+2026-08-16 CFTC-TFF sweep session closed for these two roots already) —
+this session's finding is specifically about the ladder file
+(`datacore/signal_ladder.json`), a distinct piece of bookkeeping neither
+of those two 2026-08-17/18 sessions touched.
+
+WHY THIS IS REAL WORK, NOT PADDING: `datacore/signal_ladder.json` is the
+single source of truth the site's own `/api/data/signal-ladder` endpoint
+and `/data/signal-ladder` client page surface to customers as "every
+tracked data root's gate status" (per this file's own `_doc` field:
+"ladder position of every root... made machine-readable"). Two live,
+government-sourced, already-hypothesis-bearing pipelines silently missing
+from that customer-facing accounting is exactly the kind of debt the
+AUDITS & DEBT STALENESS AUDIT exists to catch, and directly serves the
+SPINOUT-READY DATA LAYER standing behavior (the ladder as the internal API
+boundary's tracking mechanism).
+
+WHAT SHIPPED: two new entries appended to `datacore/signal_ladder.json`'s
+`roots` array, `status: "raw_only"`/`current_gate: 0` (matching the
+established convention: a v1 API mirror + LICENSE_MARKS + agent tool ships
+only once a root reaches at least `gate1_pass` — verified this convention
+holds by confirming `server/apiProduct.ts` has ZERO entries for any other
+`raw_only` root, e.g. `usgs_earthquakes`/`ndbc_buoys`/
+`cbp_border_wait_times`/`wri_power_plant_registry`, so DTS/NHTSA
+deliberately get no v1 mirror here either, not a gap left half-closed):
+- `treasury_daily_statement` — note states the BUILD ORDER 6 #2 filing,
+  the live route/archiver, and the exact never-attempted gate 1/2 plan
+  from the original filing (gate 1 = reconcile monthly sums vs MTS/FRED;
+  gate 2 = withheld-tax YoY growth vs payroll-surprise dates), plus an
+  explicit pointer to why no v1 mirror was added.
+- `nhtsa_vehicle_complaints` — same treatment for BUILD ORDER 6 #4 (gate
+  1 = complaint counts vs 3 known NHTSA recall timelines; gate 2 =
+  velocity anomalies vs forward returns; supplier-mapping follow-up via
+  the Everything Graph).
+Both `source_ref` fields cite exact `open_questions.md`/`experiments.md`
+line numbers for the original filing, the build session, and the later
+client-view session, so a future session can re-verify without re-deriving
+this session's own grep work.
+
+GATES: no code changed — `datacore/signal_ladder.json` is a pure data
+file (schema: free-form `category` string, fixed `status` enum,
+`current_gate`/`last_update_date`/`note`/`source_ref` — no code path
+computes ladder status, confirmed by reading `server/signalLadder.ts`'s
+own doc comment, "does NOT compute gate status itself... a human/session
+compilation task"). Validated the edit directly: `python3 -c "import
+json; json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"` both parse clean, 45 roots
+(43 + 2). `npx tsx --test server/signalLadder.test.ts`: 5/5 pass,
+including the exact two invariants this addition could have broken —
+"every root has required fields, ids are unique, source_ref is never
+empty" and "raw_only roots always carry current_gate 0" — both still
+hold. Full suite `npx tsx --test server/*.test.ts scripts/*.test.ts`
+(after `npm ci` — fresh container, zero `node_modules` at session start):
+1609/1609 pass, 0 fail, unchanged count (no test file added or edited).
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (no `.ts`/`.tsx`
+touched). `bash scripts/counter_ratchet.sh`: 25/25 counters at or better
+than baseline; `tests_run_in_ci`/`tests_gating_merge` read 420->421,
+matching the exact same pre-existing, this-session-unrelated drift the
+2026-09-05 appstore/github session already found and explicitly left
+UN-re-pinned (no new test FILE added, confirmed the same way that session
+did — `scripts/program_status.sh` counts test files matched by CI job
+globs, not test cases; this session touched zero test files) — followed
+that same precedent rather than re-pinning a gain this diff didn't cause.
+`python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt` — fresh container, no pytest either): 1701 passed,
+1 skipped, 54 subtests, unchanged (no `.py` file touched). `bash
+scripts/gated_tests.sh`: GATE PASSED — python OK, quarantine 0/1 none
+overdue. `npm run build`: clean (client built, server bundle built,
+`dist/` populated) — the two pre-existing warnings (mapIcons static+
+dynamic import mismatch, large-chunk-size) are unrelated, present before
+this session's change too. `python3 scripts/research_state_check.py` and
+`python3 scripts/ladder_readiness_check.py` both re-run clean against the
+edited file (45 roots now visible, no crash, same 0/3 readiness reading).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a pure registry/bookkeeping addition,
+no scoring/sizing/threshold value touched, no new fetch, no new
+computation, no trading path involved, no change to either root's gate
+status computation (there is none — `raw_only` is a hand-assigned label,
+not a computed one).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring path, or any Python file (nothing in `bot_engine.py`/
+`system_config.py`/`ml_model_v2.py`/any `server/*.ts` route touched — the
+only file with runtime effect is the JSON data file itself, read by the
+existing `signalLadder.ts` aggregator with no logic change). The only
+downstream effect: `/api/data/signal-ladder` and the `/data/signal-ladder`
+page now correctly show these two live pipelines as tracked (raw_only,
+gate 0) instead of omitting them entirely from the platform's own honesty
+accounting of what it tracks — a small but real correctness fix to a
+customer-facing surface, serving GOAL priority 3's platform line and the
+HONESTY METRIC's "claimed-vs-ground-truth divergence for platform
+signals" framing (the ladder page's own claim of completeness was
+previously, silently wrong for these two roots).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched, and neither new entry adds a v1-mirror/LICENSE_MARKS surface
+that could need a resell-posture review.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched (the existing `/data/signal-ladder` page renders these two new
+entries generically through the same `LadderRoot`-shaped list it already
+renders 43 others through; no new UI code path).
+
+VERSION: v1.0.852 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at c6b9c73/v1.0.851/PR #1011, no concurrent
+session had moved it). `package-lock.json` resynced via `npm install
+--package-lock-only`, diff confirms only the two version-string lines
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a bookkeeping correction
+over two already-live, already-archived RAW roots; no new archive, no new
+poller, no new API surface, no new entity-graph join.
+
+NEXT: (1) if a future session has live market/EDGAR access, DTS's own
+stated gate 1 (reconcile monthly withheld-tax sums vs MTS/FRED federal
+receipts) is a concretely runnable check, matching the discipline the
+FDIC/crop-conditions/DTCC gate-1 sessions already used. (2) NHTSA's gate 1
+(complaint counts vs 3 known NHTSA recall timelines) is similarly
+concrete and runnable without live market data, only NHTSA's own public
+recall database — a candidate for a sandbox session that lacks
+ALPACA/yfinance access but has general internet reach. (3) neither gets a
+v1 API mirror until its own gate 1 runs, per this session's own stated
+convention — a future v1-mirror sweep should NOT include these two until
+that happens. (4) the broader `/api/data/*` vs `signal_ladder.json` diff
+this session ran (76 RAW routes vs 43, now 45, ladder roots) surfaced no
+other clear BUILD-ORDER-hypothesis-bearing gap beyond these two — the
+remaining ~30 unmatched routes are static reference/site-marker overlays
+this session judged correctly ladder-exempt, but a future STALENESS AUDIT
+pass could re-verify that judgment independently rather than trust this
+session's read.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely-identified, verified-not-already-decided
+tracking gap on two roots with an explicit build-order hypothesis
+already on file), used in full including a full-repo route/registry diff
+rather than trusting a spot-check, confirming the established
+gate1-required-for-v1-mirror convention by checking every existing
+`raw_only` root's own `apiProduct.ts` presence before deciding to omit
+a v1 mirror here, and following the prior session's exact same
+already-established precedent for the pre-existing counter drift rather
+than re-deriving that judgment from scratch. No higher-priority queued
+item was skipped (KNOWN BROKEN's remaining items are evidence-blocked per
+this file's own repeated prior readings; thrash ratio 2/10, well under
+threshold; no ladder-readiness-check root came due).
+
 ## 2026-09-05 (scheduled-routine session, sixth session this UTC day) [REPAIR] — T-BOT-adjacent (research/open_questions.md only; docs-only, no code changed): KNOWN BROKEN #18's second recurrence (v1.0.530 Setup-7 scan-wide budget fix, 2026-07-29) CONFIRMED HELD 5+ weeks live and CLOSED, ending this daemon-timeout thread
 
 SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
