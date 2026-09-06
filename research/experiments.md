@@ -3,6 +3,272 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-06 (scheduled-routine session, second session this UTC day) [PIPELINE] — T-DATACORE primary (scripts/nhtsa_gate1_probe.py new, test_nhtsa_gate1_probe.py new) + SHARED-but-minimal, last (datacore/signal_ladder.json, package.json/package-lock.json): nhtsa_vehicle_complaints ROOT VALIDATION LADDER GATE 1 (DATA) run for the first time, PASSED 3/3 pinned cases, plus a genuinely new NHTSA-API date-format finding compiled as a regression-tested constant (v1.0.853)
+
+TERRITORY: T-DATACORE primary (a standalone research/pipeline probe script
++ its test, matching this repo's own established convention for gate-N
+probe scripts — scripts/tankfill_gate1.py/wikiattention_gate2.py etc. are
+the same shape) + SHARED-but-minimal, last commit (datacore/
+signal_ladder.json ladder-status update, package.json version bump).
+
+SESSION-START CHECKS: CLAUDE.md read in full (with special attention to
+the EDGE DOCTRINE per this session's own scheduled-task instructions),
+then all of research/ (experiments.md — read from the TOP this time,
+correctly, per item #36's own fix and the immediately-preceding session's
+own corrected re-read; open_questions.md KNOWN BROKEN section in full,
+41 items, 4 without an explicit close marker — #26/#34/#38/#40 — all
+already-fixed/self-resolving/deferred-pending-specialist-access per this
+file's own repeated prior readings, none a live blocker; wishlist.md
+tail). `python3 scripts/research_state_check.py`: audits register none
+overdue, thrash_ratio 1/10 REPAIR in the last 10 tagged sessions (below
+the 7+ trigger), known_broken 41/4-advisory, starvation 0/10 — no
+meta-problem flag. Live `curl https://voltradeai.com/api/health`:
+`status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark:false`,
+alpaca `ACTIVE`, all three archive feeds alive (aircraft/vessels/trains,
+silent_hours 0.58 each), scanner `consecutiveFailures:0` — no LIVENESS
+ALARM. `python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots
+ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all waiting, unchanged). `git fetch origin
+main`: HEAD already equals origin/main at 435d363/v1.0.852/PR #1012 — no
+reset needed.
+
+PRIMARY-ACTION SELECTION: per this session's own scheduled-task options
+(a-d) and SESSION BUDGET order, checked for a fresh GATE 2 candidate
+first — none ready, unchanged. Not a [REPAIR] session (no LIVENESS ALARM,
+thrash ratio well under threshold, KNOWN BROKEN's remaining items are
+advisory-only per repeated prior readings). Took the immediately-preceding
+session's own queued NEXT item (2) verbatim: "NHTSA's gate 1 (complaint
+counts vs 3 known NHTSA recall timelines) is similarly concrete and
+runnable without live market data, only NHTSA's own public recall
+database — a candidate for a sandbox session that lacks ALPACA/yfinance
+access but has general internet reach." Verified the precondition live
+rather than assuming it: `curl` to `api.nhtsa.gov` through this session's
+proxy succeeded (HTTP/2 200, real complaint data returned) on the first
+authenticated attempt — confirming general internet reach without testing
+ALPACA/yfinance at all (not needed for this action). This is axis (a) of
+the scheduled task's own option list (advance a ladder gate), chosen over
+(b) (explicitly gated on the options fill-realism prerequisite, unchanged
+open per `research/open_questions.md`'s own "Options fill realism" entry)
+and a fresh (c)/(d) foreign-field import (the immediately preceding day's
+permutation-entropy attempt was the fifth in a row of that exact scaffold
+to hit the same power ceiling — see its own STRUCTURAL META-FINDING — so a
+concretely queued, higher-confidence (a) action took priority over a sixth
+attempt at a scaffold this file has already flagged as needing a design
+change, not another instance).
+
+READ BEFORE WRITE: read `server/nhtsaComplaints.ts` in full before writing
+anything. Key finding that shaped the whole design: the live archiver has
+only run since 2026-07-06 (this root's BUILD ORDER 6 filing date) and only
+archives NEW-since-first-seen complaints (event-identity dedup by ODI
+number) for a CURATED watchlist (`datacore/nhtsa_vehicles.json`) — at
+most ~2 months of depth, nowhere near enough to reach any well-documented
+historical recall. But `fetchVehicleComplaints()`'s own target endpoint
+(`api.nhtsa.gov/complaints/complaintsByVehicle`) is the SAME one a plain
+live query hits, and it returns a vehicle's FULL complaint history with no
+pagination cap — verified live this session (Chevrolet Cobalt MY2006:
+`count` field and `results` array length both exactly 2,330; earliest
+dated 2006-01-03). This meant gate 1 could be run directly against the
+live API for real historical cases without waiting out the archive's
+youth, using the exact same fetch/parse contract (MM/DD/YYYY
+`dateComplaintFiled`, `components` free-text field) the archiver itself
+relies on — validating that contract's sanity against known reality, not
+inventing a parallel one.
+
+PRE-REGISTERED PRIOR (REASONING STANDARD #10, stated in the script's own
+header before any complaint COUNT was queried — only the exact recall
+campaign numbers/dates were looked up live to pin them precisely, chosen
+for public notoriety and documented complaint-driven origin from general
+knowledge, not from this session's own probe output): 3 cases —
+Chevrolet Cobalt MY2006 (GM ignition-switch/airbag defect, recall
+14V047000 — the subject of the Valukas report and congressional
+testimony establishing GM knew for close to a decade before recalling),
+Toyota Camry MY2007 (sticky accelerator pedal, recall 10V017000 — the
+2009-2010 "sudden unintended acceleration" wave and its own congressional
+hearings), Hyundai Sonata MY2011 (Theta II engine bearing wear, recall
+15V568000 — engine fire/stall complaints documented as building 2011-2015
+before the September 2015 recall). PRIOR: all 3 should show (a) nonzero
+defect-relevant complaints on file strictly before the recall date (the
+defect was discoverable, not silent until the recall) and (b) a marked
+step-up in relevant-complaint volume in the recall's own calendar year vs.
+the prior 3 years. Explicitly did NOT pre-register a claim that the
+pre-recall trend rises smoothly year over year (REASONING STANDARD #4 —
+distrust convenient patterns) — logged honestly below that this only held
+clearly in 1 of 3 cases.
+
+GENUINELY NEW FINDING, COMPILED AS CODE (EDGE DOCTRINE #3): NHTSA's
+recalls API (`api.nhtsa.gov/recalls/recallsByVehicle`) reports
+`ReportReceivedDate` in DD/MM/YYYY — the OPPOSITE of the complaints API's
+MM/DD/YYYY `dateComplaintFiled`/`dateOfIncident` (already correctly
+handled by `server/nhtsaComplaints.ts`'s own `normalizeUsDate`). Proven
+unambiguously live, not inferred: campaign 15V689000 (a real Camry
+recall) reports ReportReceivedDate "22/10/2015" — 22 cannot be a month,
+so the field cannot be MM/DD. Cross-checked against an independently
+verifiable public fact too: campaign 14V047000's ReportReceivedDate
+"10/02/2014" parses as 2014-02-10 under DD/MM, matching the
+well-documented fact that GM notified NHTSA on February 10, 2014; under
+MM/DD it would misread as October 2, 2014 — four months late, exactly the
+kind of silent corruption a future recall-timeline join would suffer
+without this note. `grep -rn "recallsByVehicle\|ReportReceivedDate" server/
+scripts/ *.py` returned zero hits before this session — nothing in this
+repo had touched the recalls API before, so this format mismatch was
+previously undocumented anywhere in the codebase.
+
+WHAT SHIPPED: `scripts/nhtsa_gate1_probe.py` (new) — pure functions
+(`parse_complaint_date`, `parse_recall_date`, `is_relevant`,
+`yearly_counts`, `find_recall`, `evaluate_case`) plus a live-fetch CLI
+(`fetch_complaints_live`/`fetch_recalls_live` via `urllib.request`,
+politely spaced). Gate-1 verdict per case requires ALL THREE: (1) the live
+recalls API returns the pinned campaign number with a `ReportReceivedDate`
+within 45 days of the pinned expected date (validates the "known case" is
+itself reproducible from NHTSA's own live data, not hand-typed trivia);
+(2) >=10 defect-relevant complaints on file strictly before the recall
+date (defect was discoverable ahead of time); (3) recall-year
+relevant-complaint count >= 2x the median of the prior 3 calendar years'
+relevant counts (a real, visible step-up, not noise). `test_nhtsa_gate1_
+probe.py` (new, repo root, matching `test_tankfill_gate1.py`'s own
+`importlib.util.spec_from_file_location` convention since `scripts/` is
+not a package) — 13 tests covering both date parsers (including a
+regression test proving the two parsers deliberately disagree on the same
+ambiguous string, pinning the DD/MM-vs-MM/DD finding above), relevance
+matching, yearly bucketing, recall lookup, and 6 cases through
+`evaluate_case`'s full verdict logic (clean pass; recall not found; recall
+found but date mismatches beyond tolerance; zero pre-recall complaints
+despite a later spike; flat/no-step-up; zero-prior-median edge case)
+written and passing BEFORE the live run, per this repo's own
+MEASUREMENT-INTEGRITY-adjacent discipline for gate-scoring code (pin the
+ruler before trusting what it measures).
+
+RESULT (live run, `python3 scripts/nhtsa_gate1_probe.py`, real
+`api.nhtsa.gov` data, no mocking): **GATE 1 PASS, 3/3 cases.**
+  - Cobalt: recall confirmed (0-day delta from pin). Pre-recall relevant
+    complaints 198 (years 2006-2013, min 10/yr). Recall-year (2014)
+    relevant 180 vs. prior-3yr median 20 (2011:29, 2012:16, 2013:20) —
+    9.0x step-up.
+  - Camry: recall confirmed (0-day delta). Pre-recall relevant 153.
+    Recall-year (2010) relevant 258 vs. prior-3yr median 49 (2007:74,
+    2008:8, 2009:49) — 5.27x step-up.
+  - Sonata: recall confirmed (0-day delta). Pre-recall relevant 155.
+    Recall-year (2015) relevant 179 vs. prior-3yr median 20 (2012:9,
+    2013:20, 2014:33) — 8.95x step-up.
+HONEST CAVEAT, not smoothed over (REASONING STANDARD #4/#8): only the
+Sonata case shows a genuinely RISING pre-recall trend year over year
+(9→20→33 in 2012-2014). Cobalt's pre-recall years are flat/declining-then-
+noisy (29→16→20), and Camry's are non-monotonic (74→8→49) — the
+recall-year jump in all 3 cases is dominated by post-announcement
+media/litigation attention landing complaints in the SAME calendar year
+the recall was issued, not a clean multi-year pre-recall ramp a gate-2
+velocity signal could exploit as-is. This is the single most important
+output of this session for whoever attempts gate 2: a naive
+"complaint-velocity acceleration" signal built on yearly buckets like this
+would be dominated by the recall's own publicity in 2 of 3 cases, which is
+reflexive (post-hoc), not predictive — any future gate 2 attempt needs a
+design that isolates PRE-announcement velocity specifically (e.g. trailing
+12-month complaint rate computed only from complaints filed and dated
+before the earliest recall-adjacent public event, not full-calendar-year
+buckets) or it will not be measuring what it claims to measure.
+
+GATES: `python3 -m pytest -q test_nhtsa_gate1_probe.py`: 13/13 pass. Full
+suite `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt` — fresh container, neither installed at session
+start): 1714 passed, 1 skipped, 54 subtests — up from the immediately
+preceding session's 1701 by exactly this session's own 13 new tests, zero
+regressions. `bash scripts/gated_tests.sh`: this session's container also
+had a corrupted/partial `node_modules` at first run (missing `express`
+outright despite other packages present — `Cannot find package 'express'`
+on `server/compression.test.ts`/`server/apiKeyAccounts.test.ts` and ~15
+other unrelated files across server+client, none touched by this diff);
+confirmed via `git stash` that the SAME failures reproduce byte-identical
+on a clean tree (not caused by this session's changes), then fixed with a
+plain `npm ci` (488 packages reinstalled cleanly) rather than treating it
+as a real regression — full re-run after that: GATE PASSED, server clean,
+client clean, python OK, quarantine 0/1 none overdue. `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (no `.ts`/`.tsx` touched).
+`bash scripts/counter_ratchet.sh`: `assertions` 13267 -> [see VERSION
+block below for the exact re-pinned number], `tests_run_in_ci`/
+`tests_gating_merge` 421 -> 422 (this session's own new test FILE, the
+direct and sole cause) — both re-pinned in `ci/counter_baseline.txt` in
+this same PR; all other counters unchanged. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"` both parse clean, still 45
+roots (edited in place, no root added/removed). `npx tsx --test server/
+signalLadder.test.ts`: 5/5 pass, including the two invariants a status
+change could break ("every root has required fields... source_ref is
+never empty" and the raw_only/current_gate-0 pairing check, which no
+longer applies to this root now that it is gate1_pass with current_gate
+1 — confirmed the test's own logic only asserts that pairing FOR roots
+still marked raw_only, not globally). `npm run build`: clean (client
+built, server bundle built, `dist/` populated) — no client/ file touched
+by this diff, run for completeness per the fresh-container gate above.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a DATA-gate validation script plus a
+ladder-status bookkeeping update, no scoring/sizing/threshold value
+touched, no trading path involved. This does NOT make `nhtsa_vehicle_
+complaints` tradeable or change what `/api/data/vehicle-complaints`
+displays (still RAW, still no predictive claim) — gate 1 only certifies
+the DATA reading is sane against a known external truth source, per the
+ROOT VALIDATION LADDER's own layering ("a root that fails a gate... may
+not skip gates regardless of how promising it looks" applies symmetrically
+to a PASS: passing gate 1 says nothing about gate 2).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (`bot_engine.py`/`system_config.py`/
+`ml_model_v2.py` untouched). The only effects: (1) `datacore/
+signal_ladder.json`'s customer-facing ladder accounting for this root is
+now accurate (gate1_pass instead of a stale raw_only, serving GOAL
+priority 3's platform line and the HONESTY METRIC's claimed-vs-ground-
+truth framing); (2) a documented, tested, reusable script exists so a
+future gate-2 session does not have to re-derive the NHTSA date-format
+gotcha or re-verify the archive-depth constraint from scratch (EDGE
+DOCTRINE #3).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched, and gate 1 alone does not add a v1-mirror/LICENSE_MARKS
+surface (that convention ships at gate1_pass-or-later for a root with a
+live SIGNAL to mirror; this root has no computed signal yet, only a
+validated raw feed, so deliberately no v1 mirror added this session,
+matching the immediately-preceding session's own stated convention).
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no `client/` files
+touched.
+
+VERSION: v1.0.853 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+`origin/main` was still at 435d363/v1.0.852/PR #1012, no concurrent
+session had moved it). `package-lock.json` resynced via `npm install
+--package-lock-only`, diff confirms only the two version-string lines
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this root's
+Everything-Graph follow-up (supplier mapping via the `components` field,
+named in the original BUILD ORDER 6 filing) remains unbuilt and unaffected
+by a gate-1 DATA validation; no new archive, poller, or join added.
+
+NEXT: (1) gate 2 (velocity anomalies vs forward returns) is the ladder's
+own next real step, and per this session's own HONEST CAVEAT above, must
+NOT reuse full-calendar-year complaint buckets as the velocity measure —
+a future session should design a trailing-window rate computed strictly
+from complaints dated before any public recall-adjacent event, or the
+"signal" will just be recall publicity restated. (2) the Everything-Graph
+supplier-mapping follow-up (joining the `components` field to actual
+parts suppliers) remains a concretely buildable, unclaimed idea from the
+original filing. (3) no v1 API mirror until a live SIGNAL exists to
+mirror (gate 2 or later), matching this session's own stated convention.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action (a concretely queued, fully-specified gate-1 probe with a
+general-internet-only precondition verified live before committing to it),
+used in full including live-verifying the archive-depth constraint before
+designing around it, finding and fixing a genuine fresh-container
+`node_modules` gap via the correct mechanism (`npm ci`, not a quarantine
+or a shrug) after A/B-confirming it was pre-existing and not self-caused,
+and surfacing a HONEST CAVEAT (the reflexive-vs-predictive step-up
+mechanism) that materially changes what a future gate-2 design must do
+differently rather than just reporting a clean pass. No higher-priority
+queued item was skipped (KNOWN BROKEN's remaining items are advisory-only
+per this file's own repeated prior readings; no LIVENESS ALARM; thrash
+ratio 1/10, well under threshold; no ladder-readiness-check root came
+due).
+
 ## 2026-09-06 (scheduled-routine session) [PRODUCT] — SHARED-only, docs/registry-only (datacore/signal_ladder.json, package.json/package-lock.json): closes a spinout-readiness tracking gap — Treasury Daily Statement and NHTSA vehicle complaints (BUILD ORDER 6 #2/#4, both live since 2026-07-06) were never entered into the ladder registry, unlike their BUILD ORDER 6 siblings CFTC TFF and FDIC bank failures (v1.0.852)
 
 SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
