@@ -9027,6 +9027,26 @@ nowcast, sector-level stress/quality events. Priors stated per item.)
    LADDER: gate 1 = complaint counts vs NHTSA's own published recall
    timeline for 3 known cases; gate 2 = velocity anomalies vs forward
    returns.
+   UPDATE 2026-09-06 (scheduled-routine session, second session this UTC
+   day) — GATE 1 (DATA) PASSED, 3/3 pinned cases (Chevrolet Cobalt
+   MY2006/recall 14V047000, Toyota Camry MY2007/recall 10V017000, Hyundai
+   Sonata MY2011/recall 15V568000), run live against api.nhtsa.gov via
+   `scripts/nhtsa_gate1_probe.py` (`test_nhtsa_gate1_probe.py`, 13/13
+   passing). Full numbers, the recall-confirmation methodology, and a
+   genuinely new NHTSA date-format finding (recalls API is DD/MM/YYYY,
+   complaints API is MM/DD/YYYY — the opposite of each other, proven
+   unambiguously live) are in `research/experiments.md`'s matching
+   2026-09-06 entry. `datacore/signal_ladder.json`'s `nhtsa_vehicle_
+   complaints` entry updated to `gate1_pass`/`current_gate: 1`.
+   HONEST CAVEAT carried forward for whoever attempts gate 2: only the
+   Sonata case shows a genuinely rising pre-recall complaint trend;
+   Cobalt and Camry are flat/non-monotonic pre-recall, with the
+   recall-year jump in all 3 dominated by post-announcement publicity —
+   a gate-2 velocity design built on full-calendar-year buckets would be
+   measuring reflexive attention, not a predictive lead. A trailing
+   window computed strictly from complaints dated before any public
+   recall-adjacent event is the concrete fix a future session should
+   build, not a bare re-run of this session's yearly buckets.
 5. [ALREADY BUILT — duplicate filing, discovered 2026-07-06 at build
    time: v1.0.118 / PR #229 shipped this exact stream 2026-07-05 as
    BUILD ORDER 2 #5 (same FIPS probe finding, CONUS + 8 belt states +
