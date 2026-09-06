@@ -3,6 +3,232 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-06 (scheduled-routine session, fifth session this UTC day, market-hours run) [RESEARCH] — T-DATACORE primary (scripts/crop_conditions_gate2.py new, test_crop_conditions_gate2.py new) + SHARED-but-minimal, last (datacore/signal_ladder.json, package.json/package-lock.json): crop_conditions_usda_nass ROOT VALIDATION LADDER GATE 2 (SIGNAL) attempted against real archived history — GATE 2 FAIL, plus a caught statistical artifact (one Bonferroni-clearing comparison, correctly NOT promoted) (v1.0.856), PR #1016
+
+TERRITORY: T-DATACORE primary (scripts/crop_conditions_gate2.py,
+test_crop_conditions_gate2.py) + SHARED-but-minimal, last commit
+(datacore/signal_ladder.json single-line edit, package.json/
+package-lock.json version bump). No T-BOT/T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/experiments.md
+read from the top (this UTC day already had four prior sessions: nhtsa
+GATE 1 pass, a ladder-registry tracking-gap closure, nhtsa GATE 2 fail,
+crop_conditions /history companion + v1 mirror). research/
+open_questions.md KNOWN BROKEN section read (41 items, 4 without a
+close marker, all advisory per scripts/research_state_check.py).
+research/wishlist.md tail read (stale-PR backlog thread, gas-flare
+EOG registration recommendation — both human-decision items, not
+actionable this session). `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash_ratio 1/10 REPAIR (below the 7+
+trigger), known_broken 41/4-advisory (none a live blocker), starvation
+0/10 — no meta-problem flag. Live `curl https://voltradeai.com/api/health`:
+status "ok", bot active, drawdownPct "0.0", liveness.dark false, alpaca
+ACTIVE, all three archive feeds alive (silent_hours 0.03 each),
+scanner consecutiveFailures 0 — no LIVENESS ALARM.
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots
+ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all time-blocked, unchanged). `git fetch
+origin main`: HEAD already equals origin/main at 4910488/v1.0.855/
+PR #1015 — no reset needed.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no ladder-readiness-check root came due — not a [REPAIR]
+session. Took the immediately preceding session's own queued NEXT
+item (1) verbatim (research/experiments.md's 2026-09-06 fourth-session
+entry, PR #1015): "GATE 2 (condition-delta vs forward grain futures
+returns ...) is now directly runnable against real archived history
+without further infra work; the exact analogous design used for
+wikimedia_pageviews_attention/nhtsa_vehicle_complaints ... is the
+template to reuse rather than re-derive." This is SESSION BUDGET's own
+first fall-through tier ("the next queued item from research/
+open_questions.md or the roadmap that fits"), taking priority over a
+fresh research/audit action.
+
+READ BEFORE WRITE: read scripts/nhtsa_gate2_probe.py and
+scripts/eia930_gate2.py in full as templates before writing anything
+(both explicitly named or structurally matching this design's needs);
+read gate2_stats.py in full (find_entry_index, newey_west_diff_test)
+to reuse rather than re-derive per EDGE DOCTRINE #3 — confirmed this is
+shared MEASUREMENT INTEGRITY code (its own PR, never bundled with a
+strategy change) and deliberately did NOT modify it. Read
+scripts/crop_conditions_gate1.ts in full for the release-date/
+week_ending convention (week_ending 2026-08-02 -> released 2026-08-03,
+hand-verified against the real government bulletin) before designing
+the entry rule. Live-checked before writing any code: `curl
+.../api/data/crop-conditions/history?weeks=52` returns 14 contiguous
+weekly rows (2026-05-31..2026-08-30, no gaps, both commodities present
+every week) — deeper than the ~9 weeks expected from the poller's own
+2026-07-06 start date, because NASS's QuickStats query itself returns
+the whole current season on every poll (already noted in this root's
+prior sessions). Live-checked backtest_v2.fetch_bars("CORN"/"SOYB",
+400) before committing to them as the proxy instruments: both resolve
+with 275 days of full-coverage bars.
+
+PRE-REGISTRATION (REASONING STANDARD #10, written before any forward
+return was computed — the raw week-over-week GE-percentage deltas WERE
+computed first, during design, purely to size bucket counts honestly;
+no forward return or p-value existed yet at that point): HYPOTHESIS —
+improving G/E% (larger expected harvest/supply) precedes NEGATIVE
+forward returns in the matching grain ETF; worsening G/E% precedes
+POSITIVE forward returns (standard ag-economics supply/price relation,
+not a novel claim). PRIOR: LOW, ~10% (lower than this repo's other
+recent gate-2 priors, e.g. nhtsa's ~20%) — REASONING STANDARD #5,
+second-order: unlike an obscure NHTSA complaint feed or a single
+Wikipedia page, USDA's weekly Crop Progress report is one of THE most
+closely watched releases in commodities trading, read by CBOT
+grain-desk algorithms within seconds of its Monday 4pm ET release;
+EDGE DOCTRINE #2 ("fish where whales can't") cuts AGAINST this root,
+not for it. LOW-POWER CAVEAT (stated before running, not discovered
+after): the 14-week archive yields only 13 week-over-week deltas per
+commodity, split roughly 2-3 improving / 6-8 worsening / 2-5 flat
+(excluded) per commodity — the improving bucket in particular flagged
+in advance as too thin for a meaningful significance test on its own,
+disclosed but not used to justify discarding it before running.
+VERDICT RULE (stated before running): GATE 2 passes only if >=1
+(commodity, horizon, bucket) comparison clears the Bonferroni bar for
+this 2-commodity x 3-horizon x 2-bucket family (alpha/12~=0.004167)
+AND is in the hypothesized direction.
+
+ENTRY RULE (no lookahead): week_ending+2 calendar days as a
+deliberately conservative publish-date floor (one day more than gate
+1's own hand-verified week_ending+1 case), then gate2_stats.
+find_entry_index's "first bar strictly after publish_date" — guards
+against the rare Monday-holiday shift of the real release to Tuesday,
+trading a small amount of entry-timing precision for a guarantee
+against ever trading ahead of the true public release (REASONING
+STANDARD #7).
+
+WHAT SHIPPED: scripts/crop_conditions_gate2.py (new) — pure functions
+(good_excellent_pct, compute_weekly_deltas, release_date_for,
+bucket_for, compute_forward_returns, summarize, hac_significance,
+evaluate_pass_bar) plus a live-fetch CLI reading the production
+/api/data/crop-conditions/history route (this sandbox has no
+NASS_API_KEY, same honest-substitute convention gate 1 used) and
+backtest_v2.fetch_bars for the CORN/SOYB proxy ETFs.
+test_crop_conditions_gate2.py (new, repo root, matching
+test_eia930_gate2.py's importlib.util convention) — 29 tests covering
+the delta computation (including a gap-week/missing-commodity-key
+edge case), release-date buffer arithmetic, bucketing, forward-return
+computation (entry-strictly-after-publish, no-lookahead-beyond-archive-
+tail), summarize, and hac_significance/evaluate_pass_bar's full
+pass-bar logic (significant-in-hypothesized-direction passes,
+too-few-observations returns None not a fabricated number, WRONG-
+direction significance does NOT pass, no-signal does NOT pass) — all
+written and passing BEFORE the live run.
+
+LIVE RESULT (`python3 scripts/crop_conditions_gate2.py`, real
+production/Alpaca/Yahoo data, no mocking): the script's own mechanical
+pass_bar reports PASSED: true — the Bonferroni bar (alpha/12=0.004167)
+was cleared by exactly ONE comparison: soybeans, h=10, improving
+bucket, n=3 raw weeks (forward returns 0.0%/-1.2%/-4.1%), mean_diff
+-5.36pp, p=0.0000.
+
+SESSION VERDICT — NOT TREATED AS A GENUINE PASS, and NOT a post-hoc
+rationalization (the low-power caveat above was written before this
+number existed): four pieces of evidence together identify this as a
+statistical artifact, not a real edge. (1) The BETTER-POWERED worsening
+bucket (6-8 raw weeks per commodity, the hypothesized-positive side)
+cleared the Bonferroni bar in NEITHER commodity at ANY horizon — best
+case soybeans h=5 p=0.044, nowhere near 0.00417. If a real effect
+existed, the larger bucket should show it more reliably than the
+smaller one, not the reverse. (2) Corn's own improving bucket at h=10
+shows the same large-but-not-Bonferroni-significant negative mean_diff
+(p=0.0064) from only 2 raw weeks — the identical fragile-tiny-bucket
+pattern, just short of the bar this time. (3) Inspecting the raw
+per-week forward returns directly: nearly every week in this 3-month
+archive window had a POSITIVE forward return in both ETFs (a broad
+grain-market uptrend over the sample, unconnected to weekly condition
+deltas) EXCEPT the 2-3 improving-bucket weeks — exactly the signature
+of a thin bucket coinciding by chance with a flatter sub-period of a
+trending series, not a supply/price relationship. (4) No consistent
+story across horizons (h=20 has zero data for either bucket — archive
+too short) or between the two commodities. Per ROOT VALIDATION LADDER
+discipline (a fault at gate N with 1..N-1 verified is a fault AT layer
+N; DATA gate 1 remains PASSED and unaffected) and matching this
+repo's own wikimedia-gate-3 precedent ("sign-instability across
+independent resamples ... is itself evidence of a genuine null"),
+logged as GATE 2 FAIL in datacore/signal_ladder.json (status
+gate1_pass -> gate2_fail, current_gate 1 -> 2).
+
+GATES: `python3 -m pytest -q`: 1762 passed, 1 skipped (was 1733/1 —
+the 29 new tests, zero regressions). `bash scripts/gated_tests.sh`
+(after `npm ci` — this session's container had a stale node_modules
+missing 'express', caught by a first gated_tests.sh run failing 8
+client test files on ERR_MODULE_NOT_FOUND, not this diff's fault;
+`npm ci` fixed it and the re-run was clean): GATE PASSED — client
+1032/1032, python 1762/1 skipped/54 subtests, quarantine 0/1 none
+overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+`bash scripts/counter_ratchet.sh`: 25/25 OK, unchanged (the
+`assertions` counter tracks TS-side assertions only — this session's
+new tests are Python unittest, so no baseline re-pin needed or made).
+`npm run build`: clean (no client file touched by this diff, run for
+completeness per the fresh-container gate above).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a SIGNAL-gate research
+measurement (no trading involved, per the ladder's own gate-2
+definition), not a strategy/parameter/sizing change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring path, or any Python module bot_engine.py/
+system_config.py/ml_model_v2.py imports (confirmed by the diff's file
+list — pure new script + test + a single-line JSON registry edit).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+ads code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files
+touched.
+
+VERSION: v1.0.856 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed
+origin/main was still at 4910488/v1.0.855/PR #1015, no concurrent
+session had moved it). package-lock.json resynced via `npm install
+--package-lock-only`; diff confirmed to touch only the two
+version-string lines (the datacore/signal_ladder.json edit was made
+via a targeted string substitution rather than a full json.dump
+re-serialize, after an initial re-serialize attempt produced a
+474-insertion/46-deletion whole-file reformat diff from a
+line-wrapping/formatting mismatch — reverted and redone as a single-
+line edit, confirmed `git diff --stat` shows exactly 1 line changed).
+
+CROSS-SYSTEM INTEGRATION: none new — a research/measurement script
+plus a ladder-registry status update; no new archive, poller, or
+/data-facing surface (the existing #/data/crop-conditions page and its
+/history companion are unaffected).
+
+MARKET-HOURS NOTE: this session ran during market hours per its own
+scheduling instruction. PR #1016 explicitly states in its own body
+that merge should wait until after 4:00 PM ET, since this change is
+not a live-break-critical fix (zero effect on the trading loop, per
+DOWNSTREAM CHAIN above).
+
+NEXT (queued, not this session): (1) crop_conditions_usda_nass's GATE
+2 is not closed permanently — the archive is only 14 weeks deep
+(tracking started 2026-05-31); a future session should re-run this
+exact pre-registered script UNCHANGED once the archive has
+meaningfully more weeks (ideally a full season or multiple growing
+seasons) before concluding the underlying hypothesis is dead — re-
+running the unchanged spec later is data accumulation, not p-hacking
+by attrition, matching nhtsa_vehicle_complaints' and wikimedia gate
+3's own NEXT notes. (2) github_org_engineering_momentum's own GATE 2
+remains time-blocked (6 archived weeks against a 15-org panel per the
+immediately preceding session's own check) — a future session should
+re-check archive depth before attempting it. (3) Per the AUDITS & DEBT
+register, the STALENESS/CONSTITUTIONAL audits' last-run dates should
+be checked by the next session whose fall-through reaches the research
+tier — not checked this session, capacity was fully used by this
+primary action.
+
+STARVED: no — this was the session's one primary action, the
+immediately preceding session's own queued NEXT item, run to
+completion with a live result, all gates green, and the ladder
+registry updated with a fully honest verdict (including catching and
+correctly declining to promote a spurious Bonferroni-clearing
+comparison, rather than mechanically shipping the script's own raw
+PASSED:true). No higher-priority queued item was skipped (no LIVENESS
+ALARM; thrash ratio 1/10, well under threshold; no ladder-readiness-
+check root came due).
+
 ## 2026-09-06 (scheduled-routine session, second session this UTC day) [PIPELINE] — T-DATACORE primary (scripts/nhtsa_gate1_probe.py new, test_nhtsa_gate1_probe.py new) + SHARED-but-minimal, last (datacore/signal_ladder.json, package.json/package-lock.json): nhtsa_vehicle_complaints ROOT VALIDATION LADDER GATE 1 (DATA) run for the first time, PASSED 3/3 pinned cases, plus a genuinely new NHTSA-API date-format finding compiled as a regression-tested constant (v1.0.853)
 
 TERRITORY: T-DATACORE primary (a standalone research/pipeline probe script
