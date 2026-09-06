@@ -17317,3 +17317,54 @@ favors bounded, strictly order-preserving concurrent file prefetch, NOT
 naive unordered parallelism) before attempting any change to the shared
 fold. No week was captured this session — the file still holds only weeks
 6, 7, 8 (still short of the ~15-20 threshold for GATE 2).
+
+## 2026-09-06 (scheduled-routine session, seventh session this UTC day) [PRODUCT] — PORT DWELL WEEKLY-SNAPSHOT SCRIPT: the immediately preceding session's own queued measurement RUN — CPU-bound, not I/O-bound
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: ran the immediately preceding session's own "TESTABLE NEXT STEP"
+verbatim — called `/api/diag/portdwell_window` at hours=8/16/24/48 against
+production and read the new `pointsScanned`/`elapsedMs` fields it shipped.
+Results: hours=8 → 829,443 points/9,671ms (11.7µs/point); hours=16 →
+1,430,980 points/24,518ms (17.1µs/point); hours=24 → 2,042,528
+points/30,665ms (15.0µs/point); hours=48 reproduced the earlier failure
+again (60s client timeout, no response).
+
+VERDICT: CPU-bound, not I/O-bound. Per-point cost stays in a narrow
+11.7–17.1µs band across a ~2.5x range of window sizes and does NOT drop as
+the window grows — the signature an amortizing fixed per-file/per-request
+I/O overhead would produce. If the bottleneck were I/O-bound, hours=8
+(fewest files touched) should show the highest per-point overhead and
+hours=24 should show it amortized down; instead hours=8 is the CHEAPEST
+per point of the three, the opposite pattern. Extrapolating the observed
+~85–100k points/hour and ~15µs/point to hours=168 implies tens of millions
+of points and 150s+ of pure per-point work — this alone comfortably
+explains the previously observed 46–71s proxy-timeout failures, no other
+cause needed.
+
+CONSEQUENCE FOR THE DECLINED FIX: the immediately preceding session
+correctly declined to add unordered concurrency to `foldVesselArchiveAsync`
+blind, citing the correctness risk to its shared, order-sensitive
+consumers (shadowFleet.ts, gridStress.ts). This session's measurement adds
+a second, independent reason that fix would have been wrong even absent
+the correctness risk: concurrency addresses I/O wait, and this bottleneck
+is CPU/parse-bound, so it would not have meaningfully reduced latency
+regardless. The earlier caution was doubly correct.
+
+RECOMMENDATION (not attempted this session — measurement only, per
+MEASURE BEFORE FIXING/EDGE DOCTRINE #3, one logical change per PR): move
+this fold OFF the synchronous request/response path entirely — a
+scheduled background computation (e.g. a Tier-3-cadence job in
+server/bot.ts) that writes the weekly stats to a durable file, which the
+diag probe and `scripts/portdwell_weekly_snapshot.ts` then read cheaply,
+with no live-request proxy-timeout exposure at all. This is preferred over
+(a) reducing scanned points (would change what the live customer-facing
+`/api/data/portdwell` route itself reports — a different, larger, riskier
+change) or (b) adding concurrency (established above as unhelpful for a
+CPU-bound bottleneck, and still carrying the order-sensitivity risk). No
+code changed this session; `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` note carries the same finding.
+`current_gate` stays 1/`gate1_pass` — this narrows the diagnosis, it does
+not change the gate status or capture a new week (file still holds only
+weeks 6, 7, 8).
