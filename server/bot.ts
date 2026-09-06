@@ -13,7 +13,7 @@ import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, 
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
-import { computePortDwellAsync, portsFromSites } from "./portDwell";
+import { computePortDwellAsync, computePortDwellAsyncTimed, portsFromSites } from "./portDwell";
 import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./shadowFleet";
 import { evaluateEnrichment } from "./shadowFleetGate1";
@@ -2596,7 +2596,15 @@ print(json.dumps(get_shadow_stats()))
           }
           const hours = Math.min(Math.max(parseInt(String(req.query.hours || "168"), 10) || 168, 1), 2880);
           const ports = portsFromSites((datacoreSites as any).sites || []);
-          const data = await computePortDwellAsync(ports, hours, undefined, endMs);
+          // TIMED variant (2026-09-06) — adds pointsScanned/elapsedMs to the
+          // response so a session can see where time goes; the live
+          // /api/data/portdwell route keeps calling the untimed
+          // computePortDwellAsync above, unaffected. See
+          // computePortDwellAsyncTimed's own header for why (this probe's
+          // hours>=48 calls now regularly exceed the platform's proxy
+          // timeout, and this is the measure-first step before touching
+          // the shared, order-sensitive foldVesselArchiveAsync).
+          const data = await computePortDwellAsyncTimed(ports, hours, undefined, endMs);
           const windowStartMs = endMs - hours * 3600_000;
           const rawFromMs = oldestRawHour("vessels");
           const coverageGap = rawFromMs != null && windowStartMs < rawFromMs;

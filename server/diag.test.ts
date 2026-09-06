@@ -254,7 +254,12 @@ test("portdwell_window probe (2026-08-18): wired, validates end/hours, reuses co
   assert.ok(block.includes("end cannot be in the future"),
     "end must be rejected if it is in the future (this probe reads real archive data, not a forecast)");
   assert.ok(block.includes(", 2880)"), "hours must be capped (bounded read volume per call)");
-  assert.ok(block.includes("computePortDwellAsync("), "must call the shared aggregator");
+  // UPDATED 2026-09-06: the probe now calls computePortDwellAsyncTimed, a
+  // thin wrapper around the SAME foldPortVisitsAsync/aggregateVisits path
+  // computePortDwellAsync uses (portDwell.test.ts's own ratchet proves
+  // identical stats output) — still the shared aggregator, not a
+  // reimplementation. See the dated test below for why the switch happened.
+  assert.ok(block.includes("computePortDwellAsyncTimed("), "must call the shared aggregator (timed variant)");
   assert.ok(block.includes("sanitizeDiag"), "portdwell_window probe must pass the sanitizer like every other probe");
   const mod = fs.readFileSync(path.join(here, "portDwell.ts"), "utf8");
   assert.ok(mod.includes("export interface PortDwellPortStats") && mod.includes("dwell_median_h"),
@@ -285,6 +290,38 @@ test("portdwell_window probe (2026-08-19 REPAIR): reports the true raw-retention
     "the caveat must say results are undercounted, not silently imply zero activity");
   assert.ok(!block.includes("generously covers the archive's full depth"),
     "the corrected comment must not still claim full archive depth back to 2026-07-03");
+});
+
+// [2026-09-06] Live finding: the weekly-snapshot script's own hours=168
+// call (and even hours=48) now regularly exceeds the platform's edge-proxy
+// response timeout (46-71s observed before a connection reset/502), while
+// /api/health stayed fully responsive throughout every probe — ruling out
+// an event-loop stall or process crash. The measure-first fix: switch this
+// probe to computePortDwellAsyncTimed so its response carries pointsScanned/
+// elapsedMs, before touching the shared, order-sensitive
+// foldVesselArchiveAsync (also depended on by shadowFleet.ts and
+// gridStress.ts) with a speculative concurrency change.
+test("portdwell_window probe (2026-09-06): reports pointsScanned/elapsedMs so a future session can diagnose the live timeout without guessing", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const start = bot.indexOf('case "portdwell_window"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "portdwell_window probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("...data"),
+    "the response must still spread the aggregator's own output, which now includes pointsScanned/elapsedMs");
+  const mod = fs.readFileSync(path.join(here, "portDwell.ts"), "utf8");
+  assert.ok(mod.includes("export async function computePortDwellAsyncTimed"),
+    "computePortDwellAsyncTimed must exist and be exported");
+  assert.ok(mod.includes("pointsScanned") && mod.includes("elapsedMs"),
+    "the timed variant must carry both a work counter and a wall-clock measurement");
+  // The live /api/data/portdwell route (routes.ts) must keep calling the
+  // UNTIMED computePortDwellAsync — this change is diag-probe-only, zero
+  // risk to the customer-facing route or its cached response shape.
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes("computePortDwellAsync(ports)"),
+    "the live /api/data/portdwell refresh must be untouched by this diag-only change");
+  assert.ok(!routes.includes("computePortDwellAsyncTimed"),
+    "the timed variant must stay diag-probe-only, never used on a customer-facing route");
 });
 
 test("midas_quarter probe (2026-08-25, MIDAS gate-2 support): wired, validates period, reuses the shared aggregator, never leaks per-day rows", () => {

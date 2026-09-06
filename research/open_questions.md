@@ -17269,3 +17269,51 @@ do differently rather than just reporting a clean negative. No
 higher-priority queued item was skipped (no LIVENESS ALARM; thrash ratio
 1/10 at session start, well under threshold; no ladder-readiness-check root
 came ready this session).
+
+## 2026-09-06 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — PORT DWELL WEEKLY-SNAPSHOT SCRIPT: a live-verified reliability finding, not a repair — the diag probe it depends on now regularly hits a platform proxy timeout above hours=24
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: attempted this UTC day's most concretely-queued weekly-capture
+step for port_dwell_maritime_transit (per its own ladder note: "keep
+running it, idempotent, safe every session"). It failed — 3 independent
+live reproductions of `/api/diag/portdwell_window?hours=168` timing out
+(46-71s, 502/connection-reset) and one at hours=48, against a working
+hours=24 (45.7s). Directly ruled out the two more alarming explanations
+before writing anything: polled `/api/health` every 5s DURING an in-flight
+168h request and it stayed fully responsive throughout (200s, ~0.2-0.4s
+each) up to the eventual 502 — proves no event-loop stall and no process
+crash, so the live trading loop was never at risk (not a LIVENESS ALARM,
+not even close). This is a platform edge-proxy response-timeout ceiling,
+not a KEEP-THE-SYSTEM-ALIVE problem.
+
+WHY NOT FIXED DIRECTLY THIS SESSION: the function underneath this
+(`foldVesselArchiveAsync`, shadowFleet.ts) is shared with shadowFleet.ts's
+own dark-vessel detection and gridStress.ts, both depending on its
+documented near-chronological point-order contract. A blind concurrency
+change there risks silently corrupting THOSE signals — a PROTECT-THE-
+INTEGRITY-OF-LEARNING risk strictly worse than a slow diagnostic endpoint,
+and this sandbox has no way to directly profile production to be sure a
+fix is even correct before shipping it. Shipped the smaller, safe,
+measure-first step instead: `computePortDwellAsyncTimed` (server/
+portDwell.ts) adds `pointsScanned`/`elapsedMs` to the `portdwell_window`
+diag probe's response ONLY (the live customer-facing `/api/data/portdwell`
+route is untouched, provably by a new test) — pinned by tests proving it
+is stats-identical to the untimed path, not a reimplementation.
+
+ALSO CORRECTED: `port_dwell_maritime_transit`'s own ladder note claimed
+this capture script was "safe to run every session" — no longer reliably
+true at hours=168 (or even 48) now that the archive has grown since the
+week-6/7/8 captures last succeeded. Updated in datacore/signal_ladder.json
+so a future session does not blindly repeat this session's own three
+failed attempts.
+
+TESTABLE NEXT STEP (not yet run): call the probe at hours=24 (confirmed
+live to complete), read pointsScanned/elapsedMs, and use the ratio to tell
+a CPU-bound bottleneck (JSON-parsing cost dominates — favors reducing
+total work) from an I/O-bound one (fixed per-file overhead dominates —
+favors bounded, strictly order-preserving concurrent file prefetch, NOT
+naive unordered parallelism) before attempting any change to the shared
+fold. No week was captured this session — the file still holds only weeks
+6, 7, 8 (still short of the ~15-20 threshold for GATE 2).
