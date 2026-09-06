@@ -192,14 +192,22 @@ class VisitDetector {
  *  Everything Graph step 2) so the calls_at edge builder can reuse the same
  *  bounded-memory archive pass instead of re-implementing it. Behavior of
  *  computePortDwellAsync is unchanged (same fold, same aggregateVisits
- *  call) — pinned by the existing portDwell tests. */
+ *  call) — pinned by the existing portDwell tests. `pointsScanned` (added
+ *  2026-09-06, diagnosing the portdwell_window diag probe's live timeouts
+ *  at hours>=48 -- see computePortDwellAsyncTimed below) is a pure counter
+ *  of onPoint invocations, purely additive: both existing callers
+ *  (computePortDwellAsync, entityGraph.ts's calls_at builder) destructure
+ *  only the fields they already used, so this changes no existing
+ *  behavior. */
 export async function foldPortVisitsAsync(ports: PortDef[], windowHours = 168,
                                           baseDir?: string, nowMs?: number):
-    Promise<{ visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number }> {
+    Promise<{ visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number; pointsScanned: number }> {
   const now = nowMs ?? Date.now();
   const nowSec = Math.floor(now / 1000);
   const detectors = new Map<string, VisitDetector>();
+  let pointsScanned = 0;
   await foldVesselArchiveAsync(windowHours, (mmsi, p) => {
+    pointsScanned++;
     let d = detectors.get(mmsi);
     if (!d) { d = new VisitDetector(mmsi, ports, nowSec); detectors.set(mmsi, d); }
     d.push(p);
@@ -209,7 +217,7 @@ export async function foldPortVisitsAsync(ports: PortDef[], windowHours = 168,
   detectors.forEach((d) => {
     for (const v of d.finish()) visitsByPort.get(v.portId)?.push(v);
   });
-  return { visitsByPort, vesselsSeen: detectors.size };
+  return { visitsByPort, vesselsSeen: detectors.size, pointsScanned };
 }
 
 /** Async variant — the only one routes may use. Online fold, bounded
@@ -218,6 +226,36 @@ export async function computePortDwellAsync(ports: PortDef[], windowHours = 168,
                                             baseDir?: string, nowMs?: number): Promise<PortDwellStats> {
   const { visitsByPort, vesselsSeen } = await foldPortVisitsAsync(ports, windowHours, baseDir, nowMs);
   return aggregateVisits(visitsByPort, ports, vesselsSeen, windowHours);
+}
+
+/** [ADDED 2026-09-06] Same computation as computePortDwellAsync, wrapped
+ *  with wall-clock timing and a point-count so the portdwell_window diag
+ *  probe can report where time actually goes. Built to root-cause a live
+ *  finding this session: hours=168 (the weekly-snapshot script's own
+ *  window) now reliably exceeds Railway's edge-proxy response timeout
+ *  (observed 46-71s before a connection reset/502, at hours=24/48/168
+ *  alike -- /api/health stayed fully responsive throughout every probe,
+ *  ruling out an event-loop stall or process crash), while the archive
+ *  has grown since this path was last exercised successfully
+ *  (2026-08-14/2026-09-03/09-04 weekly captures). This does NOT fix the
+ *  timeout -- it is deliberately the smallest safe next step: measure
+ *  before guessing at a concurrency change to the SHARED, order-sensitive
+ *  foldVesselArchiveAsync (also consumed by shadowFleet.ts's dark-vessel
+ *  detection and gridStress.ts, both of which depend on its "points
+ *  arrive per-vessel in near-chronological order" contract -- see that
+ *  function's own header). A future session should call this via a
+ *  window short enough to survive the proxy timeout (e.g. hours=24,
+ *  confirmed live to complete), read elapsedMs/pointsScanned, and only
+ *  then decide whether the bottleneck is CPU-bound parsing (favors
+ *  reducing total work) or I/O-bound file-open latency (favors bounded,
+ *  order-preserving concurrent prefetch) before changing the shared fold. */
+export async function computePortDwellAsyncTimed(ports: PortDef[], windowHours = 168,
+                                                  baseDir?: string, nowMs?: number):
+    Promise<PortDwellStats & { pointsScanned: number; elapsedMs: number }> {
+  const start = Date.now();
+  const { visitsByPort, vesselsSeen, pointsScanned } = await foldPortVisitsAsync(ports, windowHours, baseDir, nowMs);
+  const stats = aggregateVisits(visitsByPort, ports, vesselsSeen, windowHours);
+  return { ...stats, pointsScanned, elapsedMs: Date.now() - start };
 }
 
 export function computePortDwell(ports: PortDef[], windowHours = 168,

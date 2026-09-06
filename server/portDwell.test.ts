@@ -152,6 +152,35 @@ test("RATCHET [REPAIR 2026-07-05]: async dwell stats identical to sync (event-lo
   assert.deepEqual(a, s, "async streaming dwell stats must equal the sync scan");
 });
 
+// 2026-09-06: root-causing a live finding (the portdwell_window diag probe
+// now regularly exceeds the platform's proxy timeout at hours>=48) started
+// with adding pointsScanned/elapsedMs so a future session can see where
+// time goes without guessing. These two tests are the "measure before
+// fixing" instrumentation's own ratchet.
+test("foldPortVisitsAsync: pointsScanned counts every onPoint invocation, additive to existing fields", async () => {
+  const { foldPortVisitsAsync } = await import("./portDwell");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-dwell-pts-"));
+  const pts = moored("555", "BOXSHIP", LA, 20, 10); // 11 hourly points, step=1h
+  writeArchive(base, pts);
+  const r = await foldPortVisitsAsync([LA, LB], 168, base, NOW);
+  assert.equal(r.pointsScanned, pts.length, "pointsScanned must count every archived point in the window");
+  assert.equal(r.vesselsSeen, 1);
+  assert.ok(r.visitsByPort.get("port_la")!.length >= 1, "existing visitsByPort behavior must be unchanged");
+});
+
+test("computePortDwellAsyncTimed: stats identical to computePortDwellAsync, plus a real elapsedMs and matching pointsScanned", async () => {
+  const { computePortDwellAsyncTimed } = await import("./portDwell");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-dwell-timed-"));
+  const pts = moored("555", "BOXSHIP", LA, 40, 20); // 21 hourly points
+  writeArchive(base, pts);
+  const untimed = await computePortDwellAsync([LA, LB], 168, base, NOW);
+  const timed = await computePortDwellAsyncTimed([LA, LB], 168, base, NOW);
+  const { pointsScanned, elapsedMs, ...timedStats } = timed;
+  assert.deepEqual(timedStats, untimed, "computePortDwellAsyncTimed must not change the underlying stats at all");
+  assert.equal(pointsScanned, pts.length);
+  assert.ok(elapsedMs >= 0 && Number.isFinite(elapsedMs), `elapsedMs must be a real non-negative measurement, got ${elapsedMs}`);
+});
+
 // 2026-08-18: computePortDwellAsync's (windowHours, baseDir, nowMs) signature
 // already supports an ARBITRARY historical window (nowMs need not be "now")
 // — this is the exact capability the new /api/diag/portdwell_window probe
