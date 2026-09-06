@@ -78010,3 +78010,212 @@ priority queued item was skipped (KNOWN BROKEN's remaining items are
 evidence-blocked per this file's own repeated prior readings; no
 LIVENESS ALARM; thrash ratio 1/10, well under threshold; no ladder-
 readiness-check root came due).
+
+## 2026-09-06 (scheduled-routine session, third session this UTC day) [PRODUCT] — nhtsa_vehicle_complaints ROOT VALIDATION LADDER GATE 2 (SIGNAL) attempted against real data — NOT PASSED (v1.0.854)
+
+TERRITORY: T-DATACORE-adjacent primary (scripts/nhtsa_gate2_probe.py new,
+test_nhtsa_gate2_probe.py new) + SHARED-but-minimal, last commit
+(datacore/signal_ladder.json, ci/counter_baseline.txt, package.json,
+package-lock.json, research/open_questions.md).
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/experiments.md read
+from the top; research/open_questions.md tail; research/wishlist.md tail.
+`python3 scripts/research_state_check.py`: audits register none overdue,
+thrash_ratio 1/10 REPAIR (below the 7+ trigger), known_broken 41/4-advisory
+(none a live blocker), starvation 0/10 — no meta-problem flag. Live
+`curl https://voltradeai.com/api/health`: status "ok", bot active,
+drawdownPct "0.0", liveness.dark false, alpaca ACTIVE, all three archive
+feeds alive (silent_hours 0.05/0.05/1.05) — no LIVENESS ALARM.
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots ready
+(cftc_cot_positioning/sec_8k_earnings_language/fleet_utilization_aircraft
+all waiting, unchanged). `git fetch origin main`: HEAD already equals
+origin/main at d4047eb/v1.0.853/PR #1013 — no reset needed.
+
+PRIMARY-ACTION SELECTION: this UTC day's first session (gate 1 PASS for
+this same root) closed with an explicit, concretely-specified NEXT item:
+"gate 2 (velocity anomalies vs forward returns) is the ladder's own next
+real step, and ... must NOT reuse full-calendar-year complaint buckets as
+the velocity measure — a future session should design a trailing-window
+rate computed strictly from complaints dated before any public
+recall-adjacent event." Per SESSION BUDGET fall-through order 1 (take the
+next queued item from open_questions.md/experiments.md before starting
+fresh research), this was chosen over a new foreign-field import or a fresh
+audit — it closes an already-open ladder thread on a root this UTC day's
+first session had just advanced, rather than opening a new one.
+
+READ BEFORE WRITE: read server/nhtsaComplaints.ts, datacore/
+nhtsa_vehicles.json, and scripts/nhtsa_gate1_probe.py in full before writing
+anything. Also read scripts/wikiattention_gate2.py and
+wikiattention_gate2_newsfree.py in full to reuse their z-score/spike-day/
+welch-test/pooling machinery unmodified (EDGE DOCTRINE #3) rather than
+re-deriving statistically-identical logic. Live-probed feasibility before
+committing to the design: confirmed 10/11 watchlist tickers fetch usable
+~2.5-year daily bars via backtest_v2.fetch_bars() (HYMTF fails — Alpaca
+miss, Yahoo 404); confirmed real per-vehicle complaint volumes (10-719 total
+per ticker over the window) directly against api.nhtsa.gov before choosing
+the trailing-window size, since gate 1's cases (2,330 complaints for
+Cobalt alone) turned out to be a poor guide to CURRENT-model-year volume.
+
+GENUINELY NEW FINDING, COMPILED AS CODE (EDGE DOCTRINE #3): api.nhtsa.gov's
+complaintsByVehicle endpoint returns HTTP 400 — not 200 — for a query that
+legitimately matches zero complaints, even though the JSON body is
+well-formed ({"count":0,"results":[]}). Proven live: tesla/"model y"/2024
+returns exactly that. Nothing in this repo's existing NHTSA code (gate 1's
+probe never hit a zero-count case) had encountered this; scripts/
+nhtsa_gate2_probe.py's fetch_json() parses the 4xx error body as JSON before
+giving up, preserving a genuine empty result instead of misclassifying it
+as a fetch failure.
+
+DESIGN (satisfying gate 1's own caveat): per-calendar-day complaint counts
+(not full-year buckets), z-score against a strictly-PRIOR trailing 30-day
+window (reusing wikiattention_gate2.zscore_series/spike_day_indices
+unmodified), mapped via bisect to the next actual trading day (a weekend
+spike correctly maps forward to Monday, never leaking backward), forward
+stock return at 5/10/20 trading days from that entry (closes[idx+h]/
+closes[idx]-1, the same buy/sell convention wikiattention_gate3.py's own
+docstring states) vs. every non-spike trading day, Welch t-test
+(wag2.welch_vs_baseline, unmodified). Deliberately uses ALL complaints, no
+defect-keyword filter (unlike gate 1) — a real signal cannot know which
+component will matter in advance, making this a strictly harder,
+hindsight-free test. GROUPS per EDGE DOCTRINE #2: PRIMARY (RIVN, LCID,
+STLA, HYMTF, NSANY, VWAGY — smaller/newer/foreign-OTC, less analyst
+coverage) vs SECONDARY informational-only comparison (TSLA, F, GM, TM,
+HMC — large, heavily-covered).
+
+PRE-REGISTERED PRIOR (REASONING STANDARD #10, written into the script's own
+docstring before any live number was computed): ~20%, informed by (1)
+second-order reasoning — a signal this simple on fully public data would
+likely already be arbitraged in large/covered names, which is exactly why
+SECONDARY is informational-only and can never itself pass; (2) the low
+complaint-volume power concern found during this session's own live
+data-probing, stated before running, not after. VERDICT RULE stated in
+advance: PASS only if PRIMARY's pooled effect is BOTH significant at the
+Bonferroni bar for the 2-group x 3-horizon family (alpha/6~=0.0083) AND in
+the hypothesized negative direction, at any horizon.
+
+WHAT SHIPPED: scripts/nhtsa_gate2_probe.py (new) — pure functions
+(group_by_ticker, aggregate_daily_counts, build_calendar_daily_series,
+map_calendar_to_trading_idx, forward_return, evaluate_ticker,
+pool_forward_return, gate2_verdict) plus a live-fetch CLI reusing
+nhtsa_gate1_probe.parse_complaint_date and wikiattention_gate2's z-score/
+welch machinery by import. test_nhtsa_gate2_probe.py (new, repo root,
+matching this repo's importlib.util.spec_from_file_location convention for
+scripts/ probes) — 19 tests, including a hand-computable synthetic fixture
+(5 widely-spaced engineered complaint spikes each followed by an exact -10%
+price move 5 days later) proving the calendar-to-trading-day mapping and
+forward-return separation are wired correctly BEFORE the live run.
+
+RESULT (live run, `python3 scripts/nhtsa_gate2_probe.py`, real
+api.nhtsa.gov + backtest_v2 Alpaca/Yahoo price data, no mocking):
+**GATE 2 FAILED.** PRIMARY group (5 tickers after HYMTF's honest exclusion)
+pooled forward-return effect cleared neither the unadjusted alpha=0.05 bar
+nor the pre-registered Bonferroni bar at any horizon: h=5 mean_diff
++0.0000/p=0.998 (flat null, n=157/2908), h=10 mean_diff -0.0072/p=0.349
+(right direction, far from significant, n=156/2884), h=20 mean_diff
++0.0011/p=0.921 (flat null, n=155/2835) — sign not even consistent across
+horizons. SECONDARY mega-cap comparison was directionally positive at all 3
+horizons (all p>0.26), informational only, consistent with either "no real
+effect" or "arbitraged away," this design cannot distinguish the two.
+
+HONEST CAVEAT, not smoothed over (REASONING STANDARD #4/#8): the z>=2.0
+threshold flagged 54-83 of ~899 calendar days per ticker (6-9%) as "spike"
+days, well above the ~2.3% a Gaussian z>=2 bar implies — NHTSA daily
+complaint counts are a low, over-dispersed count process, a materially
+worse fit for this z-score machinery than wikimedia's own continuous
+pageview counts it was borrowed from. This dilutes rather than invalidates
+the test (the outcome variable, forward returns, is computed correctly
+regardless), but a future retry should consider a variance-stabilizing
+transform or a proper count-data anomaly test before concluding the
+underlying hypothesis (not just this exact spec) is dead.
+
+GATES: `python3 -m pytest -q test_nhtsa_gate2_probe.py`: 19/19 pass (written
+and passing BEFORE the live run). Full suite `python3 -m pytest -q`: 1733
+passed, 1 skipped, 54 subtests — up from this UTC day's first session's
+1714 by exactly 19 (this session's own new tests), zero regressions.
+`bash scripts/gated_tests.sh`: this session's container ALSO had a
+node_modules gap on first run — `client (101 files)` suite showed 8 file-
+level failures, each root-caused (not just assumed) to
+`Cannot find package '@maplibre/maplibre-gl-style-spec'` at import time via
+a direct `npx tsx <file>.test.ts` run; confirmed via `git stash` that the
+identical 8 failures reproduce byte-for-byte on a clean tree (not caused by
+this session's diff, which touches zero client/ files), then fixed with
+`npm ci` (488 packages reinstalled, matching the exact count this UTC day's
+first session's own identical fix reported) rather than treating it as a
+real regression or touching any client/ file. Full re-run after that: GATE
+PASSED — server/client/python all green, quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (no .ts/.tsx
+touched). `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 422 -> 423 (this session's own new tracked test FILE,
+confirmed via `git ls-files` + `scripts/program_status.sh` before and after
+`git add`), `assertions` 13314 -> 13348 — both re-pinned in
+`ci/counter_baseline.txt` in this same PR; all other 23 counters unchanged.
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+and `node -e "require('./datacore/signal_ladder.json')"`: both parse clean,
+45 roots unchanged (edited in place). `npx tsx --test
+server/signalLadder.test.ts`: 5/5 pass. `npm run build`: clean (client
+1859 modules transformed, server bundle built) — no client/ file touched by
+this diff, run for completeness per the fresh-container gate above.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a SIGNAL-gate statistical probe plus a
+ladder-status bookkeeping update, no scoring/sizing/threshold value
+touched, no trading path involved.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py untouched). Only effect: datacore/signal_ladder.json's
+nhtsa_vehicle_complaints entry moves gate1_pass/current_gate 1 ->
+gate2_fail/current_gate 2 — GATE 1 (DATA) remains independently valid and
+unaffected (a fault at gate 2 with gate 1 verified is a fault AT gate 2,
+per the ROOT VALIDATION LADDER's own fault-localization design; never
+grounds to revisit gate 1). No v1 API mirror added — none was ever queued
+absent a passing SIGNAL, and gate 2 failing means none exists to mirror.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched by
+this diff (the gated_tests.sh node_modules fix above touches no source
+file, only reinstalls dependencies already pinned in package-lock.json).
+
+VERSION: v1.0.854 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at d4047eb/v1.0.853/PR #1013, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`
+before the `npm ci` node_modules fix; diff confirms only the two
+version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new this session. The Everything-Graph
+supplier-mapping follow-up (components field -> real parts suppliers,
+named in the original BUILD ORDER 6 filing) remains unbuilt, unclaimed, and
+entirely unaffected by this gate-2 SIGNAL-layer result.
+
+NEXT: (1) this exact z-score-over-raw-daily-count spec for
+complaint-velocity -> forward-returns is CLOSED — re-running it unchanged
+without new evidence would be p-hacking by attrition, not a repair, per
+RECURRENCE-ESCALATES-style discipline. (2) A genuinely different design
+remains open: a variance-stabilizing transform (sqrt-count) or a proper
+Poisson/negative-binomial anomaly test on the same complaint series could
+plausibly change which days get labeled "spike" without changing anything
+else about the test — a legitimately new attempt if a future session
+judges the gap worth closing, not a variant chase. (3) The Everything-Graph
+supplier-mapping follow-up remains a separate, concretely buildable,
+unclaimed idea. (4) Per the AUDITS & DEBT register, staleness/
+constitutional audit last-run dates should be checked by the next session
+whose fall-through reaches the research tier — not checked this session,
+capacity was fully used by this primary action plus its own gated_tests.sh
+node_modules diagnosis.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT/ladder-advancing action (the immediately-preceding session's own
+concretely-queued NEXT item), used in full including live-probing real
+complaint volumes and discovering a genuine NHTSA API quirk (HTTP 400 on a
+well-formed zero-count body) before finalizing the fetch design, writing 19
+unit tests on a hand-computable synthetic fixture BEFORE the live run,
+running the pre-registered test against real data with no result-dependent
+redesign, root-causing (via git stash, not assumption) a fresh-container
+node_modules gap in the client test suite before fixing it, and surfacing
+an honest methodology caveat (the count-data/z-score domain mismatch) that
+materially changes what a future retry should do differently rather than
+just reporting a clean negative. No higher-priority queued item was
+skipped (no LIVENESS ALARM; thrash ratio 1/10, well under threshold; no
+ladder-readiness-check root came due).

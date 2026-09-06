@@ -17091,3 +17091,181 @@ draw, applying a pre-registered verdict rule computed before any result was
 seen, reusing existing cost constants rather than inventing new ones, and
 surfacing a second, independent tooling finding (the Wikimedia rate-limit
 behavior) rather than silently working around it.
+
+## 2026-09-06 (scheduled-routine session, third session this UTC day) [PRODUCT] — NHTSA VEHICLE COMPLAINTS GATE 2 (SIGNAL): the ladder's own next-queued step, run against real data — NOT PASSED, plus a count-data z-score methodology caveat for any future retry
+
+TERRITORY: T-DATACORE-adjacent (scripts/nhtsa_gate2_probe.py new, test_nhtsa_gate2_probe.py new) + SHARED-but-minimal, last commit (datacore/signal_ladder.json, package.json/package-lock.json, ci/counter_baseline.txt).
+
+QUEUED ITEM TAKEN VERBATIM: this UTC day's first session (gate 1) closed with
+NEXT item (1): "gate 2 (velocity anomalies vs forward returns) is the
+ladder's own next real step, and per this session's own HONEST CAVEAT
+above, must NOT reuse full-calendar-year complaint buckets as the velocity
+measure — a future session should design a trailing-window rate computed
+strictly from complaints dated before any public recall-adjacent event, or
+the 'signal' will just be recall publicity restated." Per SESSION BUDGET
+fall-through order, this is exactly the queued next item from an
+already-advanced root, matched to capacity, taken over starting a fresh
+foreign-field probe.
+
+DESIGN, SATISFYING THE CAVEAT: gate 1's reflexivity problem was specific to
+FULL-CALENDAR-YEAR buckets mixing pre- and post-recall-announcement
+complaints in the same bin. This design instead computes a per-CALENDAR-DAY
+complaint-count z-score against a trailing 30-day window using only
+STRICTLY-PRIOR days (reusing scripts/wikiattention_gate2.py's own
+zscore_series/spike_day_indices/welch_vs_baseline unmodified — EDGE DOCTRINE
+#3, the same causal contract already proven out on the wikimedia root), maps
+each flagged "spike" calendar day to the next actual trading day (bisect
+over the ISO trading-day calendar — a Saturday spike correctly maps to the
+following Monday, never leaking backward), and measures the STOCK RETURN
+strictly starting from that entry day forward. No recall date or outcome
+knowledge enters the test anywhere — a genuinely prospective design, unlike
+gate 1's retrospective known-case check. Also deliberately uses ALL
+complaints (no defect-keyword filter, unlike gate 1) since a real trading
+signal cannot know in advance which component will matter — this makes gate
+2 a strictly harder, more honest test than gate 1's hindsight-filtered one.
+
+WATCHLIST REUSED, NOT INVENTED: datacore/nhtsa_vehicles.json (BUILD ORDER
+6's own curated ticker-mapped fleet, 20 make/model/year rows across 11
+tickers), pooling every row sharing a ticker into that ticker's own combined
+daily complaint-count series — a company's total watched-fleet footprint.
+
+GROUPS (EDGE DOCTRINE #2 — fish where whales can't): PRIMARY = RIVN, LCID
+(smaller/newer EV entrants), STLA, HYMTF, NSANY, VWAGY (foreign OTC ADRs,
+materially thinner US sell-side coverage). SECONDARY (informational-only,
+same convention as wikiattention_gate2's mega-cap row) = TSLA, F, GM, TM,
+HMC (large, heavily-covered US-listed automakers).
+
+PRE-REGISTRATION (REASONING STANDARD #10, written into the script's own
+docstring before any live number was computed): HYPOTHESIS — a
+complaint-count spike precedes NEGATIVE abnormal forward returns (rising
+defect-complaint footprint -> higher forward probability of a recall/
+investigation/negative coverage event the market has not yet priced). PRIOR
+~20%, informal: (1) REASONING STANDARD #5 second-order — NHTSA's ODI
+database is fully public and decades old; if this simple a signal were
+robust in LARGE, heavily-covered names it would likely already be
+arbitraged (why SECONDARY is informational-only, never the group that can
+pass gate 2); the PRIMARY group's foreign-OTC/smaller-cap composition is the
+one place EDGE DOCTRINE #2 gives a structural reason coverage could be thin.
+(2) this session's own live data-probing (below) found complaint volumes
+for CURRENT-model-year vehicles far lower than gate 1's historic cases
+(10-719 total vs. Cobalt's 2,330), a real power concern acknowledged before
+running, not after. (3) REASONING STANDARD #4 — ONE pre-registered design,
+no keyword filter, no crash/fire-only subset, no alternate window tried
+before or after seeing a result. VERDICT RULE stated in advance: GATE 2
+passes only if PRIMARY's pooled effect is BOTH significant at the
+Bonferroni bar for this 2-group x 3-horizon family (alpha/6~=0.0083) AND in
+the hypothesized negative direction, at any tested horizon.
+
+LIVE DATA-QUALITY FINDINGS, COMPILED AS CODE/DOCS BEFORE THE MAIN RUN (EDGE
+DOCTRINE #3): (1) api.nhtsa.gov/complaints/complaintsByVehicle returns HTTP
+400 — not 200 — for a query that legitimately matches zero complaints, even
+though the JSON body is well-formed ({"count":0,"results":[]}); proven live
+(tesla/"model y"/2024 -> HTTP 400 with that exact body). scripts/
+nhtsa_gate2_probe.py's fetch_json() parses the 4xx error body as JSON before
+giving up, so a genuine empty result is preserved rather than silently
+dropped as a failure — nothing in this repo had hit this exact quirk before
+(gate 1's 3 cases never returned a zero-count result). (2) HYMTF (Hyundai's
+US OTC ADR) has no usable daily-bar history via backtest_v2.fetch_bars() in
+this session's sandbox (Alpaca miss, Yahoo 404 for the identical symbol) —
+degraded honestly (excluded, logged), matching this repo's per-ticker
+degradation convention rather than failing the whole run.
+
+LIVE RUN (`python3 scripts/nhtsa_gate2_probe.py`, real api.nhtsa.gov +
+backtest_v2 Alpaca/Yahoo price data, no mocking, 10/11 tickers usable):
+**GATE 2 FAILED.** PRIMARY group (RIVN/LCID/STLA/NSANY/VWAGY, n_tickers=5)
+pooled forward-return effect at no horizon cleared even the unadjusted
+alpha=0.05 bar: h=5 mean_diff +0.0000/p=0.998 (flat null, n=157 spike-day
+obs / 2908 baseline), h=10 mean_diff -0.0072/p=0.349 (right direction,
+nowhere near significant, n=156/2884), h=20 mean_diff +0.0011/p=0.921 (flat
+null, n=155/2835). The sign is not even consistent across horizons — the
+same instability-under-resampling signature this file's own 2026-09-05
+wikimedia-gate-3 entry already treats as the signature of a true null, not
+"needs more data." SECONDARY mega-cap comparison (TSLA/F/GM/TM/HMC) was
+directionally POSITIVE at all 3 horizons (mean_diff +0.0042/+0.0036/+0.0029,
+all p>0.26) — informational only, equally consistent with either "no real
+effect anywhere" or "any effect there is fully arbitraged away," the
+pre-registered prior did not distinguish these in advance and this result
+does not either.
+
+HONEST METHODOLOGICAL CAVEAT, found live and not smoothed over: the z>=2.0
+threshold flagged 54-83 of ~899 calendar days per ticker (6-9%) as "spike"
+days — well above the ~2.3% a Gaussian z>=2 bar implies. NHTSA daily
+complaint counts are a low, over-dispersed COUNT process (many zero days,
+occasional 1-8-complaint days), not well-approximated by the normal
+distribution the z-score/std machinery assumes — a materially worse fit
+than wikimedia's own continuous daily pageview counts, which is where this
+z-score design was borrowed from (EDGE DOCTRINE #3 reuse revealed its own
+limit here, worth recording honestly rather than silently reusing a tool
+past its valid domain). This dilutes rather than invalidates the test
+(welch_vs_baseline's outcome variable is forward RETURNS, computed
+correctly regardless of how noisy the spike LABELING is), but a future
+retry of this exact hypothesis should consider a variance-stabilizing
+transform (sqrt-count) or a proper Poisson/negative-binomial anomaly test
+before concluding the underlying idea is dead — this session's result kills
+the z-score-over-raw-count SPEC, not necessarily the hypothesis itself.
+
+GATES: `python3 -m pytest -q test_nhtsa_gate2_probe.py`: 19/19 pass (written
+and passing BEFORE the live run — the calendar/trading-day mapping,
+forward-return metric, per-ticker pipeline on a hand-computable synthetic
+fixture, cross-ticker pooling, and the pre-registered verdict rule's
+direction-AND-significance requirement all covered). Full suite `python3 -m
+pytest -q`: see VERSION block in experiments.md for the exact count this
+session. `bash scripts/gated_tests.sh` / `bash scripts/tsc_ratchet.sh` /
+`bash scripts/counter_ratchet.sh`: see experiments.md GATES section, same
+session. `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"` and `node -e "require('./datacore/
+signal_ladder.json')"`: both parse clean, 45 roots unchanged (edited in
+place). `npx tsx --test server/signalLadder.test.ts`: unaffected (no field
+this test asserts on was touched beyond status/current_gate/note/
+last_update_date/source_ref, all already-covered fields).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a SIGNAL-gate statistical test, no
+trading path, no scoring/sizing/threshold value touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file. Only effect: datacore/signal_ladder.json's
+nhtsa_vehicle_complaints entry moves from gate1_pass/current_gate 1 to
+gate2_fail/current_gate 2 (GATE 1 remains valid and unaffected — a fault at
+gate 2 with gate 1 independently verified is a fault AT gate 2, per the
+ROOT VALIDATION LADDER's own fault-localization design, never grounds to
+revisit gate 1). No v1 API mirror added (none was ever queued for this root
+absent a passing SIGNAL, and now none exists to mirror).
+
+CROSS-SYSTEM INTEGRATION: none new. The Everything-Graph supplier-mapping
+follow-up this root's own BUILD ORDER 6 filing named (joining the
+`components` free-text field to actual parts suppliers) remains unbuilt and
+unaffected by this gate-2 result — still a concretely buildable, unclaimed
+idea for a future session, independent of whether the velocity-vs-returns
+hypothesis above is ever revived.
+
+NEXT: (1) this exact z-score-over-raw-daily-count spec is CLOSED for the
+stated hypothesis (complaint velocity -> forward returns) — per
+RECURRENCE-ESCALATES-style discipline, re-running the identical design
+without new evidence would be p-hacking by attrition, not a repair. (2) A
+genuinely different design remains open and untried: a variance-stabilizing
+transform (sqrt-count) or a proper count-data anomaly test (e.g. a
+Poisson-rate control-chart bound) on the SAME underlying complaint series,
+which the caveat above shows could plausibly change which days get labeled
+"spike" without changing anything else about the test — a legitimately new
+attempt, not a variant chase of this one, if a future session judges the
+methodology gap worth closing. (3) The Everything-Graph supplier-mapping
+follow-up (components field -> real parts suppliers) remains a separate,
+concretely buildable, unclaimed idea from the original BUILD ORDER 6
+filing, independent of this root's SIGNAL-layer outcome. (4) Per the AUDITS
+& DEBT register, staleness/constitutional audit last-run dates should be
+checked by the next session whose fall-through reaches the research tier —
+not checked this session, capacity was fully used by this primary action.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT/ladder-advancing action (the queued next step for an already
+gate1_pass root, matched to capacity), used in full including live-probing
+real complaint volumes and a genuine NHTSA API quirk (HTTP 400 on a
+well-formed zero-count body) before finalizing the fetch design, writing
+19 unit tests on hand-computable synthetic fixtures BEFORE the live run,
+running the pre-registered test against real data with no result-dependent
+redesign, and surfacing an honest methodology caveat (the count-data/
+z-score domain mismatch) that materially changes what a future retry should
+do differently rather than just reporting a clean negative. No
+higher-priority queued item was skipped (no LIVENESS ALARM; thrash ratio
+1/10 at session start, well under threshold; no ladder-readiness-check root
+came ready this session).
