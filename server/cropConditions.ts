@@ -190,6 +190,96 @@ export function gzipOldConditionDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+// ── history (accumulated archive, /history companion) ───────────────────────
+// Same full-archive-scan shape as githubOrgActivity.ts's
+// readArchivedGithubActivity: this root's fetch requests the WHOLE current
+// year on every call (conditionsUrl has no week filter), so a given week's
+// row can land in whichever day's file first observed it, not necessarily
+// the file matching that week — a day-window scan (the wikiAttention/
+// appstore pattern) would silently miss weeks. obsKey's commodity|week|item
+// identity is the same one archiveConditions already dedups on, so the
+// "last write wins" merge below can never disagree with what was archived.
+
+export function readArchivedConditions(baseDir?: string): ConditionObs[] {
+  const dir = conditionsDir(baseDir);
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir); } catch { return []; }
+  const byKey = new Map<string, ConditionObs>();
+  for (const f of files) {
+    if (!/\.jsonl(\.gz)?$/.test(f)) continue;
+    let text: string | null = null;
+    try {
+      text = f.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(path.join(dir, f))).toString("utf8")
+        : fs.readFileSync(path.join(dir, f), "utf8");
+    } catch { continue; }
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        const o = JSON.parse(line) as ConditionObs;
+        if (o?.commodity && o?.week_ending && o?.item) byKey.set(obsKey(o), o);
+      } catch { continue; }
+    }
+  }
+  return [...byKey.values()];
+}
+
+const CONDITION_CLASS_RE = /PCT\s+(VERY POOR|POOR|FAIR|GOOD|EXCELLENT)\b/i;
+
+/** Extracts the condition class (VERY POOR/POOR/FAIR/GOOD/EXCELLENT) that
+ *  travels verbatim inside `item` (short_desc) — same regex scripts/
+ *  crop_conditions_gate1.ts's ground-truth check already uses, given a home
+ *  here so this module's own history pivot doesn't restate it. */
+export function classFromItem(item: string): string | null {
+  const m = item.match(CONDITION_CLASS_RE);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** One commodity's rows across its last `weeks` distinct archived
+ *  week_ending values (all 5 classes per week), ascending by week_ending. A
+ *  week never fetched (before the season started, or a dead poll cycle) is
+ *  honestly omitted, never zero-filled. */
+export function lookupCropConditionHistory(commodity: string, weeks: number, baseDir?: string): ConditionObs[] {
+  const c = commodity.trim().toUpperCase();
+  const rows = readArchivedConditions(baseDir).filter((o) => o.commodity === c);
+  const weekKeys = [...new Set(rows.map((o) => o.week_ending))].sort();
+  const keep = new Set(weekKeys.slice(-Math.max(1, weeks)));
+  return rows.filter((o) => keep.has(o.week_ending))
+    .sort((a, b) => (a.week_ending < b.week_ending ? -1 : a.week_ending > b.week_ending ? 1 : 0));
+}
+
+export interface ConditionTrendPoint {
+  week_ending: string;
+  corn: Record<string, number | null>;
+  soybeans: Record<string, number | null>;
+}
+
+/** Both commodities pivoted to {CLASS: pct} per week, ascending by
+ *  week_ending — the shape a condition-DELTA gate-2 test (week-over-week
+ *  change per class, per commodity) needs directly, instead of every
+ *  consumer re-deriving the same pivot from flat rows. A row whose item
+ *  doesn't match a known class (never observed in practice, but not
+ *  assumed) is skipped rather than silently mis-keyed. */
+export function readConditionsAggregateHistory(weeks: number, baseDir?: string): ConditionTrendPoint[] {
+  const byWeek = new Map<string, ConditionObs[]>();
+  for (const o of readArchivedConditions(baseDir)) {
+    if (!byWeek.has(o.week_ending)) byWeek.set(o.week_ending, []);
+    byWeek.get(o.week_ending)!.push(o);
+  }
+  const weekKeys = [...byWeek.keys()].sort();
+  return weekKeys.slice(-Math.max(1, weeks)).map((week_ending) => {
+    const corn: Record<string, number | null> = {};
+    const soybeans: Record<string, number | null> = {};
+    for (const o of byWeek.get(week_ending)!) {
+      const cls = classFromItem(o.item);
+      if (!cls) continue;
+      const target = o.commodity === "CORN" ? corn : o.commodity === "SOYBEANS" ? soybeans : null;
+      if (target) target[cls] = o.pct;
+    }
+    return { week_ending, corn, soybeans };
+  });
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; latest_week: string; rows: ConditionObs[] } | null = null;

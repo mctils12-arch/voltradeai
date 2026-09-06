@@ -95,7 +95,7 @@ import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from ".
 import { bootEuDayAheadPricesPoll, latestPrices as latestEuPrices, euDayAheadPricesEnabled } from "./euDayAheadPrices";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
-import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
+import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled, lookupCropConditionHistory, readConditionsAggregateHistory } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootCboeVixPoll, latestCboeVix } from "./cboeVix";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
@@ -3446,6 +3446,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // USDA NASS crop conditions accumulated HISTORY (RAW — multi-week
+  // companion to /api/data/crop-conditions above, which mirrors only the
+  // latest poll cache). Same full-archive-scan shape as /api/data/
+  // github-activity/history: conditionsUrl requests the WHOLE current year
+  // on every call, so a given week's row can land in any day's file, not
+  // a day window. No commodity param: both commodities pivoted to
+  // {class: pct} per week — the shape a condition-DELTA gate-2 test needs
+  // directly. ?commodity=CORN|SOYBEANS: that commodity's own raw weekly
+  // rows (all 5 classes), read from lookupCropConditionHistory.
+  app.get("/api/data/crop-conditions/history", (req, res) => {
+    if (!cropConditionsEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "NASS_API_KEY not set (free signup — see wishlist)", count: 0, rows: [] });
+    }
+    const weeks = Math.min(104, Math.max(1, parseInt(String(req.query.weeks || "52"), 10) || 52));
+    const commodity = typeof req.query.commodity === "string" ? req.query.commodity.trim().toUpperCase() : "";
+    try {
+      if (commodity) {
+        const rows = lookupCropConditionHistory(commodity, weeks);
+        return res.json({
+          kind: "raw",
+          source: "USDA NASS QuickStats — weekly crop condition ratings (US government data)",
+          commodity,
+          weeks,
+          count: rows.length,
+          note: rows.length ? undefined : "no archived weeks for this commodity in the requested window yet",
+          rows,
+        });
+      }
+      res.json({
+        kind: "raw",
+        source: "USDA NASS QuickStats — weekly crop condition ratings (US government data)",
+        weeks,
+        trend: readConditionsAggregateHistory(weeks),
+        note: "national weekly CONDITION ratings pivoted to {class: pct} per week for corn + soybeans; condition-delta signals stay gate-locked until ladder validation — pass ?commodity=CORN|SOYBEANS for that commodity's own raw weekly rows",
+      });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "history read failed" });
+    }
+  });
+
   // NRC daily Power Reactor Status Reports (RAW — EDGE DOCTRINE axis (a),
   // keyless, no signup). Serves the poller's cached newest day only
   // (event-loop rule). GATE 1 (DATA) PASSED 2026-08-04 — see
@@ -4520,6 +4560,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions", status: 500, tier: auth.tier });
+    }
+  });
+
+  // USDA NASS crop conditions accumulated HISTORY keyed mirror — the
+  // multi-week companion to /api/v1/data/crop-conditions above (that
+  // endpoint mirrors only the latest poll cache; this one mirrors
+  // /api/data/crop-conditions/history's own full-archive-scan weekly
+  // series). Reuses lookupCropConditionHistory()/readConditionsAggregateHistory()
+  // directly — no new fetch, no new computation. Same GATE 1 PASS / GATE 2
+  // NOT-ATTEMPTED status and the same public-domain-resell posture as
+  // data/crop-conditions (not a separate root, not a separate license).
+  // Like data/crop-conditions's own v1 mirror above (and UNLIKE github-
+  // activity-history/appstore-rankings-history), this root is itself
+  // key-gated server-side (NASS_API_KEY) — a disabled server surfaces
+  // that honestly as 503, not a confusing empty 200.
+  app.get("/api/v1/data/crop-conditions-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    if (!cropConditionsEnabled()) {
+      res.status(503).json({ error: "root disabled — NASS_API_KEY not configured server-side" });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions-history", status: 503, tier: auth.tier });
+      return;
+    }
+    const weeks = Math.min(104, Math.max(1, parseInt(String(req.query.weeks || "52"), 10) || 52));
+    const commodity = typeof req.query.commodity === "string" ? req.query.commodity.trim().toUpperCase() : "";
+    try {
+      if (commodity) {
+        const rows = lookupCropConditionHistory(commodity, weeks);
+        res.json(v1Envelope("data/crop-conditions", { commodity, weeks, count: rows.length, rows }));
+      } else {
+        res.json(v1Envelope("data/crop-conditions", { weeks, trend: readConditionsAggregateHistory(weeks) }));
+      }
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions-history", status: 500, tier: auth.tier });
     }
   });
 
