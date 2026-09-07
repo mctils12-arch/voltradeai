@@ -17456,3 +17456,43 @@ append-only, safe every session) will keep extending the 21-month
 backfill for free. (4) HS-6 commodity-level detail is a documented,
 non-urgent future follow-up (EDGE DOCTRINE #2 already argues against this
 root for direct alpha, so no urgency).
+
+## 2026-09-07 (scheduled-routine session, fifth session this UTC day, market-hours run) [PRODUCT] — PORT DWELL WEEKLY-SNAPSHOT SCRIPT: the deferred follow-up from the in-process capture PR (v1.0.859) — the script now prefers the cheap captured-state probe, plus a stale-metadata-fetch cost bug and an unguarded-main() test side-effect both caught and fixed in the same PR
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: `scripts/portdwell_weekly_snapshot.ts` now merges in whatever
+`server/portDwellCapture.ts`'s Tier-3 in-process job has already captured
+(cheap, no fold, via a new `/api/diag/portdwell_weekly_captured` read) before
+falling back to the original expensive per-week `portdwell_window` HTTP loop
+— exactly the follow-up that PR's own header deferred. Two bugs caught
+alongside the primary fix, not the target of the session but real findings:
+(1) the script's own boundary check was requesting `hours=168` (the single
+most expensive window the endpoint supports) purely to read
+`raw_vessel_archive_from`, archive-wide metadata unaffected by window size —
+now `hours=1`; per the 2026-09-06 CPU-bound diagnosis this call was very
+likely failing outright on every prior run, meaning the un-migrated script
+may not have captured ANY new week recently, not just the dense/recent ones.
+(2) writing the new unit test for the extracted pure merge helper
+(`mergeCapturedWeeks`) surfaced that this file's `main()` had no
+`import.meta.url` guard (unlike every sibling `scripts/*.ts` with a
+`.test.ts`) — its first run fired two real network calls against production
+before the guard existed, confirmed live (both hit a transient 502, no
+write occurred). Fixed with the standard guard.
+
+LIVE VERIFICATION: ran the migrated script directly against production
+(DIAG_TOKEN available this session) — the cheap probe returned 1
+real captured week, already present in the committed file and correctly
+left unmerged; the new hours=1 boundary call succeeded; all three
+committed weeks were already covered so the fallback loop had nothing to
+do; `datacore/port_dwell_weekly.json` was confirmed untouched afterward.
+Real production behavior, not a mocked run.
+
+NEXT: (1) the committed file still holds only weeks 6, 7, 8 — unchanged by
+this session (a plumbing fix, not a new capture); a future re-run of this
+script will pick up whatever the server has accumulated since, for free,
+no code change needed. (2) full reconciliation to the ~15-20+ week GATE 2
+threshold is still purely a function of elapsed time (the Tier-3 job
+captures at most 1 week/hour) — no further action item exists beyond
+letting sessions keep re-running the (now cheaper) script periodically.
