@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-07 (scheduled-routine session, seventh session this UTC day) [PIPELINE] — nasa_gibs_nightlights's own queued NEXT item BUILT AND SEEDED: a daily archiver for the corrected night-lights layer, the real prerequisite for the metro-radiance-delta-as-GDP-proxy hypothesis's own future gate 1 (v1.0.865, PR #1025)
+
+TERRITORY: T-DATACORE (scripts/nightlights_archiver.py, test_nightlights_
+archiver.py, datacore/nightlights_metro_brightness.json new) + SHARED-but-
+minimal, last (datacore/signal_ladder.json single-entry UPDATE, package.json/
+package-lock.json version bump). No T-BOT or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail), research/open_questions.md (tail), research/wishlist.md (head+tail).
+`python3 scripts/research_state_check.py`: audits register none overdue,
+thrash_ratio 0/10 REPAIR (well under the 7+ trigger), known_broken 41
+items/4 without an explicit close marker (#26/#34/#38/#40 — read each,
+all advisory-only stale-regex artifacts, already resolved in their own
+text), starvation 0/10 — no meta-problem flag. `git fetch origin main`:
+HEAD/origin/main/this session's assigned branch all equal 317c8bf/v1.0.864/
+PR #1024 at session start — no reset needed. Live `/api/health` (3 calls):
+`status: ok` every time, bot active, drawdownPct "0.0", liveness.dark
+false, alpaca ACTIVE, all 3 archive feeds alive (silent_hours 0.28) — no
+LIVENESS ALARM. `/api/diag/audit?limit=200` (after one transient 502 on
+the first call, matching a deploy restart in flight — three retries all
+200): no ERROR/TIER2-ERROR entries; only expected STARTUP/TIER2/STREAM/
+RULES/EXECUTION/MANIPULATION/OPTIONS-SLOT-FULL/EVENTLOOP-LAG traffic.
+EVENTLOOP-LAG entries (~2-3s magnitude, ~2.3min cadence) cross-checked
+against open_questions.md KNOWN BROKEN #18's own established discounting
+threshold (60-98 SECOND magnitude = the tracked defect; anything 2-3
+orders of magnitude below that is "ordinary GC/scheduling noise," per
+that item's own 2026-09-05 precedent) — correctly discounted, not a bug.
+`mcp__github__list_pull_requests(state=open)`: exactly 1 open PR (#604,
+the pre-existing, intentionally-excluded `[BACKLOG] ... draft, do not
+merge as-is`) — the 2026-08-20 stale-PR-backlog finding (11 stuck PRs) is
+fully resolved, nothing left to re-triage.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no bug found in the audit log, no stale/stuck PR. Checked
+`python3 scripts/ladder_readiness_check.py` (0/3 gated roots ready, all
+still time-blocked — cftc_cot 49d/needs ~105d, sec_8k 65d/needs 90d,
+fleet_utilization 56d remaining) and `python3 scripts/
+data_stream_registry_check.py` (26/35 built, the 9 remaining all
+declined-dead-source/blocked-on-registration — unchanged from this UTC
+day's earlier sessions, nothing newly actionable). Checked `research/
+PROGRAM_STATE.md` (the self-see-harness quality program, flagged
+elsewhere as stale since 2026-08-15): Track 1 is fully complete (every
+queued Q-item DONE), Track 2/3 (the moon KTX2 bake) needs `basisu`/toktx
+tooling and a live RunPod GPU job neither available nor safely
+startable as a rushed single-session action — correctly deferred, not
+this session's PRIMARY. Checked the gas_flare_candidates Russia/Iran
+NEXT items named in this file's own 2026-09-03 entry — both already
+BUILT/RUN/root-caused in a prior session (found while reading forward);
+that root's honest disposition remains the pending human VIIRS-
+registration ask, not further self-directed work.
+
+Fell through to this file's OWN most recent PRODUCT entry (#1024,
+earlier this UTC day)'s own explicitly named NEXT item: "build a daily
+archiver on the corrected layer — the real prerequisite for the
+[nightlights] GDP-proxy hypothesis's own gate 1." Concretely scoped,
+unclaimed, non-time-blocked, T-DATACORE, matching SESSION BUDGET
+fall-through (1) (queued item from the roadmap that fits) ahead of
+starting fresh RESEARCH. Took it as PRIMARY.
+
+WHAT SHIPPED: `scripts/nightlights_archiver.py` — session-side,
+idempotent, append-only capture of `VIIRS_SNPP_GapFilled_BRDF_
+Corrected_DayNightBand_Radiance` (the layer #1024 proved passes the
+bright-metro-vs-dark-ocean bar) for the SAME 3 bright + 4 dark tile
+coordinates gate1 already validated (imported via `importlib`, same
+sibling-module technique `test_nasa_gibs_nightlights_gate1.py` already
+established — READ BEFORE WRITE: read gate1's full source before writing
+a single line of the archiver, deliberately did NOT invent new city
+coordinates this session has not verified). Follows `un_comtrade_
+ingest.py`'s established "seeded" session-triggered idempotent-JSON
+pattern rather than server-cron: `signal_ladder.json`'s own prior NEXT
+wording said "server-side cron, same pattern as other GIBS-adjacent
+archives," but checking found no such cron precedent actually exists
+(SO2/GIBS is a raw display-only overlay inside `usgsVolcanoes.ts`, no
+archival component) — the un_comtrade pattern is the real, proven
+precedent, so that's what this session followed instead of a
+stale/aspirational note.
+
+QUALITY FILTER: every captured day stores its own bright/dark ratio and
+a `quality_pass` flag against gate1's pre-registered 2.0x bar — closing
+the specific gap gate1's own module docstring named ("not usable as a
+daily series without per-day quality filtering nobody has built yet").
+DATE HANDLING: tries "yesterday" UTC first (GIBS's own GetCapabilities
+`<Default>` read one day behind at gate1-session time, per KNOWN STATE),
+then walks backward through a small lookback window (`MAX_LAG_DAYS_
+TRIED=3`), skipping any date already fully captured and stopping at the
+first not-yet-captured date that fetches cleanly — verified live this
+session that this produces free backfill (a run after a gap fills the
+most recent hole, not just a fixed date) rather than the narrower
+"try yesterday, else one fallback" the first drafted docstring wording
+implied — docstring corrected to match the real, better behavior before
+committing.
+
+LIVE VERIFICATION (not mocked): ran the script 4 times against real
+production GIBS this session. Run 1: fresh archive, captured 2026-09-06
+(ratio 3.01, quality_pass=true). Run 2: 2026-09-06 correctly skipped
+(already captured), captured 2026-09-05 (ratio 3.08). Run 3: both prior
+dates skipped, captured 2026-09-04 (ratio 3.26). Run 4: all 3 candidate
+dates skipped, "nothing to do — every candidate date already captured"
+— clean no-op confirmed, not just assumed. `datacore/
+nightlights_metro_brightness.json` is that real seeded archive (7
+series — 3 bright + 4 dark locations — 3 dates each, all quality_pass),
+committed as-is, not synthetic.
+
+TESTS: 9 new in `test_nightlights_archiver.py` (pure functions,
+injectable `fetch_fn`, no network — `candidate_dates`, `capture_date`
+ratio/quality-pass math, `already_captured` all-locations-required
+semantics, `merge_capture` idempotency, `build_artifact` latest-date/
+quality-pass-dates reporting, plus a `test_committed_archive_is_
+coherent` check reading the real committed file, mirroring `test_un_
+comtrade_ingest.py`'s own convention). Existing `test_nasa_gibs_
+nightlights_gate1.py` re-run unchanged, still 11/11 passing (no
+regression from the sibling-import). Full suite `python3 -m pytest -q`:
+1804 passed, 1 skipped (pre-existing legacy skip, unchanged), 54
+subtests, run once with this session's full diff in place (not A/B'd
+against a pre-session baseline count) — the 9 new tests plus the
+existing 1795 T-BOT/T-DATACORE/T-CLIENT-python tests this session never
+touched, all green together.
+
+BACKTEST: N/A — pure gate-0 data-archival pipeline work, no scoring/
+sizing/trading logic touched; nothing in this PR can affect any live
+trading decision.
+
+`datacore/signal_ladder.json`'s `nasa_gibs_nightlights` entry updated in
+place (still `current_gate: 0`, `status: raw_only` — a new archiver is
+not a new predictive claim) with the corrected NEXT wording and this
+session's live-verification numbers. `package.json`/`package-lock.json`
+bumped 1.0.864 → 1.0.865 (read-and-incremented at commit time, re-
+fetched `origin/main` immediately beforehand to confirm no concurrent
+session had merged past 317c8bf — confirmed clean). PR #1025 opened from
+`claude/funny-fermat-1bjs02`, subscribed via `subscribe_pr_activity`.
+
+WHAT THIS DOES NOT ESTABLISH: still no gate-1 attempt against external
+ground truth for the GDP-proxy hypothesis itself — that needs weeks of
+accumulated daily points (this session seeded exactly 3) plus a genuine
+independent comparison series (a national statistics office activity
+index, or similar) neither this session nor any prior one has sourced
+yet. This PR is infrastructure, not a signal claim.
+
+NEXT (queued, not this session): (1) keep re-running `scripts/
+nightlights_archiver.py` each session (free, idempotent, ~10s runtime)
+to build depth — no code change needed, purely a function of elapsed
+time and session frequency, same pattern as port_dwell's weekly
+accumulator. (2) once enough history exists (this repo's other gate-2
+minimum-history precedents run ~60-90+ days), source an independent
+ground-truth series and attempt gate 1 for real. (3) `research/
+data_census.md`'s pre-build survey line for this root left unchanged,
+per this entry's own prior-session precedent (post-build detail lives
+in signal_ladder.json by convention).
+
+STARVED: no — one clean, scoped PIPELINE action taken to completion,
+including live 4x verification against production (capture, idempotent
+skip, and clean no-op all directly observed, not assumed), a docstring
+correction caught before commit rather than shipped inaccurate, and a
+stale "server-cron" assumption in the prior session's own NEXT note
+checked against the real codebase and corrected rather than blindly
+followed.
+
 ## 2026-09-07 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — nasa_gibs_nightlights's own queued mechanical gate-1 tile/date-alignment spot-check RUN: the shipped "nightlights" layer FAILED it (moon/cloud-contaminated, not city lights), a live GIBS alternative PASSED it, and the client is swapped to the passing layer same session (v1.0.864)
 
 TERRITORY: T-DATACORE primary (scripts/nasa_gibs_nightlights_gate1.py,
