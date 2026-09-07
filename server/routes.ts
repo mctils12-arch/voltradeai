@@ -19,6 +19,7 @@ import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import { jodiOilStocksView } from "./jodiOil";
+import { unComtradeView } from "./unComtrade";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -3109,6 +3110,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/jodi-oil-stocks", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json(jodiOilStocksView());
+  });
+
+  // UN Comtrade USA bilateral goods-trade archive (RAW self-reported
+  // levels, not a spatial layer; static archive, session-run via
+  // scripts/un_comtrade_ingest.py, no live poll — see server/unComtrade.ts).
+  // GATE 1 (data) PASSED 2026-09-07 against FRED/Census reference series;
+  // GATE 2 (signal) not attempted — no predictive claim.
+  app.get("/api/data/un-comtrade", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json(unComtradeView());
   });
 
   // GEM Methane Emitters Tracker (GMET) — dated satellite methane-plume

@@ -33,12 +33,26 @@ RANKED TOP-5 of this section (signal × uncrowdedness × build ease):
 4. **Bundesbank** — api.statistiken.bundesbank.de keyless SDMX-CSV,
    probed 200 (daily 10y Bund yield). Daily, 1970s+, free w/
    attribution. SIGNAL: crowded but a cheap daily curve input.
-5. **UN Comtrade preview** — comtradeapi.un.org/public keyless
-   (~500 rec/req, daily cap; free key raises to 250 calls/day),
-   probed 200 (US→China Jan-2026). Monthly, 1-6mo reporter lag,
-   2010+. Free w/ citation, bulk redistribution needs permission.
-   SIGNAL: HS-6 bilateral flows for slow structural theses; most
-   uncrowded of the section; too lagged for direct alpha.
+5. **UN Comtrade preview [BUILT v1.0.860, scripts/un_comtrade_ingest.py,
+   server/unComtrade.ts, /api/data/un-comtrade]** — comtradeapi.un.org/
+   public keyless (RE-PROBED 2026-09-07: confirmed live hard constraint
+   "Maximum number of periods for preview is 1" per request — but
+   partnerCode/flowCode DO combine into one request, 6 partners x 2
+   flows = 12 records in a single call, so one HTTP request per calendar
+   month covers the whole v1 scope). Monthly, USA (842) vs 6 major
+   partners (China/Mexico/Canada/Japan/Germany/South Korea) — each
+   chosen because it has an independent FRED/Census reference series for
+   gate 1, cmdCode=TOTAL (aggregate; HS-6 commodity detail deferred).
+   Free w/ citation, bulk redistribution needs permission. 21-month
+   backfill archived (2024-10 through 2026-06, 252 points). GATE 1
+   (DATA) PASSED 2026-09-07 (scripts/un_comtrade_gate1.py) — see
+   datacore/signal_ladder.json's un_comtrade_bilateral_trade entry and
+   research/experiments.md's 2026-09-07 entry for the exact measured
+   ratios. SIGNAL: HS-6 bilateral flows for slow structural theses; most
+   uncrowded of the section; too lagged for direct alpha — GATE 2 not
+   attempted, RAW archive only, matching this entry's own original prior.
+   Was the SOLE `candidate_unbuilt` entry left in
+   scripts/data_stream_registry_check.py's CANDIDATES table.
 6. **OECD SDMX** — sdmx.oecd.org keyless, probed 200 (US CLI).
    CC BY 4.0. SIGNAL: CLI dispersion as regime feature; crowded/slow.
 7. **World Bank + Pink Sheet** — keyless, probed 200 (xlsx 765KB
