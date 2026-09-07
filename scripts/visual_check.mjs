@@ -175,6 +175,11 @@ const PAGES = {
   // cluster (short-volume/threshold/ATS already had client views —
   // consolidatedShortInterest did not).
   shortinterest: { route: "/app#/data/short-interest", map: false },
+  // USA bilateral goods trade — UN Comtrade (2026-09-07) — same Phase 5
+  // ratchet rule as shortinterest/plantoperations above; closes the
+  // "shipped-data-no-client-page" gap for un_comtrade_bilateral_trade
+  // (API-only since the same-day PIPELINE session that built the archive).
+  uncomtrade: { route: "/app#/data/un-comtrade", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -779,6 +784,28 @@ const FIXTURES = {
         { symbol: "AMC", name: "AMC Entertainment Holdings", market: "NYSE" },
       ],
     },
+  },
+  // USA bilateral goods trade — UN Comtrade (2026-09-07, RAW display; GATE 1
+  // DATA passed same day, GATE 2 not attempted — the note field restates
+  // that verbatim, same convention as jodi-oil-stocks above).
+  "/api/data/un-comtrade": {
+    kind: "raw",
+    predictive: false,
+    source: "UN Comtrade Database (fixture)",
+    attribution: "UN Comtrade Database, https://comtradeapi.un.org",
+    license: "free with citation (fixture)",
+    reporter: "USA",
+    cmdCode: "TOTAL",
+    archiveLatestPeriod: "202606",
+    partnerCount: 2,
+    rows: [
+      { partnerCode: 156, partnerName: "China", period: "202606", importsCifUsd: 39566206514, exportsFobUsd: 12558691242, tradeBalanceUsd: -27007515272, priorPeriod: "202605", priorImportsCifUsd: 41200000000, importsDeltaPct: -4.0 },
+      { partnerCode: 124, partnerName: "Canada", period: "202606", importsCifUsd: 36191199138, exportsFobUsd: 35403162277, tradeBalanceUsd: -788036861, priorPeriod: "202605", priorImportsCifUsd: 35800000000, importsDeltaPct: 1.1 },
+    ],
+    note: "GATE 1 (data) PASSED 2026-09-07 — every partner's CIF import value reconciles against FRED's " +
+      "independent Census-Bureau customs-basis import series within a stable CIF/customs-basis offset band. " +
+      "GATE 2 (signal) not attempted — shown here as RAW, self-reported bilateral trade levels only, no " +
+      "predictive claim (fixture).",
   },
   "/api/data/eu-macro": {
     kind: "raw",
