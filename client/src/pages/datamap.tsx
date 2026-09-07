@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -45,6 +45,7 @@ import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
 import JodiOilStocksView from "./jodiOilStocks";
+import UnComtradeView from "./unComtrade";
 import DtccSwapsView from "./dtccSwaps";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
@@ -2834,6 +2835,10 @@ export default function DataMapPage() {
   // v1.0.207/2026-07-07, no client view until now — the last FINRA Query
   // API cluster root missing one, see research/data_census.md section 2).
   const [shortInterestOpen, setShortInterestOpen] = useState(() => window.location.hash === "#/data/short-interest");
+  // USA bilateral goods trade view (#/data/un-comtrade) — same overlay
+  // pattern (RAW self-reported reading, not a spatial layer; gate1_pass
+  // since 2026-09-07, no client view until now).
+  const [unComtradeOpen, setUnComtradeOpen] = useState(() => window.location.hash === "#/data/un-comtrade");
   // NRC daily reactor status full view (#/data/nrc-reactor-status) — same
   // "open full view" overlay pattern as methane_plumes below (a spatial
   // layer whose per-asset ranked table doesn't belong in the layer-toggle
@@ -3252,6 +3257,7 @@ export default function DataMapPage() {
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
       setShortInterestOpen(window.location.hash === "#/data/short-interest");
+      setUnComtradeOpen(window.location.hash === "#/data/un-comtrade");
       setNrcStatusOpen(window.location.hash === "#/data/nrc-reactor-status");
       setPlantOpsOpen(window.location.hash === "#/data/plant-operations");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
@@ -13325,6 +13331,9 @@ export default function DataMapPage() {
       {shortInterestOpen && (
         <FinraShortInterestView onBack={() => { window.location.hash = "#/data"; setShortInterestOpen(false); }} />
       )}
+      {unComtradeOpen && (
+        <UnComtradeView onBack={() => { window.location.hash = "#/data"; setUnComtradeOpen(false); }} />
+      )}
       {midasOpen && (
         <MidasView onBack={() => { window.location.hash = "#/data"; setMidasOpen(false); }} />
       )}
@@ -14072,6 +14081,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/short-interest"; setShortInterestOpen(true); }}>
               <TrendingDown size={13} /> Short interest &amp; threshold list (FINRA)
               <span className="vt-streams-launch-sub">days-to-cover, settlement change %, threshold securities · RAW</span>
+            </button>
+            {/* USA bilateral goods trade launcher (2026-09-07): UN Comtrade
+                national self-reported readings, not a spatial layer, so it
+                launches from the panel top like the other page-wide
+                dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-uncomtrade-launch
+                    onClick={() => { window.location.hash = "#/data/un-comtrade"; setUnComtradeOpen(true); }}>
+              <ArrowLeftRight size={13} /> USA bilateral goods trade (UN Comtrade)
+              <span className="vt-streams-launch-sub">imports/exports vs 6 major partners, monthly · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
