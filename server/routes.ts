@@ -5450,6 +5450,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // UN Comtrade bilateral goods-trade keyed mirror — closes the same
+  // "gate1-passed, no /api/v1 mirror" gap the JODI mirror above closed
+  // (server/unComtrade.ts backs the RAW /api/data/un-comtrade view this
+  // reuses verbatim). Static, session-run archive (scripts/
+  // un_comtrade_ingest.py) like JODI, not a live Railway poller — so
+  // unComtradeView() always has data once the file is checked in, no
+  // warming_up cache-miss state to model. GATE 1 (DATA) passed 2026-09-07
+  // (every partner's CIF import value reconciles against FRED's
+  // independent Census-Bureau customs-basis import series within a
+  // stable, narrow offset band); GATE 2 (SIGNAL) not attempted — this
+  // root was flagged too lagged for direct alpha, structural-thesis
+  // input only. RAW self-reported trade levels only, no predictive claim.
+  app.get("/api/v1/data/un-comtrade", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const view = unComtradeView();
+      res.json(v1Envelope("data/un-comtrade", {
+        reporter: view.reporter,
+        cmdCode: view.cmdCode,
+        archiveLatestPeriod: view.archiveLatestPeriod,
+        partnerCount: view.partnerCount,
+        note: view.note,
+        rows: view.rows,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/un-comtrade", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/un-comtrade", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

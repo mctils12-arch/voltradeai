@@ -594,6 +594,20 @@ test("JODI oil closing-stock license mark: free-with-acknowledgment JODI data re
   assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW self-reported levels must not read as a trading signal");
 });
 
+test("UN Comtrade license mark: 'free with citation, no bulk redistribution' is CONDITIONAL resell like the issuer-authored/informational-use-terms streams, not freely resellable like JODI/CFTC-COT/government-work-product streams; agent tool documents the gate-1-pass/gate-2-not-attempted state honestly", () => {
+  assert.equal(LICENSE_MARKS["data/un-comtrade"].resell, "conditional",
+    "UN Comtrade's own terms forbid bulk redistribution of the raw database — must not be mismarked freely resellable");
+  assert.ok(LICENSE_MARKS["data/un-comtrade"].license.includes("UN Comtrade"));
+  assert.ok(LICENSE_MARKS["data/un-comtrade"].license.toLowerCase().includes("bulk redistribution"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_un_comtrade");
+  assert.ok(tool, "voltrade_un_comtrade tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/un-comtrade"]);
+  assert.ok(tool.description.includes("GATE 1") && tool.description.includes("PASSED"), "honesty: gate-1 pass status must travel with the tool description");
+  assert.ok(tool.description.includes("GATE 2") && tool.description.toLowerCase().includes("not attempted"), "honesty: gate-2-not-attempted must travel with the tool description, not read as a pass");
+  assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW self-reported levels must not read as a trading signal");
+});
+
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
   const meta = apiMeta();
   for (const e of meta.endpoints as any[]) {
