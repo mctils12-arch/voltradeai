@@ -3,6 +3,195 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-07 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — UN Comtrade gets its /api/v1/data/un-comtrade keyed mirror; a license-mark drafting error (JODI's "ok" wrongly copied) caught and fixed before shipping (v1.0.862)
+
+TERRITORY: SHARED-but-minimal (server/routes.ts, server/apiProduct.ts,
+server/apiProduct.test.ts, datacore/signal_ladder.json, ci/counter_baseline.txt,
+package.json/package-lock.json). No T-BOT or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+experiments.md's two most recent 2026-09-07 entries in full — the un_comtrade
+GATE 1 pipeline session and the /data client-page session immediately
+preceding this one — open_questions.md KNOWN BROKEN section, wishlist.md
+tail). `python3 scripts/research_state_check.py`: audits register none
+overdue, thrash_ratio 0/10 REPAIR (well under the 7+ trigger), known_broken
+41/4-advisory (none a live blocker), starvation 0/10 — no meta-problem flag.
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots ready
+(cftc_cot_positioning/sec_8k_earnings_language/fleet_utilization_aircraft all
+time-blocked, unchanged). Live `curl https://voltradeai.com/api/health`:
+status ok, bot active, drawdownPct "0.0", liveness.dark false, alpaca ACTIVE,
+all 3 archive feeds alive (silent_hours 0.11 each) — no LIVENESS ALARM.
+`git fetch origin main`: HEAD already equals origin/main at 80a29b0/v1.0.861/
+PR #1021 (the immediately preceding session's own merge), no reset needed.
+
+PRIMARY-ACTION SELECTION: this UTC day's immediately preceding session (the
+un_comtrade /data client-page PR, #1021) left an explicit, concretely-scoped
+NEXT (1): "`/api/v1/data/un-comtrade` keyed mirror, now that a client page
+exists (matches the sequencing this repo has used for JODI/FINRA/DTCC — the
+v1 mirror follows the client page, not the reverse)." Per SESSION BUDGET
+fall-through order 1 (the next queued item from an already-advanced root
+before starting fresh research), took this item directly — it is the
+smallest, best-understood, lowest-risk queued PRODUCT action on the board
+(option (d), improving datacore's API boundary toward spinout-readiness),
+and no higher-priority item was found ahead of it (no LIVENESS ALARM, thrash
+ratio well under threshold, no ladder-readiness-check root came due).
+
+READ BEFORE WRITE: read server/unComtrade.ts (the UnComtradeView shape and
+its GATE_NOTE constant — reused verbatim, not re-derived) in full; the
+existing `/api/v1/data/jodi-oil-stocks` route (server/routes.ts) as the exact
+structural precedent (static session-run archive, no warming_up state,
+requireApiKey/v1Envelope/meterUsage wiring); server/apiProduct.ts's
+LICENSE_MARKS/apiMeta().endpoints/agentToolSpec()/RESPONSE_DATA_SCHEMAS
+entries for jodi-oil-stocks, methane-plumes, and crop-conditions (three
+different resell postures — "ok", "ok", and license-key-gated — to see the
+full range of how this file documents a root honestly); server/
+apiProduct.test.ts's JODI license-mark test (the honesty-assertion pattern
+to mirror: gate-1/gate-2 status and predictive-claim language must travel
+into the tool description, not just exist in a code comment) — all before
+writing anything.
+
+WHAT SHIPPED:
+- server/routes.ts: `GET /api/v1/data/un-comtrade` — structurally identical
+  to the JODI mirror (requireApiKey guard, `v1Envelope("data/un-comtrade",
+  {...})` wrapping `unComtradeView()`'s fields verbatim, meterUsage on both
+  the 200 and 500 paths). No new computation — reuses the already-shipped,
+  already-GATE-1-passed `unComtradeView()` unchanged.
+- server/apiProduct.ts: new `LICENSE_MARKS["data/un-comtrade"]`, a new
+  `voltrade_un_comtrade` agent-tool entry (whose description states GATE 1
+  PASSED and GATE 2 not-attempted verbatim, per this file's own honesty
+  convention), a new `apiMeta().endpoints` entry, and a new
+  `RESPONSE_DATA_SCHEMAS.voltrade_un_comtrade` entry mirroring
+  `UnComtradeView`'s real field shape (partner rows, each carrying its own
+  period — `partnerCode`/`partnerName`/`period` required per row, every
+  numeric field `ANY` since a row can legitimately hold nulls on either
+  side, matching the view's own "never zero-fill" convention).
+
+LICENSE-MARK ERROR CAUGHT BEFORE SHIPPING (worth recording, not smoothing
+over — MEASUREMENT INTEGRITY/REASONING STANDARD #4 discipline applied to my
+own first draft, not just to prior sessions' work): the first draft copied
+JODI's LICENSE_MARKS entry almost verbatim, including `resell: "ok"`, on the
+assumption that UN Comtrade would carry the same "free with acknowledgment,
+freely resellable" posture as JODI. Before treating that as fact, read the
+archive's OWN recorded license field
+(`datacore/un_comtrade/bilateral_trade.json`'s `license` key, written by
+`scripts/un_comtrade_ingest.py` at ingest time, not re-derived from memory):
+**"free with citation; bulk redistribution of the raw database needs UN
+Comtrade permission (informational/derived-signal use here, not raw
+resale)."** That is NOT the same posture as JODI's free-with-acknowledgment
+terms — it is CONDITIONAL, the same class as the issuer-authored Form 4/13F/
+DTCC streams and the informational-use-terms OCC/Cboe/FINRA streams, not the
+freely-resellable class JODI/CFTC-COT/USAspending/crop-conditions/bank-
+failures/NRC/attention/methane-plumes sit in. Corrected to `resell:
+"conditional"` before writing any test or route code against the wrong
+value — had this shipped as "ok", it would have been a false resell claim
+sitting silently in the API's own machine-readable license surface, exactly
+the kind of drift the resell-vs-display audit (wishlist.md) exists to catch,
+except this one would never have needed catching because it was never
+observed rather than fixed. This is the whole reason apiProduct.ts's own
+header states LICENSE MARKS as a first-class concern, not an afterthought —
+a plausible-looking template copy is not the same operation as reading the
+actual source's own terms.
+
+Tests: one new test in server/apiProduct.test.ts (`UN Comtrade license
+mark...`), structurally mirroring the existing JODI test — asserts
+`resell === "conditional"` and that the license string names "UN Comtrade"
+and "bulk redistribution" (so a future accidental revert back to "ok" would
+fail loudly, not silently), asserts the agent tool exists with the right
+`returns_provenance`, and asserts GATE 1 PASSED / GATE 2 not-attempted /
+"no predictive claim" all travel into the tool description verbatim — the
+same honesty-assertion shape the pre-existing JODI/methane-plumes tests use.
+The pre-existing count-parity test (`agent tool spec: one tool per LIVE
+endpoint`) enforces that the new endpoint, tool, and schema entries stay in
+lockstep — it would fail if any one of the three were forgotten, which is
+exactly why it caught nothing wrong here (all three were added together).
+
+GATES: `npx tsx --test server/apiProduct.test.ts server/unComtrade.test.ts`:
+72/72 pass. Full JS/TS suite `npx tsx --test server/*.test.ts scripts/*.test.ts`
+(after `npm ci` — this session's container had zero node_modules): 1643/1643
+pass, 0 fail. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (no
+type touched beyond what already typechecked). `bash scripts/gated_tests.sh`
+(after `pip install -r requirements.txt -r requirements-dev.txt`): GATE
+PASSED — client 1083/1083, python 1784 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue — identical counts to the immediately preceding
+session's own run, confirming zero regression from this diff. `bash
+scripts/counter_ratchet.sh`: isolated this diff's own effect via a `git
+stash`/`git stash pop` A/B (same discipline the immediately preceding
+session used) — `tests_run_in_ci`/`tests_gating_merge` read 429 BOTH before
+and after this diff (427 is the stale pin, pre-existing drift from unrelated
+merges, correctly left un-re-pinned per PROMOTION RULE 5); `assertions` read
+13539 before this diff and 13547 after — the +8 is this diff's own new
+test's assert calls, isolated and confirmed, so `ci/counter_baseline.txt`'s
+`assertions` pin was re-pinned 13497 -> 13547 (the new live value, not just
+the isolated delta, matching the exact convention the 2026-09-07 GATE 1
+pipeline session used for the same counter) in this same PR. All other 24
+counters unchanged, re-ran clean (25/25 OK after the re-pin). `npm run
+build`: clean (1860 modules via Vite, server bundle 16.5mb via esbuild —
+pre-existing chunk-size/astronomy-engine warnings only, unrelated to this
+diff — no client/ file touched). `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (un_comtrade_bilateral_trade's own note extended by one UPDATE
+paragraph, no new root).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a pure API-surface addition over an
+already-shipped, already-GATE-1-passed RAW route. No scoring/sizing/
+threshold value touched, no trading path involved.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop or
+any Python trading-path file (bot_engine.py/system_config.py/ml_model_v2.py
+untouched, confirmed by the diff's file list). The new route adds one new
+key-gated endpoint wrapping an existing, already-computed, already-cached
+static-archive view — no new poller, no new background job, no change to
+any existing route or Tier cadence, no change to the live RAW `/api/data/
+un-comtrade` route or the `/data` client page (both untouched).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(server-only API-surface addition).
+
+VERSION: v1.0.862 (package.json, read-and-increment at commit time; `git
+fetch origin main` immediately before the bump confirmed origin/main was
+still at 80a29b0/v1.0.861/PR #1021, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+MARKET-HOURS NOTE: today (2026-09-07) is Labor Day — US market closed all
+day (market_calendar.py confirms `date(2026, 9, 7)` is a listed holiday), so
+no merge-timing constraint applies; this PR may merge as soon as CI is green.
+
+CROSS-SYSTEM INTEGRATION: none new — a keyed API mirror over an already-
+standalone macro/trade-flow archive with no entity-graph join, no new
+cross-tie to any existing stream.
+
+NEXT (queued, not this session): (1) monthly incremental re-runs of
+scripts/un_comtrade_ingest.py (idempotent, append-only, safe every session)
+will keep extending the 21-month backfill for free — operational, not a
+code change. (2) HS-6 commodity-level detail remains a documented,
+non-urgent future follow-up (EDGE DOCTRINE #2 already argues against this
+root for direct alpha). (3) a future T-CLIENT session with more time budget
+could attempt the `--page data` map-page perf battery directly (the
+immediately preceding session's own left-open verification gap; unrelated
+to this session's diff, which touched no client/ file at all). (4) per the
+AUDITS & DEBT register, STALENESS (due 2026-09-14) and CONSTITUTIONAL (due
+2026-09-15) audit last-run dates should be checked by the next session whose
+fall-through reaches the research tier — not checked this session, capacity
+was fully used by this primary action.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the immediately preceding session's own queued NEXT item),
+used in full: matched the existing JODI mirror's structure exactly rather
+than inventing a new shape, caught and fixed a real license-mark drafting
+error (an "ok" copied from JODI that the archive's own recorded terms
+contradict) before it ever shipped rather than after, added a test that
+would catch a future accidental revert of that same error, verified the
+counter-ratchet numbers via a stash A/B rather than trusting the raw
+before/after, and ran the full gate suite (client+python+tsc+counters+build)
+green before committing. No higher-priority queued item was skipped (no
+LIVENESS ALARM; thrash ratio 0/10, well under threshold; no ladder-
+readiness-check root came due).
+
 ## 2026-09-07 (scheduled-routine session, third session this UTC day) [PRODUCT] — /data client page for UN Comtrade bilateral goods trade, closing the queued shipped-data-no-client-page gap (v1.0.861), PR #1021
 
 TERRITORY: T-CLIENT primary (client/src/pages/unComtrade.tsx new,

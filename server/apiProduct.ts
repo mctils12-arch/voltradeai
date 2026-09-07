@@ -249,6 +249,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "JODI (Joint Organisations Data Initiative) World Primary database",
     resell: "ok",
   },
+  "data/un-comtrade": {
+    license: "UN Comtrade (UN Statistics Division) bilateral goods-trade database, keyless preview tier — the archive's own recorded terms (scripts/un_comtrade_ingest.py, datacore/un_comtrade/bilateral_trade.json) are 'free with citation; bulk redistribution of the raw database needs UN Comtrade permission' — CONDITIONAL like the issuer-authored Form 4/13F/earnings-language/DTCC streams and the informational-use-terms OCC/Cboe/FINRA streams above, NOT freely resellable like the government-work-product or CC0/CC-BY streams (eu-macro/attention/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC/jodi/methane-plumes).",
+    attribution: "UN Comtrade Database, https://comtradeapi.un.org",
+    resell: "conditional",
+  },
   "data/short-interest": {
     license: "FINRA Query API — consolidatedShortInterest (semi-monthly per-symbol short positions, days-to-cover precomputed by FINRA) + thresholdList (daily Reg SHO threshold names, OTC side) — FINRA itself compiles and publishes both files, free with attribution, the same informational-use-terms class as data/short-volume above (server/routes.ts's own /api/data/short-interest route comment: 'free with attribution'), NOT US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention/cot/contracts/methane-plume/jodi streams above.",
     attribution: "FINRA Query API — consolidated short interest + Reg SHO threshold list",
@@ -309,6 +314,7 @@ export function apiMeta() {
       { path: "/api/v1/data/ats-summary", params: "-", desc: "FINRA Query API ATS venue summaries: weekly + monthly per-symbol cross-firm ATS/OTC volume leaderboards (*_SMBL rows only — mixing in the *_SMBL_FIRM/*_FIRM rows in the same partition would double- or under-count volume, so those are excluded; tiers_covered states exactly which tiers fed each reading) plus monthly per-venue ATS block-trading ranks (FINRA-precomputed). A different FINRA Query API dataset from /api/v1/data/short-interest above (venue/execution composition, not settlement positions) — never conflated in the response. RAW display only, no predictive claim, no GATE 2 test attempted yet (settlement-stress composite hypothesis stays gate-locked, research/open_questions.md). FINRA informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/ats-summary" },
       { path: "/api/v1/data/methane-plumes", params: "-", desc: "Global Energy Monitor Methane Emitters Tracker (GMET): dated satellite methane-plume detections (CarbonMapper/GHGSat-class providers, as catalogued by GEM), each joined to its nearest catalogued GEM oil/gas-extraction or coal-mine asset within a stated match radius (or null when nothing catalogued is that close). GATE 1 (plume detection itself) is calibrated upstream by GEM/CarbonMapper/GHGSat and effectively trivial to inherit. GATE 2(a) (the proximity join) and 2(b) (per-asset repeat-detection rate) are SHIPPED. GATE 2(c) (same-universe base rate) was RUN against real data: FAIL at all 3 horizons (5/20/60d) — but on only N=32 events across 8 resolvable tickers, one of which (an unrelated bankruptcy-recovery story) dominates 74-83% of the result, so this is a DATA-AVAILABILITY-LIMITED fail, not a clean kill. GATE 2(d) (matching operators' own disclosed emissions) is CURRENTLY UNSOURCED, not attempted. nearestAsset is a GEOMETRIC PROXIMITY FACT, not a confirmed or claimed emissions attribution — RAW display only, no predictive claim. GEM publishes both source datasets under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/methane-plumes" },
       { path: "/api/v1/data/jodi-oil-stocks", params: "-", desc: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported closing crude-oil stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness is never smoothed over, some areas stopped reporting TOTCRUDE years before the archive's overall latest period. GATE 1 (DATA) PASSED 2026-08-06 (reconciles against EIA within 1.2%, scripts/jodi_eia_reconcile.py). GATE 2 (SIGNAL) KILLED 2026-08-06 — a pre-registered non-OECD stock-build composite found no significant BNO/USO forward-return signal in any of 4 pre-registered comparisons. RAW self-reported levels only, no predictive claim. JODI data are free with acknowledgment, freely resellable with attribution.", preview: "/api/data/jodi-oil-stocks" },
+      { path: "/api/v1/data/un-comtrade", params: "-", desc: "UN Comtrade USA bilateral goods-trade archive: latest reported period per partner (China/Mexico/Canada/Japan/Germany/South Korea) — imports CIF, exports FOB, computed trade balance, and the prior-period import delta, sorted by import value descending. GATE 1 (DATA) PASSED 2026-09-07 (every partner's CIF import value reconciles against FRED's independent Census-Bureau customs-basis import series within a stable, narrow CIF/customs offset band — means 1.01-1.06, stdev<=0.0097, n=21 months each). GATE 2 (SIGNAL) not attempted — this root was flagged too lagged for direct alpha, structural-thesis input only (research/data_census.md). RAW self-reported trade levels only, no predictive claim. UN Comtrade's own terms are free with citation but do not permit bulk redistribution of the raw database — conditional resell, see license_marks.", preview: "/api/data/un-comtrade" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -703,6 +709,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       endpoint: "GET /api/v1/data/jodi-oil-stocks",
       returns_provenance: ["data/jodi-oil-stocks"],
     },
+    {
+      name: "voltrade_un_comtrade",
+      description: "UN Comtrade USA bilateral goods-trade archive: latest reported period per partner (China/Mexico/Canada/Japan/Germany/South Korea) — imports CIF, exports FOB, computed trade balance, and the prior-period import delta, sorted by import value descending. RAW self-reported display, no predictive claim. GATE 1 (DATA) PASSED 2026-09-07 — every partner's CIF import value reconciles against FRED's independent Census-Bureau customs-basis import series within a stable, narrow CIF/customs offset band (means 1.01-1.06, stdev<=0.0097, n=21 months each). NOT a trading signal — GATE 2 (SIGNAL) not attempted, this root was flagged too lagged for direct alpha, structural-thesis input only. UN Comtrade's own terms are free with citation but do not permit bulk redistribution of the raw database — conditional resell, same posture as the issuer-authored Form 4/13F/DTCC and informational-use-terms OCC/Cboe/FINRA tools above, NOT freely resellable like the JODI/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/un-comtrade",
+      returns_provenance: ["data/un-comtrade"],
+    },
   ];
   return {
     version: "v1",
@@ -855,6 +868,16 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
   voltrade_jodi_oil_stocks: dataObj({
     product: STR, archiveLatestPeriod: ANY, seriesCount: INT, countriesReporting: ANY, note: STR, rows: ARR,
   }, ["product", "seriesCount", "note", "rows"]),
+  // server/unComtrade.ts's UnComtradeView: one row per reporting partner,
+  // each carrying its own latest period (never zero-filled to match another
+  // partner's cadence) — see the type's own header comment.
+  voltrade_un_comtrade: dataObj({
+    reporter: STR, cmdCode: STR, archiveLatestPeriod: ANY, partnerCount: INT, note: STR,
+    rows: { type: "array", items: dataObj({
+      partnerCode: INT, partnerName: STR, period: STR, importsCifUsd: ANY, exportsFobUsd: ANY,
+      tradeBalanceUsd: ANY, priorPeriod: ANY, priorImportsCifUsd: ANY, importsDeltaPct: ANY,
+    }, ["partnerCode", "partnerName", "period"]) },
+  }, ["reporter", "partnerCount", "note", "rows"]),
   // routes.ts's `res.json(v1Envelope(mark, { id: req.params.id, kind, points: track }))`
   // — `track` from datacoreArchive.ts's recentTrackCached()'s own declared
   // return type `Array<{ t: number; la: number; lo: number; al?: number }>`.
