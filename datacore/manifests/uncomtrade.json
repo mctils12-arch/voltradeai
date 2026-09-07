@@ -1,0 +1,22 @@
+{
+ "stream": "uncomtrade",
+ "storage": "git-versioned append-only JSON datacore/un_comtrade/bilateral_trade.json — a period already archived for a given partner|flow series is NEVER re-fetched or overwritten (Comtrade does not revise closed months the way JODI's monthly re-release does, so append-only avoids wasting request budget re-fetching settled history)",
+ "written_by": "scripts/un_comtrade_ingest.py (Python, session-run — keyless, never on Railway; same seeded pattern as jodi.json/gem.json)",
+ "source": "UN Comtrade Database public preview API (comtradeapi.un.org/public/v1/preview/C/M/HS, keyless SDMX-JSON; probed live 2026-09-07 — confirmed hard constraint 'Maximum number of periods for preview is 1' per request, but partnerCode/flowCode combine into one request, so one HTTP call per calendar month covers all 6 partners x 2 flows)",
+ "license": "free with citation; bulk redistribution of the raw database needs UN Comtrade permission (informational/derived-signal use here, not raw resale)",
+ "attribution": "UN Comtrade Database, https://comtradeapi.un.org",
+ "schema_version": 1,
+ "field_map": {
+  "series.<partnerCode>|<flowCode>.points": "[[YYYYMM, cifvalue_usd_or_null, fobvalue_usd_or_null], ...] — M=imports (US from partner, cifvalue primary), X=exports (US to partner, fobvalue primary, cifvalue always null)",
+  "series.<key>.n/first/last": "span + count provenance per series",
+  "partners": "USA's 6 chosen partner countries, each with an independent FRED/Census reference series for gate-1 (see scripts/un_comtrade_gate1.py) — China/Mexico/Canada/Japan/Germany/South Korea; other partners deliberately excluded from v1 rather than archived unvalidated",
+  "cmd_code": "always TOTAL — the UN-computed aggregate across all HS lines (isAggregate:true on every raw API row; NOT itself a reported line, this is the API's own documented convention, not evidence of estimation). HS-6 commodity-level detail is a documented future follow-up, not built here."
+ },
+ "confidence_model": "RAW official aggregate trade-flow data (reporter USA, mirrored via UN's own preview endpoint). HYPOTHESIS (gate-locked, no signal attempted): month-over-month bilateral trade balance shifts with USA's largest partners are a slow structural regime feature (tariff escalation/de-escalation, reshoring share shifts) — EDGE DOCTRINE #2 cuts against this root (professionally covered, not a small/illiquid corner); the data census's own prior was 'too lagged for direct alpha, structural-thesis input only'. GATE 1 (data vs external truth) PASSED 2026-09-07, all 6 partners, n=21 months each: mean CIF/customs-basis ratio vs FRED China 1.0608/Mexico 1.0091/Canada 1.0257/Japan 1.0302/Germany 1.0197/South Korea 1.0283 (stdev 0.0022-0.0097 each) against the pre-registered bar mean in [1.00,1.20] and stdev < 0.05 — see scripts/un_comtrade_gate1.py's compute_ratios/evaluate_partner (the exact functions run against the real fetched data) and research/experiments.md's 2026-09-07 entry for the full account, including an honest note that this script's own end-to-end CLI run (main()) was intermittently blocked in this sandbox by what looks like a request-rate-shaped connectivity issue to fred.stlouisfed.org — the gate result itself was still obtained honestly, via the identical shipped verification functions run against real fetched data, not fabricated or approximated.",
+ "geo_fields": [],
+ "entity_key": "reporterCode(842, fixed) + partnerCode + flowCode + period",
+ "sentiment": null,
+ "started": "2026-09-07",
+ "cadence": "monthly source update (1-6mo lag documented in research/data_census.md); session-run incremental backfill (scripts/un_comtrade_ingest.py never re-fetches an already-archived period)",
+ "_note": "DATA CENSUS Section 1 #10 (research/data_census.md) — was the sole `candidate_unbuilt` entry remaining in scripts/data_stream_registry_check.py's CANDIDATES table (re-confirmed exhausted for every other axis-(a) CLAUDE.md-named example and census item across dozens of prior sessions); this closes it rather than re-deriving 'is anything left to build' by hand again (EDGE DOCTRINE #3)."
+}

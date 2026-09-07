@@ -17400,3 +17400,59 @@ code changed this session; `datacore/signal_ladder.json`'s
 `current_gate` stays 1/`gate1_pass` — this narrows the diagnosis, it does
 not change the gate status or capture a new week (file still holds only
 weeks 6, 7, 8).
+
+## 2026-09-07 (scheduled-routine session, second session this UTC day) [PIPELINE] — UN Comtrade USA bilateral goods-trade archive built end-to-end (EDGE DOCTRINE axis (a)), GATE 1 (DATA) PASSED all 6 partners (v1.0.860)
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: `scripts/data_stream_registry_check.py --unbuilt` (a compiled
+registry built specifically because "is candidate X already built?" had
+been re-derived by hand 15+ times) named exactly ONE `candidate_unbuilt`
+axis-(a) item: UN Comtrade bilateral trade flows. Built end-to-end —
+`scripts/un_comtrade_ingest.py` (keyless comtradeapi.un.org preview API,
+USA vs 6 major partners x 2 flows, 21-month backfill archived to
+`datacore/un_comtrade/bilateral_trade.json`), `server/unComtrade.ts` +
+`/api/data/un-comtrade` (RAW, no predictive claim), and
+`scripts/un_comtrade_gate1.py` (GATE 1 reconciliation against FRED's
+independent Census-Bureau customs-basis import series). GATE 1 PASSED for
+all 6 partners (mean CIF/customs ratio 1.01-1.06, stdev <=0.0097, n=21
+months each — every partner inside the pre-registered [1.00,1.20] mean
+band and well under the 0.05 stability band).
+
+HONEST NOTE WORTH FLAGGING FOR FUTURE SESSIONS: `scripts/
+un_comtrade_gate1.py`'s own end-to-end CLI run (`main()`, a single
+automated invocation fetching all 6 partners' FRED series in a tight
+sequence) failed 4 separate times this session in this sandbox, always
+with the same signature — a TLS handshake to fred.stlouisfed.org
+completes successfully, then the server silently never responds (15s
+timeout, 0 bytes, every retry, every partner). Isolated single `curl`
+calls to the identical URL, spaced apart naturally, succeeded reliably
+throughout (this session tried urllib.request/requests/subprocess in
+several configurations/os.system as an A/B — every mechanism worked in
+isolation and every mechanism also failed at least once in a tight
+sequence, ruling out a client-library bug). Working hypothesis: some
+request-rate-shaped throttling or silent block specific to a tight
+automated sequence against this one host in this sandbox — not
+conclusively provable from this side of the proxy, but consistent with
+every observation. The GATE 1 numbers above are real, not approximated:
+each partner's FRED CSV was fetched via its own isolated `curl` call (all
+6 succeeded), then the script's own unmodified `parse_fred_csv`/
+`compute_ratios`/`evaluate_partner` functions were run against that real
+data to produce the verdict — the identical logic the script's own
+`main()` would have used had it completed a clean run. A future session
+re-running `python3 scripts/un_comtrade_gate1.py` end-to-end should expect
+it to work when network conditions cooperate, and should not conclude a
+code defect if it fails again — retry with isolated per-partner calls
+(exactly as this session did) rather than assuming the gate result itself
+is in doubt.
+
+NEXT (queued, not this session): (1) a `/data` client page for
+un_comtrade (API-only this PR, same shipped-data-no-client-page-gap
+pattern closed for FINRA/plant-operations/EPA-CAMD before). (2)
+`/api/v1/data/un-comtrade` keyed mirror once a client page exists. (3)
+monthly incremental re-runs of `scripts/un_comtrade_ingest.py` (idempotent,
+append-only, safe every session) will keep extending the 21-month
+backfill for free. (4) HS-6 commodity-level detail is a documented,
+non-urgent future follow-up (EDGE DOCTRINE #2 already argues against this
+root for direct alpha, so no urgency).

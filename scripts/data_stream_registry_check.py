@@ -190,9 +190,13 @@ CANDIDATES = [
              "accumulating archive depth, not attempted. /data client view (dtccSwaps.tsx) and "
              "/api/v1/data/dtcc-swaps mirror both shipped 2026-08-23/24."},
     {"id": "un_comtrade", "name": "UN Comtrade bilateral trade flows",
-     "edge_doctrine_named": False, "status": "candidate_unbuilt",
-     "manifest_keys": [], "layer_ids": [],
-     "note": "keyless preview tier probed 200; too lagged (1-6mo) for direct alpha, structural-thesis input only"},
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["uncomtrade"], "layer_ids": [],
+     "note": "server/unComtrade.ts, /api/data/un-comtrade. GATE 1 (DATA) PASSED 2026-09-07 (scripts/"
+             "un_comtrade_gate1.py vs FRED/Census reference series) — data_census.md census #10 item 5 "
+             "(this was the sole remaining candidate_unbuilt entry in this table). GATE 2 (signal) not "
+             "attempted — too lagged (1-6mo) for direct alpha per the census's own prior, structural-"
+             "thesis RAW archive only. No /data client page yet (API only this PR)."},
 ]
 
 
