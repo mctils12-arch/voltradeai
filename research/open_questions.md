@@ -10908,6 +10908,38 @@ territory in their first commit)
   `datacore/signal_ladder.json`'s `port_dwell_maritime_transit` entry
   unchanged in gate/status (`current_gate` 1/`gate1_pass`) -- still GATE
   2 infrastructure accumulation, not a result.
+  UPDATE 2026-09-06 (two scheduled-routine sessions this UTC day): the
+  routine weekly-snapshot capture this entry's own NEXT invites every
+  session to run started FAILING against production -- `hours=168` (3
+  attempts) and `hours=48` (1 attempt) each ran 46-71s before a
+  connection-reset/502, while `hours=24` completed in 45.7s; `/api/health`
+  stayed fully responsive throughout a concurrent in-flight 168h request
+  (ruling out an event-loop stall/crash -- this was never a LIVENESS
+  concern). A second session then measured `pointsScanned`/`elapsedMs` at
+  hours=8/16/24/48 (via a new timed variant wired into the probe only, the
+  live `/api/data/portdwell` route unchanged) and found a flat
+  ~11.7-17.1us/point cost that does NOT amortize down as the window grows
+  -- CPU-bound (per-point parse/fold cost), not I/O-bound. No week was
+  captured either session; full account in experiments.md's matching
+  2026-09-06 entries.
+  UPDATE 2026-09-07 (scheduled-routine PRODUCT session): implemented the
+  2026-09-06 sessions' own recommendation -- `server/portDwellCapture.ts`
+  runs the SAME fold IN-PROCESS on the server's Tier-3 (hourly) clock
+  instead of over HTTP, so the platform's edge-proxy timeout is no longer
+  in the path at all (it only ever sat between the live server and an
+  external HTTP caller). Bounded to at most one 168h fold per tick
+  (`captureIfDue` — the single oldest week neither already captured nor
+  already recorded as permanently skipped); persists to the Railway
+  volume, a file deliberately SEPARATE from this git-tracked
+  `datacore/port_dwell_weekly.json` (a new read-only `portdwell_weekly_captured`
+  diag probe lets a future session pull newly-captured weeks into this
+  file cheaply — no live fold — instead of re-running the expensive
+  per-week HTTP loop `scripts/portdwell_weekly_snapshot.ts` still uses).
+  NOT done this session: migrating that script to the cheap probe, and
+  reconciling the two files' week sets (left for a follow-up, one logical
+  change per PR). File still holds only weeks 6, 7, 8 -- unchanged, this
+  was a reliability fix, not a new capture. Full account in
+  experiments.md's matching 2026-09-07 entry.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

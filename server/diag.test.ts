@@ -397,3 +397,20 @@ test("fdic_gate2 probe (2026-09-03, fdic_bank_failures GATE 2 support): wired, r
   assert.ok(mod.includes("export interface EventStudyVerdict") && mod.includes("bootstrap_ci_95") && mod.includes("two_sided_p"),
     "the reused event-study module must already be aggregate-only in its output shape (mean/CI/p-value, no per-day return list)");
 });
+
+test("portdwell_weekly_captured probe (2026-09-07): wired, read-only passthrough of the Tier 3 in-process capture state, sanitized", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("portdwell_weekly_captured"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./portDwellCapture"') && bot.includes("loadCapturedSnapshots"),
+    "portdwell_weekly_captured probe must reuse the shared reader, not re-derive the state file path inline");
+  const start = bot.indexOf('case "portdwell_weekly_captured"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "portdwell_weekly_captured probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("loadCapturedSnapshots()"), "must actually call the shared reader");
+  assert.ok(block.includes("sanitizeDiag"), "portdwell_weekly_captured probe must pass the sanitizer like every other probe");
+  assert.ok(!block.includes("fetch("), "this is a local-file read, never a network call");
+  const mod = fs.readFileSync(path.join(here, "portDwellWeekly.ts"), "utf8");
+  assert.ok(mod.includes("export interface WeeklySnapshot") && mod.includes("dwell_median_h"),
+    "the reused snapshot shape must already be aggregate-only per port (no per-vessel mmsi/name/position fields)");
+});
