@@ -3,6 +3,229 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-07 (scheduled-routine session, fifth session this UTC day, market-hours run) [PRODUCT] — port_dwell_maritime_transit's own queued follow-up shipped: scripts/portdwell_weekly_snapshot.ts now prefers the cheap server-captured-state probe over the expensive per-week fold, plus two bugs caught in the course of the fix (v1.0.863)
+
+TERRITORY: T-DATACORE primary (scripts/portdwell_weekly_snapshot.ts,
+scripts/portdwell_weekly_snapshot.test.ts new) + SHARED-but-minimal, last
+(datacore/signal_ladder.json single-paragraph UPDATE append, package.json/
+package-lock.json version bump). No T-BOT or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/research_state_check.py`: audits register none overdue (STALENESS
+due 2026-09-14, CONSTITUTIONAL due 2026-09-15), thrash_ratio 0/10 REPAIR
+(well under the 7+ trigger, 1 untagged header counted as non-REPAIR),
+known_broken 41/4-advisory (none a live blocker), starvation 0/10 — no
+meta-problem flag. `python3 scripts/ladder_readiness_check.py`: still 0/3
+gated roots ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all time-blocked, unchanged). Live `curl
+https://voltradeai.com/api/health`: status ok, bot active, drawdownPct
+"0.0", liveness.dark false, alpaca ACTIVE, all 3 archive feeds alive — no
+LIVENESS ALARM. `git fetch origin main`: HEAD already equals origin/main at
+3e24f87/v1.0.862/PR #1022 (the immediately preceding session's own merge),
+no reset needed.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no ladder-readiness-check root came due, no matured experiment
+queued for judgment. The four most-recent 2026-09-07 sessions' own queued
+NEXT items were all either operational (monthly un_comtrade re-runs),
+explicitly non-urgent (HS-6 detail), or a known sandbox-only constraint
+(the --page data perf battery timing out in software rendering) — none a
+clean, high-value PRIMARY action. Per SESSION BUDGET fall-through order 1,
+read further back in port_dwell_maritime_transit's own ladder note
+(datacore/signal_ladder.json) instead of only the most recent session's
+NEXT list, since that root's 2026-09-07 (scheduled-routine PRODUCT
+session, v1.0.859, PR #1019) UPDATE explicitly named a concrete, scoped,
+NOT-yet-done follow-up: "migrating scripts/portdwell_weekly_snapshot.ts to
+prefer the new cheap probe... deliberately left for a follow-up session,
+one logical change per PR." Confirmed via `git log` that this follow-up
+had not been picked up by any of the three intervening un_comtrade
+sessions. Took it as PRIMARY — concretely scoped, well-understood from
+that PR's own detailed header, addresses a genuine reliability gap (the
+CPU-bound proxy-timeout finding from the two 2026-09-06 sessions), and
+carries essentially zero trading-loop risk (script + a ladder-note
+docs-only edit, no server/bot.ts or python file touched).
+
+READ BEFORE WRITE: read server/portDwellCapture.ts (the new in-process
+Tier-3 capture module, PR #1019) in full, including its header's own
+explicit statement of what it deferred; server/bot.ts's
+"portdwell_weekly_captured" diag-probe case (line ~2761) to confirm the
+exact response shape (`{probe, weeks: WeeklySnapshot[]}`) and that
+`raw_vessel_archive_from` (server/bot.ts's "portdwell_window" case, line
+~2610) comes from `oldestRawHour("vessels")` — archive-wide metadata
+computed independently of the `hours` query param, NOT from the expensive
+`computePortDwellAsyncTimed` fold that also runs in that same handler; the
+full existing scripts/portdwell_weekly_snapshot.ts and
+server/portDwellWeekly.ts (mergeWeeklySnapshot/missingWeekIndices/
+WeeklySnapshot shape) — all before writing anything. Confirmed via `grep`
+that server/portDwellCapture.ts's own `WeeklySnapshot`/`mergeWeeklySnapshot`
+imports from portDwellWeekly.ts are the SAME types/functions the script
+already uses, so the server's captured-state shape needs zero translation
+to merge into the committed file.
+
+WHAT SHIPPED:
+- `scripts/portdwell_weekly_snapshot.ts`: new `fetchCapturedWeeks()` (GET
+  `/api/diag/portdwell_weekly_captured`, cheap, no fold) + new pure/exported
+  `mergeCapturedWeeks(existing, captured)` (folds `mergeWeeklySnapshot` over
+  each server-captured week — never overwrites a week already present, per
+  that function's own contract). `main()` now merges in whatever the server
+  has already captured FIRST, before the original expensive per-week
+  `portdwell_window` loop, which now only runs for weeks the server hasn't
+  captured yet. The fetch is wrapped in try/catch — a stale deployed server
+  without this probe yet, or any other failure, degrades gracefully to the
+  fallback loop only, never a hard crash.
+- SECOND FINDING, caught while making this change (not the primary
+  target): the script's own one-off "how far does raw retention reach"
+  boundary check was itself requesting `hours=168` (the single most
+  expensive window this endpoint can be asked for, since it is always the
+  most data-dense) purely to read `raw_vessel_archive_from` — archive-wide
+  metadata that does not vary with the requested window size (confirmed by
+  reading the handler, see READ BEFORE WRITE above). `fetchWindow()` gained
+  an optional `hours` parameter (default 168, unchanged for genuine
+  per-week captures); the boundary check now passes `hours=1`. Per the
+  2026-09-06 CPU-bound measurement (this same file, that date: per-point
+  cost ~11.7-17.1us regardless of window size, does not amortize), this
+  boundary call was very likely failing outright on every invocation since
+  the archive grew past the failure threshold — meaning the un-migrated
+  script may have been unable to capture ANY new week for some time, a
+  strictly worse situation than the "recent/dense weeks only" framing the
+  prior sessions' diagnosis implied.
+- THIRD FINDING, caught by the test-writing process itself: this file's
+  top-level `main().catch(...)` had no `import.meta.url` guard (unlike
+  every other `scripts/*.ts` file with a sibling `.test.ts` — confirmed via
+  `grep` against wikiattention_gate1.ts/finra_shortvol_gate2.ts/
+  gdelt_fires_gate2.ts, all three guarded). The FIRST run of the new test
+  file (written to exercise `mergeCapturedWeeks` in isolation) imported this
+  module and fired two REAL network requests against production before any
+  guard existed — confirmed live: both hit a 502 ("Application failed to
+  respond", a mid-deploy transient per `/api/health`'s low `uptime_s` at
+  the time, not the CPU-bound timeout signature). No write occurred only
+  because both calls failed, not because anything prevented the attempt —
+  exactly the class of accidental live side-effect READ BEFORE WRITE exists
+  to catch, caught here by the test's own first run rather than smoothed
+  over. Fixed with the same `import.meta.url === pathToFileURL(...)` guard
+  every sibling file already uses; re-ran the test file afterward and
+  confirmed zero network calls (5/5 pass in 471ms, no live requests).
+- `scripts/portdwell_weekly_snapshot.test.ts` (new): 5 unit tests for
+  `mergeCapturedWeeks` in isolation (no fs/network) — empty-existing
+  pickup, never-overwrite-on-conflicting-index (the never-overwrite
+  contract this whole design depends on), mixed new+existing merge,
+  order-independence of the captured list, and no-op on an empty captured
+  list.
+
+LIVE END-TO-END VERIFICATION (this session, DIAG_TOKEN available in this
+sandbox — not assumed, checked): after the guard fix, ran the migrated
+script DIRECTLY against production (`npx tsx
+scripts/portdwell_weekly_snapshot.ts`), not just the unit tests. Result:
+`portdwell_weekly_captured` returned 1 real server-captured week (index 6,
+`captured_at` 2026-09-07T00:32:10Z), already present in the committed
+`datacore/port_dwell_weekly.json` (weeks 6,7,8) and correctly left
+unmerged — `weeks_captured_from_server_state: []`, confirming the
+never-overwrite contract holds against a REAL server response, not just a
+synthetic fixture. The new `hours=1` boundary call succeeded cleanly
+(`raw_vessel_archive_from: "2026-08-12T10:00:00.000Z"`,
+`earliest_attemptable_week_index: 6`, `last_completed_week_index: 8`); all
+three committed weeks were already present so the fallback loop had
+nothing to attempt (`weeks_captured_this_run: []`,
+`weeks_skipped_this_run: []`); `git diff` on `datacore/port_dwell_weekly.json`
+confirmed empty afterward — the file was correctly left untouched. This is
+real production behavior, not a mocked run — the strongest evidence
+available in this sandbox that the migration works end-to-end.
+
+GATES: `npx tsx --test scripts/portdwell_weekly_snapshot.test.ts`: 5/5
+pass (471ms, confirmed no network calls post-guard-fix). Full JS/TS suite
+`npx tsx --test server/*.test.ts scripts/*.test.ts` (after `npm ci` — this
+session's container had zero `node_modules`; a first attempt without it
+failed on `Cannot find package 'express'`, unrelated to this diff):
+1648/1648 pass, 0 fail. `bash scripts/gated_tests.sh`: GATE PASSED —
+server (182 files), client (101 files), python 1784 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 3
+errors (pin 12, TS2304=0) — isolated via `git stash -u`/pop A/B: identical
+3 on the pre-diff tree, pre-existing drift from unrelated merges, correctly
+left un-lowered per PROMOTION RULE 5 (not this diff's effect). `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge`
+reported 427->429 as "IMPROVED" — isolated via `git stash -u`/pop A/B
+(properly including the new untracked test file this time, unlike a
+plain `git stash` which would have left it in place and invalidated the
+comparison): identical 427->429 reproduces on the pre-diff tree, confirming
+pre-existing drift, correctly left un-repinned. All other 23 counters
+unchanged, 25/25 OK. `npm run build`: clean (pre-existing chunk-size/
+astronomy-engine warnings only, unrelated to this diff). `python3 -c
+"import json; json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (port_dwell_maritime_transit's own note extended by one UPDATE
+paragraph, targeted single-line text replacement rather than a full
+json.dump round-trip specifically to avoid reformatting the other 45
+untouched root lines — confirmed via `git diff --stat` showing exactly 1
+line changed in that file).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a capture-reliability fix over
+already-shipped infrastructure. No scoring/sizing/threshold value touched,
+no trading path involved, current_gate stays 1/gate1_pass (capture
+infrastructure, not a gate result).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py/server/bot.ts all untouched — confirmed by the diff's file
+list, and independently by `grep`-ing server/bot.ts's own
+portDwellCapture.ts import/wiring, which this diff does not touch). This
+script is invoked manually/by a session, never from the live server
+process, so there is no live-request-path change of any kind — the live
+`/api/data/portdwell` route, the `portdwell_window` diag probe, and the
+Tier-3 in-process capture job are all byte-for-byte unchanged.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.863 (package.json, read-and-increment at commit time; `git
+fetch origin main` immediately before the bump confirmed origin/main was
+still at 3e24f87/v1.0.862/PR #1022, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+MARKET-HOURS NOTE (per the scheduling instruction for this run): today
+(2026-09-07) is Labor Day — US market closed all day (`market_calendar.py`
+confirms `date(2026, 9, 7)` is a listed holiday, re-verified this session)
+— so there is no live trading-hours conflict today regardless. Out of
+caution for the general instruction's intent (and since this diff touches
+no trading-path file), this PR is still left for the human/a later
+after-hours check before merge rather than self-merged, per the run's own
+instruction to hold merge until after 4:00PM ET unless the change fixes a
+critical live break (it does not — this is a reliability improvement to an
+already-degraded-gracefully capture path, not an active break).
+
+CROSS-SYSTEM INTEGRATION: none new — this is capture-path plumbing between
+an already-existing server-side job and an already-existing committed
+research artifact, no new entity-graph join, no new cross-tie.
+
+NEXT (queued, not this session): (1) the committed file still holds only
+weeks 6, 7, 8 — GATE 2 still needs ~15-20+ clean weeks; a future session
+re-running this script will now pick up whatever the server's Tier-3 job
+has accumulated (at most 1 week/hour) cheaply, no code change needed, just
+elapsed time. (2) per the AUDITS & DEBT register, STALENESS (due
+2026-09-14) and CONSTITUTIONAL (due 2026-09-15) audit last-run dates
+should be checked by the next session whose fall-through reaches the
+research tier — not checked this session, capacity was fully used by this
+primary action. (3) the un_comtrade HS-6/perf-battery items from the prior
+four sessions' NEXT lists remain queued and untouched by this session,
+unrelated territory.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+[PIPELINE/REPAIR]-adjacent PRODUCT action (an explicitly-deferred,
+concretely-scoped follow-up from an earlier session's own PR), used in
+full: read the full prior PR's header and the actual diag-probe handler
+code before writing anything (not assumed from the ladder note's prose
+alone), found and fixed two genuine bugs in the course of the primary
+change rather than only the one targeted gap (the hours=168-for-metadata
+inefficiency and the unguarded main() side-effect), verified the fix with
+a REAL end-to-end run against production rather than stopping at synthetic
+unit tests, and isolated both counter-adjacent gate results via proper
+`git stash -u` A/B before crediting or discrediting them. No higher-priority
+queued item was skipped (no LIVENESS ALARM; thrash ratio 0/10, well under
+threshold; no ladder-readiness-check root came due; no matured experiment
+awaited judgment).
+
 ## 2026-09-07 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — UN Comtrade gets its /api/v1/data/un-comtrade keyed mirror; a license-mark drafting error (JODI's "ok" wrongly copied) caught and fixed before shipping (v1.0.862)
 
 TERRITORY: SHARED-but-minimal (server/routes.ts, server/apiProduct.ts,
