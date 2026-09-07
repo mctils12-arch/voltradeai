@@ -3,7 +3,255 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-07 (scheduled-routine session, fifth session this UTC day, market-hours run) [PRODUCT] — port_dwell_maritime_transit's own queued follow-up shipped: scripts/portdwell_weekly_snapshot.ts now prefers the cheap server-captured-state probe over the expensive per-week fold, plus two bugs caught in the course of the fix (v1.0.863)
+## 2026-09-07 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — nasa_gibs_nightlights's own queued mechanical gate-1 tile/date-alignment spot-check RUN: the shipped "nightlights" layer FAILED it (moon/cloud-contaminated, not city lights), a live GIBS alternative PASSED it, and the client is swapped to the passing layer same session (v1.0.864)
+
+TERRITORY: T-DATACORE primary (scripts/nasa_gibs_nightlights_gate1.py,
+test_nasa_gibs_nightlights_gate1.py new) + T-CLIENT (client/src/pages/
+datamap.tsx, one layer-id + two attribution-string lines) + SHARED-but-
+minimal, last (datacore/signal_ladder.json single-entry UPDATE,
+ci/counter_baseline.txt, package.json/package-lock.json version bump).
+No T-BOT files touched. Cross-territory note per WORKSTREAM PARTITION
+rule 5 ("a cross-territory change belongs wholly to the session owning
+its PRIMARY territory"): the T-CLIENT edit is a direct, same-session
+consequence of the T-DATACORE gate-1 finding (fix the layer the finding
+says is wrong), not an independent T-CLIENT change, so it ships in this
+PR rather than being split off.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail) and research/open_questions.md (tail) and research/wishlist.md
+(head+tail). `python3 scripts/research_state_check.py`: audits register
+none overdue, thrash_ratio 0/10 REPAIR (well under the 7+ trigger),
+known_broken 41 items/4 without an explicit close marker (#26, #34, #38,
+#40 — advisory only; #35/#36 also read this session, both T-BOT/measurement
+territory, real but not this session's to fix per WORKSTREAM PARTITION —
+noted per the scheduling instruction's "note but proceed" clause, not a
+blocker), starvation 0/10 — no meta-problem flag. `python3
+scripts/ladder_readiness_check.py`: still 0/3 gated roots ready (all
+time-blocked, unchanged). Live `curl https://voltradeai.com/api/health`:
+first call 502 "Application failed to respond" (a deploy/restart in
+flight — `uptime_s` on the very next call read 5s), three immediate
+retries all 200/ok — bot active, drawdownPct "0.0", liveness.dark false,
+alpaca ACTIVE, all 3 archive feeds alive. No LIVENESS ALARM (a single
+502 during a routine deploy restart, not a sustained outage — the rule's
+own bar is 2 market hours / 24 wall-clock hours dark). `git fetch origin
+main`: HEAD already equals origin/main at c3f012b/v1.0.863/PR #1023, no
+reset needed. Today (2026-09-07) is Labor Day, a market holiday per
+market_calendar.py — irrelevant here regardless, this session touches no
+trading-path file.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no ladder-readiness-check root came due, no matured experiment
+queued for judgment. Surveyed datacore/signal_ladder.json's gate-1 roots
+for an unclaimed next-gate action (SESSION BUDGET order: judge a matured
+experiment > start a new one) — nearly every gate-1 root is either
+time-blocked (port_dwell/sec_13f/nrc_outage/dtcc_swaps all waiting on
+archive depth), correctly gate-2-declined (un_comtrade, fred/eu-macro
+regime inputs), or closed pending a human decision (gas_flare_candidates,
+shadow_fleet_maritime). Checked `python3 scripts/data_stream_registry_check.py`:
+axis-(a) new-root build queue is 26/35 built, the 9 remaining are all
+declined-dead-source or blocked-on-registration/key (none actionable
+today). Checked research/data_census.md: "axis (a) build queue for this
+census is now fully exhausted." Fell through to the gate-0 raw_only
+roots' own notes (research/data_census.md + datacore/signal_ladder.json)
+looking for a concretely-named, unclaimed, non-time-blocked gap and found
+one: nasa_gibs_nightlights's own entry named "even the mechanical gate-1
+tile/date-alignment spot-check was not yet done" — a cheap, bounded,
+external-truth-checkable action (does the layer wired into the client
+actually show elevated brightness over known-bright cities vs known-dark
+open ocean), squarely PRODUCT option (a) (advance a datacore pipeline
+through its next ladder gate — gate 1 ground-truth validation is
+explicitly named as product work by this session's own instructions).
+Took it as PRIMARY.
+
+WHAT THE CHECK FOUND: read `client/src/pages/datamap.tsx`'s nightlights
+block before touching anything (READ BEFORE WRITE) — the layer wired into
+the "nightlights" toggle is `VIIRS_SNPP_DayNightBand_At_Sensor_Radiance`
+(distinct from the separate, correctly-static `VIIRS_Black_Marble` base-
+map preset at a hardcoded 2016-01-01, which this session did NOT touch —
+traced both call sites before assuming they were the same thing). Probed
+GIBS's live GetCapabilities XML (not assumed from memory) for every
+DayNightBand-family layer's TileMatrixSet + date-availability range.
+PRE-REGISTERED PRIOR (REASONING STANDARD #10, stated before the final
+committed script ran): the "_At_Sensor_Radiance" product name signals no
+lunar/BRDF correction, and published VIIRS-DNB literature (Elvidge et
+al.) says uncorrected at-sensor radiance is dominated by moon phase/cloud
+reflectance, not surface lighting — SHIPPED_LAYER was EXPECTED to fail a
+bright-metro-vs-dark-ocean discrimination bar that a corrected product
+passes. PRE-REGISTERED BAR: mean brightness of 3 known-bright metro z=6
+tiles (Las Vegas/LA/Phoenix, Tokyo/Osaka/Seoul, London/Paris/Benelux) at
+least 2.0x mean brightness of 4 known-dark open-ocean z=6 tiles (Pacific,
+Atlantic, Indian, South Pacific — chosen for being far from any coast or
+shipping lane), on EVERY sampled date.
+
+RESULT, `scripts/nasa_gibs_nightlights_gate1.py` (final committed run,
+4 dates spanning 2026-06-15 through 2026-09-01):
+- SHIPPED (`VIIRS_SNPP_DayNightBand_At_Sensor_Radiance`) — FAIL. Ratios
+  2.23 / 2.04 / 1.25 across the 3 successfully-fetched dates (2026-06-15,
+  2026-08-15, 2026-09-01) — the bar was cleared on 2 of 3 but FAILED on
+  2026-09-01, where open ocean (mean 73.0) was nearly as bright as major
+  metros (mean 91.2). A quick informational check (not part of the pass
+  bar) on a 5th, land-dark control location (central Sahara) sharpened
+  the picture further: it read 116.6 on 2026-09-01 — BRIGHTER than every
+  tested metro that date.
+- CANDIDATE (`VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_Radiance`)
+  — PASS on all 3 dates, ratios 3.82 / 2.91 / 3.47, sahara consistently
+  low (8.6-24.1, tracking dark-land expectation). Confirmed via
+  GetCapabilities this layer is CURRENTLY LIVE (`<Default>` date
+  2026-09-06, i.e. yesterday relative to this session) and same
+  TileMatrixSet/cadence as SHIPPED — a drop-in swap, not a rebuild.
+  Checked GIBS's OTHER corrected DNB product, `..._ENCC` (Enhanced Near
+  Constant Contrast) first — its GetCapabilities date range stops at
+  2023-07-07 (confirmed by requesting a 2026 date: HTTP 404 on every
+  location), i.e. discontinued, so NOT usable for an ongoing archiver even
+  though it also passed the same bar on its own last-live dates (checked
+  informationally, 2023-06-01/2023-01-15, ratios 2.6/1.8 — weaker and
+  noisier than GapFilled_BRDF_Corrected at the same coarse z=6 averaging,
+  another reason to prefer the latter even setting the discontinuation
+  aside).
+- The 4th sampled date, 2026-07-15, 404'd for EVERY location on BOTH
+  layers — verified this is a genuine whole-globe GIBS gap for that date
+  (not a location- or layer-specific bug: checked all 7 locations
+  individually against the candidate layer, all 7 failed identically),
+  consistent with — and now live evidence FOR — the existing UI caveat
+  text ("some dates/areas may render blank... sensor gaps"), which had
+  never itself been verified against a real observed gap before this
+  session.
+
+ROOT CAUSE, not just correlation: VIIRS's Day/Night Band is a genuine
+low-light imaging sensor built to see both moonlit clouds/terrain AND
+surface lights in the same raw signal — CLAUDE.md's own EDGE DOCTRINE #1
+names this sensor family for exactly that dual sensitivity. Turning raw
+at-sensor radiance into a lights-only product requires removing the
+lunar-illumination/BRDF term, which is precisely what "_GapFilled_
+BRDF_Corrected_" and (historically) "_ENCC" do and "_At_Sensor_Radiance"
+explicitly does not. This is not a bug in GIBS or a data-quality problem
+with the archive — it is the wrong PRODUCT NAME having been picked when
+this layer was originally wired in 2026-07-08 (a plausible, easy mistake:
+"_At_Sensor_Radiance" reads as the more literal/raw/trustworthy-sounding
+option, not the wrong one, without knowing the DNB correction literature).
+
+FIXED SAME SESSION (one logical change: "the nightlights layer showed the
+wrong thing; here is why, and here is the fix", not two separable
+changes): `client/src/pages/datamap.tsx`'s nightlights `useEffect` layer
+id swapped from `VIIRS_SNPP_DayNightBand_At_Sensor_Radiance` to
+`VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_Radiance` (same
+TileMatrixSet, same `nightlightsDate`/`gibsDefaultDate` machinery,
+untouched), plus the source `attribution` string and the on-map status
+caption updated from "radiance" to "corrected radiance" / "(moon/cloud-
+corrected)" so the UI honestly describes what it now shows — PREMIUM
+EXPERIENCE STANDARD (c): "every number visibly carries freshness,
+provenance, and confidence." `datacore/layers.json`'s registry
+description was re-read and left unchanged — it already correctly hedges
+("open gate-2 hypothesis... not yet surfaced as a signal") and does not
+claim "city lights," so no inaccuracy survived there.
+
+WHAT THIS DOES NOT ESTABLISH: the metro-radiance-delta-as-GDP-proxy
+hypothesis this root's own note names is UNCHANGED status — still needs
+an archived DAILY SERIES (this session built no archiver) and its own
+gate-1 (does a metro's radiance trend track an independent ground truth)
+and gate-2 (does the delta predict anything) runs. What this session
+establishes is narrower and prerequisite: the raw material a future
+archiver would build on is now measuring city lights rather than moon
+phase. `datacore/signal_ladder.json`'s nasa_gibs_nightlights entry stays
+current_gate 0/raw_only (RAW OVERLAYS vs SIGNALS rule — this is still a
+display layer, no predictive claim made or implied either before or
+after the swap) — the entry's note is updated with the full finding and
+the still-open NEXT (build a daily archiver on the corrected layer).
+
+GATES: `python3 -m pytest test_nasa_gibs_nightlights_gate1.py -q`: 11/11
+new pure-function tests (tile_xy against 2 independently-verified known
+coordinates, tile_url string exactness, mean_brightness against synthetic
+solid-color PNGs, evaluate_date/evaluate_layer orchestration logic via an
+injectable fetch_fn — no network in pytest, same convention as
+test_un_comtrade_gate1.py; fetch_tile itself exercised live only by
+running the script directly, output captured above). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/gated_tests.sh` (after `npm ci` + `pip install -r requirements.txt
+-r requirements-dev.txt`, this session's container had neither — Pillow/
+rasterio/numpy already tracked deps, no new dependency added): GATE
+PASSED — client 1083/1083, python 1795 passed/1 skipped/54 subtests
+(1784 -> 1795, exactly this session's 11 new tests), quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 427 -> 429, `assertions` 13547 -> 13554 — all three
+this session's own direct effect (isolated via `git status`/`git diff
+--stat` showing only this session's 4 changed/new files), re-pinned in
+`ci/counter_baseline.txt` in this same PR; all other 22 counters
+unchanged, re-ran clean (25/25 OK). `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (one entry edited in place). `npm run build`: clean (client
+1859 modules via Vite, server bundle 16.5mb via esbuild — pre-existing
+chunk-size warnings only, unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a gate-1 mechanical validation +
+client raw-overlay accuracy fix; no trading path, scoring, sizing, or
+threshold touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py untouched). The only runtime-behavior change is the tile
+URL the client requests when a user enables the "nightlights" toggle
+(off by default) — same request shape/cadence/opacity/date-scrubber
+machinery, different upstream GIBS layer id. No new fetch volume, no new
+poller, no server-side change at all (this is a client-only display
+swap over an existing third-party WMTS endpoint).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes a data-quality gap in an
+existing display layer, it does not add a join, archive, or poller.
+`scripts/nasa_gibs_nightlights_gate1.py` is written so ANY future
+archiver session can reuse `CANDIDATE_LAYER`/`BRIGHT_LOCATIONS`/
+`DARK_LOCATIONS` directly rather than re-deriving them.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION (PROMOTION RULE 6, client/ touched): `npm run visual
+-- --page data` (scoped to the one page this diff touches — the
+unscoped full-suite run this session first tried timed out in this
+sandbox's software-rendering environment even after 590s+10min of
+waiting, a known constraint per PROGRAM_STATE.md's own prior note on
+the same harness; `--page` is the harness's own documented scoping flag,
+not a shortcut around the rule). 0 hard failures at 390/768/1440.
+`nightlights` is off by default (per its own toggle state) so the
+harness's default-view screenshots do not render it — reviewed
+`.visual/data-1440.png` directly: layout, legend, and layers panel all
+render as expected, no regression. All logged warnings (touch targets
+<44px on nav buttons, two clipped-control labels, the 768/1440 p95
+frame-time notes) are pre-existing UI-chrome items unrelated to this
+diff (no aircraft/layer-count/rendering-path touched) — not investigated
+further here, out of this PR's scope.
+
+VERSION: v1.0.864 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at c3f012b/v1.0.863/PR #1023, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session — one logical change per PR): (1) build a
+daily archiver for `VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_
+Radiance` (server-side, same poll-and-persist pattern as the other GIBS-
+adjacent archives in this repo) — the actual prerequisite for attempting
+the metro-radiance-delta-as-GDP-proxy hypothesis's own gate 1. (2) that
+future gate-1 run needs its own independent ground truth (e.g. a known
+metro's utility-reported load or nighttime economic-activity proxy), not
+reused from this session's bright/dark discrimination check — this
+session's bar answers "is the sensor pointed at the right thing," not
+"does its trend predict anything." (3) `research/data_census.md`'s
+NASA_GIBS_NIGHTLIGHTS-adjacent census line was not updated this session
+(the finding lives in signal_ladder.json + here) — low priority,
+data_census.md is the pre-build survey document, not a live status
+tracker, and every other root's post-build detail already lives in
+signal_ladder.json by convention.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a concretely-named, unclaimed gap from the root's own
+note), used in full including probing GIBS's live GetCapabilities rather
+than assuming a "corrected" layer existed or was current, catching the
+ENCC-is-discontinued dead end before recommending it, and root-causing
+the whole-globe 2026-07-15 gap rather than treating it as measurement
+noise.
+
+
 
 TERRITORY: T-DATACORE primary (scripts/portdwell_weekly_snapshot.ts,
 scripts/portdwell_weekly_snapshot.test.ts new) + SHARED-but-minimal, last

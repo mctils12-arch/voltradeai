@@ -17496,3 +17496,45 @@ no code change needed. (2) full reconciliation to the ~15-20+ week GATE 2
 threshold is still purely a function of elapsed time (the Tier-3 job
 captures at most 1 week/hour) — no further action item exists beyond
 letting sessions keep re-running the (now cheaper) script periodically.
+
+## 2026-09-07 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — NASA GIBS NIGHT LIGHTS: the root's own queued mechanical gate-1 spot-check run — the shipped layer FAILS a bright-metro-vs-dark-ocean sanity bar (moon/cloud-contaminated, not city lights), a live GIBS alternative PASSES it, client swapped same session
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: `client/src/pages/datamap.tsx`'s "nightlights" toggle was wired to
+`VIIRS_SNPP_DayNightBand_At_Sensor_Radiance` — uncorrected VIIRS Day/Night
+Band radiance, which the published literature says is dominated by lunar
+phase/cloud reflectance, not surface lighting. Live-measured this session
+(`scripts/nasa_gibs_nightlights_gate1.py`, pre-registered bar: known-bright
+metro tiles at least 2x known-dark open-ocean tiles, on every sampled date):
+FAILED on 2026-09-01 (ratio 1.25 — open ocean nearly as bright as Vegas/
+Tokyo/London; a Sahara-desert informational control was brighter than every
+tested metro that date). `VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_
+Radiance` — a live, still-updating GIBS product (confirmed via
+GetCapabilities; GIBS's OTHER corrected product, ENCC, stopped publishing
+2023-07-07, checked and ruled out) — PASSED the identical bar on every
+sampled date, ratio 2.9-3.8x. Swapped the client to the passing layer same
+session (one logical change: found the wrong layer, fixed it), plus honest
+attribution-text updates ("corrected radiance"). `datacore/signal_ladder.json`
+updated in place; still current_gate 0/raw_only (a display-accuracy fix, not
+a new predictive claim).
+
+WHAT THIS DOES NOT ESTABLISH: the metro-radiance-delta-as-GDP-proxy
+hypothesis this root's note names is unchanged in status — still needs an
+archived daily series (none exists yet) and its own gate-1/gate-2 runs
+against independent ground truth. This session establishes only the
+prerequisite: the raw material a future archiver would build on now
+measures the right thing.
+
+NEXT (queued, not this session): (1) build a daily archiver on the
+corrected layer — the real prerequisite for the GDP-proxy hypothesis's own
+gate 1. (2) that future gate-1 run needs its own independent ground truth,
+not reused from this session's discrimination check. (3) `research/
+data_census.md`'s pre-build survey line for this root was left unchanged —
+low priority, post-build detail lives in signal_ladder.json by convention.
+
+STARVED: no — one clean, scoped PRODUCT action taken to completion,
+including live GetCapabilities probing rather than assumption, catching
+the ENCC-discontinued dead end, and root-causing (not just noting) the
+whole-globe 2026-07-15 tile gap.

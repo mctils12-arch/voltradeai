@@ -5608,7 +5608,23 @@ export default function DataMapPage() {
   // TileMatrixSet for this layer; Level9 is explicitly rejected by GIBS,
   // not a network fluke — see gibs.ts header). field:true — opacity slider
   // inherited; the date scrubber is this layer's own extra control,
-  // rendered next to it the same way weather_temp/weather_wind add theirs.) ──
+  // rendered next to it the same way weather_temp/weather_wind add theirs.
+  //
+  // LAYER CHANGED 2026-09-07 (scripts/nasa_gibs_nightlights_gate1.py, the
+  // nasa_gibs_nightlights root's own mechanical gate-1 spot-check): the
+  // original layer here, VIIRS_SNPP_DayNightBand_At_Sensor_Radiance, is
+  // uncorrected at-sensor radiance — dominated by lunar phase/cloud
+  // reflectance, not city lights (live-measured: open ocean rendered
+  // BRIGHTER than Las Vegas/Tokyo/London on 2026-09-01; the whole globe's
+  // brightness moved in lockstep with the moon cycle across dates, not
+  // with known light/dark geography — it failed a pre-registered
+  // bright-metro-vs-open-ocean ratio bar on 1 of 3 sampled dates). Swapped
+  // to VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_Radiance — same
+  // TileMatrixSet/daily cadence, still live-updating (unlike GIBS's other
+  // corrected product, ENCC, which stopped publishing 2023-07-07) — which
+  // passed the identical bar on every sampled date (ratio 2.9-3.8x vs the
+  // old layer's 1.25-2.2x). Full account in research/experiments.md's
+  // 2026-09-07 entry. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -5624,12 +5640,12 @@ export default function DataMapPage() {
       if (map.getLayer("gibs-nightlights")) map.removeLayer("gibs-nightlights");
       if (map.getSource("gibs-nightlights")) map.removeSource("gibs-nightlights");
       const url = gibsTileUrl(
-        { layer: "VIIRS_SNPP_DayNightBand_At_Sensor_Radiance", tileMatrixSet: "GoogleMapsCompatible_Level8", ext: "png" },
+        { layer: "VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_Radiance", tileMatrixSet: "GoogleMapsCompatible_Level8", ext: "png" },
         nightlightsDate,
       );
       map.addSource("gibs-nightlights", {
         type: "raster", tiles: [url], tileSize: 256, maxzoom: 8,
-        attribution: "Night lights radiance · VIIRS/SNPP · NASA GIBS/ESDIS (public domain)",
+        attribution: "Night lights (moon/cloud-corrected) · VIIRS/SNPP · NASA GIBS/ESDIS (public domain)",
       } as any);
       const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
       map.addLayer({
@@ -5637,7 +5653,7 @@ export default function DataMapPage() {
         paint: { "raster-opacity": opacityOf("nightlights") / 100 },
       } as any, firstMarker?.id);
       setStatus("nightlights", "active", undefined,
-        `radiance for ${nightlightsDate} (UTC) · NASA GIBS/ESDIS — some dates/areas may render blank ` +
+        `corrected radiance for ${nightlightsDate} (UTC) · NASA GIBS/ESDIS — some dates/areas may render blank ` +
         `(daylight side of the terminator, sensor gaps); step back a day if so`);
     } catch {
       setStatus("nightlights", "error");
