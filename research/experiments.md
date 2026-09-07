@@ -3,6 +3,225 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-07 (scheduled-routine session, third session this UTC day) [PRODUCT] — /data client page for UN Comtrade bilateral goods trade, closing the queued shipped-data-no-client-page gap (v1.0.861), PR #1021
+
+TERRITORY: T-CLIENT primary (client/src/pages/unComtrade.tsx new,
+client/src/pages/datamap.tsx wiring, scripts/visual_check.mjs harness
+registration) + SHARED-but-minimal, last (datacore/signal_ladder.json
+single-paragraph UPDATE append, package.json/package-lock.json version
+bump). No T-BOT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/experiments.md's
+most recent entry (this same UTC day's second session, the un_comtrade
+PIPELINE build, PR #1020/v1.0.860, GATE 1 PASSED) read in full — its own
+queued NEXT (1) named exactly this session's action: "a /data client page
+for un_comtrade ... same shipped-data-no-client-page-gap pattern this repo
+has closed for FINRA/plant-operations/EPA-CAMD before." research/
+open_questions.md's tail (PORT DWELL ANALYTICS pointer, un_comtrade
+pointer) and research/wishlist.md's tail (VIIRS Nightfire free-signup
+recommendation, stale-PR-backlog structural note — both human-decision
+items, not actionable this session) read. `python3
+scripts/research_state_check.py`: audits register none overdue (STALENESS
+due 2026-09-14, CONSTITUTIONAL due 2026-09-15), thrash_ratio 1/10 REPAIR
+(well under the 7+ trigger), known_broken 41/4-advisory (none a live
+blocker), starvation 0/10 — no meta-problem flag, NOT a [REPAIR] session.
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots ready
+(cftc_cot_positioning waiting 49d, sec_8k_earnings_language waiting 25d,
+fleet_utilization_aircraft waiting 56d — all genuinely time-blocked,
+unchanged). Live `curl https://voltradeai.com/api/health`: status ok, bot
+active, drawdownPct "0.0", liveness.dark false, alpaca ACTIVE, all 3
+archive feeds alive (silent_hours 0.07 each) — no LIVENESS ALARM. `git
+fetch origin main`: HEAD already equals origin/main at 9118353/v1.0.860/PR
+#1020 (the immediately preceding session's own merge), no reset needed.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no ladder-readiness-check root came due, no matured experiment
+was queued for judgment this session — not a [REPAIR] session. Per
+SESSION BUDGET fall-through order 1 ("the next queued item from
+research/open_questions.md or the roadmap that fits"), took the
+immediately preceding session's own concretely-queued NEXT (1) verbatim
+rather than starting fresh research. Also checked research/PROGRAM_STATE.md
+(the T-CLIENT rendering-law resume file) as an alternative T-CLIENT
+candidate: its own unclaimed NEXT is the moon bake (Track 2/3), which
+needs `basisu`/KTX2 tooling and a live RunPod GPU job neither present in
+this sandbox (confirmed: `which basisu`/`toktx` both empty) — correctly
+deferred to a dedicated session per that file's own note, not attempted
+here. The un_comtrade client page was the smaller, cleanly-scoped,
+concretely-specified item, so it was taken instead.
+
+WHAT WAS BUILT: `client/src/pages/unComtrade.tsx` (new) — a RAW per-partner
+table (Partner / Period / Imports CIF / Imports vs. prior / Exports FOB /
+Trade balance / a proportional inline bar visualizing balance sign and
+magnitude), fetching the already-shipped `/api/data/un-comtrade` route.
+Followed the `jodiOilStocks.tsx` precedent exactly: same `.vt-filings-*`/
+`.vt-shortvol-*` CSS shell (confirmed via grep that neither JODI, FINRA,
+nor plant-operations use any chart library — all are tables; recharts is
+in package.json but nothing under client/src/pages actually imports it, so
+building a novel chart paradigm here would have been inconsistent with
+every existing precedent and higher-risk for no established benefit — a
+lightweight CSS-only proportional bar in the "Balance" column gives the
+DESIGN.md "readable at a glance" property without introducing a new
+dependency or theming surface). Colors reuse the existing `--accent-red`/
+`--accent-green` design tokens (found via grep of `pipelineHealthDashboard
+.tsx` — NOT invented new `--vt-loss`/`--vt-gain` tokens as first drafted,
+which would have been undefined CSS custom properties silently falling
+back to hardcoded hex, a design-token-drift-adjacent smell caught before
+committing).
+
+`client/src/pages/datamap.tsx`: import + `unComtradeOpen` state (hash
+`#/data/un-comtrade`) + hash-listener line + mount block + a
+`vt-streams-launch` panel-top launcher button, inserted after the
+`shortinterest-launch` block (the last entry in that non-spatial-reading
+launcher family, confirmed by grep before insertion) — exact same 4-site
+wiring pattern as every other page in this family (jodioil/dtccswaps/
+eumacro/fredmacro/shortinterest), traced and matched site-by-site rather
+than guessed. New `ArrowLeftRight` icon import (checked the existing
+lucide-react import list first; `Repeat`/`Handshake` were already claimed
+by DTCC swaps/another root, so a distinct bilateral-arrows icon was
+chosen).
+
+`scripts/visual_check.mjs`: new `uncomtrade` `PAGES` entry (`/app#/data/
+un-comtrade`, `map:false`) — the file's own "Phase 5 ratchet rule" that
+every new `/data` view must be registered here and pass the harness before
+shipping — plus a matching `/api/data/un-comtrade` deterministic fixture
+(2 partners, mirroring the real archive's field shapes) so the harness
+renders the page hermetically with no live backend.
+
+BUG CAUGHT DURING VISUAL VERIFICATION (worth recording, not smoothing
+over): the first render showed "--$27.0B" in the Trade balance column — a
+double-negative-sign bug. `usd()` already prepends "-" for negative
+inputs (needed so Imports/Exports, which are always positive, never carry
+a sign); the render code additionally prepended `deficit ? "-" : "+"`,
+double-applying the sign for every deficit row. Fixed to
+`bal >= 0 ? "+"+usd(bal) : usd(bal)` (usd() supplies its own sign only
+when negative) and re-verified via a second `--page uncomtrade` run and a
+direct screenshot read — single "-$27.0B" / "-$788.0M", correct. This is
+exactly why PROMOTION RULE 6 requires reviewing the actual screenshots,
+not just a "0 hard failures" exit code: the harness's layout/perf checks
+do not read rendered text for semantic correctness, and this bug would
+have shipped invisibly to every automated gate.
+
+GATES: `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (after
+`npm ci`, 488 packages — this session's container started with zero
+`node_modules`). `bash scripts/gated_tests.sh` (after `pip install -r
+requirements.txt -r requirements-dev.txt`): GATE PASSED — client
+1083/1083, python 1784 passed/1 skipped/54 subtests, quarantine 0/1 none
+overdue (identical counts to the immediately preceding session's own run,
+confirming zero regression from this diff — no new test files were added,
+matching the established convention that client `/data` page components in
+this repo carry no dedicated `.test.tsx` files, since none of the 0
+existing `.test.tsx` files in `client/src` follow that pattern; correctness
+here is enforced by `npm run build` + the visual harness, per PROMOTION
+RULE 6, not by unit tests). `npm run build`: clean (1860 modules, same
+pre-existing astronomy-engine/chunk-size warnings as every recent session,
+unrelated to this diff). `bash scripts/counter_ratchet.sh`: reported
+`tests_run_in_ci`/`tests_gating_merge` 427→429 and `assertions` 13497→
+13539 as "IMPROVED" — verified via `git stash`/`git stash pop` A/B that
+these exact numbers reproduce identically on the pre-diff tree (this
+diff adds zero test files and zero assertions), confirming pre-existing
+drift from unrelated merges since the pins were last set — correctly LEFT
+UNPINNED per PROMOTION RULE 5, not credited to this PR. All other 22
+counters unchanged, 25/25 OK. `node scripts/visual_check.mjs --page
+uncomtrade`: **0 hard failures at 390/768/1440** (post-bug-fix run);
+screenshots read directly (not just the exit code) — 390px degrades to a
+clean stacked label/value layout (mobile-flawless per the PREMIUM
+EXPERIENCE STANDARD), 768px/1440px show the full table with a correctly
+color-coded, correctly signed trade-balance column and proportional bars.
+A/B run of `--page shortinterest` (an unrelated sibling page, same launcher
+family) reproduced the identical touch-target/clipped-control soft
+warnings, confirming they are pre-existing shared map-chrome noise, not
+introduced by this diff — the only NEW warning specific to this page (a
+768px touch-target flag on the "UN Comtrade Database" attribution link) is
+cosmetic and matches the same pattern as every other external-link
+attribution across this page family. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (one entry's note extended by a single UPDATE paragraph).
+
+Did NOT run the full "data" map-page perf battery (`--page data`, the
+heavy 3-pass 60fps/WebGL sampling check) — attempted twice, both timed out
+at 300s+ in this sandbox's software-rendering environment (a known,
+previously-documented sandbox constraint, not something this diff caused).
+Confirmed via grep of a prior session's own precedent (the 2026-08-28
+FINRA short-interest PR, research/experiments.md line ~6856) that
+`--page <newpage>` alone — not the full map battery — is this repo's own
+established sufficient scope for VISUAL VERIFICATION when the diff is a
+non-spatial `/data` page addition plus one launcher-button insertion into
+an already-heavily-exercised shared panel; not claiming the map page's own
+perf characteristics were re-verified this session, only that the change
+to it (one additively-inserted button, structurally identical to 20+
+existing ones in the same list) carries negligible risk and matches
+precedent scope exactly.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a pure client-side display addition
+over an already-shipped, already-GATE-1-passed RAW API route. No
+scoring/sizing/threshold value touched, no trading path involved.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py untouched — confirmed by the diff's file list). The new
+page adds one `fetch("/api/data/un-comtrade")` call, triggered only when a
+user navigates to `#/data/un-comtrade` — no new poll, no new background
+job, no change to any existing route or Tier cadence. The one-button
+insertion into datamap.tsx's shared launcher list is additive and
+independently guarded by the `unComtradeOpen` state, so it cannot affect
+any other view's render path.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: PROMOTION RULE 6 satisfied — `node scripts/
+visual_check.mjs --page uncomtrade` run at all three canonical widths
+(390/768/1440), screenshots reviewed directly against DESIGN.md before
+opening the PR (see BUG CAUGHT above — the review caught a real defect the
+exit code alone would have missed), 0 hard failures on the post-fix run.
+Full-suite `npm run visual` and the standalone `--page data` map battery
+were attempted but timed out in this sandbox (see GATES) — not claimed as
+run.
+
+VERSION: v1.0.861 (package.json, read-and-increment at commit time; `git
+fetch origin main` immediately before the bump confirmed origin/main was
+still at 9118353/v1.0.860/PR #1020, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+MARKET-HOURS NOTE: today (2026-09-07) is Labor Day — US market closed all
+day (market_calendar.py confirms `date(2026, 9, 7)` is a listed holiday),
+so no merge-timing constraint applies; PR #1021 may merge as soon as CI is
+green.
+
+CROSS-SYSTEM INTEGRATION: none new — a UI view over an already-standalone
+macro/trade-flow archive with no entity-graph join, no cross-tie to any
+existing stream.
+
+NEXT (queued, not this session): (1) `/api/v1/data/un-comtrade` keyed
+mirror, now that a client page exists (matches the sequencing this repo
+has used for JODI/FINRA/DTCC — the v1 mirror follows the client page, not
+the reverse). (2) monthly incremental re-runs of `scripts/
+un_comtrade_ingest.py` (idempotent, append-only, safe every session) will
+keep extending the 21-month backfill for free. (3) HS-6 commodity-level
+detail remains a documented, non-urgent future follow-up (EDGE DOCTRINE #2
+already argues against this root for direct alpha). (4) a future T-CLIENT
+session with more time budget could attempt the `--page data` map-page
+perf battery directly (or investigate why it times out in this sandbox
+specifically) to close the one verification gap this session left open —
+not urgent, since the diff touching that page is a single additive button
+matching 20+ existing ones.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the immediately preceding session's own queued NEXT item),
+used in full: matched the existing table-only convention rather than
+introducing an unproven chart paradigm, traced every wiring site in
+datamap.tsx individually rather than guessing, caught and fixed a real
+sign-doubling bug via actual screenshot review (not just the harness's
+exit code), verified the counter-ratchet "improvement" was pre-existing
+drift via a stash A/B rather than either crediting it wrongly or ignoring
+it, and honestly recorded the one verification gap (the heavy map-page
+perf battery timing out in this sandbox) rather than skipping the note or
+overclaiming coverage. No higher-priority queued item was skipped (no
+LIVENESS ALARM; thrash ratio 1/10, well under threshold; no
+ladder-readiness-check root came due).
+
 ## 2026-09-07 (scheduled-routine session, second session this UTC day) [PIPELINE] — UN Comtrade USA bilateral goods-trade archive built end-to-end (EDGE DOCTRINE axis (a)), GATE 1 (DATA) PASSED all 6 partners (v1.0.860)
 
 TERRITORY: T-DATACORE (scripts/un_comtrade_ingest.py, scripts/un_comtrade_gate1.py, server/unComtrade.ts + test, datacore/un_comtrade/, datacore/manifests/uncomtrade.json) + SHARED-but-minimal (server/routes.ts one route addition, datacore/signal_ladder.json, research/data_census.md, scripts/data_stream_registry_check.py, package.json/package-lock.json, ci/counter_baseline.txt).
