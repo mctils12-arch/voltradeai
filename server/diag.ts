@@ -122,6 +122,20 @@ export const DIAG_PROBES = [
   // probe here. See the "fdic_gate2" case in bot.ts for the since/horizons
   // query params.
   "fdic_gate2",
+  // ADDED 2026-09-07 (scheduled-routine PRODUCT session): read-only
+  // passthrough of server/portDwellCapture.ts's own durable weekly-
+  // snapshot state (the Railway-volume file the new Tier-3 in-process
+  // capture job writes to, NOT the git-tracked
+  // datacore/port_dwell_weekly.json research artifact). No live fold, no
+  // network — just returns already-computed aggregate-only weeks so a
+  // future session can pull newly-captured weeks into the committed file
+  // without re-running the expensive per-week HTTP loop
+  // scripts/portdwell_weekly_snapshot.ts still uses (that migration is a
+  // deliberate follow-up, not this session's change). See
+  // portDwellCapture.ts's own header for why this job exists — it
+  // replaces the "portdwell_window" probe as the capture PATH (that probe
+  // still exists, unchanged, for ad-hoc historical queries).
+  "portdwell_weekly_captured",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

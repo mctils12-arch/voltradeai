@@ -14,6 +14,7 @@ import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRan
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, computePortDwellAsyncTimed, portsFromSites } from "./portDwell";
+import { captureIfDue as captureNextPortDwellWeekIfDue, loadCapturedSnapshots } from "./portDwellCapture";
 import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./shadowFleet";
 import { evaluateEnrichment } from "./shadowFleetGate1";
@@ -2757,6 +2758,17 @@ print(json.dumps(get_shadow_stats()))
             results,
           }));
         }
+        case "portdwell_weekly_captured": {
+          // ADDED 2026-09-07 (scheduled-routine PRODUCT session): read-only
+          // passthrough of portDwellCapture.ts's own durable weekly-snapshot
+          // state — see that module's header and diag.ts's DIAG_PROBES entry
+          // for the full "why". No live fold: this just reads a small JSON
+          // file the Tier 3 in-process capture job already maintains.
+          return res.json(sanitizeDiag({
+            probe: "portdwell_weekly_captured",
+            weeks: loadCapturedSnapshots(),
+          }));
+        }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
@@ -5337,6 +5349,32 @@ print(json.dumps(run_update()))
         }
       }
     } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); }
+
+    // 7. Port-dwell weekly-snapshot IN-PROCESS capture (2026-09-07 PRODUCT
+    // session; see server/portDwellCapture.ts's own header + research/
+    // experiments.md this date for the full account). Two 2026-09-06
+    // sessions measured that fetching this same 168h fold over HTTP
+    // (`portdwell_window`) reliably exceeds Railway's edge-proxy response
+    // timeout as the archive has grown, and confirmed the bottleneck is
+    // CPU-bound (flat ~11.7-17.1us/point, does not amortize with a bigger
+    // window) — not something a retry or a shorter timeout fixes. Running
+    // the identical fold IN-PROCESS on this Tier-3 clock instead of over
+    // HTTP removes the proxy from the path entirely. Bounded to at most
+    // ONE 168h fold per invocation (captureIfDue only ever attempts the
+    // single oldest not-yet-resolved week — see that function's own
+    // header), so a tick with nothing new due costs a couple of small
+    // JSON reads, and only the rare tick that finds real work pays for a
+    // fold.
+    try {
+      const portDwellPorts = portsFromSites((datacoreSites as any).sites || []);
+      const rawVesselFromMs = oldestRawHour("vessels");
+      const captureResult = await captureNextPortDwellWeekIfDue(portDwellPorts, rawVesselFromMs, Date.now());
+      if (captureResult.action === "captured") {
+        audit("TIER3-PORTDWELL", `Weekly snapshot captured: week ${captureResult.week_index}`);
+      } else if (captureResult.action === "skipped_degenerate") {
+        audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} skipped (degenerate all-zero read)${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
+      }
+    } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); }
 
     audit("TIER3", "Strategic scan complete");
   }

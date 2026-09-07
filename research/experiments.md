@@ -78727,3 +78727,255 @@ due; the two other candidate gate1_pass/gate-2-unattempted roots were
 checked and correctly deferred — github for insufficient archive depth,
 crop-conditions itself chosen as the smaller prerequisite step rather
 than jumping straight to an undersupported gate-2 test).
+
+## 2026-09-07 (scheduled-routine PRODUCT session) [PRODUCT] — port_dwell_maritime_transit weekly-capture reliability fixed: IN-PROCESS Tier-3 capture replaces the HTTP diag-probe path (v1.0.859)
+
+TERRITORY: SHARED-but-minimal (server/portDwellCapture.ts + .test.ts new,
+server/diag.ts, server/bot.ts, server/diag.test.ts,
+server/tier3PortDwellCaptureVisibility.test.ts new, datacore/signal_ladder.json,
+research/open_questions.md, ci/counter_baseline.txt, package.json/
+package-lock.json), no T-BOT trading-logic or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash_ratio 1/10 REPAIR (below the 7+
+trigger), known_broken 41/4-advisory (none a live blocker), starvation
+0/10 — no meta-problem flag. `python3 scripts/ladder_readiness_check.py`:
+0/3 gated roots ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all time-blocked, unchanged). Live
+`curl https://voltradeai.com/api/health`: status "ok", bot active,
+drawdownPct "0.0", liveness.dark false, alpaca ACTIVE, all three archive
+feeds alive (silent_hours 0.03/1.03/0.03) — no LIVENESS ALARM.
+`git fetch origin main`: HEAD already equals origin/main at
+5aa0243/v1.0.858/PR #1018 — no reset needed.
+
+PRIMARY-ACTION SELECTION: read PROGRAM_STATE.md (a T-CLIENT rendering-law
+resume file; its own NEXT item is the moon bake, out of scope for a
+PRODUCT session, noted not claimed). The two most recent sessions
+(2026-09-06, PRs #1017/#1018) had measured that
+`scripts/portdwell_weekly_snapshot.ts`'s capture path — fetching
+`/api/diag/portdwell_window?hours=168` over HTTP — now reliably exceeds
+Railway's edge-proxy response timeout as the vessel archive has grown
+(46-71s before a 502/connection-reset), confirmed the bottleneck is
+CPU-bound (a flat ~11.7-17.1us/point cost that does NOT amortize down as
+the window grows, ruling out an I/O-bound explanation), and closed with
+an explicit, concretely-specified RECOMMENDATION: "move this fold OFF the
+synchronous request/response path entirely — a scheduled background
+computation ... writing weekly stats to a durable file the diag probe/
+weekly-snapshot script then reads cheaply." Per SESSION BUDGET
+fall-through order 1 (take the next queued item from an already-advanced
+root before starting fresh research), this session implemented that
+recommendation directly rather than starting a new investigation — it is
+the single most concretely-specified, well-understood, low-risk queued
+item on the board, it serves KEEP-THE-SYSTEM-ALIVE-adjacent reliability
+(a repeatedly-failing capture script is a real, observed operational
+gap, even though it is not the trading loop) and PROTECT-THE-INTEGRITY-
+OF-LEARNING (it unblocks further weekly-series accumulation toward this
+root's GATE 2 statistical-power threshold), and no higher-priority queued
+item was found ahead of it (checked: no LIVENESS ALARM, thrash ratio
+1/10 well under the 7+ trigger, no ladder-readiness-check root came due
+this session).
+
+READ BEFORE WRITE: read server/portDwell.ts (computePortDwellAsync/
+computePortDwellAsyncTimed/foldPortVisitsAsync — the exact fold to reuse,
+not reimplement), server/portDwellWeekly.ts (the pure weekly-grid/merge/
+extraction module, deliberately fs/network-free per its own header — the
+convention this session's new module preserves), scripts/
+portdwell_weekly_snapshot.ts (the existing external HTTP capture loop
+this session's new module supersedes as the PRIMARY capture path, left
+unmodified — see NEXT), server/tiles3dBudget.ts (the existing
+DATA_DIR/volume/tmp state-dir convention reused verbatim rather than
+re-derived), and server/bot.ts's Tier-3 COT/Form4-bulk hourly
+self-guarded steps (the established pattern for a cheap-most-invocations,
+occasionally-heavy background job already living in tier3Strategic) — all
+in full before writing anything.
+
+WHAT SHIPPED:
+- server/portDwellCapture.ts (new) — the IN-PROCESS background
+  computation. `portDwellCaptureStateDir()` resolves the same
+  DATA_DIR-or-"/data/voltrade"-or-"/tmp" convention tiles3dBudget.ts's own
+  state dir uses (operational capture state, not a manifested datacore
+  stream, so resolved directly rather than via archiveBaseDir()).
+  `earliestAttemptableWeekIndex(oldestRawHourMs)` mirrors
+  portdwell_weekly_snapshot.ts's own identical "first week whose full 7
+  days sit at or after the live raw-retention floor" formula.
+  `nextCaptureTarget(existing, skippedIndices, oldestRawHourMs, nowMs)`
+  reuses portDwellWeekly.ts's own `missingWeekIndices` (EDGE DOCTRINE #3 —
+  compile once) and returns the single OLDEST week that is neither
+  already captured nor already recorded as permanently skipped.
+  `captureIfDue(ports, oldestRawHourMs, nowMs, dir, computeFn)` is the one
+  impure entry point: at most ONE `computePortDwellAsyncTimed` fold per
+  call — a degenerate all-zero read (isDegenerateAllZeroRead, reused
+  unchanged) is recorded once and never retried (the same historical
+  window reads the same archive content on every future attempt); a week
+  whose start predates the live retention floor is never even a candidate
+  in the first place (nextCaptureTarget's own earliestIndex filter), so
+  there is no separate "skipped_coverage" branch to guard or retry either
+  — removed a redundant defensive check of exactly that shape once
+  testing proved it structurally unreachable (CLAUDE.md: don't validate
+  scenarios that can't happen). `computeFn` is injected (defaults to the
+  real `computePortDwellAsyncTimed`) so the orchestration logic is
+  unit-tested against a canned `PortDwellStats` fixture, with no live
+  archive.
+- server/bot.ts: new Tier-3 step 7 (tier3Strategic, after the Form4-bulk
+  step) — self-guarded to at most one fold per hourly tick by
+  captureIfDue's own logic, not a separate time-based gate (unlike the
+  COT/Form4 steps, which self-guard via a file-mtime check inside their
+  own Python modules; this job's guard is the "already resolved" record
+  instead, since a new week only ever becomes due once every 7 days).
+  Audits `TIER3-PORTDWELL` on both "captured" and "skipped_degenerate"
+  outcomes; console.error on any thrown error, matching every other
+  TIER3 step's error-visibility convention (tier3ManipVisibility.test.ts
+  precedent). New diag probe `portdwell_weekly_captured` — read-only,
+  token-gated passthrough of the volume file's contents (no live fold,
+  no network) — added to `DIAG_PROBES` (diag.ts) and wired in bot.ts's
+  probe switch.
+- Tests: server/portDwellCapture.test.ts (new, 12 tests) — pure-function
+  coverage of earliestAttemptableWeekIndex/nextCaptureTarget plus
+  captureIfDue's full orchestration (capture-then-advance, bounded to one
+  fold per call even with many weeks outstanding, the unreachable-week
+  jump-ahead behavior, degenerate-skip-and-never-retry) via an injected
+  fake compute function and a tmp state dir — no live archive.
+  server/tier3PortDwellCaptureVisibility.test.ts (new, 4 tests) — wiring
+  pins: the shared function is imported (not re-derived), Tier-3 calls it
+  in-process with live ports/retention-floor (asserts no `fetch(` in the
+  call site — the whole point of the fix), both outcomes are audited, and
+  the new diag probe reuses the shared reader. server/diag.test.ts gained
+  1 test (portdwell_weekly_captured: wired, sanitized, aggregate-only
+  reused shape, no `fetch(`).
+
+FINDING DURING IMPLEMENTATION (worth recording, REASONING STANDARD #4-style
+distrust of one's own first draft): the first draft carried a THIRD skip
+branch inside `captureIfDue` — an explicit `week.startMs < oldestRawHourMs`
+coverage check, mirroring the diag probe's own `coverage_caveat` field.
+Writing the test for it (`skips and permanently remembers a week whose
+start predates the raw-retention floor`) failed: `nextCaptureTarget`
+already derives its search range from `earliestAttemptableWeekIndex`,
+which guarantees any index it returns satisfies
+`weekBounds(idx).startMs >= oldestRawHourMs` — the branch was checking a
+condition its own caller had already made structurally impossible.
+Removed the dead branch (and the now-unneeded `"skipped_coverage"` variant
+from `CaptureResult`) rather than keep defensive code the repo's own
+review discipline (CLAUDE.md: "don't add validation for scenarios that
+can't happen") argues against, and rewrote the test to assert the
+BETTER actual behavior instead (an unreachable week is never attempted at
+all, not attempted-then-skipped) — a case where writing the test first
+caught a design redundancy before it shipped, not just a bug.
+
+Also found the same session, via the counter ratchet (not by code review):
+the first draft's Tier-3 catch block used the file's dominant
+`catch (err: any)` convention, incrementing `ts_any` 1239 -> 1240 — a
+real, correctly-detected +1 (confirmed via `git stash`: the clean tree
+reads 1239, matching the pin; the increase was genuinely this diff's own
+effect, not pre-existing drift). Rather than re-pin a counter this repo
+treats as non-increasing debt, switched to `catch (err: unknown)` with
+`err instanceof Error ? err.message : err` — an existing, if less common,
+pattern already used in this codebase (server/fdicBanks.ts, server/
+routes.ts) and arguably safer than `any` — which restored the count to
+1239 with zero pin change needed. (Separately, `ts_any`'s and
+`empty_ts_catch`'s live counts have drifted from `ci/counter_baseline.txt`'s
+493/1239 pins by unrelated merges since — confirmed unchanged by this
+diff via `git stash` on the touched files only — left un-re-pinned here
+per PROMOTION RULE 5, same discipline PROGRAM_STATE.md's own sessions have
+followed for `tests_run_in_ci`/`tests_gating_merge` drift.)
+
+GATES: `npx tsx --test server/portDwellCapture.test.ts
+server/portDwellWeekly.test.ts server/portDwell.test.ts server/diag.test.ts
+server/tier3PortDwellCaptureVisibility.test.ts server/tier3ManipVisibility.test.ts`:
+73/73 pass. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0 (matches
+`ci/tsc_baseline.txt`'s pin exactly on a fresh `npm ci`; an EARLIER reading
+on this session's initially-incomplete node_modules had shown 3, which
+looked like pre-existing drift and was nearly reported as such — re-ran
+twice after `npm ci` completed and got a stable 12 both times, so that
+reading was a false one caused by an incomplete install, not real drift;
+recorded here as a caution against trusting a single tsc_ratchet.sh
+reading without first confirming node_modules is complete, same spirit as
+L5's tsbuildinfo-staleness lesson). `bash scripts/gated_tests.sh` (after
+`npm ci` — 488 packages — and `pip install -r requirements.txt -r
+requirements-dev.txt`, this session's container had neither): GATE
+PASSED — client 1083/1083, python 1762 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 423 -> 424, `assertions` 13428 ->
+13435 — all three this session's own direct effect (2 new test files, one
+of which — portDwellCapture.test.ts — is counted; the other net assertion
+delta from tier3PortDwellCaptureVisibility.test.ts's 4 tests and
+diag.test.ts's 1 new test), re-pinned in `ci/counter_baseline.txt` in this
+same PR; all other 22 counters unchanged, re-ran clean (25/25 OK).
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+and `node -e "require('./datacore/signal_ladder.json')"`: both parse
+clean, 45 roots unchanged (edited in place). `npm run build`: clean
+(client 1859 modules transformed via Vite, server bundle 16.4mb via
+esbuild — pre-existing chunk-size warnings only, unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a capture-path reliability fix over
+an already-gated (current_gate 1/gate1_pass) DATA-layer root; no scoring/
+sizing/threshold value touched, no trading path involved.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py untouched, confirmed by the diff's file list). The live
+customer-facing `/api/data/portdwell` route is unchanged — still calls
+the untimed `computePortDwellAsync`, unaffected by this session's diff.
+The existing `portdwell_window` diag probe is unchanged. The new Tier-3
+step adds at most one 168h archive fold per hour to the server's own
+workload, and only on the rare hour a new week is actually due (at most
+once per 7 days in steady state, per `captureIfDue`'s own one-fold-per-
+call bound) — the same archive-read cost the existing `portdwell_window`
+probe already pays per call, just moved from an external HTTP caller's
+clock to the server's own Tier-3 clock. `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry: `current_gate` unchanged at
+1/gate1_pass (this is capture-reliability infrastructure, not a gate
+result); note appended describing the fix and what remains open.
+
+CROSS-SYSTEM INTEGRATION: none new. This session reuses
+`foldPortVisitsAsync`/`computePortDwellAsyncTimed` exactly as the existing
+`portdwell_window` probe and Everything-Graph `calls_at` edge builder
+already do — no new archive, no new entity-graph join, no new poller.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(server-only reliability fix; the existing /data map's port-dwell display,
+if any, is unaffected).
+
+VERSION: v1.0.859 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 5aa0243/v1.0.858/PR #1018, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session — one logical change per PR): (1) migrate
+`scripts/portdwell_weekly_snapshot.ts` to prefer the new
+`portdwell_weekly_captured` diag probe (cheap — no live fold) over its
+current expensive per-week HTTP loop through `portdwell_window`, falling
+back to that loop only for weeks the in-process job has not yet reached.
+(2) reconcile the two files' week-index sets: the in-process job starts
+capturing from whichever week is next due at deploy time and has no
+knowledge of weeks 6/7/8 already committed in
+`datacore/port_dwell_weekly.json` by the external script — a bookkeeping
+gap, not a data-loss risk (neither file ever loses or overwrites a week
+it holds), but worth closing so the committed research artifact reflects
+everything the running server has captured. (3) a future session with
+live production/volume access should confirm the in-process job actually
+fires and captures a real week end-to-end after deploy — this sandbox has
+no way to run the live Node server against the real vessel archive and
+observe an hourly Tier-3 tick. (4) the committed
+`datacore/port_dwell_weekly.json` still holds only weeks 6, 7, 8 — still
+short of the ~15-20 threshold for GATE 2, unchanged by this session (a
+reliability fix, not a new capture). (5) per the AUDITS & DEBT register,
+staleness/constitutional audit last-run dates should be checked by the
+next session whose fall-through reaches the research tier — not checked
+this session, capacity was fully used by this primary action.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT/reliability-fixing action (the two immediately preceding
+sessions' own concretely-specified recommendation), used in full
+including reading the existing fold/state-dir/Tier-3-job conventions
+before writing anything, catching and removing a structurally-unreachable
+defensive branch via its own failing test rather than shipping it,
+catching and fixing a real (not false-positive) `ts_any` counter increase
+by switching to a cleaner existing idiom rather than re-pinning debt, and
+running the full gate suite (client+python+tsc+counters+build) green
+before committing. No higher-priority queued item was skipped (no
+LIVENESS ALARM; thrash ratio 1/10, well under threshold; no
+ladder-readiness-check root came due).
