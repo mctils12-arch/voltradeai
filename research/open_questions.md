@@ -6060,6 +6060,39 @@
     ANOTHER Tier-3/Tier-2 step, that is architecture smell — propose a
     shared "record-before-attempting, cooldown-after-failure" helper via
     wishlist.md rather than patching each occurrence independently.
+    UPDATE 2026-09-08 (scheduled-routine session, sixth session this UTC
+    day) — NEXT(3) confirmed the hard way: this session's own routine
+    `/api/health` re-check (not from a queued item) found the crash loop
+    **continuing live on v1.0.870**, ~90-130s period unchanged, while
+    `/api/diag/audit?type=TIER3-PORTDWELL` simultaneously showed the
+    #1030 guard correctly firing `deferred_cooldown` (the fold genuinely
+    was NOT running) — direct proof the Tier-3 port-dwell fold was not
+    the loop's only cause. `server/routes.ts`'s `refreshShadowStats()`/
+    `refreshPortDwell()` (shipped 2026-07-05, unrelated to this week's
+    Tier-3 feature) were found to run the exact same failure shape —
+    unconditional archive fold at every boot with no delay, no persisted
+    in-flight marker — confirming NEXT(3)'s prediction exactly. A fix for
+    this second cause already existed, gate-clean, on a since-abandoned
+    branch (PR #1031, `claude/eloquent-dijkstra-1oa4rf`) from an earlier
+    concurrent session that never logged it to this file or
+    experiments.md and whose branch had gone 2 days stale (merge-base
+    5e0f501, dozens of PRs behind main). This session cherry-picked the
+    isolated `server/crashSafeRefresh.ts` + `server/routes.ts` diff
+    (applied cleanly, zero conflict, verified against the stale branch's
+    own commit) onto current main rather than merging the stale branch
+    itself, re-ran the full local gate suite, and shipped it as v1.0.871
+    (this session's own PR; #1031 closed as superseded — see
+    experiments.md this date for the full account, including why local
+    verification substituted for GitHub Actions CI, which never triggered
+    a single check run against #1031's head commit in over 3 hours).
+    STILL NOT CONFIRMED CLOSED: this session could not observe the fix
+    live before ending (Railway deploy lag) — a future session MUST
+    re-poll `/api/health` post-deploy to confirm. If the loop persists
+    AGAIN after both fixes are live, per RECURRENCE ESCALATES this is now
+    a THIRD attempt at the same incident and mandates a full architecture
+    session (chunk both fold families, move them off the main event loop
+    into a worker/child process, or raise the container memory ceiling)
+    rather than a fourth cooldown patch.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

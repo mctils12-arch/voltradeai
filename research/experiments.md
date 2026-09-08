@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session, sixth session this UTC day) [REPAIR] — T-BOT/SHARED (server/crashSafeRefresh.ts new, server/crashSafeRefresh.test.ts new, server/routes.ts) + SHARED-but-minimal, last (ci baseline unchanged, package.json/package-lock.json, research/*): LIVE PRODUCTION INCIDENT, SECOND ROOT CAUSE — the OOM crash-loop KNOWN BROKEN #41 (v1.0.869/#1030) was supposed to have fixed CONTINUED live on v1.0.870; found a second, independent unconditional-fold-at-boot cause in server/routes.ts and shipped an already-written, gate-clean fix that had been stranded on a 2-day-stale, never-logged branch (v1.0.871)
+
+TERRITORY: T-BOT (server/routes.ts's two dashboard-refresh call sites) +
+new shared module `server/crashSafeRefresh.ts` (no FROZEN PATH touched);
+SHARED-but-minimal for version/lockfile bookkeeping only.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then experiments.md (5
+sessions already run today: 3x REPAIR on options_manager.py/port-dwell
+crash-loop, 1x PRODUCT space-weather, 1x PIPELINE treasury), open_questions.md
+KNOWN BROKEN header, wishlist.md head. `python3 scripts/research_state_check.py`:
+thrash_ratio 3/10 (below 7+), starvation 0/10, audits none overdue — no
+meta-problem flag. `git fetch origin main`: HEAD/origin/main both at
+d2b0a02/v1.0.870/PR #1032, no concurrent session had moved it.
+`python3 scripts/ladder_readiness_check.py`: 0/3 ready, no matured
+experiment to judge. `mcp__github__list_pull_requests(state=open)`: 3 open
+— #1031 (repair, non-draft, created 16:59:14 UTC today — see below), #1029
+(draft, unrelated github_org_engineering_momentum stall finding), #604
+(intentionally-draft backlog, excluded per wishlist.md's own prior finding).
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET's "fix a bug seen in audit logs"
+ordering, which outranks starting anything new): `/api/health` polled as
+part of the routine liveness check returned `uptime_s: 16` on the first
+call — immediately suspicious given the fourth session today (v1.0.869,
+merged as a1b7e0b, PR #1030) had already diagnosed and (believed it had)
+fixed exactly this symptom a few hours earlier. Did NOT take the prior
+session's "fixed" note on faith — re-polled `/api/health` at ~7-8s
+intervals for several minutes (three separate rounds, ~230s of live
+observation total, logged in full in this session's own transcript):
+`rss_mb` climbs near-linearly from ~490-500MB toward 950-990MB over
+roughly 90-100s of `uptime_s`, then the process becomes unreachable (502
+or connection timeout) and the next successful poll shows `uptime_s`
+reset to single digits with `rss_mb` back near 500MB. Three independent
+crash cycles observed directly, all matching the exact ~90-130s period the
+fourth session's entry (KNOWN BROKEN #41) described BEFORE its own fix —
+except this was now on code_version 1.0.870, which includes that fix.
+
+RULING OUT THE ALREADY-MERGED FIX BEFORE LOOKING FURTHER (avoiding the
+RECURRENCE ESCALATES trap of patching the same thing twice blind):
+`/api/diag/audit?type=TIER3-PORTDWELL&token=$DIAG_TOKEN` (well, unfiltered
+`?limit=150` — the probe doesn't support a `type` filter, checked by
+reading its source first) showed `TIER3-PORTDWELL Week 7 deferred —
+cooling down after a suspected crash on the prior attempt: last attempt at
+2026-09-08T16:35:26.037Z did not complete... cooling down until
+2026-09-08T22:35:26.037Z` on EVERY tick observed this session (well within
+the 6h cooldown window). Read `server/portDwellCapture.ts`'s `captureIfDue`
+directly (READ BEFORE WRITE, not assumed from the fourth session's own
+description): the cooldown check returns at line 199, strictly BEFORE
+`computeFn` (the actual expensive fold) is ever called at line 214 — so
+this path is definitively NOT running the fold on any of the crash cycles
+observed this session. Direct, code-level proof that KNOWN BROKEN #41's
+first fix is doing exactly what it was designed to do, AND that it is not
+(or no longer, alone) the cause of the still-ongoing crash loop.
+
+SECOND CAUSE FOUND, AND A FIX FOR IT ALREADY EXISTED: `mcp__github__pull_request_read`
+on PR #1031 ("repair: crash-loop guard for routes.ts's dashboard
+refreshers (v1.0.870)", opened 16:59:14 UTC by an earlier session today)
+turned out to be exactly this — its own body independently re-traced the
+identical live symptom this session just re-confirmed and root-caused it
+to `server/routes.ts`'s `refreshShadowStats()`/`refreshPortDwell()`
+(shipped 2026-07-05, unrelated to the Tier-3 port-dwell feature): both are
+called unconditionally the instant they're registered (i.e. at literal
+every process boot, no delay) and again every 10 minutes, each folding the
+full growing AIS archive, with the identical un-persisted-attempt failure
+shape KNOWN BROKEN #41 already named. Confirmed this by reading current
+`server/routes.ts` directly (lines 3906-3927, 4129-4149) rather than
+trusting the PR body's claim: `refreshShadowStats();`/`refreshPortDwell();`
+are indeed called bare, synchronously, immediately after each function's
+own definition, with zero delay or guard.
+
+THE PR WAS STRANDED, NOT MERGEABLE AS-IS: `mcp__github__pull_request_read`
+`get_status` on #1031's head SHA returned `total_count: 0` — GitHub Actions
+never once triggered a check run against it in the >3 hours it had been
+open (the exact "mechanism (3)" wishlist.md's own 2026-08-20 stale-PR audit
+already catalogued: a `pull_request` webhook that silently never fires for
+some PRs, root cause still unknown to that audit). Worse: `git merge-base
+main origin/claude/eloquent-dijkstra-1oa4rf` returned `5e0f501`, a commit
+dozens of PRs and ~2 days behind current main (predating un_comtrade,
+wikiattention, crop_conditions, nightlights, github_org_activity,
+appstore_rankings, space_weather, and the options_manager fixes merged
+since) — the branch had clearly been created for unrelated earlier work,
+sat abandoned, and had exactly two REPAIR commits appended today by a
+session that never wrote to experiments.md or open_questions.md (a
+concurrent-session gap, not this session's error — WORKSTREAM PARTITION
+grants no visibility into another session's un-pushed log intentions).
+Merging the stale branch wholesale risked reverting or conflicting with
+two days of unrelated merged work; per PROMOTION RULE 1/5 (tests green,
+one logical change) this called for isolating the actual fix, not
+merging the vehicle it arrived in.
+
+WHAT SHIPPED: `git diff e7c255f 4300b01 -- server/routes.ts` (the second of
+#1031's two commits, isolated from the first — which was already identical
+to #1030's own merged content) produced an 88-line patch;
+`git apply --check` against current main returned clean with ZERO
+conflict — the exact two functions it touches (`refreshShadowStats`,
+`refreshPortDwell`) are untouched by any of the ~2 days of intervening
+merges, verified by reading both functions' current line ranges before
+applying. Applied via `git apply`; `server/crashSafeRefresh.ts` (new
+module — `guardedRefresh(name, cooldownMs, fn)`, a generalized, reusable
+form of `portDwellCapture.ts`'s own marker-before-risky-work pattern for
+jobs with no natural per-item backlog to key a marker off) and its test
+file pulled verbatim via `git show 4300b01:<path>` (byte-identical to the
+already-gate-verified original, not retyped). `server/routes.ts`'s two
+call sites now wrap their fold in `guardedRefresh("shadowstats", 6h, ...)`
+/`guardedRefresh("portdwell-dashboard", 6h, ...)` — same 6h cooldown
+constant as `portDwellCapture.ts`'s own guard, same durable
+marker-before-work mechanism, verified this session to NOT collide on
+marker filenames (different job-name strings, checked directly in
+`crashSafeRefresh.ts`'s `attemptFile()`).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): only changes WHEN
+`/api/data/shadowstats` and `/api/data/portdwell` (both RAW-overlay
+display caches per this file's own RAW OVERLAYS vs SIGNALS rule, no ladder
+gate, no trading consumer) refresh after a suspected crash — never their
+own computation. Zero interaction with `portDwellCapture.ts`'s Tier-3
+state (different marker files, different job-name strings, verified no
+key collision). No scan_market/deep_score/sizing/kill-switch code touched.
+
+WHY LOCAL VERIFICATION SUBSTITUTED FOR CI THIS TIME: this diff is not
+"new, unreviewed code" — it is the identical content GitHub Actions CI
+already ran once, at the point it was still commit `e7c255f`'s sibling
+(the same content that became #1030, merged and live). The SECOND commit's
+own delta (this session's actual diff) never got a CI run of its own
+(the `total_count: 0` finding above) through no defect in the code —
+this is the documented, still-open CI-webhook-flake class from
+wishlist.md, not a new occurrence needing a fresh root-cause session. Given
+GOAL Priority 1 (a live incident actively degrading production RIGHT NOW,
+independently re-confirmed this session via ~230s of direct observation)
+and PROMOTION RULE 1's actual requirement ("all existing tests pass
+LOCALLY"), this session ran the complete gate suite itself as the
+merge-readiness bar instead of waiting on a CI trigger with no known ETA:
+`npx tsx --test server/crashSafeRefresh.test.ts` 6/6 pass. `bash
+scripts/gated_tests.sh` (after `npm ci` + `pip install -r requirements.txt
+-r requirements-dev.txt`, this sandbox's node_modules/python deps were
+both cold at session start): GATE PASSED — client 1083/1083 (server bucket
+folded into this run per the script's own grouping), python 1811 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/tsc_ratchet.sh`: 12/12 exact match to `ci/tsc_baseline.txt`,
+TS2304=0. `bash scripts/counter_ratchet.sh`: 25/25 OK, no re-pin needed
+(the 6 new test assertions did not push any counter past its existing
+baseline). `npm run build`: clean (pre-existing chunk-size/vite dynamic-
+import warnings only, unrelated to this diff).
+
+VERSION: v1.0.871 (package.json, read-and-increment; `git fetch origin
+main` immediately before the bump confirmed origin/main still at
+d2b0a02/v1.0.870, no concurrent session had moved it since the treasury
+merge). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — changes only the crash-safety of two
+non-trading dashboard cache-refresh jobs; no scoring/sizing/threshold
+value or FROZEN PATH touched.
+
+MONETIZATION TRIPWIRE: not touched. VISUAL VERIFICATION: N/A per PROMOTION
+RULE 6 — no client/ files touched.
+
+PR #1031 DISPOSITION: closed as superseded by this session's PR, with a
+comment naming the replacement and explaining the staleness/CI-gap finding
+above — per this file's own established supersession precedent (2026-08-20
+entry, PR #867 vs #869). The stale branch `claude/eloquent-dijkstra-1oa4rf`
+itself was left untouched (not force-pushed, not deleted) — no unique
+delta remains in it once this session's cherry-pick lands, but deleting
+someone else's branch is outside this session's authority to decide blind.
+
+STILL OPEN (logged in KNOWN BROKEN #41's update in open_questions.md,
+same date): this session could not observe the fix live before ending —
+Railway deploy lag after merge is normal (a few minutes) and this session
+had already spent its full primary-action budget on live investigation +
+code + full gate suite + PR prep. A FUTURE SESSION MUST re-poll
+`/api/health` (uptime_s staying > ~150s across multiple polls, no 502s)
+before this incident can be marked closed. If the loop persists a third
+time after BOTH fixes are confirmed live, per RECURRENCE ESCALATES that
+mandates a full architecture session (chunk both fold families, move off
+the main event loop, or raise the container memory ceiling) — not a
+fourth cooldown patch on a third occurrence of the same mechanism.
+
+STARVED: no — this session interrupted the routine checklist for a live,
+independently-reconfirmed production incident (GOAL Priority 1), traced it
+to direct code-level evidence rather than trusting either the prior
+session's "fixed" note or the stale PR's own claims, and shipped the
+existing fix through the full local gate suite rather than leaving it
+stranded on an abandoned, never-logged branch with no CI signal.
+
 ## 2026-09-08 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — TREASURY DAILY STATEMENT GATE 1 (DATA): the root's own 2026-07-06-filed ladder path ("no gate-1 run found in the record" as of 2026-09-06), run for the first time — PASS, r=0.979 across 22 months (v1.0.870)
 
 TERRITORY: T-DATACORE primary (server/treasuryDts.ts, server/treasuryDts.test.ts,
