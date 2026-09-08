@@ -17688,3 +17688,33 @@ STARVED: no — one clean, scoped PRODUCT action taken to completion,
 including live GetCapabilities probing rather than assumption, catching
 the ENCC-discontinued dead end, and root-causing (not just noting) the
 whole-globe 2026-07-15 tile gap.
+
+## 2026-09-08 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — TREASURY DAILY STATEMENT GATE 1 (DATA): run for the first time since the ladder path was filed 2026-07-06 — PASS, r=0.979 across 22 months (v1.0.870)
+
+Full account in experiments.md's matching dated entry — this is the pointer, not
+a restatement, per this file's own established convention.
+
+HEADLINE: `scripts/treasury_dts_gate1.ts` reconciles `sumTgaDepositsExDebt` (new
+pure function, server/treasuryDts.ts — TGA "Deposits" rows summed on `mtd_amt`,
+excluding the API's own duplicate "Total Deposits" subtotal row and excluding
+"Public Debt Cash Issues," the one a-priori exclusion) against Treasury's own
+separately-compiled Monthly Treasury Statement (`mts_table_1`) "current month
+gross receipts." Pre-registered bar (REASONING STANDARD #10): Pearson r >= 0.85.
+LIVE RESULT: r=0.979, n=22 months (2024-10 through 2026-07, both fiscal years in
+the latest MTS release) — PASS. The two series carry a stable ~1.21x wedge
+(stdev 0.094) rather than near-equality, which is expected and does not affect
+the verdict — gate 1 asks whether the archive tracks reality, not whether the
+levels match. `datacore/signal_ladder.json` updated: raw_only/gate 0 ->
+gate1_pass/gate 1.
+
+FINDING WORTH RECORDING (REASONING STANDARD #4-style distrust of a first-draft
+number): a naive full sum over all "Deposits" rows (no exclusions) read exactly
+2x the true monthly total, because the FiscalData JSON envelope carries both the
+78 individual category rows AND a "Total Deposits" subtotal row for the same
+account — summing both double-counts. Caught by listing every (transaction_type,
+account_type, table_nbr) triple present on a live day before trusting any
+number, not assumed from the field docs.
+
+NEXT (queued, not this session): GATE 2 (withheld-tax YoY growth vs payroll-
+surprise dates) needs a BLS payroll-surprise-date calendar as ground truth —
+unsourced, not attempted.
