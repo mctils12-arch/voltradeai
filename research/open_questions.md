@@ -6060,6 +6060,33 @@
     ANOTHER Tier-3/Tier-2 step, that is architecture smell — propose a
     shared "record-before-attempting, cooldown-after-failure" helper via
     wishlist.md rather than patching each occurrence independently.
+    **UPDATE 2026-09-08 (same session, PART 2 — the NEXT(3) recurrence
+    check above fired sooner than expected, WITHIN THE SAME SESSION**:
+    after PR #1030 (the fix above) merged and deployed, this session kept
+    watching the live symptom rather than declaring victory on a merged
+    PR — and the crash loop was still happening. Found a SECOND,
+    independent instance of the identical mechanism: `server/routes.ts`'s
+    `refreshShadowStats()`/`refreshPortDwell()` (shipped 2026-07-05, two
+    months before the Tier-3 capture feature above, for an unrelated prior
+    defect) also run an expensive, unconditional, un-persisted archive fold
+    at every single boot, no delay. Per this item's own NEXT(3): this is
+    now architecture smell, not a one-off — shipped the shared helper
+    (`server/crashSafeRefresh.ts`, `guardedRefresh()`) this same session
+    rather than a third bespoke patch, and applied it to both routes.ts
+    call sites. Full account in `research/experiments.md`'s second
+    2026-09-08 (fourth session, PART 2) entry. STILL NOT ROOT-CAUSE-FIXED:
+    same caveat as above — this bounds blast radius, does not reduce
+    fold memory cost. NEXT (supersedes the single-item NEXT(2) above,
+    now covering three call sites — Tier-3 capture, shadowstats,
+    portdwell-dashboard — all folding the same growing archive): if the
+    crash loop persists after v1.0.870 deploys, per RECURRENCE ESCALATES
+    this is a THIRD attempt at the same underlying incident and must
+    become a full architecture-level session, not a fourth cooldown-shaped
+    patch — the real question ("can these folds run in-process on the
+    current container's memory budget at all, at the archive's current
+    size") needs an actual answer: chunk the folds, move them to a worker/
+    child process so a crash there can't take the whole server down, or
+    raise the Railway memory ceiling (human/billing decision).
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

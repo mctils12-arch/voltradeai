@@ -20,6 +20,7 @@ import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
+import { guardedRefresh } from "./crashSafeRefresh";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -3903,20 +3904,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (prod: 000/502 on cold hit; every other route starved meanwhile). Now:
   // async streaming scan on an eager 10-min poller; the route serves only
   // the cache and answers instantly, warming_up before the first pass.
+  // CRASH-LOOP GUARD (2026-09-08 live-incident REPAIR, second PR on the same
+  // incident — see server/crashSafeRefresh.ts's own header and
+  // research/experiments.md this date): this refresh runs unconditionally
+  // the instant it's registered below (i.e. at every process boot) and
+  // again every 10 minutes, folding the full growing AIS archive. If that
+  // fold's memory footprint OOM-kills the whole process before
+  // `shadowCache` is set, the crash erases the only evidence an attempt was
+  // made — the next boot retries the identical fold immediately, forever.
+  // guardedRefresh durably records the attempt BEFORE the fold runs so a
+  // crash still leaves that fact on disk, breaking the loop.
+  const REFRESH_CRASH_COOLDOWN_MS = 6 * 3600_000; // 6h — matches portDwellCapture.ts's own guard
   let shadowCache: { at: number; data: any } | null = null;
   let shadowRunning = false;
   const refreshShadowStats = async () => {
     if (shadowRunning) return;
     shadowRunning = true;
     try {
-      const zones = (shadowZones as any).zones || [];
-      const data = {
-        kind: "raw",
-        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
-        zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
-        ...(await computeShadowStatsAsync(zones)),
-      };
-      shadowCache = { at: Date.now(), data };
+      const result = await guardedRefresh("shadowstats", REFRESH_CRASH_COOLDOWN_MS, async () => {
+        const zones = (shadowZones as any).zones || [];
+        const data = {
+          kind: "raw",
+          source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+          zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
+          ...(await computeShadowStatsAsync(zones)),
+        };
+        shadowCache = { at: Date.now(), data };
+      });
+      if (!result.ran) console.warn(`[datacore] shadowstats refresh deferred: ${result.detail}`);
     } catch (e: any) {
       console.error("[datacore] shadowstats refresh:", e?.message || e);
     } finally {
@@ -4126,19 +4141,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // [REPAIR 2026-07-05] same event-loop defect as shadowstats (fourth
   // site, heavier 168h window): sync scan per cache miss. Eager 10-min
   // poller now; the route serves only the cache.
+  // CRASH-LOOP GUARD — same rationale and mechanism as refreshShadowStats
+  // above (server/crashSafeRefresh.ts); this is the "heavier 168h window"
+  // sibling the comment above already flags as the more expensive of the two.
   let dwellCache: { at: number; data: any } | null = null;
   let dwellRunning = false;
   const refreshPortDwell = async () => {
     if (dwellRunning) return;
     dwellRunning = true;
     try {
-      const ports = portsFromSites((datacoreSites as any).sites || []);
-      const data = {
-        kind: "raw",
-        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
-        ...(await computePortDwellAsync(ports)),
-      };
-      dwellCache = { at: Date.now(), data };
+      const result = await guardedRefresh("portdwell-dashboard", REFRESH_CRASH_COOLDOWN_MS, async () => {
+        const ports = portsFromSites((datacoreSites as any).sites || []);
+        const data = {
+          kind: "raw",
+          source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+          ...(await computePortDwellAsync(ports)),
+        };
+        dwellCache = { at: Date.now(), data };
+      });
+      if (!result.ran) console.warn(`[datacore] portdwell refresh deferred: ${result.detail}`);
     } catch (e: any) {
       console.error("[datacore] portdwell refresh:", e?.message || e);
     } finally {

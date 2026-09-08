@@ -3,7 +3,160 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-08 (scheduled-routine session, fourth session this UTC day) [REPAIR] — T-BOT (server/portDwellCapture.ts, server/portDwellCapture.test.ts, server/bot.ts) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): LIVE PRODUCTION INCIDENT — server was OOM-crash-looping every ~90-120s during market hours; root-caused to the new port-dwell Tier-3 in-process fold retrying an un-persisted, likely-fatal attempt on every boot; crash-loop guard shipped (v1.0.869). PR merge deliberately held for after-hours per this session's own scheduling instruction (see MERGE NOTE at the end of this entry).
+## 2026-09-08 (scheduled-routine session, fourth session this UTC day, PART 2 — same live incident continued after PR #1030 merged and the crash loop did NOT stop) [REPAIR] — SHARED (server/routes.ts) + new module server/crashSafeRefresh.ts/.test.ts, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): PR #1030's fix was real but incomplete — a SECOND, independent instance of the identical crash-loop mechanism found live in server/routes.ts's dashboard-cache refreshers; generalized the guard into a shared module and applied it to both (v1.0.870)
+
+TERRITORY: SHARED (server/routes.ts, per WORKSTREAM PARTITION) — kept as a
+minimal, late, targeted edit; new module server/crashSafeRefresh.ts is
+T-BOT-adjacent infra but has no trading-logic ownership conflict with any
+concurrent session (solo session this UTC day, verified via `git fetch
+origin main` immediately before this bump, see VERSION below).
+
+CONTEXT: this is a continuation of the immediately preceding entry above
+(same UTC session, same live incident) — PR #1030 (v1.0.869,
+server/portDwellCapture.ts's crash-loop guard) merged at 16:31:56Z,
+faster than expected given this session's own merge-hold override
+(justified because the incident was still live). Deployed and VERIFIED
+working exactly as designed: `/api/diag/audit?type=TIER3-PORTDWELL` showed
+`Week 7 deferred — cooling down after a suspected crash` firing on every
+subsequent Tier-3 tick post-deploy — the fixed code path is confirmed
+inert (no more portdwell folds attempted). HOWEVER: continued `/api/health`
+polling after the v1.0.869 deploy showed the SAME crash-loop symptom
+continuing unabated (`uptime_s` still resetting every ~90-130s, `rss_mb`
+still climbing ~500->950MB before each reset) — this session did NOT stop
+and declare victory on a merged PR; it re-verified the live symptom
+against the actual fix and found the symptom persisted, then kept
+investigating rather than closing the incident prematurely.
+
+ROOT CAUSE #2 (READ BEFORE WRITE, this session): with tier3Strategic's own
+portdwell step confirmed silent, re-examined what else runs unconditionally
+early in boot. Grepped `setInterval`/immediate-invocation patterns in
+server/routes.ts (separate from bot.ts's Tier 1/2/3 scheduler entirely) and
+found `refreshShadowStats()` and `refreshPortDwell()` (routes.ts:3908-3927,
+4131-4149 pre-diff) are each called UNCONDITIONALLY the instant they are
+registered — i.e. at every single process boot, no delay — and again every
+10 minutes, each folding the FULL AIS vessel archive
+(`computeShadowStatsAsync`/`computePortDwellAsync`; the port-dwell one is
+explicitly commented as the "heavier 168h window" of the pair). Both
+predate this week's Tier-3 feature by two months (shipped 2026-07-05, per
+their own REPAIR comments, to fix a DIFFERENT prior defect — synchronous
+event-loop blocking) and have run this way ever since without apparent
+incident — the shared risk factor, per shadowFleet.ts's own existing
+KNOWN BROKEN #18 comment ("[the hull-swap fold] grows monotonically with
+the archive"), is that the underlying archive has kept growing for two
+months since, and today is plausibly the day the per-boot cost of running
+BOTH folds finally crossed the container's memory ceiling. Neither
+function persisted any record of an in-flight attempt (only a same-process
+`shadowRunning`/`dwellRunning` flag, which — exactly like `tier3Running` in
+the PART 1 entry above — cannot survive the process it's meant to guard).
+This is the IDENTICAL failure shape as PART 1's finding, in a second,
+independent code path neither this session's PART 1 investigation nor PR
+#1030 touched: an expensive, unconditional-at-boot fold with no persisted
+attempt record will retry itself instantly forever if it OOM-kills the
+process before finishing.
+
+FIX: `server/crashSafeRefresh.ts` (new, reusable module) generalizes
+portDwellCapture.ts's marker-before-risky-work pattern for jobs with no
+natural backlog/per-item state to hang a marker off of — just "did the
+last attempt at this job ever finish." `guardedRefresh(name, cooldownMs,
+fn)` writes a durable `{startedAt}` marker BEFORE calling `fn`, and adds
+`completedAt` in a `finally` once `fn` returns OR throws an ORDINARY
+(catchable) error — so a normal transient failure (network blip, etc.)
+still resolves the marker and the job retries on its regular 10-minute
+cadence; only a hard process crash, which never reaches the `finally`,
+leaves the marker unresolved, and only THAT state triggers the 6h cooldown
+on the next call. `server/routes.ts`'s `refreshShadowStats`/
+`refreshPortDwell` each wrap their existing fold in `guardedRefresh(...)`
+inside their pre-existing try/catch/finally (their own `shadowRunning`/
+`dwellRunning` in-process re-entrancy guards are unchanged) — minimal,
+targeted diff, no behavior change to the happy path (confirmed by a
+dedicated test: two calls 10 minutes apart both run normally with no
+false cooldown).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): only changes WHEN these two
+RAW-overlay dashboard caches (`/api/data/shadowstats`, `/api/data/
+portdwell`) refresh after a suspected crash — never their own math, and
+these are display-only caches with no ladder gate and no trading
+consumer (confirmed: neither `shadowCache` nor `dwellCache` is read by
+`scan_market`/`deep_score`/any Tier 1-3 step). Zero effect on
+portDwellCapture.ts's own, separately-guarded Tier-3 weekly-capture state
+(different marker files, different job names, verified no key collision).
+A `warming_up: true` response from either route may persist longer than
+before if a cooldown is active — an honest, already-existing degraded
+state (the route already had this fallback for the first-ever request),
+not a new failure mode.
+
+RATCHET: `server/crashSafeRefresh.test.ts` (new, 6 tests): cold start runs
+immediately; a marker left unresolved (simulating a crash, since a real
+crash can't be triggered in-process in a test — see the test's own
+comment) defers within cooldown; an ORDINARY caught error still resolves
+the marker and is never mistaken for a crash; a resolved cooldown retries;
+a successful run does NOT block the next normal 10-minute tick (the
+happy-path regression test); two job names never share state. All 6 pass
+against the new module; no A/B stash needed here since the module is new
+(nothing pre-fix to compare against) — the portDwellCapture.ts precedent
+in the immediately preceding entry already carries that verification for
+the underlying pattern.
+
+GATES: `python3 -m pytest -q`: 1808 passed, 2 skipped (no Python file
+touched). `bash scripts/gated_tests.sh`: GATE PASSED — server 1602/1602
+(this session's own 6 new tests), client 1083/1083 (unaffected), python
+1808/2 skipped, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`:
+12/12 exact match, TS2304=0. `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 431->432 and `assertions`
+13663->13679 IMPROVED (this session's own new test file; note the counter
+script counts `git ls-files`-tracked files only — these three counters
+only moved after `git add`ing the new files, a mechanical gotcha worth
+flagging for the next session that adds a new test file and sees no
+IMPROVED line before staging), all three re-pinned in
+`ci/counter_baseline.txt`, 25/25 clean after. `npm run build`: clean.
+
+BACKTEST: N/A per PROMOTION RULE 3 — changes only when two non-trading
+dashboard cache-refresh jobs retry after a suspected crash; no scoring,
+sizing, threshold, or FROZEN PATH touched.
+
+VERSION: v1.0.870 (`package.json`, read-and-increment; `git fetch origin
+main` immediately before the bump confirmed origin/main had advanced to
+PR #1030's merge — a1b7e0b, v1.0.869 — with no further, unexpected
+commits beyond that; this session's own local branch tree was already
+identical to origin/main's new HEAD, confirming no concurrent session
+raced this one). package-lock.json resynced via `npm install
+--package-lock-only`; diff is only the two version-string lines.
+
+MERGE NOTE: same live-incident override as PR #1030 — the crash loop was
+STILL ACTIVE at the time this fix was prepared (re-confirmed via
+`/api/health` polling minutes before writing this entry), so per GOAL
+Priority 1 this should merge on green CI without waiting for after 4:00
+PM ET, exactly as #1030 did.
+
+NEXT: (1) once deployed, re-verify via `/api/health` polling AND
+`/api/diag/audit` (watch for any future `[datacore] shadowstats/portdwell
+refresh deferred` console-only messages — these are NOT currently audited
+into the persisted log the way TIER3-PORTDWELL is; if this incident
+recurs a third time, promote them to `audit()` calls so they're visible
+via the diag endpoint instead of container stdout only, which this
+session did not have direct access to at all during this investigation —
+worth noting as a genuine blind spot: this entire second root cause was
+found by code reading + live black-box HTTP probing, never by reading
+actual server logs). (2) if the crash loop is STILL not resolved after
+this deploys, per RECURRENCE ESCALATES this is now a THIRD attempt on the
+same incident and must become a full architecture-level root-cause
+session (per CLAUDE.md: "Two failed fixes on the same subsystem =
+architecture smell: propose structural work via wishlist.md") — the
+underlying question "has the AIS vessel archive grown large enough that
+these three folds (Tier-3 capture, shadowstats, portdwell) can no longer
+run in-process on the current container's memory budget, period" would
+need a real answer (chunking, moving to a worker process, or raising the
+Railway plan's memory ceiling) rather than a fourth cooldown-shaped
+patch. (3) KNOWN BROKEN #41 in open_questions.md updated in this same
+commit to record this second finding.
+
+STARVED: no — full session capacity spent on driving one live incident
+to (hopefully, pending live re-verification) actual resolution, including
+catching and correcting its own premature "fixed" assessment after the
+first PR merged — exactly the REASONING STANDARD #9 posture ("when live
+diverges from backtest/expectation, believe live") applied to this
+session's own prior conclusion, not just to a strategy backtest.
+
 
 TERRITORY: T-BOT primary (server/bot.ts's Tier-3 wiring, server/portDwellCapture.ts —
 both MUTABLE, no FROZEN PATH touched); SHARED-but-minimal for the counter/
