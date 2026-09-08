@@ -15,6 +15,7 @@ import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, computePortDwellAsyncTimed, portsFromSites } from "./portDwell";
 import { captureIfDue as captureNextPortDwellWeekIfDue, loadCapturedSnapshots } from "./portDwellCapture";
+import { scanStormHistory } from "./spaceWeather";
 import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./shadowFleet";
 import { evaluateEnrichment } from "./shadowFleetGate1";
@@ -2767,6 +2768,20 @@ print(json.dumps(get_shadow_stats()))
           return res.json(sanitizeDiag({
             probe: "portdwell_weekly_captured",
             weeks: loadCapturedSnapshots(),
+          }));
+        }
+        case "spaceweather_storm": {
+          // ADDED 2026-09-08 (scheduled-routine PRODUCT session): see the
+          // "spaceweather_storm" entry in diag.ts's DIAG_PROBES for why —
+          // a local-file scan (spaceWeather.ts's own JSONL archive), never
+          // a network call. `minG` optional, default 2 (NOAA's G2
+          // "moderate storm" threshold, matching the gate-1 note's own
+          // wording); clamped to NOAA's real 0..5 G-scale range.
+          const minG = Math.min(5, Math.max(0, parseInt(String(req.query.minG || "2"), 10) || 0));
+          return res.json(sanitizeDiag({
+            probe: "spaceweather_storm",
+            minG,
+            ...scanStormHistory(undefined, minG),
           }));
         }
         default:

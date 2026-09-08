@@ -13,6 +13,7 @@ import {
   parseKp, parseScales, parseSwpcAlerts, parseWindSummary, parseOvation,
   parseXray, classifyFlare,
   fetchSpaceWeather, archiveSpaceWeather, gzipOldSpaceWeatherDays, conditionsRow,
+  scanStormHistory,
 } from "./spaceWeather";
 
 const KP_FIX = [
@@ -186,6 +187,70 @@ test("archive: kp dedup by time_tag, alerts by id, conditions by upstream stamp,
   assert.ok(!fs.existsSync(path.join(dir, "kp-2026-07-25.jsonl")));
   const gz = zlib.gunzipSync(fs.readFileSync(path.join(dir, "kp-2026-07-25.jsonl.gz"))).toString("utf8");
   assert.match(gz, /"old"/);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+function writeConditionsDay(dir: string, day: string, rows: Array<Record<string, unknown>>, gz = false): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const text = rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+  const fp = path.join(dir, `conditions-${day}.jsonl${gz ? ".gz" : ""}`);
+  fs.writeFileSync(fp, gz ? zlib.gzipSync(text) : text);
+}
+
+test("scanStormHistory: no archive directory -> empty result, not a throw", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
+  assert.deepEqual(scanStormHistory(base), {
+    daysScanned: 0, firstDay: null, lastDay: null,
+    maxG: null, maxGDay: null, maxKp: null, maxKpDay: null, stormDays: [],
+  });
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("scanStormHistory: finds the max observed G/Kp and flags only the day(s) clearing minG", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
+  const dir = path.join(base, "spaceweather");
+  writeConditionsDay(dir, "2026-07-29", [{ id: "a", g: "1", kp: 3.33 }]);
+  writeConditionsDay(dir, "2026-07-30", [{ id: "b", g: "2", kp: 6.0 }, { id: "c", g: "0", kp: 2.0 }]);
+  writeConditionsDay(dir, "2026-07-31", [{ id: "d", g: null, kp: null }]);
+  const result = scanStormHistory(base);
+  assert.equal(result.daysScanned, 3);
+  assert.equal(result.firstDay, "2026-07-29");
+  assert.equal(result.lastDay, "2026-07-31");
+  assert.equal(result.maxG, 2);
+  assert.equal(result.maxGDay, "2026-07-30");
+  assert.equal(result.maxKp, 6.0);
+  assert.equal(result.maxKpDay, "2026-07-30");
+  assert.deepEqual(result.stormDays, ["2026-07-30"], "only the day whose OBSERVED G reached the default G2 threshold");
+  // raising minG past what was ever observed empties stormDays without
+  // changing maxG/maxKp (still the true historical max)
+  const strict = scanStormHistory(base, 3);
+  assert.deepEqual(strict.stormDays, []);
+  assert.equal(strict.maxG, 2);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("scanStormHistory: reads gzip-compressed day files identically to raw .jsonl", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
+  const dir = path.join(base, "spaceweather");
+  writeConditionsDay(dir, "2026-06-01", [{ id: "old", g: "3", kp: 7.0 }], /* gz */ true);
+  const result = scanStormHistory(base);
+  assert.equal(result.daysScanned, 1);
+  assert.equal(result.maxG, 3);
+  assert.deepEqual(result.stormDays, ["2026-06-01"]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("scanStormHistory: a malformed line is skipped, not fatal", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
+  const dir = path.join(base, "spaceweather");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "conditions-2026-07-29.jsonl"),
+    'not-json\n' + JSON.stringify({ id: "ok", g: "1", kp: 4.0 }) + "\n",
+  );
+  const result = scanStormHistory(base);
+  assert.equal(result.maxG, 1);
+  assert.equal(result.maxKp, 4.0);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
