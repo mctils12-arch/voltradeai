@@ -5388,6 +5388,12 @@ print(json.dumps(run_update()))
         audit("TIER3-PORTDWELL", `Weekly snapshot captured: week ${captureResult.week_index}`);
       } else if (captureResult.action === "skipped_degenerate") {
         audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} skipped (degenerate all-zero read)${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
+      } else if (captureResult.action === "deferred_cooldown") {
+        // KNOWN BROKEN / 2026-09-08 live incident: an unresolved prior attempt
+        // on this week means the process likely crashed mid-fold last time —
+        // never silent (RENDERING & MOTION LAW Law V's spirit applies beyond
+        // rendering: a degraded/backed-off path must say so loudly).
+        audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} deferred — cooling down after a suspected crash on the prior attempt${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
       }
     } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); }
 
