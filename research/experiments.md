@@ -3,6 +3,157 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session, third session this UTC day) [REPAIR] — T-BOT (options_manager.py, test_options_fixes.py) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #31's own queued NEXT item (options_manager.py's `_parse_occ_symbol()` adjusted-root ticker bug) fixed (v1.0.868)
+
+TERRITORY: T-BOT primary (options_manager.py — position-bookkeeping,
+not order-submission internals — no FROZEN PATH), test_options_fixes.py
+alongside it; SHARED-but-minimal for the counter/version bookkeeping only.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+HEAD/origin/main both at e31cac8/v1.0.867/PR #1027 at session start (and
+again immediately before the version bump below) — no concurrent session.
+`python3 scripts/research_state_check.py`: audits none overdue, thrash_ratio
+1/10 (well under 7+), known_broken 41 items/4 without explicit close marker
+(advisory only), starvation 0/10 — no meta-problem flag. Live
+`curl https://voltradeai.com/api/health`: status ok, bot active, drawdownPct
+"0.0", liveness.dark false, all 3 archive feeds silent_hours ~0.07 (dead: [])
+— no LIVENESS ALARM. `curl /api/diag/audit?limit=80`: no ERROR-type entries;
+5 EVENTLOOP-LAG entries in-window, 599-2183ms magnitude — two-plus orders of
+magnitude below the 60-98 SECOND pre-fix signature KNOWN BROKEN #18's
+2026-07-17/2026-09-05 closures already established as the discounting bar
+for "ordinary GC noise, not the tracked defect" — correctly not treated as a
+new incident, no action taken.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, no bug in the audit log beyond
+already-discounted noise. Checked the two live-diagnostic NEXT items the
+immediately preceding two sessions queued for a follow-up: (1)
+`GET /api/diag/spaceweather_storm?token=$DIAG_TOKEN` (v1.0.866's own queued
+NEXT(1), now actionable since the deploy — confirmed server_version 1.0.867
+via `/api/data/layers`'s `server_version` field before trusting this) — full
+42-day archive (2026-07-29 through 2026-09-08, the whole retained history)
+scanned, `maxG: 0`, `stormDays: []` — confirms, with the full archive rather
+than the prior session's 7-day NOAA-direct spot check, that gate 1 for
+space_weather_swpc remains genuinely event-blocked (no G2+ storm has landed
+yet); nothing to build off a null result, logged here per MEMORY PROTOCOL
+rather than acted on further. (2) `GET /api/diag/ml?token=$DIAG_TOKEN`'s
+`live_options_outcome_breakdown` (v1.0.867's own queued NEXT(1)) — still
+`{"orphan_exit": 9}`, unchanged, because the fix only deployed this session
+and no standalone CSP round-trip has completed against the new code yet;
+too early to judge, correctly not treated as a failure of the fix.
+
+Fell through to the SAME session's own v1.0.867 NEXT(3): `options_manager.py`'s
+`_parse_occ_symbol()` adjusted-root bug, explicitly named as "queued for its
+own dedicated session" rather than left silently discovered — the highest-
+value actionable item once both live-diagnostic re-checks above came back
+"not yet, nothing to build."
+
+READ BEFORE WRITE: read `_parse_occ_symbol()` (options_manager.py:248) and
+grepped every call site (`parsed = _parse_occ_symbol(...)` at 3 sites) and
+every downstream `parsed["ticker"]` read (~15 sites, all inside
+`manage_options_positions()`, all feeding `_record_options_exit_feedback`/
+trade_feedback exit-record ticker attribution — same file/function the
+immediately preceding v1.0.867 REPAIR touched on the entry side). Also
+checked `vol_surface.py`'s separate, differently-named `parse_occ_symbol()`
+for the same bug shape: it uses a strict `^([A-Z]+)(\d{6})([CP])(\d{8})$`
+regex, so an adjusted root fails the `[A-Z]+` match entirely and returns
+`{}` (the contract is silently dropped, not mis-attributed) — a different,
+narrower failure mode, out of this PR's scope (one logical change per PR;
+not what KNOWN BROKEN #31's scope note named), noted here rather than
+silently found and left undocumented.
+
+ROOT CAUSE (unchanged from the 2026-08-21 sibling diagnosis, re-confirmed
+against this file's own code before touching it): scanning forward for the
+OCC symbol's first digit to split ticker from date misreads an adjusted
+root's own digit (e.g. `IONQ1` instead of `IONQ`, or `BB2` instead of `BB`)
+as the date's start, shifting the 15-char date+type+strike suffix by one
+character — corrupting expiry/type/strike for any adjusted-root position
+this function touches, not just the crash case options_execution.py/
+options_scanner.py hit (those threw on int(); this one silently returns a
+wrong-but-plausible expiry/type/strike, worse because nothing signals the
+corruption).
+
+FIX: mirrors the options_execution.py/options_scanner.py fix (v1.0.760)
+exactly — parse the 15-char suffix (`occ_symbol[-15:-9]` date,
+`occ_symbol[-9]` C/P, `occ_symbol[-8:]` strike) anchored from the END,
+so root length/digits never need inferring; `ticker = occ_symbol[:-15]`.
+
+RATCHET: `test_options_fixes.py`'s `TestParseOccSymbol` gained 2 tests
+(`test_adjusted_root_parses_correctly_not_corrupted`,
+`test_adjusted_root_put_fractional_strike`). A/B-verified via
+`git stash push -- options_manager.py`: both new tests fail pre-fix with
+`KeyError: 'ticker'` (the old code's `if not ticker: return {}` guard
+fires because the first-digit scan finds the adjusted root's own digit
+immediately); all 6 pre-existing cases pass unchanged on both sides of
+the stash (none of them exercise an adjusted root).
+
+GATES: `python3 -m pytest -q`: 1811 passed, 1 skipped, zero regressions
+(full suite, not just the touched file; this sandbox's Python deps were
+already installed from the prior session in this same UTC day, re-verified
+present rather than reinstalled blind). `bash scripts/gated_tests.sh`
+(after `npm ci`, 488 packages, this session's container had no
+node_modules at start): GATE PASSED — server/client 1083/1083, python
+1811/1 skipped, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`:
+12/12 exact match, TS2304=0 (zero TS files touched by this diff, as
+expected). `bash scripts/counter_ratchet.sh`: 24/25 unchanged, `assertions`
+IMPROVED 13644 -> 13652 (this session's own 2 new tests, its direct and
+sole cause) — re-pinned in `ci/counter_baseline.txt` in this same PR,
+re-ran clean 25/25 after. `npm run build`: clean (1860 modules via Vite,
+16.5mb server bundle via esbuild — pre-existing chunk-size/astronomy-engine
+warnings only, unrelated to this diff, confirmed by this diff's file list
+touching zero client/ files).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this changes which ticker a
+trade_feedback EXIT record is attributed to (measurement/bookkeeping),
+not any scoring, sizing, or threshold value; `manage_options_positions()`'s
+own exit-decision logic (profit target, loss limit, DTE exit, Greeks) is
+unchanged — it reads live Alpaca position data, never `parsed["ticker"]`,
+for any decision. Does not touch `submit_options_order` or any order-
+transmission path (no FROZEN PATH implicated).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the only consumer of the
+corrected `ticker` value is trade_feedback exit-record attribution
+(`_record_options_exit_feedback` and the state dict's `"ticker"` field) —
+same honesty-metric-inputs class the immediately preceding v1.0.867 fix
+touched. `ml_model_v2`'s LightGBM training already excludes every options
+record via the `entry_features` schema gate (unchanged, per the 2026-08-22
+note), so no model weights shift. Positions on a PLAIN (non-adjusted) root
+are byte-identical before/after — only adjusted-root positions, which are
+rare (only occur after a corporate action on an underlying with open
+options positions), see any behavior change, and the change is strictly a
+correction (wrong ticker/expiry/type/strike -> right ones), not a new
+decision path.
+
+CROSS-SYSTEM INTEGRATION: none new — no new archive, join, fetch, or
+external dependency; reuses the same OCC-symbol string already available
+at every existing call site.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.868 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at e31cac8/v1.0.867/PR #1027, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT: (1) `vol_surface.py`'s own separate `parse_occ_symbol()` silently
+drops (rather than mis-attributes) adjusted-root contracts — narrower,
+lower-severity, and out of this PR's scope; queued for whichever future
+session next touches that file, not urgent enough to justify its own
+dedicated session on this evidence alone. (2) once this deploys, the two
+live-diagnostic re-checks this session ran but found "too early"/"still
+blocked" (`live_options_outcome_breakdown`, `spaceweather_storm`) remain
+queued for a later session with more elapsed time.
+
+STARVED: no — this session used its full capacity on one clean, scoped
+[REPAIR] action, after correctly ruling out two live-diagnostic re-checks
+as not-yet-actionable rather than forcing action on premature data, and
+correctly discounting a burst of small EVENTLOOP-LAG entries as noise
+against KNOWN BROKEN #18's own established magnitude bar rather than
+reopening a resolved item. No higher-priority queued item was skipped.
+
 ## 2026-09-08 (scheduled-routine session, second session this UTC day) [REPAIR] — T-BOT (options_manager.py, test_options_fixes.py) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #12(c) NEXT step (1) live-checked, surfaced and fixed a real MEASUREMENT INTEGRITY bug — standalone options entries recorded trade_feedback on ORDER SUBMISSION, not confirmed fill (v1.0.867)
 
 TERRITORY: T-BOT primary (options_manager.py is options-manager bookkeeping,

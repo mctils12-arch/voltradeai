@@ -4841,22 +4841,38 @@
     `submit_options_order` or any order-transmission path, so no FROZEN
     PATH is implicated; not a threshold/rule change, so no RULE REVIEW
     evidence gate applies.
-    SCOPE NOTE: `options_manager.py`'s own `_parse_occ_symbol()` has a
-    related but structurally different bug (it derives `ticker` by
-    scanning the symbol for its first digit rather than being passed a
-    known ticker, so an adjusted root's extra digit is mis-detected as
-    the date's start) — confirmed present this session but deliberately
-    NOT fixed here (one logical change per PR; that function's `ticker`
-    return value is consumed by ~10 downstream call sites in
-    `options_manager.py` for live position bookkeeping, and touching it
-    safely needs its own dedicated read-before-write session). Filed as
-    a queued NEXT item, not left silently discovered.
+    SCOPE NOTE [CLOSED 2026-09-08, v1.0.868]: `options_manager.py`'s own
+    `_parse_occ_symbol()` had a related but structurally different bug —
+    ~~it derives `ticker` by scanning the symbol for its first digit
+    rather than being passed a known ticker, so an adjusted root's extra
+    digit is mis-detected as the date's start~~ — confirmed present at
+    the time but deliberately NOT fixed in this PR (one logical change
+    per PR; that function's `ticker` return value is consumed by ~15
+    downstream call sites in `options_manager.py`, all inside
+    `manage_options_positions()` for trade_feedback exit-record
+    attribution, and touching it safely needed its own dedicated
+    read-before-write session). Filed as a queued NEXT item, not left
+    silently discovered. FIXED 2026-09-08 (scheduled-routine session,
+    third session that UTC day, v1.0.868): same fixed-width-from-the-end
+    parse as the fix below, applied to this function. Unlike the crash
+    this PR's own fix prevented, this variant silently returned a
+    wrong-but-plausible expiry/type/strike for an adjusted root (no
+    exception, so nothing signalled the corruption) — worse in kind, not
+    just a repeat. Full account in experiments.md's matching dated entry.
+    Also found and explicitly left out of scope in that session: a THIRD,
+    narrower instance in `vol_surface.py`'s own separate
+    `parse_occ_symbol()` — its strict `^([A-Z]+)...` regex fails to match
+    an adjusted root at all, so it drops the contract (returns `{}`)
+    rather than mis-attributing it; lower severity, still unfixed, queued
+    for whichever future session next touches that file.
     RATCHET: `test_occ_symbol_parsing.py` (new, 4 tests) — reproduces the
     exact live crash on an adjusted-root case for both functions
     (A/B-verified via `git stash`: both adjusted-root tests fail
     pre-fix with the identical `'P00037000'` message, pass post-fix; two
     plain-root cases confirm no regression on the common case, unchanged
-    on both sides of the stash).
+    on both sides of the stash). The 2026-09-08 closure added 2 more
+    tests to `test_options_fixes.py`'s `TestParseOccSymbol`, same
+    A/B-verification method (see experiments.md for detail).
 
 32. **[FOUND + PARTIAL FIX 2026-08-22, RESOLVED 2026-08-23 (scheduled-
     routine session #9, v1.0.770 — see final UPDATE below)]

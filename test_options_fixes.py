@@ -138,6 +138,24 @@ class TestParseOccSymbol(unittest.TestCase):
         result = self.parse("")
         self.assertEqual(result, {})
 
+    def test_adjusted_root_parses_correctly_not_corrupted(self):
+        # KNOWN BROKEN #31 scope note: an OCC adjusted root gains an extra
+        # digit after a corporate action (e.g. IONQ1 instead of IONQ). A
+        # forward scan for the first digit misreads that digit as the
+        # date's start, shifting expiry/type/strike by one character.
+        result = self.parse("IONQ1260418C00250000")
+        self.assertEqual(result["ticker"], "IONQ1")
+        self.assertEqual(result["expiry_date"], "2026-04-18")
+        self.assertEqual(result["option_type"], "call")
+        self.assertEqual(result["strike"], 250.0)
+
+    def test_adjusted_root_put_fractional_strike(self):
+        result = self.parse("BB2260320P00007500")
+        self.assertEqual(result["ticker"], "BB2")
+        self.assertEqual(result["expiry_date"], "2026-03-20")
+        self.assertEqual(result["option_type"], "put")
+        self.assertEqual(result["strike"], 7.5)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEST 3: _days_to_expiry
