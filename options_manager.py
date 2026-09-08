@@ -250,22 +250,33 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
     Parse an OCC symbol into components.
     Format: AAPL260418C00250000
     Returns: {ticker, expiry_date, option_type, strike}
+
+    KNOWN BROKEN #31 scope note (options_execution.py/options_scanner.py
+    carried the identical bug, fixed 2026-08-21 v1.0.760): parsing used to
+    scan forward for the first digit to split ticker from date, which
+    misreads an OCC adjusted-root's own digit (e.g. IONQ1 after a
+    corporate action, instead of IONQ) as the date's start — shifting the
+    whole suffix by one character and corrupting expiry/type/strike, or
+    throwing outright. The date/type/strike suffix is fixed-width (15
+    chars: 6-digit date + 1-char C/P + 8-digit strike) regardless of root
+    length, so anchoring from the END avoids the ambiguity entirely; the
+    ticker is simply whatever remains in front of it.
     """
     try:
-        # Find where the date digits start
-        ticker = ""
-        for i, ch in enumerate(occ_symbol):
-            if ch.isdigit():
-                ticker = occ_symbol[:i]
-                break
-        if not ticker or len(occ_symbol) < len(ticker) + 15:
+        if len(occ_symbol) < 16:
             return {}
 
-        body = occ_symbol[len(ticker):]
-        exp_str = "20" + body[:6]
+        ticker = occ_symbol[:-15]
+        if not ticker:
+            return {}
+        date_digits = occ_symbol[-15:-9]
+        type_char = occ_symbol[-9]
+        strike_digits = occ_symbol[-8:]
+
+        exp_str = "20" + date_digits
         expiry_date = f"{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}"
-        option_type = "call" if body[6] == "C" else "put"
-        strike = int(body[7:]) / 1000
+        option_type = "call" if type_char == "C" else "put"
+        strike = int(strike_digits) / 1000
 
         return {
             "ticker": ticker,
