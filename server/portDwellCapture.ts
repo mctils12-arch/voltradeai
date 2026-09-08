@@ -67,6 +67,28 @@ export function portDwellCaptureStateDir(env: NodeJS.ProcessEnv = process.env): 
 }
 const SNAPSHOTS_FILE = "voltrade_port_dwell_weekly_captured.json";
 const SKIPPED_FILE = "voltrade_port_dwell_weekly_skipped.json";
+const ATTEMPTS_FILE = "voltrade_port_dwell_weekly_attempts.json";
+
+// CRASH-LOOP GUARD (2026-09-08, live-incident REPAIR — see research/experiments.md
+// this date): production was observed OOM-crash-looping roughly every 90-120s
+// during market hours. Root cause traced to this module: `captureIfDue` is
+// called from bot.ts's Tier-3 clock both ~30s after every boot and hourly
+// thereafter, and (per this module's own header) attempts a full 168h fold
+// on EVERY tick where a week remains outstanding — with this feature only a
+// day old, a multi-week backlog exists, so every single tick was guaranteed
+// to trigger a fresh fold. If a fold OOM-kills the whole Node process before
+// `writeCapturedSnapshots` persists, the crash itself erases the only record
+// that an attempt was even made — so the next boot, 30s later, retried the
+// identical fold and crashed again, forever. The fix: durably record the
+// attempt BEFORE running the (possibly fatal) fold, so a mid-fold crash still
+// leaves a fact on disk that prevents an immediate retry of the same week.
+// This does not fix the fold's own memory footprint (that needs real
+// production archive data to size correctly and chunking work this session
+// has no way to validate) — it bounds the BLAST RADIUS of a crash to one
+// cooldown window instead of an unbounded tight loop, buying time for a
+// future session to right-size or chunk the fold itself (queued in
+// research/open_questions.md).
+const CRASH_COOLDOWN_MS = 6 * 3600_000; // 6h — comfortably longer than the observed ~100s loop period
 
 interface SkippedRecord { result: "skipped_degenerate"; at: string; detail?: string }
 
@@ -96,6 +118,25 @@ function writeSkipped(dir: string, skipped: Map<number, SkippedRecord>): void {
   fs.writeFileSync(path.join(dir, SKIPPED_FILE), JSON.stringify(obj, null, 2) + "\n");
 }
 
+/** week_index -> epoch ms of the last attempt START (not completion) — see
+ *  CRASH_COOLDOWN_MS header above. Written BEFORE the fold runs so a crash
+ *  mid-fold still leaves this fact durably on disk. */
+function loadAttempts(dir: string): Map<number, number> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, ATTEMPTS_FILE), "utf8")) as Record<string, number>;
+    return new Map(Object.entries(raw).map(([k, v]) => [Number(k), v]));
+  } catch { return new Map(); }
+}
+
+function recordAttemptStart(dir: string, idx: number, nowMs: number): void {
+  const attempts = loadAttempts(dir);
+  attempts.set(idx, nowMs);
+  fs.mkdirSync(dir, { recursive: true });
+  const obj: Record<string, number> = {};
+  for (const [k, v] of attempts) obj[String(k)] = v;
+  fs.writeFileSync(path.join(dir, ATTEMPTS_FILE), JSON.stringify(obj, null, 2) + "\n");
+}
+
 /** Pure: the earliest week index worth attempting, derived from the live
  *  raw-retention floor — mirrors `portdwell_weekly_snapshot.ts`'s own
  *  identical formula (never assume week 0/archive-start is reachable; raw
@@ -119,7 +160,7 @@ export function nextCaptureTarget(existing: WeeklySnapshot[], skippedIndices: Re
 }
 
 export interface CaptureResult {
-  action: "captured" | "skipped_degenerate" | "no_missing_week";
+  action: "captured" | "skipped_degenerate" | "no_missing_week" | "deferred_cooldown";
   week_index?: number;
   detail?: string;
 }
@@ -141,6 +182,27 @@ export async function captureIfDue(ports: PortDef[], oldestRawHourMs: number | n
   const skipped = loadSkipped(dir);
   const idx = nextCaptureTarget(existing, new Set(skipped.keys()), oldestRawHourMs, nowMs);
   if (idx == null) return { action: "no_missing_week" };
+
+  // CRASH-LOOP GUARD: if this exact week was attempted within the cooldown
+  // window, defer rather than fold again. A completed attempt (captured or
+  // skipped_degenerate) removes the week from nextCaptureTarget's candidate
+  // set entirely, so reaching this check with a fresh `attempts` hit means
+  // the prior attempt never finished — most plausibly because it crashed
+  // the whole process. Retrying instantly is exactly the loop that caused
+  // the 2026-09-08 production incident; waiting out the cooldown does not.
+  const attempts = loadAttempts(dir);
+  const lastAttemptMs = attempts.get(idx);
+  if (lastAttemptMs != null && nowMs - lastAttemptMs < CRASH_COOLDOWN_MS) {
+    return {
+      action: "deferred_cooldown", week_index: idx,
+      detail: `last attempt at ${new Date(lastAttemptMs).toISOString()} did not complete (suspected crash) — cooling down until ${new Date(lastAttemptMs + CRASH_COOLDOWN_MS).toISOString()}`,
+    };
+  }
+
+  // Durably record the attempt BEFORE the (possibly fatal) fold — see
+  // CRASH_COOLDOWN_MS header. This write must land on disk before computeFn
+  // runs, not after, or a crash inside computeFn defeats the whole guard.
+  recordAttemptStart(dir, idx, nowMs);
 
   // No separate "is this week within raw retention" check here:
   // nextCaptureTarget already derives its search range from

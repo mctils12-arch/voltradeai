@@ -3,6 +3,180 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session, fourth session this UTC day) [REPAIR] — T-BOT (server/portDwellCapture.ts, server/portDwellCapture.test.ts, server/bot.ts) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): LIVE PRODUCTION INCIDENT — server was OOM-crash-looping every ~90-120s during market hours; root-caused to the new port-dwell Tier-3 in-process fold retrying an un-persisted, likely-fatal attempt on every boot; crash-loop guard shipped (v1.0.869). PR merge deliberately held for after-hours per this session's own scheduling instruction (see MERGE NOTE at the end of this entry).
+
+TERRITORY: T-BOT primary (server/bot.ts's Tier-3 wiring, server/portDwellCapture.ts —
+both MUTABLE, no FROZEN PATH touched); SHARED-but-minimal for the counter/
+version bookkeeping only.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`: HEAD/
+origin/main both at 6c94d35/v1.0.868/PR #1028 at session start — no
+concurrent session. `python3 scripts/research_state_check.py`: audits none
+overdue, thrash_ratio 2/10 (below 7+), known_broken 41/4 advisory-only,
+starvation 0/10 — no meta-problem flag, nothing in the routine checklist
+itself demanded [REPAIR] before the live finding below changed that.
+
+WHAT WAS FOUND (this session's own primary-action trigger, found while doing
+the routine `/api/health` check, not from a queued item): `/api/health`
+returned `uptime_s` values that kept resetting to single/low-double digits
+across repeated polls a few seconds apart (81 -> 502 error -> 18 -> 52 -> 79
+-> [502] -> 44...). Widened to `/api/diag/audit?limit=200`: three `STARTUP
+Server boot — code_version 1.0.868, pid 1` entries at 15:57:28, 15:59:38,
+15:01:46(sic, 16:01:46) — roughly 130s apart — inside a 200-entry window
+spanning only ~7 minutes of wall clock. Live-polled `/api/health` at ~20s
+intervals for ~3 more minutes: confirmed the pattern continuing in real
+time (uptime 79s -> a parse failure (502) -> uptime 19s -> 40s -> 61s ->
+75s -> 95s -> a parse failure (502) -> uptime 19s -> 40s -> 61s), with
+`rss_mb`/`heap_used_mb` climbing smoothly and near-linearly (~3-4MB/s,
+heap tracking rss proportionally throughout — a real JS heap/object growth,
+not just off-heap native buffer growth) from ~500MB toward ~950-1000MB
+before each reset. code_version stayed at 1.0.868 throughout (last real
+deploy 2026-09-08T11:19:43Z, ~4.5h before the loop was observed) — ruled
+out "bad deploy just landed" as the trigger; this looked instead like a
+pre-existing leak that finally crossed a ceiling and now re-triggers every
+cycle. PROACTIVELY NOTIFIED THE HUMAN mid-investigation (before root cause
+was confirmed) per this session's "surface a live incident now, don't wait
+for a tidy writeup" mandate — a live OOM crash loop during market hours is
+exactly the kind of finding that shouldn't sit undelivered in a transcript.
+
+ROOT CAUSE (READ BEFORE WRITE trace, this session, not from memory): grepped
+`setTimeout`/`setInterval` call sites in bot.ts and found `tier3Strategic()`
+is invoked once 30s after every boot (`setTimeout(() => { tier3Strategic()
+.catch(() => {}); }, 30000)`, bot.ts:6962) AND on an hourly `setInterval`
+thereafter (bot.ts:6947), guarded only by an in-process `tier3Running` flag
+that cannot survive a process crash. Reading `tier3Strategic()`'s step 7
+(bot.ts:5368-5392, added 2026-09-06/07 in PR #1017-#1019) and its module
+`server/portDwellCapture.ts` (own header: "attempts AT MOST ONE 168h fold
+per call" — the single oldest not-yet-captured week) revealed the
+mechanism: this feature is ~36h old, so a multi-week backlog exists (the
+archive spans 2026-07-03 to now, ~9-10 weeks, only a handful captured so
+far per the 2026-09-06/07 session logs) — meaning EVERY Tier-3 tick,
+including the 30s-post-boot one, is guaranteed to find a week still due and
+attempt a fresh 168h vessel-archive fold (`computePortDwellAsyncTimed` ->
+`foldPortVisitsAsync` -> `foldVesselArchiveAsync`, an online/streaming fold
+over the full raw AIS archive, already documented in that module's own
+2026-09-06 comment as CPU-cost that "does NOT amortize down as the window
+grows" — i.e. a genuinely large, and growing, per-call cost). Crucially,
+`captureIfDue` only persists a completed result (`writeCapturedSnapshots`/
+`writeSkipped`) AFTER `computeFn` returns — nothing is recorded before or
+during the fold. If the fold's memory footprint pushes the whole Node
+process over the container's OOM ceiling, the crash itself destroys the
+only evidence that an attempt was ever made: the very next boot, 30s later,
+finds the identical week still "due" and retries the identical fold,
+crashing again — a self-sustaining loop with no natural exit, matching the
+observed ~90-130s period (boot + init ~10-20s, then 30s delay, then the
+fold running until OOM) to within the noise of GC pacing. This was NOT a
+threshold/design bug in the fold's own algorithm (its memory-per-vessel
+design is deliberately "online"/streaming per its own comments) and NOT
+something this session could safely re-engineer blind — this sandbox has
+no access to the real, grown production vessel archive to size a proper
+fix against, and guessing at a byte budget risks either not fixing the
+crash or silently truncating real archive coverage. What WAS fully in this
+session's authority and evidence: the crash-loop MECHANISM itself (an
+un-recorded, instantly-retried, likely-fatal operation) is a pure
+REPAIR-mandate bug regardless of the fold's ultimate memory cost.
+
+FIX (`server/portDwellCapture.ts`): a durable, disk-persisted "attempt
+started" marker (`voltrade_port_dwell_weekly_attempts.json`, week_index ->
+epoch-ms attempt-start-time) written IMMEDIATELY BEFORE calling `computeFn`
+— not after, so a crash mid-fold still leaves the fact on disk. On the next
+`captureIfDue` call, if the same week's marker is younger than
+`CRASH_COOLDOWN_MS` (6 hours — comfortably longer than the observed ~100s
+loop period, short enough that the feature still makes real progress once
+whatever made that specific week's fold expensive isn't retried every
+tick), the call returns a new `"deferred_cooldown"` action and skips the
+fold entirely; past the cooldown, it retries normally (this is a genuine
+retry, not a permanent skip — unlike `skipped_degenerate`, a week is never
+given up on). `server/bot.ts`'s Tier-3 call site audits the new action as
+`TIER3-PORTDWELL` (`"... deferred — cooling down after a suspected crash on
+the prior attempt"`) so a cooldown firing in production is visible, not
+silent, in the audit log — matching the RENDERING & MOTION LAW's Law V
+spirit (a degraded/backed-off path must say so loudly) even though this
+isn't a rendering layer.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this only changes WHEN a
+port-dwell weekly fold is attempted, never the fold's own math, the
+signal-ladder gate it feeds (still gate 0/raw storage per the 2026-09-07
+log), or any trading decision — port-dwell is a raw-overlay/no-lookahead
+research artifact, not consumed by scan_market/deep_score. Zero effect on
+any other Tier-3 step (ML retrain, macro/COT/Form4 scans) or on Tier 1/2
+cadence. The only observable production behavior change: the server stops
+crash-looping, and a `TIER3-PORTDWELL ... deferred_cooldown` audit line may
+appear for the currently-stuck week until either the cooldown clears and a
+retry succeeds, or a future session sizes/chunks the fold properly.
+
+CROSS-SYSTEM INTEGRATION: none new. MONETIZATION TRIPWIRE: not touched.
+
+RATCHET: `server/portDwellCapture.test.ts` gained 2 tests
+(`captureIfDue: a fold that never completes (simulated crash) is not
+retried on the next tick`, `captureIfDue: retries the same week once the
+cooldown window has fully elapsed`). A/B-verified via `git stash push --
+server/portDwellCapture.ts`: the first new test fails pre-fix (asserts
+`"deferred_cooldown"`, gets `"captured"` — i.e. pre-fix code retries and
+re-attempts the fold on literally the next tick after a simulated crash,
+reproducing the exact production mechanism) and both pass post-fix; all 12
+pre-existing tests in the file pass unchanged on both sides of the stash.
+
+GATES (this sandbox had no python or node deps installed at session start —
+`pip install -r requirements.txt` plus `openpyxl`/`Pillow` for two
+recently-added test files that import them, and `npm ci`, 488 packages,
+were run fresh this session before any gate; none of these installs touch
+tracked files): `python3 -m pytest -q`: 1808 passed, 2 skipped, zero
+regressions (this diff touches no Python file). `bash scripts/
+gated_tests.sh`: GATE PASSED — server 1596/1596 (this session's own 2 new
+tests land in this bucket, not the separate client bucket below), client
+1083/1083 (unaffected — this diff touches zero client/ files), python
+1808/2 skipped, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`:
+12/12 exact match, TS2304=0
+(zero new TS errors). `bash scripts/counter_ratchet.sh`: 24/25 unchanged,
+`assertions` IMPROVED 13652 -> 13663 (this session's own 2 new tests'
+assertions, direct and sole cause) — re-pinned in `ci/counter_baseline.txt`
+in this same PR, re-ran clean 25/25 after. `npm run build`: clean (1860
+modules via Vite, 16.5mb server bundle via esbuild — pre-existing
+chunk-size/astronomy-engine warnings only, unrelated to this diff, which
+touches zero client/ files).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this changes operational scheduling of
+a non-trading background data-capture job (when a fold retries after a
+suspected crash), not any scoring, sizing, or threshold value; no trading
+logic, RULE REVIEW gate, or FROZEN PATH (order-submission, kill-switch
+mechanisms, etc.) is implicated.
+
+MERGE NOTE (per this session's own scheduling instruction — session ran
+during market hours): this PR is prepared and gate-clean but should NOT be
+merged until after 4:00 PM ET today UNLESS the crash loop is still actively
+degrading production by then, in which case the LIVENESS priority (GOAL
+Priority 1) overrides the market-hours hold and it should merge immediately
+on green CI — noted explicitly in the PR body for whoever/whatever reviews
+it next (autonomous merge included).
+
+NEXT: (1) the real fix this session could not safely attempt blind: size or
+chunk `computePortDwellAsyncTimed`'s per-call memory footprint against the
+REAL production vessel archive (this sandbox has none) — likely splitting
+the 168h fold into smaller sub-windows (e.g. daily) that get merged
+incrementally, or moving the fold into a bounded child process/worker so a
+crash there can't take down the whole Node server the way an in-process
+OOM does. (2) once deployed, check `/api/diag/audit?type=TIER3-PORTDWELL`
+for `deferred_cooldown` lines — if the SAME week keeps hitting cooldown
+call after call (i.e. it never succeeds even once outside the crash-loop
+window), that week's fold genuinely cannot complete within available
+memory and needs (1) before it will ever resolve; log to open_questions.md
+if so. (3) whether the underlying vessel archive itself has grown in a way
+that makes ALL future 168h folds this expensive (not just backlog weeks)
+is worth checking once the backlog clears. (4) `vol_surface.py`'s own
+separate `parse_occ_symbol()` silently-drops bug (queued by the prior
+session, still not urgent/dedicated-session-worthy) and the two
+live-diagnostic re-checks (`live_options_outcome_breakdown`,
+`spaceweather_storm`) remain queued, untouched this session — a genuine
+live production incident outranked all three per SESSION BUDGET's "fix a
+bug seen in audit logs" ordering.
+
+STARVED: no — this session used its full capacity on one live incident,
+end to end (detection, live investigation, root cause, fix, tests, full
+gate suite, PR prep), correctly interrupting the routine checklist instead
+of working through the queue first, per GOAL Priority 1 (KEEP THE SYSTEM
+ALIVE) outranking every lower-priority queued item.
+
 ## 2026-09-08 (scheduled-routine session, third session this UTC day) [REPAIR] — T-BOT (options_manager.py, test_options_fixes.py) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #31's own queued NEXT item (options_manager.py's `_parse_occ_symbol()` adjusted-root ticker bug) fixed (v1.0.868)
 
 TERRITORY: T-BOT primary (options_manager.py — position-bookkeeping,

@@ -131,3 +131,42 @@ test("captureIfDue: bounded to one fold per call even with many weeks outstandin
   await captureIfDue(PORTS, null, weekBounds(20).startMs, dir, compute); // weeks 0-19 all outstanding
   assert.equal(calls, 1);
 });
+
+// CRASH-LOOP GUARD (2026-09-08 live-incident REPAIR — see portDwellCapture.ts's
+// own CRASH_COOLDOWN_MS header and research/experiments.md this date): a fold
+// that never completes (simulating the process getting OOM-killed mid-fold)
+// must not be retried on the very next tick — that immediate-retry-of-a-fatal-
+// operation is exactly what crash-looped production every ~100s.
+test("captureIfDue: a fold that never completes (simulated crash) is not retried on the next tick", async () => {
+  const dir = tmpDir();
+  const nowMs = weekBounds(1).startMs;
+  let calls = 0;
+  const crashingCompute = async () => { calls++; throw new Error("simulated OOM kill mid-fold"); };
+  await assert.rejects(() => captureIfDue(PORTS, null, nowMs, dir, crashingCompute));
+  assert.equal(calls, 1);
+
+  // Next tick, moments later — same process restart pattern that crash-looped
+  // in production. Must defer, not attempt the fold again.
+  const workingCompute = async () => { calls++; return { ...fakeStats(), pointsScanned: 1, elapsedMs: 1 }; };
+  const r2 = await captureIfDue(PORTS, null, nowMs + 30_000, dir, workingCompute);
+  assert.equal(r2.action, "deferred_cooldown");
+  assert.equal(r2.week_index, 0);
+  assert.equal(calls, 1); // workingCompute was never invoked
+  assert.equal(loadCapturedSnapshots(dir).length, 0);
+});
+
+test("captureIfDue: retries the same week once the cooldown window has fully elapsed", async () => {
+  const dir = tmpDir();
+  const nowMs = weekBounds(1).startMs;
+  let calls = 0;
+  const crashingCompute = async () => { calls++; throw new Error("simulated OOM kill mid-fold"); };
+  await assert.rejects(() => captureIfDue(PORTS, null, nowMs, dir, crashingCompute));
+
+  const SIX_HOURS_MS = 6 * 3600_000;
+  const workingCompute = async () => { calls++; return { ...fakeStats(), pointsScanned: 1, elapsedMs: 1 }; };
+  const r2 = await captureIfDue(PORTS, null, nowMs + SIX_HOURS_MS + 1000, dir, workingCompute);
+  assert.equal(r2.action, "captured");
+  assert.equal(r2.week_index, 0);
+  assert.equal(calls, 2);
+  assert.equal(loadCapturedSnapshots(dir).length, 1);
+});

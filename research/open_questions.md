@@ -6016,6 +6016,51 @@
     record instead of re-diagnosed by the next session that happens to
     run full pytest on one of these dates.
 
+41. **[FOUND AND MITIGATED 2026-09-08, scheduled-routine session, LIVE
+    PRODUCTION INCIDENT] Production OOM-crash-looped every ~90-130s during
+    market hours; root cause was the new port-dwell Tier-3 in-process fold
+    (PR #1017-#1019, ~36h old at the time) retrying an un-persisted, likely
+    -fatal 168h vessel-archive fold on every single boot.** Full account in
+    `research/experiments.md`'s 2026-09-08 (fourth session this UTC day)
+    entry — discovered live via `/api/health` uptime resets during this
+    session's routine health check, not from a queued item; the human was
+    proactively notified mid-investigation, before root cause was confirmed,
+    per the live-incident-first mandate. `server/portDwellCapture.ts`'s
+    `captureIfDue` only persisted a completed fold result, never an
+    in-progress attempt — so a fold that OOM-killed the whole Node process
+    left zero trace, and the next boot (Tier-3 fires 30s after every boot)
+    retried the exact same week's fold and crashed again, forever, with no
+    natural exit given the ~9-10 week backlog this brand-new feature had to
+    catch up on.
+    MITIGATED, NOT ROOT-CAUSE-FIXED: a durably-persisted "attempt started"
+    marker, written BEFORE the fold runs, now enforces a 6h cooldown per
+    week after an attempt fails to complete — this bounds the crash-loop's
+    blast radius (one crash per 6h instead of one every ~100s) but does
+    NOT reduce the fold's own memory footprint. This sandbox had no access
+    to the real, grown production vessel archive to size or chunk that fold
+    correctly — attempting that blind, under live-incident time pressure,
+    risked either not fixing the crash or silently truncating real archive
+    coverage, so it was deliberately left to a future session (this item's
+    own NEXT below), consistent with RULE REVIEW's "no rule change ships
+    without evidence" spirit applied to a resource-budget change here.
+    NEXT: (1) once deployed, check `/api/diag/audit?type=TIER3-PORTDWELL`
+    for `deferred_cooldown` lines — if the SAME week index keeps hitting
+    cooldown call after call, that week's fold genuinely cannot complete in
+    available memory and needs a real fix (chunk the 168h window into
+    smaller sub-windows merged incrementally, or move the fold into a
+    bounded child process/worker so a crash there can't take the whole
+    server down) before it will ever resolve. (2) check whether the
+    underlying vessel archive has grown enough that even NON-backlog
+    (steady-state, one-new-week-per-week) folds are now this expensive —
+    if so this is a standing risk, not a one-time backlog problem, and
+    deserves its own dedicated session per RECURRENCE ESCALATES should it
+    crash-loop again after the 2026-09-08 mitigation lands. (3) per
+    RECURRENCE ESCALATES: if this exact crash-loop mechanism (un-persisted
+    attempt + instant automatic retry after a crash) is ever found in
+    ANOTHER Tier-3/Tier-2 step, that is architecture smell — propose a
+    shared "record-before-attempting, cooldown-after-failure" helper via
+    wishlist.md rather than patching each occurrence independently.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
