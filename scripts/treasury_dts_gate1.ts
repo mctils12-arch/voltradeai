@@ -86,6 +86,15 @@ async function dtsDepositsForDay(day: string): Promise<DtsRow[]> {
 
 interface MtsMonth { month: string; receiptsUsd: number; }
 
+/** One mts_table_1 row, verbatim FiscalData field names (values are
+ *  strings, including the literal "null", as the API returns them). */
+interface MtsRawRow {
+  parent_id: string | null;
+  classification_id: string;
+  classification_desc: string;
+  current_month_gross_rcpt_amt: string | null;
+}
+
 /** Walks mts_table_1's FY-parent/month-child rows for every fiscal year
  *  present in the latest published report (usually the current FY plus
  *  the prior FY's comparative column — this doubles the sample size for
@@ -95,7 +104,7 @@ async function mtsMonthlyReceipts(): Promise<MtsMonth[]> {
   const recordDate = latest?.data?.[0]?.record_date;
   if (!recordDate) return [];
   const all = await fetchJson(`${MTS_URL}?filter=record_date:eq:${recordDate}&page%5Bsize%5D=40&sort=src_line_nbr`);
-  const rows: any[] = all?.data || [];
+  const rows: MtsRawRow[] = all?.data || [];
   const fyParents = rows.filter((r) => r.parent_id === "null" || r.parent_id == null);
   const out: MtsMonth[] = [];
   for (const fy of fyParents) {
@@ -103,7 +112,7 @@ async function mtsMonthlyReceipts(): Promise<MtsMonth[]> {
     if (!fyNum) continue;
     for (const r of rows) {
       if (r.parent_id !== fy.classification_id) continue;
-      const monthName = r.classification_desc as string;
+      const monthName = r.classification_desc;
       if (!(monthName in MONTH_NUM)) continue; // "Year-to-Date" rows excluded
       const amt = r.current_month_gross_rcpt_amt;
       if (amt == null || amt === "null") continue;

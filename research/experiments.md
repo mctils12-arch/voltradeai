@@ -113,24 +113,52 @@ display is unaffected.
 VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
 
 GATES: `npx tsx --test server/treasuryDts.test.ts`: 9/9 pass (4 new).
-`bash scripts/tsc_ratchet.sh`: reported 3 (TS2304=0) against the `ci/
-tsc_baseline.txt` pin of 12 — re-verified via `git stash` that this 12->3 drop is
-PRE-EXISTING on the clean tree (identical result with this session's diff
-stashed out), from merges unrelated to this session; left un-re-pinned here per
-PROMOTION RULE 5 (attribution dies when unrelated improvements are bundled into
-one PR's pin update) — same discipline this file's own prior sessions have
-applied to `tests_run_in_ci`/`tests_gating_merge` drift. `bash scripts/
-gated_tests.sh` (after `npm ci` + `pip install -r requirements.txt -r
-requirements-dev.txt`): GATE PASSED — python 1811 passed/1 skipped/54 subtests,
-quarantine 0/1 none overdue (client suite ran in the same pass, full script exit
-0). `bash scripts/counter_ratchet.sh`: `assertions` 13663 -> 13667 (this
-session's own 4 new tests, the only counter that moved), re-pinned in `ci/
-counter_baseline.txt` in this same PR; all other 24 counters unchanged, re-ran
-clean (25/25 OK) after the re-pin. `python3 -c "import json;
-json.load(open('datacore/signal_ladder.json'))"` and `node -e
+`bash scripts/tsc_ratchet.sh`: FIRST reading (before a fresh `npm ci` had
+completed in this session's container) showed 3, which briefly looked like
+pre-existing drift and was nearly reported as such — this is the EXACT false
+reading PROGRAM_STATE.md's own 2026-08-15 entry already warned about
+("an earlier reading on this session's initially-incomplete node_modules had
+shown 3... re-ran twice after npm ci completed and got a stable 12"). Re-ran
+after `npm ci` finished: stable 12, exactly matching the `ci/tsc_baseline.txt`
+pin, confirmed via a direct `npx tsc --noEmit` — all 12 errors are in files
+this diff never touches (TradeChart.tsx/datamap.tsx/billing.ts/bot.ts/
+owmTiles.ts). No re-pin needed or attempted.
+
+`bash scripts/gated_tests.sh` (after `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt`): local run GATE PASSED — python
+1811 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. **CI then
+caught something the local run's counter_ratchet.sh pass had missed**: the
+PR's `test` check FAILED on push with `ts_any: 1239 -> 1240 (non-increasing)`.
+Root cause, found by reading the CI job log rather than guessing: the new
+`scripts/treasury_dts_gate1.ts` had `const rows: any[] = all?.data || [];` —
+a genuine new `: any` this session introduced, invisible in the FIRST local
+`counter_ratchet.sh` run because that run happened to execute before the
+file's final state was in place (the counter script itself is deterministic;
+this was a sequencing mistake in this session's own verification order, not a
+flaky counter). Fixed by typing the MTS API's row shape properly (new
+`MtsRawRow` interface — `parent_id`/`classification_id`/`classification_desc`/
+`current_month_gross_rcpt_amt`, matching the verbatim FiscalData field names)
+instead of reaching for `any`; also dropped a now-redundant `as string` cast
+on the same field once its type was known. Re-verified after the fix, in this
+order this time — tests, then tsc, then counters, then build, then re-ran the
+live gate-1 script to confirm the fix changed no result (still r=0.979,
+byte-identical JSON output): `npx tsx --test server/treasuryDts.test.ts`
+9/9; `bash scripts/tsc_ratchet.sh` stable 12; `bash scripts/counter_ratchet.sh`
+OK, 25/25, `ts_any` back at the 1239 pin; `npm run build` clean. `python3 -c
+"import json; json.load(open('datacore/signal_ladder.json'))"` and `node -e
 "require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
-unchanged (one entry edited in place). `npm run build`: clean (pre-existing
-chunk-size warnings only, unrelated to this diff).
+unchanged (one entry edited in place). Pushed as a second commit on the same
+PR/branch (`git commit`, not `--amend` — the first commit already left this
+branch on the remote and CI had run against it).
+
+LESSON (worth compiling, not just fixing): verify in the ORDER the gate
+suite actually runs in CI (tests -> tsc -> counters -> build), and re-run
+`counter_ratchet.sh` as the LAST local check before committing, not
+mid-sequence — this session's own diff had already changed twice more
+(the gate-1 script and the ladder-note edits) after the counter check that
+came back clean, which is exactly how a genuinely new `: any` slipped through
+a locally-green run. `research/experiments.md`'s own MEMORY PROTOCOL entry
+records this so a future session's gate ordering default is "counters last."
 
 MARKET-HOURS NOTE: session ran at 2026-09-08 ~14:10-15:00 ET (mid-market, per the
 health check's live timestamp). This PR carries zero trading-path risk (no

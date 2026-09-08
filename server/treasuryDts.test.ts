@@ -107,7 +107,7 @@ test("sumTgaDepositsExDebt: excludes the API's own Total-Deposits subtotal row (
   const rows = [
     dtsRow({ category: "Taxes - Withheld Individual/FICA", mtd_amt: 279940 }),
     dtsRow({ category: "Taxes - Corporate Income", mtd_amt: 19206 }),
-    dtsRow({ account_type: "Treasury General Account Total Deposits", category: "null" as any, mtd_amt: 299146 }),
+    dtsRow({ account_type: "Treasury General Account Total Deposits", category: "null", mtd_amt: 299146 }),
   ];
   assert.equal(sumTgaDepositsExDebt(rows), 279940 + 19206, "the subtotal row must not be added on top of its own parts");
 });
