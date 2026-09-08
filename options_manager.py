@@ -1017,6 +1017,31 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 current_price
             )
 
+        # Resolve any pending trade_feedback ENTRY left by
+        # register_options_entry() (see that function's own comment) —
+        # this occ_symbol just showed up in Alpaca's live `/v2/positions`,
+        # which only lists REAL, confirmed-filled positions, so this is
+        # the first point we can trust the fill actually happened. Uses
+        # this loop's own `entry_price`/`qty` (Alpaca's real
+        # `avg_entry_price`/filled qty, not the submission-time limit
+        # price/requested qty the pending payload was built from).
+        # Popped (not just read) so it fires exactly once per position.
+        pending_fb = pos_state.pop("pending_entry_feedback", None)
+        if pending_fb:
+            try:
+                from ml_model_v2 import track_fill
+                now_iso = datetime.now().isoformat()
+                track_fill({
+                    **pending_fb,
+                    "qty": qty,
+                    "expected_price": entry_price,
+                    "fill_price": entry_price,
+                    "time_placed": now_iso,
+                    "time_filled": now_iso,
+                })
+            except Exception as e:
+                logger.warning(f"track_fill pending-entry record failed for {occ_symbol}: {e}")
+
         state[occ_symbol] = pos_state
 
         # ── Check 0: MINIMUM HOLD TIME ──────────────────────────────────
@@ -1341,27 +1366,36 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "qty": qty,
         "max_loss": max_loss,  # v1.0.34: for 50%-of-max-loss early exit
     }
-    _save_options_state(state)
-
-    # KNOWN BROKEN #12(c): wire standalone single-leg entries into
-    # trade_feedback so their eventual CLOSE has a real record to match
-    # against (see MULTI_LEG_STRATEGIES / _record_options_exit_feedback
-    # above for why multi-leg strategies are deliberately excluded here).
+    # KNOWN BROKEN #12(c) FURTHER REPAIR (found live 2026-09-08): this used
+    # to call track_fill() unconditionally right here, at order SUBMISSION
+    # time — but `register_options_entry` is called for every status in
+    # `("submitted", "filled", "pending_new", "accepted")`, none of which
+    # mean the order actually filled. Live `/api/diag/orders` this session
+    # showed 42/48 (87.5%) of standalone CSP opening orders in a recent
+    # window are `canceled` (day-limit orders that never reached their
+    # price, the same fill-timing gap KNOWN BROKEN #30 already documented
+    # for slot-counting) — so most of those track_fill calls wrote a
+    # phantom trade_feedback ENTRY record (fill_price = the quoted limit,
+    # never a real fill) for a position that never existed. Worse: several
+    # tickers (e.g. HPE) show a canceled retry AFTER a real fill on the
+    # same ticker — `ml_model_v2._find_entry_record` matches the MOST
+    # RECENT unmatched record for a ticker, so a later phantom can get
+    # matched to the real position's eventual exit instead of the real
+    # entry, corrupting which record records the true fill data (qty,
+    # timestamps) even though the exit's own pnl_pct comes from Alpaca's
+    # real `unrealized_pl` and is unaffected. FIX: defer the track_fill
+    # call — stash the payload as `pending_entry_feedback` and let
+    # `manage_options_positions()` fire it the first time this occ_symbol
+    # shows up as a REAL, confirmed-filled Alpaca position (mirroring the
+    # bot.ts KNOWN BROKEN #35 "record on confirmed fill, not on submit"
+    # precedent). A canceled order never appears in `/v2/positions`, so
+    # its pending marker simply never fires — no phantom record, ever.
     if strategy not in MULTI_LEG_STRATEGIES:
-        try:
-            from ml_model_v2 import track_fill
-            now_iso = datetime.now().isoformat()
-            track_fill({
-                "ticker": ticker,
-                "side": side,
-                "qty": qty,
-                "expected_price": entry_price,
-                "fill_price": entry_price,
-                "session": "regular",
-                "entry_features": {},
-                "time_placed": now_iso,
-                "time_filled": now_iso,
-                "code_version": _code_version(),
-            })
-        except Exception as e:
-            logger.warning(f"track_fill entry record failed for {ticker}: {e}")
+        state[occ_symbol]["pending_entry_feedback"] = {
+            "ticker": ticker,
+            "side": side,
+            "session": "regular",
+            "entry_features": {},
+            "code_version": _code_version(),
+        }
+    _save_options_state(state)

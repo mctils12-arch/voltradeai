@@ -1058,6 +1058,95 @@
     regressions). Full trace incl. `gated_tests.sh`/`tsc_ratchet.sh`/
     `counter_ratchet.sh`/`npm run build` in experiments.md.
 
+    **NEXT step (1) LIVE-CHECKED 2026-09-08 (scheduled-routine session,
+    [REPAIR]) — non-empty, but surfaced a real, previously-undiscovered
+    MEASUREMENT INTEGRITY bug one layer upstream; ROOT-CAUSED AND FIXED
+    SAME SESSION.** `/api/health` clean, no LIVENESS ALARM, before
+    anything else. `/api/diag/ml?token=$DIAG_TOKEN`:
+    `live_options_outcome_breakdown: {"orphan_exit": 9}` — non-empty
+    (the 2026-09-02 fix worked, options exits ARE now visible) but ALL 9
+    are still `orphan_exit`, zero win/loss/open, so NEXT step (2) (the
+    "Options fill realism" quote-based-pricing evaluation) still can't
+    be evaluated against real matched evidence. Investigated why every
+    options exit is orphaning instead of matching its entry.
+    ROOT CAUSE (READ BEFORE WRITE trace, then confirmed against live
+    data): `/api/diag/orders?limit=50` (production) shows standalone CSP
+    opening ("sell", to-open) orders are **42 canceled / 1 expired / 3
+    filled out of 46** in this window (~87.5% canceled — day-limit
+    orders that never reach their price, the exact fill-timing gap
+    KNOWN BROKEN #30 already documented for slot-counting) — and several
+    tickers (HPE clearest: a real `filled` sell at 16:27:33Z followed by
+    FOUR MORE `canceled` sell attempts on the same ticker over the next
+    two days) show canceled retries happening AFTER a real fill.
+    `options_execution.py`'s post-submit block called
+    `register_options_entry()` — which called `ml_model_v2.track_fill()`
+    directly, writing a permanent trade_feedback ENTRY record — for
+    every order status in `("submitted", "filled", "pending_new",
+    "accepted")`, none of which confirm an actual fill happened. This
+    wrote a phantom ENTRY record (fill_price = the quoted limit, a
+    position that never existed) for ~87% of standalone CSP opens, and
+    because `ml_model_v2._find_entry_record()` matches the MOST RECENT
+    unmatched record for a ticker, a phantom submitted after a real fill
+    (the HPE pattern) could get consumed by that ticker's eventual real
+    exit instead of the real entry — the exit's own pnl_pct still comes
+    from Alpaca's real `unrealized_pl` (unaffected), but the matched
+    record's qty/timestamps would be the phantom's, not the real fill's,
+    and the REAL entry could be left as a permanent unmatched "open"
+    zombie in the feedback file. A MEASUREMENT INTEGRITY concern
+    (Priority 2) independent of, and upstream of, the orphan-rate
+    question this NEXT step was originally checking.
+    FIX (`options_manager.py`, mirrors the bot.ts KNOWN BROKEN #35 "record
+    on confirmed fill, not on submit" precedent exactly):
+    `register_options_entry()` no longer calls `track_fill()` at all —
+    it stashes the would-be payload as `state[occ_symbol]
+    ["pending_entry_feedback"]` instead (multi-leg strategies still get
+    no marker at all, same exclusion as before). `manage_options_positions()`
+    — which only ever iterates REAL positions from Alpaca's own
+    `/v2/positions` — now pops and resolves that pending marker the
+    first time an occ_symbol shows up there, using the loop's own
+    Alpaca-confirmed `entry_price`/`qty` (not the submission-time
+    guess). A canceled order never appears in `/v2/positions`, so its
+    pending marker simply sits unresolved forever — zero phantom
+    records, structurally, not by discipline. Resolved exactly once per
+    position (the marker is popped, not just read, and the state save at
+    the end of `manage_options_positions()` persists that pop before the
+    next scan cycle).
+    RATCHET: `test_options_fixes.py` gained
+    `TestOptionsEntryFeedbackDeferredToConfirmedFill` (6 tests: no
+    immediate call, the pending marker's shape, multi-leg still excluded
+    end-to-end, a confirmed live position resolves with REAL fill data
+    and does not re-fire on a second scan, and a canceled/never-live
+    order never fires at all); the pre-existing
+    `TestRegisterOptionsEntry::test_register_sold_option` updated in
+    place (it asserted the OLD synchronous-call behavior, which was
+    exactly this bug — not weakened, corrected to assert the pending
+    marker instead, per PROMOTION RULES). A/B-verified via `git stash
+    push -- options_manager.py`: 4 of these fail and 1 errors
+    (`KeyError`, the marker doesn't exist pre-fix) against the pre-fix
+    tree, all pass post-fix.
+    SCOPE NOTE: does not touch `_record_options_exit_feedback` (the exit
+    side, already correct — uses Alpaca's real `unrealized_pl`), does
+    not touch multi-leg or ROLL-path attribution (still open, per the
+    2026-08-22 update's own NEXT (3)), and does not itself answer NEXT
+    step (2) (options fill realism) — it removes a confound that was
+    silently sitting in front of that question. Not a threshold/rule
+    change (no RULE REVIEW gate); not order-submission internals (no
+    FROZEN PATH — `register_options_entry`/`manage_options_positions`
+    are options-manager bookkeeping, not `submit_options_order` or a raw
+    HTTP order POST).
+    GATES: `python3 -m pytest -q` — 1806 passed, 2 skipped, 54 subtests,
+    zero regressions (full local rebuild — numpy/pandas/scipy/lightgbm/
+    yfinance/openpyxl/Pillow were all missing from this sandbox,
+    installed fresh this session before trusting the run). Full
+    `gated_tests.sh`/`tsc_ratchet.sh`/`counter_ratchet.sh` trace in
+    experiments.md.
+    NEXT: once this deploys, a future session should re-check
+    `/api/diag/ml`'s `live_options_outcome_breakdown` after several
+    standalone CSP round-trips complete post-deploy — a real win/loss
+    count (not just orphan_exit) is the falsifiable signal this fix
+    worked, and is also what NEXT step (2) (options fill realism) has
+    been waiting on since 2026-07-23.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/

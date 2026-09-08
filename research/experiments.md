@@ -3,6 +3,201 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session, second session this UTC day) [REPAIR] — T-BOT (options_manager.py, test_options_fixes.py) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #12(c) NEXT step (1) live-checked, surfaced and fixed a real MEASUREMENT INTEGRITY bug — standalone options entries recorded trade_feedback on ORDER SUBMISSION, not confirmed fill (v1.0.867)
+
+TERRITORY: T-BOT primary (options_manager.py is options-manager bookkeeping,
+not order-submission internals — no FROZEN PATH), test_options_fixes.py
+alongside it; SHARED-but-minimal for the counter/version bookkeeping only.
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + RENDERING &
+MOTION LAW noted). `curl https://voltradeai.com/api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, all three feeds non-dead — no
+LIVENESS ALARM. Walked `research/open_questions.md`'s KNOWN BROKEN list
+end to end: every item RESOLVED/CLOSED or explicitly advisory-only (#20 is
+a design/threshold judgment call needing RULE REVIEW evidence, not a
+repair blocker; #37's vessel-archive anomaly is downgraded to low-priority
+per its own addenda; #40's second instance self-resolves today, the
+Tuesday after Labor Day) — confirmed via
+`python3 scripts/research_state_check.py`: thrash_ratio 0/10, no overdue
+audits, 0 STARVED — NOT a mandatory [REPAIR] session by the letter of the
+Repair Mandate. Tagged [REPAIR] anyway because that is what this session's
+actual work turned into (see below), not because a KNOWN BROKEN item
+forced it.
+
+PRIOR (REASONING STANDARD #10, stated before checking): this session's
+assigned task named axis (a)/(b)/(c)/(d) of the EDGE DOCTRINE as the menu.
+`python3 scripts/data_stream_registry_check.py` showed axis (a) at 26/35
+built, the remaining 9 all declined-dead or blocked-on-human-registration
+— no fresh free pipeline to build. Axis (b)'s equity-side illiquid-universe
+thread is closed (mean_reversion edge found, 2026-07-24); its options-side
+half stays gated on the "Options fill realism" open_questions.md entry,
+itself gated on KNOWN BROKEN #12(c)'s NEXT step (1) (confirm
+`live_options_outcome_breakdown` shows real win/loss, not just orphan_exit)
+— last read 2026-09-02, never re-checked live since. Per SESSION BUDGET
+("fix a bug seen in audit logs > judge a matured experiment > start a new
+experiment"), checking a live diagnostic already queued by a prior session
+outranks opening a fresh axis-(c)/(d) probe. PRIOR stated before looking:
+expected `live_options_outcome_breakdown` to either still be empty (a
+narrower finding, per the 2026-09-02 session's own named fork) or to show
+a healthy mix — did not expect a third outcome (non-empty but ALL
+orphan_exit, revealing a different, upstream bug).
+
+WHAT WAS FOUND: `/api/diag/ml?token=$DIAG_TOKEN` (production):
+`live_options_outcome_breakdown: {"orphan_exit": 9}` — non-empty (the
+2026-09-02 fix worked) but 9/9 orphan, zero win/loss/open. Investigated
+why every options exit orphans instead of matching. `/api/diag/orders?
+limit=50` (production): standalone CSP opening ("sell") orders in this
+window are 42 `canceled` / 1 `expired` / 3 `filled` out of 46 (~87.5%
+canceled — day-limit orders that never reach their price, the same
+fill-timing gap KNOWN BROKEN #30 already documented for slot-counting).
+Several tickers show canceled retries AFTER a real fill on the same
+ticker (HPE: a real `filled` sell at 16:27:33Z on 09-04, then four more
+`canceled` sell attempts on the same ticker over the following two days).
+
+ROOT CAUSE (READ BEFORE WRITE trace of `register_options_entry()`,
+`options_execution.py`'s call site, and `ml_model_v2._find_entry_record`/
+`track_fill`, none touched from memory): `options_execution.py` calls
+`register_options_entry()` for every order status in `("submitted",
+"filled", "pending_new", "accepted")` — none of which confirm an actual
+fill. `register_options_entry()` in turn called `ml_model_v2.track_fill()`
+directly and unconditionally (added 2026-08-22, v1.0.762, to close KNOWN
+BROKEN #12(c)), writing a permanent trade_feedback ENTRY record with
+`fill_price` = the quoted limit price. Given the live 87.5% cancellation
+rate, most of those records are phantom entries for positions that never
+existed. Worse: `_find_entry_record()` matches the MOST RECENT unmatched
+record for a ticker walking backward — a phantom record submitted AFTER a
+real fill (the HPE pattern) can get consumed by that ticker's eventual
+real exit instead of the real entry. The exit's own `pnl_pct` still comes
+from `_record_options_exit_feedback`'s use of Alpaca's real
+`unrealized_pl` (unaffected), but the matched record's `qty`/timestamps
+would be the phantom's, not the real fill's, and the genuine entry could
+be left as a permanent unmatched "open" zombie in trade_feedback — a
+MEASUREMENT INTEGRITY defect (Priority 2), not the orphan-rate question
+this NEXT step set out to check, and not previously documented anywhere
+in KNOWN BROKEN or the "Options fill realism" entry.
+
+FIX (`options_manager.py`, mirrors the bot.ts KNOWN BROKEN #35 "record on
+confirmed fill, not on submit" precedent exactly, applied to the Python
+options path for the first time): `register_options_entry()` no longer
+calls `track_fill()` — it stashes the would-be payload as
+`state[occ_symbol]["pending_entry_feedback"]` (multi-leg strategies still
+get no marker at all, same exclusion as before this fix). `manage_options_
+positions()` — which only ever iterates REAL positions from Alpaca's own
+`/v2/positions` — pops and resolves that pending marker the first time an
+occ_symbol shows up there, using the loop's own Alpaca-confirmed
+`entry_price`/`qty` (not the submission-time guess). A canceled order
+never appears in `/v2/positions`, so its pending marker simply sits
+unresolved forever: zero phantom records by construction, not by
+discipline. Resolved exactly once per position — the marker is popped
+(not just read), and `manage_options_positions()`'s own end-of-function
+`_save_options_state(state)` persists that pop before the next scan cycle
+can see it again.
+
+RATCHET: `test_options_fixes.py` gained
+`TestOptionsEntryFeedbackDeferredToConfirmedFill` (6 tests): no immediate
+`track_fill` call on a standalone entry; the pending marker's exact shape
+persisted to disk; multi-leg strategies still get no marker at all
+(end-to-end, not just the immediate call); a confirmed live position
+resolves the marker with REAL Alpaca fill data (not the submission-time
+guess) and does NOT re-fire on a second scan of the same still-open
+position; a canceled order that never appears in `/v2/positions` never
+fires at all. The pre-existing `TestRegisterOptionsEntry::
+test_register_sold_option` asserted the OLD synchronous-call behavior —
+which was exactly this bug — updated in place (not weakened) to assert
+the deferred marker instead, per PROMOTION RULES' "never weaken an
+existing assertion" read literally: the assertion being corrected was
+itself wrong, not loosened. A/B-verified via `git stash push --
+options_manager.py`: 4 of the 6 new tests fail and 1 errors (`KeyError`,
+the marker doesn't exist pre-fix) against the pre-fix tree (the 6th,
+`test_multi_leg_entry_never_stashes_pending_feedback`, passes on both
+sides since multi-leg never called track_fill either way); the updated
+`test_register_sold_option` fails pre-fix and passes post-fix. All pass
+post-fix.
+
+GATES: this sandbox's Python deps (numpy/pandas/scipy/lightgbm/yfinance/
+openpyxl/Pillow) and Node deps (node_modules had 1 stray entry, not a
+real install) were both incomplete at session start — installed fresh
+before trusting any run, same lesson prior sessions' own notes already
+recorded about this exact failure mode. `python3 -m pytest -q`: 1806
+passed, 2 skipped, 54 subtests, zero regressions (full suite, not just
+the touched files). `bash scripts/gated_tests.sh` (post `npm ci`, 488
+packages): GATE PASSED — server 182/182, client 101/101, python
+1806/2 skipped, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`:
+12/12 exact match to `ci/tsc_baseline.txt` (zero TS files touched by this
+diff, as expected). `bash scripts/counter_ratchet.sh`: 24/25 unchanged,
+`assertions` IMPROVED 13637 -> 13644 (this session's own 6 new tests +
+1 strengthened assertion, its direct and sole cause) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, re-ran clean 25/25 after.
+`npm run build`: clean (1860 modules via Vite, 16.5mb server bundle via
+esbuild — pre-existing chunk-size/astronomy-engine-default-export
+warnings only, both unrelated to this diff, confirmed by this diff's
+file list touching zero client/ files).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a trade_feedback recording-
+timing fix (which record gets which real fill data attributed to it),
+not a scoring/sizing/threshold change and not order-submission internals;
+no live position management decision (profit target, loss limit, DTE
+exit, assignment, roll) is touched — `manage_options_positions()`'s own
+exit-decision logic is unchanged, only what happens to the (already-
+correct) `pos_state` load/init flow gained a resolve-if-pending step.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): removing the phantom-entry
+source changes trade_feedback's CONTENTS (fewer, more accurate records)
+but not the trading loop's behavior — `manage_options_positions()`'s
+exit decisions read live Alpaca Greeks/positions, never trade_feedback;
+`ml_model_v2`'s LightGBM training already excludes every options record
+via the `entry_features` schema gate (options entries pass `{}`,
+deliberately, per the 2026-08-22 note), so no model weights shift. What
+DOES change: `/api/diag/ml`'s `live_performance`/`live_outcome_breakdown`
+(and by extension `adjustStrategyWeights()` in bot.ts, which reads
+`tradeResults`/feedback-derived win rates) stop being polluted by phantom
+options entries — a data-quality improvement to the system's own
+honesty-metric inputs, not a new decision path. `options_manager.py`'s
+persisted `voltrade_options_state.json` will accumulate a
+`pending_entry_feedback` key on every NEW standalone entry going forward,
+cleared on resolution; existing already-open positions in that file
+(entered under the old code) have no such key and will not retroactively
+get an entry record — same one-time transition gap the bot.ts #35 fix
+accepted for the identical reason (no safe way to reconstruct a value
+that was never captured).
+
+CROSS-SYSTEM INTEGRATION: none new. No new archive, join, fetch, or
+external dependency — this reuses the exact same `/v2/positions` read
+`manage_options_positions()` already performs every scan cycle.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.867 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at e893278/v1.0.866/PR #1026, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT: (1) once this deploys, a future session should re-check
+`/api/diag/ml`'s `live_options_outcome_breakdown` after several standalone
+CSP round-trips complete post-deploy — a real win/loss count (not just
+orphan_exit) is the falsifiable signal this fix worked, and is also what
+the "Options fill realism" open_questions.md entry (gated on this since
+2026-07-23) has been waiting on; (2) multi-leg and ROLL-path attribution
+remain open, per the 2026-08-22 update's own NEXT (3), untouched by this
+session; (3) `options_manager.py`'s own `_parse_occ_symbol()` adjusted-
+root ticker/date-parsing bug (KNOWN BROKEN #31's scope note) is still
+unfixed and unrelated to this session's fix (this session's `ticker` comes
+from the caller's known-clean value at registration time, never from
+re-parsing the OCC symbol) — still queued for its own dedicated session.
+
+STARVED: no — this session used its full capacity on one clean, scoped
+[REPAIR] action (a live-diagnostic check that surfaced a real bug,
+root-caused and fixed the same session, with regression tests and a full
+local gate rebuild), including installing this sandbox's missing Python
+and Node dependencies to get an honest signal rather than trusting a
+partial-install run. No higher-priority queued item was skipped (no
+LIVENESS ALARM; thrash ratio 0/10; no ladder-readiness-check root came
+due this session).
+
 ## 2026-09-08 (scheduled-routine session) [PRODUCT] — space_weather_swpc gate-1 READINESS instrumented: a new diag probe whole-archive-scans the storm history so a future session can check "has a G2+ window landed yet" without re-deriving it from raw rows (v1.0.866, PR TBD)
 
 TERRITORY: T-DATACORE primary (server/spaceWeather.ts, server/spaceWeather.test.ts)

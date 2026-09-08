@@ -871,15 +871,18 @@ class TestRegisterOptionsEntry(unittest.TestCase):
         self.assertEqual(entry["strategy"], "sell_cash_secured_put")
         self.assertAlmostEqual(entry["max_profit_target"], 1.25)  # 50% of 2.50
 
-        # KNOWN BROKEN #12(c): a standalone (non-multi-leg) entry must be
-        # recorded into trade_feedback so its eventual exit has something
-        # to match against.
-        mock_track_fill.assert_called_once()
-        fill_payload = mock_track_fill.call_args[0][0]
-        self.assertEqual(fill_payload["ticker"], "AAPL")
-        self.assertEqual(fill_payload["side"], "sell")
-        self.assertEqual(fill_payload["fill_price"], 2.50)
-        self.assertIsNone(fill_payload.get("exit_context"), "must be an ENTRY, not an exit")
+        # KNOWN BROKEN #12(c): a standalone (non-multi-leg) entry must
+        # eventually be recorded into trade_feedback so its eventual exit
+        # has something to match against — but NOT synchronously here at
+        # submission time (2026-09-08 further repair: submission status
+        # is not fill confirmation; see TestOptionsEntryFeedbackDeferred-
+        # ToConfirmedFill for the full mechanism). Only a pending marker
+        # is stashed here; manage_options_positions() resolves it once
+        # Alpaca's live positions confirm the fill actually happened.
+        mock_track_fill.assert_not_called()
+        pending = entry["pending_entry_feedback"]
+        self.assertEqual(pending["ticker"], "AAPL")
+        self.assertEqual(pending["side"], "sell")
 
         if os.path.exists(OPTIONS_STATE_PATH):
             os.remove(OPTIONS_STATE_PATH)
@@ -1391,6 +1394,143 @@ class TestOptionsFeedbackWiring(unittest.TestCase):
         self.assertEqual(payload["exit_reason"], "assignment_close")
         # Lost $300 on a $300 credit basis (1 contract * $3.00 * 100) = -100%
         self.assertAlmostEqual(payload["exit_context"]["pnl_pct"], -100.0, places=1)
+
+
+class TestOptionsEntryFeedbackDeferredToConfirmedFill(unittest.TestCase):
+    """KNOWN BROKEN #12(c) further repair (2026-09-08): register_options_entry()
+    used to call track_fill() synchronously at ORDER-SUBMISSION time, for every
+    status in ("submitted", "filled", "pending_new", "accepted") — none of which
+    mean the order actually filled. Live /api/diag/orders showed most standalone
+    CSP opening orders are canceled (day-limit orders that never reach their
+    price), so this wrote phantom trade_feedback ENTRY records for positions
+    that never existed, and a phantom submitted AFTER a real fill on the same
+    ticker could steal ml_model_v2._find_entry_record()'s ticker-match ahead of
+    the real entry. These tests pin the fix: the entry payload is now deferred
+    (stashed as pending_entry_feedback) and only resolved by
+    manage_options_positions() once Alpaca's live /v2/positions confirms the
+    fill actually happened — mirroring the bot.ts KNOWN BROKEN #35 "record on
+    confirmed fill, not on submit" precedent."""
+
+    def setUp(self):
+        from options_manager import OPTIONS_STATE_PATH
+        self.state_path = OPTIONS_STATE_PATH
+        if os.path.exists(self.state_path):
+            os.remove(self.state_path)
+
+    def tearDown(self):
+        if os.path.exists(self.state_path):
+            os.remove(self.state_path)
+
+    @patch("ml_model_v2.track_fill")
+    def test_standalone_entry_does_not_call_track_fill_immediately(self, mock_track_fill):
+        """Submission time is not fill confirmation — no track_fill yet."""
+        from options_manager import register_options_entry
+
+        register_options_entry(
+            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            delta=-0.25, qty=1, ticker="XYZ",
+        )
+
+        mock_track_fill.assert_not_called()
+
+    @patch("ml_model_v2.track_fill")
+    def test_standalone_entry_stashes_pending_feedback_in_state(self, mock_track_fill):
+        """The deferred payload must persist to disk so a later scan cycle
+        (a fresh process, even) can resolve it."""
+        from options_manager import register_options_entry, _load_options_state
+
+        register_options_entry(
+            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            delta=-0.25, qty=1, ticker="XYZ",
+        )
+
+        state = _load_options_state()
+        pending = state["XYZ260918P00050000"]["pending_entry_feedback"]
+        self.assertEqual(pending["ticker"], "XYZ")
+        self.assertEqual(pending["side"], "sell")
+        self.assertIn("code_version", pending)
+
+    @patch("ml_model_v2.track_fill")
+    def test_multi_leg_entry_never_stashes_pending_feedback(self, mock_track_fill):
+        """Multi-leg strategies stay excluded end-to-end, not just from the
+        immediate call — no pending marker should be left for
+        manage_options_positions() to ever resolve either."""
+        from options_manager import register_options_entry, _load_options_state
+
+        register_options_entry(
+            "AAPL260418C00190000", 1.00, "sell", "iron_condor",
+            delta=-0.20, qty=1, ticker="AAPL",
+        )
+
+        state = _load_options_state()
+        self.assertNotIn("pending_entry_feedback", state["AAPL260418C00190000"])
+
+    @patch("ml_model_v2.track_fill")
+    @patch("options_manager.requests.get")
+    @patch("options_manager._get_option_snapshot")
+    def test_confirmed_live_position_resolves_pending_feedback_with_real_fill_data(
+            self, mock_snap, mock_get, mock_track_fill):
+        """Once the position is a REAL, confirmed-filled Alpaca position, the
+        pending entry must fire exactly once, using Alpaca's own
+        avg_entry_price/qty — not whatever guess a canceled retry might have
+        recorded — and never fire again on a later scan of the same
+        still-open position."""
+        from options_manager import register_options_entry, manage_options_positions
+
+        occ = "XYZ260918P00050000"
+        register_options_entry(
+            occ, 2.00, "sell", "sell_cash_secured_put",
+            delta=-0.25, qty=1, ticker="XYZ",
+        )
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: [{
+                "symbol": occ, "qty": "-2", "side": "short",
+                "avg_entry_price": "2.10", "current_price": "2.00",
+                "market_value": "-400", "unrealized_pl": "20",
+                "asset_class": "option",
+            }]
+        )
+        mock_snap.return_value = {"bid": 1.95, "ask": 2.05, "mid": 2.00,
+                                   "delta": -0.25, "gamma": 0.02, "theta": -0.01,
+                                   "vega": 0.03, "iv": 0.30}
+
+        manage_options_positions(100000)
+
+        mock_track_fill.assert_called_once()
+        payload = mock_track_fill.call_args[0][0]
+        self.assertEqual(payload["ticker"], "XYZ")
+        self.assertEqual(payload["side"], "sell")
+        # Real Alpaca fill data (2.10 x 2), not the submission-time guess (2.00 x 1)
+        self.assertEqual(payload["fill_price"], 2.10)
+        self.assertEqual(payload["qty"], 2)
+        self.assertNotIn("pending_entry_feedback", payload)
+
+        # A second scan of the same still-open position must not re-fire.
+        mock_track_fill.reset_mock()
+        manage_options_positions(100000)
+        mock_track_fill.assert_not_called()
+
+    @patch("ml_model_v2.track_fill")
+    @patch("options_manager.requests.get")
+    def test_canceled_order_never_appears_live_so_never_fires(self, mock_get, mock_track_fill):
+        """An order that never fills never shows up in /v2/positions — the
+        pending marker for it must simply sit unresolved, never a phantom
+        trade_feedback record."""
+        from options_manager import register_options_entry, manage_options_positions
+
+        register_options_entry(
+            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            delta=-0.25, qty=1, ticker="XYZ",
+        )
+
+        # This occ_symbol never became a real position — /v2/positions is empty.
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
+
+        manage_options_positions(100000)
+
+        mock_track_fill.assert_not_called()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
