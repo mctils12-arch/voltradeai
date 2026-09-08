@@ -136,6 +136,22 @@ export const DIAG_PROBES = [
   // replaces the "portdwell_window" probe as the capture PATH (that probe
   // still exists, unchanged, for ad-hoc historical queries).
   "portdwell_weekly_captured",
+  // ADDED 2026-09-08 (scheduled-routine PRODUCT session): read-only,
+  // whole-archive scan of spaceWeather.ts's own `conditions-*.jsonl(.gz)`
+  // day files (server/spaceWeather.ts, scanStormHistory) — answers
+  // space_weather_swpc's exact gate-1 readiness question
+  // (datacore/signal_ladder.json: "the OE-417 storm-coincident-outage-
+  // excess validation runs only once a G2+ geomagnetic-storm window lands
+  // in the archive") without a session re-deriving it from raw rows. No
+  // per-row detail leaves this endpoint — max G/Kp reached, the day(s)
+  // each occurred, and which dates cleared the (optional, default 2)
+  // `minG` threshold; every field is a public-domain NOAA reading with no
+  // secrets by construction, same posture as the "archive" probe above.
+  // The generic "archive" probe cannot serve this: its reader
+  // (readArchiveDay) expects `<stream>-<DAY>...` filenames starting with
+  // the date, but this archive's files start with a feed prefix
+  // (`conditions-<day>...`) — see scanStormHistory's own comment.
+  "spaceweather_storm",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

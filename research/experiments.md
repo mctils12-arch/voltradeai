@@ -3,6 +3,214 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session) [PRODUCT] — space_weather_swpc gate-1 READINESS instrumented: a new diag probe whole-archive-scans the storm history so a future session can check "has a G2+ window landed yet" without re-deriving it from raw rows (v1.0.866, PR TBD)
+
+TERRITORY: T-DATACORE primary (server/spaceWeather.ts, server/spaceWeather.test.ts)
++ SHARED-but-minimal, last (server/diag.ts DIAG_PROBES entry, server/bot.ts
+one new switch case + import, server/diag.test.ts one wiring test,
+datacore/signal_ladder.json single-entry note UPDATE, ci/counter_baseline.txt,
+package.json/package-lock.json version bump). No T-BOT (trading-path) or
+T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail = top, per its own newest-at-top convention), research/open_questions.md
+(KNOWN BROKEN header + tail), research/wishlist.md (head + tail),
+research/PROGRAM_STATE.md (a separate self-see-harness program, not this
+session's queue — Track 1 complete, Track 2/3 needs GPU tooling this sandbox
+doesn't have, correctly not this session's PRIMARY). `python3
+scripts/research_state_check.py`: audits register none overdue, thrash_ratio
+0/10 REPAIR well under the 7+ trigger, known_broken 41 items/4 without an
+explicit close marker (advisory only per this file's own established
+precedent), starvation 0/10 — no meta-problem flag. `git fetch origin main`:
+HEAD/origin/main both equal 18d0435/v1.0.865/PR #1025 at session start (and
+again immediately before the version bump below) — no reset needed, no
+concurrent session. Live `curl https://voltradeai.com/api/health` (direct,
+not via the production Railway hostname, which 502'd on this session's first
+attempt at an unrelated live-fetch check below — the custom domain answered
+cleanly): `status: ok`, bot active, drawdownPct "0.0", liveness.dark false,
+alpaca ACTIVE, all 3 archive feeds silent_hours 0.04 (dead: []). No LIVENESS
+ALARM. `python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready,
+all still time-blocked (cftc_cot ~49d/needs ~105d estimate, sec_8k 24d/needs
+90d, fleet_utilization 55d remaining) — this script only tracks the 3 roots
+that already carry a machine-readable `readiness_trigger`; it does not (and,
+per its own docstring's stated scope, should not) invent new trigger types
+on its own, so this session did not touch it. `python3
+scripts/data_stream_registry_check.py`: 26/35 built, the 9 remaining all
+declined/blocked-on-registration, unchanged.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio well under
+threshold, no bug found in the audit log, no matured experiment sitting at a
+ladder_readiness_check.py-reported READY (all 3 tracked roots still
+time-blocked, live-reconfirmed above). Checked whether `scripts/
+nightlights_archiver.py`'s own queued NEXT(1) ("keep re-running each
+session... no code change needed") had anything to do: ran it live against
+production GIBS — 2026-09-07 (the new "yesterday" UTC) 404s (HTTP Error 404,
+not yet published; matches the module's own documented ~1-day GIBS publish
+lag), 2026-09-06/09-05 both already captured — a clean no-op, nothing to
+commit, not a bug. Also ran `DIAG_TOKEN=... npx tsx scripts/
+portdwell_weekly_snapshot.ts https://voltradeai.com` live: `total_weeks_in_file:
+3`, `weeks_captured_from_server_state: []`, `last_completed_week_index: 8`
+(same as already committed) — the in-process Tier-3 capture job (#1023) has
+nothing new to contribute yet either; also a clean no-op. Surveyed
+`datacore/signal_ladder.json`'s 46 roots against `client/src/pages/` +
+`server/routes.ts` for an under-served gate1_pass/gate2_pass root lacking a
+/data surface — every one checked (port_dwell, fleet_utilization,
+entity_map_operator_ticker, fred/eu-macro, app-store, github-activity,
+dtcc-swaps, un-comtrade, wikimedia-attention, gnss-integrity) already has
+either a dedicated page or a live map layer; `server/apiProduct.ts`'s
+`agentToolSpec()`/`openApiSpec()` already carries a hand-verified schema for
+the newest one (un-comtrade) — no gap found there either (a blind
+id-vs-filename grep flagged several false positives, e.g. sec_form4_bulk_archive
+resolving to filings.tsx under a different name — PROGRAM_STATE.md's own
+2026-08-15 note already warned this naive approach false-positives across
+this registry's inconsistent naming, so those greps were not trusted without
+opening each file).
+
+Fell through to SESSION BUDGET (2) — RESEARCH terminating in a filed
+artifact — and picked the one gated root with a concrete but wholly
+UNINSTRUMENTED re-run condition: `space_weather_swpc` (gate1_pending,
+current_gate 0). Its own note names an EVENT trigger, not a date one — "the
+OE-417 storm-coincident-outage-excess validation runs only once a G2+
+geomagnetic-storm window lands in the archive" — but nothing in the repo
+could answer "has that happened yet" without a human manually reading raw
+`conditions-*.jsonl` archive rows off the Railway volume (checked: no
+existing diag probe covers spaceWeather.ts's archive at all — the generic
+"archive" probe's reader, `readArchiveDay`/`archiveDayFiles` in
+datacoreArchive.ts, expects `<stream>-<DAY>...` filenames STARTING with the
+date; spaceWeather.ts's own `archiveSpaceWeather` instead writes
+`conditions-<day>.jsonl`/`kp-<day>.jsonl`/etc. — a feed-prefix-first
+convention the generic reader's own `startsWith(day)` fallback cannot match,
+confirmed by reading both modules before writing anything, not assumed).
+This is exactly the EDGE DOCTRINE #3 "compile once" gap `ladder_readiness_check.py`
+already exists to close for the 3 date/report-based roots — this session
+extends the same principle to an event-based one via a purpose-built probe
+instead, since a live network-dependent check does not fit that script's
+existing pure-date-arithmetic contract (checked its docstring and tests
+before deciding not to bolt this onto it).
+
+WHAT SHIPPED: `server/spaceWeather.ts` gained `scanStormHistory(baseDir?,
+minG=2)` — reads every `conditions-YYYY-MM-DD.jsonl(.gz)` file under the
+archive's `spaceweather/` directory (both live and gzipped, matching
+`gzipOldSpaceWeatherDays`'s own >2-day rollover), returning the max OBSERVED
+G-scale/Kp reached, which day each occurred, and every date whose observed
+G reading cleared `minG` (default 2, NOAA's G2 "moderate storm" bar named in
+the ladder note). "OBSERVED, never forecast" is load-bearing and free: each
+`ConditionsRec.g` value is `conditionsRow`'s own `pull.scales.current` field
+— NOAA's forecast rows (`scales.forecast`) were never captured into this
+archive at all (confirmed by reading `conditionsRow`'s existing source
+before writing the scanner, not assumed) — so there was no forecast-vs-
+observed filtering to get wrong. New diag probe `spaceweather_storm`
+(`DIAG_PROBES` in diag.ts + a `case` in bot.ts's probe switch, optional
+`minG` query param clamped 0..5) — a local JSONL scan, no network call, same
+posture as every other read-only probe (aggregate-only counts/dates, no
+per-poll row leaves the endpoint; every underlying value is already public-
+domain NOAA data with no secrets by construction).
+
+TESTS: 4 new in `server/spaceWeather.test.ts` (`scanStormHistory`: no
+archive directory → empty result not a throw; max G/Kp + the correct
+`stormDays` flag at the default and a raised `minG`; a day stored `.gz`
+reads identically to raw `.jsonl`; a malformed JSON line is skipped, not
+fatal — mirroring this file's own existing `mkdtempSync`-per-test
+convention). 1 new in `server/diag.test.ts` mirroring the existing
+`portdwell_weekly_captured` wiring-test pattern exactly (asserts the case
+block calls the shared scanner, passes `sanitizeDiag`, contains no `fetch(`,
+and that the reused `StormScanResult` shape is already aggregate-only) —
+this repo's own generic `for (const probe of DIAG_PROBES) assert bot.ts has
+a matching case` test (diag.test.ts:57) also covers the new probe for free.
+
+LIVE VERIFICATION (data honesty, not mocked): `curl
+https://services.swpc.noaa.gov/products/noaa-scales.json` directly (keyless,
+real NOAA feed, independent of this repo's own archive/deploy) at session
+time: current observed G-scale is "0" (none), forecast rows show G1 (minor)
+for the next two days, no G2+ anywhere in the response. `curl .../products/
+noaa-planetary-k-index.json`: 7-day rolling window, max Kp 4.33 (G-scale
+activation starts at Kp>=5 for G1, Kp>=6 for G2) — no storm in that window
+either. This does NOT establish the full ~40-day archive history (this
+sandbox has no Railway volume access to the actual `spaceweather/` directory
+the deployed server has been writing to since 2026-07-29), so it is recorded
+honestly as "the live 7-day/current window shows no storm," not "the archive
+confirms no storm ever" — the new probe itself is what will answer the full-
+history question, once deployed and queried by a future session (this PR's
+own honest limitation, same shape as portDwellCapture.ts's 2026-09-07
+"cannot verify end-to-end without live volume access" note).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure gate-1-readiness instrumentation,
+no scoring/sizing/threshold value touched, nothing in this diff can affect
+any live trading decision (bot_engine.py/system_config.py/ml_model_v2.py/
+server/bot.ts's trading-path code all untouched; the one server/bot.ts edit
+is a new diag-probe switch case + import, same shape as every other
+non-trading probe already in that file).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `scanStormHistory` is a pure
+reader with no write path and no caller anywhere except the new diag case —
+it cannot affect `bootSpaceWeatherPoll`'s existing 10-min fetch/archive
+cycle, `latestSpaceWeather()`'s in-memory cache, or the live `/api/spaceweather`
+display route (routes.ts, untouched). Zero effect on Tier 1-3 scheduling,
+regime classification, or any options/CSP path.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a read surface over an
+existing archive, not a new archive, join, or poller. The OE-417 ground-
+truth series itself (DOE/FERC electric-disturbance reports) is still
+wholly unsourced — checked this session, zero references anywhere in the
+repo (`grep -rl "OE-417\|oe417\|OE417"` returns nothing) — so gate 1
+remains genuinely blocked on BOTH a qualifying storm window landing in the
+archive AND a future session sourcing that ground-truth series; this PR
+only removes the FIRST blocker's manual-checking cost, honestly, without
+claiming to have made progress on the second.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npx tsx --test server/spaceWeather.test.ts server/diag.test.ts`:
+37/37 pass (5 new). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, matching
+`ci/tsc_baseline.txt`'s pin exactly. `bash scripts/gated_tests.sh` (after
+`npm ci` — 488 packages — and `pip install -r requirements.txt -r
+requirements-dev.txt`, this session's container had neither): GATE PASSED —
+client 1083/1083, python 1804 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 429 -> 431, `assertions` 13554 -> 13637 — all three
+this session's own direct effect (5 new tests), re-pinned in
+`ci/counter_baseline.txt` in this same PR; all other 22 counters unchanged,
+re-ran clean (25/25 OK) after the re-pin. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (one entry edited in place via a surgical string replace, not a
+`json.dump` rewrite — an earlier attempt at the latter reformatted the
+WHOLE file, a ~530-line diff for a one-entry note change; reverted and
+redone as a single-line `Edit` once noticed, confirmed `git diff --stat`
+shows exactly `1 changed, 1 insertion(+), 1 deletion(-)` before proceeding).
+`npm run build`: clean (client 1860 modules transformed via Vite, server
+bundle 16.5mb via esbuild — pre-existing chunk-size warnings and the
+pre-existing `astronomy-engine` default-export warning only, unrelated to
+this diff).
+
+VERSION: v1.0.866 (package.json, read-and-incremented at commit time;
+`git fetch origin main` immediately beforehand confirmed origin/main was
+still at 18d0435/v1.0.865/PR #1025, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) once this PR deploys, a future session
+should call `GET /api/diag/spaceweather_storm?token=$DIAG_TOKEN` to check
+the FULL archive history (back to 2026-07-29) rather than this session's
+NOAA-direct 7-day/current-window spot check — genuinely possible now, not
+possible before this PR. (2) if/when `stormDays` is ever non-empty, the
+OE-417 ground-truth series (DOE/FERC electric-disturbance reports) still
+needs sourcing from scratch — a BUILD-FIRST writeup for that source belongs
+in wishlist.md before any gate-1 statistical test is attempted, per
+CLAUDE.md's BUILD-FIRST RULE. (3) per the AUDITS & DEBT register, staleness/
+constitutional audit last-run dates were checked (via research_state_check.py)
+and found none overdue — no audit action needed this session.
+
+STARVED: no — one clean, scoped PRODUCT/instrumentation action taken to
+completion after two live no-op checks (nightlights, port_dwell) correctly
+ruled out as having nothing new to ship this session, a naive id-grep
+signal-ladder/UI survey correctly distrusted rather than acted on, and a
+mid-session mistake (the json.dump reformat) caught and reverted before
+committing rather than shipped as a bloated diff.
+
 ## 2026-09-07 (scheduled-routine session, seventh session this UTC day) [PIPELINE] — nasa_gibs_nightlights's own queued NEXT item BUILT AND SEEDED: a daily archiver for the corrected night-lights layer, the real prerequisite for the metro-radiance-delta-as-GDP-proxy hypothesis's own future gate 1 (v1.0.865, PR #1025)
 
 TERRITORY: T-DATACORE (scripts/nightlights_archiver.py, test_nightlights_

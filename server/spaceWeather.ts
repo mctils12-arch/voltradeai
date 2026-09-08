@@ -516,6 +516,86 @@ export function archiveSpaceWeather(pull: SpaceWeatherPull, baseDir?: string, no
   }
 }
 
+// ── storm history scan (gate-1 readiness for space_weather_swpc) ───────────
+
+export interface StormScanResult {
+  daysScanned: number;
+  firstDay: string | null;
+  lastDay: string | null;
+  maxG: number | null;
+  maxGDay: string | null;
+  maxKp: number | null;
+  maxKpDay: string | null;
+  /** distinct dates (YYYY-MM-DD) where an OBSERVED reading reached `minG` */
+  stormDays: string[];
+}
+
+const EMPTY_STORM_SCAN: StormScanResult = {
+  daysScanned: 0, firstDay: null, lastDay: null,
+  maxG: null, maxGDay: null, maxKp: null, maxKpDay: null, stormDays: [],
+};
+
+/**
+ * Scans EVERY archived `conditions-*.jsonl(.gz)` day for the highest
+ * OBSERVED G-scale/Kp reached and which dates cleared `minG` (default 2,
+ * NOAA's G2 "moderate storm" threshold). Answers, without a human
+ * re-deriving it from raw archive rows, the exact readiness question
+ * datacore/signal_ladder.json's `space_weather_swpc` note names: "the
+ * OE-417 storm-coincident-outage-excess validation runs only once a G2+
+ * geomagnetic-storm window lands in the archive" — EDGE DOCTRINE #3
+ * (compile a repeated derivation into code once). `conditionsRow` only
+ * ever stores `pull.scales.current` (the OBSERVED row, never NOAA's own
+ * forecast rows — see parseScales), so `g`/`kp` here are ground-truth
+ * readings, not predictions. Whole-archive by design (not one day): the
+ * question is "has this EVER happened", not "did it happen today", so
+ * this deliberately does not take the `readArchiveDay`/diag `archive`
+ * probe's single-day shape (that reader also assumes `<stream>-<day>...`
+ * filenames starting with the DATE, not this module's `conditions-<day>...`
+ * naming — see archiveDayFiles's own comment in datacoreArchive.ts — so
+ * that generic probe cannot read this archive's layout as-is).
+ */
+export function scanStormHistory(baseDir?: string, minG = 2): StormScanResult {
+  const dir = swDir(baseDir);
+  let names: string[];
+  try { names = fs.readdirSync(dir); } catch { return EMPTY_STORM_SCAN; }
+
+  const days = [...new Set(
+    names
+      .map((f) => f.match(/^conditions-(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/)?.[1])
+      .filter((d): d is string => !!d),
+  )].sort();
+  if (!days.length) return EMPTY_STORM_SCAN;
+
+  let maxG: number | null = null, maxGDay: string | null = null;
+  let maxKp: number | null = null, maxKpDay: string | null = null;
+  const stormDays: string[] = [];
+
+  for (const day of days) {
+    let dayMaxG = -Infinity;
+    for (const fp of [path.join(dir, `conditions-${day}.jsonl`), path.join(dir, `conditions-${day}.jsonl.gz`)]) {
+      let text: string;
+      try {
+        text = fp.endsWith(".gz") ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8") : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let row: ConditionsRec;
+        try { row = JSON.parse(line); } catch { continue; }
+        const g = row.g == null ? null : Number(row.g);
+        if (g != null && Number.isFinite(g)) {
+          if (maxG == null || g > maxG) { maxG = g; maxGDay = day; }
+          if (g > dayMaxG) dayMaxG = g;
+        }
+        const kp = row.kp == null ? null : Number(row.kp);
+        if (kp != null && Number.isFinite(kp) && (maxKp == null || kp > maxKp)) { maxKp = kp; maxKpDay = day; }
+      }
+    }
+    if (dayMaxG >= minG) stormDays.push(day);
+  }
+
+  return { daysScanned: days.length, firstDay: days[0], lastDay: days[days.length - 1], maxG, maxGDay, maxKp, maxKpDay, stormDays };
+}
+
 export function gzipOldSpaceWeatherDays(baseDir?: string, nowMs?: number): number {
   const dir = swDir(baseDir);
   const now = nowMs ?? Date.now();
