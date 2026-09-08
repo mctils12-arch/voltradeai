@@ -185,6 +185,66 @@ session's "fixed" note or the stale PR's own claims, and shipped the
 existing fix through the full local gate suite rather than leaving it
 stranded on an abandoned, never-logged branch with no CI signal.
 
+POST-MERGE VERIFICATION (same session, continued after PR #1033's
+auto-merge notification arrived): did not treat "merged" as "done" — this
+session's own PR body explicitly said a future session must re-poll
+`/api/health` before treating the incident as closed, so this session did
+that itself rather than leaving it queued. `git fetch origin main`
+confirmed d6c5f0d/v1.0.871 on main. Polled `/api/health` every 15s for
+~5.5 minutes (20 rounds) starting ~4 minutes after merge (enough for a
+Railway redeploy). `/api/diag/audit?limit=150` cross-checked: two
+`STARTUP ... code_version 1.0.871` entries (20:46:38Z, 20:48:37Z) confirm
+the new code was actually running, not still mid-deploy on the old
+version.
+
+RESULT: THE CRASH LOOP CONTINUED, ESSENTIALLY UNCHANGED. Five more
+boot/crash cycles observed directly: uptime climbing to ~60-123s with
+`rss_mb` climbing ~500→770-990MB each time, then a 502 or connection
+timeout, then a fresh boot at low uptime. No material difference in
+period, amplitude, or shape from the pre-fix behavior recorded above.
+This DEFINITIVELY (not just plausibly) rules out both fixed fold families
+as the current cause — both are independently confirmed still guarded/
+deferring during these exact crash windows (their own audit lines showed
+the guards firing correctly).
+
+ADDITIONAL DIAGNOSIS BEFORE ESCALATING (avoiding a blind third patch):
+`/api/diag/daemon` was checked mid-incident to rule out the Python daemon
+as a contributor — `rss_mb: 277.3` against its own 1024MB self-kill
+ceiling, `uptime_seconds: 242` (alive across multiple Node crash/restart
+cycles, since `run_with_daemon.sh` supervises it separately from Node).
+The leak/crash is specifically in the Node process.
+
+PER RECURRENCE ESCALATES (CLAUDE.md — "two failed fixes on the same
+subsystem = architecture smell: propose structural work via
+wishlist.md"): this session did NOT attempt a third guess-and-cooldown
+patch. Filed a full incident writeup to `research/wishlist.md` (top of
+file, flagged for the human) with: what's ruled out, what this sandbox
+cannot determine (V8 heap exhaustion vs. container-level cgroup OOM kill —
+indistinguishable from `/api/health` polling alone, needs Railway's actual
+stderr/crash logs), a concrete free/build-first next step for a future
+session (bisect by feature-flagging Tier 2 and Tier 3 off entirely and
+re-observing, to localize the leak to that path or rule it out), and the
+one thing only the human can do faster (pull Railway's raw logs for the
+exact STARTUP-to-502 windows timestamped in this entry). Also updated
+KNOWN BROKEN #41 in open_questions.md with the same findings so a future
+session's MEMORY PROTOCOL read picks this up before touching this
+incident again.
+
+Given GOAL Priority 1 (a live incident, materially unresolved after two
+confirmed-live fixes) and the LIVENESS ALARM clause's own spirit ("must be
+surfaced loudly, never discovered by the human on a dashboard"), this
+session sent a follow-up push notification correcting its earlier one
+(which had reported the fix as likely resolving the incident, before this
+post-merge verification ran) — the human should not be left believing this
+is closed when direct evidence says it is not.
+
+STARVED (revised): no — this session used its full remaining capacity to
+verify its own fix rather than assume success, caught that the fix did not
+work, ruled out both known causes and the daemon with direct evidence, and
+escalated per this file's own RECURRENCE ESCALATES protocol instead of
+attempting a third blind patch or ending on an unverified "should be
+fixed" claim.
+
 ## 2026-09-08 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — TREASURY DAILY STATEMENT GATE 1 (DATA): the root's own 2026-07-06-filed ladder path ("no gate-1 run found in the record" as of 2026-09-06), run for the first time — PASS, r=0.979 across 22 months (v1.0.870)
 
 TERRITORY: T-DATACORE primary (server/treasuryDts.ts, server/treasuryDts.test.ts,

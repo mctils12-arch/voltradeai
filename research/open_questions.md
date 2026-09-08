@@ -6093,6 +6093,41 @@
     session (chunk both fold families, move them off the main event loop
     into a worker/child process, or raise the container memory ceiling)
     rather than a fourth cooldown patch.
+    CONFIRMED, SAME SESSION (post-merge re-poll): PR #1033 merged
+    (v1.0.871) and Railway redeployed within minutes — `/api/diag/audit`
+    showed two `STARTUP Server boot — code_version 1.0.871` entries
+    (20:46:38Z and 20:48:37Z), so both guards were verifiably live, not
+    just merged. **The crash loop continued essentially unchanged**: five
+    more boot/crash cycles observed directly over the following ~5.5
+    minutes (`/api/health` polled every 15s), period still ~90-130s,
+    `rss_mb` still climbing ~500→770-990MB before each 502/reset — no
+    material difference from the pre-fix behavior described above. This
+    is now DEFINITIVE, not inferred: BOTH known fold families (Tier-3
+    port-dwell, routes.ts shadowstats/portdwell) are ruled out as the
+    (sole or current) cause, since both are independently confirmed
+    guarded — the fixes work as designed, the incident does not close.
+    RULED OUT THIS SESSION: the Python daemon is not the leak. `/api/diag/
+    daemon` mid-incident showed `rss_mb: 277.3` (max_rss_mb 1024, self-
+    kill threshold) and `uptime_seconds: 242` — comfortably alive across
+    multiple Node crash/restart cycles (the daemon is a separately
+    supervised process per `run_with_daemon.sh`, so it survives Node
+    dying). The leak is specifically in the Node process's own memory.
+    PER THIS ITEM'S OWN RECURRENCE ESCALATES MANDATE (now triggered, not
+    hypothetical): no third cooldown-style patch was attempted this
+    session. This needs a full architecture session with tooling this
+    sandbox does not have — real Railway/production stderr logs (to see
+    the actual V8 fatal-error or SIGKILL reason, which distinguishes a
+    genuine V8 heap-limit crash from a container-level cgroup OOM kill —
+    the fact that `heap_used_mb`/`heap_total_mb` were still climbing
+    together at the last pre-crash reading each cycle, never visibly
+    capped near a fixed ceiling, is suggestive of the latter but not
+    conclusive from outside the container), OR a bisection session that
+    temporarily disables Tier 2 and Tier 3 entirely (feature-flagged) to
+    localize whether the leak is in the scan/strategic-scan path at all
+    versus the WebSocket stream, position monitor, or something else that
+    runs unconditionally on every boot. FILED to `research/wishlist.md`
+    this date for human visibility given two autonomous fix attempts have
+    not resolved a live, ongoing incident.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
