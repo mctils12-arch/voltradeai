@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   parseDts, fetchLatestDts, archiveDtsDay, gzipOldDtsDays,
   refreshDts, latestDts, readArchivedDtsDay, DTS_FETCH_LIMIT,
+  sumTgaDepositsExDebt, PUBLIC_DEBT_CASH_ISSUES_CATEGORY, DtsRow,
 } from "./treasuryDts";
 
 // Mirrors the live FiscalData shape verified 2026-07-06 (amounts are
@@ -85,4 +86,49 @@ test("refresh: restart with fetch down rebuilds cache from the newest archived d
   assert.ok(hit, "cache rebuilt from archive despite fetch being down");
   assert.equal(hit!.record_date, "2026-07-03");
   assert.equal(hit!.rows[0].category, "RESTART CATG");
+});
+
+// sumTgaDepositsExDebt (GATE 1 — scripts/treasury_dts_gate1.ts)
+
+const dtsRow = (over: Partial<DtsRow>): DtsRow => ({
+  record_date: "2026-07-31",
+  account_type: "Treasury General Account (TGA)",
+  transaction_type: "Deposits",
+  category: "Taxes - Withheld Individual/FICA",
+  today_amt: 1,
+  mtd_amt: 100,
+  fytd_amt: 1000,
+  src_line: 1,
+  rt: "2026-07-31",
+  ...over,
+});
+
+test("sumTgaDepositsExDebt: excludes the API's own Total-Deposits subtotal row (avoids the 2x double-count)", () => {
+  const rows = [
+    dtsRow({ category: "Taxes - Withheld Individual/FICA", mtd_amt: 279940 }),
+    dtsRow({ category: "Taxes - Corporate Income", mtd_amt: 19206 }),
+    dtsRow({ account_type: "Treasury General Account Total Deposits", category: "null", mtd_amt: 299146 }),
+  ];
+  assert.equal(sumTgaDepositsExDebt(rows), 279940 + 19206, "the subtotal row must not be added on top of its own parts");
+});
+
+test("sumTgaDepositsExDebt: excludes Public Debt Cash Issues (financing, not a receipt)", () => {
+  const rows = [
+    dtsRow({ category: "Taxes - Withheld Individual/FICA", mtd_amt: 279940 }),
+    dtsRow({ category: PUBLIC_DEBT_CASH_ISSUES_CATEGORY, mtd_amt: 3022505 }),
+  ];
+  assert.equal(sumTgaDepositsExDebt(rows), 279940);
+});
+
+test("sumTgaDepositsExDebt: ignores Withdrawals rows and treats a null mtd_amt as 0, never NaN", () => {
+  const rows = [
+    dtsRow({ category: "Taxes - Corporate Income", mtd_amt: 19206 }),
+    dtsRow({ transaction_type: "Withdrawals", category: "SSA - Benefits Payments", mtd_amt: 124463 }),
+    dtsRow({ category: "Unclassified - Deposits", mtd_amt: null }),
+  ];
+  assert.equal(sumTgaDepositsExDebt(rows), 19206);
+});
+
+test("sumTgaDepositsExDebt: empty input sums to 0", () => {
+  assert.equal(sumTgaDepositsExDebt([]), 0);
 });

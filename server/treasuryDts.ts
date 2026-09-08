@@ -81,6 +81,31 @@ export function parseDts(json: any, rt: string): DtsRow[] {
   return out;
 }
 
+/** Table II financing category (public debt issuance/rollover) — not a
+ *  unified-budget receipt. Excluded by sumTgaDepositsExDebt below. */
+export const PUBLIC_DEBT_CASH_ISSUES_CATEGORY = "Public Debt Cash Issues (Table IIIB)";
+
+/**
+ * Sums one business day's TGA "Deposits" rows, excluding (a) the API's
+ * own "Treasury General Account Total Deposits" subtotal row — summing
+ * it alongside the individual line items double-counts, confirmed live
+ * (scripts/treasury_dts_gate1.ts's own investigation: a naive full sum
+ * read exactly 2x the true total) — and (b) Public Debt Cash Issues,
+ * debt-rollover financing rather than a receipt. Pass the LAST business
+ * day of a calendar month to get that month's cumulative total via the
+ * mtd_amt field. Result is in $ millions, matching DtsRow's own units.
+ */
+export function sumTgaDepositsExDebt(rows: DtsRow[]): number {
+  let total = 0;
+  for (const r of rows) {
+    if (r.transaction_type !== "Deposits") continue;
+    if (r.account_type.includes("Total")) continue;
+    if (r.category === PUBLIC_DEBT_CASH_ISSUES_CATEGORY) continue;
+    total += r.mtd_amt ?? 0;
+  }
+  return total;
+}
+
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;

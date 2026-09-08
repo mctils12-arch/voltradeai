@@ -3,6 +3,198 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-08 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — TREASURY DAILY STATEMENT GATE 1 (DATA): the root's own 2026-07-06-filed ladder path ("no gate-1 run found in the record" as of 2026-09-06), run for the first time — PASS, r=0.979 across 22 months (v1.0.870)
+
+TERRITORY: T-DATACORE primary (server/treasuryDts.ts, server/treasuryDts.test.ts,
+scripts/treasury_dts_gate1.ts) + SHARED-but-minimal, last (datacore/signal_ladder.json
+single-entry update, ci/counter_baseline.txt, package.json/package-lock.json version
+bump, research/*). No T-BOT (trading-path) or T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md (a
+separate self-see-harness program — Track 1 complete, Track 2/3 needs GPU tooling
+this sandbox lacks, correctly not this session's PRIMARY), research/experiments.md
+(top = newest, per its own convention — 4 sessions already ran today: 3x [REPAIR]
+on options_manager.py/port-dwell crash-loop, 1x [PRODUCT] on space_weather_swpc
+gate-1 readiness), research/open_questions.md (KNOWN BROKEN header), research/
+wishlist.md (head + stale-PR backlog note). Live `curl https://voltradeai.com/api/health`
+502'd on the FIRST attempt (transient — a deploy was mid-flight, uptime_s=17 on
+retry) then returned clean: status ok, bot active, drawdownPct "0.0", liveness.dark
+false, alpaca ACTIVE, all 3 feeds silent_hours ~0.18h. No LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: thrash_ratio 3/10 REPAIR (well under the
+7+ trigger), starvation 0/10, audits none overdue. `python3
+scripts/ladder_readiness_check.py`: 0/3 gated roots ready (cftc_cot ~49d remaining
+of an ~105d estimate, sec_8k 24d remaining of 90d, fleet_utilization 55d remaining
+until 2026-11-02) — no matured experiment to judge. `mcp__github__list_pull_requests`:
+2 other open PRs today (#1029 github_org_engineering_momentum, #1031 routes.ts
+crash-loop guard) — different files/roots, no territory collision.
+
+PRIMARY-ACTION SELECTION: no LIVENESS ALARM, thrash ratio fine, no ladder-readiness
+hit. Surveyed datacore/signal_ladder.json's 46 roots for one with a concrete,
+UNATTEMPTED gate-1 test already named in its own note (same selection method
+space_weather_swpc's session used the same UTC day). treasury_daily_statement's
+note (2026-09-06 TRACKING-GAP CLOSURE entry) named its own ladder path verbatim —
+"gate 1 = reconcile monthly sums vs MTS/FRED federal receipts" — and flagged it as
+never attempted, unlike its BUILD ORDER 6 siblings. Confirmed unclaimed (no open PR
+touches server/treasuryDts.ts or this root) before starting.
+
+WHAT SHIPPED: `server/treasuryDts.ts` gained `PUBLIC_DEBT_CASH_ISSUES_CATEGORY`
+and `sumTgaDepositsExDebt(rows)` — sums one business day's TGA "Deposits" rows on
+`mtd_amt`, excluding (a) the FiscalData API's own "Treasury General Account Total
+Deposits" subtotal row and (b) the Public Debt Cash Issues category. (a) was found
+by INVESTIGATION, not assumed: a first naive full-sum attempt (all Deposits rows,
+no exclusions) against a live day (2026-07-31) read $6.899T against a $3.449T true
+total — exactly 2x, because the JSON envelope carries BOTH the 78 individual
+category rows AND a "Total Deposits" summary row for the same account, and summing
+both double-counts. Confirmed by listing every (transaction_type, account_type,
+table_nbr) triple present that day: exactly one "Total Deposits" row alongside 78
+individual TGA rows, table "II" throughout, no Federal Reserve Account rows that
+day. (b) is the ONE exclusion decided a priori on ordinary federal-budget-
+accounting grounds (debt issuance/rollover is financing, not a receipt) — not
+tuned after seeing any correlation number; no second exclusion was tried.
+
+`scripts/treasury_dts_gate1.ts` (new): fetches Treasury's own Monthly Treasury
+Statement (`mts_table_1`, a SEPARATE FiscalData product from the daily deposits/
+withdrawals ledger — different compilation, different cadence, a genuine
+independent-source reconciliation, same class as the fred_macro_series/
+un_comtrade gate-1 precedent) for every month in both fiscal years the latest
+report carries, finds the last DTS business day of each matching calendar month,
+runs the REAL `parseDts`/`sumTgaDepositsExDebt` production functions against that
+day's live rows (not reimplemented in the script, matching the
+nrc_gate1_registry_match.ts precedent), and computes the Pearson correlation
+between the two series.
+
+PRE-REGISTERED BAR (stated in the script's own header before running, REASONING
+STANDARD #10): Pearson r >= 0.85 across every complete reconcilable month (no
+chosen window — both FY2025 comparative and FY2026 current-year months in the
+latest MTS release, n=22 automatically). Explicitly NOT a near-1.0 ratio
+requirement (unlike un_comtrade's CIF/customs check) — TGA deposits ex-debt are
+expected to sit above unified-budget "Total Receipts" by some stable wedge (
+categories the two reports classify differently), so gate 1 asks whether the
+archive TRACKS reality, not whether the two levels match.
+
+LIVE RESULT: PASS. n=22 months (2024-10 through 2026-07), Pearson r=0.979.
+Ratio (DTS-ex-debt / MTS-receipts) mean 1.206, stdev 0.094, range 1.059-1.411 —
+a real, fairly stable wedge, not noise, and not required to be tighter than this
+to pass. `datacore/signal_ladder.json`'s treasury_daily_statement entry updated
+in place (surgical string replace, not a json.dump rewrite — verified both
+`json.load` and `node -e require(...)` still parse and the root count is
+unchanged at 46): status raw_only -> gate1_pass, current_gate 0 -> 1.
+
+TESTS: 4 new in `server/treasuryDts.test.ts` (excludes the Total-Deposits subtotal
+row — the exact double-count this session found; excludes Public Debt Cash Issues;
+ignores Withdrawals rows and treats a null mtd_amt as 0 not NaN; empty input sums
+to 0). All pure-function, fixture-based — no live network call in the test suite;
+the live reconciliation itself is the standalone gate-1 script, run once by hand
+this session and its result recorded here + in signal_ladder.json, same pattern
+as every other gate-N script in scripts/.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure gate-1 data-layer instrumentation, no
+scoring/sizing/threshold value touched; bot_engine.py/system_config.py/
+ml_model_v2.py/server/bot.ts's trading-path code all untouched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `sumTgaDepositsExDebt` is a new pure
+function with exactly one caller (the new gate-1 script) — it cannot affect
+`fetchLatestDts`/`archiveDtsDay`/`refreshDts`/`bootDtsPoll`'s existing poll-and-
+archive cycle or the live `/api/data/dts` display route (server/routes.ts,
+untouched). Zero effect on Tier 1-3 scheduling or any options/CSP path.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a read-only reconciliation over an
+already-archived feed against a second, independent public FiscalData product;
+no new archive, join, or poller. GATE 2 (withheld-tax YoY growth vs payroll-
+surprise dates) remains genuinely untouched, a separate future test.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads code
+touched; this root has no aircraft-archive/adsb.lol lineage. No v1 API mirror /
+LICENSE_MARKS added this session either — matching this file's own established
+convention that the v1 boundary ships once a root has a live SIGNAL to sell
+(gate 2), and this is a DATA-layer gate only; the existing RAW /api/data/dts
+display is unaffected.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npx tsx --test server/treasuryDts.test.ts`: 9/9 pass (4 new).
+`bash scripts/tsc_ratchet.sh`: FIRST reading (before a fresh `npm ci` had
+completed in this session's container) showed 3, which briefly looked like
+pre-existing drift and was nearly reported as such — this is the EXACT false
+reading PROGRAM_STATE.md's own 2026-08-15 entry already warned about
+("an earlier reading on this session's initially-incomplete node_modules had
+shown 3... re-ran twice after npm ci completed and got a stable 12"). Re-ran
+after `npm ci` finished: stable 12, exactly matching the `ci/tsc_baseline.txt`
+pin, confirmed via a direct `npx tsc --noEmit` — all 12 errors are in files
+this diff never touches (TradeChart.tsx/datamap.tsx/billing.ts/bot.ts/
+owmTiles.ts). No re-pin needed or attempted.
+
+`bash scripts/gated_tests.sh` (after `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt`): local run GATE PASSED — python
+1811 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. **CI then
+caught something the local run's counter_ratchet.sh pass had missed**: the
+PR's `test` check FAILED on push with `ts_any: 1239 -> 1240 (non-increasing)`.
+Root cause, found by reading the CI job log rather than guessing: the new
+`scripts/treasury_dts_gate1.ts` had `const rows: any[] = all?.data || [];` —
+a genuine new `: any` this session introduced, invisible in the FIRST local
+`counter_ratchet.sh` run because that run happened to execute before the
+file's final state was in place (the counter script itself is deterministic;
+this was a sequencing mistake in this session's own verification order, not a
+flaky counter). Fixed by typing the MTS API's row shape properly (new
+`MtsRawRow` interface — `parent_id`/`classification_id`/`classification_desc`/
+`current_month_gross_rcpt_amt`, matching the verbatim FiscalData field names)
+instead of reaching for `any`; also dropped a now-redundant `as string` cast
+on the same field once its type was known. Re-verified after the fix, in this
+order this time — tests, then tsc, then counters, then build, then re-ran the
+live gate-1 script to confirm the fix changed no result (still r=0.979,
+byte-identical JSON output): `npx tsx --test server/treasuryDts.test.ts`
+9/9; `bash scripts/tsc_ratchet.sh` stable 12; `bash scripts/counter_ratchet.sh`
+OK, 25/25, `ts_any` back at the 1239 pin; `npm run build` clean. `python3 -c
+"import json; json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 46 roots
+unchanged (one entry edited in place). Pushed as a second commit on the same
+PR/branch (`git commit`, not `--amend` — the first commit already left this
+branch on the remote and CI had run against it).
+
+LESSON (worth compiling, not just fixing): verify in the ORDER the gate
+suite actually runs in CI (tests -> tsc -> counters -> build), and re-run
+`counter_ratchet.sh` as the LAST local check before committing, not
+mid-sequence — this session's own diff had already changed twice more
+(the gate-1 script and the ladder-note edits) after the counter check that
+came back clean, which is exactly how a genuinely new `: any` slipped through
+a locally-green run. `research/experiments.md`'s own MEMORY PROTOCOL entry
+records this so a future session's gate ordering default is "counters last."
+
+MARKET-HOURS NOTE: session ran at 2026-09-08 ~14:10-15:00 ET (mid-market, per the
+health check's live timestamp). This PR carries zero trading-path risk (no
+bot_engine.py/system_config.py/ml_model_v2.py/server/bot.ts trading-code touched)
+but any merge to main still triggers a full Railway redeploy/restart of the live
+server. Per this session's own SESSION BUDGET instruction ("prefer merging PRs
+outside 9:30-16:00 ET... if working mid-market, prepare the PR and note in it
+that merge should wait for the close"): this PR should NOT be merged before
+16:00 ET / 20:00 UTC today.
+
+VERSION: v1.0.870 (package.json, read-and-increment at commit time; `git fetch
+origin main` immediately before the bump confirmed origin/main was still at
+a1b7e0b/v1.0.869/PR #1030, no concurrent session had moved it since the crash-
+loop-guard merge). package-lock.json resynced via `npm install
+--package-lock-only`; diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) GATE 2 (withheld-tax YoY growth vs payroll-
+surprise dates) — the build order's own second stated test, needs a payroll-
+surprise-date calendar (BLS release dates + consensus-vs-actual) as ground truth,
+not yet sourced. (2) the ~1.21x DTS-ex-debt/MTS-receipts wedge found this session
+is itself mildly interesting (federal-budget-accounting curiosity) but not
+pursued further — gate 1 only needed tracking, not an exact reconciliation of the
+wedge's own components. (3) per the AUDITS & DEBT register, staleness/
+constitutional audit last-run dates should be checked by a future session whose
+fall-through reaches the research tier — not checked this session, capacity was
+used by this primary action end-to-end (live investigation, code, tests, live
+gate run, full gate suite).
+
+STARVED: no — one clean, scoped PIPELINE/PRODUCT action taken to completion,
+including catching and fixing a real double-counting bug via live investigation
+before it could taint the gate-1 result, a pre-registered bar stated before the
+correlation was computed, and the full gate suite (tests+tsc+counters+build)
+green before committing. No higher-priority queued item was skipped (no LIVENESS
+ALARM; thrash ratio 3/10, well under threshold; no ladder_readiness_check.py-
+reported-ready root existed to judge instead).
+
 ## 2026-09-08 (scheduled-routine session, fourth session this UTC day) [REPAIR] — T-BOT (server/portDwellCapture.ts, server/portDwellCapture.test.ts, server/bot.ts) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): LIVE PRODUCTION INCIDENT — server was OOM-crash-looping every ~90-120s during market hours; root-caused to the new port-dwell Tier-3 in-process fold retrying an un-persisted, likely-fatal attempt on every boot; crash-loop guard shipped (v1.0.869). PR merge deliberately held for after-hours per this session's own scheduling instruction (see MERGE NOTE at the end of this entry).
 
 TERRITORY: T-BOT primary (server/bot.ts's Tier-3 wiring, server/portDwellCapture.ts —
