@@ -16,6 +16,7 @@ import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, computePortDwellAsyncTimed, portsFromSites } from "./portDwell";
 import { captureIfDue as captureNextPortDwellWeekIfDue, loadCapturedSnapshots } from "./portDwellCapture";
 import { scanStormHistory } from "./spaceWeather";
+import { githubActivityPollHealth } from "./githubOrgActivity";
 import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./shadowFleet";
 import { evaluateEnrichment } from "./shadowFleetGate1";
@@ -2782,6 +2783,16 @@ print(json.dumps(get_shadow_stats()))
             probe: "spaceweather_storm",
             minG,
             ...scanStormHistory(undefined, minG),
+          }));
+        }
+        case "github_activity_poll_health": {
+          // ADDED 2026-09-08 (scheduled-routine PRODUCT session): see the
+          // "github_activity_poll_health" entry in diag.ts's DIAG_PROBES
+          // for why — a read-only passthrough of githubOrgActivity.ts's
+          // own in-memory poll-health state, no live fetch.
+          return res.json(sanitizeDiag({
+            probe: "github_activity_poll_health",
+            health: githubActivityPollHealth(),
           }));
         }
         default:

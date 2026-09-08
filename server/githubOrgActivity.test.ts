@@ -16,6 +16,10 @@ import {
   readArchivedGithubActivity,
   lookupGithubOrgHistory,
   readGithubActivityAggregateHistory,
+  computePollHealth,
+  refreshGithubActivityCache,
+  githubActivityPollHealth,
+  latestGithubActivity,
   WATCHLIST,
 } from "./githubOrgActivity";
 
@@ -188,6 +192,91 @@ test("readGithubActivityAggregateHistory: per-week org count + summed PR/commit 
   assert.equal(trend[0].total_merged_prs, 20, "elastic's null mergedPRs excluded from the sum, not coerced to 0");
   assert.equal(trend[0].total_commits, 130);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("computePollHealth: counts attempted/succeeded independently per leg, archived is a real, valid zero", () => {
+  const records = [
+    { t: "org_week" as const, key: "2028-01-03|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2028-01-03", weekEnd: "2028-01-09", mergedPRs: 5, commits: 10, uniqueActorsSample: 2, actorSampleCapped: false, rt: "2028-01-12" },
+    { t: "org_week" as const, key: "2028-01-03|elastic", ticker: "ESTC", org: "elastic", weekStart: "2028-01-03", weekEnd: "2028-01-09", mergedPRs: null, commits: 7, uniqueActorsSample: 1, actorSampleCapped: false, rt: "2028-01-12" },
+    { t: "org_week" as const, key: "2028-01-03|cloudflare", ticker: "NET", org: "cloudflare", weekStart: "2028-01-03", weekEnd: "2028-01-09", mergedPRs: null, commits: null, uniqueActorsSample: null, actorSampleCapped: false, rt: "2028-01-12" },
+  ];
+  const h = computePollHealth(records, 2, "2028-01-03", "2028-01-09", Date.parse("2028-01-12T00:00:00Z"));
+  assert.equal(h.attempted, 3);
+  assert.equal(h.succeededMergedPRs, 1, "only mongodb's mergedPRs leg succeeded");
+  assert.equal(h.succeededCommits, 2, "mongodb+elastic commits legs succeeded, cloudflare's failed");
+  assert.equal(h.archived, 2, "caller-supplied write count passed through unchanged");
+  assert.equal(h.error, null);
+  assert.equal(h.at, Date.parse("2028-01-12T00:00:00Z"));
+});
+
+test("computePollHealth: zero archived is reported as a real outcome, not confused with 'no attempt'", () => {
+  const allFailed = WATCHLIST.map((w) => ({
+    t: "org_week" as const, key: `2028-02-07|${w.org}`, ticker: w.ticker, org: w.org,
+    weekStart: "2028-02-07", weekEnd: "2028-02-13",
+    mergedPRs: null, commits: null, uniqueActorsSample: null, actorSampleCapped: false, rt: "2028-02-16",
+  }));
+  const h = computePollHealth(allFailed, 0, "2028-02-07", "2028-02-13", Date.parse("2028-02-16T00:00:00Z"));
+  assert.equal(h.attempted, WATCHLIST.length, "the cycle DID attempt every org");
+  assert.equal(h.succeededMergedPRs, 0);
+  assert.equal(h.succeededCommits, 0);
+  assert.equal(h.archived, 0, "distinguishable from attempted=0 — a real total-failure cycle, not a skipped one");
+});
+
+test("refreshGithubActivityCache: a healthy cycle populates the cache, archives to disk, and records health", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-refresh-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = dir;
+  try {
+    const impl = async (url: string) => {
+      if (url.includes("search/issues")) return { ok: true, status: 200, text: async () => JSON.stringify({ total_count: 4 }) };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ total_count: 9, items: [] }) };
+    };
+    // 2028-01-03 (Mon) .. 2028-01-09 (Sun): novel week, no other test in this
+    // file touches it, so the module-level archivedKeys dedup can't collide.
+    await refreshGithubActivityCache(impl as any, Date.parse("2028-01-12T12:00:00Z"), 0);
+    const cached = latestGithubActivity();
+    assert.ok(cached && cached.records.length === WATCHLIST.length, "every watchlist org produced a record");
+    const health = githubActivityPollHealth();
+    assert.ok(health);
+    assert.equal(health!.weekStart, "2028-01-03");
+    assert.equal(health!.weekEnd, "2028-01-09");
+    assert.equal(health!.attempted, WATCHLIST.length);
+    assert.equal(health!.succeededMergedPRs, WATCHLIST.length);
+    assert.equal(health!.succeededCommits, WATCHLIST.length);
+    assert.equal(health!.archived, WATCHLIST.length, "every record had a non-null leg, so every record archives");
+    assert.equal(health!.error, null);
+    const onDisk = readArchivedGithubActivity(path.join(dir, "datacore_archive"));
+    assert.equal(onDisk.filter((r) => r.weekStart === "2028-01-03").length, WATCHLIST.length,
+      "the health report's archived count must match what actually landed on disk");
+  } finally {
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("refreshGithubActivityCache: every org's fetch failing reproduces the live 2026-09-08 finding — attempted, zero archived, nothing written, and it is now VISIBLE via health instead of silent", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-refresh-fail-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = dir;
+  try {
+    const impl = async () => ({ ok: false, status: 503, text: async () => "" });
+    // 2028-02-07 (Mon) .. 2028-02-13 (Sun): a second, independently novel week.
+    await refreshGithubActivityCache(impl as any, Date.parse("2028-02-16T12:00:00Z"), 0);
+    const health = githubActivityPollHealth();
+    assert.ok(health);
+    assert.equal(health!.weekStart, "2028-02-07");
+    assert.equal(health!.attempted, WATCHLIST.length, "the cycle ran end to end — this is not an interrupted/skipped cycle");
+    assert.equal(health!.succeededMergedPRs, 0);
+    assert.equal(health!.succeededCommits, 0);
+    assert.equal(health!.archived, 0, "archiveGithubActivity's own null-filter drops every all-null record");
+    assert.equal(health!.error, null, "per-org failures are caught inside fetchGithubActivity — this is not a thrown-cycle error");
+    const onDisk = readArchivedGithubActivity(path.join(dir, "datacore_archive"));
+    assert.equal(onDisk.filter((r) => r.weekStart === "2028-02-07").length, 0,
+      "confirms the archive gap: a fully-failed cycle leaves zero trace on disk");
+  } finally {
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("watchlist entries are well-formed and unique (ticker, org)", () => {

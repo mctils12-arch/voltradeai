@@ -152,6 +152,26 @@ export const DIAG_PROBES = [
   // the date, but this archive's files start with a feed prefix
   // (`conditions-<day>...`) — see scanStormHistory's own comment.
   "spaceweather_storm",
+  // ADDED 2026-09-08 (scheduled-routine PRODUCT session): read-only
+  // passthrough of githubOrgActivity.ts's own poll-health state
+  // (githubActivityPollHealth). LIVE FINDING this session: the root's
+  // archive has NOT gained a new week since 2026-08-31, though the week
+  // ending 2026-09-06 completed and is now stale by 2+ days — and the
+  // client-facing "latest" view (/api/data/github-activity) has no
+  // fallback to the on-disk archive, so it can silently show
+  // `warming_up: true, count: 0` for as long as this cycle stalls, even
+  // with 6+ good weeks already archived. `archiveGithubActivity`'s own
+  // null-filter means a cycle where every org's fetch fails writes
+  // NOTHING and logs only to process stdout — invisible to any session
+  // without Railway shell access. This probe exposes the LAST completed
+  // cycle's attempted/succeeded/archived counts and any thrown error so
+  // a future session (or a live check once this deploys) can tell
+  // "never gets a chance to finish before the next redeploy" apart from
+  // "every fetch to api.github.com is failing" apart from "succeeding but
+  // something else drops the rows" without guessing. No per-org detail
+  // beyond the public watchlist leaves this endpoint — aggregate counts
+  // only, same posture as every other probe here.
+  "github_activity_poll_health",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
