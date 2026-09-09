@@ -431,3 +431,20 @@ test("spaceweather_storm probe (2026-09-08): wired, whole-archive local scan, sa
   assert.ok(mod.includes("export interface StormScanResult") && mod.includes("stormDays"),
     "the reused scan shape must already be aggregate-only (max G/Kp + flagged dates, no per-poll row detail)");
 });
+
+test("github_activity_poll_health probe (2026-09-08): wired, read-only passthrough of the poll's own health state, sanitized, no network call", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("github_activity_poll_health"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./githubOrgActivity"') && bot.includes("githubActivityPollHealth"),
+    "github_activity_poll_health probe must reuse the shared reader, not re-derive the state inline");
+  const start = bot.indexOf('case "github_activity_poll_health"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "github_activity_poll_health probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("githubActivityPollHealth()"), "must actually call the shared reader");
+  assert.ok(block.includes("sanitizeDiag"), "github_activity_poll_health probe must pass the sanitizer like every other probe");
+  assert.ok(!block.includes("fetch("), "this is an in-memory state read, never a network call");
+  const mod = fs.readFileSync(path.join(here, "githubOrgActivity.ts"), "utf8");
+  assert.ok(mod.includes("export interface GithubActivityPollHealth") && mod.includes("attempted"),
+    "the reused health shape must already be aggregate-only (counts + timestamps, no per-org detail)");
+});

@@ -3,6 +3,120 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-09 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — SHARED-only, minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/*): revived and merged PR #1029 (github_org_engineering_momentum poll-health instrumentation), stranded 24h past its own held-for-close condition, v1.0.875
+
+SESSION-START: read CLAUDE.md in full, then `research/experiments.md`'s tail
+(the prior 2026-09-09 session's live Tier-2 daily-loss-halt incident,
+already resolved and merged as #1037/v1.0.874) and `research/
+open_questions.md` KNOWN BROKEN section. KNOWN BROKEN #41 (the port-dwell/
+shadow-stats OOM crash-loop) remains unfixed at root cause but is blocked
+on Railway env access this sandbox does not have — noted, not a blocker for
+this PRODUCT session per this session's own task instructions ("product
+sessions do not preempt the DAILY routines' repair duty"). `python3
+scripts/research_state_check.py`: thrash 6/10 REPAIR (below the 7+
+trigger), starvation 0/10, audits register none overdue. `python3 scripts/
+ladder_readiness_check.py`: 0/4 gated roots ready (cftc_cot_positioning,
+sec_8k_earnings_language, fleet_utilization_aircraft, grid_generation_fuel_mix
+all still waiting on their own stated re-run conditions). `python3
+scripts/data_stream_registry_check.py --unbuilt`: 9/35, all declined or
+blocked on a free registration/key, unchanged.
+
+PRIMARY-ACTION SELECTION: no ladder-gated root ready, no unbuilt stream
+buildable — checked open PRs next (SESSION BUDGET's own "judge a matured
+experiment" ranks above "start a new experiment"). `list_pull_requests`
+found exactly one judgeable PR: #1029 (2026-09-08, a prior session's
+already-complete, gate-clean `github_org_engineering_momentum` poll-health
+instrumentation), opened as a DRAFT specifically because it landed during
+market hours, with its own explicit note that a future session should mark
+it ready after the 16:00 ET close. It had sat stranded through an entire
+trading day plus into this session's start (~09:20 ET the next morning) —
+its own hold condition had matured and nobody had acted on it.
+
+WHAT SHIPPED: merged `origin/main` (5e0f501..2bd1778, 8 commits/7 PRs since
+this PR's base) into the PR branch and resolved conflicts per the MERGE-
+ORDER PROTOCOL: `research/experiments.md`/`open_questions.md` kept both
+sides, main's newer entries placed above this PR's older one (both files'
+own "newest at top" convention preserved); `package.json`/`package-lock.json`
+version read-and-incremented at commit time (main's 1.0.874 -> 1.0.875, not
+this PR's stale 1.0.869); `ci/counter_baseline.txt`'s `assertions` counter
+taken from main (13731) then re-measured and re-pinned after the merge
+(13731 -> 13766, this PR's own 6 new tests landing on top of main's current
+count) rather than guessed. `datacore/signal_ladder.json`, `server/bot.ts`,
+and every other touched file auto-merged cleanly (no overlapping lines).
+
+ENVIRONMENT GAP FOUND AND FIXED (not this PR's fault): this sandbox's
+Python had none of `requirements.txt`'s packages installed (numpy/pandas/
+etc. all `ModuleNotFoundError`), plus two packages used by live gate tests
+but absent from `requirements.txt` itself (`openpyxl` for
+`test_grid_county_ba.py`, `Pillow` for the nightlights gate/archiver
+tests) — confirmed pre-existing and unrelated to this diff by reproducing
+the identical failure on unmodified `main` in the same sandbox before
+touching anything. Installed via `pip3 install -r requirements.txt` +
+`pip3 install openpyxl pillow` so the gate suite could actually run rather
+than being skipped or assumed; not filed as a `requirements.txt` change
+since a future session's sandbox may already have these preinstalled the
+normal way — this is a session-environment note, not a codebase gap.
+
+GATES (run after the merge, on the merged tree): `bash scripts/
+gated_tests.sh`: GATE PASSED — server unchanged file count, client 101
+files/1083 pass, python 1808 passed/2 skipped/54 subtests (0 regressions
+from the pre-merge counts on either side), quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 11/11 exact match to the merged
+`ci/tsc_baseline.txt` pin, TS2304=0. `bash scripts/counter_ratchet.sh`:
+25/25 at or better than baseline post-repin. `npm run build`: clean, same
+pre-existing warnings (astronomy-engine default-export interop, maplibre-gl
+chunk size, dynamic+static mapIcons.ts import) as every recent session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero new trading-path or scoring
+code — this session's own diff is the merge-conflict resolution plus this
+log entry; the substantive change is entirely PR #1029's own (already
+traced in its 2026-09-08 entry). `github_org_engineering_momentum` stays
+`current_gate: 1`/`gate1_pass` — this ships visibility into its archiver's
+own health, not a gate promotion.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value
+touched.
+
+MEASUREMENT INTEGRITY: not implicated — no change to backtest_v2.py, the
+fills/slippage model, or any P&L computation.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(server/diag.ts, server/githubOrgActivity.ts, server/bot.ts only).
+
+VERSION: v1.0.875 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` confirmed `origin/main` still at 2bd1778/v1.0.874/
+PR #1037 immediately before both the merge and the push — no concurrent
+session had moved it either time). `package-lock.json` resynced via `npm
+install --package-lock-only`.
+
+MARKET-HOURS NOTE: this session started ~09:07 ET and the PR's CI re-run
+was still in flight as the 09:30 ET open approached. Per CLAUDE.md's
+deploy-coupling guidance, the merge itself only proceeds once CI is
+confirmed green AND either before 09:30 ET or after the 16:00 ET close —
+stated explicitly in the PR thread if the merge had to wait for CI to
+clear the open.
+
+NEXT (queued, not this session): (1) `github_org_engineering_momentum`'s
+own next real step is unchanged from its 2026-09-08 entry — the new
+`github_activity_poll_health` probe needs a live production reading to
+tell "every fetch is failing" apart from "a redeploy keeps interrupting
+the cycle." (2) per the AUDITS & DEBT register, staleness/constitutional
+audit last-run dates should be checked by the next session whose fall-
+through reaches the research tier (not checked this session — capacity
+went to reviving this stranded PR). (3) a process note for future
+sessions, not a rule change: a draft PR held for after-close merging is a
+standing item that should be checked at the START of every session (not
+just when the queue is otherwise empty) so a matured hold condition
+doesn't sit stranded through a full extra trading day again.
+
+STARVED: no — this session's primary action (judging and completing a
+matured, previously-stranded PR) is exactly SESSION BUDGET's own priority
+order ("judge a matured experiment" ranks above "start a new experiment"),
+and no higher-priority queued item was skipped (no ladder-gated root
+ready, no LIVENESS ALARM, thrash ratio well under threshold).
+
 ## 2026-09-09 (third session this UTC day) [REPAIR] — T-BOT/SHARED (server/bot.ts, server/drawdownGuard.ts, server/drawdownGuard.test.ts, server/optionsCapitalCheckFix.test.ts) + SHARED-minimal, last (ci/tsc_baseline.txt, ci/counter_baseline.txt, package.json/package-lock.json): LIVE PRODUCTION INCIDENT found via this session's own routine health/audit check — Tier-2's daily-loss halt firing 36+ times over 3+ hours pre-market at an unprecedented -11.5%..-11.8% with no supporting evidence anywhere else in the account, plus a separate, 100%-confirmed dead health metric found in the same code area (v1.0.874)
 
 TERRITORY: T-BOT (server/bot.ts's Tier-2 daily-loss check and the health
@@ -825,6 +939,238 @@ end to end (detection, live investigation, root cause, fix, tests, full
 gate suite, PR prep), correctly interrupting the routine checklist instead
 of working through the queue first, per GOAL Priority 1 (KEEP THE SYSTEM
 ALIVE) outranking every lower-priority queued item.
+## 2026-09-08 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/githubOrgActivity.ts, server/githubOrgActivity.test.ts, server/diag.ts, server/diag.test.ts, server/bot.ts) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): github_org_engineering_momentum's silent archive stall — LIVE-DIAGNOSED and made VISIBLE via a new poll-health diag probe (v1.0.869)
+
+TERRITORY: this session's designated territory is T-DATACORE/product-UI/API-boundary
+work; primary files touched are server/githubOrgActivity.ts (the archiver
+itself) plus its test file, diag.ts/bot.ts (the standard read-only diag-probe
+wiring every other datacore stream already uses), and diag.test.ts — no
+FROZEN PATH, no trading-path file.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+(a T-CLIENT rendering-law resume file — its own NEXT item is the moon bake,
+out of scope for a PRODUCT session, not claimed), research/open_questions.md's
+KNOWN BROKEN section (all currently-open items either need Railway
+volume/shell access this sandbox lacks — #37's Aug 5/6 vessel-archive
+anomaly — or are time-gated waiting on elapsed calendar days — none
+actionable this session), and the tail of research/experiments.md (this UTC
+day's three prior sessions: #1 [PRODUCT] space_weather_swpc gate-1 readiness
+instrumentation v1.0.866, #2/#3 [REPAIR] options_manager.py fixes v1.0.867/
+.868). Live `curl https://voltradeai.com/api/health`: status ok, bot active,
+drawdownPct "0.0", liveness.dark false, all 3 archive feeds silent_hours
+~0.1 — no LIVENESS ALARM, confirming a [PRODUCT] session is not preempted by
+repair duty this session. `git fetch origin main`: HEAD/origin/main both at
+6c94d35/v1.0.868/PR #1028 at session start and again immediately before the
+version bump below — no concurrent session moved main during this one.
+
+PRIMARY-ACTION SELECTION: checked datacore/signal_ladder.json for
+current_gate==1 (gate1_pass) roots ready for a GATE 2 attempt per this
+session's option (a). Of the 17 such roots, every one this session
+individually re-read is EITHER explicitly time-gated (needs N more weeks/
+months of accumulated archive history — port_dwell_maritime_transit,
+sec_edgar_13f_institutional_clustering, app_store_rank_review_velocity,
+nrc_outage_reports, dtcc_sbsdr_equity_swaps) OR a pure regime-conditioning
+input with no standalone gate-2 signal claim (fred_macro_series,
+eu_macro_ecb_eurostat_bundesbank) OR itself infrastructure feeding another
+root's gate rather than a gate-2 candidate
+(entity_map_operator_ticker, sec_form4_bulk_archive) OR already attempted
+and honestly rejected this same UTC week (fleet_utilization_aircraft,
+2026-09-03, measurement-integrity confound). github_org_engineering_momentum
+was the one live candidate whose own manifest says GATE 2 is merely
+"unstarted" (not time-blocked) — checked its actual live readiness before
+attempting anything.
+
+LIVE READINESS CHECK (this is where the session's actual finding is):
+`curl https://voltradeai.com/api/data/github-activity/history` returned a
+trend ending at weekStart 2026-08-24/weekEnd 2026-08-30 — no week since,
+though the week ending 2026-09-06 completed two full days before this
+session. Confirmed FILE-LEVEL, not just aggregate-level, via
+`/api/diag/archive?stream=github_activity&day=<D>&token=$DIAG_TOKEN` across
+2026-08-24 through 2026-09-08: exactly one file exists, dated 2026-08-31
+(archiving the 08-24/08-30 week), and NOTHING since — 8 straight days of
+zero files, despite the root's own 24h poll re-attempting on every server
+boot. Ruled out a general redeploy/network outage as the explanation: the
+SAME days' `appstore` archive (a different, unrelated daily archiver) shows
+fresh files through today (2026-09-06/07/08 all present) — this is
+GITHUB_ACTIVITY-SPECIFIC, not systemic. Also live-observed
+`/api/data/github-activity` (the "latest" snapshot route, not /history)
+returning `{"warming_up":true,"count":0,...}` continuously across a 4+
+minute polling window from this session — well past the ~1-4 minute cycle
+time the code's own 6.5s-per-call/30-call design implies for all-succeeding
+calls, consistent with (not proof of) every fetch to api.github.com
+currently failing or timing out for this instance.
+
+ROOT CAUSE, established by reading (not guessing): `fetchGithubActivity`
+already isolates every per-org failure (try/catch per leg, pushes a
+null-valued record rather than dropping the org) — so a total external
+failure does NOT crash the cycle. But `archiveGithubActivity`'s own
+null-filter (`r.mergedPRs !== null || r.commits !== null`) means a cycle
+where EVERY org's BOTH legs fail produces `fresh.length === 0` — nothing
+written, nothing added to `archivedKeys`, and the only trace was a
+`console.error` per failed call going to raw process stdout, invisible to
+any diag surface. This exactly reproduces the confirmed 8-day gap: whether
+the underlying cause is a live external block/rate-limit against
+api.github.com (network egress this sandbox cannot independently test —
+its own proxy blocks direct github.com calls too, so a live A/B against
+the real endpoint was not possible from here) or something else on
+GitHub's side, the CODE's behavior on total failure was silent and
+indistinguishable from "no attempt happened yet" — the same "silent
+degradation is how staleness recurs" pattern the RENDERING & MOTION LAW's
+Freshness Law names for map layers, here hitting a datacore archiver
+instead.
+
+WHAT SHIPPED (instrumentation, not a guessed fix at the unconfirmed
+external cause): `githubOrgActivity.ts` gained `GithubActivityPollHealth`
+(at/weekStart/weekEnd/attempted/succeededMergedPRs/succeededCommits/
+archived/error) and `githubActivityPollHealth()` — tracked at the end of
+every `refreshGithubActivityCache()` call, success or failure, so
+"attempted=15, archived=0" (total external failure) is now distinguishable
+from "attempted=3" (a redeploy interrupted the cycle) and from
+"attempted=0" (nothing has run yet). `computePollHealth()` is a pure,
+directly-unit-tested function (no fs/network) that the impure orchestration
+function calls. `refreshGithubActivityCache()` also gained an optional
+3rd `delayMs` param (testability only, mirrors `fetchGithubActivity`'s own
+`opts.delayMs` — production callers pass nothing and get the unchanged
+6.5s default). New diag probe `github_activity_poll_health` (diag.ts +
+bot.ts, exact wiring pattern as `portdwell_weekly_captured`/
+`spaceweather_storm` — token-gated, read-only, in-memory-state passthrough,
+no live fetch, no per-org detail beyond the already-public 15-org
+watchlist) — once this deploys, a future session (or a live check right
+after deploy) can read
+`/api/diag/github_activity_poll_health?token=$DIAG_TOKEN` and know in one
+call whether the stall is "every fetch is failing" vs "the cycle never
+gets a chance to finish" vs something else, instead of re-deriving it from
+file-listing archaeology the way this session had to.
+
+Deliberately NOT shipped this session: a fix at the unconfirmed root cause
+(e.g. shortening the 20s per-call timeout, or archiving incrementally
+per-org instead of only at cycle end). Both are plausible mitigations for
+the "redeploy interrupts a slow cycle" half of the hypothesis, but this
+session could not confirm from this sandbox whether the real cause is
+"calls fail fast with an error" (timeout change would not help) or "calls
+hang until the 20s timeout" (it would) — shipping a fix for the wrong
+mechanism would be exactly the kind of guessed patch READ BEFORE WRITE
+warns against. The new probe is what lets a future session decide with
+evidence instead of guessing.
+
+RATCHET: `server/githubOrgActivity.test.ts` gained 6 tests —
+`computePollHealth` pure-function coverage (per-leg success counted
+independently; zero-archived distinguished from zero-attempted) plus two
+`refreshGithubActivityCache` integration tests against a real temp
+`DATA_DIR` and injected `fetchImpl`: one all-succeeding cycle (verifies
+cache population, health fields, AND that the reported `archived` count
+matches what actually landed on disk via `readArchivedGithubActivity`),
+and one all-503 cycle that reproduces this session's live finding
+end-to-end (attempted=15, succeeded=0, archived=0, error=null — confirming
+the failure mode is the null-filter dropping every record, not a thrown
+cycle error) and confirms nothing lands on disk. `server/diag.test.ts`
+gained 1 test (`github_activity_poll_health` probe: wired, reuses the
+shared reader, sanitized, no `fetch(`), mirroring the existing
+`portdwell_weekly_captured`/`spaceweather_storm` probe test pattern
+exactly. FOUND WHILE WRITING THE INTEGRATION TESTS (worth recording, same
+"distrust your own first draft" spirit as the 2026-09-07 portdwell
+session): the first draft's disk-verification call passed
+`readArchivedGithubActivity(path.join(dir, "datacore_archive",
+"github_activity"))` — double-appending the "github_activity" segment,
+since `readArchivedGithubActivity`'s own `githubActivityDir()` helper
+already appends it. Silently read 0 rows from a directory that doesn't
+exist rather than erroring, which the first test run caught as a real
+assertion failure (expected 15 archived rows on disk, got 0) — fixed by
+passing the PARENT dir, matching how the file's own pre-existing tests
+call `archiveGithubActivity`/`readArchivedGithubActivity` with a bare
+tmpdir (never one already suffixed with the stream name).
+
+GATES: `npm ci` (488 packages; this session's container started with an
+incomplete `node_modules`, confirmed by `bash scripts/tsc_ratchet.sh`
+initially misreporting 3 errors instead of the pinned 12 — same false
+reading this same UTC day's earlier v1.0.859 session already documented
+as a `node_modules`-completeness artifact, not real drift; re-ran clean
+after `npm ci` and got the exact pinned 12/TS2304=0 twice). `pip install
+-r requirements.txt -r requirements-dev.txt`. `bash scripts/gated_tests.sh`:
+GATE PASSED — server 182 files, client 101 files, python 1811 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/tsc_ratchet.sh`: 12/12 exact match, TS2304=0. `bash
+scripts/counter_ratchet.sh`: 24/25 unchanged, `assertions` IMPROVED
+13652 -> 13687 (this session's own 6 new tests, direct and sole cause) —
+re-pinned in `ci/counter_baseline.txt` in this same PR, re-ran clean
+25/25 after. `npm run build`: clean (client 1860 modules via Vite, server
+16.5mb bundle via esbuild — pre-existing chunk-size warnings only,
+unrelated to this diff, confirmed by this diff touching zero files those
+warnings implicate).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this root has never claimed a gate-2
+signal (still `current_gate: 1`), and this change touches archiver
+reliability/observability, not any scoring, sizing, or threshold value;
+no trading-path file touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new `lastPoll` state is
+purely additive, in-memory, read only by the new diag probe — no existing
+consumer of `latestGithubActivity()`/`readArchivedGithubActivity()`
+changes behavior. `refreshGithubActivityCache`'s new 3rd param defaults to
+`undefined` (production behavior byte-identical: `fetchGithubActivity`'s
+own `opts.delayMs ?? 6500` still resolves to 6500 when the caller passes
+nothing). The `/api/data/github-activity` and `/api/data/github-activity/
+history` routes are unchanged — this session deliberately did NOT touch
+the "warming_up: true when cache is null, no on-disk fallback" behavior
+those routes share with roughly a dozen other `/api/data/*` routes in this
+codebase (a systemic, pre-existing pattern, not unique to this root — a
+fix there is a separate, much larger-scoped change spanning many files,
+out of this PR's one-logical-change-per-PR discipline, and would only be
+worth doing repo-wide, not singled out for this one root).
+`datacore/signal_ladder.json`'s `github_org_engineering_momentum` entry
+is unchanged (`current_gate: 1`) — this session shipped diagnosability,
+not a gate result.
+
+CROSS-SYSTEM INTEGRATION: none new — no new archive, join, fetch, or
+external dependency; the new probe reuses the exact same GithubActivityRecord
+data the root's existing routes already expose publicly.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root's data (public GitHub org activity) has no
+aircraft-archive/adsb.lol lineage.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+VERSION: v1.0.869 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 6c94d35/v1.0.868/PR #1028, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) once this deploys, read
+`/api/diag/github_activity_poll_health?token=$DIAG_TOKEN` live — if
+`attempted: 15, succeeded*: 0` repeats, that CONFIRMS a total external
+failure against api.github.com (network block, rate-limit, or auth
+requirement change) and the fix becomes either shortening the per-call
+timeout so a bad cycle fails fast, or accepting the GitHub Search API
+keyless path is no longer viable and researching an authenticated or
+alternative source; if `attempted` is consistently well under 15, that
+instead points at redeploy-interruption frequency outrunning the cycle's
+own duration, and the fix is archiving incrementally per-org rather than
+only at the end of a full 15-org loop. Do not guess between these without
+reading the probe's actual output first. (2) the systemic
+"`warming_up: true` with no on-disk fallback" pattern this session found
+shared across roughly a dozen `/api/data/*` routes (not unique to
+github-activity) is a real, larger product-facing gap — worth its own
+dedicated audit-and-fix session rather than a one-root patch. (3) the
+DTCC/port-dwell/13F/app-store gate-2 candidates this session ruled out as
+time-gated should simply be re-checked as their respective calendar
+triggers pass, per each root's own manifest note — no new action item
+beyond what those manifests already state.
+
+STARVED: no — this session used its full capacity on one clean, scoped
+PRODUCT/diagnosability action: confirmed a live, real, previously-unknown
+8-day silent archive gap via direct production probing (not assumed),
+ruled out the systemic-outage explanation before accepting the
+root-specific one, root-caused the exact code mechanism that turns a
+total external failure into silence, and shipped the standard
+instrumentation pattern this repo already uses for exactly this class of
+problem — deliberately stopping short of a guessed fix at the unconfirmed
+external cause, leaving that decision to a future session armed with the
+new probe's actual reading. No higher-priority queued item was skipped
+(no LIVENESS ALARM; thrash ratio checked via the prior REPAIR sessions'
+own recent tag mix, not thrash; no ladder-readiness-check root came due
+this session that wasn't already ruled out above).
 
 ## 2026-09-08 (scheduled-routine session, third session this UTC day) [REPAIR] — T-BOT (options_manager.py, test_options_fixes.py) + SHARED-but-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #31's own queued NEXT item (options_manager.py's `_parse_occ_symbol()` adjusted-root ticker bug) fixed (v1.0.868)
 

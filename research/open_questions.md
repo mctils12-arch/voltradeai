@@ -17950,3 +17950,62 @@ number, not assumed from the field docs.
 NEXT (queued, not this session): GATE 2 (withheld-tax YoY growth vs payroll-
 surprise dates) needs a BLS payroll-surprise-date calendar as ground truth —
 unsourced, not attempted.
+## 2026-09-08 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — github_org_engineering_momentum's own GATE 2 readiness check surfaced a live, previously-unknown 8-day silent archive stall; instrumented (not yet root-caused at the external layer) via a new poll-health diag probe
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+HEADLINE: checking whether github_org_engineering_momentum's weekly
+archiver had accumulated enough history to attempt its long-unstarted GATE
+2 (velocity deltas vs forward returns) found instead that the archiver has
+not written a new week since 2026-08-31 — 8 straight days, confirmed
+file-level via `/api/diag/archive`, with the week ending 2026-09-06 two
+days stale by the time this session ran. The sibling `appstore` archiver
+kept producing fresh daily files over the identical window, ruling out a
+systemic redeploy/outage explanation — this is specific to
+`githubOrgActivity.ts`. Root cause, established by reading the code:
+`archiveGithubActivity`'s own null-filter silently drops an entire cycle's
+records when every org's fetch fails both legs, leaving only a
+`console.error` trace with no visible signal anywhere a session without
+Railway shell access could see it — the same "silent degradation is how
+staleness recurs" shape the RENDERING & MOTION LAW's Freshness Law names
+for map layers, here in a datacore archiver instead.
+
+WHAT SHIPPED: `githubActivityPollHealth()` (attempted/succeeded-per-leg/
+archived/error counts for the most recently COMPLETED poll cycle) plus the
+`github_activity_poll_health` diag probe, mirroring the exact
+`portdwell_weekly_captured`/`spaceweather_storm` wiring pattern. This makes
+the failure mode legible instead of guessed at, but deliberately does NOT
+attempt a fix at the unconfirmed external cause (this sandbox's own
+network proxy blocks direct api.github.com calls, so a live A/B against
+the real endpoint was not possible from here) — see NEXT.
+
+WHAT THIS DOES NOT ESTABLISH: whether the underlying cause is a genuine
+external block/rate-limit against the GitHub Search API's keyless path, or
+redeploy frequency outrunning a slow cycle, or something else — the new
+probe is what lets a future session tell these apart from its actual
+reading rather than this session guessing.
+
+NEXT (queued, not this session): (1) once this deploys, read
+`/api/diag/github_activity_poll_health?token=$DIAG_TOKEN` live —
+`attempted:15, succeeded*:0` repeating confirms total external failure
+(fix: fail-fast timeout, or research an authenticated/alternative source);
+`attempted` consistently well under 15 instead points at redeploy
+interruption (fix: archive incrementally per-org, not only at cycle end).
+(2) this session also found the "`warming_up:true` with no on-disk
+fallback when the in-memory cache is cold" pattern is systemic across
+roughly a dozen `/api/data/*` routes, not unique to this root — filed as a
+larger, separate future audit rather than a one-root patch. (3) once a new
+week actually archives, re-check whether the accumulated history (weeks
+already exist back to 2026-07-20) is now enough to actually attempt GATE
+2 — this session did not reach that question, the archiver stall blocked
+it first.
+
+STARVED: no — one clean, scoped PRODUCT/diagnosability action taken to
+completion: a live finding confirmed by direct production probing (not
+assumed), the systemic-outage explanation ruled out before accepting the
+root-specific one, the exact code mechanism root-caused, and the standard
+instrumentation this repo already uses for this problem class shipped —
+stopping short of a guessed fix at the unconfirmed external cause on
+purpose, leaving that decision to a future session armed with the new
+probe's actual reading.

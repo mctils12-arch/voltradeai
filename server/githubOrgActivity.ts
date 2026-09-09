@@ -397,12 +397,65 @@ export function latestGithubActivity(): { at: number; records: GithubActivityRec
   return cache;
 }
 
-export async function refreshGithubActivityCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
+/** Health of the most recently COMPLETED poll cycle — separate from `cache`,
+ *  which only ever holds successfully-fetched records and so cannot
+ *  distinguish "no attempt yet" from "attempted but every org failed" (a
+ *  silent, repeating failure: `archiveGithubActivity`'s own null-filter
+ *  means a week where every fetch fails writes NOTHING to disk, and nothing
+ *  before this tracked that a cycle ran and produced zero usable rows —
+ *  the exact "silent degradation" class the Freshness Law names). Read via
+ *  the "github_activity_poll_health" diag probe. */
+export interface GithubActivityPollHealth {
+  at: number;           // when this poll attempt finished
+  weekStart: string;    // the week this cycle targeted (lastCompletedWeek at attempt time)
+  weekEnd: string;
+  attempted: number;    // orgs actually queried this cycle (already-archived orgs are skipped, not attempted)
+  succeededMergedPRs: number;
+  succeededCommits: number;
+  archived: number;     // rows newly written to disk this cycle (0 is a real, valid outcome)
+  error: string | null; // set only if the whole cycle threw before producing any records
+}
+
+let lastPoll: GithubActivityPollHealth | null = null;
+
+export function githubActivityPollHealth(): GithubActivityPollHealth | null {
+  return lastPoll;
+}
+
+/** Pure — no fs/network — so it is unit-testable without a fake fetchImpl
+ *  or a temp archive dir. */
+export function computePollHealth(
+  records: GithubActivityRecord[],
+  archived: number,
+  weekStart: string,
+  weekEnd: string,
+  nowMs: number,
+): GithubActivityPollHealth {
+  return {
+    at: nowMs,
+    weekStart,
+    weekEnd,
+    attempted: records.length,
+    succeededMergedPRs: records.filter((r) => r.mergedPRs !== null).length,
+    succeededCommits: records.filter((r) => r.commits !== null).length,
+    archived,
+    error: null,
+  };
+}
+
+export async function refreshGithubActivityCache(
+  fetchImpl: FetchFn = fetch as any,
+  nowMs?: number,
+  delayMs?: number, // testability only — production always uses fetchGithubActivity's own default
+): Promise<void> {
+  const now = nowMs ?? Date.now();
+  const { weekStart, weekEnd } = lastCompletedWeek(now);
   try {
-    const records = await fetchGithubActivity(WATCHLIST, fetchImpl, nowMs, {
+    const records = await fetchGithubActivity(WATCHLIST, fetchImpl, now, {
+      delayMs,
       skip: (key) => {
-        const [weekStart, org] = key.split("|");
-        return isArchived(org, weekStart);
+        const [ws, org] = key.split("|");
+        return isArchived(org, ws);
       },
     });
     if (records.length) {
@@ -411,9 +464,16 @@ export async function refreshGithubActivityCache(fetchImpl: FetchFn = fetch as a
     } else if (!cache) {
       cache = { at: Date.now(), records: [] };
     }
-    try { archiveGithubActivity(records, undefined, nowMs); } catch {}
+    let archived = 0;
+    try { archived = archiveGithubActivity(records, undefined, now); } catch {}
+    lastPoll = computePollHealth(records, archived, weekStart, weekEnd, Date.now());
   } catch (e: any) {
     console.error("[datacore] github_activity refresh:", e?.message || e);
+    lastPoll = {
+      at: Date.now(), weekStart, weekEnd,
+      attempted: 0, succeededMergedPRs: 0, succeededCommits: 0, archived: 0,
+      error: String(e?.message || e),
+    };
   }
 }
 
