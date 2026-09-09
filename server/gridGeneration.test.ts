@@ -19,7 +19,7 @@ const ROW = (period: string, respondent: string, fueltype: string, value: string
   period, respondent, "respondent-name": "x", fueltype, "type-name": "x",
   value, "value-units": "megawatthours",
 });
-const ENVELOPE = (rows: any[]) => ({ response: { total: rows.length, data: rows } });
+const ENVELOPE = (rows: unknown[]) => ({ response: { total: rows.length, data: rows } });
 
 test("key gate: disabled without EIA_API_KEY; fetch returns [] keyless", async () => {
   assert.equal(gridGenerationEnabled({} as any), false);

@@ -76,18 +76,19 @@ export interface GenerationObs {
   rt: string;            // as-seen UTC date
 }
 
-const num = (v: any): number | null => {
+const num = (v: unknown): number | null => {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n : null;
 };
 
 /** EIA v2 envelope -> GenerationObs (defensive against malformed rows). */
-export function parseGeneration(json: any, rt: string): GenerationObs[] {
-  const data = json?.response?.data;
+export function parseGeneration(json: unknown, rt: string): GenerationObs[] {
+  const data = (json as { response?: { data?: unknown[] } } | null)?.response?.data;
   if (!Array.isArray(data)) return [];
   const out: GenerationObs[] = [];
-  for (const r of data) {
+  for (const row of data) {
+    const r = row as Record<string, unknown>;
     const period = r?.period;
     const respondent = r?.respondent;
     const fueltype = r?.fueltype;
@@ -100,7 +101,7 @@ export function parseGeneration(json: any, rt: string): GenerationObs[] {
 
 // ── Fetch (key never logged; brackets encoded) ──────────────────────────────
 
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+type FetchFn = (url: string, init?: RequestInit) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function generationUrl(respondent: string, key: string): string {
@@ -123,15 +124,15 @@ export async function fetchGeneration(fetchImpl: FetchFn = fetch as any,
     try {
       const r = await fetchImpl(generationUrl(resp, key), {
         headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
-        signal: AbortSignal.timeout(30000) as any,
+        signal: AbortSignal.timeout(30000),
       });
       if (!r.ok) {
         console.error(`[datacore] gridgeneration ${resp} -> ${r.status}`);
       } else {
         out.push(...parseGeneration(JSON.parse(await r.text()), rt));
       }
-    } catch (e: any) {
-      console.error(`[datacore] gridgeneration ${resp}:`, e?.message || e);
+    } catch (e: unknown) {
+      console.error(`[datacore] gridgeneration ${resp}:`, e instanceof Error ? e.message : e);
     }
     if (spacingMs > 0) await sleep(spacingMs);
   }
@@ -161,6 +162,12 @@ export function seedFileInWindow(fileName: string, nowMs: number): boolean {
   return Number.isFinite(day) && nowMs - day <= SEED_WINDOW_DAYS * 86400_000;
 }
 
+// ENOENT (archive dir not created yet) is the routine cold-start case and
+// stays silent; any other failure is logged so a real problem is visible.
+function isEnoent(e: unknown): boolean {
+  return (e as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
 function seedSeen(dir: string): void {
   try {
     const nowMs = Date.now();
@@ -173,13 +180,22 @@ function seedSeen(dir: string): void {
         text = f.endsWith(".gz")
           ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
           : fs.readFileSync(fp, "utf8");
-      } catch { continue; }
+      } catch (e: unknown) {
+        console.warn(`[datacore] gridgeneration seed: unreadable archive file ${f} skipped: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
       for (const line of text.split("\n")) {
         if (!line) continue;
-        try { seenObs.add(obsKey(JSON.parse(line))); } catch {}
+        try {
+          seenObs.add(obsKey(JSON.parse(line) as GenerationObs));
+        } catch (e: unknown) {
+          console.warn(`[datacore] gridgeneration seed: corrupt archive line in ${f} skipped: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
-  } catch {}
+  } catch (e: unknown) {
+    if (!isEnoent(e)) console.warn(`[datacore] gridgeneration seed scan: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /** Appends UNSEEN hourly observations to day-files keyed by the OBSERVATION
@@ -209,8 +225,8 @@ export function archiveGeneration(obs: GenerationObs[], baseDir?: string): numbe
     });
     fresh.forEach((o) => seenObs.add(obsKey(o)));
     return fresh.length;
-  } catch (e: any) {
-    console.error("[datacore] gridgeneration archive:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("[datacore] gridgeneration archive:", e instanceof Error ? e.message : e);
     return 0;
   }
 }
@@ -229,7 +245,9 @@ export function gzipOldGenerationDays(baseDir?: string, nowMs?: number): number 
       fs.unlinkSync(fp);
       n++;
     }
-  } catch {}
+  } catch (e: unknown) {
+    if (!isEnoent(e)) console.warn(`[datacore] gridgeneration gzip scan: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return n;
 }
 
@@ -282,8 +300,8 @@ export async function refreshGeneration(fetchImpl: FetchFn = fetch as any,
       cache = { at: Date.now(), stats };
     }
     gzipOldGenerationDays(baseDir, nowMs);
-  } catch (e: any) {
-    console.error("[datacore] gridgeneration refresh:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("[datacore] gridgeneration refresh:", e instanceof Error ? e.message : e);
   }
 }
 
