@@ -6270,6 +6270,80 @@
     without first confirming via (1) that this really is fabricated data
     and not a real loss — that would be loosening a risk-limit trigger on
     inference alone, which RULE REVIEW forbids.
+    **UPDATE 2026-09-09 (scheduled-routine session, fourth session this UTC
+    day, [REPAIR]) — re-polled per this item's own NEXT step (1); still
+    firing, new evidence gathered, one NEW visibility gap found+closed in
+    a related but distinct mechanism, escalated to `research/wishlist.md`
+    for a human Alpaca-dashboard check given proximity to the -20% kill
+    switch.** `/api/diag/audit?limit=200&token=$DIAG_TOKEN` (14:20Z-16:00Z,
+    100+ minutes, still market hours): `TIER2-LIMIT` still firing every
+    Tier-2 cycle, enriched numbers now consistent across the whole window —
+    `equity=90849, last_equity=102873.88, equityPeak=110727.04` (equity
+    drifted only 90971→90849 over 100 minutes; `last_equity` unmoved, as
+    expected for a same-trading-day field). Per this item's own NEXT (1):
+    `last_equity` (102,873.88) is BELOW `equityPeak` (110,727.04), NOT far
+    above it — the specific glitch signature this item's NEXT anticipated
+    checking for is absent, so this new reading neither confirms nor rules
+    out an Alpaca-side data anomaly on its own. Independent evidence
+    gathered instead: `/api/diag/positions-detail` (7 positions, gross
+    exposure $55,741, summed unrealized P&L ≈ -$92 — essentially flat) and
+    `/api/diag/orders?limit=200` (92 filled orders 2026-09-02 through
+    2026-09-08, all small round-trips — ≤20sh GLD, ≤15sh QQQ, single-
+    contract options at $0.27-$3.35 premiums) both still show nothing sized
+    to explain an ~11.7%/~$12K single-day move, consistent with (but not
+    proof of) the earlier session's data-anomaly hypothesis.
+    NEW FINDING while tracing this (READ BEFORE WRITE call-site check on
+    every consumer of `acct.equity`/`get_alpaca_account()` in this code
+    area, prompted by "Scanned 0 stocks, 0 trade candidates" appearing
+    alongside every `TIER2-LIMIT` line in the same window): `bot_engine.py`
+    has a THIRD, separate portfolio-drawdown mechanism from both
+    `TIER2-LIMIT` (bot.ts's daily-loss check) and `risk_kill_switch.py`'s
+    `check_kill_switches()` — `update_equity_peak()`/`is_trading_halted()`
+    (bot_engine.py:564-654), which halts new entries at `DRAWDOWN_HALT_PCT`
+    (default 18.0%, `system_config.py`) and is called at the very top of
+    `scan_market()` (line ~2596-2627), returning early with
+    `{halted: True, halt_reason, peak_equity, current_equity, dd_pct}`
+    instead of running the scan at all when it fires. Given the live
+    `-18.0%` `drawdownPct` reading is sitting almost exactly on this 18.0%
+    threshold, and the audit trail showed 0 trade candidates on every scan
+    for the entire 100+ minute observation window, this halt was very
+    likely ALSO active — but `server/bot.ts`'s Tier-2 scan handler
+    (`server/bot.ts` ~line 4013) read `result.scanned` and
+    `result.new_trades` off `scan_market()`'s return but never
+    `result.halted` — a halted return and a normal scan that legitimately
+    found nothing produce the byte-for-byte identical `"Scanned 0 stocks, 0
+    trade candidates"` audit line. This is the same visibility gap item #3
+    above already found and closed for the tier engine's own separate
+    `master_kill_switch` (the `TIER-KILL` audit type) — this closes the
+    same gap for `scan_market()`'s own DD halt, which had never gotten the
+    same treatment.
+    WHAT SHIPPED (v1.0.876, own PR, audit-visibility-only — does not change
+    when the halt fires, resumes, or blocks trades): `server/bot.ts`'s
+    Tier-2 scan handler now checks `result.halted` immediately after its
+    existing `"Scanned ..."` audit line and, when true, audits a new
+    `DD-HALT` type carrying `halt_reason`/`current_equity`/`peak_equity`/
+    `dd_pct` verbatim off the Python return. New test file
+    `server/ddHaltVisibility.test.ts` (4 tests, source-text-anchored on
+    `bot.ts` itself, mirroring the existing `tier2DaemonTimeoutVisibility.
+    test.ts` pattern) — A/B-verified via `git stash`: all 4 fail against
+    the pre-fix `bot.ts` (0/4 pass), all 4 pass post-fix.
+    ESCALATED (not self-resolved): given the account is now within ~2
+    points of `risk_kill_switch.py`'s FROZEN `PORTFOLIO_DD_KILL = -0.20`
+    (all-4-tiers, `can_auto_resume: False`, needs manual review to clear)
+    on a reading this sandbox still cannot independently confirm as real
+    vs. a data artifact, filed a flagged entry in `research/wishlist.md`
+    asking the human to check the Alpaca paper-account dashboard directly —
+    the single check that would settle this from outside in minutes.
+    NEXT: (1) once v1.0.876 is live, the next occurrence (if any) of this
+    item's DD-halt firing lands as `DD-HALT` in `/api/diag/audit` directly
+    — check there before re-deriving from `TIER2-LIMIT`/`positions-detail`/
+    `orders` again. (2) this item's original NEXT (1)/(2)/(3) all still
+    apply unchanged — in particular, still do NOT add a peak-relative
+    sanity bound to `evaluateDailyPnl` or `update_equity_peak` without
+    human confirmation first. (3) if the human confirms via the Alpaca
+    dashboard that this is a genuine data artifact, that confirmation is
+    the evidence RULE REVIEW requires — a future session may then propose
+    (not self-apply) a specific validated-read guard.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
