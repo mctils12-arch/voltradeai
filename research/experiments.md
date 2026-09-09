@@ -81233,3 +81233,216 @@ running the full gate suite (client+python+tsc+counters+build) green
 before committing. No higher-priority queued item was skipped (no
 LIVENESS ALARM; thrash ratio 1/10, well under threshold; no
 ladder-readiness-check root came due).
+
+
+## 2026-09-09 — [PIPELINE] EIA-930 generation-by-fuel-type archiver built, unblocks FUSION HYPOTHESIS (b)'s missing ingredient (v1.0.872)
+
+TERRITORY: T-DATACORE (new datacore server module + its tests + manifest +
+signal_ladder.json/open_questions.md bookkeeping; the routes.ts route
+registration is the minimal SHARED-file touch, added last per WORKSTREAM
+PARTITION's merge-order protocol).
+
+SESSION OPENING (per MEMORY PROTOCOL + this session's own task prompt,
+[PRODUCT]): read CLAUDE.md in full, then research/PROGRAM_STATE.md,
+research/open_questions.md (tail + KNOWN BROKEN), research/wishlist.md
+(head + tail), research/experiments.md (tail), datacore/signal_ladder.json,
+and the last ~30 commits, via a recon subagent to avoid spending this
+session's own context on ~180k lines of research/ prose. Thrash ratio of
+the last 10 experiments.md entries: 4/10 REPAIR — below the 7+ meta-problem
+threshold, no ratio intervention needed.
+
+LIVENESS CHECK: `af188b0` (HEAD before this session) records production
+OOM-crash-looping every ~90-130s during market hours, two independent
+fixes deployed and confirmed insufficient, correctly escalated to
+wishlist.md per RECURRENCE ESCALATES rather than patched a third time
+blind. Live-checked this session: `/api/health` at 2026-09-09T00:07Z (~8pm
+ET, after market close) showed `status:"ok"`, `uptime_s:11287` (~3.1h,
+i.e. NOT currently crash-looping — expected, since the incident is
+specifically scoped to market hours, and this check ran after close). Per
+this session's own task instructions ("product sessions do not preempt
+the DAILY routines' repair duty" / "note it but proceed with product work
+unless the break blocks you"): noted here, not chased further — it does
+not block product work and a REPAIR session already has the honest next
+step filed (Railway stderr access or a Tier-2/3 feature-flag bisection
+deploy, neither available in this sandbox).
+
+RECON FOLLOW-UP (worth recording — two of the recon subagent's three
+candidates turned out stale on closer read, REASONING STANDARD #4
+discipline): (1) its "port-dwell script migration" NEXT item was already
+shipped in `c3f012b` (v1.0.863), one session after the one that queued it
+— re-verified via `git log` before touching anything. (2) its "entity_map
+25/69 unmapped = actionable backlog" framing was WRONG on inspection: all
+25 unmapped `datacore/entity_map.json` entries already carry dated,
+WebSearch-sourced notes from the 2026-07-05 build explaining exactly why
+each stays unmapped (10 government/port authorities with no ticker by
+construction; 15 private/JV power-plant operators individually verified,
+e.g. STP Nuclear Operating Co's 3-way Constellation/CPS-Energy/Austin-
+Energy split, Louisiana Generating LLC's stale-registry NRG->Cleco sale) —
+there was no further mapping work available there, only re-confirmation.
+(3) its actual top recommendation — FUSION HYPOTHESIS (b), CLAUDE.md
+"generation shifts x utility tickers" — DID hold up, but its claim that
+"both ingredients already exist" was also wrong: `datacore/entity_map.json`
+existed, but the EIA-930 GENERATION-by-fuel-type series did not.
+`server/gridDemand.ts` (the only existing EIA-930 module) fetches
+`electricity/rto/region-data` with a `type` facet of D/DF — demand and
+demand-forecast only. Generation-by-fuel-type lives at a DIFFERENT EIA v2
+endpoint, `electricity/rto/fuel-type-data`, confirmed live this session
+with the real `EIA_API_KEY` (not DEMO_KEY): `curl` against
+`api.eia.gov/v2/electricity/rto/fuel-type-data/data/` for US48 returned
+16 fuel-type codes per hour (BAT/COL/GEO/NG/NUC/OES/OIL/OTH/PS/SNB/SUN/
+UES/UNK/WAT/WNB/WND), storage types (UES) confirmed reading NEGATIVE
+(-18, -87 MWh — charging draws net power) in the live sample.
+
+PRIMARY ACTION (advance a datacore pipeline through its first ladder
+step — CLAUDE.md task menu option (a)): built `server/gridGeneration.ts`,
+the missing ingredient, following `server/gridDemand.ts`'s exact
+established pattern (fetch/parse/dedup/quarantine/gzip/cache/poll) so the
+two sibling series stay maintainable together:
+- `parseGeneration`/`generationUrl`/`fetchGeneration`: same
+  bracket-pre-encoding, key-never-logged, 300ms call-spacing conventions
+  as gridDemand.ts. No `fueltype` facet needed (the API returns every code
+  per hour unfiltered) — window sized `HOURS_PER_FETCH(48) x 20` fuel-type
+  codes/hour headroom.
+- `archiveGeneration`: event-identity dedup key `respondent|period|
+  fueltype` (vs demand's `respondent|period|type`), day-files under
+  `<archive>/gridgeneration/`, gz after 3 days — same shape as
+  griddemand's, new dedup dimension.
+- DATA QUALITY GATE (server/dataQuality.ts, per location_context_engine.md):
+  a genuinely NEW bound shape, not a copy of gridDemand's — that module's
+  `DEMAND_BOUNDS` floors at 0 (demand is physically never negative);
+  generation-by-fuel with storage in the mix legitimately goes negative
+  (confirmed live above), so `GENERATION_BOUNDS = {mwh: {min: -50_000,
+  max: 800_000}}` is a wide two-sided plausibility band instead — unit
+  test `data-quality gate: implausible generation rows are quarantined,
+  storage negatives are NOT` pins the distinction (a -500 MWh storage
+  reading archives; a -99,999 MWh reading and a 9,999,999 MWh reading both
+  quarantine).
+- `refreshGeneration`/`latestGeneration`: per-respondent cache computing
+  `latest_period`, `total_mwh` (sum of the latest hour's fuel readings —
+  a cheap eyeball cross-check against gridDemand's own `latest_mwh` for
+  the same respondent/hour, though no automated reconciliation is wired
+  yet — that IS the fusion hypothesis's own gate 1, deliberately left for
+  later per the readiness_trigger below), and `fuel_mix` sorted by MWh
+  desc.
+- `bootGridGenerationPoll`: same 2h cadence as gridDemand's sibling poll.
+- SCOPE CUT, explicit and precedented: v1 ships WITHOUT historical
+  backfill. gridDemand.ts's own header names its backfill machinery a
+  deliberately separate "v2" addition over its own v1 — followed the same
+  split here rather than bundling a second logical change (a bulk
+  multi-year walk, its own opt-in env gate, its own pruning/marker logic)
+  into this PR. Queued as NEXT.
+- Wired into `server/routes.ts` (SHARED territory, last commit per
+  merge-order protocol): `GET /api/data/grid-generation`, mirroring
+  `/api/data/grid-demand`'s response shape (`kind:"raw"`, key-gate honesty
+  when `EIA_API_KEY` absent, `warming_up` before the first poll lands,
+  explicit `predictive:false` + a note naming the still-ladder-locked
+  fusion hypothesis this feeds). No client/ page yet — same incremental
+  API-then-UI sequencing gridDemand/EPA-CAMD/FINRA/un-comtrade all used;
+  queued as NEXT once the ladder step below actually runs.
+- `datacore/manifests/gridgeneration.json`: full universal-archive
+  envelope (all 13 REQUIRED fields per server/manifests.test.ts),
+  confidence_model naming the exact fusion-(b) gate-1 target.
+- `datacore/signal_ladder.json`: new root `grid_generation_fuel_mix`,
+  status `raw_only`/`current_gate:0` (archive-first, no predictive claim
+  on the raw series itself — same doctrine as `wri_power_plant_registry`),
+  with a `readiness_trigger` (`archive_days`, `min_days:2`) so a future
+  session's `scripts/ladder_readiness_check.py` run surfaces "run the
+  fusion (b) gate-1 reconciliation now" mechanically instead of a session
+  re-deriving the condition from prose — verified live this session
+  (`ladder_readiness_check.py` correctly lists it `[waiting 2d]`).
+- `research/open_questions.md`: appended a dated UPDATE under FUSION
+  HYPOTHESES (b) recording what was built, what was independently
+  re-verified as already-complete (entity_map), and what remains open
+  (the actual gate-1 reconciliation run, once the readiness_trigger
+  fires).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or any Python trading-path file (bot_engine.py/system_config.py/
+ml_model_v2.py/bot.ts untouched — this module is wired entirely through
+routes.ts's own boot-time poller registration, the same pattern every
+other RAW /data overlay in this file already uses, never through bot.ts's
+Tier scheduling). Deliberately did NOT touch server/portDwellCapture.ts
+or server/bot.ts's Tier-3 clock despite a queued reconciliation NEXT item
+sitting there (v1.0.859's own NEXT(2)) — that module is the exact
+epicenter of the still-open crash-loop incident above, and this session's
+job is product work, not repair; touching it today would blur ownership
+of whatever bisection a REPAIR session runs next. New Node-process
+surface added by this change: one more 2h-interval fetch-and-append
+poller, same shape and cost class as the 6+ other archivers already
+running this way (aircraft/vessels/trains/Form4/griddemand/EPA-CAMD) —
+none of which are implicated in the crash-loop diagnosis (only the
+port-dwell weekly FOLD and routes.ts's dashboard refreshers were).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched; this root has no aircraft-archive/adsb.lol lineage.
+
+GATES: `npx tsx --test server/gridGeneration.test.ts server/gridDemand.test.ts
+server/manifests.test.ts`: 17/17 pass (6 new tests for gridGeneration.ts).
+`bash scripts/tsc_ratchet.sh` (after `npm ci` to rule out the incomplete-
+node_modules false-drift reading this session's own predecessor flagged):
+12/12 pass, TS2304=0, exact match to `ci/tsc_baseline.txt`'s pin — no
+drift. `bash scripts/gated_tests.sh`: FAILED on first run — test 935
+("FORWARD ENFORCEMENT: every archive directory referenced in server code
+has a manifest", server/manifests.test.ts) correctly caught the new
+`gridgeneration` archive dir before its manifest existed; fixed by adding
+`datacore/manifests/gridgeneration.json`, re-ran: GATE PASSED — client
+1083/1083, python 1811/1 skipped/54 subtests, quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 431->432, `assertions` 13667->13683 — this session's
+own 6 new tests, re-pinned in `ci/counter_baseline.txt` in this same PR;
+all other 22 counters unchanged. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"` and `node -e
+"require('./datacore/signal_ladder.json')"`: both parse clean, 47 roots
+(46+1). `python3 scripts/ladder_readiness_check.py`: new root appears
+correctly as `[waiting 2d] grid_generation_fuel_mix (raw_only): 0d
+elapsed since 2026-09-09 (needs 2d)`. `npm run build`: clean (client 1860
+modules via Vite, server bundle 16.5mb via esbuild — pre-existing
+chunk-size warnings only, unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a RAW-overlay data pipeline shipment
+(current_gate 0, no predictive claim), not a strategy/parameter/scoring
+change.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(this PR is server + datacore + research/ only; the /data client page for
+this root is deliberately deferred, queued as NEXT).
+
+VERSION: v1.0.872 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at af188b0/v1.0.871/PR #1034, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session — one logical change per PR): (1) once
+`scripts/ladder_readiness_check.py` reports `grid_generation_fuel_mix`
+ready (>=2 archive-days per respondent), run the actual FUSION (b) gate-1
+reconciliation — regional daily generation totals (sum across fuel types,
+sum across the day) vs `datacore/powerplants/us_power_plants.json`
+capacity-by-region, joined through `datacore/entity_map.json`'s
+operator->ticker table, pre-registering the ~5% bar CLAUDE.md's own GATE
+1 GROUND TRUTH language states BEFORE running it (REASONING STANDARD
+#10). (2) historical backfill for `server/gridGeneration.ts` (same
+v1/v2 split gridDemand.ts used) — deepens the archive faster than the
+live 2h poll alone for whichever gate-2 test the fusion hypothesis
+eventually needs. (3) `/data` client page for grid-generation, once (1)
+or a standalone raw-overlay UI pass reaches this root (same incremental
+API-then-UI sequencing as every other root in this file). (4) per the
+AUDITS & DEBT register, staleness/constitutional audit last-run dates
+should be checked by the next session whose fall-through reaches the
+research tier — not checked this session, capacity was fully used by
+this primary action plus its required recon correction.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT/pipeline action (built after two of the recon subagent's three
+candidates were independently found stale on closer read, correcting
+course before writing any code, per REASONING STANDARD #4's "distrust in
+proportion to how many things you tried" applied to a subagent's own
+claims, not just this session's), used in full including a live API
+verification (real EIA_API_KEY, not assumed-from-memory) before writing
+any parsing code, catching and fixing a real FORWARD ENFORCEMENT test
+failure via the mechanism it exists to catch rather than being surprised
+by it, and running the full gate suite (client+python+tsc+counters+build)
+green before committing. No higher-priority queued item was skipped (no
+LIVENESS ALARM triggered by this session's own health check; thrash
+ratio 4/10, well under the 7+/10 threshold; no ladder-readiness-check
+root came due before this session's own new entry).

@@ -11203,6 +11203,28 @@ territory in their first commit)
   10-K subsidiary lists) + EIA-930 totals reconciling to registry
   capacity within ~5% per region. Extends the POWER-PLANT hypotheses
   entry; the fusion is the operator-concentration conditioning.
+  UPDATE 2026-09-09 (scheduled-routine [PRODUCT] session): the missing
+  ingredient — EIA-930 generation BY FUEL TYPE per balancing authority —
+  is now BUILT and archiving (server/gridGeneration.ts, GET
+  /api/data/grid-generation, datacore/manifests/gridgeneration.json;
+  signal_ladder.json id grid_generation_fuel_mix, raw_only). It had not
+  existed before this session: griddemand.ts's own `type` facet is D/DF
+  (demand and demand-forecast only), never generation-by-source, so the
+  two prior recon passes that assumed this ingredient "already existed"
+  were wrong — confirmed live against the real EIA v2 API this session
+  (electricity/rto/fuel-type-data, distinct from griddemand.ts's
+  electricity/rto/region-data). The operator->ticker table
+  (datacore/entity_map.json, 44/69 mapped) was independently re-checked
+  this session and found ALREADY COMPLETE for its honest scope — all 25
+  unmapped entries carry dated, sourced notes explaining why (government/
+  municipal authorities with no ticker, or private/JV generators verified
+  via WebSearch 2026-07-05) — no further mapping work was available
+  there. GATE 1 GROUND TRUTH itself (regional generation totals vs
+  registry capacity) is NOT yet run — it needs at least ~2 days of
+  archive depth per respondent (readiness_trigger in signal_ladder.json)
+  to compute an honest full-diurnal-cycle daily total before comparing
+  against static nameplate capacity; a future session runs the actual
+  reconciliation once that trigger fires.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket

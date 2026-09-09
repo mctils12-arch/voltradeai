@@ -86,6 +86,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootGridGenerationPoll, latestGeneration, gridGenerationEnabled } from "./gridGeneration";
 import { bootEpaCamdPoll, latestEpaCamd, aggregateByFacility, epaCamdUsingDemoKey } from "./epaCamd";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
@@ -2927,6 +2928,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; latest_forecast_mwh is EIA's day-ahead forecast FOR THE SAME HOUR as latest_mwh (null when not yet published); the US48 forecast aggregate back-fills progressively as BAs report, so it can understate near the leading edge; industrial-activity nowcast signals stay gate-locked until ladder validation",
+      respondents: hit.stats,
+    });
+  });
+
+  // EIA-930 hourly net generation by fuel type (RAW — sibling series to
+  // grid-demand above, key-gated on EIA_API_KEY). Ships the missing raw
+  // ingredient for FUSION HYPOTHESIS (b) in CLAUDE.md (generation shifts x
+  // utility tickers) — the fusion's own gate-1 reconciliation against
+  // registry capacity is a separate, later step once archive depth
+  // accumulates (datacore/signal_ladder.json). Serves the poller's cached
+  // per-respondent fuel mix only (event-loop rule); never fetches here.
+  bootGridGenerationPoll();
+  app.get("/api/data/grid-generation", (_req, res) => {
+    if (!gridGenerationEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "EIA_API_KEY not set (free signup — see wishlist)", count: 0, respondents: [] });
+    }
+    const hit = latestGeneration();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EIA-930 Hourly Electric Grid Monitor", warming_up: true, count: 0, respondents: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "EIA-930 Hourly Electric Grid Monitor (public domain)",
+      attribution: "EIA-930 Hourly Electric Grid Monitor",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "hourly net generation (MWh) by fuel type for US48 + major balancing authorities, ~1-2h publication lag; storage fuel types (BAT/OES/PS/UES) legitimately read negative during charging; no predictive claim — the operator-concentration fusion hypothesis this feeds stays ladder-locked until its own gate 1 (research/open_questions.md, CLAUDE.md FUSION HYPOTHESES (b))",
       respondents: hit.stats,
     });
   });
