@@ -43,6 +43,42 @@ export function evaluateDrawdown(
   return { valid: true, equity, newPeak, drawdownPct, kill: drawdownPct <= maxDrawdownPct };
 }
 
+export interface DailyPnlEval {
+  valid: boolean;             // both reads credible (finite, > 0)
+  dailyPnlPct: number | null; // (equity - lastEquity) / lastEquity * 100, when valid
+}
+
+/**
+ * Validated daily-P&L evaluation for the Tier-2 daily/weekly loss-limit
+ * halt ([REPAIR] 2026-09-09).
+ *
+ * LIVE INCIDENT: the halt fired 36+ times over 3+ hours pre-market
+ * reporting a -11.5%..-11.8% "daily loss" with no supporting evidence in
+ * open positions or recent fills — the trigger site computed
+ * `(equity - last_equity) / last_equity` directly from a single Alpaca
+ * /v2/account read with `parseFloat(x || "100000")` fallbacks on both
+ * sides, the exact anti-pattern this file's own `evaluateDrawdown` was
+ * built to guard against for the sibling max-drawdown kill switch after
+ * the 2026-07-07 incident — just never extended to this second call site.
+ *
+ * Same philosophy as evaluateDrawdown: only refuse the halt on reads that
+ * are impossible for a funded account (non-finite or <= 0) on EITHER
+ * side. An ambiguous-but-syntactically-valid last_equity is not
+ * second-guessed here — loosening what counts as a valid halt trigger is
+ * a threshold change that needs its own RULE REVIEW evidence, not a bug
+ * fix's job.
+ */
+export function evaluateDailyPnl(equityRaw: unknown, lastEquityRaw: unknown): DailyPnlEval {
+  const equity =
+    typeof equityRaw === "number" ? equityRaw : parseFloat(String(equityRaw ?? ""));
+  const lastEquity =
+    typeof lastEquityRaw === "number" ? lastEquityRaw : parseFloat(String(lastEquityRaw ?? ""));
+  if (!Number.isFinite(equity) || equity <= 0 || !Number.isFinite(lastEquity) || lastEquity <= 0) {
+    return { valid: false, dailyPnlPct: null };
+  }
+  return { valid: true, dailyPnlPct: ((equity - lastEquity) / lastEquity) * 100 };
+}
+
 export interface DrawdownStatus {
   current_pct: number;
   kill_threshold_pct: number;
