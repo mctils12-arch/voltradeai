@@ -6128,6 +6128,58 @@
     runs unconditionally on every boot. FILED to `research/wishlist.md`
     this date for human visibility given two autonomous fix attempts have
     not resolved a live, ongoing incident.
+    UPDATE 2026-09-09 (scheduled-routine session, [REPAIR]) — built the
+    bisection TOOLING the 2026-09-08 entry named as the free next step,
+    per this session's own task instructions ("check KNOWN BROKEN — if
+    any critical item remains unfixed, this session becomes a REPAIR
+    session"). Live-checked first: `/api/health` at 2026-09-09T02:35Z
+    showed `status:"ok"`, `uptime_s:6368` (~1.8h, not currently
+    crash-looping) — expected, since the incident is scoped to market
+    hours and this check ran at ~22:35 ET (after close), not evidence the
+    incident is resolved. New `server/bisectionFlags.ts` (`tier2Disabled`/
+    `tier3Disabled`, pure functions reading `VOLTRADE_DISABLE_TIER2`/
+    `VOLTRADE_DISABLE_TIER3` from an injectable env, same testable-by-
+    injection convention `crashSafeRefresh.ts`'s `refreshStateDir` already
+    uses) wired into `server/bot.ts` at all three automatic Tier 2/3
+    trigger points: `scheduleTier2()` (the recurring adaptive-interval
+    scan chain — when disabled it logs once and does not re-arm, so the
+    whole chain stops rather than looping to no-op), the Tier 3 hourly
+    `setInterval`, and the Tier 3 30s-after-boot `setTimeout` (this one
+    matters specifically because it's what triggers the port-dwell weekly
+    fold that started this incident — gating it means the bisection
+    covers that original suspect too, not just the hourly interval). The
+    owner-triggered `/api/bot/run-now` manual-scan route is deliberately
+    NOT gated — a human/future session may still want to force a scan
+    while the automatic loops are off. BOTH FLAGS DEFAULT OFF (env unset
+    in production today) — zero behavior change on merge; A/B-verified
+    via the new test file that only the literal string `"1"` disables
+    either flag and the two are independent. **This sandbox has no
+    Railway API/CLI access** (checked: no `railway` binary, no
+    `RAILWAY_*`/`RAILWAY_TOKEN` env vars) — confirming the wishlist
+    entry's own "access this sandbox lacks" framing — so this session
+    could not flip the flags in production itself; that step needs the
+    human or a future session with that access, during market hours, per
+    the plan below.
+    NEXT (the actual bisection, not yet run): during market hours, set
+    `VOLTRADE_DISABLE_TIER2=1` AND `VOLTRADE_DISABLE_TIER3=1` in the
+    Railway environment and redeploy (env var changes there are
+    build-time, so this requires a redeploy, not a hot toggle). Watch
+    `/api/health` for the same ~90-130s crash period. If the loop stops:
+    the leak is in the Tier 2/3 path (scan/strategic-scan code, not
+    already-ruled-out port-dwell/shadowstats folds specifically — narrows
+    the search to `tier2Intelligence`/`tier3Strategic`'s other steps, e.g.
+    the Python subprocess/daemon RPC calls, ML retrain, macro/COT/Form4
+    fetches). If it persists with both off: the leak is in something
+    unconditional — the WebSocket stream (`startStreaming()`), the Tier 1
+    45s position/stop reflex loop (NOT gated by these flags — deliberately
+    left running per its own market-hours guard, since disabling risk
+    management during a live diagnostic would itself be dangerous; if
+    Tier 1 becomes a suspect a future session should consider a read-only
+    variant rather than disabling it), Express/route registration, or a
+    module-load-time leak. Either result should update this item and
+    close or re-scope the wishlist incident entry. Once the bisection
+    resolves the incident either way, unset both env vars and redeploy —
+    they are diagnostic-only, not a standing configuration.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

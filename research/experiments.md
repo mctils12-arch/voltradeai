@@ -81446,3 +81446,160 @@ green before committing. No higher-priority queued item was skipped (no
 LIVENESS ALARM triggered by this session's own health check; thrash
 ratio 4/10, well under the 7+/10 threshold; no ladder-readiness-check
 root came due before this session's own new entry).
+
+
+## 2026-09-09 (second session this UTC day) — [REPAIR] KNOWN BROKEN #41 crash-loop bisection tooling shipped, both flags OFF by default (v1.0.873)
+
+TERRITORY: T-BOT (server/bot.ts's Tier scheduling, plus a new server/
+module tightly coupled to it) + SHARED-minimal (package.json,
+ci/counter_baseline.txt, research/*, last commit per merge-order
+protocol).
+
+SESSION-START (per this session's own task instructions: check system
+health and KNOWN BROKEN first; a critical unfixed item makes this a
+[REPAIR] session): read CLAUDE.md in full, `research/PROGRAM_STATE.md`
+(T-CLIENT rendering-law queue — not this session's territory),
+`research/open_questions.md` KNOWN BROKEN section, and the last 5 commits
+(`git log`). `curl .../api/health` at 2026-09-09T02:35:30Z: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`,
+`uptime_s:6368` (~1.8h — not currently crash-looping), all 3 feeds alive.
+No LIVENESS ALARM firing right now — but this is expected regardless of
+whether KNOWN BROKEN #41 is fixed: the check ran at ~22:35 ET (after
+close) and the incident is specifically scoped to market hours (per its
+own two confirmed-live-but-insufficient fix attempts, both dated
+2026-09-08). KNOWN BROKEN #41 itself is the critical unfixed item: a
+production OOM crash-loop (~90-130s period during market hours) that
+survived two independent, confirmed-live, gate-clean fixes, escalated per
+RECURRENCE ESCALATES to `research/wishlist.md` rather than patched a
+third time blind. Thrash ratio of the last 10 experiments.md entries
+before this one: [REPAIR]/[PIPELINE]/[PRODUCT] mix well under the 7+/10
+meta-problem threshold (not re-tallied in detail — the prior session
+already checked it same-day and nothing new landed between then and now).
+
+PRIOR (REASONING STANDARD #10, stated before building): expected the
+wishlist entry's own named free next step — a Tier 2/Tier 3
+feature-flagged bisection — to be buildable as pure, injectable-env
+functions (the `crashSafeRefresh.ts` precedent) with zero risk to default
+production behavior, and expected this sandbox to lack the Railway
+API/CLI access needed to actually flip the flags in production, matching
+the wishlist entry's own stated blocker. Both held.
+
+PRIMARY ACTION: built the bisection tooling the 2026-09-08 wishlist entry
+named as the free next step ("this costs one more deploy cycle and zero
+new paid access; it should be a future session's PRIMARY action before
+anything else touches this incident"). New `server/bisectionFlags.ts`:
+`tier2Disabled(env)`/`tier3Disabled(env)`, pure functions reading
+`VOLTRADE_DISABLE_TIER2`/`VOLTRADE_DISABLE_TIER3` from an injectable env
+(defaults to `process.env`), true only for the exact string `"1"`. Read
+`server/bot.ts`'s actual Tier 2/3 scheduling code this session (not from
+memory) before touching it: `scheduleTier2()` (the adaptive-interval scan
+chain, re-arms itself via `armTier2Timer` in its own `finally` block),
+the Tier 3 hourly `setInterval`, and the Tier 3 30s-after-boot
+`setTimeout` (this third one matters specifically — it's what triggers
+the port-dwell weekly fold that started this whole incident, so gating it
+means the bisection actually covers the original suspect, not just the
+hourly cadence). Wired the flags into all three: when set, each logs once
+(`TIER2-DISABLED`/`TIER3-DISABLED` audit lines) and then no-ops — Tier 2's
+gate deliberately does NOT re-arm its timer (the whole chain stops, not a
+no-op loop), Tier 3's interval callback returns early on each tick, and
+the startup timeout is skipped outright. The owner-triggered
+`/api/bot/run-now` manual-scan route is deliberately NOT gated — grep
+confirmed it's the only other `tier2Intelligence()` call site, and a
+human/future session may still want to force a scan while the automatic
+loops are off. Tier 1's 45s reflex loop is also deliberately NOT gated —
+it's already market-hours-gated on its own, and disabling stop/position
+management mid-incident would be its own hazard, not a clean diagnostic.
+
+BOTH FLAGS DEFAULT OFF: neither env var is set in production today, so
+this ships zero behavior change on merge — confirmed by reading the
+exact-match check (`=== "1"`) and by the new test file's coverage of the
+unset/default case.
+
+ACCESS CHECK (confirming the wishlist entry's own framing, not assuming
+it): `which railway` empty, `env | grep -i railway` empty — this sandbox
+has no Railway API/CLI credentials and cannot itself set
+`VOLTRADE_DISABLE_TIER2`/`VOLTRADE_DISABLE_TIER3` in the production
+environment or trigger the redeploy needed to apply them. This is the
+actual reason the bisection experiment itself could not run this
+session — only the tooling for it could ship. Filed to
+`research/wishlist.md` as a human-action-needed update (exact env vars,
+what each outcome means, when to unset them) rather than leaving the gap
+implicit.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): with both flags unset (today's
+production state), the diff is a pure no-op — `TIER2_DISABLED`/
+`TIER3_DISABLED` evaluate `false`, every new `if` branch is untaken, and
+`scheduleTier2`/the Tier 3 interval/the startup timeout execute exactly
+their pre-existing code paths. Traced two steps as CLAUDE.md's REASONING
+STANDARD #1 requires even for a flag that's off: IF a future session sets
+`VOLTRADE_DISABLE_TIER2=1`, Tier 2 stops entirely → no new scan
+candidates → no new stock/CSP entries fire → existing positions are still
+managed by Tier 1 (unaffected) → equity curve growth from new trades
+stalls for the duration of the experiment (acceptable, deliberate,
+time-boxed — the system is already failing priority 1 during the crash
+loop, so a controlled pause is not worse than the status quo). IF
+`VOLTRADE_DISABLE_TIER3=1`, ML retrain/macro/manipulation-scan/COT/Form4
+bulk updates pause → the ML model ages beyond its normal retrain cadence
+for the duration (bounded, reversible, no data loss — `ml_model_v2.py`'s
+own staleness check just fires later once Tier 3 resumes). Neither flag
+touches `risk_kill_switch.py`, order submission, or any FROZEN path.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npm ci` first (ruled out the stale-node_modules false-drift the
+2026-09-09 (first session) EIA-930 entry already flagged as a risk —
+without it, `tsc_ratchet.sh` misreported 3 errors instead of the real 12;
+confirmed via `git stash` that this was pre-existing drift on HEAD, not
+caused by this diff, then resolved by `npm ci` alone). `npx tsx --test
+server/bisectionFlags.test.ts`: 6/6 pass (unset/default, non-"1" values,
+exact-"1", and flag-independence cases). `bash scripts/gated_tests.sh`:
+GATE PASSED — server 185/185 (1618 assertions incl. this session's 6 new
+tests), client 1083/1083, python 1811 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304
+= 0, exact match to `ci/tsc_baseline.txt`'s pin, no drift. `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge`
+433->434, `assertions` 13710->13719 — this session's own 6 new tests,
+re-pinned in `ci/counter_baseline.txt` in this same PR; all other 22
+counters unchanged. `npm run build`: clean (client unchanged chunk sizes,
+server bundle 16.5mb via esbuild — pre-existing chunk-size warnings only,
+unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value
+touched; this is an operational kill-switch, default-off, not a strategy
+change.
+
+VERSION: v1.0.873 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 27638ac/v1.0.872/PR #1035, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session — needs Railway access this sandbox
+lacks): (1) a human (or a future session granted Railway API/dashboard
+access) sets `VOLTRADE_DISABLE_TIER2=1` AND `VOLTRADE_DISABLE_TIER3=1` in
+the Railway environment, redeploys, and watches `/api/health` during
+market hours for the same ~90-130s crash period — full instructions and
+what each outcome implies are in `research/open_questions.md` KNOWN
+BROKEN #41's dated update and `research/wishlist.md`'s matching update.
+(2) once that result is in, close or re-scope KNOWN BROKEN #41
+accordingly — do not leave the flags on longer than the experiment needs.
+(3) per the AUDITS & DEBT register, staleness/constitutional audit
+last-run dates should be checked by the next session whose fall-through
+reaches the research tier — not checked this session, capacity was fully
+used by this primary REPAIR action.
+
+STARVED: no — this session's task instructions explicitly required
+becoming a [REPAIR] session given KNOWN BROKEN #41's unfixed, critical,
+LIVENESS-ALARM-adjacent status, and that primary action used the full
+session: reading the actual current `bot.ts` scheduling code before
+touching it (not from memory, per READ BEFORE WRITE), verifying the
+Railway-access blocker directly rather than assuming it from the prior
+session's note, catching and resolving a false tsc-drift reading via
+`npm ci` before it could contaminate the gate results, and running the
+full gate suite (server+client+python+tsc+counters+build) green before
+committing. No higher-priority item was skipped (no LIVENESS ALARM
+firing at session start; the crash-loop incident itself IS this
+session's primary action, not a competing one).
