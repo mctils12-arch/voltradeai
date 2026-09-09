@@ -6271,6 +6271,119 @@
     and not a real loss — that would be loosening a risk-limit trigger on
     inference alone, which RULE REVIEW forbids.
 
+43. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
+    INCIDENT, CODE FIX SHIPPED — NOT YET LIVE-CONFIRMED] The -10%-from-peak
+    drawdown kill switch —
+    documented and commented as "the live Tier-1 kill switch" running "on
+    every Tier 1 cycle" — was structurally unreachable on any day with an
+    empty morning queue, and had in fact never fired while production sat
+    -17.9% below its all-time peak equity.** Found continuing this
+    session's re-poll of item #42's own NEXT(1) step (checking the
+    enriched `TIER2-LIMIT` audit numbers v1.0.874 shipped): `/api/health`
+    read `drawdownPct: "-17.9"` (equityPeak $110,727.04, equity ~$90,800,
+    stable across multiple polls ~15 minutes apart — not a transient
+    blip) and `TIER2-LIMIT` audit lines independently agreed (equity
+    ~$90,800-90,841, last_equity $102,873.88). `state.maxDrawdownPct` is
+    -10 (`server/bot.ts`) — this reading was already ~8 points past the
+    kill threshold. Grepped `/api/diag/audit` for `DRAWDOWN-KILL` and
+    `EQUITY-READ-INVALID` (the only two outcomes `evaluateDrawdown`'s
+    Tier-1 call site can produce): **zero of either, ever** — the check
+    had not merely failed to kill, it had not run.
+    ROOT CAUSE (read the actual code this session, not from memory):
+    `evaluateDrawdown`'s Tier-1 call site lived entirely inside
+    `executeMorningQueue()` — `async function executeMorningQueue() {
+    if (morningQueue.length === 0) return; ... const acct = await
+    alpaca("/v2/account"); const t1dd = evaluateDrawdown(...); ... }`.
+    `executeMorningQueue()` is itself called from `tier1Reflex()` only
+    once, guarded by `if (clockT1.is_open && !state.morningQueueExecuted
+    && morningQueue.length > 0)` — i.e. at most once per day, and only on
+    a day with a non-empty overnight research queue. On any other Tier-1
+    cycle (the vast majority — this account frequently scans "0 trade
+    candidates", per this same session's audit reads), the drawdown-kill
+    code was never reached at all. `/api/bot/account` (owner-gated
+    dashboard route) and `/api/bot/overview` also call `evaluateDrawdown`,
+    but the former only fires when a human loads that specific page and
+    the latter is read-only (no kill action) — neither is a substitute
+    for an automatic periodic check. Separately, `risk_kill_switch.py`'s
+    own Python-side `check_kill_switches()` (FROZEN mechanism, untouched)
+    DOES run every Tier-2 scan cycle via `bot_engine.py`'s tiered-strategy
+    step — but at a DIFFERENT threshold, `PORTFOLIO_DD_KILL = -0.20`, so
+    at -17.9% it correctly had not yet fired either; it is not a
+    substitute for the JS-side -10% mechanism, which is the one this
+    system's own comments and drawdownGuard.ts's docstring treat as "the"
+    live kill switch.
+    NOT A NEW RULE-REVIEW THRESHOLD CHANGE: the -10%/-25% constants,
+    `evaluateDrawdown`'s validated-read philosophy (2026-07-07 incident,
+    server/drawdownGuard.ts), and the liquidate-on-kill mercy rule are
+    byte-for-byte unchanged — this is a wiring/reachability fix, not a
+    threshold change, so RULE REVIEW's evidence-and-rollback-trigger
+    requirement for risk-limit thresholds does not apply; nothing about
+    WHAT the check does or WHEN it should fire changed, only that it now
+    actually executes when its own comment already claimed it did.
+    FIX (v1.0.877, this session's own PR): extracted the check into
+    `checkDrawdownKillSwitch()` and call it unconditionally as
+    `tier1Reflex()`'s own first step (own try/catch, so a transient
+    Alpaca hiccup there doesn't also block the stale-order sweep /
+    position sync steps that follow it). `executeMorningQueue()` now
+    takes the already-validated `equity` as a parameter instead of
+    re-fetching `/v2/account` itself, plus a cheap `if (state.killSwitch)
+    return;` safety net. Regression test (`server/
+    tier1DrawdownKillWiring.test.ts`, 5 assertions): pins that
+    `checkDrawdownKillSwitch()` exists standalone, that `tier1Reflex()`
+    calls it BEFORE (not nested inside) the morning-queue gate, that
+    `executeMorningQueue` no longer performs its own `/v2/account` fetch,
+    and that the extracted kill/liquidate-on-kill logic is byte-identical
+    to what was removed.
+    DOWNSTREAM CHAIN (REASONING STANDARD #1, traced before shipping):
+    given production is ALREADY past -10% today, this fix will very
+    likely trip `DRAWDOWN-KILL` on the very next live Tier-1 cycle after
+    deploy → `state.killSwitch = true` (persisted, no auto-resume on the
+    JS side — an owner must manually toggle it back via `/api/bot/
+    toggle-kill` or equivalent) → the Tier-1/2/3 setIntervals all
+    self-gate on `!state.killSwitch` and stop firing entirely, INCLUDING
+    `checkPositionOnTick()`'s real-time stop-loss/take-profit/trailing-
+    stop exit logic (same `!state.active || state.killSwitch` guard) —
+    this is the system's EXISTING, by-design "stop the world" halt
+    behavior (identical to what already happens whenever a human loads
+    `/api/bot/account` mid-drawdown today), not new blast radius this fix
+    introduces. Existing open orders get cancelled (`DELETE /v2/orders`);
+    open positions are NOT force-liquidated unless `VOLTRADE_LIQUIDATE_ON_
+    KILL=true` AND drawdown <= -25% (currently -17.9%, so positions are
+    left open, unmanaged by Tier 1, until a human intervenes). This is
+    the mechanism working exactly as CLAUDE.md's RULE REVIEW section
+    protects it ("never remove a safety MECHANISM... halts exist") —
+    restoring its designed reachability, not weakening or second-guessing
+    it — but it is a significant, immediate, human-visible operational
+    event (full loop halt on a scheduled/automated deploy, no session
+    present to watch it happen), so it was flagged to the human directly
+    via this session's own notification rather than left to be discovered
+    on a future dashboard visit.
+    STILL OPEN: item #42 above (whether the underlying equity/last_equity
+    reads are a real, sustained drawdown or an Alpaca-side data anomaly)
+    is UNCHANGED by this fix and remains unresolved — this fix does not
+    take a position on that question; it makes the EXISTING, already-
+    trusted validated-read policy (RULE REVIEW: "does NOT second-guess an
+    ambiguous but syntactically valid" reading) actually apply
+    consistently, whichever the true answer turns out to be. If a human
+    confirms via the Alpaca dashboard that this was a platform-side data
+    glitch (not a real loss), the correct remedy is a `RESUME_COOLDOWN`-
+    style manual clear of `state.killSwitch` (existing owner-toggle route)
+    plus closing item #42 — NOT a change to this fix's reachability
+    behavior, which should keep firing correctly on any future genuine
+    breach.
+    NEXT (queued, not this session): (1) a human (or a future session with
+    `/api/bot/account`-equivalent access) should confirm live post-deploy
+    whether `DRAWDOWN-KILL` fired as this session's trace predicts, and
+    resolve item #42's still-open real-loss-vs-data-glitch question before
+    deciding whether to manually resume trading. (2) the JS-side kill
+    switch (state.killSwitch, -10%) and the Python-side kill switch
+    (risk_kill_switch.py, -20%) are two independent mechanisms with
+    different thresholds and no shared state — worth a future
+    CONSTITUTIONAL-AUDIT-style question (not self-applied here, per
+    FROZEN PATHS: changing which threshold governs what needs human
+    proposal via wishlist.md) about whether that's intentional
+    defense-in-depth or accidental drift.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
