@@ -3,6 +3,120 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-09 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — SHARED-only, minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/*): revived and merged PR #1029 (github_org_engineering_momentum poll-health instrumentation), stranded 24h past its own held-for-close condition, v1.0.875
+
+SESSION-START: read CLAUDE.md in full, then `research/experiments.md`'s tail
+(the prior 2026-09-09 session's live Tier-2 daily-loss-halt incident,
+already resolved and merged as #1037/v1.0.874) and `research/
+open_questions.md` KNOWN BROKEN section. KNOWN BROKEN #41 (the port-dwell/
+shadow-stats OOM crash-loop) remains unfixed at root cause but is blocked
+on Railway env access this sandbox does not have — noted, not a blocker for
+this PRODUCT session per this session's own task instructions ("product
+sessions do not preempt the DAILY routines' repair duty"). `python3
+scripts/research_state_check.py`: thrash 6/10 REPAIR (below the 7+
+trigger), starvation 0/10, audits register none overdue. `python3 scripts/
+ladder_readiness_check.py`: 0/4 gated roots ready (cftc_cot_positioning,
+sec_8k_earnings_language, fleet_utilization_aircraft, grid_generation_fuel_mix
+all still waiting on their own stated re-run conditions). `python3
+scripts/data_stream_registry_check.py --unbuilt`: 9/35, all declined or
+blocked on a free registration/key, unchanged.
+
+PRIMARY-ACTION SELECTION: no ladder-gated root ready, no unbuilt stream
+buildable — checked open PRs next (SESSION BUDGET's own "judge a matured
+experiment" ranks above "start a new experiment"). `list_pull_requests`
+found exactly one judgeable PR: #1029 (2026-09-08, a prior session's
+already-complete, gate-clean `github_org_engineering_momentum` poll-health
+instrumentation), opened as a DRAFT specifically because it landed during
+market hours, with its own explicit note that a future session should mark
+it ready after the 16:00 ET close. It had sat stranded through an entire
+trading day plus into this session's start (~09:20 ET the next morning) —
+its own hold condition had matured and nobody had acted on it.
+
+WHAT SHIPPED: merged `origin/main` (5e0f501..2bd1778, 8 commits/7 PRs since
+this PR's base) into the PR branch and resolved conflicts per the MERGE-
+ORDER PROTOCOL: `research/experiments.md`/`open_questions.md` kept both
+sides, main's newer entries placed above this PR's older one (both files'
+own "newest at top" convention preserved); `package.json`/`package-lock.json`
+version read-and-incremented at commit time (main's 1.0.874 -> 1.0.875, not
+this PR's stale 1.0.869); `ci/counter_baseline.txt`'s `assertions` counter
+taken from main (13731) then re-measured and re-pinned after the merge
+(13731 -> 13766, this PR's own 6 new tests landing on top of main's current
+count) rather than guessed. `datacore/signal_ladder.json`, `server/bot.ts`,
+and every other touched file auto-merged cleanly (no overlapping lines).
+
+ENVIRONMENT GAP FOUND AND FIXED (not this PR's fault): this sandbox's
+Python had none of `requirements.txt`'s packages installed (numpy/pandas/
+etc. all `ModuleNotFoundError`), plus two packages used by live gate tests
+but absent from `requirements.txt` itself (`openpyxl` for
+`test_grid_county_ba.py`, `Pillow` for the nightlights gate/archiver
+tests) — confirmed pre-existing and unrelated to this diff by reproducing
+the identical failure on unmodified `main` in the same sandbox before
+touching anything. Installed via `pip3 install -r requirements.txt` +
+`pip3 install openpyxl pillow` so the gate suite could actually run rather
+than being skipped or assumed; not filed as a `requirements.txt` change
+since a future session's sandbox may already have these preinstalled the
+normal way — this is a session-environment note, not a codebase gap.
+
+GATES (run after the merge, on the merged tree): `bash scripts/
+gated_tests.sh`: GATE PASSED — server unchanged file count, client 101
+files/1083 pass, python 1808 passed/2 skipped/54 subtests (0 regressions
+from the pre-merge counts on either side), quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 11/11 exact match to the merged
+`ci/tsc_baseline.txt` pin, TS2304=0. `bash scripts/counter_ratchet.sh`:
+25/25 at or better than baseline post-repin. `npm run build`: clean, same
+pre-existing warnings (astronomy-engine default-export interop, maplibre-gl
+chunk size, dynamic+static mapIcons.ts import) as every recent session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero new trading-path or scoring
+code — this session's own diff is the merge-conflict resolution plus this
+log entry; the substantive change is entirely PR #1029's own (already
+traced in its 2026-09-08 entry). `github_org_engineering_momentum` stays
+`current_gate: 1`/`gate1_pass` — this ships visibility into its archiver's
+own health, not a gate promotion.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value
+touched.
+
+MEASUREMENT INTEGRITY: not implicated — no change to backtest_v2.py, the
+fills/slippage model, or any P&L computation.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched
+(server/diag.ts, server/githubOrgActivity.ts, server/bot.ts only).
+
+VERSION: v1.0.875 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` confirmed `origin/main` still at 2bd1778/v1.0.874/
+PR #1037 immediately before both the merge and the push — no concurrent
+session had moved it either time). `package-lock.json` resynced via `npm
+install --package-lock-only`.
+
+MARKET-HOURS NOTE: this session started ~09:07 ET and the PR's CI re-run
+was still in flight as the 09:30 ET open approached. Per CLAUDE.md's
+deploy-coupling guidance, the merge itself only proceeds once CI is
+confirmed green AND either before 09:30 ET or after the 16:00 ET close —
+stated explicitly in the PR thread if the merge had to wait for CI to
+clear the open.
+
+NEXT (queued, not this session): (1) `github_org_engineering_momentum`'s
+own next real step is unchanged from its 2026-09-08 entry — the new
+`github_activity_poll_health` probe needs a live production reading to
+tell "every fetch is failing" apart from "a redeploy keeps interrupting
+the cycle." (2) per the AUDITS & DEBT register, staleness/constitutional
+audit last-run dates should be checked by the next session whose fall-
+through reaches the research tier (not checked this session — capacity
+went to reviving this stranded PR). (3) a process note for future
+sessions, not a rule change: a draft PR held for after-close merging is a
+standing item that should be checked at the START of every session (not
+just when the queue is otherwise empty) so a matured hold condition
+doesn't sit stranded through a full extra trading day again.
+
+STARVED: no — this session's primary action (judging and completing a
+matured, previously-stranded PR) is exactly SESSION BUDGET's own priority
+order ("judge a matured experiment" ranks above "start a new experiment"),
+and no higher-priority queued item was skipped (no ladder-gated root
+ready, no LIVENESS ALARM, thrash ratio well under threshold).
+
 ## 2026-09-09 (third session this UTC day) [REPAIR] — T-BOT/SHARED (server/bot.ts, server/drawdownGuard.ts, server/drawdownGuard.test.ts, server/optionsCapitalCheckFix.test.ts) + SHARED-minimal, last (ci/tsc_baseline.txt, ci/counter_baseline.txt, package.json/package-lock.json): LIVE PRODUCTION INCIDENT found via this session's own routine health/audit check — Tier-2's daily-loss halt firing 36+ times over 3+ hours pre-market at an unprecedented -11.5%..-11.8% with no supporting evidence anywhere else in the account, plus a separate, 100%-confirmed dead health metric found in the same code area (v1.0.874)
 
 TERRITORY: T-BOT (server/bot.ts's Tier-2 daily-loss check and the health
