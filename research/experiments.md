@@ -3,6 +3,221 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-09 (third session this UTC day) [REPAIR] — T-BOT/SHARED (server/bot.ts, server/drawdownGuard.ts, server/drawdownGuard.test.ts, server/optionsCapitalCheckFix.test.ts) + SHARED-minimal, last (ci/tsc_baseline.txt, ci/counter_baseline.txt, package.json/package-lock.json): LIVE PRODUCTION INCIDENT found via this session's own routine health/audit check — Tier-2's daily-loss halt firing 36+ times over 3+ hours pre-market at an unprecedented -11.5%..-11.8% with no supporting evidence anywhere else in the account, plus a separate, 100%-confirmed dead health metric found in the same code area (v1.0.874)
+
+TERRITORY: T-BOT (server/bot.ts's Tier-2 daily-loss check and the health
+route's Check 3/5) + a T-BOT-adjacent shared safety module
+(server/drawdownGuard.ts, already the home of the sibling max-drawdown
+validated-read fix this session extends) + SHARED-minimal (version/
+lockfile/ratchet-pin bookkeeping only, last commit per merge-order
+protocol).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+HEAD/origin/main both at 82a6337/v1.0.873/PR #1036 (KNOWN BROKEN #41's
+bisection tooling, prior session today) — no concurrent session had moved
+it. `python3 scripts/research_state_check.py`: thrash 5/10 REPAIR (below
+the 7+ trigger), starvation 0/10, audits register none overdue, KNOWN
+BROKEN 42 items/4 unmarked (advisory only per prior sessions' own reading)
+— no meta-problem flag. Read `research/open_questions.md`'s KNOWN BROKEN
+section end to end, `research/wishlist.md` head (the still-open KNOWN
+BROKEN #41 crash-loop escalation, blocked on human Railway access) and
+`research/experiments.md`'s tail.
+
+LIVE HEALTH CHECK (per this session's own task instructions): `curl /api/
+health` — `status:"ok"`, `bot.status:"active"`, `uptime_s:28616` (~8h,
+NOT currently crash-looping — KNOWN BROKEN #41's incident is scoped to
+market hours and appears quiet right now), `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all 3 feeds alive. No LIVENESS ALARM on the
+crash-loop dimension. BUT: `/api/diag/audit?limit=200&token=$DIAG_TOKEN`
+(read as part of the same routine check, not a separate investigation)
+showed 36 of the 200 most recent entries were `TIER2-LIMIT "Daily loss
+limit: -11.x%"`, spanning the entire visible window (08:37Z-11:03Z,
+audit buffer volume caps how far back it reaches) and monotonically
+worsening (-11.4% -> -11.8%). Grepped this file's entire history:
+`TIER2-LIMIT`/`Daily loss limit` had NEVER appeared before today — this
+is a first-ever-observed symptom, not a known recurring pattern, and per
+SESSION BUDGET ("fix a bug seen in audit logs" outranks starting anything
+new) this became the primary action in place of KNOWN BROKEN #41's own
+NEXT step (which needs human Railway access this sandbox still lacks —
+confirmed unchanged, not re-investigated this session).
+
+INVESTIGATION (REASONING STANDARD #7, survivorship/lookahead-style
+skepticism applied to the bot's OWN self-report before trusting it):
+`/api/bot/market-status` showed the market CLOSED the entire observation
+window (`isOpen:false`, `nextOpen` still hours away) — the halt was
+firing pre-market. `/api/diag/positions-detail`: 7 positions (4 equity
+ETFs — FCEL/KWEB/QQQ/SMH, 3 single-contract short puts — BAC/HPE/SMCI),
+gross exposure $55,683, summed unrealized P&L across all seven ≈ **-$176**
+(computed by hand from the probe's per-position `unrealized_pl` field:
+13+34+10+209.3-620.48-153.78+331.45 ≈ -176.5). `/api/diag/orders?
+limit=100`: 32 filled orders since 2026-09-04, all small (20sh GLD,
+13-15sh QQQ round trips, single-contract options) — Sept 8 (the one
+trading day since the Friday-Sept-4/Labor-Day-Monday-Sept-7 gap) shows
+only 8 fills, consistent with KNOWN BROKEN #41's crash-loop chaos
+disrupting normal cadence, but none sized to move the account by the
+~$13-15K a genuine -12% move on a ~$110-125K account would require.
+`/api/health`'s own `drawdownPct` (a DIFFERENT, peak-relative metric)
+read "0.0" throughout — meaning the account's tracked equity never
+exceeded its own recorded all-time peak ($110,727.04, static across many
+weeks of prior session logs per a grep of this file's history), which is
+hard to reconcile with Alpaca's `last_equity` field implying a prior-day
+close near $125K.
+
+SECOND, UNRELATED, 100%-CONFIRMED BUG FOUND WHILE TRACING THE FIRST: read
+(READ BEFORE WRITE) every reference to `lastEquity`/`last_equity` in
+`server/bot.ts` to understand the daily-loss check's inputs, and found
+`grep -n "state\.lastEquity\s*="` returns ZERO matches anywhere in the
+file — `state.lastEquity` is read at the health route's Check 5
+(`drawdownPct: state.equityPeak > 0 ? (((state.equityPeak -
+parseFloat(state.lastEquity || String(state.equityPeak))) /
+state.equityPeak) * 100).toFixed(1) : "N/A"`) but never assigned, so it
+is always `undefined`, the `||` always falls through to
+`String(state.equityPeak)`, and the whole expression always computes
+`(peak - peak) / peak` = exactly 0, unconditionally. Confirmed this is
+not a rare edge case: grepped `research/experiments.md`'s full history
+for `drawdownPct` — dozens of session entries across many weeks quote
+`drawdownPct:"0.0"` as evidence "no LIVENESS ALARM" / "no drawdown" —
+every one of those readings was a metric that could never have reported
+anything else, not confirmation the account was actually flat. This is a
+genuine MEASUREMENT INTEGRITY defect (CLAUDE.md: "Code that measures
+performance is more sensitive than code that trades") that happened to
+sit in the exact same code area as the live incident above, discovered
+as a byproduct of tracing it, not the primary target.
+
+ROOT PATTERN CONNECTING BOTH: `drawdownGuard.ts` (built 2026-07-07 after
+a live incident where "a transient zero/garbage equity value computes as
+~-100% and kills the loop... one site even fabricated
+`parseFloat(acct.equity || "100000")`") already fixed this exact
+anti-pattern at THREE call sites (the max-drawdown kill switch at
+bot.ts:1113/2990/3514) via its `evaluateDrawdown` helper — but the fix
+was scoped narrowly to those three sites and never extended to (a) the
+health route's own display metric (which used a different, phantom field
+instead of a live account read at all) or (b) the Tier-2 daily-loss halt
+(`server/bot.ts`, ~line 4090), which still used the identical
+`parseFloat(x || "100000")` shape on both `equity` and `last_equity`.
+Framed this session's fix as completing that 2026-07-07 migration at its
+two remaining gaps, not as two unrelated changes bundled together.
+
+WHAT SHIPPED (v1.0.874):
+(1) Health route Check 5 now reuses `evaluateDrawdown` against the
+account equity Check 3 already fetches (hoisted as `healthAcctEquity:
+unknown`, avoiding a duplicate `/v2/account` call and avoiding a new
+`: any` annotation that would have regressed the `ts_any` non-increasing
+counter) instead of the dead `state.lastEquity` field — `drawdownPct`
+now reflects real live drawdown from peak, reporting `"N/A"` on an
+invalid/failed read rather than a fabricated 0.
+(2) New `drawdownGuard.ts` export `evaluateDailyPnl(equityRaw,
+lastEquityRaw)`: same validated-read philosophy as `evaluateDrawdown` —
+rejects non-finite/<=0 on either side (an "impossible for a funded
+account" read), otherwise computes the real percentage honestly,
+including large/surprising-but-credible ones (deliberately does NOT
+second-guess an ambiguous-but-valid `last_equity`, since that would be a
+risk-limit threshold change requiring its own RULE REVIEW evidence, not
+something a bug-fix session may bundle in).
+(3) `server/bot.ts`'s Tier-2 daily/weekly-limit check now calls
+`evaluateDailyPnl(acct.equity, acct.last_equity)` instead of the raw
+`parseFloat(x || "100000")` pair; on an invalid read it audits
+`EQUITY-READ-INVALID` (reusing the exact audit-type string the account
+route already established for this class of event) and skips the
+daily-loss check for that cycle rather than halting trading on a
+fabricated percentage — mirroring `evaluateDrawdown`'s own "no kill, no
+peak update" behavior on a bad read.
+(4) The `TIER2-LIMIT` audit line now includes the raw `equity`/
+`last_equity`/`equityPeak` numbers, not just the rounded percentage —
+this session's own biggest diagnostic gap while investigating: the
+existing message gave no way to tell a data glitch from a real loss after
+the fact. Filed to `research/open_questions.md` KNOWN BROKEN #42 as the
+concrete next check once this is live.
+
+DELIBERATELY NOT SHIPPED: a sanity bound rejecting a `last_equity` that
+exceeds the tracked `equityPeak` (which would have "resolved" this
+session's specific incident by simply not halting on it). This session
+could not confirm from outside whether Alpaca's `last_equity` reading is
+a genuine platform data-quality glitch or a real loss this investigation
+simply failed to find evidence for — RULE REVIEW requires evidence and a
+logged rollback trigger before loosening any risk-limit halt's trigger
+condition, and "I couldn't find a matching trade" is not that evidence.
+KNOWN BROKEN #42's NEXT names the exact follow-up check (re-read the
+now-enriched `TIER2-LIMIT` audit line once v1.0.874 is live) that would
+supply it either way.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the health-route fix only
+changes what `/api/health`'s `bot.drawdownPct` field reports (display
+only — no trading logic reads this field; grepped `state.equityPeak`'s
+other consumers and confirmed `bot.ts`'s own kill-switch call sites use
+`evaluateDrawdown` directly against a fresh account read, never this
+display field). The Tier-2 fix only changes behavior on an INVALID
+equity read (non-finite/<=0) — on every credible read, including the
+live incident's own ambiguous-but-valid one, `dailyPnlPct` is computed
+identically to before and the `<= -3` halt still fires exactly as it did
+pre-fix; existing behavior for all normal-range daily P&L values is
+byte-for-byte unchanged. No sizing, scoring, or FROZEN-path code touched.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npm ci` first. `npx tsx --test server/drawdownGuard.test.ts`:
+10/10 pass (4 new: garbage-read rejection, credible-read computation
+including the live incident's own approximate numbers as a pinned case,
+and the string-parsing path). Full `npx tsx --test server/*.test.ts`:
+1621/1621 pass — this required fixing `server/optionsCapitalCheckFix.
+test.ts`'s two text-slice markers, which anchored on the literal removed
+line `"const lastEquity = parseFloat(acct.last_equity"` to bound their
+source-text search window; updated both to the new anchor
+`"const pnlEval = evaluateDailyPnl("` without touching either test's
+actual assertions (verified by re-reading the diff: only the marker
+strings changed, the regex checks on `optionsBp`/`cashAvailable`
+ordering and fallback logic are untouched). `bash scripts/gated_tests.sh`
+(after `pip install`-ing python deps, cold in this sandbox): GATE
+PASSED — server 185/185, client 1083/1083, python 1811 passed/1 skipped/
+54 subtests, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`:
+DROPPED 12 -> 11 (removing the dead `state.lastEquity` reference also
+fixed one of the 12 pre-existing TS2339 errors — `Property 'lastEquity'
+does not exist on type`); lowered the pin in this same PR
+(`ci/tsc_baseline.txt`: TOTAL 12->11, TS2339 6->5) per the ratchet
+script's own instruction, TS2304=0. `bash scripts/counter_ratchet.sh`:
+`assertions` 13719->13731 (this session's new tests), re-pinned in
+`ci/counter_baseline.txt`; all other 24 counters unchanged/better.
+`npm run build`: clean (pre-existing chunk-size/astronomy-engine-default-
+export warnings only, unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a validated-read hardening
+of an existing risk-limit halt and a dead-metric display fix, not a
+scoring/sizing/threshold change; the halt's own `<= -3%` threshold and
+firing behavior on any credible read are unchanged byte-for-byte (see
+DOWNSTREAM CHAIN above).
+
+VERSION: v1.0.874 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+still at 82a6337/v1.0.873/PR #1036, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+NEXT: filed in full as `research/open_questions.md` KNOWN BROKEN #42 —
+(1) once v1.0.874 is live, re-poll `/api/diag/audit` for `TIER2-LIMIT`;
+the enriched raw numbers settle whether this is an Alpaca-side data
+anomaly or a real loss this session could not find evidence for, without
+needing Alpaca/Railway access this sandbox lacks. (2) do NOT add a
+peak-relative sanity bound to `evaluateDailyPnl` without that evidence
+first — RULE REVIEW. KNOWN BROKEN #41 (the OOM crash-loop) remains open,
+unchanged, still blocked on human Railway access to run the bisection
+(#1036) — not this session's primary action, not re-investigated beyond
+confirming via `/api/health` `uptime_s:28616` that it was not actively
+crash-looping at session start.
+
+STARVED: no — the live-incident investigation plus its two shipped fixes
+(health-route dead metric, Tier-2 validated-read guard) fully used this
+session's capacity: reading every relevant call site before touching it,
+tracing the connecting root pattern back to the 2026-07-07 precedent
+rather than patching in isolation, fixing an unrelated test that broke as
+a direct consequence of the diff, and running the full gate suite
+(server+client+python+tsc+counters+build) green before committing. No
+higher-priority item was skipped — this WAS the session's SESSION BUDGET
+primary action (a bug found live in audit logs, outranking KNOWN BROKEN
+#41's queued-but-human-blocked NEXT step and any fresh research).
+
 ## 2026-09-08 (scheduled-routine session, sixth session this UTC day) [REPAIR] — T-BOT/SHARED (server/crashSafeRefresh.ts new, server/crashSafeRefresh.test.ts new, server/routes.ts) + SHARED-but-minimal, last (ci baseline unchanged, package.json/package-lock.json, research/*): LIVE PRODUCTION INCIDENT, SECOND ROOT CAUSE — the OOM crash-loop KNOWN BROKEN #41 (v1.0.869/#1030) was supposed to have fixed CONTINUED live on v1.0.870; found a second, independent unconditional-fold-at-boot cause in server/routes.ts and shipped an already-written, gate-clean fix that had been stranded on a 2-day-stale, never-logged branch (v1.0.871)
 
 TERRITORY: T-BOT (server/routes.ts's two dashboard-refresh call sites) +

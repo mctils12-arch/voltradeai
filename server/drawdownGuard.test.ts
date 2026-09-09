@@ -5,7 +5,7 @@
 // preserved, only its input is validated.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
+import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 
 const PEAK = 109432.59;
 const MAX_DD = -10;
@@ -83,4 +83,45 @@ test("drawdownStatus: proximity is clamped to [0, 100] beyond the threshold", ()
   const s = drawdownStatus(-30, MAX_DD); // far past a -10% threshold
   assert.equal(s.proximity_pct, 100);
   assert.equal(s.status, "CRITICAL");
+});
+
+// Regression battery for the 2026-09-09 live incident: the Tier-2
+// daily-loss halt fired 36+ times pre-market off a raw, unvalidated
+// `parseFloat(x || "100000")` read on both equity and last_equity — the
+// same garbage-read shape evaluateDrawdown was built to reject for the
+// sibling max-drawdown switch, just never extended here.
+test("evaluateDailyPnl: garbage/impossible reads on either side are rejected, never computed", () => {
+  for (const bad of ["0", 0, "", null, undefined, "NaN", NaN, -5, "-1", "garbage"]) {
+    const badEquity = evaluateDailyPnl(bad, 100000);
+    assert.equal(badEquity.valid, false, `equity=${JSON.stringify(bad)} must be invalid`);
+    assert.equal(badEquity.dailyPnlPct, null);
+    const badLastEquity = evaluateDailyPnl(100000, bad);
+    assert.equal(badLastEquity.valid, false, `last_equity=${JSON.stringify(bad)} must be invalid`);
+    assert.equal(badLastEquity.dailyPnlPct, null);
+  }
+});
+
+test("evaluateDailyPnl: credible reads compute the real percentage, string inputs parse", () => {
+  const flat = evaluateDailyPnl(100000, 100000);
+  assert.equal(flat.valid, true);
+  assert.equal(flat.dailyPnlPct, 0);
+  const down3 = evaluateDailyPnl("97000", "100000");
+  assert.equal(down3.valid, true);
+  assert.equal(down3.dailyPnlPct, -3);
+  // a genuine catastrophic-but-credible drop still computes (this function
+  // only validates the READ, it does not decide whether to halt)
+  const crash = evaluateDailyPnl(50000, 100000);
+  assert.equal(crash.valid, true);
+  assert.equal(crash.dailyPnlPct, -50);
+});
+
+test("evaluateDailyPnl: the live-incident shape — a plausible-looking but suspect last_equity still computes rather than being silently defaulted", () => {
+  // The live incident's actual numbers were never confirmed (no Alpaca
+  // account access from this sandbox) — this pins the documented
+  // contract instead: a positive, finite last_equity is accepted and
+  // produces a real (if large) percentage, it is never laundered into a
+  // fake "100000" fallback the way the pre-fix code did.
+  const r = evaluateDailyPnl(110727.04, 125541);
+  assert.equal(r.valid, true);
+  assert.ok(r.dailyPnlPct! < -11 && r.dailyPnlPct! > -12);
 });

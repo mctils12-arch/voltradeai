@@ -6181,6 +6181,96 @@
     resolves the incident either way, unset both env vars and redeploy —
     they are diagnostic-only, not a standing configuration.
 
+42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
+    INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
+    daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
+    unprecedented -11.5%..-11.8% "Daily loss limit" with no supporting
+    evidence anywhere else in the account, and a SEPARATE, confirmed-dead
+    health metric was found in the same code area.** Discovered via this
+    session's own routine `/api/health`/`/api/diag/audit` check (not from
+    a queued item) — `TIER2-LIMIT` had never once appeared in this file's
+    entire history before today (grepped `research/experiments.md`), and
+    the halt kept firing every ~5min Tier2 cycle continuously starting
+    before this UTC day's audit buffer even begins (earliest visible entry
+    08:37Z already read -11.4%, still climbing to -11.8% by 11:03Z), with
+    `/api/bot/market-status` confirming the market was CLOSED (pre-market)
+    the entire time this was observed.
+    EVIDENCE AGAINST A REAL ~$13-15K LOSS: `/api/diag/positions-detail`
+    (live, this session) showed 7 normal-looking positions (4 equity ETFs,
+    3 single-contract short puts), gross exposure $55,683, and a SUMMED
+    unrealized P&L across all seven of approximately **-$176** — nowhere
+    near the ~12% of a ~$110-125K account this halt implies. `/api/diag/
+    orders?limit=100` shows only small round-trip trades on 2026-09-08
+    (20sh GLD, 13-15sh QQQ, single-contract options) — nothing sized to
+    move the account by five figures. `/api/health`'s OWN `drawdownPct`
+    (peak-relative, a DIFFERENT and independently-computed number, see
+    below) read "0.0" the entire time, meaning the account's own tracked
+    all-time-high equity ($110,727.04, static across many weeks of prior
+    session logs) was not exceeded — so a real prior-day close near
+    $125K (implied if Alpaca's `last_equity` field is taken at face value)
+    would mean this account has secretly been $14K above its own recorded
+    peak with nobody's tracking catching it, which is itself suspicious.
+    COULD NOT BE FULLY ROOT-CAUSED: this sandbox has no direct Alpaca
+    paper-account dashboard access and no Railway logs, so whether Alpaca's
+    own `last_equity` field for 2026-09-08's close is a genuine platform
+    data-quality glitch (plausible — 2026-09-08 was the crash-loop day,
+    KNOWN BROKEN #41 above, though the daemon/Node crash-looping is a
+    Railway-container-side failure with no obvious mechanism for
+    corrupting Alpaca's own server-side EOD snapshot) versus a real loss
+    this session simply could not find evidence for, could not be settled
+    from outside. Deliberately did NOT weaken or bypass the halt itself on
+    this inference alone — per RULE REVIEW, loosening what counts as a
+    valid trigger for a risk-limit halt needs its own evidence and
+    rollback trigger, not a bug-fix session's guess.
+    WHAT WAS ACTUALLY SHIPPED (v1.0.874, own PR): (1) a SEPARATE, 100%-
+    confirmed dead-code bug in the SAME area — `/api/health`'s `bot.
+    drawdownPct` field read `state.lastEquity`, a property NEVER assigned
+    anywhere on `state` in the entire file (grepped `state\.lastEquity\s*=`
+    file-wide — zero matches), so `parseFloat(state.lastEquity ||
+    String(state.equityPeak))` always fell through the `||` to
+    `state.equityPeak` and computed `(peak - peak) / peak`, i.e. always
+    exactly 0. Every prior session log quoting `drawdownPct:"0.0"` as
+    evidence of no drawdown (dozens, going back weeks) was reading a
+    metric that could not have reported anything else — not confirmation
+    the account was healthy. Fixed to reuse `drawdownGuard.ts`'s
+    `evaluateDrawdown` against the account equity Check 3 of the health
+    route already fetches, the same validated-read helper the max-drawdown
+    kill switch itself uses, so this now reflects real live drawdown from
+    peak. (2) `drawdownGuard.ts` gained `evaluateDailyPnl(equity,
+    lastEquity)`, extending the exact validated-read philosophy the
+    2026-07-07 max-drawdown incident established (reject non-finite/<=0
+    on either side, otherwise compute honestly — an ambiguous-but-valid
+    reading is NOT second-guessed) to the Tier-2 daily-loss check at
+    `server/bot.ts`, which had been using the identical
+    `parseFloat(x || "100000")` anti-pattern that incident's own fix
+    was written to eliminate, just never extended to this second call
+    site. (3) the `TIER2-LIMIT` audit line now includes the raw
+    `equity`/`last_equity`/`equityPeak` numbers instead of only the
+    rounded percentage — this session's own biggest diagnostic gap — so
+    the NEXT time this fires (or if it is still firing once v1.0.874 is
+    live), the raw numbers settle the real-loss-vs-data-glitch question
+    directly from `/api/diag/audit` without needing Alpaca/Railway access.
+    NEXT: (1) once v1.0.874 is live, re-poll `/api/diag/audit?
+    limit=200&token=$DIAG_TOKEN` for `TIER2-LIMIT` lines — if still
+    firing, the enriched message now gives real numbers: if `last_equity`
+    is far above `equityPeak`, that is strong confirmation this is an
+    Alpaca-side data anomaly (their own EOD snapshot should never exceed
+    every equity this account's own continuous polling has ever recorded)
+    and the human should be asked to check the Alpaca paper-account
+    dashboard/support directly — this sandbox cannot. If `equity` itself
+    reads far below what `/api/diag/positions-detail` implies (cash +
+    market value), the anomaly is on the `equity` side instead, likely a
+    stale account snapshot cache. (2) if the halt resolves on its own once
+    a new trading day's `last_equity` baseline rolls over, confirm the
+    stale reading was scoped to 2026-09-08/09 only, and note whether this
+    recurs on future post-incident days (a recurrence would upgrade this
+    from "likely one-off platform glitch" to a pattern needing its own
+    RULE REVIEW). (3) do NOT add a peak-relative sanity bound to
+    `evaluateDailyPnl` (e.g. "reject `last_equity` above `equityPeak`")
+    without first confirming via (1) that this really is fabricated data
+    and not a real loss — that would be loosening a risk-limit trigger on
+    inference alone, which RULE REVIEW forbids.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
