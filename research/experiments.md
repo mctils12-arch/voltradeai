@@ -82321,3 +82321,177 @@ No higher-priority item was skipped (no ladder root was ready per
 BROKEN #41 noted per this session's own task instructions but explicitly
 non-blocking for product work, and already has an open human-action item
 filed by the prior session).
+
+## 2026-09-09 (scheduled-routine session, fourth session this UTC day) — [REPAIR] KNOWN BROKEN #43: the -10%-from-peak drawdown kill switch was structurally unreachable most days — restored to run on every Tier-1 cycle (v1.0.877)
+
+TERRITORY: T-BOT (server/bot.ts, outside frozen paths) + SHARED-minimal
+(server/tier1DrawdownKillWiring.test.ts new, package.json, ci/
+counter_baseline.txt, research/*, last commit per merge-order protocol).
+
+SESSION-START: read CLAUDE.md in full. `research/experiments.md` tail
+(last 10 tagged entries: 5/10 REPAIR per `research/research_state_check.py`
+— see below, well under the 7+ thrash trigger). `research/open_questions.md`
+KNOWN BROKEN section: item #41 (production OOM crash-loop, mitigated,
+bisection tooling shipped 2026-09-09 second session, waiting on Railway
+access this sandbox lacks) and item #42 (Tier-2 daily-loss halt firing
+-11.5%..-11.8% with no supporting evidence in positions/fills, mechanically
+hardened same day but real-loss-vs-data-glitch question left open, NEXT(1)
+= re-poll the enriched audit numbers once v1.0.874 is live). `research/
+wishlist.md` reviewed (no unclaimed T-BOT item). `python3 scripts/
+research_state_check.py`: audits_register none overdue; thrash_ratio 5/10
+REPAIR in last 10 — below trigger; known_broken 44 items/5 advisory
+(non-blocker); starvation 0/10.
+
+Live health check (`curl .../api/health`): status ok, bot active,
+`drawdownPct: "-17.9"` (equityPeak $110,727.04) — this is item #42's own
+NEXT(1) step, re-polled. Followed it through rather than treating the
+number at face value.
+
+PRIMARY ACTION (became this session's own REPAIR per the -17.9% reading,
+which is worse than a routine health check should tolerate silently):
+polled `/api/diag/audit?type=TIER2-LIMIT` (v1.0.874's own enrichment) —
+`equity=90841.05, last_equity=102873.88, equityPeak=110727.04`, stable
+across repeated polls ~15 minutes apart (not a transient blip). Cross-
+checked `/api/diag/positions-detail`: 7 positions, summed unrealized P&L
+~-$94, gross exposure $55,717 — nowhere near explaining a five-figure
+equity shortfall from peak, matching item #42's own prior finding that
+open positions don't account for the gap. Checked `/api/diag/orders`:
+only small round-trip GLD/QQQ/single-contract-option trades since
+2026-09-04, nothing sized to move the account materially. This matched
+item #42's unresolved question exactly, but chasing it further surfaced a
+SEPARATE, more serious finding: `state.maxDrawdownPct` is -10 (`server/
+bot.ts`), meaning this reading was already ~8 points past the kill
+threshold — yet `/api/diag/audit?type=DRAWDOWN-KILL` and `?type=EQUITY-
+READ-INVALID` (the ONLY two outcomes the Tier-1 `evaluateDrawdown` call
+site can produce) both returned zero entries, ever. The kill switch had
+not failed to fire — it had never run.
+
+READ BEFORE WRITE (this session, not from memory): traced every
+`evaluateDrawdown` call site in `server/bot.ts` (4 total). `/api/bot/
+account` (line ~1102) is `requireOwner` — fires only when a human loads
+that dashboard route. `/api/bot/overview`'s drawdown block is read-only
+(no kill action). The fourth site — the one comments and drawdownGuard.ts
+call "the live Tier-1 kill switch", meant to run "on every Tier 1cycle" —
+lived entirely INSIDE `executeMorningQueue()`, itself called from
+`tier1Reflex()` only once per day, gated by `if (clockT1.is_open &&
+!state.morningQueueExecuted && morningQueue.length > 0)`. On any day with
+an empty morning queue (the common case — this account frequently scans
+"0 trade candidates," confirmed via today's own audit log), or after that
+once-daily flag fires, the -10% check never runs again for the rest of
+the day. Separately confirmed `risk_kill_switch.py`'s Python-side
+`check_kill_switches()` (FROZEN mechanism, untouched) DOES run every
+Tier-2 cycle via `bot_engine.py`'s tiered-strategy step, but at
+`PORTFOLIO_DD_KILL = -0.20` — a different threshold, not a substitute for
+the JS-side -10% mechanism this system's own docs treat as primary.
+
+FIX (v1.0.877, this PR): extracted the check into its own
+`checkDrawdownKillSwitch()` (byte-identical logic — same
+`evaluateDrawdown()` validated read, same -10% threshold, same -25%
+liquidate-on-kill mercy rule; only its location changed) and call it
+unconditionally as `tier1Reflex()`'s own first step, wrapped in its own
+try/catch so a transient Alpaca hiccup there doesn't also skip the
+stale-order sweep / position-sync steps that follow (matching this
+function's existing per-step isolation pattern). `executeMorningQueue()`
+now takes the already-validated `equity` as a parameter instead of
+re-fetching `/v2/account` itself, plus a cheap `if (state.killSwitch)
+return;` safety net. NOT a RULE-REVIEW threshold change (the -10%/-25%
+constants are unchanged) — a wiring/reachability fix restoring what the
+mechanism's own comments already claimed it did.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1, traced before shipping): given
+production is already past -10% today, this fix will very likely trip
+`DRAWDOWN-KILL` on the next live Tier-1 cycle after deploy ->
+`state.killSwitch = true` (persisted, no JS-side auto-resume — an owner
+must manually toggle it off) -> the Tier-1/2/3 setIntervals all self-gate
+on `!state.killSwitch` and stop firing, INCLUDING `checkPositionOnTick()`'s
+real-time stop-loss/take-profit exit logic (same guard) -> open orders get
+cancelled; open positions are NOT force-liquidated (VOLTRADE_LIQUIDATE_ON_
+KILL requires <= -25%, current -17.9%) and sit unmanaged by Tier 1 until a
+human resumes. Confirmed this is the system's EXISTING, by-design
+"stop-the-world" halt behavior (identical to what already happens whenever
+a human loads `/api/bot/account` mid-drawdown) — this fix restores
+reachability, it does not introduce new blast radius. Because the effect
+is immediate, significant, and would otherwise happen unattended, this was
+flagged to the human directly via this session's own notification rather
+than left for a future dashboard discovery, per CLAUDE.md's LIVENESS-ALARM
+philosophy of surfacing loudly.
+
+RULE REVIEW / FROZEN PATHS: no threshold changed, no test weakened, one
+logical change (the reachability fix) in this PR. `risk_kill_switch.py`
+(frozen mechanism) untouched. Order-submission internals untouched (the
+`alpaca("/v2/orders", {method:"DELETE"})` cancel call already existed at
+this exact call site, unmoved in substance, only relocated).
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A — no client/ files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value
+touched; this is a control-flow/reachability fix to an existing risk
+mechanism, not a strategy or parameter change.
+
+REPAIRS MUST RATCHET: new `server/tier1DrawdownKillWiring.test.ts` (5
+assertions) pins (1) `checkDrawdownKillSwitch()` exists standalone with
+the same validated-read/threshold/kill/liquidate logic, (2)
+`tier1Reflex()` calls it BEFORE the morning-queue gate opens (not nested
+inside it — the exact shape of the original bug), (3)
+`executeMorningQueue` no longer performs its own `/v2/account` fetch, and
+(4) the morning-queue call site passes the upstream-computed equity
+through. This test would have caught the original bug (it directly
+asserts the call site is NOT nested inside the once-daily/non-empty-queue
+gate).
+
+ENVIRONMENT NOTE (not a code finding): this sandbox's fresh container had
+neither `pytest` nor `numpy` installed (`pip install pytest` then `pip
+install -r requirements.txt -r requirements-dev.txt` fixed both) — same
+"fresh container had no pytest either" class two prior sessions already
+logged; not re-filed as a new item, just noted so a future session isn't
+surprised by the same gate-suite false-start.
+
+GATES: `npm ci` (clean install). `bash scripts/tsc_ratchet.sh`: 11/11,
+TS2304 = 0, no drift. `npx tsx --test server/tier1DrawdownKillWiring.test.ts`:
+5/5 pass. `npx tsx --test server/finalOrderSitesStaleTracking.test.ts
+server/posKillStaleOrderTracking.test.ts server/diag.test.ts`: 33/33 pass
+(siblings touching the same functions, re-verified unaffected). Full `bash
+scripts/gated_tests.sh` (after installing pytest/numpy): GATE PASSED —
+server 186/186 files (includes the 5 new assertions, confirmed by grepping
+the run log for their exact test names), client 101/101 files, python 1811
+passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: 3 counters IMPROVED (tests_run_in_ci/tests_gating_merge
+434->435, assertions 13766->13782 — this session's own 5 new tests) and
+re-pinned in `ci/counter_baseline.txt` in this same PR; all other 22
+counters unchanged, no drift. `npm run build`: clean (pre-existing chunk-
+size warnings only, unrelated to this diff).
+
+VERSION: v1.0.877 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at db8a8cc/v1.0.876/PR #1039, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) a human (or a future session with
+`/api/bot/account`-equivalent access) should confirm live post-deploy
+whether `DRAWDOWN-KILL` fired as this session's trace predicts, and
+resolve item #42's still-open real-loss-vs-data-glitch question before
+deciding whether to manually resume trading — filed in full at
+`research/open_questions.md` KNOWN BROKEN #43. (2) the JS-side kill switch
+(-10%) and the Python-side kill switch (-20%) are two independent
+mechanisms with different thresholds and no shared state — worth a future
+CONSTITUTIONAL-AUDIT question about whether that's intentional
+defense-in-depth or accidental drift (not self-applied here, per FROZEN
+PATHS). (3) per the AUDITS & DEBT register, staleness/constitutional audit
+last-run dates should be checked by the next session whose fall-through
+reaches the research tier — not reached this session, capacity was fully
+used by this primary REPAIR action plus its live investigation.
+
+STARVED: no — this session's own live health re-check (item #42's own
+queued NEXT(1) step) surfaced a materially worse finding than expected
+(a second, independent, more severe kill-switch defect) and this session
+followed it to a complete, tested, gate-clean fix rather than stopping at
+the first (lower-value) question. No higher-priority item was skipped: no
+LIVENESS ALARM condition applied (loop was running, market data flowing);
+KNOWN BROKEN #41 remains noted but non-blocking (still waiting on Railway
+access no session in this sandbox has); this session's own finding was, by
+GOAL priority order, higher-value than any queued PRODUCT/RESEARCH
+fall-through item, since it is a live gap in priority-1/2 safety
+machinery, not a new feature or signal.

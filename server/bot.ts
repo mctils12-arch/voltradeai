@@ -3507,31 +3507,25 @@ print(json.dumps(result[:20]))
     }
   }
 
-  // ── Morning Queue Execution ────────────────────────────────────────────────
-  async function executeMorningQueue() {
-    if (morningQueue.length === 0) return;
-
-    // Filter out stale orders (queued more than 16 hours ago)
-    const now = Date.now();
-    const freshQueue = morningQueue.filter((t: any) => {
-      const queuedTime = t.queuedAt ? new Date(t.queuedAt).getTime() : 0;
-      const ageHours = (now - queuedTime) / 3600000;
-      if (ageHours > 16) {
-        audit("MORNING-STALE", `${t.ticker}: skipped — queued ${ageHours.toFixed(0)}h ago (max 16h)`);
-        return false;
-      }
-      return true;
-    });
-    if (freshQueue.length < morningQueue.length) {
-      audit("MORNING", `Dropped ${morningQueue.length - freshQueue.length} stale orders from queue`);
-    }
-    morningQueue.length = 0;
-    morningQueue.push(...freshQueue);
-    audit("MORNING", `Executing ${morningQueue.length} queued trades from overnight research...`);
-
-    // Sort by score descending — best picks first
-    morningQueue.sort((a, b) => b.score - a.score);
-
+  // ── Drawdown Kill Switch (Tier 1) ───────────────────────────────────────
+  // REPAIR 2026-09-09 (KNOWN BROKEN #42 follow-up, live incident): this
+  // block used to live ONLY inside executeMorningQueue(), which itself
+  // only runs on the first market-open Tier-1 cycle of the day AND only
+  // when morningQueue.length > 0 — so on any day with an empty morning
+  // queue (or after that once-daily gate was already consumed), this
+  // -10%-from-peak check never ran again for the rest of the day, despite
+  // its own comment claiming "every Tier 1 cycle" and drawdownGuard.ts's
+  // docs calling it "the live Tier-1 kill switch". Live evidence this
+  // session: production equity sat at -17.9% below peak (equityPeak
+  // $110,727.04, equity ~$90,800) for an extended period with ZERO
+  // DRAWDOWN-KILL and ZERO EQUITY-READ-INVALID audit lines — the check
+  // was simply never reached, even though it was already ~8 points past
+  // its own -10% threshold. Extracted so tier1Reflex() can call it
+  // unconditionally on every cycle, matching the mechanism's documented
+  // intent. Behavior of the check itself is UNCHANGED — same
+  // evaluateDrawdown() validated read, same -10% threshold, same
+  // liquidate-on-kill mercy rule at -25%; only WHEN it runs changed.
+  async function checkDrawdownKillSwitch(): Promise<{ equity: number; killed: boolean }> {
     const acct = await alpaca("/v2/account");
 
     // Max drawdown check on every Tier 1 cycle — VALIDATED reads only
@@ -3590,8 +3584,41 @@ print(json.dumps(result[:20]))
           audit("LIQUIDATE-FAIL", `Could not fetch positions: ${liqErr?.message?.slice(0, 100)}`);
         }
       }
-      return;
+      return { equity, killed: true };
     }
+    return { equity, killed: false };
+  }
+
+  // ── Morning Queue Execution ────────────────────────────────────────────────
+  // `equity` is the validated read checkDrawdownKillSwitch() already took
+  // this same Tier-1 cycle — passed in rather than re-fetched so this
+  // function does not need its own /v2/account call.
+  async function executeMorningQueue(equity: number) {
+    if (morningQueue.length === 0) return;
+    // Safety net: checkDrawdownKillSwitch() already ran this cycle before
+    // tier1Reflex calls this function, so state.killSwitch is current.
+    if (state.killSwitch) return;
+
+    // Filter out stale orders (queued more than 16 hours ago)
+    const now = Date.now();
+    const freshQueue = morningQueue.filter((t: any) => {
+      const queuedTime = t.queuedAt ? new Date(t.queuedAt).getTime() : 0;
+      const ageHours = (now - queuedTime) / 3600000;
+      if (ageHours > 16) {
+        audit("MORNING-STALE", `${t.ticker}: skipped — queued ${ageHours.toFixed(0)}h ago (max 16h)`);
+        return false;
+      }
+      return true;
+    });
+    if (freshQueue.length < morningQueue.length) {
+      audit("MORNING", `Dropped ${morningQueue.length - freshQueue.length} stale orders from queue`);
+    }
+    morningQueue.length = 0;
+    morningQueue.push(...freshQueue);
+    audit("MORNING", `Executing ${morningQueue.length} queued trades from overnight research...`);
+
+    // Sort by score descending — best picks first
+    morningQueue.sort((a, b) => b.score - a.score);
 
     let slotsUsed = 0;
 
@@ -3769,6 +3796,20 @@ print(json.dumps(result[:20]))
 
   async function tier1Reflex() {
     try {
+      // 0. Drawdown kill switch — must run on EVERY Tier 1 cycle (2026-09-09
+      // REPAIR, see checkDrawdownKillSwitch's own comment for the live
+      // incident this closes). Own try/catch so a transient Alpaca hiccup
+      // here doesn't also skip the stale-order sweep / position sync below,
+      // matching this function's existing per-step isolation (step 2 below
+      // has the same pattern).
+      let t1Equity = state.equityPeak;
+      try {
+        const dd = await checkDrawdownKillSwitch();
+        t1Equity = dd.equity;
+      } catch (err) {
+        console.error("[tier1-drawdown]", err instanceof Error ? err.message : err);
+      }
+
       // 1. Sweep stale orders
       await sweepStaleOrders();
 
@@ -3801,7 +3842,7 @@ print(json.dumps(result))
       // 4. Execute morning queue on first market-open cycle
       const clockT1 = await alpaca("/v2/clock");
       if (clockT1.is_open && !state.morningQueueExecuted && morningQueue.length > 0) {
-        await executeMorningQueue();
+        await executeMorningQueue(t1Equity);
         state.morningQueueExecuted = true;
       }
 
