@@ -75,6 +75,31 @@ trace vs. a bare kill with no trace. That single log line would likely
 settle the heap-vs-cgroup question this session could not, and save the
 bisection session real time.
 
+UPDATE 2026-09-09 (scheduled-routine session, [REPAIR] — this session's own
+task instructions require becoming a repair session when a critical KNOWN
+BROKEN item is unfixed, and this is that item): the bisection TOOLING
+named above is now built and merged, still with BOTH flags OFF by default
+(zero production behavior change) — `server/bisectionFlags.ts` +
+`server/bot.ts` wiring, full account in `research/open_questions.md`
+KNOWN BROKEN #41's dated update. Confirmed this session, unchanged from
+2026-09-08: this sandbox has no Railway API/CLI (`which railway` empty,
+no `RAILWAY_*` env vars) and cannot flip an env var in production itself.
+
+**HUMAN ACTION NEEDED to actually run the bisection**: in the Railway
+dashboard, set `VOLTRADE_DISABLE_TIER2=1` and `VOLTRADE_DISABLE_TIER3=1`
+on the service, redeploy, and watch during market hours (9:30am-4pm ET)
+for the same ~90-130s crash cycle. Loop stops → the leak is in Tier 2/3's
+own code path (not the two already-fixed folds specifically — something
+else inside `tier2Intelligence`/`tier3Strategic`). Loop persists → it's
+somewhere unconditional (the WebSocket stream, Express/route
+registration, or a module-load-time leak — Tier 1's 45s reflex loop is
+deliberately NOT gated by these flags, since disabling risk management
+mid-incident would be its own hazard; a read-only Tier-1 variant would be
+needed before it could be ruled out the same way). Either result, unset
+both env vars and redeploy afterward — they're diagnostic-only. A future
+scheduled session cannot do this step itself (no Railway access), so this
+stays open until a human runs it or grants a future session that access.
+
 ## ⚠ STALE-PR BACKLOG FOUND 2026-08-20 (scheduled-routine session #3) —
 ## 11 `claude/*` PRs, 6–35 days old, never merged; three distinct causes
 ## identified, two safe fixes already applied this session

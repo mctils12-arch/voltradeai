@@ -33,6 +33,7 @@ import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
 import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
+import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -6824,6 +6825,16 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // fact ("has Tier 2 had its one chance yet") instead of guessing a duration.
   let tier2CompletedSinceBoot = false;
 
+  // KNOWN BROKEN #41 bisection kill-switches (see server/bisectionFlags.ts).
+  // Both default OFF (env unset in production today) — this changes nothing
+  // unless a human sets VOLTRADE_DISABLE_TIER2/3=1 in Railway. Logged once
+  // each, not on every timer tick, so a bisection run doesn't spam the audit
+  // log for however many hours it's left on.
+  const TIER2_DISABLED = tier2Disabled();
+  const TIER3_DISABLED = tier3Disabled();
+  let tier2DisabledLogged = false;
+  let tier3DisabledLogged = false;
+
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
@@ -6880,6 +6891,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   async function scheduleTier2() {
+    if (TIER2_DISABLED) {
+      if (!tier2DisabledLogged) {
+        tier2DisabledLogged = true;
+        audit("TIER2-DISABLED", "Tier 2 scan loop disabled via VOLTRADE_DISABLE_TIER2 (KNOWN BROKEN #41 crash-loop bisection) — no further scans or timers until unset and redeployed");
+      }
+      return; // deliberately do not re-arm: the whole Tier 2 timer chain stops
+    }
     if (!state.active || state.killSwitch || tier2Running) {
       armTier2Timer(getTier2Interval());
       return;
@@ -6951,6 +6969,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 
   // TIER 3: Strategic (every 1 hour) — ML retrain, macro, manipulation scan
   setInterval(async () => {
+    if (TIER3_DISABLED) {
+      if (!tier3DisabledLogged) {
+        tier3DisabledLogged = true;
+        audit("TIER3-DISABLED", "Tier 3 strategic loop disabled via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection) — no further runs until unset and redeployed");
+      }
+      return;
+    }
     if (!state.active || tier3Running) return;
 
     try {
@@ -6964,8 +6989,18 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     }
   }, 3600000); // 1 hour
 
-  // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2)
-  setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+  // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2).
+  // This startup run is also the one that triggers the port-dwell weekly fold
+  // (KNOWN BROKEN #41's original suspect) — gating it here means the
+  // bisection covers that path too, not just the hourly interval.
+  if (TIER3_DISABLED) {
+    if (!tier3DisabledLogged) {
+      tier3DisabledLogged = true;
+      audit("TIER3-DISABLED", "Startup Tier 3 run skipped via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection)");
+    }
+  } else {
+    setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+  }
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireOwner, (_req, res) => {
