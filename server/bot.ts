@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
-import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
+import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
@@ -34,6 +34,7 @@ import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
 import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
+import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -1348,8 +1349,10 @@ print(json.dumps(data))
     }
     
     // Check 3: Alpaca API
+    let healthAcctEquity: unknown = null;
     try {
       const acct = await alpaca("/v2/account");
+      healthAcctEquity = acct.equity;
       checks.checks.alpaca = { status: "ok", account_status: acct.status };
     } catch (err: any) {
       checks.checks.alpaca = { status: "error", detail: err?.message };
@@ -1373,10 +1376,24 @@ print(json.dumps(data))
     const nextLv = nextLiveness(livenessState, activeNow, Date.now());
     if (nextLv !== livenessState) { livenessState = nextLv; saveLiveness(nextLv); }
     const lv = loopDark(livenessState, activeNow, Date.now());
+    // DEAD-METRIC FIX 2026-09-09: this used to read `state.lastEquity`, a
+    // field that is declared nowhere on `state` (grepped the whole file —
+    // zero assignments) and was therefore always `undefined`, making the
+    // `||` fallback always take `String(state.equityPeak)` and this whole
+    // expression always evaluate to exactly 0. Every session log going back
+    // weeks that quoted `drawdownPct:"0.0"` as evidence of "no drawdown"
+    // was reading a metric that could never have reported anything else —
+    // not confirmation the account was healthy. Now reuses the SAME
+    // validated-equity-read helper (drawdownGuard.ts's evaluateDrawdown,
+    // built for exactly this "don't trust a raw account field blindly"
+    // problem after the 2026-07-07 false-kill incident) against the
+    // account snapshot Check 3 already fetched above, so this finally
+    // reflects real current drawdown from peak instead of a hardcoded 0.
+    const healthDd = evaluateDrawdown(healthAcctEquity, state.equityPeak, state.maxDrawdownPct);
     checks.checks.bot = {
       status: state.killSwitch ? "killed" : state.active ? "active" : "stopped",
       equityPeak: state.equityPeak,
-      drawdownPct: state.equityPeak > 0 ? (((state.equityPeak - parseFloat(state.lastEquity || String(state.equityPeak))) / state.equityPeak) * 100).toFixed(1) : "N/A",
+      drawdownPct: healthDd.valid ? healthDd.drawdownPct!.toFixed(1) : "N/A",
       liveness: lv.dark
         ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
         : { dark: false },
@@ -4107,13 +4124,40 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // (e.g. an account not options-approved, or a test double).
       const optionsBp = parseFloat(acct.options_buying_power);
       const cashAvailable = Number.isFinite(optionsBp) ? optionsBp : parseFloat(acct.cash || "0");
-      const lastEquity = parseFloat(acct.last_equity || "100000");
-      const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
+      // VALIDATED-READ GUARD 2026-09-09: this used raw `parseFloat(x || "100000")`
+      // on both fields — the exact anti-pattern drawdownGuard.ts's own docstring
+      // names as the cause of the 2026-07-07 false-kill incident ("a transient
+      // zero/garbage equity value computes as ~-100% and kills the loop... One
+      // site even fabricated parseFloat(acct.equity || "100000")"), left
+      // unguarded here when that fix was scoped to evaluateDrawdown's own three
+      // call sites. Found live 2026-09-09: this check fired 36+ times over 3+
+      // hours pre-market reporting a -11.5%..-11.8% "daily loss" with no
+      // supporting evidence in open positions (total unrealized P&L ~-$176
+      // across 7 positions) or in Sept 8's fills (all small round-trip
+      // GLD/QQQ/single-contract-option trades) — see research/open_questions.md
+      // for the live incident this couldn't be fully root-caused without direct
+      // Alpaca account access. This guard only rejects the same class of
+      // "impossible for a funded account" reads evaluateDrawdown already
+      // rejects (non-finite or <= 0) — it does NOT second-guess an ambiguous
+      // but syntactically valid last_equity value, per RULE REVIEW: loosening
+      // what counts as a valid halt trigger is a threshold change that needs
+      // its own evidence, not bundled into a bug fix.
+      // Validated against the RAW account fields, not `equity` above — that
+      // variable already launders a missing/garbage acct.equity into the
+      // fallback "100000" (needed for its other downstream uses, e.g.
+      // executeTrades' sizing), which would defeat this guard by construction
+      // if it validated the post-fallback value instead.
+      const pnlEval = evaluateDailyPnl(acct.equity, acct.last_equity);
+      if (!pnlEval.valid) {
+        audit("EQUITY-READ-INVALID", `tier2 daily-loss check: equity=${JSON.stringify(acct.equity)} last_equity=${JSON.stringify(acct.last_equity)} — daily-loss check skipped this cycle`);
+      } else {
+        const dailyPnlPct = pnlEval.dailyPnlPct!;
 
-      if (dailyPnlPct <= -3) {
-        audit("TIER2-LIMIT", `Daily loss limit: ${dailyPnlPct.toFixed(1)}%`);
-        notify("alert", `Daily loss: ${dailyPnlPct.toFixed(1)}%. Trading halted.`);
-        return;
+        if (dailyPnlPct <= -3) {
+          audit("TIER2-LIMIT", `Daily loss limit: ${dailyPnlPct.toFixed(1)}% (equity=${acct.equity}, last_equity=${acct.last_equity}, equityPeak=${state.equityPeak.toFixed(2)})`);
+          notify("alert", `Daily loss: ${dailyPnlPct.toFixed(1)}%. Trading halted.`);
+          return;
+        }
       }
 
       // Weekly loss check
@@ -5399,6 +5443,12 @@ print(json.dumps(run_update()))
         audit("TIER3-PORTDWELL", `Weekly snapshot captured: week ${captureResult.week_index}`);
       } else if (captureResult.action === "skipped_degenerate") {
         audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} skipped (degenerate all-zero read)${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
+      } else if (captureResult.action === "deferred_cooldown") {
+        // KNOWN BROKEN / 2026-09-08 live incident: an unresolved prior attempt
+        // on this week means the process likely crashed mid-fold last time —
+        // never silent (RENDERING & MOTION LAW Law V's spirit applies beyond
+        // rendering: a degraded/backed-off path must say so loudly).
+        audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} deferred — cooling down after a suspected crash on the prior attempt${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
       }
     } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); }
 
@@ -6829,6 +6879,16 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // fact ("has Tier 2 had its one chance yet") instead of guessing a duration.
   let tier2CompletedSinceBoot = false;
 
+  // KNOWN BROKEN #41 bisection kill-switches (see server/bisectionFlags.ts).
+  // Both default OFF (env unset in production today) — this changes nothing
+  // unless a human sets VOLTRADE_DISABLE_TIER2/3=1 in Railway. Logged once
+  // each, not on every timer tick, so a bisection run doesn't spam the audit
+  // log for however many hours it's left on.
+  const TIER2_DISABLED = tier2Disabled();
+  const TIER3_DISABLED = tier3Disabled();
+  let tier2DisabledLogged = false;
+  let tier3DisabledLogged = false;
+
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
     if (!state.active || state.killSwitch) return;
@@ -6885,6 +6945,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   async function scheduleTier2() {
+    if (TIER2_DISABLED) {
+      if (!tier2DisabledLogged) {
+        tier2DisabledLogged = true;
+        audit("TIER2-DISABLED", "Tier 2 scan loop disabled via VOLTRADE_DISABLE_TIER2 (KNOWN BROKEN #41 crash-loop bisection) — no further scans or timers until unset and redeployed");
+      }
+      return; // deliberately do not re-arm: the whole Tier 2 timer chain stops
+    }
     if (!state.active || state.killSwitch || tier2Running) {
       armTier2Timer(getTier2Interval());
       return;
@@ -6956,6 +7023,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 
   // TIER 3: Strategic (every 1 hour) — ML retrain, macro, manipulation scan
   setInterval(async () => {
+    if (TIER3_DISABLED) {
+      if (!tier3DisabledLogged) {
+        tier3DisabledLogged = true;
+        audit("TIER3-DISABLED", "Tier 3 strategic loop disabled via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection) — no further runs until unset and redeployed");
+      }
+      return;
+    }
     if (!state.active || tier3Running) return;
 
     try {
@@ -6969,8 +7043,18 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     }
   }, 3600000); // 1 hour
 
-  // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2)
-  setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+  // Run Tier 3 once on startup after a delay (Tier 2 is handled by scheduleTier2).
+  // This startup run is also the one that triggers the port-dwell weekly fold
+  // (KNOWN BROKEN #41's original suspect) — gating it here means the
+  // bisection covers that path too, not just the hourly interval.
+  if (TIER3_DISABLED) {
+    if (!tier3DisabledLogged) {
+      tier3DisabledLogged = true;
+      audit("TIER3-DISABLED", "Startup Tier 3 run skipped via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection)");
+    }
+  } else {
+    setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+  }
 
   // Route: Get last scan result
   app.get("/api/bot/last-scan", requireOwner, (_req, res) => {

@@ -1,0 +1,23 @@
+{
+ "stream": "gridgeneration",
+ "storage": "append-only JSONL day-files under <archive>/gridgeneration/, keyed by OBSERVATION day (period date, not fetch date) with event-identity dedup (respondent|period|fueltype) across restarts; gz after 3 days (late hours keep arriving within the lag window)",
+ "written_by": "server/gridGeneration.ts archiveGeneration (2h poll, 12 politeness-spaced calls/cycle, eager boot; key-gated on EIA_API_KEY — same gate/cadence as the griddemand sibling series)",
+ "source": "EIA v2 API electricity/rto/fuel-type-data (EIA-930 hourly grid monitor, generation half) — free key, US government public domain. Shape verified live 2026-09-09 (real EIA_API_KEY): hourly net generation per balancing authority x fuel type, value as STRING MWh; bracketed params must be URL-encoded. US48 carries ~16 fuel-type codes/hour (BAT/COL/GEO/NG/NUC/OES/OIL/OTH/PS/SNB/SUN/UES/UNK/WAT/WNB/WND); storage types (BAT/OES/PS/UES) legitimately read negative during charging (confirmed live). Scope v1: same respondent list as griddemand — US48 + CISO/ERCO/MISO/PJM/NYIS/ISNE/SWPP/FPL + SE/NW/SW rollups.",
+ "license": "US government work, public domain; attribution 'EIA-930 Hourly Electric Grid Monitor'",
+ "attribution": "EIA-930 Hourly Electric Grid Monitor",
+ "schema_version": 1,
+ "field_map": {
+  "respondent|period|fueltype — event-identity dedup key": "balancing-authority code + UTC hour + EIA-930 fuel-type code; the same observation never re-archives",
+  "period": "YYYY-MM-DDTHH as published (hour granularity)",
+  "fueltype": "EIA-930 fuel-type code (COL, NG, NUC, SUN, WND, WAT, storage types BAT/OES/PS/UES, etc.) — raw code as published, not renamed",
+  "mwh": "net generation for this respondent+fueltype+hour; missing/empty values are null, never zero; storage types can be negative (charging draws net power)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official hourly generation-by-source. Feeds CLAUDE.md FUSION HYPOTHESIS (b) (generation shifts x utility tickers, datacore/entity_map.json operator->ticker table) whose GATE 1 GROUND TRUTH is 'EIA-930 totals reconciling to registry capacity (datacore/powerplants/us_power_plants.json) within ~5% per region' — not yet attempted, needs a full diurnal generation cycle of archive depth first (see signal_ladder.json readiness_trigger). No standalone predictive claim on this raw series itself.",
+ "geo_fields": ["respondent"],
+ "entity_key": "respondent + period + fueltype",
+ "sentiment": null,
+ "started": "2026-09-09",
+ "cadence": "hourly source (~1-2h publication lag); 2h poll with a 48h trailing window per respondent",
+ "_note": "Universal archive envelope (approved 2026-07-04). Built 2026-09-09 (scheduled-routine [PRODUCT] session) as the missing raw ingredient for FUSION HYPOTHESIS (b) — griddemand.ts's own `type` facet is D/DF (demand only), never generation-by-source. v1 ships WITHOUT historical backfill (griddemand.ts's own backfill was itself a deliberately separate v2 addition per that module's header); deepening the archive via a backfill is queued as NEXT, not blocking this shipment."
+}

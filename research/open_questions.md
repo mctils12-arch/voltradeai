@@ -6016,6 +6016,261 @@
     record instead of re-diagnosed by the next session that happens to
     run full pytest on one of these dates.
 
+41. **[FOUND AND MITIGATED 2026-09-08, scheduled-routine session, LIVE
+    PRODUCTION INCIDENT] Production OOM-crash-looped every ~90-130s during
+    market hours; root cause was the new port-dwell Tier-3 in-process fold
+    (PR #1017-#1019, ~36h old at the time) retrying an un-persisted, likely
+    -fatal 168h vessel-archive fold on every single boot.** Full account in
+    `research/experiments.md`'s 2026-09-08 (fourth session this UTC day)
+    entry — discovered live via `/api/health` uptime resets during this
+    session's routine health check, not from a queued item; the human was
+    proactively notified mid-investigation, before root cause was confirmed,
+    per the live-incident-first mandate. `server/portDwellCapture.ts`'s
+    `captureIfDue` only persisted a completed fold result, never an
+    in-progress attempt — so a fold that OOM-killed the whole Node process
+    left zero trace, and the next boot (Tier-3 fires 30s after every boot)
+    retried the exact same week's fold and crashed again, forever, with no
+    natural exit given the ~9-10 week backlog this brand-new feature had to
+    catch up on.
+    MITIGATED, NOT ROOT-CAUSE-FIXED: a durably-persisted "attempt started"
+    marker, written BEFORE the fold runs, now enforces a 6h cooldown per
+    week after an attempt fails to complete — this bounds the crash-loop's
+    blast radius (one crash per 6h instead of one every ~100s) but does
+    NOT reduce the fold's own memory footprint. This sandbox had no access
+    to the real, grown production vessel archive to size or chunk that fold
+    correctly — attempting that blind, under live-incident time pressure,
+    risked either not fixing the crash or silently truncating real archive
+    coverage, so it was deliberately left to a future session (this item's
+    own NEXT below), consistent with RULE REVIEW's "no rule change ships
+    without evidence" spirit applied to a resource-budget change here.
+    NEXT: (1) once deployed, check `/api/diag/audit?type=TIER3-PORTDWELL`
+    for `deferred_cooldown` lines — if the SAME week index keeps hitting
+    cooldown call after call, that week's fold genuinely cannot complete in
+    available memory and needs a real fix (chunk the 168h window into
+    smaller sub-windows merged incrementally, or move the fold into a
+    bounded child process/worker so a crash there can't take the whole
+    server down) before it will ever resolve. (2) check whether the
+    underlying vessel archive has grown enough that even NON-backlog
+    (steady-state, one-new-week-per-week) folds are now this expensive —
+    if so this is a standing risk, not a one-time backlog problem, and
+    deserves its own dedicated session per RECURRENCE ESCALATES should it
+    crash-loop again after the 2026-09-08 mitigation lands. (3) per
+    RECURRENCE ESCALATES: if this exact crash-loop mechanism (un-persisted
+    attempt + instant automatic retry after a crash) is ever found in
+    ANOTHER Tier-3/Tier-2 step, that is architecture smell — propose a
+    shared "record-before-attempting, cooldown-after-failure" helper via
+    wishlist.md rather than patching each occurrence independently.
+    UPDATE 2026-09-08 (scheduled-routine session, sixth session this UTC
+    day) — NEXT(3) confirmed the hard way: this session's own routine
+    `/api/health` re-check (not from a queued item) found the crash loop
+    **continuing live on v1.0.870**, ~90-130s period unchanged, while
+    `/api/diag/audit?type=TIER3-PORTDWELL` simultaneously showed the
+    #1030 guard correctly firing `deferred_cooldown` (the fold genuinely
+    was NOT running) — direct proof the Tier-3 port-dwell fold was not
+    the loop's only cause. `server/routes.ts`'s `refreshShadowStats()`/
+    `refreshPortDwell()` (shipped 2026-07-05, unrelated to this week's
+    Tier-3 feature) were found to run the exact same failure shape —
+    unconditional archive fold at every boot with no delay, no persisted
+    in-flight marker — confirming NEXT(3)'s prediction exactly. A fix for
+    this second cause already existed, gate-clean, on a since-abandoned
+    branch (PR #1031, `claude/eloquent-dijkstra-1oa4rf`) from an earlier
+    concurrent session that never logged it to this file or
+    experiments.md and whose branch had gone 2 days stale (merge-base
+    5e0f501, dozens of PRs behind main). This session cherry-picked the
+    isolated `server/crashSafeRefresh.ts` + `server/routes.ts` diff
+    (applied cleanly, zero conflict, verified against the stale branch's
+    own commit) onto current main rather than merging the stale branch
+    itself, re-ran the full local gate suite, and shipped it as v1.0.871
+    (this session's own PR; #1031 closed as superseded — see
+    experiments.md this date for the full account, including why local
+    verification substituted for GitHub Actions CI, which never triggered
+    a single check run against #1031's head commit in over 3 hours).
+    STILL NOT CONFIRMED CLOSED: this session could not observe the fix
+    live before ending (Railway deploy lag) — a future session MUST
+    re-poll `/api/health` post-deploy to confirm. If the loop persists
+    AGAIN after both fixes are live, per RECURRENCE ESCALATES this is now
+    a THIRD attempt at the same incident and mandates a full architecture
+    session (chunk both fold families, move them off the main event loop
+    into a worker/child process, or raise the container memory ceiling)
+    rather than a fourth cooldown patch.
+    CONFIRMED, SAME SESSION (post-merge re-poll): PR #1033 merged
+    (v1.0.871) and Railway redeployed within minutes — `/api/diag/audit`
+    showed two `STARTUP Server boot — code_version 1.0.871` entries
+    (20:46:38Z and 20:48:37Z), so both guards were verifiably live, not
+    just merged. **The crash loop continued essentially unchanged**: five
+    more boot/crash cycles observed directly over the following ~5.5
+    minutes (`/api/health` polled every 15s), period still ~90-130s,
+    `rss_mb` still climbing ~500→770-990MB before each 502/reset — no
+    material difference from the pre-fix behavior described above. This
+    is now DEFINITIVE, not inferred: BOTH known fold families (Tier-3
+    port-dwell, routes.ts shadowstats/portdwell) are ruled out as the
+    (sole or current) cause, since both are independently confirmed
+    guarded — the fixes work as designed, the incident does not close.
+    RULED OUT THIS SESSION: the Python daemon is not the leak. `/api/diag/
+    daemon` mid-incident showed `rss_mb: 277.3` (max_rss_mb 1024, self-
+    kill threshold) and `uptime_seconds: 242` — comfortably alive across
+    multiple Node crash/restart cycles (the daemon is a separately
+    supervised process per `run_with_daemon.sh`, so it survives Node
+    dying). The leak is specifically in the Node process's own memory.
+    PER THIS ITEM'S OWN RECURRENCE ESCALATES MANDATE (now triggered, not
+    hypothetical): no third cooldown-style patch was attempted this
+    session. This needs a full architecture session with tooling this
+    sandbox does not have — real Railway/production stderr logs (to see
+    the actual V8 fatal-error or SIGKILL reason, which distinguishes a
+    genuine V8 heap-limit crash from a container-level cgroup OOM kill —
+    the fact that `heap_used_mb`/`heap_total_mb` were still climbing
+    together at the last pre-crash reading each cycle, never visibly
+    capped near a fixed ceiling, is suggestive of the latter but not
+    conclusive from outside the container), OR a bisection session that
+    temporarily disables Tier 2 and Tier 3 entirely (feature-flagged) to
+    localize whether the leak is in the scan/strategic-scan path at all
+    versus the WebSocket stream, position monitor, or something else that
+    runs unconditionally on every boot. FILED to `research/wishlist.md`
+    this date for human visibility given two autonomous fix attempts have
+    not resolved a live, ongoing incident.
+    UPDATE 2026-09-09 (scheduled-routine session, [REPAIR]) — built the
+    bisection TOOLING the 2026-09-08 entry named as the free next step,
+    per this session's own task instructions ("check KNOWN BROKEN — if
+    any critical item remains unfixed, this session becomes a REPAIR
+    session"). Live-checked first: `/api/health` at 2026-09-09T02:35Z
+    showed `status:"ok"`, `uptime_s:6368` (~1.8h, not currently
+    crash-looping) — expected, since the incident is scoped to market
+    hours and this check ran at ~22:35 ET (after close), not evidence the
+    incident is resolved. New `server/bisectionFlags.ts` (`tier2Disabled`/
+    `tier3Disabled`, pure functions reading `VOLTRADE_DISABLE_TIER2`/
+    `VOLTRADE_DISABLE_TIER3` from an injectable env, same testable-by-
+    injection convention `crashSafeRefresh.ts`'s `refreshStateDir` already
+    uses) wired into `server/bot.ts` at all three automatic Tier 2/3
+    trigger points: `scheduleTier2()` (the recurring adaptive-interval
+    scan chain — when disabled it logs once and does not re-arm, so the
+    whole chain stops rather than looping to no-op), the Tier 3 hourly
+    `setInterval`, and the Tier 3 30s-after-boot `setTimeout` (this one
+    matters specifically because it's what triggers the port-dwell weekly
+    fold that started this incident — gating it means the bisection
+    covers that original suspect too, not just the hourly interval). The
+    owner-triggered `/api/bot/run-now` manual-scan route is deliberately
+    NOT gated — a human/future session may still want to force a scan
+    while the automatic loops are off. BOTH FLAGS DEFAULT OFF (env unset
+    in production today) — zero behavior change on merge; A/B-verified
+    via the new test file that only the literal string `"1"` disables
+    either flag and the two are independent. **This sandbox has no
+    Railway API/CLI access** (checked: no `railway` binary, no
+    `RAILWAY_*`/`RAILWAY_TOKEN` env vars) — confirming the wishlist
+    entry's own "access this sandbox lacks" framing — so this session
+    could not flip the flags in production itself; that step needs the
+    human or a future session with that access, during market hours, per
+    the plan below.
+    NEXT (the actual bisection, not yet run): during market hours, set
+    `VOLTRADE_DISABLE_TIER2=1` AND `VOLTRADE_DISABLE_TIER3=1` in the
+    Railway environment and redeploy (env var changes there are
+    build-time, so this requires a redeploy, not a hot toggle). Watch
+    `/api/health` for the same ~90-130s crash period. If the loop stops:
+    the leak is in the Tier 2/3 path (scan/strategic-scan code, not
+    already-ruled-out port-dwell/shadowstats folds specifically — narrows
+    the search to `tier2Intelligence`/`tier3Strategic`'s other steps, e.g.
+    the Python subprocess/daemon RPC calls, ML retrain, macro/COT/Form4
+    fetches). If it persists with both off: the leak is in something
+    unconditional — the WebSocket stream (`startStreaming()`), the Tier 1
+    45s position/stop reflex loop (NOT gated by these flags — deliberately
+    left running per its own market-hours guard, since disabling risk
+    management during a live diagnostic would itself be dangerous; if
+    Tier 1 becomes a suspect a future session should consider a read-only
+    variant rather than disabling it), Express/route registration, or a
+    module-load-time leak. Either result should update this item and
+    close or re-scope the wishlist incident entry. Once the bisection
+    resolves the incident either way, unset both env vars and redeploy —
+    they are diagnostic-only, not a standing configuration.
+
+42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
+    INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
+    daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
+    unprecedented -11.5%..-11.8% "Daily loss limit" with no supporting
+    evidence anywhere else in the account, and a SEPARATE, confirmed-dead
+    health metric was found in the same code area.** Discovered via this
+    session's own routine `/api/health`/`/api/diag/audit` check (not from
+    a queued item) — `TIER2-LIMIT` had never once appeared in this file's
+    entire history before today (grepped `research/experiments.md`), and
+    the halt kept firing every ~5min Tier2 cycle continuously starting
+    before this UTC day's audit buffer even begins (earliest visible entry
+    08:37Z already read -11.4%, still climbing to -11.8% by 11:03Z), with
+    `/api/bot/market-status` confirming the market was CLOSED (pre-market)
+    the entire time this was observed.
+    EVIDENCE AGAINST A REAL ~$13-15K LOSS: `/api/diag/positions-detail`
+    (live, this session) showed 7 normal-looking positions (4 equity ETFs,
+    3 single-contract short puts), gross exposure $55,683, and a SUMMED
+    unrealized P&L across all seven of approximately **-$176** — nowhere
+    near the ~12% of a ~$110-125K account this halt implies. `/api/diag/
+    orders?limit=100` shows only small round-trip trades on 2026-09-08
+    (20sh GLD, 13-15sh QQQ, single-contract options) — nothing sized to
+    move the account by five figures. `/api/health`'s OWN `drawdownPct`
+    (peak-relative, a DIFFERENT and independently-computed number, see
+    below) read "0.0" the entire time, meaning the account's own tracked
+    all-time-high equity ($110,727.04, static across many weeks of prior
+    session logs) was not exceeded — so a real prior-day close near
+    $125K (implied if Alpaca's `last_equity` field is taken at face value)
+    would mean this account has secretly been $14K above its own recorded
+    peak with nobody's tracking catching it, which is itself suspicious.
+    COULD NOT BE FULLY ROOT-CAUSED: this sandbox has no direct Alpaca
+    paper-account dashboard access and no Railway logs, so whether Alpaca's
+    own `last_equity` field for 2026-09-08's close is a genuine platform
+    data-quality glitch (plausible — 2026-09-08 was the crash-loop day,
+    KNOWN BROKEN #41 above, though the daemon/Node crash-looping is a
+    Railway-container-side failure with no obvious mechanism for
+    corrupting Alpaca's own server-side EOD snapshot) versus a real loss
+    this session simply could not find evidence for, could not be settled
+    from outside. Deliberately did NOT weaken or bypass the halt itself on
+    this inference alone — per RULE REVIEW, loosening what counts as a
+    valid trigger for a risk-limit halt needs its own evidence and
+    rollback trigger, not a bug-fix session's guess.
+    WHAT WAS ACTUALLY SHIPPED (v1.0.874, own PR): (1) a SEPARATE, 100%-
+    confirmed dead-code bug in the SAME area — `/api/health`'s `bot.
+    drawdownPct` field read `state.lastEquity`, a property NEVER assigned
+    anywhere on `state` in the entire file (grepped `state\.lastEquity\s*=`
+    file-wide — zero matches), so `parseFloat(state.lastEquity ||
+    String(state.equityPeak))` always fell through the `||` to
+    `state.equityPeak` and computed `(peak - peak) / peak`, i.e. always
+    exactly 0. Every prior session log quoting `drawdownPct:"0.0"` as
+    evidence of no drawdown (dozens, going back weeks) was reading a
+    metric that could not have reported anything else — not confirmation
+    the account was healthy. Fixed to reuse `drawdownGuard.ts`'s
+    `evaluateDrawdown` against the account equity Check 3 of the health
+    route already fetches, the same validated-read helper the max-drawdown
+    kill switch itself uses, so this now reflects real live drawdown from
+    peak. (2) `drawdownGuard.ts` gained `evaluateDailyPnl(equity,
+    lastEquity)`, extending the exact validated-read philosophy the
+    2026-07-07 max-drawdown incident established (reject non-finite/<=0
+    on either side, otherwise compute honestly — an ambiguous-but-valid
+    reading is NOT second-guessed) to the Tier-2 daily-loss check at
+    `server/bot.ts`, which had been using the identical
+    `parseFloat(x || "100000")` anti-pattern that incident's own fix
+    was written to eliminate, just never extended to this second call
+    site. (3) the `TIER2-LIMIT` audit line now includes the raw
+    `equity`/`last_equity`/`equityPeak` numbers instead of only the
+    rounded percentage — this session's own biggest diagnostic gap — so
+    the NEXT time this fires (or if it is still firing once v1.0.874 is
+    live), the raw numbers settle the real-loss-vs-data-glitch question
+    directly from `/api/diag/audit` without needing Alpaca/Railway access.
+    NEXT: (1) once v1.0.874 is live, re-poll `/api/diag/audit?
+    limit=200&token=$DIAG_TOKEN` for `TIER2-LIMIT` lines — if still
+    firing, the enriched message now gives real numbers: if `last_equity`
+    is far above `equityPeak`, that is strong confirmation this is an
+    Alpaca-side data anomaly (their own EOD snapshot should never exceed
+    every equity this account's own continuous polling has ever recorded)
+    and the human should be asked to check the Alpaca paper-account
+    dashboard/support directly — this sandbox cannot. If `equity` itself
+    reads far below what `/api/diag/positions-detail` implies (cash +
+    market value), the anomaly is on the `equity` side instead, likely a
+    stale account snapshot cache. (2) if the halt resolves on its own once
+    a new trading day's `last_equity` baseline rolls over, confirm the
+    stale reading was scoped to 2026-09-08/09 only, and note whether this
+    recurs on future post-incident days (a recurrence would upgrade this
+    from "likely one-off platform glitch" to a pattern needing its own
+    RULE REVIEW). (3) do NOT add a peak-relative sanity bound to
+    `evaluateDailyPnl` (e.g. "reject `last_equity` above `equityPeak`")
+    without first confirming via (1) that this really is fabricated data
+    and not a real loss — that would be loosening a risk-limit trigger on
+    inference alone, which RULE REVIEW forbids.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -11090,6 +11345,28 @@ territory in their first commit)
   10-K subsidiary lists) + EIA-930 totals reconciling to registry
   capacity within ~5% per region. Extends the POWER-PLANT hypotheses
   entry; the fusion is the operator-concentration conditioning.
+  UPDATE 2026-09-09 (scheduled-routine [PRODUCT] session): the missing
+  ingredient — EIA-930 generation BY FUEL TYPE per balancing authority —
+  is now BUILT and archiving (server/gridGeneration.ts, GET
+  /api/data/grid-generation, datacore/manifests/gridgeneration.json;
+  signal_ladder.json id grid_generation_fuel_mix, raw_only). It had not
+  existed before this session: griddemand.ts's own `type` facet is D/DF
+  (demand and demand-forecast only), never generation-by-source, so the
+  two prior recon passes that assumed this ingredient "already existed"
+  were wrong — confirmed live against the real EIA v2 API this session
+  (electricity/rto/fuel-type-data, distinct from griddemand.ts's
+  electricity/rto/region-data). The operator->ticker table
+  (datacore/entity_map.json, 44/69 mapped) was independently re-checked
+  this session and found ALREADY COMPLETE for its honest scope — all 25
+  unmapped entries carry dated, sourced notes explaining why (government/
+  municipal authorities with no ticker, or private/JV generators verified
+  via WebSearch 2026-07-05) — no further mapping work was available
+  there. GATE 1 GROUND TRUTH itself (regional generation totals vs
+  registry capacity) is NOT yet run — it needs at least ~2 days of
+  archive depth per respondent (readiness_trigger in signal_ladder.json)
+  to compute an honest full-diurnal-cycle daily total before comparing
+  against static nameplate capacity; a future session runs the actual
+  reconciliation once that trigger fires.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
@@ -17644,6 +17921,35 @@ including live GetCapabilities probing rather than assumption, catching
 the ENCC-discontinued dead end, and root-causing (not just noting) the
 whole-globe 2026-07-15 tile gap.
 
+## 2026-09-08 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — TREASURY DAILY STATEMENT GATE 1 (DATA): run for the first time since the ladder path was filed 2026-07-06 — PASS, r=0.979 across 22 months (v1.0.870)
+
+Full account in experiments.md's matching dated entry — this is the pointer, not
+a restatement, per this file's own established convention.
+
+HEADLINE: `scripts/treasury_dts_gate1.ts` reconciles `sumTgaDepositsExDebt` (new
+pure function, server/treasuryDts.ts — TGA "Deposits" rows summed on `mtd_amt`,
+excluding the API's own duplicate "Total Deposits" subtotal row and excluding
+"Public Debt Cash Issues," the one a-priori exclusion) against Treasury's own
+separately-compiled Monthly Treasury Statement (`mts_table_1`) "current month
+gross receipts." Pre-registered bar (REASONING STANDARD #10): Pearson r >= 0.85.
+LIVE RESULT: r=0.979, n=22 months (2024-10 through 2026-07, both fiscal years in
+the latest MTS release) — PASS. The two series carry a stable ~1.21x wedge
+(stdev 0.094) rather than near-equality, which is expected and does not affect
+the verdict — gate 1 asks whether the archive tracks reality, not whether the
+levels match. `datacore/signal_ladder.json` updated: raw_only/gate 0 ->
+gate1_pass/gate 1.
+
+FINDING WORTH RECORDING (REASONING STANDARD #4-style distrust of a first-draft
+number): a naive full sum over all "Deposits" rows (no exclusions) read exactly
+2x the true monthly total, because the FiscalData JSON envelope carries both the
+78 individual category rows AND a "Total Deposits" subtotal row for the same
+account — summing both double-counts. Caught by listing every (transaction_type,
+account_type, table_nbr) triple present on a live day before trusting any
+number, not assumed from the field docs.
+
+NEXT (queued, not this session): GATE 2 (withheld-tax YoY growth vs payroll-
+surprise dates) needs a BLS payroll-surprise-date calendar as ground truth —
+unsourced, not attempted.
 ## 2026-09-08 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — github_org_engineering_momentum's own GATE 2 readiness check surfaced a live, previously-unknown 8-day silent archive stall; instrumented (not yet root-caused at the external layer) via a new poll-health diag probe
 
 Full account in experiments.md's matching dated entry — this is the pointer,

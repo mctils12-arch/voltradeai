@@ -1,5 +1,105 @@
 # Data / Access Wishlist — human reviews weekly
 
+## 🔴 ACTIVE LIVE INCIDENT, ESCALATED 2026-09-08 (scheduled-routine session,
+## sixth session this UTC day) — production OOM-crash-loop NOT resolved
+## after TWO autonomous fix attempts; needs tooling/access this sandbox
+## lacks, per RECURRENCE ESCALATES
+
+WHAT: production has been crash-looping roughly every 90-130s during
+market hours since at least 2026-09-08 ~15:57Z (KNOWN BROKEN #41 in
+`research/open_questions.md` — read that entry first for the full
+timeline). `rss_mb` climbs ~500MB→770-990MB each cycle before the process
+becomes unreachable (502/timeout) and restarts. Two independent, real
+causes were found and fixed today: the Tier-3 port-dwell weekly fold
+(v1.0.869/#1030) and `server/routes.ts`'s shadowstats/portdwell dashboard
+refreshers (v1.0.871/#1033) — both shipped with tests, both gate-clean,
+both CONFIRMED live in production (two `STARTUP code_version 1.0.871`
+audit entries observed) and CONFIRMED functioning as designed (both now
+correctly defer via a cooldown guard instead of retrying). **The crash
+loop continued unchanged after both fixes deployed** — five more full
+boot/crash cycles observed directly post-merge, same ~90-130s period, same
+RSS climb shape.
+
+WHY THIS IS FILED HERE INSTEAD OF PATCHED A THIRD TIME: CLAUDE.md's
+RECURRENCE ESCALATES rule is explicit — "if an issue already marked fixed
+breaks again, patching it again is FORBIDDEN... two failed fixes on the
+same subsystem = architecture smell: propose structural work via
+wishlist.md." Two fixes have now been confirmed live and confirmed
+insufficient. A third guess-and-cooldown patch without new evidence would
+repeat the same mistake a third time.
+
+RULED OUT THIS SESSION (so a future session doesn't re-derive these):
+- Both known fold families — confirmed inactive via their own audit lines
+  (`TIER3-PORTDWELL ... deferred_cooldown`, and `crashSafeRefresh.ts`'s
+  guard covering `refreshShadowStats`/`refreshPortDwell`) at the exact
+  times crashes were observed.
+- The Python daemon — `/api/diag/daemon` mid-incident showed `rss_mb:
+  277.3` (self-kill ceiling 1024MB) and `uptime_seconds: 242`, comfortably
+  alive and far under its own budget across multiple Node crash/restart
+  cycles (it's a separately supervised process per `run_with_daemon.sh`).
+  The leak is specifically in Node's own process memory, not the daemon.
+
+WHAT THIS SESSION COULD NOT DO (the actual blocker): distinguish a genuine
+V8 `--max-old-space-size` heap exhaustion from a container-level cgroup
+OOM kill of the whole process — both look identical from `/api/health`
+polling (which is all this sandbox has). `heap_used_mb`/implied
+`heap_total_mb` were still climbing together at the last pre-crash reading
+each cycle observed, never visibly plateauing near a fixed ceiling before
+the process vanished, which is suggestive of a cgroup-level kill (RSS
+crossing the *container's* memory.max, not V8's own limit) rather than a
+clean V8 OOM — but this is inference from the outside, not proof. Railway's
+actual stderr/crash logs (a V8 "FATAL ERROR: Reached heap limit... 
+Allocation failed" trace vs. a bare SIGKILL with no trace) would settle it
+immediately and this sandbox has no access to them.
+
+BUILD-FIRST ANALYSIS (per this file's own convention, even though this is
+an access gap rather than a data-source ask): the free alternative is a
+bisection session — feature-flag Tier 2 and Tier 3 off entirely (both
+already exist as isolated functions called from a small number of timer
+sites in `server/bot.ts`), redeploy, and watch `/api/health` for the same
+90-130s period with the flags off. If the loop disappears, the leak is
+inside the Tier2/Tier3 path (narrows the search a lot, independent of log
+access). If it persists with BOTH tiers off, the leak is in something that
+runs unconditionally regardless of tier gating (the WebSocket stream, the
+position monitor's 60s sync, Express/route registration itself, or a
+module-load-time leak) — a much smaller, very different search space. This
+costs one more deploy cycle and zero new paid access; it should be a
+future session's PRIMARY action before anything else touches this
+incident, rather than another blind cooldown-style patch.
+
+WHAT ONLY THE HUMAN CAN DO FASTER: pull Railway's raw deploy/runtime logs
+for the container around any of the `STARTUP`/502 timestamps logged in
+`research/experiments.md`'s 2026-09-08 sixth-session entry (e.g.
+20:46:38Z-20:47:xxZ or 20:48:37Z-20:48:xxZ) and check for a V8 fatal-error
+trace vs. a bare kill with no trace. That single log line would likely
+settle the heap-vs-cgroup question this session could not, and save the
+bisection session real time.
+
+UPDATE 2026-09-09 (scheduled-routine session, [REPAIR] — this session's own
+task instructions require becoming a repair session when a critical KNOWN
+BROKEN item is unfixed, and this is that item): the bisection TOOLING
+named above is now built and merged, still with BOTH flags OFF by default
+(zero production behavior change) — `server/bisectionFlags.ts` +
+`server/bot.ts` wiring, full account in `research/open_questions.md`
+KNOWN BROKEN #41's dated update. Confirmed this session, unchanged from
+2026-09-08: this sandbox has no Railway API/CLI (`which railway` empty,
+no `RAILWAY_*` env vars) and cannot flip an env var in production itself.
+
+**HUMAN ACTION NEEDED to actually run the bisection**: in the Railway
+dashboard, set `VOLTRADE_DISABLE_TIER2=1` and `VOLTRADE_DISABLE_TIER3=1`
+on the service, redeploy, and watch during market hours (9:30am-4pm ET)
+for the same ~90-130s crash cycle. Loop stops → the leak is in Tier 2/3's
+own code path (not the two already-fixed folds specifically — something
+else inside `tier2Intelligence`/`tier3Strategic`). Loop persists → it's
+somewhere unconditional (the WebSocket stream, Express/route
+registration, or a module-load-time leak — Tier 1's 45s reflex loop is
+deliberately NOT gated by these flags, since disabling risk management
+mid-incident would be its own hazard; a read-only Tier-1 variant would be
+needed before it could be ruled out the same way). Either result, unset
+both env vars and redeploy afterward — they're diagnostic-only. A future
+scheduled session cannot do this step itself (no Railway access), so this
+stays open until a human runs it or grants a future session that access.
+
 ## ⚠ STALE-PR BACKLOG FOUND 2026-08-20 (scheduled-routine session #3) —
 ## 11 `claude/*` PRs, 6–35 days old, never merged; three distinct causes
 ## identified, two safe fixes already applied this session

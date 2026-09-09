@@ -20,6 +20,7 @@ import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
+import { guardedRefresh } from "./crashSafeRefresh";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -85,6 +86,7 @@ import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
+import { bootGridGenerationPoll, latestGeneration, gridGenerationEnabled } from "./gridGeneration";
 import { bootEpaCamdPoll, latestEpaCamd, aggregateByFacility, epaCamdUsingDemoKey } from "./epaCamd";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
@@ -2930,6 +2932,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // EIA-930 hourly net generation by fuel type (RAW — sibling series to
+  // grid-demand above, key-gated on EIA_API_KEY). Ships the missing raw
+  // ingredient for FUSION HYPOTHESIS (b) in CLAUDE.md (generation shifts x
+  // utility tickers) — the fusion's own gate-1 reconciliation against
+  // registry capacity is a separate, later step once archive depth
+  // accumulates (datacore/signal_ladder.json). Serves the poller's cached
+  // per-respondent fuel mix only (event-loop rule); never fetches here.
+  bootGridGenerationPoll();
+  app.get("/api/data/grid-generation", (_req, res) => {
+    if (!gridGenerationEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "EIA_API_KEY not set (free signup — see wishlist)", count: 0, respondents: [] });
+    }
+    const hit = latestGeneration();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "EIA-930 Hourly Electric Grid Monitor", warming_up: true, count: 0, respondents: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "EIA-930 Hourly Electric Grid Monitor (public domain)",
+      attribution: "EIA-930 Hourly Electric Grid Monitor",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "hourly net generation (MWh) by fuel type for US48 + major balancing authorities, ~1-2h publication lag; storage fuel types (BAT/OES/PS/UES) legitimately read negative during charging; no predictive claim — the operator-concentration fusion hypothesis this feeds stays ladder-locked until its own gate 1 (research/open_questions.md, CLAUDE.md FUSION HYPOTHESES (b))",
+      respondents: hit.stats,
+    });
+  });
+
   // EPA CAMD CEMS unit-level plant operations (RAW ground truth — data
   // census SECTION 3 item 1, "the standout"; gate-1 truth source for the
   // power-vertical satellite/imagery inference roots, not itself a
@@ -3903,20 +3934,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (prod: 000/502 on cold hit; every other route starved meanwhile). Now:
   // async streaming scan on an eager 10-min poller; the route serves only
   // the cache and answers instantly, warming_up before the first pass.
+  // CRASH-LOOP GUARD (2026-09-08 live-incident REPAIR, second PR on the same
+  // incident — see server/crashSafeRefresh.ts's own header and
+  // research/experiments.md this date): this refresh runs unconditionally
+  // the instant it's registered below (i.e. at every process boot) and
+  // again every 10 minutes, folding the full growing AIS archive. If that
+  // fold's memory footprint OOM-kills the whole process before
+  // `shadowCache` is set, the crash erases the only evidence an attempt was
+  // made — the next boot retries the identical fold immediately, forever.
+  // guardedRefresh durably records the attempt BEFORE the fold runs so a
+  // crash still leaves that fact on disk, breaking the loop.
+  const REFRESH_CRASH_COOLDOWN_MS = 6 * 3600_000; // 6h — matches portDwellCapture.ts's own guard
   let shadowCache: { at: number; data: any } | null = null;
   let shadowRunning = false;
   const refreshShadowStats = async () => {
     if (shadowRunning) return;
     shadowRunning = true;
     try {
-      const zones = (shadowZones as any).zones || [];
-      const data = {
-        kind: "raw",
-        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
-        zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
-        ...(await computeShadowStatsAsync(zones)),
-      };
-      shadowCache = { at: Date.now(), data };
+      const result = await guardedRefresh("shadowstats", REFRESH_CRASH_COOLDOWN_MS, async () => {
+        const zones = (shadowZones as any).zones || [];
+        const data = {
+          kind: "raw",
+          source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+          zones: zones.map((z: any) => ({ id: z.id, name: z.name })),
+          ...(await computeShadowStatsAsync(zones)),
+        };
+        shadowCache = { at: Date.now(), data };
+      });
+      if (!result.ran) console.warn(`[datacore] shadowstats refresh deferred: ${result.detail}`);
     } catch (e: any) {
       console.error("[datacore] shadowstats refresh:", e?.message || e);
     } finally {
@@ -4126,19 +4171,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // [REPAIR 2026-07-05] same event-loop defect as shadowstats (fourth
   // site, heavier 168h window): sync scan per cache miss. Eager 10-min
   // poller now; the route serves only the cache.
+  // CRASH-LOOP GUARD — same rationale and mechanism as refreshShadowStats
+  // above (server/crashSafeRefresh.ts); this is the "heavier 168h window"
+  // sibling the comment above already flags as the more expensive of the two.
   let dwellCache: { at: number; data: any } | null = null;
   let dwellRunning = false;
   const refreshPortDwell = async () => {
     if (dwellRunning) return;
     dwellRunning = true;
     try {
-      const ports = portsFromSites((datacoreSites as any).sites || []);
-      const data = {
-        kind: "raw",
-        source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
-        ...(await computePortDwellAsync(ports)),
-      };
-      dwellCache = { at: Date.now(), data };
+      const result = await guardedRefresh("portdwell-dashboard", REFRESH_CRASH_COOLDOWN_MS, async () => {
+        const ports = portsFromSites((datacoreSites as any).sites || []);
+        const data = {
+          kind: "raw",
+          source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03)",
+          ...(await computePortDwellAsync(ports)),
+        };
+        dwellCache = { at: Date.now(), data };
+      });
+      if (!result.ran) console.warn(`[datacore] portdwell refresh deferred: ${result.detail}`);
     } catch (e: any) {
       console.error("[datacore] portdwell refresh:", e?.message || e);
     } finally {

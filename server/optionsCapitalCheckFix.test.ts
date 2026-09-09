@@ -41,7 +41,7 @@ function slice(fromMarker: string, toMarker: string): string {
 test("cashAvailable prefers acct.options_buying_power over acct.cash", () => {
   const section = slice(
     "LIVE-CAPITAL CAP 2026-07-31",
-    "const lastEquity = parseFloat(acct.last_equity",
+    "const pnlEval = evaluateDailyPnl(",
   );
   assert.ok(
     /parseFloat\(acct\.options_buying_power\)/.test(section),
@@ -55,7 +55,7 @@ test("cashAvailable prefers acct.options_buying_power over acct.cash", () => {
 test("cashAvailable falls back to acct.cash only when options_buying_power is absent/non-numeric", () => {
   const section = slice(
     "const optionsBp = parseFloat(acct.options_buying_power);",
-    "const lastEquity = parseFloat(acct.last_equity",
+    "const pnlEval = evaluateDailyPnl(",
   );
   assert.ok(
     /Number\.isFinite\(optionsBp\)\s*\?\s*optionsBp\s*:\s*parseFloat\(acct\.cash \|\| "0"\)/.test(section),

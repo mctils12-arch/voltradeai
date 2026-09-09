@@ -18,8 +18,11 @@
 # 86% of the original count was two mechanical causes. That noise is precisely
 # why nobody ever read the list the two real bugs were sitting in.
 #
-# ── WHY THE PIN IS 12 AND NOT 0 ───────────────────────────────────────────
-# All 12 remaining are genuine (itemised in research/tsc_baseline.md §4), but
+# ── WHY THE PIN IS 11 AND NOT 0 ───────────────────────────────────────────
+# (2026-09-09: one TS2339 fixed and dropped from this pin — `state.lastEquity`
+# didn't exist on `state`'s type, the same dead-field bug fixed in bot.ts's
+# health check this session; see research/experiments.md.)
+# The remaining 11 are genuine (itemised in research/tsc_baseline.md §4), but
 # THREE of them are in server/billing.ts, a FROZEN PATH an autonomous session
 # may not edit. Pinning 0 would either block this ratchet forever or pressure
 # a future session into touching a frozen path. So: non-increasing, and lower
@@ -33,9 +36,9 @@
 # — do not "fix" it by raising the pin. The script prints a per-code diff on
 # failure so the two cases are distinguishable at a glance.
 
-TOTAL 12
+TOTAL 11
 
-TS2339 6
+TS2339 5
 TS2345 1
 TS2349 1
 TS2353 3
