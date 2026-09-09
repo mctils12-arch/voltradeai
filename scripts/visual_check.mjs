@@ -117,6 +117,9 @@ const PAGES = {
   // EIA-930 hourly electric grid demand — same Phase 5 ratchet rule as
   // fleetutilization/streams/secftd above.
   griddemand: { route: "/app#/data/grid-demand", map: false },
+  // EIA-930 hourly net generation by fuel type — griddemand's sibling
+  // series — same Phase 5 ratchet rule as griddemand/fleetutilization above.
+  gridgeneration: { route: "/app#/data/grid-generation", map: false },
   // OCC daily options cleared volume by trade origin — same Phase 5
   // ratchet rule as griddemand/fleetutilization/streams above.
   occvolume: { route: "/app#/data/occ-volume", map: false },

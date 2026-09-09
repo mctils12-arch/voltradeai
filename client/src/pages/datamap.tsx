@@ -58,6 +58,7 @@ import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
 import FleetUtilizationView from "./fleetUtilization";
 import GridDemandView from "./gridDemand";
+import GridGenerationView from "./gridGeneration";
 import OccVolumeView from "./occVolume";
 import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
@@ -901,6 +902,7 @@ const LAYER_GROUP: Record<string, string> = {
   ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings", contracts: "filings",
   graph: "graph",
   grid_demand: "facilities",
+  grid_generation: "facilities",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
   submarine_cables: "facilities",
@@ -2892,6 +2894,12 @@ export default function DataMapPage() {
   // passed, GATE 2 demand-residual-vs-industrial-returns ATTEMPTED AND
   // KILLED 2026-08-09 — RAW display only, no signal claim).
   const [gridDemandOpen, setGridDemandOpen] = useState(() => window.location.hash === "#/data/grid-demand");
+  // EIA-930 hourly net generation by fuel type (#/data/grid-generation) —
+  // same overlay pattern, grid_demand's sibling series (generation-by-source
+  // vs. demand; /api/data/grid-generation, shipped API-only v1.0.870 — the
+  // missing raw ingredient for CLAUDE.md's FUSION HYPOTHESIS (b). RAW
+  // display only, gate 1 for the fusion reconciliation has not run yet).
+  const [gridGenerationOpen, setGridGenerationOpen] = useState(() => window.location.hash === "#/data/grid-generation");
   // OCC daily options cleared volume by trade origin (#/data/occ-volume) —
   // same overlay pattern (DATACORE MAXIMUS census #1's own filed UI
   // follow-up, /api/data/occ-volume, shipped API-only v1.0.580; GATE 1
@@ -3268,6 +3276,7 @@ export default function DataMapPage() {
       setSecFtdOpen(window.location.hash === "#/data/ftd");
       setFleetUtilOpen(window.location.hash === "#/data/fleet-utilization");
       setGridDemandOpen(window.location.hash === "#/data/grid-demand");
+      setGridGenerationOpen(window.location.hash === "#/data/grid-generation");
       setOccVolumeOpen(window.location.hash === "#/data/occ-volume");
       setTffOpen(window.location.hash === "#/data/tff");
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
@@ -12210,6 +12219,31 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.grid_demand, mapSettled, setStatus]);
 
+  // ── EIA-930 hourly net generation by fuel type (RAW; non-geospatial —
+  // same inline-panel-row + full-view pattern as grid_demand, its sibling
+  // series). Server refreshes on the same 2h poll / 300s badge-refresh
+  // convention. ──
+  useEffect(() => {
+    if (!enabled.grid_generation) { setStatus("grid_generation", "off"); return; }
+    if (!mapSettled) { setStatus("grid_generation", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("grid_generation", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/grid-generation");
+        const d = await r.json();
+        if (stop) return;
+        if (d.enabled === false) { setStatus("grid_generation", "awaiting_key"); return; }
+        setStatus("grid_generation", "active", d.count);
+      } catch {
+        if (!stop) setStatus("grid_generation", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.grid_generation, mapSettled, setStatus]);
+
   // ── OCC daily options cleared volume by trade origin (RAW; non-geospatial
   // — same inline-panel-row + full-view pattern as grid_demand/secftd).
   // Server refreshes on a 4h poll (cached top-underlyings only), same 300s
@@ -12543,6 +12577,7 @@ export default function DataMapPage() {
     id === "secftd" ? <TrendingDown size={15} /> :
     id === "fleet_utilization" ? <Plane size={15} /> :
     id === "grid_demand" ? <Zap size={15} /> :
+    id === "grid_generation" ? <Zap size={15} /> :
     id === "occ_volume" ? <Percent size={15} /> :
     id === "tff" ? <Scale size={15} /> :
     id === "treasury_auctions" ? <Tag size={15} /> :
@@ -12567,7 +12602,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -13073,6 +13108,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "grid_generation" && on && (
+          // Same pattern as grid_demand/fleet_utilization/ats_summary: a
+          // per-balancing-authority generation-by-fuel-type table doesn't
+          // belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/grid-generation"; setGridGenerationOpen(true); }}>
+              Open grid generation view — by fuel type →
+            </button>
+          </div>
+        )}
         {l.id === "occ_volume" && on && (
           // Same pattern as grid_demand/fleet_utilization/secftd: a
           // per-underlying cleared-volume table doesn't belong in a
@@ -13367,6 +13413,9 @@ export default function DataMapPage() {
       )}
       {gridDemandOpen && (
         <GridDemandView onBack={() => { window.location.hash = "#/data"; setGridDemandOpen(false); }} />
+      )}
+      {gridGenerationOpen && (
+        <GridGenerationView onBack={() => { window.location.hash = "#/data"; setGridGenerationOpen(false); }} />
       )}
       {occVolumeOpen && (
         <OccVolumeView onBack={() => { window.location.hash = "#/data"; setOccVolumeOpen(false); }} />
