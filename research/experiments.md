@@ -82164,3 +82164,160 @@ full gate suite (server+client+python+tsc+counters+build) green before
 committing. No higher-priority item was skipped (no LIVENESS ALARM
 firing at session start; the crash-loop incident itself IS this
 session's primary action, not a competing one).
+
+## 2026-09-09 (third session this UTC day) — [PRODUCT] /data client page for grid-generation (EIA-930 net generation by fuel type), the NEXT item the prior EIA-930 session queued (v1.0.876)
+
+TERRITORY: T-CLIENT (client/src/pages/gridGeneration.tsx, client/src/pages/
+datamap.tsx wiring, scripts/visual_check.mjs) + T-DATACORE-adjacent
+(datacore/layers.json) + SHARED-minimal (server/layersRegistry.test.ts's
+pinned counter, package.json, last commit per merge-order protocol).
+
+SESSION-START (per this session's own task instructions — a [PRODUCT]
+session, check health/KNOWN BROKEN first, proceed with product work unless
+blocked): read CLAUDE.md in full, all of research/ (PROGRAM_STATE.md's own
+queue — a separate T-CLIENT rendering-law program, not this session's
+territory; the tail of this file; open_questions.md KNOWN BROKEN). KNOWN
+BROKEN #41 (production OOM crash-loop) is the one unresolved critical item
+— per this session's task instructions, noted and NOT blocking (it needs
+Railway access this sandbox lacks either way; the 2026-09-09 second-session
+entry above already built the bisection tooling and is waiting on a human
+to flip the flags). No LIVENESS ALARM condition applies to product-session
+scope. Ran `python3 scripts/ladder_readiness_check.py`: 0/4 gated roots
+ready (cftc_cot/sec_8k/fleet_utilization all still WAITING; grid_generation_
+fuel_mix itself sits at `raw_only` with a freshly-set 2-day archive trigger
+from today's first session, 0d elapsed) — no gate-2 test could run this
+session regardless of which root was picked.
+
+PRIMARY ACTION: `research/PROGRAM_STATE.md` and `platform_program.md` both
+came up clear of unclaimed items in their own territories; checked
+`datacore/signal_ladder.json` roots against `client/src/pages/` for a
+live-data/no-UI gap (RAW OVERLAYS vs SIGNALS: raw display needs no ladder
+gate). `grid_generation_fuel_mix` (raw_only, EIA-930, shipped API-only this
+same UTC day at v1.0.870/PR #1035) had a live `/api/data/grid-generation`
+route and zero client references anywhere under `client/src/` — exactly the
+"shipped-data-no-client-page" gap class this file's own NEXT note for that
+PR named directly ("(3) /data client page for grid-generation ... same
+incremental API-then-UI sequencing as every other root in this file").
+Also independently confirmed the two other named candidates
+(github_org_engineering_momentum, treasury_daily_statement, un_comtrade_
+bilateral_trade) already have client pages — not stale gaps.
+
+Built `client/src/pages/gridGeneration.tsx`, copying `gridDemand.tsx`'s
+wiring recipe exactly (its own sibling series — demand vs.
+generation-by-source, same EIA-930 API, same EIA_API_KEY gate, same
+`.vt-filings-*`/`.vt-shortvol-body` CSS, no new styles): three-state render
+(not-enabled / warming-up / data), honest RAW/no-predictive-claim banner
+restating the server's own note verbatim, and the FUSION HYPOTHESIS (b)
+gate-1-lock stated explicitly (nothing on the page is a validated signal).
+The one real design decision beyond the copy: `RespondentGenerationStat`
+carries a nested `fuel_mix` array (not a flat number like grid_demand's
+`latest_mwh`), so the table gained a `fuelMixSummary()` helper — top 4 fuel
+sources by magnitude with each one's % share of `total_mwh` (share is
+`null`, never `0%`, when `total_mwh` is null/0 — never divides by a falsy
+total) — plus an `EIA-930` fuel-type code→label dictionary (BAT/COL/GEO/
+NG/NUC/OES/OIL/OTH/PS/SNB/SUN/UES/UNK/WAT/WNB/WND) read from the server
+module's own header comment, not guessed. Confirmed server field name is
+`latest_mwh` (not `mwh`) by reading `server/gridGeneration.ts`'s actual
+`FuelMixEntry` interface, not the earlier route-handler doc-comment (which
+says `mwh` — a stale comment in that file, not touched this session, out
+of scope for this PR).
+
+Full `datamap.tsx` wiring, same six-point pattern as every prior root in
+this file (import, hash-route-derived `useState`, hashchange sync,
+`enabled.grid_generation` status-polling `useEffect` — same 300s
+badge-refresh convention as grid_demand — icon ternary, `LAYER_GROUP` entry,
+unit-label ternary, "open full view" button block, mounted view): all
+traced and matched against `grid_demand`'s own six call sites before
+editing, not assumed from the page component alone. `datacore/layers.json`
+gained a `grid_generation` entry (facilities group, `kind:"raw"`, same
+prose pattern as `grid_demand`'s own entry, RAW/no-signal-claim stated).
+
+BYPRODUCT FIX (found while wiring, not pre-existing scope): the new layer
+has neither `renderKind` nor `lod` (correct — it is a non-rendered tabular
+RAW leaderboard root with no map geometry, same class as its own sibling
+`grid_demand`/`treasury_dts`, both of which also carry neither field —
+verified live via `python3 -c "..."` before deciding, not assumed).
+`server/layersRegistry.test.ts`'s Track 4 (T4.1) `PINNED_GAP` ratchet
+(research/PROGRAM_STATE.md Q11) therefore had to move 248 → **249** in this
+same PR — a rise, but the earned kind: MEASUREMENT INTEGRITY's "a change
+that flatters is suspect by default" cuts the other way here (a WORSE
+number, not a better one), and the alternative (inventing a fake
+`renderKind`/`lod` for a layer with no map presence, just to hold the pin)
+would have been the actual violation — a lie in the registry to make a
+counter look unchanged.
+
+VISUAL VERIFICATION (PROMOTION RULE 6, client/ touched): `scripts/
+visual_check.mjs`'s `PAGES` map did not include ANY entry for the new
+route (`gridgeneration`) — a first full harness run (390/768/1440, "0 hard
+failure(s)") silently never exercised the new page at all, since this
+harness enumerates named routes rather than scanning `layers.json`/
+`datamap.tsx` for `#/data/*` hash routes (no ratchet test like
+`layersWiring.test.ts` enforces this — a real gap, not filed this session,
+capacity was spent on the primary action). Added a `gridgeneration` PAGES
+entry (same "Phase 5 ratchet rule" comment convention as every sibling
+entry) and re-ran the full harness: `gridgeneration` PASSES at all three
+widths, 0 hard failures overall (screenshots hand-reviewed at 390px/1440px
+— header, honest RAW banner, and the empty-respondents state all render
+correctly; the pre-existing "software renderer" advisory banner and
+touch-target/clipped-control warnings on this page are the same ones every
+other page in this run already carries, not new).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value
+touched; this is a display-only page over an already-shipped RAW archive.
+
+GATES: `npm ci` first (clean install, this sandbox had no `node_modules`
+at session start). `bash scripts/tsc_ratchet.sh`: 11/11, TS2304 = 0 (pin
+moved 12→11 by an unrelated merge since the last session's own reading —
+confirmed via `git fetch origin main` that HEAD matched origin/main before
+starting, so this was pre-existing drift, not caused by this diff).
+`npx tsx --test $(client test files)`: 1083/1083 pass. `npx tsx --test
+server/layersRegistry.test.ts server/layersWiring.test.ts`: 32/32 pass
+(re-run after the PINNED_GAP edit). `bash scripts/gated_tests.sh`: GATE
+PASSED — server suite, client 1083/1083, python 1811 passed/1 skipped/54
+subtests, quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`:
+25 counters OK, no drift beyond the T4.1 pin already accounted for above
+(that ratchet lives in the test file itself, not `ci/counter_baseline.txt`).
+`npm run build`: clean (pre-existing chunk-size warnings only, unrelated).
+`npm run visual`: 0 hard failures at 390/768/1440, `gridgeneration` PASSES
+at all three (see VISUAL VERIFICATION above).
+
+VERSION: v1.0.876 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 205d136/v1.0.875/PR #1038 (the second session's crash-loop
+bisection PR), no concurrent session had moved it). package-lock.json
+resynced via `npm install --package-lock-only`; diff confirms only the two
+version-string lines changed.
+
+NEXT (queued, not this session): (1) `scripts/visual_check.mjs`'s `PAGES`
+map has no automated ratchet tying it to `datamap.tsx`'s actual `#/data/*`
+hash routes or `layers.json`'s RAW-tabular entries — this session found and
+fixed the one gap it happened to introduce, but the class is real: a
+`layersWiring.test.ts`-style static check (parse `datamap.tsx` for every
+hash-route `useState` initializer, assert each has a `PAGES` entry) would
+make this unrepresentable the way R15's `LAYER_GROUP` ratchet already does
+for layer-panel wiring. (2) `server/gridGeneration.ts`'s route-handler doc
+comment in `server/routes.ts` still says `fuel_mix: [{fueltype, mwh}, ...]`
+— the real field is `latest_mwh` (confirmed reading the actual
+`FuelMixEntry` interface this session); a one-line comment fix, left
+out-of-scope for this PR (comment-only, unrelated file region). (3) per the
+AUDITS & DEBT register, staleness/constitutional audit last-run dates
+should be checked by the next session whose fall-through reaches the
+research tier — not checked this session, capacity was fully used by this
+primary PRODUCT action plus the visual-harness gap it found and closed.
+
+STARVED: no — this session's primary action was the queue's own
+directly-named NEXT item from the same UTC day's first PRODUCT session,
+verified still unclaimed and still accurate (not stale, unlike two of the
+three other candidates checked), built end-to-end (server root already
+existed; this session shipped the client page, the registry entry, the
+wiring, and closed a real visual-harness coverage gap it discovered along
+the way), and validated with the full gate suite
+(server+client+python+tsc+counters+build+visual) green before committing.
+No higher-priority item was skipped (no ladder root was ready per
+`ladder_readiness_check.py`; no LIVENESS ALARM at session start; KNOWN
+BROKEN #41 noted per this session's own task instructions but explicitly
+non-blocking for product work, and already has an open human-action item
+filed by the prior session).

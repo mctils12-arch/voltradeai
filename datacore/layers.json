@@ -2358,6 +2358,16 @@
    "description": "Hourly demand (MWh) and day-ahead forecast per balancing authority, ~1-2h publication lag. GATE 1 (revision stability — an independent later re-draw of the same API) PASSED within 0.24%. GATE 2 (weather-adjusted demand residual vs. forward industrial-sector returns) was ATTEMPTED AND KILLED 2026-08-09: predicted signs disagreed with realized returns at both the 20-day and 60-day horizons. As-is display of published demand/forecast values, nothing here is a signal."
   },
   {
+   "id": "grid_generation",
+   "name": "Electric grid generation by fuel type (EIA-930)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "EIA-930 Hourly Electric Grid Monitor (public domain, EIA_API_KEY-gated)",
+   "description": "Hourly net generation (MWh) by fuel source per balancing authority, ~1-2h publication lag. Sibling series to grid_demand (demand vs. generation-by-source, same API, same key gate). RAW ingredient for CLAUDE.md's FUSION HYPOTHESIS (b) (generation shifts x utility tickers, reconciled against powerplant registry capacity) — that gate 1 reconciliation has not run yet, pending accumulated archive depth. Storage fuel types (battery, pumped, other/unknown storage) legitimately read negative while charging. As-is display of published generation values, nothing here is a signal."
+  },
+  {
    "id": "occ_volume",
    "name": "Options cleared volume (OCC daily)",
    "kind": "raw",
