@@ -297,6 +297,18 @@ export function isArchived(org: string, weekStart: string, baseDir?: string): bo
   return archivedKeys.has(`${weekStart}|${org}`);
 }
 
+/** Test-only: this module's dedup/cache/poll-health state is module-level
+ *  singleton (like every other archiver in this file, e.g. cboeVix.ts's
+ *  own `_resetCboeVixForTests`), so a test exercising the cold-cache
+ *  backfill path must be able to reset it rather than rely on file
+ *  execution order to find `cache` still null. */
+export function _resetGithubActivityForTests(): void {
+  archivedKeys.clear();
+  seeded = false;
+  cache = null;
+  lastPoll = null;
+}
+
 export function archiveGithubActivity(records: GithubActivityRecord[], baseDir?: string, nowMs?: number): number {
   const dir = githubActivityDir(baseDir);
   const now = nowMs ?? Date.now();
@@ -461,8 +473,24 @@ export async function refreshGithubActivityCache(
     if (records.length) {
       const merged = cache ? [...cache.records.filter((r) => !records.some((n) => n.key === r.key)), ...records] : records;
       cache = { at: Date.now(), records: merged.slice(-WATCHLIST.length * 8) }; // ~8 weeks rolling
-    } else if (!cache) {
-      cache = { at: Date.now(), records: [] };
+    } else if (!cache || cache.records.length === 0) {
+      // Every org was already archived for the current week (the common
+      // steady state — a whole new week only ever completes once every 7
+      // days) or every fetch failed, so `records` is empty this cycle.
+      // A cold `cache` (fresh boot/redeploy) must NOT be left/set empty in
+      // that case: this is the in-memory store `/api/data/github-activity`
+      // serves directly, so a container restart on an already-fully-
+      // archived week would otherwise report `count:0, records:[]` to
+      // every viewer for up to a week, even with months of real archived
+      // history sitting on disk (live-confirmed: production read exactly
+      // this shape, `weekStart` already archived, `records:[]`, this
+      // session). Backfill from the on-disk archive instead — the same
+      // Freshness Law principle every other archiver here already follows
+      // (render last-known state immediately; never let a cold cache
+      // masquerade as "nothing has ever been archived").
+      const archived = readArchivedGithubActivity()
+        .sort((a, b) => (a.weekStart < b.weekStart ? -1 : a.weekStart > b.weekStart ? 1 : 0));
+      cache = { at: Date.now(), records: archived.slice(-WATCHLIST.length * 8) };
     }
     let archived = 0;
     try { archived = archiveGithubActivity(records, undefined, now); } catch {}

@@ -18370,6 +18370,93 @@ instrumentation this repo already uses for this problem class shipped —
 stopping short of a guessed fix at the unconfirmed external cause on
 purpose, leaving that decision to a future session armed with the new
 probe's actual reading.
+
+## 2026-09-10 (scheduled-routine PRODUCT session, second entry this UTC day) [PRODUCT] — github_org_engineering_momentum: the poll-health probe's "attempted:0" live reading is a real, distinct bug (not the external-failure/redeploy-interruption cases this item's own NEXT anticipated) — cold in-memory cache never backfills from a fully-archived on-disk week, closed live and generalizes NEXT(2)'s systemic pattern
+
+Full account in experiments.md's matching dated entry — this is the pointer,
+not a restatement, per this file's own established convention.
+
+CONTEXT: re-polled `/api/diag/github_activity_poll_health?token=$DIAG_TOKEN`
+per this item's own 2026-09-08 NEXT(1) step. Live reading:
+`attempted:0, weekStart:"2026-08-31"` — a THIRD shape neither of NEXT(1)'s
+two anticipated readings (`attempted:15,succeeded*:0` = total external
+failure; `attempted` well under 15 = redeploy interruption). `attempted:0`
+specifically means every watchlist org's `isArchived(org, weekStart)` read
+true — i.e. the week 2026-08-31..09-06 WAS already fully archived at some
+point, and this cycle correctly found nothing new to fetch. That is
+expected, healthy steady-state behavior for the fetch side (a whole new
+week only becomes fetchable once every 7 days) — not, by itself, evidence
+of a stall.
+
+BUT: `/api/data/github-activity` (the live endpoint the `githubOrgActivity.tsx`
+`/data` client page reads, confirmed by grepping the client's own `fetch()`
+call) returned `count:0, records:[]` at the same moment. Read
+`server/githubOrgActivity.ts`'s `refreshGithubActivityCache` end to end
+(READ BEFORE WRITE): the in-memory `cache` this route serves is DISTINCT
+from the on-disk archive `/history` reads, and its cold-boot branch was
+`else if (!cache) { cache = { at: Date.now(), records: [] }; }` — populated
+ONLY when `fetchGithubActivity` returns new records this cycle, never
+backfilled from disk otherwise. On a redeploy that lands after the current
+week is already fully archived (the exact live state just confirmed), the
+fetch step is a no-op by design (every org skipped), so a freshly-booted
+process's cache starts and stays `{records: []}` — reporting "no data" to
+every viewer of the `/data` page for up to a week, or until the next
+redeploy happens to land mid-week before that week completes, DESPITE this
+root having ~7+ weeks of real archived history on disk (confirmed via
+`readArchivedGithubActivity()`'s own file-scan, weeks back to 2026-07-20
+per the 2026-09-08 entry). This is exactly the systemic pattern that
+entry's own NEXT (2) named ("`warming_up:true` with no on-disk fallback
+when the in-memory cache is cold... systemic across roughly a dozen
+`/api/data/*` routes... filed as a larger, separate future audit") —
+except here the client never even shows a `warming_up` state (the object
+isn't null, so the honest-loading-state branch never fires); it silently
+renders as "zero activity," which is worse: a customer or the human sees a
+confidently-empty page for a root that has real data, not a labeled
+loading state.
+
+FIX SHIPPED (own PR, this session, scope: this one root, not the dozen-
+route audit — that stays filed as its own future item, unattempted here):
+`refreshGithubActivityCache`'s cold/empty-cache branch now backfills from
+`readArchivedGithubActivity()` (sorted by `weekStart`, same rolling
+~8-week cap the live-fetch path already uses) instead of defaulting to an
+empty array. A genuinely fresh archive (nothing ever written) still
+degrades honestly to `{records: []}` — this is a backfill, not a
+fabrication. New test in `server/githubOrgActivity.test.ts` reproduces the
+exact live shape (every org pre-archived for the target week, cache cold)
+and asserts the backfilled cache includes both the just-skipped current
+week AND older history, plus `attempted:0` still reads correctly (the poll
+health signal itself was never wrong — only the cache it feeds was).
+Needed a new `_resetGithubActivityForTests()` export (matching
+`cboeVix.ts`'s own precedent for this exact module-singleton-state-in-
+tests problem) since this module's `cache`/`archivedKeys`/`seeded` are
+process-level singletons and the new test's "cache starts cold" premise
+would otherwise depend on file execution order.
+
+NOT DONE (left for the item's own still-open threads): (1) the dozen-route
+systemic audit NEXT(2) already filed — this session fixed the one
+concrete instance it happened to trip over, not the general pattern. (2)
+whether this root now has enough archived history to actually attempt
+GATE 2 (NEXT(3) from 2026-09-08) — not reached this session, this was a
+data-completeness bug fix, not a ladder attempt. (3) the ORIGINAL 8-day
+stall's root cause (external GitHub Search API failure vs redeploy
+interruption, NEXT(1)'s first two readings) is STILL not settled — this
+session's `attempted:0` reading is a different, later symptom (the week
+IS archived now, just not visibly so) and does not by itself confirm
+whether the original 8-day gap was ever explained; a future session with
+working `api.github.com` access from this sandbox (still blocked, checked
+again this session) or Railway log access would need to settle that
+separately if it recurs.
+
+STARVED: no — this item's own queued NEXT(1) re-poll step surfaced a live
+reading distinct from both cases it anticipated, traced to a real,
+previously-unfixed defect in the exact module (not a guess), fixed with a
+test that reproduces the live production shape, and scoped honestly (did
+not over-claim the dozen-route audit as done). Session-start `/api/health`
+read `bot.status:"killed"` (drawdown kill switch fired — see this file's
+KNOWN BROKEN #42 2026-09-10 update, filed earlier this UTC day) — noted,
+not preempted, per this session's own PRODUCT-session scope; no code
+touches the trading path here.
+
 ## 2026-09-10 (scheduled-routine PRODUCT session) [PIPELINE] — TREASURY DAILY STATEMENT GATE 2 (SIGNAL): withheld-tax YoY growth vs BLS payroll growth — FAIL, r=0.163/p=0.382 at the only currently-usable window (n=31); a real DTS taxonomy change and a real p-value bug both found along the way (v1.0.878)
 
 Full account in experiments.md's matching dated entry — this is the pointer, not
