@@ -6344,6 +6344,80 @@
     dashboard that this is a genuine data artifact, that confirmation is
     the evidence RULE REVIEW requires — a future session may then propose
     (not self-apply) a specific validated-read guard.
+    **UPDATE 2026-09-10 (scheduled-routine PRODUCT session) — used the new
+    `/api/diag/account` + `/api/diag/equity_curve` probes v1.0.880 shipped
+    this morning (own PR, #1043) to actually settle this rather than infer
+    from live snapshots again; new evidence gathered, still not fully
+    conclusive, and a live consequence found: the kill switch item #43
+    predicted would fire HAS fired and production trading has been halted
+    since.** Session-start `/api/health`: `bot.status:"killed"`,
+    `drawdownPct:"-8.3"`. `/api/diag/audit?type=DRAWDOWN-KILL`: one entry,
+    `2026-09-10T03:12:54.727Z`, "Equity $90748 is -18.0% below peak
+    $110727" -- item #43's fix reached this exact reading and fired
+    correctly, pre-market, as predicted. `/api/diag/equity_curve` (new,
+    the actual persisted daily-close archive, not a live re-derivation):
+    2026-09-08 closed $102,808.25; **2026-09-09 closed $90,814.14, a
+    recorded same-day pnl of -$12,059.74 (-11.7%)** -- matching the
+    `TIER2-LIMIT` -11.5%..-11.8% readings this item originally filed
+    almost exactly, and now confirmed as the actual STORED closing value
+    for that day, not merely a transient live read. `/api/diag/orders?
+    limit=60` (covers 2026-09-04 through the present): **zero orders of
+    any kind -- filled, canceled, or expired -- are dated 2026-09-09**; the
+    last activity before the gap is 2026-09-08T21:17:46Z, the next is
+    2026-09-10's kill-switch-driven cancellations. This directly rules out
+    a trade-driven loss: no position was opened, closed, or resized that
+    day. `/api/diag/positions-detail` (live, this session, post-recovery):
+    8 positions, gross exposure $66,365 -- all mark-to-market moves on
+    QQQ/KWEB/FCEL/short-option legs, individually small (max single-line
+    unrealized P&L magnitude under $800) and none newly opened that week
+    per the order log, consistent with this item's original 2026-09-09
+    finding that open-position unrealized P&L never came close to
+    explaining a 5-figure swing. `/api/diag/equity_curve` also shows
+    **2026-09-10 (today, partial day): $101,895.59, pnl -$584.47** --
+    equity has recovered roughly $11,000 of the roughly $12,000 same-day
+    drop with, again, zero intervening orders (the kill switch has
+    blocked all Tier 1/2/3 trading since 03:12Z). A real, static,
+    unchanged basket of positions round-tripping an ~11.7%-of-account move
+    and most of the way back within 24-36 hours, with no position change
+    on either side of the move, is the single strongest piece of evidence
+    yet for the DATA-ANOMALY reading over the real-loss reading -- but
+    this is not proof (a genuine sharp gap-and-recovery in one or more of
+    the small-cap short-put underlyings remains physically possible and
+    was not individually checked against each name's own daily bar this
+    session, which would be the next step to fully rule it out). **Net
+    effect on the open question: upgraded from "cannot be settled from
+    outside" to "leans data-anomaly, still not conclusively settled"** --
+    the human Alpaca-dashboard check this item's 2026-09-09 UPDATE already
+    asked for remains the one thing that would fully resolve it (Alpaca's
+    own trade/mark history for 2026-09-09 on this paper account, viewed
+    directly, would show definitively whether any of the 8 held legs
+    actually marked a combined -$12K that day). NOT self-resolved and not
+    self-actioned beyond this diagnostic read: per RULE REVIEW, no
+    threshold or guard was loosened on this inference, and per this
+    session's own PRODUCT-session scope (told to note KNOWN BROKEN items
+    but not preempt REPAIR duty), no code changed this session.
+    **CONSEQUENCE WORTH SEPARATE HUMAN ATTENTION**: item #43's fix is
+    doing exactly what it was designed to do -- production has been fully
+    halted (all Tier 1/2/3 loops gated off, no auto-resume by design) for
+    ~10 hours wall-clock and counting as of this update, and will remain
+    halted through today's entire market session unless a human manually
+    flips `killSwitch` off. Whether to resume is a human call this item
+    does not make: resuming without resolving the real-loss-vs-anomaly
+    question risks either leaving a real ~-18% drawdown unaddressed (if
+    it's real) or leaving the account needlessly dark all day (if it's a
+    glitch that already reverted, per the equity curve's own recovery
+    reading above).
+    NEXT (queued, not this session): (1) the human Alpaca-dashboard check,
+    still the single decisive step. (2) failing that, a future session
+    could pull each of the 8 held legs' own daily OHLC (options quotes via
+    the existing options data path, QQQ/KWEB/FCEL via any equity bar
+    source already wired) for 2026-09-09 specifically and sum a
+    reconstructed daily P&L independent of both the account-equity field
+    and the live unrealized-P&L field -- the one check this session did
+    not have time for that would fully close the loop without needing
+    Alpaca dashboard access at all. (3) once resolved either way, the
+    human's manual resume decision is theirs alone; this file does not
+    recommend one.
 
 43. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, CODE FIX SHIPPED — NOT YET LIVE-CONFIRMED] The -10%-from-peak
