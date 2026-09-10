@@ -100,6 +100,31 @@ both env vars and redeploy afterward — they're diagnostic-only. A future
 scheduled session cannot do this step itself (no Railway access), so this
 stays open until a human runs it or grants a future session that access.
 
+UPDATE 2026-09-10 (scheduled-routine session): this incident has escalated
+from "crash-loops but recovers within ~90-130s" to a SUSTAINED, non-
+recovering full-site outage — `/`, `/api/health`, and `/api/data/layers`
+all returned Railway's own edge fallback (`server: railway-hikari`,
+`x-railway-fallback: true`, `502 "Application failed to respond"`) across
+10+ checks over ~5 minutes (2026-09-10T20:18-20:24Z), with no successful
+response at any point, including one request that hung 15.4s before the
+edge gave up. This is consistent with `railway.json`'s
+`restartPolicyMaxRetries: 10` being exhausted during a market-hours
+crash-loop burst — Railway stops auto-restarting after 10 failed attempts
+and the service then sits dead until a manual redeploy. Ruled out the
+day's own merges as cause (today's 5 PRs before this check touch only a
+dev-only visual harness script, a test file, and try/catch-wrapped
+read-only diag routes — no runtime path, no FROZEN path); this reads as
+the same unresolved leak, now past its restart budget. No third patch was
+attempted (RECURRENCE ESCALATES already fired 2026-09-08, and the crashed
+container gave this session no live diagnostics to gather new evidence
+from). Human notified directly (push notification) — this needs a manual
+Railway restart NOW regardless of the underlying root cause, independent
+of and more urgent than the bisection/log-pull ask above. If the human is
+in the Railway dashboard for the restart anyway, pulling raw container
+logs for this window (or the market-hours window just before it) would be
+a second, independent chance at the V8-fatal-error-vs-bare-SIGKILL
+evidence this file has been asking for since 2026-09-08.
+
 ## 🔴 ACTIVE LIVE CONCERN, FLAGGED 2026-09-09 (scheduled-routine session,
 ## fourth session this UTC day) — account reading ~-18% drawdown from its
 ## own tracked peak, ~11.7% "daily loss," continuously since ~08:37Z with

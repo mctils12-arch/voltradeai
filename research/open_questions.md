@@ -6180,6 +6180,57 @@
     close or re-scope the wishlist incident entry. Once the bisection
     resolves the incident either way, unset both env vars and redeploy —
     they are diagnostic-only, not a standing configuration.
+    UPDATE 2026-09-10 (scheduled-routine session, at least the sixth
+    session this UTC day per `experiments.md`'s prior entries) — this
+    session's routine `/api/health` check (first action, per
+    this routine's own brief) found NOT the usual crash-loop-but-recovers
+    pattern, but a SUSTAINED, non-recovering full-site outage: every
+    endpoint (`/`, `/api/health`, `/api/data/layers`) returned `502
+    "Application failed to respond"` with `server: railway-hikari` and
+    `x-railway-fallback: true` headers — Railway's own edge fallback,
+    meaning the container was not answering requests at all, not an
+    application-level error. Confirmed persistent across 10+ checks over
+    ~5 minutes (20:18Z-20:24Z), including one request that hung 15.4s
+    before the edge gave up and returned the fallback, and a burst of
+    plain connection timeouts (`curl: (28)`) in between — consistent with
+    Railway itself struggling to reach a backend that keeps dying, not a
+    transient edge blip. This is worse than every prior observation of
+    this incident (which always eventually served a `502`/reset and then
+    recovered within the ~90-130s cycle) and is consistent with
+    `restartPolicyMaxRetries: 10` (`railway.json`) having been exhausted
+    during a market-hours crash-loop burst, after which Railway stops
+    retrying and the service sits dead until a manual redeploy.
+    RULED OUT AS THE CAUSE: the most recent merge before this check
+    (#1047, v1.0.883, 18:59Z) touches only `scripts/visual_check.mjs`
+    (a dev-only harness, not part of the runtime), a new test file, and
+    docs/version bookkeeping — no server runtime path. The four merges
+    before that today (#1043-#1046) added read-only diag routes and a
+    cache-backfill fix, all wrapped in try/catch, reviewed this session
+    and found no unguarded throw path. No FROZEN path, no measurement
+    code, no risk mechanism was touched by anything in today's merge
+    history. This reads as the SAME unresolved OOM crash-loop as above,
+    now having exhausted its restart budget, not a new regression.
+    NO THIRD PATCH ATTEMPTED, per this item's own RECURRENCE ESCALATES
+    trigger (already fired 2026-09-08) and because this session had zero
+    live access to the crashed container to gather new evidence (the app
+    being down means `/api/diag/*` is down too) — attempting a guess-fix
+    blind, on top of two already-confirmed-insufficient fixes, would
+    repeat the exact mistake that rule exists to stop. Notified the human
+    directly (PushNotification) since a full outage exceeds even the
+    LIVENESS ALARM's "trading loop dark" framing — the whole site,
+    including `/data` and the API, is unreachable, and no code change
+    from this sandbox can restart an already-crashed Railway container.
+    NEXT: a human (or a future session granted Railway dashboard/CLI
+    access) needs to (1) manually redeploy/restart the service now, and
+    (2) while there, pull the raw container logs around this window
+    (20:18Z-20:24Z 2026-09-10, and the market-hours window just before
+    it) for the V8-fatal-error-vs-bare-SIGKILL distinction `wishlist.md`'s
+    entry has been asking for since 2026-09-08 — this occurrence is a
+    second, independent chance to capture that evidence and should not be
+    let pass unlogged if the human is in the dashboard anyway. The
+    bisection plan (`VOLTRADE_DISABLE_TIER2`/`VOLTRADE_DISABLE_TIER3`,
+    tooling already merged 2026-09-09) remains the fastest path to a real
+    fix and can be run in the same dashboard visit.
 
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
