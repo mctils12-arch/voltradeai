@@ -83518,3 +83518,186 @@ No higher-priority KNOWN BROKEN item was preempted: #41 (crash-loop) needs
 Railway access this sandbox lacks and was not observed recurring at check
 time; #43 (the reachability fix) is confirmed working as designed (it fired
 exactly as intended) and needs no further action from this session.
+
+## 2026-09-10 (scheduled-routine PRODUCT session, fifth session this UTC day) [PRODUCT] — 8 shipped /data pages had NEVER been exercised by the visual harness (PROMOTION RULE 6 silently unmet); closed + a permanent ratchet added so the class can't recur (v1.0.883)
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs) + SHARED-minimal (new
+server/visualPagesWiring.test.ts, package.json, package-lock.json,
+research/*, last and minimal).
+
+SESSION-START (per this session's own task instructions — a [PRODUCT]
+session: check health/KNOWN BROKEN first, proceed with product work
+unless blocked): read CLAUDE.md in full, all of research/ (PROGRAM_STATE.md
+is a separate T-CLIENT rendering-law/audit-ratchet program, not this
+session's territory — noted, not worked). `git fetch origin main` confirmed
+HEAD matched origin/main (4efc97d/v1.0.882/PR #1046) before starting.
+
+LIVE HEALTH CHECK: `/api/health` was not reachable from this sandbox
+(no live credentials/URL configured here), so relied on the immediately
+prior session's own same-day finding (KNOWN BROKEN #42 entry above):
+trading loop halted, `can_auto_resume:false`, human resume decision
+outstanding. Per this session's own task instructions ("note it but
+proceed with product work unless the break blocks you — product sessions
+do not preempt the DAILY routines' repair duty"): noted, not blocking.
+Nothing in this session touches server/bot.ts, risk_kill_switch.py, or any
+trading path.
+
+PRIMARY ACTION SELECTION: checked `python3 scripts/ladder_readiness_check.py`
+— 0/4 gated roots ready (grid_generation_fuel_mix 1d short of its 2-day
+archive trigger, others weeks out). Checked
+`python3 scripts/data_stream_registry_check.py --unbuilt` — 9/35
+uncatalogued NOT-BUILT candidates, all `declined_*`/`blocked_*` (need a
+human key/registration or are dead sources); axis (a) new-pipeline-build
+queue is exhausted, matching every prior session's own note on this file.
+Surveyed every `gate1_pass` root in `datacore/signal_ladder.json` for an
+attemptable GATE 2: all of them (dtcc_sbsdr_equity_swaps, sec_edgar_13f,
+nrc_outage_reports, app_store_rank_review_velocity, port_dwell_maritime_
+transit) are explicitly blocked on accumulating archive depth (weeks to
+months out, each with its own stated date in the ladder's own notes) —
+none can be honestly attempted today; forcing one would violate REASONING
+STANDARD #4 (statistical power). `research/platform_program.md`'s own
+RESUME STATE confirms P1-P4 fully shipped, P5 HUMAN-GATED — no unclaimed
+platform-program item either.
+
+Re-read the most recent /data-page-shipping session's own NEXT queue
+(2026-09-09 third session, gridGeneration.tsx, this file) — NEXT (1) named
+a real, unclaimed gap directly: `scripts/visual_check.mjs`'s `PAGES` map
+has no automated tie to `datamap.tsx`'s actual `#/data/*` hash routes, so
+a new page can silently ship without ever being visually verified (the
+exact "shipped-data-no-client-page" gap class this file has repeatedly
+found and closed BY HAND, just one level upstream — nothing had ever
+checked whether the harness itself was complete). Picked this as PRIMARY
+ACTION: it is EDGE DOCTRINE #3 (compile knowledge into code — a pattern
+found and fixed manually N times becomes a permanent check) applied
+directly to the program's own recurring finding, it is unclaimed, and it
+serves the /data product surface's PREMIUM EXPERIENCE STANDARD (component
+b: perceived quality/every page verified, not just believed to work)
+directly.
+
+MEASURED FIRST (before writing anything — REASONING STANDARD #10 applies
+to code archaeology too, not just trading hypotheses): wrote a one-off
+Python diff (not committed) comparing every
+`useState(() => window.location.hash === "#/data/...")` initializer in
+`datamap.tsx` (47 found — each one a "Full X view — same overlay pattern"
+hash-driven page, confirmed by reading every one of the 47 preceding
+comments, not assumed) against every hash route registered in
+`scripts/visual_check.mjs`'s `PAGES` map (40 found). Gap: **8 routes never
+registered** — `filings`, `earnings`, `short-volume`, `cot`, `graph`,
+`ats-summary`, `midas`, `dtcc-swaps`. Several (filings/earnings/cot/graph)
+have sat unverified since the very first /data build; `dtcc-swaps` is the
+freshest instance — shipped 2026-08-23 (v1.0.771-ish era, PRODUCT session),
+three weeks unverified at any of the three canonical widths.
+
+BUILT:
+1. `scripts/visual_check.mjs` — added all 8 as new `PAGES` entries
+   (`filings`/`earnings`/`shortvolume`/`cot`/`graph`/`atssummary`/`midas`/
+   `dtccswaps`), same `{ route: "/app#/data/...", map: false }` shape as
+   every sibling entry. `filings`/`earnings`/`shortvolume`/`cot`/`graph`
+   already had real `FIXTURES` entries (their underlying `/api/data/*`
+   routes are shared with other already-tested surfaces); `ats-summary`,
+   `microstructure` (midas's route), and `dtcc-swaps` had none — added
+   realistic fixtures matching each page's own TypeScript interface
+   (`AtsResponse`/`MidasResponse`/`DtccPayload`, read directly from
+   `atsSummary.tsx`/`midas.tsx`/`dtccSwaps.tsx` before writing the fixture
+   shape, not guessed) rather than leaving them on the generic `200 {}`
+   fallback every unmocked `/api/*` route gets (confirmed all three
+   render safely even on `{}` — `data?.field ?? []`/optional-chaining
+   throughout — but a `{}` fixture would screenshot an empty/loading state
+   forever, defeating the harness's actual purpose of catching real
+   layout regressions).
+2. `server/visualPagesWiring.test.ts` (new) — the permanent ratchet,
+   modeled directly on `layersWiring.test.ts`'s established pattern (same
+   session-file precedent this program already trusts): scrapes every
+   hash-route `useState` initializer out of `datamap.tsx` and every hash
+   route out of `visual_check.mjs`'s `PAGES` map, asserts the first set is
+   a subset of the second. A future PR that adds a new `#/data/*` overlay
+   view without a matching `PAGES` entry now fails CI instead of silently
+   shipping unverified — this is what makes the finding permanent rather
+   than a one-time cleanup (EDGE DOCTRINE #3).
+
+VERIFIED, not assumed:
+- A/B'd the new test both directions in-memory (no git operations on the
+  fix itself, learning from this session's own near-miss below): removed
+  the `dtccswaps` PAGES entry via a Python string-replace on a throwaway
+  copy — FAILED with `#/data/dtcc-swaps` in the `unverified` array;
+  restored, PASSED. `npx tsx --test server/visualPagesWiring.test.ts
+  server/layersWiring.test.ts`: 2/2 pass.
+- **Near-miss caught and corrected THIS session**: the first A/B attempt
+  used `git checkout -- scripts/visual_check.mjs` to revert the probe
+  edit, which — because the file had no other commits yet — silently
+  discarded ALL of this session's own PAGES/FIXTURES edits, not just the
+  probe (`git status` afterward showed the file back at HEAD). Caught
+  immediately by re-checking `git status`/`git diff --stat` after the
+  "revert," not assumed clean. Redid both edits from scratch (identical
+  content restored via Edit, verified against the file's actual current
+  state each time, not from memory) and switched the negative-A/B method
+  to a pure in-memory Python read/compare with no filesystem write at all,
+  specifically to make this class of self-inflicted revert structurally
+  impossible for the rest of this session.
+- `npm run build`: clean (pre-existing chunk-size warnings only, unrelated).
+- Rendered all 8 new pages individually
+  (`node scripts/visual_check.mjs --page <name>`) at 390/768/1440: **0
+  hard failures on all 8** — same class of pre-existing touch-target/
+  clipped-control advisory warnings every other page in this harness
+  already carries, not new defects. Hand-reviewed the dtcc-swaps and
+  ats-summary/midas screenshots at 1440px: real populated tables, the
+  honest RAW/no-predictive-claim note visible, matching DESIGN.md.
+- Full `npm run visual` (all ~44 pages × 3 widths) run in full afterward
+  as the final regression check — see GATES below for its result.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value in
+the trading path touched; this is harness/test coverage over already-
+shipped, already-RAW display pages. No SIGNAL claim added or changed on
+any of the 8 pages — all remain exactly the RAW-display-only pages they
+were (dtcc-swaps's own gate-2-locked note is unchanged, just now actually
+rendered by the harness that is supposed to verify it renders).
+
+GATES: `bash scripts/tsc_ratchet.sh`: 11/11, TS2304 = 0, no drift.
+`npx tsx --test server/visualPagesWiring.test.ts server/layersWiring.test.ts`:
+2/2 pass. `bash scripts/gated_tests.sh` (fresh container — `npm ci` +
+`pip install pytest -r requirements.txt -r requirements-dev.txt` both
+needed first): GATE PASSED — client 1083/1083, python 1823 passed/1
+skipped/54 subtests (unchanged from the prior session's own baseline — no
+Python file touched this session). `bash scripts/counter_ratchet.sh`: after
+`git add -A` (new test file counted once staged), 3 counters IMPROVED —
+`tests_run_in_ci`/`tests_gating_merge` 437→438, `assertions` 13857→13861,
+all three this session's own direct effect (the new
+`visualPagesWiring.test.ts` file and its 2 assertions) — re-pinned in
+`ci/counter_baseline.txt` in this same PR; re-ran, 25 counters OK, no
+further drift. `npm run build`: clean. `npm run visual`: 158 PASS / 0 FAIL across all pages at 390/768/1440, 0 hard failures (full run, all pages including the 8 new PAGES entries; the two 500s-truncated partial runs earlier this session were this sandbox's own timeout wrapper cutting the process off mid-flight, not a harness failure — the untruncated `npm run visual` run is the one this GATES line reports).
+
+VERSION: v1.0.883 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 4efc97d/v1.0.882/PR #1046, no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) the same class of gap likely exists
+in the OTHER direction too — a `PAGES` entry whose route no longer
+resolves to anything real in `datamap.tsx` (a stale entry surviving a page
+removal/rename) — this session's ratchet only catches datamap→PAGES
+under-registration, not PAGES→datamap staleness; a future session could
+extend the same test to assert the reverse subset too, low urgency (a
+stale-but-harmless entry doesn't hide a real defect the way an
+under-registered one does). (2) `server/gridGeneration.ts`'s route-handler
+doc-comment field-name typo (`server/routes.ts`, `mwh` vs the real
+`latest_mwh`) flagged by the 2026-09-09 gridGeneration session remains
+unfixed — genuinely trivial, out of scope for this PR (unrelated file
+region, one-line comment). (3) per the AUDITS & DEBT register, staleness/
+constitutional audit last-run dates should be checked by the next session
+whose fall-through reaches the research tier — not checked this session.
+
+STARVED: no — this session's primary action closed a real, concretely
+identified 8-page gap in this program's own visual-verification coverage
+and shipped the permanent structural fix (EDGE DOCTRINE #3) that prevents
+recurrence, chosen over forcing an under-powered ladder-gate attempt
+(REASONING STANDARD #4) or duplicating already-exhausted axis-(a)/
+platform-program surveys. No higher-priority item was skipped: no ladder
+root was ready per `ladder_readiness_check.py`; KNOWN BROKEN #41/#42/#43
+all already have their most-recent session's own escalation/fix in place
+and none names an action this session's scope (T-CLIENT harness) could
+usefully take; the human's #42 resume decision remains the one outstanding
+item, unaddressable by any session.
