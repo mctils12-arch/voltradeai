@@ -10,6 +10,7 @@ import {
   parseDts, fetchLatestDts, archiveDtsDay, gzipOldDtsDays,
   refreshDts, latestDts, readArchivedDtsDay, DTS_FETCH_LIMIT,
   sumTgaDepositsExDebt, PUBLIC_DEBT_CASH_ISSUES_CATEGORY, DtsRow,
+  sumWithheldTaxDeposits, WITHHELD_TAX_CATEGORY,
 } from "./treasuryDts";
 
 // Mirrors the live FiscalData shape verified 2026-07-06 (amounts are
@@ -127,6 +128,25 @@ test("sumTgaDepositsExDebt: ignores Withdrawals rows and treats a null mtd_amt a
     dtsRow({ category: "Unclassified - Deposits", mtd_amt: null }),
   ];
   assert.equal(sumTgaDepositsExDebt(rows), 19206);
+});
+
+// sumWithheldTaxDeposits (GATE 2 — scripts/treasury_dts_gate2.ts)
+
+test("sumWithheldTaxDeposits: sums only the withheld-tax category, ignores every other Deposits line", () => {
+  const rows = [
+    dtsRow({ category: WITHHELD_TAX_CATEGORY, mtd_amt: 279940 }),
+    dtsRow({ category: "Taxes - Corporate Income", mtd_amt: 19206 }),
+    dtsRow({ account_type: "Treasury General Account Total Deposits", category: "null", mtd_amt: 299146 }),
+  ];
+  assert.equal(sumWithheldTaxDeposits(rows), 279940, "corporate tax and the subtotal row must not be added in");
+});
+
+test("sumWithheldTaxDeposits: ignores Withdrawals rows and treats a null mtd_amt as 0, never NaN", () => {
+  const rows = [
+    dtsRow({ category: WITHHELD_TAX_CATEGORY, mtd_amt: null }),
+    dtsRow({ transaction_type: "Withdrawals", category: WITHHELD_TAX_CATEGORY, mtd_amt: 124463 }),
+  ];
+  assert.equal(sumWithheldTaxDeposits(rows), 0);
 });
 
 test("sumTgaDepositsExDebt: empty input sums to 0", () => {

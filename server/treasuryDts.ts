@@ -106,6 +106,26 @@ export function sumTgaDepositsExDebt(rows: DtsRow[]): number {
   return total;
 }
 
+/** DTS's own category name for withheld income/FICA tax deposits — the
+ *  specific line item the payroll-nowcast hypothesis (this file's header,
+ *  gate 2) is actually about, not the whole-TGA total sumTgaDepositsExDebt
+ *  computes. Verified live 2026-09-08 against a sample day's full category
+ *  list (scripts/treasury_dts_gate2.ts's own investigation). Pass the LAST
+ *  business day of a calendar month for that month's cumulative total via
+ *  mtd_amt, same convention as sumTgaDepositsExDebt. Result in $ millions.
+ */
+export const WITHHELD_TAX_CATEGORY = "Taxes - Withheld Individual/FICA";
+
+export function sumWithheldTaxDeposits(rows: DtsRow[]): number {
+  let total = 0;
+  for (const r of rows) {
+    if (r.transaction_type !== "Deposits") continue;
+    if (r.category !== WITHHELD_TAX_CATEGORY) continue;
+    total += r.mtd_amt ?? 0;
+  }
+  return total;
+}
+
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;

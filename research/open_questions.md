@@ -18122,3 +18122,61 @@ instrumentation this repo already uses for this problem class shipped —
 stopping short of a guessed fix at the unconfirmed external cause on
 purpose, leaving that decision to a future session armed with the new
 probe's actual reading.
+## 2026-09-10 (scheduled-routine PRODUCT session) [PIPELINE] — TREASURY DAILY STATEMENT GATE 2 (SIGNAL): withheld-tax YoY growth vs BLS payroll growth — FAIL, r=0.163/p=0.382 at the only currently-usable window (n=31); a real DTS taxonomy change and a real p-value bug both found along the way (v1.0.878)
+
+Full account in experiments.md's matching dated entry — this is the pointer, not
+a restatement, per this file's own established convention.
+
+HEADLINE: this session's own queued NEXT item from the 2026-09-08 GATE 1 entry
+above. `scripts/treasury_dts_gate2.ts` (+ new test file) attempts GATE 2 for the
+withheld-tax payroll-nowcast hypothesis. The ladder path's literal ground truth
+("payroll-surprise dates") is a paid consensus-forecast product with no free
+source found — HONEST SUBSTITUTION stated up front: ground truth is BLS's own
+actual Nonfarm Payrolls print (FRED PAYEMS via the keyless `fredgraph.csv`
+export) YoY growth, not surprise-vs-consensus (that becomes necessary only at
+gate 3+, LOGIC). New `sumWithheldTaxDeposits()` (server/treasuryDts.ts) sums
+only the "Taxes - Withheld Individual/FICA" category.
+
+TWO LIVE FINDINGS, both discovered by running the script rather than assumed:
+(1) that exact DTS category name did not exist before a taxonomy change —
+bisected live, present 2023-02-28, absent every earlier date checked back to
+2018 — collapsing the intended 2018-2026 multi-regime window to the only
+usable one, 2024-02 through 2026-08 (n=31). (2) the script's own hand-rolled
+two-tailed p-value helper had a real bug (flipped its own return value instead
+of recomputing the continued fraction with swapped parameters in the
+numerically-unstable branch) — caught by A/B against `scipy.stats.t.cdf`
+before trusting any verdict (r=0.163,n=31 read p=0.846 before the fix, p=0.382
+matching scipy after).
+
+LIVE RESULT: Test A (gating, same-month correlation, pre-registered bar r>=0.30
+AND p<0.05): r=0.163, p=0.382 — FAIL. Test B (informational only, 1-month-lead
+variant): r=0.223, p=0.236 — also not significant, so mismeasured-as-
+contemporaneous isn't the explanation either. Per ROOT VALIDATION LADDER: gate
+1 remains PASSED and unaffected; this is a SIGNAL-layer failure at gate 2.
+`datacore/signal_ladder.json` updated: gate1_pass/gate 1 -> gate2_fail/gate 2.
+
+PLAUSIBLE MECHANISM, NOT CONFIRMED: PAYEMS YoY glided smoothly from 1.4% to
+0.2-0.4% across the window while withheld-tax YoY swung noisily between -1%
+and +17% with no visible trend match — a single end-of-month MTD snapshot is
+plausibly too noisy (weekday timing, lumpy large-employer remittances) for
+this exact construction to see through, though a trailing/multi-day-averaged
+variant was not built or tested this session (filed as NEXT, not substituted
+in to rescue this run's verdict).
+
+NEXT (queued, not this session): (1) a trailing-window or multi-day-averaged
+withheld-tax feature is the most promising next variant — its own
+pre-registered attempt. (2) a free BLS-consensus-forecast proxy, if ever
+found, would let gate 3 use the ladder path's original literal "surprise"
+ground truth — not searched for this session. (3) whether any OTHER datacore
+root reads DTS category names by exact string match across a multi-year
+window (and would hit the same taxonomy-change gap) was not checked.
+
+STARVED: no — the queue's own stated NEXT item carried to a complete,
+gate-clean, honestly-negative result, with two independent live findings
+caught and fixed (not papered over) along the way and the next genuinely
+promising variant filed rather than attempted speculatively in the same PR.
+`/api/health` checked at session start per this session's own task
+instructions: `status: ok`, `bot.status: active`, `liveness.dark: false`,
+uptime ~3.2h — KNOWN BROKEN #41 (market-hours crash-loop) remains open per
+wishlist.md (needs Railway access) but was not observed recurring at check
+time; noted, not preempted, matching this session's PRODUCT-session scope.
