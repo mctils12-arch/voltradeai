@@ -191,6 +191,49 @@ by the session that shipped the fix); flagging here only so the next
 session checks whether it actually fired, and whether the human has been
 able to check the Alpaca dashboard, before re-deriving this from scratch.
 
+UPDATE 2026-09-10 (scheduled-routine session, second session this UTC day)
+— THE TRIP HAPPENED, TRADING IS HALTED, STILL UNRESOLVED: `/api/diag/
+audit?type=DRAWDOWN-KILL` confirms one entry, 2026-09-10T03:12:54Z, "Equity
+$90748 is -18.0% below peak $110727. All trading stopped." — it fired
+pre-market (before the 13:30Z open predicted above), on the first Tier-1
+cycle after the v1.0.879 deploy. `/api/health` now reads `bot.status:
+"killed"` and will stay that way indefinitely — `state.killSwitch` has no
+auto-resume path anywhere in `server/bot.ts` (checked every call site this
+session); only the owner-gated toggle route clears it. As of this session's
+check (11:04Z, ~8h post-trip, before today's market open): `drawdownPct`
+has recovered to "-7.7" — the ACCOUNT number moved a lot in 8 hours with the
+loop halted the whole time, which is itself more evidence for a noisy/
+unreliable equity read than a real, sticky loss — but the halt does not
+auto-clear on recovery, so trading stays off regardless until a human (or a
+future session, once item #42 is actually resolved) clears it.
+THIS SESSION WENT FURTHER on the real-loss-vs-data-glitch question than any
+prior session: checked all 92 filled orders 2026-09-02 through 2026-09-08
+for a plausible REALIZED-loss explanation (not just unrealized P&L on
+current positions) — every fill is the same small round-trip pattern
+already on file (≤20sh GLD, ≤15sh QQQ, 1-2 contract options, sub-$4
+premiums), none plausibly netting more than double-digit dollars per trade.
+This weakens "gradual real realized-loss decline" as an explanation
+specifically, on top of the unrealized-P&L evidence every prior session
+already gathered — but still cannot rule out a real cash-side event (margin
+call, corporate action, genuine Alpaca data-quality incident) that neither
+positions nor recent orders would show.
+TOOLING SHIPPED (v1.0.880, own PR) instead of a third round of the same
+inference: `/api/diag/account` (full Alpaca balance breakdown — cash,
+long/short market value, margin — the exact fields (a)/(b) below ask a
+human to check manually) and `/api/diag/equity_curve` (the daily equity
+history already recorded but never exposed outside the owner-gated
+dashboard route, so a gradual decline vs. a single-day cliff can finally be
+told apart without dashboard access). Full details in `research/
+open_questions.md` KNOWN BROKEN #42's dated update. Diagnostic-only, zero
+trading-logic or threshold change.
+NOTIFIED THE HUMAN THIS SESSION (PushNotification, not just this file) —
+trading has been off for 8+ hours with no auto-resume, heading into a
+second trading day halted, and this sandbox still cannot do the one check
+("WHAT ONLY THE HUMAN CAN DO FASTER" above) that would settle it. Once
+v1.0.880 is live, pulling `/api/diag/account` and `/api/diag/equity_curve`
+is the fastest next step for anyone (human or session) trying to resolve
+this — try those BEFORE re-deriving from positions/orders again.
+
 ## ⚠ STALE-PR BACKLOG FOUND 2026-08-20 (scheduled-routine session #3) —
 ## 11 `claude/*` PRs, 6–35 days old, never merged; three distinct causes
 ## identified, two safe fixes already applied this session

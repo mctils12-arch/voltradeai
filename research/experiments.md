@@ -3,6 +3,164 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-10 (scheduled-routine session, second session this UTC day) [REPAIR] — T-BOT (server/bot.ts, server/diag.ts/diag.test.ts) + SHARED-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #43's predicted DD-HALT trip actually fired live (03:12:54Z, pre-market) and trading has been halted 8+ hours with no auto-resume — shipped `/api/diag/account` + `/api/diag/equity_curve` to close the remaining real-loss-vs-data-glitch evidence gap (v1.0.880), notified the human directly
+
+TERRITORY: T-BOT (`server/bot.ts`'s `/api/diag/:probe` route, new
+`server/diag.ts` fields/probes + `server/diag.test.ts`) + SHARED-minimal
+(version/lockfile/counter-pin bookkeeping and `research/*` documentation,
+last per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+HEAD/origin/main both at 079bb6f/v1.0.879/PR #1042 (this UTC day's first
+session) — no concurrent session had moved it. `research/experiments.md`,
+`open_questions.md`, `wishlist.md` read. `python3 scripts/research_state_check.py`:
+thrash 6/10 REPAIR (below the 7+ trigger), starvation 0/10, audits register
+none overdue, known_broken 44 items/4 advisory-unclosed (#26/#34/#38/#40,
+read — none newly urgent).
+
+LIVE HEALTH CHECK (first, per this routine's own brief): `curl https://
+voltradeai.com/api/health` — **`bot.status: "killed"`** (was "active" every
+prior session this UTC day), `drawdownPct: "-7.7"`, `equityPeak:
+110727.04` unchanged, server `uptime_s=29389` (~8.16h, single boot,
+v1.0.879, no crash), Alpaca `ACTIVE`, scanner/feeds otherwise clean. This is
+the exact predicted event the immediately preceding session (this UTC day's
+first session, PR #1042) explicitly flagged as pending — KNOWN BROKEN #43's
+just-restored JS-side drawdown kill switch tripping once the market
+reopened. `/api/diag/audit?type=DRAWDOWN-KILL&token=$DIAG_TOKEN`: one entry,
+`2026-09-10T03:12:54.727Z — "MAX DRAWDOWN KILL SWITCH: Equity $90748 is
+-18.0% below peak $110727. All trading stopped."` — it actually fired
+PRE-market (18 minutes after the v1.0.879 boot at 02:54:26Z), not at the
+13:30Z open the prior session predicted; `checkDrawdownKillSwitch()`'s own
+fix (item #43, v1.0.877) runs unconditionally on every Tier-1 cycle, not
+gated on market hours, which explains the earlier trip. Read every
+`state.killSwitch` call site in `server/bot.ts` this session (11 sites) to
+confirm: no auto-resume path exists anywhere — only the owner-gated
+`/api/bot/toggle-kill`-equivalent route clears it, so this stays halted
+indefinitely without human/future-session action.
+
+LIVENESS ASSESSMENT (GOAL priority 1): `/api/health`'s own `liveness.dark`
+was still `false` at check time — the >2-market-hour alarm threshold had not
+yet been crossed because the market had not reopened since the 03:12Z trip
+(pre-market open ~13:30Z + 2h = ~15:30Z). Judged this was still worth
+surfacing NOW rather than waiting for the formal threshold: the halt has no
+auto-resume, was already 8+ hours old and about to carry into a second
+trading day, and KNOWN BROKEN #42 (the underlying real-loss-vs-data-glitch
+question this halt turns on) has been open since 2026-09-09 with the same
+"needs a human Alpaca-dashboard check this sandbox cannot substitute for"
+conclusion every session on it has reached. Sent a PushNotification this
+session rather than let it surface only via a future formal liveness alarm
+or a human dashboard visit, per CLAUDE.md's explicit "never discovered by
+the human on a dashboard" directive.
+
+REPAIR-OR-NOT DECISION: could this session root-cause item #42 itself? No —
+same access gap every prior session on this incident has hit (no Alpaca
+dashboard, no Railway logs, no owner-cookie routes from this sandbox). But
+unlike prior sessions, this session identified a CONCRETE, buildable gap:
+every prior session's evidence came from `/api/diag/positions-detail` and
+`/api/diag/orders` — neither of which can show cash, margin, or the
+account's own historical daily trend, the exact three things "WHAT ONLY THE
+HUMAN CAN DO FASTER" in `wishlist.md` asks a human to go check by hand. That
+is squarely fixable in code (both already exist server-side —
+`alpaca("/v2/account")` and the in-memory `equityCurve` array powering the
+owner-gated `/api/bot/performance` route — just never exposed through the
+token-gated diag surface), so it became this session's PRIMARY action per
+SESSION BUDGET (closing a diagnosed, buildable gap outranks starting a new
+experiment, and no matured item was ready to judge — `list_pull_requests`:
+0 open PRs this session).
+
+WHAT SHIPPED (v1.0.880, own PR):
+1. `server/diag.ts`: new `accountRow()` whitelist shaper (equity,
+   last_equity, cash, portfolio_value, long/short market value, initial/
+   maintenance margin, buying_power, daytrading_buying_power, multiplier,
+   status — no account_number, no id, nothing key-like) and two new
+   `DIAG_PROBES` entries, `"account"` and `"equity_curve"`.
+2. `server/bot.ts`: `case "account"` calls `alpaca("/v2/account")`, shapes
+   through `accountRow`, and computes `drawdownPct`/`equityPeak` via the
+   SAME `evaluateDrawdown()` guard the live DRAWDOWN-KILL switch itself
+   acts on (not a re-derived copy) so this probe's number can never
+   silently disagree with what actually fires the kill. `case
+   "equity_curve"` is a capped (`days` param, default 30, max 365 —
+   matching `equityCurve`'s own 365-entry prune ceiling) read-only slice of
+   the existing daily equity-history array.
+3. `server/diag.test.ts`: 2 new tests (`accountRow` whitelist-shaping +
+   garbage-numerics pin, mirroring the existing `orderRow`/`positionRow`
+   tests; wiring pin for both new probes reusing `evaluateDrawdown`/
+   `equityCurve` rather than re-deriving).
+
+A/B-ADJACENT SELF-CATCH (worth logging as its own finding): the first draft
+typed `accountRow(a: any)`, matching the existing `orderRow`/`positionRow`
+style — `bash scripts/gated_tests.sh` caught this immediately as a
+`ts_any` counter regression (1239 -> 1242, the exact +3 from one `: any` in
+`diag.ts` and two in the new test file's `const row: any =`/`const g: any =`
+locals). Fixed by typing the parameter `Record<string, unknown> | null |
+undefined` instead (property access + `num()`'s existing `any`-accepting
+signature both still work) and dropping the now-unnecessary `: any` casts
+in the test file — re-ran, `ts_any` back at exactly 1239, no counter
+regression shipped. Recorded here per MEASUREMENT INTEGRITY's spirit
+(caught before merge, not after) and REASONING STANDARD's "distrust your
+own results" — the fix path this repo's own style seemed to suggest
+(`: any`, matching precedent) was the wrong one to ship.
+
+GATES (full suite, this session's own merged tree, cold sandbox — `npm ci`
++ `pip3 install -r requirements.txt` + `pip3 install openpyxl pillow
+pytest`, same one-time environment gap every recent session notes):
+`npx tsx --test server/diag.test.ts`: 26/26 pass (2 new). `bash scripts/
+tsc_ratchet.sh`: 11/11 exact match, TS2304=0. `bash scripts/gated_tests.sh`:
+GATE PASSED — python 1808 passed/2 skipped/54 subtests, quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: 1 counter IMPROVED
+(`assertions` 13807->13828, this session's own new test assertions) and
+re-pinned in `ci/counter_baseline.txt` in this same PR; all other 24
+counters unchanged, `ts_any` held exactly at pin (see self-catch above).
+`npm run build`: clean (same pre-existing astronomy-engine default-export,
+maplibre-gl chunk-size, mapIcons dynamic-import warnings prior sessions
+already noted as unrelated).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): read-only diagnostic addition —
+new probe cases behind the existing token gate, whitelisted output shapes,
+zero writes, zero change to `state.killSwitch`, `evaluateDrawdown`,
+`risk_kill_switch.py`, or any scoring/sizing/threshold value. The `account`
+probe reuses (does not re-implement) the exact guard the live kill switch
+already runs on, specifically so this tooling cannot introduce a SECOND,
+divergent notion of "current drawdown" into the system. Nothing here
+changes what fires, when, or how the halt resumes.
+
+MEASUREMENT INTEGRITY: not implicated in the trading-metric sense (no
+change to how equity, drawdown, or P&L are COMPUTED) — this is a new READ
+surface over existing, unchanged computations. The `ts_any`/`assertions`
+counter interaction above is a different, code-quality measurement this
+session did touch directly, handled per the self-catch note.
+
+KNOWN BROKEN #42/#43 UPDATE: both entries in `research/open_questions.md`
+got dated updates this session (full detail there) — #43's predicted trip
+is now CONFIRMED (pre-market, not at-open as predicted, still consistent
+with the fix's own design). #42's real-loss-vs-data-glitch question is
+STILL OPEN — this session's own orders-history check (all 92 fills too
+small to explain the gap) adds weight against "gradual real realized loss"
+specifically but is not the dashboard confirmation the item has asked for
+since 2026-09-09. `research/wishlist.md`'s existing 🔴 ACTIVE LIVE CONCERN
+entry got the same dated update plus a note that this session notified the
+human directly (see below) rather than only filing to this document.
+
+HUMAN NOTIFICATION: sent this session (PushNotification tool) — trading has
+been halted 8+ hours with no auto-resume, the underlying question has been
+open since 2026-09-09 with the same "needs a human dashboard check" verdict
+every session reaches, and CLAUDE.md's LIVENESS ALARM directive is explicit
+that a halted loop must not be left for the human to discover later. Did
+NOT ask the human to clear the kill switch in that notification — only to
+either check the Alpaca dashboard (the one thing that would settle item #42
+in minutes) or use the two new diag probes once v1.0.880 deploys.
+
+STARVED: no — this was the session's own PRIMARY action (fix a
+newly-diagnosed, concretely buildable gap in live-incident tooling),
+executed fully (both probes, both tests, all gates, docs, PR, notification).
+No higher-priority item was skipped: `ladder_readiness_check.py` and
+`data_stream_registry_check.py --unbuilt` were not re-run this session
+(the live production incident was the session's own primary-action
+discovery, per SESSION BUDGET's "fix a bug seen in audit logs" ranking
+above "start a new experiment" — re-checking those queues would not have
+changed that ordering), and KNOWN BROKEN #41/#42 remain correctly deferred,
+blocked on access no session in this sandbox has.
+
 ## 2026-09-10 (scheduled-routine session) [REPAIR] — T-BOT/SHARED-minimal: revived PR #1038, a matured held-for-close DD-HALT visibility fix stranded 10+ hours past its own after-close condition, and re-confirmed KNOWN BROKEN #41/#42/#43 are all still genuinely blocked on access this sandbox lacks (v1.0.879)
 
 SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + RENDERING &

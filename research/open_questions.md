@@ -6476,6 +6476,87 @@
     should notify fresh once the situation actually resolves — the kill
     fires or doesn't at open, or the human reports back on the Alpaca
     dashboard check.
+    UPDATE 2026-09-10 (scheduled-routine session, second session this UTC
+    day) — THE PREDICTED TRIP HAPPENED: `/api/diag/audit?type=DRAWDOWN-KILL`
+    now shows one entry, `2026-09-10T03:12:54.727Z: "MAX DRAWDOWN KILL
+    SWITCH: Equity $90748 is -18.0% below peak $110727. All trading
+    stopped."` — this fired on the FIRST Tier-1 cycle after v1.0.879 booted
+    (02:54:26Z), well before market open (13:30Z), so the mechanism reached
+    and tripped on a pre-market equity read, not one gated on
+    `executeMorningQueue()`'s market-open condition — consistent with item
+    #43's own fix (`checkDrawdownKillSwitch()` as `tier1Reflex()`'s
+    unconditional first step). `bot.status` is now `"killed"` on
+    `/api/health` and stays there indefinitely (`state.killSwitch` has no
+    auto-resume — confirmed by reading every `state.killSwitch` call site in
+    `server/bot.ts` this session; only the owner-gated toggle route clears
+    it). Current reading (11:04Z, ~8h post-trip): `drawdownPct` has
+    RECOVERED to "-7.7" (equity implied ≈$102,161 vs the still-static
+    $110,727.04 peak) — trading remains halted regardless, since the switch
+    persists past the level that tripped it.
+    THIS SESSION'S OWN CONTRIBUTION to item #42's still-open real-loss-vs-
+    data-glitch question: `/api/diag/positions-detail` (8 positions, gross
+    exposure $67,079) sums to unrealized P&L ≈ **-$279** — same order of
+    magnitude as every prior session's read, still nowhere near the
+    multi-thousand-dollar equity gap. Went further than prior sessions by
+    checking `/api/diag/orders?limit=200` for a REALIZED-loss explanation
+    (a hypothesis no prior session on this incident had explicitly ruled
+    out): all 92 filled orders 2026-09-02 through 2026-09-08 are the same
+    small round-trips already on file (≤20sh GLD, ≤15sh QQQ, 1-2 contract
+    options at sub-$4 premiums) — eyeballing the buy/sell price deltas on
+    each round trip, none plausibly nets more than double-digit dollars, so
+    accumulated realized losses across this order history cannot plausibly
+    explain a five-figure equity gap either. This weakens the "gradual real
+    realized-loss decline" hypothesis specifically (as opposed to a single
+    bad snapshot), though it still cannot rule out a real loss that predates
+    this order window or a cash-side event neither positions nor orders
+    would show (a margin/collateral change, a corporate action, or genuinely
+    bad Alpaca data) — this sandbox still has no way to see `cash`/
+    `long_market_value`/`short_market_value` broken out, only the derived
+    `equity` field.
+    TOOLING SHIPPED THIS SESSION (v1.0.880, own PR) to close exactly that
+    remaining gap for the NEXT session or the human, instead of a third
+    round of inference from positions+orders alone: two new token-gated
+    diag probes, `/api/diag/account` (Alpaca's full balance breakdown —
+    cash, long/short market value, margin — reusing the SAME
+    `evaluateDrawdown` guard the live kill switch itself acts on, so its
+    drawdownPct can never silently disagree with what actually fired) and
+    `/api/diag/equity_curve` (the existing daily `{date, value, pnl}`
+    history `recordDailyEquity()` already persists but nothing had exposed
+    outside the owner-gated `/api/bot/performance` route) — the daily trend
+    can distinguish "this has been declining for weeks" from "one bad
+    snapshot," which no single current-state probe could. Diagnostic-only:
+    read-only, whitelisted, does not touch the kill switch, `risk_kill_
+    switch.py`, or any threshold. 26/26 `diag.test.ts` tests pass
+    (2 new), full gate suite green (`bash scripts/gated_tests.sh`: python
+    1808 passed/2 skipped/54 subtests, `bash scripts/tsc_ratchet.sh`: 11/11
+    exact match, `bash scripts/counter_ratchet.sh`: `assertions` re-pinned
+    13807->13828 for the new tests' own assertions, all 24 other counters
+    unchanged, `ts_any` held exactly at the 1239 pin by typing the new
+    `accountRow` helper's parameter as `Record<string, unknown> | null |
+    undefined` instead of `any` — the first draft briefly regressed this
+    counter and was fixed before commit, not after a gate failure was
+    ignored), `npm run build` clean (same pre-existing unrelated warnings
+    prior sessions already noted).
+    NOT DONE, DELIBERATELY: did not toggle `state.killSwitch` off. Even
+    though this session's own evidence leans further toward "not a
+    plausible real trading loss" than any prior session's, it is still
+    inference, not the Alpaca-dashboard confirmation this item has asked
+    for since 2026-09-09 — clearing a live production kill switch is
+    exactly the kind of hard-to-reverse, human-judgment action RULE REVIEW
+    reserves for actual evidence, not a growing pile of "still can't find
+    where the money went." Notified the human directly this session
+    (trading has been halted since 03:12Z with no auto-resume and no
+    resolution in sight) rather than leaving this for a dashboard
+    discovery, per CLAUDE.md's LIVENESS ALARM directive.
+    NEXT: (1) once v1.0.880 is live, a future session (or the human) should
+    pull `/api/diag/account?token=$DIAG_TOKEN` and `/api/diag/equity_curve?
+    token=$DIAG_TOKEN&days=30` FIRST, before re-deriving from positions/
+    orders again — `cash` alone should settle whether the gap is a
+    marks-vs-cash split, and the daily curve should show whether the drop
+    was gradual or a single-day cliff. (2) if the human has by then checked
+    the Alpaca dashboard directly, that confirmation still outranks
+    anything this sandbox can infer — see item #43's own NEXT for the
+    resume procedure once item #42 is actually resolved either way.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

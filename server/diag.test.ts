@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow, accountRow } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Dummy token for tests only — NEVER the real DIAG_TOKEN value (that
@@ -430,6 +430,53 @@ test("spaceweather_storm probe (2026-09-08): wired, whole-archive local scan, sa
   const mod = fs.readFileSync(path.join(here, "spaceWeather.ts"), "utf8");
   assert.ok(mod.includes("export interface StormScanResult") && mod.includes("stormDays"),
     "the reused scan shape must already be aggregate-only (max G/Kp + flagged dates, no per-poll row detail)");
+});
+
+test("accountRow: whitelist shaping — balance-breakdown fields survive, account_number/id/garbage never pass through", () => {
+  const raw = {
+    id: "9f4a2b11-secret-looking-account-id-0123456789",
+    account_number: "PA3ABCDEFGH12",
+    equity: "90748.31", last_equity: "110727.04", cash: "12345.67",
+    portfolio_value: "90748.31", long_market_value: "78000.12",
+    short_market_value: "-160.00", initial_margin: "5000", maintenance_margin: "2500",
+    buying_power: "40000", daytrading_buying_power: "0", multiplier: "2",
+    status: "ACTIVE", crypto_status: "ACTIVE", pattern_day_trader: false,
+  };
+  const row = accountRow(raw);
+  assert.equal(row.equity, 90748.31);
+  assert.equal(row.last_equity, 110727.04);
+  assert.equal(row.cash, 12345.67);
+  assert.equal(row.long_market_value, 78000.12);
+  assert.equal(row.short_market_value, -160);
+  assert.equal(row.status, "ACTIVE");
+  const flat = JSON.stringify(row);
+  assert.ok(!flat.includes("account_number") && !flat.includes("PA3ABCDEFGH12"), "account_number must never be exposed");
+  assert.ok(!flat.includes("crypto_status") && !flat.includes("pattern_day_trader"), "unwhitelisted fields must be dropped");
+  const g = accountRow({ equity: "garbage", cash: undefined });
+  assert.equal(g.equity, null);
+  assert.equal(g.cash, null);
+  assert.ok(!JSON.stringify(g).includes("NaN"));
+});
+
+test("account + equity_curve probes (2026-09-10, KNOWN BROKEN #42 support): wired, whitelisted, reuse the SAME validated-drawdown guard the live kill switch acts on", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("account"));
+  assert.ok((DIAG_PROBES as readonly string[]).includes("equity_curve"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const acctStart = bot.indexOf('case "account"');
+  const acctEnd = bot.indexOf('case "equity_curve"');
+  assert.ok(acctStart > 0 && acctEnd > acctStart, "account probe block not found");
+  const acctBlock = bot.slice(acctStart, acctEnd);
+  assert.ok(acctBlock.includes("accountRow("), "account probe must shape through accountRow (whitelist), never return the raw Alpaca account");
+  assert.ok(acctBlock.includes("evaluateDrawdown("), "account probe must reuse the same validated-read guard the live DRAWDOWN-KILL switch acts on, not re-derive drawdown inline");
+  assert.ok(acctBlock.includes("sanitizeDiag"), "account probe must pass the sanitizer");
+
+  const curveStart = bot.indexOf('case "equity_curve"');
+  const curveEnd = bot.indexOf('case "orders"');
+  assert.ok(curveStart > 0 && curveEnd > curveStart, "equity_curve probe block not found");
+  const curveBlock = bot.slice(curveStart, curveEnd);
+  assert.ok(curveBlock.includes("equityCurve.slice(0, days)"), "equity_curve probe must read from the existing in-memory equityCurve array, not re-derive history");
+  assert.ok(curveBlock.includes(", 365)"), "days must be capped at the same 365-entry ceiling equityCurve itself is pruned to");
+  assert.ok(curveBlock.includes("sanitizeDiag"), "equity_curve probe must pass the sanitizer");
 });
 
 test("github_activity_poll_health probe (2026-09-08): wired, read-only passthrough of the poll's own health state, sanitized, no network call", () => {

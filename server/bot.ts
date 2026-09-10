@@ -9,7 +9,7 @@ import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
@@ -2379,6 +2379,36 @@ print(json.dumps(s))
             probe: "positions-detail",
             ...positionsSummary(arr),
             positions: arr.map(positionRow),
+          }));
+        }
+        case "account": {
+          // ADDED 2026-09-10 (KNOWN BROKEN #42 support) — see diag.ts's
+          // DIAG_PROBES comment for the full incident context. Reuses the
+          // SAME validated-read guard the live DRAWDOWN-KILL switch acts
+          // on (drawdownGuard.ts's evaluateDrawdown) so this probe's
+          // drawdownPct/equityPeak fields can never silently disagree with
+          // what actually triggers/would trigger the kill.
+          const acct = await alpaca("/v2/account");
+          const dd = evaluateDrawdown(acct?.equity, state.equityPeak, state.maxDrawdownPct);
+          return res.json(sanitizeDiag({
+            probe: "account",
+            ...accountRow(acct),
+            equityPeak: state.equityPeak,
+            drawdownPct: dd.valid ? dd.drawdownPct : null,
+            killSwitch: state.killSwitch,
+          }));
+        }
+        case "equity_curve": {
+          // ADDED 2026-09-10 (KNOWN BROKEN #42 support) — see diag.ts's
+          // DIAG_PROBES comment. Read-only passthrough of the in-memory
+          // equityCurve array (one {date, value, pnl} row/day, oldest-day
+          // pruned past 365 entries — see recordDailyEquity()). Distinguishes
+          // a gradual realized-loss trend from a single-read anomaly.
+          const days = Math.min(Math.max(parseInt(String(req.query.days || "30"), 10) || 30, 1), 365);
+          return res.json(sanitizeDiag({
+            probe: "equity_curve",
+            count: Math.min(equityCurve.length, days),
+            days: equityCurve.slice(0, days),
           }));
         }
         case "orders": {
