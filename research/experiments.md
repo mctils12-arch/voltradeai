@@ -3,6 +3,324 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-10 (scheduled-routine session) [REPAIR] — T-BOT/SHARED-minimal: revived PR #1038, a matured held-for-close DD-HALT visibility fix stranded 10+ hours past its own after-close condition, and re-confirmed KNOWN BROKEN #41/#42/#43 are all still genuinely blocked on access this sandbox lacks (v1.0.879)
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + RENDERING &
+MOTION LAW noted). `git fetch origin main`: HEAD/origin/main both at
+aa047a6/v1.0.878/PR #1041 — no concurrent session had moved it.
+
+LIVE HEALTH CHECK (first, per this routine's own brief): `curl https://
+voltradeai.com/api/health` — `status:"ok"`, `bot.status:"active"`,
+`uptime_s≈6800` (~1.9h, no crash-loop observed — expected, market is
+currently closed), Alpaca `ACTIVE`, scanner `consecutiveFailures:0`, all 3
+feeds alive. BUT `bot.drawdownPct:"-18.1"`. `/api/diag/audit?type=STARTUP`
+confirmed v1.0.877 (the KNOWN BROKEN #43 drawdown-kill-switch reachability
+fix) and v1.0.878 both booted clean, no crash since. `/api/diag/audit?
+type=DRAWDOWN-KILL`: zero entries ever — the JS-side -10% kill has NOT yet
+fired, because `tier1Reflex()` (where #43's fix lives) has not run since
+market closed before the v1.0.877 deploy; the predicted trip (flagged to
+the human by the session that shipped #43) is still pending, not resolved
+either way, and will be decided at next market open (~13:30Z). `/api/diag/
+audit?type=TIER2-LIMIT`: still firing every ~15min, unchanged shape —
+`equity≈90,800-90,860, last_equity=102873.88, equityPeak=110727.04`
+(KNOWN BROKEN #42, unchanged since the 2026-09-09 sessions that found it).
+`/api/diag/positions-detail`: 7 positions, gross exposure $55,537, summed
+unrealized P&L ≈ **-$273** — still nowhere near the ~$20K peak-to-equity
+gap the drawdown reading implies, same disconnect prior sessions already
+established. `python3 scripts/research_state_check.py`: thrash 5/10 REPAIR
+(below the 7+ trigger), starvation 0/10, audits register none overdue,
+known_broken advisory flag on #26/#34/#38/#40/#43 (read each — none newly
+urgent beyond what's already logged).
+
+REPAIR-OR-NOT DECISION: KNOWN BROKEN #41 (crash-loop bisection) and #42/#43
+(equity/drawdown mystery) are the only non-closed critical items, and both
+are unchanged from the prior sessions' own conclusion that they are
+genuinely blocked on access this sandbox does not have (Railway env
+control for #41's bisection; an Alpaca paper-dashboard login for #42) —
+RECURRENCE ESCALATES forbids a third guess-and-patch attempt on #41
+without new evidence, and RULE REVIEW forbids loosening #42/#43's halts on
+inference alone. No new evidence surfaced this session that changes either
+conclusion. Consistent with the immediately preceding sessions' own
+judgment calls in this exact situation, this was NOT forced into a
+blocking REPAIR session with nothing actionable to repair — instead this
+session's PRIMARY action follows SESSION BUDGET's own ordering ("judge a
+matured experiment" outranks starting new work).
+
+PRIMARY ACTION: `list_pull_requests` found PR #1038 ("repair: DD-halt
+visibility gap in Tier-2 scan handler", opened 2026-09-09T16:22Z, draft,
+based on stale 205d136) — a second, distinct drawdown-halt mechanism
+(`bot_engine.py`'s `update_equity_peak`/`is_trading_halted`,
+`DRAWDOWN_HALT_PCT=18%`, called at the top of `scan_market()`) that
+`server/bot.ts`'s Tier-2 scan handler never read `result.halted` from, so
+this halt firing was indistinguishable in the audit trail from a normal
+scan finding nothing. Full gate-clean (server 1630/1630, client 1083/1083,
+python OK, tsc 11/11, all 6 CI check runs green except the informational
+`Auto-merge Claude PRs` failure that non-draft-gates on being a draft) and
+explicitly deferred to "after 16:00 ET close" per its own MARKET-HOURS
+NOTE — that condition matured roughly 10 hours before this session started
+and nobody had acted on it, the same "stranded, matured, held-for-close"
+shape as the immediately preceding session's own revival of PR #1029.
+
+WHAT SHIPPED: cherry-picked PR #1038's isolated commit (b0fb455) onto this
+session's own branch rather than pushing to its stale branch (this
+session's branch is the one designated for its own work) — same
+supersession precedent this repo has used before for a stranded branch's
+diff (#1031/#415). `server/bot.ts`, `server/ddHaltVisibility.test.ts`,
+`research/experiments.md`, `research/open_questions.md`, and `research/
+wishlist.md` all applied cleanly, zero conflicts. Only the three SHARED
+bookkeeping files conflicted, resolved per MERGE-ORDER PROTOCOL:
+`package.json`/`package-lock.json` version read-and-incremented fresh
+(1.0.878 -> 1.0.879, not the PR's stale 1.0.876 — collided with the
+already-merged #1039's own 1.0.876), `ci/counter_baseline.txt`'s
+`assertions`/`tests_run_in_ci`/`tests_gating_merge` counters taken from
+current main (13784/435/435) then re-measured after re-running the full
+suite on the merged tree and re-pinned to the new true counts below.
+
+A/B VERIFICATION (re-run on this branch, not reused from the PR's own
+claim): `npx tsx --test server/ddHaltVisibility.test.ts` on the merged
+tree — 4/4 pass. `git stash push -- server/bot.ts` (after staging the
+other resolved conflicts) + re-run — 0/4 pass (all fail against pre-fix
+`bot.ts`, confirming the pin is real). `git stash pop` restored the fix,
+re-ran — 4/4 pass again.
+
+GATES (full suite, re-run fresh on this session's own merged tree, cold
+sandbox — `npm ci` + `pip3 install -r requirements.txt` + `pip3 install
+openpyxl pillow pytest`, same one-time environment gap every recent
+session has hit and re-noted): `bash scripts/gated_tests.sh`: GATE
+PASSED — server unchanged file count beyond the new test file, client 101
+files/1083 pass, python 1808 passed/2 skipped/54 subtests, quarantine
+0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 11/11 exact match,
+TS2304=0. `bash scripts/counter_ratchet.sh`: 3 counters IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 435->436, `assertions` 13784->13807
+— this session's own re-measurement, not the PR's stale 13776 claim,
+since main has grown by 8 assertions from #1039/#1040/#1041 since the PR's
+base) and re-pinned in `ci/counter_baseline.txt` in this same PR; all
+other 22 counters unchanged/better. `npm run build`: clean (pre-existing
+astronomy-engine default-export, maplibre-gl chunk-size, mapIcons
+dynamic-import warnings only, unrelated to this diff).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): pure audit-visibility addition,
+identical in shape and blast radius to the original PR's own analysis —
+reads a field already present on `scan_market()`'s existing return, does
+not alter control flow before or after it, touches no scoring/sizing/
+threshold/FROZEN-path code. Nothing about this session's merge mechanics
+(version/counter bookkeeping) touches trading logic.
+
+MEASUREMENT INTEGRITY: not implicated — surfaces an existing Python
+computation verbatim under a new audit type; does not change how any
+metric or halt threshold is computed.
+
+VERSION: v1.0.879 (`package.json`, read-and-increment at commit time,
+confirmed against a fresh `git fetch origin main` immediately before
+committing — see SESSION-START CHECKS above).
+
+KNOWN BROKEN #42 UPDATE (this session, re-poll only, no new evidence
+either way): mirrored into `research/open_questions.md` and `research/
+wishlist.md`'s existing 🔴 ACTIVE LIVE CONCERN entry — the account is
+still reading ~-18% from peak with no supporting evidence in positions or
+order history, unchanged from the 2026-09-09 sessions' own findings, and
+still requires a human Alpaca-dashboard check this sandbox cannot
+substitute for. Given (a) the human was already notified in-session about
+KNOWN BROKEN #43's predicted kill-switch trip by the session that shipped
+it, and (b) nothing has changed since that notification (market has not
+reopened yet, so the predicted trip has neither happened nor been ruled
+out) — this session did not send a duplicate notification for the same
+still-pending fact. A future session (or this session's own end-of-run
+check) should notify fresh if the situation actually resolves either way
+(kill-switch fires / doesn't fire at open, or the human confirms real-loss
+vs. data-glitch).
+
+STARVED: no — the revived PR was this session's own "judge a matured
+experiment" primary action per SESSION BUDGET's priority order, fully
+executed end to end (rebase, A/B-verify, full gate suite, re-pin, ship).
+No higher-priority item was skipped: no ladder-gated root was ready
+(`ladder_readiness_check.py`: 0/4), no unbuilt data stream was buildable
+(`data_stream_registry_check.py --unbuilt`: 9/9 declined/blocked, unchanged
+from the last survey), and KNOWN BROKEN #41/#42 remain correctly deferred,
+blocked on access no session in this sandbox has.
+
+## 2026-09-09 (scheduled-routine session, fifth session this UTC day) [REPAIR] — T-BOT (server/bot.ts's Tier-2 scan handler, new server/ddHaltVisibility.test.ts) + SHARED-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): live-incident re-investigation of KNOWN BROKEN #42 (this UTC day's third session) turned up a NEW, 100%-confirmed visibility gap in a distinct drawdown-halt mechanism (bot_engine.py's scan_market() DD halt never read by bot.ts) + escalated the still-open real-loss-vs-data-anomaly question to wishlist.md given proximity to the -20% kill switch (v1.0.876)
+
+TERRITORY: T-BOT (server/bot.ts's Tier-2 `run_full_scan` result handler,
+~line 4013) + SHARED-minimal (version/lockfile/counter-pin bookkeeping and
+`research/*` documentation, last per merge-order protocol).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+HEAD/origin/main both at 205d136/v1.0.875/PR #1029 (immediately preceding
+session today) — no concurrent session had moved it.
+`python3 scripts/research_state_check.py`: thrash 6/10 REPAIR (below the
+7+ trigger), starvation 0/10, audits register none overdue, KNOWN BROKEN
+43 items/4 unmarked (advisory only, per prior sessions' own reading — read
+each, none newly urgent). Read `research/open_questions.md`'s KNOWN BROKEN
+section end to end (most recently item #42, this UTC day's third session:
+`TIER2-LIMIT` daily-loss halt firing repeatedly at an unexplained ~-11.7%
+with its own NEXT step queued — re-poll the now-enriched audit line once
+v1.0.874 is live) and `research/wishlist.md`'s head (KNOWN BROKEN #41's
+crash-loop bisection, still blocked on human Railway access, unchanged).
+
+LIVE HEALTH CHECK (this session's own task instructions): `curl /api/
+health` — `status:"ok"`, `bot.status:"active"`, `uptime_s:9094` (~2.5h,
+not crash-looping), Alpaca `ACTIVE`, scanner `consecutiveFailures:0`, all
+3 feeds alive — no LIVENESS ALARM on the crash-loop dimension. BUT
+`bot.drawdownPct: "-18.0"` (this field only started reporting real numbers
+after the third session's own v1.0.874 fix earlier today — every prior
+week's worth of "0.0" readings across this file's history were a dead
+metric, not evidence of health) and `equity=90849` vs a tracked
+`equityPeak=110727.04` static for many weeks. This became the PRIMARY
+action per SESSION BUDGET's own "judge a matured experiment" — item #42's
+NEXT step had explicitly matured (v1.0.874 had time to accumulate live
+data since the third session shipped it) and a live `-18.0%` reading two
+points from a FROZEN, all-tiers kill switch outranks starting anything new.
+
+INVESTIGATION: `python3 scripts/ladder_readiness_check.py` (checked before
+committing to the primary action, per SESSION BUDGET ordering) — still 0/4
+gated roots ready, all genuinely time-blocked, confirmed not a competing
+primary action. `/api/diag/audit?limit=200&token=$DIAG_TOKEN`: 200 most
+recent entries span 14:20Z-16:00Z (100+ minutes, during market hours),
+`TIER2-LIMIT` firing on essentially every Tier-2 cycle with the enriched
+message the third session's fix added — `equity=90849, last_equity=
+102873.88, equityPeak=110727.04`, consistent across the whole window
+(equity drifted only 90971→90849; last_equity unmoved, as expected for a
+same-trading-day Alpaca field). Per item #42's own NEXT (1): checked
+whether `last_equity` reads far above `equityPeak` (the specific glitch
+signature anticipated) — it does NOT; `last_equity` (102,873.88) sits
+BELOW `equityPeak` (110,727.04) here, so this particular reading neither
+confirms nor rules out the data-anomaly hypothesis via that specific test.
+Gathered independent evidence instead: `/api/diag/positions-detail` (7
+positions, gross exposure $55,741, summed unrealized P&L ≈ **-$92** —
+essentially flat) and `/api/diag/orders?limit=200` (92 filled orders
+2026-09-02 through 2026-09-08, all small round-trips — ≤20sh GLD, ≤15sh
+QQQ, single-contract options at $0.27-$3.35 premiums) — both still show
+nothing sized to explain an ~11.7%/~$12K single-day move. Not conclusive
+proof of a data artifact (this sandbox has no direct Alpaca dashboard or
+Railway log access, same gap KNOWN BROKEN #41 is blocked on), but
+consistent with the third session's own hypothesis and strictly more
+evidence than existed before this session.
+
+NEW FINDING (READ BEFORE WRITE — traced every consumer of `acct.equity`/
+`get_alpaca_account()` in this code area, prompted by "Scanned 0 stocks, 0
+trade candidates" appearing alongside every `TIER2-LIMIT` line in the
+window): `bot_engine.py` has a THIRD, separate portfolio-drawdown halt
+distinct from both `TIER2-LIMIT` (bot.ts's own daily-loss check) and
+`risk_kill_switch.py`'s `check_kill_switches()` (the FROZEN-mechanism
+-20% kill) — `update_equity_peak()`/`is_trading_halted()`
+(bot_engine.py:564-654), gating new entries at `DRAWDOWN_HALT_PCT`
+(default 18.0%, `system_config.py`) and called at the top of
+`scan_market()` (line ~2596-2627), returning early with `{halted: True,
+halt_reason, peak_equity, current_equity, dd_pct}` instead of scanning at
+all when it fires. Given `drawdownPct` was reading almost exactly 18.0%
+and every scan in the 100+ minute window showed 0 candidates, this halt
+was very likely also active — but `server/bot.ts`'s Tier-2 scan handler
+read `result.scanned`/`result.new_trades` off `scan_market()`'s return and
+never `result.halted`, so a halted return and a normal scan that
+legitimately found nothing produced the byte-for-byte identical "Scanned 0
+stocks, 0 trade candidates" audit line — a confirmed, 100% dead-certain
+visibility gap (not speculative), the same class item #3 already found
+and closed for the tier engine's own `master_kill_switch` (`TIER-KILL`).
+
+WHAT SHIPPED (v1.0.876): `server/bot.ts`'s Tier-2 scan handler now checks
+`result.halted` immediately after its existing "Scanned ..." audit line
+and, when true, audits a new `DD-HALT` type carrying `halt_reason`/
+`current_equity`/`peak_equity`/`dd_pct` verbatim off the Python return —
+audit-visibility-only, does not touch when the halt fires, resumes, or
+blocks trades (the halt's own trigger/resume logic in bot_engine.py is
+completely untouched). New test file `server/ddHaltVisibility.test.ts` (4
+tests, source-text-anchored on `bot.ts` itself, mirroring the existing
+`tier2DaemonTimeoutVisibility.test.ts` pattern already used for this
+class of wiring-pinned fix) — A/B-verified via `git stash push -- server/
+bot.ts`: all 4 fail against the pre-fix file (0/4 pass, confirmed via a
+direct re-run), all 4 pass post-fix.
+
+ESCALATED (not self-resolved, per RULE REVIEW): the account is now within
+~2 points of `risk_kill_switch.py`'s FROZEN `PORTFOLIO_DD_KILL = -0.20`
+(all-4-tiers, `can_auto_resume: False`, requires manual review to clear)
+on a reading this sandbox still cannot independently confirm as real vs.
+a data artifact. Filed a flagged, dated entry in `research/wishlist.md`
+(second 🔴 ACTIVE section, immediately after KNOWN BROKEN #41's existing
+crash-loop escalation) asking the human to check the Alpaca paper-account
+dashboard directly — the one check that would settle real-vs-glitch from
+outside in minutes, which no amount of further audit-log archaeology from
+this sandbox can substitute for. Mirrored the same UPDATE into KNOWN
+BROKEN #42 in `research/open_questions.md` so both files stay consistent
+with the MEMORY PROTOCOL. Deliberately did NOT add a peak-relative sanity
+bound or otherwise loosen any halt's trigger condition — same reasoning
+item #42's original entry already established, now doubly reinforced by
+this session's own inconclusive-either-way evidence.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this PR's only functional change
+is the new `if (result.halted)` audit block in the Tier-2 scan handler —
+pure addition, reads fields already present on `scan_market()`'s existing
+return shape, does not alter control flow before or after it (the
+existing "Scanned ..." audit line, `tier2LastDataSourceErrors` assignment,
+and signal-generation loop over `result.top_10` are all unchanged and
+still run identically whether or not `result.halted` is true, matching
+`scan_market()`'s own behavior of returning `top_10: []` on a halted
+scan). No scoring, sizing, threshold, or FROZEN-path code touched.
+
+MEASUREMENT INTEGRITY: not implicated — this adds a new audit line
+surfacing an EXISTING Python computation verbatim; it does not change how
+any metric, P&L figure, or halt threshold is computed.
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npm ci` + `pip3 install -r requirements.txt` + `pip3 install
+openpyxl pillow pytest` (cold sandbox, same one-time environment gap noted
+by the immediately preceding session). `npx tsx --test server/
+ddHaltVisibility.test.ts`: 4/4 pass; `git stash push -- server/bot.ts` +
+re-run: 0/4 pass (all fail, confirming the A/B pin); `git stash pop`
+restored the fix. `bash scripts/gated_tests.sh`: GATE PASSED — server
+1626/1626, client 1083/1083, python OK, quarantine unchanged/none
+overdue. `bash scripts/tsc_ratchet.sh`: 11/11 exact match to
+`ci/tsc_baseline.txt`, TS2304=0 (unchanged — no new `.ts` type surface
+added). `bash scripts/counter_ratchet.sh`: `assertions` 13766->13776 (this
+session's 10 new assertions, `git add`-staged so `program_status.sh`'s
+`git ls-files`-based count picked them up) and `tests_run_in_ci`/
+`tests_gating_merge` 434->435 (one new test file) — all three re-pinned
+in `ci/counter_baseline.txt` in this same PR per the ratchet script's own
+instruction; remaining 22 counters unchanged/better. `npm run build`:
+clean (pre-existing chunk-size/astronomy-engine-default-export/mapIcons
+dynamic-import warnings only, unrelated to this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure audit-visibility addition, no
+scoring/sizing/threshold value touched or introduced.
+
+VERSION: v1.0.876 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+still at 205d136/v1.0.875, no concurrent session had moved it).
+`package-lock.json` resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+MARKET-HOURS NOTE (per this session's own task instructions): this session
+ran during market hours (~14:20Z-16:00Z observation window, market open).
+The code change itself is audit-visibility-only and carries no trading-
+behavior risk, but per the standing market-hours convention this PR should
+NOT be merged until after 16:00 ET close unless it is independently judged
+to fix a critical live break — it is not: it makes an existing (already
+loud, already firing) condition MORE visible, it does not fix, mask, or
+change any live behavior. Stated explicitly in the PR description.
+
+NEXT: (1) once v1.0.876 is live (post-close merge), the next DD-halt
+firing (if any) lands as `DD-HALT` in `/api/diag/audit` directly — a
+future session should check there first rather than re-deriving from
+`TIER2-LIMIT`/`positions-detail`/`orders` again. (2) `research/
+wishlist.md`'s new escalation is a genuine human-decision blocker (Alpaca
+dashboard access this sandbox lacks) — a future session should check
+whether the human has responded before re-investigating from scratch.
+(3) if the human confirms a data artifact, that confirmation is the
+evidence RULE REVIEW requires for a future session to propose (never
+self-apply) a specific validated-read guard on `evaluateDailyPnl`/
+`update_equity_peak`.
+
+STARVED: no — the live-incident re-investigation, the new visibility fix
+(code + test + full gate suite), and the two-file documentation/escalation
+update fully used this session's capacity. No higher-priority item was
+skipped: no ladder-gated root was ready, KNOWN BROKEN #41 remains
+correctly deferred (still blocked on human Railway access, unchanged), and
+this WAS the session's own "judge a matured experiment" primary action per
+SESSION BUDGET's priority order.
+
 ## 2026-09-09 (scheduled-routine PRODUCT session, fourth session this UTC day) [PRODUCT] — SHARED-only, minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/*): revived and merged PR #1029 (github_org_engineering_momentum poll-health instrumentation), stranded 24h past its own held-for-close condition, v1.0.875
 
 SESSION-START: read CLAUDE.md in full, then `research/experiments.md`'s tail

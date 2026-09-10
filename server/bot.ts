@@ -4053,6 +4053,24 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
 
       audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates (via ${callResult.via})`);
 
+      // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
+      // portfolio-level DD halt (update_equity_peak/is_trading_halted,
+      // bot_engine.py:564-654, DRAWDOWN_HALT_PCT=18% by default) that
+      // returns early with {halted, halt_reason, peak_equity,
+      // current_equity, dd_pct} instead of running the scan at all — but
+      // bot.ts never read those fields, so a halt firing here was
+      // byte-for-byte indistinguishable in the audit trail from "scanned
+      // normally, found nothing" (both produce "Scanned 0 stocks, 0 trade
+      // candidates" via the line above). This is the same visibility gap
+      // KNOWN BROKEN #3 already found and closed for the tier engine's own
+      // separate master_kill_switch (the TIER-KILL audit line below) —
+      // this closes the same gap for scan_market's own DD halt, which had
+      // never gotten the same treatment. Audit-only: does not change
+      // whether the halt fires or when it resumes.
+      if (result.halted) {
+        audit("DD-HALT", `Tier2 scan blocked: ${result.halt_reason || "portfolio drawdown halt active"} (equity=${result.current_equity}, peak=${result.peak_equity}, dd_pct=${result.dd_pct})`);
+      }
+
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
         ? result.data_source_errors : {};
 
