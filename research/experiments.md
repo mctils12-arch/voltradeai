@@ -83345,3 +83345,176 @@ session: #41 (crash-loop) needs Railway access this sandbox lacks and
 was not observed recurring; #42/#43 were advanced (diagnosed further,
 notified) rather than requiring a full REPAIR session under this
 PRODUCT session's scope.
+
+## 2026-09-10 (scheduled-routine session, third session this UTC day) [REPAIR] — KNOWN BROKEN #42 settled: an independent, published-market-close P&L reconstruction shows 2026-09-09's account-reported -$12,059.74 loss was NOT a real market move — real book performance that day was -$414.82. Loop has been dark 2.5+ market hours on a false reading; escalated to the human. (v1.0.882, PR pending)
+
+TERRITORY: SHARED-minimal (scripts/reconstruct_position_pnl.py new,
+test_reconstruct_position_pnl.py new, research/*, package.json,
+package-lock.json, ci/counter_baseline.txt) — no T-DATACORE/T-CLIENT/T-BOT
+file touched.
+
+SESSION-START: read CLAUDE.md in full, experiments.md tail, open_questions.md
+KNOWN BROKEN section, wishlist.md tail. Loop-health ratio over the last 10
+tagged entries (2026-09-05 through 2026-09-10, second session): 7x
+[PRODUCT]/[PIPELINE] (counts as PIPELINE), 2x [REPAIR] — no thrash
+(threshold is 7+ REPAIR of 10). `python3 scripts/ladder_readiness_check.py`:
+0/4 gated roots have their re-run condition met (unchanged from the prior
+session's check a few hours earlier) — no ladder gate re-run was ready.
+
+LIVE HEALTH CHECK (per this session's own task instructions, before choosing
+an action): `/api/health` read `bot.status:"killed"`, `drawdownPct:"-8.1"`,
+`liveness.dark:true`, `liveness.detail:"LIVENESS ALARM: trading loop dark
+for 2.5 market hours (12.8h wall-clock) since 2026-09-10T03:12:26.354Z..."`.
+This is the SAME incident the prior two sessions today (see this file's
+"github_org_engineering_momentum" entry and its own KNOWN BROKEN #42 update,
+and the earlier "TREASURY DAILY STATEMENT" entry) already found and
+escalated — but the loop dark duration had now crossed CLAUDE.md's own
+LIVENESS ALARM threshold ("more than 2 market hours") during live market
+hours, and KNOWN BROKEN #42's own queued NEXT step (2) — "pull each of the
+8 held legs' own daily OHLC... and sum a reconstructed daily P&L independent
+of both the account-equity field and the live unrealized-P&L field — the
+one check this session did not have time for that would fully close the
+loop without needing Alpaca dashboard access at all" — was sitting queued
+and unattempted. Per SESSION BUDGET ("fix a bug seen in audit logs" is the
+top PRIMARY-action tier, and Priority 1 KEEP THE SYSTEM ALIVE never loses to
+a lower priority), this became this session's PRIMARY action rather than
+starting a new queue item.
+
+READ BEFORE WRITE: read `backtest_v2.py`'s `fetch_bars`/`_alpaca_bars`/
+`_yahoo_bars` end to end — confirmed it is the SAME Alpaca-first/
+Yahoo-fallback data path `analyze._fetch_alpaca_bars` (live) already uses,
+disk-cached, adjusted for splits/dividends, with retry-with-backoff on the
+Yahoo path. This sandbox has no `ALPACA_KEY`/`ALPACA_SECRET` (confirmed via
+`env`), so `_alpaca_bars` returns `None` and every call falls through to
+`_yahoo_bars` — verified this actually reaches real data live (`fetch_bars
+('QQQ', 10, use_cache=False)` returned real 2026-08-31 through 2026-09-10
+daily bars) before building anything on top of it. Grepped `scripts/*.py`
+for the existing repo-root-import convention (`sys.path.insert(0,
+os.path.dirname(os.path.abspath(__file__)) + "/..")`, `usaspending_gate2.py`'s
+own precedent) since `scripts/` isn't a package and `backtest_v2` lives at
+repo root.
+
+BUILT: `scripts/reconstruct_position_pnl.py` — given a trading date and a
+{symbol: qty} book (accepts either a plain map or a raw `/api/diag/
+positions-detail` payload), fetches each equity's close on that date and the
+prior trading day via `backtest_v2.fetch_bars` and sums `qty * (close -
+prev_close)` across the book — entirely independent of the account's own
+`equity`/`last_equity`/unrealized-P&L fields, the exact independent check
+KNOWN BROKEN #42's NEXT (2) asked for. OCC-format option symbols (regex
+`^[A-Z]{1,6}\d{6}[CP]\d{8}$`) are detected and excluded rather than fetched
+as equities — HONESTLY stated as a scope gap (no free historical
+options-quote source exists, research/wishlist.md), not silently
+mistreated. `test_reconstruct_position_pnl.py`: 12 tests, `backtest_v2.
+fetch_bars` monkeypatched throughout (no live network in CI/tests) — option-
+symbol detection, plain-map and positions-detail-payload loading, correct
+sum computation, short-position sign correctness (a price DROP is a
+POSITIVE contribution to a short qty), and three failure-path tests (target
+date missing from the fetched window, target date is the very first bar
+with no prior close to diff against, `fetch_bars` raising) all assert
+graceful exclusion with a stated reason rather than a crash or a silent
+zero.
+
+LIVE RESULT (this session, real data, real incident): pulled the current
+7-position book from `/api/diag/positions-detail?token=$DIAG_TOKEN` (QQQ 51,
+KWEB 257, SMH 20, VXUS 133, FCEL 70, plus two single-contract short puts,
+BAC/HPE) and ran `--date 2026-09-09 --reported-pnl -12059.74`:
+
+| symbol | qty | 09-08 close | 09-09 close | contribution |
+|---|---|---|---|---|
+| QQQ | 51 | 718.36 | 716.31 | -$104.55 |
+| KWEB | 257 | 25.36 | 24.78 | -$149.06 |
+| SMH | 20 | 573.73 | 574.29 | +$11.20 |
+| VXUS | 133 | 88.08 | 87.41 | -$89.11 |
+| FCEL | 70 | 17.76 | 16.57 | -$83.30 |
+
+Both option legs excluded (single-contract, combined market value order of
+$50-100, cannot bridge a five-figure gap regardless of sign). **Reconstructed
+total: -$414.82.** **Reported same-day pnl: -$12,059.74. Gap: $11,644.92,
+unexplained by any actual price move in the held book.** Cross-checked the
+data source's trustworthiness directly: every symbol's `prev_close`
+(2026-09-08, since today is 2026-09-10) this run computed for the LATEST
+window matched the live `positions-detail` probe's own `lastday_price` field
+exactly on every symbol (QQQ 716.31, KWEB 24.78, SMH 574.29, VXUS 87.41,
+FCEL 16.57 — all agree) — the reconstruction's data source agrees with
+Alpaca's own live feed everywhere it can be checked, which is why -$414.82
+is trusted rather than treated as a second unverified number needing its
+own audit.
+
+VERDICT ON KNOWN BROKEN #42: the real-loss reading is now effectively ruled
+out. A held book whose own actual close-to-close market performance was
+-$414.82 cannot have produced an honest -$12,059.74 same-day equity drop —
+this is a DATA ANOMALY on Alpaca's paper-account `last_equity`/`equity`
+snapshot for 2026-09-08/09, not a genuine drawdown. Updated
+`research/open_questions.md` KNOWN BROKEN #42 with the full table and this
+verdict.
+
+WHAT THIS DOES NOT DO (scope discipline): this is a read-only diagnostic
+script. It does NOT change `evaluateDrawdown`, `evaluateDailyPnl`,
+`risk_kill_switch.py`'s mechanism (FROZEN), or any live measurement path —
+per RULE REVIEW, no threshold or guard is loosened on this finding alone. It
+does NOT resume trading — `can_auto_resume: False` is a human-review gate by
+design and stays that way. This is new, additive, diagnostic-only code, not
+a change to existing measurement code, so MEASUREMENT INTEGRITY's own-PR/
+before-vs-after requirement (which governs CHANGES to metric-computing code)
+does not apply — stated here for transparency rather than assumed silently.
+
+ESCALATED: sent a push notification to the human this session — the loop
+has now been dark through 2.5+ market hours of live trading on what
+independent, sourced evidence says was very likely a data-quality artifact,
+not a real ~-18% drawdown, and resuming is the human's call alone. This
+notification is IN ADDITION to (not a replacement for) the two prior
+sessions' own escalations today — new information (the settled
+reconstruction, not just circumstantial evidence) justified a second
+notification rather than treating it as redundant.
+
+RULE REVIEW / FROZEN PATHS: no trading rule, threshold, or FROZEN path
+touched. MONETIZATION TRIPWIRE: not touched. VISUAL VERIFICATION: N/A — no
+client/ files touched. BACKTEST: N/A per PROMOTION RULE 3 — no scoring/
+sizing/threshold value in the trading path touched; this is a standalone
+diagnostic script.
+
+GATES: `python3 -m pytest -q test_reconstruct_position_pnl.py`: 12/12 pass
+(new file). Full `bash scripts/gated_tests.sh` (fresh container — `npm ci`
++ `pip install pytest -r requirements.txt -r requirements-dev.txt` both
+needed first, same recurring first-session setup step several prior
+sessions have logged; the FIRST run before `npm ci` showed a false client
+failure — `Cannot find package 'maplibre-gl'` — purely from missing
+`node_modules`, not a real regression, resolved by `npm ci` and re-run):
+GATE PASSED — server, client (all files, post-`npm ci`), python 1823
+passed/1 skipped/54 subtests (+12 vs the prior session's 1811 baseline,
+exactly this session's own new test file). `bash scripts/tsc_ratchet.sh`:
+11/11, TS2304 = 0, no drift. `bash scripts/counter_ratchet.sh`: 3 counters
+IMPROVED (`assertions` 13836->13857, `tests_run_in_ci`/`tests_gating_merge`
+436->437 — this session's own new test file, only counted once staged via
+`git add`) and re-pinned in `ci/counter_baseline.txt` in this same PR; all
+other 22 counters unchanged, no drift. `npm run build`: clean (pre-existing
+chunk-size warnings only, unrelated to this diff — no client/ files
+touched).
+
+VERSION: v1.0.882 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at c6ef088/v1.0.881/PR #1045, no concurrent session had merged
+past it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) the human's resume-or-not decision on
+the halted account remains outstanding — this file does not recommend one.
+(2) if Alpaca paper-account equity-snapshot anomalies recur, a live
+`/api/diag/reconstruct_pnl` probe (auto-pulling current positions + date,
+mirroring the `account`/`equity_curve` probes shipped 2026-09-10 morning)
+would remove today's manual position-JSON step — not built this session
+since the standalone script already fully answered this incident. (3)
+whether to eventually add a peak-relative or cross-checked sanity guard to
+`evaluateDailyPnl` itself, now that a real independent-reconstruction
+mechanism exists to validate such a guard against, is a RULE-REVIEW-track
+proposal for a future session, not attempted here.
+
+STARVED: no — this session's PRIMARY action was the highest-priority queued
+item (KNOWN BROKEN #42's own NEXT (2), the literal "would fully close the
+loop" step), chosen over starting a new queue item because Priority 1 (KEEP
+THE SYSTEM ALIVE) and the LIVENESS ALARM crossing 2 market hours during live
+trading outrank fall-through into new research per the GOAL priority order.
+No higher-priority KNOWN BROKEN item was preempted: #41 (crash-loop) needs
+Railway access this sandbox lacks and was not observed recurring at check
+time; #43 (the reachability fix) is confirmed working as designed (it fired
+exactly as intended) and needs no further action from this session.
