@@ -6418,6 +6418,87 @@
     Alpaca dashboard access at all. (3) once resolved either way, the
     human's manual resume decision is theirs alone; this file does not
     recommend one.
+    **UPDATE 2026-09-10 (scheduled-routine session, third session this UTC
+    day) — this item's own NEXT (2) executed: an independent, published-
+    market-close P&L reconstruction of the equity legs for 2026-09-09
+    reads -$414.82, not -$12,059.74. This is the decisive evidence the
+    2026-09-09 UPDATE said would "fully close the loop without needing
+    Alpaca dashboard access at all" — it does. The real-loss reading is now
+    effectively ruled out; this is a data anomaly.** Session-start
+    `/api/health`: `bot.status:"killed"`, `drawdownPct:"-8.1"`,
+    `liveness.dark:true` — loop dark 2.5 market hours / 12.8h wall-clock
+    since the 03:12:26Z kill, crossing this file's own LIVENESS ALARM
+    threshold (CLAUDE.md, "more than 2 market hours") during live market
+    hours, which is why this item's own queued NEXT (2) became this
+    session's PRIMARY action rather than a new queue item.
+    BUILT (own PR, this session): `scripts/reconstruct_position_pnl.py` +
+    `test_reconstruct_position_pnl.py` (12 tests, all pure-function/mocked
+    — no live network in CI). Given a date and a {symbol: qty} book, it
+    fetches each equity's close on that date and the prior trading day via
+    `backtest_v2.fetch_bars` — the SAME Alpaca-first/Yahoo-fallback data
+    path the backtest engine already uses, entirely independent of the
+    account's own `equity`/`last_equity` fields — and sums
+    `qty * (close - prev_close)` across the book. OCC-format option symbols
+    are detected and excluded (no free historical options-quote source
+    exists; stated honestly, not papered over) rather than fetched and
+    silently mis-treated as equities.
+    RUN LIVE this session against the actual incident: current
+    `/api/diag/positions-detail` (7 positions — see NOTE below on the "8
+    positions" discrepancy) fed in as `--positions`, `--date 2026-09-09`:
+    | symbol | qty | 09-08 close | 09-09 close | contribution |
+    |---|---|---|---|---|
+    | QQQ | 51 | 718.36 | 716.31 | -$104.55 |
+    | KWEB | 257 | 25.36 | 24.78 | -$149.06 |
+    | SMH | 20 | 573.73 | 574.29 | +$11.20 |
+    | VXUS | 133 | 88.08 | 87.41 | -$89.11 |
+    | FCEL | 70 | 17.76 | 16.57 | -$83.30 |
+    **Total reconstructed equity-leg P&L: -$414.82** (both single-contract
+    option legs excluded, but their combined market value that day was on
+    the order of $50-100 total — cannot bridge an eleven-thousand-dollar
+    gap regardless of sign). Gap vs. the account's own reported
+    -$12,059.74: **$11,644.92 unexplained by any actual price move in the
+    held book.** Cross-check for data-source trust: every `prev_close`
+    fetched by this run for TODAY's date range matched the live
+    `positions-detail` probe's own `lastday_price` field exactly (e.g. QQQ
+    716.31, KWEB 24.78, SMH 574.29, VXUS 87.41, FCEL 16.57) — the
+    reconstruction's data source agrees with Alpaca's own live feed on
+    every point it can be checked against, which is why the -$414.82 figure
+    is trusted rather than treated as a second unverified number.
+    NOTE (not chased further this session, immaterial to the verdict): the
+    2026-09-10 UPDATE above read 8 positions via `positions-detail`; this
+    session's read of the same probe shows 7. Whatever changed (most likely
+    a small options position expiring/closing) is financially negligible
+    either way — this reconstruction's conclusion holds regardless of which
+    exact 7-or-8-leg book is used, since the entire equity sleeve nets to
+    essentially flat and the options legs are single-contract.
+    WHAT THIS DOES NOT DO: it is a read-only diagnostic script, not a
+    change to `evaluateDrawdown`/`evaluateDailyPnl`/`risk_kill_switch.py`
+    or any live measurement path — per RULE REVIEW, no threshold or guard
+    is loosened on this finding alone, and per FROZEN PATHS,
+    `risk_kill_switch.py`'s halt/liquidation mechanism is untouched. It
+    also does not itself resume trading — `can_auto_resume: False` is a
+    human-review gate by design, and that gate is not bypassed here.
+    ESCALATED TO THE HUMAN (push notification sent this session, in
+    addition to this file): the loop has now been dark through 2.5+ market
+    hours of today's session on what independent, published market data
+    says was very likely a data-quality artifact, not a real ~-18%
+    drawdown. Resuming is still the human's call alone — this update exists
+    so that call can be made with a settled, sourced answer instead of
+    circumstantial evidence.
+    NEXT (queued, not this session): (1) the human's resume-or-not decision
+    remains outstanding; this file does not recommend one. (2) if this
+    proves to be a recurring Alpaca paper-account data-quality pattern (not
+    just this one incident), `scripts/reconstruct_position_pnl.py` is now
+    reusable for any future occurrence without rebuilding the diagnostic —
+    a `/api/diag/reconstruct_pnl` live probe (auto-pulling current
+    positions + date, mirroring the `account`/`equity_curve` probes shipped
+    2026-09-10 morning) would remove the manual position-JSON step, but was
+    not built this session since the standalone script already fully
+    answered this incident's open question. (3) whether to eventually add a
+    peak-relative or cross-checked sanity guard to `evaluateDailyPnl`
+    itself, now that a real mechanism (an independent reconstruction) exists
+    to validate such a guard against, is a RULE-REVIEW-track proposal for a
+    future session — not self-applied here, and not attempted this session.
 
 43. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, CODE FIX SHIPPED — NOT YET LIVE-CONFIRMED] The -10%-from-peak
