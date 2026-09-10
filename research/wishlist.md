@@ -100,6 +100,97 @@ both env vars and redeploy afterward — they're diagnostic-only. A future
 scheduled session cannot do this step itself (no Railway access), so this
 stays open until a human runs it or grants a future session that access.
 
+## 🔴 ACTIVE LIVE CONCERN, FLAGGED 2026-09-09 (scheduled-routine session,
+## fourth session this UTC day) — account reading ~-18% drawdown from its
+## own tracked peak, ~11.7% "daily loss," continuously since ~08:37Z with
+## NO supporting evidence in positions or order history; ~2 percentage
+## points from the -20% PORTFOLIO_DD_KILL forced-liquidation kill switch
+
+WHAT: this is the SAME incident KNOWN BROKEN #42 (`research/open_questions.md`)
+opened earlier today — a prior session this UTC day (third session, v1.0.874)
+found `TIER2-LIMIT "Daily loss limit"` firing 36+ times pre-market with no
+matching evidence in positions/orders, shipped validated-read hardening plus
+an enriched audit line, and deliberately left the real-loss-vs-data-glitch
+question open pending that enriched data. This session re-polled it per that
+NEXT step and the picture has NOT resolved — it has gotten more concerning:
+
+- `/api/health` now (16:00Z, during market hours): `drawdownPct: "-18.0"`,
+  `equity=90849` vs a tracked `equityPeak=110727.04` that has been static
+  for many weeks. `risk_kill_switch.py`'s `PORTFOLIO_DD_KILL = -0.20` (a
+  FROZEN-mechanism, all-4-tiers kill, `can_auto_resume: False`) is ~2
+  percentage points away.
+- The enriched `TIER2-LIMIT` audit line (v1.0.874's own fix) now shows the
+  raw numbers this session needed: `equity=90849, last_equity=102873.88,
+  equityPeak=110727.04` — consistent across every reading from 14:20Z
+  through 16:00Z (100+ minutes), `last_equity` unmoving (as expected for a
+  same-trading-day field) while `equity` drifted only slightly
+  (90971→90849). NOT the earlier session's hypothesized "last_equity far
+  above equityPeak" glitch signature — `last_equity` (102,873.88) sits
+  BELOW `equityPeak` (110,727.04) here, so that specific check would not
+  have caught this reading as obviously invalid even if it existed.
+- `/api/diag/positions-detail` (this session, live): 7 positions, gross
+  exposure $55,741, summed unrealized P&L across all seven ≈ **-$92** —
+  essentially flat.
+- `/api/diag/orders?limit=200` (this session, live, 92 filled orders):
+  every fill 2026-09-02 through 2026-09-08 is a small round-trip (≤20sh
+  GLD, ≤15sh QQQ, single-contract options at $0.27-$3.35 premiums). Nothing
+  sized to move a ~$90-110K account by the ~$12-20K this reading implies.
+- Independently corroborating: `bot_engine.py`'s OWN separate portfolio-DD
+  halt (`update_equity_peak`/`is_trading_halted`, `DRAWDOWN_HALT_PCT=18.0`
+  default, distinct from both `TIER2-LIMIT` and `risk_kill_switch.py`) was
+  almost certainly ALSO firing this whole window — this session found and
+  fixed (own PR, v1.0.876) a 100%-confirmed visibility gap where `scan_market()`'s
+  `{halted, halt_reason, peak_equity, current_equity, dd_pct}` return was
+  never read by `server/bot.ts`, so this halt firing produced the exact same
+  "Scanned 0 stocks, 0 trade candidates" audit line as a normal empty scan.
+  That fix is audit-visibility-only (does not touch the halt's own trigger
+  logic) but means the NEXT occurrence's raw numbers land directly in
+  `/api/diag/audit` under a new `DD-HALT` type without needing this
+  reconstruction again.
+
+NOT FIXED, DELIBERATELY, same reasoning as KNOWN BROKEN #42's original
+entry: whether `equity`/`last_equity` themselves are correct is a RULE
+REVIEW question (loosening or second-guessing a risk-limit halt's trigger
+needs evidence + a logged rollback trigger, not an autonomous session's
+inference), and this sandbox has no Alpaca paper-account dashboard or
+Railway log access to settle it independently — the same access gap KNOWN
+BROKEN #41 above is already blocked on.
+
+WHY FLAGGED HERE INSTEAD OF LEFT IN open_questions.md ALONE: the account is
+now within ~2 points of a FROZEN, `can_auto_resume: False`, all-4-tiers
+kill switch, on a reading this session could not find supporting evidence
+for in either positions or 92 orders of trade history. If this is genuinely
+a data-quality artifact (Alpaca-side or a stale cached account snapshot,
+per KNOWN BROKEN #42's own hypothesis), the system risks a full,
+manual-review-required trading halt over bad data rather than a real loss —
+exactly the kind of thing GOAL priority 1 (KEEP THE SYSTEM ALIVE) asks to
+surface loudly rather than let a human discover on a dashboard days later.
+
+WHAT ONLY THE HUMAN CAN DO FASTER: open the Alpaca paper-trading dashboard
+directly (or Alpaca support/status) and check (a) whether the account's
+real equity matches ~$90,849, (b) whether 2026-09-08's actual closing
+equity was really $102,873.88, and (c) whether there is any known Alpaca
+paper-account data-quality incident around 2026-09-08 (the same day KNOWN
+BROKEN #41's crash-loop was active, though this session found no plausible
+mechanism connecting a Railway-container-side Node/daemon crash-loop to
+Alpaca's own server-side account snapshot). That single check would settle
+in minutes what this sandbox cannot from outside. If the reading is
+confirmed real, no code change is needed — the halts are working as
+designed. If confirmed a data artifact, the next session should propose
+(not self-apply) a specific, evidence-backed loosening via RULE REVIEW,
+citing this confirmation as the evidence.
+
+UPDATE 2026-09-10 (scheduled-routine session): still unresolved, unchanged.
+KNOWN BROKEN #43's JS-side -10% kill switch (v1.0.877, shipped since this
+entry was filed) is now reachable and live, but has not yet fired because
+the market has not reopened since the deploy — it will very likely trip at
+the next open (~2026-09-10 13:30Z) given the current -18.1% reading, per
+that fix's own predicted downstream chain. This is not a new fact needing
+a fresh notification (the human was already told this would likely happen
+by the session that shipped the fix); flagging here only so the next
+session checks whether it actually fired, and whether the human has been
+able to check the Alpaca dashboard, before re-deriving this from scratch.
+
 ## ⚠ STALE-PR BACKLOG FOUND 2026-08-20 (scheduled-routine session #3) —
 ## 11 `claude/*` PRs, 6–35 days old, never merged; three distinct causes
 ## identified, two safe fixes already applied this session
