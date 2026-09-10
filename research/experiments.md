@@ -83173,3 +83173,175 @@ KNOWN BROKEN #41 (the market-hours crash-loop) remains open per wishlist.md
 but needs Railway access no session in this sandbox has, and was not
 observed recurring at the time of this check (uptime ~3.2h, stable heap);
 noted, not preempted, per this session's own PRODUCT-session instructions.
+
+## 2026-09-10 (scheduled-routine PRODUCT session, second session this UTC day) [PRODUCT] — github_org_engineering_momentum: cold in-memory cache never backfilled from a fully-archived on-disk week (`/api/data/github-activity` silently served `count:0` despite real history), fixed and tested; plus KNOWN BROKEN #42 diagnostic update and a live LIVENESS finding pushed to the human (v1.0.881)
+
+TERRITORY: T-DATACORE primary (server/githubOrgActivity.ts,
+server/githubOrgActivity.test.ts) + SHARED-minimal (package.json,
+package-lock.json, ci/counter_baseline.txt, research/*), last and
+minimal per WORKSTREAM PARTITION.
+
+SESSION-START: read CLAUDE.md in full, PROGRAM_STATE.md (stale, dated
+2026-08-15 — a prior Track 1-4 technical-debt program, now superseded by
+the day-to-day PRODUCT/PIPELINE/REPAIR session cadence visible in this
+file's own recent tail), experiments.md tail, open_questions.md KNOWN
+BROKEN section, wishlist.md tail, platform_program.md (PLATFORM
+INTEGRATION PROGRAM queue clear except P5, human-gated — confirmed no
+action there). `python3 scripts/ladder_readiness_check.py`: 0/4 gated
+roots have their re-run condition met (cftc_cot_positioning waiting 42d,
+sec_8k_earnings_language 22d, fleet_utilization_aircraft 53d,
+grid_generation_fuel_mix 1d) — no ladder gate re-run was ready to attempt
+this session.
+
+LIVE HEALTH CHECK (before choosing an action, per this session's own task
+instructions): `/api/health` read `status:"ok"` but `bot.status:"killed"`,
+`drawdownPct:"-8.3"` — production trading has been halted. Investigated
+using the new `/api/diag/account` + `/api/diag/equity_curve` probes a
+same-UTC-day earlier session shipped (v1.0.880/#1043) specifically to
+settle KNOWN BROKEN #42's long-open real-loss-vs-data-glitch question.
+Found: `DRAWDOWN-KILL` fired for real at 2026-09-10T03:12:54Z (-18.0% vs
+peak) — KNOWN BROKEN #43's reachability fix (v1.0.877) worked exactly as
+designed. The equity curve confirms 2026-09-09 closed with a recorded
+same-day pnl of -$12,059.74 (-11.7%), matching the original `TIER2-LIMIT`
+readings almost exactly — but `/api/diag/orders` shows ZERO orders on
+2026-09-09 (ruling out a trade-driven loss) and 2026-09-10's equity had
+already recovered ~$11,000 of that drop with, again, zero trades — the
+strongest evidence yet for a data anomaly over a real loss, though not
+fully conclusive without a human Alpaca-dashboard check (the one
+remaining decisive step). Documented in full in `research/
+open_questions.md` KNOWN BROKEN #42's 2026-09-10 UPDATE (own PR #1044,
+docs-only, merged). Per this session's own PRODUCT-session scope (note
+KNOWN BROKEN items, don't preempt REPAIR duty unless blocking) no code
+changed for this thread — but the account sitting halted with no
+auto-resume, heading into a full market session, needed the human's
+attention NOW rather than waiting for the next DAILY routine, so this
+session sent a direct push notification summarizing the finding and
+flagging that resuming trading is the human's call. PR #1044 merged via
+automerge before this session's primary action began (confirmed via
+`git fetch` + `mcp__github__list_commits` against the true origin/main,
+which a stale local `git fetch` had initially under-reported — resolved
+with an explicit `git fetch origin +refs/heads/main:refs/remotes/origin/
+main --force` and cross-checked against the GitHub API directly).
+
+PRIMARY PRODUCT ACTION: while investigating whether
+github_org_engineering_momentum (the develop-in-public-momentum root,
+GATE 1 archiver shipped 2026-08-02, stalled per the 2026-09-08 entry's
+own NEXT(1) re-poll instruction) had recovered, live-polled
+`/api/diag/github_activity_poll_health?token=$DIAG_TOKEN`:
+`attempted:0, weekStart:"2026-08-31"` — a reading distinct from either
+shape that entry's NEXT(1) anticipated (`attempted:15,succeeded*:0` =
+total external failure; `attempted` well under 15 = redeploy
+interruption). `attempted:0` means every watchlist org was already
+`isArchived` for that week — i.e. the fetch side is healthy and correctly
+skipping already-done work, not stalled. But `/api/data/github-activity`
+(confirmed via grep as the exact endpoint `client/src/pages/
+githubOrgActivity.tsx` reads) returned `count:0, records:[]` at the same
+moment, despite ~7+ weeks of real archived history existing on disk
+(2026-07-20 onward per the 2026-09-08 entry).
+
+READ BEFORE WRITE: traced `server/githubOrgActivity.ts`'s
+`refreshGithubActivityCache` end to end. The in-memory `cache` this route
+serves is separate from the on-disk archive the `/history` route reads.
+Its cold-boot branch was `else if (!cache) { cache = { at: Date.now(),
+records: [] }; }` — populated ONLY when `fetchGithubActivity` returns new
+records that cycle, never backfilled from disk otherwise. On a redeploy
+landing after the current week is already fully archived (the live state
+just confirmed), the fetch step is correctly a no-op (every org skipped),
+so a freshly-booted process's cache starts AND STAYS `{records: []}` —
+reporting empty to every viewer of the `/data` page for up to a week (or
+until the next redeploy happens to land mid-week), despite real history
+on disk. This is the exact systemic pattern the 2026-09-08 entry's own
+NEXT(2) named ("`warming_up:true` with no on-disk fallback when the
+in-memory cache is cold... systemic across roughly a dozen `/api/data/*`
+routes... filed as a larger, separate future audit") — except worse here:
+the client never even sees a `warming_up` state (the cache object isn't
+null), so it silently renders as "zero activity" for a root with real
+data, rather than a labeled loading state.
+
+FIX SHIPPED (this PR, scope: this one root, not the dozen-route audit —
+that stays filed as its own future item, unattempted here):
+`refreshGithubActivityCache`'s cold/empty-cache branch now backfills from
+`readArchivedGithubActivity()` (sorted by `weekStart`, same rolling
+~8-week cap the live-fetch merge path already uses) instead of
+defaulting to an empty array. A genuinely fresh archive (nothing ever
+written) still degrades honestly to `{records: []}` — this is a
+backfill, not a fabrication.
+
+TESTS: new test in `server/githubOrgActivity.test.ts` reproduces the
+exact live shape (every watchlist org pre-archived for the target week,
+cache cold) and asserts the backfilled cache includes both the
+just-skipped current week AND older history, while `attempted:0` still
+reads correctly (the poll-health signal itself was never wrong — only
+the cache it feeds was). Needed a new `_resetGithubActivityForTests()`
+export — this module's `cache`/`archivedKeys`/`seeded` are process-level
+singletons (same shape `cboeVix.ts`'s own `_resetCboeVixForTests`
+precedent exists for), and without a reset the new test's "cache starts
+cold" premise would silently depend on file execution order: written
+first, it initially PASSED by accident (nothing had touched `cache`
+yet), but then broke a LATER pre-existing test ("a healthy cycle
+populates the cache...") by leaking a populated cache into it — caught
+by running the full file, not just the new test, before trusting either
+result. Added the reset export and call it at both the start and (in
+`finally`) the end of the new test so it neither depends on nor pollutes
+file order. Full file: 19/19 passing.
+
+RULE REVIEW / FROZEN PATHS: no trading rule, threshold, or FROZEN path
+touched — datacore archiver cache-freshness fix only, no imports from
+trading logic (SPINOUT-READY DATA LAYER maintained). One logical change
+in this PR (the cache backfill fix); the KNOWN BROKEN #42 diagnostic
+work and its notification were shipped as a separate, already-merged
+docs-only PR (#1044) per PROMOTION RULE 5.
+
+MONETIZATION TRIPWIRE: not touched. VISUAL VERIFICATION: N/A — no
+client/ files touched. BACKTEST: N/A per PROMOTION RULE 3 — no
+scoring/sizing/threshold value in the trading path touched.
+
+GATES: `npx tsx --test server/githubOrgActivity.test.ts`: 19/19 pass (1
+new). `bash scripts/tsc_ratchet.sh`: 11/11, TS2304 0, no drift. Full
+`bash scripts/gated_tests.sh` (after `npm ci` + `pip install pytest -r
+requirements.txt -r requirements-dev.txt`, both absent at session start):
+GATE PASSED — server (includes the new test), client 1083/1083, python
+1811 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: 1 counter IMPROVED (`assertions`
+13828->13836 — this session's own new test's assertions) and re-pinned
+in `ci/counter_baseline.txt` in this same PR; all other 24 counters
+unchanged, no drift. `npm run build`: clean (pre-existing chunk-size
+warnings only, unrelated to this diff).
+
+VERSION: v1.0.881 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 5be52e4/v1.0.880/PR #1044 — my own prior docs PR — no
+concurrent session had merged past it). package-lock.json resynced via
+`npm install --package-lock-only`; diff confirms only the two
+version-string lines changed.
+
+NEXT (queued, not this session): (1) the dozen-route systemic
+`warming_up`-with-no-disk-fallback audit the 2026-09-08 entry filed
+remains open — this session fixed the one concrete instance it happened
+to trip over, not the general pattern. (2) whether
+github_org_engineering_momentum now has enough archived history to
+attempt GATE 2 (that entry's own NEXT(3)) — not reached this session,
+this was a data-completeness bug fix, not a ladder attempt. (3) the
+ORIGINAL 8-day archiver stall's root cause (external GitHub Search API
+failure vs redeploy interruption) is STILL not settled by this session —
+`attempted:0` is a different, later symptom (the week IS archived now,
+just wasn't visibly so) and does not confirm what caused the original
+gap; a future session with working `api.github.com` access from this
+sandbox (still blocked, checked again this session) or Railway logs
+would need to settle that separately if it recurs. (4) KNOWN BROKEN #42's
+one remaining decisive step (human Alpaca-dashboard check for
+2026-09-09) and the human's own resume-or-not decision on the halted
+account remain outstanding — flagged via push notification, not
+actionable from this sandbox.
+
+STARVED: no — `ladder_readiness_check.py` confirmed no gate re-run was
+ready; this session instead investigated a live health anomaly (per its
+own task instructions), used it to close a real, previously-hidden
+data-completeness bug in a live `/data` product surface with a
+reproducing test, and separately surfaced+escalated a live trading-loop
+halt to the human rather than letting it sit undiscovered through a full
+market session. No higher-priority KNOWN BROKEN item blocked this
+session: #41 (crash-loop) needs Railway access this sandbox lacks and
+was not observed recurring; #42/#43 were advanced (diagnosed further,
+notified) rather than requiring a full REPAIR session under this
+PRODUCT session's scope.

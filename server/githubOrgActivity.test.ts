@@ -21,6 +21,7 @@ import {
   githubActivityPollHealth,
   latestGithubActivity,
   WATCHLIST,
+  _resetGithubActivityForTests,
 } from "./githubOrgActivity";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -220,6 +221,52 @@ test("computePollHealth: zero archived is reported as a real outcome, not confus
   assert.equal(h.succeededMergedPRs, 0);
   assert.equal(h.succeededCommits, 0);
   assert.equal(h.archived, 0, "distinguishable from attempted=0 — a real total-failure cycle, not a skipped one");
+});
+
+test("refreshGithubActivityCache: cold cache backfills from disk when the current week is already fully archived — the live 2026-09-10 production finding (a redeploy landing on an already-archived week must not report count:0 despite real history on disk)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtghorg-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = dir;
+  // This module's dedup/cache state is a process-level singleton (see
+  // _resetGithubActivityForTests's own doc comment) — reset it so this
+  // test's "cache starts cold" premise holds regardless of file order,
+  // and so it doesn't leak a populated cache into the tests after it.
+  _resetGithubActivityForTests();
+  try {
+    // An older archived week — real history that must survive the backfill.
+    const priorWeek = {
+      t: "org_week" as const, key: "2029-04-30|mongodb", ticker: "MDB", org: "mongodb",
+      weekStart: "2029-04-30", weekEnd: "2029-05-06", mergedPRs: 9, commits: 40,
+      uniqueActorsSample: 4, actorSampleCapped: false, rt: "2029-05-08",
+    };
+    assert.equal(archiveGithubActivity([priorWeek], undefined, Date.parse("2029-05-08T12:00:00Z")), 1);
+    // Every watchlist org already archived for the week refreshGithubActivityCache
+    // is about to target — reproduces the live "everything already archived,
+    // nothing to fetch" steady state.
+    const currentWeekRecords = WATCHLIST.map((w) => ({
+      t: "org_week" as const, key: `2029-05-07|${w.org}`, ticker: w.ticker, org: w.org,
+      weekStart: "2029-05-07", weekEnd: "2029-05-13",
+      mergedPRs: 3, commits: 11, uniqueActorsSample: 2, actorSampleCapped: false, rt: "2029-05-15",
+    }));
+    assert.equal(
+      archiveGithubActivity(currentWeekRecords, undefined, Date.parse("2029-05-15T12:00:00Z")),
+      WATCHLIST.length,
+    );
+    assert.equal(latestGithubActivity(), null, "cache must still be cold going into this cycle (first refresh call in this file)");
+    const impl = async () => { throw new Error("must not be called — every org is already archived, skip() must short-circuit"); };
+    await refreshGithubActivityCache(impl as any, Date.parse("2029-05-15T12:00:00Z"), 0);
+    const health = githubActivityPollHealth();
+    assert.equal(health!.attempted, 0, "every org skipped — reproduces the live symptom exactly");
+    const cached = latestGithubActivity();
+    assert.ok(cached, "cache must be populated, not left null, despite zero fetch attempts this cycle");
+    assert.ok(cached!.records.length > 0, "must backfill from the on-disk archive rather than report count:0 with real history sitting on disk");
+    assert.ok(cached!.records.some((r) => r.key === "2029-04-30|mongodb"), "older archived history is included, not just the current week");
+    assert.ok(cached!.records.some((r) => r.key === "2029-05-07|mongodb"), "the just-skipped current week is included too");
+  } finally {
+    _resetGithubActivityForTests(); // don't leak this test's cache/dedup state into the tests after it
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("refreshGithubActivityCache: a healthy cycle populates the cache, archives to disk, and records health", async () => {
