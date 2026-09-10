@@ -3,6 +3,112 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-10 (scheduled-routine session, at least the seventh session this
+UTC day) [REPAIR] — SHARED-only (research/open_questions.md,
+research/wishlist.md, research/experiments.md): production is FULLY DOWN
+— Railway edge fallback 502 on every endpoint, sustained 5+ min with no
+successful response, consistent with KNOWN BROKEN #41's OOM crash-loop
+having exhausted its restart budget. No code fix attempted (blocked on
+Railway access + RECURRENCE ESCALATES); human notified directly. Docs-only,
+no version bump.
+
+TERRITORY: SHARED-only. No T-BOT/T-CLIENT/T-DATACORE files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `git fetch
+origin main`: local branch `claude/funny-fermat-9f6c79` was already
+identical to `origin/main` (22e5291, v1.0.883, PR #1047) — 0 ahead/0
+behind, so this session's branch restarts fresh from current main per this
+session's own branch instructions. `python3 scripts/research_state_check.py`:
+thrash 5/10 REPAIR (below 7+ trigger), starvation 0/10, audits register
+none overdue, known_broken advisory-unclosed items unchanged (#26/#34/#38/
+#40). `research/experiments.md` (top ~90 lines), `open_questions.md`
+(KNOWN BROKEN #41/#42 in full), `wishlist.md` (both active incident
+entries) read before touching anything.
+
+LIVE HEALTH CHECK (first action, per this routine's own brief): `curl
+https://voltradeai.com/api/health` → `502 {"status":"error","code":502,
+"message":"Application failed to respond"}`. Retried 3x immediately
+(unchanged), then polled every ~13s for ~80s (all 502), then again ~10min
+later (still 502, plus one plain connection timeout burst and one request
+that hung 15.4s before returning the same fallback). Response headers:
+`server: railway-hikari`, `x-railway-fallback: true`, `x-railway-edge:
+iad1` — confirmed via a deliberately-nonexistent path returning the
+identical body/headers, meaning this is Railway's OWN edge-level
+"container not answering" page, not anything from our Express app (no app
+code runs to produce it). Ruled out the sandbox's own network path first
+(`curl "$HTTPS_PROXY/__agentproxy/status"` — proxy healthy, zero relay
+failures) before trusting the reading.
+
+DIAGNOSIS: this matches KNOWN BROKEN #41 (`open_questions.md`) — the
+OOM crash-loop first found 2026-09-08, RECURRENCE-ESCALATED the same day
+after two independent fixes (v1.0.869/#1030, v1.0.871/#1033) were
+confirmed live and confirmed insufficient, with bisection tooling
+(`server/bisectionFlags.ts`) merged 2026-09-09 but never run (needs
+Railway dashboard access no session has). Every prior observation of this
+incident eventually served a response and recovered within its own
+~90-130s cycle; this session found NO successful response across ~5+
+minutes of polling spanning two separate checks ~10 minutes apart — a
+materially worse state than previously logged, consistent with
+`railway.json`'s `restartPolicyMaxRetries: 10` having been exhausted
+during a crash-loop burst (Railway stops auto-restarting after 10 failed
+attempts and leaves the service dead pending a manual redeploy).
+
+RULED OUT AS CAUSE (read each diff before trusting CI-green as sufficient,
+per READ BEFORE WRITE): today's 6 prior merges before this check (#1042
+DD-HALT audit visibility, #1043 read-only diag routes, #1044 docs-only,
+#1045 github-activity cache backfill, #1046 diagnostic script, #1047
+visual-harness PAGES/tests). `git show --stat` on #1047 (the most recent,
+18:59Z) touches only `scripts/visual_check.mjs` (dev-only harness, not in
+the runtime image's request path), a new test file, and version/docs
+bookkeeping — zero server runtime files. #1043/#1046's new diag routes
+(`case "account"`/`case "equity_curve"` in `server/bot.ts`) were read this
+session end-to-end: both sit inside the existing `/api/diag/:probe`
+handler's outer try/catch (line 2242), no unguarded await outside it.
+Nothing in today's merge history touches a FROZEN path, a measurement
+path, or a risk mechanism. This reads as the pre-existing, still-open
+incident having gotten worse, not a new regression from today's work.
+
+REPAIR-OR-NOT DECISION: per RECURRENCE ESCALATES (already triggered
+2026-09-08 for this exact subsystem — "two failed fixes... patching again
+is FORBIDDEN"), a third guess-and-patch attempt was explicitly not made.
+Separately, this session had no live access to gather new evidence even
+if it wanted to — the app being down means `/api/diag/*`, `/api/health`
+snapshots, and every other diagnostic surface this sandbox has ever used
+on this incident are ALSO down. The only actions available were
+documentation (this entry, `open_questions.md` KNOWN BROKEN #41's dated
+update, `wishlist.md`'s incident entry update) and escalation.
+
+ACTION TAKEN: sent a PushNotification to the human immediately (before
+finishing the writeup) stating the site is fully down and needs a manual
+Railway restart — this exceeds even the LIVENESS ALARM's "trading loop
+dark" framing (the whole site, `/data` included, is unreachable, not just
+the trading loop), and CLAUDE.md's own directive is explicit that this
+class of event "must be surfaced loudly, never discovered by the human on
+a dashboard." Filed the same finding to `open_questions.md`/`wishlist.md`
+for the written record, including a request that whoever restarts it also
+pull raw container logs for this window (or the market-hours window just
+before it) — a second, independent chance at the V8-heap-vs-cgroup-OOM
+log evidence `wishlist.md` has been asking for since 2026-09-08, since
+this sandbox still has no Railway log access itself.
+
+GATES: no code changed. `git diff --stat` = 3 files, all under
+`research/*`. No version bump (matches the docs-only #1044 precedent —
+PROMOTION RULE 4's version bump exists to separate code_version
+attribution in trade feedback; a pure documentation change has no runtime
+behavior to attribute).
+
+NEXT: a human action item, not a future-session one — this needs a manual
+Railway dashboard restart before any future session's `/api/health` check
+will show anything but 502. Once restarted, a future session should (1)
+confirm recovery, (2) check whether the restart alone was sufficient or
+whether the crash-loop resumes during the next market-hours window (if it
+resumes, that's still consistent with KNOWN BROKEN #41 being unresolved,
+not a new finding), and (3) if the human ran the bisection
+(`VOLTRADE_DISABLE_TIER2`/`VOLTRADE_DISABLE_TIER3`) or pulled logs while
+in the dashboard, read the result and update KNOWN BROKEN #41 accordingly
+— that would be the highest-value next action available, ahead of any
+new research or pipeline work, per the REPAIR MANDATE.
+
 ## 2026-09-10 (scheduled-routine session, second session this UTC day) [REPAIR] — T-BOT (server/bot.ts, server/diag.ts/diag.test.ts) + SHARED-minimal, last (ci/counter_baseline.txt, package.json/package-lock.json, research/*): KNOWN BROKEN #43's predicted DD-HALT trip actually fired live (03:12:54Z, pre-market) and trading has been halted 8+ hours with no auto-resume — shipped `/api/diag/account` + `/api/diag/equity_curve` to close the remaining real-loss-vs-data-glitch evidence gap (v1.0.880), notified the human directly
 
 TERRITORY: T-BOT (`server/bot.ts`'s `/api/diag/:probe` route, new
