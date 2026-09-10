@@ -183,6 +183,24 @@ const PAGES = {
   // "shipped-data-no-client-page" gap for un_comtrade_bilateral_trade
   // (API-only since the same-day PIPELINE session that built the archive).
   uncomtrade: { route: "/app#/data/un-comtrade", map: false },
+  // COVERAGE GAP CLOSED (2026-09-10, scheduled-routine PRODUCT session):
+  // these 8 full overlay views (each already has a real "Full X view
+  // (#/data/Y) — same overlay pattern" hash-driven route in datamap.tsx,
+  // several shipped as far back as the very first /data build) had NEVER
+  // been added here — this harness has never once rendered them at any
+  // width, so PROMOTION RULE 6 was silently unmet for all 8, discovered by
+  // diffing datamap.tsx's hash-route useState initializers against this
+  // map programmatically. dtcc-swaps is the freshest instance (shipped
+  // 2026-08-23, three weeks unverified) — see server/visualPagesWiring.test.ts,
+  // the new ratchet this session added so this class can't recur silently.
+  filings: { route: "/app#/data/filings", map: false },
+  earnings: { route: "/app#/data/earnings", map: false },
+  shortvolume: { route: "/app#/data/short-volume", map: false },
+  cot: { route: "/app#/data/cot", map: false },
+  graph: { route: "/app#/data/graph", map: false },
+  atssummary: { route: "/app#/data/ats-summary", map: false },
+  midas: { route: "/app#/data/midas", map: false },
+  dtccswaps: { route: "/app#/data/dtcc-swaps", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -1624,6 +1642,65 @@ const FIXTURES = {
       { facilityId: 1, facilityName: "W A Parish", unitCount: 4, sumOpTime: 5824.5, sumGrossLoad: 612340.2, primaryFuelInfo: "Coal", lat: 29.479, lon: -95.638, ownerOperator: "NRG Texas" },
       { facilityId: 2, facilityName: "Comanche Peak", unitCount: 2, sumOpTime: 4368.0, sumGrossLoad: 421980.7, primaryFuelInfo: "Nuclear", lat: 32.298, lon: -97.785, ownerOperator: "Vistra" },
       { facilityId: 3, facilityName: "Barney M Davis", unitCount: 1, sumOpTime: 980.3, sumGrossLoad: 58210.4, primaryFuelInfo: "Natural Gas", lat: 27.634, lon: -97.322, ownerOperator: "Talen Energy" },
+    ],
+  },
+  // COVERAGE GAP CLOSED (2026-09-10) — three fixtures for the newly-added
+  // PAGES entries above that had none before (filings/earnings/short-volume/
+  // cot/graph already had fixtures shipped with their own PAGES entries
+  // elsewhere; these three never got a PAGES entry OR a fixture, so they
+  // fell through to the generic 200 {} default and were fully unexercised).
+  "/api/data/ats-summary": {
+    kind: "raw", source: "FINRA Query API — ATS/OTC venue volume (fixture)",
+    attribution: "FINRA Query API", time: 1,
+    note: "Fixture: monthly cut has no ATS-vs-OTC venue split.",
+    weekly: {
+      week_start: "2026-09-01", tiers_covered: ["T1", "OTCE"], records: 4820,
+      composition: { ATS: 0.41, OTC: 0.59 },
+      top_ats_by_symbol: [{ symbol: "FXA", name: "Fixture Alpha Corp", shares: 1204500, trades: 3820, notional: 60225000 }],
+      top_otc_by_symbol: [{ symbol: "FXB", name: "Fixture Beta Inc", shares: 980200, trades: 2910, notional: 41208400 }],
+    },
+    monthly: {
+      month_start: "2026-08-01", tiers_covered: ["T1", "T2", "OTCE"], records: 19340,
+      composition: { ATS: 0.38, OTC: 0.62 },
+      top_otc_by_symbol: [{ symbol: "FXB", name: "Fixture Beta Inc", shares: 4102000, trades: 11820, notional: 172284000 }],
+    },
+    blocks: {
+      month_start: "2026-08-01", records: 640,
+      top_venues_by_block_volume: [
+        { mpid: "FXV1", name: "Fixture Venue One", block_quantity: 820000, block_count: 41, average_block_size: 20000, ats_share_percent: 62.4, ats_block_share_rank: 1 },
+      ],
+    },
+  },
+  "/api/data/microstructure": {
+    kind: "raw", source: "SEC MIDAS market-structure metrics (fixture)",
+    attribution: "SEC MIDAS", note: "Fixture: small-cap HFT-colonization filter watchlist, RAW display only.",
+    summary: {
+      period: "2026-09-08", kind_counts: { stock: 4200, etf: 380 },
+      newest_date: "2026-09-08", rows: 4580,
+      smallcap_watch: [
+        { ticker: "FXC", mcapRank: 1840, cancelToTrade: 12.4, hiddenRatePct: 8.1, oddLotRatePct: 3.2 },
+        { ticker: "FXD", mcapRank: 2010, cancelToTrade: 21.7, hiddenRatePct: null, oddLotRatePct: 5.9 },
+      ],
+      smallcap_max_rank: 3000, min_trades_for_hidden: 100, top_cap: 500,
+    },
+  },
+  "/api/data/dtcc-swaps": {
+    kind: "raw", source: "DTCC SBSDR equity total-return-swap dissemination (fixture)",
+    attribution: "DTCC SBSDR", time: 1,
+    file_date: "2026-09-09", source_date: "2026-09-09",
+    us_underlier_rows_today: 118420, new_rows_archived: 612, total_archived: 214880,
+    note: "Fixture: US-underlier scope only; basket-swap rows excluded from this view (see server/dtccSwaps.ts).",
+    top_rows: [
+      {
+        dissemination_id: "FX00000001", action_type: "NEWT", event_timestamp: "2026-09-09T14:22:00Z", effective_date: "2026-09-10",
+        notional_amount: 48200000, notional_currency: "USD", underlier_id: "US0000000FX", underlier_id_source: "ISIN",
+        underlier_name: "Fixture Small-Cap Corp",
+      },
+      {
+        dissemination_id: "FX00000002", action_type: "MODI", event_timestamp: "2026-09-09T12:05:00Z", effective_date: "2026-09-10",
+        notional_amount: null, notional_currency: "USD", underlier_id: "037833100", underlier_id_source: "CUSIP",
+        underlier_name: "Fixture Mid-Cap Holdings",
+      },
     ],
   },
 };
