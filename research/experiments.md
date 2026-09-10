@@ -82495,3 +82495,205 @@ access no session in this sandbox has); this session's own finding was, by
 GOAL priority order, higher-value than any queued PRODUCT/RESEARCH
 fall-through item, since it is a live gap in priority-1/2 safety
 machinery, not a new feature or signal.
+
+## 2026-09-10 (scheduled-routine PRODUCT session) [PIPELINE] — TREASURY DAILY STATEMENT GATE 2 (SIGNAL): withheld-tax YoY growth vs BLS payroll growth — FAIL, r=0.163/p=0.382 at the only currently-usable window (n=31); a real DTS taxonomy change and a real p-value bug both found along the way (v1.0.878)
+
+TERRITORY: T-DATACORE (scripts/treasury_dts_gate2.ts + test, server/treasuryDts.ts
+export, datacore/signal_ladder.json) + shared (package.json, ci/counter_baseline.txt),
+last and minimal.
+
+CONTEXT: gate 1 (DATA) for this root passed 2026-09-08 (r=0.979, prior session,
+this file's own dated entry above). That session's own NEXT queued gate 2
+("withheld-tax YoY growth vs payroll-surprise dates") as needing "a BLS
+payroll-surprise-date calendar as ground truth — unsourced, not attempted."
+This session picked up that queued item as the highest-value PRODUCT action:
+gate 1/gate 2 work is explicitly named product work in this session's own
+task instructions, and it was the queue's own stated NEXT item rather than a
+newly self-proposed one.
+
+BUILD-FIRST CHECK BEFORE WRITING ANY CODE: "payroll-surprise" means
+actual-vs-consensus-forecast. Consensus/survey-median forecasts (Bloomberg,
+Econoday) are a paid product; no free source was found. Per BUILD-FIRST RULE
+step 3 (inference substitutes for ground truth, honestly labeled): the
+ground truth that IS free, keyless, and legitimate for a NOWCAST hypothesis
+is BLS's own ACTUAL Nonfarm Payrolls print — the number a nowcast tries to
+anticipate in the first place. Used FRED's PAYEMS series via the keyless
+`fredgraph.csv` export (same "web UI's own download" precedent fredMacro.ts's
+own gate 1 established) rather than the keyed `api.stlouisfed.org` endpoint,
+since FRED_API_KEY lives only on Railway (fredMacro.ts's own comment) and
+this gate needed to run from this sandbox. Consensus/surprise data becomes
+necessary only at gate 3+ (LOGIC — an actual trading edge around release
+dates); gate 2 only asks whether the raw statistical relationship exists.
+
+PRE-REGISTRATION (REASONING STANDARD #10, stated in the script's own header
+comment before any data was fetched): Test A (GATING, matches the filed
+ladder path literally) = same-month correlation between withheld-tax YoY
+growth and PAYEMS YoY growth, PASS bar Pearson r >= 0.30 AND two-tailed
+p < 0.05 — deliberately a much lower bar than gate 1's 0.85 since this is a
+genuine cross-series economic-signal test, not a reconciliation of two
+measures of the same activity. Test B (INFORMATIONAL, NOT GATING) = withheld-
+tax YoY growth in month M-1 vs PAYEMS YoY growth in month M, the actual
+"nowcast ahead of the release" shape the hypothesis claims — reported
+alongside Test A regardless of outcome, per REASONING STANDARD #4 discipline
+against picking whichever variant looks better after seeing the numbers.
+
+NEW PRODUCTION FUNCTION: `sumWithheldTaxDeposits()` (server/treasuryDts.ts),
+mirroring `sumTgaDepositsExDebt`'s shape but summing only the
+`WITHHELD_TAX_CATEGORY` ("Taxes - Withheld Individual/FICA") line — verified
+live against a full category list for a sample day before writing the
+function, not assumed from field docs. 4 new unit tests in
+`server/treasuryDts.test.ts` (11/11 passing with the pre-existing ones).
+
+LIVE FINDING #1 — A DTS TAXONOMY CHANGE, discovered by RUNNING the script,
+not assumed: the original plan (WINDOW_START 2017-01, an 8+ year, multi-
+regime sample spanning pre-COVID/COVID/2022-hiking/current) returned data
+for only 31 months (2024-02 through 2026-08) instead of ~96. Bisected live
+via direct API probes: "Taxes - Withheld Individual/FICA" is PRESENT on
+2023-02-28 and ABSENT on 2023-01-31 and every earlier date checked back to
+2018 — a real Treasury FiscalData category-schema change, not a fetch bug.
+Before the change, the closest DTS line was the unsplit "Cash FTD's Received
+(Table IV)" (mixing withheld and non-withheld remittances) — a different,
+not-directly-comparable series; this session does NOT attempt to splice the
+two together. WINDOW_START moved to 2022-02 (one year of runway before the
+category's earliest existence) purely to stop wasting API calls the schema
+change guarantees will return null; the real usable sample is 2024-02
+through 2026-08 (n=31, ~2.5 years) — a materially smaller and less
+regime-diverse window than intended, and that shortfall is itself part of
+this gate's result (REASONING STANDARD #2's regime-conditioning is
+compromised here by data availability, not by choice).
+
+LIVE FINDING #2 — A REAL BUG IN THE SCRIPT'S OWN P-VALUE HELPER, caught by
+A/B against ground truth before trusting any number (this file's own
+MEASUREMENT INTEGRITY-style discipline applied to a one-off analysis
+script, not just runtime code): the hand-rolled two-tailed p-value function
+(regularized incomplete beta via a continued fraction, avoiding a stats
+library dependency) originally computed the continued fraction with the
+SAME (a,b,x) parameters in both branches and just flipped `1 - cf` when x
+fell in the numerically-unstable region — mathematically wrong, not merely
+imprecise, in that branch. Caught by installing `scipy` in this sandbox and
+cross-checking `scipy.stats.t.cdf`-derived p-values against several (r,n)
+pairs: r=0.163,n=31 read p=0.846 from the buggy version vs the correct
+p=0.382 (scipy agrees to 6 decimal places). Fixed to the standard
+Numerical-Recipes `betacf` recipe — swap to (b,a,1-x) and divide by b in
+that branch, matching scipy exactly on every case tried (0.9/10, 0.5/20,
+0.3/31, 0.163/31, 0.223/30). This is exactly the kind of self-inflicted
+measurement error CLAUDE.md's REASONING STANDARD #4/#10 discipline exists to
+catch before a PASS/FAIL verdict is trusted — a p-value bug in the FAIL
+direction here would have been easy to miss (a "fails to reach significance"
+verdict looks unremarkable either way), which is precisely why it was
+verified against an independent implementation rather than trusted on sight.
+
+LIVE RESULT (gate 2, n=31 months, 2024-02 through 2026-08):
+- Test A (GATING): r=0.163, p=0.382 — FAIL, not close to either the r or p
+  bar.
+- Test B (informational, NOT gating): r=0.223, p=0.236 — also not
+  significant, so the relationship is not simply mismeasured as
+  contemporaneous when it is really leading; the lead variant doesn't
+  rescue it.
+- ex-COVID subsample: identical to Test A (the shortened 2024-2026 window
+  never overlaps the pre-registered 2020-03..2021-06 exclusion window at
+  all, so this pre-registered check turned out to be moot given LIVE FINDING
+  #1 — reported anyway per the pre-registration, not dropped after the fact
+  because it added nothing).
+
+PLAUSIBLE MECHANISM, NOT CONFIRMED (worth recording, not overclaimed):
+`payemsYoy` fell in a smooth, nearly monotonic glide from ~1.4% to ~0.2-0.4%
+across the entire window, while `withheldYoy` swung noisily between -1% and
++17% month to month with no visible trend match. A single end-of-month MTD
+snapshot is plausibly sensitive to which weekday the last business day fell
+on and to lumpy large-employer remittance timing — noise a genuine nowcast
+construction (e.g. a trailing-12-month sum, or averaging several days around
+month-end) would need to smooth out before this specific test could tell
+signal from that noise. NOT built or tested this session (a second variant,
+which REASONING STANDARD #4 says to avoid stacking inside one PR without
+discounting for the extra look) — filed as NEXT (1), not silently swapped in
+to rescue this run's verdict.
+
+VERDICT PER ROOT VALIDATION LADDER: a fault at gate N with 1..N-1 verified is
+a fault AT layer N. Gate 1 (the archive tracks reality) remains PASSED and
+is unaffected by this result. GATE 2 FAILS at the current window: the
+withheld-tax line item's month-end MTD snapshot does not carry statistically
+significant same-month or 1-month-lead information about payroll growth over
+the only sample this taxonomy change leaves available. `datacore/
+signal_ladder.json` updated: gate1_pass/gate 1 -> gate2_fail/gate 2 (full
+account written into that entry's own note field, not just this pointer).
+
+RULE REVIEW / FROZEN PATHS: no trading rule, threshold, or FROZEN path
+touched — this is a datacore signal-ladder gate script plus one new pure
+archiver function, nothing in the trading path. One logical change (the
+gate 2 attempt and its two live findings, inseparable from that attempt).
+
+MONETIZATION TRIPWIRE: not touched.
+
+VISUAL VERIFICATION: N/A — no client/ files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold value in
+the trading path touched; this is a signal-ladder gate test on a datacore
+archiver, not a strategy or parameter change.
+
+ENVIRONMENT NOTES (not code findings, recorded so a future session isn't
+surprised by the same false starts): (1) this sandbox's Node `fetch` does
+not read `HTTPS_PROXY`/`https_proxy` by default (unlike `curl`), so a
+direct `node -e 'fetch(...)'` to `fred.stlouisfed.org` failed with a
+proxy-shaped "upstream connect error" while `curl` to the identical URL
+succeeded every time — running with `NODE_USE_ENV_PROXY=1` (per
+`/root/.ccr/README.md`'s own documented fix for this exact failure class)
+resolved it; `api.fiscaldata.treasury.gov` needed no such flag (reachable
+directly). (2) `api.fiscaldata.treasury.gov` intermittently 500s on an
+otherwise-valid query — confirmed transient by an immediate manual retry of
+the exact same URL returning 200 — so the script retries each fetch up to 3
+times with backoff; without this the full run failed non-deterministically
+partway through. (3) fresh container needed `npm ci` (only `tsx` was
+pre-available) and `pip install pytest -r requirements.txt -r
+requirements-dev.txt` before the gates would run — same class of
+first-session setup step several prior sessions have already logged.
+
+GATES: `npx tsx --test server/treasuryDts.test.ts`: 11/11 pass (4 new).
+`npx tsx --test scripts/treasury_dts_gate2.test.ts`: 6/6 pass (new file —
+date-window math, YoY growth edge cases, and the p-value fix verified
+against 5 live scipy cross-checks). `bash scripts/tsc_ratchet.sh`: 11/11,
+TS2304 = 0, no drift. Full `bash scripts/gated_tests.sh`: GATE PASSED —
+server (includes the two new/changed files above), client 1083/1083 (client
+untouched this PR — same file count as before, confirms no regression),
+python 1811 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: 1 counter IMPROVED (`assertions` 13782->13784 —
+this session's own 10 new test assertions across the two files) and re-pinned
+in `ci/counter_baseline.txt` in this same PR; all other 24 counters
+unchanged, no drift. `npm run build`: clean (pre-existing chunk-size
+warnings only, unrelated to this diff).
+
+VERSION: v1.0.878 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at 5e62676/v1.0.877/PR #1040, no concurrent session had moved it).
+package-lock.json resynced via `npm install --package-lock-only`; diff
+confirms only the two version-string lines changed.
+
+NEXT (queued, not this session): (1) a trailing-window or multi-day-averaged
+construction of the withheld-tax feature (smoothing the single-end-of-month
+MTD snapshot's weekday/remittance-timing noise the PLAUSIBLE MECHANISM
+section names) is the most promising next variant to test — as its OWN
+pre-registered attempt, not a retroactive rescue of this run's FAIL. (2) if
+a free BLS-consensus-forecast proxy is ever found (e.g. a keyless economic
+calendar with historical consensus figures), gate 3 (LOGIC, an actual
+trading edge around release dates) could use the literal "surprise" ground
+truth the ladder path originally named — not attempted or searched for this
+session, since gate 2 doesn't need it and this session's PRIMARY action was
+already fully used. (3) the taxonomy-change finding (LIVE FINDING #1) may be
+worth a short standalone note for any OTHER root that reads DTS category
+names by exact string match across a multi-year window — not searched for
+other affected roots this session, filed here as a flag rather than a
+guess.
+
+STARVED: no — this session's own PRIMARY action (the queue's own stated
+NEXT item) was carried to a complete, gate-clean result: a real verdict
+(FAIL, not an inconclusive or abandoned attempt), two independent live
+findings caught and fixed rather than papered over (the taxonomy change and
+the p-value bug), and the next genuinely promising variant filed rather
+than attempted speculatively in the same PR. No higher-priority KNOWN
+BROKEN item blocked this session: `/api/health` read `status: ok`,
+`bot.status: active`, `liveness.dark: false` at session start (checked
+before choosing this action, per this session's own task instructions) —
+KNOWN BROKEN #41 (the market-hours crash-loop) remains open per wishlist.md
+but needs Railway access no session in this sandbox has, and was not
+observed recurring at the time of this check (uptime ~3.2h, stable heap);
+noted, not preempted, per this session's own PRODUCT-session instructions.
