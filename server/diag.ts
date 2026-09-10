@@ -172,6 +172,38 @@ export const DIAG_PROBES = [
   // beyond the public watchlist leaves this endpoint — aggregate counts
   // only, same posture as every other probe here.
   "github_activity_poll_health",
+  // ADDED 2026-09-10 (scheduled-routine session): unblocks KNOWN BROKEN
+  // #42's own stated NEXT step — "requires a human Alpaca-dashboard check
+  // this sandbox cannot substitute for" — for the SAME class of question
+  // (equity dropped from peak with no supporting evidence in positions or
+  // orders) that this and every prior session on the incident could only
+  // partially answer from positions-detail/orders alone. The JS-side max-
+  // drawdown kill switch (server/bot.ts DRAWDOWN-KILL, drawdownGuard.ts)
+  // fired live this session (2026-09-10T03:12:54Z, -18.0% vs a peak static
+  // for weeks) while positions-detail's own summed unrealized P&L was only
+  // ~-$279 on $67K gross exposure — the same disconnect KNOWN BROKEN #42
+  // already flagged, now escalated to an actual trading halt. `equity` and
+  // `last_equity` alone (already on /api/health) cannot say WHERE a gap
+  // came from; this probe surfaces the full Alpaca account balance
+  // breakdown (cash, long/short market value, margin) so a future session
+  // can tell "cash moved" from "position marks moved" from "nothing
+  // moved, the number itself is wrong" without needing the owner cookie or
+  // a human logging into the Alpaca dashboard. Same reduced-exposure
+  // posture as every other probe: whitelisted numeric fields only, no
+  // account_number, no keys.
+  "account",
+  // ADDED 2026-09-10 (scheduled-routine session, same incident as
+  // "account" above): recordDailyEquity() already persists one
+  // {date, value, pnl} row per day to EQUITY_CURVE_PATH (server/bot.ts)
+  // but nothing exposed that history outside the owner-gated
+  // /api/bot/performance route. A gradual multi-week realized-loss decline
+  // and a sudden single-read anomaly look identical in a single current
+  // account snapshot — they do not look identical in the daily trend. This
+  // probe is a read-only, capped passthrough of the in-memory equityCurve
+  // array (already aggregate: one portfolio_value + one day-over-day pnl
+  // per day, no per-trade or per-symbol detail), same posture as every
+  // other probe here.
+  "equity_curve",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
@@ -258,6 +290,29 @@ export function positionRow(p: any): Record<string, unknown> {
     cost_basis: num(p?.cost_basis),
     unrealized_pl: num(p?.unrealized_pl),
     unrealized_plpc: num(p?.unrealized_plpc),
+  };
+}
+
+/** One Alpaca /v2/account read, shaped for the "account" probe (2026-09-10
+ *  KNOWN BROKEN #42 support). Whitelist shaping: balance-breakdown fields
+ *  only — no account_number, no id, no crypto/pattern-day-trader flags,
+ *  nothing key-like. The point is distinguishing WHERE an equity gap came
+ *  from (cash vs long/short marks vs margin), not exposing account
+ *  identity. */
+export function accountRow(a: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  return {
+    equity: num(a?.equity),
+    last_equity: num(a?.last_equity),
+    cash: num(a?.cash),
+    portfolio_value: num(a?.portfolio_value),
+    long_market_value: num(a?.long_market_value),
+    short_market_value: num(a?.short_market_value),
+    initial_margin: num(a?.initial_margin),
+    maintenance_margin: num(a?.maintenance_margin),
+    buying_power: num(a?.buying_power),
+    daytrading_buying_power: num(a?.daytrading_buying_power),
+    multiplier: num(a?.multiplier),
+    status: String(a?.status || ""),
   };
 }
 
