@@ -1745,10 +1745,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // US power plants (RAW) — static reference data compiled from the WRI
-  // Global Power Plant Database (CC BY 4.0) by scripts/build_powerplants.py.
-  // Whole-file response, day-cached: ~760KB raw / ~200KB gzipped, one fetch
-  // per visitor-day; clustering/decluttering is client-side (DESIGN.md:
-  // heavy geo work never on the Railway box).
+  // Global Power Plant Database (CC BY 4.0) by scripts/build_powerplants.py,
+  // supplemented by scripts/eia860_add_missing_plants.py (2026-09-11) with
+  // ~4,339 EIA-860-only solar/wind plants GPPD has no row for (verified=0).
+  // Whole-file response, day-cached: ~1.1MB raw / ~340KB gzipped (14,172
+  // plants), one fetch per visitor-day; clustering/decluttering is
+  // client-side (DESIGN.md: heavy geo work never on the Railway box).
   app.get("/api/data/powerplants", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json({ kind: "raw", ...(datacorePowerplants as any) });
