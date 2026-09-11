@@ -4,6 +4,8 @@
  "eia860_source": "/tmp/eia860/2___Plant_Y2025.xlsx",
  "registry_source": "/home/user/voltradeai/datacore/powerplants/us_power_plants.json",
  "eia860_plant_rows_with_coord_and_ba": 17073,
+ "eia860_plant_rows_skipped_no_coordinate": 28,
+ "eia860_plant_rows_skipped_no_ba_code": 248,
  "summary": {
   "total": 14172,
   "matched": 13609,

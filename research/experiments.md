@@ -85015,16 +85015,33 @@ own entry documented learning the hard way).
 MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 (reference-data/gate-1
 validation script, no scoring/sizing/threshold/strategy code touched).
 
-GATES: `python3 -m pytest -q`: 1904 passed, 1 skipped (prior baseline 1893; +11 new tests here
-lands exactly on 1904, 0 regressions). `bash scripts/gated_tests.sh`: GATE PASSED — server 1641/1641,
-client 1083/1083, python 1904 passed/1 skipped/54 subtests, quarantine 0/1 none overdue
-(fresh container needed `npm ci` first, same recurring first-session setup step several
-prior sessions have logged). `bash scripts/counter_ratchet.sh`: IMPROVED
-(`tests_run_in_ci`/`tests_gating_merge` 443->444, `assertions` 13975->13988) — all this
-session's own direct effect (the 1 new test file), pins lowered in `ci/counter_baseline.txt`
-in this same PR. `bash scripts/tsc_ratchet.sh`: reported 11 -> 3, TS2304 still 0 — NOT
-re-pinned in this PR: zero `.ts`/`.tsx` files were touched by this diff, same reasoning and
-same precedent the sixth session's own entry already applied to this exact drift. `npm run
+GATES: first push to PR #1056 FAILED CI's `test` check — `silent_py_handlers: 255 -> 256`
+(non-increasing). Root cause: `load_eia860_ba_directory`'s `except (TypeError, ValueError):
+continue` matched `gated_tests.sh`'s own "except: whose entire body is pass/continue" pattern
+(the exact class MASTER PROGRAM rates worse than an outage — "a broken pipeline generates
+poisoned learning data"). Fixed by making the handler actually count what it skips rather than
+silently discarding it: `load_eia860_ba_directory` now returns `(directory, skipped_no_coord,
+skipped_no_ba)`, surfaced in the output JSON as `eia860_plant_rows_skipped_no_coordinate`/
+`_no_ba_code` — a real improvement (this was previously undocumented data loss), not a
+counter-dodge. Re-ran the live join after the fix: identical 13,609/548/15 split, confirming
+the fix changed only observability, not behavior. Second push GATE PASSED: `python3 -m pytest
+-q`: 1904 passed, 1 skipped (prior baseline 1893; +11 new tests here lands exactly on 1904, 0
+regressions). `bash scripts/gated_tests.sh`: GATE PASSED — server 1641/1641, client 1083/1083,
+python 1904 passed/1 skipped/54 subtests, quarantine 0/1 none overdue (fresh container needed
+`npm ci` first, same recurring first-session setup step several prior sessions have logged).
+`bash scripts/counter_ratchet.sh`: IMPROVED (`tests_run_in_ci`/`tests_gating_merge` 443->445,
+`assertions` 13975->14005) — `assertions`'s full +30 and one file of the two-file
+`tests_run_in_ci` increase are this session's own direct effect (11 new tests, 1 new test
+file); the OTHER +1 file was a pre-existing 1-file pin drift already present at this PR's own
+base commit (93959ee) before this session touched anything — verified directly: `git ls-tree
+-r 93959ee` shows `test_`-pattern Python files + `server/*.test.ts` + `client/*.test.tsx?`
+already summed to 444 at that commit, one more than the 443 the checked-in pin claimed, the
+same class of stale-pin drift the sixth session's own entry already documented for
+`tsc_ratchet.sh` that same day. Pinned to the true measured value (445) rather than only the
+session's own +1, per that same precedent, stated explicitly here rather than silently
+absorbed. `bash scripts/tsc_ratchet.sh`: reported 11 -> 3, TS2304 still 0 — NOT re-pinned in
+this PR: zero `.ts`/`.tsx` files were touched by this diff, same reasoning and same precedent
+the sixth session's own entry already applied to this exact drift. `npm run
 build`/`npm run visual`: not run, zero `client/` files touched.
 
 DEPLOY-COUPLING NOTE: this session ran during 2026-09-11 US market hours. This PR touches no

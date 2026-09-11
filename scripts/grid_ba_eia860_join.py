@@ -79,10 +79,12 @@ REPO_ROOT = os.path.dirname(HERE)
 
 
 def load_eia860_ba_directory(xlsx_path):
-    """EIA-860 Schedule 2 (Plant file) -> list of {plant_code, name, lat,
-    lon, ba_code}. Rows with no usable coordinate or no reported BA code
-    are skipped (counted by the caller via len(directory) vs raw row
-    count), never defaulted to a guessed value."""
+    """EIA-860 Schedule 2 (Plant file) -> (directory, skipped_no_coord,
+    skipped_no_ba). directory is a list of {plant_code, name, lat, lon,
+    ba_code}. Rows with no usable coordinate or no reported BA code are
+    skipped and COUNTED (never silently dropped — a bad-coordinate row
+    that fails float() is a real data-quality fact about this EIA-860
+    vintage, not noise to swallow), never defaulted to a guessed value."""
     import openpyxl  # session-run only, same convention as sibling scripts
     wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     ws = wb.active
@@ -91,6 +93,8 @@ def load_eia860_ba_directory(xlsx_path):
     hdr = next(rows)
     idx = {h: i for i, h in enumerate(hdr)}
     out = []
+    skipped_no_coord = 0
+    skipped_no_ba = 0
     for r in rows:
         lat, lon = r[idx["Latitude"]], r[idx["Longitude"]]
         ba = r[idx["Balancing Authority Code"]]
@@ -98,8 +102,10 @@ def load_eia860_ba_directory(xlsx_path):
             lat = float(lat)
             lon = float(lon)
         except (TypeError, ValueError):
+            skipped_no_coord += 1
             continue
         if not ba or not str(ba).strip():
+            skipped_no_ba += 1
             continue
         out.append({
             "plant_code": r[idx["Plant Code"]],
@@ -108,7 +114,7 @@ def load_eia860_ba_directory(xlsx_path):
             "lon": lon,
             "ba_code": str(ba).strip(),
         })
-    return out
+    return out, skipped_no_coord, skipped_no_ba
 
 
 def build_coord_index(directory, precision=4):
@@ -212,7 +218,7 @@ def compare_to_polygon_join(eia860_assignments, polygon_assignments):
 
 
 def run(eia860_plants_path, registry_path, polygon_join_path, out_path):
-    directory = load_eia860_ba_directory(eia860_plants_path)
+    directory, skipped_no_coord, skipped_no_ba = load_eia860_ba_directory(eia860_plants_path)
     coord_index = build_coord_index(directory)
 
     registry = json.load(open(registry_path))
@@ -238,6 +244,8 @@ def run(eia860_plants_path, registry_path, polygon_join_path, out_path):
         "eia860_source": eia860_plants_path,
         "registry_source": registry_path,
         "eia860_plant_rows_with_coord_and_ba": len(directory),
+        "eia860_plant_rows_skipped_no_coordinate": skipped_no_coord,
+        "eia860_plant_rows_skipped_no_ba_code": skipped_no_ba,
         "summary": summary,
         "comparison_to_polygon_join": comparison,
         "assignments": assignments,
