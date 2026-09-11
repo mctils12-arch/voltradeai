@@ -84162,3 +84162,168 @@ dropping it, re-escalated the still-unresolved production outage without
 letting it block product work, and spent unproductive-but-recorded effort
 ruling out a specific new OOM hypothesis (the ~50-module refresh-at-boot
 pattern) so a future REPAIR session does not re-walk the same files.
+
+## 2026-09-11 (scheduled-routine session, third session this UTC day) [PIPELINE] — per-plant GPPD<->EIA-860 join built with the safe key the prior session said didn't exist; CORRECTS the causal read from "stale capacity" to "missing plants" (4,122 solar / 297 wind plant codes absent from the registry, ~117k/56k MW)
+
+TERRITORY: T-DATACORE (scripts/eia860_missing_plants_check.py, test file,
+datacore/signal_ladder.json, research/*, ci/counter_baseline.txt,
+package.json). No T-BOT/T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+local branch already equaled origin/main at be39901/v1.0.885/PR #1050 (the
+immediately preceding session's own EIA-860 registry-capacity entry) — no
+reset needed. `python3 scripts/research_state_check.py`: thrash_ratio
+4/10 REPAIR (below 7+ trigger, one untagged header counted non-REPAIR);
+known_broken 44 items, 4 without an explicit close marker (#26/#34/#38/
+#40, advisory only, all previously read and confirmed non-blocking by
+earlier sessions); starvation 0/10. `python3 scripts/ladder_readiness_check.py`:
+0/3 gated roots ready (cftc_cot_positioning 42d/~63d-equiv,
+sec_8k_earnings_language 21d/90d, fleet_utilization_aircraft 52d until
+2026-11-02 — all still WAITING, nothing newly fired).
+
+LIVE HEALTH CHECK (first action, per this routine's brief): `curl
+https://voltradeai.com/api/health` — 502, `server: railway-hikari`,
+`x-railway-fallback: true`, body `{"status":"error","code":502,
+"message":"Application failed to respond"}`, ~15-25s to respond. SAME
+signature as every prior check since 2026-09-10T20:18Z (KNOWN BROKEN #41,
+restart-budget exhaustion, no session-side fix — dashboard/CLI access
+confirmed absent again this session). Now ~15h into the outage and
+approaching 2026-09-11's US market open (13:30Z) with zero recovery
+observed across four independent checks spanning that window. Sent a
+PushNotification (the fourth for this incident) specifically because the
+outage is now running INTO a fresh trading session's open, not merely
+persisting — a materially new fact each prior notification could not yet
+state, not a redundant re-report of an unchanged condition. Did not
+attempt a fifth code-side patch (RECURRENCE ESCALATES already fired
+2026-09-08; no new evidence available without container log access).
+
+PRIMARY ACTION: with the outage confirmed unfixable from this sandbox and
+`ladder_readiness_check.py` empty, took the immediately preceding
+session's own filed NEXT(2) — the per-plant GPPD<->EIA-860 registry
+rebuild it had explicitly deferred as "needs a safe join key this session
+did not have confidence to build blind."
+
+PRIOR (stated before running, REASONING STANDARD #10): expected the
+per-plant join to show a MIX of stale-existing-capacity and missing-plant
+causes, given the national gap (4.117x solar, 1.534x wind) seemed large
+enough to plausibly need both.
+
+READ BEFORE WRITE turned up the join key the prior session said didn't
+exist: `scripts/build_powerplants.py` ALREADY parses WRI GPPD's
+`gppd_idnr` as an EIA Plant Code for USA rows (`code = int(idnr.replace
+("USA",""))`, matched against EIA-860's own "Plant Code" column) — it's
+just only ever been used there for coordinate substitution, never
+capacity. Verified live against a freshly re-pulled GPPD CSV (raw.
+githubusercontent.com, same URL build_powerplants.py documents) and the
+already-fetched eia8602025.zip: 9,789/9,833 (99.6%) of USA rows match
+`^USA\d+$`; within the solar+wind subset specifically, checked for
+duplicate idnrs (a precondition for treating this as a safe 1:1 key) and
+found zero. Independently cross-checked the join's fidelity against the
+CURRENT registry (which does not itself retain idnr — it's discarded
+after the build step) via a second, independent key — (name[:60], fuel,
+capacity_mw, owner[:60]), the exact tuple build_powerplants.py writes
+each row from — and got a clean 4,422/4,422 unique match with zero
+registry-side collisions, confirming both keys agree and the join is safe
+before trusting it for anything.
+
+WHAT SHIPPED: `scripts/eia860_missing_plants_check.py` (new — reuses
+`build_powerplants.FUEL_CODE` and `eia860_registry_capacity_check.
+OPERATING_STATUS` via importlib rather than re-deriving them, EDGE
+DOCTRINE #3, pinned by identity in the test file) +
+`test_eia860_missing_plants_check.py` (12 pure-function tests: idnr
+parsing incl. non-USA-prefixed synthetic ids, fuel/country filtering,
+OP-only multi-generator summation, matched/missing capacity split, both
+identity-reuse pins). No network in CI, same convention as every sibling
+gate-1/registry script this repo already has.
+
+LIVE RESULT (same GPPD CSV + eia8602025.zip fetched this session):
+
+| fuel | EIA-860 plant codes | present in GPPD | missing from GPPD | matched capacity (MW) | missing-plant capacity (MW) |
+|---|---|---|---|---|---|
+| solar | 7,317 | 3,195 | 4,122 | 37,146.3 | **117,104.8** |
+| wind | 1,362 | 1,065 | 297 | 104,047.2 | **55,646.4** |
+
+The PRIOR was WRONG, recorded per REASONING STANDARD #10: this is not a
+mix. Plants the registry already carries match EIA-860's own capacity for
+those SAME plant codes within ~1% (not stale). The entire national gap is
+essentially missing-plant coverage: 117,105 MW of solar and 55,646 MW of
+wind exist in EIA-860 at plant codes GPPD/our registry has no entry for
+at all. A further check on the missing solar set's size distribution
+(median 3.5 MW, but top 5 = 690.0/600.0/592.8/577.0/525.0 MW) shows this
+is NOT purely rooftop/DER the registry could reasonably be excused for
+never cataloging — WRI GPPD (2021-vintage per build_powerplants.py's own
+header) has fallen behind on utility-scale solar specifically.
+
+CONSEQUENCE FOR THE PRIOR SESSION'S OWN NEXT(2): its literal wording
+("refresh the registry's solar/wind entries from EIA-860... closing the
+actual staleness") would have shipped a script that moves national totals
+under 1% and does NOT close the gate-1 breach — this session's result
+heads that off before a future session spends a PR building it and
+finding it did almost nothing. `datacore/signal_ladder.json`'s
+`grid_generation_fuel_mix` entry updated in place with this correction
+(UPDATE block appended, not rewritten) and its `source_ref` extended.
+
+SCOPE, stated honestly (same discipline every prior session in this chain
+used): this script only DECOMPOSES and QUANTIFIES the cause — it does
+NOT modify `datacore/powerplants/us_power_plants.json`. Actually adding
+the ~4,400 missing plants would grow the registry ~44% (9,833 -> ~14,200
+rows), and that file is consumed well beyond the gate-1 script: `grep`
+this session confirmed `client/src/pages/datamap.tsx` (the /data map
+layer — RENDERING & MOTION LAW's Law IV max-feature-count/VRAM-budget
+obligations would apply to ~44% more markers), `server/entityGraph.ts`,
+`server/nrcReactorStatus.ts`, and `server/riverPlants.ts` all join against
+it. That's real client render-cost and cross-consumer blast radius
+belonging in its own T-DATACORE PR with a coordinated T-CLIENT visual-
+harness pass (PROMOTION RULE 6) — not bundled into a same-session
+diagnostic script under PROMOTION RULE 5's one-logical-change discipline.
+Filed as NEXT(1) below.
+
+NEXT (queued, priority order, not this session): (1) build the missing-
+plant registry addition itself — source name/state/coordinates from
+EIA-860's own `2___Plant_Y<year>.xlsx` (already fetched by
+build_powerplants.py for this exact purpose) keyed by the same Plant Code
+this session validated, append as new rows with `verified:0` (registry-
+reported, not imagery-verified) and no `gppd_idnr` (EIA-sourced, not
+GPPD-sourced), then re-sort by -capacity_mw matching
+build_powerplants.py's own convention; coordinate the row-count growth
+with a T-CLIENT visual-harness pass on the /data map before merge. (2)
+the still-open HIFLD/EIA balancing-authority polygon join (unclaimed
+since the first session this UTC day's abandoned search attempt). (3)
+once (1) and (2) land, re-run `grid_generation_gate1.py` per-BA with a
+corrected, complete registry to close FUSION (b)'s gate 1 for real —
+this session's result predicts solar's exceeds-capacity ratio would drop
+from 3.085x to roughly 3.085 * (37,468/154,251) ≈ 0.75 (comfortably
+PASS) once the registry actually carries EIA-860's full solar/wind plant
+population, though that arithmetic itself should be re-derived from a
+live re-run, not assumed.
+
+MONETIZATION TRIPWIRE: not touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — DATA-layer diagnostic script only,
+no scoring/sizing/threshold/strategy code touched, no registry file
+written.
+
+GATES: `python3 -m pytest -q test_eia860_missing_plants_check.py
+test_eia860_registry_capacity_check.py test_grid_generation_gate1.py`:
+28/28 pass. Full suite `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`): 1851 passed, 1 skipped, 0
+regressions (prior session's own baseline was 1839; +12 new tests here
+lands exactly on 1851). `bash scripts/counter_ratchet.sh`: IMPROVED
+(tests_run_in_ci/tests_gating_merge 439->440, assertions 13880->13899,
+directly attributable to this diff's one new test file) — pins LOWERED
+in `ci/counter_baseline.txt` in this same PR per the script's own
+instruction. `bash scripts/tsc_ratchet.sh`: 3 <= pinned 11 (TS2304 0) —
+NOT re-pinned, same reasoning the immediately preceding session already
+recorded (zero `.ts` files touched here either, so this diff cannot
+explain that drop; left for whichever PR's diff does). No `.ts`/`.tsx`
+files touched.
+
+STARVED: no — ran the immediately preceding session's own filed NEXT(2)
+to completion, found the safe join key that session said it lacked
+confidence to build, corrected that session's own causal attribution
+with a live, tested, reproducible result rather than silently extending
+a wrong prior, filed the actual fix as a clearly-scoped NEXT with its
+real cross-consumer blast radius named rather than either rushing it or
+dropping it, and re-escalated the still-unresolved production outage
+with a materially new fact (running into a fresh trading session's open)
+rather than either going silent or repeating an unchanged report.
