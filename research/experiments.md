@@ -84730,3 +84730,153 @@ market-hours deploy timing, stating it in the PR body is not sufficient on its o
 open a draft PR or hold the push until after the window instead of relying on the note
 being honored. Not filed as a wishlist item this session (one factual addendum, not a
 new investigation) — a future session hitting this same gap again should escalate it.
+
+## 2026-09-11 (scheduled-routine [PRODUCT] session, sixth session this UTC day) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b) per-region GATE 1 re-run using the HIFLD BA join, decides the ambiguous-plant policy the prior session left open, and finds the exclusion policy itself confounds most of the resulting FAILs (v1.0.889)
+
+TERRITORY: T-DATACORE (scripts/grid_generation_gate1_ba.py, test_grid_generation_gate1_ba.py,
+datacore/signal_ladder.json) + SHARED-minimal (package.json version bump, research/*), last
+commit before opening the PR, kept as small as possible per WORKSTREAM PARTITION.
+
+PRIMARY ACTION SELECTION: read CLAUDE.md, then research/PROGRAM_STATE.md (a separate,
+unrelated tech-debt-ratchet program — not this session's queue), then research/open_questions.md's
+KNOWN BROKEN section, then the tail of this file and research/wishlist.md. Production
+(voltradeai.com) is confirmed STILL fully down (502 on every endpoint, curl'd live this
+session at 2026-09-11T18:10Z) — a sustained, non-recovering outage first observed
+2026-09-10T20:18Z, now ~22 hours, per KNOWN BROKEN #41. This session's own task brief is
+explicit that a PRODUCT session notes an unfixed critical item but does not preempt DAILY
+repair duty unless the break blocks this session's own work — it does not (this session
+needs only api.eia.gov, EIA_API_KEY, and this repo's own committed files, none of which
+depend on voltradeai.com). Sent a PushNotification to the human before starting product
+work: the outage has now crossed CLAUDE.md's own LIVENESS ALARM 24h-wall-clock framing (not
+yet literally past 24h at send time, ~22h, but close enough and unresolved across 5+ prior
+sessions today that another flag was warranted rather than silent — no fix is possible from
+this sandbox, only a human Railway restart unblocks it) and the human had not been re-notified
+today specifically (the only in-session record was an experiments.md addendum, not a push).
+
+With no unblocked repair action available and the queue (research/open_questions.md's FUSION
+HYPOTHESIS (b) entry, and datacore/signal_ladder.json's grid_generation_fuel_mix note) both
+naming the SAME single unclaimed NEXT item — re-run scripts/grid_generation_gate1.py per-BA
+using the immediately preceding session's new datacore/powerplants/plant_balancing_authority.json
+join, and decide how to treat its 24.1% ambiguous (multi-BA) plants, which that session
+explicitly recommended but did not decide — took that item. This is squarely option (a) of
+this session's own task brief: advancing a datacore/ pipeline through its next ladder gate
+(gate 1 ground-truth validation is product work).
+
+PRIOR (REASONING STANDARD #10, stated before running): expected most of the 8 named regions
+(CISO/ERCO/MISO/PJM/NYIS/ISNE/SWPP/FPL) to PASS most fuel buckets, similar to the national
+US48 result (6/7 PASS, only solar FAIL) — the national check already validated units, scale,
+and gross fuel-mapping, so a per-region split was expected to mostly refine, not overturn,
+that picture, MODULO whatever share of each region's capacity the ambiguous-plant exclusion
+removes (expected some FAIL inflation in heavy-overlap regions, magnitude unknown before
+computing it).
+
+WHAT SHIPPED:
+- `scripts/grid_generation_gate1_ba.py` (new). Reuses `grid_generation_gate1.py`'s
+  `aggregate_max_by_fueltype`/`bucket_generation_max`/`reconcile`/`fetch_window` via the same
+  `importlib.util` pattern `grid_ba_polygon_join.py` already established for reusing
+  `grid_ba_capacity.py`'s `point_in_rings` — EDGE DOCTRINE #3, not reimplemented. New logic is
+  exactly two pure functions: `registry_capacity_by_ba(assignments)` (sums UNAMBIGUOUS
+  single-BA plant capacity per region/fuel bucket, and separately tracks how much capacity
+  each region lost to the exclusion) and `excluded_capacity_fraction(counted_mw, excluded_mw)`
+  (what fraction of a region's TRUE total capacity — counted + excluded — never entered the
+  capacity side of the check; bounded [0,1) by construction since it divides by the sum, not
+  by the counted side alone — caught and fixed a wrong test assertion this session that
+  assumed it could exceed 1.0 by dividing the wrong two numbers).
+- DECISION MADE (not left open a second time): ambiguous (multi-BA) plants are EXCLUDED from
+  every single region's registry-capacity sum, never attributed to one BA by guessing. Stated
+  reasoning in the module docstring: conservative for an exceeds-capacity ceiling check
+  specifically — omitting real capacity can only LOWER a region's ceiling, which can only make
+  a FAIL verdict MORE likely, never manufacture a false PASS by hiding real plants under a
+  picked winner.
+- `test_grid_generation_gate1_ba.py` (new, 8 tests, no network — `fetch_window` is exercised
+  only by running the script live, same convention as `test_grid_generation_gate1.py`/
+  `test_un_comtrade_gate1.py`): `registry_capacity_by_ba` sums unambiguous-only, excludes
+  multi-BA plants from every region they overlap (with a per-region excluded-mw readout, not a
+  single pooled number), drops fully-unmatched plants entirely; `excluded_capacity_fraction`
+  basic case, the bounded-below-1-even-when-excluded-dominates case (a real observed FPL
+  number), and the no-known-capacity-either-side None case; `DEFAULT_RESPONDENTS` pinned to
+  the literal 8-region ground-truth list.
+- `datacore/signal_ladder.json`'s `grid_generation_fuel_mix.note` extended (targeted string
+  replacement asserting the anchor text first, not a full `json.dump` rewrite — an earlier
+  attempt at this same edit reformatted the ENTIRE file via `json.dump(..., indent=2)` and was
+  reverted before committing, since the file's live formatting differs from that; the final
+  diff is a 1-line insertion, not a 500-line reformat). `research/open_questions.md`'s FUSION
+  HYPOTHESIS (b) entry gained the same update.
+
+LIVE RESULT (7-day trailing window 2026-09-04T18 through 2026-09-11T18, 5% tolerance, same
+live api.eia.gov origin the national script used — this sandbox still has no Railway-volume
+archive access, and production is separately down per the outage above): far noisier than the
+national check. CISO fails gas (1.155x)/hydro (1.108x)/wind (1.53x)/solar (1.685x); ERCO fails
+coal (1.137x)/solar (1.824x); MISO fails nuclear (1.115x); ISNE fails nuclear (1.099x)/wind
+(1.308x); SWPP fails nuclear (1.477x)/coal (1.234x)/gas (1.065x)/solar (1.207x); FPL fails
+nuclear (1.724x)/gas (2.425x)/solar (2.691x). Only PJM and NYIS PASS every verdicted bucket.
+
+HONEST CAVEAT, the actual finding of this session, not just the raw verdicts above: the
+`ambiguous_capacity_excluded_fraction` field this script adds shows the exclusion policy
+strips a WILDLY uneven share of each region's true capacity — FPL 59.6%, SWPP 46.5%, CISO
+45.7%, ERCO 29.9%, MISO 29.8%, versus PJM 7.4%, NYIS 9.7%, ISNE 9.5%. Per REASONING STANDARD
+#4/#10 (distrust a result in proportion to what produced it) and MEASUREMENT INTEGRITY (a
+result that would flatter an existing hypothesis — "solar is broadly bad everywhere" — is
+suspect by default): the high-exclusion-fraction regions' FAIL verdicts, which are most of the
+FAILs above, are MORE LIKELY an artifact of this session's own conservative exclusion policy
+stripping real PMA/embedded-utility capacity (the exact WALC/BPAT/SPA-style federal power
+marketers the prior session's polygon-overlap finding already identified) than genuine
+registry gaps. PJM's and NYIS's clean PASS, and ISNE's low-exclusion-fraction nuclear/wind
+FAILs, are the much more trustworthy per-region reads — those three are not confounded the
+way FPL/SWPP/CISO are. This session does NOT claim the high-exclusion-fraction FAILs as
+registry defects the way the national solar FAIL was claimed in the prior gate-1 run; doing so
+would be exactly the "a beautiful story never substitutes for validation" trap the ACTIVE
+ANGLE-HUNTING standing behavior warns against.
+
+VERDICT FOR THIS ROOT'S GATE 1: still NOT closed. Real progress (the per-region join now
+exists and runs; PJM/NYIS give genuinely trustworthy per-region PASS evidence; the confound
+itself is now measured and reported, not silently absorbed into an opaque verdict) but two
+things remain genuinely open, stated honestly rather than forced to a verdict: (1) whether the
+high-exclusion-fraction regions' FAILs are real or confound needs either a non-guessed
+ownership/interconnection-share attribution rule (data this repo doesn't have) or a decision
+to accept the exclusion as this check's permanent scope limit and treat only low-exclusion
+regions as valid evidence — neither decided here; (2) this per-region run was not
+cross-checked against whether the SOLAR-specific FAILs in CISO/ERCO/SWPP/FPL are residual
+registry gaps the same-day registry rebuild (9,833 -> 14,172 plants, solar/wind add) didn't
+fully close regionally, versus purely the exclusion confound — not separated this session.
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 (reference-data/gate-1
+validation script, no scoring/sizing/threshold/strategy code touched).
+
+GATES: `python3 -m pytest -q test_grid_generation_gate1_ba.py test_grid_generation_gate1.py`:
+17/17 pass. Full suite `python3 -m pytest -q`: 1893 passed, 1 skipped (prior baseline 1885; +8
+new tests here lands exactly on 1893, 0 regressions). `bash scripts/counter_ratchet.sh`:
+IMPROVED (`tests_run_in_ci`/`tests_gating_merge` 442->443, `assertions` 13946->13975) — all
+three this session's own direct effect (the 8 new tests), pins LOWERED in
+`ci/counter_baseline.txt` in this same PR. `bash scripts/tsc_ratchet.sh`: reported 11 -> 3,
+TS2304 still 0 — NOT re-pinned in this PR: zero `.ts`/`.tsx` files were touched by this diff,
+so the drop is pre-existing improvement from unrelated merges since the pin was last set, and
+re-pinning it here would misattribute someone else's fix to this PR (PROMOTION RULE 5, same
+discipline the 2026-08-15 session applied to `tests_run_in_ci`/`tests_gating_merge` drift) —
+left for whichever session's change actually produced it. `npm run build`/`npm run visual`:
+not run, zero `client/` files touched. Live end-to-end run of the new script against the real
+committed BA-join file and the live EIA API before committing anything, output inspected by
+hand (not just "exit 0") for the confound finding above.
+
+DEPLOY-COUPLING NOTE (per this session's own task brief): this session ran during 2026-09-11
+US market hours. This PR touches no trading-path code (a reference-data gate-1 validation
+script + two research-log entries); production is separately fully down for the unrelated
+KNOWN BROKEN #41 outage (flagged above, PushNotification sent) — merge timing relative to
+market hours has no live-trading-risk implication here, but per the prior session's own
+documented finding that a "please wait to merge" PR-body sentence is not itself enforced by
+this repo's auto-merge, no such request is made in the PR body this time; noting it may merge
+immediately regardless.
+
+NEXT: (1) decide policy (a) vs (b) above for the ambiguous-plant confound — a future session
+should not re-run this exact question a third time without resolving it, either building a
+real attribution rule or formally scoping this check to low-exclusion-fraction regions only.
+(2) separate the CISO/ERCO/SWPP/FPL solar FAILs into "exclusion confound" vs "residual
+registry gap post-rebuild" — not attempted this session. (3) the production outage (KNOWN
+BROKEN #41) remains open and needs a human Railway restart; not this session's to fix, but
+worth a future session's immediate re-check regardless of what else it works on.
+
+STARVED: no — completed the queue's own single stated NEXT item for this root, made an
+explicit policy decision the prior session left open rather than re-punting it, and surfaced a
+material confound finding (the exclusion policy's uneven capacity strip) that changes how the
+per-region verdicts above should be read, rather than reporting raw FAILs as if they were all
+equally trustworthy.
