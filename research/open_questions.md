@@ -11946,6 +11946,74 @@ territory in their first commit)
   scoped, dedicated future session. (3) once (1) lands, re-run this same
   reconciliation per-BA (CISO/ERCO/etc.) instead of only US48, and only
   then consider the fusion (b) hypothesis's GATE 1 genuinely closed.
+  UPDATE 2026-09-11 (scheduled-routine [PRODUCT] session, sixth session
+  this UTC day): NEXT(3) above run, using the registry fix (registry now
+  14,172 plants, solar/wind gap closed) and the BA polygon join (both
+  shipped earlier today by other sessions) that unblocked it.
+  `scripts/grid_generation_gate1_ba.py` (new; reuses
+  `grid_generation_gate1.py`'s aggregate/bucket/reconcile functions via
+  `importlib` rather than reimplementing them, EDGE DOCTRINE #3) reruns
+  the same max-hourly-generation-vs-capacity-ceiling check once per
+  respondent for the 8 literal ground-truth regions (CISO/ERCO/MISO/PJM/
+  NYIS/ISNE/SWPP/FPL — the original wording's SE/NW/SW are EIA-930
+  ROLLUP regions, not HIFLD control areas, so no polygon exists for them
+  and they are not attempted).
+  DECISION MADE, not left open: the prior session's own join left
+  "how to treat the 24.1% ambiguous (multi-BA) plants" as a
+  recommendation, not a decision. This session decides: ambiguous plants
+  are EXCLUDED from every single region's registry-capacity sum, never
+  attributed to one BA by guessing. This is the conservative choice for
+  an exceeds-capacity ceiling check specifically — omitting real capacity
+  can only LOWER a region's ceiling, which can only make a FAIL verdict
+  MORE likely, never manufacture a false PASS by hiding real plants under
+  a picked winner.
+  LIVE RESULT (7-day trailing window, 5% tolerance, same live api.eia.gov
+  origin as the national run): far noisier than the national check. CISO
+  fails gas/hydro/wind/solar; ERCO fails coal/solar; MISO fails nuclear;
+  ISNE fails nuclear/wind; SWPP fails nuclear/coal/gas/solar; FPL fails
+  nuclear/gas/solar. Only PJM and NYIS PASS every verdicted bucket.
+  HONEST CAVEAT, the actual point of this update: the script also
+  computes and reports what FRACTION of each region's true total capacity
+  (counted + excluded) the ambiguous-exclusion policy stripped out, and it
+  is wildly uneven — FPL 59.6%, SWPP 46.5%, CISO 45.7%, ERCO/MISO ~30%,
+  versus PJM 7.4%/NYIS 9.7%/ISNE 9.5%. Per REASONING STANDARD #4/#10 and
+  MEASUREMENT INTEGRITY (distrust a result in proportion to what produced
+  it, especially when the direction flatters an existing hypothesis): the
+  high-exclusion-fraction regions' FAIL verdicts (nearly all of them —
+  FPL/SWPP/CISO account for the large majority of buckets failing) are
+  MORE LIKELY an artifact of this session's own conservative exclusion
+  policy stripping real PMA/embedded-utility capacity (WALC/BPAT/SPA-style
+  federal power marketers whose HIFLD polygon genuinely overlaps a host
+  utility's own, per the prior session's own finding) than genuine
+  registry gaps. PJM's and NYIS's clean PASS, and ISNE's low-exclusion-
+  fraction nuclear/wind FAILs, are the much more trustworthy reads — those
+  three regions are not confounded the way FPL/SWPP/CISO are.
+  VERDICT FOR THIS ROOT'S GATE 1: STILL not closed, and this run does NOT
+  claim the high-exclusion-fraction FAILs as registry defects the way the
+  national solar FAIL was claimed. Closing this needs either (a) a real,
+  non-guessed attribution rule for plants that genuinely serve multiple
+  overlapping control areas (not built, not obviously possible from HIFLD
+  polygons alone — would need real interconnection/ownership data), or (b)
+  accepting the exclusion as a permanent, documented scope limit of this
+  particular check and treating only the low-exclusion-fraction regions
+  (PJM/NYIS/ISNE, and by extension any future region under ~15%) as valid
+  per-region evidence. Neither decided this session — filed as NEXT.
+  8 new pure-function tests (`registry_capacity_by_ba`,
+  `excluded_capacity_fraction`) in `test_grid_generation_gate1_ba.py`, no
+  network (fetch_window exercised only by running the script live, same
+  convention as the national script). `datacore/signal_ladder.json`'s
+  `grid_generation_fuel_mix` note extended with this result.
+  NEXT: (1) decide (a) vs (b) above — a future session should not rerun
+  this same ambiguous-plant question a third time without picking one;
+  (2) if (a), the attribution rule needs real data this repo doesn't have
+  yet (ownership share, interconnection agreements) — likely its own
+  wishlist.md entry rather than a guess; (3) the solar registry-staleness
+  finding from the national run is now FIXED (registry rebuilt this UTC
+  day) but this per-region run was not re-checked against the OLD vs NEW
+  registry specifically — worth confirming in a future session that
+  today's per-region solar FAILs (CISO/ERCO/SWPP/FPL) are the ambiguous-
+  exclusion artifact and not a RESIDUAL registry gap the national fix
+  didn't fully close regionally.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
