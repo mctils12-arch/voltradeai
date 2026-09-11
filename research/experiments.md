@@ -84713,3 +84713,20 @@ per-BA gate-1 re-run must do) rather than silently forcing a clean answer, caugh
 fixed a real overstatement in a compiled ladder note while already touching that file
 for an unrelated reason, and re-checked the still-unresolved production outage without
 repeating an already-sent notification for an unchanged state.
+
+ADDENDUM 2026-09-11 (same session, ~6 minutes later): PR #1053 merged automatically at
+2026-09-11T16:33:32Z — CI went green and something merged it within ~5 minutes of
+opening, well before the 4:00 PM ET merge-timing request this PR's own description
+stated (per this session's task instructions, since the run started during market
+hours). Recorded factually, not as an incident: nothing in this diff touches the
+trading path, production was already fully down for the unrelated KNOWN BROKEN #41
+outage before and after this merge (re-checked: still 502, unchanged), so no live harm
+resulted. Worth a future session knowing, though: a "please wait to merge" sentence in
+a PR body/description is NOT itself an enforcement mechanism — some auto-merge process
+in this repo (not identified from this sandbox; could be a GitHub Actions auto-merge
+rule or another autonomous session) merges green PRs quickly regardless of what the PR
+text requests. If a future scheduled run genuinely needs a merge held back from
+market-hours deploy timing, stating it in the PR body is not sufficient on its own;
+open a draft PR or hold the push until after the window instead of relying on the note
+being honored. Not filed as a wishlist item this session (one factual addendum, not a
+new investigation) — a future session hitting this same gap again should escalate it.
