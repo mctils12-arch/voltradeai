@@ -84501,3 +84501,215 @@ before it could ship, honestly recorded the one piece of diligence (visual harne
 that could not be completed in this sandbox rather than either skipping the attempt or
 claiming false completion, and re-checked the still-unresolved production outage
 without repeating a stale notification.
+
+## 2026-09-11 (scheduled-routine [PIPELINE] session, fifth session this UTC day) — HIFLD balancing-authority polygon join found and built, unblocking FUSION HYPOTHESIS (b)'s per-region gate-1 prerequisite two prior sessions abandoned (v1.0.888, PR #1053)
+
+TERRITORY: T-DATACORE (scripts/grid_ba_polygon_join.py, datacore/boundaries/**,
+datacore/powerplants/plant_balancing_authority.json, test file) + SHARED-minimal
+(package.json/package-lock.json version bump, ci/counter_baseline.txt, one line in
+datacore/signal_ladder.json), last commit per MERGE-ORDER PROTOCOL. No T-BOT/T-CLIENT
+files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`: local branch
+already equaled origin/main at c3106bd/v1.0.887/PR #1052 (the immediately preceding
+session's own missing-plants-registry PR) — no reset needed. research/experiments.md
+tail, research/open_questions.md (KNOWN BROKEN section + FUSION HYPOTHESIS (b) thread),
+research/wishlist.md tail all read. `python3 scripts/research_state_check.py`:
+thrash_ratio 3/10 REPAIR in the last 10 tagged sessions (below 7+ trigger), known_broken
+44/4-advisory (#26/#34/#38/#40, unchanged, non-blocking), starvation 0/10 — no
+meta-problem flag. `python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready
+(cftc_cot_positioning 42d/sec_8k_earnings_language 21d/fleet_utilization_aircraft 52d —
+all still WAITING, unchanged).
+
+LIVE HEALTH CHECK (first action): `curl https://voltradeai-production.up.railway.app/api/health`
+at 2026-09-11T16:03Z — 502, `server: railway-hikari`, `x-railway-fallback: true`, ~15s
+response. SAME signature as every check since 2026-09-10T20:18Z (KNOWN BROKEN #41,
+restart-budget exhaustion) and as the immediately preceding session's own check at
+13:06Z the same UTC day — not a new or worsening condition, no new evidence this
+sandbox could gather (no Railway access), so per the immediately preceding session's
+own established judgment (a repeat of an unchanged, already-notified state is not
+grounds for another PushNotification) no new notification sent this session either.
+Production being down does not block T-DATACORE pipeline work — this sandbox never
+depended on the live site for this session's data (EIA API + ArcGIS REST directly).
+
+PRIMARY ACTION: with the ladder readiness check empty, took the queue's own top item —
+the immediately preceding PRODUCT session's filed NEXT(1), a real visual-harness attempt
+at the new solar/wind registry density. Ran it fresh in this session's own sandbox
+(npm install — node_modules was not present at session start, a fresh container; pip
+install -r requirements.txt -r requirements-dev.txt; npm run build clean): `node
+scripts/visual_check.mjs --page data` hung with ZERO output past both a 120s and a
+follow-up 300s timeout, identical symptom to the immediately preceding session's own
+6.5-minute hang. Diagnosed further before abandoning a third time (not just repeating
+the same failed attempt): confirmed non-map pages (`--page streams`) complete normally
+in this same sandbox in under 2s, so the hang is specific to `map:true` pages, not a
+general Playwright/Chromium launch failure. Read the harness's own network-interception
+code (scripts/visual_check.mjs:2157-2165): `page.route("**/*", ...)` already aborts
+every request except the local fixture server specifically because tile-CDN calls are
+known to hang behind this environment's proxy ("aborted tiles let maplibre settle
+immediately instead of hanging on proxy connection-resets" — the harness's own comment).
+That means the hang is NOT the external-tile-network cause both this and the prior
+session assumed — curl confirmed every tile host individually reachable in <0.5s, and
+the harness aborts them anyway. The more likely cause (not confirmed, would need
+Playwright's own request-inspector or a Worker-thread trace to settle) is a dedicated
+Worker's own fetch (satWorker/satcatWorker/gpWorker — this data page's own heavy
+custom-WebGL-layer workers) not being covered by page-level route interception the same
+way main-frame requests are, leaving a stuck Worker-side network wait the harness's
+existing design didn't anticipate. NOT pursued further this session — this is tooling-
+reliability work (T-CLIENT-adjacent, not this session's own T-DATACORE territory) and a
+third consecutive attempt at the identical failure would be exactly the "distrust
+results in proportion to how many things you tried" / anti-thrash discipline warning
+against; filed as a materially more specific NEXT than either prior attempt left (narrow
+the hang to Worker-thread network calls specifically, not "external tiles" broadly)
+rather than re-attempted blind a third time.
+
+Pivoted to SESSION BUDGET's next fall-through tier: the queue's NEXT(2), the HIFLD/EIA
+balancing-authority polygon join two prior sessions (2026-09-11, first and third
+sessions) had each independently searched for and abandoned ("did not find a reliable,
+queryable, national source within a reasonable search budget"). Rather than repeat the
+same ArcGIS Online item-catalog search that already failed twice (RECURRENCE ESCALATES'
+spirit — a third identical search would be the same failed method, not new effort),
+used the ArcGIS `sharing/rest/search` REST API directly (`www.arcgis.com/sharing/rest/
+search?q=...&f=json`) instead of the hub.arcgis.com item pages (confirmed those are
+JS-rendered SPAs with no static content — WebFetch returned only a page title). This
+surfaced multiple independent mirrors of the same HIFLD "Control Areas" dataset hosted
+by different individual ArcGIS Online accounts; `services5.arcgis.com/HDRa0B57OVrv2E1q/
+arcgis/rest/services/Control_Areas/FeatureServer` verified live before trusting it:
+71 features, geometryType polygon, extent -158.28..-66.95 lon / 21.25..61.48 lat
+(genuinely CONUS+AK+HI — not the small-extent-derivative trap the third session's own
+search had already hit with a different dataset), fields matching HIFLD's documented
+schema. The previously-documented dead URL (`services1.arcgis.com/Hp6G80Pky0om7QvQ/
+.../Control_Areas_gdb`) re-confirmed 400 "Invalid URL" this session too — a genuinely
+retired/dead item, not a session-specific network issue.
+
+PRIOR (stated before building, REASONING STANDARD #10): expected roughly 55-65 of the
+71 HIFLD entities to auto-match EIA-930's 83 respondent codes by normalized name (most
+BA names are literally identical or near-identical between the two datasets), with the
+remainder needing individual manual resolution rather than a broader fuzzy-match
+threshold (a looser match risks false-positive crosswalk entries, which given the
+downstream use — attributing real generation to a real region — would be worse than an
+honest non-match).
+
+WHAT SHIPPED:
+- `datacore/boundaries/hifld_control_areas.json` — the 71 control-area polygons.
+  Fetched once this session via the verified live mirror with `maxAllowableOffset=0.005`
+  degrees (server-side geometry generalization, ~500m at mid-latitudes): the unsimplified
+  fetch was 43MB (checked, unreasonable to commit), the simplified fetch ~1.6MB. Checked
+  before committing: zero features lost their geometry, the smallest-vertex-count
+  polygons (Griffith Energy LLC, Arlington Valley LLC — small single-plant "embedded"
+  Arizona merchant BAs) are genuine compact real footprints, not simplification
+  artifacts. Follows the existing datacore/boundaries/ne_110m_admin0.json convention
+  (FeatureCollection + `_doc` provenance string, properties stripped to what's used).
+- `scripts/grid_ba_polygon_join.py` — EIA-930 respondent crosswalk + point-in-polygon
+  plant assignment. Crosswalk: fetched EIA's own live respondent facet list
+  (`electricity/rto/region-data/facet/respondent`, 83 entries, this sandbox's existing
+  `EIA_API_KEY`) and matched by normalized-name exact/substring comparison — 58/71
+  auto-matched (close to the stated prior), 13 did not. Individually resolved all 13
+  rather than leaving them a bulk "no match": 6 are real matches a string comparison
+  cannot find on its own (entity renames/informal-vs-official naming — e.g.
+  "PACIFICORP - EAST" -> EIA code PACE "PacifiCorp East"; "SOUTH CAROLINA ELECTRIC & GAS
+  COMPANY" -> SCEG "Dominion Energy South Carolina, Inc." — the utility's real 2021
+  rename), hardcoded as `BA_CROSSWALK_OVERRIDES` with the individual reason for each;
+  7 are LEGITIMATELY unmatched, each independently reasoned rather than batch-guessed:
+  Chugach Electric and Anchorage Municipal Light & Power (AK) and Hawaiian Electric (HI)
+  are outside EIA-930's Lower-48 reporting scope (confirmed against the live 83-entry
+  list's own "US48" respondent id and the absence of any AK/HI code); New Brunswick
+  System Operator is a Canadian interconnection; Gila River Power LLC, Gridforce South,
+  and Ohio Valley Electric Corporation are real HIFLD-mapped historical control areas
+  with no CURRENT EIA-930 respondent code (OVEC's generation has been folded into PJM's
+  EIA-930 reporting for years) — recorded as `BA_EXCLUDED` with the reason, never forced
+  onto a similar-sounding code. Point-in-polygon: reuses `grid_ba_capacity.py`'s own
+  `point_in_rings` ray-casting function via the same `importlib` pattern that script
+  itself already uses to reuse `grid_capacity_tx.py` (EDGE DOCTRINE #3 — did not
+  re-derive a second ray-casting implementation), with a bbox pre-filter per polygon for
+  speed. `test_grid_ba_polygon_join.py` — 21 pure-function tests (no network): identity
+  pin proving `point_in_rings` reuse, normalization, exact/substring/override crosswalk
+  matching, excluded-reason passthrough, geometry flattening (Polygon/MultiPolygon/holes/
+  None), bbox computation, plant assignment (inside/outside/missing-coords/overlapping),
+  and summary aggregation.
+- `datacore/powerplants/plant_balancing_authority.json` — the computed assignment, run
+  live against the real committed registry (14,172 plants) and boundaries (both via the
+  session-fetched EIA-respondent fixture and, separately, the live `api.eia.gov` call —
+  both paths verified to produce identical numbers before committing either). Result:
+  10,440/14,172 plants (73.7%) land in exactly one BA, 312 (2.2%) in none (AK/HI/PR/
+  Guam/foreign plants and genuine coverage gaps — the registry's own bbox-outside-CONUS
+  count from grid_generation_gate1.py, 252, is a close lower bound consistent with this),
+  and 3,420 (24.1%) in MORE than one.
+
+HONEST FINDING, not a bug: that 24.1% ambiguous rate is real, not a defect in this
+session's own code. Spot-checked the highest-frequency overlap pairs before accepting
+this as correct rather than assuming a geometry bug: CISO/WALC overlap 673 times,
+MISO/SWPP 185, BPAT/PACW 163, and individual cases like Palo Verde nuclear (['WALC',
+'AZPS', 'SRP']) and West County Energy Center gas (['FPL', 'FMPP']) — all consistent
+with a well-documented real-world characteristic of federal Power Marketing
+Administrations (WAPA's WALC/WACM/WAUW, BPA's BPAT, SPA, SEPA): they sell wholesale
+power to customers physically embedded inside a HOST utility's own retail/balancing
+footprint, so their HIFLD-mapped "control area" genuinely overlaps the host's polygon
+rather than partitioning space with it. This means the FUSION HYPOTHESIS (b) literal
+ground truth's implicit assumption (a clean per-region partition of plants) does not
+hold as stated — a future per-BA gate-1 re-run needs to explicitly decide how to treat
+the ambiguous quarter (most defensibly: exclude ambiguous-BA plants from any single
+region's capacity sum, since attributing them to one region would misstate that
+region's registry capacity) rather than silently resolving them. Recorded here and in
+datacore/signal_ladder.json's UPDATE block specifically so the next session inherits
+this as a known, reasoned design constraint rather than rediscovering it.
+
+ALSO FIXED (found while touching the same signal_ladder.json entry for the UPDATE
+above, not a separate session action): the immediately preceding session's own note in
+this same ladder entry claimed the visual harness had been "run... at 390/768/1440 —
+see research/experiments.md for the screenshot review," but that session's own
+experiments.md account says plainly the run hung and was killed, NOT run to completion,
+with no screenshot review. A MEASUREMENT INTEGRITY-adjacent inconsistency (a compiled
+summary overstating what a primary log honestly recorded) — corrected the one sentence
+in place (not rewritten wholesale) to match the honest experiments.md account, with a
+note of when and why the correction happened, rather than leaving a future session to
+trust the overstated summary without re-reading the full prior entry.
+
+SCOPE, stated honestly: this PR does NOT re-run grid_generation_gate1.py per-BA — the
+actual FUSION (b) gate-1 regional verdict this join was built to unblock is deliberately
+left for its own follow-up PR (one logical change per PR, matching the discipline every
+session in this multi-day chain has used).
+
+MONETIZATION TRIPWIRE: not touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — reference-data pipeline (boundary polygons +
+plant-to-BA assignment), no scoring/sizing/threshold/strategy code touched.
+
+GATES: `python3 -m pytest -q test_grid_ba_polygon_join.py`: 21/21 pass. Full suite
+`python3 -m pytest -q`: 1885 passed, 1 skipped, 0 regressions (prior session's own
+baseline was 1864; +21 new tests here lands exactly on 1885). `bash
+scripts/counter_ratchet.sh`: IMPROVED (tests_run_in_ci/tests_gating_merge 441->442,
+assertions 13922->13946) — pins LOWERED in `ci/counter_baseline.txt` in this same PR
+per the script's own instruction. `bash scripts/tsc_ratchet.sh`: 11 <= pinned 11
+(TS2304 0) — NOT re-pinned, zero `.ts`/`.tsx` files touched. `npm run build`: clean.
+Live end-to-end run of the full join against the real committed files, both the
+session-fixture and live-api.eia.gov code paths, cross-checked identical before
+committing either.
+
+DEPLOY-COUPLING NOTE (per this session's own task brief): this session ran during
+2026-09-11 US market hours. PR #1053 states explicitly that merge should wait until
+after 4:00 PM ET unless the change fixes a critical live break — it does not (this is
+a reference-data pipeline PR with no trading-path code; production's separate KNOWN
+BROKEN #41 outage is untouched by and unrelated to this diff).
+
+NEXT: (1) re-run grid_generation_gate1.py per-BA using this session's new plant-BA
+assignment, now unblocked — the actual FUSION (b) gate-1 regional verdict, deliberately
+not attempted in this PR. Must decide and state up front how to treat the 24.1%
+ambiguous-BA plants (excluding them from each region's capacity sum is this entry's own
+recommendation, not yet a decision). (2) the visual-harness hang's more specific
+Worker-thread-fetch hypothesis this session narrowed to but did not confirm — a future
+session with a Playwright request-inspector or the ability to instrument
+satWorker.ts/satcatWorker.ts/gpWorker.ts directly could settle whether that's the real
+cause. (3) whether other pending crosswalk-style joins in this repo (any that match
+free-text entity names across two independently-sourced government datasets) would
+benefit from the same "query the ArcGIS sharing/rest/search API directly instead of
+scraping hub.arcgis.com item pages" technique this session found — not checked.
+
+STARVED: no — found a genuinely new, previously-unfound solution to a problem two prior
+sessions had each independently abandoned (not by repeating their search, but by using
+a different API entirely), built and shipped the real, tested join it unblocks with an
+honest crosswalk (no name match guessed), surfaced a materially important finding
+(HIFLD BA polygons genuinely overlap ~24% of the time, which changes what a correct
+per-BA gate-1 re-run must do) rather than silently forcing a clean answer, caught and
+fixed a real overstatement in a compiled ladder note while already touching that file
+for an unrelated reason, and re-checked the still-unresolved production outage without
+repeating an already-sent notification for an unchanged state.
