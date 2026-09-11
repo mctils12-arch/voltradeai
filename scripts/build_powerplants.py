@@ -58,15 +58,13 @@ def load_eia(xlsx: str) -> dict:
     return out
 
 
-def main(src: str, eia_xlsx: str | None) -> None:
-    eia = load_eia(eia_xlsx) if eia_xlsx else {}
-    verified_path = os.path.join(DST_DIR, "imagery_verified.json")
-    verified = set(json.load(open(verified_path))["ids"]) if os.path.exists(verified_path) else set()
-    overrides_path = os.path.join(DST_DIR, "position_overrides.json")
-    overrides = {}
-    if os.path.exists(overrides_path):
-        overrides = {o["gppd_idnr"]: o for o in json.load(open(overrides_path))["overrides"]}
-
+def build_plants(src: str, eia: dict, verified: set, overrides: dict) -> tuple[list, int, int]:
+    """Reads the GPPD USA rows and returns (plants, eia_used, overrides_used)
+    — the pure GPPD-sourced plant list, unsorted-write-ready but NOT yet
+    sorted (callers that append additional rows, e.g.
+    eia860_add_missing_plants.py, sort once after merging). Split out of
+    main() so a second script can build the same base list and extend it
+    without duplicating this GPPD-parsing logic."""
     plants, eia_used, overrides_used = [], 0, 0
     with open(src, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -96,6 +94,19 @@ def main(src: str, eia_xlsx: str | None) -> None:
                            (row.get("owner") or "").strip()[:60],
                            round(lat, 4), round(lon, 4),
                            1 if idnr in verified else 0])
+    return plants, eia_used, overrides_used
+
+
+def main(src: str, eia_xlsx: str | None) -> None:
+    eia = load_eia(eia_xlsx) if eia_xlsx else {}
+    verified_path = os.path.join(DST_DIR, "imagery_verified.json")
+    verified = set(json.load(open(verified_path))["ids"]) if os.path.exists(verified_path) else set()
+    overrides_path = os.path.join(DST_DIR, "position_overrides.json")
+    overrides = {}
+    if os.path.exists(overrides_path):
+        overrides = {o["gppd_idnr"]: o for o in json.load(open(overrides_path))["overrides"]}
+
+    plants, eia_used, overrides_used = build_plants(src, eia, verified, overrides)
     plants.sort(key=lambda p: -p[1])
     out = {
         "_doc": "US power plants (RAW reference layer). Universe: WRI GPPD v1.3.0 "

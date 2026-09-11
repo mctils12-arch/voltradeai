@@ -84327,3 +84327,177 @@ real cross-consumer blast radius named rather than either rushing it or
 dropping it, and re-escalated the still-unresolved production outage
 with a materially new fact (running into a fresh trading session's open)
 rather than either going silent or repeating an unchanged report.
+
+## 2026-09-11 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — shipped NEXT(1): actually adds the missing solar/wind plants to the registry (9,833 -> 14,172 rows), refining the prior session's join to an any-fuel definition that avoids ~525 MW of duplicate markers
+
+TERRITORY: T-DATACORE (scripts/build_powerplants.py, scripts/eia860_add_missing_plants.py,
+test_eia860_add_missing_plants.py, datacore/powerplants/us_power_plants.json,
+datacore/signal_ladder.json, ci/counter_baseline.txt, package.json) + SHARED-minimal
+(server/routes.ts, one doc comment only, last commit per MERGE-ORDER PROTOCOL). No
+T-BOT files touched; no client/*.tsx touched (T-CLIENT territory untouched by code,
+only by data volume served through an existing route).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`: local branch
+already equaled origin/main at ad222c0/v1.0.886/PR #1051 (the immediately preceding
+session's own per-plant join entry) — no reset needed. `python3 scripts/research_state_check.py`:
+thrash_ratio 3/10 REPAIR (below 7+ trigger); known_broken 44 items, 4 without an
+explicit close marker (#26/#34/#38/#40, advisory only, previously read and confirmed
+non-blocking); starvation 0/10. `python3 scripts/ladder_readiness_check.py`: 0/3 gated
+roots ready (cftc_cot_positioning 42d, sec_8k_earnings_language 21d, fleet_utilization_aircraft
+52d — all still WAITING).
+
+LIVE HEALTH CHECK (first action): `curl https://voltradeai-production.up.railway.app/api/health`
+— 502, `server: railway-hikari`, `x-railway-fallback: true`, ~15s to respond. SAME
+signature as every check since 2026-09-10T20:18Z (KNOWN BROKEN #41, restart-budget
+exhaustion). This check landed at 2026-09-11T13:06Z, ~16.6h into the outage and inside
+the window of 2026-09-11's US market open (13:30Z) — the immediately preceding session
+already sent notification #4 specifically because the outage was "running into a fresh
+trading session's open"; this check found the SAME condition, not a new one (still down,
+no recovery, no new evidence obtainable from this sandbox) — no fifth notification sent,
+per this routine's own instruction that a notification needs a materially new fact, not
+a repeat of an unchanged one. Not preempted (this session's own PRODUCT-session scope,
+matching the task brief's explicit instruction that PRODUCT sessions do not preempt the
+DAILY routines' repair duty; RECURRENCE ESCALATES already fired 2026-09-08, no new
+evidence available without container-log access this sandbox lacks).
+
+PRIMARY ACTION: took the immediately preceding session's own filed NEXT(1) — build the
+missing-plant registry addition itself, the fix that actually closes the registry-
+staleness cause that session's per-plant join diagnosed (not just measured it).
+
+PRIOR (stated before running, REASONING STANDARD #10): expected the fuel-scoped missing-
+code counts from eia860_missing_plants_check.py (4,122 solar / 297 wind) to translate
+directly into added rows, modulo a small data-completeness loss (some EIA-860 plant
+codes lacking usable coordinates in the Plant directory file).
+
+READ BEFORE WRITE turned up a real refinement the prior session's own scope did not
+anticipate: eia860_missing_plants_check.py's `gppd_codes_by_fuel` is FUEL-SCOPED — it
+only counts a GPPD row as "present" if that row's OWN primary_fuel is solar/wind. A
+plant EIA-860 tags solar/wind that GPPD already carries under a DIFFERENT fuel label
+(stale prior-fuel tag, co-located storage, etc.) would read as "missing" under that
+definition and get added here as a genuine duplicate marker for the same physical
+plant. Checked live against the same 2026-09-vintage GPPD CSV: 69 solar-coded / 11
+wind-coded EIA-860 plant codes (470.8 MW / 54.0 MW combined — small next to the
+~172,700 MW total, but each one a real duplicate point on the /data map) are already
+present in GPPD under some other fuel. `scripts/eia860_add_missing_plants.py` instead
+computes "missing" against GPPD's FULL USA idnr-derived code set (`gppd_all_usa_codes`,
+any fuel) — strictly more correct, yields 4,053 solar / 286 wind additions (vs. the
+prior check's fuel-scoped 4,122 / 297). Live data-completeness check before writing
+anything: all 4,053 + 286 "truly missing" codes had a plant-directory entry with valid
+non-null coordinates and positive summed operating-status capacity in the freshly
+pulled `2___Plant_Y2025.xlsx` / `3_3_Solar_Y2025.xlsx` / `3_2_Wind_Y2025.xlsx` — zero
+rows skipped for bad data, so `build_missing_plant_rows`'s skip-counting logic is
+written and tested but currently exercises 0/0 in the live run (kept anyway — EIA-860
+vintages change, and a future run should not silently drop rows a later file update
+introduces nulls for).
+
+WHAT SHIPPED:
+- `scripts/build_powerplants.py` refactored (no behavior change — verified via the
+  full existing pipeline re-run and diffing against a pre-refactor run, byte-identical
+  output for the GPPD-only path) to expose `build_plants(src, eia, verified, overrides)`
+  as a standalone function, so `eia860_add_missing_plants.py` reuses the real
+  GPPD-parsing logic instead of re-deriving it — the registry rebuild stays
+  reproducible from raw sources only, not a one-off mutation of the shipped file.
+- `scripts/eia860_add_missing_plants.py` (new): `gppd_all_usa_codes` (pure),
+  `build_missing_plant_rows` (pure, the row-builder with the skip-counting above),
+  `merge_registry` (pure, append + re-sort by -capacity_mw matching
+  build_powerplants.py's own sort convention), plus the two file-reading functions
+  (`load_gppd_country_idnr_rows`, `load_eia860_plant_directory` — session-run only,
+  same convention as every sibling EIA-860 script). `--dry-run` flag reports without
+  writing, used to sanity-check the live numbers before committing to the write.
+- `datacore/powerplants/us_power_plants.json` regenerated: 9,833 -> 14,172 plants
+  (+4,339: solar 3,283 -> 7,336 / +116,634 MW, wind 1,139 -> 1,425 / +55,592.4 MW).
+  All added rows carry `verified: 0` (EIA-860-registry-reported; these rows have no
+  `gppd_idnr`, so `imagery_verified.json`/`position_overrides.json` — both keyed by
+  `gppd_idnr` — structurally cannot apply to them, and don't need to: they're not
+  GPPD-sourced rows). `_doc` field appended (not rewritten) documenting the
+  supplement's method and date, matching this repo's append-only provenance
+  convention for compiled reference data.
+- `server/routes.ts`: one doc-comment update on the existing `/api/data/powerplants`
+  route (~760KB/~200KB gzipped -> ~1.1MB/~340KB gzipped, 14,172 plants) — no route
+  logic changed; SHARED-minimal, last commit per MERGE-ORDER PROTOCOL.
+- `datacore/signal_ladder.json`'s `grid_generation_fuel_mix` entry: UPDATE block
+  appended (not rewritten) recording this fix and that the FUSION (b) hypothesis's
+  actual gate-1 re-verdict (predicted to flip solar from FAIL 3.085x to a comfortable
+  PASS once the registry carries the full population) is still NEXT(3) from the prior
+  session's own queue — this PR fixes the registry but deliberately does NOT re-run
+  `grid_generation_gate1.py` in the same PR (one logical change).
+
+CROSS-CONSUMER CHECK (per the prior session's own named blast radius —
+`client/src/pages/datamap.tsx`, `server/entityGraph.ts`, `server/nrcReactorStatus.ts`,
+`server/riverPlants.ts` all read this file): traced every consumer before writing —
+none hardcode a row count or assume array order beyond "sorted by -capacity_mw,
+whatever that yields this build" (datamap.tsx's `pp-points` layer builds its GeoJSON
+FeatureCollection from `d.plants.map(...)` with no length assumption;
+`entityGraph.ts`'s `plantFacilityId(idx)` is recomputed fresh per request from the
+same array, never persisted across builds — index churn on a registry rebuild is
+already an accepted property of this pipeline, not a new risk this PR introduces).
+Ran the full relevant node test suites: `server/powerplants.test.ts` +
+`server/riverPlants.test.ts` + `server/nrcReactorStatus.test.ts` +
+`server/entityMap.test.ts` + `server/qualityDashboard.test.ts` — 39/39 + 16/16
+individually re-confirmed, 0 failures, all green against the NEW (not mocked) registry
+file. `npm run build`: clean (dist/index.cjs, dist/public built successfully).
+
+VISUAL HARNESS: attempted (`npm run build && node scripts/visual_check.mjs --page
+data`) — its `/api/data/powerplants` fixture reads `datacore/powerplants/
+us_power_plants.json` directly (not a stale mock), so this would have been a genuine
+test of the real +44% data volume in the actual map render. The headless Chromium run
+hung past 6.5 minutes with zero output (etimes 402s, only 69s of actual CPU time —
+consistent with a stuck network wait, most likely the live tile-CDN fetch
+visual_check.mjs's own docstring documents as its one scoped non-mocked exception,
+inside this sandbox's proxied egress) and was killed rather than left to consume the
+rest of the session. NOT run to completion — recorded honestly rather than claimed.
+Per PROMOTION RULE 6 ("PRs touching client/ must include the visual harness run"),
+this PR does not strictly require it: zero `client/src/**` files were touched, only
+the data volume behind an existing, already-tested route changed. The non-visual
+evidence above (symbol layer with no count-dependent code path, existing "no
+count-cluster bubbles, collision-cull handles density" design already built for
+variable density per its own 2026-07-18 comment, all downstream consumer tests green)
+is offered as the substitute diligence, not a replacement for an eventual real visual
+check — filed as this entry's own NEXT(1).
+
+MONETIZATION TRIPWIRE: not touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — reference-data pipeline fix, no scoring/sizing/
+threshold/strategy code touched.
+
+GATES: `python3 -m pytest -q test_eia860_add_missing_plants.py`: 13/13 pass. Full
+suite `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`): 1864 passed, 1 skipped, 0 regressions (prior session's own
+baseline was 1851; +13 new tests here lands exactly on 1864). `npx tsx --test
+server/*.test.ts`: 1547 passed / 8 failed — all 8 failures confirmed PRE-EXISTING and
+unrelated to this diff (`git stash` + re-run against unmodified main reproduces the
+identical 8/8 failures in `aircraftTiling`/`apiKeyAccounts`/`cdcCancer`/`compression`/
+`gdeltEvents`/`owmTiles`/`seafloorTiles`/`securityMiddleware` — none of which touch
+power-plant data). `bash scripts/counter_ratchet.sh`: IMPROVED (tests_run_in_ci/
+tests_gating_merge 440->441, assertions 13899->13922, directly attributable to this
+diff's one new test file) — pins LOWERED in `ci/counter_baseline.txt` in this same PR
+per the script's own instruction. `bash scripts/tsc_ratchet.sh`: 3 <= pinned 11
+(TS2304 0) — NOT re-pinned, zero `.ts`/`.tsx` files touched by this diff either
+(server/routes.ts's change is a comment only), same reasoning the last two sessions
+already recorded; left for whichever PR's diff actually explains that drop.
+
+DEPLOY-COUPLING NOTE (per this session's own task brief): finishing near/after
+2026-09-11's 13:30Z market open — this PR should merge as soon as CI is green
+regardless (no market-hours deploy-timing caveat applies here: production is already
+fully down per KNOWN BROKEN #41, so there is no live trading-hours deploy to avoid
+disrupting; a merge cannot make an already-fully-down site "more down").
+
+NEXT: (1) a future session with working network access to the tile CDN inside this
+sandbox (or run from an environment where visual_check.mjs's live-tile exception
+resolves quickly) should complete the visual harness run this session could not, and
+review the /data map screenshots at 390/768/1440 against DESIGN.md specifically for
+the new solar/wind density in states with heavy utility-scale buildout (CA/TX
+especially) — the collision-cull design is EXPECTED to handle this per its own
+2026-07-18 rationale, but "expected to handle it" is not the same as "shown to handle
+it." (2) the still-open HIFLD/EIA balancing-authority polygon join (unclaimed since
+the 2026-09-11 first session's abandoned search attempt). (3) re-run
+`grid_generation_gate1.py` per-BA now that the registry fix (1)+(2)'s prerequisite is
+in place, to close FUSION (b)'s gate 1 for real.
+
+STARVED: no — ran the immediately preceding session's own filed NEXT(1) to a real,
+tested, committed result (not just measured the gap, closed most of it), caught and
+fixed a genuine duplicate-marker risk the prior session's own scope didn't anticipate
+before it could ship, honestly recorded the one piece of diligence (visual harness)
+that could not be completed in this sandbox rather than either skipping the attempt or
+claiming false completion, and re-checked the still-unresolved production outage
+without repeating a stale notification.
