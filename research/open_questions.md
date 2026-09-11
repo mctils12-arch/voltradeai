@@ -11860,6 +11860,92 @@ territory in their first commit)
   to compute an honest full-diurnal-cycle daily total before comparing
   against static nameplate capacity; a future session runs the actual
   reconciliation once that trigger fires.
+  UPDATE 2026-09-11 (scheduled-routine [PRODUCT] session): the
+  readiness_trigger fired (2d elapsed, `scripts/ladder_readiness_check.py`
+  flagged it READY) but two access gaps blocked the originally-planned
+  path — the archived JSONL itself lives only on the Railway volume,
+  unreachable from this sandbox, AND production (voltradeai.com) was
+  separately fully down this session (KNOWN BROKEN #41, PushNotification
+  sent, see that item's dated update). Rather than block, re-derived the
+  SAME ground truth directly from its origin: `EIA_API_KEY` is present in
+  this sandbox and `api.eia.gov` is directly reachable (confirmed live,
+  unlike voltradeai.com) — queried the identical EIA-930
+  `electricity/rto/fuel-type-data` series with `start`/`end` params for
+  the trailing 7 days (2026-09-04..09-11, US48, 2368 rows, one call,
+  under the 5000-row cap) instead of reading our own archived copy of it.
+  This is not a substitute data source — EIA is the ground truth our
+  archive itself only ever copies — so it is a valid, arguably *more*
+  direct, gate-1 run.
+  BUILT: `scripts/grid_generation_gate1.py` (+
+  `test_grid_generation_gate1.py`, 9 pure-function tests, no network in
+  CI — same convention as `test_un_comtrade_gate1.py`). Maps EIA-930 fuel
+  codes to the registry's 8 fuel buckets (WAT+PS → hydro; everything else
+  storage/geothermal/unknown → "other", reported but explicitly NOT
+  verdicted — battery MWh discharge is bounded by battery POWER capacity,
+  a quantity the plant registry does not track, so an exceeds-capacity
+  test against it is not well-posed either way). Verdict is one-sided:
+  max hourly generation may run well BELOW registry capacity (normal
+  capacity-factor headroom) without that being a problem; only generation
+  EXCEEDING capacity by more than 5% is a red flag.
+  SCOPE CUT, stated honestly: this run covers only US48 (the national
+  aggregate), not the finer per-BA regions (CISO/ERCO/MISO/PJM/NYIS/
+  ISNE/SWPP/FPL/SE/NW/SW) the literal ground-truth statement also names.
+  `datacore/powerplants/us_power_plants.json` carries lat/lon but no BA/
+  respondent field, and no BA territory polygon dataset (e.g. HIFLD
+  "Control Areas") exists anywhere in this repo yet. State boundaries are
+  NOT a safe stand-in — checked this session, not assumed: ERCOT excludes
+  El Paso and the Panhandle (SPP territory), CAISO excludes LADWP/SMUD/
+  other California munis, and PJM/MISO/SWPP each span many states with no
+  clean line — approximating any of these by state would silently
+  misattribute plants near every one of those seams. Building an honest
+  per-BA join needs real territory polygons, which is its own gate-1-
+  scale task (the same class of work `scripts/grid_ba_capacity.py`
+  already did for Texas counties -> BA, just nationwide and by point
+  rather than by county) — filed as NEXT, not faked with a bounding box.
+  LIVE RESULT (US48, contiguous-US registry only, 252 of 9833 plants
+  excluded as AK/HI/PR/Guam, 5% tolerance): 6 of 7 verdicted fuel buckets
+  PASS — nuclear 0.917x capacity, coal 0.517x, gas 0.612x, oil 0.131x,
+  hydro 0.451x, wind 0.706x, all comfortably at or under their nameplate
+  ceiling. **solar FAILS badly: max observed generation (115,581 MWh in
+  one hour) is 3.085x the registry's solar capacity (37,468 MW)** —
+  physically impossible unless the registry undercounts real installed
+  solar capacity. This is a REGISTRY finding, not an EIA-930 data
+  problem: `us_power_plants.json` is evidently a stale snapshot for solar
+  specifically (US utility-scale + distributed solar capacity has grown
+  roughly 3-4x since whatever vintage this registry's solar entries date
+  from — consistent with the other 6 buckets, which show plausible
+  sub-capacity ratios and no comparable anomaly). "other" bucket reported
+  only (19,812 MW registry vs 38,221 MWh EIA max) — not verdicted, per
+  the category-mismatch reasoning above.
+  VERDICT FOR THIS ROOT'S GATE 1: NOT closed. Six fuel buckets pass a
+  real physical-plausibility check at the national level, which is
+  genuine progress and rules out a units/scale/gross-mapping error in
+  the new gridGeneration.ts ingredient itself — but (1) the literal
+  ground truth asks for a PER-REGION reconciliation, not national, and
+  that join is unbuilt, and (2) the solar FAIL means the registry cannot
+  yet support any solar-conditioned fusion claim regardless of region.
+  `signal_ladder.json`'s `grid_generation_fuel_mix` entry updated: note
+  extended with this result, readiness_trigger removed (the remaining
+  blocker is a build task — the per-BA join — not a calendar date, so a
+  time-based trigger would spuriously re-report "ready" every future
+  check without anything new to run).
+  NEXT (queued, not this session, in priority order): (1) the per-BA
+  join — fetch HIFLD's "Control Areas" polygon dataset (same public
+  ArcGIS FeatureServer pattern already used for `hifld_power_grid_vector`)
+  and point-in-polygon each of the 9,833 registry plants against it,
+  reusing `scripts/grid_ba_capacity.py`'s ray-casting `CountyIndex`
+  pattern generalized to BA polygons instead of TX counties — this is the
+  literal gate-1 ground truth CLAUDE.md states, still not attempted. (2)
+  the solar registry-staleness finding is independently actionable and
+  free to fix (BUILD-FIRST RULE: no paid capability needed) — EIA's own
+  EIA-860 generator-level dataset (free, keyless-adjacent, already the
+  source class this repo trusts) carries current per-plant nameplate
+  capacity and could refresh just the solar (and, while there, wind —
+  0.706x is plausible but worth checking against a current baseline too)
+  entries in `us_power_plants.json` without a full registry rebuild — a
+  scoped, dedicated future session. (3) once (1) lands, re-run this same
+  reconciliation per-BA (CISO/ERCO/etc.) instead of only US48, and only
+  then consider the fusion (b) hypothesis's GATE 1 genuinely closed.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket

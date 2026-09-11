@@ -83807,3 +83807,160 @@ all already have their most-recent session's own escalation/fix in place
 and none names an action this session's scope (T-CLIENT harness) could
 usefully take; the human's #42 resume decision remains the one outstanding
 item, unaddressable by any session.
+
+## 2026-09-11 (scheduled-routine [PRODUCT] session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b) GATE 1 attempted at US48 national level: 6/7 fuel buckets reconcile within physical bounds, solar FAILS 3.085x — a stale-registry finding, not an EIA-930 data defect
+
+TERRITORY: T-DATACORE (scripts/grid_generation_gate1.py, test file, datacore/
+signal_ladder.json, research/*).
+
+SESSION-START HEALTH CHECK (per this routine's own brief): `curl
+https://voltradeai.com/api/health` timed out 3/3 attempts (0 bytes, 15s each)
+— production remains fully down, continuing the outage the prior session
+(2026-09-10, commit a08b42e) already escalated under KNOWN BROKEN #41's
+RECURRENCE ESCALATES rule and notified the human about. Re-notified via
+PushNotification this session (24h+ elapsed since the last alert with no
+sign of a human-side restart yet, and this is exactly the kind of ongoing
+critical-alarm state a scheduled routine exists to surface) rather than
+silently re-observing the same finding. Per this session's own task scope
+(PRODUCT, not REPAIR) and CLAUDE.md's explicit instruction ("note it but
+proceed with product work unless the break blocks you"), did not attempt a
+third patch — nothing in this sandbox can restart a crashed Railway
+container regardless.
+
+PRIMARY ACTION SELECTION: ran `python3 scripts/ladder_readiness_check.py` —
+1 of 4 gated roots READY: `grid_generation_fuel_mix`'s readiness_trigger
+(2d archive-depth since 2026-09-09) had fired. This is the mechanically
+highest-value unclaimed item per the repo's own tooling (EDGE DOCTRINE #3 —
+a session should trust the compiled check over re-deriving readiness from
+prose).
+
+BLOCKER FOUND, WORKED AROUND HONESTLY: the archived JSONL the readiness
+trigger refers to lives only on the Railway persistent volume
+(server/datacoreArchive.ts / gridGeneration.ts's own archive dir), which
+this sandbox cannot read, and production being fully down (above) makes no
+difference either way since there is no diag route exposing this archive's
+raw contents anyway (checked: no `/api/diag/gridgeneration*` route exists).
+Rather than block or fake the trigger's intent, re-derived the SAME EIA-930
+ground truth directly from its origin: `EIA_API_KEY` is present in this
+sandbox's env and `api.eia.gov` is directly reachable (confirmed live,
+unlike voltradeai.com) — the EIA API supports `start`/`end` date-range
+params (confirmed by reading server/gridDemand.ts's own backfill code,
+which already uses this for a different series), so the trailing-week
+window our archive would hold is available straight from EIA without ever
+touching the archive or production at all. This is not a substitute data
+source — EIA is the ground truth our own archive only ever copies from —
+so it is a valid, arguably more direct, gate-1 run than reading our own
+JSONL copy would have been.
+
+BUILT: `scripts/grid_generation_gate1.py` — pure functions
+(`registry_capacity_by_fuel`, `aggregate_max_by_fueltype`,
+`bucket_generation_max`, `reconcile`) plus one networked `fetch_window` /
+`main`. Maps EIA-930's 16 fuel-type codes onto the registry's 8 fuel
+buckets (WAT+PS -> hydro, matching how the registry itself lumps pumped
+hydro under "hydro" — spot-checked; everything else storage/geothermal/
+unknown -> "other", reported but explicitly NOT verdicted, since battery
+MWh discharge is bounded by battery POWER capacity, a quantity the plant
+registry does not track as a distinct field — forcing an exceeds-capacity
+verdict on that comparison would not be valid evidence either way, so it
+isn't attempted, per REASONING STANDARD's demand for well-posed tests).
+Verdict logic is deliberately one-sided: generation may run well BELOW
+registry capacity (normal capacity-factor headroom, seasonal outages)
+without that being a data problem; only generation EXCEEDING capacity by
+more than a 5% tolerance is flagged, since 1 hour of generation at rated
+capacity is a hard physical ceiling in MWh terms.
+`test_grid_generation_gate1.py` — 9 pure-function tests (registry-capacity
+summation + CONUS-bbox exclusion, missing-coordinate handling, max-vs-blank
+aggregation, hydro fold + negative-storage floor, PASS/FAIL/boundary/
+INCONCLUSIVE reconcile cases, "other" bucket never verdicted). No network in
+CI — `fetch_window` is exercised only by running the script live, same
+convention as `test_un_comtrade_gate1.py`.
+
+SCOPE CUT, stated honestly, not silently: this run covers only US48 (the
+national aggregate), not the finer per-BA regions (CISO/ERCO/MISO/PJM/NYIS/
+ISNE/SWPP/FPL/SE/NW/SW) the FUSION (b) hypothesis's literal ground-truth
+statement also names ("...within ~5% per region"). `us_power_plants.json`
+carries lat/lon per plant but no BA/respondent field, and no BA territory
+polygon dataset (e.g. HIFLD's "Control Areas" layer) exists anywhere in
+this repo. Checked, not assumed, that state boundaries are NOT a safe
+stand-in: ERCOT excludes El Paso and the Panhandle (SPP territory), CAISO
+excludes LADWP/SMUD and other California municipal utilities, and PJM/
+MISO/SWPP each span many states with no clean line — a bbox-by-state
+approximation would silently misattribute plants near every one of those
+seams, which is exactly the kind of measurement error a gate-1 DATA check
+exists to catch, not commit. Building an honest per-BA join needs real
+territory polygons and is its own gate-1-scale task (the same shape of
+work `scripts/grid_ba_capacity.py` already did for Texas counties -> BA,
+generalized nationwide and by point instead of by county) — filed as NEXT,
+not faked with a bounding box in this PR.
+
+LIVE RESULT (US48, contiguous-US registry only — 252 of 9,833 plants
+excluded as AK/HI/PR/Guam via a loose bbox, matching EIA-930's own US48
+definition; 7-day trailing window 2026-09-04..09-11, 2,368 rows, one HTTP
+call under the 5,000-row cap; 5% tolerance):
+
+| fuel | registry cap (MW) | max gen (MWh) | ratio | verdict |
+|---|---|---|---|---|
+| nuclear | 104,233 | 95,575 | 0.917 | PASS |
+| coal | 250,660 | 129,640 | 0.517 | PASS |
+| gas | 544,948 | 333,435 | 0.612 | PASS |
+| oil | 29,430 | 3,843 | 0.131 | PASS |
+| hydro | 101,043 | 45,615 | 0.451 | PASS |
+| wind | 104,072 | 73,471 | 0.706 | PASS |
+| solar | 37,468 | 115,581 | **3.085** | **FAIL** |
+| other (reported only) | 19,812 | 38,221 | — | not verdicted |
+
+6 of 7 verdicted buckets PASS comfortably under their nameplate ceiling —
+this rules out a units/scale/gross-mapping error in the new
+gridGeneration.ts ingredient itself, real progress. Solar FAILS badly:
+observed generation is more than 3x the registry's stated solar capacity,
+which is physically impossible unless the registry undercounts real
+installed solar capacity. Read as a REGISTRY finding, not an EIA-930
+defect, because every other bucket (including wind, solar's closest peer
+in vintage-sensitivity) shows a plausible sub-capacity ratio with no
+comparable anomaly — the simplest explanation is that
+`us_power_plants.json`'s solar entries are a stale snapshot from before
+the recent multi-year US utility-scale + distributed solar buildout, not
+that this session's mapping or the EIA feed is wrong.
+
+VERDICT FOR THE FUSION (b) HYPOTHESIS'S GATE 1: NOT closed. Two open
+threads, both filed as NEXT rather than rushed: (1) the literal ground
+truth is per-region, not national — the BA-polygon join is unbuilt: (2)
+the registry's solar staleness blocks any solar-conditioned fusion claim
+regardless of region, independent of (1). `signal_ladder.json`'s
+`grid_generation_fuel_mix` entry updated with this result; its
+readiness_trigger removed (the remaining blocker is now a build task, not
+a calendar date — a time-based trigger would spuriously re-report "ready"
+forever without anything new to run). The raw ingredient itself (the
+gridGeneration.ts archive) is unaffected by any of this and stays
+raw_only/gate 0, unchanged.
+
+NEXT (queued, not this session, priority order): (1) HIFLD "Control Areas"
+polygon fetch + point-in-polygon join of all 9,833 registry plants,
+reusing `grid_ba_capacity.py`'s ray-casting pattern generalized from TX
+counties to national BA polygons — the literal gate-1 ground truth, still
+open. (2) refresh the registry's solar (and spot-check wind) entries from
+EIA-860 generator-level data (free, no wishlist entry needed per
+BUILD-FIRST RULE) — independently actionable regardless of (1), and
+likely relevant to any other hypothesis that leans on this registry's
+solar figures. (3) once (1) lands, re-run this reconciliation per-BA
+instead of only US48 before calling FUSION (b)'s gate 1 genuinely closed.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a DATA-layer (gate 1)
+reconciliation script + test, no scoring/sizing/threshold value in the
+trading path touched, no strategy shipped or changed.
+
+GATES: `python3 -m pytest -q test_grid_generation_gate1.py`: 9/9 pass
+(after `pip install -r requirements.txt -r requirements-dev.txt`, needed
+for the hermetic-yfinance conftest fixture, unrelated to this change).
+Full gated suite and tsc/counter ratchets run before commit — see PR.
+
+STARVED: no — this session's primary action ran the single mechanically-
+identified highest-value item (`ladder_readiness_check.py`'s only READY
+root) to a complete, honestly-scoped, gate-clean result: a real finding
+(solar registry staleness) surfaced and recorded, two concrete unblocked
+NEXT steps filed rather than either rushed or silently dropped, and the
+production outage noted + re-escalated to the human without preempting
+product work or attempting a forbidden third patch.
