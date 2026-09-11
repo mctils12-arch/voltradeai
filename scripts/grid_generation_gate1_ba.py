@@ -6,38 +6,45 @@ research/open_questions.md): "EIA-930 totals reconciling to registry capacity
 ... within ~5% per region", for the literal region list CISO/ERCO/MISO/PJM/
 NYIS/ISNE/SWPP/FPL.
 
-PREREQUISITE THIS SCRIPT CONSUMES, NOT REBUILDS: scripts/grid_ba_polygon_join.py's
-output, datacore/powerplants/plant_balancing_authority.json (point-in-polygon
-plant -> EIA-930-respondent assignment against the HIFLD Control Areas layer).
-That file's own summary: 10,440/14,172 plants land in exactly ONE balancing
-authority, 312 in none, and 3,420 (24.1%) in MORE than one — a real,
-independently-verified finding (federal Power Marketing Administrations like
-WALC/BPAT/SPA sell wholesale power to customers embedded inside a host
-utility's own footprint, so their HIFLD polygon genuinely overlaps the host's
-rather than partitioning space with it), not a join defect.
+TWO SELECTABLE ATTRIBUTION SOURCES (--source), same registry, same per-fuel
+reconcile logic — only the plant -> balancing-authority assignment differs:
 
-DECISION THIS SCRIPT MAKES EXPLICITLY (per the entry that filed this as NEXT,
-research/experiments.md 2026-09-11 fifth session, which recommended but did not
-decide this): ambiguous (multi-BA) plants are EXCLUDED from every single
-region's registry-capacity sum, never attributed to one BA by guessing. This is
-the conservative choice for an "exceeds capacity" ceiling check specifically —
-omitting real capacity can only make a region's ceiling LOWER, which can only
-make a FAIL verdict MORE likely (never manufacture a false PASS by hiding real
-plants under a picked winner). The excluded capacity, and what FRACTION of the
-region's true total capacity (counted + excluded) it represents, are both
-reported per region — a high fraction (this run found FPL 60%, SWPP 47%,
-CISO 46% — PMA/embedded-utility-heavy regions per the join's own summary)
-means a region's FAIL verdicts are more likely an artifact of this exclusion
-policy stripping real capacity than a genuine registry gap, and should be read
-accordingly; a low fraction (PJM 7%, ISNE/NYIS ~10%) means the verdict is a
-much more direct read on the registry itself. Never buried silently.
+- "eia860" (DEFAULT since 2026-09-11): scripts/grid_ba_eia860_join.py's
+  ground-truth join against EIA-860's own reported Balancing Authority Code
+  per plant. Resolves 96.0% of all registry plants to a single confident
+  code (vs "polygon"'s 73.7%), including 3,335 of "polygon"'s own 3,420
+  ambiguous plants (97.5% of them) — see that module's docstring for the
+  full empirical comparison. This SETTLES the ambiguous-plant question the
+  2026-09-11 fifth-session entry filed as NEXT, left undecided by the sixth
+  session's own run below (kept as "polygon" for cross-reference, not
+  deleted — the two methods corroborate each other on 92.5% of what
+  "eia860" resolves, which is itself evidence neither is a fluke).
+- "polygon": scripts/grid_ba_polygon_join.py's point-in-polygon join against
+  the HIFLD Control Areas layer. datacore/powerplants/plant_balancing_
+  authority.json's own summary: 10,440/14,172 plants land in exactly ONE
+  balancing authority, 312 in none, and 3,420 (24.1%) in MORE than one — a
+  real, independently-verified finding (federal Power Marketing
+  Administrations like WALC/BPAT/SPA sell wholesale power to customers
+  embedded inside a host utility's own footprint, so their HIFLD polygon
+  genuinely overlaps the host's rather than partitioning space with it),
+  not a join defect. Ambiguous (multi-BA) plants under this source are
+  EXCLUDED from every single region's registry-capacity sum, never
+  attributed to one BA by guessing — the conservative choice for an
+  "exceeds capacity" ceiling check specifically (omitting real capacity can
+  only make a region's ceiling LOWER, which can only make a FAIL verdict
+  MORE likely, never manufacture a false PASS). The excluded capacity, and
+  what FRACTION of the region's true total capacity it represents, are
+  reported per region under this source only (the eia860 source has no
+  per-region excluded bucket — see its own module docstring for why).
 
 METHOD: identical per-fuel-bucket max-hourly-generation-vs-capacity-ceiling
 check as grid_generation_gate1.py (reused via importlib, not reimplemented —
-EDGE DOCTRINE #3), run once per named respondent, with UNAMBIGUOUS-only
-registry capacity substituted for that respondent's CONUS-wide capacity.
+EDGE DOCTRINE #3), run once per named respondent, with the selected source's
+matched registry capacity substituted for that respondent's CONUS-wide
+capacity.
 
 Usage: python3 scripts/grid_generation_gate1_ba.py [--days N] [--tolerance F]
+       [--source eia860|polygon]
        [--respondents CISO,ERCO,MISO,PJM,NYIS,ISNE,SWPP,FPL]
 """
 import argparse
@@ -56,7 +63,13 @@ _spec = importlib.util.spec_from_file_location(
 _gate1 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_gate1)
 
-ASSIGNMENTS_PATH = os.path.join(_REPO_ROOT, "datacore", "powerplants", "plant_balancing_authority.json")
+_eia860_spec = importlib.util.spec_from_file_location(
+    "grid_ba_eia860_join", os.path.join(_HERE, "grid_ba_eia860_join.py"))
+_eia860_join = importlib.util.module_from_spec(_eia860_spec)
+_eia860_spec.loader.exec_module(_eia860_join)
+
+POLYGON_ASSIGNMENTS_PATH = os.path.join(_REPO_ROOT, "datacore", "powerplants", "plant_balancing_authority.json")
+EIA860_ASSIGNMENTS_PATH = os.path.join(_REPO_ROOT, "datacore", "powerplants", "plant_balancing_authority_eia860.json")
 
 # The literal per-region list the FUSION (b) ground-truth statement names,
 # restricted to entries that are real HIFLD-crosswalked EIA-930 respondent
@@ -108,6 +121,8 @@ def main():
     ap.add_argument("--days", type=int, default=7, help="trailing window size in days")
     ap.add_argument("--tolerance", type=float, default=0.05, help="fractional headroom above capacity before FAIL")
     ap.add_argument("--respondents", default=",".join(DEFAULT_RESPONDENTS))
+    ap.add_argument("--source", choices=("eia860", "polygon"), default="eia860",
+                     help="plant->balancing-authority attribution source (see module docstring)")
     args = ap.parse_args()
 
     api_key = os.environ.get("EIA_API_KEY")
@@ -117,9 +132,21 @@ def main():
 
     respondents = [r.strip() for r in args.respondents.split(",") if r.strip()]
 
-    with open(ASSIGNMENTS_PATH) as f:
+    if args.source == "eia860":
+        assignments_path = EIA860_ASSIGNMENTS_PATH
+        capacity_fn = _eia860_join.registry_capacity_by_ba
+        ambiguous_plant_policy = ("EIA-860 ground-truth Balancing Authority Code join — plants with "
+                                   "no coordinate match or a genuine coordinate collision are excluded "
+                                   "from every region's capacity sum (see module summary.unmatched/"
+                                   "ambiguous below), never attributed by guess")
+    else:
+        assignments_path = POLYGON_ASSIGNMENTS_PATH
+        capacity_fn = registry_capacity_by_ba
+        ambiguous_plant_policy = "excluded from every single region's capacity sum (never attributed by guess)"
+
+    with open(assignments_path) as f:
         ba_join = json.load(f)
-    per_ba_cap, excluded_mw = registry_capacity_by_ba(ba_join["assignments"])
+    per_ba_cap, excluded_mw = capacity_fn(ba_join["assignments"])
 
     now = datetime.now(timezone.utc)
     end = now.strftime("%Y-%m-%dT%H")
@@ -130,12 +157,10 @@ def main():
         cap = per_ba_cap.get(ba, {})
         counted_mw = sum(cap.values())
         excluded = excluded_mw.get(ba, 0.0)
-        # HIGH values (PMA/embedded-utility-heavy regions like FPL/SWPP/CISO,
-        # see module docstring) mean this region's FAIL verdicts below are
-        # more likely an ARTIFACT of the exclusion policy stripping real
-        # capacity than a genuine registry gap — read them with that in mind,
-        # do not treat them the same as a low-fraction region's (PJM/NYIS/
-        # ISNE) verdicts.
+        # Only meaningful for --source polygon (see module docstring) — the
+        # eia860 source has no per-region excluded bucket, so this is always
+        # 0.0/None there and the global summary.unmatched/ambiguous figures
+        # in the top-level report are the honest substitute.
         excluded_fraction = excluded_capacity_fraction(counted_mw, excluded)
         rows = _gate1.fetch_window(ba, start, end, api_key)
         eia_max = _gate1.aggregate_max_by_fueltype(rows)
@@ -143,7 +168,7 @@ def main():
         verdicts = _gate1.reconcile(cap, gen_bucket_max, tolerance=args.tolerance)
         regions[ba] = {
             "eia_rows_fetched": len(rows),
-            "unambiguous_registry_plants_capacity_mw": round(counted_mw, 1),
+            "matched_registry_plants_capacity_mw": round(counted_mw, 1),
             "ambiguous_capacity_excluded_mw": round(excluded, 1),
             "ambiguous_capacity_excluded_fraction": excluded_fraction,
             "verdicts": verdicts,
@@ -157,10 +182,11 @@ def main():
         "root": "grid_generation_fuel_mix",
         "gate": 1,
         "scope": "per_region",
-        "ambiguous_plant_policy": "excluded from every single region's capacity sum (never attributed by guess)",
+        "source": args.source,
+        "ambiguous_plant_policy": ambiguous_plant_policy,
         "window": {"start": start, "end": end, "days": args.days},
-        "ba_join_source": os.path.relpath(ASSIGNMENTS_PATH, _REPO_ROOT),
-        "ba_join_summary": ba_join.get("summary", {}).get("matched"),
+        "ba_join_source": os.path.relpath(assignments_path, _REPO_ROOT),
+        "ba_join_summary": ba_join.get("summary", {}),
         "regions": regions,
     }
     print(json.dumps(report, indent=2))

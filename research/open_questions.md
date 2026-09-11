@@ -12014,6 +12014,93 @@ territory in their first commit)
   today's per-region solar FAILs (CISO/ERCO/SWPP/FPL) are the ambiguous-
   exclusion artifact and not a RESIDUAL registry gap the national fix
   didn't fully close regionally.
+  UPDATE 2026-09-11 (scheduled-routine session, seventh session this UTC
+  day): decides NEXT(1) above — option (a), a real attribution rule —
+  rather than re-punting a third time. The prior session's own NEXT(2)
+  assumed this "needs real data this repo doesn't have yet"; that premise
+  was checked, not re-assumed, and found wrong: EIA-860 Schedule 2 (the
+  SAME Plant file `scripts/eia860_add_missing_plants.py` already downloads
+  this same week) carries a `Balancing Authority Code` column DIRECTLY
+  REPORTED per plant by its owning utility — ground truth, not a geometric
+  inference, and single-valued by construction (no polygon-overlap
+  ambiguity is even possible from it).
+  `scripts/grid_ba_eia860_join.py` (new) joins the registry to this column
+  by rounded-coordinate match (registry rows carry no EIA Plant Code to
+  join on directly — `build_powerplants.py`'s row format is [name,
+  capacity_mw, fuel, owner, lat, lon, verified] — so coordinate match is
+  the available key). Verified this is a SAFE key before trusting it, not
+  assumed: two spot-checked plants (Grand Coulee, a GPPD-sourced row; West
+  County Energy Center, likewise) matched EIA-860's own Latitude/Longitude
+  EXACTLY after rounding to 4 decimal places (~11m) — because GPPD's own
+  US plant coordinates are themselves EIA-sourced. A coordinate hit whose
+  EIA-860 records report CONFLICTING BA codes is reported as ambiguous,
+  never picked arbitrarily; a hit where they agree (e.g. a multi-unit site
+  carrying more than one EIA Plant Code at one location) resolves cleanly.
+  EMPIRICAL RESULT: of the registry's 14,172 plants, 13,609 (96.0%) match
+  to a single confident code, 548 (3.9%) have no EIA-860 coordinate hit
+  (a real coverage gap, reported not guessed), and only 15 (0.1%) hit a
+  genuine coordinate collision. Cross-checked directly against the PRIOR
+  session's own 3,420 polygon-ambiguous plants: this join resolves 3,335
+  of them (97.5%) — of those, 3,086 (92.5%) land inside the polygon join's
+  own multi-BA candidate set (independent corroboration between two
+  different methods on the disputed subset) and 249 resolve to a code
+  neither polygon candidate offered (EIA-860's authoritative report
+  overriding a HIFLD geometry quirk, plausible for the federal-PMA-
+  embedded-in-a-host-utility case the polygon join's own docstring already
+  named). This SETTLES the methodology question: option (a) was buildable
+  from data already in this repo's own pipeline, not blocked on data this
+  repo lacks as the prior session assumed.
+  `scripts/grid_generation_gate1_ba.py` gained a `--source eia860|polygon`
+  flag (default `eia860`; `polygon` kept for cross-reference, not deleted
+  — the two methods' 92.5% mutual corroboration is itself evidence neither
+  is a fluke) reusing the identical per-fuel reconcile logic (EDGE
+  DOCTRINE #3).
+  LIVE RESULT, ground-truth source, same 7-day window/5% tolerance:
+  **CISO, MISO, PJM, NYIS, and FPL now PASS every verdicted bucket.** FPL
+  previously failed nuclear (1.724x)/gas (2.425x)/solar (2.691x) under the
+  polygon-exclusion confound — all three now PASS (0.741x/0.909x/0.774x).
+  MISO's nuclear FAIL (1.115x) and CISO's gas/hydro/wind/solar FAILs are
+  likewise gone. Three genuine fails remain, now trustworthy rather than
+  confound-suspect (matched capacity in these three regions carries ZERO
+  exclusion, unlike the polygon run): ERCO solar (1.076x — down sharply
+  from the polygon run's 1.824x, a real but much smaller gap), SWPP solar
+  (2.013x, down from a four-bucket pileup to one), and ISNE nuclear
+  (1.099x)/wind (1.251x, essentially unchanged from the polygon run — ISNE
+  was already a low-exclusion-fraction region there, so this is the
+  expected result, not a discrepancy needing explanation).
+  WHY THIS RESULT IS TRUSTED, not just "looks nicer" (MEASUREMENT
+  INTEGRITY's own spirit applied even though this is a data-validation
+  gate, not trading-P&L measurement): the improvement rests on an
+  independent, external, ground-truth field this session did not derive
+  or tune (EIA-860's own reported column), corroborated at 92.5% by a
+  completely different method (point-in-polygon) on the exact subset in
+  dispute, and it does NOT paper over every fail — three concrete,
+  smaller, better-founded fails remain, none silently dropped.
+  VERDICT FOR THIS ROOT'S GATE 1: still not fully closed, but the
+  ambiguous-plant METHODOLOGY question that blocked a clean read for two
+  sessions IS closed. The remaining open surface is now three specific,
+  non-confounded numeric fails, not a confound-poisoned pile of eleven.
+  10 new pure-function tests (`test_grid_ba_eia860_join.py`), no network
+  (EIA-860 xlsx parsing exercised only by running the script live, same
+  convention as every sibling `eia860_*.py` test file). `datacore/
+  signal_ladder.json`'s `grid_generation_fuel_mix` note extended with this
+  result.
+  NEXT: (1) ERCO solar (1.076x) and SWPP solar (2.013x) — investigate
+  whether these are a residual REGIONAL registry gap the national
+  solar-undercount fix (this same UTC day, earlier sessions) didn't fully
+  close for these two specific regions specifically, versus a genuine
+  EIA-930/registry discrepancy at the regional level; each is its own
+  small, focused check, not a repeat of the national one. (2) ISNE nuclear
+  (1.099x)/wind (1.251x) — smallest overshoots of the three, worth a
+  no-lookahead sanity check (e.g. is 7 days enough sample, or does ISNE's
+  specific hourly reporting cadence introduce an artifact) before treating
+  either as a registry finding. (3) the production outage (KNOWN BROKEN
+  #41) remains open as of this session's own live re-check (still 502 on
+  every endpoint, now past the LIVENESS ALARM's 24h wall-clock threshold
+  exactly — confirmed live, not estimated) — not this session's to fix,
+  already escalated by two prior sessions today, not re-notified a third
+  time absent new information (see research/experiments.md this date for
+  the reasoning).
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
