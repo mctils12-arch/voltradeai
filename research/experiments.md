@@ -84880,3 +84880,172 @@ explicit policy decision the prior session left open rather than re-punting it, 
 material confound finding (the exclusion policy's uneven capacity strip) that changes how the
 per-region verdicts above should be read, rather than reporting raw FAILs as if they were all
 equally trustworthy.
+
+## 2026-09-11 (scheduled-routine session, seventh session this UTC day) [PIPELINE] — real, non-guessed EIA-860 ground-truth plant->balancing-authority join settles the two-session-old ambiguous-plant question for FUSION HYPOTHESIS (b), resolving most of the prior session's regional FAILs as a confound (v1.0.890)
+
+TERRITORY: T-DATACORE (scripts/grid_ba_eia860_join.py, test_grid_ba_eia860_join.py,
+datacore/powerplants/plant_balancing_authority_eia860.json, scripts/grid_generation_gate1_ba.py)
++ SHARED-minimal (package.json/package-lock.json version bump, ci/counter_baseline.txt,
+datacore/signal_ladder.json, research/open_questions.md), last commit per MERGE-ORDER
+PROTOCOL. No T-BOT/T-CLIENT files touched.
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP ITSELF): last 10
+tagged entries before this one (2026-09-09 fourth session through this UTC day's sixth
+session) = 7x [PIPELINE]/[PRODUCT]-counts-as-PIPELINE, 2x [REPAIR], 1x [PRODUCT]. No thrash
+(threshold is 7+ REPAIR of 10; actual REPAIR count is 2).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`: local branch already
+equaled origin/main at 93959ee/v1.0.889/PR #1055 (the immediately preceding session's own
+per-region gate-1 re-run) — no reset needed. research/experiments.md tail, research/
+open_questions.md KNOWN BROKEN section, research/wishlist.md tail all read before choosing an
+action.
+
+LIVE HEALTH CHECK (before choosing an action, per this routine's own task instructions):
+`curl https://voltradeai.com/api/health` returned `502 "Application failed to respond"` (same
+`railway-hikari` edge-fallback signature every session today has observed) at 2026-09-11T20:18:
+46Z — the outage first observed 2026-09-10T20:18Z (KNOWN BROKEN #41) has now run EXACTLY 24
+wall-clock hours, crossing CLAUDE.md's own LIVENESS ALARM threshold formally rather than
+"close enough" as the sixth session's own PushNotification (sent ~2h earlier, at ~22h) already
+flagged. NOT re-notified a third time this UTC day: the human already received two live
+notifications about this exact unresolved condition today (this session's own sixth-session
+predecessor, and the reconstruct_pnl session yesterday's chain before it), nothing about the
+failure mode or required human action (a manual Railway restart) has changed, and CLAUDE.md's
+own notification-fatigue reasoning (never churn changes to look busy) applies equally to
+repeat pushes carrying no new information — a fresh notification is warranted the moment
+something NEW is found (recovery, a different failure signature, or new diagnostic evidence),
+not on a fixed re-alarm timer restating an already-delivered fact. This is stated explicitly
+here, not silently decided, so a future session can judge whether that call was right rather
+than re-deriving it. This is squarely REPAIR-MANDATE territory (KNOWN BROKEN first) but every
+avenue this sandbox has is already exhausted per RECURRENCE ESCALATES (no Railway access, two
+prior fix attempts already confirmed insufficient, blind third patch forbidden) — the outage
+does not block this session's own chosen work (T-DATACORE, needs only api.eia.gov/EIA_API_KEY
+and this repo's own files), so per SESSION BUDGET fell through to the next queued item rather
+than stalling.
+
+PRIMARY ACTION SELECTION: the immediately preceding (sixth) session's own NEXT(1) — "decide
+policy (a) vs (b) for the ambiguous-plant confound... either building a real attribution rule
+or formally scoping this check to low-exclusion-fraction regions only" — was the single
+unclaimed queued item in both research/open_questions.md's FUSION HYPOTHESIS (b) entry and
+datacore/signal_ladder.json's grid_generation_fuel_mix note. Took it per SESSION BUDGET rule 1
+(next queued item).
+
+PRIOR (REASONING STANDARD #10, stated before investigating): expected to have to pick option
+(b) — the prior session's own NEXT(2) stated option (a) "needs real data this repo doesn't
+have yet (ownership share, interconnection agreements)". Did not assume this; checked it
+directly first (BUILD-FIRST RULE's own discipline: verify the free/already-available option
+before concluding paid or unavailable) by re-reading what EIA-860's Plant schedule (the SAME
+file `scripts/eia860_add_missing_plants.py` already downloads this same week for a different
+purpose) actually contains — found a `Balancing Authority Code` column directly, reported by
+the owning utility, single-valued per plant by construction. The prior session's premise was
+wrong, not because it reasoned badly, but because it didn't re-check a file two other same-day
+sessions had already opened for a different reason — a concrete instance of EDGE DOCTRINE #3
+("compile knowledge into code... reasoning that must be repeated was wasted") cutting the
+other way: the DATA had already been fetched, just not looked at for this question.
+
+WHAT SHIPPED:
+- `scripts/grid_ba_eia860_join.py` (new). `load_eia860_ba_directory` parses EIA-860 Schedule 2
+  into {plant_code, name, lat, lon, ba_code}, skipping rows with no coordinate or no reported
+  BA code (never defaulting). `build_coord_index` groups by (lat, lon) rounded to 4 decimals.
+  Verified this is a safe join key BEFORE building on it, not assumed: Grand Coulee (registry
+  47.9575/-118.9773, EIA-860 47.957511/-118.977323) and West County Energy Center (registry
+  26.6986/-80.3747, EIA-860 26.6986/-80.3747, exact) both match after rounding — because
+  GPPD's own US plant coordinates are themselves EIA-sourced, this holds generally, not just
+  for these two spot-checks (confirmed by the 96.0% resolution rate below). `assign_registry_ba`
+  returns status matched/unmatched/ambiguous per registry plant — ambiguous means the EIA-860
+  records at that coordinate report CONFLICTING codes (a real collision), never resolved by
+  picking one; two records at one coordinate that AGREE resolve to matched (a multi-unit site
+  sharing a location, not a collision). `registry_capacity_by_ba` returns the same 2-tuple
+  shape (`{ba_code: {fuel: mw}}`, `excluded_mw`) grid_ba_polygon_join.py's function of the same
+  name already uses, so grid_generation_gate1_ba.py can select either source behind one
+  interface (EDGE DOCTRINE #3 — reuse, not reimplement). `compare_to_polygon_join` cross-checks
+  this join's resolution of the PRIOR session's own 3,420 polygon-ambiguous plants specifically.
+- `test_grid_ba_eia860_join.py` (new, 11 tests, no network — `load_eia860_ba_directory`'s xlsx
+  parsing is exercised only by running the script live, same convention as every sibling
+  `eia860_*.py` test file): coordinate-index grouping (single code, multiple agreeing codes,
+  multiple conflicting codes), the matched/unmatched/ambiguous three-way split including the
+  agreeing-codes-is-not-ambiguous case, capacity aggregation excludes non-matched plants, the
+  comparison function's resolve/corroborate/override/ignore-non-ambiguous cases.
+- `scripts/grid_generation_gate1_ba.py` gained `--source eia860|polygon` (default `eia860`).
+  `polygon` path unchanged in behavior (same function, same file); `eia860` path loads the new
+  join's output and its own `registry_capacity_by_ba`. Renamed one report field
+  (`unambiguous_registry_plants_capacity_mw` -> `matched_registry_plants_capacity_mw`, generic
+  across both sources — grepped for other references first, none existed outside this file) and
+  widened `ba_join_summary` from a single count to the full summary dict (both sources' summary
+  shapes now differ meaningfully — matched/unmatched/ambiguous counts and capacity — and the
+  eia860 source's global unmatched/ambiguous figures are the honest substitute for the polygon
+  source's per-region excluded-fraction reporting, which does not apply the same way here; see
+  code comment).
+- `datacore/powerplants/plant_balancing_authority_eia860.json` (new, committed — same
+  precedent as the polygon join's own committed output; the raw EIA-860 xlsx itself is NOT
+  committed, manual-download convention unchanged).
+
+LIVE RESULT (this session, real data: EIA-860 2025 Schedule 2 downloaded fresh, current
+registry, current polygon join file, same live api.eia.gov 7-day window/5% tolerance as the
+prior session): 13,609/14,172 registry plants (96.0%) resolve to one confident ba_code, 548
+(3.9%) unmatched (no EIA-860 coordinate hit), 15 (0.1%) ambiguous (real coordinate collision).
+Cross-check against the prior session's 3,420 polygon-ambiguous plants: 3,335 (97.5%) resolved,
+of which 3,086 (92.5%) land inside the polygon join's own candidate set (independent
+corroboration) and 249 resolve to a code neither polygon candidate offered.
+
+Per-region gate-1 re-run, `--source eia860`: **CISO, MISO, PJM, NYIS, and FPL now PASS every
+verdicted bucket.** FPL previously failed nuclear (1.724x)/gas (2.425x)/solar (2.691x) under
+the polygon-exclusion confound; all three now PASS (0.741x/0.909x/0.774x). Three genuine fails
+remain, none confound-suspect (their matched capacity carries zero exclusion under this
+source): ERCO solar (1.076x, down from 1.824x under polygon), SWPP solar (2.013x, down from a
+four-bucket pileup to one), ISNE nuclear (1.099x)/wind (1.251x, essentially unchanged from the
+polygon run — ISNE was already low-exclusion-fraction there, so this is the expected result).
+
+MEASUREMENT INTEGRITY discipline applied even though this is a data-validation gate script,
+not trading P&L/backtest code (the section's letter doesn't require it here, its spirit does):
+a change that makes an existing check look better is suspect by default. This one is trusted
+because of (1) an independent, external, ground-truth field neither derived nor tuned this
+session (EIA-860's own reported column), (2) a 92.5% corroboration rate from a completely
+different method (point-in-polygon) on the exact disputed subset, and (3) it does NOT clear
+every fail — three concrete, smaller ones remain, none dropped.
+
+VERDICT FOR THIS ROOT'S GATE 1: still not fully closed, but the ambiguous-plant METHODOLOGY
+question that confounded a clean read for two sessions is closed. The remaining open surface
+is three specific, non-confounded numeric fails, not eleven confound-poisoned ones.
+
+`datacore/signal_ladder.json`'s `grid_generation_fuel_mix` note and `research/open_questions.md`'s
+FUSION HYPOTHESIS (b) entry both extended via targeted string replacement (anchor-asserted,
+diff confirmed as a clean insertion, not a full reformat — same discipline the fifth session's
+own entry documented learning the hard way).
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 (reference-data/gate-1
+validation script, no scoring/sizing/threshold/strategy code touched).
+
+GATES: `python3 -m pytest -q`: 1904 passed, 1 skipped (prior baseline 1893; +11 new tests here
+lands exactly on 1904, 0 regressions). `bash scripts/gated_tests.sh`: GATE PASSED — server 1641/1641,
+client 1083/1083, python 1904 passed/1 skipped/54 subtests, quarantine 0/1 none overdue
+(fresh container needed `npm ci` first, same recurring first-session setup step several
+prior sessions have logged). `bash scripts/counter_ratchet.sh`: IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 443->444, `assertions` 13975->13988) — all this
+session's own direct effect (the 1 new test file), pins lowered in `ci/counter_baseline.txt`
+in this same PR. `bash scripts/tsc_ratchet.sh`: reported 11 -> 3, TS2304 still 0 — NOT
+re-pinned in this PR: zero `.ts`/`.tsx` files were touched by this diff, same reasoning and
+same precedent the sixth session's own entry already applied to this exact drift. `npm run
+build`/`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-11 US market hours. This PR touches no
+trading-path code (a reference-data gate-1 validation script + two research-log entries);
+production is separately fully down for the unrelated KNOWN BROKEN #41 outage — merge timing
+relative to market hours has no live-trading-risk implication here.
+
+NEXT: (1) ERCO solar (1.076x) and SWPP solar (2.013x) — investigate whether these are a
+residual REGIONAL registry gap the national solar-undercount fix (earlier today) didn't fully
+close for these two regions specifically, versus a genuine regional EIA-930/registry
+discrepancy; each is its own small, focused check. (2) ISNE nuclear (1.099x)/wind (1.251x) —
+smallest overshoots of the three, worth a sample-size/reporting-cadence sanity check before
+treating either as a registry finding. (3) the production outage (KNOWN BROKEN #41) remains
+open, now past the LIVENESS ALARM's 24h threshold exactly (confirmed live this session); needs
+a human Railway restart; not re-notified this session for the reasons stated above, but a
+future session should re-notify the moment anything changes (recovery or a new failure
+signature).
+
+STARVED: no — closed a two-session-old open methodology question with a real fix rather than
+re-punting it a third time (which the prior session's own NEXT(1) explicitly warned against),
+checked a false premise (the prior session's "needs data this repo doesn't have") rather than
+inheriting it, and the live re-run this produced materially clarifies FUSION HYPOTHESIS (b)'s
+actual remaining open surface (three specific fails instead of eleven confound-poisoned ones)
+rather than just re-confirming what was already known.
