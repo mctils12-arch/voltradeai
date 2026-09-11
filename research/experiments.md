@@ -83964,3 +83964,201 @@ root) to a complete, honestly-scoped, gate-clean result: a real finding
 NEXT steps filed rather than either rushed or silently dropped, and the
 production outage noted + re-escalated to the human without preempting
 product work or attempting a forbidden third patch.
+
+## 2026-09-11 (scheduled-routine session, second session this UTC day) [PIPELINE] — the immediately preceding session's own NEXT(2): EIA-860 2025 nameplate capacity vs the power-plant registry, quantified — solar 4.12x undercounted as predicted, wind ALSO 1.53x undercounted (prior wrong, recorded anyway)
+
+TERRITORY: T-DATACORE (scripts/eia860_registry_capacity_check.py, test
+file, research/*). No T-BOT/T-CLIENT files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, with the EDGE DOCTRINE.
+`git fetch origin main`: local branch already equaled origin/main at
+735e097/v1.0.884/PR #1049 (the immediately preceding session's own FUSION
+HYPOTHESIS (b) GATE 1 entry, same UTC day) — no reset needed.
+`python3 scripts/research_state_check.py`: thrash_ratio 4/10 REPAIR
+(below the 7+ trigger), known_broken 44/4-advisory (#26/#34/#38/#40,
+unchanged, none a live blocker), starvation 0/10 — no meta-problem flag.
+`python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready
+(cftc_cot_positioning/sec_8k_earnings_language/fleet_utilization_aircraft
+all still time-blocked; grid_generation_fuel_mix's own trigger was
+consumed and removed by the immediately preceding session, so nothing
+newly fired).
+
+LIVE HEALTH CHECK (first action, per this routine's own brief): `curl
+https://voltradeai.com/api/health` — first attempt timed out 10s/0 bytes
+(worse-looking than a 502), three more attempts over the next ~30s: two
+more plain timeouts, one that completed at ~18s with the same Railway
+edge-fallback body seen in every prior check this incident
+(`server: railway-hikari`, `x-railway-fallback: true`, 502 "Application
+failed to respond"). Same underlying state as the immediately preceding
+two sessions (KNOWN BROKEN #41, full outage since >=2026-09-10T20:18Z,
+restart-budget exhaustion) — not a new or worse incident, just an
+edge that is itself now slower/timing out more often on an already-dead
+backend. Sent a fresh PushNotification (the third for this specific full-
+outage state, after 2026-09-10's and this UTC day's first session's) —
+justified, not redundant churn, because the outage has now run past 24h
+wall-clock with no observed recovery and each session's own health check
+is the only mechanism that would ever notice a human-side restart if one
+happened; a silently-skipped notification on an unresolved, escalating-
+duration incident is the wrong failure mode to risk. Read KNOWN BROKEN
+#41 and wishlist.md's incident entry in full before concluding, again,
+that no session-side fix exists (Railway dashboard/CLI access remains
+absent — `which railway` empty, no `RAILWAY_*` env vars — unchanged from
+every prior check). Did not attempt a third patch (RECURRENCE ESCALATES
+already fired 2026-09-08); spent real effort this session instead
+statically re-auditing server/bot.ts's WebSocket stream handler (bounded:
+streamVolHistory/streamPriceHistory capped at 20, streamSignalQueue
+capped at 20 and TTL-expired) and every other unconditional
+`refreshX()`-at-boot module (~50 of them, `grep`'d exhaustively) for the
+same "unconditional fold of a growing local archive" shape that caused
+the two already-fixed cases — found none: every other refresher fetches
+a small external API response (bounded by the provider's own page size),
+not a local archive scan, and gridStress.ts's own header comment shows it
+already explicitly designed around the OOM lesson (streams the archive
+file-by-file, bounded per-day state). This is a genuine negative result,
+not absence of effort — recorded so a future session doesn't re-walk the
+same ~50 files. The real blocker remains exactly what wishlist.md already
+says: real Railway container logs, to tell a V8 heap-limit trace from a
+bare cgroup SIGKILL, which nothing in this sandbox can pull.
+
+PRIMARY ACTION: with `ladder_readiness_check.py` empty and no other queued
+item fitting, took the immediately preceding session's own explicitly-
+filed NEXT(2) — "refresh the registry's solar (and spot-check wind)
+entries from EIA-860 generator-level data ... independently actionable
+regardless of [the BA-polygon join]" — per SESSION BUDGET step 1 (queued
+item over fresh research). Also briefly attempted NEXT(1) (HIFLD Control
+Areas polygon join): spent real effort searching ArcGIS Online's item
+catalog for a working national Balancing-Authority-territory feature
+service (the original `services1.arcgis.com/Hp6G80Pky0om7QvQ/.../
+Control_Areas_gdb` mirror 400s "Invalid URL" on every query tried; a
+"Balancing Authority Areas" mirror that DID respond turned out to be a
+small-extent non-national derivative, wrong dataset) — did not find a
+reliable, queryable, national source within a reasonable search budget;
+abandoned rather than ship a fragile/wrong join, and left NEXT(1)
+open/unclaimed rather than re-filing the same ask with no new lead.
+
+PRIOR (stated before running against real EIA-860 2025 data, REASONING
+STANDARD #10): given the FUSION (b) run's 3.085x solar generation/capacity
+ratio and a plausible ~75-85% peak solar capacity factor, expected
+EIA-860's true national solar nameplate to be roughly 3.5-4.5x the
+registry's 37,468 MW. For wind — which PASSED its own gate-1 exceeds-
+capacity check at 0.706 — expected EIA-860 and the registry to already be
+reasonably close, no more than ~10-20% apart.
+
+WHAT SHIPPED: `scripts/eia860_registry_capacity_check.py` (new, pure
+functions `sum_operable_nameplate`/`compare_fuel` + one file-reading
+function `load_eia860_nameplate_rows`, no network — reuses
+`grid_generation_gate1.registry_capacity_by_fuel` verbatim via
+`importlib`, same pattern `grid_ba_capacity.py` already uses to reuse
+`grid_capacity_tx.py`, per EDGE DOCTRINE #3 rather than re-deriving the
+bucket-sum logic). Reads EIA-860 Schedule 3's "Wind Technology Data" /
+"Solar Technology Data" generator-level files (`3_2_Wind_Y<year>.xlsx` /
+`3_3_Solar_Y<year>.xlsx`, both inside the same `eia860<year>.zip`
+`build_powerplants.py` already documents fetching), filters to
+`Status == "OP"` (Operating) only — confirmed live this session that even
+the "Operable Units Only"-titled sheets carry a handful of non-OP rows
+(16/1,573 wind rows OS/OA, 21/8,011 solar rows) that should not count as
+currently-installed capacity. `test_eia860_registry_capacity_check.py` —
+7 tests: OP-only filtering, `None` capacity counted as 0.0 not skipped,
+empty input, ratio/gap computation, zero-registry-capacity division
+guard, ratio-below-1 case (registry overcounting, not just under), and an
+identity pin proving the module reuses (not re-derives)
+`grid_generation_gate1.registry_capacity_by_fuel`.
+
+SCOPE, stated honestly (same discipline the immediately preceding session
+used for its own BA-join cut): this compares NATIONAL TOTALS only — it
+does NOT join individual registry plants to EIA-860 Plant Codes to refresh
+each plant's own capacity value (the literal wording of NEXT(2)). WRI
+GPPD (the registry's capacity source, per `build_powerplants.py`'s own
+header — EIA-860 is currently used there for COORDINATES only, never
+capacity) does not carry an EIA Plant Code field for a safe join key, and
+a fuzzy name/lat-lon match risks exactly the kind of silent
+misattribution `research/position_audit_2026-07-18.md`'s "Hardeeville
+lesson" already cost this codebase once. This script answers a real,
+well-posed question (how stale is the registry's TOTAL, nationally, and
+is that plausible as the sole explanation for the gate-1 breach) and
+leaves the per-plant rebuild as its own scoped follow-up, not rushed here.
+
+LIVE RESULT (`eia8602025.zip`, fetched this session, downloaded fresh from
+eia.gov — `--solar`/`--wind` pointed at the extracted xlsx files):
+
+| fuel | registry (MW) | EIA-860 2025 (MW) | ratio | gap (MW) |
+|---|---|---|---|---|
+| solar | 37,468.4 | 154,251.1 | **4.117** | +116,782.7 |
+| wind | 104,072.2 | 159,693.6 | **1.534** | +55,621.4 |
+
+SOLAR: matches the stated PRIOR closely (4.117x vs. the 3.5-4.5x
+expectation) — strong, direct confirmation that the registry's solar
+entries are a stale undercount, consistent with (not just "not
+contradicting") the FUSION (b) gate-1 breach, and quantifies exactly how
+stale: EIA-860 alone accounts for nearly all of the missing capacity a
+naive "registry is fine, EIA-930 must be wrong" reading would have to
+explain away.
+
+WIND: the stated PRIOR was WRONG, recorded as such per REASONING STANDARD
+#10 (a wrong prior stated up front is not a failure to hide, only a
+result to report honestly) — the registry undercounts wind by 53%, not
+the expected ~10-20%. NOT PREVIOUSLY VISIBLE because wind's gate-1
+exceeds-capacity check happened to PASS anyway (0.706 generation/capacity
+ratio against the STALE, too-low registry figure) — wind's peak-hour
+capacity factor is apparently not high enough, even against an undercounted
+ceiling, to breach it the way solar's is. This means the earlier "6/7
+buckets reconcile, only solar fails" read understates the registry's real
+condition: the registry likely undercounts renewable (wind AND solar)
+capacity broadly, and the gate-1 exceeds-capacity test only CAUGHT solar
+because solar's undercount (4.1x) combined with its capacity factor was
+severe enough to breach even a too-low ceiling, while wind's smaller
+undercount (1.5x) combined with its capacity factor was not. Nuclear/coal/
+gas/oil/hydro were not checked against EIA-860 this session (out of
+scope — the FUSION (b) gate-1 run already showed comfortable headroom on
+all five, so a registry-staleness explanation was never needed there);
+a future session curious whether GPPD's non-renewable entries are equally
+stale could extend this same script cheaply (EIA-860's 3_1_Generator file
+covers every fuel in one sheet, unlike wind/solar's dedicated schedules).
+
+NEXT (queued, priority order, not this session): (1) HIFLD/EIA balancing-
+authority polygon join — still unresolved; this session's own search
+attempt (above) found no working national feature service within budget,
+a future session should either invest a dedicated search pass or ask the
+human whether a direct HIFLD bulk-download (shapefile/geojson, not the
+ArcGIS REST API) is reachable from a different network path. (2) the
+riskier per-plant registry rebuild this session deliberately did not
+attempt: build a safe GPPD<->EIA-860 join (candidate approach: match on
+(state, rounded lat/lon, capacity-within-tolerance) rather than name
+fuzzy-matching, and require the match to be unambiguous — exactly one
+EIA plant code within tolerance — before ever overwriting a registry
+value; log every rejected/ambiguous match rather than silently guessing)
+and refresh solar (and now also wind) plant-level capacities from it,
+closing the actual staleness this session only quantified. (3) once (1)
+and (2) land, re-run `grid_generation_gate1.py` per-BA with a corrected
+registry to close FUSION (b)'s gate 1 for real.
+
+MONETIZATION TRIPWIRE: not touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — DATA-layer diagnostic script only,
+no scoring/sizing/threshold/strategy code touched.
+
+GATES: `python3 -m pytest -q test_eia860_registry_capacity_check.py
+test_grid_generation_gate1.py`: 16/16 pass. Full suite `python3 -m
+pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`): 1839 passed, 1 skipped, 0 regressions (baseline
+1838 + 1 skip; the 7 new tests land against a 1832-at-session-start count
+plus other concurrent sessions' merges already in main — no test count
+mismatch found). `bash scripts/counter_ratchet.sh`: OK, 25/25 counters at
+or better than baseline, no re-pin needed. `bash scripts/tsc_ratchet.sh`:
+reported 3 <= pinned 11 (TS2304 0) — NOT re-pinned this PR: zero `.ts`
+files touched, and the 11->3 drop cannot be attributed to this diff (same
+"environment divergence, not a regression" caveat `ci/tsc_baseline.txt`'s
+own header names — lowering an unrelated pin blind is exactly the kind of
+un-attributed change PROMOTION RULE 5 warns against; left for whichever
+PR's diff actually explains it). No `.ts`/`.tsx` files touched, so
+`npm run build`/`npx tsc --noEmit` full run not repeated beyond the
+ratchet script's own check.
+
+STARVED: no — ran the immediately preceding session's own filed NEXT(2)
+to a complete, gate-clean, honestly-scoped result (a real, prior-tested
+finding for solar, an honest prior-correction for wind), attempted
+NEXT(1) and recorded a genuine negative result rather than silently
+dropping it, re-escalated the still-unresolved production outage without
+letting it block product work, and spent unproductive-but-recorded effort
+ruling out a specific new OOM hypothesis (the ~50-module refresh-at-boot
+pattern) so a future REPAIR session does not re-walk the same files.
