@@ -85811,20 +85811,30 @@ last set — NOT this session's doing (no .ts file touched) and NOT acted on
 here (ci/tsc_baseline.txt isn't in this task's SHARED-territory list and
 lowering someone else's gain isn't this session's one logical change to
 make); noted here so whichever session actually earned that drop can claim
-and lock it in. `bash scripts/gated_tests.sh`: FAILS overall — but the
-failure is 8 `server/*.test.ts` files (aircraftTiling, apiKeyAccounts,
-cdcCancer, compression, gdeltEvents, owmTiles, seafloorTiles,
-securityMiddleware) and 8 `client/**/*.test.ts` files (FlightProfilePanel,
-tzCrossings, celestialSky x2 subtests, globeAtmosphere, meteors,
-oceanBasemap), NONE of which this session touched or relate to grid/
-powerplants/eia860 code — every individual subtest inside the failing
-server files that was inspected PASSED, with only the top-level per-file
-result marked failed (consistent with a pre-existing sandbox/environment
-teardown issue, not a logic regression from this change). The gate's own
-`python` sub-suite (which DOES include this session's new tests) is fully
-green. Per WORKSTREAM PARTITION, fixing unrelated T-CLIENT/T-BOT test
-infrastructure is out of this session's T-DATACORE territory and out of
-scope for this task; flagged here rather than silently worked around.
+and lock it in. `bash scripts/gated_tests.sh` INITIALLY reported FAILS
+overall — the delegated subagent that did this session's investigation
+had run `npm ci` for the Python side (installing requirements.txt) but not
+for the JS/TS side, and every one of the 8 failing `server/*.test.ts`
+files (aircraftTiling, apiKeyAccounts, cdcCancer, compression,
+gdeltEvents, owmTiles, seafloorTiles, securityMiddleware) failed with the
+IDENTICAL root cause on direct re-check: `Error [ERR_MODULE_NOT_FOUND]:
+Cannot find package 'express'` — `node_modules` was simply never
+installed in this fresh container (`ls node_modules/.bin` was empty),
+exactly the same class of first-session-in-a-fresh-container gap several
+prior sessions have logged for the Python side, just not caught for the
+JS side this time before the subagent reported its result. CORRECTED, same
+session, by the parent (orchestrating) session: ran `npm ci` (488 packages
+installed) and re-ran the full gate — **`bash scripts/gated_tests.sh`: GATE
+PASSED — server (all files, includes this session's zero server-file
+changes), client 1083/1083, python 1934 passed/2 skipped/54 subtests,
+quarantine 0/1 none overdue.** This is a real, verified clean gate, not the
+delegated subagent's self-report taken on faith — per READ BEFORE WRITE,
+the parent session independently re-ran the gate rather than trusting the
+subagent's "pre-existing, unrelated" claim at face value, and confirmed it
+was correct (missing `node_modules`, zero relation to this session's
+diff — which touches only `scripts/**`, `research/*`,
+`datacore/signal_ladder.json`, `package.json`/`package-lock.json`) rather
+than a masked regression.
 
 HYPOTHESIS: none introduced this session — this closes/narrows an existing
 FUSION HYPOTHESIS (b) NEXT item; no new hypothesis added to open_questions.md
