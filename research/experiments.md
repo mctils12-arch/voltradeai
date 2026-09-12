@@ -85868,3 +85868,184 @@ concrete, queued, well-specified NEXT item that needed no live-site access,
 closed one half of it outright and materially narrowed the other half with
 real live data and a real methodology (window-widening + raw-hourly
 inspection) rather than hand-waving either into "probably fine."
+
+## 2026-09-12 (scheduled-routine [PRODUCT] session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ERCO/SWPP solar gate-1 overshoot traced to REGISTRY DATE STALENESS (EIA-860 annual vs EIA-860M), not an EIA-930 measurement issue — ERCO CLOSED (clean PASS), SWPP NARROWED 1.97x -> 1.275x (v1.0.894, PR pending)
+
+TERRITORY: T-DATACORE (scripts/**, datacore/**, tests) + SHARED-minimal
+(last commit: research/*, package.json/package-lock.json version bump,
+ci/counter_baseline.txt — 3 counters re-pinned as this session's own
+direct effect, see GATES below).
+
+TASK FRAMING: this session's own instructions name it a [PRODUCT] session
+(datacore/ pipelines + /data). First checked system health/KNOWN BROKEN
+per those instructions: production (KNOWN BROKEN #41) remains down, same
+signature as every session today, RECURRENCE ESCALATES already fired, no
+new information — not re-notified (nothing changed), and per this
+session's own task framing a PRODUCT session does not preempt DAILY
+repair duty, so no repair action was taken. Surveyed the datacore/ ladder
+broadly before picking an action (`datacore/signal_ladder.json`'s 47
+roots): most `gate1_pass` roots (EDGAR 13F, corporate-fleet utilization,
+NRC reactor status) are time-blocked on elapsed archive history, not
+unclaimed work; both already-gate2-passed signals
+(`wikimedia_pageviews_attention`, `gnss_integrity_adsb`) already have
+`/data` UI pages, so no missing-UI gap competes for priority. The single
+genuinely unclaimed, cheaply-actionable item was the literal newest entry
+in both `research/experiments.md` and `research/open_questions.md`: this
+same root's own NEXT(1), filed by the prior scheduled-routine session
+earlier the same day.
+
+PRIOR (stated before running, REASONING STANDARD #10): expected hypothesis
+(a) as filed (EIA-930 folding behind-the-meter solar into SWPP/ERCO's
+reported `SUN` total) to be plausible but not obviously more likely than
+not — general EIA guidance on distributed generation is that it is
+typically metered separately, not folded in, so the prior was closer to
+50/50 than confident either way, with a real chance the check would come
+back genuinely inconclusive from public documentation alone.
+
+METHOD + LIVE RESULT, hypothesis (a): searched EIA's own public
+documentation (Hourly Electric Grid Monitor "Today in Energy" pieces,
+`eia.gov/todayinenergy/detail.php?id=43295`/`id=65344`). Consistent
+finding across multiple pieces: "Balancing authorities typically do not
+meter generators on the distribution system... small-scale distributed
+resources such as rooftop solar photovoltaic systems often aren't
+included in the hourly generation they report" — the opposite direction
+from what (a) would need to be true. No BA-specific document naming an
+SWPP/ERCO override was found either way (a real limit of public-web
+search, not a settled negative), so (a) is treated as NOT SUPPORTED
+rather than disproven, and NOT pursued into (b) (a third capacity source)
+on that basis alone — pivoted instead to a cheaper, independently
+motivated idea (see below), per REASONING STANDARD #4's spirit of
+preferring fewer, theory-motivated tests over stacking variants.
+
+METHOD, the pivot: this repo's registry (`datacore/powerplants/
+us_power_plants.json`) and its EIA-860-derived BA join
+(`plant_balancing_authority_eia860.json`) are both built from EIA-860
+ANNUAL — the "2025" release reports capacity AS-OF 2024-12-31, per EIA's
+own annual-survey design. EIA separately publishes Form EIA-860M, a
+MONTHLY update to the identical generator inventory (~2 months' lag),
+whose single "Operating" sheet carries Balancing Authority Code and
+Energy Source Code natively on every row — no Plant-Code join needed at
+all, unlike the annual Schedule 2/Schedule 3 split every sibling
+`eia860_*.py` script already handles. Built `scripts/
+eia860m_recent_capacity_check.py` (new): `eia860m_capacity_by_ba()` sums
+Operating-status nameplate capacity by (fuel, BA) straight off that
+sheet; `compare_staleness()` compares it against the registry's own
+(already-stale) matched capacity and, given `grid_generation_gate1_ba.py`'s
+own live `max_generation_mwh` reading, recomputes what the gate-1 ratio
+WOULD read against current capacity instead of the stale registry figure.
+
+LIVE RESULT: downloaded EIA-860M's latest published file this session
+(`https://www.eia.gov/electricity/data/eia860m/xls/july_generator2026.xlsx`,
+"Inventory of Operating Generators as of July 2026" — confirmed this is
+the newest actually-published month; August/later links on EIA's own
+listing page 404/redirect, same manual-download precedent every sibling
+`eia860_*.py` script documents). Re-fetched live EIA-930 max readings
+fresh this session via `python3 scripts/grid_generation_gate1_ba.py
+--respondents ERCO,SWPP --source eia860` rather than reusing the filed
+approximate values, confirming they land in the same range the prior
+session logged (natural day-to-day drift on a rolling 7-day max, same
+caveat that session's own entry already named): ERCO solar 32,327.0 MWh
+(1.076x vs the stale registry), SWPP solar 2,650.0 MWh (1.97x).
+
+**ERCO solar:** registry (stale, EIA-860 annual 2025) 30,050.7 MW vs
+EIA-860M (current, July 2026) 32,269.4 MW — capacity grew **+2,218.7 MW
+(1.074x)** since the annual snapshot. Recomputed gate-1 ratio: 32,327.0 /
+32,269.4 = **1.002x — a clean PASS** within the existing 5% tolerance.
+This fully accounts for the FAIL; no residual overshoot remains.
+
+**SWPP solar:** registry 1,345.0 MW vs EIA-860M 2,078.1 MW — capacity grew
+**+733.1 MW (1.545x)**. Recomputed ratio: 2,650.0 / 2,078.1 = **1.275x —
+still a FAIL, but 3.6x smaller** than the stale-registry reading (1.97x).
+Wind checked too for the same two regions, for completeness (neither is
+gate-1-failing on wind, so not investigated further): ERCO wind grew
+38,357.6 -> 39,984.8 MW (1.042x), SWPP wind 34,547.2 -> 35,453.4 MW
+(1.026x) — both modest, consistent with solar being the far faster-
+growing fuel in both footprints over this window, which is itself the
+mechanism behind why solar specifically is the one showing gate-1
+overshoots.
+
+VERDICT: ERCO's gate-1 solar FAIL is **CLOSED** — three consecutive
+sessions' worth of investigation (completeness ruled out twice, at
+national and regional scope; now currency ruled IN) converge on registry
+DATE staleness as the actual cause, not an EIA-930 data-quality or
+measurement-definition problem. SWPP's is **NARROWED, not closed** — a
+genuine ~27.5% residual overshoot survives accounting for capacity
+growth. Per REASONING STANDARD #4/#10, this is reported as exactly that
+rather than rounded up to "explained" because the headline direction
+matched expectations; a plausible next check (not attempted here, filed
+as NEXT) is whether SWPP specifically has additional very-recent (post-
+July-2026) solar commissioning that even EIA-860M's ~2-month lag misses,
+or an SWPP-specific EIA-930 respondent quirk distinct from the general
+BTM-exclusion finding above.
+
+GENERALIZATION FILED (not built this session): the registry is
+structurally stale for any fast-growing fuel by however long EIA-860
+ANNUAL lags EIA-860M (currently ~20 months for the 2025 release) — this
+is not specific to ERCO/SWPP/solar, and every future gate-1 "exceeds
+capacity" check on a fast-growing fuel/region will re-surface the same
+shape of false alarm until the registry itself gets a periodic EIA-860M
+refresh pass (analogous to `eia860_add_missing_plants.py`'s one-time
+missing-plant backfill, but for EXISTING plants' capacity, and recurring
+rather than one-time). Filed as a new hypothesis in
+`research/open_questions.md`'s FUSION HYPOTHESES (b) section with its own
+ladder path (gate 1) rather than built here — one logical change per PR,
+and this session's own change is the diagnostic, not the registry fix.
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 —
+this is a gate-1 (DATA) diagnostic script comparing two independent
+public-data capacity reads; no scoring, sizing, threshold, or strategy
+code was touched.
+
+GATES: `python3 -m pytest -q test_eia860m_recent_capacity_check.py`:
+18/18 (all pure-function, no network — the two I/O paths, EIA-860M xlsx
+parsing and the live EIA-930 fetch this script deliberately reuses rather
+than re-implements, EDGE DOCTRINE #3, are exercised only by running the
+scripts live, same convention as every sibling `eia860_*.py` test file).
+Full suite `python3 -m pytest -q`: 1955 passed, 1 skipped, 54 subtests
+(prior baseline 1937 + this session's 18 new lands exactly on 1955, 0
+regressions — this sandbox needed `pip install -r requirements.txt -r
+requirements-dev.txt` first, a fresh-container provisioning step several
+prior sessions have logged, not a repo defect). `bash
+scripts/gated_tests.sh`: first invocation FAILED because `node_modules`
+was not yet installed in this fresh container (same class of gap the
+2026-09-12 fourth-session entry logged for the JS/TS side that same day);
+corrected by running `npm ci` (488 packages) before re-running — **GATE
+PASSED: server/client/python all green, quarantine 0/1, none overdue**.
+`bash scripts/counter_ratchet.sh`: IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 446->447, `assertions`
+14062->14086) — all three are this session's own direct effect (1 new
+test file, 18 new tests/assertions) and re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — not
+re-pinned, zero `.ts`/`.tsx` files touched by this diff. `npm run
+build`/`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-12 US market hours
+(session start ~18:1x UTC / ~14:1x ET). This PR touches no trading-path
+code (a new gate-1 diagnostic script + its test file + three research-log
+entries + a version bump) — merge is not itself gated by market hours,
+but per this repo's own recently-reconfirmed convention (see wishlist.md's
+12th-occurrence auto-merge note, PR #1062, same day) the automerge job
+merges on green CI regardless of market hours; noted here for the record,
+not held.
+
+NEXT: (1) SWPP's residual ~27.5% overshoot — check for post-July-2026
+commissioning EIA-860M itself would miss, or an SWPP-specific EIA-930
+respondent quirk (not attempted this session, genuinely open). (2) the
+new REGISTRY EIA-860M FRESHNESS hypothesis filed in open_questions.md —
+build `scripts/eia860m_refresh_registry.py` to patch existing plants'
+capacity (not just add missing ones) from the latest EIA-860M snapshot,
+then re-verify gate-1 moves without a manual cross-check. (3) ISNE wind's
+small, real, unexplained overshoot (carried over from the prior session's
+own NEXT(2), not attempted here — different fuel/region, its own
+investigation). (4) the production outage (KNOWN BROKEN #41) — re-
+confirmed down at session start, same signature, no new information, not
+re-notified.
+
+STARVED: no — this session picked the queue's own most-recently-filed,
+concretely-testable item, closed one of its two named regions outright
+with a genuinely new (not previously considered) root cause rather than
+re-running the same registry-completeness lens a third time, quantified
+rather than asserted the other region's partial explanation, and filed a
+new, broader hypothesis this specific finding surfaced rather than
+letting it die as a one-off footnote.
