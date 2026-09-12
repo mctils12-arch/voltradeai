@@ -12261,6 +12261,87 @@ territory in their first commit)
   the production outage (KNOWN BROKEN #41) — see research/experiments.md
   this date for this session's own re-confirmation and why no further
   action was taken here.
+
+  UPDATE 2026-09-12 (scheduled-routine [PRODUCT] session): answers NEXT(1)
+  above with a DIFFERENT cause than either candidate it named. First
+  checked (a) as filed: general public EIA-930 documentation ("Today in
+  Energy" pieces on the Hourly Electric Grid Monitor) states distributed/
+  behind-the-meter solar is typically EXCLUDED from balancing-authority-
+  reported generation, not folded in — no BA-specific override for SWPP/
+  ERCO was found, so (a) is NOT supported by available documentation
+  (weak evidence against it, not proof, since no respondent-level EIA
+  document was found either way). Rather than reach for (b) (a third
+  capacity source) on an inconclusive negative, checked a cheaper,
+  independently-motivated idea: this repo's registry is built from EIA-860
+  ANNUAL, whose "2025" release reports capacity as-of 2024-12-31 — but EIA
+  separately publishes EIA-860M, a MONTHLY update to the same generator
+  inventory (~2 months' lag, no Plant-Code join needed — every generator
+  row carries Balancing Authority Code and Energy Source Code natively).
+  `scripts/eia860m_recent_capacity_check.py` (new) compares the registry's
+  stale figure against EIA-860M's current one and recomputes the gate-1
+  ratio against current capacity instead of stale registry capacity, given
+  `grid_generation_gate1_ba.py`'s own live max-generation readings.
+
+  LIVE RESULT (manually downloaded EIA-860M "as of July 2026", same
+  precedent every sibling `eia860_*.py` script uses; live EIA-930 max
+  readings re-fetched fresh this session via `grid_generation_gate1_ba.py
+  --source eia860`, byte-consistent with the filed 1.076x/~2x): **ERCO
+  solar capacity grew 30,050.7 -> 32,269.4 MW since the annual snapshot**
+  (+2,218.7 MW, 1.074x growth) — against the live 32,327.0 MWh reading
+  this FULLY EXPLAINS the gate-1 FAIL: 1.076x (vs stale registry) ->
+  **1.002x (vs current capacity), a clean PASS** within the 5% tolerance.
+  **SWPP solar capacity grew 1,345.0 -> 2,078.1 MW** (+733.1 MW, 1.545x
+  growth) — against the live 2,650.0 MWh reading this explains MOST but
+  not all of the overshoot: 1.97x -> **1.275x, still a FAIL but a 3.6x
+  smaller one**.
+
+  VERDICT: ERCO's gate-1 solar FAIL is CLOSED — it was never an EIA-930 or
+  registry-completeness problem (both already ruled out); it was the
+  registry lagging real-world buildout by about a year and a half, in the
+  single fastest-growing fuel type, in one of the two fastest-growing
+  regions checked here. SWPP's is NARROWED, not closed — a genuine ~27.5%
+  residual overshoot survives accounting for capacity growth, and per
+  REASONING STANDARD #4 is not waved off as "more of the same
+  explanation" just because that would be tidier; it needs its own next
+  check (SWPP-specific EIA-930 respondent quirks, or a finer-grained
+  EIA-860M cross-check restricted to plants commissioned very recently,
+  where reporting lag or provisional capacity figures are most likely).
+
+  This finding also generalizes beyond this one hypothesis: **this
+  repo's power-plant registry is systematically stale for fast-growing
+  fuels by however long EIA-860 ANNUAL lags EIA-860M** (currently ~20
+  months for the 2025 release) — a structural registry-freshness gap, not
+  specific to ERCO/SWPP/solar, filed as its own NEW hypothesis below for a
+  future session to scope (a periodic EIA-860M refresh pass over the
+  registry, analogous to `eia860_add_missing_plants.py`'s one-time
+  backfill but recurring).
+
+  18 new pure-function tests in `test_eia860m_recent_capacity_check.py`,
+  no network (the two I/O paths — EIA-860M xlsx parsing and the live
+  EIA-930 fetch this script deliberately does NOT re-do itself, EDGE
+  DOCTRINE #3 — are exercised only by running the sibling scripts live,
+  same convention as every `eia860_*.py` test file). Full account:
+  `research/experiments.md` 2026-09-12 (this session).
+
+  NEW HYPOTHESIS FILED: **registry EIA-860M freshness refresh.** The
+  registry (`datacore/powerplants/us_power_plants.json`) is built once
+  from EIA-860 ANNUAL and never updated between annual releases, so any
+  gate-1 "exceeds capacity" check for a fast-growing fuel (solar being the
+  clearest case) will show a shrinking-over-time FAIL that is actually a
+  staleness artifact, not a data or measurement defect — and every such
+  FAIL costs a session's worth of investigation to (re)diagnose, as this
+  entire multi-session FUSION (b) thread demonstrates. LADDER PATH: gate 1
+  (DATA) — build a `scripts/eia860m_refresh_registry.py` analogous to
+  `eia860_add_missing_plants.py` (reuses `build_powerplants.py`'s
+  `build_plants()` where possible, EDGE DOCTRINE #3) that patches existing
+  registry plants' capacity from the latest EIA-860M snapshot (not just
+  adds missing plants, which the 2026-09-11 fix already does one-time);
+  ground-truth check: re-run `grid_generation_gate1_ba.py` after the
+  refresh and confirm ERCO/SWPP solar move toward PASS without the manual
+  EIA-860M cross-check this session ran by hand. Not attempted this
+  session (one logical change per PR; this session's own change is the
+  diagnostic, not the fix) — filed here rather than silently left as
+  tribal knowledge in a closed thread.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
