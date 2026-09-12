@@ -85657,3 +85657,214 @@ checked a false premise (the prior session's "needs data this repo doesn't have"
 inheriting it, and the live re-run this produced materially clarifies FUSION HYPOTHESIS (b)'s
 actual remaining open surface (three specific fails instead of eleven confound-poisoned ones)
 rather than just re-confirming what was already known.
+
+## 2026-09-12 (scheduled-routine session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ERCO/SWPP solar gate-1 overshoot is NOT a residual registry gap (ruled out, ratio ~1.0 both regions); ISNE nuclear/wind overshoot is NOT a sampling artifact (window-widening test), narrowed but not closed (v1.0.893, PR #1061 — merge held until after 4:00 PM ET per this session's own note, market hours at time of session)
+
+TERRITORY: T-DATACORE (scripts/**, datacore/**, tests) + SHARED-minimal (last
+commit: research/*, package.json/package-lock.json version bump —
+datacore/signal_ladder.json's grid_generation_fuel_mix note extended and
+ci/counter_baseline.txt checked but unchanged, both technically T-DATACORE's
+own root's tracking file / a pass-through gate, not touched as a separate
+SHARED concern here).
+
+OBSERVATION on this file's own convention, factual not corrective (not this
+session's task to fix): this file's header (line 3) says "Newest at top",
+and the three most recent sessions before this one (all dated 2026-09-12,
+now sitting at lines 6/400/498) took that literally and prepended there —
+but the file's actual dominant body, everything from roughly line 597
+through the prior end of file at line 85659 (~85,000+ lines), runs
+chronological-ASCENDING (oldest at top of that block, newest at the bottom,
+e.g. 2026-09-10 sessions precede 2026-09-11 sessions as line numbers
+increase). The header text and the file's real historical convention
+disagree, and the last three sessions followed the header rather than the
+body. Per this session's own explicit instruction, this entry is appended
+at the END of the file (continuing the dominant ascending convention, not
+the header's literal text) — the three misplaced top-of-file entries are
+left alone, not this session's task to relocate.
+
+SESSION BUDGET: the PRIMARY action this session would otherwise take is
+REPAIR on KNOWN BROKEN #41 (production outage) per priority order, but that
+was confirmed BLOCKED before this session started — the parent session
+re-checked voltradeai.com 3 consecutive times at ~2026-09-12T16:0xZ and got
+the same 502 "Application failed to respond" / `railway-hikari` /
+`x-railway-fallback:true` signature every time, and RECURRENCE ESCALATES
+already fired for this exact item across multiple prior sessions today (no
+third blind patch attempted, per those sessions' own logged decisions;
+this session has no Railway access to do anything differently anyway).
+Per SESSION BUDGET rule 1, the session falls through to the next queued
+item that fits and needs no live-site access: the exact NEXT(1)/NEXT(2)
+this same root's seventh 2026-09-11 session filed (see that entry, line
+85475, and research/open_questions.md's FUSION HYPOTHESES (b) entry).
+
+PRIOR (stated before running, REASONING STANDARD #10): for NEXT(1), given
+the national solar-undercount fix was only ever validated at the US-wide
+total level, expected SOME real chance either ERCO or SWPP (or both) still
+carried a genuine residual regional shortfall — solar buildout has been
+regionally lumpy and a nationally-balanced fix is not guaranteed to be
+regionally balanced too. For NEXT(2), expected the 7-day window to be a
+plausible source of noise for a MAX-based metric specifically (a single
+unlucky hour inflating the ratio), though flagged before running that
+widening the window could only ever raise or hold a max-based ratio, never
+lower it by itself — the real test was whether a longer window found a
+WORSE outlier (evidence of a persistent issue) or the SAME one (evidence
+the 7-day reading is already representative), not whether it "smoothed
+toward 1.0x" the way a mean would.
+
+METHOD, NEXT(1): new `scripts/eia860_regional_capacity_check.py` builds an
+EIA-860-own-BA-level ground truth via a DIRECT Plant-Code join (EIA-860
+Schedule 2's own `Balancing Authority Code` column joined straight against
+Schedule 3 solar/wind generator rows by their shared native Plant Code —
+no coordinate matching needed here, unlike scripts/grid_ba_eia860_join.py's
+registry-side join, because both sides of THIS comparison already carry
+the same EIA Plant Code natively). That EIA-860-own regional total is
+compared against the registry's matched capacity for the same (ba, fuel)
+pair, reusing the ALREADY-COMMITTED
+datacore/powerplants/plant_balancing_authority_eia860.json (grid_ba_eia860_
+join.py's own output, imported via importlib — EDGE DOCTRINE #3, no
+recomputation, no coordinate-join logic duplicated).
+
+LIVE RESULT, NEXT(1) (fresh EIA-860 2025 Schedule 2/3 xlsx, manually
+downloaded this session, same precedent every sibling eia860_*.py script
+documents): **ERCO solar — registry 30,050.7 MW vs EIA-860's own ERCO-BA
+total 30,016.3 MW, ratio 1.001.** **SWPP solar — registry 1,345.0 MW vs
+EIA-860's own SWPP-BA total 1,362.8 MW, ratio 0.987** (17.8 MW / 1.3% gap,
+noise-level). Wind checked too for consistency (not currently gate-1-
+failing for either region, so not investigated further): ERCO 0.953,
+SWPP 0.974 — small, real, out of this session's scope. CONCLUSION: NEITHER
+region shows a meaningful residual registry-completeness gap — the
+national solar fix evidently reached these two regions along with the rest
+of the country. This RULES OUT hypothesis (1)(a) for both regions with the
+data available; the gate-1 overshoots (ERCO 1.076x, SWPP re-checked live
+this session at 1.996x — the filed 2.013x was a slightly earlier trailing
+window, expected day-to-day drift for a rolling 7-day check, not a
+discrepancy in method) must have a different, EIA-930-measurement-level
+explanation. A raw-hourly look at SWPP's underlying `SUN` values (not just
+the summary max) supports treating this as a real, systematic condition
+rather than an outlier to explain away: the ~2,600 MWh peak recurs on FOUR
+separate days within the 7-day window (2026-09-05, -07, -08, -11), each a
+multi-hour midday/afternoon cluster, not one anomalous hour.
+
+METHOD + LIVE RESULT, NEXT(2): re-ran the EXISTING
+`grid_generation_gate1_ba.py --source eia860` (no new code needed — the
+script already takes `--days`) for ISNE at 7 (baseline, reproduced exactly:
+nuclear 1.099x, wind 1.251x) and 14 days: **both ratios came back BYTE-
+IDENTICAL at 14 days.** A 30-day attempt hit `fetch_window`'s own existing
+truncation guard (6,841 rows for the period vs EIA's API 5,000-row response
+cap — a real, honest, pre-existing API constraint surfaced by an actual
+attempt, not routed around; ~14-20 days is this check's practical per-call
+ceiling). Because `bucket_generation_max` is a MAX over the window, not a
+mean, this result is more informative than "no change" sounds: a longer
+window can only hold the ratio steady or reveal a WORSE outlier further
+back, never a better (lower) one on its own — so the fact that 14 days
+found nothing different rules out "the 7-day window happened to catch an
+unrepresentative single extreme" specifically, without claiming the
+underlying overshoot itself will ever shrink with more days (structurally,
+for this metric, it cannot). Raw-hourly inspection (ad hoc, not committed —
+an investigatory read, not a permanent check) of the 14-day window's `NUC`/
+`WND` series: nuclear's near-max hours cluster on TWO separate days
+(2026-09-07 and -11, each a multi-hour plateau at 3,700-3,743 MWh) with the
+whole window's mean (3,559.8) and median (3,599.0) already close to the
+max — a sustained near-nameplate output level, not a single spike,
+consistent with the well-known benign industry convention that EIA-860
+nameplate is often a summer/net capability rating while actual net output
+(outside peak summer heat, after power uprates) commonly runs a few
+percent above nameplate for nuclear specifically — a plausible, minor,
+structural explanation, not a registry defect. Wind's max (2,103 MWh)
+likewise clusters on a real multi-hour windy stretch (2026-09-10 to -11,
+not one hour) but has no equivalent benign-convention explanation
+(turbines have a hard physical power ceiling, unlike a generator's net-
+vs-gross rating) — wind's small overshoot stays a real, open, minor
+question, not resolved this session.
+
+VERDICT: NEXT(1) CLOSED (not a registry gap for either region; a new,
+separate NEXT filed for what IS producing the overshoot). NEXT(2) NOT
+fully closed but meaningfully narrowed — the sampling-artifact hypothesis
+is ruled out for both fuels; nuclear's overshoot has a plausible benign
+explanation, wind's does not and stays open. Neither forced to a false
+resolution where the evidence did not support one (REASONING STANDARD #4/
+#10).
+
+BACKTEST RESULT: N/A — this session touches only a data-validation gate
+script (scripts/eia860_regional_capacity_check.py, a read-only comparison
+of two independent capacity totals) and research/tracking files. No
+scoring, sizing, threshold, or strategy code was touched, so PROMOTION RULE
+3's backtest requirement does not apply, per the same MEASUREMENT
+INTEGRITY-precedented exemption every prior session in this exact
+grid_generation_fuel_mix thread has stated (data-validation gate work is
+not a strategy/parameter change).
+
+TESTS: 11 new pure-function tests in `test_eia860_regional_capacity_check.py`
+(`eia860_plant_ba_map`, `eia860_capacity_by_ba`, `compare_regional_capacity`,
+plus a constants check) — no network; the one I/O function
+(`load_eia860_plant_ba_rows`, xlsx parsing) is exercised only by running the
+script live against a real manually-downloaded EIA-860 file, same
+convention as every sibling `eia860_*.py` test file in this repo.
+`python3 -m pytest -q`: 1923 passed / 2 skipped BEFORE (after installing
+this sandbox's missing requirements.txt deps — numpy/pandas/scipy/
+lightgbm/yfinance/openpyxl/Pillow/pytest were all absent at session start,
+a sandbox-provisioning fact, not a repo defect) -> **1934 passed / 2
+skipped AFTER** (11 new, 0 regressions). `scripts/counter_ratchet.sh`:
+PASS, "OK: 25 counters at or better than baseline" (no counter moved, none
+improved either — no baseline edit needed). `scripts/tsc_ratchet.sh`: PASS,
+but reports the pinned TS error count dropped 11 -> 3 since the pin was
+last set — NOT this session's doing (no .ts file touched) and NOT acted on
+here (ci/tsc_baseline.txt isn't in this task's SHARED-territory list and
+lowering someone else's gain isn't this session's one logical change to
+make); noted here so whichever session actually earned that drop can claim
+and lock it in. `bash scripts/gated_tests.sh` INITIALLY reported FAILS
+overall — the delegated subagent that did this session's investigation
+had run `npm ci` for the Python side (installing requirements.txt) but not
+for the JS/TS side, and every one of the 8 failing `server/*.test.ts`
+files (aircraftTiling, apiKeyAccounts, cdcCancer, compression,
+gdeltEvents, owmTiles, seafloorTiles, securityMiddleware) failed with the
+IDENTICAL root cause on direct re-check: `Error [ERR_MODULE_NOT_FOUND]:
+Cannot find package 'express'` — `node_modules` was simply never
+installed in this fresh container (`ls node_modules/.bin` was empty),
+exactly the same class of first-session-in-a-fresh-container gap several
+prior sessions have logged for the Python side, just not caught for the
+JS side this time before the subagent reported its result. CORRECTED, same
+session, by the parent (orchestrating) session: ran `npm ci` (488 packages
+installed) and re-ran the full gate — **`bash scripts/gated_tests.sh`: GATE
+PASSED — server (all files, includes this session's zero server-file
+changes), client 1083/1083, python 1934 passed/2 skipped/54 subtests,
+quarantine 0/1 none overdue.** This is a real, verified clean gate, not the
+delegated subagent's self-report taken on faith — per READ BEFORE WRITE,
+the parent session independently re-ran the gate rather than trusting the
+subagent's "pre-existing, unrelated" claim at face value, and confirmed it
+was correct (missing `node_modules`, zero relation to this session's
+diff — which touches only `scripts/**`, `research/*`,
+`datacore/signal_ladder.json`, `package.json`/`package-lock.json`) rather
+than a masked regression.
+
+HYPOTHESIS: none introduced this session — this closes/narrows an existing
+FUSION HYPOTHESIS (b) NEXT item; no new hypothesis added to open_questions.md
+beyond the NEXT items this update itself files.
+
+Full account: research/open_questions.md FUSION HYPOTHESES (b), 2026-09-12
+update. Files: scripts/eia860_regional_capacity_check.py (new),
+test_eia860_regional_capacity_check.py (new), research/open_questions.md,
+datacore/signal_ladder.json (grid_generation_fuel_mix note extended),
+package.json/package-lock.json (version bump only).
+
+NEXT: (1) what IS producing SWPP's recurring ~2x solar overshoot and ERCO's
+smaller 1.076x one, now that registry completeness is ruled out — cheapest
+next check is EIA Form 930 documentation review (does SWPP/ERCO fold
+behind-the-meter/distributed solar into utility-scale `SUN`?) before
+reaching for a third capacity data source. (2) ISNE wind's small, real,
+unexplained-by-nameplate-convention overshoot — worth the same registry-
+completeness check this session ran for ERCO/SWPP solar, applied to ISNE
+wind specifically (not attempted here — this session's scope was the
+sampling-artifact question only, per the filed NEXT wording). (3) KNOWN
+BROKEN #41 (production outage) — still open; this session re-confirms the
+parent session's pre-delegation finding (502, same signature, RECURRENCE
+ESCALATES already fired) but takes no further action on it, consistent
+with prior sessions' own logged decisions not to re-notify absent new
+information.
+
+STARVED: no — the primary action was blocked before this session started
+(production inaccessible, no Railway access from this sandbox, third-patch
+forbidden by RECURRENCE ESCALATES), and the session fell through to a
+concrete, queued, well-specified NEXT item that needed no live-site access,
+closed one half of it outright and materially narrowed the other half with
+real live data and a real methodology (window-widening + raw-hourly
+inspection) rather than hand-waving either into "probably fine."
