@@ -6232,6 +6232,40 @@
     tooling already merged 2026-09-09) remains the fastest path to a real
     fix and can be run in the same dashboard visit.
 
+    UPDATE 2026-09-12 (scheduled-routine session, [REPAIR]) — re-confirmed
+    live, still down, no new evidence available (the outage itself blocks
+    gathering any): `curl` against `https://voltradeai.com/api/health` and
+    `/` both returned `502 "Application failed to respond"` with the same
+    `server: railway-hikari` / `x-railway-fallback: true` signature at
+    2026-09-12T02:34-02:35Z — i.e. the sustained, non-recovering outage
+    first observed 2026-09-10T20:18Z has now run continuously for **~30
+    wall-clock hours** (confirmed unbroken across three independent
+    sessions' checks: 2026-09-10 20:18Z, 2026-09-11 20:18Z per the prior
+    session's own entry, and this one), far past both the wall-clock and
+    market-hours LIVENESS ALARM thresholds. Checked whether anything NEW
+    might explain continued non-recovery (this session's own contribution,
+    not a re-derivation): `git log --since="2026-09-10 20:00" -- server/
+    bot_engine.py voltrade_daemon.py system_config.py risk_kill_switch.py`
+    shows exactly one commit in the window (#1052, c3106bd, 2026-09-11) and
+    it touches only `datacore/powerplants/us_power_plants.json` +
+    `scripts/` (a registry data rebuild, no server runtime path) — ruling
+    out a newer merge as an alternative or compounding cause; this remains
+    the same unresolved Node-process memory leak, not a new regression.
+    Per RECURRENCE ESCALATES (already triggered 2026-09-08) and this
+    session having zero live diagnostic access (the app being down means
+    `/api/diag/*` is down too, exactly as the 2026-09-10 session logged):
+    no third patch attempted. Human notified directly (PushNotification,
+    this session) — the two prior on-record notifications (2026-09-10
+    initial outage, 2026-09-10 predicted-kill-switch-trip) had not
+    resulted in visible recovery by this check, so this is new information
+    (outage confirmed still ongoing at the ~30h mark with no sign of a
+    manual restart having occurred) rather than a restatement, consistent
+    with the 2026-09-11 session's own stated re-notify condition ("the
+    moment anything changes"). NEXT: unchanged from the 2026-09-10 update
+    above — a human Railway dashboard restart is the only path back to a
+    live site; the bisection env-var toggle remains the fastest path to
+    localizing the leak once the service is back up.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
