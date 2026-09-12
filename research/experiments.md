@@ -3,6 +3,105 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-12 (scheduled-routine session) [REPAIR] — SHARED-only
+(research/open_questions.md, research/experiments.md): production is
+STILL fully down, now confirmed continuously for ~30 wall-clock hours
+since the 2026-09-10T20:18Z non-recovering onset (KNOWN BROKEN #41's OOM
+crash-loop exhausting Railway's restart budget). Ruled out any newer merge
+as an alternative cause; no code fix attempted (same access blocker,
+RECURRENCE ESCALATES already triggered); human notified directly
+(PushNotification). Docs-only, no version bump.
+
+TERRITORY: SHARED-only. No T-BOT/T-CLIENT/T-DATACORE files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session, with the
+EDGE DOCTRINE section per this routine's own brief. `git status`: clean,
+branch already at origin/main head (ce309f4, v1.0.890, PR #1056) —
+no reset needed. `research/experiments.md` tail (~300 lines),
+`research/open_questions.md` KNOWN BROKEN section (items #41/#42/#43 in
+full), `research/wishlist.md` tail (both active-incident entries) read
+before touching anything. Loop-health ratio, last 10 tagged entries before
+this one (2026-09-10 fifth session through 2026-09-11 seventh session):
+7x [PIPELINE] (2 of which are [PRODUCT]-counts-as-PIPELINE), 1x [REPAIR] —
+well under the 7+ REPAIR thrash threshold, no meta-problem to escalate.
+
+LIVE HEALTH CHECK (first action, per this routine's own brief and per
+CLAUDE.md's Repair Mandate — check KNOWN BROKEN before choosing any other
+work): `curl -D- https://voltradeai.com/api/health` and `/` both →
+`HTTP/2 502`, body `{"status":"error","code":502,"message":"Application
+failed to respond"}`, headers `server: railway-hikari`,
+`x-railway-fallback: true`, `x-railway-edge: iad1` — the identical
+edge-fallback signature every session has observed since 2026-09-10T20:18Z,
+confirmed at 2026-09-12T02:34-02:35Z. This is not a new incident: it is
+the SAME sustained outage, now unbroken across three independent sessions'
+checks spanning ~30 hours (2026-09-10 20:18Z onset, 2026-09-11 20:18Z
+re-check per the seventh session's own entry, this session's 2026-09-12
+02:35Z re-check) — well past both the wall-clock (24h) and market-hours
+(2h) LIVENESS ALARM thresholds in CLAUDE.md.
+
+THIS SESSION'S OWN CONTRIBUTION (not a re-derivation): checked whether
+anything NEW could explain continued non-recovery, since the prior
+session only ruled out that UTC day's own merges. `git log --since
+"2026-09-10 20:00" -- server/ bot_engine.py voltrade_daemon.py
+system_config.py risk_kill_switch.py`: exactly one commit in the entire
+~30h window, #1052 (c3106bd, 2026-09-11 09:32 -0400) — `git show --stat`
+confirms it touches only `datacore/powerplants/us_power_plants.json` +
+`scripts/eia860_add_missing_plants.py`/`build_powerplants.py` (a registry
+data rebuild), zero server runtime path. This rules out a newer regression
+as an alternative or compounding cause with actual evidence, not
+assumption — the outage remains the same unresolved Node-process memory
+leak KNOWN BROKEN #41 already describes, not something new layered on
+top.
+
+NO THIRD PATCH ATTEMPTED, per RECURRENCE ESCALATES (already triggered
+2026-09-08) and because this session has zero live diagnostic access — the
+app being down means `/api/diag/*` is down too, so there is no new
+evidence to act on even if a patch were otherwise warranted. The two
+already-shipped, already-confirmed-live fixes (port-dwell fold cooldown,
+routes.ts shadowstats/portdwell cooldown) remain the correct scope of what
+this sandbox could verify; both are known-insufficient, and a guess at a
+third cause without new evidence would repeat the exact mistake that rule
+exists to prevent.
+
+HUMAN NOTIFIED (PushNotification, this session): production down ~30h,
+needs a manual Railway restart; while there, run the already-merged
+`VOLTRADE_DISABLE_TIER2`/`VOLTRADE_DISABLE_TIER3` bisection during market
+hours to localize the leak, then unset both. Also surfaced, since it's
+directly downstream of the same incident window: trading has been halted
+since 2026-09-10T03:12Z by the JS-side -10% drawdown kill switch
+(no auto-resume by design) on an equity reading a prior session's
+independent published-market-close P&L reconstruction (`scripts/
+reconstruct_position_pnl.py`, -$414.82 actual vs. -$12,059.74 reported)
+leans strongly suggests was a data anomaly, not a real loss — resuming is
+still the human's call alone, made with a sourced answer rather than
+circumstantial evidence. This is genuinely NEW information relative to
+the two prior on-record notifications (2026-09-10 initial outage,
+2026-09-10 predicted-kill-switch-trip): neither had visibly resulted in a
+restart by this check, so a fresh notification is warranted per the
+2026-09-11 session's own stated re-notify condition ("the moment anything
+changes"), not a restatement of an already-delivered fact.
+
+WHAT SHIPPED: one dated UPDATE appended to KNOWN BROKEN #41 in
+`research/open_questions.md` (this session's confirmation + the
+newer-merge rule-out, so a future session doesn't re-derive either) and
+this experiments.md entry. No code, no version bump — nothing else was
+safe or possible to change given zero live diagnostic access.
+
+GATES: N/A — no code touched. MONETIZATION TRIPWIRE: not touched.
+BACKTEST: N/A.
+
+NEXT: unchanged from every prior update on this item — a human Railway
+dashboard restart is the only path back to a live site; the bisection
+env-var toggle (already merged, off by default) is the fastest path to
+localizing the leak once the service is back up; item #42's
+real-loss-vs-data-glitch question and the resume decision remain the
+human's alone.
+
+STARVED: no — the site being down does not block non-trading-path
+research (T-DATACORE/docs work), so this session falls through to a
+bounded [RESEARCH] fall-through item per SESSION BUDGET rather than
+ending here; see the following separate, independently-tagged entry.
+
 ## 2026-09-10 (scheduled-routine session, at least the seventh session this
 UTC day) [REPAIR] — SHARED-only (research/open_questions.md,
 research/wishlist.md, research/experiments.md): production is FULLY DOWN
