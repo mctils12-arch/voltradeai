@@ -3,6 +3,179 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-12 (scheduled-routine session, third session this UTC day) [REPAIR] — T-BOT-minimal (test_options_fixes.py only) + SHARED-minimal (ci/counter_baseline.txt, research/*): a currently-failing test found via this session's own baseline run — a hardcoded near-term OCC expiry literal had drifted into `options_manager.py`'s real DTE_CRITICAL window and started tripping a live exit branch the test never intended to exercise — fixed at the root (dynamic future-dated expiry), no version bump (test-only, no runtime behavior changed)
+
+TERRITORY: T-BOT-minimal, one file (`test_options_fixes.py`) + SHARED-minimal
+bookkeeping (`ci/counter_baseline.txt`, `research/experiments.md`,
+`research/open_questions.md`). No production/runtime code path touched —
+`options_manager.py` itself is unchanged.
+
+SESSION-START CHECKS (per this routine's own brief): CLAUDE.md read in full.
+`git fetch origin main` + `git log`: this branch already at `origin/main`
+tip (4cdf70e, v1.0.891, PR #1058) — no reset needed. `research/experiments.md`
+(top ~300 lines), `research/open_questions.md` (KNOWN BROKEN #41/#42/#43 in
+full), `research/wishlist.md` (active-incident entries) read before touching
+anything. Loop-health ratio: `python3 scripts/research_state_check.py`
+reports thrash 1/10 REPAIR in the last 10 tagged sessions — well under the
+7+ trigger, no meta-problem to escalate. `ladder_readiness_check.py`: 0/3
+gated roots ready (cftc_cot/sec_8k/fleet_utilization all still waiting on
+elapsed-time triggers). `data_stream_registry_check.py --unbuilt`: 9/9
+unbuilt streams declined or blocked on a registration this sandbox can't
+self-serve.
+
+LIVE HEALTH CHECK (first action, per the Repair Mandate — check KNOWN
+BROKEN before choosing any other work): `curl -v https://voltradeai.com/api/health`
+→ still `HTTP/2 502`, identical `railway-hikari`/`x-railway-fallback: true`
+signature every session has observed since 2026-09-10T20:18Z, now confirmed
+at 2026-09-12T11:05:13Z — **~38.8 wall-clock hours** of continuous outage,
+well past both LIVENESS ALARM thresholds. Re-ruled-out a newer merge as an
+alternative cause with fresh evidence (`git log --since "2026-09-12 02:35"`
+on the trading-path files returns zero commits since the immediately
+preceding session's own check). No third patch attempted per RECURRENCE
+ESCALATES (triggered 2026-09-08) and zero live diagnostic access. Human
+re-notified directly (PushNotification, this session) — full account in
+`open_questions.md`'s KNOWN BROKEN #41 dated update above. The outage does
+not block non-trading-path repair/research work, so this session fell
+through to the next SESSION BUDGET tier rather than ending here.
+
+PRIMARY ACTION (this session's own finding, not a queued item): before
+picking a fall-through research task, ran the full test suite as a baseline
+per READ BEFORE WRITE discipline (`python3 -m pytest -q`) and found ONE
+genuine failure: `test_options_fixes.py::TestOptionsEntryFeedbackDeferredToConfirmedFill::test_confirmed_live_position_resolves_pending_feedback_with_real_fill_data`
+— `mock_track_fill.assert_called_once()` failed with `Called 2 times`
+(one real entry-resolution call, plus an unexpected exit call with
+`exit_reason: 'dte_critical'`). Per SESSION BUDGET's own top primary-action
+priority ("fix a bug ... first"), root-caused rather than dismissed as a
+flake.
+
+ROOT CAUSE (traced, not assumed): this test's OCC symbol was hardcoded as
+the literal `"XYZ260918P00050000"` (expiry 2026-09-18). `options_manager.py`'s
+`_days_to_expiry()` computes `(expiry - now_et).days` and
+`DTE_CRITICAL = 5` force-closes any position at or under that threshold
+(`options_manager.py:1069`). As of this session's wall-clock date
+(2026-09-12, ET), that hardcoded expiry now sits exactly 5 calendar days
+out — `manage_options_positions()`'s own exit-check logic (working exactly
+as designed) now fires `dte_critical` on the SAME call that resolves the
+pending entry feedback, so the test's "fires exactly once" assertion breaks
+— not because the entry-feedback-deferral fix (KNOWN BROKEN #12(c),
+2026-09-08) regressed, but because the test's fixture silently became a
+live near-term contract as calendar time passed. This is a test
+TIME BOMB, not a production bug: every OTHER test in this same file
+already avoids the trap by computing its OCC expiry dynamically —
+`(datetime.now() + timedelta(days=N)).strftime("%y%m%d")` — a pattern used
+at ~15 call sites across the file (verified via `grep`); this one class
+(`TestOptionsEntryFeedbackDeferredToConfirmedFill`, added 2026-09-08) was
+the one outlier that hardcoded a literal instead, and the literal it chose
+happened to be exactly 4 days from its own write date, giving it almost no
+runway before rotting.
+
+FIX: added `_far_dated_occ(root, right, strike_thousandths, days_out=180)`
+(new small helper, top of `test_options_fixes.py`, matching the file's own
+already-established dynamic-date convention) and replaced the 3 hardcoded
+`"XYZ260918P00050000"` literals in the 3 tests that actually exercise
+`manage_options_positions()`'s live exit-check path with it (180-day
+horizon — comfortably clear of `DTE_CRITICAL=5` for roughly six months at
+a time, not just today). Left `test_multi_leg_entry_never_stashes_pending_feedback`'s
+own hardcoded `"AAPL260418C00190000"` untouched — it never calls
+`manage_options_positions()` (only `register_options_entry()` + a state
+dict check), so it cannot hit the DTE-exit code path regardless of the
+literal date; changing it would be scope creep with no test-behavior
+benefit.
+
+VERIFIED A/B: re-ran the affected test with `git stash` on this file —
+fails on the pre-fix code exactly as this session found it (`Called 2
+times`); passes clean post-fix (`5 passed` for the whole
+`TestOptionsEntryFeedbackDeferredToConfirmedFill` class). Confirmed the fix
+addresses the actual mechanism, not just this one date: with `days_out=180`
+the test now expires in 2027-03, giving ~175 days of runway before this
+exact rot could recur (vs. the ~4 days the original literal actually had).
+
+NOT WIDENED (documented, not fixed): a `grep` across the tree for other
+hardcoded near-term (2026-09/2026-10) OCC-style literals found 3 more
+files — `test_options_iv_field.py`, `test_options_convexity_state.py`,
+`test_submit_options_order_slot_tracking.py` — all still using the same
+`"...260918..."`-family literal. None of them currently fail (confirmed:
+the full suite is 1923 passed / 2 skipped / 0 failed after this fix, no
+other red), because none of them call `manage_options_positions()`'s real
+exit-check logic against the literal — they use the OCC string purely as
+an opaque parsing/state-key identifier. Filed as NEXT rather than bundled
+into this PR (one logical change; these aren't broken and touching them
+now would be unforced scope creep) — but flagged explicitly so a future
+session doesn't have to rediscover the pattern from scratch if any of them
+starts exercising real exit logic later.
+
+MEASUREMENT INTEGRITY note: this is a T-BOT test-suite fix, not a
+measurement-code change (no backtest/PnL/counterfactual-logger file
+touched), so the MEASUREMENT INTEGRITY section's separate-PR/stated-bias-
+direction requirement does not apply — noted for completeness since the
+affected test does sit near the ML-training-data feedback path (KNOWN
+BROKEN #12(c)/#3's territory) and a reviewer might otherwise wonder.
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 —
+no scoring/sizing/threshold/strategy code touched, this is a test-fixture
+fix restoring an existing test's intended behavior. VERSION: no bump —
+`test_options_fixes.py` is not part of any runtime/live-trading code path,
+so there is no `code_version`-attributable behavior change to separate
+(same reasoning this file has applied to every prior docs-only PR, e.g.
+the 2026-09-10 `#1044` precedent, extended here to a test-only PR for the
+same underlying reason: PROMOTION RULE 4 exists for trade-feedback
+attribution, and nothing in trade_feedback changed).
+
+GATES: `python3 -m pytest -q test_options_fixes.py -k TestOptionsEntryFeedbackDeferredToConfirmedFill`:
+5/5 pass (was 4/5 before this fix). Full suite `python3 -m pytest -q`:
+1923 passed, 2 skipped, 54 subtests, 0 failed (baseline before this fix:
+1 failed/1922 passed — this fix is the only diff between the two runs).
+`bash scripts/counter_ratchet.sh`: found `tests_run_in_ci`/`tests_gating_merge`
+(445->446) and `assertions` (14005->14041) already IMPROVED at a clean
+`git stash` baseline (i.e. drift already present on `origin/main` before
+this session touched anything — a prior PR's pin update was missed);
+re-pinned all three in `ci/counter_baseline.txt` in this same PR per the
+script's own instruction, since it was noticed and is cheap to fix, not
+because this PR caused the drift. `bash scripts/tsc_ratchet.sh`: reports
+11->3 (TS2304 still 0) — NOT re-pinned, zero `.ts`/`.tsx` files touched
+this session (same reasoning as every prior session that touched none).
+`bash scripts/gated_tests.sh`: python sub-gate PASSED clean; the
+server/client TS sub-gates report the SAME pre-existing failures the
+2026-09-12 Hurst-probe session already flagged as sandbox/environment
+artifacts unrelated to any diff (`aircraftTiling`, `apiKeyAccounts`,
+`cdcCancer`, `compression`, `gdeltEvents`, `owmTiles`, `seafloorTiles`,
+`securityMiddleware` server-side, plus several client-side WebGL/network-
+dependent files) — this session touched zero `.ts`/`.tsx` files, so none
+of these can be a regression from this diff; not investigated further as
+out-of-territory (T-CLIENT/T-BOT-TS) for a T-BOT-Python-minimal PR, flagged
+here rather than silently ignored. `npm run build`/`npm run visual`: not
+run, zero `client/` files touched.
+
+NEXT: (1) the 3 other files with hardcoded near-term OCC literals, above —
+not currently broken, worth a quick look if any of them ever grows a
+DTE-exit-exercising test. (2) the pre-existing TS suite failures noted
+above are worth a future T-BOT/T-CLIENT session's triage (several look
+network/fetch-dependent, plausible as fresh-sandbox artifacts rather than
+real regressions, but not confirmed either way this session). (3) the
+Hurst-probe session's own queued item (whether `destrided_spearman()`'s
+overlapping-window finding applies to `midas_gate2.py`/`usaspending_gate2.py`)
+was spot-checked this session while investigating adjacent territory:
+both are cross-sectional/event-triggered designs (one row per quarter per
+sampled ticker for MIDAS; one row per genuine contract-award event for
+USAspending), not the continuous per-trading-day design that created
+Hurst's overlapping-window artifact — real evidence, not assumption,
+closes that specific concern for the two probes it named. A broader sweep
+across all ~15 gate2-style probes was NOT attempted (out of scope for one
+PR) but a quick check of `eia930_gate2.py` (weekly entry cadence, by
+design) and `grid_stress_gate2_v3.py` (monthly top-decile event selection,
+by design) found the same pattern — this codebase's gate-2 probes
+generally already sample at a cadence wide enough to avoid the overlap
+trap; Hurst's continuous-daily design was the outlier, not the norm.
+
+STARVED: no — found and root-caused a real, currently-failing test via
+this session's own baseline run (not a queued item, not deferred), fixed
+the actual generator of the break (a hardcoded date drifting into a live
+threshold) rather than the single symptom, verified A/B against the
+pre-fix code, and used the spare capacity to close out a real open
+question from the immediately preceding session's own NEXT list with
+evidence rather than leaving it as an assumption for a future session to
+re-derive.
+
 ## 2026-09-12 (scheduled-routine session, second entry this session) [RESEARCH]
 — fall-through after this session's [REPAIR] primary action (see the
 entry immediately below): FOREIGN-FIELD IMPORT (axis c), hydrology's
