@@ -23,6 +23,21 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _far_dated_occ(root: str, right: str, strike_thousandths: int, days_out: int = 180) -> str:
+    """Builds an OCC symbol with an expiry `days_out` days from whenever the
+    test actually runs (default 180 — comfortably past options_manager.py's
+    DTE_CRITICAL=5 forever, not just today). A hardcoded literal expiry
+    (e.g. "260918") silently becomes a live near-term contract as wall-clock
+    time passes, so any test that exercises manage_options_positions()'s
+    real DTE-exit check against a hardcoded date is a time bomb — it stops
+    testing what its name says and starts asserting on whatever exit branch
+    the calendar happens to trigger that day (found 2026-09-12: this exact
+    class's confirmed-fill test started tripping "dte_critical" once today's
+    date closed within 5 days of the literal 2026-09-18 it hardcoded)."""
+    exp = (datetime.now() + timedelta(days=days_out)).strftime("%y%m%d")
+    return f"{root}{exp}{right}{strike_thousandths:08d}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEST 1: _optimized_limit_price
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1444,8 +1459,9 @@ class TestOptionsEntryFeedbackDeferredToConfirmedFill(unittest.TestCase):
         """Submission time is not fill confirmation — no track_fill yet."""
         from options_manager import register_options_entry
 
+        occ = _far_dated_occ("XYZ", "P", 50000)
         register_options_entry(
-            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            occ, 2.00, "sell", "sell_cash_secured_put",
             delta=-0.25, qty=1, ticker="XYZ",
         )
 
@@ -1457,13 +1473,14 @@ class TestOptionsEntryFeedbackDeferredToConfirmedFill(unittest.TestCase):
         (a fresh process, even) can resolve it."""
         from options_manager import register_options_entry, _load_options_state
 
+        occ = _far_dated_occ("XYZ", "P", 50000)
         register_options_entry(
-            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            occ, 2.00, "sell", "sell_cash_secured_put",
             delta=-0.25, qty=1, ticker="XYZ",
         )
 
         state = _load_options_state()
-        pending = state["XYZ260918P00050000"]["pending_entry_feedback"]
+        pending = state[occ]["pending_entry_feedback"]
         self.assertEqual(pending["ticker"], "XYZ")
         self.assertEqual(pending["side"], "sell")
         self.assertIn("code_version", pending)
@@ -1495,7 +1512,7 @@ class TestOptionsEntryFeedbackDeferredToConfirmedFill(unittest.TestCase):
         still-open position."""
         from options_manager import register_options_entry, manage_options_positions
 
-        occ = "XYZ260918P00050000"
+        occ = _far_dated_occ("XYZ", "P", 50000)
         register_options_entry(
             occ, 2.00, "sell", "sell_cash_secured_put",
             delta=-0.25, qty=1, ticker="XYZ",
@@ -1539,7 +1556,7 @@ class TestOptionsEntryFeedbackDeferredToConfirmedFill(unittest.TestCase):
         from options_manager import register_options_entry, manage_options_positions
 
         register_options_entry(
-            "XYZ260918P00050000", 2.00, "sell", "sell_cash_secured_put",
+            _far_dated_occ("XYZ", "P", 50000), 2.00, "sell", "sell_cash_secured_put",
             delta=-0.25, qty=1, ticker="XYZ",
         )
 

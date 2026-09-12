@@ -6266,6 +6266,36 @@
     live site; the bisection env-var toggle remains the fastest path to
     localizing the leak once the service is back up.
 
+    UPDATE 2026-09-12 (scheduled-routine session, second same-date check,
+    [REPAIR]) — re-confirmed live via `curl -v` against
+    `https://voltradeai.com/api/health`: still `HTTP/2 502`, identical
+    `{"status":"error","code":502,"message":"Application failed to
+    respond"}` body and `server: railway-hikari` / `x-railway-fallback:
+    true` / `x-railway-edge: iad1` signature, at 2026-09-12T11:05:13Z —
+    the same sustained outage has now run continuously for **~38.8
+    wall-clock hours** since the 2026-09-10T20:18Z onset (confirmed
+    unbroken across four independent sessions' checks: 2026-09-10 20:18Z,
+    2026-09-11 20:18Z, 2026-09-12 02:35Z, this session's 11:05Z). Ruled
+    out a newer cause again with fresh evidence, not by assumption:
+    `git fetch origin main` shows this branch already at `origin/main`
+    tip (4cdf70e, v1.0.891, PR #1058, the immediately preceding session's
+    own merge) and `git log --since "2026-09-12 02:35" -- server/
+    bot_engine.py voltrade_daemon.py system_config.py
+    risk_kill_switch.py` returns zero commits — nothing has merged to any
+    trading-path file since the prior check, so this remains the same
+    unresolved incident, not a new regression stacked on top. No third
+    patch attempted (RECURRENCE ESCALATES already triggered 2026-09-08;
+    zero live diagnostic access while the app itself is down). Human
+    re-notified directly (PushNotification, this session): this is
+    materially new information relative to the four prior on-record
+    notifications (2026-09-10 x2, 2026-09-11, 2026-09-12 02:35Z) — none
+    had visibly resulted in a restart by this check, and the outage has
+    now crossed the 24-hour wall-clock LIVENESS ALARM threshold by a
+    full extra day with no sign of recovery. NEXT: unchanged — a human
+    Railway dashboard restart remains the only path back to a live site;
+    the bisection env-var toggle (merged, off by default) remains the
+    fastest way to localize the leak once the service is back up.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
