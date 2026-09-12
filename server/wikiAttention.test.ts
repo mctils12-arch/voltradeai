@@ -11,6 +11,7 @@ import {
   parsePageviews, fetchAttention, archiveAttention, gzipOldAttentionDays,
   pickLatestCompleteDay, lastAttentionCycle, ARTICLES, REQUEST_SPACING_MS,
   listArchivedDates, readArchivedDay, lookupTickerHistory, readAggregateHistory,
+  refreshAttention, latestAttention, _resetAttentionForTests,
 } from "./wikiAttention";
 
 const ITEMS = (article: string, days: Array<[string, number]>) => ({
@@ -149,4 +150,43 @@ test("readAggregateHistory: seed-total views + ticker count per archived day, as
   assert.equal(trend[1].tickers, 1);
   assert.equal(trend[1].total_views, 600);
   assert.deepEqual(readAggregateHistory(5, path.join(base, "nonexistent")), [], "missing dir = empty, not a throw");
+});
+
+test("refreshAttention: cold cache backfills from disk when the live fetch cycle fails — the same class of live finding githubOrgActivity.ts's v1.0.881 fix closed for a sibling archiver (a redeploy/transient-outage must not report warming_up over real on-disk history)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "wiki-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetAttentionForTests();
+  try {
+    // archiveBaseDir() nests an extra "datacore_archive" segment under
+    // DATA_DIR — mirrored here so the file lands where refreshAttention's
+    // own baseDir-less read path (attDir(undefined) -> archiveBaseDir())
+    // will actually look for it.
+    const dir = path.join(base, "datacore_archive", "wikiattention");
+    fs.mkdirSync(dir, { recursive: true });
+    const tickers = Object.keys(ARTICLES);
+    const majority = tickers.slice(0, Math.ceil(tickers.length / 2) + 1);
+    const row = (date: string, ticker: string, views: number) =>
+      JSON.stringify({ date, ticker, article: ARTICLES[ticker], views, rt: date });
+    // A genuinely complete archived day sitting on disk from before the
+    // simulated restart — real history that must survive the backfill.
+    fs.writeFileSync(
+      path.join(dir, "2026-05-20.jsonl"),
+      majority.map((t, i) => row("2026-05-20", t, 100 + i)).join("\n") + "\n",
+    );
+    assert.equal(latestAttention(), null, "cache must still be cold going into this cycle");
+    // Live fetch fails for every article this cycle (network down) —
+    // fetchAttention still returns [] (every request errors, per the
+    // existing "cycle stats capture the failure mode" test), it never
+    // throws, so refreshAttention must fall through to the disk backfill.
+    const failing = async () => { throw new Error("network unreachable"); };
+    await refreshAttention(failing as any, Date.parse("2026-05-22T00:00:00Z"), 0);
+    const cached = latestAttention();
+    assert.ok(cached, "cache must be populated, not left null, despite the live cycle producing nothing");
+    assert.equal(cached!.day.date, "2026-05-20", "backfilled from the newest complete archived day");
+    assert.equal(cached!.day.tickers.length, majority.length);
+  } finally {
+    _resetAttentionForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });

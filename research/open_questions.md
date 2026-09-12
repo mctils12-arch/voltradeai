@@ -19128,3 +19128,27 @@ failure mode (an optimistic p-value from overlapping daily windows) was
 caught and fixed with a reusable safeguard rather than reported naively —
 this is the RIGOR the six-import track record above says this probe
 family still needs, not a seventh repeat of the same mistake.
+
+## 2026-09-12 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — the "cold in-memory cache, no on-disk backfill" systemic audit (github_org_engineering_momentum's 2026-09-10 NEXT(2)): 3 more sibling archivers fixed, 6 others audited and correctly left alone, routes.ts's larger inline-handler audit still open
+
+Full account in experiments.md's matching dated entry — this is the
+pointer, not a restatement, per this file's own established convention.
+One-line disposition per module for anyone scanning this file only:
+`wikiAttention.ts`/`satellites.ts`/`euLoad.ts` FIXED (disk-backfill added,
+tested, A/B-verified against pre-fix code). `streamsInventory.ts`/
+`entityGraph.ts`/`gridStress.ts` NOT THE SAME BUG (disk-derived cache, not
+live-fetch-fed — no fix needed). `finraShortVolume.ts` ALREADY CORRECT
+(pre-existing precedent this session generalized from). `nwsAlerts.ts`
+DELIBERATELY NOT FIXED (backfilling a possibly-since-expired alert as
+"active" is a worse honesty failure than warming_up — needs its own
+weighed decision, not a mechanical copy). `airQuality.ts` SMALLER RESIDUAL
+GAP, not attempted (its persistent per-cycle Map already self-heals most
+of the risk). STILL OPEN: routes.ts's own ~70 inline `warming_up`
+occurrences (the ORIGINAL scope of the dozen-route audit) — each would
+need its own per-root read of whether a disk archive exists and whether
+backfilling is the honest choice (per the nwsAlerts reasoning above), not
+a mechanical sweep; filed as its own future session's work, not started
+here. KNOWN BROKEN #41 (production OOM-crash-loop outage) re-checked live
+at session start: still down, same signature, no change since the
+immediately preceding session's 11:05Z read — no duplicate notification
+sent per that session's own "only on change" condition.

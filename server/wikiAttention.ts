@@ -225,6 +225,19 @@ export function latestAttention() {
   return cache;
 }
 
+/** Test-only: this module's dedup/cache/cycle state is module-level
+ *  singleton (same class of problem as githubOrgActivity.ts's own
+ *  `_resetGithubActivityForTests`), so a test exercising the cold-cache
+ *  backfill path must be able to reset it rather than rely on file
+ *  execution order to find `cache` still null. */
+export function _resetAttentionForTests(): void {
+  archivedKeys.clear();
+  seeded = false;
+  cache = null;
+  lastCycle = null;
+  polling = false;
+}
+
 /** Latest complete day = newest date present for a MAJORITY of the seed
  *  (an in-progress publish day with 2 of 23 articles would otherwise
  *  masquerade as the panel). */
@@ -323,6 +336,23 @@ export function readAggregateHistory(days: number, baseDir?: string): AttentionT
   return out;
 }
 
+/** Reconstructs the same `AttentionDay` `pickLatestCompleteDay` would pick
+ *  live, from whatever is already archived on disk — used to backfill a
+ *  cold cache when a boot's live fetch cycle fails or hasn't landed a
+ *  complete day yet. Freshness Law: render last-known cached state
+ *  immediately, swap when live data lands (same pattern as
+ *  githubOrgActivity.ts's `refreshGithubActivityCache` cold-cache
+ *  backfill, v1.0.881 — that fix closed the identical "in-memory cache
+ *  stays empty across a redeploy despite real on-disk history" bug for a
+ *  sibling archiver; this is the systemic-audit item that fix's own NEXT
+ *  named, applied here). */
+function backfillFromArchive(baseDir?: string): AttentionDay | null {
+  const dates = listArchivedDates(baseDir, 20);
+  const obs: AttentionObs[] = [];
+  for (const iso of dates) obs.push(...readArchivedDay(iso, baseDir));
+  return pickLatestCompleteDay(obs);
+}
+
 export async function refreshAttention(fetchImpl: FetchFn = fetch as any, nowMs?: number,
                                        spacingMs?: number): Promise<void> {
   try {
@@ -330,6 +360,10 @@ export async function refreshAttention(fetchImpl: FetchFn = fetch as any, nowMs?
     if (obs.length) {
       archiveAttention(obs, undefined, nowMs);
       const day = pickLatestCompleteDay(obs);
+      if (day) cache = { at: Date.now(), day };
+    }
+    if (!cache) {
+      const day = backfillFromArchive();
       if (day) cache = { at: Date.now(), day };
     }
     gzipOldAttentionDays(undefined, nowMs);

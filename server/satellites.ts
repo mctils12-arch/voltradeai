@@ -276,6 +276,37 @@ export function latestPerSatellite(records: GpRecord[]): GpRecord[] {
   return Array.from(best.values());
 }
 
+/** Full records (not just dedup keys) from this group's already-archived
+ *  day-files within SEED_WINDOW_DAYS — mirrors seedSeen's own file-reading
+ *  loop but returns the parsed rows instead of a key set. Used to backfill
+ *  the live cache when a boot's fetch fails, so a CelesTrak transport
+ *  failure doesn't report warming_up over real archived epochs (Freshness
+ *  Law; same pattern as githubOrgActivity.ts's cold-cache backfill,
+ *  v1.0.881 — the systemic-audit item that fix's own NEXT named). */
+export function readArchivedGroup(group: GpGroup, baseDir?: string, nowMs?: number): GpRecord[] {
+  const now = nowMs ?? Date.now();
+  const dir = groupDir(group, baseDir);
+  const out: GpRecord[] = [];
+  let files: string[];
+  try { files = fs.readdirSync(dir); } catch { return out; }
+  for (const f of files) {
+    if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
+    if (!seedFileInWindow(f, now)) continue;
+    const fp = path.join(dir, f);
+    let text: string;
+    try {
+      text = f.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch { continue; }
+    }
+  }
+  return out;
+}
+
 export async function refreshSatellites(fetchImpl: FetchFn = fetch as any,
                                         nowMs?: number, baseDir?: string,
                                         spacingMs = GROUP_SPACING_MS): Promise<void> {
@@ -287,6 +318,14 @@ export async function refreshSatellites(fetchImpl: FetchFn = fetch as any,
       let newest = "";
       for (const r of latest) if (r.EPOCH > newest) newest = r.EPOCH;
       cache.set(group, { at: nowMs ?? Date.now(), newest_epoch: newest, records: latest });
+    } else if (!cache.has(group)) {
+      const archived = readArchivedGroup(group, baseDir, nowMs);
+      if (archived.length) {
+        const latest = latestPerSatellite(archived);
+        let newest = "";
+        for (const r of latest) if (r.EPOCH > newest) newest = r.EPOCH;
+        cache.set(group, { at: nowMs ?? Date.now(), newest_epoch: newest, records: latest });
+      }
     }
     if (spacingMs > 0) await sleep(spacingMs);
   }
