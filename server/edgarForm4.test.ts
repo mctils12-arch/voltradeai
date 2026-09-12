@@ -313,7 +313,10 @@ test("pickOwnershipXmlName returns null when a filing has no XML document", () =
 import fs2 from "node:fs";
 import os2 from "node:os";
 import path2 from "node:path";
-import { archiveFilings, readFilingHistory, gzipOldFilingDays } from "./edgarForm4";
+import {
+  archiveFilings, readFilingHistory, gzipOldFilingDays,
+  refreshForm4Cache, latestForm4Filings, _resetForm4CacheForTests,
+} from "./edgarForm4";
 
 const mkFiling = (acc: string, filedAt: string): any => ({
   accession: acc, filedAt, cik: "1", indexUrl: `https://www.sec.gov/x/${acc}/`,
@@ -341,6 +344,37 @@ test("gzipped old days remain readable through readFilingHistory", () => {
   const hist = readFilingHistory(7, base, t0 + 3 * 86400_000);
   assert.equal(hist.length, 1);
   assert.equal(hist[0].accession, "B-1");
+});
+
+test("refreshForm4Cache: cold cache backfills from the on-disk filings archive when the live poll throws — the same class of live finding githubOrgActivity.ts's v1.0.881 fix closed for a sibling archiver (a redeploy/SEC-EDGAR-outage must not report warming_up over real archived filings, and must not silently cache an empty list either)", async () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-form4-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetForm4CacheForTests();
+  try {
+    // filingsDir(undefined) resolves through archiveBaseDir() ->
+    // DATA_DIR/datacore_archive/filings — mirrored here so the archived
+    // day lands where refreshForm4Cache's own baseDir-less backfill path
+    // will actually look for it. Dated "today" (real wall clock) since
+    // refreshForm4Cache/backfillForm4FromArchive take no injectable nowMs
+    // and backfillForm4FromArchive's default 5-day lookback is measured
+    // from Date.now().
+    const dir = path2.join(base, "datacore_archive", "filings");
+    fs2.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs2.writeFileSync(path2.join(dir, `${today}.jsonl`), JSON.stringify(mkFiling("COLD-1", today)) + "\n");
+
+    assert.equal(latestForm4Filings(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("SEC EDGAR unreachable"); };
+    await refreshForm4Cache(25, failing as any);
+    const cached = latestForm4Filings();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-1", "backfilled from the archived filing, not fabricated");
+  } finally {
+    _resetForm4CacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
 
 test("history route + poll-loop archiving are wired", () => {

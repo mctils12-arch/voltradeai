@@ -364,14 +364,39 @@ export function latestForm4Filings(): { at: number; filings: Form4Filing[] } | n
   return cache;
 }
 
-export async function refreshForm4Cache(limit = 25): Promise<void> {
+/** Reconstructs a cache-shaped filings list from the on-disk filings
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (SEC EDGAR transient outage) or comes back with zero filings before any
+ *  cache exists. `readFilingHistory` already returns newest-first, deduped
+ *  rows, so this is a thin, named wrapper reusing that existing pure
+ *  aggregation rather than duplicating it. Freshness Law: render
+ *  last-known cached state immediately, swap when live data lands — same
+ *  pattern as githubOrgActivity.ts's `refreshGithubActivityCache` cold-cache
+ *  backfill (v1.0.881) and the wikiAttention/satellites/euLoad generalization
+ *  of it (v1.0.892); this closes that fix's own NEXT(3) item for the
+ *  `/api/data/insider` + `/api/v1/data/insider` root specifically, out of
+ *  routes.ts's larger ~70-occurrence inline-handler audit. */
+export function backfillForm4FromArchive(baseDir?: string, nowMs?: number, days = 5, limit = 25): Form4Filing[] {
+  return readFilingHistory(days, baseDir, nowMs, limit);
+}
+
+export async function refreshForm4Cache(limit = 25, fetchImpl: FetchFn = fetch as any): Promise<void> {
   try {
-    const filings = await fetchLatestForm4Filings(limit);
-    if (filings.length > 0 || !cache) cache = { at: Date.now(), filings };
+    const filings = await fetchLatestForm4Filings(limit, fetchImpl);
+    if (filings.length > 0) {
+      cache = { at: Date.now(), filings };
+    } else if (!cache) {
+      const archived = backfillForm4FromArchive();
+      if (archived.length) cache = { at: Date.now(), filings: archived };
+    }
     try { archiveFilings(filings); } catch {}
     try { gzipOldFilingDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgarForm4 refresh:", e?.message || e);
+    if (!cache) {
+      const archived = backfillForm4FromArchive();
+      if (archived.length) cache = { at: Date.now(), filings: archived };
+    }
   }
 }
 
@@ -382,4 +407,14 @@ export function bootForm4Poll(intervalMs = 15 * 60_000): void {
   polling = true;
   refreshForm4Cache();
   setInterval(() => { refreshForm4Cache(); }, intervalMs).unref?.();
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem `_resetGithubActivityForTests`/`_resetAttentionForTests`/
+ *  `_resetEuLoadForTests` solve for their own modules), so a test exercising
+ *  the cold-cache backfill path must be able to force `cache` back to null
+ *  rather than rely on file execution order. */
+export function _resetForm4CacheForTests(): void {
+  cache = null;
+  polling = false;
 }
