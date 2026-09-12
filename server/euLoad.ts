@@ -301,6 +301,72 @@ export function latestLoad() {
   return cache;
 }
 
+/** Test-only: this module's dedup/cache state is module-level singleton
+ *  (same class of problem as githubOrgActivity.ts's own
+ *  `_resetGithubActivityForTests`), so a test exercising the cold-cache
+ *  backfill path must be able to reset it rather than rely on file
+ *  execution order to find `cache` still null. */
+export function _resetEuLoadForTests(): void {
+  seenObs.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Per-zone latest/window stats from a set of observations — pure, so the
+ *  live fetch path and the disk-backfill path (below) compute the exact
+ *  same shape from whichever source produced rows this cycle. */
+export function computeZoneStats(obs: LoadObs[]): ZoneStat[] {
+  const byZone = new Map<string, LoadObs[]>();
+  for (const o of obs) {
+    if (!byZone.has(o.zone)) byZone.set(o.zone, []);
+    byZone.get(o.zone)!.push(o);
+  }
+  const stats: ZoneStat[] = [];
+  byZone.forEach((rows, zone) => {
+    const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
+    const vals = rows.map((r) => r.mw).filter((v): v is number => v != null);
+    stats.push({ zone, latest_ts: newest.ts, latest_mw: newest.mw,
+                 resolution: newest.res, points_in_window: rows.length,
+                 window_min_mw: vals.length ? Math.min(...vals) : null,
+                 window_max_mw: vals.length ? Math.max(...vals) : null,
+                 window_mean_mw: vals.length
+                   ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+                   : null });
+  });
+  stats.sort((a, b) => a.zone.localeCompare(b.zone));
+  return stats;
+}
+
+/** Raw observations from this stream's archived day-files over the last
+ *  `lookbackDays` calendar days (plain or gz) — used to backfill the live
+ *  cache when a boot's live fetch produces nothing, so a transport failure
+ *  doesn't report warming_up over real archived history (Freshness Law;
+ *  same pattern as githubOrgActivity.ts's cold-cache backfill, v1.0.881 —
+ *  the systemic-audit item that fix's own NEXT named). Kept separate from
+ *  seedSeen: that only tracks dedup keys, this returns full rows. */
+export function readRecentArchivedLoad(baseDir?: string, nowMs?: number, lookbackDays = 5): LoadObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = loadDir(baseDir);
+  const out: LoadObs[] = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
 export async function refreshLoad(fetchImpl: FetchFn = fetch as any,
                                   env: NodeJS.ProcessEnv = process.env,
                                   nowMs?: number, baseDir?: string,
@@ -310,25 +376,12 @@ export async function refreshLoad(fetchImpl: FetchFn = fetch as any,
     const obs = await fetchLoad(fetchImpl, env, nowMs, spacingMs);
     if (obs.length) {
       archiveLoad(obs, baseDir);
-      const byZone = new Map<string, LoadObs[]>();
-      for (const o of obs) {
-        if (!byZone.has(o.zone)) byZone.set(o.zone, []);
-        byZone.get(o.zone)!.push(o);
+      cache = { at: Date.now(), stats: computeZoneStats(obs), issues: sweepIssues() };
+    } else if (!cache) {
+      const archived = readRecentArchivedLoad(baseDir, nowMs);
+      if (archived.length) {
+        cache = { at: Date.now(), stats: computeZoneStats(archived), issues: sweepIssues() };
       }
-      const stats: ZoneStat[] = [];
-      byZone.forEach((rows, zone) => {
-        const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
-        const vals = rows.map((r) => r.mw).filter((v): v is number => v != null);
-        stats.push({ zone, latest_ts: newest.ts, latest_mw: newest.mw,
-                     resolution: newest.res, points_in_window: rows.length,
-                     window_min_mw: vals.length ? Math.min(...vals) : null,
-                     window_max_mw: vals.length ? Math.max(...vals) : null,
-                     window_mean_mw: vals.length
-                       ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-                       : null });
-      });
-      stats.sort((a, b) => a.zone.localeCompare(b.zone));
-      cache = { at: Date.now(), stats, issues: sweepIssues() };
     }
     gzipOldLoadDays(baseDir, nowMs);
   } catch (e: any) {

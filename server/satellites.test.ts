@@ -16,7 +16,7 @@ import {
   GROUPS, gpUrl, parseGp, fetchGroup, archiveGp, gzipOldSatDays,
   refreshSatellites, latestGroup, latestPerSatellite, satellitesResponse,
   satIssues, seedFileInWindow, SEED_WINDOW_DAYS, resetSatellitesForTests,
-  ATTRIBUTION, POLL_INTERVAL_MS,
+  ATTRIBUTION, POLL_INTERVAL_MS, readArchivedGroup,
 } from "./satellites";
 
 // Mirrors the live-verified payload shape (2026-07-07, GROUP=stations):
@@ -172,6 +172,33 @@ test("refresh sweep + route envelope: cache-only serving, freshness, attribution
   assert.match(all.body.issues.geo, /http 403/);
   // archive landed under satellites/<group>/<fetch-day>.jsonl
   assert.ok(fs.existsSync(path.join(base, "satellites", "stations", "2026-07-07.jsonl")));
+});
+
+test("refreshSatellites: cold cache backfills a group from disk when its live fetch fails — same class of fix as githubOrgActivity.ts's v1.0.881 cold-cache backfill (a CelesTrak transport failure must not report warming_up over real archived epochs)", async () => {
+  resetSatellitesForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "sats-coldcache-"));
+  // Real archived history for "geo" from before the simulated restart.
+  assert.equal(archiveGp("geo", [ISS] as any, base, Date.parse("2026-07-06T00:00:00Z")), 1);
+  resetSatellitesForTests(); // simulated restart — in-memory cache/dedup gone
+  assert.equal(latestGroup("geo"), null, "cache must still be cold going into this cycle");
+  const t0 = Date.parse("2026-07-07T12:00:00Z");
+  const fake = async (url: string) => {
+    if (url.includes("GROUP=geo")) return { ok: false, status: 403, text: async () => "blocked" };
+    return { ok: true, status: 200, text: async () => JSON.stringify([CSS]) };
+  };
+  await refreshSatellites(fake as any, t0, base, 0);
+  const geo = satellitesResponse("geo");
+  assert.ok(!geo.body.warming_up, "must backfill from the on-disk archive rather than report warming_up with real history sitting on disk");
+  assert.equal(geo.body.count, 1);
+  assert.equal(geo.body.satellites[0].NORAD_CAT_ID, ISS.NORAD_CAT_ID);
+  // the real failure reason still surfaces, in the all-groups issues map
+  // (satellitesResponse("all") reports satIssues() unconditionally, not
+  // gated on whether a group's cache happens to be populated)
+  assert.match(satellitesResponse("all").body.issues.geo, /http 403/);
+  const archived = readArchivedGroup("geo", base, t0);
+  assert.equal(archived.length, 1, "readArchivedGroup itself returns the raw archived rows the backfill used");
+  assert.equal(archived[0].NORAD_CAT_ID, ISS.NORAD_CAT_ID);
+  assert.equal(archived[0].EPOCH, ISS.EPOCH);
 });
 
 // ---- R17 2026-07-07: transport-failure host fallback + cause surfacing ----

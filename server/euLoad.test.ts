@@ -11,7 +11,7 @@ import path from "node:path";
 import {
   euLoadEnabled, ZONES, periodStamp, loadUrl, parseAck, parseLoad,
   fetchLoad, archiveLoad, refreshLoad, latestLoad, seedFileInWindow,
-  SEED_WINDOW_DAYS,
+  SEED_WINDOW_DAYS, readRecentArchivedLoad, _resetEuLoadForTests,
 } from "./euLoad";
 
 // Mirrors the live-verified document shapes (2026-07-07): GL_MarketDocument
@@ -137,4 +137,29 @@ test("refresh sweep: one call per zone, per-zone stats + window shape, acked zon
   assert.ok(!("FR" in hit!.issues), "healthy zones carry no issue entry");
   assert.ok(hit!.stats.every((s) => s.window_min_mw === 60000 && s.window_max_mw === 61000
                                  && s.window_mean_mw === 60500), "window min/max/mean computed");
+});
+
+test("refreshLoad: cold cache backfills from disk when every zone's live fetch fails — same class of fix as githubOrgActivity.ts's v1.0.881 cold-cache backfill (a transient ENTSO-E outage must not report warming_up over real archived load history)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "euload-coldcache-"));
+  _resetEuLoadForTests();
+  try {
+    // Real archived history for FR from before the simulated restart.
+    const priorObs = [{ zone: "FR", ts: "2026-07-05T10:00", mw: 55000, res: "PT60M", rt: "2026-07-05" }];
+    assert.equal(archiveLoad(priorObs as any, base), 1);
+    _resetEuLoadForTests(); // simulated restart — in-memory dedup/cache gone
+    assert.equal(latestLoad(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("network unreachable"); };
+    await refreshLoad(failing as any, { ENTSOE_API_KEY: "k" } as any,
+                      Date.parse("2026-07-06T12:00:00Z"), base, 0);
+    const hit = latestLoad();
+    assert.ok(hit, "cache must be populated, not left null, despite every zone's live fetch failing");
+    assert.equal(hit!.stats.length, 1, "acked/failed zones absent — never zero-filled — but FR's archived history survives");
+    assert.equal(hit!.stats[0].zone, "FR");
+    assert.equal(hit!.stats[0].latest_mw, 55000);
+    const archived = readRecentArchivedLoad(base, Date.parse("2026-07-06T12:00:00Z"), 5);
+    assert.equal(archived.length, 1, "readRecentArchivedLoad itself returns the raw archived rows the backfill used");
+    assert.equal(archived[0].zone, "FR");
+  } finally {
+    _resetEuLoadForTests();
+  }
 });
