@@ -19329,3 +19329,26 @@ here. KNOWN BROKEN #41 (production OOM-crash-loop outage) re-checked live
 at session start: still down, same signature, no change since the
 immediately preceding session's 11:05Z read — no duplicate notification
 sent per that session's own "only on change" condition.
+
+## 2026-09-12 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — continues the routes.ts inline-handler audit this file's own item above left "STILL OPEN": one confirmed instance fixed (SEC EDGAR Form 4 insider feed, `edgarForm4.ts`), ~67 occurrences remain unaudited
+
+Full account in experiments.md's matching dated entry (v1.0.895) — pointer
+only. Disposition: `edgarForm4.ts` (backs `/api/data/insider` AND the paid
+`/api/v1/data/insider` mirror) is the SAME bug class as
+wikiAttention/satellites/euLoad above — module-level cache fed only by a
+live SEC EDGAR poll, no disk-archive fallback when a cycle throws or
+returns nothing — FIXED with the identical `readFilingHistory()`-reusing
+backfill pattern, tested, A/B-verified. Two adjacent occurrences spot-
+checked for contrast, both ruled the disk-derived non-bug class already
+established above: `/api/data/fires` (NASA FIRMS) and `/api/data/quakes`
+(USGS). The other ~65-66 routes.ts occurrences remain genuinely unaudited
+— this session deliberately picked ONE confirmed, high-value instance
+(PROMOTION RULE 5) rather than continuing the sweep, so "STILL OPEN"
+above remains accurate for the bulk of routes.ts; a future session should
+keep working through it with the same per-root read discipline (live-
+fetch-fed module cache vs. disk-derived vs. backfill-honesty tradeoff),
+not assume the remaining occurrences are uniform. `nwsAlerts.ts` and
+`airQuality.ts` unchanged from the prior entry's disposition — no new
+argument to add this session. KNOWN BROKEN #41 re-checked live at session
+start (2026-09-12T20:36:44Z): still down, same `railway-hikari`/
+`x-railway-fallback: true` 502 signature, no change — not re-notified.

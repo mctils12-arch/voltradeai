@@ -3,6 +3,191 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+NOTE (this session, housekeeping only, not fixed): the two most recent
+sessions' own entries (v1.0.893 PR #1061, v1.0.894 PR pending/#1063 per this
+session's `git log`) were found appended near the END of this file rather
+than at the top the header's own convention calls for — this entry is
+inserted correctly (top, per the convention) but a future session skimming
+only the top ~600 lines per MEMORY PROTOCOL should be aware the true most
+recent 2-3 entries before this one may need a `grep -n "^## 2026-09-12"` /
+tail check too until whatever caused that drift is understood. Not
+investigated further here (out of this session's scoped territory) — filed
+for awareness, not corrected (reordering existing entries would itself risk
+violating "never rewrite history").
+
+## 2026-09-12 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — routes.ts's ~70-occurrence "warming_up, no on-disk backfill" audit: ONE confirmed real instance fixed (SEC EDGAR Form 4 insider feed + its paid /api/v1/data/insider mirror), scoped per the prior session's own explicit warning against a blind sweep (v1.0.895)
+
+TERRITORY: T-DATACORE (server/edgarForm4.ts, server/edgarForm4.test.ts — a
+datacore server module per WORKSTREAM PARTITION) + SHARED-minimal, last
+(package.json version bump, ci/counter_baseline.txt, research/experiments.md,
+research/open_questions.md).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git status`/`git log`: clean,
+already on `claude/funny-fermat-y12nkm`, up to date with `origin/main`
+(138cd25, v1.0.894). `research/experiments.md` top entries and
+`research/open_questions.md` KNOWN BROKEN section + tail read per this
+routine's own brief. Per the orchestrating session's own briefing: today's
+DAILY/repair and RESEARCH slots were already used by 4 prior sessions;
+`research_state_check.py` (thrash fine), `ladder_readiness_check.py` (0/3
+gate roots ready, earliest ~2026-10-02), and `data_stream_registry_check.py
+--unbuilt` (9/9 declined/blocked on registration this sandbox can't
+self-serve) were already run clean earlier today — not re-run.
+
+LIVENESS CHECK: `curl -v https://voltradeai-production.up.railway.app/api/health`
+→ still `HTTP/2 502 Application failed to respond`, identical
+`railway-hikari`/`x-railway-fallback: true` signature, confirmed again at
+2026-09-12T20:36:44Z. Same signature every session has observed since
+2026-09-10T20:18Z (KNOWN BROKEN #41) — NOT new information versus what the
+orchestrating session already relayed to the human this morning, so no
+duplicate PushNotification sent (this session has no PushNotification
+capability regardless; noted for the record per this repo's own convention).
+Does not block non-trading-path pipeline work.
+
+FALL-THROUGH: per SESSION BUDGET, took the next queued, unblocked NEXT item
+from the immediately preceding [PIPELINE] session's own entry (v1.0.892,
+PR #1060): the ORIGINAL, larger "routes.ts's ~70 inline `warming_up`
+occurrences" scope, explicitly deferred there with the warning that it "is
+NOT a blind mechanical sweep."
+
+AUDIT (read before write, not a grep-and-patch): `grep -c warming_up
+server/routes.ts` → 68 occurrences. Read a representative cross-section
+end to end rather than assuming the bug class applies uniformly: routes.ts
+itself defines exactly ONE refresh loop (`refreshTier1`, an unrelated
+Tier-1 vessel/aircraft function) — every other `warming_up` occurrence is a
+one-line guard inside a route handler that reads a DEDICATED SIBLING
+MODULE's own cache getter (`latestForm4Filings()`, `latestAttention()`,
+etc.), so the real question per-occurrence is whether ITS OWN backing
+module has the cold-cache-no-disk-backfill bug, not whether routes.ts
+itself does. Spot-checked two adjacent occurrences for contrast before
+committing to the fix below: `/api/data/fires` (NASA FIRMS, routes.ts:2012)
+and `/api/data/quakes` (USGS, routes.ts:2027) both read modules that fold
+their OWN full on-disk archive fresh on every request/cycle rather than
+caching a live fetch — the disk-derived class v1.0.892 already ruled NOT
+the bug (same shape as streamsInventory.ts/entityGraph.ts/gridStress.ts) —
+not the same risk.
+
+Picked `server/edgarForm4.ts` (backs BOTH `/api/data/insider`, routes.ts
+:1923-1935, AND the paid `/api/v1/data/insider` keyed mirror, routes.ts
+:5029-5048) as the confirmed instance: `refreshForm4Cache()` polls SEC
+EDGAR's live "getcurrent" Form-4 atom feed every 15 minutes into a
+module-level `cache`, with NO fallback to the real archived filing history
+already on disk (`readFilingHistory()` — the module already exposes this
+and `/api/data/insider/history` already uses it) when a poll cycle throws
+(SEC EDGAR transient outage) or returns zero filings before any cache
+exists. IDENTICAL shape to the wikiAttention/satellites/euLoad bug v1.0.892
+fixed, just not yet observed live for this root. Higher stakes than those
+three: a cold cache here doesn't just show `warming_up` on a RAW `/data`
+overlay, it also 503s the PAID `/api/v1/data/insider` API route
+(`res.status(503).json({error: "warming up — first poll in progress"})`)
+for a customer paying for that mirror — a direct MONETIZATION-adjacent
+reliability gap, not just a display one.
+
+FIX (mirrors the exact v1.0.892 pattern — reuses existing pure aggregation,
+invents no new logic):
+- New `backfillForm4FromArchive(baseDir?, nowMs?, days=5, limit=25)`: a
+  thin, named wrapper around the EXISTING `readFilingHistory()` (already
+  newest-first, deduped, disk-reading) — zero new aggregation logic.
+- `refreshForm4Cache()`: unchanged when a live fetch returns filings
+  (replace cache, as before). When a live fetch returns ZERO filings with
+  no existing cache, OR when the fetch throws entirely (the outage case),
+  now calls `backfillForm4FromArchive()` and populates `cache` from it if
+  any archived filings exist — instead of leaving `cache` null (the live
+  risk this fix closes) or, in the zero-filings-no-cache branch, silently
+  caching an empty list (a smaller pre-existing wart this fix also
+  improves: real archived history now wins over a fabricated "confirmed
+  zero").
+- Added `fetchImpl` as an injectable second parameter to
+  `refreshForm4Cache` (previously hardcoded to global `fetch`) — the ONE
+  existing call site (`bootForm4Poll`) is unaffected via the default param;
+  needed only so the new test can inject a failing fetch deterministically.
+  Grepped every call site first (`refreshForm4Cache`, `bootForm4Poll`,
+  `latestForm4Filings` across the repo) — confirms this is the only caller.
+- Added `_resetForm4CacheForTests()`, matching the existing
+  `_resetGithubActivityForTests()`/`_resetAttentionForTests()`/
+  `_resetEuLoadForTests()` precedents already in this codebase for the same
+  "module-singleton state must be resettable between tests" problem.
+
+TEST (new, in `edgarForm4.test.ts`): archives a real-shaped Form 4 filing
+to disk dated "today" (the module has no injectable `nowMs`, matching
+`refreshAttention`'s own precedent test, which likewise relies on
+`process.env.DATA_DIR` + real wall-clock dates rather than a `nowMs`
+param — `backfillForm4FromArchive`'s default 5-day lookback is measured
+from `Date.now()`), resets the cache via `_resetForm4CacheForTests()`, runs
+`refreshForm4Cache` with a `fetchImpl` that always throws (reproducing a
+full SEC EDGAR transient outage on a cold boot), and asserts the cache
+backfills to the archived filing rather than staying null.
+VERIFIED A/B: `git stash push -- server/edgarForm4.ts` (test file kept
+staged) reproduces failure as an outright import error
+(`_resetForm4CacheForTests` does not exist on the pre-fix module) — proof
+the test exercises the new code path, not a pre-existing pass; `git stash
+pop` restores 10/10 passing (`npx tsx --test server/edgarForm4.test.ts`).
+
+MEASUREMENT INTEGRITY note (not required — reliability/freshness code
+behind a RAW `/data` overlay + its paid API mirror, not backtest/PnL/
+slippage/counterfactual code — but the same spirit applies since
+`warming_up` is itself a freshness signal a paying API customer reads):
+this change can only ever make the route report LESS `warming_up`/fewer
+503s than before, and only when real archived filings already exist on
+disk and the live fetch failed or came back empty — it never fabricates a
+filing that was never actually filed, and every returned filing still
+carries its own real `filedAt` date so a client can tell it isn't brand-new.
+
+MONETIZATION TRIPWIRE: not applicable — no billing/pricing/subscription/
+ads/paid-feature-GATING code touched (this fixes an existing paid route's
+reliability, not its gating logic or the aircraft-provider compliance
+chain the tripwire covers).
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/threshold/strategy
+code touched; datacore `/data`-surface + paid-API reliability fix only, no
+bot.ts/bot_engine.py/system_config.py import.
+
+DEPLOY-COUPLING NOTE: zero trading-path files touched. Production is
+separately still down for the unrelated KNOWN BROKEN #41 outage (see
+LIVENESS CHECK above) — this PR cannot be observed live until a human
+restarts the Railway service regardless of merge timing, but per SESSION
+BUDGET this does not block preparing/merging non-trading-path pipeline work.
+
+GATES: `npx tsx --test server/edgarForm4.test.ts`: 10/10 pass (was 9 before
+this session's new test). Full local gate: `python3 -m pytest -q`: 1955
+passed, 1 skipped (first run of this session after a fresh `npm
+install`/`pip install -r requirements.txt -r requirements-dev.txt` in this
+sandbox — no Python file touched by this diff, this is the sandbox's own
+clean baseline, not a regression). `bash scripts/gated_tests.sh`: GATE
+PASSED — server/client/python all green, quarantine 0/1, none overdue.
+`bash scripts/tsc_ratchet.sh`: 11 <= 11 pin, TS2304 = 0 (no `.ts` type
+signatures changed beyond additive exports). `bash scripts/counter_ratchet.sh`:
+3 counters IMPROVED from the new test
+(`tests_run_in_ci`/`tests_gating_merge` 447->448, `assertions` 14086->14118)
+— re-pinned in `ci/counter_baseline.txt` in this same PR per the script's
+own instruction; all 25 counters clean after re-pinning. `npm run
+build`/`npm run visual`: not run, zero `client/` files touched.
+
+NEXT: (1) the remaining ~67 routes.ts `warming_up` occurrences are still
+unaudited in full — this session picked the single clearest, highest-value
+confirmed instance (the one also touching a paid API route) rather than
+attempting a wider sweep, per PROMOTION RULE 5 and the prior session's own
+explicit warning against a blind mechanical pass. A future session should
+continue the same read-each-one discipline (external-live-fetch-with-
+module-cache vs. disk-derived vs. backfill-honesty-tradeoff) rather than
+assume every remaining occurrence is this bug class. (2) `nwsAlerts.ts`'s
+backfill-honesty question and (3) `airQuality.ts`'s narrower first-boot gap
+remain open exactly as the 2026-09-12 v1.0.892 session filed them — not
+touched this session, no new argument to add. (4) the experiments.md
+placement-drift note above — worth a future session confirming whether it
+recurs a third time (two occurrences would be RECURRENCE ESCALATES
+territory for whatever mechanism causes it).
+
+STARVED: no — completed one clean, scoped PIPELINE fix (the highest-value
+confirmed instance of the exact queued item, chosen over a wider blind
+sweep for a documented reason), added a regression test A/B-verified
+against the pre-fix code, self-installed this session's own missing
+`node_modules`/Python deps to get a real gate run rather than skipping
+gates, and left the remainder of the larger audit explicitly filed for a
+future session rather than either forcing a wider blind sweep or padding
+with unrelated busywork.
+
+
+
 ## 2026-09-12 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — closes the "cold in-memory cache with no on-disk backfill" systemic audit item across 3 more sibling archivers (wikiAttention.ts, satellites.ts, euLoad.ts) — the exact bug class githubOrgActivity.ts's v1.0.881 fix closed for one root and filed as a future dozen-route audit (v1.0.892)
 
 TERRITORY: T-DATACORE (server/wikiAttention.ts, server/satellites.ts,
