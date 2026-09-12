@@ -3,6 +3,104 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-12 (scheduled-routine session, second entry this session) [RESEARCH]
+— fall-through after this session's [REPAIR] primary action (see the
+entry immediately below): FOREIGN-FIELD IMPORT (axis c), hydrology's
+Hurst exponent as a continuous trend-persistence diagnostic, run against
+real SPY data — GATE 2 NOT PASSED (directionally consistent, not
+significant once corrected for overlapping-window autocorrelation),
+v1.0.891
+
+TERRITORY: SHARED-minimal (research/*, package.json/package-lock.json
+version bump only — no T-BOT/T-CLIENT/T-DATACORE files touched; the two
+new files, `scripts/hurst_exponent_probe.py` and
+`test_hurst_exponent_probe.py`, are a standalone research probe with no
+import from or effect on any trading-path or datacore module).
+
+Full pre-registration, methodology, and result are in
+`research/open_questions.md`'s matching dated entry (this file only
+summarizes, per this repo's established split between the two logs).
+Checked `scripts/research_state_check.py` (thrash 2/10 REPAIR, no
+blocker), `ladder_readiness_check.py` (0/3 ready — all still waiting on
+elapsed-time triggers), and `data_stream_registry_check.py --unbuilt`
+(9/9 unbuilt streams declined/blocked on a registration this sandbox
+can't self-serve) before choosing this as SESSION BUDGET's research
+fall-through rather than a queued item — none was available.
+
+PRIOR (stated before running, full reasoning in the script's own
+docstring): expected the direction to be roughly right (H is derived from
+the same autocorrelation the continuation score measures) but unlikely to
+clear GATE 2 as a robust, tradable effect — Hurst/R-S is a 40+-year-old
+academic idea (Lo 1991) known to be biased upward on short financial
+samples, and five prior foreign-field imports in this file were already
+GATE-2-killed or unresolved.
+
+WHAT SHIPPED: `scripts/hurst_exponent_probe.py` (rescaled-range Hurst
+estimator, no-lookahead rolling window, continuous continuation-score
+design — the first in this probe family NOT built on the onset-counting
+scaffold the 2026-09-05 permutation-entropy session found had hit a
+statistical-power ceiling five times running) + `test_hurst_exponent_probe.py`
+(22 tests, synthetic-only, no network — one flawed first-draft test
+fixture caught and fixed before trusting the algorithm, see the dated
+open_questions.md entry for the honest account). `destrided_spearman()`
+(new, general-purpose de-correlation helper) built after the naive daily
+test's p-value turned out to be a classic overlapping-window artifact —
+this is now a reusable safeguard for the whole probe family, not a
+one-off fix.
+
+LIVE RESULT (SPY, 2019-10-21 through 2026-09-11): naive daily test
+rho=0.1376, p≈0.0 (n=1460, the trap); de-strided (non-overlapping, the
+honest test) rho=0.1262, p=0.288 (n=73) — NOT significant. Tertile
+comparison shows the identical pattern (naive t=4.10/p≈0.0 vs de-strided
+t=0.71/p=0.483). Effect size is consistent across both views; only the
+(mis-measured) confidence collapses once corrected. GATE 2 NOT PASSED —
+sixth foreign-field import in this file, sixth to fail or remain
+unresolved at GATE 2.
+
+BACKTEST: N/A per PROMOTION RULE 3 (GATE 2 signal-only research probe, no
+strategy/scoring/sizing code touched). MONETIZATION TRIPWIRE: not
+touched.
+
+GATES: `python3 -m pytest -q test_hurst_exponent_probe.py`: 22/22. Full
+suite: 1926 passed, 1 skipped, 54 subtests (prior baseline 1904 + 22 new
+= 1926, 0 regressions). `bash scripts/gated_tests.sh`: python suite GATE
+PASSED; the reported client/server TS failures (`aircraftTiling.test.ts`,
+`apiKeyAccounts.test.ts`, `cdcCancer.test.ts`, `compression.test.ts`,
+`gdeltEvents.test.ts`, `owmTiles.test.ts`, `seafloorTiles.test.ts`,
+`securityMiddleware.test.ts`, plus 3 client/src files) are PRE-EXISTING
+and unrelated to this diff — this session touched zero `.ts`/`.tsx`
+files, so these cannot be a regression from this change; not
+investigated further as out-of-territory (T-BOT/T-CLIENT own these
+files, per WORKSTREAM PARTITION) for a SHARED-minimal research PR, but
+flagged here rather than silently ignored so a future T-BOT/T-CLIENT
+session can check whether they're a real new break or a sandbox/network
+artifact (several of the failing names — gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware — sound network- or fetch-dependent,
+plausible for a fresh sandbox rather than a real regression, but not
+confirmed either way this session). `bash scripts/counter_ratchet.sh`:
+OK, 25 counters at or better than baseline (no re-pin needed — the
+script itself reports clean). `bash scripts/tsc_ratchet.sh`: reported
+11 -> 3, TS2304 still 0 — NOT re-pinned, same reasoning as every prior
+session that touched zero `.ts`/`.tsx` files (this session touched none).
+`npm run build`/`npm run visual`: not run, zero `client/` files touched.
+
+NEXT: (1) the structural question this entry's open_questions.md write-up
+raises — whether to try a genuinely different data axis (cross-sectional
+breadth, illiquid-universe, or non-price signal) rather than a seventh
+linear-correlation-on-daily-bars foreign-field import — is a
+human/future-session call, not self-decided here. (2) the pre-existing
+TS test failures noted above are worth a future T-BOT/T-CLIENT session's
+triage — not claimed as a finding, just surfaced. (3) `destrided_spearman()`
+could be backported to other continuous-signal probes scoring against a
+multi-day forward window — filed as its own small item, not attempted
+here.
+
+STARVED: no — checked the queue's own readiness tooling first (empty),
+pre-registered before running, built real unit tests that caught a
+genuine fixture flaw, ran against live real data this session, and caught
++ fixed the naive-overlapping-window trap before reporting any number as
+trustworthy, rather than shipping the naive (and wrong) p≈0.0 headline.
+
 ## 2026-09-12 (scheduled-routine session) [REPAIR] — SHARED-only
 (research/open_questions.md, research/experiments.md): production is
 STILL fully down, now confirmed continuously for ~30 wall-clock hours
