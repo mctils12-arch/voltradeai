@@ -794,6 +794,39 @@ reasonably want a same-day look at before it ships. No new information
 beyond confirming the pattern continues; still awaiting the human's pick
 of option 1 or 2 above.
 
+**ELEVENTH+ OCCURRENCES, 2026-09-11 AND 2026-09-12 — RE-ESCALATED TO THIS
+FILE PER THE 2026-09-11 SESSION'S OWN REQUEST.** This gap kept recurring
+after the tenth occurrence but stopped being logged HERE — the 2026-09-11
+occurrence (PR #1053, merged 2026-09-11T16:33:32Z, ~5 minutes after
+opening) was instead recorded as a one-off `research/experiments.md`
+ADDENDUM, which explicitly said "not filed as a wishlist item this
+session... a future session hitting this same gap again should escalate
+it." This session hit it again and is honoring that instruction rather
+than letting the record fragment further:
+- PR #1061 (this session's `grid_generation_fuel_mix` FUSION HYPOTHESIS
+  (b) pipeline work — research/data-validation only, no trading-path code)
+  carried the same "please hold merge until after 4:00 PM ET" note,
+  `created_at` 2026-09-12T16:50:20Z, and auto-merged at
+  **2026-09-12T16:54:40Z (~12:54 PM ET), 4m20s after opening**,
+  `merged_by: github-actions[bot]` — verified via `pull_request_read` on
+  the merged PR, not inferred.
+This is now **12 confirmed occurrences spanning 2026-08-14 through
+2026-09-12 (29 days), still 0% compliance** (10 tallied above + the
+2026-09-11 #1053 instance + this one), across docs-only, client-only,
+live order-submission, and data-validation-gate changes alike — the
+mechanism does not discriminate by risk category, exactly as the eighth
+occurrence's OBSERVATION already noted. Nothing has changed about the
+underlying fix options since then (still human-only: either option
+requires editing the FROZEN `.github/workflows/` `automerge` job, or
+dropping the scheduled-routine prompt's own "note the market-hours wait"
+instruction since it currently produces a written claim in every PR body
+that does not reflect what happens). Re-flagging explicitly for the
+human's decision rather than adding a 13th silent data point next time:
+this note has now been proven, over a month and 12 straight instances, to
+never once hold a merge back — continuing to write it without either
+enforcing it or removing the instruction is the exact stated-vs-actual
+gap this repo's own HONESTY rules exist to prevent.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
