@@ -85658,7 +85658,7 @@ inheriting it, and the live re-run this produced materially clarifies FUSION HYP
 actual remaining open surface (three specific fails instead of eleven confound-poisoned ones)
 rather than just re-confirming what was already known.
 
-## 2026-09-12 (scheduled-routine session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ERCO/SWPP solar gate-1 overshoot is NOT a residual registry gap (ruled out, ratio ~1.0 both regions); ISNE nuclear/wind overshoot is NOT a sampling artifact (window-widening test), narrowed but not closed (v1.0.893)
+## 2026-09-12 (scheduled-routine session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ERCO/SWPP solar gate-1 overshoot is NOT a residual registry gap (ruled out, ratio ~1.0 both regions); ISNE nuclear/wind overshoot is NOT a sampling artifact (window-widening test), narrowed but not closed (v1.0.893, PR #1061 — merge held until after 4:00 PM ET per this session's own note, market hours at time of session)
 
 TERRITORY: T-DATACORE (scripts/**, datacore/**, tests) + SHARED-minimal (last
 commit: research/*, package.json/package-lock.json version bump —
