@@ -12165,6 +12165,102 @@ territory in their first commit)
   already escalated by two prior sessions today, not re-notified a third
   time absent new information (see research/experiments.md this date for
   the reasoning).
+  UPDATE 2026-09-12 (scheduled-routine session, falling through to this
+  queued NEXT per SESSION BUDGET rule 1 — the primary REPAIR action on
+  KNOWN BROKEN #41 was blocked this session, production re-confirmed down
+  a 3rd/4th/5th consecutive time and RECURRENCE ESCALATES already fired
+  for that item; see research/experiments.md this date): resolves NEXT(1)
+  and substantially narrows NEXT(2).
+  NEXT(1) — ERCO/SWPP solar — CLOSED, NOT a registry-completeness gap.
+  `scripts/eia860_regional_capacity_check.py` (new) gets a genuinely
+  independent second read: EIA-860 Schedule 2's own `Balancing Authority
+  Code` column joined directly (by EIA Plant Code, no coordinate matching
+  needed — Schedule 3's solar/wind generator rows already carry Plant
+  Code natively) against Schedule 3's own solar/wind nameplate capacity,
+  yielding EIA-860's OWN regional solar total for ERCO and SWPP, entirely
+  independent of the registry. Compared against the registry's matched
+  capacity for the same (ba, fuel) pairs (via the already-committed
+  `plant_balancing_authority_eia860.json`, reused not recomputed): **ERCO
+  solar — registry 30,050.7 MW vs EIA-860's own ERCO total 30,016.3 MW,
+  ratio 1.001** (registry is if anything trivially ABOVE EIA-860's own
+  figure). **SWPP solar — registry 1,345.0 MW vs EIA-860's own SWPP total
+  1,362.8 MW, ratio 0.987** (a 17.8 MW/1.3% gap, noise-level). Neither
+  region shows a meaningful residual registry shortfall — the national
+  solar-undercount fix evidently DID close these two regions along with
+  the rest of the country; there is no leftover regional gap for it to
+  have missed. (Wind checked too, for consistency: ERCO 0.953, SWPP
+  0.974 — small, real, but not the ones gate-1 is failing on and not
+  investigated further here — one logical question per session.)
+  This means the gate-1 overshoots themselves (ERCO 1.076x, SWPP ~2x —
+  re-checked live this session at 1.076x/1.996x, both consistent with the
+  filed values within the trailing-window's natural day-to-day drift) are
+  NOT a registry problem and must have a different explanation at the
+  EIA-930 measurement/attribution level — behind-the-meter/distributed
+  solar folded into a BA's reported utility-scale total, cross-BA
+  transmission attribution, or a genuine EIA-930 definitional quirk for
+  these two respondents specifically. A raw-data look at SWPP's underlying
+  hourly `SUN` values (not just the summary max) supports treating this as
+  real rather than a fluke to explain away: the near-2,600 MWh peak
+  recurs on FOUR separate days in the 7-day window (2026-09-05, -07,
+  -08, -11), not one anomalous hour — a systematic, repeating condition,
+  not transient noise. Filed as a NEW, separate NEXT (below) rather than
+  resolved here — this session answers "is it a registry gap" (no), not
+  "then what is it."
+  NEXT(2) — ISNE nuclear/wind — NOT a sampling artifact, though not fully
+  resolved either. Re-ran `grid_generation_gate1_ba.py --source eia860`
+  for ISNE at 14 days (7-day baseline reproduced exactly: nuclear 1.099x,
+  wind 1.251x): **both ratios came back byte-identical at 14 days.** A
+  30-day window was attempted and hit `fetch_window`'s own existing
+  truncation guard (6,841 rows for the period, EIA's API caps a single
+  response at 5,000 — a real, honest API constraint, not a bug to route
+  around this session; ~14-20 days is this check's practical ceiling per
+  call). Because this metric is a MAX over the window, not a mean,
+  widening the window can only hold the ratio steady or reveal a WORSE
+  outlier further back — it structurally cannot ever show convergence
+  toward 1.0x the way averaging more samples would for a mean-based
+  metric; that the 14-day max is identical to the 7-day max additionally
+  confirms the current 7-day reading is not a short-window fluke, since a
+  longer look finds nothing different or worse. A raw-hourly look at the
+  underlying `NUC`/`WND` readings over the 14-day window: nuclear's
+  near-max hours cluster on TWO separate days (2026-09-07 and -11, each a
+  multi-hour plateau at 3,700–3,743 MWh) with the whole window's mean
+  (3,559.8) and median (3,599.0) already sitting close to the max — a
+  sustained near-nameplate output level, not a single spike, and
+  consistent with a well-known benign industry convention (EIA-860
+  nameplate is often a summer/net rating; actual net output —
+  particularly outside peak summer heat, and after power uprates —
+  commonly runs a few percent above nameplate for nuclear specifically).
+  That is a plausible, structural, and minor explanation for the nuclear
+  overshoot, not a registry error. Wind's max (2,103 MWh) likewise
+  clusters on a real multi-hour windy stretch (2026-09-10 to -11, not one
+  hour) but has no equivalent benign nameplate-convention explanation
+  (turbines have a hard physical power ceiling, unlike a generator's net-
+  vs-gross rating) — wind's small overshoot stays a real, open, minor
+  question, worth a future look at whether ISNE's registry wind entries
+  are current, but is NOT waved off as sampling noise either. VERDICT:
+  both sub-questions of NEXT(2) are answered (no, this is not a sample-
+  size artifact for either fuel) without fully closing the underlying
+  gate-1 fails — honest partial resolution, not forced.
+  6 new pure-function tests (`eia860_plant_ba_map`, `eia860_capacity_by_ba`,
+  `compare_regional_capacity`) plus constant checks in
+  `test_eia860_regional_capacity_check.py`, no network (the one I/O
+  function, xlsx parsing, is exercised only by running the script live,
+  same convention as every sibling `eia860_*.py` test file).
+  NEXT: (1) what IS producing SWPP's recurring ~2x solar overshoot and
+  ERCO's smaller 1.076x one, now that registry completeness is ruled out
+  — candidates to check, in order of how cheaply each is testable: (a)
+  whether EIA-930's SWPP/ERCO respondent definitions fold behind-the-
+  meter/distributed solar into utility-scale `SUN` (EIA's own Form 930
+  documentation would settle this without new code); (b) a third
+  independent solar-capacity source (e.g. NREL's utility-scale solar
+  tracker) as a tie-breaker if (a) is inconclusive. (2) ISNE wind's
+  small, real, unexplained-by-nameplate-convention overshoot — worth
+  checking registry completeness for ISNE wind specifically the same way
+  this session checked ERCO/SWPP solar (this session did not — scope was
+  the sampling-artifact question only, per the filed NEXT wording). (3)
+  the production outage (KNOWN BROKEN #41) — see research/experiments.md
+  this date for this session's own re-confirmation and why no further
+  action was taken here.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
