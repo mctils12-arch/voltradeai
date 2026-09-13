@@ -37,6 +37,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export const QUAKES_FEED_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson";
 
@@ -268,20 +269,14 @@ export function backfillQuakesFromArchive(baseDir?: string, nowMs?: number): Qua
 export async function refreshQuakesCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const events = await fetchQuakes(fetchImpl, nowMs);
-    if (events.length > 0) {
-      cache = { at: Date.now(), events };
-    } else if (!cache) {
-      const archived = backfillQuakesFromArchive(undefined, nowMs);
-      if (archived.length) cache = { at: Date.now(), events: archived };
-    }
+    const next = resolveCacheItems(cache !== null, events, () => backfillQuakesFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), events: next };
     try { archiveQuakes(events, undefined, nowMs); } catch {}
     try { gzipOldQuakeDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] quakes refresh:", e?.message || e);
-    if (!cache) {
-      const archived = backfillQuakesFromArchive(undefined, nowMs);
-      if (archived.length) cache = { at: Date.now(), events: archived };
-    }
+    const next = resolveCacheItems(cache !== null, [], () => backfillQuakesFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), events: next };
   }
 }
 

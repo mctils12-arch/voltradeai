@@ -27,6 +27,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
+import { resolveCacheItems } from "./cacheBackfill";
 
 /** The key env var accepts BOTH names: the module shipped reading
  *  NASA_FIRMS_MAP_KEY, but the human set the key in Railway as
@@ -339,20 +340,14 @@ export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env, fe
   if (!key) return;
   try {
     const detections = await fetchFirmsDetections(key, fetchImpl);
-    if (detections.length > 0) {
-      cache = { at: Date.now(), detections };
-    } else if (!cache) {
-      const archived = backfillFirmsFromArchive();
-      if (archived.length) cache = { at: Date.now(), detections: archived };
-    }
+    const next = resolveCacheItems(cache !== null, detections, () => backfillFirmsFromArchive());
+    if (next) cache = { at: Date.now(), detections: next };
     try { archiveFireDetections(detections); } catch {}
     try { gzipOldFireDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] FIRMS refresh:", e?.message || e);
-    if (!cache) {
-      const archived = backfillFirmsFromArchive();
-      if (archived.length) cache = { at: Date.now(), detections: archived };
-    }
+    const next = resolveCacheItems(cache !== null, [], () => backfillFirmsFromArchive());
+    if (next) cache = { at: Date.now(), detections: next };
   }
 }
 

@@ -3,6 +3,146 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-13 (scheduled-routine [PRODUCT]/[PIPELINE] session, v1.0.899) — shared `cacheBackfill.ts` helper compiles the 7x-repeated "cold cache, no on-disk backfill" fix into one tested function; 4 modules retrofitted behavior-identically; a possible 3rd bug shape found in wikiAttention.ts/euLoad.ts and filed, not fixed
+
+TERRITORY: T-DATACORE (server/{cacheBackfill,nasaFirms,ndbcBuoys,
+usgsQuakes,edgarForm4}.ts + their tests) + SHARED-minimal (package.json
+version bump, ci/counter_baseline.txt re-pin, research/experiments.md,
+research/open_questions.md — last commit, kept minimal, per WORKSTREAM
+PARTITION).
+
+SESSION-START CHECKS (per CLAUDE.md MEMORY PROTOCOL + this session's own
+[PRODUCT]-session task instructions): read CLAUDE.md, research/
+PROGRAM_STATE.md, and the tail of experiments.md/open_questions.md/
+wishlist.md. Live-checked KNOWN BROKEN #41 (production outage) myself
+rather than trusting the log alone: `curl -sSD-` against
+`https://voltradeai.com/api/health` at session start (~2026-09-13T13:06Z)
+returned HTTP/2 502, `{"status":"error","code":502,"message":"Application
+failed to respond"}`, `server: railway-hikari`, `x-railway-fallback:
+true` — the identical signature six prior sessions today have already
+logged, now past 68h wall-clock (well past the LIVENESS ALARM's 24h
+threshold, already fired and escalated). No new information vs. the
+immediately preceding session's read — not re-notified, matching this
+thread's own established disposition. This is a PRODUCT session, not a
+DAILY repair session: per CLAUDE.md's explicit instruction, noted and
+NOT preempted — proceeded to product/pipeline work.
+
+QUEUE CHECK (delegated to a research subagent, read-only, to avoid
+burning this session's own context on the ~110K-line research/ corpus):
+confirmed the PLATFORM INTEGRATION PROGRAM queue is clear except P5
+(HUMAN-GATED), `ladder_readiness_check.py` shows 0/3 gated roots ready
+(earliest ~2026-10-02), `data_stream_registry_check.py --unbuilt` shows
+9/9 declined/blocked-on-registration, and every product/pipeline program
+charter (platform_program.md, data_census.md, location_context_engine.md,
+console_charter.md, grid_vision*.md, orbital_program.md, scale_program.md,
+earth_twin_program.md) is either fully shipped, blocked on a human
+decision/registration, or blocked on GPU compute economics — matching
+what the immediately-preceding 2026-09-13 session (PR #1065) had already
+found. The one genuinely open, self-actionable, unclaimed item the
+subagent surfaced: the routes.ts "cold cache, no on-disk backfill" audit
+this entry addresses (its ~65-remaining-occurrences count from PR #1065's
+entry, confirmed the shape recurs identically module-to-module).
+
+WHAT SHIPPED: new `server/cacheBackfill.ts` exports one pure function,
+`resolveCacheItems<T>(hasPrevCache: boolean, liveItems: T[], backfill: ()
+=> T[]): T[] | null` — the exact decision 4 of the 7 already-fixed
+modules make byte-for-byte in both their try-success and catch-failure
+branches (a non-empty live result always wins regardless of whether a
+cache already exists; an empty/failed live result backfills from disk
+ONLY when no cache exists yet, so a transient empty poll never clobbers a
+good cache with a stale archive read; otherwise the caller leaves its
+cache untouched). Retrofitted onto it, each as a minimal 2-call-site
+swap with NO change to any archive/backfill/fetch function:
+`nasaFirms.ts` (`refreshFirmsCache`), `ndbcBuoys.ts`
+(`refreshBuoysCache`), `usgsQuakes.ts` (`refreshQuakesCache`),
+`edgarForm4.ts` (`refreshForm4Cache`). The catch-branch call site passes
+`[]` for `liveItems` (standing in for "the fetch threw, there is no live
+result to consider" — NOT "the feed returned zero rows", a distinction
+the helper's own tests and docstring make explicit) rather than needing
+a second code path, since `resolveCacheItems([], ...)` already reduces
+to backfill-only-if-no-cache, the exact catch-branch behavior all 4
+modules already had.
+
+VERIFICATION (behavior-preservation, not just "should be identical"):
+- `npx tsx --test server/{nasaFirms,ndbcBuoys,usgsQuakes,edgarForm4,
+  cacheBackfill}.test.ts`: 64/64 pass, including each of the 4 modules'
+  OWN pre-existing cold-cache-backfill regression test (written by the
+  session that originally fixed that module) — proof the retrofit didn't
+  silently change behavior, not just a claim that it shouldn't have.
+- 6 new unit tests in `server/cacheBackfill.test.ts` covering the
+  function in isolation: live-items-win-with-a-prior-cache,
+  live-items-win-with-no-prior-cache (backfill untouched in both),
+  empty-live-with-a-prior-cache-leaves-it-alone (backfill NOT called —
+  asserted via a call counter, not just the return value), empty-live-
+  no-cache-backfills, empty-live-no-cache-empty-archive-stays-null, and
+  the throw-path modeling case.
+- `bash scripts/tsc_ratchet.sh`: 11 errors (pin), TS2304 0 — unchanged.
+- CI self-caught (before this line existed) that this entry originally
+  omitted the required `STARVED: yes/no` closing line (CLAUDE.md HEALTH
+  OF THE LOOP ITSELF rule 6 / `scripts/research_state_check.py`'s
+  `parse_starved_flags`) —
+  `test_run_all_checks_against_real_repo_files_does_not_crash` failed
+  on this PR's first push with `starved_flags[0] == None` instead of
+  `"no"`. Fixed in this same PR (this entry's own closing `STARVED:`
+  line below), not a follow-up.
+- `bash scripts/gated_tests.sh`: GATE PASSED — client 1083/1083 node
+  tests (this session's new `cacheBackfill.test.ts` included — file-level
+  delta verified via `program_status.sh`'s `tests_run_in_ci` count below,
+  not asserted from this run alone since it was only run after this
+  session's changes were already on disk), python 2000 passed/1 skipped,
+  quarantine 0/1 none overdue.
+- `bash scripts/counter_ratchet.sh`: clean after re-pinning
+  `tests_run_in_ci`/`tests_gating_merge` 450->451 and `assertions`
+  14204->14214 in `ci/counter_baseline.txt` — all three confirmed (by
+  running `program_status.sh` before AND after `git add`ing the new
+  files, since it counts via `git ls-files`) to be this session's own
+  sole direct effect; nothing else moved. `baseline_divergence` stayed 0.
+- No client/ changes — visual harness (`npm run visual`) not applicable,
+  server-only refactor.
+
+DELIBERATELY NOT retrofitted: `wikiAttention.ts`, `satellites.ts`,
+`euLoad.ts`. Read all three before deciding, not skipped by assumption.
+Each caches a DERIVED aggregate (a picked "latest complete day" object;
+a per-GROUP `Map` of `{at, newest_epoch, records}`; computed zone stats +
+a swept-issues list) rather than the flat `T[]` the live fetch returns
+directly the way the other 4 do — forcing a `T[]`-shaped helper onto any
+of the three would mean inventing an unrequested wrapping convention or
+silently changing what gets cached, which PROMOTION RULE 5 (one logical
+change per PR) rules out for this PR.
+
+FINDING, filed to open_questions.md rather than fixed here (scope
+discipline): `wikiAttention.ts`'s `refreshAttention` and `euLoad.ts`'s
+`refreshLoad` both only attempt an on-disk backfill inside the try
+block's success path (even when the live result is empty) — neither
+module's catch block attempts ANY backfill if the fetch itself throws.
+This could be a THIRD occurrence of the same cold-cache bug shape,
+triggered by the throw path instead of the empty-result path — but
+whether `fetchAttention`/`fetchLoad` can actually throw out to
+`refreshAttention`/`refreshLoad` (vs. swallowing their own per-call
+errors internally first, which would make this a dead code path) was NOT
+traced this session; filed as a NEXT for whoever picks it up, not
+asserted as a confirmed live bug (MEASUREMENT INTEGRITY — don't claim
+more than what was checked).
+
+HYPOTHESIS / EXPECTED EFFECT: this is a MEASUREMENT-NEUTRAL refactor (no
+metric-definition change, no strategy change) — PROMOTION RULE 3's
+backtest requirement does not apply. Expected effect is entirely
+architectural: the remaining ~65 `routes.ts` `warming_up` occurrences
+this thread has audited module-by-module since 2026-09-10 become
+mechanical (import + wire) for any module whose cache is a flat item
+list, turning a slow, error-prone manual code-reading exercise (one
+session's own spot-check on `/api/data/fires`/`/api/data/earthquakes`
+got this WRONG earlier this week purely from inference, not reading —
+see PR #1065's entry) into a fast, low-risk pattern-match. No live-vs-
+backtest divergence applies (not a trading-path change).
+
+NOT A SPEND REQUEST.
+
+STARVED: no — this was a concretely queued, well-specified, buildable
+item (a research subagent's own top-ranked recommendation), fully
+executed this session including 4 module retrofits, a new tested
+helper, and a filed follow-up finding, not merely diagnosed.
+
 ## 2026-09-13 (scheduled autonomous session, [PIPELINE]) — EIA-860M registry-freshness capacity refresh shipped; SWPP/ERCO gate-1 overshoot did NOT close (honest negative result), real driver identified
 
 TERRITORY: T-DATACORE (scripts/**, datacore/**, their tests) + SHARED-minimal
