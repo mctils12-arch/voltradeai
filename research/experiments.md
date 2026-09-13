@@ -3,6 +3,177 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ISNE wind's gate-1 FAIL CLOSED — registry completeness ruled out (0.977), registry DATE STALENESS confirmed as the cause (capacity grew 1.5x since the EIA-860 annual snapshot), recomputed ratio 0.834 (clean PASS); zero code changes, both sibling scripts already general over BA/fuel
+
+TERRITORY: T-DATACORE (research/*, no code touched) + SHARED-minimal
+(research/experiments.md, research/open_questions.md,
+datacore/signal_ladder.json's grid_generation_fuel_mix note only — a
+single-string-append edit, verified via `git diff --stat` to touch
+nothing else in that file).
+
+TASK FRAMING: this session's own instructions name it a [PRODUCT]
+session (datacore/ pipelines + /data), and require checking system
+health/KNOWN BROKEN first. Live-checked KNOWN BROKEN #41 myself:
+`curl -v https://voltradeai.com/api/health` at session start
+(2026-09-13T18:10:24Z) returned `HTTP/2 502`,
+`{"status":"error","code":502,"message":"Application failed to
+respond"}`, `server: railway-hikari`/`x-railway-fallback: true`/
+`x-railway-edge: iad1` — the identical signature every session today
+has logged, now ~69.9 wall-clock hours since the 2026-09-10T20:18Z
+onset. No new information versus the immediately preceding sessions'
+reads today (same signature, same lack of live diagnostic access, no
+restart, no new evidence) — consistent with today's own established,
+repeatedly-reaffirmed disposition on this exact incident ("not
+re-notified... a future check should re-notify the moment anything
+actually changes"), this session does NOT send a duplicate
+PushNotification: duration alone is not new information, and this
+repo's own MONETIZATION-TRIPWIRE-adjacent anti-churn spirit (and the
+scheduled-routine's own "same as yesterday → silence" convention)
+both argue against re-alerting on an unchanged fact merely because
+more time has passed since the last identical read. Per this session's
+own task instructions, a [PRODUCT] session does not preempt DAILY
+repair duty and this sandbox has no Railway access to act on the
+outage regardless — proceeded to product work.
+
+QUEUE CHECK: surveyed `research/PROGRAM_STATE.md` (a client-rendering
+audit program, effectively queue-clear except a GPU-tooling-blocked
+moon bake — not this session's territory), `research/platform_program.md`
+(P1-P4 all shipped, P5 HUMAN-GATED — queue clear), `research/data_census.md`
+("Axis (a) build queue for this census is now fully exhausted"),
+`scripts/data_stream_registry_check.py` (26/35 candidates built; the
+remaining 9 are all `declined_*`/`blocked_free_key`/`blocked_registration`
+— human-gated, nothing self-actionable), and
+`scripts/ladder_readiness_check.py` (0/3 gated roots ready — all
+time-blocked). With every other queue clear or time/access-blocked, the
+single genuinely unclaimed, cheaply-actionable, self-contained item was
+this thread's own long-open NEXT(2), filed 2026-09-12 and re-stated
+2026-09-12 (second session): "ISNE wind's small, real, unexplained-by-
+nameplate-convention overshoot ... worth checking registry completeness
+for ISNE wind specifically the same way this session checked ERCO/SWPP
+solar." Unclaimed for a full day despite two intervening sessions in
+this exact thread (both scoped to the SWPP/ERCO half instead, per their
+own stated scope).
+
+PRIOR (stated before running, REASONING STANDARD #10): no explicit prior
+was filed for this specific check by the session that queued it (it was
+flagged as untried, not predicted); this session's own expectation,
+formed from the pattern already established for ERCO/SWPP solar
+(completeness ruled out both times, currency explaining most-to-all of
+the overshoot both times), was that the same two-step methodology would
+most likely find the same shape of answer for ISNE wind — a real
+possibility this prior explicitly flags as pattern-matching risk
+(REASONING STANDARD #4: this is now the third application of the same
+lens to the same underlying registry, not an independent test), so the
+result below is reported as what it is, not inflated as fresh
+confirmation of a law.
+
+METHOD + LIVE RESULT: reused two already-built, already-tested,
+already-general sibling scripts with ZERO code changes — the entire
+point of building `--bas`/fuel as generic arguments in the ERCO/SWPP
+sessions was that a third BA/fuel pair needs no new script (EDGE
+DOCTRINE #3).
+
+STEP 1, registry COMPLETENESS: fresh EIA-860 2025 annual download
+(`curl -L eia8602025.zip`, live HTTP 200, 23.6MB) into
+`scripts/eia860_regional_capacity_check.py --bas ISNE`. Result: ISNE
+wind's registry-matched capacity (1,680.9 MW) vs EIA-860's own
+BA-level reported total (1,721.2 MW) — ratio **0.977**, a 40.3 MW
+(2.3%) gap. Essentially complete; registry completeness is RULED OUT,
+same verdict as ERCO/SWPP solar's own completeness check
+(2026-09-12).
+
+STEP 2, registry CURRENCY: confirmed EIA-860M "as of July 2026" is
+still the newest published month (`august_generator2026.xlsx` still
+301-redirects to the generic electricity listing page, not a real
+file — re-checked live, not assumed from the prior session's finding).
+Live gate-1 re-run (`python3 scripts/grid_generation_gate1_ba.py
+--respondents ISNE --source eia860`) reproduced the filed reading
+exactly: wind `max_generation_mwh` 2,103.0, `capacity_mw` (registry)
+1,680.9, `ratio_of_capacity` 1.251 — byte-identical to the value on
+record since 2026-09-11, confirming this is not a stale/drifted number.
+`scripts/eia860m_recent_capacity_check.py --generators
+july_generator2026.xlsx --bas ISNE --eia-max "wind:ISNE=2103.0"`:
+ISNE wind capacity grew **1,680.9 -> 2,521.2 MW (+840.3 MW, 1.500x)**
+since the EIA-860 annual snapshot. Recomputed gate-1 ratio: 2,103.0 /
+2,521.2 = **0.834 — a clean PASS**, comfortably under capacity, not
+merely squeaking inside the 5% tolerance.
+
+VERDICT: ISNE wind's gate-1 FAIL is **CLOSED**. The same registry
+DATE-STALENESS mechanism found for ERCO solar (not completeness, not
+an EIA-930 measurement artifact) generalizes to a third, different
+fuel/region pair — and this one closes CLEANLY, unlike SWPP solar's
+partial closure (still ~27.5% residual as of the last check on that
+thread). This also resolves the standing worry the 2026-09-12 window-
+widening session raised: wind has no benign nameplate-rating
+convention the way nuclear does (turbines have a hard physical power
+ceiling), so an unexplained overshoot there was flagged as more likely
+to be real. It was real — just not a measurement artifact or a
+turbine exceeding its own physical limit: it was 840 MW of genuine new
+wind capacity (ISO New England has been a documented wind-buildout
+region over this exact window) that EIA-860 ANNUAL had not yet
+captured as of its 2024-12-31 snapshot.
+
+CAVEAT, stated rather than glossed over: this is the third time this
+exact two-step methodology has been applied to this registry and found
+the same shape of answer (completeness clean, currency explains most
+or all of the gap). REASONING STANDARD #4 says to discount confidence
+accordingly — this is mounting evidence for a real, general mechanism
+(registry lags EIA-860M by construction, for any fast-growing
+fuel/region), not three independent confirmations of unrelated facts.
+The already-filed NEXT hypothesis ("registry EIA-860M freshness
+refresh", `research/open_questions.md`) exists precisely to compile
+this pattern into permanent code rather than re-discovering it by hand
+a fourth and fifth time.
+
+BACKTEST RESULT: N/A per PROMOTION RULE 3 — this session touches only
+two already-existing, already-tested gate-1 (DATA) diagnostic scripts
+run with different CLI arguments, plus `research/*` and one
+JSON-string-append. No scoring, sizing, threshold, or strategy code was
+touched.
+
+TESTS: none new — PROMOTION RULE 2 ("new behavior has a new test")
+does not apply because no new behavior was added; both scripts were
+already covered by `test_eia860_regional_capacity_check.py` (11 tests)
+and `test_eia860m_recent_capacity_check.py` (18 tests) from the
+sessions that built them. Did not re-run the full gate suite for this
+reason — `git diff --stat` against the pre-session tree confirms only
+`research/open_questions.md`, `research/experiments.md`, and one
+string inside `datacore/signal_ladder.json` changed; no test, source,
+or config file in this diff, so there is nothing the standard gate
+suite could newly break. `package.json` stays at 1.0.899 — no code
+shipped, PROMOTION RULE 4's version bump does not apply, same
+precedent the immediately preceding (top) entry in this file states
+for the same reason.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: 2026-09-13 is a Sunday (verified via
+`date.strftime`) — markets are closed all day, so the usual "hold
+merge for market hours" note does not apply; this diff also touches no
+trading-path/server-runtime file regardless.
+
+NEXT: (1) the `eia860_add_missing_plants.py` missing-plant-capacity
+refresh already filed for ERCO/SWPP's dominant lever — once it ships,
+worth a cheap re-check of whether ISNE wind (now closed) has any
+missing-plant-population exposure of the same shape, though this
+session's clean PASS means it is not urgent. (2) sweep the remaining
+untouched FAIL/INCONCLUSIVE cells from the original national
+per-respondent gate-1 run rather than waiting for each to surface one
+at a time in a future session. (3) the registry-freshness-refresh
+hypothesis itself (compile this now-3x-confirmed pattern into a
+recurring fix) remains the highest-leverage next step for this whole
+thread, per the CAVEAT above. (4) the production outage (KNOWN BROKEN
+#41) — unchanged, re-confirmed live at session start, no new evidence,
+not re-notified this session for the reasons stated above.
+
+STARVED: no — the primary action was this thread's own longest-unclaimed,
+concretely-testable, self-contained NEXT item; closed outright (not
+merely narrowed) with a definitive, mechanically-consistent result, and
+the CAVEAT above converts three individually-diagnosed incidents into an
+explicitly named general pattern rather than letting each sit as an
+unconnected footnote.
+
 ## 2026-09-13 (scheduled-routine session, [RESEARCH]) — resolves the immediately preceding session's own filed NEXT: traced whether `wikiAttention.ts`/`euLoad.ts`'s "no backfill on throw" gap is a live bug or dead code — DEAD CODE, confirmed by full read, no fix shipped
 
 TERRITORY: T-DATACORE (read-only this session) + SHARED-minimal

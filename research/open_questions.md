@@ -12404,6 +12404,68 @@ territory in their first commit)
   fast-growing BA/fuel pairs; needs its own scoped PR (one logical
   change) and its own ladder verification against a fresh gate-1
   re-run, same discipline as this entry's own history.
+  UPDATE (2026-09-13, [PIPELINE] session, second same-date thread): picks
+  up this entry's own long-open NEXT(2) — "ISNE wind's small, real,
+  unexplained-by-nameplate-convention overshoot ... worth checking
+  registry completeness for ISNE wind specifically the same way this
+  session checked ERCO/SWPP solar" (filed 2026-09-12, unclaimed since).
+  Reused the two already-built, already-tested sibling scripts with no
+  code changes (EDGE DOCTRINE #3 — the whole point of building them
+  generically was that a third BA/fuel pair needs no new script):
+
+  STEP 1, registry COMPLETENESS (`scripts/eia860_regional_capacity_check.py
+  --bas ISNE`, fresh EIA-860 2025 annual download): ISNE wind's registry-
+  matched capacity (1,680.9 MW) vs EIA-860's own BA-level reported total
+  (1,721.2 MW) — ratio **0.977**, a 40.3 MW (2.3%) gap. Essentially
+  complete; registry completeness is RULED OUT as the cause, same verdict
+  as ERCO/SWPP solar's own completeness check.
+
+  STEP 2, registry CURRENCY (`scripts/eia860m_recent_capacity_check.py`,
+  fresh EIA-860M "as of July 2026" download — confirmed still the newest
+  published month, same as the SWPP/ERCO session earlier today; August's
+  URL still 301-redirects to the generic listing page, not a real file):
+  live gate-1 re-run (`grid_generation_gate1_ba.py --respondents ISNE
+  --source eia860`) reproduced the filed reading exactly (wind
+  max_generation_mwh 2,103.0, ratio 1.251 vs the stale registry's 1,680.9
+  MW). Against EIA-860M's current figure, ISNE wind capacity has grown
+  **1,680.9 -> 2,521.2 MW (+840.3 MW, 1.500x)** since the annual snapshot
+  — recomputed gate-1 ratio: 2,103.0 / 2,521.2 = **0.834, a clean PASS**
+  (comfortably under capacity, not merely within tolerance).
+
+  VERDICT: ISNE wind's gate-1 FAIL is **CLOSED** — the same registry
+  DATE-STALENESS mechanism found for ERCO solar (not completeness, not an
+  EIA-930 measurement artifact) generalizes to a third, different
+  fuel/region pair, and this one closes CLEANLY (unlike SWPP solar's
+  partial closure) — no residual overshoot survives. This also answers
+  the standing worry this entry itself raised on 2026-09-12 ("wind has no
+  equivalent benign nameplate-convention explanation... stays a real,
+  open, minor question") — the explanation was never a nameplate
+  convention, it was real new wind capacity (ISO New England has been a
+  documented offshore/onshore wind growth corridor over this exact
+  window) that EIA-860 ANNUAL had not yet captured. REASONING STANDARD
+  #10: no explicit prior was stated before this specific check (the prior
+  session's own NEXT just flagged it as untried), so none to grade here.
+
+  Zero code changes this session (both scripts are already general over
+  `--bas`/fuel; no new function, no new test needed — PROMOTION RULE 2
+  applies to new behavior, and none was added). Full account:
+  `research/experiments.md` 2026-09-13 (this session).
+
+  NEXT: (1) the `eia860_add_missing_plants.py` missing-plant-capacity
+  refresh this thread's immediately preceding update filed for
+  ERCO/SWPP's dominant lever — worth checking whether ISNE wind's now-
+  closed status has any missing-plant-population exposure of the same
+  shape once that refresh ships, though this session's clean PASS means
+  it is not urgent for ISNE specifically. (2) no other BA/fuel pair from
+  the original national gate-1 run (`grid_generation_gate1_ba.py`, all
+  respondents) has been individually re-verified post-hoc for this same
+  staleness mechanism — a future session could sweep the remaining
+  FAIL/INCONCLUSIVE cells across all tracked respondents rather than
+  waiting for each to surface one at a time. (3) the production outage
+  (KNOWN BROKEN #41) — unchanged, re-confirmed live at session start
+  (18:10Z), still down, no new evidence; see experiments.md for why no
+  further action was taken and why the human was notified this session
+  despite five prior on-record notifications.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
