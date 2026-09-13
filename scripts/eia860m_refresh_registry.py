@@ -123,15 +123,20 @@ OPERATING_STATUS_PREFIX = "(OP)"
 def eia860m_capacity_by_plant_fuel(rows, fuel_codes=ENERGY_SOURCE_TO_FUEL):
     """rows: iterable of (plant_id, energy_source_code, status,
     nameplate_mw) straight off EIA-860M's own "Operating" sheet. Returns
-    {(plant_id, fuel): total_mw}, summed across every generator row at
-    that plant+fuel (a plant can have multiple generators of the same
-    fuel). Excludes (never guesses at): a row with an unmapped Energy
-    Source Code, a missing/blank Plant ID, or a Status not starting
-    "(OP)" (Operating) — the same OPERATING_STATUS_PREFIX convention
-    eia860m_recent_capacity_check.py already uses, so "(OA)"/"(OS)"
-    (temporarily/indefinitely out of service) rows are excluded here
-    too."""
+    ({(plant_id, fuel): total_mw}, skipped_bad_plant_id), summed across
+    every generator row at that plant+fuel (a plant can have multiple
+    generators of the same fuel). Excludes (never guesses at): a row
+    with an unmapped Energy Source Code, a missing/blank Plant ID, or a
+    Status not starting "(OP)" (Operating) — the same
+    OPERATING_STATUS_PREFIX convention eia860m_recent_capacity_check.py
+    already uses, so "(OA)"/"(OS)" (temporarily/indefinitely out of
+    service) rows are excluded here too. A Plant ID that survives the
+    blank check but still isn't int-coercible (a genuine data anomaly,
+    not the expected missing/blank case) is COUNTED rather than
+    silently dropped — a swallowed exception is how a broken pipeline
+    keeps reporting success (CLAUDE.md)."""
     out = defaultdict(float)
+    skipped_bad_plant_id = 0
     for plant_id, esc, status, mw in rows:
         fuel = fuel_codes.get(esc)
         if fuel is None:
@@ -143,9 +148,10 @@ def eia860m_capacity_by_plant_fuel(rows, fuel_codes=ENERGY_SOURCE_TO_FUEL):
         try:
             code = int(plant_id)
         except (TypeError, ValueError):
+            skipped_bad_plant_id += 1
             continue
         out[(code, fuel)] += (mw or 0.0)
-    return dict(out)
+    return dict(out), skipped_bad_plant_id
 
 
 def load_eia860m_operating_plant_rows(xlsx_path):
@@ -251,7 +257,7 @@ def main():
 
     # EIA-860M capacity override, solar+wind only.
     as_of, m_rows = load_eia860m_operating_plant_rows(args.generators)
-    capacity_override = eia860m_capacity_by_plant_fuel(m_rows)
+    capacity_override, capacity_override_skipped = eia860m_capacity_by_plant_fuel(m_rows)
 
     # Rebuild the GPPD-sourced BASE via build_powerplants.build_plants(),
     # with the EIA-860M capacity override applied at construction time.
@@ -274,6 +280,7 @@ def main():
         "eia_coords_used": eia_used,
         "position_overrides_used": overrides_used,
         "capacity_override_pairs_from_eia860m": len(capacity_override),
+        "capacity_override_skipped_bad_plant_id": capacity_override_skipped,
         "missing_plants_supplement": missing_report,
         "capacity_by_fuel": capacity_delta_report(before_plants, merged),
     }

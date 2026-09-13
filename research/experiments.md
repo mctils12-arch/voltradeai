@@ -133,9 +133,11 @@ columns, seen in this session's header dump, are populated enough to
 source coordinates directly, or whether the existing EIA-860 ANNUAL
 plant directory still covers all these codes as this session found —
 213/228 and 141/150 DO have annual-schedule rows, so likely yes for
-most, but should be verified, not assumed). (2) STARVED: no — this was
-a concretely queued, well-specified, buildable item, fully executed
-this session including a live data refresh, not merely diagnosed.
+most, but should be verified, not assumed).
+
+STARVED: no — this was a concretely queued, well-specified, buildable
+item, fully executed this session including a live data refresh, not
+merely diagnosed.
 
 ## 2026-09-13 (scheduled-routine session, second session this UTC day) [REPAIR] - re-confirmed KNOWN BROKEN #41 outage still ongoing at ~54.3h, no new evidence, no third patch attempted, no duplicate notification; fell through to [RESEARCH] (see next entry below once filed)
 

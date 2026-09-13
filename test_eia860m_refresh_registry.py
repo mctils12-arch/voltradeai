@@ -40,7 +40,7 @@ def test_capacity_by_plant_fuel_sums_operating_rows_by_plant_and_fuel():
         (2, "SUN", "(OP) Operating", 25.0),
         (1, "WND", "(OP) Operating", 10.0),
     ]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 150.0, (2, "solar"): 25.0, (1, "wind"): 10.0}
 
 
@@ -52,13 +52,13 @@ def test_capacity_by_plant_fuel_excludes_non_operating_status():
         (1, "SUN", "(RE) Retired", 999.0),
         (1, "SUN", "(SB) Standby/Backup", 999.0),
     ]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 100.0}
 
 
 def test_capacity_by_plant_fuel_excludes_unmapped_energy_source():
     rows = [(1, "SUN", "(OP) Operating", 100.0), (1, "NG", "(OP) Operating", 500.0)]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 100.0}
 
 
@@ -69,34 +69,43 @@ def test_capacity_by_plant_fuel_excludes_missing_or_blank_plant_id():
         ("", "SUN", "(OP) Operating", 25.0),
         ("  ", "SUN", "(OP) Operating", 25.0),
     ]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 100.0}
 
 
 def test_capacity_by_plant_fuel_excludes_non_numeric_plant_id():
     rows = [(1, "SUN", "(OP) Operating", 100.0), ("N/A", "SUN", "(OP) Operating", 50.0)]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 100.0}
+    # counted, not silently dropped (this is what fixes the silent_py_handlers
+    # ratchet: the int(plant_id) except-block now does real work, not a bare continue)
+    assert skipped == 1
+
+
+def test_capacity_by_plant_fuel_skip_count_zero_when_all_plant_ids_valid():
+    rows = [(1, "SUN", "(OP) Operating", 100.0), (2, "WND", "(OP) Operating", 10.0)]
+    _cap, skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
+    assert skipped == 0
 
 
 def test_capacity_by_plant_fuel_accepts_string_digit_plant_id():
     rows = [("7", "SUN", "(OP) Operating", 12.0)]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(7, "solar"): 12.0}
 
 
 def test_capacity_by_plant_fuel_treats_none_capacity_as_zero_not_a_crash():
-    cap = refresh.eia860m_capacity_by_plant_fuel([(1, "SUN", "(OP) Operating", None)])
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel([(1, "SUN", "(OP) Operating", None)])
     assert cap == {(1, "solar"): 0.0}
 
 
 def test_capacity_by_plant_fuel_empty_input():
-    assert refresh.eia860m_capacity_by_plant_fuel([]) == {}
+    assert refresh.eia860m_capacity_by_plant_fuel([]) == ({}, 0)
 
 
 def test_capacity_by_plant_fuel_two_fuels_same_plant_kept_separate():
     rows = [(1, "SUN", "(OP) Operating", 10.0), (1, "WND", "(OP) Operating", 20.0)]
-    cap = refresh.eia860m_capacity_by_plant_fuel(rows)
+    cap, _skipped = refresh.eia860m_capacity_by_plant_fuel(rows)
     assert cap == {(1, "solar"): 10.0, (1, "wind"): 20.0}
 
 
