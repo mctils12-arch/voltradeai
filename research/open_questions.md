@@ -19460,3 +19460,107 @@ a mechanical copy of the fires/quakes/buoys fix. Remaining ~65 routes.ts
 occurrences still unaudited. KNOWN BROKEN #41 re-checked live at session
 start (2026-09-13T00:1xZ): still down, same signature, now ~52h — not
 re-notified (no new information since the fifth session's own check).
+
+## 2026-09-13 (scheduled-routine [PIPELINE] session) — cold-cache-backfill decision logic compiled into a shared helper (`server/cacheBackfill.ts`); a possible THIRD occurrence of the same bug shape found in `wikiAttention.ts`/`euLoad.ts` and filed here rather than fixed
+
+CONTEXT: this session's own live re-check of KNOWN BROKEN #41 at start
+(`curl -sSD-` against `voltradeai.com/api/health`, ~13:06Z): still 502,
+identical `server: railway-hikari` / `x-railway-fallback: true` signature
+as every prior session's read, now past 68h wall-clock. No new
+information since the sixth session's own check — not re-notified, same
+disposition as every session in this thread since RECURRENCE ESCALATES
+fired. Not this PRODUCT session's to fix (needs Railway access this
+sandbox lacks); proceeded to product/pipeline work per CLAUDE.md's
+explicit instruction that a PRODUCT session notes but does not preempt
+the DAILY routines' repair duty.
+
+WHAT SHIPPED: the "cold cache, no on-disk backfill" bug has now been
+fixed by hand, in the byte-identical decision shape, in 7 separate
+modules across 4+ sessions since 2026-09-10 (githubOrgActivity ->
+wikiAttention/satellites/euLoad -> edgarForm4 -> nasaFirms/usgsQuakes/
+ndbcBuoys). CLAUDE.md's REPAIR MANDATE names this exactly: the same bug
+fixed repeatedly in the same subsystem is architecture smell, and
+EDGE DOCTRINE #3 says reasoning that must be repeated should terminate
+as code. New `server/cacheBackfill.ts` exports one pure function,
+`resolveCacheItems<T>(hasPrevCache, liveItems, backfill)`, that encodes
+the shared decision exactly 4 of those 7 modules make byte-for-byte: a
+non-empty live result always wins; an empty/failed live result backfills
+from disk only when no cache already exists; otherwise leave the cache
+untouched. Retrofitted onto it: `nasaFirms.ts`, `ndbcBuoys.ts`,
+`usgsQuakes.ts`, `edgarForm4.ts` — confirmed behavior-IDENTICAL (not just
+"should be"): all 4 modules' own existing test files (64 tests total,
+including each module's own cold-cache-backfill regression test written
+by the session that fixed it) pass unchanged after the retrofit, plus 6
+new unit tests for the helper itself in `server/cacheBackfill.test.ts`
+covering both branches independently (live-wins-with/without-a-prior-
+cache, empty-live-with/without-a-prior-cache, backfill-returns-empty).
+`tsc_ratchet.sh` unchanged (11, TS2304 0), `gated_tests.sh` GATE PASSED
+(client 1083/1083 node tests including the new file, python 2000
+passed/1 skipped), `counter_ratchet.sh` clean after re-pinning
+`tests_run_in_ci`/`tests_gating_merge` 450->451 and `assertions`
+14204->14214 in `ci/counter_baseline.txt` — all three this session's own
+direct effect (one new test file), nothing else moved.
+
+DELIBERATELY NOT retrofitted, and why (scope discipline — this is a
+behavior-preserving refactor PR, not a "fix everything" PR):
+`wikiAttention.ts`, `satellites.ts`, `euLoad.ts`. Read all three this
+session before deciding. They diverge from the other 4 in a real,
+structural way, not just superficially: each caches a DERIVED aggregate
+(wikiAttention: a picked "latest complete day" object; satellites: a
+per-GROUP `Map` of `{at, newest_epoch, records}`; euLoad: computed zone
+stats + a swept-issues list) rather than a flat `T[]` the live fetch
+returns directly. Forcing a `T[]`-shaped helper onto any of the three
+would mean either inventing a wrapping convention nobody asked for, or
+quietly changing what gets cached on the empty-result path — exactly the
+kind of scope creep CLAUDE.md's PROMOTION RULE 5 (one logical change per
+PR) exists to prevent.
+
+POSSIBLE THIRD BUG SHAPE, found while reading, filed rather than fixed
+this session: `wikiAttention.ts:356-373`'s `refreshAttention` and
+`euLoad.ts:370-390`'s `refreshLoad` BOTH only attempt their on-disk
+backfill inside the `try` block's own body, gated on the live fetch
+having returned SOME response (even if `obs.length` is 0) — neither
+module's `catch` block attempts a backfill at all. Concretely, in
+`wikiAttention.ts`: if `fetchAttention` itself THROWS (the network call
+fails, not "returned zero rows"), the catch block only logs
+(`console.error(...)`) and returns — `cache` stays whatever it was
+before this poll, with no attempt to reconstruct it from
+`backfillFromArchive()` even when `cache` was already null. `euLoad.ts`
+is the identical shape: `refreshLoad`'s catch block is bare, no backfill
+call. This means a cold-boot poll that throws (rather than one that
+merely returns an empty array) leaves BOTH of these modules permanently
+cold until the NEXT successful poll — the same "warming_up while a real
+archive sits on disk" symptom KNOWN BROKEN's whole cold-cache thread
+exists to fix, just triggered by the throw path instead of the
+empty-result path.
+
+NOT CONFIRMED AS A LIVE BUG, only as a code-reading finding — filed per
+MEASUREMENT INTEGRITY's spirit of not asserting more than what was
+checked: whether `fetchAttention`/`fetchLoad` actually throw in
+practice (vs. always resolving to `[]` on a fetch failure, which would
+make this a dead code path, not a live gap) was NOT traced this session.
+NEXT for whichever session picks this up: (1) read `fetchAttention`
+(wikiAttention.ts) and `fetchLoad`/its own per-zone HTTP calls (euLoad.ts)
+to confirm whether a genuine throw is reachable from `refreshAttention`/
+`refreshLoad`'s try blocks, or whether each swallows its own per-call
+errors internally first (in which case this finding is moot); (2) if
+reachable, add the catch-path backfill call the same way the 7 already-
+fixed modules have it, wrapping the DERIVED-aggregate construction
+(`pickLatestCompleteDay`/`computeZoneStats`) around whatever
+`backfillFromArchive()`/`readRecentArchivedLoad()` already returns rather
+than adopting `cacheBackfill.ts`'s helper unchanged (the T[]-vs-aggregate
+mismatch above still applies).
+
+NEXT for the shared helper itself: the ~62 remaining unaudited
+`server/routes.ts` `warming_up` occurrences this thread has been working
+through session-by-session are now mechanical for any module whose cache
+is a flat item list — import `resolveCacheItems`, add a
+`backfillXFromArchive()` if the module doesn't already have one (most of
+the already-checked modules did, from datacore's COLLECT-EVERYTHING
+archive discipline), and replace the module's own hand-written
+try/catch decision with the two `resolveCacheItems` call sites this
+session's 4 retrofits demonstrate. A module whose cache is a derived
+aggregate (the 3 above, and any future one with the same shape) still
+needs its own bespoke wiring, not this helper unchanged.
+
+NOT A SPEND REQUEST.

@@ -267,6 +267,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 const archivedAccessions = new Set<string>();
 
@@ -383,20 +384,14 @@ export function backfillForm4FromArchive(baseDir?: string, nowMs?: number, days 
 export async function refreshForm4Cache(limit = 25, fetchImpl: FetchFn = fetch as any): Promise<void> {
   try {
     const filings = await fetchLatestForm4Filings(limit, fetchImpl);
-    if (filings.length > 0) {
-      cache = { at: Date.now(), filings };
-    } else if (!cache) {
-      const archived = backfillForm4FromArchive();
-      if (archived.length) cache = { at: Date.now(), filings: archived };
-    }
+    const next = resolveCacheItems(cache !== null, filings, () => backfillForm4FromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
     try { archiveFilings(filings); } catch {}
     try { gzipOldFilingDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgarForm4 refresh:", e?.message || e);
-    if (!cache) {
-      const archived = backfillForm4FromArchive();
-      if (archived.length) cache = { at: Date.now(), filings: archived };
-    }
+    const next = resolveCacheItems(cache !== null, [], () => backfillForm4FromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
   }
 }
 

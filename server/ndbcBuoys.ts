@@ -39,6 +39,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export const BUOYS_FEED_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 
@@ -261,20 +262,14 @@ export function backfillBuoysFromArchive(baseDir?: string, nowMs?: number): Buoy
 export async function refreshBuoysCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const obs = await fetchBuoys(fetchImpl, nowMs);
-    if (obs.length > 0) {
-      cache = { at: Date.now(), obs };
-    } else if (!cache) {
-      const archived = backfillBuoysFromArchive(undefined, nowMs);
-      if (archived.length) cache = { at: Date.now(), obs: archived };
-    }
+    const next = resolveCacheItems(cache !== null, obs, () => backfillBuoysFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), obs: next };
     try { archiveBuoys(obs, undefined, nowMs); } catch {}
     try { gzipOldBuoyDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] buoys refresh:", e?.message || e);
-    if (!cache) {
-      const archived = backfillBuoysFromArchive(undefined, nowMs);
-      if (archived.length) cache = { at: Date.now(), obs: archived };
-    }
+    const next = resolveCacheItems(cache !== null, [], () => backfillBuoysFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), obs: next };
   }
 }
 
