@@ -50,6 +50,12 @@ this sandbox can't self-serve (matches this UTC day's earlier PRODUCT
 session's own identical finding, re-checked rather than assumed stale).
 Fell through to axis (c)/(d): filed as its own dated entry in this file (this session, RESEARCH half).
 
+STARVED: no — the repair half of this session had nothing further it could
+act on (blocked on human/Railway access, a third patch forbidden by
+RECURRENCE ESCALATES), and it fell through to a genuinely queued research
+item (the structural NEXT question the prior Hurst-on-SPY entry raised)
+rather than leaving capacity idle.
+
 ## 2026-09-13 [RESEARCH] — cross-sectional follow-up to the SIXTH foreign-field import (hydrology's Hurst exponent): does the trend-continuation signal that failed GATE 2 on SPY show up more strongly in illiquid small-caps than liquid mega-caps? — RUN AGAINST REAL DATA, GATE 2 RESULT: CLEAN NEGATIVE IN ALL THREE GROUPS, no cross-sectional-breadth rescue, and the illiquid group's pooled sign is OPPOSITE the EDGE-DOCTRINE-#2 hypothesis
 
 TERRITORY: research-probe scripts only (`scripts/*_probe.py` family, root-level
