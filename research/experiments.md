@@ -3,7 +3,54 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — routes.ts's "warming_up, no on-disk backfill" audit: the prior session's own spot-check of /api/data/fires and /api/data/earthquakes was WRONG — both are the same live-fetch-only cache bug, now fixed; /api/data/buoys (never spot-checked) fixed the same way; /api/data/volcanoes investigated and correctly NOT fixed (v1.0.896)
+## 2026-09-13 (scheduled-routine session, second session this UTC day) [REPAIR] - re-confirmed KNOWN BROKEN #41 outage still ongoing at ~54.3h, no new evidence, no third patch attempted, no duplicate notification; fell through to [RESEARCH] (see next entry below once filed)
+
+TERRITORY: SHARED-but-minimal (research/experiments.md, research/open_questions.md only this half of the session; see the RESEARCH half below for any code territory).
+
+SESSION-START CHECKS per this routine's own brief: CLAUDE.md read in full
+(EDGE DOCTRINE especial attention per brief), then research/experiments.md
+top+tail, research/open_questions.md KNOWN BROKEN section in full, tail of
+research/wishlist.md. LIVE HEALTH CHECK FIRST (repair mandate): `curl -v
+https://voltradeai.com/api/health` -> `HTTP/2 502`, identical
+`railway-hikari`/`x-railway-fallback: true` signature every session has
+observed since 2026-09-10T20:18Z (KNOWN BROKEN #41) -- now ~54.3 wall-clock
+hours, more than double the 24h LIVENESS ALARM threshold. `git log --since
+"2026-09-12 11:05" -- server/bot_engine.py voltrade_daemon.py
+system_config.py risk_kill_switch.py server/bot.ts`: zero commits -- ruled
+out a newer cause; the six merges since (#1059-#1065) are all
+docs/test/datacore-pipeline changes, no trading-path/FROZEN file touched.
+Full account filed in `research/open_questions.md`'s KNOWN BROKEN #41 entry
+(2026-09-13 UPDATE, appended this session).
+
+WHY NOT ANOTHER PATCH: RECURRENCE ESCALATES already triggered 2026-09-08
+(two independently-confirmed-insufficient fixes on this exact incident);
+this sandbox has zero live diagnostic access while the app itself is down
+(`/api/diag/*` is unreachable), so a third blind attempt is exactly what
+that rule exists to forbid. The only remaining path (a human Railway
+dashboard restart, then the already-merged `VOLTRADE_DISABLE_TIER2`/
+`VOLTRADE_DISABLE_TIER3` bisection) needs access this session does not have.
+
+WHY NOT RE-NOTIFIED: an earlier session today ([PRODUCT], see the entry
+immediately below this one) already re-confirmed this exact outage and
+explicitly reasoned against a duplicate PushNotification since nothing had
+changed versus the five prior on-record notifications (2026-09-10 x2,
+2026-09-11, 2026-09-12 x2). This session's own check adds ~2 more hours of
+duration but no new diagnostic fact (same signature, same root-cause class,
+no new commits in the trading path) -- the same reasoning holds. Per this
+item's own established convention, the next session should re-notify the
+moment anything actually changes: a restart, new stderr/log evidence, or a
+further materially-alarming threshold crossed.
+
+Per SESSION BUDGET, a REPAIR session with nothing new to patch and no
+access to gather more evidence does not idle -- it falls through. Queue
+check (`research_state_check.py`/`ladder_readiness_check.py`/
+`data_stream_registry_check.py --unbuilt`) confirmed no ladder-gated root
+newly ready and no unbuilt data stream buildable without a registration
+this sandbox can't self-serve (matches this UTC day's earlier PRODUCT
+session's own identical finding, re-checked rather than assumed stale).
+Fell through to axis (c)/(d): filed as its own dated entry in this file (this session, RESEARCH half).
+
+## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] - routes.ts's "warming_up, no on-disk backfill" audit: the prior session's own spot-check of /api/data/fires and /api/data/earthquakes was WRONG — both are the same live-fetch-only cache bug, now fixed; /api/data/buoys (never spot-checked) fixed the same way; /api/data/volcanoes investigated and correctly NOT fixed (v1.0.896)
 
 TERRITORY: T-DATACORE (server/nasaFirms.ts, server/usgsQuakes.ts,
 server/ndbcBuoys.ts + their test files — datacore server modules per
