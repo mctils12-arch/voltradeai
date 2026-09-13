@@ -12372,6 +12372,38 @@ territory in their first commit)
   session (one logical change per PR; this session's own change is the
   diagnostic, not the fix) — filed here rather than silently left as
   tribal knowledge in a closed thread.
+
+  UPDATE (2026-09-13, [PIPELINE] session): built and shipped
+  `scripts/eia860m_refresh_registry.py` exactly as specified above
+  (extends `build_powerplants.build_plants()` with a `capacity_override`
+  param, reuses `eia860_add_missing_plants.py`'s functions for the
+  supplement, 24 new tests, full account in `research/experiments.md`
+  2026-09-13). **Ground-truth check result: ERCO/SWPP solar did NOT move
+  toward PASS.** SWPP: 1.97x -> 1.97x, byte-identical. ERCO: 1.081x ->
+  1.083x, marginally WORSE. HONEST ROOT CAUSE (verified live, not
+  assumed): cross-checked EIA-860M's own BA-tagged generator rows
+  directly against GPPD's plant-code universe for the exact plant IDs
+  driving ERCO's/SWPP's EIA-860M growth — only 25%/35% of those plant
+  IDs exist in GPPD under any fuel. The other 65-75% are exactly the
+  population `eia860_add_missing_plants.py`'s supplement already adds
+  to the registry, but at EIA-860-ANNUAL (stale) capacity — this PR
+  deliberately did not refresh that supplement's capacity from EIA-860M
+  (scoped out per this entry's own prior wording). So the hypothesis's
+  underlying MECHANISM (registry lags EIA-860M) is confirmed and now
+  precisely localized, but the FIX built here addresses the wrong half
+  of the registry (matched-plant capacity, which nets to ~flat for
+  these two regions) rather than the dominant half (missing-plant
+  capacity, still 100% annual-vintage). REASONING STANDARD #10: prior
+  (stated before this session's gate-1 re-run) was that SWPP would
+  narrow further from 1.275x — that prior is WRONG, corrected here
+  rather than silently dropped. STATUS: hypothesis PARTIALLY ADVANCED,
+  NOT CLOSED — gate 1 (DATA) work continues. NEXT (filed, not this
+  session): refresh `eia860_add_missing_plants.py`'s own missing-plant
+  capacities from EIA-860M instead of EIA-860 ANNUAL — this is now the
+  identified dominant lever for ERCO/SWPP and plausibly other
+  fast-growing BA/fuel pairs; needs its own scoped PR (one logical
+  change) and its own ladder verification against a fresh gate-1
+  re-run, same discipline as this entry's own history.
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket

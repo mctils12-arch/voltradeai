@@ -58,13 +58,25 @@ def load_eia(xlsx: str) -> dict:
     return out
 
 
-def build_plants(src: str, eia: dict, verified: set, overrides: dict) -> tuple[list, int, int]:
+def build_plants(src: str, eia: dict, verified: set, overrides: dict,
+                  capacity_override: dict | None = None) -> tuple[list, int, int]:
     """Reads the GPPD USA rows and returns (plants, eia_used, overrides_used)
     — the pure GPPD-sourced plant list, unsorted-write-ready but NOT yet
     sorted (callers that append additional rows, e.g.
     eia860_add_missing_plants.py, sort once after merging). Split out of
     main() so a second script can build the same base list and extend it
-    without duplicating this GPPD-parsing logic."""
+    without duplicating this GPPD-parsing logic.
+
+    capacity_override (2026-09-13, eia860m_refresh_registry.py): optional
+    {(eia_plant_code, fuel): current_best_mw} map. When a row's own
+    (code, fuel) is a key, that MW value is used INSTEAD of GPPD's own
+    capacity_mw for that row — same style as the existing EIA-coordinate
+    preference below, keyed by fuel as well as code so a plant with
+    generators of two different fuel-coded types at the same Plant ID
+    cannot cross-contaminate the wrong GPPD row (GPPD assigns one
+    primary_fuel per idnr). Default None reproduces prior behavior
+    exactly — every existing caller that omits this argument is
+    unaffected."""
     plants, eia_used, overrides_used = [], 0, 0
     with open(src, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -90,6 +102,8 @@ def build_plants(src: str, eia: dict, verified: set, overrides: dict) -> tuple[l
                 lat, lon = ov["to"]
                 overrides_used += 1
             fuel = FUEL_CODE.get(row["primary_fuel"], "other")
+            if capacity_override and code is not None and (code, fuel) in capacity_override:
+                mw = round(capacity_override[(code, fuel)], 1)
             plants.append([row["name"].strip()[:60], mw, fuel,
                            (row.get("owner") or "").strip()[:60],
                            round(lat, 4), round(lon, 4),
