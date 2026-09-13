@@ -261,6 +261,34 @@ export function latestFirms(): { at: number; detections: FireDetection[] } | nul
   return cache;
 }
 
+/** Test-only: this module's dedup/cache/poll state is module-level
+ *  singleton (same class of problem edgarForm4.ts's `_resetForm4CacheForTests`
+ *  exists for), so a test exercising the cold-cache backfill path must be
+ *  able to reset it rather than rely on file execution order. */
+export function _resetFirmsCacheForTests(): void {
+  archivedIds.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Reconstructs a cache-shaped detections list from the on-disk fires
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (FIRMS transient outage) or comes back with zero detections before any
+ *  cache exists. `readFireHistory` already returns deduped rows across the
+ *  requested window, so this is a thin, named wrapper reusing that existing
+ *  pure aggregation rather than duplicating it. Freshness Law: render
+ *  last-known cached state immediately, swap when live data lands — same
+ *  pattern as githubOrgActivity.ts's `refreshGithubActivityCache` cold-cache
+ *  backfill (v1.0.881), its wikiAttention/satellites/euLoad generalization
+ *  (v1.0.892), and edgarForm4.ts's own instance of it (v1.0.895). Defaults
+ *  to 2 days (FIRMS_DAY_RANGE is 1 day per live poll; 2 absorbs a UTC day
+ *  boundary) rather than readFireHistory's own 7-day default, since this is
+ *  standing in for a single live "most recent day" fetch, not a history view. */
+export function backfillFirmsFromArchive(baseDir?: string, nowMs?: number, days = 2): FireDetection[] {
+  return readFireHistory(days, baseDir, nowMs);
+}
+
 // [REPAIR 2026-07-08] the route used to slice(0, FIRES_SERVE_CAP) for the
 // served array but report `count: detections.length` (uncapped) — during a
 // busy global fire season the status pill could claim thousands more
@@ -306,16 +334,25 @@ export function buildFiresResponse(
   };
 }
 
-export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any): Promise<void> {
   const key = firmsKey(env);
   if (!key) return;
   try {
-    const detections = await fetchFirmsDetections(key);
-    if (detections.length > 0 || !cache) cache = { at: Date.now(), detections };
+    const detections = await fetchFirmsDetections(key, fetchImpl);
+    if (detections.length > 0) {
+      cache = { at: Date.now(), detections };
+    } else if (!cache) {
+      const archived = backfillFirmsFromArchive();
+      if (archived.length) cache = { at: Date.now(), detections: archived };
+    }
     try { archiveFireDetections(detections); } catch {}
     try { gzipOldFireDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] FIRMS refresh:", e?.message || e);
+    if (!cache) {
+      const archived = backfillFirmsFromArchive();
+      if (archived.length) cache = { at: Date.now(), detections: archived };
+    }
   }
 }
 

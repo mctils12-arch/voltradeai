@@ -131,17 +131,24 @@ function buoysDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "buoys");
 }
 
+/** Parses one archived JSONL line, or null on a malformed row — shared by
+ *  `seedSeen` and `readBuoyHistory` so this file carries exactly one
+ *  swallow-and-skip catch for a bad archived line, not one per caller
+ *  (program_status.sh's `empty_ts_catch` counter is non-increasing). */
+function parseArchivedLine<T>(line: string): T | null {
+  try { return JSON.parse(line) as T; } catch { return null; }
+}
+
 function seedSeen(dir: string, nowMs: number): void {
   for (const dayMs of [nowMs, nowMs - 86400_000]) {
     const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
     try {
       for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
         if (!line) continue;
-        try {
-          const row = JSON.parse(line);
-          const prev = archivedTime.get(row.station);
-          if (prev === undefined || (row.time ?? 0) > prev) archivedTime.set(row.station, row.time ?? 0);
-        } catch {}
+        const row = parseArchivedLine<{ station: string; time: number | null }>(line);
+        if (!row?.station) continue;
+        const prev = archivedTime.get(row.station);
+        if (prev === undefined || (row.time ?? 0) > prev) archivedTime.set(row.station, row.time ?? 0);
       }
     } catch {}
   }
@@ -189,6 +196,36 @@ export function gzipOldBuoyDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reads back the archived buoys day-files (today + `days-1` prior, plain
+ *  or gz), deduped by `station` keeping whichever archived row has the
+ *  GREATEST observation `time` — mirrors `archiveBuoys`'s own
+ *  newer-observation-wins logic, since a station reports repeatedly through
+ *  the day and only its latest reading should stand in for the live cache. */
+export function readBuoyHistory(days = 2, baseDir?: string, nowMs?: number, maxObs = 20_000): BuoyObs[] {
+  const dir = buoysDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const byStation = new Map<string, BuoyObs>();
+  for (let d = 0; d < days; d++) {
+    const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        const o = parseArchivedLine<BuoyObs>(line);
+        if (!o?.station) continue;
+        const prev = byStation.get(o.station);
+        if (!prev || (o.time ?? 0) > (prev.time ?? 0)) byStation.set(o.station, o);
+      }
+    }
+  }
+  return Array.from(byStation.values()).slice(0, maxObs);
+}
+
 // ── in-memory cache + poll loop (mirrors usgsQuakes.ts's boot pattern) ─────
 let cache: { at: number; obs: BuoyObs[] } | null = null;
 let polling = false;
@@ -197,14 +234,47 @@ export function latestBuoys(): { at: number; obs: BuoyObs[] } | null {
   return cache;
 }
 
+/** Test-only: this module's dedup/cache/poll state is module-level
+ *  singleton (same class of problem edgarForm4.ts's `_resetForm4CacheForTests`
+ *  exists for), so a test exercising the cold-cache backfill path must be
+ *  able to reset it rather than rely on file execution order. */
+export function _resetBuoysCacheForTests(): void {
+  archivedTime.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Reconstructs a live-feed-shaped observation list (one row per station,
+ *  its latest known reading) from the on-disk buoys archive — used to
+ *  backfill a cold cache when a boot's live poll throws (NDBC transient
+ *  outage) or comes back with zero observations before any cache exists.
+ *  Unlike usgsQuakes.ts's 24h-window filter, a stale-but-real buoy reading
+ *  carries its own honest `time` field rather than an implicit "current"
+ *  claim (no equivalent risk to nwsAlerts.ts's since-expired-alert
+ *  problem), so no additional recency filter is applied here — same
+ *  Freshness Law lineage as nasaFirms.ts's `backfillFirmsFromArchive`. */
+export function backfillBuoysFromArchive(baseDir?: string, nowMs?: number): BuoyObs[] {
+  return readBuoyHistory(2, baseDir, nowMs);
+}
+
 export async function refreshBuoysCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const obs = await fetchBuoys(fetchImpl, nowMs);
-    if (obs.length || !cache) cache = { at: Date.now(), obs };
+    if (obs.length > 0) {
+      cache = { at: Date.now(), obs };
+    } else if (!cache) {
+      const archived = backfillBuoysFromArchive(undefined, nowMs);
+      if (archived.length) cache = { at: Date.now(), obs: archived };
+    }
     try { archiveBuoys(obs, undefined, nowMs); } catch {}
     try { gzipOldBuoyDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] buoys refresh:", e?.message || e);
+    if (!cache) {
+      const archived = backfillBuoysFromArchive(undefined, nowMs);
+      if (archived.length) cache = { at: Date.now(), obs: archived };
+    }
   }
 }
 

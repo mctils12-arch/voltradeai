@@ -19352,3 +19352,27 @@ not assume the remaining occurrences are uniform. `nwsAlerts.ts` and
 argument to add this session. KNOWN BROKEN #41 re-checked live at session
 start (2026-09-12T20:36:44Z): still down, same `railway-hikari`/
 `x-railway-fallback: true` 502 signature, no change — not re-notified.
+
+## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — continues the routes.ts warming_up audit: the fifth session's own spot-check of `/api/data/fires`/`/api/data/earthquakes` as "disk-derived, not the bug" was WRONG — both fixed; `/api/data/buoys` (never checked) fixed the same way; `/api/data/volcanoes` investigated and correctly NOT fixed (v1.0.896)
+
+Full account in experiments.md's matching dated entry — pointer only.
+CORRECTION to the entry directly above: re-reading `server/nasaFirms.ts`
+and `server/usgsQuakes.ts` in full (not by inference/contrast, per READ
+BEFORE WRITE) found `latestFirms()`/`latestQuakes()` each just `return
+cache` — a bare in-memory variable fed only by a live-fetch function, with
+no disk read anywhere in the getter. `nasaFirms.ts`'s own docstring on
+`readFireHistory()` already said as much ("not yet surfaced on the map,
+which shows the live cache"). Both are the SAME cold-cache-no-disk-backfill
+bug as wikiAttention/satellites/euLoad/edgarForm4 — FIXED with the
+established backfill-on-throw-or-empty-fetch pattern, tested,
+A/B-verified. `/api/data/buoys` (`ndbcBuoys.ts`, never named by either
+prior session) is the same shape — FIXED too. `/api/data/volcanoes`
+(`usgsVolcanoes.ts`) DELIBERATELY NOT FIXED: its archive is delta-only
+(new notices only, no downgrade record), so mechanically backfilling
+"currently elevated" from history risks resurrecting an already-downgraded
+volcano as still-elevated — the same honesty tradeoff `nwsAlerts.ts` was
+deliberately left unfixed for in the fourth session's own entry above; not
+a mechanical copy of the fires/quakes/buoys fix. Remaining ~65 routes.ts
+occurrences still unaudited. KNOWN BROKEN #41 re-checked live at session
+start (2026-09-13T00:1xZ): still down, same signature, now ~52h — not
+re-notified (no new information since the fifth session's own check).

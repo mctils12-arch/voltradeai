@@ -3,7 +3,222 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-NOTE (this session, housekeeping only, not fixed): the two most recent
+## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — routes.ts's "warming_up, no on-disk backfill" audit: the prior session's own spot-check of /api/data/fires and /api/data/earthquakes was WRONG — both are the same live-fetch-only cache bug, now fixed; /api/data/buoys (never spot-checked) fixed the same way; /api/data/volcanoes investigated and correctly NOT fixed (v1.0.896)
+
+TERRITORY: T-DATACORE (server/nasaFirms.ts, server/usgsQuakes.ts,
+server/ndbcBuoys.ts + their test files — datacore server modules per
+WORKSTREAM PARTITION) + SHARED-minimal, last (package.json/package-lock.json
+version bump, ci/counter_baseline.txt, test_ts_code_only.py's paired pin,
+research/experiments.md, research/open_questions.md).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+top + tail, research/open_questions.md KNOWN BROKEN section, research/
+wishlist.md tail, per this routine's own brief. `research_state_check.py`:
+thrash 1/10 REPAIR (fine), known_broken 44 items/4 unclosed (advisory),
+starvation 0 consecutive (fine). `ladder_readiness_check.py`: 0/3 gated
+roots ready (earliest ~2026-10-02). `data_stream_registry_check.py
+--unbuilt`: 9/9 declined/blocked-on-registration this sandbox can't
+self-serve (viirs_nightfire already has its BUILD-FIRST writeup + a
+pre-gate-1 candidate-detector module from 2026-09-01, itself blocked on a
+production FIRMS archive this sandbox doesn't have — same production-
+access constraint as the outage below). `datacore/signal_ladder.json`:
+both gate2_pass roots already have `/data` UI; both gate2_pending roots
+still WAITING per the readiness check. The PLATFORM INTEGRATION PROGRAM
+queue is clear except P5 (HUMAN-GATED). No unblocked ladder-gate or
+platform-program item fit — fell through to SESSION BUDGET step 1
+(routes.ts's own long-running "warming_up, no on-disk backfill" audit,
+explicitly left "STILL OPEN" by the two immediately preceding sessions on
+this thread, most recently v1.0.895/PR #1064).
+
+LIVE HEALTH CHECK (before choosing an action, per this session's own task
+brief): `curl -v https://voltradeai-production.up.railway.app/api/health`
+→ still `HTTP/2 502 Application failed to respond`, identical
+`railway-hikari`/`x-railway-fallback: true` signature every session has
+observed since 2026-09-10T20:18Z (KNOWN BROKEN #41), confirmed again at
+2026-09-13T00:1xZ — now ~52 wall-clock hours, more than double CLAUDE.md's
+own 24h LIVENESS ALARM threshold. NOT new information versus what multiple
+prior sessions have already relayed to the human today and yesterday (same
+signature, RECURRENCE ESCALATES already fired, no Railway access from this
+sandbox, a third blind patch forbidden per the two-failed-fixes rule) — no
+duplicate notification sent, matching every session's own logged reasoning
+on this exact incident since 2026-09-11. Does not block non-trading-path
+pipeline work; this PRODUCT session did not preempt repair per its own task
+framing (repair is DAILY-routine duty; this session noted the alarm and
+proceeded).
+
+READ BEFORE WRITE — RECHECKING A PRIOR SESSION'S OWN CLAIM (this is the
+whole finding): v1.0.895's session wrote "`/api/data/fires` (NASA FIRMS,
+routes.ts:2012) and `/api/data/quakes` (USGS, routes.ts:2027) both read
+modules that fold their OWN full on-disk archive fresh on every
+request/cycle rather than caching a live fetch — the disk-derived class
+v1.0.892 already ruled NOT the bug." Read `server/nasaFirms.ts` and
+`server/usgsQuakes.ts` in full before touching anything (this session had
+not read them yet, so per READ BEFORE WRITE did not know either way).
+Both claims are FALSE on direct inspection: `latestFirms()`/`latestQuakes()`
+each just `return cache` — a bare module-level variable populated ONLY by
+`refreshFirmsCache()`/`refreshQuakesCache()`, both live-fetch functions,
+with NO disk read in either getter. `nasaFirms.ts`'s own `readFireHistory()`
+docstring says so directly: "not yet surfaced on the map, which shows the
+live cache" — the module's own author-facing comment already contradicts
+the prior session's spot-check conclusion. This is the IDENTICAL bug shape
+wikiAttention/satellites/euLoad (v1.0.892) and edgarForm4 (v1.0.895) were
+each fixed for: a cold cache (fresh deploy, or a live-poll cycle that
+throws or returns nothing before any successful fetch) leaves `warming_up:
+true` forever even though a perfectly good archive sits on disk, because
+the day-file archive (`archiveFireDetections`/`archiveQuakes`, real,
+already written every cycle) is never read back into the cache. Filed
+here rather than silently corrected because CLAUDE.md's RECURRENCE
+ESCALATES logic is about repairs, not audits — but the general lesson is
+the same one PROGRAM_STATE.md's own L21/L2 findings already state: a
+prior session's spot-check is a claim to re-verify, not a fact to build
+on, especially when (as here) it was reached by CONTRAST against three
+correctly-diagnosed sibling modules rather than by reading the two
+modules actually in question line by line.
+
+Also checked `/api/data/volcanoes` (USGS Volcano Hazards Program,
+`usgsVolcanoes.ts`) and `/api/data/buoys` (NOAA NDBC, `ndbcBuoys.ts`) —
+neither was ever spot-checked by name in the prior two sessions' write-ups.
+Both share the identical bare-`cache`-getter shape. Buoys: FIXED (below).
+Volcanoes: investigated and DELIBERATELY NOT FIXED — its archive
+(`archiveVolcanoAlerts`) is delta-only, dedup-keyed by
+`vnum:noticeId` and only ever appends a NEW notice; a volcano whose alert
+status is downgraded (no longer elevated) emits no corresponding archive
+row at all, only the absence of a future notice. Reconstructing "currently
+elevated volcanoes" from this archive by scanning back for each vnum's
+most recent notice would silently resurrect an already-downgraded volcano
+as still-elevated — the EXACT class of honesty violation v1.0.892's own
+`nwsAlerts.ts` decision named ("backfilling a possibly-since-expired alert
+as active is a worse honesty failure than warming_up — needs its own
+weighed decision, not a mechanical copy"). Filed as its own open item, not
+mechanically copied from the fires/quakes/buoys pattern.
+
+WHAT SHIPPED (mirrors the exact v1.0.892/v1.0.895 pattern — reuses
+existing pure aggregation where it already existed, adds the minimum new
+reader where it didn't):
+
+- `server/nasaFirms.ts`: new `backfillFirmsFromArchive(baseDir?, nowMs?,
+  days=2)`, a thin wrapper around the ALREADY-EXISTING `readFireHistory()`
+  (no new aggregation logic — it already existed for a future history view
+  and was simply never wired into the live cache's own cold-start path).
+  `refreshFirmsCache()` gained an injectable `fetchImpl` param (previously
+  hardcoded to global `fetch`, needed for the test) and now backfills from
+  archive on either a throw or a zero-detection first-ever fetch (the same
+  "prefer real archived history over a fabricated confirmed-zero" fix
+  edgarForm4.ts got). New `_resetFirmsCacheForTests()`.
+- `server/usgsQuakes.ts`: new `readQuakeHistory(days=2, ...)` — unlike
+  nasaFirms.ts/edgarForm4.ts (whose archived records never get revised),
+  this dedups by USGS's own `id` keeping whichever archived row has the
+  GREATEST `updated` timestamp, mirroring `archiveQuakes`'s own
+  re-archive-on-revision logic (a pure first-seen dedup would freeze a
+  quake at its first-seen, often "automatic"/unreviewed values). New
+  `backfillQuakesFromArchive()` additionally filters to the same rolling
+  24h origin-`time` window the live "2.5_day" feed itself covers, so a
+  cold-boot backfill can never misrepresent an already-scrolled-off event
+  as still inside the current window. `refreshQuakesCache()` gained the
+  same throw/zero-event backfill dual path. New
+  `_resetQuakesCacheForTests()`.
+- `server/ndbcBuoys.ts`: new `readBuoyHistory(days=2, ...)` dedups by
+  `station` keeping the row with the GREATEST observation `time` (a
+  station reports repeatedly through the day; only the latest reading
+  should stand in for the live cache). New `backfillBuoysFromArchive()`
+  applies NO recency filter, unlike quakes — a stale buoy reading carries
+  its own honest `time` field, unlike an alert's implicit "currently
+  active" claim, so there is no equivalent nwsAlerts-class risk in serving
+  an older-but-real reading. Same `refreshBuoysCache()` dual path, new
+  `_resetBuoysCacheForTests()`.
+
+MEASUREMENT INTEGRITY / counter-ratchet discipline applied to the fix
+itself, not just the trading-measurement code the CLAUDE.md section
+literally names (its spirit applies): the first draft of
+`readQuakeHistory`/`readBuoyHistory` each added their own new per-line
+`try { JSON.parse(line) } catch {}`, which is `program_status.sh`'s
+`empty_ts_catch` counter's exact predicate — `bash scripts/gated_tests.sh`
+caught this immediately (`test_ts_code_only.py`'s pinned-value test failing
+491+2=493... i.e. would have pushed 493 -> 495). Fixed properly, not by
+loosening the ratchet: extracted a shared `parseArchivedLine<T>(line)`
+helper into each file (returns `T | null`, catch body `return null;` — not
+textually empty, so it doesn't match the counter's regex at all) and
+pointed BOTH the new history reader AND the pre-existing `seedSeen` at it,
+replacing `seedSeen`'s own pre-existing empty catch too. Net effect:
+`empty_ts_catch` 493 -> **491** (a genuine 2-count IMPROVEMENT, not the
+neutral wash the refactor was aimed at) — re-pinned in
+`ci/counter_baseline.txt` AND in `test_ts_code_only.py`'s own hardcoded
+parametrize literal (a SECOND pin the counter ratchet doesn't touch,
+found only by running the actual gate rather than trusting
+`counter_ratchet.sh` alone — the file's own docstring explains why the two
+tests exist separately: "If program_status.sh ever stops calling this
+module, the ratchet keeps passing and only this test notices").
+
+HONESTY (RAW-vs-SIGNAL surface rule, restated because it's the reason this
+class of bug matters beyond a display nicety): fires/quakes/volcanoes/
+buoys are all RAW-DATA overlays, not SIGNALS — ungated, source-attributed,
+no predictive claim. A cold `warming_up` state on a RAW overlay is an
+honest "we don't have this yet," never a wrong number; the bug this fixes
+is availability/freshness (Law V: "render last-known cached state
+immediately, swap when live data lands"), not accuracy. Nothing here
+touches scoring, sizing, or any trading-path code.
+
+GATES: `npx tsx --test server/nasaFirms.test.ts server/usgsQuakes.test.ts
+server/ndbcBuoys.test.ts`: 48/48 pass (19+14+15, plus pre-existing).
+A/B-verified live (not assumed): `git stash push -- server/nasaFirms.ts`
+(test file kept staged) reproduces failure as an outright import error for
+the new `_resetFirmsCacheForTests` export — same A/B convention
+edgarForm4.ts's own v1.0.895 entry used, since the fix IS the new exported
+surface the old file cannot provide. Full suite `python3 -m pytest -q`:
+1955 passed, 1 skipped, 54 subtests (sandbox needed a fresh `npm ci` +
+`pip install -r requirements.txt -r requirements-dev.txt`, the same
+recurring first-session-in-a-container provisioning step several prior
+sessions have logged, not a repo defect). `bash scripts/gated_tests.sh`:
+first run FAILED on `test_ts_code_only.py`'s `empty_ts_catch` pin (493 vs
+the then-measured 493->495 before the shared-helper refactor, then 491 vs
+the still-493 hardcoded parametrize literal after it) — both root-caused
+and fixed per the MEASUREMENT INTEGRITY section above, not routed around;
+**second run: GATE PASSED — server/client/python all green, quarantine
+0/1, none overdue.** `bash scripts/counter_ratchet.sh`: IMPROVED
+(`empty_ts_catch` 493->491, `assertions` 14118->14139) — both re-pinned in
+this same PR, both this session's own direct, explained effect; re-ran
+after re-pinning, clean. `bash scripts/tsc_ratchet.sh`: reports 11 <= 11,
+TS2304 = 0 (transiently read 3 before this session's own `npm ci`
+provisioned `@types/node`/`@types/vite` — a fresh-container artifact, not
+a real regression; settled back to the pinned 11 once dependencies were
+actually installed, so nothing to re-pin here). `npm run
+build`/`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: this session ran 2026-09-13, outside 9:30-16:00 ET
+market hours (a Sunday — markets closed entirely) — no merge-timing
+constraint applies.
+
+NEXT: (1) `/api/data/volcanoes` — the honest fix, if one exists, needs a
+DIFFERENT design than the mechanical fires/quakes/buoys pattern: either
+(a) archive full snapshots (not just new-notice deltas) so a downgrade is
+directly observable, letting a cold-boot backfill safely reconstruct
+"currently elevated," or (b) accept `warming_up` as the only honest
+cold-start state for this specific root and instead shorten the real
+exposure window some other way (e.g. a more eager first-boot poll retry).
+Not decided or built here — this session's scope was the mechanical class
+of fix, and volcanoes doesn't qualify for it. (2) routes.ts's own ~65
+still-unaudited `warming_up` occurrences remain — three sessions in, the
+audit keeps finding real bugs at roughly the same rate it started with (2
+more confirmed this session, on top of the 3 direct fixes + 1 edgarForm4
+fix already shipped), which argues AGAINST treating "no one has reported
+this as broken" as evidence a given occurrence is fine; a future session
+should keep working through it with the same read-the-actual-module
+discipline, not skim prior sessions' own summaries as ground truth (this
+session's own headline finding). (3) the production outage (KNOWN BROKEN
+#41) — now ~52h, still open, still needs a human Railway restart; not
+this session's to fix, not re-notified for the reasons stated above.
+
+STARVED: no — the queue's own most-recently-filed thread (routes.ts's
+warming_up audit) was continued with real, previously-undiscovered value:
+this session didn't just add more instances to the fixed pile, it caught
+and corrected a genuine error in two PRIOR sessions' own stated
+conclusions by actually reading the code those sessions had only
+spot-checked by inference, then extended the fix to a fourth module
+(buoys) those sessions never even named, and made a deliberate,
+reasoned, non-mechanical decision to NOT apply the same fix to a fifth
+(volcanoes) where it would have traded one honesty bug for a worse one.
+
+NOTE (2026-09-12 session, housekeeping only, not fixed): the two most recent
 sessions' own entries (v1.0.893 PR #1061, v1.0.894 PR pending/#1063 per this
 session's `git log`) were found appended near the END of this file rather
 than at the top the header's own convention calls for — this entry is

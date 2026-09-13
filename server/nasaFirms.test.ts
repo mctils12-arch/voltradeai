@@ -16,6 +16,9 @@ import {
   bootFirmsPoll,
   buildFiresResponse,
   FIRES_SERVE_CAP,
+  latestFirms,
+  refreshFirmsCache,
+  _resetFirmsCacheForTests,
   type FireDetection,
 } from "./nasaFirms";
 
@@ -207,4 +210,58 @@ test("buildFiresResponse: an invalid bbox is backward-compatible (full unfiltere
   const out = buildFiresResponse(dets, "not-a-bbox", Date.parse("2026-07-08T00:00:00Z")) as any;
   assert.equal(out.fires.length, 2);
   assert.equal(out.viewport_filtered, undefined);
+});
+
+test("refreshFirmsCache: cold cache backfills from the on-disk fires archive when the live poll throws — same class of live finding githubOrgActivity.ts's v1.0.881 fix closed for a sibling archiver, generalized to fires this session (this prior 'routes.ts warming_up' audit had spot-checked /api/data/fires as the disk-derived non-bug class in error — latestFirms() is populated only from the live in-memory `cache`, same as wikiAttention/satellites/euLoad/edgarForm4)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-firms-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetFirmsCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "fires");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const archived: FireDetection = {
+      id: "COLD-1", lat: 34.05, lon: -118.25, brightness: 330, confidence: "high",
+      frp: 12.3, acq_date: today, acq_time: "0130", satellite: "N", daynight: "N",
+    };
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(archived) + "\n");
+
+    assert.equal(latestFirms(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("FIRMS unreachable"); };
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "test-key" } as any, failing as any);
+    const cached = latestFirms();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.detections.length, 1);
+    assert.equal(cached!.detections[0].id, "COLD-1", "backfilled from the archived detection, not fabricated");
+  } finally {
+    _resetFirmsCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refreshFirmsCache: a live fetch that succeeds with zero detections and no prior cache backfills from archive rather than caching a fabricated empty list", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-firms-emptyfetch-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetFirmsCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "fires");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const archived: FireDetection = {
+      id: "COLD-2", lat: 1, lon: 2, brightness: 300, confidence: "nominal",
+      frp: null, acq_date: today, acq_time: "0100", satellite: "N", daynight: "N",
+    };
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(archived) + "\n");
+
+    const emptyOk = async () => ({ ok: true, status: 200, text: async () => "" });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "test-key" } as any, emptyOk as any);
+    const cached = latestFirms();
+    assert.ok(cached, "an empty-but-successful first fetch must not leave the cache fabricated-empty");
+    assert.equal(cached!.detections[0].id, "COLD-2");
+  } finally {
+    _resetFirmsCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });

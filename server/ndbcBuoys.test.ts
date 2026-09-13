@@ -10,6 +10,12 @@ import {
   archiveBuoys,
   gzipOldBuoyDays,
   bootBuoysPoll,
+  readBuoyHistory,
+  backfillBuoysFromArchive,
+  latestBuoys,
+  refreshBuoysCache,
+  _resetBuoysCacheForTests,
+  type BuoyObs,
 } from "./ndbcBuoys";
 
 // ROOT VALIDATION LADDER gate 1 (DATA) fixture — captured verbatim from a
@@ -150,4 +156,73 @@ test("bootBuoysPoll: keyless — starts polling unconditionally, idempotent acro
     bootBuoysPoll(3600_000);
     bootBuoysPoll(3600_000); // second call is a no-op (module-level `polling` guard)
   });
+});
+
+function fakeBuoy(station: string, timeMs: number): BuoyObs {
+  return {
+    station, lat: 1, lon: 2, time: timeMs, windDir: 180, windSpeed: 5, gust: 7,
+    waveHeight: 1.2, dominantPeriod: 8, avgPeriod: 6, waveDir: 200, pressure: 1013,
+    pressureTendency: 0.1, airTemp: 20, waterTemp: 18, dewpoint: 15, visibility: 10,
+    tide: null, rt: new Date(timeMs).toISOString().slice(0, 10),
+  };
+}
+
+test("readBuoyHistory: dedups by station keeping the row with the GREATEST observation time (a newer reading must win over its own earlier archived copy)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-buoys-history-"));
+  const now = Date.parse("2026-07-08T12:00:00Z");
+  const bDir = path.join(dir, "buoys");
+  fs.mkdirSync(bDir, { recursive: true });
+  const older = fakeBuoy("46042", now - 3 * 3600_000);
+  const newer = { ...fakeBuoy("46042", now - 3600_000), airTemp: 25 };
+  fs.writeFileSync(
+    path.join(bDir, "2026-07-08.jsonl"),
+    JSON.stringify(older) + "\n" + JSON.stringify(newer) + "\n",
+  );
+  const hist = readBuoyHistory(2, dir, now);
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].airTemp, 25, "the newer-`time` row must win, not first-seen");
+});
+
+test("backfillBuoysFromArchive: reconstructs one row per station from the archive, no recency filter (a stale reading carries its own honest `time`, unlike an alert's implicit 'active' claim)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-buoys-backfill-"));
+  const now = Date.parse("2026-07-08T12:00:00Z");
+  const bDir = path.join(dir, "buoys");
+  fs.mkdirSync(bDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(bDir, "2026-07-08.jsonl"),
+    JSON.stringify(fakeBuoy("stationA", now - 3600_000)) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(bDir, "2026-07-07.jsonl"),
+    JSON.stringify(fakeBuoy("stationB", now - 30 * 3600_000)) + "\n",
+  );
+  const backfilled = backfillBuoysFromArchive(dir, now);
+  const stations = backfilled.map((b) => b.station).sort();
+  assert.deepEqual(stations, ["stationA", "stationB"], "both stations returned — no time-window filter for buoys");
+});
+
+test("refreshBuoysCache: cold cache backfills from the on-disk buoys archive when the live poll throws — same class of live finding githubOrgActivity.ts's v1.0.881 fix closed for a sibling archiver, generalized to buoys this session (this prior 'routes.ts warming_up' audit never spot-checked /api/data/buoys at all — latestBuoys() is populated only from the live in-memory `cache`, same as wikiAttention/satellites/euLoad/edgarForm4)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-buoys-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetBuoysCacheForTests();
+  try {
+    const now = Date.now();
+    const dir = path.join(base, "datacore_archive", "buoys");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date(now).toISOString().slice(0, 10);
+    const archived = fakeBuoy("COLD-1", now - 3600_000);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(archived) + "\n");
+
+    assert.equal(latestBuoys(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("NDBC unreachable"); };
+    await refreshBuoysCache(failing as any, now);
+    const cached = latestBuoys();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.obs.length, 1);
+    assert.equal(cached!.obs[0].station, "COLD-1", "backfilled from the archived observation, not fabricated");
+  } finally {
+    _resetBuoysCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
