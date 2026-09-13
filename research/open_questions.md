@@ -19336,6 +19336,28 @@ caught and fixed with a reusable safeguard rather than reported naively —
 this is the RIGOR the six-import track record above says this probe
 family still needs, not a seventh repeat of the same mistake.
 
+ADDENDUM (2026-09-13, [RESEARCH] session): the STRUCTURAL question in
+NEXT(1) above has been addressed, on the cross-sectional-breadth axis it
+named. `scripts/hurst_exponent_cross_sectional_probe.py` (new) reused
+this entry's own Hurst/continuation/de-stride machinery unchanged and
+pooled it across `illiquid_universe_probe.py`'s already-pinned EDGE-
+DOCTRINE-#2 universe (10 illiquid / 7 moderate / 7 liquid tickers, same
+window=252/lookback=20/horizon=20 parameters). RESULT: GATE 2 NOT PASSED
+in any of the three groups (pooled de-strided Spearman: illiquid
+rho=-0.0323 p=0.421 n=624; moderate rho=-0.0044 p=0.928 n=426; liquid
+rho=+0.0536 p=0.226 n=511) — cross-sectional breadth did NOT rescue the
+signal, and the illiquid group's pooled sign is the OPPOSITE of the
+EDGE DOCTRINE #2 prediction (expected illiquid > liquid in magnitude and
+same-signed; observed illiquid smaller in magnitude AND sign-reversed
+relative to both the hypothesis and this entry's own SPY reading).
+Leave-one-out robustness check confirmed no single ticker drives any
+group's pooled result. Full write-up: this file's own module docstring
+in the new script, and research/experiments.md's 2026-09-13 [RESEARCH]
+entry. Remaining untried axes per NEXT(1)/(3) below are now narrowed to
+(a) intraday structure and (b) a non-price data source — a same-shape
+eighth ticker-set variant is explicitly discounted by REASONING STANDARD
+#4 given this is now two-for-two negative on this exact design.
+
 ## 2026-09-12 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — the "cold in-memory cache, no on-disk backfill" systemic audit (github_org_engineering_momentum's 2026-09-10 NEXT(2)): 3 more sibling archivers fixed, 6 others audited and correctly left alone, routes.ts's larger inline-handler audit still open
 
 Full account in experiments.md's matching dated entry — this is the
