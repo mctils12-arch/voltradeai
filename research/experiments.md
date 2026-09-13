@@ -3,7 +3,268 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — routes.ts's "warming_up, no on-disk backfill" audit: the prior session's own spot-check of /api/data/fires and /api/data/earthquakes was WRONG — both are the same live-fetch-only cache bug, now fixed; /api/data/buoys (never spot-checked) fixed the same way; /api/data/volcanoes investigated and correctly NOT fixed (v1.0.896)
+## 2026-09-13 (scheduled-routine session, second session this UTC day) [REPAIR] - re-confirmed KNOWN BROKEN #41 outage still ongoing at ~54.3h, no new evidence, no third patch attempted, no duplicate notification; fell through to [RESEARCH] (see next entry below once filed)
+
+TERRITORY: SHARED-but-minimal (research/experiments.md, research/open_questions.md only this half of the session; see the RESEARCH half below for any code territory).
+
+SESSION-START CHECKS per this routine's own brief: CLAUDE.md read in full
+(EDGE DOCTRINE especial attention per brief), then research/experiments.md
+top+tail, research/open_questions.md KNOWN BROKEN section in full, tail of
+research/wishlist.md. LIVE HEALTH CHECK FIRST (repair mandate): `curl -v
+https://voltradeai.com/api/health` -> `HTTP/2 502`, identical
+`railway-hikari`/`x-railway-fallback: true` signature every session has
+observed since 2026-09-10T20:18Z (KNOWN BROKEN #41) -- now ~54.3 wall-clock
+hours, more than double the 24h LIVENESS ALARM threshold. `git log --since
+"2026-09-12 11:05" -- server/bot_engine.py voltrade_daemon.py
+system_config.py risk_kill_switch.py server/bot.ts`: zero commits -- ruled
+out a newer cause; the six merges since (#1059-#1065) are all
+docs/test/datacore-pipeline changes, no trading-path/FROZEN file touched.
+Full account filed in `research/open_questions.md`'s KNOWN BROKEN #41 entry
+(2026-09-13 UPDATE, appended this session).
+
+WHY NOT ANOTHER PATCH: RECURRENCE ESCALATES already triggered 2026-09-08
+(two independently-confirmed-insufficient fixes on this exact incident);
+this sandbox has zero live diagnostic access while the app itself is down
+(`/api/diag/*` is unreachable), so a third blind attempt is exactly what
+that rule exists to forbid. The only remaining path (a human Railway
+dashboard restart, then the already-merged `VOLTRADE_DISABLE_TIER2`/
+`VOLTRADE_DISABLE_TIER3` bisection) needs access this session does not have.
+
+WHY NOT RE-NOTIFIED: an earlier session today ([PRODUCT], see the entry
+immediately below this one) already re-confirmed this exact outage and
+explicitly reasoned against a duplicate PushNotification since nothing had
+changed versus the five prior on-record notifications (2026-09-10 x2,
+2026-09-11, 2026-09-12 x2). This session's own check adds ~2 more hours of
+duration but no new diagnostic fact (same signature, same root-cause class,
+no new commits in the trading path) -- the same reasoning holds. Per this
+item's own established convention, the next session should re-notify the
+moment anything actually changes: a restart, new stderr/log evidence, or a
+further materially-alarming threshold crossed.
+
+Per SESSION BUDGET, a REPAIR session with nothing new to patch and no
+access to gather more evidence does not idle -- it falls through. Queue
+check (`research_state_check.py`/`ladder_readiness_check.py`/
+`data_stream_registry_check.py --unbuilt`) confirmed no ladder-gated root
+newly ready and no unbuilt data stream buildable without a registration
+this sandbox can't self-serve (matches this UTC day's earlier PRODUCT
+session's own identical finding, re-checked rather than assumed stale).
+Fell through to axis (c)/(d): filed as its own dated entry in this file (this session, RESEARCH half).
+
+STARVED: no — the repair half of this session had nothing further it could
+act on (blocked on human/Railway access, a third patch forbidden by
+RECURRENCE ESCALATES), and it fell through to a genuinely queued research
+item (the structural NEXT question the prior Hurst-on-SPY entry raised)
+rather than leaving capacity idle.
+
+## 2026-09-13 [RESEARCH] — cross-sectional follow-up to the SIXTH foreign-field import (hydrology's Hurst exponent): does the trend-continuation signal that failed GATE 2 on SPY show up more strongly in illiquid small-caps than liquid mega-caps? — RUN AGAINST REAL DATA, GATE 2 RESULT: CLEAN NEGATIVE IN ALL THREE GROUPS, no cross-sectional-breadth rescue, and the illiquid group's pooled sign is OPPOSITE the EDGE-DOCTRINE-#2 hypothesis
+
+TERRITORY: research-probe scripts only (`scripts/*_probe.py` family, root-level
+`test_*_probe.py`, `research/*`) — no datacore/, client/, or live-trading code
+touched; does not fall inside any of the T-DATACORE/T-CLIENT/T-BOT WORKSTREAM
+PARTITION territories, same class of session as the prior five-plus imports
+in this file.
+
+CONTEXT: this is NOT a seventh cold-start foreign-field import. The
+2026-09-12 Hurst-on-SPY entry (`scripts/hurst_exponent_probe.py`, GATE 2
+NOT PASSED — de-strided rho=0.1262, p=0.288, n=73) explicitly raised, as
+its own unaddressed NEXT item, the structural question of whether this
+codebase's daily-bar liquid/mega-cap universe is simply efficient at
+these horizons, or whether "a genuinely different data axis
+(cross-sectional breadth, intraday structure, or a non-price data
+source)" would show something six single-ticker/mega-cap tests could
+not — and explicitly recommended against a seventh same-shape import
+without addressing that question first. This session answers it, on the
+cross-sectional-breadth axis, reusing (not reinventing) two already-built
+pieces: `hurst_exponent_probe.py`'s own Hurst/continuation/de-stride
+machinery (imported unchanged), and `illiquid_universe_probe.py`'s
+already-screened, pinned EDGE-DOCTRINE-#2 universe (ILLIQUID/MODERATE/
+LIQUID ticker lists, imported unchanged — not re-derived or re-screened).
+
+HYPOTHESIS: EDGE DOCTRINE #2 ("fish where whales can't") predicts genuine
+trend-persistence structure should survive MORE in illiquid small-caps
+than in liquid mega-caps, because capacity-constrained institutional
+capital cannot economically arbitrage it out of names too small to
+deploy size into — so the pooled, de-strided Hurst-continuation Spearman
+rho should be larger (in magnitude, positively signed per the original
+hypothesis direction) in the ILLIQUID group than in the LIQUID
+comparison group.
+
+PRIOR (REASONING STANDARD #10, stated before running — full text in
+`scripts/hurst_exponent_cross_sectional_probe.py`'s module docstring):
+genuinely uncertain, mild lean toward a stronger illiquid signal on
+EDGE DOCTRINE #2's structural logic, tempered by two things flagged in
+advance to watch for: (a) REASONING STANDARD #4 — six prior imports in
+this exact statistic-vs-forward-returns family have already failed
+GATE 2 on liquid tickers, so a seventh application of the same math
+(even on a new universe) should be discounted for repeated fishing, not
+treated as a fresh theory-motivated test; (b) `illiquid_universe_probe.py`'s
+OWN measured result that this exact ILLIQUID/MODERATE group is in severe
+secular decline (buy-and-hold -74.7%/-74.6% over 4y) — a Hurst/
+continuation reading computed on a near-monotonic decline could reflect
+delisting-risk drift rather than a genuine tradable persistence effect,
+watched for explicitly via a leave-one-out robustness check.
+
+WHAT SHIPPED: `scripts/hurst_exponent_cross_sectional_probe.py` (new) —
+imports `hurst_exponent_probe.{log_returns,rolling_hurst,
+continuation_scores,destrided_spearman,spearman,tertile_welch}` and
+`illiquid_universe_probe.{ILLIQUID,MODERATE,LIQUID}` unchanged via the
+same importlib sibling-module pattern `hurst_exponent_probe.tertile_welch`
+already established for reaching `permutation_entropy_probe` (EDGE
+DOCTRINE #3 — no reimplementation). New logic is only: per-ticker fetch/
+error-handling (`ticker_pairs`, never raises — a single obscure illiquid
+ticker failing to fetch is reported, not fatal), per-ticker de-stride
+(`destride`, the same `pairs[::horizon]` slice `destrided_spearman` uses
+internally, exposed so raw pairs can be pooled before the stat runs),
+cross-ticker pooling (`pool_group`), the GATE 2 pass/fail helper
+(`_passes_gate2`, |rho|>=0.30 and p<0.05, this repo's established bar),
+and the leave-one-out single-ticker-dominance robustness check
+(`leave_one_out`). Same parameters as the SPY run throughout: days=2520,
+window=252, min_chunk=8, lookback=20, horizon=20 — not retuned after
+seeing results (MEASUREMENT INTEGRITY discipline, one spec run once).
+`test_hurst_exponent_cross_sectional_probe.py` (new, root, 20 tests,
+synthetic/mocked only, no network): pins the three ticker lists against
+the exact values documented in `illiquid_universe_probe.py`'s own
+docstring (regression test against silent drift in either file), tests
+`pool_group`'s concatenation, and — the key robustness test — builds a
+synthetic case with 4 noise tickers plus 1 ticker carrying a deliberately
+strong, clean monotonic relationship large enough to single-handedly
+carry the pool across GATE 2; confirms `leave_one_out` correctly
+identifies that ticker as the largest contributor and correctly flags
+`conclusion_flips_on_any_single_exclusion=True` when it's excluded, and
+(separately) confirms no false flip when all tickers are independently
+noisy.
+
+LIVE RESULT (all 24 tickers fetched successfully, no errors — every
+ticker cleared the ~302-bar minimum; illiquid names had 756-1732 bars of
+history vs 1732 for every liquid/most moderate names, same window/
+lookback/horizon as the SPY run):
+
+  ILLIQUID (n=10 tickers, pooled de-strided n=624 pairs): pooled
+  Spearman rho=-0.0323, p=0.42105 — NOT significant, and the SIGN IS
+  OPPOSITE the EDGE-DOCTRINE-#2 hypothesis (predicted positive/stronger,
+  observed negative/near-zero). Tertile-Welch: high-H mean continuation
+  -0.0465 vs low-H mean +0.0211, t=-1.932, p=0.0542 — also not
+  significant (and also sign-reversed from the hypothesis: in this group
+  "trending" (H>0.5) days were followed by slightly WORSE continuation
+  than "mean-reverting" days). Per-ticker rho range: -0.163 (EPOW) to
+  +0.1151 (TRAW), none individually significant after accounting for
+  multiple comparisons (best per-ticker p=0.226, n=57). Leave-one-out:
+  largest single contributor NRXP (excluding it moves pooled rho from
+  -0.0323 to -0.0096, delta=+0.0227) — small relative to the near-zero
+  base rate, conclusion does NOT flip, no single ticker dominates.
+
+  MODERATE (n=7, pooled n=426): pooled rho=-0.0044, p=0.9284 —
+  indistinguishable from zero. Tertile-Welch t=-0.741, p=0.4597. Two
+  individual tickers hit nominal significance ALONE (SXTP rho=-0.4206,
+  p=0.029, n=27; ZCMD rho=-0.2498, p=0.038, n=69) — both NEGATIVE
+  (anti-persistence, opposite the hypothesis direction) and, per
+  REASONING STANDARD #4, exactly the false-positive rate expected by
+  chance testing 7 tickers at p<0.05 (~0.35 expected hits; 2 observed is
+  not itself remarkable, and neither survives a multiple-comparisons
+  correction or shows up in the pooled result). Leave-one-out: largest
+  contributor VIVO (delta=-0.0287 without it), no flip.
+
+  LIQUID comparison group (n=7, pooled n=511): pooled rho=+0.0536,
+  p=0.22607 — small, positive (same direction as the original SPY
+  result's own de-strided rho=0.1262, though weaker), still not
+  significant. Tertile-Welch t=0.582, p=0.561. Leave-one-out: largest
+  contributor AMD (delta=+0.0105 without it), no flip.
+
+DIRECT COMPARISON (the task this entry answers): illiquid pooled
+rho=-0.0323 vs liquid pooled rho=+0.0536 — the EDGE-DOCTRINE-#2
+prediction (illiquid should show a LARGER, same-signed effect than
+liquid) is NOT confirmed; if anything the liquid group's pooled effect
+is both larger in magnitude and same-signed as the original SPY finding,
+while the illiquid group's is smaller in magnitude AND sign-reversed.
+None of the three groups clears GATE 2. No group's pooled result is
+carried by one or two names (all leave-one-out deltas are small relative
+to base effect size, no conclusion-flips) — so this is not the
+"near-monotonic-decline-masquerading-as-persistence" confound flagged in
+the PRIOR; the illiquid/moderate groups' severe secular decline (per
+`illiquid_universe_probe.py`) does not appear to be driving a spurious
+Hurst-continuation reading here, it is simply also not showing the
+predicted structure.
+
+HONEST LIMITATION restated (not just theoretical — worth taking
+seriously given how close to zero every pooled rho is): pooling across
+TICKERS is not the same statistical guarantee as pooling across TIME for
+one ticker. De-striding removes each ticker's OWN overlapping-forward-
+window autocorrelation, but a shared market/sector factor moving several
+illiquid names on the same calendar days would make their supposedly-
+independent pairs on those days not truly independent, so the reported
+pooled n (624/426/511) is an upper bound on statistical power, not a
+confirmed effective sample size. This limitation would only matter if a
+group had cleared GATE 2 (it would mean less confidence than the n
+implies); since none did, it does not change the disposition here, but
+is recorded for whichever future session revisits pooled cross-sectional
+designs in this family.
+
+LADDER DISPOSITION: GATE 2 NOT PASSED, in any of the three groups — a
+clean negative, and specifically a negative answer to the structural
+question the 2026-09-12 entry raised: cross-sectional breadth across
+this pinned illiquid/moderate/liquid universe does NOT rescue the
+Hurst-continuation signal, and if anything runs opposite the EDGE
+DOCTRINE #2 structural prediction in the illiquid tier. Combined with
+six prior same-family GATE-2 failures on liquid tickers, this raises
+(not lowers) the prior that this particular design (a rank-correlation
+statistic derived from a return series' own autocorrelation, scored
+against forward returns) is close to exhausted for THIS repo's typically-
+available tickers at 20-60 day horizons — REASONING STANDARD #4's
+discount now applies to the cross-sectional axis too, not just to more
+single-ticker variants. Per the task's disposition rule: this result
+would need out-of-sample confirmation and a GATE 3 (LOGIC) backtest
+ablation before it could ever inform real strategy code even if it HAD
+passed; it did not, so no such follow-up is warranted from this result
+alone. `datacore/signal_ladder.json` intentionally NOT touched — matches
+this file's established precedent for pure GATE-2 strategy-layer research
+probes (CSD/R_t/Omori/hazard-rate/permutation-entropy/Hurst-SPY never
+touched it either).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-feature-gating code in this diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — GATE 2 signal-only research probe;
+no strategy/scoring/sizing/entry-exit code touched.
+
+GATES: `python3 -m pytest -q test_hurst_exponent_cross_sectional_probe.py`:
+20/20 passed. Full suite `python3 -m pytest -q`: 1974 passed, 1 skipped,
+54 subtests, 1 pre-existing unrelated failure
+(`test_research_state_check.py::test_run_all_checks_against_real_repo_files_does_not_crash`,
+an assertion about the real research/experiments.md file's most recent
+STARVED flag — confirmed via `git stash -u` to fail identically with this
+session's new files removed, i.e. it predates this diff; not touched,
+per scope discipline). `npm ci` (fresh sandbox, no node_modules present)
+then `bash scripts/gated_tests.sh`: server/client suites green, python
+suite reports the same single pre-existing failure above (gate reports
+FAIL overall for that reason alone — not a regression this diff
+introduced). `bash scripts/counter_ratchet.sh`: OK, 25 counters at or
+better than baseline. `bash scripts/tsc_ratchet.sh`: OK, 11<=11 pinned,
+TS2304=0. Version bumped 1.0.896 -> 1.0.897 (package.json + the two
+matching lines in package-lock.json).
+
+NEXT: the structural question this file's Hurst-family entries have now
+asked twice (SPY single-ticker, then illiquid/moderate/liquid pooled) has
+been answered in the negative both times for this exact "rank-correlation
+of a return-series statistic vs. forward returns" design. Per REASONING
+STANDARD #4, a future session should NOT try an eighth variant of this
+same shape (a different ticker set, a different rolling window) without
+new theory-motivated justification — the remaining untried axes from the
+2026-09-12 entry's own list are (a) intraday structure (this probe family
+has only ever used daily bars) and (b) a genuinely non-price data source,
+both of which are different enough in kind to not inherit this design's
+now-twice-confirmed discount. Also worth a human/future-session look:
+whether the two nominally-significant single-ticker hits in MODERATE
+(SXTP, ZCMD) are worth a note in a future multiple-comparisons audit
+across this whole probe family's per-ticker breakdowns, though neither
+survived correction or the pooled test here.
+
+STARVED: no — this was the primary/only action of this half-session
+(the parent session's other half handled the KNOWN BROKEN #41 repair
+check); no higher-priority queued item was skipped to run this probe,
+and it directly closes an explicitly-filed NEXT item from the prior
+session rather than opening new unaddressed work.
+
+## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] - routes.ts's "warming_up, no on-disk backfill" audit: the prior session's own spot-check of /api/data/fires and /api/data/earthquakes was WRONG — both are the same live-fetch-only cache bug, now fixed; /api/data/buoys (never spot-checked) fixed the same way; /api/data/volcanoes investigated and correctly NOT fixed (v1.0.896)
 
 TERRITORY: T-DATACORE (server/nasaFirms.ts, server/usgsQuakes.ts,
 server/ndbcBuoys.ts + their test files — datacore server modules per

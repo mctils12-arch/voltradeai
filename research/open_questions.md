@@ -6296,6 +6296,36 @@
     the bisection env-var toggle (merged, off by default) remains the
     fastest way to localize the leak once the service is back up.
 
+    UPDATE 2026-09-13 (scheduled-routine session, [REPAIR]) - re-confirmed
+    live via `curl -v https://voltradeai.com/api/health`: still `HTTP/2 502`,
+    identical `{"status":"error","code":502,"message":"Application failed to
+    respond"}` body and `railway-hikari`/`x-railway-fallback: true`/
+    `x-railway-edge: iad1` signature, at 2026-09-13T02:36:30Z - the same
+    sustained outage has now run continuously for **~54.3 wall-clock hours**
+    since the 2026-09-10T20:18Z onset (confirmed unbroken across six
+    independent sessions' checks: 2026-09-10 20:18Z, 2026-09-11 20:18Z,
+    2026-09-12 02:35Z/11:05Z, an earlier session today at ~00:1xZ per its
+    own experiments.md entry, and this one). Ruled out a newer cause again:
+    `git log --since "2026-09-12 11:05" --oneline -- server/bot_engine.py
+    voltrade_daemon.py system_config.py risk_kill_switch.py server/bot.ts`
+    returns zero commits; the only merges since (#1059-#1065) touch a test
+    literal fix, four datacore pipeline cold-cache-backfill fixes, and one
+    gate-1 registry-staleness diagnostic - no trading-path/server-runtime
+    file, no FROZEN path. This remains the same unresolved Node-process
+    memory leak, not a new regression. No third patch attempted (RECURRENCE
+    ESCALATES already triggered 2026-09-08; zero live diagnostic access
+    while the app is down). NOT re-notified this session: an earlier
+    session today already logged this exact re-confirmation
+    (experiments.md, 2026-09-13 [PRODUCT] entry) and explicitly decided
+    against a duplicate push since nothing changed versus the five prior
+    on-record notifications - this check adds duration (~52h to ~54.3h)
+    but no new diagnostic fact, so the same reasoning holds; a future
+    check should re-notify the moment anything actually changes (a
+    restart, new evidence, or a further materially-alarming threshold).
+    NEXT: unchanged - a human Railway dashboard restart remains the only
+    path back; the bisection env-var toggle (merged, off by default)
+    remains the fastest way to localize the leak once back up.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
@@ -19305,6 +19335,28 @@ failure mode (an optimistic p-value from overlapping daily windows) was
 caught and fixed with a reusable safeguard rather than reported naively —
 this is the RIGOR the six-import track record above says this probe
 family still needs, not a seventh repeat of the same mistake.
+
+ADDENDUM (2026-09-13, [RESEARCH] session): the STRUCTURAL question in
+NEXT(1) above has been addressed, on the cross-sectional-breadth axis it
+named. `scripts/hurst_exponent_cross_sectional_probe.py` (new) reused
+this entry's own Hurst/continuation/de-stride machinery unchanged and
+pooled it across `illiquid_universe_probe.py`'s already-pinned EDGE-
+DOCTRINE-#2 universe (10 illiquid / 7 moderate / 7 liquid tickers, same
+window=252/lookback=20/horizon=20 parameters). RESULT: GATE 2 NOT PASSED
+in any of the three groups (pooled de-strided Spearman: illiquid
+rho=-0.0323 p=0.421 n=624; moderate rho=-0.0044 p=0.928 n=426; liquid
+rho=+0.0536 p=0.226 n=511) — cross-sectional breadth did NOT rescue the
+signal, and the illiquid group's pooled sign is the OPPOSITE of the
+EDGE DOCTRINE #2 prediction (expected illiquid > liquid in magnitude and
+same-signed; observed illiquid smaller in magnitude AND sign-reversed
+relative to both the hypothesis and this entry's own SPY reading).
+Leave-one-out robustness check confirmed no single ticker drives any
+group's pooled result. Full write-up: this file's own module docstring
+in the new script, and research/experiments.md's 2026-09-13 [RESEARCH]
+entry. Remaining untried axes per NEXT(1)/(3) below are now narrowed to
+(a) intraday structure and (b) a non-price data source — a same-shape
+eighth ticker-set variant is explicitly discounted by REASONING STANDARD
+#4 given this is now two-for-two negative on this exact design.
 
 ## 2026-09-12 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — the "cold in-memory cache, no on-disk backfill" systemic audit (github_org_engineering_momentum's 2026-09-10 NEXT(2)): 3 more sibling archivers fixed, 6 others audited and correctly left alone, routes.ts's larger inline-handler audit still open
 
