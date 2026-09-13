@@ -77,6 +77,14 @@ VERIFICATION (behavior-preservation, not just "should be identical"):
   no-cache-backfills, empty-live-no-cache-empty-archive-stays-null, and
   the throw-path modeling case.
 - `bash scripts/tsc_ratchet.sh`: 11 errors (pin), TS2304 0 — unchanged.
+- CI self-caught (before this line existed) that this entry originally
+  omitted the required `STARVED: yes/no` closing line (CLAUDE.md HEALTH
+  OF THE LOOP ITSELF rule 6 / `scripts/research_state_check.py`'s
+  `parse_starved_flags`) —
+  `test_run_all_checks_against_real_repo_files_does_not_crash` failed
+  on this PR's first push with `starved_flags[0] == None` instead of
+  `"no"`. Fixed in this same PR (this entry's own closing `STARVED:`
+  line below), not a follow-up.
 - `bash scripts/gated_tests.sh`: GATE PASSED — client 1083/1083 node
   tests (this session's new `cacheBackfill.test.ts` included — file-level
   delta verified via `program_status.sh`'s `tests_run_in_ci` count below,
@@ -129,6 +137,11 @@ see PR #1065's entry) into a fast, low-risk pattern-match. No live-vs-
 backtest divergence applies (not a trading-path change).
 
 NOT A SPEND REQUEST.
+
+STARVED: no — this was a concretely queued, well-specified, buildable
+item (a research subagent's own top-ranked recommendation), fully
+executed this session including 4 module retrofits, a new tested
+helper, and a filed follow-up finding, not merely diagnosed.
 
 ## 2026-09-13 (scheduled autonomous session, [PIPELINE]) — EIA-860M registry-freshness capacity refresh shipped; SWPP/ERCO gate-1 overshoot did NOT close (honest negative result), real driver identified
 
