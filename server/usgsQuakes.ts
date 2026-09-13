@@ -119,13 +119,22 @@ function quakesDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "earthquakes");
 }
 
+/** Parses one archived JSONL line, or null on a malformed row — shared by
+ *  `seedSeen` and `readQuakeHistory` so this file carries exactly one
+ *  swallow-and-skip catch for a bad archived line, not one per caller
+ *  (program_status.sh's `empty_ts_catch` counter is non-increasing). */
+function parseArchivedLine<T>(line: string): T | null {
+  try { return JSON.parse(line) as T; } catch { return null; }
+}
+
 function seedSeen(dir: string, nowMs: number): void {
   for (const dayMs of [nowMs, nowMs - 86400_000]) {
     const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
     try {
       for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
         if (!line) continue;
-        try { archivedIds.add(JSON.parse(line).id); } catch {}
+        const row = parseArchivedLine<{ id: string }>(line);
+        if (row?.id) archivedIds.add(row.id);
       }
     } catch {}
   }
@@ -192,6 +201,37 @@ export function gzipOldQuakeDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reads back the archived earthquakes day-files (today + `days-1` prior,
+ *  plain or gz), deduped by USGS's own `id` keeping whichever archived row
+ *  has the GREATEST `updated` timestamp — mirrors `archiveQuakes`'s own
+ *  re-archive-on-revision logic, since a pure first-seen dedup (fine for
+ *  nasaFirms.ts/edgarForm4.ts, whose records never get revised) would
+ *  freeze a quake at its first-seen, often "automatic"/unreviewed values. */
+export function readQuakeHistory(days = 2, baseDir?: string, nowMs?: number, maxEvents = 20_000): QuakeEvent[] {
+  const dir = quakesDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const byId = new Map<string, QuakeEvent>();
+  for (let d = 0; d < days; d++) {
+    const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        const e = parseArchivedLine<QuakeEvent>(line);
+        if (!e?.id) continue;
+        const prev = byId.get(e.id);
+        if (!prev || (e.updated ?? 0) > (prev.updated ?? 0)) byId.set(e.id, e);
+      }
+    }
+  }
+  return Array.from(byId.values()).slice(0, maxEvents);
+}
+
 // ── in-memory cache + poll loop (mirrors nasaFirms.ts's boot pattern) ──────
 let cache: { at: number; events: QuakeEvent[] } | null = null;
 let polling = false;
@@ -200,14 +240,48 @@ export function latestQuakes(): { at: number; events: QuakeEvent[] } | null {
   return cache;
 }
 
+/** Test-only: this module's dedup/cache/poll state is module-level
+ *  singleton (same class of problem edgarForm4.ts's `_resetForm4CacheForTests`
+ *  exists for), so a test exercising the cold-cache backfill path must be
+ *  able to reset it rather than rely on file execution order. */
+export function _resetQuakesCacheForTests(): void {
+  archivedIds.clear();
+  archivedUpdated.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Reconstructs a live-feed-shaped events list from the on-disk earthquakes
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (USGS transient outage) or comes back with zero events before any cache
+ *  exists. Filtered to the same rolling 24h origin-time window the live
+ *  "2.5_day" feed itself covers, so a cold-boot backfill never
+ *  misrepresents an already-scrolled-off event as still inside the current
+ *  window — same Freshness Law lineage as nasaFirms.ts's
+ *  `backfillFirmsFromArchive`/edgarForm4.ts's `backfillForm4FromArchive`. */
+export function backfillQuakesFromArchive(baseDir?: string, nowMs?: number): QuakeEvent[] {
+  const now = nowMs ?? Date.now();
+  return readQuakeHistory(2, baseDir, nowMs).filter((e) => e.time != null && now - e.time! <= 24 * 3600_000);
+}
+
 export async function refreshQuakesCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const events = await fetchQuakes(fetchImpl, nowMs);
-    if (events.length || !cache) cache = { at: Date.now(), events };
+    if (events.length > 0) {
+      cache = { at: Date.now(), events };
+    } else if (!cache) {
+      const archived = backfillQuakesFromArchive(undefined, nowMs);
+      if (archived.length) cache = { at: Date.now(), events: archived };
+    }
     try { archiveQuakes(events, undefined, nowMs); } catch {}
     try { gzipOldQuakeDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] quakes refresh:", e?.message || e);
+    if (!cache) {
+      const archived = backfillQuakesFromArchive(undefined, nowMs);
+      if (archived.length) cache = { at: Date.now(), events: archived };
+    }
   }
 }
 

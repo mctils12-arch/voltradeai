@@ -10,6 +10,12 @@ import {
   archiveQuakes,
   gzipOldQuakeDays,
   bootQuakesPoll,
+  readQuakeHistory,
+  backfillQuakesFromArchive,
+  latestQuakes,
+  refreshQuakesCache,
+  _resetQuakesCacheForTests,
+  type QuakeEvent,
 } from "./usgsQuakes";
 
 // ROOT VALIDATION LADDER gate 1 (DATA) fixture — captured verbatim from a
@@ -177,4 +183,74 @@ test("bootQuakesPoll: keyless — starts polling unconditionally, idempotent acr
     bootQuakesPoll(3600_000);
     bootQuakesPoll(3600_000); // second call is a no-op (module-level `polling` guard)
   });
+});
+
+function fakeQuake(id: string, timeMs: number, updatedMs: number, mag = 4.5): QuakeEvent {
+  return {
+    id, mag, place: "test", lat: 1, lon: 2, depth: 10, time: timeMs, updated: updatedMs,
+    tsunami: false, sig: 300, net: "us", magType: "mb", type: "earthquake",
+    status: "reviewed", url: null, rt: new Date(timeMs).toISOString().slice(0, 10),
+  };
+}
+
+test("readQuakeHistory: dedups by id keeping the row with the GREATEST updated timestamp (a revision must win over its own earlier archived copy)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quakes-history-"));
+  const now = Date.parse("2026-07-08T12:00:00Z");
+  const qDir = path.join(dir, "earthquakes");
+  fs.mkdirSync(qDir, { recursive: true });
+  const stale = fakeQuake("us1", now - 3600_000, 1000, 4.0);
+  const revised = fakeQuake("us1", now - 3600_000, 5000, 4.8); // same event, later review bumped mag
+  fs.writeFileSync(
+    path.join(qDir, "2026-07-08.jsonl"),
+    JSON.stringify(stale) + "\n" + JSON.stringify(revised) + "\n",
+  );
+  const hist = readQuakeHistory(2, dir, now);
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].mag, 4.8, "the higher-`updated` row must win, not first-seen");
+});
+
+test("backfillQuakesFromArchive: only returns events inside the live feed's own rolling 24h origin-time window — an older archived event must not resurface as 'current'", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quakes-backfill-"));
+  const now = Date.parse("2026-07-08T12:00:00Z");
+  const qDir = path.join(dir, "earthquakes");
+  fs.mkdirSync(qDir, { recursive: true });
+  const recent = fakeQuake("us-recent", now - 3600_000, now - 3600_000);
+  const stale = fakeQuake("us-stale", now - 30 * 3600_000, now - 30 * 3600_000); // 30h old
+  fs.writeFileSync(
+    path.join(qDir, "2026-07-08.jsonl"),
+    JSON.stringify(recent) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(qDir, "2026-07-07.jsonl"),
+    JSON.stringify(stale) + "\n",
+  );
+  const backfilled = backfillQuakesFromArchive(dir, now);
+  assert.equal(backfilled.length, 1);
+  assert.equal(backfilled[0].id, "us-recent");
+});
+
+test("refreshQuakesCache: cold cache backfills from the on-disk earthquakes archive when the live poll throws — same class of live finding githubOrgActivity.ts's v1.0.881 fix closed for a sibling archiver, generalized to quakes this session (this prior 'routes.ts warming_up' audit had spot-checked /api/data/earthquakes as the disk-derived non-bug class in error — latestQuakes() is populated only from the live in-memory `cache`, same as wikiAttention/satellites/euLoad/edgarForm4)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quakes-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetQuakesCacheForTests();
+  try {
+    const now = Date.now();
+    const dir = path.join(base, "datacore_archive", "earthquakes");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date(now).toISOString().slice(0, 10);
+    const archived = fakeQuake("COLD-1", now - 3600_000, now - 3600_000);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(archived) + "\n");
+
+    assert.equal(latestQuakes(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("USGS unreachable"); };
+    await refreshQuakesCache(failing as any, now);
+    const cached = latestQuakes();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.events.length, 1);
+    assert.equal(cached!.events[0].id, "COLD-1", "backfilled from the archived event, not fabricated");
+  } finally {
+    _resetQuakesCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
