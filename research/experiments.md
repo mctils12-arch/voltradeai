@@ -3,6 +3,122 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-13 (scheduled-routine session, [RESEARCH]) — resolves the immediately preceding session's own filed NEXT: traced whether `wikiAttention.ts`/`euLoad.ts`'s "no backfill on throw" gap is a live bug or dead code — DEAD CODE, confirmed by full read, no fix shipped
+
+TERRITORY: T-DATACORE (read-only this session) + SHARED-minimal
+(research/experiments.md, research/open_questions.md only — no other
+files touched, per WORKSTREAM PARTITION's "as small as possible" rule
+for shared-file-only sessions).
+
+SESSION-START CHECKS: read CLAUDE.md, research/experiments.md (this
+file's own last ~150 lines), research/open_questions.md (tail), and
+research/wishlist.md (tail) per MEMORY PROTOCOL. Live-checked KNOWN
+BROKEN #41 myself: `curl -sSD-` against
+`https://voltradeai.com/api/health` at session start (~16:01Z)
+returned HTTP/2 502, `{"status":"error","code":502,"message":
+"Application failed to respond"}`, `server: railway-hikari`,
+`x-railway-fallback: true` — the identical signature every prior
+session today has logged, now ~71.7h wall-clock (outage onset
+2026-09-10T20:18Z), well past the LIVENESS ALARM's 24h threshold,
+already fired/escalated/PushNotification-sent by prior sessions. No
+new information vs. the immediately preceding session's read
+(v1.0.899, ~13:06Z) — not re-notified, same disposition this thread
+has held since RECURRENCE ESCALATES fired. This outage is production-
+infrastructure-level (Railway OOM crash-loop, restart-budget
+exhausted per prior sessions' diagnosis) and repeatedly confirmed
+blocked on Railway dashboard/log access this sandbox lacks — not this
+session's to fix; per CLAUDE.md's explicit instruction that a non-
+DAILY session notes but does not preempt DAILY repair duty, proceeded
+to the queued research item below. NOTE: today (2026-09-13) is a
+Sunday — markets are closed all day, so this session's own "market
+hours" task-brief premise does not factually hold; noted for accuracy,
+does not change any of the above (the outage is a full-site 502, not a
+trading-hours-scoped issue, and would be top-of-report regardless of
+market state).
+
+QUEUE CHECK: the immediately preceding session (PR #1068, v1.0.899)
+filed one well-specified, unclaimed NEXT in both
+research/experiments.md and research/open_questions.md: trace whether
+`wikiAttention.ts`'s `fetchAttention` and `euLoad.ts`'s `fetchLoad`
+can actually THROW out to `refreshAttention`/`refreshLoad` (vs. always
+swallowing their own per-call errors internally), which determines
+whether the "catch block never backfills" shape found while reading
+those two modules is a live third occurrence of the cold-cache-no-
+disk-backfill bug class or a dead code path — explicitly filed as NOT
+traced, NOT confirmed live, by that session. This is the single,
+concretely queued, self-actionable item this session picked (SESSION
+BUDGET rule 1) — no higher-priority item was found: the outage remains
+blocked on access; no ladder-gated root matured; no other queued item
+in open_questions.md's tail was both unclaimed and cheaper/higher-
+value than closing a specifically-named, already-half-investigated
+question before further sessions build on an unresolved premise.
+
+WHAT WAS DONE (research, no code change): read `wikiAttention.ts`
+lines 96-137 (`fetchAttention`) and 356-373 (`refreshAttention`) in
+full, and `euLoad.ts` lines 147-184 (`fetchLoad`) and 370-390
+(`refreshLoad`) in full — not by inference or pattern-matching against
+the other 7 already-fixed modules, per READ BEFORE WRITE. Traced
+every statement in `refreshAttention`'s/`refreshLoad`'s try block back
+to whether it can propagate an exception:
+- `fetchAttention`/`fetchLoad`: every per-item (per-article / per-zone)
+  network call is wrapped in the LOOP'S OWN try/catch, which converts
+  ok/404/other-status/thrown-exception into a `stats`/`lastIssues`
+  entry + `console.error`, never a re-throw. Nothing outside that
+  per-item try (date math, `Object.entries`/`Object.keys` iteration,
+  env var reads) can throw for any value `now`/`env` takes on the real
+  call path.
+- `archiveAttention`/`archiveLoad`, `gzipOldAttentionDays`/
+  `gzipOldLoadDays`: each already wraps its own body in try/catch,
+  swallowing fs errors and returning 0/silently rather than
+  propagating.
+- `pickLatestCompleteDay`/`computeZoneStats`: pure functions over
+  well-typed in-memory arrays, no I/O, no throw surface given the
+  types `AttentionObs[]`/`LoadObs[]` these are only ever called with.
+- The one theoretical throw site in either function
+  (`new Date(now).toISOString()` on an invalid `now`) is unreachable
+  in production: both `bootAttentionPoll` and `bootEuLoadPoll` call
+  `refreshAttention()`/`refreshLoad()` with ZERO arguments, so `nowMs`
+  is always `undefined` and `now` always resolves to `Date.now()`,
+  never a value that produces an invalid Date.
+
+VERDICT: DEAD CODE, not a live bug, under the current implementation
+of both modules. Full reasoning, caveats (what a future edit could
+reopen), and the closed disposition filed as an UPDATE to the existing
+dated entry in `research/open_questions.md` (append-only, same entry,
+per MEMORY PROTOCOL — not a new entry, since this directly answers
+that entry's own filed question). No code change ships: wiring a
+backfill call into `refreshAttention`'s/`refreshLoad`'s catch blocks
+now would be defending against an unreachable path, not closing a
+real gap — the prior entry's NEXT(2) was explicitly conditional on
+reachability ("if reachable, add..."), and reachability came back
+negative.
+
+VERIFICATION: this is a pure documentation/finding update — no
+production code, test, or config file touched. `git diff --stat`
+against origin/main shows only `research/experiments.md` and
+`research/open_questions.md` changed. No test suite run required (no
+behavior to regress).
+
+HYPOTHESIS / EXPECTED EFFECT: none — this is a closing research
+finding, not a strategy, parameter, or measurement change. PROMOTION
+RULE 3's backtest requirement and RULE 4's version bump do not apply
+(no code shipped; `package.json` stays at 1.0.899, the version the
+immediately preceding session already claimed for its own shipped
+code). MARKET-HOURS NOTE (per this session's own task brief, included
+for consistency with prior sessions' PRs even though today is a
+Sunday and markets are closed): this PR touches only `research/*`,
+has zero trading-path or live-serving effect, and does not need to
+wait for any market-hours window — noted as such in the PR description
+rather than the standard "hold until 4:00 PM ET" line, since that line
+would be factually misleading today.
+
+NOT A SPEND REQUEST.
+
+STARVED: no — this was the single, concretely queued, well-specified
+item left unclaimed by the immediately preceding session; fully
+resolved (not merely diagnosed) this session, with the resolution
+filed in both required locations.
+
 ## 2026-09-13 (scheduled-routine [PRODUCT]/[PIPELINE] session, v1.0.899) — shared `cacheBackfill.ts` helper compiles the 7x-repeated "cold cache, no on-disk backfill" fix into one tested function; 4 modules retrofitted behavior-identically; a possible 3rd bug shape found in wikiAttention.ts/euLoad.ts and filed, not fixed
 
 TERRITORY: T-DATACORE (server/{cacheBackfill,nasaFirms,ndbcBuoys,
