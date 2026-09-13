@@ -42,16 +42,37 @@ fuels EIA-860M's "Operating" sheet lets us query natively via Energy
 Source Code (SUN/WND) without a further code-to-fuel lookup. Not
 generalized to other fuels in this PR.
 
-ALSO DELIBERATELY OUT OF SCOPE: the missing-plant rows
-eia860_add_missing_plants.py appended (plants GPPD has no row for under
-any fuel, ~4,339 solar/wind rows) still carry EIA-860 ANNUAL vintage
-capacity — this script recomputes and re-applies that exact supplement
-unchanged (via that script's own functions, reused through the same
-importlib pattern that script itself already uses for ITS dependencies)
-rather than refreshing those rows from EIA-860M too. That residual
-staleness is smaller (those plants are new-to-GPPD, not necessarily
-new-to-the-grid) and is filed as a NEXT item, not fixed here — one
-logical change per PR.
+UPDATE (2026-09-13, second same-date session — resolves the NEXT this
+module docstring filed above): the missing-plant rows
+eia860_add_missing_plants.py appends (plants GPPD has no row for under
+any fuel, ~4,339 solar/wind rows) are now ALSO refreshed from EIA-860M
+where it covers them, closing exactly the gap the paragraph below
+originally left open. `build_missing_plants_supplement` now takes an
+optional `capacity_override_by_fuel_code` ({fuel: {plant_code: mw}}) —
+built here in `main()` from the SAME `capacity_override` map already
+fetched for the GPPD-matched base (no second EIA-860M fetch, EDGE
+DOCTRINE #3) — and forwards the per-fuel slice straight through to
+`eia860_add_missing_plants.build_missing_plant_rows`'s own new
+`capacity_override_by_code` parameter (that function's own docstring
+has the full contract: EIA-860 ANNUAL still decides WHICH codes are
+missing-from-GPPD; EIA-860M, when it covers a code, only replaces the
+CAPACITY VALUE applied to it — a code EIA-860M's Operating sheet does
+not carry still falls back to EIA-860 ANNUAL's own figure, never drops
+to zero). This was analyzed, not assumed, to be the dominant residual
+lever for ERCO/SWPP per the live cross-check filed in
+research/open_questions.md 2026-09-13 (25%/35% of the plant IDs driving
+ERCO's/SWPP's EIA-860M growth exist in GPPD at all — the rest are
+exactly this missing-plants population).
+
+ORIGINAL SCOPE NOTE (2026-09-13, first session, kept for the record —
+now superseded by the UPDATE above): this script recomputed and
+re-applied that exact supplement unchanged (via that script's own
+functions, reused through the same importlib pattern that script
+itself already uses for ITS dependencies) rather than refreshing those
+rows from EIA-860M too. That residual staleness was smaller (those
+plants are new-to-GPPD, not necessarily new-to-the-grid) and was filed
+as a NEXT item rather than fixed in that first PR — one logical change
+per PR.
 
 WHAT SHIPS: rebuilds the GPPD-sourced base plant list via
 build_powerplants.build_plants(), with capacity_override drawn from
@@ -210,23 +231,44 @@ def capacity_delta_report(before_plants, after_plants, fuels=("solar", "wind")):
     return out
 
 
-def build_missing_plants_supplement(gppd_path, plants_xlsx, solar_xlsx, wind_xlsx):
+def build_missing_plants_supplement(gppd_path, plants_xlsx, solar_xlsx, wind_xlsx,
+                                     capacity_override_by_fuel_code=None):
     """Recomputes eia860_add_missing_plants.py's own supplement fresh
     from raw sources (never spliced out of the prior registry file — see
-    module docstring). Returns (rows, per_fuel_report)."""
+    module docstring). Returns (rows, per_fuel_report).
+
+    capacity_override_by_fuel_code (2026-09-13, second same-date update):
+    optional {fuel: {plant_code: mw}} — when a missing plant's code has a
+    positive entry here, its row is built with THIS capacity (a more
+    current EIA-860M reading) instead of EIA-860 ANNUAL's own figure;
+    membership (which codes are missing-from-GPPD) is unaffected, exactly
+    per eia860_add_missing_plants.build_missing_plant_rows's own contract.
+    Default None reproduces the original EIA-860-ANNUAL-only behavior
+    exactly. The per-fuel report also now counts how many of this fuel's
+    added rows actually got an EIA-860M-refreshed capacity, so the
+    refresh's real coverage is visible rather than assumed."""
     all_usa_codes = _amp.gppd_all_usa_codes(_amp.load_gppd_country_idnr_rows(gppd_path))
     plant_directory = _amp.load_eia860_plant_directory(plants_xlsx)
     rows, report = [], []
     for fuel, path in (("solar", solar_xlsx), ("wind", wind_xlsx)):
         eia_cap = _amp.eia860_capacity_by_code(_amp.load_eia860_generator_rows(path))
         missing = set(eia_cap) - all_usa_codes
+        override_this_fuel = (capacity_override_by_fuel_code or {}).get(fuel, {})
         fuel_rows, skipped_cap, skipped_coords = _amp.build_missing_plant_rows(
-            fuel, missing, eia_cap, plant_directory)
+            fuel, missing, eia_cap, plant_directory,
+            capacity_override_by_code=override_this_fuel)
+        # Candidate count, not a promise every one became a row (a code
+        # can still be skipped for bad coords after its capacity source
+        # changes) — named accordingly so the report never overstates
+        # how many rows actually shipped with a refreshed figure.
+        missing_codes_matched_in_eia860m = (
+            len(missing & set(override_this_fuel)) if override_this_fuel else 0)
         rows.extend(fuel_rows)
         report.append({
             "fuel": fuel, "rows_added": len(fuel_rows),
             "skipped_zero_or_neg_capacity": skipped_cap,
             "skipped_bad_coords_or_no_directory_entry": skipped_coords,
+            "missing_codes_matched_in_eia860m": missing_codes_matched_in_eia860m,
         })
     return rows, report
 
@@ -264,11 +306,18 @@ def main():
     base_plants, eia_used, overrides_used = _bpp.build_plants(
         args.gppd, eia_coords, verified, overrides, capacity_override=capacity_override)
 
-    # Re-apply the missing-plants supplement (EIA-860 ANNUAL vintage,
-    # unchanged from eia860_add_missing_plants.py — deliberately NOT
-    # refreshed from EIA-860M in this PR, see module docstring NEXT).
+    # Re-apply the missing-plants supplement, NOW ALSO capacity-refreshed
+    # from EIA-860M where it covers a missing code (2026-09-13 second
+    # same-date update — see module docstring). Reuses the SAME
+    # capacity_override map already fetched above for the GPPD-matched
+    # base, reshaped from {(code, fuel): mw} to {fuel: {code: mw}} — no
+    # second EIA-860M fetch (EDGE DOCTRINE #3).
+    capacity_override_by_fuel_code = defaultdict(dict)
+    for (code, fuel), mw in capacity_override.items():
+        capacity_override_by_fuel_code[fuel][code] = mw
     missing_rows, missing_report = build_missing_plants_supplement(
-        args.gppd, args.plants, args.solar, args.wind)
+        args.gppd, args.plants, args.solar, args.wind,
+        capacity_override_by_fuel_code=capacity_override_by_fuel_code)
 
     merged = _amp.merge_registry(base_plants, missing_rows)
 
@@ -293,19 +342,21 @@ def main():
     registry["plants"] = merged
     registry["count"] = len(merged)
     registry["verified_count"] = sum(p[6] for p in merged)
+    total_matched = sum(r["missing_codes_matched_in_eia860m"] for r in missing_report)
+    total_missing_rows = sum(r["rows_added"] for r in missing_report)
     registry["_doc"] = (
         registry["_doc"]
-        + f" REFRESHED by scripts/eia860m_refresh_registry.py (2026-09-13, "
-          f"EIA-860M as-of {as_of}): solar/wind capacity for GPPD-matched "
-          "(EIA Plant Code, fuel) pairs updated from EIA-860M's more-current "
-          "reading (national solar -144.8 MW / wind +773.3 MW net). This "
-          "does NOT close the ERCO/SWPP gate-1 solar overshoot "
-          "eia860m_recent_capacity_check.py (2026-09-12) measured — live "
-          "re-verification found their capacity growth sits almost "
-          "entirely in plants absent from GPPD/EIA-860-ANNUAL entirely, "
-          "not in matched-plant staleness; see that residual in "
-          "research/open_questions.md's FUSION HYPOTHESIS (b) thread and "
-          "this script's own module docstring for the full method."
+        + f" RE-REFRESHED by scripts/eia860m_refresh_registry.py (2026-09-13, "
+          f"second same-date run, EIA-860M as-of {as_of}): extends the "
+          "first run's GPPD-matched-plant capacity refresh to ALSO cover "
+          "the missing-plants supplement (plants GPPD has no row for at "
+          f"all) — {total_matched} of {total_missing_rows} solar/wind "
+          "missing-plant rows now carry an EIA-860M-current capacity "
+          "instead of the ~20-month-lagged EIA-860 ANNUAL figure. See "
+          "this script's own module docstring and "
+          "research/open_questions.md's FUSION HYPOTHESIS (b) thread for "
+          "the full method and the live ERCO/SWPP gate-1 re-check this "
+          "was built to close."
     )
     with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
         json.dump(registry, f, ensure_ascii=False, separators=(",", ":"))

@@ -1,7 +1,7 @@
 {
  "_doc": "Plant -> EIA-930 balancing-authority assignment via direct join against EIA-860 Schedule 2's own reported Balancing Authority Code (ground truth, not geometric inference) \u2014 see module docstring for the coordinate-match rationale and this session's empirical resolution rate. Built by scripts/grid_ba_eia860_join.py. Recomputed fresh from the registry + a fresh EIA-860 download each run, like grid_ba_polygon_join.py \u2014 not a stable cross-rebuild join key.",
  "source": "scripts/grid_ba_eia860_join.py",
- "eia860_source": "/tmp/eia860/2___Plant_Y2025.xlsx",
+ "eia860_source": "/tmp/eia860work/eia860extract/2___Plant_Y2025.xlsx",
  "registry_source": "/home/user/voltradeai/datacore/powerplants/us_power_plants.json",
  "eia860_plant_rows_with_coord_and_ba": 17073,
  "eia860_plant_rows_skipped_no_coordinate": 28,
@@ -14,13 +14,7 @@
   "unmatched_capacity_mw": 41104.6,
   "ambiguous_capacity_mw": 3125.7
  },
- "comparison_to_polygon_join": {
-  "polygon_ambiguous_plants": 3420,
-  "resolved_by_eia860_join": 3297,
-  "resolved_matches_a_polygon_candidate": 845,
-  "resolved_to_a_different_ba_than_any_polygon_candidate": 2452,
-  "still_unresolved": 123
- },
+ "comparison_to_polygon_join": null,
  "assignments": [
   {
    "name": "Grand Coulee",
@@ -11104,13 +11098,6 @@
    "status": "matched"
   },
   {
-   "name": "Stoneridge Solar, LLC",
-   "fuel": "solar",
-   "capacity_mw": 200.0,
-   "ba_code": "ERCO",
-   "status": "matched"
-  },
-  {
    "name": "Appleseed Solar",
    "fuel": "solar",
    "capacity_mw": 200.0,
@@ -18378,6 +18365,13 @@
   },
   {
    "name": "Swift Air Solar III",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Stoneridge Solar, LLC",
    "fuel": "solar",
    "capacity_mw": 100.0,
    "ba_code": "ERCO",
@@ -91030,6 +91024,13 @@
    "status": "matched"
   },
   {
+   "name": "Oak Leaf Solar XVI Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 1.2,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
    "name": "CA- US Foods- Livermore",
    "fuel": "solar",
    "capacity_mw": 1.2,
@@ -98090,13 +98091,6 @@
    "fuel": "solar",
    "capacity_mw": 1.0,
    "ba_code": "CISO",
-   "status": "matched"
-  },
-  {
-   "name": "Oak Leaf Solar XVI Community Solar",
-   "fuel": "solar",
-   "capacity_mw": 1.0,
-   "ba_code": "ISNE",
    "status": "matched"
   },
   {
