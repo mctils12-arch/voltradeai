@@ -19564,3 +19564,62 @@ aggregate (the 3 above, and any future one with the same shape) still
 needs its own bespoke wiring, not this helper unchanged.
 
 NOT A SPEND REQUEST.
+
+UPDATE 2026-09-13 (scheduled-routine [RESEARCH] session, v1.0.899 —
+KNOWN BROKEN #41 still down, ~71.7h, same signature as every prior
+session's read; not re-notified per this thread's own established
+"only on change" condition): resolves NEXT(1) above — traced,
+DEAD CODE, not a live bug.
+
+Read `fetchAttention` (wikiAttention.ts:96-137) and `fetchLoad`
+(euLoad.ts:147-184) end to end, not by inference. Both wrap EVERY
+per-item network call in their own try/catch inside the per-seed loop
+(per-article for wikiAttention, per-zone for euLoad) that converts a
+fetch failure (bad status OR a thrown exception) into a `stats`/
+`lastIssues` entry plus a `console.error`, never a re-thrown
+exception — the exact pattern that makes `refreshAttention`'s/
+`refreshLoad`'s OUTER try block's remaining statements (crucially the
+`if (!cache) { backfillFromArchive() }` / `else if (!cache) {
+readRecentArchivedLoad() }` lines) unreachable via a network-failure
+throw. Every other function call on the way to that line is ALSO
+internally try/catch-wrapped and returns gracefully rather than
+throwing: `archiveAttention`/`archiveLoad` (fs errors caught, return
+0), `gzipOldAttentionDays`/`gzipOldLoadDays` (bare try/catch, silent),
+`pickLatestCompleteDay`/`computeZoneStats` (pure functions over
+already-well-typed arrays, no I/O). The only remaining theoretical
+throw site in either function — `new Date(now).toISOString()` on an
+invalid `now` — is not reachable from the real call path either:
+production only ever calls `refreshAttention()`/`refreshLoad()` with
+ZERO arguments (from `bootAttentionPoll`/`bootEuLoadPoll`), so `nowMs`
+is always `undefined` and `now` always `Date.now()`, never a value
+that could produce an invalid Date.
+
+VERDICT: under the current implementation, `refreshAttention`'s and
+`refreshLoad`'s outer `catch` blocks are provably unreachable in
+production — the "no backfill on throw" gap this entry's NEXT(1)
+flagged is a dead code path, not a live "warming_up while an archive
+sits on disk" bug. NOT the same class as the 7 already-fixed modules
+(those had a REACHABLE gap, on the empty-result path); this is a
+different, currently-inert shape. NEXT(2) above ("if reachable, add
+the catch-path backfill call") is therefore MOOT as filed —
+reachability came back negative, so no code change ships from this
+update. Wiring a backfill call into dead code would be adding error
+handling for a scenario that provably cannot happen under the current
+implementation, not closing a real gap.
+
+CAVEAT (MEASUREMENT INTEGRITY — what could make this stale): this
+holds for the CURRENT text of both functions only. Any future edit
+that adds a statement to either module's per-item loop OUTSIDE its
+own try/catch, or changes `fetchImpl`'s contract so a rejected promise
+can escape a per-item try (impossible with today's `try { await
+fetchImpl(...) } catch {}` shape, but worth naming), would reopen this
+exact gap silently — a future session touching either file should
+re-verify this claim rather than trust it stale.
+
+CLOSES this entry's "POSSIBLE THIRD BUG SHAPE" finding as a negative
+result: no third occurrence of the cold-cache-no-disk-backfill bug
+exists in `wikiAttention.ts`/`euLoad.ts` beyond what's already
+correctly scoped above (both modules already DO backfill on the
+empty-but-non-throwing path — that was never in question).
+
+NOT A SPEND REQUEST.
