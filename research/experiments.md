@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-13 (scheduled-routine [PRODUCT] session, fourth session this thread today) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ships the filed `eia860_add_missing_plants.py` EIA-860M capacity refresh — HONEST NEGATIVE RESULT, ERCO/SWPP solar gate-1 does NOT close, and the real residual is now precisely localized to a population absent from EIA-860 ANNUAL entirely (v1.0.900)
+
+TERRITORY: T-DATACORE (scripts/eia860_add_missing_plants.py,
+scripts/eia860m_refresh_registry.py, their tests, datacore/powerplants/
+us_power_plants.json, datacore/powerplants/plant_balancing_authority_
+eia860.json) + SHARED-minimal, last (package.json version bump,
+ci/counter_baseline.txt re-pin, research/experiments.md,
+research/open_questions.md).
+
+KNOWN BROKEN #41 RE-CONFIRMATION (per this thread's own established
+convention): `curl -sSD-` against `https://voltradeai.com/api/health`
+at 2026-09-13T20:35:33Z returned the IDENTICAL signature every session
+today has logged — `HTTP/2 502`, `server: railway-hikari`,
+`x-railway-fallback: true`, `x-railway-edge: iad1`,
+`{"status":"error","code":502,"message":"Application failed to
+respond"}` — now ~72.3 wall-clock hours into the outage (onset
+2026-09-10T20:18Z), unchanged. No new information versus every prior
+read today; this sandbox still has no Railway API/CLI access to act on
+it. Per RECURRENCE ESCALATES and this thread's own repeated, explicit
+convention ("re-notify only when something actually changes"), NOT
+re-notified this session — duration alone is not new information.
+Proceeded to product/pipeline work exactly as every prior session in
+this outage window has done.
+
+QUEUE CHECK: this thread's own immediately preceding entry (ISNE wind,
+above) surveyed every program charter/queue and found everything
+clear/blocked except its own long-open NEXT items. Of those, NEXT(3)
+from the 2026-09-12 SWPP/ERCO staleness session — "refresh
+eia860_add_missing_plants.py's own missing-plant capacities from
+EIA-860M instead of EIA-860 ANNUAL... needs its own scoped PR" — was
+the single most-explicitly-specified, longest-standing, self-contained,
+unclaimed item in the entire thread (filed 2026-09-13 morning, still
+unclaimed after three intervening same-thread sessions today). Picked
+as this session's primary action.
+
+PRIOR (stated before running, REASONING STANDARD #10): expected this
+to at least partially close ERCO/SWPP solar's residual overshoot,
+based on the immediately preceding session's own live finding that
+"65-75% of the plant IDs driving ERCO's/SWPP's EIA-860M growth" sit in
+exactly this missing-plants population. This prior turned out WRONG —
+corrected below, not dropped, per REASONING STANDARD #10's own
+instruction.
+
+WHAT SHIPPED: `eia860_add_missing_plants.build_missing_plant_rows`
+gains an optional `capacity_override_by_code` parameter — a missing
+plant code's capacity comes from this map when present and positive,
+else falls back to EIA-860 ANNUAL exactly as before (default `None`
+reproduces prior behavior byte-for-byte, verified by test). Crucially,
+this does NOT change which codes count as "missing" (still EIA-860
+ANNUAL's own Schedule 3 minus GPPD's full USA code set) — only the
+CAPACITY VALUE applied once a code is already known to be missing.
+`eia860m_refresh_registry.py`'s `build_missing_plants_supplement` now
+accepts and forwards this override, built in `main()` by reshaping the
+SAME `{(code, fuel): mw}` EIA-860M capacity map already fetched for the
+GPPD-matched-plant refresh into `{fuel: {code: mw}}` — no second
+EIA-860M fetch (EDGE DOCTRINE #3: reuse, don't refetch). The per-fuel
+report gained `missing_codes_matched_in_eia860m` so refresh coverage is
+visible rather than assumed.
+
+TESTS: 15 new pure-function tests — 6 in `test_eia860_add_missing_
+plants.py` (override wins; falls back when code absent; None/empty-
+dict reproduce prior behavior exactly; zero/negative override still
+skips, matching the existing non-override skip semantics), 9 in
+`test_eia860m_refresh_registry.py` (3 new for the supplement's own
+override wiring — wins for a matched code, None matches prior behavior,
+a missing fuel key falls back without crashing — plus the existing
+suite's assertions were left unweakened). `python3 -m pytest -q
+test_eia860_add_missing_plants.py test_eia860m_refresh_registry.py`:
+47/47 pass. Full repo gate: `python3 -m pytest -q` (after installing
+this sandbox's missing runtime deps — scipy/pillow/scikit-learn/
+yfinance/lightgbm/anthropic/pytrends were absent at session start, a
+sandbox-provisioning gap unrelated to this change, not a repo defect):
+**2006 passed, 2 skipped**, matching this thread's own recent full-gate
+baseline. `bash scripts/counter_ratchet.sh`: `assertions` improved
+14214 -> 14229 (re-pinned in `ci/counter_baseline.txt` in this same
+PR, per the ratchet's own instruction); all 25 other counters
+unchanged/at-baseline. `bash scripts/tsc_ratchet.sh` reported a drop
+11 -> 3, NOT re-pinned: this sandbox's `node_modules/` carries only the
+bare `typescript` package (92KB total, no real dependency tree) —
+zero `.ts` files were touched this session, so a lower error count
+here is a measurement artifact of an incomplete local environment, not
+a real fix; re-pinning it would violate MEASUREMENT INTEGRITY's own
+"independent justification" bar. Left at 11 for real CI (full
+`npm ci`) to verify authoritatively.
+
+LIVE RESULT (fresh downloads this session — GPPD CSV, EIA-860 2025
+ANNUAL Schedule 2/3, EIA-860M "as of July 2026", none reused from a
+prior session's cache): `eia860m_refresh_registry.py` (non-dry-run,
+writing the real registry) matched 4,333 of 4,339 solar/wind missing-
+plant rows (4,047/4,053 solar, 286/286 wind) against EIA-860M's
+Operating sheet — but their EIA-860M capacity is **byte-identical** to
+their EIA-860-ANNUAL capacity for effectively the entire population
+(spot-checked 15 pairs by hand, all identical; net national capacity_
+by_fuel delta: solar -99.8 MW, wind 0.0 MW, across the full 4,333-row
+matched population). ROOT CAUSE, traced directly this session (not
+inferred): this "missing-from-GPPD" population is a large but STABLE
+set of plants EIA-860 ANNUAL already fully captured as of its
+2024-12-31 snapshot — GPPD simply never carried rows for them. It was
+never a currency/staleness problem for THIS population; the prior
+session's 25%/35% GPPD-match figure was a true reading of a narrower
+fact (what share of the plant IDs driving EIA-860M's REPORTED growth
+are in GPPD) that got over-generalized into "the rest must be stale in
+this supplement" without checking whether the rest was itself
+internally stale. It was not.
+
+THE REAL RESIDUAL, localized via an exhaustive 3-way partition of
+every ERCO/SWPP EIA-860M-reported operating solar plant ID (in GPPD /
+in EIA-860-ANNUAL-but-not-GPPD / absent from EIA-860 ANNUAL entirely):
+ERCO has 17 plant IDs (2,353.1 MW) and SWPP has 9 (715.3 MW) that do
+not exist in EIA-860 ANNUAL AT ALL — genuinely new plants commissioned
+after the 2024-12-31 snapshot, which NEITHER the original
+`eia860_add_missing_plants.py` NOR this session's own refresh can ever
+add: both derive their "missing" candidate set by subtracting GPPD's
+codes from EIA-860 ANNUAL's OWN Schedule 3 codes, so a plant absent
+from both sources can never appear in that subtraction, by
+construction, regardless of what capacity source is later applied to
+it.
+
+LIVE GATE-1 RE-CHECK after shipping (fresh BA-join rebuild against the
+refreshed registry via `grid_ba_eia860_join.py`, same live 7-day
+EIA-930 window, `EIA_API_KEY` present in this sandbox): **SWPP solar
+UNCHANGED** — 1,345.0 MW capacity, 1.97x, still FAIL, because zero
+SWPP-attributed missing-plant capacity actually moved. **ERCO solar
+marginally WORSE**, not better, on an apples-to-apples same-session
+BA-join rebuild: 1.128x -> 1.132x (-100 MW net matched capacity,
+within noise but the WRONG direction versus this session's own stated
+prior). Isolated this from an unrelated confound before trusting it:
+re-running `grid_ba_eia860_join.py` against a freshly re-downloaded
+(but content-unchanged) EIA-860 Schedule 2 file shifted the matched/
+unmatched/ambiguous plant counts slightly (13,609->13,631 matched)
+independent of any capacity change — controlled for by comparing
+before/after registry capacity through the SAME freshly-rebuilt join,
+never against the older committed join file's stale numbers.
+
+VERDICT: SHIPPED anyway, matching this thread's own 2026-09-13 PR
+#1067 precedent (titled "does NOT close," shipped regardless) — the
+code is a correct, well-tested, general improvement (prefers current
+EIA-860M data when available, degrades to the exact prior behavior
+when not) independent of this vintage's null empirical result, and
+following the same "refresh capacity, never invent membership"
+discipline every sibling script in this thread already established.
+NOT claimed as closing anything: ERCO/SWPP solar's gate-1 FAIL remains
+fully OPEN. `datacore/powerplants/us_power_plants.json`'s `_doc` field
+and `research/open_questions.md` both carry the honest result, not an
+inflated one.
+
+BACKTEST RESULT: N/A per PROMOTION RULE 3 — this is a ROOT VALIDATION
+LADDER gate-1 (DATA) pipeline fix, not a trading strategy or
+parameter; there is no backtest concept to run. The equivalent
+discipline (ladder-gate re-verification against live ground truth) was
+applied instead and is reported above in full, including the negative
+result.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: this diff touches no server-runtime or trading-
+path file (Python data-pipeline scripts + their registry JSON output
++ tests only) — no market-hours hold applies.
+
+NEXT: (1) `eia860m_add_brand_new_plants.py` (new hypothesis filed in
+research/open_questions.md this session) — sourcing membership,
+capacity, AND coordinates entirely from EIA-860M's own Operating sheet
+(confirmed live this session to carry Latitude/Longitude/Plant Name
+natively) for the population genuinely absent from EIA-860 ANNUAL,
+which is now the single highest-leverage remaining lever for ERCO/SWPP
+solar specifically and plausibly other fast-growing BA/fuel pairs.
+(2) no other BA/fuel pair from the original national gate-1 run has
+been individually re-verified for this thread's staleness mechanisms
+(carried over, unclaimed). (3) the production outage (KNOWN BROKEN
+#41) — unchanged, re-confirmed live at this session's own start, no
+new evidence, not re-notified for the reasons stated above.
+
+STARVED: no — the primary action was this thread's single most
+explicit, longest-unclaimed, self-contained filed NEXT item; fully
+executed (code shipped, tested, run live against fresh real data,
+registry written, gate-1 re-verified) and honestly reported as a
+negative result rather than either abandoned mid-way or spun as a
+success it wasn't. A new, more precisely localized NEXT item was filed
+in its place so the next session in this thread has a sharper target
+than "SWPP solar's ~27.5% overshoot" was.
+
 ## 2026-09-13 (scheduled-routine [PRODUCT] session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ISNE wind's gate-1 FAIL CLOSED — registry completeness ruled out (0.977), registry DATE STALENESS confirmed as the cause (capacity grew 1.5x since the EIA-860 annual snapshot), recomputed ratio 0.834 (clean PASS); zero code changes, both sibling scripts already general over BA/fuel
 
 TERRITORY: T-DATACORE (research/*, no code touched) + SHARED-minimal

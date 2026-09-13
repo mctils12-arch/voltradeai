@@ -96,6 +96,54 @@ def test_build_missing_plant_rows_sorted_by_code_deterministic():
     assert [r[0] for r in rows] == ["A", "B"]
 
 
+def test_build_missing_plant_rows_capacity_override_wins_over_annual():
+    directory = {1: ("Foo Solar", "TX", 30.0, -97.0, "Foo Utility")}
+    rows, skip_cap, skip_coords = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code={1: 99.9})
+    assert rows == [["Foo Solar", 99.9, "solar", "Foo Utility", 30.0, -97.0, 0]]
+    assert skip_cap == 0
+    assert skip_coords == 0
+
+
+def test_build_missing_plant_rows_capacity_override_falls_back_when_code_absent():
+    directory = {1: ("Foo", "TX", 30.0, -97.0, "U")}
+    rows, _, _ = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code={2: 99.9})
+    assert rows[0][1] == 12.3
+
+
+def test_build_missing_plant_rows_capacity_override_none_matches_prior_behavior():
+    directory = {1: ("Foo", "TX", 30.0, -97.0, "U")}
+    with_default = add.build_missing_plant_rows("solar", {1}, {1: 12.3}, directory)
+    with_explicit_none = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code=None)
+    assert with_default == with_explicit_none
+
+
+def test_build_missing_plant_rows_capacity_override_empty_dict_changes_nothing():
+    directory = {1: ("Foo", "TX", 30.0, -97.0, "U")}
+    baseline = add.build_missing_plant_rows("solar", {1}, {1: 12.3}, directory)
+    overridden = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code={})
+    assert baseline == overridden
+
+
+def test_build_missing_plant_rows_capacity_override_zero_still_skips():
+    directory = {1: ("Foo", "TX", 30.0, -97.0, "U")}
+    rows, skip_cap, _ = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code={1: 0.0})
+    assert rows == []
+    assert skip_cap == 1
+
+
+def test_build_missing_plant_rows_capacity_override_negative_still_skips():
+    directory = {1: ("Foo", "TX", 30.0, -97.0, "U")}
+    rows, skip_cap, _ = add.build_missing_plant_rows(
+        "solar", {1}, {1: 12.3}, directory, capacity_override_by_code={1: -5.0})
+    assert rows == []
+    assert skip_cap == 1
+
+
 def test_merge_registry_sorts_by_descending_capacity():
     existing = [["A", 10.0, "solar", "", 0.0, 0.0, 1], ["B", 1.0, "wind", "", 0.0, 0.0, 1]]
     new = [["C", 5.0, "solar", "", 0.0, 0.0, 0]]

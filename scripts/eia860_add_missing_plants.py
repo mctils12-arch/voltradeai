@@ -86,7 +86,8 @@ def gppd_all_usa_codes(rows):
     return out
 
 
-def build_missing_plant_rows(fuel, missing_codes, eia_capacity_by_code_map, plant_directory):
+def build_missing_plant_rows(fuel, missing_codes, eia_capacity_by_code_map, plant_directory,
+                              capacity_override_by_code=None):
     """Pure row-builder: for each EIA Plant Code confirmed missing from
     GPPD entirely, emits a registry-format row
     [name, capacity_mw, fuel, owner, lat, lon, verified=0] — verified is
@@ -96,10 +97,27 @@ def build_missing_plant_rows(fuel, missing_codes, eia_capacity_by_code_map, plan
     code with non-positive summed capacity (no real operating plant) or
     missing/null coordinates in the plant directory, counting both so the
     caller can report data completeness rather than silently dropping
-    rows. Returns (rows, skipped_zero_or_neg_capacity, skipped_bad_coords)."""
+    rows. Returns (rows, skipped_zero_or_neg_capacity, skipped_bad_coords).
+
+    capacity_override_by_code (2026-09-13, this session — the FUSION
+    HYPOTHESIS (b) NEXT filed by eia860m_refresh_registry.py's own
+    module docstring: "refresh eia860_add_missing_plants.py's own
+    missing-plant capacities from EIA-860M instead of EIA-860 ANNUAL"):
+    optional {plant_code: mw} from a more-current source (EIA-860M's
+    "Operating" sheet). eia_capacity_by_code_map (EIA-860 ANNUAL) still
+    defines which codes are missing-from-GPPD at all — this override
+    only replaces the CAPACITY VALUE applied to an already-identified
+    missing code, never the membership decision. A code absent from the
+    override (not on EIA-860M's Operating sheet, or no override map
+    supplied at all — the default None reproduces prior behavior
+    exactly) falls back to EIA-860 ANNUAL's own figure, never silently
+    drops to zero."""
     rows, skipped_cap, skipped_coords = [], 0, 0
+    override = capacity_override_by_code or {}
     for code in sorted(missing_codes):
-        mw = eia_capacity_by_code_map.get(code, 0.0)
+        mw = override.get(code)
+        if mw is None:
+            mw = eia_capacity_by_code_map.get(code, 0.0)
         if mw <= 0:
             skipped_cap += 1
             continue

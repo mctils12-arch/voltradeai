@@ -264,6 +264,61 @@ def test_build_missing_plants_supplement_no_missing_codes_yields_no_rows(monkeyp
     assert all(r["rows_added"] == 0 for r in report)
 
 
+def test_build_missing_plants_supplement_capacity_override_wins_for_matched_code(monkeypatch):
+    monkeypatch.setattr(refresh._amp, "load_gppd_country_idnr_rows",
+                         lambda path: [("USA", "USA0000001")])  # GPPD already has code 1
+    monkeypatch.setattr(refresh._amp, "load_eia860_plant_directory",
+                         lambda path: {1: ("Existing", "TX", 30.0, -97.0, "U"),
+                                        2: ("New Plant", "TX", 31.0, -98.0, "U")})
+
+    def fake_generator_rows(path):
+        if path == "solar.xlsx":
+            return [("OP", 1, 10.0), ("OP", 2, 5.0)]  # annual: code 2 = 5.0 MW
+        return []
+    monkeypatch.setattr(refresh._amp, "load_eia860_generator_rows", fake_generator_rows)
+
+    rows, report = refresh.build_missing_plants_supplement(
+        "gppd.csv", "plants.xlsx", "solar.xlsx", "wind.xlsx",
+        capacity_override_by_fuel_code={"solar": {2: 42.0}})
+
+    assert rows[0][1] == 42.0  # EIA-860M override wins over the annual 5.0
+    solar_report = next(r for r in report if r["fuel"] == "solar")
+    assert solar_report["missing_codes_matched_in_eia860m"] == 1
+
+
+def test_build_missing_plants_supplement_capacity_override_none_matches_prior_behavior(monkeypatch):
+    monkeypatch.setattr(refresh._amp, "load_gppd_country_idnr_rows",
+                         lambda path: [("USA", "USA0000001")])
+    monkeypatch.setattr(refresh._amp, "load_eia860_plant_directory",
+                         lambda path: {2: ("New Plant", "TX", 31.0, -98.0, "U")})
+    monkeypatch.setattr(refresh._amp, "load_eia860_generator_rows",
+                         lambda path: [("OP", 2, 5.0)] if path == "solar.xlsx" else [])
+
+    with_default = refresh.build_missing_plants_supplement(
+        "gppd.csv", "plants.xlsx", "solar.xlsx", "wind.xlsx")
+    with_explicit_none = refresh.build_missing_plants_supplement(
+        "gppd.csv", "plants.xlsx", "solar.xlsx", "wind.xlsx",
+        capacity_override_by_fuel_code=None)
+    assert with_default == with_explicit_none
+
+
+def test_build_missing_plants_supplement_capacity_override_missing_fuel_key_falls_back(monkeypatch):
+    monkeypatch.setattr(refresh._amp, "load_gppd_country_idnr_rows",
+                         lambda path: [("USA", "USA0000001")])
+    monkeypatch.setattr(refresh._amp, "load_eia860_plant_directory",
+                         lambda path: {2: ("New Plant", "TX", 31.0, -98.0, "U")})
+    monkeypatch.setattr(refresh._amp, "load_eia860_generator_rows",
+                         lambda path: [("OP", 2, 5.0)] if path == "solar.xlsx" else [])
+
+    # override dict has a "wind" key but no "solar" key at all
+    rows, report = refresh.build_missing_plants_supplement(
+        "gppd.csv", "plants.xlsx", "solar.xlsx", "wind.xlsx",
+        capacity_override_by_fuel_code={"wind": {99: 1.0}})
+    assert rows[0][1] == 5.0  # falls back to EIA-860 ANNUAL, no crash on missing key
+    solar_report = next(r for r in report if r["fuel"] == "solar")
+    assert solar_report["missing_codes_matched_in_eia860m"] == 0
+
+
 def test_build_missing_plants_supplement_reports_both_fuels_even_if_empty(monkeypatch):
     monkeypatch.setattr(refresh._amp, "load_gppd_country_idnr_rows", lambda path: [])
     monkeypatch.setattr(refresh._amp, "load_eia860_plant_directory", lambda path: {})
