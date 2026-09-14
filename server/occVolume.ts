@@ -148,6 +148,25 @@ export function _resetOccForTests(): void {
   cache = null;
 }
 
+/** Reads one archived report day back (inverse of archiveOccDay). Empty
+ *  array if the day was never archived or the file is unreadable — never
+ *  throws, same convention as cftcCot's readArchivedWeek. */
+export function readArchivedDay(day: string, baseDir?: string): OccRow[] {
+  const fp = path.join(occDir(baseDir), `${day}.jsonl.gz`);
+  let text: string;
+  try {
+    text = zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8");
+  } catch {
+    return [];
+  }
+  const out: OccRow[] = [];
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    try { out.push(JSON.parse(line)); } catch { continue; }
+  }
+  return out;
+}
+
 /** Writes one report day (all rows) gzipped-on-write — at ~153k rows/day
  *  the plain file would be ~18MB JSONL; gz lands ~1MB. Day-level dedup:
  *  a report date is final when published. */
@@ -242,6 +261,22 @@ export async function refreshOcc(fetchImpl: FetchFn = fetch as any, nowMs?: numb
         console.error(`[datacore] occvolume ${day}: unclassified body — investigate`);
       }
       // no_records (weekend/holiday) and not_yet_published are honest no-ops
+    }
+    // COLD-CACHE-NO-DISK-BACKFILL FIX (2026-09-14, same shape as
+    // cftcCot.ts/treasuryDts.ts's own "!cache && archivedX.size" branch):
+    // on every restart, the loop above skips every recent trading day
+    // that isDayArchived() already knows about (the normal steady-state,
+    // not an edge case) and never touches `cache` for those — so without
+    // this branch, `cache` stayed null and /api/data/occ-volume served
+    // warming_up forever after a restart, despite a real 2-year rolling
+    // archive sitting on disk. Restore from the newest archived day.
+    if (!cache && archivedDays.size) {
+      const newest = Array.from(archivedDays).sort().pop()!;
+      const rows = readArchivedDay(newest, baseDir);
+      if (rows.length) {
+        const agg = aggregateOcc(rows);
+        cache = { at: Date.now(), report_date: newest, top: agg.top, underlyings: agg.underlyings };
+      }
     }
   } catch (e: any) {
     console.error("[datacore] occvolume refresh:", e?.message || e);
