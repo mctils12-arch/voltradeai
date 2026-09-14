@@ -12802,6 +12802,82 @@ territory in their first commit)
   earlier); NOT re-notified — no new information beyond duration, same
   standard the preceding several sessions already applied.
 
+  UPDATE 2026-09-14 (scheduled-routine session, third session this UTC
+  day, [RESEARCH]) — resolves this entry's own NEXT(1): candidate
+  mechanism (i) (AC/DC nameplate-capacity ambiguity as the wrong
+  denominator) is SETTLED NEGATIVE against EIA's own primary
+  documentation, not inferred.
+
+  METHOD: fetched EIA-860's live official instructions PDF
+  (`eia.gov/survey/form/eia_860/instructions.pdf`) and extracted its
+  text (pdfminer, this sandbox's system `cryptography` package needed
+  a `cffi` reinstall first — a local tooling fix, not a repo change).
+  Read the general-instructions page and SCHEDULE 3, PART B (Generator
+  Information — Existing Generators) verbatim, not by inference.
+
+  PRIMARY-SOURCE RESULT: the form's general instructions state
+  outright, "For photovoltaic solar, the total generator nameplate
+  capacity is the sum of the AC ratings of the array." Line 1a's own
+  instruction for the "Nameplate Capacity (MW)" field — the exact
+  column name `scripts/eia860*.py` already reads (`hdr.index("Nameplate
+  Capacity (MW)")`, confirmed by grep across
+  `eia860_missing_plants_check.py`/`eia860_registry_capacity_check.py`/
+  `eia860m_add_brand_new_plants.py`/`eia860m_recent_capacity_check.py`/
+  `eia860m_refresh_registry.py`) — says to report it "as measured in
+  alternating current (AC)". Line 2a (net summer/winter capacity) is
+  independently specified AC too, with an explicit DC-fallback
+  instruction: "If net capacity is only available as direct current
+  (DC), estimate the effective AC output and explain in SCHEDULE 7."
+
+  VERDICT: our registry's capacity field is EIA's own documented
+  AC-comparable denominator, by explicit, solar-specific instruction —
+  not a systemic DC/AC mismatch. This also runs the WRONG DIRECTION to
+  explain an overshoot even where it could fail: a respondent who
+  mistakenly reported a DC (higher) value in this field would INFLATE
+  the denominator, making our ratio smaller/harder to exceed 1.0x, not
+  larger. Mechanism (i) is therefore ruled out as an explanation for
+  SWPP's/ERCO's overshoot direction, not merely "unconfirmed" — logged
+  as a clean negative per MEASUREMENT INTEGRITY (a result that narrows
+  the field is still a result, not a null one). HONEST CAVEAT: this
+  settles the DOCUMENTED convention, not proof that every respondent
+  follows it — a scattered per-respondent reporting error is still
+  possible in principle, but would be idiosyncratic noise, not the
+  systemic, multi-region, diurnally-clustered pattern this thread's
+  prior session already established — so it does not rescue mechanism
+  (i) as the dominant driver.
+
+  NOT A MEASUREMENT INTEGRITY CHANGE and NOT a wishlist proposal yet:
+  this entry's own NEXT(3) requires (1) OR (2) to settle which
+  mechanism dominates before any `grid_generation_gate1` statistic
+  proposal is filed — (1) alone rules OUT (i), it doesn't yet CONFIRM
+  (ii)'s magnitude, so that proposal stays unfiled pending NEXT(2).
+
+  GATES: no code shipped (a documentation/primary-source lookup, zero
+  `.py`/`.ts` files touched) — `package.json` stays at 1.0.902, the
+  version the immediately preceding session shipped; PROMOTION RULE 3's
+  backtest requirement and RULE 4's version bump do not apply (mirrors
+  this same thread's own 2026-09-13 precedent for a no-code research
+  finding). Full account: `research/experiments.md`, this date (third
+  entry).
+
+  NEXT: (1) NEXT(2) from the immediately preceding entry is now the
+  single remaining lever to settle which mechanism dominates: pull
+  EIA's separately published small-scale (behind-the-meter) solar
+  capacity estimates for SWPP's/ERCO's footprint states and compare
+  their scale against the measured overshoot. (2) once that settles
+  (or fails to), reconsider NEXT(3)'s wishlist proposal. (3)
+  `eia930_solar_exceedance_pattern.py` against ISNE wind remains
+  unclaimed (cross-check per the immediately preceding entry's own
+  NEXT(4)). (4) the production outage (KNOWN BROKEN #41) — re-checked
+  live at this session's own start (`curl -v
+  https://voltradeai.com/api/health` at 2026-09-14T11:04:04Z, identical
+  `HTTP/2 502`/`railway-hikari`/`x-railway-fallback: true` signature,
+  now ~86.8h continuous); NOT re-notified — only ~11h past the last
+  on-record notification's ~75.7h mark (not a doubling), same
+  "duration alone is not new information" standard this thread has
+  applied at every non-doubling interval since 2026-09-14T00:02:19Z's
+  notification.
+
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
