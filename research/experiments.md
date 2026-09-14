@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine session, third session this UTC day) [RESEARCH] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): settles candidate mechanism (i) (AC/DC nameplate-capacity ambiguity) NEGATIVE against EIA-860's own primary documentation — SWPP/ERCO solar's registry capacity field is EIA's own documented AC-comparable denominator, not the wrong unit (no version bump, no code shipped)
+
+TERRITORY: T-DATACORE (research-only this session — no `.py`/`.ts` files
+touched) + SHARED-minimal, last (research/experiments.md,
+research/open_questions.md only; no package.json/lockfile bump per
+this thread's own 2026-09-13 no-code-shipped precedent).
+
+LOOP-HEALTH CHECK (session start, per HEALTH OF THE LOOP ITSELF rule
+2): tags of the last 10 experiments.md entries before this one —
+[PIPELINE] (2026-09-14 second session), [PIPELINE] (2026-09-14
+[PRODUCT]/PIPELINE, #1072), [PIPELINE] (2026-09-13 ISNE wind, #1070),
+[RESEARCH] (2026-09-13 wikiAttention/euLoad trace), [PRODUCT]/
+[PIPELINE] (2026-09-13 cacheBackfill.ts, #1068), [PIPELINE] (2026-09-13
+EIA-860M registry-freshness, #1067), [REPAIR] (2026-09-13 second
+session, re-confirm outage #41), [RESEARCH] (2026-09-13 cross-sectional
+Hurst), [PRODUCT]/[PIPELINE] (2026-09-13 routes.ts warming_up fix,
+#1063 lineage), [PIPELINE] (2026-09-12 routes.ts warming_up fix,
+#1060). Count: 1/10 [REPAIR] (well under the 7+ thrash threshold), 2/10
+[RESEARCH], 7/10 [PIPELINE]-or-[PRODUCT]. No thrash; PROGRESS FLOOR and
+STARVATION SIGNAL both clearly satisfied (multiple [PIPELINE]/[PRODUCT]
+ships within the last 2 days). Normal work proceeds.
+
+SYSTEM HEALTH CHECK (session start): `curl -v
+https://voltradeai.com/api/health` at 2026-09-14T11:04:04Z returned the
+identical `HTTP/2 502` / `server: railway-hikari` /
+`x-railway-fallback: true` signature every session has logged since
+the 2026-09-10T20:18Z onset — now **~86.8 wall-clock hours**
+continuous (KNOWN BROKEN #41, full account in
+`research/open_questions.md`). `git log --since` against every
+server-runtime/trading-path file since the immediately preceding
+session's own check (2026-09-14T02:35:20Z, ~78.3h) returns zero
+commits, so this remains the same unresolved incident, not a new one.
+NOT RE-NOTIFIED: the last on-record human notification was at the
+~75.7h mark (2026-09-14T00:02:19Z); this session's ~86.8h reading is
++11h/+14.5%, not the "roughly doubled" threshold this exact thread has
+used to justify every re-notification since (24h, 38.8h, 75.7h marks —
+each roughly double the prior). Audit log / `/api/diag/*` are
+unreachable while the app itself 502s, so no new incident evidence was
+available to check either. No third patch attempted — RECURRENCE
+ESCALATES was already triggered 2026-09-08 for this subsystem, and this
+sandbox still has zero live Railway log access to distinguish a genuine
+new hypothesis from a repeat guess.
+
+QUEUE CHECK: the immediately preceding session (2026-09-14, second
+session this UTC day, v1.0.902, PR #1073) filed NEXT(1) as its most
+concretely-scoped unclaimed item: "check EIA-860 Schedule 3's own
+filing instructions for whether solar 'Nameplate Capacity (MW)' is
+specified as AC or DC ... would settle candidate mechanism (i) directly
+from primary documentation, no new code needed." This is cheaper and
+more concretely scoped than every other open item across
+`open_questions.md`/`wishlist.md`/`PROGRAM_STATE.md` (all of which
+require either new code, a blocked GPU/RunPod session, or a Railway
+log the human alone can pull) — picked as this session's primary
+action, per SESSION BUDGET's own "start a new experiment [when
+nothing's queued cheaper]" framing, here narrowed to "finish a queued
+sub-question that requires zero new code."
+
+PRIOR (stated before running, REASONING STANDARD #10): given that
+EIA's own AC/DC industry ambiguity is well-documented in general (the
+"inverter loading ratio" concept exists precisely because DC panel
+capacity commonly runs 10-30% above AC nameplate), expected (55%) the
+form instructions to be genuinely permissive or silent on which
+convention respondents should use for the "Nameplate Capacity (MW)"
+field specifically, leaving mechanism (i) unsettled and requiring a
+harder cross-respondent audit; expected (45%) the instructions to
+pin down one specific convention, resolving it outright either way.
+**This prior was WRONG at the resolution end**: the instructions turn
+out to be explicit and solar-specific, not silent — and the direction
+of what an AC/DC error WOULD cause (denominator inflation, which
+shrinks rather than grows an overshoot ratio) is a piece of reasoning
+this prior did not anticipate needing at all.
+
+METHOD: `curl`'d EIA's live official instructions PDF directly
+(`https://www.eia.gov/survey/form/eia_860/instructions.pdf`, HTTP 200,
+782,653 bytes) rather than relying on WebSearch snippets alone (which
+returned useful but non-verbatim summaries) or the OMB-archived
+reginfo.gov mirror (WebFetch's own summarizer could not extract
+readable text from that copy's PDF encoding). Extracted full text via
+`pdfminer.six` — this sandbox's system `cryptography` package was
+initially broken (`ModuleNotFoundError: No module named
+'_cffi_backend'`, blocking `pypdf` too), fixed with `pip install
+--force-reinstall cffi`; this is sandbox-tooling state, not a repo
+change, and is not expected to persist to a future session's
+container. Grepped the extracted text for "nameplate capacity" (30+
+hits) and read the two directly relevant passages in full: the general
+"For all plants" instructions (page 1) and SCHEDULE 3, PART B's own
+line-by-line instructions for lines 1a/2a.
+
+LIVE RESULT (verbatim from the extracted PDF text, not paraphrased
+from a search snippet):
+- General instructions, page 1: "The total generator nameplate
+  capacity is the sum of the maximum ratings in MW on the nameplates of
+  all applicable generators at a specific site. For photovoltaic solar,
+  the total generator nameplate capacity is the sum of the AC ratings
+  of the array."
+- SCHEDULE 3, PART B, line 1a ("What is the nameplate capacity for this
+  generator?"): "Report the highest value on the generator nameplate in
+  MW rounded to the nearest tenth, as measured in alternating current
+  (AC). If the nameplate capacity is expressed in kilovolt amperes
+  (kVA), first convert... If generator nameplate capacity is less than
+  net summer capacity, provide the reason(s) in SCHEDULE 7."
+- SCHEDULE 3, PART B, line 2a ("What is this generator's net
+  capacity?"): "...Report in MW rounded to the nearest tenth, as
+  measured in alternating current (AC)... If net capacity is only
+  available as direct current (DC), estimate the effective AC output
+  and explain in SCHEDULE 7."
+
+CROSS-CHECKED AGAINST OUR OWN CODE (grep, not assumed): every script
+in this thread that reads registry capacity —
+`eia860_missing_plants_check.py:196`, `eia860_registry_capacity_
+check.py:110`, `eia860m_add_brand_new_plants.py:218`,
+`eia860m_recent_capacity_check.py:146`, `eia860m_refresh_registry.py:
+200` — reads `hdr.index("Nameplate Capacity (MW)")` verbatim, the
+exact column name the form instructions above describe. There is no
+alternate DC-specific column being silently substituted.
+
+VERDICT: mechanism (i) is RULED OUT, not merely "unconfirmed." EIA's
+own form instructions specify the "Nameplate Capacity (MW)" field as
+AC for photovoltaic solar specifically, with an explicit DC-to-AC
+conversion instruction for any respondent whose only source is DC —
+this is the field our registry already reads, so there is no
+systemic wrong-denominator bug here. Independently, even a respondent
+who violated the instruction would move the ratio the WRONG way to
+explain an overshoot (a DC value used where AC was asked for is LARGER,
+inflating the denominator and shrinking the ratio, not growing it past
+1.0x) — so mechanism (i) could not explain this thread's observed
+overshoot direction even under a compliance failure. This is a clean
+negative result under REASONING STANDARD #4 (an honest ruling-out, not
+a rationalization toward the answer already suspected going in) and
+under MEASUREMENT INTEGRITY (this session did not touch, and had no
+motive to touch, `grid_generation_gate1(.py|_ba.py)`'s own statistic —
+this is a documentation lookup about a REGISTRY field, not the gate
+script).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no code touched. NOT YET A
+WISHLIST PROPOSAL: the immediately preceding entry's own NEXT(3)
+requires (1) OR (2) to settle which mechanism dominates before any
+`grid_generation_gate1` statistic-change proposal is filed: (1) alone
+rules OUT (i) but does not itself measure (ii)'s magnitude, so that
+proposal stays correctly unfiled pending NEXT(2) (EIA's small-
+scale/BTM solar capacity estimates by state) — filing it now off a
+single ruled-out mechanism, without the remaining candidate's own
+magnitude in hand, would be exactly the kind of premature, suspect-by-
+default measurement-change proposal that section warns against.
+
+GATES: zero `.py`/`.ts`/`.tsx` files touched this session — no test
+suite, lint, typecheck, build, or visual-harness run applies (nothing
+to regress). `research/experiments.md` and `research/open_questions.md`
+are the only files this PR touches. `package.json` stays at 1.0.902
+(the version the immediately preceding session shipped) per PROMOTION
+RULE 4's own scope ("Tag the change" — there is no code change here to
+tag) and this thread's own 2026-09-13 precedent for a no-code research
+finding (see that date's entry: "package.json stays at 1.0.899 ...
+no code shipped").
+
+BACKTEST RESULT: N/A — a ROOT VALIDATION LADDER gate-1 (DATA)
+documentation lookup, not a trading strategy, parameter, or
+measurement-code change.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-feature-gating code in this diff (there is no code in this diff).
+
+DEPLOY-COUPLING NOTE: N/A — this diff touches no server-runtime,
+trading-path, or client file; there is nothing to deploy.
+
+NEXT: (1) EIA's separately published small-scale (behind-the-meter)
+solar capacity estimates for SWPP's/ERCO's footprint states, to test
+candidate mechanism (ii) directly — the single remaining lever to
+settle which mechanism dominates. (2) once (1) resolves (or fails to),
+revisit the `grid_generation_gate1` measurement-integrity wishlist
+question. (3) `eia930_solar_exceedance_pattern.py` against ISNE wind,
+unclaimed cross-check from two sessions ago. (4) imagery-verify SunZia
+Wind South (carried over, unclaimed, three sessions running). (5) the
+production outage (KNOWN BROKEN #41) — still down, ~86.8h, not
+re-notified (no doubling since the last on-record notification).
+
+STARVED: no — this session closed a queued, concretely-scoped
+sub-question with a definitive primary-source answer rather than
+picking an easier but less-targeted task, and correctly stopped short
+of the follow-on wishlist proposal its own preceding entry's NEXT(3)
+explicitly gates on a still-unresolved second sub-question.
+
 ## 2026-09-14 (scheduled-routine session, second session this UTC day) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): SWPP solar's residual gate-1 overshoot is NOT a one-off EIA-930 spike — a new `eia930_solar_exceedance_pattern.py` diagnostic shows a sustained, diurnally-clustered pattern present in BOTH SWPP and ERCO, meaning ERCO's own gate-1 PASS is fragile, not settled (v1.0.902)
 
 TERRITORY: T-DATACORE (scripts/eia930_solar_exceedance_pattern.py,
