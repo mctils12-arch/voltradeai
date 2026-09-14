@@ -1,17 +1,17 @@
 {
  "_doc": "Plant -> EIA-930 balancing-authority assignment via direct join against EIA-860 Schedule 2's own reported Balancing Authority Code (ground truth, not geometric inference) \u2014 see module docstring for the coordinate-match rationale and this session's empirical resolution rate. Built by scripts/grid_ba_eia860_join.py. Recomputed fresh from the registry + a fresh EIA-860 download each run, like grid_ba_polygon_join.py \u2014 not a stable cross-rebuild join key.",
  "source": "scripts/grid_ba_eia860_join.py",
- "eia860_source": "/tmp/eia860work/eia860extract/2___Plant_Y2025.xlsx",
+ "eia860_source": "/tmp/eia860/2___Plant_Y2025.xlsx",
  "registry_source": "/home/user/voltradeai/datacore/powerplants/us_power_plants.json",
  "eia860_plant_rows_with_coord_and_ba": 17073,
  "eia860_plant_rows_skipped_no_coordinate": 28,
  "eia860_plant_rows_skipped_no_ba_code": 248,
  "summary": {
-  "total": 14172,
-  "matched": 13631,
-  "unmatched": 526,
+  "total": 14428,
+  "matched": 13881,
+  "unmatched": 532,
   "ambiguous": 15,
-  "unmatched_capacity_mw": 41104.6,
+  "unmatched_capacity_mw": 41164.1,
   "ambiguous_capacity_mw": 3125.7
  },
  "comparison_to_polygon_join": null,
@@ -1970,6 +1970,13 @@
    "status": "matched"
   },
   {
+   "name": "SunZia Wind North",
+   "fuel": "wind",
+   "capacity_mw": 1089.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "Guadalupe Generating Station",
    "fuel": "gas",
    "capacity_mw": 1088.2,
@@ -3048,6 +3055,13 @@
    "status": "matched"
   },
   {
+   "name": "Vineyard Wind 1",
+   "fuel": "wind",
+   "capacity_mw": 800.0,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
    "name": "Mill Creek (SC)",
    "fuel": "gas",
    "capacity_mw": 799.2,
@@ -3927,6 +3941,13 @@
    "fuel": "gas",
    "capacity_mw": 650.0,
    "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
+   "name": "Hecate Energy Longhorn Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 650.0,
+   "ba_code": "ERCO",
    "status": "matched"
   },
   {
@@ -4861,6 +4882,13 @@
    "status": "matched"
   },
   {
+   "name": "Maricopa Solar",
+   "fuel": "solar",
+   "capacity_mw": 550.0,
+   "ba_code": "AZPS",
+   "status": "matched"
+  },
+  {
    "name": "Harbor",
    "fuel": "gas",
    "capacity_mw": 548.1,
@@ -5211,6 +5239,13 @@
    "status": "matched"
   },
   {
+   "name": "Dusty Rose Wind",
+   "fuel": "wind",
+   "capacity_mw": 502.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
    "name": "Klamath Cogeneration Plant",
    "fuel": "gas",
    "capacity_mw": 501.5,
@@ -5285,6 +5320,13 @@
    "fuel": "wind",
    "capacity_mw": 500.0,
    "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "West Camp Wind Farm",
+   "fuel": "wind",
+   "capacity_mw": 500.0,
+   "ba_code": "AZPS",
    "status": "matched"
   },
   {
@@ -6002,6 +6044,13 @@
    "status": "matched"
   },
   {
+   "name": "Green River Energy Center - Hybrid",
+   "fuel": "solar",
+   "capacity_mw": 400.0,
+   "ba_code": "PACE",
+   "status": "matched"
+  },
+  {
    "name": "Hopewell Cogeneration",
    "fuel": "gas",
    "capacity_mw": 399.0,
@@ -6699,6 +6748,13 @@
    "fuel": "gas",
    "capacity_mw": 334.5,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Centennial Flats",
+   "fuel": "solar",
+   "capacity_mw": 333.4,
+   "ba_code": "AZPS",
    "status": "matched"
   },
   {
@@ -7528,6 +7584,13 @@
    "status": "matched"
   },
   {
+   "name": "Split Rail Solar Energy LLC",
+   "fuel": "solar",
+   "capacity_mw": 300.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Balko Wind LLC",
    "fuel": "wind",
    "capacity_mw": 299.7,
@@ -7791,6 +7854,13 @@
    "fuel": "gas",
    "capacity_mw": 287.0,
    "ba_code": "BPAT",
+   "status": "matched"
+  },
+  {
+   "name": "Archtop Solar",
+   "fuel": "solar",
+   "capacity_mw": 286.8,
+   "ba_code": "MISO",
    "status": "matched"
   },
   {
@@ -8120,6 +8190,13 @@
    "fuel": "hydro",
    "capacity_mw": 270.0,
    "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Blevins Solar & Storage",
+   "fuel": "solar",
+   "capacity_mw": 270.0,
+   "ba_code": "ERCO",
    "status": "matched"
   },
   {
@@ -8795,6 +8872,34 @@
    "status": "matched"
   },
   {
+   "name": "Muskegon Solar",
+   "fuel": "solar",
+   "capacity_mw": 250.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Sherco Solar III",
+   "fuel": "solar",
+   "capacity_mw": 250.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Petersburg Energy Center",
+   "fuel": "solar",
+   "capacity_mw": 250.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Badger Wind, LLC",
+   "fuel": "wind",
+   "capacity_mw": 250.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Rush Springs Wind",
    "fuel": "wind",
    "capacity_mw": 249.9,
@@ -9135,6 +9240,13 @@
    "fuel": "solar",
    "capacity_mw": 240.0,
    "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Cadence Solar Energy Center",
+   "fuel": "solar",
+   "capacity_mw": 240.0,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -9916,6 +10028,13 @@
   },
   {
    "name": "Stillhouse Solar",
+   "fuel": "solar",
+   "capacity_mw": 210.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Grimes County Solar",
    "fuel": "solar",
    "capacity_mw": 210.0,
    "ba_code": "ERCO",
@@ -11217,6 +11336,69 @@
    "status": "matched"
   },
   {
+   "name": "Oak Hill - Dry Creek",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Branch Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Morrow Lake Solar",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Catclaw Solar",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "AZPS",
+   "status": "matched"
+  },
+  {
+   "name": "Optimist",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Millers Branch Solar",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Trade Post Solar",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "ATLAS Solar V, LLC",
+   "fuel": "solar",
+   "capacity_mw": 200.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Lotus Wind",
+   "fuel": "wind",
+   "capacity_mw": 200.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Imperial Valley Solar  LLC",
    "fuel": "solar",
    "capacity_mw": 199.9,
@@ -12337,6 +12519,13 @@
    "status": "matched"
   },
   {
+   "name": "Mission Road Solar Park",
+   "fuel": "solar",
+   "capacity_mw": 172.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Appaloosa Run Wind",
    "fuel": "wind",
    "capacity_mw": 171.8,
@@ -12988,6 +13177,13 @@
    "status": "matched"
   },
   {
+   "name": "Babacomari Solar",
+   "fuel": "solar",
+   "capacity_mw": 160.0,
+   "ba_code": "TEPC",
+   "status": "matched"
+  },
+  {
    "name": "Chickamauga",
    "fuel": "hydro",
    "capacity_mw": 159.6,
@@ -13268,6 +13464,13 @@
    "status": "matched"
   },
   {
+   "name": "Gaia Hybrid",
+   "fuel": "solar",
+   "capacity_mw": 152.7,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
    "name": "Hal C Weaver Power Plant",
    "fuel": "gas",
    "capacity_mw": 152.5,
@@ -13314,6 +13517,13 @@
    "fuel": "wind",
    "capacity_mw": 152.0,
    "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Twelvemile Solar 1",
+   "fuel": "solar",
+   "capacity_mw": 152.0,
+   "ba_code": "SWPP",
    "status": "matched"
   },
   {
@@ -14101,6 +14311,62 @@
    "status": "matched"
   },
   {
+   "name": "Graceland Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Heartwood Solar",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Compadre Solar",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
+   "name": "Mondu Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Boot Hill Solar",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
+   "name": "Wheatland",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Papago PV",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "AZPS",
+   "status": "matched"
+  },
+  {
+   "name": "Plant X Solar",
+   "fuel": "solar",
+   "capacity_mw": 150.0,
+   "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
    "name": "Indigo Energy Facility",
    "fuel": "gas",
    "capacity_mw": 149.7,
@@ -14179,6 +14445,13 @@
   },
   {
    "name": "River Fork Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 149.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Kelso 2 Solar",
    "fuel": "solar",
    "capacity_mw": 149.0,
    "ba_code": "MISO",
@@ -14283,6 +14556,13 @@
    "status": "matched"
   },
   {
+   "name": "Pontotoc Wind",
+   "fuel": "wind",
+   "capacity_mw": 147.5,
+   "ba_code": "SPA",
+   "status": "matched"
+  },
+  {
    "name": "Campo Verde Solar",
    "fuel": "solar",
    "capacity_mw": 147.4,
@@ -14311,6 +14591,13 @@
    "status": "matched"
   },
   {
+   "name": "Yum Yum Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 147.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
    "name": "Lily Solar Hybrid",
    "fuel": "solar",
    "capacity_mw": 146.7,
@@ -14336,6 +14623,13 @@
    "fuel": "wind",
    "capacity_mw": 146.2,
    "ba_code": "PACE",
+   "status": "matched"
+  },
+  {
+   "name": "Fish Creek Solar Park",
+   "fuel": "solar",
+   "capacity_mw": 146.2,
+   "ba_code": "MISO",
    "status": "matched"
   },
   {
@@ -14392,6 +14686,13 @@
    "fuel": "wind",
    "capacity_mw": 145.0,
    "ba_code": "WACM",
+   "status": "matched"
+  },
+  {
+   "name": "Cherrywood Solar I",
+   "fuel": "solar",
+   "capacity_mw": 145.0,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -14560,6 +14861,13 @@
    "fuel": "coal",
    "capacity_mw": 140.4,
    "ba_code": "SOCO",
+   "status": "matched"
+  },
+  {
+   "name": "Grover Hill Wind, LLC",
+   "fuel": "wind",
+   "capacity_mw": 140.3,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -14948,6 +15256,20 @@
    "status": "matched"
   },
   {
+   "name": "Prairie Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 135.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Cherry Valley PV I",
+   "fuel": "solar",
+   "capacity_mw": 135.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Foote Creek Rim",
    "fuel": "wind",
    "capacity_mw": 134.8,
@@ -15291,6 +15613,13 @@
    "status": "matched"
   },
   {
+   "name": "Solar PV Development NM 18 II LLC",
+   "fuel": "solar",
+   "capacity_mw": 130.0,
+   "ba_code": "EPE",
+   "status": "matched"
+  },
+  {
    "name": "Northeast (MI)",
    "fuel": "gas",
    "capacity_mw": 129.8,
@@ -15442,6 +15771,13 @@
    "fuel": "solar",
    "capacity_mw": 127.0,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Arlington Valley Solar Energy I",
+   "fuel": "solar",
+   "capacity_mw": 127.0,
+   "ba_code": "AZPS",
    "status": "matched"
   },
   {
@@ -15620,10 +15956,38 @@
    "status": "matched"
   },
   {
+   "name": "Desert Breeze Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 125.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pleasant Valley Solar 2 Project",
+   "fuel": "solar",
+   "capacity_mw": 125.0,
+   "ba_code": "IPCO",
+   "status": "matched"
+  },
+  {
+   "name": "Barrett Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 125.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
    "name": "Keokuk",
    "fuel": "hydro",
    "capacity_mw": 124.8,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Huckleberry Solar",
+   "fuel": "solar",
+   "capacity_mw": 124.7,
+   "ba_code": "SWPP",
    "status": "matched"
   },
   {
@@ -16082,6 +16446,27 @@
    "status": "matched"
   },
   {
+   "name": "Tower Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 120.0,
+   "ba_code": "BPAT",
+   "status": "matched"
+  },
+  {
+   "name": "Keydet Solar Center",
+   "fuel": "solar",
+   "capacity_mw": 120.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Aratina Solar Center 1A",
+   "fuel": "solar",
+   "capacity_mw": 120.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "Bluff Point Wind Facility",
    "fuel": "wind",
    "capacity_mw": 119.7,
@@ -16411,6 +16796,13 @@
    "status": "matched"
   },
   {
+   "name": "CPV Rogue's Wind, LLC",
+   "fuel": "wind",
+   "capacity_mw": 114.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "Storm Lake 1",
    "fuel": "wind",
    "capacity_mw": 113.9,
@@ -16436,6 +16828,13 @@
    "fuel": "gas",
    "capacity_mw": 113.5,
    "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Baron Winds II",
+   "fuel": "wind",
+   "capacity_mw": 113.2,
+   "ba_code": "NYIS",
    "status": "matched"
   },
   {
@@ -17045,6 +17444,13 @@
    "fuel": "wind",
    "capacity_mw": 105.3,
    "ba_code": "AVA",
+   "status": "matched"
+  },
+  {
+   "name": "Pastoria Solar",
+   "fuel": "solar",
+   "capacity_mw": 105.2,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -18441,6 +18847,41 @@
    "status": "ambiguous"
   },
   {
+   "name": "Elkhart County Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Marion County Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Wilmot Energy Center II",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "TEPC",
+   "status": "matched"
+  },
+  {
+   "name": "Redfield Solar",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Renegade Solar Energy LLC",
+   "fuel": "solar",
+   "capacity_mw": 100.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Cordell Hull",
    "fuel": "hydro",
    "capacity_mw": 99.9,
@@ -18665,6 +19106,20 @@
    "status": "matched"
   },
   {
+   "name": "Cooks Mill PV I",
+   "fuel": "solar",
+   "capacity_mw": 99.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Crooked Creek PV I",
+   "fuel": "solar",
+   "capacity_mw": 99.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Ensign Wind LLC",
    "fuel": "wind",
    "capacity_mw": 98.9,
@@ -18823,6 +19278,13 @@
    "fuel": "wind",
    "capacity_mw": 97.5,
    "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Midpoint Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 97.5,
+   "ba_code": "ERCO",
    "status": "matched"
   },
   {
@@ -19624,6 +20086,13 @@
    "status": "matched"
   },
   {
+   "name": "Ashwood Solar I",
+   "fuel": "solar",
+   "capacity_mw": 86.0,
+   "ba_code": "LGEE",
+   "status": "matched"
+  },
+  {
    "name": "Golden Hills Wind",
    "fuel": "wind",
    "capacity_mw": 85.9,
@@ -19692,6 +20161,13 @@
    "capacity_mw": 85.0,
    "ba_code": null,
    "status": "unmatched"
+  },
+  {
+   "name": "Sun Pond",
+   "fuel": "solar",
+   "capacity_mw": 85.0,
+   "ba_code": "SRP",
+   "status": "matched"
   },
   {
    "name": "Cascade Creek",
@@ -20590,6 +21066,48 @@
    "status": "matched"
   },
   {
+   "name": "Aratina Solar Center 1B",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Ostrea Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "BPAT",
+   "status": "matched"
+  },
+  {
+   "name": "Lockhart Solar PV IV, LLC",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pineview Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "SOCO",
+   "status": "matched"
+  },
+  {
+   "name": "Walker Springs II",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "SOCO",
+   "status": "matched"
+  },
+  {
+   "name": "Walker Springs I",
+   "fuel": "solar",
+   "capacity_mw": 80.0,
+   "ba_code": "SOCO",
+   "status": "matched"
+  },
+  {
    "name": "Broken Bow Wind LLC",
    "fuel": "wind",
    "capacity_mw": 79.9,
@@ -21382,6 +21900,27 @@
   },
   {
    "name": "Half Moon Solar Plant",
+   "fuel": "solar",
+   "capacity_mw": 74.9,
+   "ba_code": "FPC",
+   "status": "matched"
+  },
+  {
+   "name": "SR Millington II",
+   "fuel": "solar",
+   "capacity_mw": 74.9,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Long Branch Solar",
+   "fuel": "solar",
+   "capacity_mw": 74.9,
+   "ba_code": "TEC",
+   "status": "matched"
+  },
+  {
+   "name": "Jumper Creek Solar Plant",
    "fuel": "solar",
    "capacity_mw": 74.9,
    "ba_code": "FPC",
@@ -22312,6 +22851,90 @@
    "status": "matched"
   },
   {
+   "name": "North Orange",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Boardwalk",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Price Creek",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Mare Branch",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Swamp Cabbage",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Mallard",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Sand Pine",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Sea Grape",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Big Brook",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Clover FL",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Flatford",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
+   "name": "Goldenrod",
+   "fuel": "solar",
+   "capacity_mw": 74.5,
+   "ba_code": "FPL",
+   "status": "matched"
+  },
+  {
    "name": "Balm Solar",
    "fuel": "solar",
    "capacity_mw": 74.4,
@@ -22624,6 +23247,13 @@
    "fuel": "solar",
    "capacity_mw": 72.0,
    "ba_code": "PACE",
+   "status": "matched"
+  },
+  {
+   "name": "Cunningham Solar I & BESS",
+   "fuel": "solar",
+   "capacity_mw": 72.0,
+   "ba_code": "SWPP",
    "status": "matched"
   },
   {
@@ -24713,6 +25343,13 @@
    "status": "matched"
   },
   {
+   "name": "Bynum Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 56.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
    "name": "Carson Cogeneration",
    "fuel": "gas",
    "capacity_mw": 55.8,
@@ -24927,6 +25564,13 @@
    "fuel": "wind",
    "capacity_mw": 54.4,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Copper Crossing Energy and Research Cent",
+   "fuel": "solar",
+   "capacity_mw": 54.4,
+   "ba_code": "SRP",
    "status": "matched"
   },
   {
@@ -25252,6 +25896,13 @@
    "status": "unmatched"
   },
   {
+   "name": "Twelvemile Solar 2",
+   "fuel": "solar",
+   "capacity_mw": 52.2,
+   "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
    "name": "Ascend Performance Materials Texas Inc.",
    "fuel": "gas",
    "capacity_mw": 52.1,
@@ -25329,6 +25980,13 @@
    "status": "matched"
   },
   {
+   "name": "Newton Solar BESS LLC",
+   "fuel": "solar",
+   "capacity_mw": 51.8,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Higginsville",
    "fuel": "gas",
    "capacity_mw": 51.6,
@@ -25375,6 +26033,13 @@
    "fuel": "other",
    "capacity_mw": 51.4,
    "ba_code": "SC",
+   "status": "matched"
+  },
+  {
+   "name": "Deer Creek Hybrid",
+   "fuel": "solar",
+   "capacity_mw": 51.4,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -26561,6 +27226,20 @@
    "status": "matched"
   },
   {
+   "name": "Sterlington Solar",
+   "fuel": "solar",
+   "capacity_mw": 49.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Montpelier Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 49.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "Kern River Eastridge Cogen",
    "fuel": "gas",
    "capacity_mw": 48.8,
@@ -27457,6 +28136,13 @@
    "status": "matched"
   },
   {
+   "name": "Cartwright Solar I",
+   "fuel": "solar",
+   "capacity_mw": 44.0,
+   "ba_code": "BPAT",
+   "status": "matched"
+  },
+  {
    "name": "Red Rock",
    "fuel": "solar",
    "capacity_mw": 43.9,
@@ -27947,6 +28633,13 @@
    "status": "matched"
   },
   {
+   "name": "Beaverdam Renewable Energy Center",
+   "fuel": "solar",
+   "capacity_mw": 40.8,
+   "ba_code": "DUK",
+   "status": "matched"
+  },
+  {
    "name": "OCI Alamo Solar I Hybrid",
    "fuel": "solar",
    "capacity_mw": 40.7,
@@ -28273,6 +28966,13 @@
    "fuel": "solar",
    "capacity_mw": 40.0,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Angela Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 40.0,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -29249,6 +29949,13 @@
    "status": "matched"
   },
   {
+   "name": "Potter Solar",
+   "fuel": "solar",
+   "capacity_mw": 35.0,
+   "ba_code": null,
+   "status": "unmatched"
+  },
+  {
    "name": "Chanute 3",
    "fuel": "gas",
    "capacity_mw": 34.8,
@@ -29970,6 +30677,13 @@
    "status": "matched"
   },
   {
+   "name": "Pitts Dudik Solar II",
+   "fuel": "solar",
+   "capacity_mw": 30.4,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
    "name": "Berlin Gorham",
    "fuel": "hydro",
    "capacity_mw": 30.3,
@@ -30590,6 +31304,13 @@
    "fuel": "wind",
    "capacity_mw": 29.0,
    "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Apex NC Solar",
+   "fuel": "solar",
+   "capacity_mw": 28.9,
+   "ba_code": "DUK",
    "status": "matched"
   },
   {
@@ -31643,6 +32364,20 @@
    "status": "matched"
   },
   {
+   "name": "SR Adamsville",
+   "fuel": "solar",
+   "capacity_mw": 25.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Adelite Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 25.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Crawfordsville Power Plant",
    "fuel": "coal",
    "capacity_mw": 24.9,
@@ -32536,6 +33271,13 @@
    "fuel": "solar",
    "capacity_mw": 22.0,
    "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "Two Hearted Solar",
+   "fuel": "solar",
+   "capacity_mw": 22.0,
+   "ba_code": "DUK",
    "status": "matched"
   },
   {
@@ -34909,6 +35651,13 @@
    "fuel": "wind",
    "capacity_mw": 20.0,
    "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "FR_Williamsport LLC",
+   "fuel": "solar",
+   "capacity_mw": 20.0,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -37439,6 +38188,13 @@
    "status": "matched"
   },
   {
+   "name": "Vineland Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 15.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "NCAH Central Utility Plant",
    "fuel": "oil",
    "capacity_mw": 14.9,
@@ -38524,6 +39280,13 @@
    "status": "matched"
   },
   {
+   "name": "Ardagh Solar",
+   "fuel": "solar",
+   "capacity_mw": 12.9,
+   "ba_code": null,
+   "status": "unmatched"
+  },
+  {
    "name": "A G Wishon",
    "fuel": "hydro",
    "capacity_mw": 12.8,
@@ -39315,6 +40078,20 @@
    "status": "matched"
   },
   {
+   "name": "Kieffer Funk",
+   "fuel": "solar",
+   "capacity_mw": 12.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Samaritan Solar",
+   "fuel": "solar",
+   "capacity_mw": 12.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "Barrett PV",
    "fuel": "solar",
    "capacity_mw": 11.9,
@@ -39984,6 +40761,13 @@
    "fuel": "solar",
    "capacity_mw": 11.0,
    "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "Changewater 1",
+   "fuel": "solar",
+   "capacity_mw": 11.0,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -44271,6 +45055,20 @@
    "status": "matched"
   },
   {
+   "name": "SR Sequatchie",
+   "fuel": "solar",
+   "capacity_mw": 8.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Mexia Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 8.0,
+   "ba_code": "ERCO",
+   "status": "matched"
+  },
+  {
    "name": "APG Combined Heat and Power Plant",
    "fuel": "gas",
    "capacity_mw": 7.9,
@@ -47589,6 +48387,41 @@
    "status": "matched"
   },
   {
+   "name": "SR Gray",
+   "fuel": "solar",
+   "capacity_mw": 6.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Chanute Solar",
+   "fuel": "solar",
+   "capacity_mw": 6.0,
+   "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
+   "name": "National Park Solar",
+   "fuel": "solar",
+   "capacity_mw": 6.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Perch Solar WI, LLC",
+   "fuel": "solar",
+   "capacity_mw": 6.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Strawberry Creek Solar WI, LLC",
+   "fuel": "solar",
+   "capacity_mw": 6.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Beaver Creek Gas Plant",
    "fuel": "gas",
    "capacity_mw": 5.9,
@@ -48252,6 +49085,13 @@
    "capacity_mw": 5.5,
    "ba_code": "PJM",
    "status": "matched"
+  },
+  {
+   "name": "SR Hickman",
+   "fuel": "solar",
+   "capacity_mw": 5.5,
+   "ba_code": null,
+   "status": "unmatched"
   },
   {
    "name": "Alliant SBD 9502 Eaton",
@@ -56171,6 +57011,272 @@
    "status": "matched"
   },
   {
+   "name": "Eureka South Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "Geer Road Solar 3 CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "NY Selkirk S Albany RD - Hemlock Hills S",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Moseley Hermon Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Ashley Solar LLC PV",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pivot Solar NY 10",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Big Creek Solar (IL) (CSG)",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "XCEL-1 Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
+   "name": "Althea Avenue Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Chester",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "KN07",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Route 14-1",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Route 14-2",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Dunkirk Solar One, LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Sunset Road Solar 3 Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Juniper Sol Solar CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
+   "name": "NL IL - Esmen East CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pluma - Reynolds (CSG)",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
+   "name": "USS Tall Grass Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "USS Calico Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "USS Great Plains Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "USS High Plains Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "USS Raptor Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "AC IL - Hillsboro CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Kanesolar01 LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Paris Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Gracy Solar 1, LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Gerstenschlager Family Solar 1, LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Corfee Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Blue Iris Solar, LLC CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Salvia Solar, LLC",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "New Road",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "IL - ForeFront CS (BBCHS 1) Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Clover - (IL) CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "NL IL Kane Rd CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "NL IL Bastian CSG",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "IL - Nexamp Kewanee",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "IL - Nexamp Percy",
+   "fuel": "solar",
+   "capacity_mw": 5.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "AGA TAG Solar IV LLC",
    "fuel": "solar",
    "capacity_mw": 4.9,
@@ -57557,6 +58663,41 @@
    "status": "matched"
   },
   {
+   "name": "SR Dumas",
+   "fuel": "solar",
+   "capacity_mw": 4.8,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "SR Fisher",
+   "fuel": "solar",
+   "capacity_mw": 4.8,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "SR South Gibson",
+   "fuel": "solar",
+   "capacity_mw": 4.8,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Dunkirk Solar Two",
+   "fuel": "solar",
+   "capacity_mw": 4.8,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Moore Rd",
+   "fuel": "solar",
+   "capacity_mw": 4.8,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
    "name": "Arizona Western College PV",
    "fuel": "solar",
    "capacity_mw": 4.7,
@@ -57729,6 +58870,13 @@
    "fuel": "solar",
    "capacity_mw": 4.7,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Pomfret II Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 4.7,
+   "ba_code": "NYIS",
    "status": "matched"
   },
   {
@@ -58782,6 +59930,13 @@
    "status": "matched"
   },
   {
+   "name": "SR Arcadia",
+   "fuel": "solar",
+   "capacity_mw": 4.5,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
    "name": "Ameresco Forward",
    "fuel": "other",
    "capacity_mw": 4.4,
@@ -59125,6 +60280,20 @@
    "status": "matched"
   },
   {
+   "name": "Conflitti Solar",
+   "fuel": "solar",
+   "capacity_mw": 4.4,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "SV CSG Paloma Solar",
+   "fuel": "solar",
+   "capacity_mw": 4.4,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "CED Northampton Solar LLC Hybrid",
    "fuel": "solar",
    "capacity_mw": 4.3,
@@ -59423,6 +60592,13 @@
    "fuel": "solar",
    "capacity_mw": 4.3,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pennsville Landfill (CSG)",
+   "fuel": "solar",
+   "capacity_mw": 4.3,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -61834,6 +63010,69 @@
    "status": "matched"
   },
   {
+   "name": "Ridge Farm Renewables LLC PV",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Redemeyer Road Solar",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Rockhound Sol Solar CSG",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
+   "name": "Stafford Solar One",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "Sunrise Solar Lincoln DE (CSG)",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Rose Solar",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "Chaberton Solar Blue Hen LLC",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Chaberton Solar Biggins Creek LLC",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "CE DE - Harbeson",
+   "fuel": "solar",
+   "capacity_mw": 4.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "Burwell",
    "fuel": "oil",
    "capacity_mw": 3.9,
@@ -62055,6 +63294,13 @@
    "fuel": "solar",
    "capacity_mw": 3.9,
    "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "IL - Ameresco - Freeport South",
+   "fuel": "solar",
+   "capacity_mw": 3.9,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -62443,6 +63689,13 @@
    "status": "matched"
   },
   {
+   "name": "Pluma - SLT Hidalgo CSG",
+   "fuel": "solar",
+   "capacity_mw": 3.8,
+   "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
    "name": "AVS Lancaster 1",
    "fuel": "solar",
    "capacity_mw": 3.7,
@@ -62650,6 +63903,13 @@
    "fuel": "solar",
    "capacity_mw": 3.7,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swire Coca-Cola Draper",
+   "fuel": "solar",
+   "capacity_mw": 3.7,
+   "ba_code": "PACE",
    "status": "matched"
   },
   {
@@ -63179,6 +64439,13 @@
   },
   {
    "name": "Waverly Solar - (IA)",
+   "fuel": "solar",
+   "capacity_mw": 3.6,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "CVE US IL TAMAROA 316 LLC",
    "fuel": "solar",
    "capacity_mw": 3.6,
    "ba_code": "MISO",
@@ -63906,6 +65173,27 @@
    "status": "matched"
   },
   {
+   "name": "Eureka North Solar",
+   "fuel": "solar",
+   "capacity_mw": 3.5,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "USS Beard Solar",
+   "fuel": "solar",
+   "capacity_mw": 3.5,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "KE109",
+   "fuel": "solar",
+   "capacity_mw": 3.5,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "Anoka County MN CONX",
    "fuel": "solar",
    "capacity_mw": 3.4,
@@ -64253,6 +65541,13 @@
    "fuel": "solar",
    "capacity_mw": 3.4,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Pluma - Clovis Concrete North CSG",
+   "fuel": "solar",
+   "capacity_mw": 3.4,
+   "ba_code": "SWPP",
    "status": "matched"
   },
   {
@@ -65401,6 +66696,13 @@
    "fuel": "solar",
    "capacity_mw": 3.2,
    "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "2065 George St Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 3.2,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -68428,6 +69730,55 @@
    "status": "matched"
   },
   {
+   "name": "Woodstock Solar One",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "SR Benton",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "TVA",
+   "status": "matched"
+  },
+  {
+   "name": "Mingoville PV I",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Flying Goose",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "NL DE Taylor CSG",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Ohara CSG 1 LLC",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": null,
+   "status": "unmatched"
+  },
+  {
+   "name": "North Kern Water Storage District",
+   "fuel": "solar",
+   "capacity_mw": 3.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "Anita",
    "fuel": "oil",
    "capacity_mw": 2.9,
@@ -68894,6 +70245,13 @@
    "fuel": "solar",
    "capacity_mw": 2.9,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "WPR RE Holdings",
+   "fuel": "solar",
+   "capacity_mw": 2.9,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -69457,6 +70815,27 @@
    "status": "matched"
   },
   {
+   "name": "Pivot Solar 40",
+   "fuel": "solar",
+   "capacity_mw": 2.8,
+   "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "SPG IL Green River CSG",
+   "fuel": "solar",
+   "capacity_mw": 2.8,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Ranch 3461",
+   "fuel": "solar",
+   "capacity_mw": 2.8,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "Brown Station Road Plant I",
    "fuel": "other",
    "capacity_mw": 2.7,
@@ -69762,6 +71141,13 @@
    "fuel": "wind",
    "capacity_mw": 2.7,
    "ba_code": "SWPP",
+   "status": "matched"
+  },
+  {
+   "name": "IL - Ameresco - Freeport North",
+   "fuel": "solar",
+   "capacity_mw": 2.7,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -70196,6 +71582,13 @@
    "fuel": "solar",
    "capacity_mw": 2.6,
    "ba_code": "PNM",
+   "status": "matched"
+  },
+  {
+   "name": "CA- US Foods- La Mirada",
+   "fuel": "solar",
+   "capacity_mw": 2.6,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -71319,6 +72712,48 @@
    "status": "matched"
   },
   {
+   "name": "Tesoro RV & Boat Storage",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Thoroman",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Sunset Road Solar 4 Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Starke Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "CVE US IL Ridge Farm 324 LLC",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "St. Josephs Wayne",
+   "fuel": "solar",
+   "capacity_mw": 2.5,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "191 Peachtree Tower",
    "fuel": "oil",
    "capacity_mw": 2.4,
@@ -71967,6 +73402,13 @@
    "fuel": "solar",
    "capacity_mw": 2.4,
    "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "TX Pasadena 10585 Red Bluff Road Solar",
+   "fuel": "solar",
+   "capacity_mw": 2.4,
+   "ba_code": "ERCO",
    "status": "matched"
   },
   {
@@ -72653,6 +74095,27 @@
    "fuel": "solar",
    "capacity_mw": 2.3,
    "ba_code": "PGE",
+   "status": "matched"
+  },
+  {
+   "name": "Citrine NJ - West Pkwy",
+   "fuel": "solar",
+   "capacity_mw": 2.3,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "SPG IL Valley Run CSG",
+   "fuel": "solar",
+   "capacity_mw": 2.3,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Wild Cat Solar 22 LLC",
+   "fuel": "solar",
+   "capacity_mw": 2.3,
+   "ba_code": "MISO",
    "status": "matched"
   },
   {
@@ -73468,6 +74931,20 @@
    "status": "matched"
   },
   {
+   "name": "Prologis Portside 2509 - SLSAV502",
+   "fuel": "solar",
+   "capacity_mw": 2.2,
+   "ba_code": null,
+   "status": "unmatched"
+  },
+  {
+   "name": "Mid Counties DC 45 - sllax345",
+   "fuel": "solar",
+   "capacity_mw": 2.2,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "Alice Falls Hydro Project",
    "fuel": "hydro",
    "capacity_mw": 2.1,
@@ -73815,6 +75292,13 @@
    "fuel": "wind",
    "capacity_mw": 2.1,
    "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Bayonne Solar 2 LLC",
+   "fuel": "solar",
+   "capacity_mw": 2.1,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -81105,6 +82589,139 @@
    "status": "matched"
   },
   {
+   "name": "Pruger Solar II",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "CPLE",
+   "status": "matched"
+  },
+  {
+   "name": "Mingoville PV II",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "KA361",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Machias PV",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Gourmet Lane - SLNNJ480",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "TPE MD PR232",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "TPE MD PR270",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "IL - ForeFront CS (BBCHS 2) Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Mt Zion Rd CDG A4",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Mt Zion Rd CDG A3",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Mt Zion Rd CDG A2",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "1150th Sun",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton Coopers ANEM",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Mt Zion Rd ANEM Solar LLC",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "IL-Forefront Ameren-St. Joseph 1",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "IL-Forefront-Ameren-St. Joseph 2",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Coopers CDG A2",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Coopers CDG A3",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Swanton MD Coopers CDG A4",
+   "fuel": "solar",
+   "capacity_mw": 2.0,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
    "name": "180 Raritan Solar",
    "fuel": "solar",
    "capacity_mw": 1.9,
@@ -82166,6 +83783,13 @@
    "fuel": "solar",
    "capacity_mw": 1.9,
    "ba_code": "NYIS",
+   "status": "matched"
+  },
+  {
+   "name": "Mount Laurel Solar 2 LLC CSG",
+   "fuel": "solar",
+   "capacity_mw": 1.9,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -83380,6 +85004,48 @@
    "status": "matched"
   },
   {
+   "name": "IL Chicago 2635 S Western Ave. (West)",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "RP Minnesota Solar",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Mansfield Landfill",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "Hampden CSG 1 LLC",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Inland Empire",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Rosedale",
+   "fuel": "solar",
+   "capacity_mw": 1.8,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "APG Old Bayside",
    "fuel": "solar",
    "capacity_mw": 1.7,
@@ -84028,6 +85694,20 @@
    "fuel": "solar",
    "capacity_mw": 1.7,
    "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "IPC 16 - SLCVA516",
+   "fuel": "solar",
+   "capacity_mw": 1.7,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "West Deptford Solar 2 LLC CSG",
+   "fuel": "solar",
+   "capacity_mw": 1.7,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -85323,6 +87003,13 @@
    "fuel": "solar",
    "capacity_mw": 1.6,
    "ba_code": "ISNE",
+   "status": "matched"
+  },
+  {
+   "name": "Kama 1 LLC",
+   "fuel": "solar",
+   "capacity_mw": 1.6,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -88007,6 +89694,13 @@
    "status": "matched"
   },
   {
+   "name": "Shasta College PH2 Solar Project",
+   "fuel": "solar",
+   "capacity_mw": 1.5,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "4 Applegate Solar LLC",
    "fuel": "solar",
    "capacity_mw": 1.4,
@@ -88991,6 +90685,41 @@
    "fuel": "solar",
    "capacity_mw": 1.4,
    "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "McFarland Schools Customer Hosted",
+   "fuel": "solar",
+   "capacity_mw": 1.4,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Lathrop 4 - SLCVA204",
+   "fuel": "solar",
+   "capacity_mw": 1.4,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Prologis Edison 0503 - SLCNJ005 - Community Solar",
+   "fuel": "solar",
+   "capacity_mw": 1.4,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Tracy Linne",
+   "fuel": "solar",
+   "capacity_mw": 1.4,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "West Deptford Solar 1 LLC",
+   "fuel": "solar",
+   "capacity_mw": 1.4,
+   "ba_code": "PJM",
    "status": "matched"
   },
   {
@@ -90013,6 +91742,13 @@
    "fuel": "solar",
    "capacity_mw": 1.3,
    "ba_code": "PSCO",
+   "status": "matched"
+  },
+  {
+   "name": "Bayer Oxnard - Meter# 4719",
+   "fuel": "solar",
+   "capacity_mw": 1.3,
+   "ba_code": "CISO",
    "status": "matched"
   },
   {
@@ -91088,6 +92824,20 @@
   },
   {
    "name": "Midline Commerce Center - SLCNJ006",
+   "fuel": "solar",
+   "capacity_mw": 1.2,
+   "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "JFC Slauson - SLLAX071",
+   "fuel": "solar",
+   "capacity_mw": 1.2,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Prologis Edison 0405 - SLCNJ405 - Community Solar",
    "fuel": "solar",
    "capacity_mw": 1.2,
    "ba_code": "PJM",
@@ -92239,6 +93989,20 @@
    "fuel": "solar",
    "capacity_mw": 1.1,
    "ba_code": "PJM",
+   "status": "matched"
+  },
+  {
+   "name": "Stockton 6 - SLEBA202",
+   "fuel": "solar",
+   "capacity_mw": 1.1,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Lone Wolfe Phase One",
+   "fuel": "solar",
+   "capacity_mw": 1.1,
+   "ba_code": "ERCO",
    "status": "matched"
   },
   {
@@ -98829,6 +100593,20 @@
    "status": "matched"
   },
   {
+   "name": "Novel Bo Hu 1 Solar (CSG)",
+   "fuel": "solar",
+   "capacity_mw": 1.0,
+   "ba_code": "MISO",
+   "status": "matched"
+  },
+  {
+   "name": "Blankenship",
+   "fuel": "solar",
+   "capacity_mw": 1.0,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
    "name": "CS Murphy Point  LLC",
    "fuel": "solar",
    "capacity_mw": 0.9,
@@ -98983,6 +100761,13 @@
    "status": "matched"
   },
   {
+   "name": "Dedeaux",
+   "fuel": "solar",
+   "capacity_mw": 0.9,
+   "ba_code": null,
+   "status": "unmatched"
+  },
+  {
    "name": "Engelhard Solar LLC",
    "fuel": "solar",
    "capacity_mw": 0.8,
@@ -99110,6 +100895,13 @@
   },
   {
    "name": "Bishop Ranch - BR 15-CC",
+   "fuel": "solar",
+   "capacity_mw": 0.7,
+   "ba_code": "CISO",
+   "status": "matched"
+  },
+  {
+   "name": "Lara 2 Hybrid",
    "fuel": "solar",
    "capacity_mw": 0.7,
    "ba_code": "CISO",
