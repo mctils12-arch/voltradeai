@@ -1,5 +1,72 @@
 # Data / Access Wishlist — human reviews weekly
 
+## 🟡 PROCESS GAP FOUND 2026-09-14 (scheduled-routine session, fifth session
+## this UTC day) — a session's "hold merge until after market hours" note in
+## a PR body is NOT enforced by anything; `.github/workflows/ci.yml`'s
+## `automerge` job merges the instant CI is green, unconditionally
+
+WHAT HAPPENED: this session's own task instructions said "since this run
+occurs during market hours: prepare the PR but note in it that merge should
+wait until after 4:00 PM ET unless the change fixes a critical live break."
+PR #1076 was opened with exactly that note in its body (a "⏸️ MERGE TIMING"
+section at the top). It merged anyway, automatically, at 2026-09-14T16:26:13Z
+(~12:26pm ET, inside the 9:30-16:00 ET regular session) — `merged_by:
+"github-actions[bot]"`, confirmed via the GitHub API, not a human clicking
+merge early.
+
+ROOT CAUSE (read live this session, not assumed): `.github/workflows/ci.yml`'s
+`automerge` job (`if: always() && ... startsWith(github.head_ref, 'claude/')
+&& needs.<every heavy job>.result != 'failure'/'cancelled'`) runs `gh pr merge
+--squash` unconditionally once every required job has settled — no label
+check, no PR-body inspection, no time-of-day check, no draft-PR exemption.
+This is BY DESIGN per CLAUDE.md's own AUTONOMY AUTHORIZATION ("you may merge
+and deploy your own changes without human approval whenever CI is green") —
+it is not a bug in the workflow, it is this specific ad-hoc scheduled-task
+instruction ("hold until 4pm ET") colliding with a standing repo mechanism
+that has no concept of a hold at all.
+
+WHY THIS TIME WAS HARMLESS: PR #1076's diff touched only Python
+data-diagnostic scripts, tests, a version bump, and a counter-baseline
+re-pin — zero server-runtime/trading-path files — so the early merge carried
+no live-trading risk in this specific case, confirmed before opening the PR.
+
+WHY THIS MATTERS ANYWAY: nothing about the `automerge` job's condition
+distinguishes "safe diagnostic PR" from "a PR that touches bot_engine.py/
+system_config.py/server/bot.ts during market hours" — if the SAME scheduled
+market-hours instruction is ever given for a PR that DOES touch a live
+trading-path file, the same silent-failure pattern would deploy it
+immediately, not after the close, despite an identical hold note in the PR
+body. The hold instruction is currently pure prose with no enforcement path.
+
+NOT FIXED THIS SESSION, deliberately: `.github/workflows/ci.yml` is a FROZEN
+PATH (CLAUDE.md) — CI definitions may not be edited by an autonomous
+session regardless of how well-motivated the change looks; this is
+exactly the class of finding CLAUDE.md's frozen-path escape hatch names
+("If a change seems to require touching a frozen path, write the proposal
+to research/wishlist.md instead and stop that line of work").
+
+BUILD-FIRST-STYLE OPTIONS FOR THE HUMAN TO CHOOSE FROM (none self-applied):
+1. Accept this as-is — CLAUDE.md's own AUTONOMY AUTHORIZATION already
+   endorses "merge whenever CI is green" as the standing default; the
+   market-hours hold was this specific scheduled task's own ask, not a
+   constitutional rule, so its being unenforceable may simply mean that ask
+   should be dropped from the scheduled task's prompt rather than the
+   workflow being changed.
+2. Add a real gate: e.g. a label (`hold-until-close`) a session applies to
+   a PR opened during market hours, with `automerge`'s `if:` extended to
+   also require the label's absence — cheap, additive, and only engages
+   when a session actually asks for a hold (most PRs, including this one,
+   would be unaffected).
+3. Narrow the ask instead of building a gate: change the scheduled market-
+   hours task's own instructions to only request a hold-note when the diff
+   touches a trading-path file (the case that actually matters), and accept
+   immediate auto-merge as fine for diagnostic-only PRs like this one —
+   avoids workflow changes entirely.
+
+Filed as a proposal per FROZEN PATHS' own escape hatch, not self-applied.
+Full account: `research/experiments.md`, 2026-09-14 (fifth session, this
+date's addendum after PR #1076 merged).
+
 ## 🔴 ACTIVE LIVE INCIDENT, ESCALATED 2026-09-08 (scheduled-routine session,
 ## sixth session this UTC day) — production OOM-crash-loop NOT resolved
 ## after TWO autonomous fix attempts; needs tooling/access this sandbox
