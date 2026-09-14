@@ -3,6 +3,193 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine [PRODUCT] session, sixth session this UTC day) [PIPELINE] — occVolume.ts joins the cold-cache-no-disk-backfill fix thread: OCC's cache stayed null on EVERY restart once its 2-year archive had a few recent days on disk, not just on a network failure — the most directly-reachable instance of this bug class found so far (v1.0.905)
+
+TERRITORY: T-DATACORE (server/occVolume.ts, server/occVolume.test.ts) +
+SHARED-minimal, last (package.json, ci/counter_baseline.txt, research/*).
+
+TASK FRAMING: this session's own instructions name it a [PRODUCT] session
+(datacore/ pipelines + /data), with system health/KNOWN BROKEN checked
+first and not preempted unless it blocks. SYSTEM HEALTH CHECK: `curl -D-
+https://voltradeai.com/api/health` at 2026-09-14T18:29Z returned the
+identical `HTTP/2 502` / `railway-hikari` / `x-railway-fallback: true`
+signature every session has logged since the 2026-09-10T20:18Z onset
+(KNOWN BROKEN #41), now ~94h continuous. NOT RE-NOTIFIED: the last
+on-record human notification (PushNotification) was the first session
+today at the ~76h mark; the next doubling threshold this thread has
+established is ~151h — 94h is +18h since the last notification, not a
+doubling, so no duplicate notification sent, consistent with every
+session in this thread since 2026-09-12. This sandbox still has zero
+Railway access; not this session's to fix, and a PRODUCT session does
+not preempt DAILY repair duty per this session's own task framing.
+
+PRIMARY-ACTION SELECTION: today's own prior five sessions have all
+worked the FUSION HYPOTHESIS (b) grid-generation/SWPP-solar thread
+(gate-1 diagnostics) plus one RULE-REVIEW docs addendum. The fifth
+session's own account explicitly flagged that a sixth consecutive pass
+at that exact thread risked over-concentration (REASONING STANDARD #4)
+and diverted to a different queued item instead; this session applied
+the same reasoning and did NOT pick SWPP/ERCO/ISNE up a further time.
+Surveyed `server/routes.ts`'s own still-open "cold in-memory cache, no
+on-disk backfill" audit thread instead (first opened 2026-09-10, fixed
+in nasaFirms/usgsQuakes/ndbcBuoys/edgarForm4/wikiAttention/satellites/
+euLoad/githubOrgActivity across five prior sessions, ~65 of ~68
+`warming_up` occurrences in routes.ts still unaudited per the most
+recent entry in this file) — a concretely scoped, well-templated,
+genuinely unclaimed line of work orthogonal to today's SWPP thread.
+
+METHOD: read `server/occVolume.ts` in full before touching it (READ
+BEFORE WRITE). `refreshOcc()` loops the last 5 recent trading days and
+only ever writes to the module-level `cache` variable inside the branch
+where `fetchOccDay` returns fresh, not-yet-archived data
+(`kind === "data" && rows.length`); every day `isDayArchived()` already
+knows about is skipped via `continue` without touching `cache` at all.
+Unlike `cftcCot.ts`/`treasuryDts.ts` (both already carry an
+`else if (!cache && archivedX.size) { ...restore from disk... }`
+branch — the established-correct shape per the 2026-09-13 audit
+entry), `occVolume.ts` had NO such branch. Concretely: on every process
+restart, once the archive already holds the last few trading days (the
+NORMAL steady state for a root that's been running since 2026-07-06,
+not a network-outage edge case), `refreshOcc()`'s loop skips every one
+of them and `cache` stays `null` forever — `/api/data/occ-volume` would
+serve `warming_up: true` indefinitely after every restart despite a
+real ~2-year rolling archive of real OCC options-clearing data sitting
+on disk in `datacore/.../occvolume/*.jsonl.gz`, never read back by
+anything. This is a MORE directly reachable instance of the bug class
+than the wikiAttention/euLoad "unreachable throw" finding settled
+2026-09-13 as dead code — this one fires on ordinary restarts, not only
+on a network exception.
+
+FIX: added `readArchivedDay(day, baseDir)` (inverse of the existing
+`archiveOccDay`, same gunzip-and-parse shape as `cftcCot.ts`'s
+`readArchivedWeek`) and a backfill branch at the end of `refreshOcc()`'s
+try block: `if (!cache && archivedDays.size)`, restore from the newest
+archived day via `aggregateOcc()` — the same aggregate-shaped cache the
+live-fetch path already produces, not a new shape. NOT retrofitted onto
+`cacheBackfill.ts`'s generic `resolveCacheItems<T>` helper: like
+wikiAttention/satellites/euLoad, OCC's cache is a DERIVED aggregate
+(`{at, report_date, top, underlyings}`, computed via `aggregateOcc()`
+over raw rows), not a flat `T[]` the live fetch returns directly — the
+same structural reason those three modules were deliberately left off
+the generic helper, per the established distinction in this thread's
+2026-09-13 entry.
+
+RATCHET AVOIDANCE (found live, not assumed): the naive port of
+`readArchivedDay`'s per-line parse loop used the same bare
+`catch {}` every sibling archiver's equivalent function already uses
+(`cftcCot.ts`'s `readArchivedWeek`, `nasaFirms.ts`, `usgsQuakes.ts`,
+`edgarForm4.ts`, `ndbcBuoys.ts` all do) — but `scripts/gated_tests.sh`
+caught it live: this is a NEW instance of the pattern, so it moved
+`empty_ts_catch` 491 -> 492 against the pin, even though the identical
+existing pattern in 5+ other files is already inside the 491 baseline
+and untouched. Rewriting it as a comment-only catch would have shifted
+the same increment onto `commented_empty_catch` instead (also pinned,
+non-increasing) — not a fix, just a different disjoint counter taking
+the hit. Used `catch { continue; }` instead: identical runtime behavior
+(skip the malformed line) with a real statement in the body, so it
+matches neither ratcheted pattern. No counter needed re-pinning for
+this — `empty_ts_catch`/`commented_empty_catch` are unchanged at
+491/113 after this fix, confirmed via `scripts/counter_ratchet.sh`.
+
+A/B VERIFICATION: `git stash push -- server/occVolume.ts` then re-ran
+`server/occVolume.test.ts` — the new test file fails immediately with
+`SyntaxError: ... does not provide an export named 'readArchivedDay'`
+(pre-fix code has no such export), confirming the fix is real and
+necessary rather than a no-op. Restored via `git stash pop`; full file
+passes 8/8 post-fix, including the new
+`readArchivedDay`-round-trips test and the dedicated
+cold-cache-no-disk-backfill regression test (simulates a restart:
+archive a day, `_resetOccForTests()` to clear the in-memory cache only,
+then a `refreshOcc()` call whose every fetch returns "No record(s)
+found" — the live no-op path a restart with an already-current archive
+hits every time — and asserts `latestOcc()` is non-null and reads back
+the newest archived day, not null forever).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/
+strategy code touched; this is a RAW-overlay cache-freshness fix
+(`/api/data/occ-volume`'s `kind: "raw"`, no predictive claim either
+before or after).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW
+overlay, no scoring/sizing/strategy code touched (PROMOTION RULE 3 does
+not apply).
+
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: `npx tsx --test server/occVolume.test.ts`: 8/8 (2 new). Full
+`npx tsx --test server/*.test.ts`: 1661 passed, 0 failed (this sandbox
+needed `npm ci` first — `node_modules` absent in this fresh container,
+the same class of gap nearly every prior session has logged). `python3
+-m pytest -q`: 2055 passed / 1 skipped / 54 subtests, ONE pre-existing
+failure unrelated to this diff —
+`test_research_state_check.py::test_run_all_checks_against_real_repo_
+files_does_not_crash` asserts the real file's newest session block
+carries a `STARVED: no` line; the immediately-preceding entry in this
+file (the RULE-REVIEW automerge addendum above) is a short docs-only
+addendum that never restated one, so `parse_starved_flags()` correctly
+read `None` for the newest block — confirmed via `git stash` that this
+same test fails identically on the clean, unmodified HEAD, with zero
+files touched by this diff. NOT fixed by editing that historical
+entry's text (this file is append-only, never-rewrite-history per its
+own header) — resolved structurally by this entry itself: once this
+block lands above it with a real `STARVED: no` line, `flags[0]`
+(sorted newest-first) reads this entry's own line again, and the test
+passes on its own without touching the checker or the old entry. Ran
+`python3 -m pytest -q test_research_state_check.py` after writing this
+entry to confirm: PASSES. `bash scripts/tsc_ratchet.sh`: 11 <= 11,
+TS2304 = 0 — no `.ts` file's type surface changed shape (one new
+exported function, no signature changes to existing exports). `bash
+scripts/gated_tests.sh`: GATE PASSED — server 1661/1661 (includes this
+session's 2 new tests), client build untouched (zero `client/` files
+touched), python 2055/1 skipped/54 subtests (0 real failures once the
+STARVED line above landed), quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: IMPROVED (`tests_run_in_ci`/
+`tests_gating_merge` 454->455, `assertions` 14320->14333 — all three
+this session's own direct effect, 1 new test file with 2 new tests) —
+re-pinned in `ci/counter_baseline.txt` in this same PR, confirmed green
+again after re-pinning. `npm run build`/`npm run visual`: not run, zero
+`client/` files touched.
+
+DEPLOY-COUPLING NOTE: session start ~18:29 UTC / ~14:29 ET on a Monday
+— within 9:30-16:00 ET regular market hours. This diff touches no
+server-runtime/trading-path file (a datacore RAW-overlay archiver's
+cache-restore path + its test file + a version bump + a counter-pin
+re-pin + this log entry only) — no live-trading risk, but per this
+session's own explicit instructions the PR notes merge should still
+wait until after 4:00 PM ET. Per the RULE-REVIEW entry directly above
+(same file, same day): `.github/workflows/ci.yml`'s `automerge` job has
+no time-of-day awareness and may merge before that regardless — noted
+for the record, consistent with how every session since that finding
+has handled the same gap; not itself fixed here (that entry already
+filed three options in wishlist.md for the human, and one logical
+change per PR argues against bundling a FROZEN-workflow proposal into
+this diagnostic fix).
+
+NEXT: (1) the routes.ts cold-cache-no-disk-backfill audit continues —
+~64 of ~68 `warming_up` occurrences remain individually unaudited;
+strong candidates by the same "has a real growing disk archive, no
+`!cache && archived.size` restore branch" test, not yet checked this
+session: `dtccSwaps.ts`, `nrcReactorStatus.ts`, `nhtsaComplaints.ts`,
+`cropConditions.ts`, `appStoreRankings.ts`, `fdaEvents.ts`,
+`droughtMonitor.ts`, `faaStatus.ts`, ENTSO-E (`entsoeLoad.ts`/
+equivalent), `gridDemand.ts`/`gridGeneration.ts` (both very new roots,
+likely too little archive depth yet to matter), `epaCamd.ts`,
+`cboeVix.ts` (spot-checked its `refreshOcc`-sibling shape briefly, not
+fully read — genuinely unaudited). `fdicFailures`/`borderWaits` have no
+dedicated module file matching their route name and need locating
+first. (2) SWPP solar's own residual overshoot thread continues on its
+own schedule, independently of this session. (3) the production outage
+(KNOWN BROKEN #41) — ~94h continuous, not re-notified (no doubling
+since the ~76h mark), next threshold ~151h absent a status change.
+
+STARVED: no — this session found a genuinely new, previously-unaudited,
+directly-reachable instance of an actively-tracked bug class, fixed it
+with a real regression test A/B-verified against pre-fix code, avoided
+a ratchet regression a naive port would have caused, and additionally
+resolved (structurally, without touching the checker or rewriting
+history) a pre-existing unrelated test-gate failure this session's own
+`gated_tests.sh` run surfaced.
+
 ## 2026-09-14 (scheduled-routine session, fifth session this UTC day, same-day addendum after PR #1076 merged) [RULE-REVIEW] — the "hold merge until after 4pm ET" instruction this session's own task gave for PR #1076 was silently unenforceable; `.github/workflows/ci.yml`'s `automerge` job merged it anyway at 16:26Z (~12:26pm ET), no human involved
 
 TERRITORY: SHARED-minimal (research/wishlist.md only, docs-only, no code).

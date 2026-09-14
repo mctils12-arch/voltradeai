@@ -11,7 +11,7 @@ import path from "node:path";
 import {
   classifyBody, parseOcc, normalizeActDate, occUrl, fetchOccDay,
   archiveOccDay, isDayArchived, aggregateOcc, refreshOcc, latestOcc,
-  occDeepBackfillEnabled, occDeepBackfillIfEnabled,
+  readArchivedDay, occDeepBackfillEnabled, occDeepBackfillIfEnabled,
   _resetOccForTests,
 } from "./occVolume";
 
@@ -67,6 +67,39 @@ test("archive: day-level dedup, gz-on-write, restart re-seed from disk", () => {
   assert.equal(archiveOccDay(rows, base), 0, "a report date is final — never re-archives");
   assert.ok(fs.existsSync(path.join(base, "occvolume", "2026-07-02.jsonl.gz")), "gz on write (~1MB/day vs 18MB plain)");
   assert.ok(isDayArchived("2026-07-02", base));
+});
+
+test("readArchivedDay: round-trips archiveOccDay exactly; unarchived/unreadable day returns []", () => {
+  _resetOccForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "occ-"));
+  const rows = parseOcc(DAY_CSV);
+  archiveOccDay(rows, base);
+  assert.deepEqual(readArchivedDay("2026-07-02", base), rows);
+  assert.deepEqual(readArchivedDay("2099-01-01", base), [], "never-archived day is an honest empty array");
+});
+
+test("cold-cache-no-disk-backfill FIX: a restart where every recent trading day is already archived (the normal steady state, not a network failure) must not leave latestOcc() stuck null forever despite a real archive on disk", async () => {
+  _resetOccForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "occ-"));
+  // Simulate a PRIOR process run that already archived 2026-07-02, then
+  // this process restarts with a cold in-memory cache (_resetOccForTests
+  // clears `cache` but the disk archive survives, exactly like a real
+  // container restart).
+  archiveOccDay(parseOcc(DAY_CSV), base);
+  _resetOccForTests();
+  assert.equal(latestOcc(), null, "cache starts cold after the simulated restart");
+
+  // Every recent trading day the fresh refreshOcc() call checks is either
+  // already archived (isDayArchived -> continue, never touches cache) or
+  // genuinely has no new data — the live no-op path this bug hits on
+  // every ordinary restart, not an edge case.
+  const fake = async () => ({ ok: true, status: 200, text: async () => "No record(s) found" });
+  await refreshOcc(fake as any, Date.parse("2026-07-06T23:00:00Z"), base);
+
+  const hit = latestOcc();
+  assert.ok(hit, "must backfill from the on-disk archive instead of staying warming_up forever");
+  assert.equal(hit!.report_date, "2026-07-02", "backfills from the NEWEST archived day");
+  assert.equal(hit!.underlyings, 2);
 });
 
 test("refresh: not-yet-published and weekend bodies are honest no-ops; data day lands + caches", async () => {
