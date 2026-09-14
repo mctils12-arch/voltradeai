@@ -7,9 +7,9 @@
     "datacore/powerplants/us_power_plants.json (owner field, top-100-by-capacity_mw plants)"
   ],
   "coverage": {
-    "total": 69,
+    "total": 70,
     "mapped": 44,
-    "unmapped": 25
+    "unmapped": 26
   },
   "entities": [
     {
@@ -397,6 +397,12 @@
       "confidence": "high",
       "note": "Wholly owned regulated operating subsidiary.",
       "parent": "PG&E Corp."
+    },
+    {
+      "operator": "Pattern Operators LP",
+      "ticker": null,
+      "confidence": "unmapped",
+      "note": "Pattern Energy Group was taken private in March 2020 by a consortium led by Canada Pension Plan Investment Board (CPP Investments), with APG and Australian Retirement Trust as additional investors as of 2025-2026 — no public ticker, no single controlling public parent. Verified via WebSearch 2026-09-14."
     },
     {
       "operator": "STP Nuclear Operating Co",

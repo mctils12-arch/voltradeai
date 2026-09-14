@@ -12574,6 +12574,95 @@ territory in their first commit)
   outage (KNOWN BROKEN #41) — re-confirmed live at this session's own
   start, unchanged, no new evidence; see experiments.md for the full
   reasoning and why this was not re-notified.
+
+  UPDATE 2026-09-14 (scheduled-routine [PRODUCT] session) — ships
+  NEXT(1) above: `scripts/eia860m_add_brand_new_plants.py` (new) adds
+  the population genuinely absent from EIA-860 ANNUAL entirely,
+  sourcing membership, capacity, AND coordinates from EIA-860M's own
+  Operating sheet alone (confirmed live this session: Plant ID/Plant
+  Name/Entity Name/Latitude/Longitude all present natively, 0/257
+  missing coordinates). Reuses `eia860_missing_plants_check.py`'s
+  `eia860_capacity_by_code`/`load_eia860_generator_rows` and
+  `eia860_add_missing_plants.py`'s `gppd_all_usa_codes`/`merge_registry`
+  unchanged (EDGE DOCTRINE #3). Membership is mutually exclusive BY
+  CONSTRUCTION with `eia860_add_missing_plants.py`'s own population (that
+  script requires a code to be IN EIA-860 ANNUAL's Schedule 3; this one
+  requires it to be ABSENT), so no cross-check against its already-added
+  rows was needed.
+
+  LIVE RESULT (fresh downloads this session — EIA-860M "as of July
+  2026", EIA-860 2025 ANNUAL, GPPD CSV): 246 solar plant codes
+  (13,379.0 MW) / 11 wind plant codes (6,417.2 MW) nationally are
+  absent from EIA-860 ANNUAL entirely, and NONE of either population
+  is already in GPPD under any fuel — 257 genuinely new plants,
+  19,796.2 MW. ERCO gets 2,353.1 MW solar and SWPP gets 715.3 MW,
+  matching the immediately preceding session's own partition exactly
+  (same-vintage-data cross-check, not a coincidence).
+
+  INVARIANT FOUND AND RESPECTED, not weakened: `server/powerplants.test.ts`
+  hard-asserts every top-100-by-capacity_mw plant is imagery-verified
+  (`verified_count === 100`, exact) — a real invariant this session's
+  first attempt at shipping broke, because one new row ("SunZia Wind
+  South", 2,561.2 MW, attributed to CISO per EIA-860M's own reported BA
+  code — not ERCO/SWPP) is large enough to rank inside the merged
+  registry's top-100, and every row this script adds carries
+  `verified=0` by construction (EIA-860M-sourced, no `gppd_idnr` to add
+  to `imagery_verified.json`'s id-keyed audit list — the exact structural
+  gap `eia860_add_missing_plants.py`'s own docstring already flagged for
+  its population, now actually triggered for the first time). Fixed by
+  building `split_top_n_unverifiable` (new pure function, generalized —
+  not a one-off name check) which holds back any new row whose capacity
+  exceeds the PRE-merge top-100 cutoff, reporting it separately rather
+  than silently dropping or shipping it unverified. This session's live
+  run holds back exactly that one row; the other 256 ship. A future
+  session could either imagery-verify SunZia Wind South specifically (it
+  is a real, well-documented project — Pattern Energy's SunZia Wind,
+  New Mexico) or formally extend the verification mechanism to cover
+  non-GPPD rows; neither attempted here (one logical change per PR).
+  `datacore/entity_map.json` also gained one entry ("Pattern Operators
+  LP", unmapped — Pattern Energy Group was taken private by CPP
+  Investments in March 2020, no public ticker, verified via WebSearch
+  this session) since SunZia's owner string newly entered the top-100
+  set the entity-coverage test separately enforces.
+
+  LIVE GATE-1 RE-CHECK after shipping (fresh `grid_ba_eia860_join.py`
+  rebuild against the refreshed registry, same live 7-day EIA-930
+  window): **ERCO solar CLOSES — PASS at 1.049x** (32,244.9 MW capacity
+  vs 33,836.0 MWh max generation) — the first PASS this thread has
+  reached for ERCO solar, after four prior sessions' worth of
+  registry-staleness investigation (completeness ruled out twice,
+  currency partially explained it, the capacity-override refresh found
+  it didn't move, and this population finally closes it). **SWPP solar
+  remains FAIL at 1.286x** (2,060.3 MW capacity vs 2,650.0 MWh,
+  essentially unchanged from the immediately preceding session's
+  1.275x-1.286x range — SWPP's own new-plant population, 715.3 MW, was
+  already included in every prior session's live re-check once
+  identified; this session ships the code but does not change SWPP's
+  own number).
+
+  BACKTEST: N/A per PROMOTION RULE 3 — a ROOT VALIDATION LADDER gate-1
+  (DATA) pipeline addition, not a trading strategy or parameter.
+  MONETIZATION TRIPWIRE: not touched. GATES: 16 new pure-function tests
+  (`test_eia860m_add_brand_new_plants.py`), no network; full repo gate
+  green (see experiments.md this date for exact counts).
+
+  NEXT: (1) imagery-verify SunZia Wind South (or formally extend the
+  verification mechanism to non-GPPD rows) so it can ship without
+  breaking the top-100 invariant. (2) SWPP solar's residual ~28.6%
+  overshoot — still open; this session's own new-plant population did
+  not move it, so the cause is elsewhere (post-July-2026 commissioning
+  EIA-860M itself misses, or an SWPP-specific EIA-930 respondent quirk,
+  neither checked here). (3) no other BA/fuel pair from the original
+  national gate-1 run has still been individually re-verified for this
+  thread's own staleness mechanisms (unchanged, still unclaimed). (4)
+  the production outage (KNOWN BROKEN #41) — confirmed STILL DOWN this
+  session (~76h continuous as of session start, roughly double the
+  duration since the last on-record human notification); re-notified
+  this session (PushNotification) given that near-doubling, unlike the
+  immediately preceding sessions which held off on duration alone — see
+  experiments.md for the full reasoning.
+
+  Full account, including the exact test-gate diagnosis and fix: `research/experiments.md` 2026-09-14 (this session).
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
