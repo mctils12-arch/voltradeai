@@ -3,6 +3,159 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): candidate mechanism (ii) (SWPP-footprint behind-the-meter solar folded into EIA-930's reported SUN total) gets a real magnitude check via EIA's own small-scale-solar (DPV) series — right order of magnitude to explain PART of the residual overshoot, not all of it (v1.0.903)
+
+TERRITORY: T-DATACORE (scripts/**, tests) + SHARED-minimal, last (research/*,
+package.json/package-lock.json, ci/counter_baseline.txt).
+
+TASK FRAMING: this session's own instructions name it a [PRODUCT] session
+(datacore/ pipelines + /data). SYSTEM HEALTH CHECK (session start, per
+CLAUDE.md's instruction to check KNOWN BROKEN before proceeding): `curl -v
+https://voltradeai.com/api/health` still returns the identical `HTTP/2 502`
+/ `railway-hikari` / `x-railway-fallback: true` signature every session has
+logged since the 2026-09-10T20:18Z onset (KNOWN BROKEN #41) — this session's
+own instructions explicitly say a PRODUCT session does not preempt the DAILY
+routines' repair duty and this sandbox has zero Railway access regardless
+(unchanged fact, re-confirmed not re-derived), so this is noted, not acted
+on. NOT re-notified: the immediately preceding session's own re-notify (at
+the ~75.7h mark) and this session's own health-check reading (+~14h, no
+doubling) match the same non-doubling standard every session in this thread
+has applied since 2026-09-12 — nothing new to report.
+
+LOOP-HEALTH CHECK (HEALTH OF THE LOOP ITSELF rule 2): tags of the last 10
+entries before this one — [RESEARCH] (2026-09-14 third session, #1074),
+[PIPELINE] (2026-09-14 second session, #1073), [PIPELINE] (2026-09-14 first
+PRODUCT session, #1072), [PIPELINE] (2026-09-14 #1071), [PIPELINE]
+(2026-09-13 ISNE wind, #1070), [RESEARCH] (2026-09-13 wikiAttention/euLoad
+trace), [PRODUCT]/[PIPELINE] (2026-09-13 cacheBackfill.ts, #1068),
+[PIPELINE] (2026-09-13 EIA-860M registry-freshness, #1067), [REPAIR]
+(2026-09-13 second session, re-confirm outage #41), [RESEARCH] (2026-09-13
+cross-sectional Hurst). Count: 1/10 [REPAIR] (well under the 7+ thrash
+threshold). No thrash. PROGRESS FLOOR/STARVATION SIGNAL both satisfied
+(multiple ships in the last 24h).
+
+QUEUE CHECK: four consecutive scheduled sessions today have worked this
+exact FUSION HYPOTHESIS (b) thread, narrowing SWPP solar's gate-1 overshoot
+from an unexplained 1.97-2.01x down to 1.275-1.286x (registry-currency fix)
+with mechanism (i) (AC/DC ambiguity) ruled out earlier today. The third
+session's own filed NEXT(1) — "EIA's separately published small-scale
+(behind-the-meter) solar capacity estimates for SWPP's/ERCO's footprint
+states, to test candidate mechanism (ii) directly" — remained the single
+most concretely-scoped, cheapest-to-run open item across
+open_questions.md/wishlist.md/PROGRAM_STATE.md (everything else needs new
+architecture decisions, a blocked GPU/RunPod session, or Railway access
+this sandbox doesn't have); continuing it a fourth time is a genuine
+research-thread continuation, not thrash, since each session has settled a
+distinct sub-question (registry completeness, registry currency, AC/DC
+convention) rather than re-litigating the same one.
+
+PRIOR (stated before running, REASONING STANDARD #10): expected (60%) DPV's
+share of state-level solar generation in SWPP's core footprint states to be
+"non-trivial but probably too small alone" to fully explain a ~27-29%
+overshoot — distributed solar has grown fast but utility-scale solar has
+grown faster in these specific states per this same thread's own EIA-860M
+finding (solar being "the far faster-growing fuel" was that session's own
+phrase) — versus (40%) it being either clearly too small (ruling out (ii)
+the way the AC/DC check ruled out (i)) or squarely in range (confirming the
+magnitude case for (ii)).
+
+METHOD: EIA's `electric-power-operational-data` route (Form EIA-923,
+distinct from the EIA-930 respondent-level series `grid_generation_gate1_ba.py`
+reads) carries a `DPV` fuel-type facet — "estimated small scale solar
+photovoltaic" — confirmed to exist by querying the route's own facet list
+live (`fueltypeid` includes `DPV`, `SUN`, `TSN`, `TPV`), not assumed. New
+`scripts/eia_dpv_btm_solar_share.py` (+ `test_eia_dpv_btm_solar_share.py`,
+10 pure-function tests, no network — `fetch_state_generation` is the only
+I/O function, exercised only by running the script live, same convention as
+every sibling eia860/eia930 gate-1 script) pulls monthly DPV and utility-
+scale `SUN` generation for a state list and computes DPV's share of
+(DPV+SUN); `implied_overshoot_from_btm_share(s) = 1/(1-s)` converts that
+share into the same units as the gate-1 overshoot ratio so the two numbers
+can be compared directly, without asserting SWPP's respondent actually
+does this (this script measures a MAGNITUDE, not a mechanism — stated
+explicitly in its own module docstring).
+
+SCOPE CAVEAT, applied deliberately (REASONING STANDARD #7): this route has
+no BA facet, only state. Rather than sum all 14 of SPP's full-or-partial
+footprint states (which would reintroduce the exact cross-BA attribution
+ambiguity two prior sessions already spent resolving for the CAPACITY
+side, `grid_ba_eia860_join.py`/`eia860_regional_capacity_check.py`), this
+run is scoped to OK/KS/NE — the three states that sit almost entirely
+inside SWPP territory with no other RTO seam running through them
+(unlike TX, MO, ND, SD, MN, IA, AR, LA, NM, MT, WY) — a smaller, more
+trustworthy sample rather than a bigger, confounded one.
+
+LIVE RESULT (period 2026-06, the latest month with data for all three
+states/both fuels; `EIA_API_KEY` present in this sandbox, `api.eia.gov`
+directly reachable, unlike voltradeai.com): OK DPV share 12.99% (29.6 of
+227.7 GWh), KS 20.26% (23.3 of 114.8 GWh), NE 16.64% (7.1 of 42.7 GWh).
+Aggregate DPV share across the three states: **15.56%** (59.9 of 385.1
+GWh). Converted via `1/(1-share)`: an implied overshoot ratio of **1.1843x**
+if SWPP's SUN total fully folded in a BTM contribution at this same share.
+
+VERDICT: mechanism (ii) is NOT ruled out (unlike mechanism (i)) — DPV's
+measured share is real and substantial, not a rounding-error-sized
+distraction — but it is also NOT sufficient on its own: 1.1843x covers
+roughly 67% of the gap between 1.0x and the observed 1.275x overshoot
+((0.1843)/(0.275) = 0.670), leaving a real residual unexplained by this
+proxy alone. Two honest readings, neither forced (REASONING STANDARD #4):
+(a) mechanism (ii) is a PARTIAL contributor, and something else (a second,
+smaller effect, or this proxy's known state-vs-BA looseness) makes up the
+rest; or (b) SWPP's actual respondent-level BTM inclusion rate differs
+from this OK/KS/NE state-level proxy in either direction — the proxy was
+never claimed to equal SWPP's true rate, only to be in a defensible
+ballpark for it. This result neither confirms nor closes (ii); it
+converts "still open" into "open, but now bounded and partially
+quantified" — a real narrowing, the same class of progress the AC/DC
+check made for (i) by ruling it out, just short of a clean verdict here
+because the evidence itself is genuinely mixed.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no code in `grid_generation_gate1(.py
+|_ba.py)` touched; this is a new, separate, read-only diagnostic.
+
+BACKTEST RESULT: N/A — gate-1 (DATA) diagnostic script, no scoring/sizing/
+threshold/strategy code touched.
+
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: `python3 -m pytest -q`: 2049 passed / 1 skipped / 54 subtests (10
+new from this session's test file, 0 regressions — this sandbox needed
+`pip install -r requirements.txt -r requirements-dev.txt` first, a fresh-
+container provisioning fact logged by nearly every prior session, not a
+repo defect). `bash scripts/gated_tests.sh`: GATE PASSED — server (all
+files), client 1083/1083, python 2049/1 skipped/54 subtests, quarantine
+0/1 none overdue (`npm ci` run first — `node_modules` was absent in this
+fresh container, same class of gap several prior sessions logged for this
+exact reason). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — no
+`.ts` file touched, pin unchanged. `bash scripts/counter_ratchet.sh`:
+IMPROVED (`tests_run_in_ci`/`tests_gating_merge` 452->453, `assertions`
+14262->14299) — all three this session's own direct effect (1 new test
+file, 10 new tests/assertions), re-pinned in `ci/counter_baseline.txt` in
+this same PR, confirmed green again after re-pinning. `npm run build`/
+`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: session start time is outside 9:30-16:00 ET (this
+diff touches no server-runtime/trading-path file regardless, so merge
+timing is not itself gated by market hours) — no hold needed.
+
+NEXT: (1) the ~33% of the gap this magnitude proxy doesn't cover — the
+cheapest remaining lever is checking whether EIA-930's own Hourly Electric
+Grid Monitor methodology documentation (not yet searched specifically for
+SWPP, only general BA guidance so far) states SWPP's own BTM-inclusion
+policy explicitly; absent that, this line of investigation is reaching
+diminishing returns from public documentation alone and a future session
+should weigh whether to keep pursuing it. (2) ISNE wind's small, real,
+unexplained overshoot (carried over, unclaimed across multiple sessions
+now — different fuel/region, deserves its own dedicated look rather than
+another SWPP-solar pass). (3) the production outage (KNOWN BROKEN #41) —
+still down as of this session's check, not re-notified (no doubling since
+last notification).
+
+STARVED: no — this session ran the queue's own most concretely-scoped item
+to a real, quantified, honestly-mixed result rather than picking an easier
+but less-targeted task or forcing a clean verdict the evidence didn't
+support.
+
 ## 2026-09-14 (scheduled-routine session, third session this UTC day) [RESEARCH] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): settles candidate mechanism (i) (AC/DC nameplate-capacity ambiguity) NEGATIVE against EIA-860's own primary documentation — SWPP/ERCO solar's registry capacity field is EIA's own documented AC-comparable denominator, not the wrong unit (no version bump, no code shipped)
 
 TERRITORY: T-DATACORE (research-only this session — no `.py`/`.ts` files

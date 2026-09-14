@@ -12878,6 +12878,68 @@ territory in their first commit)
   applied at every non-doubling interval since 2026-09-14T00:02:19Z's
   notification.
 
+  UPDATE 2026-09-14 (scheduled-routine [PRODUCT] session, fourth session
+  this UTC day, [PIPELINE]) — resolves this entry's own NEXT(1): a real
+  magnitude check for candidate mechanism (ii) (BTM/distributed solar
+  folded into EIA-930's reported SUN total), using EIA's own separately
+  published small-scale-solar (DPV) generation series.
+
+  METHOD: `scripts/eia_dpv_btm_solar_share.py` (new, 10 pure-function
+  tests, no network) pulls EIA's `electric-power-operational-data` route
+  (Form EIA-923 — distinct from the EIA-930 respondent series gate-1
+  itself reads), which carries a `DPV` ("estimated small scale solar
+  photovoltaic") fuel-type facet alongside utility-scale `SUN`,
+  confirmed live to exist rather than assumed. Scoped to OK/KS/NE — the
+  three SWPP-footprint states with no other RTO seam running through
+  them (unlike TX/MO/ND/SD/MN/IA/AR/LA/NM/MT/WY, which straddle
+  multiple BAs) — deliberately narrower than a full 14-state SWPP-
+  footprint sum, to avoid reintroducing the cross-BA attribution
+  ambiguity two prior sessions already spent resolving for the capacity
+  side. Converts the measured DPV share of (DPV+SUN) into the same
+  units as the gate-1 ratio via `1/(1-share)`, without asserting SWPP's
+  actual respondent accounting works this way — a magnitude plausibility
+  check, not a mechanism confirmation, stated explicitly in the script's
+  own docstring.
+
+  LIVE RESULT (period 2026-06, latest month with data for all three
+  states): OK 12.99%, KS 20.26%, NE 16.64% DPV share; aggregate 15.56%
+  (59.9 of 385.1 GWh). Implied overshoot if fully folded in: **1.1843x**
+  — versus the observed SWPP solar overshoot of 1.275x (2026-09-13
+  session's EIA-860M-currency-adjusted figure).
+
+  VERDICT: mechanism (ii) is NOT ruled out (unlike mechanism (i), ruled
+  out earlier this same UTC day) — DPV's measured share is real and
+  substantial, not a rounding-error-sized distraction. But it is also
+  not sufficient alone: 1.1843x covers roughly 67% of the gap between
+  1.0x and 1.275x ((0.1843)/(0.275)), leaving a real residual this
+  proxy does not explain. Two honest readings, neither forced: (a)
+  mechanism (ii) is a genuine PARTIAL contributor and something else
+  makes up the rest; or (b) SWPP's true respondent-level BTM-inclusion
+  rate differs from this OK/KS/NE state-level proxy — the proxy was
+  never claimed to equal SWPP's actual rate, only to bound the
+  plausible order of magnitude. This converts "still open" into "open,
+  bounded, and partially quantified" rather than closing it — a
+  genuine narrowing, just not a clean verdict, because the evidence
+  itself is genuinely mixed (REASONING STANDARD #4 — not rounded up to
+  "explained" because the direction matched the prior).
+
+  Full account, live JSON output, and gate results (2049/1 skipped
+  python, 25/25 counters, tsc 11<=11, gated_tests GATE PASSED):
+  `research/experiments.md`, 2026-09-14 (fourth session this date).
+
+  NEXT: (1) the residual ~33% — check EIA's Hourly Electric Grid
+  Monitor methodology documentation specifically for SWPP's own stated
+  BTM-inclusion policy (not yet searched at the per-respondent level,
+  only general BA guidance so far); if that search also comes back
+  inconclusive, this line is reaching diminishing returns from public
+  documentation alone and a future session should weigh stopping here
+  versus a third independent capacity source. (2) ISNE wind's small,
+  real, unexplained overshoot — unclaimed across several sessions now,
+  deserves its own dedicated look rather than another SWPP-solar pass.
+  (3) the production outage (KNOWN BROKEN #41) — still down at this
+  session's own health check, not re-notified (no doubling since the
+  last on-record notification).
+
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
