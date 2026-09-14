@@ -3,6 +3,169 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine session, seventh session this UTC day) [PIPELINE] — epaCamd.ts joins the cold-cache-no-disk-backfill fix thread: its steady-state ("nothing to fetch this poll") path never assigned `cache` at all, so every restart after the initial backfill window converges left `/api/data/plant-operations` serving warming_up forever despite a real multi-quarter EPA CEMS archive on disk (v1.0.906)
+
+TERRITORY: T-DATACORE (server/epaCamd.ts, server/epaCamd.test.ts) +
+SHARED-minimal, last (package.json, ci/counter_baseline.txt, research/*).
+
+SYSTEM HEALTH CHECK FIRST: `curl -D- --max-time 25 https://voltradeai.com/api/health`
+at 2026-09-14T20:17:04Z returned the identical `HTTP/2 502` /
+`railway-hikari` / `x-railway-fallback: true` signature every session has
+logged since the 2026-09-10T20:18Z onset (KNOWN BROKEN #41 in
+open_questions.md), now ~95.9h continuous. NOT RE-NOTIFIED: the last
+on-record human notification was at the ~76h mark
+(2026-09-14T00:02:19Z), with this thread's own established next-doubling
+threshold at ~151h — 95.9h is not a doubling, so consistent with every
+session since 2026-09-12, no duplicate PushNotification sent. This
+sandbox still has zero Railway access; not this session's to fix.
+Loop-health ratio: last 10 tagged entries in this file are
+[PIPELINE]x7/[RESEARCH]x2/[RULE-REVIEW]x1, zero [REPAIR] — no thrash
+signal, HEALTH OF THE LOOP checks pass.
+
+PRIMARY-ACTION SELECTION: read the immediately-preceding entry's own
+NEXT list (routes.ts cold-cache-no-disk-backfill audit, ~64 of ~68
+`warming_up` occurrences still individually unaudited) and its named
+strong candidates: `dtccSwaps.ts`, `nrcReactorStatus.ts`,
+`nhtsaComplaints.ts`, `cropConditions.ts`, `faaStatus.ts`, `epaCamd.ts`,
+`cboeVix.ts`, among others. Read all six of dtccSwaps/nrcReactorStatus/
+nhtsaComplaints/cropConditions/faaStatus/epaCamd's cache-assignment
+logic this session (READ BEFORE WRITE) before picking one, rather than
+assuming from the file name alone:
+- `dtccSwaps.ts`: every successful fetch returns the FULL current
+  cumulative file (walks back up to 7 days for a published one) and sets
+  `cache` unconditionally on success — no archive-dependency, not this
+  bug shape.
+- `nrcReactorStatus.ts` / `cropConditions.ts`: `cache` is only set when
+  the live fetch returns rows, and the live fetch always returns the
+  CURRENT day/week's data on success (not filtered against what's
+  already archived) — these only fail to populate on a genuine transport
+  failure at boot, the milder "network down" variant of the bug class
+  already closed for nasaFirms/usgsQuakes/ndbcBuoys/edgarForm4/
+  wikiAttention/satellites/euLoad/githubOrgActivity, not the steady-state
+  variant.
+- `faaStatus.ts`: `cache` is assigned unconditionally on every successful
+  fetch, even an empty NAS status list — the module's own comment states
+  this correctly ("an empty NAS is a real, publishable state"); not a bug.
+- `nhtsaComplaints.ts`: same "only sets cache on nonzero live rows"
+  shape as nrcReactorStatus/cropConditions — the milder network-failure
+  variant.
+- `epaCamd.ts`: **the strongest, most severe instance found this
+  session.** `pickQuarterToFetch()`'s own docstring names a THIRD,
+  deliberate outcome beyond "backfill" and "recheck-latest": "(3)
+  nothing to do — steady state" (returns `null`) once every quarter in
+  the 8-quarter backfill window is archived AND the latest closed
+  quarter is more than 45 days past its correction window. Before this
+  fix, `refreshEpaCamd()`'s `if (target) { ... cache = ... }` was the
+  ONLY place `cache` was ever assigned — the `null`/steady-state case
+  fell through to nothing. Unlike nrcReactorStatus/cropConditions/
+  nhtsaComplaints, this is NOT a rare transport-failure edge case: it is
+  the documented, permanent END STATE this module is DESIGNED to reach
+  once backfill completes — so unlike those three, every ordinary
+  restart after that point (not just an unlucky one during a network
+  blip) left `cache` null forever, `/api/data/plant-operations` serving
+  `warming_up: true` indefinitely despite a real multi-quarter EPA CEMS
+  archive already on disk. This is the same severity class as the
+  occVolume.ts fix from the immediately-preceding session (a designed
+  steady state, not a transient failure) and had ZERO existing test
+  coverage of `refreshEpaCamd` itself (confirmed via grep — no prior
+  test called it).
+
+FIX: added `readArchivedQuarter(year, quarter, baseDir)` (inverse of
+`archiveQuarterRows`, same gunzip-or-plain read shape as cftcCot.ts's
+`readArchivedWeek` / occVolume.ts's `readArchivedDay`) and an
+`else if (!cache)` branch in `refreshEpaCamd()`: when `pickQuarterToFetch`
+returns `null` (steady state) and cache hasn't been populated yet this
+process, restore `latestClosedQuarter()` from disk — guaranteed archived,
+since `pickQuarterToFetch` would otherwise have returned it as a backfill
+target rather than `null`. Also threaded a `baseDir` parameter through
+`refreshEpaCamd` (previously absent, unlike every sibling refresh
+function) to `pickQuarterToFetch`/`archiveQuarterRows`/
+`gzipSealedQuarters`/the new restore branch — needed for direct testing
+of `refreshEpaCamd` without an env-var `DATA_DIR` hack, and brings this
+function's signature in line with cftcCot.refreshCot/occVolume.refreshOcc/
+nhtsaComplaints.refreshComplaints, which already all accept it.
+
+A/B VERIFICATION: `git stash push -- server/epaCamd.ts` then re-ran
+`server/epaCamd.test.ts` — fails immediately with `SyntaxError: ... does
+not provide an export named 'readArchivedQuarter'` (pre-fix code has no
+such export), confirming the fix is real and necessary. Restored via
+`git stash pop`; full file passes 15/15 post-fix (13 pre-existing + 2
+new): a `readArchivedQuarter` round-trip/never-archived/gz-readback test,
+and the dedicated regression test — archives the FULL real default
+8-quarter backfill window (2026Q2 back through 2024Q3, matching the
+existing `pickQuarterToFetch` steady-state test's narrower 3-quarter
+proof at the real default width), confirms `pickQuarterToFetch` returns
+`null` at that point (precondition), then calls `refreshEpaCamd` with a
+fetch stub that THROWS if ever called (proving zero live fetches happen)
+and asserts `latestEpaCamd()` restores the newest archived quarter
+(2026Q2, 3 rows) instead of staying null.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; RAW-overlay cache-freshness fix only (`/api/data/
+plant-operations`'s `kind: "raw"`, `predictive: false` unchanged).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW,
+non-predictive overlay (PROMOTION RULE 3 does not apply).
+
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: `npx tsx --test server/epaCamd.test.ts`: 15/15 (2 new). Full
+`npx tsx --test server/*.test.ts`: 1663 passed, 0 failed. `python3 -m
+pytest -q`: 2053 passed / 2 skipped / 54 subtests, 0 failures (this
+sandbox needed `npm ci` + `pip install openpyxl pillow pytest` first —
+fresh container, `node_modules` and several python deps absent, same
+recurring gap prior sessions have logged). `bash scripts/tsc_ratchet.sh`:
+11 <= 11, TS2304 = 0. `bash scripts/counter_ratchet.sh`: IMPROVED
+(`assertions` 14333->14342, this session's own 2 new tests' direct
+effect) — re-pinned in `ci/counter_baseline.txt` in this same PR,
+confirmed green again after re-pinning. `bash scripts/gated_tests.sh`:
+GATE PASSED — server 1083 (client-facing subset)/1083, client build OK
+(101 files, zero `client/` files touched by this diff so this is an
+unrelated-but-green baseline check), python 2053/2 skipped/54 subtests,
+quarantine 0/1 none overdue. `npm run build`/`npm run visual`: not run,
+zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: session start ~20:17 UTC / ~16:17 ET on a Monday —
+past the 16:00 ET regular-session close, so no market-hours merge-timing
+note needed this session (unlike the fifth session earlier today). This
+diff also touches no server-runtime/trading-path file regardless (a
+datacore RAW-overlay archiver's cache-restore path + its test file + a
+version bump + a counter-pin re-pin + this log entry only).
+
+NEXT: (1) the routes.ts cold-cache-no-disk-backfill audit continues —
+per this session's own read-before-write survey above, the remaining
+named candidates split into two groups: TRUE REMAINING UNKNOWNS
+(`dtccSwaps.ts` already read and ruled out this session; not yet read at
+all: `appStoreRankings.ts`, `fdaEvents.ts`, `droughtMonitor.ts` — these
+three share the `if (x.length || !cache) cache = {...}` shape noted but
+not investigated in this file's own 2026-09-14 sixth-session entry, a
+DIFFERENT candidate bug shape — always sets cache non-null on the first
+call even with zero fresh records, silently serving an EMPTY result set
+instead of restoring real archived history, worth checking as its own
+finding not assumed to be the same fix template; `cboeVix.ts` — spot-
+checked its `!cache ||` condition exists but not fully read this
+session) vs. RULED OUT THIS SESSION AS THE MILDER NETWORK-FAILURE VARIANT
+(`nrcReactorStatus.ts`, `nhtsaComplaints.ts`, `cropConditions.ts` — real
+bugs of the SAME general class, genuinely still worth fixing since a
+transport failure at boot still loses everything with no backfill, just
+lower urgency/severity than epaCamd's designed-steady-state case; a
+future session may still pick these up) and RULED OUT AS NOT THIS BUG AT
+ALL (`dtccSwaps.ts`, `faaStatus.ts`). `fdicFailures`/`borderWaits` still
+have no dedicated module file matching their route name and need
+locating first. (2) SWPP solar's own residual overshoot thread continues
+on its own schedule, independently of this session. (3) the production
+outage (KNOWN BROKEN #41) — ~95.9h continuous, not re-notified (no
+doubling since the ~76h mark), next threshold ~151h absent a status
+change.
+
+STARVED: no — this session found the most severe unaudited instance of
+an actively-tracked bug class in the queued candidate list (a designed
+permanent steady state, not a rare edge case), fixed it with a real
+regression test A/B-verified against pre-fix code, ruled out five other
+named candidates with real reasoning (not assumed) and filed the ruling
+for the next session, and left the audit itself still queued and
+concretely scoped rather than closing it out falsely.
+
 ## 2026-09-14 (scheduled-routine [PRODUCT] session, sixth session this UTC day) [PIPELINE] — occVolume.ts joins the cold-cache-no-disk-backfill fix thread: OCC's cache stayed null on EVERY restart once its 2-year archive had a few recent days on disk, not just on a network failure — the most directly-reachable instance of this bug class found so far (v1.0.905)
 
 TERRITORY: T-DATACORE (server/occVolume.ts, server/occVolume.test.ts) +

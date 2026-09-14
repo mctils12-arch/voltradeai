@@ -329,6 +329,29 @@ export function gzipSealedQuarters(nowMs: number, baseDir?: string): number {
   return n;
 }
 
+/** Reads one archived quarter back (inverse of archiveQuarterRows). Empty
+ *  array if the quarter was never archived or the file is unreadable —
+ *  never throws, same convention as cftcCot's readArchivedWeek /
+ *  occVolume's readArchivedDay. */
+export function readArchivedQuarter(year: number, quarter: number, baseDir?: string): EpaCamdDailyRow[] {
+  const base = quarterFileBase(epaCamdDir(baseDir), year, quarter);
+  for (const fp of [base, `${base}.gz`]) {
+    let text: string;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: EpaCamdDailyRow[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch { continue; }
+    }
+    return out;
+  }
+  return [];
+}
+
 /** Picks the single quarter to fetch THIS poll — at most one API call for
  *  quarter data per invocation, keeping shared-DEMO_KEY usage trivial.
  *  Priority: (1) the oldest quarter in the backfill window that has NEVER
@@ -372,21 +395,38 @@ export function latestEpaCamd(): { at: number; year: number; quarter: number; ro
 
 export async function refreshEpaCamd(
   fetchImpl: FetchFn = fetch as any, env: NodeJS.ProcessEnv = process.env, nowMs?: number,
+  baseDir?: string,
 ): Promise<void> {
   const now = nowMs ?? Date.now();
-  const target = pickQuarterToFetch(now);
+  const target = pickQuarterToFetch(now, baseDir);
   if (target) {
     const apiKey = epaCamdKey(env);
     try {
       const attrs = await getFacilityAttrs(apiKey, new Date(now).getUTCFullYear(), fetchImpl, now);
       const rows = await fetchQuarterDaily(target.year, target.quarter, apiKey, attrs, fetchImpl, now);
-      archiveQuarterRows(rows, target.year, target.quarter);
+      archiveQuarterRows(rows, target.year, target.quarter, baseDir);
       cache = { at: now, year: target.year, quarter: target.quarter, rows };
     } catch (e: any) {
       console.error("[datacore] epacamd refresh:", e?.message || e);
     }
+  } else if (!cache) {
+    // COLD-CACHE-NO-DISK-BACKFILL FIX (2026-09-14, same shape as
+    // cftcCot.ts/treasuryDts.ts/occVolume.ts's own "!cache && <archived
+    // index present>" branch): pickQuarterToFetch's documented steady
+    // state ("every quarter in the backfill window already archived and
+    // the latest closed quarter past its 45-day correction window") means
+    // this branch is reached on EVERY restart once the initial backfill
+    // has converged — a normal, permanent end state for this module, not
+    // an edge case — and until now `cache` simply stayed null forever in
+    // that state, so /api/data/plant-operations served warming_up despite
+    // a real multi-quarter EPA CEMS archive sitting on disk. Restore the
+    // newest closed quarter (guaranteed archived, or pickQuarterToFetch
+    // would have returned it as the backfill target instead of null).
+    const latest = latestClosedQuarter(new Date(now));
+    const rows = readArchivedQuarter(latest.year, latest.quarter, baseDir);
+    if (rows.length) cache = { at: now, year: latest.year, quarter: latest.quarter, rows };
   }
-  try { gzipSealedQuarters(now); } catch {}
+  try { gzipSealedQuarters(now, baseDir); } catch {}
 }
 
 /** 12h poll — quarterly-cadence data, at most one quarter-data call per

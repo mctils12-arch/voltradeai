@@ -11,6 +11,7 @@ import {
   epaCamdKey, epaCamdUsingDemoKey,
   archiveQuarterRows, quarterSealed, gzipSealedQuarters, pickQuarterToFetch,
   fetchFacilityAttrs, fetchQuarterDaily,
+  readArchivedQuarter, refreshEpaCamd, latestEpaCamd,
 } from "./epaCamd";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -203,6 +204,54 @@ test("pickQuarterToFetch: chronological backfill first, then recheck-latest, the
     pickQuarterToFetch(wellPastSeal, dir, 3), null,
     "latest quarter sealed and everything in range archived -> steady state, nothing to fetch",
   );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("readArchivedQuarter: round-trips archived rows, empty for a never-archived quarter, still readable after gzip rotation", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtepacamd-"));
+  const attrs = parseFacilityAttrs(FACILITY_ATTRS);
+  const rows = parseDailyEmissions(DAILY, "2026-07-19", attrs);
+  archiveQuarterRows(rows, 2026, 2, dir);
+  const back = readArchivedQuarter(2026, 2, dir);
+  assert.equal(back.length, 3);
+  assert.equal(back[0].facilityId, 9);
+  assert.deepEqual(readArchivedQuarter(2099, 1, dir), [], "never-archived quarter reads back empty, never throws");
+  const sealed = Date.parse("2026-06-30T00:00:00Z") + 46 * 86_400_000;
+  gzipSealedQuarters(sealed, dir);
+  assert.equal(readArchivedQuarter(2026, 2, dir).length, 3, "gz'd quarter still readable");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// COLD-CACHE-NO-DISK-BACKFILL regression test (2026-09-14) — same bug
+// class as cftcCot.ts/treasuryDts.ts/occVolume.ts, a more directly
+// reachable instance: pickQuarterToFetch's own "steady state" (above)
+// is not an edge case but the NORMAL end state once the backfill window
+// is fully archived and the latest quarter is past its correction
+// window — every restart after that point hit it. Before the fix, the
+// `if (target)` branch was the ONLY place `cache` was ever assigned, so
+// a restart at steady state left `cache` null forever despite a real
+// multi-quarter EPA CEMS archive already on disk.
+test("refreshEpaCamd: restart at steady state (nothing to fetch) restores cache from the newest archived quarter, no live fetch made", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtepacamd-"));
+  const attrs = parseFacilityAttrs(FACILITY_ATTRS);
+  const rows = parseDailyEmissions(DAILY, "2026-07-18", attrs);
+  // Archive the FULL default 8-quarter backfill window (2026Q2 back
+  // through 2024Q3) so pickQuarterToFetch's real default reaches the
+  // same steady state its own dedicated test above proves with a
+  // narrowed 3-quarter window.
+  for (const q of priorQuarters({ year: 2026, quarter: 2 }, 8)) {
+    archiveQuarterRows(rows, q.year, q.quarter, dir);
+  }
+  const wellPastSeal = Date.parse("2026-06-30T00:00:00Z") + 46 * 86_400_000;
+  assert.equal(pickQuarterToFetch(wellPastSeal, dir), null, "precondition: real default window is at steady state");
+
+  const dead = async () => { throw new Error("must not be called at steady state"); };
+  await refreshEpaCamd(dead as any, {}, wellPastSeal, dir);
+  const hit = latestEpaCamd();
+  assert.ok(hit, "cache restored from disk despite zero live fetches");
+  assert.equal(hit!.year, 2026);
+  assert.equal(hit!.quarter, 2, "restores the newest closed quarter, not an arbitrary one");
+  assert.equal(hit!.rows.length, 3);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
