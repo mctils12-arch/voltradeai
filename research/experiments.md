@@ -3,6 +3,45 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine session, fifth session this UTC day, same-day addendum after PR #1076 merged) [RULE-REVIEW] — the "hold merge until after 4pm ET" instruction this session's own task gave for PR #1076 was silently unenforceable; `.github/workflows/ci.yml`'s `automerge` job merged it anyway at 16:26Z (~12:26pm ET), no human involved
+
+TERRITORY: SHARED-minimal (research/wishlist.md only, docs-only, no code).
+
+WHAT HAPPENED: PR #1076 (this same session's own PIPELINE entry below) was
+opened with a "⏸️ MERGE TIMING — please hold until after 4:00 PM ET" note in
+its body, per this session's own scheduled-task instructions (the run
+started during market hours). It merged anyway at 2026-09-14T16:26:13Z —
+`merged_by: "github-actions[bot]"`, confirmed via the GitHub API (`pull_request_read`
+method=get), not a human merging early.
+
+ROOT CAUSE (read live, not assumed): `.github/workflows/ci.yml`'s `automerge`
+job runs `gh pr merge --squash` unconditionally for any `claude/*`-branch PR
+once its required jobs settle — no label check, no PR-body inspection, no
+time-of-day awareness. This is CLAUDE.md's own AUTONOMY AUTHORIZATION working
+exactly as designed ("merge and deploy your own changes without human
+approval whenever CI is green") — the ad-hoc "hold until 4pm" ask from this
+specific scheduled task simply has no hook into that mechanism. Confirmed
+harmless this time: PR #1076's diff touched no server-runtime/trading-path
+file. Confirmed NOT harmless in general: nothing in `automerge`'s condition
+would have stopped the same early merge had the diff touched a live trading
+path.
+
+`.github/workflows/ci.yml` is a FROZEN PATH — not edited. Filed as a
+proposal instead, with three options for the human to choose from (accept
+as-is and drop the ask from future scheduled-task prompts; add a
+hold-label gate to `automerge`; or narrow the ask to only trading-path
+diffs): `research/wishlist.md`, new top entry this session.
+
+BACKTEST: N/A. MONETIZATION TRIPWIRE: not touched. GATES: docs-only change
+(one new `research/wishlist.md` section), no code touched, no test/gate
+impact — `python3 -m pytest -q` not re-run for this addendum since nothing
+executable changed since the immediately preceding entry's own green run.
+
+NEXT: human decides among the three filed options; until then, future
+scheduled market-hours sessions should know this specific hold-note pattern
+does not actually hold anything — worth reading this entry before relying
+on it again.
+
 ## 2026-09-14 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — grid_generation_fuel_mix: closes the long-open "sweep the remaining national gate-1 FAIL/INCONCLUSIVE cells" NEXT item (filed 2026-09-12, restated unclaimed across five subsequent sessions) — only 2 real findings exist nationally, both already known and tracked; nothing new discovered (v1.0.904)
 
 TERRITORY: T-DATACORE (scripts/**, tests) + SHARED-minimal, last (package.json,
