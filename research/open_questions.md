@@ -6326,6 +6326,23 @@
     path back; the bisection env-var toggle (merged, off by default)
     remains the fastest way to localize the leak once back up.
 
+    UPDATE 2026-09-14 (scheduled-routine session, second session this UTC
+    day, [REPAIR] check folded into a [PIPELINE] session) — re-confirmed
+    live via `curl -v https://voltradeai.com/api/health`: still `HTTP/2
+    502`, identical `railway-hikari`/`x-railway-fallback: true` signature,
+    at 2026-09-14T02:35:20Z — **~78.3 wall-clock hours** continuous since
+    the 2026-09-10T20:18Z onset. The immediately preceding session today
+    (00:34Z, ~75.7h reading) already re-notified the human given the
+    near-doubling since the last on-record notification (2026-09-12); this
+    check's own duration (+2.6h) is not new information by that same
+    standard, so NOT re-notified. No third patch attempted (RECURRENCE
+    ESCALATES already triggered 2026-09-08; zero live diagnostic access
+    while the app is down; `git log` since the prior check shows zero
+    commits touching any server-runtime or trading-path file). NEXT:
+    unchanged — a human Railway dashboard restart remains the only path
+    back; the bisection env-var toggle (merged, off by default) remains
+    the fastest way to localize the leak once back up.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
@@ -12663,6 +12680,128 @@ territory in their first commit)
   experiments.md for the full reasoning.
 
   Full account, including the exact test-gate diagnosis and fix: `research/experiments.md` 2026-09-14 (this session).
+
+  UPDATE 2026-09-14 (scheduled-routine session, second session this UTC
+  day, [PIPELINE]) — resolves this entry's own NEXT(2) first sub-question
+  and reframes the second: SWPP solar's residual overshoot is NOT a
+  one-off EIA-930 spike or a registry-currency gap EIA-860M itself
+  misses — it is a SUSTAINED, DIURNALLY-CLUSTERED pattern present in
+  BOTH SWPP and ERCO, at different relative magnitude, that four prior
+  sessions' worth of registry-completeness/currency fixes were
+  structurally incapable of closing.
+
+  CHECKED FIRST, per NEXT(2)'s own first sub-question ("post-July-2026
+  commissioning EIA-860M itself misses"): `curl`'d EIA's live EIA-860M
+  index this session — `august_generator2026.xlsx` is NOT yet published
+  (returns EIA's generic HTML landing page, not a spreadsheet;
+  `july_generator2026.xlsx`, the file every prior session already used,
+  remains the latest available snapshot, confirmed by content-type and a
+  clean `openpyxl` load). This sub-question is therefore UNANSWERABLE
+  right now, not negative — there is no newer snapshot to check against
+  yet.
+
+  NEW METHOD BUILT instead, aimed at NEXT(2)'s second sub-question ("an
+  SWPP-specific EIA-930 respondent quirk"): `scripts/
+  eia930_solar_exceedance_pattern.py` (new, 8 tests, no network in
+  tests). Every prior session's own statistic — `grid_generation_gate1
+  (_ba).py`'s single MAX hourly reading over a 7-day window — cannot by
+  itself distinguish "one bad hour" from "a pattern that recurs
+  whenever midday irradiance is good," and those two have opposite
+  implications for whether more registry fixing is even the right lever.
+  This script instead pulls a 30-day EIA-930 history for one
+  (respondent, fueltype) pair and reports, without computing a verdict
+  (REASONING STANDARD #4 — a same-session classifier tuned toward the
+  answer already suspected is not evidence): total hours, hours
+  exceeding a given capacity ceiling, the fraction of all hours that is,
+  how many DISTINCT CALENDAR DAYS have at least one exceeding hour, and
+  the hour-of-day histogram of the exceeding hours.
+
+  LIVE RESULT (fresh EIA-930 pull this session, `EIA_API_KEY` present):
+
+  | respondent | hours exceeding / total | distinct days | exceeding hour-of-day band (UTC) | max ratio |
+  |---|---|---|---|---|
+  | SWPP solar (cap 2,060.3 MW) | 162/699 (23.2%) | 24 of 30 days | 15-23 | 1.322x |
+  | ERCO solar (cap 32,244.9 MW) | 71/699 (10.2%) | 18 of 30 days | 16-22 | 1.083x |
+
+  Both regions show the SAME shape: exceedance recurs on most days in
+  the window (80% of days for SWPP, 60% for ERCO) and clusters tightly
+  inside a ~7-9 hour midday-to-afternoon band (local late-morning
+  through late-afternoon across both BAs' predominantly Central time
+  footprints) — not scattered randomly across the day or concentrated
+  on one or two calendar dates. This rules out, directly rather than by
+  inference, the "isolated EIA-930 data-quality spike" reading of
+  SWPP's residual: a genuine one-off revision/telemetry glitch would
+  show up as a small number of dates with no consistent hour-of-day
+  pattern, which is not what 24 distinct days clustered in a 9-hour
+  band looks like. It also means ERCO's own gate-1 PASS (1.049x on the
+  current live 7-day window) is FRAGILE, not settled — the same
+  mechanism producing SWPP's FAIL is present in ERCO's own 30-day
+  history at up to 1.083x; ERCO's 7-day check currently passes only
+  because its most recent 7 days happen not to include one of the
+  higher-ratio days visible earlier in the 30-day window (e.g.
+  2026-08-16/17, not in the trailing-7-day check gate-1 itself runs).
+
+  NOT YET DISTINGUISHED (filed honestly as open, not resolved by
+  hand-waving to the more convenient answer): two candidate mechanisms
+  would both produce exactly this diurnally-clustered, multi-region,
+  proportionally-larger-where-solar-is-smaller shape, and this session's
+  evidence does not separate them — (i) EIA-860 Schedule 3's solar
+  "Nameplate Capacity (MW)" field has a known industry ambiguity between
+  AC (inverter) and DC (panel) ratings depending on how a given
+  respondent filled out the form, which would make the registry's
+  capacity ceiling itself the wrong denominator for an AC generation
+  comparison; (ii) EIA-930's respondent-level hourly "SUN" series can
+  include a modeled/estimated behind-the-meter (small-scale, non-EIA-860
+  eligible) solar component that a smaller utility-scale base (SWPP)
+  would show proportionally more than a larger one (ERCO) for a similar
+  absolute BTM quantity. Neither was checked against primary
+  documentation this session (EIA's own EIA-860 Schedule 3 instructions
+  for (i); EIA's published small-scale-solar capacity estimates by state
+  for (ii)) — filed as NEXT rather than guessed.
+
+  NOT A MEASUREMENT INTEGRITY CHANGE: this session does not alter
+  `grid_generation_gate1(.py|_ba.py)`'s own PASS/FAIL statistic,
+  tolerance, or window length — the new script is a separate, read-only
+  gate-1 DATA-layer diagnostic over the same public series. That said,
+  whether ERCO's own PASS is unstable across which 7 days happen to be
+  "trailing" is itself worth a session's attention under MEASUREMENT
+  INTEGRITY (a metric this sensitive to window placement is a metric
+  worth reviewing) — NOT self-applied here, filed as its own NEXT below,
+  its own future PR, with its own before/after comparison per that
+  section's rules.
+
+  GATES: `python3 -m pytest -q test_eia930_solar_exceedance_pattern.py`
+  8/8 pass, no network. Full account, exact commands, and full JSON
+  outputs: `research/experiments.md` 2026-09-14 (this session, second
+  entry this date).
+
+  NEXT: (1) check EIA-860 Schedule 3's own filing instructions for
+  whether solar "Nameplate Capacity (MW)" is specified as AC or DC, and
+  whether respondents are known to report inconsistently — would settle
+  candidate mechanism (i) directly from primary documentation, no new
+  code needed. (2) pull EIA's separately published small-scale
+  (behind-the-meter) solar capacity estimates for SWPP's and ERCO's
+  footprint states and compare their scale against the ~460 MW (SWPP,
+  23%-of-hours x 2,060 MW-ish order of magnitude) / multi-GW (ERCO)
+  gaps implied here — would test candidate mechanism (ii). (3) once (1)
+  or (2) settles which mechanism dominates, a MEASUREMENT INTEGRITY-track
+  proposal (not self-applied) for whether `grid_generation_gate1(.py|
+  _ba.py)`'s statistic should change (e.g. a percentile instead of a
+  bare max, or a longer window, or an explicit clipping-headroom
+  allowance) belongs in `research/wishlist.md` first, per that section's
+  own rules, since any such change could make a currently-FAILING check
+  look better — suspect by default until independently justified. (4)
+  re-run `eia930_solar_exceedance_pattern.py` against ISNE wind (this
+  thread's third closed fuel/region pair) as a cross-check — wind
+  inverter/BTM dynamics differ from solar's, so a similar diurnal
+  clustering there would be surprising and worth chasing; its absence
+  would be mild evidence AGAINST mechanism (i)/(ii) generalizing beyond
+  solar specifically. (5) the production outage (KNOWN BROKEN #41) —
+  re-confirmed still down this session (~78.3h continuous, barely moved
+  from the immediately preceding session's ~75.7h reading 2 hours
+  earlier); NOT re-notified — no new information beyond duration, same
+  standard the preceding several sessions already applied.
+
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket
