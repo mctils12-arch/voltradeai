@@ -894,6 +894,34 @@ never once hold a merge back — continuing to write it without either
 enforcing it or removing the instruction is the exact stated-vs-actual
 gap this repo's own HONESTY rules exist to prevent.
 
+**THIRTEENTH AND FOURTEENTH OCCURRENCES, 2026-09-14 — AND A CROSS-
+REFERENCE NOTE, not a new investigation.** This same day already has a
+FRESH, separately-filed top-of-file entry ("🟡 PROCESS GAP FOUND
+2026-09-14 ... a session's 'hold merge until after market hours' note
+... is NOT enforced by anything") that re-derived this identical root
+cause from scratch around PR #1076, without finding or cross-referencing
+this numbered thread — worth flagging as its own small piece of
+CONSTITUTIONAL-AUDIT-relevant debt (two live entries for one finding,
+not consolidated), not re-litigating here. For the count itself:
+- PR #1076 (this same day's national gate-1 sweep — data-diagnostic
+  only) carried the note, `created_at` 2026-09-14T16:21:42Z, merged
+  **16:26:13Z (~12:26 PM ET), 4m31s after opening**. This is the
+  instance the fresh top-of-file entry already documents in full detail
+  — counted here only so this thread's own tally stays accurate.
+- PR #1078 (this same day's `occVolume.ts` cold-cache-no-disk-backfill
+  fix — datacore RAW-overlay reliability, no trading-path file) carried
+  the same note, `created_at` 2026-09-14T18:38:58Z, merged **18:43:57Z
+  (~2:43 PM ET), 4m59s after opening** — verified via `pull_request_read`
+  on the merged PR, not inferred.
+Both harmless (neither touched a live-trading-path file), same as all 12
+before them. **14 confirmed occurrences spanning 2026-08-14 through
+2026-09-14 (31 days), still 0% compliance.** No new information about
+the mechanism itself — still the same FROZEN-`automerge`-job root cause,
+still the same two human-only options from the original entry. Filed
+here rather than left as two more untallied `experiments.md` footnotes,
+per the eleventh-occurrence entry's own stated reason for re-escalating
+to this file.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
