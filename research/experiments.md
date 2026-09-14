@@ -3,6 +3,196 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-14 (scheduled-routine session, second session this UTC day) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): SWPP solar's residual gate-1 overshoot is NOT a one-off EIA-930 spike — a new `eia930_solar_exceedance_pattern.py` diagnostic shows a sustained, diurnally-clustered pattern present in BOTH SWPP and ERCO, meaning ERCO's own gate-1 PASS is fragile, not settled (v1.0.902)
+
+TERRITORY: T-DATACORE (scripts/eia930_solar_exceedance_pattern.py,
+test_eia930_solar_exceedance_pattern.py) + SHARED-minimal, last
+(ci/counter_baseline.txt re-pin, package.json/package-lock.json version
+bump, research/experiments.md, research/open_questions.md).
+
+KNOWN BROKEN #41 (production outage): re-checked live at session start —
+`curl -v https://voltradeai.com/api/health` at 2026-09-14T02:35:20Z
+returned the identical `HTTP/2 502` / `railway-hikari` /
+`x-railway-fallback: true` signature every session has logged since the
+2026-09-10T20:18Z onset, now **~78.3 wall-clock hours** continuous.
+`git log --since` against every server-runtime/trading-path file since
+the immediately preceding session's own check (00:34Z, ~75.7h) returns
+zero commits, so this remains the same unresolved incident. The
+preceding session already re-notified the human 2 hours earlier given a
+near-doubling in duration; this session's own +2.6h is not new
+information by that same standard, so NOT re-notified — consistent
+with this thread's own repeated "duration alone is not new information"
+convention. No third patch attempted (RECURRENCE ESCALATES already
+triggered 2026-09-08; zero live diagnostic access while the app is
+down). Full account: `research/open_questions.md` KNOWN BROKEN #41,
+this date's UPDATE.
+
+QUEUE CHECK: the immediately preceding session (this same UTC day,
+00:34Z, v1.0.901, PR #1072) filed NEXT(2) as unclaimed and still open:
+"SWPP solar's residual ~28.6% overshoot — still open ... post-
+July-2026 commissioning EIA-860M itself misses, or an SWPP-specific
+EIA-930 respondent quirk, neither checked here." No other queue
+(PROGRAM_STATE.md, platform_program.md, data_census.md) had a cheaper
+or more concretely-scoped unclaimed item; picked as this session's
+primary action.
+
+PRIOR (stated before running, REASONING STANDARD #10): given the
+established pattern that registry staleness (completeness, then
+currency) fully explained ERCO's and ISNE's overshoots but only
+partially moved SWPP's, expected (60%) SWPP's residual to ALSO be
+substantially registry-related — specifically, additional very-recent
+solar commissioning that even EIA-860M's own ~2-month lag misses —
+with the remaining probability (40%) on a genuine SWPP-specific
+EIA-930 measurement/reporting effect distinct from the general
+BTM-exclusion mechanism the 2026-09-12 session already identified as
+driving most regions' overshoots. **This prior was WRONG in its
+framing**, not merely its probabilities: the evidence gathered this
+session doesn't cleanly fit either branch — see LIVE RESULT.
+
+METHOD, part 1 (checking the first branch of NEXT(2) directly): `curl`'d
+EIA's live EIA-860M index. `august_generator2026.xlsx` is NOT yet
+published (returns EIA's generic HTML landing page, not a spreadsheet —
+confirmed by content-type and a failed `openpyxl` load);
+`july_generator2026.xlsx`, the file every prior session already used,
+remains the latest available snapshot (re-verified: HTTP 200,
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+13.9MB, loads cleanly). This sub-question is UNANSWERABLE right now —
+there is no newer snapshot to check against — not a negative result.
+
+METHOD, part 2 (the SWPP-specific-quirk branch): built
+`scripts/eia930_solar_exceedance_pattern.py` (new). Every prior
+session's own statistic — `grid_generation_gate1(_ba).py`'s single MAX
+hourly reading over a 7-day window — cannot itself distinguish "one bad
+hour" from "a pattern that recurs whenever midday irradiance is good,"
+and those two have opposite implications for whether more registry
+fixing is even the right lever. This script pulls a 30-day EIA-930
+history for one (respondent, fueltype) pair (a dedicated
+fueltype-scoped fetch, deliberately not reusing
+`grid_generation_gat1.fetch_window` — an all-fueltypes pull over 30
+days would risk exceeding the API's 5000-row page and hitting that
+function's own truncation guard, EDGE DOCTRINE #3 applied correctly
+means reusing what fits, not forcing reuse where the facet shape
+differs) and reports, WITHOUT computing a verdict (REASONING STANDARD
+#4 — a same-session classifier tuned toward the answer already
+suspected is not evidence): hours exceeding a capacity ceiling, the
+fraction of all hours that is, how many DISTINCT CALENDAR DAYS have at
+least one exceeding hour, and the hour-of-day histogram of the
+exceeding hours.
+
+LIVE RESULT (fresh EIA-930 pull this session, `EIA_API_KEY` present in
+this sandbox, both respondents queried in the same session for a valid
+comparison):
+
+| respondent | hours exceeding / total | distinct days (of 30) | exceeding hour-of-day band (UTC) | max ratio |
+|---|---|---|---|---|
+| SWPP solar (cap 2,060.3 MW) | 162/699 (23.2%) | 24 | 15-23 | 1.322x |
+| ERCO solar (cap 32,244.9 MW) | 71/699 (10.2%) | 18 | 16-22 | 1.083x |
+
+Both regions show the SAME shape: exceedance recurs on most days in the
+window (80%/60% of days) and clusters inside a ~7-9 hour midday-to-
+afternoon band, not scattered across random dates or hours. This
+directly rules out "isolated EIA-930 data-quality spike" for SWPP's
+residual — a genuine one-off revision/telemetry glitch would produce a
+small number of dates with no consistent hour-of-day pattern, which is
+not what 24 distinct days clustered in a 9-hour band looks like. It
+ALSO means ERCO's own gate-1 PASS (1.049x on the current live 7-day
+window, shipped as "CLOSED" earlier this same UTC day) is FRAGILE, not
+settled: the identical mechanism is present in ERCO's own 30-day
+history at up to 1.083x, and the current 7-day check passes only
+because its trailing window happens not to include the higher-ratio
+days visible earlier (e.g. 2026-08-16/17). This is new information this
+session surfaced about a result an earlier session TODAY had already
+reported as resolved — logged here rather than left implicit, per
+MEASUREMENT INTEGRITY's spirit of treating a flattering-looking result
+(a PASS) as worth the same scrutiny as a FAIL.
+
+NOT YET DISTINGUISHED (filed honestly as open): two candidate
+mechanisms both predict exactly this diurnally-clustered,
+multi-region, proportionally-larger-where-solar-is-smaller shape, and
+this session's evidence does not separate them: (i) EIA-860 Schedule
+3's solar "Nameplate Capacity (MW)" field has a known industry
+ambiguity between AC (inverter) and DC (panel) ratings depending on how
+a respondent filled out the form — the registry's capacity ceiling
+could be the wrong denominator entirely for an AC generation
+comparison; (ii) EIA-930's respondent-level hourly "SUN" series can
+include a modeled/estimated behind-the-meter component that a smaller
+utility-scale base (SWPP) would show proportionally more of than a
+larger one (ERCO) for a similar absolute BTM quantity. Neither checked
+against primary documentation this session — filed as NEXT, not
+guessed at.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: `grid_generation_gate1(.py|_ba.py)`
+itself — its statistic, tolerance, and window length — is untouched;
+the new script is a separate, read-only gate-1 DATA-layer diagnostic
+over the same public series. Whether that statistic SHOULD change
+(e.g. because a bare 7-day max is this sensitive to window placement)
+is filed as a NEXT for a dedicated future PR under that section's own
+rules (before/after comparison, independent justification, suspect-by-
+default since any such change could make a currently-FAILING check
+look better) — not proposed in prose here beyond naming it, and
+absolutely not self-applied.
+
+TESTS: 14 new pure-function tests (`parse_period_date_hour`,
+`parse_rows`, `exceedance_stats`), no network —
+`fetch_fueltype_window` (the one I/O function) is exercised only by
+running the script live, same convention as every sibling
+`eia860_*.py`/`eia930_*.py` test file. `python3 -m pytest -q
+test_eia930_solar_exceedance_pattern.py`: 14/14 pass. Full repo gate
+(after `pip install -r requirements.txt -r requirements-dev.txt`, a
+fresh-container provisioning step, not a repo defect): `python3 -m
+pytest -q` **2039 passed, 1 skipped** (baseline 2025 + this session's
+14 new, zero regressions). `bash scripts/gated_tests.sh` (after `npm
+ci`, `node_modules/` also empty at session start): **GATE PASSED** —
+server (1083/1083) / client / python all green, quarantine 0/1, none
+overdue. `bash scripts/counter_ratchet.sh`: IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 451→452, `assertions`
+14229→14262 — all three this session's own direct effect, re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — not
+re-pinned, zero `.ts`/`.tsx` files touched. `npm run build`: clean
+(pre-existing chunk-size warnings only). `npm run visual`: not run,
+zero `client/` files touched.
+
+BACKTEST RESULT: N/A per PROMOTION RULE 3 — a ROOT VALIDATION LADDER
+gate-1 (DATA) diagnostic, not a trading strategy or parameter.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: this session ran outside 2026-09 US market hours
+(session start ~02:3xZ, ~22:3x ET the prior evening, and 2026-09-14 is
+a Monday so market hours don't begin until 13:30Z) — no merge-timing
+hold applies regardless, since this diff touches no server-runtime or
+trading-path file (a Python diagnostic script + its test file +
+research-log/counter-baseline bookkeeping only).
+
+NEXT: (1) check EIA-860 Schedule 3's own filing instructions for
+whether solar "Nameplate Capacity (MW)" is specified as AC or DC, and
+whether respondents report inconsistently — would settle candidate
+mechanism (i) directly from primary documentation, no new code needed.
+(2) pull EIA's separately published small-scale (behind-the-meter)
+solar capacity estimates for SWPP's/ERCO's footprint states and compare
+their scale against the gaps measured here — tests candidate mechanism
+(ii). (3) once (1) or (2) settles which mechanism dominates, a
+MEASUREMENT INTEGRITY-track proposal (not self-applied) for whether
+`grid_generation_gate1(.py|_ba.py)`'s own statistic should change
+belongs in `research/wishlist.md` first. (4) re-run
+`eia930_solar_exceedance_pattern.py` against ISNE wind as a cross-check
+— wind inverter/BTM dynamics differ from solar's, so its absence there
+would be mild evidence against mechanism (i)/(ii) generalizing beyond
+solar. (5) imagery-verify SunZia Wind South (carried over, unclaimed,
+from the immediately preceding session's own NEXT(1)). (6) the
+production outage (KNOWN BROKEN #41) — re-confirmed still down,
+~78.3h, not re-notified (no new information beyond duration).
+
+STARVED: no — this session picked the queue's own most-recently-filed
+unclaimed item, answered its first sub-question directly (no newer
+EIA-860M snapshot exists yet), built genuinely new and reusable
+diagnostic tooling for its second sub-question rather than re-running
+the same registry-completeness lens a fourth time, and surfaced a real,
+previously-unreported finding (ERCO's own same-day PASS is fragile)
+rather than stopping once SWPP's own question was answered.
+
 ## 2026-09-14 (scheduled-routine [PRODUCT] session) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): ships `eia860m_add_brand_new_plants.py`, the population absent from EIA-860 ANNUAL entirely — ERCO solar gate-1 CLOSES (PASS, 1.049x), SWPP solar remains FAIL (1.286x); a real top-100-imagery-verified invariant break found and fixed with a general safeguard, not a one-off (v1.0.901)
 
 TERRITORY: T-DATACORE (scripts/eia860m_add_brand_new_plants.py,
