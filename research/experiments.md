@@ -3,7 +3,156 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-14 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — grid_generation_fuel_mix / FUSION HYPOTHESIS (b): candidate mechanism (ii) (SWPP-footprint behind-the-meter solar folded into EIA-930's reported SUN total) gets a real magnitude check via EIA's own small-scale-solar (DPV) series — right order of magnitude to explain PART of the residual overshoot, not all of it (v1.0.903)
+## 2026-09-14 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — grid_generation_fuel_mix: closes the long-open "sweep the remaining national gate-1 FAIL/INCONCLUSIVE cells" NEXT item (filed 2026-09-12, restated unclaimed across five subsequent sessions) — only 2 real findings exist nationally, both already known and tracked; nothing new discovered (v1.0.904)
+
+TERRITORY: T-DATACORE (scripts/**, tests) + SHARED-minimal, last (package.json,
+package-lock.json, ci/counter_baseline.txt, research/*).
+
+SYSTEM HEALTH CHECK (session start, per CLAUDE.md's KNOWN BROKEN-first
+instruction): `curl -sS -w "HTTP_CODE:%{http_code}"
+https://voltradeai.com/api/health` at 2026-09-14T16:02Z returned `HTTP_CODE:502`,
+body `{"status":"error","code":502,"message":"Application failed to respond"}`
+— the identical `railway-hikari` signature every session has logged since the
+2026-09-10T20:18Z onset (KNOWN BROKEN #41), now **~91.7 wall-clock hours**
+continuous. This sandbox still has zero Railway access (unchanged fact).
+NOT RE-NOTIFIED: the last on-record human notification was this thread's own
+2026-09-14 first-session entry at the ~76h mark (near-doubling from the prior
+2026-09-12 notification); the next doubling threshold is ~151h. 91.7h is
++15.7h since the last notification, not a doubling — consistent with the
+"duration alone is not new information" standard every session in this
+thread has applied at every non-doubling interval since. No new evidence,
+no third patch attempted (RECURRENCE ESCALATES already fired 2026-09-08;
+`git log` since the last check shows zero commits touching any server-runtime
+or trading-path file).
+
+LOOP-HEALTH CHECK: `python3 scripts/research_state_check.py` — audits_register:
+none overdue (STALENESS/CONSTITUTIONAL/CALENDAR YEAR-ADD all current);
+thrash_ratio: 1/10 REPAIR in the last 10 tagged sessions (well under the 7+
+trigger); known_broken: 44 items, 4 without an explicit close marker
+(advisory only); starvation_signal: 0 consecutive STARVED at the front.
+No thrash, no starvation, audits not due — none of these gate today's action.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET): audit-log-driven repair is
+unavailable (production down, `/api/diag/*` unreachable same as `/api/health`).
+No experiment is freshly "matured" and awaiting judgment. The FUSION
+HYPOTHESIS (b) SWPP-solar thread has now had FOUR consecutive sessions today
+(this UTC day) narrow candidate mechanisms one at a time, and the
+immediately preceding (fourth) session's own NEXT explicitly flagged that
+continuing mechanism (ii) further "is reaching diminishing returns from
+public documentation alone" — picking that thread a FIFTH time today risked
+exactly the kind of narrow-thread over-concentration the QUEUE CHECK
+reasoning in this thread has been careful to distinguish from genuine
+continuation. Instead, this session takes the other standing, well-scoped,
+repeatedly-restated-but-never-claimed queue item from the same overall
+FUSION HYPOTHESES entry: "no other BA/fuel pair from the original national
+gate-1 run has been individually re-verified ... a future session could
+sweep the remaining FAIL/INCONCLUSIVE cells across all tracked respondents
+rather than waiting for each to surface one at a time" (first filed
+2026-09-12, restated unclaimed in the 2026-09-13 and three separate
+2026-09-14 sessions' own NEXT lists). A genuinely different, concrete,
+cheap, unclaimed item — not a sixth pass at SWPP solar specifically.
+
+METHOD: reused `grid_generation_gate1_ba.py`'s existing fetch-and-reconcile
+path with zero new I/O logic (EDGE DOCTRINE #3). Extracted its `main()`'s
+inline report-building logic into a new `build_report(respondents, days,
+tolerance, source, api_key)` function (pure refactor — `main()` now just
+calls it and prints; A/B-verified byte-identical live output before/after
+the refactor, modulo the trailing-window timestamp, via a saved pre-refactor
+JSON snapshot diffed against a fresh post-refactor run). New
+`scripts/grid_generation_gate1_national_sweep.py` imports that function via
+importlib (same convention as every sibling script in this thread) and adds
+exactly one new thing: `is_real_finding()`/`summarize_report()`, a filter
+that separates an actual FAIL or a substantive INCONCLUSIVE from the
+trivial "missing on one side" INCONCLUSIVE noise (no registry capacity or no
+EIA-930 rows for that fuel bucket — nothing to reconcile, not a finding) —
+noise this thread's prior manual JSON reads had to skip past by eye each
+time. `test_grid_generation_gate1_national_sweep.py` (new, 7 pure-function
+tests, no network, same convention as every sibling gate1_*.py test file)
+pins the filter and the sort-stable flattening across regions.
+
+LIVE RESULT (default respondents CISO/ERCO/MISO/PJM/NYIS/ISNE/SWPP/FPL,
+--source eia860, 7-day trailing window ending 2026-09-14T16:02Z): exactly
+**2 real findings nationally**, both already known and already being
+tracked by this thread — no new, previously-undiscovered gate-1 problem
+exists anywhere in the national respondent set:
+- ISNE nuclear, FAIL, ratio 1.105x (3,764.0 MWh max vs 3,404.9 MW capacity)
+  — matches the 2026-09-12 session's 1.099x reading within normal
+  trailing-window drift; already explained as a plausible, benign,
+  structural cause (nameplate is often a summer/net rating; actual net
+  output commonly runs a few percent above nameplate for nuclear
+  specifically, per that session's raw-hourly look) — not re-investigated
+  here, this session's job was the sweep, not re-litigating an already-
+  answered sub-question.
+- SWPP solar, FAIL, ratio 1.286x (2,650.0 MWh max vs 2,060.3 MW capacity)
+  — matches today's own four prior sessions' 1.275x-1.286x range exactly;
+  the thread this session deliberately did NOT pick up a fifth time (see
+  PRIMARY-ACTION SELECTION above).
+Every other respondent/fuel cell is either PASS or a trivial "missing on
+one side" INCONCLUSIVE (no registry capacity or no EIA-930 data for that
+bucket — e.g. FPL coal/hydro/wind, CISO's/MISO's/PJM's/NYIS's own sparse
+buckets) — confirmed filtered out by the new script's own test-pinned logic,
+not eyeballed.
+
+VERDICT: this closes the NEXT item CLEANLY — there is no hidden third
+gate-1 problem waiting to be discovered elsewhere in the national sweep.
+Both real findings are already filed, already tracked, and already have an
+owner (ISNE nuclear: explained, low-priority, not urgent; SWPP solar:
+today's own active four-session investigation thread, continuing on its own
+schedule). REASONING STANDARD #10: no prior was formally stated before
+running — this is a closure/completeness sweep over an already-computed
+report structure, not a hypothesis test with an uncertain outcome to
+predict, same class of "nothing to grade" the 2026-09-13 ISNE-wind registry-
+currency check logged for the same reason.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; `grid_generation_gate1_ba.py`'s `build_report()` refactor is
+behavior-preserving (verified byte-identical above), not a metric
+definition change.
+
+BACKTEST RESULT: N/A — gate-1 (DATA) diagnostic script, no
+scoring/sizing/threshold/strategy code touched (PROMOTION RULE 3 does not
+apply).
+
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: `python3 -m pytest -q`: 2056 passed / 1 skipped / 54 subtests (7 new
+from this session's own test file plus the pre-existing 2049, 0
+regressions — confirmed the pre-refactor `grid_generation_gate1_ba` test
+suite (17 tests) still passes unchanged after the extraction). `bash
+scripts/gated_tests.sh`: GATE PASSED — server (all files), client
+1083/1083, python 2056/1 skipped/54 subtests, quarantine 0/1 none overdue
+(`npm ci` and `pip install -r requirements.txt -r requirements-dev.txt` both
+run first — fresh container, same class of gap logged by nearly every prior
+session). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — no `.ts`
+file touched, pin unchanged. `bash scripts/counter_ratchet.sh`: IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 453->454, `assertions` 14299->14320
+— all this session's own direct effect: 1 new test file) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning. `npm run build`/`npm run visual`: not run, zero `client/` files
+touched.
+
+DEPLOY-COUPLING NOTE: session runs during market hours (2026-09-14 is a
+Monday, ~16:02Z session start = within 9:30-16:00 ET regular session). This
+diff touches no server-runtime/trading-path file (Python data-diagnostic
+scripts + tests + a version bump + a counter-baseline re-pin only), so it
+carries no live-trading risk — but per this session's own explicit
+instructions, the PR notes that merge should still wait until after 4:00 PM
+ET regardless, since the change is not a critical live-break fix.
+
+NEXT: (1) SWPP solar's own residual overshoot investigation continues on
+its own four-session-deep thread, independently of this sweep (see the
+2026-09-14 FUSION HYPOTHESIS (b) entries above for its own NEXT). (2) ISNE
+nuclear's 1.105x is stable and already explained as benign — no action
+needed unless a future sweep shows it drifting meaningfully higher. (3) a
+future session could re-run this sweep periodically (e.g. after any EIA-860M
+monthly refresh) to catch a genuinely NEW gate-1 FAIL emerging elsewhere
+before it goes unnoticed for weeks the way SWPP/ERCO's did initially — not
+scheduled as a recurring job this session (one logical change per PR; a
+cron/schedule wrapper would be a separate, differently-scoped addition).
+(4) the production outage (KNOWN BROKEN #41) — unchanged, ~91.7h continuous,
+not re-notified this session per the non-doubling standard above; next
+notification due at the ~151h doubling mark absent a status change.
+
 
 TERRITORY: T-DATACORE (scripts/**, tests) + SHARED-minimal, last (research/*,
 package.json/package-lock.json, ci/counter_baseline.txt).

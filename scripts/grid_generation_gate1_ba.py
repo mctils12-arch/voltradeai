@@ -116,23 +116,18 @@ def excluded_capacity_fraction(counted_mw, excluded_mw):
     return round(excluded_mw / total, 3)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=7, help="trailing window size in days")
-    ap.add_argument("--tolerance", type=float, default=0.05, help="fractional headroom above capacity before FAIL")
-    ap.add_argument("--respondents", default=",".join(DEFAULT_RESPONDENTS))
-    ap.add_argument("--source", choices=("eia860", "polygon"), default="eia860",
-                     help="plant->balancing-authority attribution source (see module docstring)")
-    args = ap.parse_args()
-
-    api_key = os.environ.get("EIA_API_KEY")
+def build_report(respondents, days=7, tolerance=0.05, source="eia860", api_key=None):
+    """The live report-building logic `main()` used to inline directly.
+    Factored out (no behavior change) so a sibling script — the national
+    FAIL/INCONCLUSIVE sweep, grid_generation_gate1_national_sweep.py — can
+    reuse this exact fetch-and-reconcile path via importlib instead of
+    reimplementing or shelling out to this script (EDGE DOCTRINE #3)."""
+    api_key = api_key or os.environ.get("EIA_API_KEY")
     if not api_key:
         print("EIA_API_KEY not set — cannot run live gate-1 fetch", file=sys.stderr)
         sys.exit(1)
 
-    respondents = [r.strip() for r in args.respondents.split(",") if r.strip()]
-
-    if args.source == "eia860":
+    if source == "eia860":
         assignments_path = EIA860_ASSIGNMENTS_PATH
         capacity_fn = _eia860_join.registry_capacity_by_ba
         ambiguous_plant_policy = ("EIA-860 ground-truth Balancing Authority Code join — plants with "
@@ -150,7 +145,7 @@ def main():
 
     now = datetime.now(timezone.utc)
     end = now.strftime("%Y-%m-%dT%H")
-    start = (now - timedelta(days=args.days)).strftime("%Y-%m-%dT%H")
+    start = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H")
 
     regions = {}
     for ba in respondents:
@@ -165,7 +160,7 @@ def main():
         rows = _gate1.fetch_window(ba, start, end, api_key)
         eia_max = _gate1.aggregate_max_by_fueltype(rows)
         gen_bucket_max = _gate1.bucket_generation_max(eia_max)
-        verdicts = _gate1.reconcile(cap, gen_bucket_max, tolerance=args.tolerance)
+        verdicts = _gate1.reconcile(cap, gen_bucket_max, tolerance=tolerance)
         regions[ba] = {
             "eia_rows_fetched": len(rows),
             "matched_registry_plants_capacity_mw": round(counted_mw, 1),
@@ -178,17 +173,30 @@ def main():
             },
         }
 
-    report = {
+    return {
         "root": "grid_generation_fuel_mix",
         "gate": 1,
         "scope": "per_region",
-        "source": args.source,
+        "source": source,
         "ambiguous_plant_policy": ambiguous_plant_policy,
-        "window": {"start": start, "end": end, "days": args.days},
+        "window": {"start": start, "end": end, "days": days},
         "ba_join_source": os.path.relpath(assignments_path, _REPO_ROOT),
         "ba_join_summary": ba_join.get("summary", {}),
         "regions": regions,
     }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--days", type=int, default=7, help="trailing window size in days")
+    ap.add_argument("--tolerance", type=float, default=0.05, help="fractional headroom above capacity before FAIL")
+    ap.add_argument("--respondents", default=",".join(DEFAULT_RESPONDENTS))
+    ap.add_argument("--source", choices=("eia860", "polygon"), default="eia860",
+                     help="plant->balancing-authority attribution source (see module docstring)")
+    args = ap.parse_args()
+
+    respondents = [r.strip() for r in args.respondents.split(",") if r.strip()]
+    report = build_report(respondents, days=args.days, tolerance=args.tolerance, source=args.source)
     print(json.dumps(report, indent=2))
 
 

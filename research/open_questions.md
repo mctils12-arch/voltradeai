@@ -12936,9 +12936,34 @@ territory in their first commit)
   versus a third independent capacity source. (2) ISNE wind's small,
   real, unexplained overshoot — unclaimed across several sessions now,
   deserves its own dedicated look rather than another SWPP-solar pass.
-  (3) the production outage (KNOWN BROKEN #41) — still down at this
-  session's own health check, not re-notified (no doubling since the
-  last on-record notification).
+  [SUPERSEDED — see 2026-09-14 fifth-session UPDATE below: ISNE wind's
+  gate-1 FAIL was actually already CLOSED the prior day, 2026-09-13
+  (registry-currency mechanism); this NEXT(2) line was a stale
+  carryover this session didn't catch.] (3) the production outage
+  (KNOWN BROKEN #41) — still down at this session's own health check,
+  not re-notified (no doubling since the last on-record notification).
+
+  UPDATE 2026-09-14 (scheduled-routine session, fifth session this UTC
+  day, [PIPELINE]) — deliberately does NOT pick up NEXT(1) above a
+  fifth consecutive time today (that session's own NEXT(1) already
+  flagged diminishing returns from public documentation alone); instead
+  closes a different, separately-standing NEXT item from this same
+  overall FUSION HYPOTHESES entry, first filed 2026-09-12 and restated
+  unclaimed across five subsequent sessions: "sweep the remaining
+  FAIL/INCONCLUSIVE cells across all tracked respondents" in the
+  national gate-1 run. New `scripts/grid_generation_gate1_national_sweep.py`
+  (reuses `grid_generation_gate1_ba.py`'s fetch/reconcile path unchanged
+  via a pure refactor, `build_report()`, verified byte-identical
+  before/after) filters every respondent/fuel cell down to real findings
+  only (FAIL, or a substantive INCONCLUSIVE — not the trivial "missing
+  on one side" noise). LIVE RESULT: exactly 2 real findings nationally,
+  both already known — ISNE nuclear (FAIL, 1.105x, matches the
+  2026-09-12 reading, already explained as a benign nameplate-vs-net-
+  rating convention) and SWPP solar (FAIL, 1.286x, this thread's own
+  active investigation). No hidden third gate-1 problem exists anywhere
+  in the national respondent set. This closes the sweep NEXT item
+  cleanly. Full account: `research/experiments.md`, 2026-09-14 (fifth
+  session this date).
 
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
