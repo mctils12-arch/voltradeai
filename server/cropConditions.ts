@@ -30,6 +30,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export function cropConditionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.NASS_API_KEY);
@@ -289,6 +290,22 @@ export function latestConditions() {
   return cache;
 }
 
+/** Thin wrapper around the already-shipped `readArchivedConditions` (see
+ *  edgarForm4.ts's identically-shaped `backfillForm4FromArchive`) — closes
+ *  the cold-cache-no-disk-backfill gap for this root, found by the
+ *  2026-09-15 audit of the ~33 datacore modules that audit hadn't yet
+ *  checked (research/open_questions.md). */
+export function backfillConditionsFromArchive(baseDir?: string): ConditionObs[] {
+  return readArchivedConditions(baseDir);
+}
+
+function applyConditionItems(items: ConditionObs[] | null): void {
+  if (!items) return;
+  const newest = items.reduce((mx, o) => (o.week_ending > mx ? o.week_ending : mx), "");
+  cache = { at: Date.now(), latest_week: newest,
+            rows: items.filter((o) => o.week_ending === newest) };
+}
+
 export async function refreshConditions(fetchImpl: FetchFn = fetch as any,
                                         env: NodeJS.ProcessEnv = process.env,
                                         nowMs?: number, baseDir?: string,
@@ -296,15 +313,12 @@ export async function refreshConditions(fetchImpl: FetchFn = fetch as any,
   try {
     if (!cropConditionsEnabled(env)) return;
     const obs = await fetchConditions(fetchImpl, env, nowMs, spacingMs);
-    if (obs.length) {
-      archiveConditions(obs, baseDir, nowMs);
-      const newest = obs.reduce((mx, o) => (o.week_ending > mx ? o.week_ending : mx), "");
-      cache = { at: Date.now(), latest_week: newest,
-                rows: obs.filter((o) => o.week_ending === newest) };
-    }
+    if (obs.length) archiveConditions(obs, baseDir, nowMs);
+    applyConditionItems(resolveCacheItems(cache !== null, obs, () => backfillConditionsFromArchive(baseDir)));
     gzipOldConditionDays(baseDir, nowMs);
   } catch (e: any) {
     console.error("[datacore] cropconditions refresh:", e?.message || e);
+    applyConditionItems(resolveCacheItems(cache !== null, [], () => backfillConditionsFromArchive(baseDir)));
   }
 }
 
@@ -315,4 +329,13 @@ export function bootCropConditionsPoll(intervalMs = 12 * 60 * 60_000): void {
   polling = true;
   refreshConditions();
   setInterval(() => { refreshConditions(); }, intervalMs).unref?.();
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem edgarForm4.ts's `_resetForm4CacheForTests` solves for its own
+ *  module), so a test exercising the cold-cache backfill path must be able
+ *  to force `cache` back to null rather than rely on file execution order. */
+export function _resetCropConditionsCacheForTests(): void {
+  cache = null;
+  polling = false;
 }
