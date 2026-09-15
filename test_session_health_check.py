@@ -234,6 +234,66 @@ def test_deploy_freshness_warn_when_local_version_missing():
     assert "package.json" in f["detail"]
 
 
+# ── compute_outage_state / check_outage_duration (KNOWN BROKEN #41) ─────
+
+def test_compute_outage_state_reachable_with_no_prior_outage_stays_clear():
+    assert hc.compute_outage_state(True, "2026-09-15T00:00:00+00:00", {}) == {"down_since": None}
+
+
+def test_compute_outage_state_first_detected_down_sets_onset():
+    state = hc.compute_outage_state(False, "2026-09-10T20:18:00+00:00", {})
+    assert state == {"down_since": "2026-09-10T20:18:00+00:00"}
+
+
+def test_compute_outage_state_still_down_preserves_original_onset():
+    prior = {"down_since": "2026-09-10T20:18:00+00:00"}
+    state = hc.compute_outage_state(False, "2026-09-15T02:35:00+00:00", prior)
+    assert state == prior
+
+
+def test_compute_outage_state_recovery_clears_and_records_last_outage():
+    prior = {"down_since": "2026-09-10T20:18:00+00:00"}
+    state = hc.compute_outage_state(True, "2026-09-15T12:00:00+00:00", prior)
+    assert state["down_since"] is None
+    assert state["last_recovered_utc"] == "2026-09-15T12:00:00+00:00"
+    assert state["last_outage_started_utc"] == "2026-09-10T20:18:00+00:00"
+
+
+def test_check_outage_duration_ok_when_no_outage():
+    f = hc.check_outage_duration({"down_since": None}, "2026-09-15T00:00:00+00:00")
+    assert f["severity"] == hc.OK
+
+
+def test_check_outage_duration_ok_when_state_missing():
+    f = hc.check_outage_duration(None, "2026-09-15T00:00:00+00:00")
+    assert f["severity"] == hc.OK
+
+
+def test_check_outage_duration_alarm_reports_hours_and_crosses_amendment_1():
+    state = {"down_since": "2026-09-10T20:18:00+00:00"}
+    f = hc.check_outage_duration(state, "2026-09-15T02:35:00+00:00")
+    assert f["severity"] == hc.ALARM
+    assert "102." in f["detail"]  # ~102.3h between the two timestamps
+    assert "Amendment 1" in f["detail"]
+
+
+def test_check_outage_duration_alarm_under_24h_omits_amendment_1_note():
+    state = {"down_since": "2026-09-15T00:00:00+00:00"}
+    f = hc.check_outage_duration(state, "2026-09-15T01:00:00+00:00")
+    assert f["severity"] == hc.ALARM
+    assert "Amendment 1" not in f["detail"]
+
+
+def test_outage_state_roundtrips_through_disk(tmp_path):
+    path = str(tmp_path / "outage_state.json")
+    hc.save_outage_state({"down_since": "2026-09-10T20:18:00+00:00"}, path=path)
+    assert hc.load_outage_state(path=path) == {"down_since": "2026-09-10T20:18:00+00:00"}
+
+
+def test_load_outage_state_missing_file_returns_empty_dict():
+    assert hc.load_outage_state(path="/nonexistent/outage_state.json") == {}
+
+
 def test_read_local_package_version_reads_real_repo_version():
     # Integration-shaped on purpose: proves the relative path from
     # scripts/session_health_check.py to the repo root's package.json is
