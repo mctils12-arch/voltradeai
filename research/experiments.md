@@ -3,6 +3,169 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-15 (scheduled-routine session, third session this UTC day) [PIPELINE] — fdaEvents.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot where both openFDA and Federal Register calls fail at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk; droughtMonitor.ts remains the one still-unfixed byte-identical instance (v1.0.909)
+
+TERRITORY: T-DATACORE (server/fdaEvents.ts, server/fdaEvents.test.ts) +
+SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version
+bump, ci/counter_baseline.txt re-pin, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [REPAIR]x1 (this UTC day's
+own first-session entry, the outage-tooling PR), [PIPELINE]x7, [RESEARCH]x1,
+[RULE-REVIEW]x1 — no thrash signal (threshold is 7+ REPAIR of 10).
+
+SESSION-START CHECKS: CLAUDE.md read in full, `research/experiments.md`,
+`research/open_questions.md`'s KNOWN BROKEN section (items #41-#43), and
+`research/wishlist.md`'s tail all read before choosing an action.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 25
+https://voltradeai.com/api/health` at 2026-09-15T11:04:23Z returned the
+identical `HTTP/2 502` / `railway-hikari` / `x-railway-fallback: true`
+signature every session has logged since the 2026-09-10T20:18Z onset (KNOWN
+BROKEN #41) — **~110.8 wall-clock hours** continuous (a first probe attempt
+at 11:04:04Z timed out with zero bytes rather than returning a 502; treated
+as a transient proxy hiccup, not a state change, since the immediate re-probe
+19s later returned the same standing 502 signature every session has seen).
+`git log` since the prior session's check shows zero commits touching any
+server-runtime or trading-path file — same unresolved incident, not a new
+regression. NOT RE-NOTIFIED: the standing re-notify rule for this incident
+(set 2026-09-15 00:03Z, reaffirmed 02:35Z) is "next doubling from the last
+on-record notification (~76h)," i.e. ~151h — 110.8h has not crossed that
+threshold, and this session found no new fact about the incident's state
+(same signature, same zero relevant commits) that would independently
+justify breaking the standing rule. No third patch attempted — RECURRENCE
+ESCALATES already triggered 2026-09-08, zero live diagnostic access while
+the app is down, and this sandbox still has zero Railway CLI/API access
+(unchanged from every prior session's finding). Per this session's own task
+instructions and the established multi-session precedent on this exact
+incident ("product/pipeline sessions do not preempt the DAILY routines'
+repair duty" — the outage is entirely blocked on a human Railway-dashboard
+action this sandbox cannot take), the outage does not block T-DATACORE work
+and this session fell through to pipeline work rather than stalling on an
+unreachable fix. `python3 scripts/session_health_check.py` (the prior
+session's own new tooling) was NOT re-run standalone this session — its
+value is the persisted `research/outage_state.json` continuity, which
+already correctly reflects "still down since 2026-09-10T20:18:00+00:00" and
+needs no update while the state hasn't changed; it will auto-record the
+recovery the first run after the site returns, per its own design.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item), took
+the immediately preceding (2026-09-15, second session this UTC day
+[PRODUCT]/[PIPELINE]) session's own NEXT(1) — `fdaEvents.ts` and
+`droughtMonitor.ts`, both named as the same exact cold-cache-no-disk-backfill
+bug shape as that session's own `appStoreRankings.ts` fix, "ready for a
+mechanical same-shape fix + regression test." Read both this session (READ
+BEFORE WRITE) before picking one:
+- `fdaEvents.ts`: `refreshFdaCache`'s `if (events.length || !cache) cache =
+  { at: Date.now(), events };` — byte-identical shape to the
+  appStoreRankings.ts/epaCamd.ts/fdaEvents.ts-sibling lines the prior
+  session's own read already flagged: on a cold boot, if BOTH sources
+  (openFDA drugsfda + Federal Register AdCom notices, each wrapped in its
+  own try/catch inside `fetchFdaEvents`) fail at once — a boot-time network
+  blip, not a designed steady state — `events` is `[]` and `!cache` is true,
+  so `cache` gets set to `{at, events: []}`: a non-warming_up, `count: 0`
+  result that silently masks the failure AND never restores the real
+  archive already on disk (this root has archived since its 2026-07-05
+  build date via `archiveFdaEvents`, but — unlike appStoreRankings.ts —
+  never had a `listArchivedFdaDates`/`readArchivedFdaDay` read-back pair to
+  restore from at all until this session).
+- `droughtMonitor.ts`: confirmed via grep the exact same
+  `if (drought.length || !cache) cache = {...}` shape, and confirmed it ALSO
+  has no existing `listArchived`/`readArchived` read-back functions — a real,
+  unfixed instance of the same bug, not fixed this session per one logical
+  change per PR (picked fdaEvents.ts first, matching the prior session's own
+  "no principled differentiator among identically-shaped candidates — pick
+  one, ship it, file the rest" reasoning).
+
+FIX: added `listArchivedFdaDates(baseDir?, limit)` / `readArchivedFdaDay(iso,
+baseDir?)` to `fdaEvents.ts` (it had no read-back API at all, unlike
+appStoreRankings.ts, which already exposed these for its own gate-2 history
+route — fdaEvents.ts's `/api/data/fda-events` route has no history endpoint,
+so these are added solely to support the cold-cache restore below, not a new
+user-facing surface), mirroring appStoreRankings.ts's own implementation
+exactly (same bounded jsonl/jsonl.gz day-file scan, same sort/reverse/slice
+shape — EDGE DOCTRINE #3, same shape, not reinvented). `refreshFdaCache`
+gained a `baseDir` parameter (previously absent, unlike
+`archiveFdaEvents`/`gzipOldFdaDays`, which already accepted it) — needed for
+direct testing without an env-var hack, same precedent every prior session
+in this thread set. Cache assignment now only happens on a genuinely
+successful fetch (`if (events.length) cache = {...}`, dropping the
+`|| !cache` branch entirely); a new trailing `if (!cache) { restore from
+listArchivedFdaDates/readArchivedFdaDay's newest day }` branch fires ONLY
+when cache is still unset after the live fetch — i.e. exactly the
+cold-boot-with-zero-live-rows case, never overwriting a populated cache with
+anything (restored or empty) on a later transient failure during steady
+state, matching appStoreRankings.ts's own "`!cache && archived`" branch
+shape exactly. Also added `_resetFdaForTests()` (mirrors
+`_resetAppStoreForTests`) since this module had no test-reset helper at all
+before this session, needed to exercise a genuine cold-boot scenario without
+inheriting `cache`/`archivedKeys`/`seeded` state from an earlier test in the
+same process.
+
+A/B VERIFICATION: `git stash push -- server/fdaEvents.ts` then re-ran
+`server/fdaEvents.test.ts` — fails immediately (`SyntaxError`, the pre-fix
+file exports neither `refreshFdaCache`'s new `baseDir` param behavior nor
+`_resetFdaForTests`), confirming the fix and its tests are real and
+necessary. Restored via `git stash pop`.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; RAW-overlay cache-freshness fix only (`/api/data/fda-events`'s
+`kind: "raw"` unchanged, still explicitly non-predictive per its own PDUFA
+honesty note).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW,
+non-predictive overlay (PROMOTION RULE 3 does not apply, same as every
+sibling fix in this thread).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/paid-
+gating code touched; the existing FDA route's shape is unaffected, only how
+honestly its underlying cache degrades on a boot-time transport failure).
+
+GATES: `npx tsx --test server/fdaEvents.test.ts`: 9/9 (6 pre-existing + 3
+new). Full `npx tsx --test server/*.test.ts`: 1669/1669, 0 failures (this
+sandbox needed `npm ci`, 488 packages, first — a fresh-container
+provisioning gap, not a repo defect, per every prior session's own note on
+this). `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, same recurring fresh-container gap): 2066 passed, 1
+skipped, 54 subtests, 0 failures — this session touched no Python. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all green,
+quarantine 0/1, none overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304
+= 0 (zero `.ts` type-relevant surface changed beyond what already
+typechecked). `bash scripts/counter_ratchet.sh`: IMPROVED (`assertions`
+14364->14371, this session's own 3 new tests' direct effect) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning. `npm run build`/`npm run visual`: not run, zero `client/` files
+touched.
+
+DEPLOY-COUPLING NOTE: session start ~2026-09-15T11:04Z (~07:04 ET) — before
+the 9:30 ET regular-session open, so no market-hours merge-timing note is
+needed either way; this diff also touches no server-runtime/trading-path
+file (a datacore RAW-overlay archiver's cache-restore path + its test file +
+a version bump + a counter-pin re-pin + this log entry only) — same
+harmless-early-automerge class the 2026-09-14 process-gap finding
+(research/wishlist.md) already confirmed for an identically-scoped diff.
+
+NEXT: (1) `droughtMonitor.ts` — same exact bug shape as this session's fix,
+confirmed this session, ready for a mechanical same-shape fix + regression
+test as its own dedicated session/PR (it will also need its own
+`listArchivedDroughtDates`/`readArchivedDroughtDay` pair added first, same
+as this session did for fdaEvents.ts, since it has no read-back API either).
+(2) `cboeVix.ts` — still the one named-but-unfixed different-shape instance
+from the prior session's own audit (early-return before `cache` is ever
+touched, not a copy-paste of this thread's diff). (3) `fdicFailures`/
+`borderWaits` still have no dedicated module file matching their route name
+— unlocated, carried over unchanged from two prior sessions' own NEXT. (4)
+the production outage (KNOWN BROKEN #41) — ~110.8h continuous, not
+re-notified (no doubling since the ~76h mark), next threshold ~151h absent a
+status change.
+
+STARVED: no — this session took the queue's own next-listed item, fully
+read (not just grepped) both remaining named candidates before picking one,
+shipped one real fix with a real regression test A/B-verified against
+pre-fix code, and left the other concretely scoped (including the one extra
+dependency — the missing read-back API — a future session will need to add
+first) rather than reporting the audit thread closed.
+
 ## 2026-09-15 (scheduled-routine session, second session this UTC day) [REPAIR] — re-confirmed KNOWN BROKEN #41 production outage still down at ~102.4h continuous; built and shipped outage-duration tracking tooling (v1.0.908)
 
 TERRITORY: T-BOT-adjacent ops tooling (`scripts/session_health_check.py`,
