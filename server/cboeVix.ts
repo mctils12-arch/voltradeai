@@ -209,6 +209,43 @@ export function isDateArchived(date: string, baseDir?: string): boolean {
   return archivedDates.has(date);
 }
 
+/** Reads one year file (plain or gzipped) back into CboeVixDay records —
+ *  the read-back half of archiveCboeVixDays, needed to restore `cache` on
+ *  a cold boot whose live fetch comes back empty (see refreshCboeVix). */
+function readYearFile(dir: string, year: string): CboeVixDay[] {
+  const plain = yearFile(dir, `${year}-01-01`, false);
+  const gz = yearFile(dir, `${year}-01-01`, true);
+  let text: string | null = null;
+  try {
+    if (fs.existsSync(plain)) text = fs.readFileSync(plain, "utf8");
+    else if (fs.existsSync(gz)) text = zlib.gunzipSync(fs.readFileSync(gz)).toString("utf8");
+  } catch {
+    return [];
+  }
+  if (!text) return [];
+  const out: CboeVixDay[] = [];
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    try { out.push(JSON.parse(line)); } catch { continue; } // malformed line — skip, never fabricate
+  }
+  return out;
+}
+
+/** Restores the latest-day + 30-day-recent cache shape straight from the
+ *  on-disk archive (current + prior year, so a window spanning a calendar
+ *  rollover still returns a full 30 days). Returns null only when the
+ *  archive itself has nothing yet (a genuinely first-ever boot). */
+export function readArchivedCboeVix(baseDir?: string, nowMs?: number): { latest: CboeVixDay; recent: CboeVixDay[] } | null {
+  const dir = vixDir(baseDir);
+  const currentYear = new Date(nowMs ?? Date.now()).getUTCFullYear();
+  const days = [
+    ...readYearFile(dir, String(currentYear - 1)),
+    ...readYearFile(dir, String(currentYear)),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  if (!days.length) return null;
+  return { latest: days[days.length - 1], recent: days.slice(-30) };
+}
+
 export function _resetCboeVixForTests(): void {
   archivedDates.clear();
   seeded = false;
@@ -290,14 +327,29 @@ export async function refreshCboeVix(fetchImpl: FetchFn = fetch as any, baseDir?
   try {
     const series = await fetchAllTenors(fetchImpl);
     const days = mergeTenors(series);
-    if (!days.length) return;
-    archiveCboeVixDays(days, baseDir, nowMs);
-    const latest = days[days.length - 1];
-    const recent = days.slice(-30);
-    if (!cache || latest.date >= cache.latest.date) {
-      cache = { at: Date.now(), latest, recent };
+    if (days.length) {
+      archiveCboeVixDays(days, baseDir, nowMs);
+      const latest = days[days.length - 1];
+      const recent = days.slice(-30);
+      if (!cache || latest.date >= cache.latest.date) {
+        cache = { at: Date.now(), latest, recent };
+      }
+      gzipPastYearFiles(baseDir, nowMs);
+      return;
     }
-    gzipPastYearFiles(baseDir, nowMs);
+    // Live fetch came back with zero fully-populated days (a boot-time
+    // network blip, not steady state — see fetchCsv's per-tenor try/catch).
+    // Without this, `cache` stays null forever on a cold boot even though
+    // a real multi-year archive already exists on disk, and the route
+    // reports `warming_up: true` indefinitely instead of restoring it.
+    // Never overwrites an already-populated cache — only fires on the
+    // still-unset-after-this-attempt case, same guard shape the sibling
+    // cold-cache-no-disk-backfill fixes (fdaEvents.ts, droughtMonitor.ts,
+    // appStoreRankings.ts, epaCamd.ts, occVolume.ts) all use.
+    if (!cache) {
+      const restored = readArchivedCboeVix(baseDir, nowMs);
+      if (restored) cache = { at: Date.now(), ...restored };
+    }
   } catch (e: any) {
     console.error("[datacore] cboevix refresh:", e?.message || e);
   }
