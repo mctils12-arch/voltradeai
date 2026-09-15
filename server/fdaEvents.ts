@@ -228,6 +228,41 @@ export function gzipOldFdaDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Archived event-dates, newest first (jsonl or jsonl.gz only) — same bounded
+ *  read pattern as appStoreRankings.ts's listArchivedAppStoreDates, needed
+ *  for refreshFdaCache's cold-cache-no-disk-backfill restore below. */
+export function listArchivedFdaDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(fdaDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+/** Read one archived day back (plain or gz). */
+export function readArchivedFdaDay(iso: string, baseDir?: string): FdaEvent[] {
+  const dir = fdaDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: FdaEvent[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch { continue; }
+    }
+    return out;
+  }
+  return [];
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; events: FdaEvent[] } | null = null;
@@ -237,12 +272,41 @@ export function latestFdaEvents(): { at: number; events: FdaEvent[] } | null {
   return cache;
 }
 
-export async function refreshFdaCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
+/** Test-only: clears the module-level cache/dedup state so a test can
+ *  exercise a genuine cold-boot scenario (same shape as appStoreRankings.ts's
+ *  own `_resetAppStoreForTests`) instead of inheriting state from an earlier
+ *  test in this same process. */
+export function _resetFdaForTests(): void {
+  cache = null;
+  archivedKeys.clear();
+  seeded = false;
+}
+
+export async function refreshFdaCache(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
   try {
     const events = await fetchFdaEvents(fetchImpl, nowMs);
-    if (events.length || !cache) cache = { at: Date.now(), events };
-    try { archiveFdaEvents(events, undefined, nowMs); } catch {}
-    try { gzipOldFdaDays(undefined, nowMs); } catch {}
+    if (events.length) cache = { at: Date.now(), events };
+    try { archiveFdaEvents(events, baseDir, nowMs); } catch {}
+    try { gzipOldFdaDays(baseDir, nowMs); } catch {}
+    // COLD-CACHE-NO-DISK-BACKFILL FIX (2026-09-15, same shape as
+    // occVolume.ts/cftcCot.ts/appStoreRankings.ts's own "!cache && archived"
+    // branch): the pre-fix `if (events.length || !cache) cache = ...` set
+    // cache to an EMPTY, non-warming_up result the moment the live fetch
+    // returned zero rows on a cold boot (both openFDA and Federal Register
+    // failing/rate-limited at once) — silently masking a real transport
+    // failure as "checked, nothing pending" instead of restoring the real
+    // multi-week archive already on disk. Only ever fires when the live
+    // fetch produced nothing AND cache is still unset; a live fetch that
+    // succeeds always wins, and a transient empty fetch during steady state
+    // (cache already populated) leaves the existing cache alone, both
+    // unchanged from before.
+    if (!cache) {
+      const dates = listArchivedFdaDates(baseDir, 1);
+      if (dates.length) {
+        const restored = readArchivedFdaDay(dates[0], baseDir);
+        if (restored.length) cache = { at: Date.now(), events: restored };
+      }
+    }
   } catch (e: any) {
     console.error("[datacore] fda refresh:", e?.message || e);
   }

@@ -6388,6 +6388,20 @@
     `python3 scripts/session_health_check.py` once to auto-record the
     recovery and total outage duration in `research/outage_state.json`.
 
+    UPDATE 2026-09-15 (scheduled-routine session, third session this UTC
+    day, [REPAIR] check folded into a [PIPELINE] session) - re-confirmed
+    live via `curl -sS -D- --max-time 25 https://voltradeai.com/api/health`:
+    still `HTTP/2 502`, identical `railway-hikari`/`x-railway-fallback:
+    true` signature, at 2026-09-15T11:04:23Z - **~110.8 wall-clock hours**
+    continuous since the 2026-09-10T20:18Z onset. Not re-notified (standing
+    threshold ~151h not crossed; no new incident fact). No third patch
+    attempted; zero Railway access, unchanged. `research/outage_state.json`
+    not re-run standalone this session (nothing changed for it to record).
+    Primary action this session was queued pipeline work (fdaEvents.ts cold-
+    cache-no-disk-backfill fix, see experiments.md) per the established
+    "outage is unactionable from this sandbox, does not block other
+    territories" precedent every session since 2026-09-11 has followed.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an

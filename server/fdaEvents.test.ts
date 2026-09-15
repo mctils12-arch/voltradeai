@@ -10,6 +10,9 @@ import {
   parseMeetingDate,
   fetchFdaEvents,
   archiveFdaEvents,
+  refreshFdaCache,
+  latestFdaEvents,
+  _resetFdaForTests,
 } from "./fdaEvents";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +108,57 @@ test("archive round-trip with dedup by key", () => {
   const ev = parseApprovals(APPROVALS_JSON, "2026-07-05");
   assert.equal(archiveFdaEvents(ev, dir, t0), 2);
   assert.equal(archiveFdaEvents(ev, dir, t0), 0, "same keys never archive twice");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("COLD-CACHE-NO-DISK-BACKFILL FIX: a live fetch that returns zero events on a cold boot must restore from the on-disk archive instead of caching an empty, non-warming_up result forever", async () => {
+  _resetFdaForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfda-"));
+  // Simulate a PRIOR process run that already archived a day, then this
+  // process restarts with a cold in-memory cache (real container-restart
+  // shape: the disk archive survives, the in-memory cache does not).
+  const priorDay = parseApprovals(APPROVALS_JSON, "2026-08-01");
+  archiveFdaEvents(priorDay, dir, Date.parse("2026-08-01T12:00:00Z"));
+  _resetFdaForTests();
+  assert.equal(latestFdaEvents(), null, "cache starts cold after the simulated restart");
+
+  // Both sources fail at boot (network blip) -> fetchFdaEvents's own
+  // per-source try/catch swallows both calls and returns [], the exact
+  // "events.length === 0 on the first-ever cycle" case the pre-fix
+  // `if (events.length || !cache) cache = {...}` mishandled.
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshFdaCache(allDown as any, Date.parse("2026-08-02T12:00:00Z"), dir);
+
+  const hit = latestFdaEvents();
+  assert.ok(hit, "must restore from the on-disk archive instead of staying (or worse, caching empty) forever");
+  assert.equal(hit!.events.length, priorDay.length);
+  assert.equal(hit!.events[0].appl, "NDA219853");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshFdaCache: cold boot + empty live fetch + no on-disk archive at all stays honestly null, never a fabricated empty cache", async () => {
+  _resetFdaForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfda-"));
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshFdaCache(allDown as any, Date.parse("2026-08-03T12:00:00Z"), dir);
+  assert.equal(latestFdaEvents(), null, "nothing to restore -> stays null, so /api/data/fda-events still honestly reports warming_up rather than a silent empty count:0");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshFdaCache: a transient empty fetch during steady state (cache already populated) never clobbers the existing cache", async () => {
+  _resetFdaForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfda-"));
+  const ok = async (url: string) => {
+    if (url.includes("api.fda.gov")) return { ok: true, status: 200, text: async () => JSON.stringify(APPROVALS_JSON) };
+    return { ok: true, status: 200, text: async () => JSON.stringify(ADCOM_JSON) };
+  };
+  await refreshFdaCache(ok as any, Date.parse("2026-08-04T12:00:00Z"), dir);
+  const populated = latestFdaEvents();
+  assert.ok(populated && populated.events.length, "cache populated by a successful fetch");
+
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshFdaCache(allDown as any, Date.parse("2026-08-04T13:00:00Z"), dir);
+  assert.strictEqual(latestFdaEvents(), populated, "a later transient failure must not overwrite good cache with anything, restored or empty");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
