@@ -10,7 +10,8 @@ import {
   cropConditionsEnabled, parseConditions, conditionsUrl, fetchConditions,
   archiveConditions, refreshConditions, latestConditions, COMMODITIES,
   readArchivedConditions, classFromItem, lookupCropConditionHistory,
-  readConditionsAggregateHistory,
+  readConditionsAggregateHistory, backfillConditionsFromArchive,
+  _resetCropConditionsCacheForTests,
 } from "./cropConditions";
 
 // Documented QuickStats row shape (live verification pending — the key is
@@ -127,6 +128,67 @@ test("lookupCropConditionHistory: one commodity's rows across weeks, ascending, 
   assert.equal(capped.length, 1, "weeks param caps the series to the most recent N distinct weeks");
   assert.equal(capped[0].week_ending, "2027-02-08");
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Cold-cache-no-disk-backfill (2026-09-15 audit; mirrors edgarForm4.ts's
+// and sec8kEarnings.ts's identically-shaped tests) — a redeploy or NASS
+// outage must not report warming_up (or silently cache an empty week) over
+// real archived condition ratings already on disk. ──────────────────────────
+
+test("refreshConditions: cold cache backfills from the on-disk archive when the live poll throws", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "crop-coldcache-"));
+  _resetCropConditionsCacheForTests();
+  const t0 = Date.parse("2027-04-05T20:00:00Z");
+  archiveConditions([
+    { commodity: "CORN", week_ending: "2027-04-05", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 41, rt: "2027-04-05" },
+  ], base, t0);
+  assert.equal(backfillConditionsFromArchive(base).length, 1, "sanity: the archive has the row before refresh runs");
+  const throwing = async () => { throw new Error("NASS down"); };
+  await refreshConditions(throwing as any, { NASS_API_KEY: "k" } as any, t0 + 1000, base, 0);
+  const hit = latestConditions();
+  assert.ok(hit, "cache must be populated, not left null, despite the live poll throwing");
+  assert.equal(hit!.latest_week, "2027-04-05");
+  assert.equal(hit!.rows[0].pct, 41, "backfilled from the archived row, not fabricated");
+  _resetCropConditionsCacheForTests();
+});
+
+test("refreshConditions: an empty-but-non-throwing live poll also backfills from disk when the cache is cold (not just the throw path)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "crop-coldcache-empty-"));
+  _resetCropConditionsCacheForTests();
+  const t0 = Date.parse("2027-04-12T20:00:00Z");
+  archiveConditions([
+    { commodity: "SOYBEANS", week_ending: "2027-04-12", item: "SOYBEANS - CONDITION, MEASURED IN PCT FAIR", pct: 30, rt: "2027-04-12" },
+  ], base, t0);
+  const empty = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [] }) });
+  await refreshConditions(empty as any, { NASS_API_KEY: "k" } as any, t0 + 1000, base, 0);
+  const hit = latestConditions();
+  assert.ok(hit, "cache must be populated from the archive, not left warming_up forever");
+  assert.equal(hit!.latest_week, "2027-04-12");
+  assert.equal(hit!.rows[0].pct, 30);
+  _resetCropConditionsCacheForTests();
+});
+
+test("refreshConditions: a warm cache is never overwritten by a stale archive backfill on a transient empty poll", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "crop-warmcache-"));
+  _resetCropConditionsCacheForTests();
+  const t0 = Date.parse("2027-04-19T20:00:00Z");
+  const ok = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [
+    ROW("2027-04-19", "X - CONDITION, MEASURED IN PCT GOOD", "55"),
+  ] }) });
+  await refreshConditions(ok as any, { NASS_API_KEY: "k" } as any, t0, base, 0);
+  assert.ok(latestConditions()!.rows.some((r) => r.pct === 55), "live poll populated the cache");
+  // Archive an OLDER week that must never clobber the already-warm cache.
+  // Distinct commodity|week|item from every other test in this file — the
+  // dedup Set archiveConditions maintains is module-level, shared across the
+  // whole test process regardless of tmpdir (see note above).
+  archiveConditions([
+    { commodity: "CORN", week_ending: "2027-04-01", item: "CORN - CONDITION, MEASURED IN PCT POOR", pct: 10, rt: "2027-04-01" },
+  ], base, t0);
+  const empty = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [] }) });
+  await refreshConditions(empty as any, { NASS_API_KEY: "k" } as any, t0 + 1000, base, 0);
+  assert.ok(latestConditions()!.rows.some((r) => r.pct === 55), "warm cache untouched by a transient empty poll");
+  assert.equal(latestConditions()!.latest_week, "2027-04-19", "the older archived week must not become latest_week");
+  _resetCropConditionsCacheForTests();
 });
 
 test("readConditionsAggregateHistory: pivots both commodities to {class: pct} per week, ascending, an unmatched item is skipped rather than mis-keyed", () => {

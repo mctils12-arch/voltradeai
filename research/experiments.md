@@ -3,7 +3,130 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-15 (scheduled-routine [PRODUCT] session, sixth session this UTC day) [PIPELINE] — completed the cold-cache-no-disk-backfill module audit the fifth session's own NEXT(2) asked for: 20 more vulnerable modules found across 33 unaudited datacore streams; sec8kEarnings.ts (backs the paid `/api/v1/data/earnings-language` mirror) fixed as this session's one shipped instance, the other 19 filed for future sessions (v1.0.912)
+## 2026-09-15 (scheduled-routine [PRODUCT] session, seventh session this UTC day) [PIPELINE] — cropConditions.ts joins the cold-cache-no-disk-backfill fix thread: continues the immediately preceding (sixth) session's own NEXT queue, first item (cheapest, existing reader to reuse) (v1.0.913, PR #1087)
+
+TERRITORY: T-DATACORE (server/cropConditions.ts, server/cropConditions.test.ts)
++ SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json/
+package-lock.json version bump, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x7, [REPAIR]x1,
+[RULE-REVIEW]x1, [RESEARCH]x1 — no thrash signal (threshold is 7+ REPAIR of
+10).
+
+SESSION-START CHECKS: CLAUDE.md read in full, research/experiments.md's
+head entry (sixth session, same UTC day) and research/open_questions.md's
+KNOWN BROKEN section (items #41-#43, all either mitigated/wiring-fixed in
+prior sessions or superseded by the current production-outage tracking
+below) and research/wishlist.md's head (2026-09-14 automerge/market-hours
+process-gap finding, unchanged, not actionable by this session) all read
+before choosing an action.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 25
+https://voltradeai-production.up.railway.app/api/health` returned `HTTP/2
+502` with the identical `railway-hikari`/`x-railway-fallback: true`
+signature every session has logged since the 2026-09-10T20:18Z onset
+(KNOWN BROKEN #41, the production outage — `research/outage_state.json`
+confirms `down_since: 2026-09-10T20:18:00+00:00`). At this session's check
+(~20:16Z), continuous duration is ~119.97h. NOT RE-NOTIFIED: the standing
+re-notify rule this thread has followed since 2026-09-15 00:03Z ("next
+doubling from the last on-record notification (~76h)," i.e. ~151h) is not
+crossed at ~120h, and this session found no new fact about the incident's
+state (`git log`/`git fetch origin main` since the immediately preceding
+session's check shows zero commits touching any server-runtime or
+trading-path file) that would independently justify breaking the standing
+rule. No third patch attempted (RECURRENCE ESCALATES already triggered
+2026-09-08 on a different incident). Per the multi-session precedent
+already established on this exact incident, the outage does not block
+T-DATACORE work and this session proceeded to product work.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item),
+took the immediately preceding (sixth) session's own NEXT: "work the
+remaining 19 VULNERABLE modules one at a time ... `cropConditions.ts`/
+`edgar13f.ts` first (cheapest, existing reader to reuse, same shape as
+this session's fix)." `cropConditions.ts` was read in full (not grepped)
+this session before acting: `refreshConditions`'s two branches
+(success-but-empty poll, outer catch on a throw) never attempted a
+backfill from `readArchivedConditions`, the exact same shape as the 14
+already-fixed modules — confirmed, not assumed from the audit table alone.
+
+FIX: mirrors `edgarForm4.ts`/`sec8kEarnings.ts`'s already-shipped fix
+shape, adapted for this module's derived (not flat) cache: `cache` here is
+`{at, latest_week, rows}` (rows filtered to the newest fetched week), not
+a flat `T[]`, so the shared `resolveCacheItems<T>` helper (imported from
+`./cacheBackfill`) operates on the flat `ConditionObs[]` candidate list and
+a new `applyConditionItems()` local helper re-derives `latest_week`/`rows`
+from whichever list `resolveCacheItems` returns (live, backfilled, or
+`null` meaning "leave cache untouched") — same decision logic, adapted to
+this module's own cache shape rather than forcing a shape mismatch.
+`backfillConditionsFromArchive(baseDir?)` is a one-line wrapper around the
+already-shipped `readArchivedConditions` (EDGE DOCTRINE #3 — no new
+archive-reading logic). Both branches of `refreshConditions` (the
+success-but-empty path and the outer catch) now go through
+`resolveCacheItems`. Added `_resetCropConditionsCacheForTests()`, same
+pattern `_resetForm4CacheForTests`/`_resetEarnings8kCacheForTests`
+established. The `cropConditionsEnabled(env)` early-return (no NASS_API_KEY
+configured) is deliberately left untouched — that is a config/feature-off
+state, not a poll failure, and is not part of this bug class.
+
+RATCHET: 3 new regression tests in `server/cropConditions.test.ts` — cold
+cache backfills from disk on a thrown fetch error; cold cache also
+backfills on an empty-but-non-throwing live poll; a warm cache is never
+clobbered by a stale archive backfill on a transient empty poll (guards
+`resolveCacheItems`'s own "only backfill when there is no existing cache"
+rule, not yet covered by this module's own tests before this session).
+
+A/B VERIFICATION: `git stash push -- server/cropConditions.ts
+server/cropConditions.test.ts` then re-ran the test file — fails
+immediately (`SyntaxError: ... does not provide an export named
+'_resetCropConditionsCacheForTests'`, whole file fails to load), same
+failure shape this thread's every prior A/B check has produced. Restored
+via `git stash pop`.
+
+FRESH-CONTAINER GATES (this session's sandbox had neither Python nor npm
+dependencies installed — a recurring gap this thread has logged many times
+before): `pip3 install -q -r requirements.txt -r requirements-dev.txt` then
+`npm install` before any gate could run meaningfully. Full gates after
+that: `python3 -m pytest -q` 2066 passed, 1 skipped (pre-existing legacy
+skip), 0 regressions; `python3 -m pytest -q test_ts_code_only.py` 11
+passed (no `any`/empty-catch ratchet regression); `npx tsx --test
+server/*.test.ts` 1589 passed, 8 failed — `git stash`-verified the
+identical 8 failures (aircraftTiling/apiKeyAccounts/cdcCancer/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) exist byte-for-byte
+on unmodified main, unrelated to this change (a full-suite parallel-port
+flake class, not a regression); `npx tsc --noEmit` unchanged from baseline
+(`git stash` diff shows the one pre-existing datamap.tsx union-order error,
+same content, non-deterministic member ordering only); `npm run build`
+clean. `package-lock.json`'s stale `1.0.904` version field (predates
+several since-merged version bumps) was re-synced to this session's
+`1.0.913` by the same `npm install`/edit, harmless drift-fix bundled with
+the version bump rather than a separate PR.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; RAW-overlay cache-freshness fix only (this module's own
+header comment already documents gate 2 as not attempted — HYPOTHESIS
+section, "gate 1 = values vs the published Crop Progress report; gate 2 =
+condition-delta vs forward futures returns" — neither gate touched this
+session). NOT A RULE-REVIEW THRESHOLD CHANGE: no risk-limit constant
+touched.
+
+NOT A SPEND REQUEST.
+
+PR #1087 opened from claude/funny-fermat-8dw1fg, subscribed for CI/review
+events.
+
+NEXT: 18 VULNERABLE modules remain from the 2026-09-15 audit table
+(research/open_questions.md) — `edgar13f.ts` is next per that session's
+own ordering (cheapest, existing `read13FHistory` reader to reuse), then
+`finraQuery.ts` (narrower fix, existing `readPartition` not yet used as a
+cold-cache fallback), then the 16 needing a new archive-reader written
+from scratch. Once PR #1087 merges and deploys, a future session should
+spot-check `/api/data/crop-conditions` post-deploy for `warming_up` no
+longer appearing over an existing archive, mirroring the verification this
+thread has done for its other merged fixes. Production outage (KNOWN
+BROKEN #41) remains open, ~120h continuous as of this session's check —
+next re-notify threshold is ~151h (next doubling from the ~76h on-record
+notification) absent any new fact about the incident's state.
 
 TERRITORY: T-DATACORE (server/sec8kEarnings.ts, server/sec8kEarnings.test.ts)
 + SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version
