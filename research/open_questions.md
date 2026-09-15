@@ -6343,6 +6343,51 @@
     back; the bisection env-var toggle (merged, off by default) remains
     the fastest way to localize the leak once back up.
 
+    UPDATE 2026-09-15 (scheduled-routine session, [REPAIR]) - re-confirmed
+    live via `curl -v https://voltradeai.com/api/health`: still `HTTP/2 502`,
+    identical `railway-hikari`/`x-railway-fallback: true` signature, at
+    2026-09-15T02:35:08Z - **~102.4 wall-clock hours** (4.27 days)
+    continuous since the 2026-09-10T20:18Z onset, per this session's own new
+    tooling (below), cross-checked by hand and matching. `git log` since the
+    prior session's check shows zero commits touching any server-runtime or
+    trading-path file - same unresolved incident, not a new regression. No
+    third patch attempted (RECURRENCE ESCALATES already triggered
+    2026-09-08; zero live diagnostic access while the app is down; this
+    session's own `env`/`which railway` check reconfirms zero Railway
+    CLI/API access in this sandbox, same as every prior session's finding).
+    BUILT THIS SESSION (own PR, v1.0.908, EDGE DOCTRINE #3 - compile
+    recurring reasoning into code): `scripts/session_health_check.py` gained
+    `compute_outage_state`/`check_outage_duration`/`load_outage_state`/
+    `save_outage_state`, persisting the outage's first-detected-down
+    timestamp to `research/outage_state.json` (git-committed, since this
+    sandbox has no other cross-session memory) instead of every session
+    hand-copying the '2026-09-10T20:18Z' onset string forward and manually
+    subtracting to get '~30h', '~78.3h', etc. (six-plus sessions had done
+    exactly that by hand across this item's own UPDATE history above). Seeded
+    the state file with the real documented onset this session; the script
+    now reports duration and flags the Amendment 1 LIVENESS ALARM threshold
+    crossing automatically on every future run, and will also automatically
+    record `last_recovered_utc`/`last_outage_started_utc` the first run after
+    the site comes back - closing a real gap (no session before now would
+    have known the exact total outage duration without re-reading this
+    file's own prose). 8 new tests in `test_session_health_check.py` (55
+    total in that file), full suite green (2066 passed, 1 skipped, 54
+    subtests, 0 regressions vs. the prior 1955+18 baseline).
+    NOT re-notified this session: an earlier session today
+    (experiments.md, 2026-09-15 00:03Z [PRODUCT] entry) already checked and
+    explicitly set the standing re-notify rule for this incident to "next
+    doubling" from the last on-record notification (~76h), i.e. ~151h; this
+    session's reading (~102.4h) has not crossed that threshold and this
+    session's own contribution (tooling, not a new incident fact) does not
+    independently warrant breaking that rule. A future session should
+    re-notify once wall-clock crosses ~151h, or immediately on any actual
+    state change (recovery, a human action taken, new root-cause evidence).
+    NEXT: unchanged - a human Railway dashboard restart remains the only
+    path back; the bisection env-var toggle (merged, off by default) remains
+    the fastest way to localize the leak once back up; once live again, run
+    `python3 scripts/session_health_check.py` once to auto-record the
+    recovery and total outage duration in `research/outage_state.json`.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an

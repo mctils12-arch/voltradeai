@@ -3,6 +3,115 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-15 (scheduled-routine session, second session this UTC day) [REPAIR] — re-confirmed KNOWN BROKEN #41 production outage still down at ~102.4h continuous; built and shipped outage-duration tracking tooling (v1.0.908)
+
+TERRITORY: T-BOT-adjacent ops tooling (`scripts/session_health_check.py`,
+`test_session_health_check.py`) + SHARED-minimal (package.json version bump,
+ci/counter_baseline.txt re-pin, research/*), last commit per MERGE-ORDER PROTOCOL.
+
+LOOP-HEALTH RATIO CHECK (session-start): last 10 tagged entries before this one =
+[PIPELINE]x8 (including this UTC day's own appStoreRankings.ts entry above),
+[RESEARCH]x1, [RULE-REVIEW]x1, zero [REPAIR] until this entry — no thrash signal.
+
+SESSION-START CHECKS per this session's own task brief ("check KNOWN BROKEN — if any
+critical item remains unfixed, this session becomes a REPAIR session"): read CLAUDE.md in
+full, `research/open_questions.md`'s KNOWN BROKEN section (items #41-#43), and this file's
+tail. Item #41 (the sustained Node-process-memory-leak production outage, onset
+2026-09-10T20:18Z) was still open and unresolved as of the prior session's own 00:03Z check
+today (~99.75h) — a critical, unfixed item, so per the Repair Mandate this session became
+[REPAIR] rather than proceeding to new pipeline/research work.
+
+RE-CONFIRMED LIVE: `curl -v https://voltradeai.com/api/health` at 2026-09-15T02:35:08Z —
+identical `HTTP/2 502` / `railway-hikari` / `x-railway-fallback: true` signature every
+session has logged since onset. `env | grep -i railway` and `which railway`: both empty,
+reconfirming zero Railway CLI/API access in this sandbox (same finding every prior session
+on this incident has made). `git log --since <prior check> -- server/bot.ts
+server/crashSafeRefresh.ts server/portDwellCapture.ts server/bisectionFlags.ts
+bot_engine.py voltrade_daemon.py`: zero commits — no newer trading-path change could
+explain or compound the outage. Per RECURRENCE ESCALATES (already triggered 2026-09-08)
+and zero live diagnostic access while the app itself is down (`/api/diag/*` is
+unreachable along with everything else), no third guess-fix patch was attempted — this
+matches every session's posture on this item since the escalation trigger fired.
+
+NOT RE-NOTIFIED: the immediately preceding session today (00:03Z, [PRODUCT]) already
+checked this same incident and explicitly set the standing re-notify rule to "next
+doubling from the last on-record notification (~76h)," i.e. ~151h. This session's own
+reading (~102.4h) has not crossed that threshold, and this session's own contribution
+(tooling, not a new fact about the incident's state) does not on its own justify breaking
+that rule — matching this repo's own established convention (research/wishlist.md,
+several entries) that duration alone, absent a materially new fact or a further-alarming
+threshold, is not grounds for a repeat push notification. Deferred to that standing rule
+rather than re-deriving a fresh one.
+
+PRIMARY-ACTION SELECTION: given the outage itself is entirely un-actionable from this
+sandbox (blocked on human Railway-dashboard access, already established), the highest-value
+REPAIR contribution available was closing the exact recurring-labor gap the incident itself
+has been generating: at least six sessions across open_questions.md item #41's own UPDATE
+history have hand-copied the '2026-09-10T20:18Z' onset string forward and manually
+subtracted to report '~30h', '~78.3h', '~99.75h', etc. — EDGE DOCTRINE #3 ("never analyze
+the same thing twice with reasoning — the second occurrence becomes a script") applies
+directly; this was well past its second occurrence.
+
+WHAT SHIPPED (v1.0.908, own PR): `scripts/session_health_check.py` (the existing,
+already-scripted MEMORY PROTOCOL health-check tool) gained `compute_outage_state`
+(pure function: given whether `/api/health` was reachable this run, now, and the prior
+persisted state, returns the new state — sets `down_since` on first detection, preserves
+it unchanged while still down, clears it and records `last_recovered_utc`/
+`last_outage_started_utc` on recovery) and `check_outage_duration` (reports hours-down and
+flags the CLAUDE.md Amendment 1 LIVENESS ALARM threshold crossing at 24h), plus
+`load_outage_state`/`save_outage_state` I/O helpers persisting to a new
+`research/outage_state.json` (git-committed — this sandbox has no other cross-session
+memory). Seeded that file this session with the real, already-documented onset
+(`2026-09-10T20:18:00+00:00`) rather than starting fresh, so continuity is preserved
+starting now. Wired into `main()`: computed and (if changed) persisted on every run,
+appended as an 8th finding alongside the existing 7. Ran the script live against the real
+outage this session — it independently computed 102.4h, matching this entry's own
+hand-cross-check (`(2026-09-15T02:35:08 - 2026-09-10T20:18:00)` = ~102.28h) to within
+rounding, and confirmed the state file was NOT overwritten with a new "now" timestamp
+while already-down (the "preserve original onset" branch of `compute_outage_state`).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: this is read-only ops/diagnostic tooling over
+`/api/health`, not a change to any P&L/backtest/slippage/fill metric — PROMOTION RULE 3's
+backtest requirement and the MEASUREMENT INTEGRITY section's own PR-isolation rule do not
+apply (same class as `session_health_check.py`'s original PR).
+
+BACKTEST RESULT: N/A — no trading/scoring/sizing code touched.
+
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: `python3 -m pytest -q test_session_health_check.py`: 55/55 (47 pre-existing + 8
+new). Full `python3 -m pytest -q`: 2066 passed, 1 skipped, 54 subtests — 0 regressions
+(this sandbox needed `pip install -r requirements.txt -r requirements-dev.txt` first, a
+fresh-container provisioning step, not a repo defect, per every prior session's own note
+on this). `bash scripts/gated_tests.sh` (after `npm ci`, also fresh-container
+provisioning): **GATE PASSED** — python/server/client all green, quarantine 0/1, none
+overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 (zero `.ts`/`.tsx` files
+touched by this diff — pure Python + research/docs). `bash scripts/counter_ratchet.sh`:
+IMPROVED (`assertions` 14349->14364, this session's own 8 new tests' assertions) —
+re-pinned in `ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning. `npm run build`/`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: this session ran outside US market hours (session start
+~02:3xZ / ~22:3x ET the prior evening). This PR touches no trading-path code (an ops/
+diagnostic script + its tests + research-log entries + a version bump) and the production
+site is, separately, already fully down (KNOWN BROKEN #41) — merge is not gated by market
+hours and cannot make the existing outage any worse.
+
+NEXT: (1) once production is back up, run `python3 scripts/session_health_check.py` once
+to auto-record `last_recovered_utc`/`last_outage_started_utc` and close the loop on this
+incident's total duration. (2) the outage itself remains entirely blocked on a human
+Railway-dashboard restart — unchanged by this session, see open_questions.md item #41's own
+UPDATE 2026-09-15 for the full incident-status account. (3) `check_outage_duration`'s 24h
+ALARM note is currently the only threshold surfaced — if a future session wants the ~2
+market-hour half of Amendment 1 surfaced too (not just wall-clock), that needs a
+market-calendar dependency this script deliberately avoided keeping this addition small and
+dependency-free; filed here as a possible follow-up, not built.
+
+STARVED: no — this session picked the one action actually available given the outage's own
+access constraints (a real tooling gap the incident had been generating), rather than
+either stalling on an unreachable production fix or silently skipping the REPAIR duty this
+session's own task brief named explicitly.
+
 ## 2026-09-15 (scheduled-routine [PRODUCT] session) [PIPELINE] — appStoreRankings.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot where every one of the 7 Apple calls fails at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk; two more byte-identical instances (fdaEvents.ts, droughtMonitor.ts) and a same-class but differently-shaped third (cboeVix.ts's early-return) confirmed by full read, not fixed (v1.0.907)
 
 TERRITORY: T-DATACORE (server/appStoreRankings.ts, server/appStoreRankings.test.ts) +

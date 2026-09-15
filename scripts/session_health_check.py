@@ -46,6 +46,9 @@ from datetime import datetime, timezone
 
 DEFAULT_BASE_URL = "https://voltradeai-production.up.railway.app"
 DEFAULT_TIMEOUT_S = 20
+DEFAULT_OUTAGE_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "research", "outage_state.json"
+)
 
 OK, WARN, ALARM = "OK", "WARN", "ALARM"
 _SEVERITY_RANK = {OK: 0, WARN: 1, ALARM: 2}
@@ -226,6 +229,68 @@ def check_deploy_freshness(local_version, server_version):
     return finding(OK, "deploy_freshness", f"server_version={server_version} matches this checkout's package.json")
 
 
+def _hours_between(earlier_iso, later_iso):
+    earlier = datetime.fromisoformat(earlier_iso.replace("Z", "+00:00"))
+    later = datetime.fromisoformat(later_iso.replace("Z", "+00:00"))
+    return (later - earlier).total_seconds() / 3600.0
+
+
+def compute_outage_state(health_reachable, now_iso, prior_state=None):
+    """Persist the first-detected-down timestamp across sessions so 'how long
+    has this outage lasted' stops being re-derived by hand from old prose —
+    the KNOWN BROKEN #41 production outage (research/open_questions.md) had
+    at least six separate sessions each hand-computing wall-clock duration
+    from a copied-forward '2026-09-10T20:18Z' onset string ('~30 wall-clock
+    hours', '~78.3 wall-clock hours', ...). EDGE DOCTRINE #3: the second
+    occurrence of the same reasoning becomes code, not another manual
+    subtraction. Pure function of (reachable-now, now, prior persisted
+    state) — the only I/O is load_outage_state/save_outage_state below.
+    """
+    prior = dict(prior_state or {})
+    down_since = prior.get("down_since")
+    if health_reachable:
+        if down_since:
+            return {"down_since": None, "last_recovered_utc": now_iso, "last_outage_started_utc": down_since}
+        return {"down_since": None}
+    if down_since:
+        return prior
+    return {"down_since": now_iso}
+
+
+def check_outage_duration(state, now_iso):
+    """Reports the persisted outage's running duration. Deliberately
+    orthogonal to check_liveness (which already ALARMs the instant
+    /api/health is unreachable) — this adds the 'and it has now been
+    running for N hours' context that check_liveness's single-snapshot
+    view cannot carry across sessions on its own."""
+    down_since = (state or {}).get("down_since")
+    if not down_since:
+        return finding(OK, "outage_duration", "site reachable, no outage in progress")
+    hours = _hours_between(down_since, now_iso)
+    alarm_note = (
+        " — past both CLAUDE.md Amendment 1 LIVENESS ALARM thresholds (2 market hours / 24 wall hours)"
+        if hours >= 24 else ""
+    )
+    return finding(
+        ALARM, "outage_duration",
+        f"site unreachable continuously since {down_since} — {hours:.1f}h and counting{alarm_note}",
+    )
+
+
+def load_outage_state(path=DEFAULT_OUTAGE_STATE_PATH):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_outage_state(state, path=DEFAULT_OUTAGE_STATE_PATH):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
 def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
                     local_version=None, server_version=None):
     return [
@@ -297,6 +362,13 @@ def main():
         health, daemon, diagnostic_entries, tier2_error_entries, ml,
         local_version=local_version, server_version=server_version,
     )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    prior_outage_state = load_outage_state()
+    outage_state = compute_outage_state(health is not None, now_iso, prior_outage_state)
+    if outage_state != prior_outage_state:
+        save_outage_state(outage_state)
+    findings.append(check_outage_duration(outage_state, now_iso))
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))
