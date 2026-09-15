@@ -3,6 +3,141 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-15 (scheduled-routine [PRODUCT] session) [PIPELINE] — appStoreRankings.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot where every one of the 7 Apple calls fails at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk; two more byte-identical instances (fdaEvents.ts, droughtMonitor.ts) and a same-class but differently-shaped third (cboeVix.ts's early-return) confirmed by full read, not fixed (v1.0.907)
+
+TERRITORY: T-DATACORE (server/appStoreRankings.ts, server/appStoreRankings.test.ts) +
+SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version bump,
+ci/counter_baseline.txt re-pin, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP ITSELF): last 10
+tagged entries before this one (2026-09-13 through 2026-09-14's seventh session) =
+[PIPELINE]x7, [RESEARCH]x2, [RULE-REVIEW]x1, zero [REPAIR] — no thrash signal (threshold is
+7+ REPAIR of 10).
+
+SESSION-START CHECKS: CLAUDE.md read in full (this session's own task instructions named it
+a [PRODUCT] session: build datacore/ pipelines and the /data user-facing section, checking
+system health and KNOWN BROKEN first, proceeding with product work unless a critical break
+blocks it). `git status`: clean, on `claude/quirky-hopper-driv4b`. research/experiments.md,
+research/open_questions.md's KNOWN BROKEN section, and research/wishlist.md's tail all read
+before choosing an action.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- https://voltradeai.com/api/health` at
+2026-09-15T00:03:11Z returned the identical `HTTP/2 502` / `railway-hikari` /
+`x-railway-fallback: true` signature every session has logged since the 2026-09-10T20:18Z
+onset (KNOWN BROKEN #41), now ~99.75h continuous. NOT RE-NOTIFIED: the last on-record human
+notification was at the ~76h mark (2026-09-14T00:02:19Z), with this thread's own established
+next-doubling threshold at ~151h — 99.75h is not a doubling, consistent with every session
+since 2026-09-12; duration alone is not new information. This sandbox still has zero Railway
+access — not this session's to fix, and per this session's own task instructions ("product
+sessions do not preempt the DAILY routines' repair duty"), the outage does not block
+T-DATACORE work and this session fell through to product work rather than stalling.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item), took the immediately
+preceding (seventh) session's own NEXT(1) — the routes.ts cold-cache-no-disk-backfill audit's
+three named TRUE REMAINING UNKNOWNS (`appStoreRankings.ts`, `fdaEvents.ts`,
+`droughtMonitor.ts`) plus `cboeVix.ts` (previously only spot-checked, not fully read). Read
+all four this session (READ BEFORE WRITE) before picking one to fix:
+- `appStoreRankings.ts`: `refreshAppStoreCache`'s `if (records.length || !cache) cache = {
+  at: Date.now(), records };` — byte-identical bug shape to the fdaEvents.ts/
+  droughtMonitor.ts lines the sixth session's own read already flagged (but had not yet
+  traced into appStoreRankings.ts specifically): on a COLD boot, if every one of the 7 Apple
+  calls (3 storefronts x 2 charts + 1 ratings lookup, each wrapped in its own try/catch)
+  fails at once — a boot-time network blip, not a designed steady state — `records` is `[]`
+  and `!cache` is true, so `cache` gets set to `{at, records: []}`: a non-warming_up,
+  `count: 0` result that silently masks the failure AND never restores the real archive
+  already on disk (this root has archived daily since 2026-08-01, and already ships
+  `listArchivedAppStoreDates`/`readArchivedAppStoreDay` for exactly this restore, just never
+  wired into the cache-population path).
+- `fdaEvents.ts` / `droughtMonitor.ts`: grepped and confirmed the EXACT same
+  `if (X.length || !cache) cache = {...}` shape (`events.length`/`drought.length`
+  respectively) — real, unfixed instances of the same bug, not fixed this session per one
+  logical change per PR.
+- `cboeVix.ts`: fully read this time (the sixth session's own note only "spot-checked its
+  `!cache ||` condition exists"). A DIFFERENT but same-CLASS shape: `refreshCboeVix`'s
+  `if (!days.length) return;` early-returns before `cache` is ever touched when the live
+  fetch (all six CBOE tenor series) returns zero merged days — so a cold boot with a
+  transport failure leaves `latestCboeVix()` null forever too, despite this root archiving
+  daily VIX-tenor closes to disk since its own boot date. Not fixed this session (a genuinely
+  different code shape needing its own fix, not a mechanical copy of the other three).
+`fdicFailures`/`borderWaits` still have no dedicated module file matching their route name
+(carried over from the seventh session's own NEXT, not located this session either).
+
+WHY appStoreRankings.ts of the three identically-shaped candidates: no principled
+differentiator among the three (all real, all the same fix) — picked first per the seventh
+session's own listed order, consistent with "pick one, ship it, file the rest" rather than
+guessing at relative severity without evidence.
+
+FIX: `refreshAppStoreCache` gained a `baseDir` parameter (previously absent, unlike its own
+`archiveAppStoreRecords`/`listArchivedAppStoreDates`/`readArchivedAppStoreDay`, and unlike
+cftcCot.refreshCot/occVolume.refreshOcc/epaCamd.refreshEpaCamd, which all already accept it)
+— needed for direct testing without an env-var `DATA_DIR` hack, same precedent the
+2026-09-14 epaCamd.ts session set. Cache assignment now only happens on a genuinely
+successful fetch (`if (records.length) cache = {...}`, dropping the `|| !cache` branch
+entirely); a new trailing `if (!cache) { restore from listArchivedAppStoreDates/
+readArchivedAppStoreDay's newest day }` branch fires ONLY when cache is still unset after
+the live fetch — i.e. exactly the cold-boot-with-zero-live-rows case, never overwriting a
+populated cache with anything (restored or empty) on a later transient failure during steady
+state, matching occVolume.ts's/cftcCot.ts's own "`!cache && archived`" branch shape exactly
+(EDGE DOCTRINE #3 — same shape, not reinvented). Also added `_resetAppStoreForTests()`
+(mirrors occVolume.ts's `_resetOccForTests`) since this module had no test-reset helper at
+all before this session, needed to exercise a genuine cold-boot scenario without inheriting
+`cache`/`archivedKeys`/`seeded` state from an earlier test in the same process.
+
+A/B VERIFICATION: `git stash push -- server/appStoreRankings.ts` then re-ran
+`server/appStoreRankings.test.ts` — fails immediately (`SyntaxError`, the pre-fix file
+exports neither `refreshAppStoreCache`'s new `baseDir` param behavior nor
+`_resetAppStoreForTests`), confirming the fix and its tests are real and necessary. Restored
+via `git stash pop`.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy code touched;
+RAW-overlay cache-freshness fix only (`/api/data/appstore-rankings`'s `kind: "raw"`
+unchanged, still explicitly non-predictive per its own `note` field).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW, non-predictive
+overlay (PROMOTION RULE 3 does not apply, same as every sibling fix in this thread).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/paid-gating code
+touched; the existing `/api/v1/data/appstore-rankings` mirror is unaffected in shape, only
+in how honestly its underlying cache degrades on a boot-time transport failure).
+
+GATES: `npx tsx --test server/appStoreRankings.test.ts`: 12/12 (9 pre-existing + 3 new). Full
+`npx tsx --test server/*.test.ts`: 8 pre-existing failures (`aircraftTiling`,
+`apiKeyAccounts`, `cdcCancer`, `compression`, `gdeltEvents`, `owmTiles`, `seafloorTiles`,
+`securityMiddleware`) traced to `node_modules` missing `express` in this fresh container
+(confirmed via `git stash` on this session's own two changed files — identical 8 failures on
+unmodified `HEAD`, 0 regressions from this diff); `npm ci` (488 packages) resolved all 8,
+0 failures after. `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, same recurring fresh-container gap prior sessions have logged): 2056
+passed, 1 skipped, 54 subtests, 0 failures (prior baseline 2053, this session touched no
+Python). `bash scripts/gated_tests.sh`: **GATE PASSED** — server 1083/1083, client
+1083/1083, python 2056/1 skipped/54 subtests, quarantine 0/1, none overdue. `bash
+scripts/counter_ratchet.sh`: IMPROVED (`assertions` 14342->14349, this session's own 3 new
+tests' direct effect) — re-pinned in `ci/counter_baseline.txt` in this same PR, confirmed
+green again after re-pinning. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — not
+re-pinned, zero `.ts`/`.tsx` type-relevant surface changed beyond what already typechecked.
+`npm run build`/`npm run visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: session start 2026-09-15T00:03Z / 2026-09-14T20:03 ET — after the
+16:00 ET regular-session close, so no market-hours merge-timing note is needed regardless;
+this diff also touches no server-runtime/trading-path file (a datacore RAW-overlay
+archiver's cache-restore path + its test file + a version bump + a counter-pin re-pin + this
+log entry only).
+
+NEXT: (1) `fdaEvents.ts` and `droughtMonitor.ts` — same exact bug shape as this session's
+fix, read and confirmed this session, ready for a mechanical same-shape fix + regression
+test as their own dedicated sessions/PRs. (2) `cboeVix.ts` — a different code shape
+(early-return before `cache` is ever touched) needs its own fix respecting its existing
+date-comparison freshness check, not a copy-paste of this session's diff. (3) locate
+`fdicFailures`/`borderWaits`' actual module files (route names still unmatched to a file).
+(4) the production outage (KNOWN BROKEN #41) — ~99.75h continuous, not re-notified (no
+doubling since the ~76h mark), next threshold ~151h absent a status change.
+
+STARVED: no — this session took the queue's own next-listed item, fully read (not just
+grepped) all four remaining named candidates rather than fixing the first one found and
+guessing at the rest, shipped one real fix with a real regression test A/B-verified against
+pre-fix code, and left the other three concretely scoped (two ready for a mechanical fix,
+one flagged as needing a distinct approach) rather than reporting the audit as closed.
+
 ## 2026-09-14 (scheduled-routine session, seventh session this UTC day) [PIPELINE] — epaCamd.ts joins the cold-cache-no-disk-backfill fix thread: its steady-state ("nothing to fetch this poll") path never assigned `cache` at all, so every restart after the initial backfill window converges left `/api/data/plant-operations` serving warming_up forever despite a real multi-quarter EPA CEMS archive on disk (v1.0.906)
 
 TERRITORY: T-DATACORE (server/epaCamd.ts, server/epaCamd.test.ts) +

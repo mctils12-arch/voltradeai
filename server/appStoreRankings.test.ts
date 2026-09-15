@@ -13,6 +13,9 @@ import {
   readArchivedAppStoreDay,
   lookupAppStoreTickerHistory,
   readAppStoreAggregateHistory,
+  refreshAppStoreCache,
+  latestAppStoreRankings,
+  _resetAppStoreForTests,
   WATCHLIST,
 } from "./appStoreRankings";
 
@@ -144,6 +147,57 @@ test("readAppStoreAggregateHistory: ranked-slot ratio + summed rating counts per
   assert.equal(trend[0].total_slots, 2, "both watchlist apps fetched for this one chart");
   assert.equal(trend[0].ranked_slots, 1, "only DUOL landed a non-null rank; BMBL was outside the top 100");
   assert.equal(trend[0].total_rating_count, 5357702, "BMBL's missing rating row contributes 0, not a crash");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("COLD-CACHE-NO-DISK-BACKFILL FIX: a live fetch that returns zero records on a cold boot must restore from the on-disk archive instead of caching an empty, non-warming_up result forever", async () => {
+  _resetAppStoreForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  // Simulate a PRIOR process run that already archived a day, then this
+  // process restarts with a cold in-memory cache (real container-restart
+  // shape: the disk archive survives, the in-memory cache does not).
+  const priorDay = parseChart(CHART_JSON, "us", "top-free", TEST_WATCHLIST, "2027-04-01");
+  archiveAppStoreRecords(priorDay, dir, Date.parse("2027-04-01T12:00:00Z"));
+  _resetAppStoreForTests();
+  assert.equal(latestAppStoreRankings(), null, "cache starts cold after the simulated restart");
+
+  // Every source fails at boot (network blip) -> fetchAppStoreSnapshot's
+  // own per-source try/catch swallows all 7 calls and returns [], the
+  // exact "records.length === 0 on the first-ever cycle" case the
+  // pre-fix `if (records.length || !cache) cache = {...}` mishandled.
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshAppStoreCache(allDown as any, Date.parse("2027-04-02T12:00:00Z"), dir);
+
+  const hit = latestAppStoreRankings();
+  assert.ok(hit, "must restore from the on-disk archive instead of staying (or worse, caching empty) forever");
+  assert.equal(hit!.records.length, priorDay.length);
+  assert.equal(hit!.records[0].ticker, "DUOL");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshAppStoreCache: cold boot + empty live fetch + no on-disk archive at all stays honestly null, never a fabricated empty cache", async () => {
+  _resetAppStoreForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshAppStoreCache(allDown as any, Date.parse("2027-04-03T12:00:00Z"), dir);
+  assert.equal(latestAppStoreRankings(), null, "nothing to restore -> stays null, so /api/data/appstore-rankings still honestly reports warming_up rather than a silent empty count:0");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshAppStoreCache: a transient empty fetch during steady state (cache already populated) never clobbers the existing cache", async () => {
+  _resetAppStoreForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtappstore-"));
+  const ok = async (url: string) => {
+    if (url.includes("itunes.apple.com/lookup")) return { ok: true, status: 200, text: async () => JSON.stringify(LOOKUP_JSON) };
+    return { ok: true, status: 200, text: async () => JSON.stringify(CHART_JSON) };
+  };
+  await refreshAppStoreCache(ok as any, Date.parse("2027-04-04T12:00:00Z"), dir);
+  const populated = latestAppStoreRankings();
+  assert.ok(populated && populated.records.length, "cache populated by a successful fetch");
+
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshAppStoreCache(allDown as any, Date.parse("2027-04-04T13:00:00Z"), dir);
+  assert.strictEqual(latestAppStoreRankings(), populated, "a later transient failure must not overwrite good cache with anything, restored or empty");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

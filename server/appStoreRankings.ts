@@ -356,12 +356,41 @@ export function latestAppStoreRankings(): { at: number; records: AppStoreRecord[
   return cache;
 }
 
-export async function refreshAppStoreCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
+/** Test-only: clears the module-level cache/dedup state so a test can
+ *  exercise a genuine cold-boot scenario (same shape as occVolume.ts's
+ *  own `_resetOccForTests`) instead of inheriting state from an earlier
+ *  test in this same process. */
+export function _resetAppStoreForTests(): void {
+  cache = null;
+  archivedKeys.clear();
+  seeded = false;
+}
+
+export async function refreshAppStoreCache(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
   try {
     const records = await fetchAppStoreSnapshot(fetchImpl, nowMs);
-    if (records.length || !cache) cache = { at: Date.now(), records };
-    try { archiveAppStoreRecords(records, undefined, nowMs); } catch {}
-    try { gzipOldAppStoreDays(undefined, nowMs); } catch {}
+    if (records.length) cache = { at: Date.now(), records };
+    try { archiveAppStoreRecords(records, baseDir, nowMs); } catch {}
+    try { gzipOldAppStoreDays(baseDir, nowMs); } catch {}
+    // COLD-CACHE-NO-DISK-BACKFILL FIX (2026-09-15, same shape as
+    // occVolume.ts/cftcCot.ts/treasuryDts.ts's own "!cache && archived"
+    // branch): the pre-fix `if (records.length || !cache) cache = ...`
+    // set cache to an EMPTY, non-warming_up result the moment the live
+    // fetch returned zero rows on a cold boot (all 7 calls failing/
+    // rate-limited at once) — silently masking a real transport failure
+    // as "checked, nothing ranked" instead of restoring the real
+    // multi-day archive already on disk. Only ever fires when the live
+    // fetch produced nothing AND cache is still unset; a live fetch that
+    // succeeds always wins, and a transient empty fetch during steady
+    // state (cache already populated) leaves the existing cache alone,
+    // both unchanged from before.
+    if (!cache) {
+      const dates = listArchivedAppStoreDates(baseDir, 1);
+      if (dates.length) {
+        const restored = readArchivedAppStoreDay(dates[0], baseDir);
+        if (restored.length) cache = { at: Date.now(), records: restored };
+      }
+    }
   } catch (e: any) {
     console.error("[datacore] appstore refresh:", e?.message || e);
   }
