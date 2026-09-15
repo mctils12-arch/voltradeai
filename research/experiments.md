@@ -3,7 +3,234 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-15 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — cboeVix.ts joins the cold-cache-no-disk-backfill fix thread with the one remaining named-but-unfixed DIFFERENT-shape instance: a cold boot where every one of the 6 Cboe tenor fetches fails at once left `cache` null forever (`warming_up: true` permanently), never restoring the real multi-year VIX term-structure archive already on disk (v1.0.911)
+## 2026-09-15 (scheduled-routine [PRODUCT] session, sixth session this UTC day) [PIPELINE] — completed the cold-cache-no-disk-backfill module audit the fifth session's own NEXT(2) asked for: 20 more vulnerable modules found across 33 unaudited datacore streams; sec8kEarnings.ts (backs the paid `/api/v1/data/earnings-language` mirror) fixed as this session's one shipped instance, the other 19 filed for future sessions (v1.0.912)
+
+TERRITORY: T-DATACORE (server/sec8kEarnings.ts, server/sec8kEarnings.test.ts)
++ SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version
+bump, ci/counter_baseline.txt re-pin, research/experiments.md,
+research/open_questions.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x6, [PRODUCT]x2
+(sessions tagged both PRODUCT-framing and a PIPELINE/REPAIR discipline tag
+count under the discipline tag here, matching this file's own convention),
+[REPAIR]x1, [RULE-REVIEW]x1 — no thrash signal (threshold is 7+ REPAIR of
+10).
+
+SESSION-START CHECKS (per this scheduled task's own brief): CLAUDE.md read in
+full, research/PROGRAM_STATE.md (found to be a DIFFERENT, harness-hardening
+program — Track 1-4 tsc/test-gate work — not the /data product mission this
+session's own brief names; noted, not worked, since this session's brief is
+explicitly PRODUCT), research/open_questions.md's KNOWN BROKEN section
+(items #39-#43), and research/wishlist.md's head (the 2026-09-14
+automerge/market-hours-hold process-gap finding, unchanged) all read before
+choosing an action.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 25
+https://voltradeai-production.up.railway.app/api/health` returned `HTTP/2
+502` with the identical `railway-hikari`/`x-railway-fallback: true`
+signature every session has logged since the 2026-09-10T20:18Z onset (KNOWN
+BROKEN #41) — re-checked twice this session (session start ~18:10Z and again
+at ~18:27Z before filing this entry), both 502, no change. **~118.2
+wall-clock hours** continuous (persisted onset timestamp in
+`research/outage_state.json`, cross-checked by hand). NOT RE-NOTIFIED: the
+standing re-notify rule for this incident (set 2026-09-15 00:03Z: "next
+doubling from the last on-record notification (~76h)," i.e. ~151h) is not
+crossed at 118.2h, and this session found no new fact about the incident's
+state (`git log` since the immediately preceding session's check shows zero
+commits touching any server-runtime or trading-path file) that would
+independently justify breaking the standing rule. No third patch attempted
+(RECURRENCE ESCALATES already triggered 2026-09-08). Per this task's own
+brief ("if a critical trading-loop item is unfixed, note it but proceed with
+product work unless the break blocks you") and the multi-session precedent
+already established on this exact incident, the outage does not block
+T-DATACORE work and this session proceeded to product work.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item), took
+the immediately preceding (fifth) session's own NEXT(2): "a future
+[PRODUCT]/[PIPELINE] session should run one exhaustive grep across every
+datacore module for the `if (x.length || !cache)` AND the `if (!x.length)
+return;`-before-cache-touched shapes together, now that both known variants
+of this bug class have at least one confirmed fix, to positively confirm no
+sixth/seventh instance remains rather than relying on each module being
+independently flagged first." This is squarely (d)-shaped product work
+(datacore API-boundary reliability toward spinout-readiness) and a direct
+continuation of the highest-value active thread rather than starting a new
+one.
+
+METHOD: delegated the read-only investigation to a subagent (Explore) rather
+than grepping by hand across ~340 server/*.ts files — gave it the exact bug
+shape from `cacheBackfill.ts`'s own docstring, the list of 14 modules
+already confirmed fixed and 6 confirmed correctly-not-fixed/not-applicable
+(nwsAlerts/usgsVolcanoes/airQuality honesty tradeoffs, streamsInventory/
+entityGraph/gridStress disk-derived-not-live-fetch-fed), and the 33
+remaining `boot*Poll`-having modules a `grep -l "^function boot\|^export
+function boot\|^async function boot"` across server/*.ts turned up. Verified
+the delegation's scope before trusting its output: it was asked to READ each
+file's cache declaration and refresh function in full, not infer from
+grep alone, and to classify VULNERABLE / ALREADY-SAFE / NOT-APPLICABLE with
+line citations for each.
+
+RESULT: **20 of 33 audited modules are VULNERABLE** to this exact bug class
+— by far the largest confirmed-defect count this thread has produced in one
+pass (prior sessions found 1-3 per session). 5 modules were ALREADY SAFE
+(cftcCot.ts, cftcTff.ts, secFtd.ts, secMidas.ts, treasuryDts.ts — each
+already has its own `readArchived*`-backed restore path, following the
+pattern this thread established). 8 were NOT APPLICABLE (ambientRadiation,
+optionsChainArchive, settlementStress, superfund, vesselStream,
+waterViolators — no persistent on-disk archive exists for these streams to
+backfill from at all; gridDemand/gridGeneration were initially miscounted as
+NOT APPLICABLE by the subagent, corrected to VULNERABLE in its own report
+after it re-checked and found both do have archives). Full 20-module table
+filed to `research/open_questions.md`'s FUSION HYPOTHESES-adjacent tracking
+(new entry, this date) rather than reproduced here — pointer only, per the
+convention every session in this thread has followed for long per-module
+detail.
+
+VERIFIED, NOT TRUSTED BLIND: before acting on the subagent's classification
+for the one module this session fixes, read `server/sec8kEarnings.ts` lines
+1-420 directly (not the subagent's summary) — confirmed
+`refreshEarnings8kCache`'s exact vulnerable line, `if (filings.length > 0 ||
+!cache) cache = { at: Date.now(), filings };`, is the byte-identical shape
+five of this thread's earlier fixes (droughtMonitor/appStoreRankings/etc.)
+shared, and confirmed `fetchLatestEarnings8Ks`'s own feed-level `fetchText`
+call (line 260, unwrapped) is a real, reachable throw site — unlike the
+wikiAttention/euLoad "possible third bug shape" finding from 2026-09-13,
+which turned out to be dead code on inspection, this module's catch path is
+genuinely reachable, confirmed by tracing the call graph, not assumed.
+
+WHY THIS MODULE, of 20: `sec8kEarnings.ts`'s own header comment already says
+"mirrors edgarForm4.ts's boot pattern" and it already had a `readEarnings8kHistory`
+archive-reader in file (same as `edgar13f.ts`'s `read13FHistory` and
+`cropConditions.ts`'s `readArchivedConditions`) — the cheapest, most
+directly comparable fix of the three "already has a reader" candidates the
+audit surfaced, AND (checked in `server/routes.ts`) it backs both
+`/api/data/earnings-language` (free) and the paid `/api/v1/data/earnings-language`
+mirror, the same free+paid value profile that made `edgarForm4.ts` the
+highest-value pick when this thread found it on 2026-09-12.
+
+FIX: mirrors `edgarForm4.ts`'s already-shipped fix exactly (same shared
+helper, same call shape). Imported `resolveCacheItems` from
+`./cacheBackfill`; added `backfillEarnings8kFromArchive(baseDir?, nowMs?,
+days=5, limit=15)` (thin wrapper around the existing `readEarnings8kHistory`
+— no new archive-reading logic written, EDGE DOCTRINE #3); rewired
+`refreshEarnings8kCache`'s both branches (success-but-empty, and the outer
+catch) to go through `resolveCacheItems(cache !== null, filings, () =>
+backfillEarnings8kFromArchive())` instead of the old `if (filings.length > 0
+|| !cache) cache = ...` line, which never attempted a backfill on the throw
+path at all. Added `_resetEarnings8kCacheForTests()` (module-singleton
+`cache`/`polling` reset, same pattern `_resetForm4CacheForTests` established
+for edgarForm4.ts).
+
+RATCHET REGRESSION FOUND AND FIXED BEFORE SHIPPING (same discipline
+cboeVix.ts's session logged a few hours earlier today): the first test draft
+mirrored edgarForm4.test.ts's own `mkFiling` helper verbatim, including its
+`: any` return-type annotation and an `(f: any) =>` callback parameter —
+`python3 -m pytest -q test_ts_code_only.py` failed
+(`ts_any` 1241 vs. the pinned 1239) because `ts_any` is a `non-increasing`
+ratchet and BOTH of those `: any` sites are new code, not a grandfathered
+copy of edgarForm4.test.ts's own already-counted instances. Fixed by typing
+`mkFiling8k` as `Earnings8K` (imported the type, exported from
+`sec8kEarnings.ts` already) instead of `any`, and dropping the now-unneeded
+`: any` on the `.every()` callback (TS infers it from the already-typed
+array) — `ts_any` back to 1239 post-fix, confirmed by re-running the same
+test. Per `counter_ratchet.sh`'s own instruction, fixed the code rather than
+re-pinning the counter upward.
+
+A/B VERIFICATION: `git stash push -- server/sec8kEarnings.ts` then re-ran
+`server/sec8kEarnings.test.ts` — fails immediately (`SyntaxError: The
+requested module './sec8kEarnings' does not provide an export named
+'_resetEarnings8kCacheForTests'`, the whole file fails to load rather than
+individual assertions failing), confirming the fix and its tests are real
+and necessary. Restored via `git stash pop`.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; RAW-overlay cache-freshness fix only (`/api/data/earnings-language`'s
+route comment already documents gate 2 as NOT attempted — this session
+changes nothing about that, only whether the RAW display recovers from a
+cold cache).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW,
+non-predictive overlay (PROMOTION RULE 3 does not apply, same as every
+sibling fix in this thread).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/paid-
+gating code touched; the paid `/api/v1/data/earnings-language` mirror's
+behavior only changes in that it now recovers from `warming_up`/503 sooner
+after a cold boot — same `requireApiKey`/license posture, unchanged).
+
+GATES (this sandbox needed BOTH `npm ci`, 488 packages, AND `pip install -r
+requirements.txt -r requirements-dev.txt` first — a fresh-container
+provisioning gap several prior sessions today have already logged, not a
+repo defect): `npx tsx --test server/sec8kEarnings.test.ts`: 19/19 (15
+pre-existing + 4 new: archive round-trip, gzip read-back, cold-cache-on-throw
+backfill, cold-cache-on-empty-poll backfill). Full `npx tsx --test
+server/*.test.ts`: 1083/1083 client-side, 0 failures. `python3 -m pytest -q`:
+2066 passed, 1 skipped, 54 subtests, 0 failures (includes the ratchet-fix
+re-run above). `bash scripts/gated_tests.sh`: **GATE PASSED** — server (all
+files)/client 1083/1083/python 2066 passed all green, quarantine 0/1, none
+overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 (unchanged —
+the one type-relevant surface this session added, `Earnings8K` import,
+already typechecked clean). `bash scripts/counter_ratchet.sh`: IMPROVED
+(`assertions` 14389 -> 14405, this session's own 16 new test assertions'
+direct effect) — re-pinned in `ci/counter_baseline.txt` in this same PR,
+confirmed green again after re-pinning; `ts_any` confirmed still exactly
+1239 post-fix (the ratchet regression above was caught and fixed pre-commit,
+not shipped and re-pinned). `npm run build`/`npm run visual`: not run, zero
+`client/` files touched.
+
+DEPLOY-COUPLING NOTE (per this scheduled task's own instruction: "prefer
+merging PRs outside 9:30-16:00 ET; if working mid-market, prepare the PR and
+note in it that merge should wait for the close"): session running
+2026-09-15 during the regular Tuesday 9:30-16:00 ET session (~14:1x ET at
+session start) — this note is included in the PR body as instructed. Per the
+2026-09-14 process-gap finding already on record in `research/wishlist.md`
+(the FROZEN `automerge` job has no time-of-day/hold-label gate and will very
+likely merge this on green CI regardless of the note, exactly as it has for
+every PR in this exact thread today), and per that finding's own "harmless"
+classification test: this diff touches no server-runtime/trading-path file
+in the risk sense (a datacore RAW-overlay archiver's cache-restore path +
+its test file + a version bump + a counter-pin re-pin + two research-log
+entries only), so an early automerge — if it happens — carries no
+live-trading risk, consistent with every sibling PR in this thread. Not a
+critical live break either way.
+
+NEXT: (1) the 19 other VULNERABLE modules this session's audit found,
+grouped by fix cost in the filed open_questions.md table: cropConditions.ts/
+edgar13f.ts (already have a `readArchived*`/`read13FHistory` reader in
+file, same cheap-reuse shape as this session's fix — the natural next picks)
+should go first; the ~14 with no existing archive-reader (cbpBorderWait,
+censusImports, dtccSwaps, euDayAheadPrices, euGenerationMix, euMacro,
+faaStatus, fdicBanks, fredMacro, gdeltEvents, gridDemand, gridGeneration,
+nhtsaComplaints, nrcReactorStatus, treasuryAuctions, usaSpending, usgsWater)
+need a new archive-reader written first, same as `wikiAttention.ts`'s
+original fix did, and finraQuery.ts's partial gap (existing `readPartition`
+not used as a fallback for a failed partition-LIST call specifically) is its
+own smaller, lower-priority fix. One module per PR, per this thread's own
+established discipline — do not bundle. (2) `fdicFailures`/`borderWaits`
+still have no dedicated module file matching their route name — unlocated,
+carried over unchanged from five prior sessions' own NEXT (now confirmed:
+`cbpBorderWait.ts` IS `borderWaits`' module, found by this session's audit —
+`fdicBanks.ts` is likely `fdicFailures`'s, also found — a future session
+should confirm the route-to-module mapping explicitly and close this
+long-standing NEXT item). (3) the routes.ts inline-handler `warming_up` audit
+(~62 occurrences, a DIFFERENT, larger, separately-tracked thread) remains
+untouched by this session — this session's scope was module-level caches
+only, per the fifth session's own NEXT(2) wording. (4) the production
+outage (KNOWN BROKEN #41) — ~118.2h continuous, not re-notified (no
+doubling since the ~76h mark), next threshold ~151h absent a status change.
+
+STARVED: no — this session took the queue's own next-listed item, delegated
+the wide read-only search efficiently rather than burning budget on manual
+grepping, independently verified the one finding it acted on rather than
+trusting the delegate's classification blind, shipped one real fix with
+real regression tests A/B-verified against pre-fix code, caught and fixed a
+ratchet regression in its own first draft before shipping, and filed a
+concretely prioritized 19-module remaining-work list (cheapest fixes named
+first) rather than leaving the next session to re-derive priority order
+from a flat list.
+
+
 
 TERRITORY: T-DATACORE (server/cboeVix.ts, server/cboeVix.test.ts) + SHARED-
 minimal, last commit per MERGE-ORDER PROTOCOL (package.json version bump,

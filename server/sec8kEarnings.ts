@@ -41,6 +41,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 // ── Minimal dependency-free Atom-feed tag extraction (mirrors edgarForm4.ts's
 // approach: SEC's feed schema is flat and predictable, a full XML parser is
@@ -396,14 +397,29 @@ export function latestEarnings8Ks(): { at: number; filings: Earnings8K[] } | nul
   return cache;
 }
 
+/** Reconstructs a cache-shaped filings list from the on-disk earnings8k
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (SEC EDGAR transient outage / feed-fetch failure) or comes back with
+ *  zero qualifying filings before any cache exists. Same
+ *  cold-cache-no-disk-backfill fix already shipped for edgarForm4.ts's
+ *  identically-shaped `backfillForm4FromArchive` — this closes the same gap
+ *  for the earnings-language root, found by a 2026-09-15 audit of the
+ *  ~30 datacore modules that audit hadn't yet checked. */
+export function backfillEarnings8kFromArchive(baseDir?: string, nowMs?: number, days = 5, limit = 15): Earnings8K[] {
+  return readEarnings8kHistory(days, baseDir, nowMs, limit);
+}
+
 export async function refreshEarnings8kCache(limit = 15): Promise<void> {
   try {
     const filings = await fetchLatestEarnings8Ks(limit);
-    if (filings.length > 0 || !cache) cache = { at: Date.now(), filings };
+    const next = resolveCacheItems(cache !== null, filings, () => backfillEarnings8kFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
     try { archiveEarnings8Ks(filings); } catch {}
     try { gzipOldEarnings8kDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] earnings8k refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [], () => backfillEarnings8kFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
   }
 }
 
@@ -414,4 +430,13 @@ export function bootEarnings8kPoll(intervalMs = 15 * 60_000): void {
   polling = true;
   refreshEarnings8kCache();
   setInterval(() => { refreshEarnings8kCache(); }, intervalMs).unref?.();
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem edgarForm4.ts's `_resetForm4CacheForTests` solves for its own
+ *  module), so a test exercising the cold-cache backfill path must be able
+ *  to force `cache` back to null rather than rely on file execution order. */
+export function _resetEarnings8kCacheForTests(): void {
+  cache = null;
+  polling = false;
 }

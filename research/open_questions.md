@@ -20243,3 +20243,93 @@ correctly scoped above (both modules already DO backfill on the
 empty-but-non-throwing path — that was never in question).
 
 NOT A SPEND REQUEST.
+
+UPDATE 2026-09-15 (scheduled-routine [PRODUCT] session, sixth session this
+UTC day, v1.0.912) — the exhaustive module audit the 2026-09-15 fifth
+session's own NEXT(2) asked for ("run one exhaustive grep across every
+datacore module for both known bug shapes ... to positively confirm no
+sixth/seventh instance remains"). Full account in experiments.md's matching
+dated entry — pointer only for the narrative; this entry carries the full
+per-module table since no other file has it yet.
+
+METHOD: audited the 33 `boot*Poll`-having `server/*.ts` modules not already
+covered by this thread's prior sessions (14 already fixed:
+githubOrgActivity/wikiAttention/satellites/euLoad/edgarForm4/nasaFirms/
+usgsQuakes/ndbcBuoys/appStoreRankings/droughtMonitor/epaCamd/occVolume/
+fdaEvents/cboeVix; 6 already correctly triaged: nwsAlerts/usgsVolcanoes/
+airQuality deliberately-not-fixed honesty tradeoffs, streamsInventory/
+entityGraph/gridStress not-the-bug-class). Each remaining module's cache
+declaration and refresh function was READ in full (not grepped) via a
+delegated Explore subagent, whose classification was spot-checked before
+being trusted (this session independently re-read `sec8kEarnings.ts` before
+acting on its verdict for that one module).
+
+RESULT — 20 of 33 are VULNERABLE (no on-disk backfill attempted on an
+empty/failed live poll):
+
+| module | existing archive-reader to reuse | fix cost |
+|---|---|---|
+| cropConditions.ts | `readArchivedConditions` (in file) | cheap — reuse |
+| edgar13f.ts | `read13FHistory` (in file) | cheap — reuse |
+| sec8kEarnings.ts | `readEarnings8kHistory` (in file) | cheap — reuse — **FIXED THIS SESSION, v1.0.912** |
+| finraQuery.ts | `readPartition` exists but only used post-success, not as a cold-cache fallback for a failed partition-LIST call | small, narrower fix than the others |
+| cbpBorderWait.ts (backs `borderWaits`) | none — write from scratch | new reader needed |
+| censusImports.ts | none | new reader needed |
+| dtccSwaps.ts | none (8-day live lookback partially mitigates) | new reader needed, lower priority |
+| euDayAheadPrices.ts | none | new reader needed |
+| euGenerationMix.ts | none | new reader needed |
+| euMacro.ts | none | new reader needed |
+| faaStatus.ts | none | new reader needed |
+| fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed |
+| fredMacro.ts | none | new reader needed |
+| gdeltEvents.ts | none | new reader needed |
+| gridDemand.ts | none | new reader needed |
+| gridGeneration.ts | none | new reader needed |
+| nhtsaComplaints.ts | none | new reader needed |
+| nrcReactorStatus.ts | none | new reader needed |
+| treasuryAuctions.ts | none | new reader needed |
+| usaSpending.ts | none | new reader needed |
+| usgsWater.ts | none | new reader needed |
+
+5 were ALREADY SAFE (own existing `readArchived*`-backed restore path,
+already following this thread's established pattern — no action needed):
+cftcCot.ts, cftcTff.ts, secFtd.ts, secMidas.ts, treasuryDts.ts.
+
+8 were NOT APPLICABLE — no persistent on-disk archive exists for these
+streams to backfill from at all (verified, not assumed): ambientRadiation.ts,
+optionsChainArchive.ts (archive-writer only, no serving cache), settlementStress.ts
+(downstream join, no serving cache of its own), superfund.ts,
+vesselStream.ts (websocket health helpers, no cache/archive of this shape),
+waterViolators.ts.
+
+`routes.ts` was explicitly excluded from this audit's scope — its own
+~62-occurrence inline-`warming_up`-handler audit is a separate, larger,
+already-tracked thread (see the 2026-09-11/12/13 entries above), not module-
+level caches.
+
+SHIPPED THIS SESSION: `sec8kEarnings.ts` (v1.0.912, PR pending) — picked
+because it already had a reuse-ready archive reader AND backs a paid API
+mirror (`/api/v1/data/earnings-language`), the same value profile that made
+`edgarForm4.ts` this thread's highest-priority pick on 2026-09-12. Fixed
+with the identical `resolveCacheItems` shared-helper call shape edgarForm4.ts
+already uses (not the by-hand pattern the earlier fixes used before the
+helper existed) — both branches (empty-but-non-throwing poll, and the outer
+catch on a throw) now go through it. 4 new regression tests, A/B-verified.
+
+NEXT: work the remaining 19 VULNERABLE modules one at a time (one module per
+PR, this thread's established discipline) — `cropConditions.ts`/`edgar13f.ts`
+first (cheapest, existing reader to reuse, same shape as this session's
+fix), `finraQuery.ts` next (narrower fix), then the 16 needing a new
+archive-reader written from scratch, roughly in the order listed above
+(no ranking beyond "cheap reuse before from-scratch" was attempted — a
+future session picking a different order for a good reason, e.g. product
+value of the specific route, is not overriding anything settled here).
+`dtccSwaps.ts` is explicitly flagged lower-priority (its 8-day live-fetch
+lookback already reduces the blast radius of a single missed poll,
+unlike the others which have no such mitigation). Confirm the same
+"no on-disk archive to backfill from" verdict holds for the 8 NOT
+APPLICABLE modules before ever routing new work at them — this audit did
+not attempt to give any of them an archive (that would be a much larger,
+separate COLLECT-EVERYTHING buildout, not a bug fix).
+
+NOT A SPEND REQUEST.
