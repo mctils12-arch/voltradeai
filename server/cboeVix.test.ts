@@ -12,7 +12,7 @@ import {
   normalizeMdY, parseOhlcCsv, parseCloseOnlyCsv, mergeTenors, seriesUrl,
   archiveCboeVixDays, isDateArchived, refreshCboeVix, latestCboeVix,
   gzipPastYearFiles, _resetCboeVixForTests, CBOE_VIX_FLOOR_DATE,
-  OHLC_TENORS, CLOSE_ONLY_TENORS,
+  OHLC_TENORS, CLOSE_ONLY_TENORS, readArchivedCboeVix,
 } from "./cboeVix";
 
 const VIX_CSV = [
@@ -188,5 +188,67 @@ test("refreshCboeVix: an HTTP failure on one tenor degrades to no-op for that te
     await assert.doesNotReject(refreshCboeVix(fakeFetch as any, dir, Date.UTC(2026, 7, 7)));
     // VIX3M never returned data -> no fully-populated day -> nothing archived
     assert.equal(isDateArchived("2026-08-05", dir), false);
+  });
+});
+
+test("readArchivedCboeVix: reads latest + recent straight off disk, spanning a year boundary", async () => {
+  await withTmpDir((dir) => {
+    _resetCboeVixForTests();
+    const day = (date: string) => ({
+      date, vix1d: 12, vix9d: 13, vix: 15, vix3m: 19, vix6m: 21, vvix: 90,
+      vix_vix3m_ratio: 0.79, vix9d_vix_ratio: 0.87,
+    });
+    assert.equal(readArchivedCboeVix(dir, Date.UTC(2026, 7, 7)), null, "empty archive -> null, never fabricated");
+    archiveCboeVixDays([day("2025-12-30"), day("2025-12-31")], dir, Date.UTC(2025, 11, 31));
+    archiveCboeVixDays([day("2026-01-02")], dir, Date.UTC(2026, 0, 2));
+    _resetCboeVixForTests();
+    const hit = readArchivedCboeVix(dir, Date.UTC(2026, 0, 3));
+    assert.ok(hit);
+    assert.equal(hit!.latest.date, "2026-01-02", "newest date across both year files, not just the current year");
+    assert.deepEqual(hit!.recent.map((d) => d.date), ["2025-12-30", "2025-12-31", "2026-01-02"]);
+  });
+});
+
+test("refreshCboeVix: cold boot with a total fetch failure restores from the on-disk archive instead of staying warming_up forever", async () => {
+  await withTmpDir(async (dir) => {
+    _resetCboeVixForTests();
+    // Seed an archive from a "prior process" the way archiveCboeVixDays would.
+    const day = { date: "2026-08-04", vix1d: 12.1, vix9d: 13.2, vix: 15.3, vix3m: 19.4, vix6m: 21.5, vvix: 89,
+                  vix_vix3m_ratio: 0.7887, vix9d_vix_ratio: 0.8627 };
+    archiveCboeVixDays([day], dir, Date.UTC(2026, 7, 4));
+    // Fresh in-process instance (cold boot): cache is unset, and every
+    // tenor fails on the first live fetch attempt.
+    _resetCboeVixForTests();
+    assert.equal(latestCboeVix(), null, "sanity: cache genuinely unset before refresh");
+    const failFetch = async () => ({ ok: false, status: 500, text: async () => "" });
+    await assert.doesNotReject(refreshCboeVix(failFetch as any, dir, Date.UTC(2026, 7, 7)));
+    const hit = latestCboeVix();
+    assert.ok(hit, "must restore from the on-disk archive rather than leaving cache null");
+    assert.equal(hit!.latest.date, "2026-08-04");
+    assert.equal(hit!.latest.vix, 15.3);
+  });
+});
+
+test("refreshCboeVix: a later transient failure never overwrites an already-populated cache with a restored (stale) one", async () => {
+  await withTmpDir(async (dir) => {
+    _resetCboeVixForTests();
+    const csvFor: Record<string, string> = {
+      VIX1D: "DATE,OPEN,HIGH,LOW,CLOSE\r\n08/05/2026,14.05,14.62,11.31,12.55\r\n",
+      VIX9D: "DATE,OPEN,HIGH,LOW,CLOSE\r\n08/05/2026,16.21,17.05,13.37,13.79\r\n",
+      VIX: VIX_CSV,
+      VIX3M: "DATE,OPEN,HIGH,LOW,CLOSE\r\n08/05/2026,19.57,19.72,18.72,18.95\r\n",
+      VIX6M: "DATE,OPEN,HIGH,LOW,CLOSE\r\n08/05/2026,21.42,21.52,20.91,21.06\r\n",
+      VVIX: VVIX_CSV,
+    };
+    const okFetch = async (url: string) => {
+      const ticker = Object.keys(csvFor).find((t) => url.includes(`/${t}_History.csv`))!;
+      return { ok: true, status: 200, text: async () => csvFor[ticker] };
+    };
+    await refreshCboeVix(okFetch as any, dir, Date.UTC(2026, 7, 7));
+    assert.equal(latestCboeVix()!.latest.date, "2026-08-05");
+
+    const failFetch = async () => ({ ok: false, status: 500, text: async () => "" });
+    await refreshCboeVix(failFetch as any, dir, Date.UTC(2026, 7, 8));
+    assert.equal(latestCboeVix()!.latest.date, "2026-08-05", "cache untouched by the failed refresh, not reset to a restored copy");
   });
 });

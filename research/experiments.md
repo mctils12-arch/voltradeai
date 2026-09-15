@@ -3,6 +3,173 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-15 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — cboeVix.ts joins the cold-cache-no-disk-backfill fix thread with the one remaining named-but-unfixed DIFFERENT-shape instance: a cold boot where every one of the 6 Cboe tenor fetches fails at once left `cache` null forever (`warming_up: true` permanently), never restoring the real multi-year VIX term-structure archive already on disk (v1.0.911)
+
+TERRITORY: T-DATACORE (server/cboeVix.ts, server/cboeVix.test.ts) + SHARED-
+minimal, last commit per MERGE-ORDER PROTOCOL (package.json version bump,
+ci/counter_baseline.txt re-pin, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x8, [REPAIR]x1,
+[RULE-REVIEW]x1 — no thrash signal (threshold is 7+ REPAIR of 10).
+
+SESSION-START CHECKS (per this scheduled task's own brief): CLAUDE.md read in
+full, `research/experiments.md`, `research/open_questions.md`'s KNOWN BROKEN
+section (items #41-#43), and `research/wishlist.md`'s head (the 2026-09-14
+automerge/market-hours-hold process-gap finding) all read before choosing an
+action.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS https://voltradeai-production.up.railway.app/api/health`
+returned `HTTP 502 {"status":"error","code":502,"message":"Application failed
+to respond"}` — the identical signature every session has logged since the
+2026-09-10T20:18Z onset (KNOWN BROKEN #41). `python3
+scripts/session_health_check.py` (this repo's own outage-duration tooling,
+built 2026-09-15 second session) computed **~115.8 wall-clock hours**
+continuous from the persisted `research/outage_state.json` onset timestamp —
+cross-checked by hand (2026-09-15T~16:0xZ session start minus the
+2026-09-10T20:18Z onset), matching. `env`/no Railway CLI reconfirmed zero
+Railway access in this sandbox, same as every prior session's finding — the
+outage remains entirely unactionable from here. NOT RE-NOTIFIED: the standing
+re-notify rule for this incident (set 2026-09-15 00:03Z: "next doubling from
+the last on-record notification (~76h)," i.e. ~151h) is not crossed at 115.8h,
+and this session found no new fact about the incident's state (`git log`
+since the immediately preceding session's check shows zero commits touching
+any server-runtime or trading-path file) that would independently justify
+breaking the standing rule. No third patch attempted (RECURRENCE ESCALATES
+already triggered 2026-09-08). Per the established multi-session precedent on
+this exact incident, the outage does not block T-DATACORE work and this
+session fell through to the queue's own next-listed item.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item), took
+the immediately preceding session's own NEXT(1): `cboeVix.ts`, named across
+three prior sessions' own NEXT lists as "the one remaining named-but-unfixed
+DIFFERENT-shape instance from this thread's audit (early-return before
+`cache` is ever touched, not a copy-paste of this thread's diff — needs its
+own read-before-write investigation, not a mechanical port)."
+
+READ BEFORE WRITE: read `server/cboeVix.ts` in full this session (not
+grepped). Confirmed the different shape the prior sessions' audits flagged:
+`refreshCboeVix`'s `if (!days.length) return;` exits the whole function
+before `cache` is ever assigned, read, or restored — unlike the
+byte-identical `if (x.length || !cache) cache = {...}` shape this thread's
+five prior fixes (fdaEvents/droughtMonitor/appStoreRankings/epaCamd/
+occVolume) all shared. `mergeTenors` only emits a day when ALL SIX tenors
+(VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX) are present for that date (`continue` on
+any null — "partial day... skip rather than fabricate"), so a boot-time
+network blip that fails even ONE of the six `fetchCsv` calls (each already
+wrapped in its own try/catch) produces zero fully-populated days, `days.length
+=== 0`, and the early return — meaning `cache` stays `null` across every
+future poll cycle too, since a later successful poll only ever ASSIGNS
+`cache`, never restores it from the (real, multi-year, already-on-disk)
+archive. `/api/data/vix-term-structure` and its paid
+`/api/v1/stats/vix-term-structure` mirror both read `latestCboeVix()` and
+report `warming_up: true` / 503 forever in this state, exactly the same
+customer-facing symptom as the other five fixes in this thread, reached by a
+structurally different bug.
+
+FIX: added `readYearFile`/`readArchivedCboeVix(baseDir?, nowMs?)` to
+`cboeVix.ts` — reads the current + prior year's JSONL/JSONL.gz archive files
+(this module's own per-year-file scheme, unlike the sibling fixes' per-day
+files, so the read-back shape is new, not ported) and returns the newest day
++ a 30-day recent window, mirroring `latestCboeVix()`'s own return shape
+exactly. `refreshCboeVix` restructured: on a successful fetch (`days.length`
+truthy) behavior is BYTE-IDENTICAL to before (archive, assign cache, gzip
+sweep, return) — this session did not touch the working path. On a fetch
+that produces zero fully-populated days, a new branch fires ONLY when `cache`
+is still unset (`if (!cache) { restore from readArchivedCboeVix }`) — never
+overwriting an already-populated cache on a later transient failure during
+steady state, matching every sibling fix's `!cache && archived` guard shape.
+
+ONE RATCHET REGRESSION FOUND AND FIXED BEFORE SHIPPING, NOT BY INSPECTION:
+`readYearFile`'s first draft used `catch {}` (matching this file's own
+pre-existing `seedSeen` idiom) to skip a malformed JSONL line — `python3 -m
+pytest -q test_ts_code_only.py` failed
+(`test_the_pinned_values_are_what_the_module_measures[empty_ts_catch...]`),
+because `empty_ts_catch` is a `non-increasing` ratchet
+(`ci/counter_baseline.txt`) and this added a 492nd instance on top of the
+pinned 491. Per `counter_ratchet.sh`'s own instruction ("fix the code, not
+the pin" — loosening a ratcheted pin to go green is MASTER PROGRAM stop
+condition 2), changed to `catch { continue; }` (explicit, not empty — skips
+the malformed line identically) rather than re-pinning `empty_ts_catch`
+upward, which would have been the wrong fix for new code even though the
+file's own older `seedSeen` function already carries a grandfathered
+bare-`catch {}` counted in the existing 491.
+
+A/B VERIFICATION: `git stash push -- server/cboeVix.ts` then re-ran
+`server/cboeVix.test.ts` — fails immediately (`readArchivedCboeVix` is not
+exported by the pre-fix file), confirming the fix and its tests are real and
+necessary. Restored via `git stash pop`.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy code
+touched; RAW-overlay cache-freshness fix only (`/api/data/vix-term-structure`'s
+`kind: "raw"` unchanged, still explicitly gate-locked pending SIGNAL-layer
+validation per its own route comment).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW,
+non-predictive overlay (PROMOTION RULE 3 does not apply, same as every
+sibling fix in this thread).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/paid-
+gating code touched; the paid `/api/v1/stats/vix-term-structure` mirror's
+behavior only changes in that it now recovers from `warming_up`/503 sooner
+after a cold boot — same license posture, same `requireApiKey` gate, both
+unchanged).
+
+GATES: `npx tsx --test server/cboeVix.test.ts`: 15/15 (9 pre-existing + 6
+new). Full `npx tsx --test server/*.test.ts`: 1675/1675, 0 failures (this
+sandbox needed `npm ci`, 488 packages, first — a fresh-container provisioning
+gap, not a repo defect, per every prior session's own note on this).
+`python3 -m pytest -q` (after `pip install -r requirements.txt
+-r requirements-dev.txt`, same recurring fresh-container gap): 2066 passed, 1
+skipped, 54 subtests, 0 failures — this session touched no Python. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all green,
+quarantine 0/1, none overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304
+= 0 (zero `.ts` type-relevant surface changed beyond what already
+typechecked). `bash scripts/counter_ratchet.sh`: IMPROVED (`assertions`
+14378->14389, this session's own 6 new tests' direct effect) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning; `empty_ts_catch` confirmed still exactly 491 post-fix (the
+ratchet regression above was caught and fixed pre-commit, not shipped and
+re-pinned). `npm run build`/`npm run visual`: not run, zero `client/` files
+touched.
+
+DEPLOY-COUPLING NOTE (per this scheduled task's own instruction: "since this
+run occurs during market hours: prepare the PR but note in it that merge
+should wait until after 4:00 PM ET unless the change fixes a critical live
+break"): session running 2026-09-15 during the regular 9:30-16:00 ET
+session (Tuesday) — this note is included in the PR body as instructed. Per
+the 2026-09-14 process-gap finding already on record in `research/
+wishlist.md` (the FROZEN `automerge` job has no time-of-day/hold-label gate
+and will very likely merge this on green CI regardless of the note, exactly
+as it did for PR #1076 and every identically-scoped diff in this thread
+since), and per that same finding's own "harmless" classification test: this
+diff touches no server-runtime/trading-path file (a datacore RAW-overlay
+archiver's cache-restore path + its test file + a version bump + a
+counter-pin re-pin + this log entry only), so an early automerge — if it
+happens — carries no live-trading risk, consistent with every sibling PR in
+this thread. Not a critical live break either way.
+
+NEXT: (1) `fdicFailures`/`borderWaits` still have no dedicated module file
+matching their route name — unlocated, carried over unchanged from four
+prior sessions' own NEXT. (2) the 2026-09-15 (fourth session) NEXT(4) audit
+gap: a future [PRODUCT]/[PIPELINE] session should run one exhaustive grep
+across every datacore module for the `if (x.length || !cache)` AND the
+`if (!x.length) return;`-before-cache-touched shapes together, now that both
+known variants of this bug class have at least one confirmed fix, to
+positively confirm no sixth/seventh instance remains rather than relying on
+each module being independently flagged first. (3) the production outage
+(KNOWN BROKEN #41) — ~115.8h continuous, not re-notified (no doubling since
+the ~76h mark), next threshold ~151h absent a status change.
+
+STARVED: no — this session took the queue's own next-listed item, did the
+real read-before-write investigation the prior three sessions' NEXT entries
+explicitly deferred (confirming the different bug shape rather than assuming
+a mechanical port), shipped one real fix with real regression tests
+A/B-verified against pre-fix code, caught and fixed a ratchet regression in
+its own first draft before shipping rather than re-pinning around it, and
+left a concretely scoped audit gap (NEXT(2)) rather than overclaiming the
+whole bug class closed.
+
 ## 2026-09-15 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — droughtMonitor.ts closes the cold-cache-no-disk-backfill fix thread's last byte-identical instance: a cold boot where every USDM AOI request fails at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk (v1.0.910)
 
 TERRITORY: T-DATACORE (server/droughtMonitor.ts, server/droughtMonitor.test.ts)
