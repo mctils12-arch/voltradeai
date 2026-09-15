@@ -5,7 +5,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseDrought, archiveDrought, gzipOldDroughtDays, DROUGHT_AOIS } from "./droughtMonitor";
+import {
+  parseDrought, archiveDrought, gzipOldDroughtDays, DROUGHT_AOIS,
+  refreshDroughtCache, latestDrought, _resetDroughtForTests,
+} from "./droughtMonitor";
 
 const CONUS_ROW = {
   mapDate: "2026-06-30T00:00:00", areaOfInterest: "CONUS",
@@ -73,4 +76,55 @@ test("archive: dedup aoi|map_date across polls; gz lifecycle", () => {
   assert.equal(gzipOldDroughtDays(base, now + 3 * 86400_000), 1);
   const day = path.join(base, "drought", "2026-07-05.jsonl");
   assert.ok(!fs.existsSync(day) && fs.existsSync(`${day}.gz`));
+});
+
+test("COLD-CACHE-NO-DISK-BACKFILL FIX: a live fetch that returns zero rows on a cold boot must restore from the on-disk archive instead of caching an empty, non-warming_up result forever", async () => {
+  _resetDroughtForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "usdm-"));
+  // Simulate a PRIOR process run that already archived a week, then this
+  // process restarts with a cold in-memory cache (real container-restart
+  // shape: the disk archive survives, the in-memory cache does not).
+  const priorWeek = [
+    ...parseDrought([CONUS_ROW], "CONUS", "2026-08-01"),
+    ...parseDrought([IA_ROW], "IA", "2026-08-01"),
+  ];
+  archiveDrought(priorWeek, dir, Date.parse("2026-08-01T12:00:00Z"));
+  _resetDroughtForTests();
+  assert.equal(latestDrought(), null, "cache starts cold after the simulated restart");
+
+  // Every AOI request fails at boot (network blip) -> fetchDrought's own
+  // per-AOI try/catch swallows every call; all-failed throws, the exact
+  // "drought.length === 0 on the first-ever cycle" case the pre-fix
+  // `if (drought.length || !cache) cache = {...}` mishandled.
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshDroughtCache(allDown as any, Date.parse("2026-08-02T12:00:00Z"), dir);
+
+  const hit = latestDrought();
+  assert.ok(hit, "must restore from the on-disk archive instead of staying (or worse, caching empty) forever");
+  assert.equal(hit!.drought.length, priorWeek.length);
+  assert.equal(hit!.drought[0].aoi, "CONUS");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDroughtCache: cold boot + empty live fetch + no on-disk archive at all stays honestly null, never a fabricated empty cache", async () => {
+  _resetDroughtForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "usdm-"));
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshDroughtCache(allDown as any, Date.parse("2026-08-03T12:00:00Z"), dir);
+  assert.equal(latestDrought(), null, "nothing to restore -> stays null, so /api/data/drought still honestly reports warming_up rather than a silent empty count:0");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDroughtCache: a transient empty fetch during steady state (cache already populated) never clobbers the existing cache", async () => {
+  _resetDroughtForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "usdm-"));
+  const ok = async () => ({ ok: true, status: 200, text: async () => JSON.stringify([CONUS_ROW]) });
+  await refreshDroughtCache(ok as any, Date.parse("2026-08-04T12:00:00Z"), dir);
+  const populated = latestDrought();
+  assert.ok(populated && populated.drought.length, "cache populated by a successful fetch");
+
+  const allDown = async () => { throw new Error("network down"); };
+  await refreshDroughtCache(allDown as any, Date.parse("2026-08-04T13:00:00Z"), dir);
+  assert.strictEqual(latestDrought(), populated, "a later transient failure must not overwrite good cache with anything, restored or empty");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
