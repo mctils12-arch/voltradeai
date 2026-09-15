@@ -3,7 +3,171 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-15 (scheduled-routine session, third session this UTC day) [PIPELINE] — fdaEvents.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot where both openFDA and Federal Register calls fail at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk; droughtMonitor.ts remains the one still-unfixed byte-identical instance (v1.0.909)
+## 2026-09-15 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PIPELINE] — droughtMonitor.ts closes the cold-cache-no-disk-backfill fix thread's last byte-identical instance: a cold boot where every USDM AOI request fails at once silently cached an EMPTY, non-warming_up result instead of restoring the real multi-week archive already on disk (v1.0.910)
+
+TERRITORY: T-DATACORE (server/droughtMonitor.ts, server/droughtMonitor.test.ts)
++ SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version
+bump, ci/counter_baseline.txt re-pin, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x8, [REPAIR]x1,
+[RESEARCH]x1 — no thrash signal (threshold is 7+ REPAIR of 10).
+
+SESSION-START CHECKS: CLAUDE.md read in full, `research/experiments.md`,
+`research/open_questions.md`'s KNOWN BROKEN section, and
+`research/wishlist.md`'s tail all read before choosing an action, per this
+session's own [PRODUCT] task framing (datacore/ pipelines + /data).
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 25
+https://voltradeai.com/api/health` at 2026-09-15T13:05:03Z returned the
+identical `HTTP/2 502` / `railway-hikari` / `x-railway-fallback: true`
+signature every session has logged since the 2026-09-10T20:18Z onset (KNOWN
+BROKEN #41) — **~112.8 wall-clock hours** continuous.
+`research/outage_state.json` (session_health_check.py's own persisted
+state, built 2026-09-15 second session) still correctly reads
+"down_since": "2026-09-10T20:18:00+00:00", unchanged. NOT RE-NOTIFIED: the
+standing re-notify rule for this incident is "next doubling from the last
+on-record notification (~76h)," i.e. ~151h — 112.8h has not crossed that
+threshold, and this session found no new fact about the incident's state
+(same signature, zero relevant commits since the prior session's check)
+that would independently justify breaking the standing rule. No third
+patch attempted — RECURRENCE ESCALATES already triggered 2026-09-08, zero
+live diagnostic access while the app is down, this sandbox still has zero
+Railway CLI/API access. Per this session's own task instructions
+("product sessions do not preempt the DAILY routines' repair duty" — the
+outage is entirely blocked on a human Railway-dashboard action this
+sandbox cannot take), the outage does not block T-DATACORE work and this
+session fell through to product/pipeline work.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item) and
+this session's own [PRODUCT] framing ((a) advance a datacore/ pipeline
+through its next ladder gate — a reliability/correctness fix to an
+already-gate-passed RAW overlay's cache freshness counts as advancing the
+pipeline's production quality, same characterization every sibling entry
+in this thread used), took the immediately preceding session's own NEXT(1)
+verbatim: `droughtMonitor.ts`, named as "the one still-unfixed
+byte-identical instance" of the cold-cache-no-disk-backfill bug shape,
+"ready for a mechanical same-shape fix + regression test," with the one
+extra dependency that session flagged (no `listArchivedDroughtDates`/
+`readArchivedDroughtDay` read-back pair existed yet, same gap fdaEvents.ts
+had before its own fix).
+
+READ BEFORE WRITE: read `droughtMonitor.ts` in full this session (not
+grepped) before touching it. Confirmed the exact same
+`if (drought.length || !cache) cache = {...}` shape in `refreshDroughtCache`
+flagged by the prior two sessions' audits, and confirmed (via grep, then
+full read) it had no `listArchived*`/`readArchived*` read-back functions
+at all, matching fdaEvents.ts's pre-fix state exactly.
+
+ONE REAL DIFFERENCE FROM THE TEMPLATE, FOUND BY RUNNING THE TESTS FIRST
+DRAFT, NOT BY INSPECTION: `fetchDrought` (unlike `fetchFdaEvents`)
+explicitly THROWS when every AOI request fails
+(`if (failures === DROUGHT_AOIS.length) throw new Error(...)`) rather than
+returning `[]`. A first draft that mirrored fdaEvents.ts's
+`refreshFdaCache` shape verbatim (`const drought = await fetchDrought(...)`
+inside one outer try, restore logic after it in the same try) left the
+restore branch UNREACHABLE on a total-outage cycle — the throw exits the
+try before the archive/restore lines ever run, caught only by the outer
+catch that just logs. Caught by the new test failing
+("must restore from the on-disk archive... actual: ~" — `hit` was
+`undefined`), not by re-reading the diff; restructured to catch
+`fetchDrought`'s own throw locally (`drought` defaults to `[]` on catch)
+so execution always reaches the archive/gzip/restore logic below,
+regardless of whether the failure came back as an empty array or a thrown
+error. `fetchDrought`'s existing throw-on-total-failure behavior itself
+is UNCHANGED (still used and still tested by the pre-existing "archive:
+dedup" test's implicit callers and by nothing that would regress from
+this) — the fix works around the difference rather than "fixing" it by
+changing a sibling module's contract to match fdaEvents.ts's, which
+would be an unrelated, unrequested behavior change.
+
+FIX: added `listArchivedDroughtDates(baseDir?, limit)` /
+`readArchivedDroughtDay(iso, baseDir?)` to `droughtMonitor.ts` (mirrors
+fdaEvents.ts's own implementation exactly — same bounded jsonl/jsonl.gz
+day-file scan, same sort/reverse/slice shape, EDGE DOCTRINE #3, not
+reinvented), `refreshDroughtCache` gained a `baseDir` parameter (needed
+for direct testing without an env-var hack, same precedent as every
+prior session in this thread), and `_resetDroughtForTests()` (mirrors
+`_resetFdaForTests`, needed to exercise a genuine cold-boot scenario
+without inheriting `cache`/`archivedKeys`/`seeded` state from an earlier
+test in the same process — this module had no test-reset helper before
+this session either). Cache assignment now only happens on a genuinely
+successful fetch (`if (drought.length) cache = {...}`); a new trailing
+`if (!cache) { restore from listArchivedDroughtDates/readArchivedDroughtDay's
+newest day }` branch fires ONLY when cache is still unset after the live
+fetch attempt (success or failure) — never overwriting a populated cache
+on a later transient failure during steady state, matching every sibling
+fix's "`!cache && archived`" branch shape.
+
+A/B VERIFICATION: `git stash push -- server/droughtMonitor.ts` then
+re-ran `server/droughtMonitor.test.ts` — fails immediately (the pre-fix
+file exports neither `refreshDroughtCache`'s new `baseDir` param, nor
+`_resetDroughtForTests`, nor the two read-back functions the new tests
+import), confirming the fix and its tests are real and necessary.
+Restored via `git stash pop`.
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/strategy
+code touched; RAW-overlay cache-freshness fix only (`/api/data/drought`'s
+`kind: "raw"` unchanged).
+
+BACKTEST RESULT: N/A — data-freshness/reliability fix to an already-RAW,
+non-predictive overlay (PROMOTION RULE 3 does not apply, same as every
+sibling fix in this thread).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/paid-
+gating code touched).
+
+GATES: `npx tsx --test server/droughtMonitor.test.ts`: 8/8 (5 pre-existing
++ 3 new). Full `npx tsx --test server/*.test.ts`: 1672/1672, 0 failures
+(this sandbox needed `npm ci`, 488 packages, first — a fresh-container
+provisioning gap, not a repo defect, per every prior session's own note on
+this). `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, same recurring fresh-container gap): 2066 passed, 1
+skipped, 54 subtests, 0 failures — this session touched no Python. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all green,
+quarantine 0/1, none overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11,
+TS2304 = 0 (zero `.ts`/`.tsx` type-relevant surface changed beyond what
+already typechecked — the new functions mirror fdaEvents.ts's already-
+typechecked shape exactly). `bash scripts/counter_ratchet.sh`: IMPROVED
+(`assertions` 14371->14378, this session's own 3 new tests' direct
+effect, 7 new asserts) — re-pinned in `ci/counter_baseline.txt` in this
+same PR, confirmed green again after re-pinning. `npm run build`/`npm run
+visual`: not run, zero `client/` files touched.
+
+DEPLOY-COUPLING NOTE: session start ~2026-09-15T13:05Z (~09:05 ET),
+commit/PR at ~13:19Z (~09:19 ET) — before the 9:30 ET regular-session
+open at write time, though CI runtime may carry the actual automerge
+past the open. This diff touches no server-runtime/trading-path file (a
+datacore RAW-overlay archiver's cache-restore path + its test file + a
+version bump + a counter-pin re-pin + this log entry only) — same
+harmless-market-hours-automerge class the 2026-09-14 process-gap finding
+(research/wishlist.md) already confirmed for identically-scoped diffs in
+this exact thread; per that established precedent, not held for an
+after-hours manual merge either way.
+
+NEXT: (1) `cboeVix.ts` — the one remaining named-but-unfixed
+different-shape instance from this thread's audit (early-return before
+`cache` is ever touched, not a copy-paste of this thread's diff — needs
+its own read-before-write investigation, not a mechanical port). (2)
+`fdicFailures`/`borderWaits` still have no dedicated module file matching
+their route name — unlocated, carried over unchanged from three prior
+sessions' own NEXT. (3) the production outage (KNOWN BROKEN #41) —
+~112.8h continuous, not re-notified (no doubling since the ~76h mark),
+next threshold ~151h absent a status change. (4) this thread's own
+byte-identical-shape sweep (appStoreRankings/epaCamd/occVolume/
+fdaEvents/droughtMonitor) is now CLOSED — a future [PRODUCT] session
+should confirm no sixth instance exists elsewhere in datacore/ before
+declaring the whole bug CLASS closed, since this thread only ever
+searched module-by-module as each was independently flagged rather than
+running one exhaustive grep across every datacore module for the
+`if (x.length || !cache)` shape.
+
+STARVED: no — this session took the queue's own next-listed item, found
+and fixed a real structural difference from the template by running the
+tests rather than assuming the fdaEvents.ts shape would port unchanged,
+shipped one real fix with a real regression test A/B-verified against
+pre-fix code, and left a concrete, scoped audit gap (NEXT(4)) rather than
+overclaiming the bug class fully closed.
 
 TERRITORY: T-DATACORE (server/fdaEvents.ts, server/fdaEvents.test.ts) +
 SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version

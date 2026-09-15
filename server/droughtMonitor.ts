@@ -191,6 +191,42 @@ export function gzipOldDroughtDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Archived map_dates, newest first (jsonl or jsonl.gz only) — same bounded
+ *  read pattern as appStoreRankings.ts's/fdaEvents.ts's own
+ *  listArchived*Dates, needed for refreshDroughtCache's
+ *  cold-cache-no-disk-backfill restore below. */
+export function listArchivedDroughtDates(baseDir?: string, limit = 90): string[] {
+  let files: string[];
+  try { files = fs.readdirSync(droughtDir(baseDir)); } catch { return []; }
+  return files
+    .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => m[1])
+    .sort()
+    .reverse()
+    .slice(0, limit);
+}
+
+/** Read one archived day back (plain or gz). */
+export function readArchivedDroughtDay(iso: string, baseDir?: string): DroughtRec[] {
+  const dir = droughtDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: DroughtRec[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch { continue; }
+    }
+    return out;
+  }
+  return [];
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; drought: DroughtRec[] } | null = null;
@@ -200,14 +236,51 @@ export function latestDrought() {
   return cache;
 }
 
-export async function refreshDroughtCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
+/** Test-only: clears the module-level cache/dedup state so a test can
+ *  exercise a genuine cold-boot scenario (same shape as fdaEvents.ts's own
+ *  `_resetFdaForTests`) instead of inheriting state from an earlier test in
+ *  this same process. */
+export function _resetDroughtForTests(): void {
+  cache = null;
+  archivedKeys.clear();
+  seeded = false;
+}
+
+export async function refreshDroughtCache(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
+  // fetchDrought THROWS (not just returns []) when every AOI fails —
+  // caught here, not left to the outer swallow, so a total-outage cycle
+  // still reaches the archive/restore logic below instead of exiting
+  // early (unlike fdaEvents.ts's fetchFdaEvents, which never throws; this
+  // module's own per-AOI failure count intentionally does, see fetchDrought
+  // above, so the two siblings need slightly different plumbing here even
+  // though the cache-restore contract itself is identical).
+  let drought: DroughtRec[] = [];
   try {
-    const drought = await fetchDrought(fetchImpl, nowMs);
-    if (drought.length || !cache) cache = { at: Date.now(), drought };
-    try { archiveDrought(drought, undefined, nowMs); } catch {}
-    try { gzipOldDroughtDays(undefined, nowMs); } catch {}
+    drought = await fetchDrought(fetchImpl, nowMs);
   } catch (e: any) {
     console.error("[datacore] drought refresh:", e?.message || e);
+  }
+  if (drought.length) cache = { at: Date.now(), drought };
+  try { archiveDrought(drought, baseDir, nowMs); } catch {}
+  try { gzipOldDroughtDays(baseDir, nowMs); } catch {}
+  // COLD-CACHE-NO-DISK-BACKFILL FIX (2026-09-15, same shape as
+  // occVolume.ts/cftcCot.ts/appStoreRankings.ts/fdaEvents.ts's own
+  // "!cache && archived" branch): the pre-fix `if (drought.length ||
+  // !cache) cache = ...` set cache to an EMPTY, non-warming_up result the
+  // moment a live fetch returned zero rows on a cold boot (every AOI
+  // request failing/timing out at once) — silently masking a real
+  // transport failure as "checked, nothing pending" instead of restoring
+  // the real multi-week archive already on disk. Only ever fires when the
+  // live fetch produced nothing AND cache is still unset; a live fetch
+  // that succeeds always wins, and a transient empty fetch during steady
+  // state (cache already populated) leaves the existing cache alone, both
+  // unchanged from before.
+  if (!cache) {
+    const dates = listArchivedDroughtDates(baseDir, 1);
+    if (dates.length) {
+      const restored = readArchivedDroughtDay(dates[0], baseDir);
+      if (restored.length) cache = { at: Date.now(), drought: restored };
+    }
   }
 }
 
