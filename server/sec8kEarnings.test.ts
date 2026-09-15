@@ -379,3 +379,120 @@ test("getCikTickerMap: no primary class exists — falls back to the first-seen 
   const map = await getCikTickerMap(fx as any);
   assert.equal(map.get("1234567"), "ZZZ-WT");
 });
+
+// ── Archive + cold-cache backfill (2026-09-15 — cold-cache-no-disk-backfill
+// audit; mirrors edgarForm4.test.ts's identically-shaped archive/backfill
+// tests, same archiveBaseDir()/DATA_DIR resolution convention) ─────────────
+import fs2 from "node:fs";
+import os2 from "node:os";
+import path2 from "node:path";
+import {
+  archiveEarnings8Ks, readEarnings8kHistory, gzipOldEarnings8kDays,
+  refreshEarnings8kCache, latestEarnings8Ks, _resetEarnings8kCacheForTests,
+  type Earnings8K,
+} from "./sec8kEarnings";
+
+const mkFiling8k = (acc: string, filedAt: string): Earnings8K => ({
+  accession: acc, cik: "1", companyName: "TEST CO", filedAt,
+  acceptanceDatetime: filedAt, ticker: "TST", itemCodes: ["2.02"],
+  indexUrl: `https://www.sec.gov/x/${acc}/`, exhibitUrl: `https://www.sec.gov/x/${acc}/ex99.htm`,
+  text: "results text", textLength: 12, truncated: false,
+});
+
+test("archiveEarnings8Ks appends once per accession (restart-safe dedup) and history reads back", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-"));
+  const t0 = Date.UTC(2026, 6, 4, 12, 0, 0);
+  assert.equal(archiveEarnings8Ks([mkFiling8k("E-1", "2026-07-04"), mkFiling8k("E-2", "2026-07-04")], base, t0), 2);
+  assert.equal(archiveEarnings8Ks([mkFiling8k("E-1", "2026-07-04"), mkFiling8k("E-3", "2026-07-04")], base, t0 + 1000), 1,
+    "already-archived accession must not duplicate");
+  const hist = readEarnings8kHistory(7, base, t0 + 2000);
+  assert.equal(hist.length, 3);
+  assert.ok(hist.every((f) => f.companyName === "TEST CO"));
+});
+
+test("gzipped old earnings8k days remain readable through readEarnings8kHistory", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-gz-"));
+  const t0 = Date.UTC(2026, 6, 1, 12, 0, 0);
+  archiveEarnings8Ks([mkFiling8k("G-1", "2026-07-01")], base, t0);
+  const gz = gzipOldEarnings8kDays(base, t0 + 3 * 86400_000);
+  assert.equal(gz, 1, "old day file should gzip");
+  const hist = readEarnings8kHistory(7, base, t0 + 3 * 86400_000);
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].accession, "G-1");
+});
+
+test("refreshEarnings8kCache: cold cache backfills from the on-disk earnings8k archive when the live poll throws — the same cold-cache-no-disk-backfill class edgarForm4.ts's refreshForm4Cache already closed, found unfixed here by the 2026-09-15 module audit (a redeploy/SEC-EDGAR-outage must not report warming_up over real archived filings, and must not silently cache an empty list either)", async () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetEarnings8kCacheForTests();
+  try {
+    // earnings8kDir(undefined) resolves through archiveBaseDir() ->
+    // DATA_DIR/datacore_archive/earnings8k — mirrored here so the archived
+    // day lands where refreshEarnings8kCache's own baseDir-less backfill
+    // path will actually look for it. Dated "today" (real wall clock)
+    // since refreshEarnings8kCache/backfillEarnings8kFromArchive take no
+    // injectable nowMs and the default 5-day lookback is measured from
+    // Date.now().
+    const dir = path2.join(base, "datacore_archive", "earnings8k");
+    fs2.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs2.writeFileSync(path2.join(dir, `${today}.jsonl`), JSON.stringify(mkFiling8k("COLD-1", today)) + "\n");
+
+    assert.equal(latestEarnings8Ks(), null, "cache must still be cold going into this cycle");
+    const origFetch = global.fetch;
+    global.fetch = (async () => { throw new Error("SEC EDGAR unreachable"); }) as any;
+    try {
+      await refreshEarnings8kCache(15);
+    } finally {
+      global.fetch = origFetch;
+    }
+    const cached = latestEarnings8Ks();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-1", "backfilled from the archived filing, not fabricated");
+  } finally {
+    _resetEarnings8kCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refreshEarnings8kCache: an empty-but-non-throwing live poll also backfills from disk when the cache is cold (not just the throw path)", async () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-coldcache-empty-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetEarnings8kCacheForTests();
+  try {
+    const dir = path2.join(base, "datacore_archive", "earnings8k");
+    fs2.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs2.writeFileSync(path2.join(dir, `${today}.jsonl`), JSON.stringify(mkFiling8k("COLD-2", today)) + "\n");
+
+    // An empty (no Item 2.02 filings this cycle), NON-throwing atom feed —
+    // fetchLatestEarnings8Ks resolves to [] rather than throwing.
+    const origFetch = global.fetch;
+    global.fetch = (async () => ({
+      ok: true, status: 200,
+      text: async () => `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>`,
+    })) as any;
+    try {
+      await refreshEarnings8kCache(15);
+    } finally {
+      global.fetch = origFetch;
+    }
+    const cached = latestEarnings8Ks();
+    assert.ok(cached, "cache must be populated from disk, not left null, on an empty-but-successful poll");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-2");
+  } finally {
+    _resetEarnings8kCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("history route + poll-loop archiving are wired", () => {
+  const routes = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "routes.ts"), "utf8");
+  assert.ok(routes.includes("/api/data/earnings-language"), "earnings-language route missing");
+  const mod = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "sec8kEarnings.ts"), "utf8");
+  assert.ok(mod.includes("archiveEarnings8Ks(filings)"), "refresh loop must archive every poll");
+});
