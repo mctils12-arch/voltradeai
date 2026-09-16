@@ -1108,233 +1108,6 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     }
 
 
-def _setup_low_iv_breakout_buy(ticker: str, price: float, vxx_ratio: float) -> Optional[dict]:
-    """
-    SETUP 4: LOW-IV BREAKOUT BUY (buy cheap options before a move)
-
-    What is it:
-      When a stock's IV is at its 52-week LOW (IV rank < 20), options are CHEAP.
-      The market is NOT expecting this stock to move. If it does move — in either
-      direction — the options buyer wins both from the direction AND from IV expanding
-      back toward normal levels.
-
-      This is the opposite of premium selling. We buy when cheap, sell when expensive.
-      A straddle here (buy call + buy put) is a bet that the stock WILL move, regardless
-      of direction. Good before catalyst events that the market hasn't priced in yet.
-
-    Best conditions:
-      - IV rank < 20 (options at 52-week lows = cheapest they've been all year)
-      - Stock in a tight price range (low ATR = hasn't moved recently = coiled)
-      - Reasonable premium (straddle costs < 3% of stock price — otherwise even if
-        it moves, the entry cost eats all the profit)
-
-    Risk:
-      - If the stock stays flat, the options lose value through time decay (theta).
-      - That's why we pick short-term options (14-21 days) to limit theta exposure.
-    """
-    if not _is_regular_hours():
-        return None
-    if vxx_ratio >= 1.20:
-        return None  # In elevated fear, "low IV" stocks may just be quiet for a reason
-
-    iv_rank = _fetch_iv_rank(ticker)
-    if iv_rank is None or iv_rank > 20:
-        return None  # IV not cheap enough
-
-    # Look for short-dated options (14-21 days) — minimize theta burn
-    contracts = _fetch_options_chain(ticker, price, min_days=10, max_days=25)
-    if not contracts:
-        return None
-
-    # Buy ATM straddle at 50-delta — maximum sensitivity to a big move in either direction
-    # When IV is at 52-week lows, ATM options are the cheapest they've been all year.
-    # We want 50-delta because that's where the most gamma lives — fastest P&L if it moves.
-    best_call = _find_by_delta(contracts, "call", target_delta=0.50, tolerance=0.10)
-    best_put  = _find_by_delta(contracts, "put",  target_delta=0.50, tolerance=0.10)
-
-    if not best_call or not best_put:
-        return None
-
-    straddle_price  = best_call["mid"] + best_put["mid"]
-    straddle_pct    = straddle_price / price * 100 if price > 0 else 99
-
-    # Only worth buying if straddle costs < 5% of stock
-    # v1.0.33: raised from 3% to 5% — in calm markets most liquid straddles sit 3-5%.
-    # At 5%, a $100 stock costs $5 straddle → need ~5% move to break even.
-    # With IVR < 20, implied vol is near 52-week lows, so realized moves tend to exceed IV.
-    if straddle_pct >= 5.0:
-        return None
-
-    # Bid/ask quality check
-    # v1.0.33: widened from 0.12 to 0.15 — consistent across all setups
-    if best_call["spread_pct"] > 0.15 or best_put["spread_pct"] > 0.15:
-        return None  # Too illiquid — entry cost will eat the edge
-
-    avg_iv   = (best_call["iv"] + best_put["iv"]) / 2
-    # The breakeven move needed: straddle cost / stock price
-    breakeven_pct = straddle_pct
-
-    # Research: Carr & Wu 2016 — buying options when IV is at 52-week low captures
-    # the subsequent mean-reversion of IV back to normal levels (vol of vol effect).
-    # IV rank 20 → 0 bonus; IV rank 0 → 15 bonus = score 75
-    cheapness_bonus = min(15, (20 - iv_rank) * 0.75)
-    rules_score = min(82, 60 + cheapness_bonus)
-
-    # ML blend: 60% rules + 40% ML
-    # ML trained on low-IV days — knows which combo of low IV + regime conditions
-    # historically produced large enough moves to profit from straddle buying
-    spy_ma = _get_spy_vs_ma50()
-    vrp_est = max(-20.0, min(20.0, (vxx_ratio - 1.0) * 50))
-    ml_features = _build_setup_features(
-        vxx_ratio=vxx_ratio, spy_vs_ma50=spy_ma,
-        iv_rank=float(iv_rank), vrp=vrp_est, days_to_earn=99.0)
-    ml_prob = _options_ml_score(ml_features)
-    ml_score_val = ml_prob * 100
-    score = round(min(82, rules_score * 0.60 + ml_score_val * 0.40), 1)
-
-    return {
-        "ticker":           ticker,
-        "setup":            "low_iv_breakout_buy",
-        "score":            score,
-        "price":            price,
-        "action_label":     f"BUY STRADDLE (IV rank {iv_rank:.0f}/100 — options at 52wk low)",
-        "options_strategy": "buy_straddle",
-        "iv_rank":          iv_rank,
-        "avg_iv":           round(avg_iv * 100, 1),
-        "straddle_price":   round(straddle_price, 2),
-        "straddle_pct":     round(straddle_pct, 2),
-        "breakeven_pct":    round(breakeven_pct, 2),
-        "best_call_occ":    best_call["occ_symbol"],
-        "best_put_occ":     best_put["occ_symbol"],
-        "reasoning": (
-            f"IV rank {iv_rank:.0f}/100 — options at 52-week low. "
-            f"ATM IV {avg_iv*100:.0f}%. Straddle costs ${straddle_price:.2f} "
-            f"({straddle_pct:.1f}% of stock). Breakeven: stock moves >{breakeven_pct:.1f}% either way."
-        ),
-        "source": "options_scanner",
-        "side": "buy",
-    }
-
-
-def _setup_gamma_pin(ticker: str, price: float) -> Optional[dict]:
-    """
-    SETUP 5: GAMMA PIN (expiry day — trade toward the pinned strike)
-
-    What is it:
-      On expiration day (Friday, or 0DTE), market makers who sold options must
-      constantly buy/sell shares to "delta hedge" — keep their risk neutral.
-      When there is a HUGE amount of open interest at a nearby strike, the
-      market makers' hedging activity actually pulls the stock TOWARD that strike
-      (called "pinning"). The stock gets magnetically attracted to the big OI strike.
-
-      Example: If AAPL has 50,000 call contracts at $175 and it's currently at $177
-      on a Friday, AAPL will likely drift toward $175 by end of day.
-
-    Best conditions:
-      - Today is Friday (or 0DTE / 1DTE day)
-      - One strike has MUCH higher OI than surrounding strikes (3x+)
-      - That strike is within 2% of current price
-      - We buy a call spread (if pin strike is above current) or put spread (if below)
-        targeting the pin by end of day.
-
-    Risk:
-      - If the market moves sharply before the pin can form, the trade loses.
-      - We use 0DTE or 1DTE options to minimize cost (they're very cheap).
-    """
-    if not _is_regular_hours():
-        return None
-    et_now = _et_now()
-    # Only run near expiry days (Friday = weekday 4, or any 0DTE check)
-    is_friday = et_now.weekday() == 4
-    is_afternoon = et_now.hour >= 12  # After noon ET — pin effect strongest 1pm-3pm
-    if not (is_friday and is_afternoon):
-        return None
-
-    # Fetch 0DTE/1DTE options only
-    contracts = _fetch_options_chain(ticker, price, min_days=0, max_days=2)
-    if not contracts or len(contracts) < 4:
-        return None
-
-    # Aggregate OI by strike (calls + puts together)
-    oi_by_strike: dict = {}
-    for c in contracts:
-        oi_by_strike[c["strike"]] = oi_by_strike.get(c["strike"], 0) + c["oi"]
-
-    if not oi_by_strike:
-        return None
-
-    # Find the strike with highest total OI
-    max_oi_strike = max(oi_by_strike, key=oi_by_strike.get)
-    max_oi        = oi_by_strike[max_oi_strike]
-
-    # Check that this strike is within 2% of current price
-    if abs(max_oi_strike - price) / price > 0.02:
-        return None
-
-    # Check that this strike dominates (3x higher OI than average of nearby strikes)
-    nearby_oi = [oi for s, oi in oi_by_strike.items()
-                 if s != max_oi_strike and abs(s - price) / price < 0.05]
-    avg_nearby = sum(nearby_oi) / len(nearby_oi) if nearby_oi else 0
-    if avg_nearby > 0 and max_oi < avg_nearby * 3:
-        return None  # No dominant pin strike
-
-    # Direction: if pin is above → stock pulled up → buy call
-    #            if pin is below → stock pulled down → buy put
-    direction = "call" if max_oi_strike >= price else "put"
-    pin_dist_pct = round((max_oi_strike - price) / price * 100, 2)
-
-    # Find appropriate contract
-    target_contracts = [c for c in contracts if c["opt_type"] == direction
-                        and c["strike"] == max_oi_strike
-                        and c["bid"] >= 0.05]
-    if not target_contracts:
-        return None
-    best = target_contracts[0]
-
-    # Research: Ni, Pearson & Poteshman 2005 (U Chicago) — proved empirically that
-    # stocks with heavy OI at nearby strikes are magnetically pulled toward that strike
-    # by market maker delta hedging. Effect is strongest in the last 2 hours of trading.
-    # OI 1000 → +1pt, OI 10000 → +10pt, OI 15000+ → capped at +15pt
-    oi_bonus = min(15, max_oi / 1000)
-    rules_score = min(80, 58 + oi_bonus)
-
-    # Gamma pin doesn't rely on IV level — it's purely a market structure phenomenon.
-    # ML contribution here is limited (the regime context still matters though —
-    # pins work less reliably in high-vol / panic regimes because large moves override them)
-    vxx_ratio_now = _get_vxx_ratio()
-    spy_ma_now    = _get_spy_vs_ma50()
-    ml_features = _build_setup_features(
-        vxx_ratio=vxx_ratio_now, spy_vs_ma50=spy_ma_now,
-        iv_rank=50.0, vrp=0.0, days_to_earn=99.0)
-    ml_prob = _options_ml_score(ml_features)
-    ml_score_val = ml_prob * 100
-    # Smaller ML weight for gamma pin (40% rules, 20% ML, 40% held at rules base)
-    # because the pin itself is the signal — regime is secondary
-    score = round(min(80, rules_score * 0.80 + ml_score_val * 0.20), 1)
-
-    return {
-        "ticker":           ticker,
-        "setup":            "gamma_pin",
-        "score":            score,
-        "price":            price,
-        "action_label":     f"BUY {direction.upper()} (gamma pin toward ${max_oi_strike:.0f} — {max_oi:,} OI)",
-        "options_strategy": f"buy_{direction}",
-        "pin_strike":       max_oi_strike,
-        "pin_oi":           max_oi,
-        "pin_dist_pct":     pin_dist_pct,
-        "occ_symbol":       best["occ_symbol"],
-        "contract_mid":     best["mid"],
-        "reasoning": (
-            f"Expiry day. Strike ${max_oi_strike:.0f} has {max_oi:,} OI "
-            f"({max_oi/avg_nearby:.1f}x avg nearby strikes). "
-            f"Pin is {abs(pin_dist_pct):.1f}% {'above' if pin_dist_pct > 0 else 'below'} current price. "
-            f"Buying {direction} at ${best['mid']:.2f}."
-        ),
-        "source": "options_scanner",
-        "side": "buy",
-    }
-
-
 def _setup_csp_normal_market(ticker: str, price: float, vxx_ratio: float) -> Optional[dict]:
     """
     SETUP 6: CASH-SECURED PUT IN NORMAL MARKETS (v1.0.33)
@@ -1820,31 +1593,23 @@ def scan_options() -> dict:
             r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
             if r3:
                 found.append(r3)
-        # Setup 4 (low-IV breakout buy) and Setup 5 (gamma pin) — DISABLED
-        # 2026-07-26 (KNOWN BROKEN #18 root-caused): neither setup name is
-        # in HIGH_EDGE_SETUPS (v1.0.34 disabled both — negative backtest/live
-        # P&L, same commit that disabled Setup 6/CSP below), so every result
-        # they produce was ALREADY discarded by get_options_trades()'s
-        # HIGH-EDGE GATE before it could ever become a trade. But both were
-        # still being COMPUTED for every candidate — and each one calls
-        # _fetch_options_chain() with its own (min_days,max_days), which is
-        # its own live OPRA network fetch (not cache-shared with Setup 3,
-        # different cache key). Setup 5 ran for every one of ~700-800
-        # candidates (high_iv + low_iv + anchor); Setup 4 added a SECOND
-        # fetch for every low_iv candidate (~400). All of that rode the
-        # single process-wide alpaca_throttle token bucket (180/min = 3
-        # req/sec, shared with the rest of the scan, see
-        # alpaca_rate_limiter.py) — ~700-1200 wasted serialized fetches at
-        # 3/sec is 230-400s, which is exactly the 255-275s
-        # last_phase=step6a_trade_loop_and_covered_calls age this session
-        # found on 12 consecutive live TIER2-ERROR daemon timeouts today
-        # (2026-07-26, /api/diag/scanner + /api/diag/audit). Removing both
-        # dead branches is a pure no-op on trade output (nothing they found
-        # was ever tradeable) and removes the dominant cost driver.
-        # _setup_low_iv_breakout_buy/_setup_gamma_pin are kept defined
-        # (not deleted) as a STALENESS AUDIT disabled-adapter exception,
-        # same precedent as Setup 6/CSP directly below — logged in
-        # open_questions.md, review-by 2026-08-26.
+        # Setup 4 (low-IV breakout buy) and Setup 5 (gamma pin) — REMOVED
+        # 2026-09-16 (STALENESS AUDIT, review-by 2026-08-26 expired). Both
+        # were disabled 2026-07-26 (KNOWN BROKEN #18 root-caused): neither
+        # setup name was ever in HIGH_EDGE_SETUPS (v1.0.34 disabled both —
+        # negative backtest/live P&L, same commit that disabled Setup
+        # 6/CSP below), so every result they produced was already
+        # discarded by get_options_trades()'s HIGH-EDGE GATE — but both
+        # were still being COMPUTED for every candidate, each paying its
+        # own live OPRA fetch against the single process-wide
+        # alpaca_throttle bucket (180/min = 3 req/sec), which was the
+        # dominant cost driver behind that day's TIER2-ERROR daemon
+        # timeouts. `_setup_low_iv_breakout_buy`/`_setup_gamma_pin` were
+        # kept defined past that fix as a STALENESS AUDIT disabled-adapter
+        # exception (review-by 2026-08-26); the review date passed with no
+        # re-enable proposal, so the functions were deleted outright — see
+        # research/open_questions.md and research/experiments.md,
+        # 2026-09-16.
         # Setup 7 (REAL-ALPHA-TUNE 2026-04-22): VRP-driven iron condor
         # on high-IV names without earnings. Uses vol_surface VRP/skew
         # to identify chronically overpriced options. Defined-risk condor

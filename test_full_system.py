@@ -790,8 +790,7 @@ def t_options_scanner_import_clean():
     fns  = [f for f in dir(mod) if callable(getattr(mod, f)) and not f.startswith("_")]
     required = ["scan_options","get_options_trades","_get_options_candidates",
                 "_fetch_options_chain","_find_by_delta","_setup_earnings_iv_crush",
-                "_setup_vxx_panic_put_sale","_setup_high_iv_premium_sale",
-                "_setup_low_iv_breakout_buy","_setup_gamma_pin"]
+                "_setup_vxx_panic_put_sale","_setup_high_iv_premium_sale"]
     missing = [f for f in required if f not in dir(mod)]
     if missing:
         return "FAIL", f"Missing functions: {missing}"
