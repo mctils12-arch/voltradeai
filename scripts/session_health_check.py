@@ -139,6 +139,37 @@ def check_health_subsystems(health):
     return finding(OK, "subsystems", "server/db/alpaca/python/scanner/licensing all ok")
 
 
+def check_process_faults(health):
+    """KNOWN BROKEN #41's 2026-09-16 crash-visibility fix (server/
+    crashVisibility.ts, v1.0.917) put unhandledRejection/uncaughtException
+    counts on /api/health's `checks.process` block — this is that NEXT
+    step, queued by the same session: ALARM on the counters instead of
+    leaving them to be read by hand. `stats` there is in-process memory,
+    not persisted, so a nonzero reading is always about the CURRENT
+    container's own uptime — read `lastRejection`/`lastException` first on
+    any restart-loop investigation, per that fix's own NEXT note."""
+    if not isinstance(health, dict):
+        return finding(WARN, "process_faults", "no /api/health response — cannot read crash-handler counters")
+    proc = (health.get("checks") or {}).get("process")
+    if not isinstance(proc, dict):
+        return finding(WARN, "process_faults", "no checks.process block — pre-v1.0.917 build, crash visibility unavailable")
+    rejections = proc.get("unhandledRejections") or 0
+    exceptions = proc.get("uncaughtExceptions") or 0
+    faults = proc.get("handlerFaults") or 0
+    notes = []
+    if rejections > 0:
+        last = proc.get("lastRejection") or {}
+        notes.append(f"{rejections} unhandled promise rejection(s), last at {last.get('at')}: {last.get('detail')}")
+    if exceptions > 0:
+        last = proc.get("lastException") or {}
+        notes.append(f"{exceptions} uncaught exception(s) (process exits after each), last at {last.get('at')}: {last.get('detail')}")
+    if notes:
+        return finding(ALARM, "process_faults", "; ".join(notes))
+    if faults > 0:
+        return finding(WARN, "process_faults", f"{faults} crash-handler fault(s) — a FATAL-* audit line may be missing, trace incomplete")
+    return finding(OK, "process_faults", "no unhandled rejections/exceptions this container's uptime")
+
+
 def check_alt_data_enrichment(diagnostic_entries, min_entries_for_verdict=3):
     """KNOWN BROKEN #21: deep_score's 5-fetcher enrichment block (wikipedia/
     gdelt/fred are the 3 with a cache-freshness alarm) going permanently
@@ -339,6 +370,7 @@ def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
         check_deploy_gate(health),
         check_liveness(health),
         check_health_subsystems(health),
+        check_process_faults(health),
         check_alt_data_enrichment(diagnostic_entries),
         check_daemon_memory(daemon),
         check_tier2_daemon_timeouts(tier2_error_entries),

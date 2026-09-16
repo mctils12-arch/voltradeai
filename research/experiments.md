@@ -3,6 +3,101 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine session) [REPAIR] — `scripts/session_health_check.py` now ALARMs on `checks.process.unhandledRejections`/`uncaughtExceptions` — the NEXT step the crash-visibility fix (v1.0.917, prior session this date) queued for itself (v1.0.918)
+
+TERRITORY: ops/diagnostic tooling extending the same T-BOT /api/health surface
+`server/crashVisibility.ts` shipped this date, + SHARED-minimal, last
+(package.json, research/*).
+
+MEMORY PROTOCOL / loop-health check first: read CLAUDE.md, experiments.md,
+open_questions.md, wishlist.md. Last-10 session tags: REPAIR×4, PIPELINE×4,
+PRODUCT(counts as PIPELINE)×1, — 4/10 REPAIR, under the 7+ thrash threshold,
+no meta-repair intervention needed. `/api/health` polled live: `status:
+"degraded"` — `bot.liveness.dark: true` (26.0 market hours / 151.9h
+wall-clock dark since 2026-09-10T03:12:26Z) is the EXPECTED, already-
+surfaced state: the -18.0% drawdown kill switch tripped that timestamp
+exactly (KNOWN BROKEN #43) and is latched by design pending a human's
+Alpaca-dashboard call on KNOWN BROKEN #42's real-loss-vs-data-glitch
+question (wishlist.md: "Nothing autonomous will clear it," human already
+push-notified 2026-09-10). Not re-notified — no new information. Site
+itself, deploy gate, process faults, daemon, ML feedback, tier2 timeouts
+all OK.
+
+PRIMARY ACTION (REPAIR MANDATE — KNOWN BROKEN #41 first): the crash-
+visibility fix this session's predecessor shipped (v1.0.917) put
+`unhandledRejections`/`uncaughtExceptions`/`handlerFaults` +
+`lastRejection`/`lastException` on `/api/health`'s `checks.process` block,
+and its own NEXT note asked for exactly one follow-up: "teach
+`session_health_check.py` to ALARM on `checks.process.unhandledRejections
+> 0` ... and, on the next restart loop, read the FATAL-* lines FIRST."
+Read the actual current code of both files this session (READ BEFORE
+WRITE) before touching either.
+
+CHANGE (v1.0.918): new `check_process_faults(health)` in
+`scripts/session_health_check.py`, wired into `run_all_checks()` right
+after `check_health_subsystems` (7 -> 8 -> 9 total findings). ALARM when
+`unhandledRejections > 0` or `uncaughtExceptions > 0`, naming the count and
+the `lastRejection`/`lastException` `{at, detail}` pair verbatim so a
+future restart-loop investigation reads the FATAL-* reason directly from
+this script's output instead of re-deriving it from `/api/diag/audit` by
+hand. WARN (not ALARM — meta, not itself a crash) when only
+`handlerFaults > 0` (the audit sink itself threw; the FATAL-* trace may be
+incomplete). WARN when `checks.process` is absent entirely (pre-v1.0.917
+build still live — matches this script's existing pattern for
+`deploy_gate`'s old-build case). Note for future sessions: `stats` in
+`crashVisibility.ts` is in-process memory, not persisted across restarts —
+a nonzero reading is always scoped to the CURRENT container's own uptime,
+never cumulative across a crash-loop.
+
+RATCHET: `test_session_health_check.py` — 6 new tests (`_health()`
+fixture gained an optional `process=` param, default clean/zero so every
+pre-existing test is unaffected): OK-when-clean, ALARM-on-rejection
+(asserts count + `lastRejection.detail` both appear in the finding text),
+ALARM-on-exception (same for `lastException`), WARN-on-handler-fault-
+alone, WARN-on-missing-block (pre-v1.0.917), WARN-on-no-health-response.
+`test_run_all_checks_returns_eight_findings` renamed/updated to nine.
+
+GATES: `python3 -m pytest -q` — 2079 passed, 2 skipped, 0 failed (full
+repo suite; this sandbox was missing yfinance/scipy/Pillow/openpyxl going
+in, installed via `pip install -r requirements.txt` + the two not yet
+pinned there to get a real baseline rather than skip verification — no
+code change from that). `python3 -m pytest -q test_session_health_check.py`
+— 63 passed on its own. This change touches only a read-only diagnostic
+script (no server/*.test.ts or client/ files touched), so the TS/client
+gate is unaffected by this PR; not re-run here. Backtest: N/A —
+diagnostic/ops tooling, no strategy/parameter/measurement-code path
+touched, PROMOTION RULE 3 doesn't apply.
+
+Live-verified: ran the updated script against the live site this session
+(`python3 scripts/session_health_check.py`) — `process_faults: OK, no
+unhandled rejections/exceptions this container's uptime` (expected: the
+crash-visibility fix's own counters are clean right now), all other
+findings unchanged from the direct `/api/health` poll above.
+
+SIDE FINDING, NOT FIXED THIS SESSION (own logical change, would need its
+own PR): that live-verification run's `main()` called
+`save_outage_state()` and it silently DROPPED the persisted
+`last_recovered_utc`/`last_outage_started_utc` fields from
+`research/outage_state.json` — `compute_outage_state()`'s "still up, no
+transition" branch (`if health_reachable: ... return {"down_since": None}`)
+only preserves that history on the EXACT run that observes the down->up
+transition; any later healthy run collapses it back to a bare
+`{"down_since": None}`, silently erasing the last-known incident's
+timestamps for any future session (`git checkout -- research/
+outage_state.json` reverted the local side effect before this commit, but
+the same erasure would happen for real the next time ANY session runs this
+script live against the currently-recovered site — likely already
+overdue since the 02:40Z recovery). Filed here rather than fixed inline:
+it's a distinct logical change (history-preservation bug, not the
+process-faults ALARM this PR is about) and PROMOTION RULE 5 says no
+bundling. A future session's fix: carry `last_recovered_utc`/
+`last_outage_started_utc` forward from `prior_state` whenever they're
+present and `down_since` is already null, not just on the transition
+edge.
+
+STARVED: no — primary action was the explicit queued NEXT from the prior
+session, budget did not extend to a second fall-through item this pass.
+
 ## 2026-09-16 (interactive session, third entry, same human directive) [REPAIR] — KNOWN BROKEN #41: the process had NO unhandledRejection / uncaughtException handler, so any un-awaited rejected promise ended Node with the reason on a stderr no session can read; `server/crashVisibility.ts` now audits FATAL-REJECTION (and keeps the process alive) / FATAL-EXCEPTION (then exit 1), with counts on /api/health — AND the live memory ceilings (v1.0.916, read this session) rule OOM OUT for the 2026-09-08 restart loop (v1.0.917)
 
 TERRITORY: T-BOT (server/bot.ts boot + /api/health, new

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
 import session_health_check as hc  # noqa: E402
 
 
-def _health(dark=False, status="ok", detail="", bad_subsystem=None):
+def _health(dark=False, status="ok", detail="", bad_subsystem=None, process=None):
     checks = {
         "server": {"status": "ok"}, "database": {"status": "ok"},
         "alpaca": {"status": "ok"}, "python": {"status": "ok"},
@@ -21,6 +21,10 @@ def _health(dark=False, status="ok", detail="", bad_subsystem=None):
             {"dark": True, "marketHours": 3.0, "wallHours": 25.0, "detail": detail}
             if dark else {"dark": False}
         )},
+        "process": process if process is not None else {
+            "unhandledRejections": 0, "uncaughtExceptions": 0, "handlerFaults": 0,
+            "lastRejection": None, "lastException": None,
+        },
     }
     if bad_subsystem:
         checks[bad_subsystem] = {"status": "error"}
@@ -75,6 +79,57 @@ def test_subsystems_ignores_bot_status_field():
     # the other subsystems use — must not be misclassified as degraded.
     f = hc.check_health_subsystems(_health())
     assert "bot=" not in f["detail"]
+
+
+# ── check_process_faults (KNOWN BROKEN #41's crash visibility, v1.0.917) ──
+
+def test_process_faults_ok_when_clean():
+    f = hc.check_process_faults(_health())
+    assert f["severity"] == hc.OK
+
+
+def test_process_faults_alarm_on_unhandled_rejection():
+    f = hc.check_process_faults(_health(process={
+        "unhandledRejections": 2, "uncaughtExceptions": 0, "handlerFaults": 0,
+        "lastRejection": {"at": "2026-09-16T12:00:00Z", "detail": "TypeError: boom"},
+        "lastException": None,
+    }))
+    assert f["severity"] == hc.ALARM
+    assert "2 unhandled promise rejection" in f["detail"]
+    assert "TypeError: boom" in f["detail"]
+
+
+def test_process_faults_alarm_on_uncaught_exception():
+    f = hc.check_process_faults(_health(process={
+        "unhandledRejections": 0, "uncaughtExceptions": 1, "handlerFaults": 0,
+        "lastRejection": None,
+        "lastException": {"at": "2026-09-16T12:00:00Z", "detail": "RangeError: nope"},
+    }))
+    assert f["severity"] == hc.ALARM
+    assert "1 uncaught exception" in f["detail"]
+    assert "RangeError: nope" in f["detail"]
+
+
+def test_process_faults_warn_on_handler_fault_alone():
+    f = hc.check_process_faults(_health(process={
+        "unhandledRejections": 0, "uncaughtExceptions": 0, "handlerFaults": 1,
+        "lastRejection": None, "lastException": None,
+    }))
+    assert f["severity"] == hc.WARN
+    assert "handler fault" in f["detail"]
+
+
+def test_process_faults_warn_when_block_missing_pre_v1_0_917():
+    h = _health()
+    del h["checks"]["process"]
+    f = hc.check_process_faults(h)
+    assert f["severity"] == hc.WARN
+    assert "pre-v1.0.917" in f["detail"]
+
+
+def test_process_faults_warn_when_no_health_response():
+    f = hc.check_process_faults(None)
+    assert f["severity"] == hc.WARN
 
 
 # ── check_alt_data_enrichment (KNOWN BROKEN #21) ─────────────────────────
@@ -330,12 +385,13 @@ def test_overall_exit_code_empty_is_ok():
     assert hc.overall_exit_code([]) == 0
 
 
-def test_run_all_checks_returns_eight_findings():
-    # 7 -> 8 on 2026-09-16: check_deploy_gate joined (KNOWN BROKEN #41).
+def test_run_all_checks_returns_nine_findings():
+    # 7 -> 8 on 2026-09-16 (check_deploy_gate, KNOWN BROKEN #41); 8 -> 9 same
+    # day (check_process_faults, that fix's own queued NEXT step).
     findings = hc.run_all_checks(_health(), {"alive": True, "rss_mb": 100}, [], [], {})
-    assert len(findings) == 8
+    assert len(findings) == 9
     assert all("severity" in f and "label" in f and "detail" in f for f in findings)
-    assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate"}
+    assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate", "process_faults"}
     assert findings[0]["label"] == "deploy_gate", "the deploy gate is the first line — a 503 there explains every other finding"
 
 
