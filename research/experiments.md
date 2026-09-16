@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine session) [PIPELINE] — finraQuery.ts joins the cold-cache-no-disk-backfill fix thread: a failed partition-LIST call (not just an empty/thrown data poll) left SI/threshold/weekly/monthly/blocks caches null forever despite `readPartition` already able to serve whatever's archived (v1.0.921)
+
+TERRITORY: T-DATACORE (server/finraQuery.ts, server/finraQuery.test.ts) +
+SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version
+bump, research/open_questions.md, research/experiments.md —
+ci/counter_baseline.txt deliberately NOT touched this session, see GATES
+below).
+
+TASK FRAMING: scheduled-routine session brief (read CLAUDE.md in full,
+then this file's tail, then open_questions.md's KNOWN BROKEN section,
+check /api/health + audit log, execute the single highest-value action,
+open one PR, log it).
+
+LOOP-HEALTH RATIO CHECK (session-start): last 10 tagged entries before this
+one = [PIPELINE]x2 (edgar13f.ts, cropConditions.ts), [RULE-REVIEW]x1 (15th
+automerge/market-hours-hold tally), [REPAIR]x5 (the 2026-09-16 outage-fix
+cluster: healthGate split, memory-wall reporting, crash-visibility,
+crash-handler-count alarms, staleness audit), [PRODUCT]+[PIPELINE]x1
+(gate1_pass reconciliation), [PRODUCT]x1 (signalLadder). 5 of 10 is below
+the 7+ thrash threshold — no meta-problem flag; that REPAIR cluster is a
+single now-resolved production outage (KNOWN BROKEN #41), not repeated
+re-breaking of the same fix. PROGRESS FLOOR: [PIPELINE]/[RESEARCH] work
+has shipped within the last 14 days (same day, in fact) — no stall to
+flag in wishlist.md.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 20
+https://voltradeai-production.up.railway.app/api/health` returned `HTTP/2
+200`, `serving.ok: true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915,
+still holding — `server.uptime_s` 6680s, well past any of the crash-loop's
+90-130s cycles). `status: "degraded"` for the SAME already-tracked, NOT-NEW
+reason every session today has confirmed: `bot.status: "killed"`,
+`bot.liveness.dark: true`, "LIVENESS ALARM: trading loop dark for 32.5
+market hours (161.2h wall-clock) since 2026-09-10T03:12:26Z" — the latched
+kill switch research/wishlist.md's "ACTIVE LIVE INCIDENT" header already
+carries as an explicit standing human-decision item ("Nothing autonomous
+will clear it"), not a fresh finding, so per the same discipline every
+2026-09-13 through 2026-09-16 session has applied (only notify on NEW
+information), not separately re-escalated here — no push notification
+sent this session either, for the same reason. `process.
+{unhandledRejections, uncaughtExceptions}` both 0. Does not block
+T-DATACORE work; proceeded.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item),
+took the immediately preceding (edgar13f.ts) session's own filed NEXT(1):
+"`finraQuery.ts` — the remaining cheapest instance" in the 2026-09-15
+cold-cache-no-disk-backfill module audit table (research/open_questions.md)
+— the cheapest concrete, queued, already-scoped item, continuing the
+established thread rather than starting a new investigation.
+
+READ BEFORE WRITE: read `server/finraQuery.ts` in full this session (not
+grepped) — this module's shape differs from every prior fix in this thread
+(edgar13f.ts, sec8kEarnings.ts, cropConditions.ts, edgarForm4.ts, etc.),
+which is exactly why the audit table marked it "small, narrower fix than
+the others" rather than "cheap — reuse": those modules cache a flat
+`{at, items[]}` list fed by ONE live data call, so `cacheBackfill.ts`'s
+shared `resolveCacheItems` helper (or the by-hand equivalent) applies
+directly. `finraQuery.ts` instead caches DERIVED summaries
+(`ShortInterestSummary`/`ThresholdSummary`/`AtsSymbolSummary`/
+`AtsBlocksSummary`) built from a TWO-STEP fetch (a `/partitions` LIST call
+to discover which partition is newest, THEN a paginated data pull for that
+partition) across FIVE distinct datasets (SI, threshold, weekly, monthly,
+blocks) sharing two caches (`siCache`, `atsCache`). The specific gap the
+audit named: every one of the five datasets' refresh logic only ever calls
+`readPartition` (the existing, working archive reader) AFTER a successful
+live partition-LIST call finds a newest value — if the LIST call itself
+fails or comes back empty (transport error, a `/partitions` endpoint
+outage, a cold boot racing the network), the code falls straight through
+to "no new partition to check" and does nothing, leaving `siCache`/
+`atsCache` null forever even when `readPartition` could trivially serve
+whatever's already archived on disk from a prior successful poll. This is
+the SAME bug class as every other module in this thread (a live-poll
+failure not falling back to disk) but manifesting at the LIST-call layer
+rather than the per-partition data-fetch layer, which is why the fix is
+narrower/different-shaped rather than a `resolveCacheItems` retrofit.
+
+FIX (v1.0.921): new `newestArchivedValue(dirName, baseDir)` — reads
+whichever partition values are already on disk (via the existing
+`seedSeen`/`archived` directory-listing machinery) and returns the
+lexicographically-max one; correct for both single-key values
+("2026-06-15") and `compositeKey()`-joined composite values
+("2026-06-15__T1") because the fixed-width ISO date prefix always differs
+before either string reaches its "__" tier suffix, so plain string
+comparison stays date-correct regardless of tier ordering (asserted
+directly in a new test). Wired into all five refresh paths, each gated on
+"only when there's no existing reading for that piece already" — the same
+invariant `resolveCacheItems` encodes elsewhere in this thread, so a
+transient empty LIST result never overwrites a good cache with a stale
+archive read: `refreshFinraQuery`'s SI and threshold branches each grew an
+`else if (!siCache?.si / !siCache?.threshold)` fallback; `refreshComposite`
+(shared by weekly + monthly) grew a `hasPrevCache` parameter and an
+early-return fallback branch reusing its own existing newest-period/
+tiers-covered/combine-rows logic, just driven by on-disk archived keys
+instead of a live LIST response; `refreshFinraAts`'s inline blocksSummary
+handling grew the equivalent `else if (!blocks)` branch.
+
+TESTS: 8 new tests in `server/finraQuery.test.ts` (14 -> 22, all pass):
+`newestArchivedValue`'s own unit test (empty dir -> null, single-key max,
+composite-key max with tier-suffix ordering asserted explicitly); two
+paired tests for `refreshFinraQuery` (LIST failure backfills SI+threshold
+from disk on a cold cache; a LIST failure never overwrites an existing
+good cache even when a newer partition exists on disk, proven by archiving
+one directly and asserting the cache stays on the older, cached reading);
+two paired tests for `refreshFinraAts` (same shape, across
+weekly/monthly/blocks together in one call). Confirmed the two PRE-EXISTING
+transport-failure tests ("refresh survives transport failure with honest
+warming state" / "refreshFinraAts: transport failure leaves the cache
+honestly null") still pass unchanged — both use a truly-empty `tmp()`
+archive dir with nothing on disk to fall back to, so the new fallback path
+correctly still yields null there, no fabrication.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a server-side cache/archive
+reliability fix in a raw-overlay data pipeline (FINRA settlement-stress +
+ATS venue data), no scoring, sizing, threshold, or strategy code touched,
+no trading-path file touched.
+
+GATES: `npx tsx --test server/finraQuery.test.ts`: 22/22 (14 pre-existing +
+8 new, 0 regressions). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0
+(fresh container — `npm ci` run first, 488 packages). Full suite `python3
+-m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, fresh container): 2080 passed, 1 skipped, 54
+subtests, 0 regressions — this diff touches no Python. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client suites green,
+python 2080/1/54, quarantine 0/1 none overdue, deploy-gate smoke PASS (200
+in 2.4s). `bash scripts/counter_ratchet.sh`: reports `tests_run_in_ci`
+456->458 and `assertions` 14548->14580 as IMPROVED, but checked BEFORE
+re-pinning whether either delta is this session's own effect (measured
+both counters against a clean, unmodified HEAD via `git stash`, matching
+the immediately preceding edgar13f.ts session's own precedent for this
+exact file): `tests_run_in_ci` was **already 458 at clean HEAD**
+(pre-existing drift, unrelated — this session adds `test()` calls to an
+existing file, not a new test file, so this file-counting metric can't
+move on this diff). `assertions` was already 14565 at clean HEAD (pin
+stale by 17, same pre-existing-drift shape); this session's own 8 new
+tests add exactly +15 (14565->14580, confirmed against the new tests'
+own assert-call count). Per PROMOTION RULE 5 and the identical precedent
+the immediately preceding session set on this same shared file, **neither
+pin is re-pinned in this PR** — the ratchet-visible totals mix this
+session's real +15 with unrelated pre-existing drift, and re-pinning to
+the mixed total would misattribute the drift to this PR; both counters
+already pass as-is (`OK: 25 counters at or better than baseline`). Left
+for whichever session's own change actually produced the pre-existing
+drift. `npm run build`/`npm run visual`: not run, zero `client/` files
+touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-16 US market hours
+(session start ~20:1x UTC / ~16:1x ET, near the close). This PR touches no
+trading-path code (a cache-backfill fix in a raw-overlay FINRA data
+pipeline + its tests + a version bump) — per this repo's own
+recently-reconfirmed convention (research/wishlist.md's 15th-occurrence
+automerge/market-hours-hold note, PR #1096) the `automerge` job merges on
+green CI regardless of market hours; noted here for the record, not held,
+matching every other diagnostic-shaped PR in this exact thread.
+
+NEXT: (1) the 16 remaining "new reader needed" instances in the same
+open_questions.md audit table (cbpBorderWait.ts, censusImports.ts,
+euDayAheadPrices.ts, euGenerationMix.ts, euMacro.ts, faaStatus.ts,
+fdicBanks.ts, fredMacro.ts, gdeltEvents.ts, gridDemand.ts,
+gridGeneration.ts, nhtsaComplaints.ts, nrcReactorStatus.ts,
+treasuryAuctions.ts, usaSpending.ts, usgsWater.ts, plus dtccSwaps.ts
+explicitly flagged lower-priority) — each needs its own archive-reader
+built from scratch before this thread's fix pattern applies, higher cost
+per module than every "cheap — reuse"/"narrower fix" instance closed so
+far, meaning the thread's cheap tier is now FULLY CLOSED (edgar13f.ts,
+sec8kEarnings.ts, cropConditions.ts, finraQuery.ts all fixed) and the next
+session picking this thread up should expect to scope and build a new
+reader, not just wire an existing one. (2) KNOWN BROKEN #41's still-open
+threads (memory leak contained-not-fixed, latched kill switch) —
+human-decision items, re-check status only, no autonomous action
+available per RECURRENCE ESCALATES and the standing "human decision"
+framing in wishlist.md; re-confirmed unchanged this session (32.5 market
+hours / 161.2h wall-clock dark), not re-notified (no new information).
+
+STARVED: no — this session took the queue's own most-recently-filed,
+concretely-scoped item (this exact thread's own prior-session NEXT(1)),
+diagnosed why its fix shape genuinely differed from the rest of the thread
+rather than forcing it onto the shared helper it doesn't fit, and closed
+it with a gate-clean fix + 8 regression tests, fully closing the thread's
+"cheap"-tier backlog in the process.
+
 ## 2026-09-16 (scheduled-routine [PRODUCT] session) [PIPELINE] — edgar13f.ts joins the cold-cache-no-disk-backfill fix thread: closes the last of the three "cheap — reuse" instances the 2026-09-15 module audit found, using the audit's own named archive reader (v1.0.920)
 
 TERRITORY: T-DATACORE (server/edgar13f.ts, server/edgar13f.test.ts) + SHARED

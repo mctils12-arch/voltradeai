@@ -260,6 +260,24 @@ export function isPartitionArchived(dirName: string, value: string, baseDir?: st
   return archived[dirName].has(value);
 }
 
+/** Newest partition value already ON DISK for a dir, independent of any
+ *  live partition-LIST call — the cold-cache fallback used when the live
+ *  LIST call itself fails or returns nothing, so a cold boot or an outage
+ *  at FINRA's own /partitions endpoint doesn't leave the cache null
+ *  forever despite readPartition() already being able to serve whatever's
+ *  archived. Values sort correctly whether single-key ("2026-06-15") or
+ *  compositeKey()-joined ("2026-06-15__T1"): the fixed-width ISO date
+ *  prefix always differs before either string reaches its "__" tier
+ *  suffix, so plain string comparison is date-correct either way. */
+export function newestArchivedValue(dirName: string, baseDir?: string): string | null {
+  seedSeen(dirName, baseDir);
+  let newest: string | null = null;
+  for (const v of archived[dirName]) {
+    if (newest === null || v > newest) newest = v;
+  }
+  return newest;
+}
+
 // Large per-partition datasets gz on write; small ones stay plain (not
 // worth the CPU/complexity — threshold ~17 rows/day, blocks ~192 rows/mo).
 const GZ_DIRS: Set<string> = new Set([DIRS.shortInterest, DIRS.weekly, DIRS.monthly]);
@@ -514,9 +532,22 @@ async function refreshComposite(
   fetchImpl: QueryFetchFn,
   baseDir: string | undefined,
   rt: string,
+  hasPrevCache: boolean,
 ): Promise<{ rows: any[]; tiersCovered: string[] } | null> {
   const tuples = await fetchPartitionTuples(dataset, fetchImpl);
-  if (!tuples || !tuples.length) return null;
+  if (!tuples || !tuples.length) {
+    // the LIST call failed/returned nothing — fall back to the newest
+    // period already archived on disk (only when there's no existing
+    // reading for this dataset to protect from a transient empty poll),
+    // same readPartition() the live path below uses post-success.
+    if (hasPrevCache) return null;
+    const newest = newestArchivedValue(dirName, baseDir)?.split("__")[0] ?? null;
+    if (newest == null) return null;
+    const tiersCovered = tiers.filter((tier) => isPartitionArchived(dirName, compositeKey([newest, tier]), baseDir));
+    if (!tiersCovered.length) return null;
+    const rows = tiersCovered.flatMap((tier) => readPartition(dirName, compositeKey([newest, tier]), baseDir));
+    return { rows, tiersCovered };
+  }
   const periods = Array.from(new Set(tuples.map((t) => t[0]))).slice(0, window);
   for (const period of periods) {
     for (const tier of tiers) {
@@ -553,9 +584,11 @@ export async function refreshFinraAts(
   try {
     const weekly = await refreshComposite(
       "weeklySummary", DIRS.weekly, "weekStartDate", "tierIdentifier", WEEKLY_TIERS, weeklyWindow, fetchImpl, baseDir, rt,
+      !!atsCache?.weekly,
     );
     const monthly = await refreshComposite(
       "monthlySummary", DIRS.monthly, "monthStartDate", "tierIdentifier", MONTHLY_TIERS, monthlyWindow, fetchImpl, baseDir, rt,
+      !!atsCache?.monthly,
     );
     // blocksSummary: single-key, reuse the part-1 primitives directly.
     let blocks: AtsBlocksSummary | null = atsCache?.blocks ?? null;
@@ -568,6 +601,12 @@ export async function refreshFinraAts(
         archivePartition(DIRS.blocks, p, rows, rt, baseDir);
       }
       const newestBlocks = blockParts.find((p) => isPartitionArchived(DIRS.blocks, p, baseDir));
+      if (newestBlocks) blocks = summarizeAtsBlocks(readPartition(DIRS.blocks, newestBlocks, baseDir));
+    } else if (!blocks) {
+      // LIST call failed/returned nothing and there's no existing blocks
+      // reading — fall back to the newest blocksSummary partition already
+      // archived on disk (same readPartition() the live path uses).
+      const newestBlocks = newestArchivedValue(DIRS.blocks, baseDir);
       if (newestBlocks) blocks = summarizeAtsBlocks(readPartition(DIRS.blocks, newestBlocks, baseDir));
     }
     if (weekly || monthly || blocks) {
@@ -614,6 +653,16 @@ export async function refreshFinraQuery(
         const s = summarizeShortInterest(rows);
         if (s) siCache = { at: Date.now(), si: s, threshold: siCache?.threshold ?? null };
       }
+    } else if (!siCache?.si) {
+      // the LIST call itself failed/returned nothing (cold boot or a
+      // /partitions outage) — fall back to whatever's already archived on
+      // disk instead of leaving the cache null forever (only when there is
+      // no existing SI reading to protect from a transient empty poll).
+      const newest = newestArchivedValue(DIRS.shortInterest, baseDir);
+      if (newest) {
+        const s = summarizeShortInterest(readPartition(DIRS.shortInterest, newest, baseDir));
+        if (s) siCache = { at: Date.now(), si: s, threshold: siCache?.threshold ?? null };
+      }
     }
     // threshold list — daily, tiny
     const thParts = await fetchPartitions("thresholdList", fetchImpl);
@@ -626,6 +675,12 @@ export async function refreshFinraQuery(
       }
       const newest = thParts.find((p) => isPartitionArchived(DIRS.threshold, p, baseDir));
       if (newest && siCache?.threshold?.trade_date !== newest) {
+        const s = summarizeThreshold(readPartition(DIRS.threshold, newest, baseDir));
+        if (s) siCache = { at: Date.now(), si: siCache?.si ?? null, threshold: s };
+      }
+    } else if (!siCache?.threshold) {
+      const newest = newestArchivedValue(DIRS.threshold, baseDir);
+      if (newest) {
         const s = summarizeThreshold(readPartition(DIRS.threshold, newest, baseDir));
         if (s) siCache = { at: Date.now(), si: siCache?.si ?? null, threshold: s };
       }
