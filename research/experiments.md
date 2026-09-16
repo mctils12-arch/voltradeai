@@ -3,6 +3,166 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine [PRODUCT] session) [PRODUCT] — signalLadder.tsx backfills detail_route for the 9 already-shipped gate1_pass /data pages the ladder never linked to, and fixes the honesty gap that reuse would otherwise create (v1.0.914, PR TBD)
+
+TERRITORY: primarily T-DATACORE (datacore/signal_ladder.json,
+server/signalLadder.ts, server/signalLadder.test.ts) with one minimal
+T-CLIENT edit that is inseparable from the same logical change
+(client/src/pages/signalLadder.tsx consumes the new field this session
+added) + scripts/visual_check.mjs (its fixture, ratchet-registered as
+T-CLIENT tooling but edited here per MERGE-ORDER PROTOCOL point 5 — a
+cross-territory change belongs wholly to the session owning its primary
+territory, never split) + SHARED-minimal last (package.json/
+package-lock.json version bump, this entry).
+
+LOOP-HEALTH RATIO CHECK (session-start): last 10 tagged entries before this
+one = [PIPELINE]x7, [REPAIR]x1, [RULE-REVIEW]x1, [RESEARCH]x1 — no thrash
+signal.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/open_questions.md's
+KNOWN BROKEN section: of 43 numbered items, only #41 (production outage,
+`research/outage_state.json` down_since 2026-09-10T20:18Z) is live and
+unmitigated; at this session's check (~2026-09-16T00:xxZ) continuous
+duration is ~124h. NOT RE-NOTIFIED: this thread's own standing rule
+("next doubling from the last on-record notification, ~76h" -> ~151h) is
+not crossed at ~124h, and this session found no new fact about the
+incident. Per the scheduled-task instructions for [PRODUCT] sessions
+("note it but proceed... product sessions do not preempt the DAILY
+routines' repair duty"), the outage is noted here and does not block
+T-DATACORE/T-CLIENT work — the DAILY routines own that escalation.
+research/wishlist.md's head (2026-09-14 automerge/market-hours process-gap
+finding) is moot this session (well outside market hours, ~20:03 ET at
+session start).
+
+PRIMARY-ACTION SELECTION: no queued NEXT item from the immediately
+preceding cold-cache-backfill thread belongs to a PRODUCT session (that
+thread is T-DATACORE repair work, already being worked session-to-session
+by whichever session picks it up next); per the SESSION BUDGET fall-through
+this session went to (b) build product UI/UX and (d) improve datacore's
+API boundary/docs/tests toward spinout-readiness simultaneously, via a
+survey of `datacore/signal_ladder.json` against `client/src/pages/`.
+
+FINDING: all 12 `gate1_pass` roots in the ladder registry carry
+`detail_route: null` (unset) — the ladder overview page
+(`client/src/pages/signalLadder.tsx`, #/data/signals) only ever exercised
+this field for the 2 `gate2_pass` roots (gnss_integrity_adsb,
+wikimedia_pageviews_attention). Cross-checked each `gate1_pass` id against
+`client/src/pages/` and `datamap.tsx`'s hash-route registrations
+(read directly, not grepped from memory): 9 of the 12 already have a
+dedicated, live, shipped /data page with zero ladder-overview discovery
+path — a visitor reading the platform's own honesty ledger (the ladder
+page's stated purpose) had no way to reach product surfaces that already
+exist. The remaining 3 (sec_form4_bulk_archive, entity_map_operator_ticker,
+port_dwell_maritime_transit) have no dedicated page and were left alone —
+not manufacturing a link that doesn't exist.
+
+HONESTY GAP FOUND BEFORE SHIPPING (would have been a real defect, not
+hypothetical): `signalLadder.tsx`'s existing link hardcodes the text "view
+live signal ->" for ANY root with a set `detail_route`, and the registry's
+own `_doc` had scoped the field to "gate2_pass or further" for exactly
+this reason. All 9 target pages are RAW-only, gate-2-not-attempted
+displays (verified by reading each page's own header comment: nrcReactorStatus.tsx,
+fredMacro.tsx, euMacro.tsx, appStoreRankings.tsx, githubOrgActivity.tsx,
+dtccSwaps.tsx, unComtrade.tsx, edgar13f.tsx, fleetUtilization.tsx all
+explicitly state "RAW display only" / "no predictive claim" in their own
+comments). Reusing the existing hardcoded "signal" label for them would
+have mislabeled 9 DATA-tier archives as validated SIGNALs — a real
+violation of RAW OVERLAYS vs SIGNALS (CLAUDE.md) and the PREMIUM
+EXPERIENCE STANDARD ("premium presentation of wrong numbers is fraud with
+good typography"), on the platform's own honesty-ledger page of all
+places. Fixed instead of reused as-is.
+
+FIX: `server/signalLadder.ts` gained two small pure functions —
+`isValidatedSignal(status, current_gate)` (true only for a genuine
+`*_pass` status at gate >= 2, mirroring `summarizeLadder`'s existing
+"furthest_gate_reached" convention so the two can never drift apart) and
+`detailRouteLabel(status, current_gate)` ("view live signal ->" only when
+`isValidatedSignal`, else "view live data ->"). `loadSignalLadder()` now
+attaches a computed `detail_route_label` to every root that carries a
+`detail_route`, server-side, so the honesty distinction lives in one
+tested place rather than being re-derived (or forgotten) by every
+consumer. `client/src/pages/signalLadder.tsx` renders `r.detail_route_label`
+(falling back to "view live data ->" if absent) instead of the old
+hardcoded string. `datacore/signal_ladder.json` gained `detail_route` on
+the 9 confirmed roots (fleet_utilization_aircraft -> #/data/fleet-utilization,
+fred_macro_series -> #/data/fred-macro, eu_macro_ecb_eurostat_bundesbank ->
+#/data/eu-macro, nrc_outage_reports -> #/data/nrc-reactor-status,
+app_store_rank_review_velocity -> #/data/appstore-rankings,
+github_org_engineering_momentum -> #/data/github-activity,
+dtcc_sbsdr_equity_swaps -> #/data/dtcc-swaps, un_comtrade_bilateral_trade ->
+#/data/un-comtrade, sec_edgar_13f_institutional_clustering ->
+#/data/filings13f — every route value cross-checked against
+`datamap.tsx`'s actual `window.location.hash ===` registrations, not
+guessed from filenames: e.g. edgar13f.tsx's real route is #/data/filings13f,
+not #/data/edgar-13f; appStoreRankings.tsx's is #/data/appstore-rankings,
+not #/data/app-store). The registry's `_doc` field description was updated
+to document the generalization and name the new server-computed-label
+mechanism. Zero trading-path code touched.
+
+RATCHET: 2 new tests in `server/signalLadder.test.ts` — `isValidatedSignal`/
+`detailRouteLabel` unit coverage across every status value (gate1_pass,
+gate2_pass, gate3_pass, gate2_pending, gate2_fail, raw_only, killed), and
+an integration test over the real committed registry asserting every root
+carrying `detail_route` also carries a `detail_route_label` that is never
+"view live signal" unless `isValidatedSignal` is true for that exact root
+— this is the regression test that would catch a future session copying
+the old hardcoded-string mistake forward, or adding a new detail_route
+without passing through the labeling function. `scripts/visual_check.mjs`'s
+`/api/data/signal-ladder` fixture gained a `fx_g1pass_detail` case (gate1_pass
++ detail_route + "view live data ->") alongside the existing gate2_pass
+case (now carrying its own `detail_route_label` explicitly, matching what
+the real server now sends) so the visual harness exercises both label
+states, not just the signal one.
+
+HONESTY GAP DERIVATION, NOT A CAUGHT-AFTER-THE-FACT A/B: the mislabeling
+risk was found by reading the registry's own `_doc` field description
+("gate2_pass or further") and each of the 9 target pages' own header
+comments BEFORE writing any detail_route entries, not by first shipping
+the naive hardcoded-string version and then discovering the bug — no
+naive version was ever written or tested. The new test in
+`server/signalLadder.test.ts` (asserting no root's `detail_route_label`
+claims "signal" unless `isValidatedSignal` is true for it) is what would
+catch this class of mistake if a future session skipped this reasoning
+step.
+
+GATES: `npm install` + `pip3 install -q -r requirements.txt
+-r requirements-dev.txt` (fresh sandbox, same recurring gap prior sessions
+have logged). `npx tsx --test server/signalLadder.test.ts` 7/7 passed.
+`npx tsx --test server/*.test.ts` 1685/1685 passed, 0 failed (no flake
+this run). `python3 -m pytest -q` 2066 passed, 1 skipped (pre-existing),
+0 regressions. `python3 -m pytest -q test_ts_code_only.py` 11 passed.
+`npx tsc --noEmit`: 12 pre-existing errors, none touching
+signalLadder.ts/.tsx or any file this session edited (TradeChart.tsx,
+datamap.tsx union-order, billing.ts, bot.ts, owmTiles.ts — all
+pre-existing per research/tsc_baseline.md's own triage). `npm run build`
+clean (pre-existing astronomy-engine/chunk-size warnings only, unrelated).
+VISUAL VERIFICATION (PROMOTION RULE 6, client/ touched): `node
+scripts/visual_check.mjs --page signals` at 390/768/1440 — 0 hard
+failures at all three widths; screenshot review confirms both link labels
+render correctly ("view live signal ->" on the gate-2-pass fixture,
+"view live data ->" on the new gate-1-pass fixture); the only warnings are
+pre-existing soft touch-target-size notices shared by many other elements
+on this page (not introduced by this change — same CSS class,
+`.vt-graph-example`, as the pre-existing link).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/P&L code
+touched; this is a read-only registry/UI change over already-compiled
+ladder data. NOT A RULE-REVIEW THRESHOLD CHANGE: no risk-limit constant
+touched. HYPOTHESIS: none — this is discoverability/honesty plumbing, not
+a new data root or signal claim; no backtest applies (PROMOTION RULE 3's
+Sharpe/drawdown gate is N/A, same as every other client/datacore-only PR
+in this log).
+
+NEXT: the 3 gate1_pass roots still without a dedicated page
+(sec_form4_bulk_archive, entity_map_operator_ticker,
+port_dwell_maritime_transit) are candidates for a future PRODUCT session's
+UI build — entity_map_operator_ticker in particular may already be
+partially reachable via #/data/graph (unverified this session, worth a
+direct read next time before assuming it needs a new page). Also worth a
+future audit: whether other ladder fields (readiness_trigger) have a
+similar "computed once, silently correct only by convention" pattern that
+should move server-side the way detail_route_label did.
+
 ## 2026-09-15 (scheduled-routine [PRODUCT] session, seventh session this UTC day) [PIPELINE] — cropConditions.ts joins the cold-cache-no-disk-backfill fix thread: continues the immediately preceding (sixth) session's own NEXT queue, first item (cheapest, existing reader to reuse) (v1.0.913, PR #1087)
 
 TERRITORY: T-DATACORE (server/cropConditions.ts, server/cropConditions.test.ts)

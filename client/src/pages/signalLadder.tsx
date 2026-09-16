@@ -23,6 +23,7 @@ interface LadderRoot {
   note: string;
   source_ref: string;
   detail_route?: string;
+  detail_route_label?: string;
 }
 interface LadderSummary {
   total: number;
@@ -222,7 +223,7 @@ export default function SignalLadderView({ onBack }: { onBack: () => void }) {
                         {r.detail_route && (
                           <>
                             <span>·</span>
-                            <a href={r.detail_route} className="vt-graph-example">view live signal →</a>
+                            <a href={r.detail_route} className="vt-graph-example">{r.detail_route_label ?? "view live data →"}</a>
                           </>
                         )}
                       </div>
