@@ -404,28 +404,26 @@ class TestFix5_NoStraddleScalpsOrCSP(unittest.TestCase):
             if "_setup_csp_normal_market" in stripped and not stripped.startswith("#"):
                 self.fail(f"_setup_csp_normal_market still called (uncommented): {stripped}")
 
-    def test_low_iv_and_gamma_pin_disabled_in_scan_options(self):
-        """2026-07-26 (KNOWN BROKEN #18): _setup_low_iv_breakout_buy and
-        _setup_gamma_pin must NOT be live-called in the scanner loop.
+    def test_low_iv_and_gamma_pin_removed(self):
+        """2026-09-16 (STALENESS AUDIT): _setup_low_iv_breakout_buy and
+        _setup_gamma_pin must not exist in options_scanner at all.
 
-        Neither setup name is in HIGH_EDGE_SETUPS (both already filtered
-        out of every real trade), but both were still being computed for
-        every candidate — each is its own live OPRA network fetch (not
-        cache-shared with Setup 3), riding the single process-wide
-        alpaca_throttle token bucket (3 req/sec). That was the dominant
-        driver of the daemon timing out mid-scan on live production. Same
-        "disabled but kept for reference" pattern as CSP above.
+        Originally disabled 2026-07-26 (KNOWN BROKEN #18) — neither setup
+        name was in HIGH_EDGE_SETUPS (both already filtered out of every
+        real trade), but both were still being computed for every
+        candidate, each its own live OPRA network fetch riding the single
+        process-wide alpaca_throttle token bucket (3 req/sec) — the
+        dominant driver of the daemon timing out mid-scan on live
+        production. Kept defined as a STALENESS AUDIT disabled-adapter
+        exception (review-by 2026-08-26); that date passed with no
+        re-enable proposal, so both functions were deleted outright.
         """
         import inspect
+        import options_scanner as os_mod
         from options_scanner import scan_options
+        self.assertFalse(hasattr(os_mod, "_setup_low_iv_breakout_buy"))
+        self.assertFalse(hasattr(os_mod, "_setup_gamma_pin"))
         source = inspect.getsource(scan_options)
-        lines = source.split("\n")
-        for line in lines:
-            stripped = line.strip()
-            if "_setup_low_iv_breakout_buy(" in stripped and not stripped.startswith("#"):
-                self.fail(f"_setup_low_iv_breakout_buy still called (uncommented): {stripped}")
-            if "_setup_gamma_pin(" in stripped and not stripped.startswith("#"):
-                self.fail(f"_setup_gamma_pin still called (uncommented): {stripped}")
         # Setup 3 must still be live (this isn't a blanket per-ticker gate removal)
         self.assertIn("_setup_high_iv_premium_sale(tkr", source)
 

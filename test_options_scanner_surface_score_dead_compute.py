@@ -16,9 +16,9 @@ removal, not a behavior change, same class as v1.0.503's Setup 4/5 removal.
 Full scan_options() with every network call mocked, following the
 established pattern for testing this specific closure (test_options_v134_
 fixes.py's own test_csp_disabled_in_scan_options/test_low_iv_and_gamma_pin_
-disabled_in_scan_options tests inspect scan_options()'s source rather than
-exercising the closure directly, since _check_ticker is defined inline and
-not independently importable) — this suite goes one step further and
+removed tests inspect scan_options()'s source rather than exercising the
+closure directly, since _check_ticker is defined inline and not
+independently importable) — this suite goes one step further and
 actually EXECUTES scan_options() end-to-end with mocks, so it is a true
 regression ratchet on `found`'s contents, not just a source-text pin.
 """

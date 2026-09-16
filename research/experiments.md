@@ -3,6 +3,183 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine session, third entry this UTC day) [REPAIR] — STALENESS AUDIT run (overdue since 2026-09-14): two expired REVIEW-BY items closed — `_setup_low_iv_breakout_buy`/`_setup_gamma_pin` deleted from `options_scanner.py`, OpenSky reinstatement item closed — register updated in place (v1.0.919)
+
+TERRITORY: T-BOT (options_scanner.py + its test files) + SHARED-minimal
+(package.json version bump, research/* — the AUDITS & DEBT register and
+the two closed items' own dated updates).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then this file (newest-at-
+top) and open_questions.md's KNOWN BROKEN header. Live `curl
+https://voltradeai.com/api/health` (16:01Z): `status:"degraded"`,
+`serving.ok:true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915, holding
+— the container itself serves fine). `bot.status:"killed"`, LIVENESS
+ALARM firing (28.5 market hours / 156.8h wall-clock dark since
+2026-09-10T03:12:26Z — the DD-halt kill switch from #42/#43, still
+latched, human decision per that item's own NEXT). This is the SAME
+already-logged, already-escalated, human-decision-pending state every
+session today has re-confirmed (most recently the immediately preceding
+session, ~26.0/153.9h) — not a new finding, not re-notified; nothing
+autonomous can clear it (FROZEN risk_kill_switch.py mechanism, owner-
+gated toggle only). KNOWN BROKEN #41/#42/#43 are the only open
+production-health items and none are actionable by this session.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET): no fresh audit-log bug, no
+freshly-matured experiment. `python3 scripts/research_state_check.py`:
+`thrash_ratio` 5/10 REPAIR in the last 10 tagged sessions (below the 7+
+trigger, no thrash intervention needed); `starvation_signal` 0
+consecutive STARVED (below the 10+ trigger); `audits_register` **WARN —
+overdue: STALENESS AUDIT (due 2026-09-14), CONSTITUTIONAL AUDIT (due
+2026-09-15)**. This exactly matches the immediately preceding session's
+own filed NEXT (2): "the AUDITS & DEBT register's staleness/
+constitutional audits — not checked this session ... a future session's
+fall-through should check last-run dates." Per CLAUDE.md's AUDITS & DEBT
+rule ("run the most overdue"), STALENESS AUDIT (2 days overdue) was
+picked over CONSTITUTIONAL AUDIT (1 day overdue).
+
+METHOD: rather than a full unscoped repo sweep (impractical for a single
+session against a codebase this size), searched for the STALENESS AUDIT
+policy's own named exception mechanism — disabled adapters logged with
+an explicit REVIEW-BY date (`grep -in "review-by" research/
+open_questions.md`) — since CLAUDE.md states outright "past its review
+date, the next session deletes it," making any hit a mechanically
+actionable finding, not a judgment call. Found exactly two, both expired:
+
+1. `_setup_low_iv_breakout_buy` / `_setup_gamma_pin` (options_scanner.py)
+   — disabled 2026-07-26 (KNOWN BROKEN #18, dead-compute removal from the
+   live scanner loop), kept DEFINED as the exception, REVIEW-BY
+   2026-08-26. 21 days expired, no re-enable proposal found anywhere in
+   this file or open_questions.md (grepped both, live, this session).
+   Verified live (READ BEFORE WRITE) that neither function had gained a
+   caller since: `grep` confirmed both were still referenced only in the
+   disabling comment and in three test files, never called from
+   `_check_ticker` or anywhere else. DELETED both function bodies
+   (options_scanner.py, ~230 lines) and updated the now-stale
+   "kept defined, not deleted" comment to record the deletion and point
+   here. Updated the three test files that referenced the deleted
+   functions: `test_full_system.py`'s `t_options_scanner_import_clean`
+   dropped both names from its required-functions list (it would
+   otherwise FAIL — those functions no longer exist);
+   `test_options_v134_fixes.py`'s
+   `test_low_iv_and_gamma_pin_disabled_in_scan_options` renamed to
+   `test_low_iv_and_gamma_pin_removed` and strengthened to assert
+   `not hasattr(...)` instead of just source-text-grepping for an
+   uncommented call (a strictly stronger check now that the deletion
+   makes it possible); `test_options_fixes.py`'s
+   `test_low_iv_straddle_cost_at_5pct`/`test_low_iv_spread_widened_to_015`
+   REMOVED outright (not weakened) — both called
+   `inspect.getsource(os_mod._setup_low_iv_breakout_buy)` to pin
+   parameter values inside a function that no longer exists; the
+   assertions have no subject left to test, same as deleting a test for
+   a deleted feature, not "weakening an assertion to dodge a bug" (the
+   REVIEW-BY expiry authorizing the deletion authorizes this too). Left
+   Setup 6/CSP (`_setup_csp_normal_market`, disabled the same v1.0.34
+   commit, same "kept defined" pattern) untouched — grepped for its own
+   REVIEW-BY and found none logged anywhere; out of this session's scope
+   without one, filed as a NEXT for a future STALENESS AUDIT to decide
+   whether it needs one rather than silently expanding this session's
+   single logical change.
+2. OpenSky reinstatement (open_questions.md) — REVIEW-BY 2026-08-17 (no
+   disabled adapter retained; the v1.0.43 implementation lives in git
+   history only). 30 days expired. `grep -i opensky` across this file and
+   open_questions.md, live, found no mention of a granted research
+   agreement since the original 2026-07-03 removal/email — the item's own
+   stated close condition ("if no agreement by then, close this item and
+   strike OpenSky from the redundancy candidates") is met. CLOSED per
+   that condition (docs-only; no code existed to remove). The vessels-
+   side redundancy gap that same paragraph names (single-sourced on
+   aisstream.io) is a separate, still-open item, not touched by this
+   closure.
+
+Both closures are DOCUMENTATION/DEBT-CLEANUP, not RULE REVIEW: neither
+touches a trading threshold, score, or sizing value — deleting
+already-unreachable dead code and closing an access-request tracking
+item with an already-logged, human-approved automatic close condition
+are both mechanical executions of a standing rule, not new judgment
+calls on live trading behavior.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on trade output —
+both deleted functions were already unreachable (`HIGH_EDGE_SETUPS`
+never included either setup name, confirmed unchanged by this diff;
+`_get_options_candidates()` already stopped returning the low-IV tier
+back in v1.0.503) — this removes dead code, it does not change what
+`get_options_trades()` can ever return. No effect on any live-serving
+route (options_scanner.py is Python-side only, invoked via the daemon
+RPC path, unchanged call signature). The OpenSky closure touches no
+runtime code at all (the aircraft provider chain — adsb.lol ->
+airplanes.live -> adsb.fi — is unchanged).
+
+GATES: `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, fresh-container provisioning, not a repo defect):
+**2080 passed, 1 skipped, 54 subtests** (prior baseline 2082, -2 net —
+exactly the 2 removed test_options_fixes.py assertions, the renamed
+test_options_v134_fixes.py test keeps the count neutral there; 0
+unexpected regressions, confirmed by reading every failure/skip, there
+were none new). `python3 -c "import ast; ast.parse(open('options_scanner.py').read())"`:
+clean. `python3 test_full_system.py` (standalone script, not pytest-
+collectible — confirmed via `git stash` that pytest's own collection
+error on this file is 100% pre-existing, unrelated to this diff):
+`t_options_scanner_import_clean` PASS ("All 8 required functions
+present"); the file's other live-network-dependent checks fail the same
+way they do on every sandbox run (no live Alpaca/network access here),
+unrelated to this diff. `npm ci` (488 packages, fresh container) then
+`bash scripts/gated_tests.sh`: **GATE PASSED** — python 2080/1/54,
+server+client suites green, deploy-gate smoke 200 in 2.5s, quarantine
+0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 (no
+`.ts` file touched). `bash scripts/counter_ratchet.sh`: 25 counters OK;
+`tests_run_in_ci` read IMPROVED 456->458 but NOT re-pinned here — this
+session's own diff has a NET NEGATIVE pytest-test-count effect (-2), so
+an INCREASE in this counter cannot be this session's own effect; it is
+pre-existing drift from unrelated merges since the pin was last set,
+same discipline the immediately preceding sessions' own entries already
+established for this exact counter. `npm run build`/`npm run visual`:
+covered by the gated_tests.sh deploy-gate smoke above (build succeeded,
+16.9MB server bundle, boots clean); no separate visual run needed — zero
+`client/` files touched by this diff, PROMOTION RULE 6 doesn't apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure dead-code removal with a
+pre-existing, already-proven zero-output-change guarantee
+(`HIGH_EDGE_SETUPS` gate) plus a docs-only access-tracking closure; no
+scoring, sizing, threshold, or live strategy behavior touched.
+MONETIZATION TRIPWIRE: not touched (billing/pricing untouched; the
+OpenSky closure is a documentation update to an already-settled
+non-commercial-provider chain, not a chain change itself).
+
+VERSION: v1.0.919 — bumped despite the zero-behavior-change guarantee,
+matching the precedent the ORIGINAL v1.0.503 disabling PR set (also a
+dead-code-removal-class change, also bumped) rather than the
+docs-only-no-bump precedent (that one touches zero `.py`/`.ts` files;
+this one edits four).
+
+NEXT: (1) `_setup_csp_normal_market` (Setup 6/CSP) — same "disabled,
+kept defined" pattern as the item closed this session, but no REVIEW-BY
+date was ever logged for it (grepped, none found) — a future STALENESS
+AUDIT should either find/assign one or confirm it's intentionally
+exempt (e.g. still a live re-enable candidate) and log that explicitly,
+rather than leaving it silently undated indefinitely. (2) CONSTITUTIONAL
+AUDIT — still overdue (due 2026-09-15), not run this session (STALENESS
+was more overdue, one action per session). (3) KNOWN BROKEN #42/#43
+(kill switch latch) — unchanged, human decision, not actionable
+autonomously.
+
+MARKET-HOURS NOTE (this session's own task instructions): opened during
+US market hours (~12:13pm ET). This PR touches no trading-path behavior
+(dead code that was already unreachable; a docs closure) but per this
+session's own instructions the PR body notes merge should wait until
+after 4:00pm ET. Per the already-filed 2026-09-14 PROCESS GAP finding
+(wishlist.md), that hold note is NOT mechanically enforced —
+`.github/workflows/ci.yml`'s `automerge` job merges on green CI
+regardless of the note's presence. Recorded here for the same reason
+that finding recorded it: so a reader checking why this merged before
+4pm (if it does) doesn't have to rediscover the gap.
+
+STARVED: no — this session's SESSION BUDGET fall-through led directly to
+a concretely-scoped, previously-flagged action (the overdue audit),
+which surfaced two mechanically-actionable findings via the exception
+rule's own REVIEW-BY mechanism rather than an open-ended unscoped sweep,
+and executed both fully (code deletion + test updates + docs closure)
+rather than just cataloging them for a future session.
+
 ## 2026-09-16 (scheduled-routine [PRODUCT] session, second entry this UTC day) [PRODUCT]+[PIPELINE] — corrects a same-day stale finding (2 gate1_pass roots wrongly marked "no dedicated page" already have one) and reconciles port_dwell_maritime_transit's weekly GATE-2 accumulator with the server's own Tier-3 capture state (week 9), no code changed (v1.0.918, no version bump — docs+data-only)
 
 TERRITORY: T-DATACORE, docs+data-only (datacore/signal_ladder.json,
@@ -22322,9 +22499,19 @@ change, so it is created directly rather than proposed in wishlist.md.
 
 | Audit | Cadence | Last run | Next due |
 |---|---|---|---|
-| STALENESS AUDIT | 30d | 2026-08-15 | 2026-09-14 |
+| STALENESS AUDIT | 30d | 2026-09-16 | 2026-10-16 |
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
+
+STALENESS AUDIT run 2026-09-16 (scheduled-routine session, see the
+tagged log entry that date): found two expired review-by items —
+`_setup_low_iv_breakout_buy`/`_setup_gamma_pin` (REVIEW-BY 2026-08-26,
+open_questions.md KNOWN BROKEN #18) deleted from `options_scanner.py`;
+OpenSky reinstatement (REVIEW-BY 2026-08-17, open_questions.md) closed,
+no code to remove. CONSTITUTIONAL AUDIT is now also overdue (due
+2026-09-15) — not run this session (STALENESS was more overdue and is
+this session's one logical action); a future session should pick it up
+next.
 
 ## 2026-08-19 (5) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — EIA-930 electric grid demand (/api/data/grid-demand) gets a live /data client view, closing a shipped-data-no-UI gap on a gate-2-attempted signal_ladder root (v1.0.747)
 

@@ -3286,6 +3286,24 @@
     and should be logged as a new dated update the same way this item's
     prior recurrences were.
 
+    UPDATE 2026-09-16 (scheduled-routine session, STALENESS AUDIT) —
+    `_setup_low_iv_breakout_buy`/`_setup_gamma_pin` DELETED: the
+    disabled-adapter exception logged above carried its own REVIEW-BY
+    2026-08-26; that date passed 21 days ago with no re-enable proposal
+    filed anywhere in this file or experiments.md (checked live this
+    session, not from memory). Per CLAUDE.md's STALENESS AUDIT exception
+    clause ("past its review date, the next session deletes it"), both
+    functions were removed outright from `options_scanner.py` this
+    session, along with the now-stale in-code comment referencing them
+    as "kept defined." Zero behavior change (both were already
+    unreachable — neither is in `HIGH_EDGE_SETUPS`, confirmed unchanged)
+    — this closes the dead-code side of item #18 for good; Setup 6/CSP
+    (`_setup_csp_normal_market`) is a separate disabled adapter with no
+    review-by date logged anywhere this session could find, so it was
+    left untouched (out of this session's scope — a future STALENESS
+    AUDIT should decide whether it needs one). Full account:
+    experiments.md, 2026-09-16.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
@@ -7827,14 +7845,25 @@ aren't simulated) and this was named the correct alternative path.
   single-sourced on aisstream.io; find a second AIS source (AISHub
   requires feeding a receiver — excluded by the same no-hardware
   decision; satellite AIS is paid — see wishlist).
-- **OpenSky reinstatement (likely-returner, DEAD CODE POLICY tracking).**
-  Human emailed contact@opensky-network.org for a research agreement
+- **[CLOSED 2026-09-16, scheduled-routine session, STALENESS AUDIT] OpenSky
+  reinstatement (likely-returner, DEAD CODE POLICY tracking).** ~~Human
+  emailed contact@opensky-network.org for a research agreement
   (2026-07-03). No disabled adapter retained — the v1.0.43 OAuth +
   states/all implementation lives in git history (revert of PR #114's
   removal restores it). REVIEW-BY 2026-08-17 (+45d): if no agreement by
   then, close this item and strike OpenSky from the redundancy
   candidates; if granted, reinstate the chain attempt AND re-verify
-  Railway egress connectivity before relying on it.
+  Railway egress connectivity before relying on it.~~ REVIEW-BY passed
+  30 days ago with no evidence of a granted agreement anywhere in this
+  file or experiments.md (grepped `-i opensky` across both this session,
+  last substantive mention is the original 2026-07-03 removal/email).
+  Per this item's own stated close condition, OpenSky is struck from the
+  aircraft-provider redundancy candidates; the vessels-side gap it names
+  (single-sourced on aisstream.io) stays open as its own separate,
+  unresolved item — not closed by this. If the human's email is ever
+  answered after this closure, the v1.0.43 implementation is still
+  fully recoverable from git history (PR #114's revert), so nothing is
+  lost by closing rather than extending the review date again.
 
 ## MIDAS HFT-COLONIZATION FILTER HYPOTHESIS (RAW layer shipped 2026-07-10, v1.0.265 — census build #10)
 

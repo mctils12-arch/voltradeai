@@ -1232,19 +1232,12 @@ class TestV1033ThresholdFixes(unittest.TestCase):
         self.assertIn('iv_rank < 50', src)
         self.assertNotIn('iv_rank < 70', src)
 
-    def test_low_iv_straddle_cost_at_5pct(self):
-        """Low-IV breakout buy straddle cost limit should be 5%, not 3%."""
-        import options_scanner as os_mod
-        src = inspect.getsource(os_mod._setup_low_iv_breakout_buy)
-        self.assertIn('straddle_pct >= 5.0', src)
-        self.assertNotIn('straddle_pct >= 3.0', src)
-
-    def test_low_iv_spread_widened_to_015(self):
-        """Low-IV breakout buy spread limit should be 0.15, not 0.12."""
-        import options_scanner as os_mod
-        src = inspect.getsource(os_mod._setup_low_iv_breakout_buy)
-        self.assertIn('> 0.15', src)
-        self.assertNotIn('> 0.12', src)
+    # test_low_iv_straddle_cost_at_5pct / test_low_iv_spread_widened_to_015
+    # REMOVED 2026-09-16 (STALENESS AUDIT, review-by 2026-08-26 expired):
+    # both pinned parameter values inside `_setup_low_iv_breakout_buy`,
+    # which was itself deleted this session (KNOWN BROKEN #18's
+    # disabled-adapter exception ran past its review date with no
+    # re-enable proposal). See research/open_questions.md, 2026-09-16.
 
 
 class TestCSPNormalMarketSetup(unittest.TestCase):
