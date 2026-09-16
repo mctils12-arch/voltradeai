@@ -16,6 +16,10 @@ import {
   read13FHistory,
   trimHoldings,
   FOCUSED_MAX_HOLDINGS,
+  refresh13FCache,
+  latest13FFilings,
+  _reset13FCacheForTests,
+  type Filing13F,
 } from "./edgar13f";
 
 // ROOT VALIDATION LADDER gate 1 (DATA) fixtures — both fetched live from
@@ -256,6 +260,87 @@ test("archive13FFilings + read13FHistory round-trip with accession dedup", () =>
   assert.equal(hist[0].managerName, "BURKETT FINANCIAL SERVICES, LLC");
   assert.equal(hist[0].holdings?.length, 2);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Cold-cache-no-disk-backfill (2026-09-16 — cold-cache-no-disk-backfill
+// audit; mirrors sec8kEarnings.test.ts's identically-shaped cold-cache
+// tests, same DATA_DIR/archiveBaseDir() resolution convention) ────────────
+
+const mkFiling13F = (acc: string, filedAt: string): Filing13F => ({
+  managerCik: "0001762716", managerName: "TEST MANAGER LLC",
+  periodOfReport: "2026-06-30", submissionType: "13F-HR",
+  entryTotal: 1, valueTotal: 1000, otherManagersCount: 0,
+  accession: acc, filedAt, cik: "0001762716",
+  indexUrl: `https://www.sec.gov/x/${acc}/`,
+  holdings: null, holdingsOmitted: false,
+});
+
+test("refresh13FCache: cold cache backfills from the on-disk filings13f archive when the live poll throws — the same cold-cache-no-disk-backfill class edgarForm4.ts/sec8kEarnings.ts already closed, found unfixed here by the 2026-09-15 module audit (a redeploy/SEC-EDGAR-outage must not report empty over real archived filings, and must not silently cache an empty list either)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  try {
+    // filings13fDir(undefined) resolves through archiveBaseDir() ->
+    // DATA_DIR/datacore_archive/filings13f — mirrored here so the archived
+    // day lands where refresh13FCache's own baseDir-less backfill path will
+    // actually look for it. Dated "today" (real wall clock) since
+    // refresh13FCache/backfill13FFromArchive take no injectable nowMs and
+    // the default 5-day lookback is measured from Date.now().
+    const dir = path.join(base, "datacore_archive", "filings13f");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(mkFiling13F("COLD-1", today)) + "\n");
+
+    assert.equal(latest13FFilings(), null, "cache must still be cold going into this cycle");
+    const origFetch = global.fetch;
+    global.fetch = (async () => { throw new Error("SEC EDGAR unreachable"); }) as any;
+    try {
+      await refresh13FCache(40);
+    } finally {
+      global.fetch = origFetch;
+    }
+    const cached = latest13FFilings();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-1", "backfilled from the archived filing, not fabricated");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refresh13FCache: an empty-but-non-throwing live poll also backfills from disk when the cache is cold (not just the throw path)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-coldcache-empty-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "filings13f");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(mkFiling13F("COLD-2", today)) + "\n");
+
+    // An empty (no new filings this cycle), NON-throwing atom feed —
+    // fetchLatest13FFilings resolves to [] rather than throwing.
+    const origFetch = global.fetch;
+    global.fetch = (async () => ({
+      ok: true, status: 200,
+      text: async () => `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>`,
+    })) as any;
+    try {
+      await refresh13FCache(40);
+    } finally {
+      global.fetch = origFetch;
+    }
+    const cached = latest13FFilings();
+    assert.ok(cached, "cache must be populated from disk, not left null, on an empty-but-successful poll");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-2");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
 
 test("trimHoldings keeps the top-N rows by value", () => {
