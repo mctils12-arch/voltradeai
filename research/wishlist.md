@@ -72,6 +72,13 @@ date's addendum after PR #1076 merged).
 ## after TWO autonomous fix attempts; needs tooling/access this sandbox
 ## lacks, per RECURRENCE ESCALATES
 
+**STATUS 2026-09-16T02:40Z: SITE BACK UP** (v1.0.915, PR #1089; outage
+2026-09-10T20:18Z -> 2026-09-16T02:39:36Z = 126.4h, recorded in
+research/outage_state.json). The manual-restart ask is withdrawn (see the
+2026-09-16 UPDATE below — the blocker was the health probe's HTTP code,
+not the retry budget). Still open under this header: the memory leak
+(contained, not fixed) and the latched kill switch (human decision).
+
 WHAT: production has been crash-looping roughly every 90-130s during
 market hours since at least 2026-09-08 ~15:57Z (KNOWN BROKEN #41 in
 `research/open_questions.md` — read that entry first for the full

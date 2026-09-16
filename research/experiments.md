@@ -185,6 +185,19 @@ the PR, not production; (iii) OBSERVABILITY — the routine health check
 reads app-level 503 bodies and names the gate, so "still down" can never
 again be logged five times without the gating check being printed.
 
+LIVE RESULT (same session, after merge): PR #1089 merged 02:37Z; the
+new container answered `/api/health` **200** at 02:39:36Z with
+`server_version 1.0.915`, alpaca/database/python/feeds all ok and only
+`bot.liveness.dark true` degraded (production's real stamp
+2026-09-10T03:12:26Z) — so live, with a working broker, the liveness
+alarm was the only thing that had been gating the deploy: the root cause
+is confirmed in production, not just in the sandbox repro. Total outage
+126.4h (2026-09-10T20:18Z -> 2026-09-16T02:39:36Z), auto-recorded in
+research/outage_state.json by `scripts/session_health_check.py`. Boot
+memory of the new container: rss 526MB, heap 243MB (the incident's
+~500MB baseline), kill switch still latched so Tier 2 / hourly Tier 3
+stay off.
+
 STARVED: no — the human's ask was the single highest-priority item in the
 repo (Priority 1, a 5-day outage) and it is shipped; the leak root cause is
 queued under KNOWN BROKEN #41 with the audit's output, not starved.
