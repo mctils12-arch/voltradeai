@@ -20423,7 +20423,7 @@ empty/failed live poll):
 | module | existing archive-reader to reuse | fix cost |
 |---|---|---|
 | cropConditions.ts | `readArchivedConditions` (in file) | cheap — reuse |
-| edgar13f.ts | `read13FHistory` (in file) | cheap — reuse |
+| edgar13f.ts | `read13FHistory` (in file) | cheap — reuse — **FIXED 2026-09-16, v1.0.920** |
 | sec8kEarnings.ts | `readEarnings8kHistory` (in file) | cheap — reuse — **FIXED THIS SESSION, v1.0.912** |
 | finraQuery.ts | `readPartition` exists but only used post-success, not as a cold-cache fallback for a failed partition-LIST call | small, narrower fix than the others |
 | cbpBorderWait.ts (backs `borderWaits`) | none — write from scratch | new reader needed |

@@ -31,6 +31,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { parseFilingFeed } from "./edgarForm4";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export const FOCUSED_MAX_HOLDINGS = 250;
 
@@ -330,15 +331,34 @@ export function latest13FFilings(): { at: number; filings: Filing13F[] } | null 
   return cache;
 }
 
+/** Reconstructs a cache-shaped filings list from the on-disk filings13f
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (SEC EDGAR transient outage / feed-fetch failure) or comes back with
+ *  zero filings before any cache exists. Same cold-cache-no-disk-backfill
+ *  fix already shipped for edgarForm4.ts/sec8kEarnings.ts's identically-
+ *  shaped backfill helpers — closes the same gap for the 13F root, found
+ *  by the 2026-09-15 audit of the datacore modules that audit hadn't yet
+ *  checked (research/open_questions.md, cold-cache-no-disk-backfill table). */
+export function backfill13FFromArchive(baseDir?: string, nowMs?: number, days = 5, limit = 40): Filing13F[] {
+  return read13FHistory(days, baseDir, nowMs, limit);
+}
+
 export async function refresh13FCache(limit = 40): Promise<void> {
   try {
     const filings = await fetchLatest13FFilings(limit);
-    if (filings.length > 0 || !cache) cache = { at: Date.now(), filings };
+    const next = resolveCacheItems(cache !== null, filings, () => backfill13FFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
     try { archive13FFilings(filings); } catch {}
     try { gzipOld13FDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgar13f refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [], () => backfill13FFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
   }
+}
+
+export function _reset13FCacheForTests(): void {
+  cache = null;
 }
 
 /** 15-min poll: outside 13F season the feed is a trickle; at the quarterly

@@ -3,6 +3,164 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine [PRODUCT] session) [PIPELINE] — edgar13f.ts joins the cold-cache-no-disk-backfill fix thread: closes the last of the three "cheap — reuse" instances the 2026-09-15 module audit found, using the audit's own named archive reader (v1.0.920)
+
+TERRITORY: T-DATACORE (server/edgar13f.ts, server/edgar13f.test.ts) + SHARED
+-minimal, last commit per MERGE-ORDER PROTOCOL (package.json version bump,
+research/open_questions.md, research/experiments.md — ci/counter_baseline.txt
+deliberately NOT touched this session, see GATES below).
+
+TASK FRAMING: this session's own brief names it a [PRODUCT] session
+(datacore/ pipelines + /data). CLAUDE.md read in full first, then this
+file (tail) and research/open_questions.md's KNOWN BROKEN section.
+
+LOOP-HEALTH RATIO CHECK (session-start): last 10 tagged entries before this
+one = [REPAIR]x5 (the 2026-09-16 outage-fix cluster: memory-wall reporting,
+deploy-gate split, crash-visibility, crash-handler-count alarms, staleness
+audit), [PRODUCT]/[PIPELINE]x4, [RULE-REVIEW]x1. 5 of 10 is below the 7+
+thrash threshold — no meta-problem flag needed, even though the absolute
+REPAIR count is high; that cluster is a single now-resolved production
+outage (KNOWN BROKEN #41), not repeated re-breaking of the same fix.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 20
+https://voltradeai-production.up.railway.app/api/health` returned `HTTP/2
+200`, `serving.ok: true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915,
+holding). `status: "degraded"` for a reason already tracked and NOT new
+this session: `bot.status: "killed"`, `bot.liveness.dark: true`, "LIVENESS
+ALARM: trading loop dark for 30.8 market hours (159.1h wall-clock) since
+2026-09-10T03:12:26Z". This is the SAME latched-kill-switch state
+research/wishlist.md's "ACTIVE LIVE INCIDENT" header already carries as
+"Still open under this header: the memory leak (contained, not fixed) and
+the latched kill switch (human decision)" — a standing item explicitly
+awaiting the human's weekly wishlist.md review, not a new finding, so not
+separately re-escalated here (same discipline the 2026-09-13 through
+2026-09-16 sessions have each applied to this exact recurring check: only
+notify on NEW information). `process.{unhandledRejections,
+uncaughtExceptions}` both 0 — the crash-visibility instrumentation shipped
+earlier today has nothing to report. Per this session's own brief ("if a
+critical trading-loop item is unfixed, note it but proceed with product
+work unless the break blocks you"): noted, does not block T-DATACORE work,
+proceeded.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item),
+took the 2026-09-15 sixth session's own audit table in open_questions.md
+(cold-cache-no-disk-backfill thread) — 20 modules found VULNERABLE, ranked
+by fix cost. Of the three marked "cheap — reuse" (an existing archive
+reader already in the file, same shape as every prior fix in this thread),
+`sec8kEarnings.ts` was fixed the same session the audit ran and
+`cropConditions.ts` was fixed the following session (v1.0.913, PR #1087);
+`edgar13f.ts` was the one remaining unclaimed "cheap — reuse" instance —
+the cheapest concrete, queued, already-scoped item available, squarely (d)
+-shaped product work (datacore API-boundary reliability toward
+spinout-readiness) continuing the established thread rather than starting
+a new one.
+
+READ BEFORE WRITE: read `server/edgar13f.ts` in full this session. Line
+336 (before this PR): `if (filings.length > 0 || !cache) cache = { at:
+Date.now(), filings };` inside `refresh13FCache` — the exact same shape
+already fixed in `edgarForm4.ts`/`sec8kEarnings.ts`/`cropConditions.ts`: a
+non-empty live poll always wins, but an empty-or-thrown poll only
+backfills from disk on... nothing — `!cache` is the ONLY backfill trigger
+today, and it fires on line 336's own combined condition rather than ever
+calling into the archive. A cold boot or a live SEC-EDGAR outage leaves
+`/api/data/filings13f` (and any consumer of `latest13FFilings()`) null
+forever despite `read13FHistory()` already existing in this same file as a
+working archive reader (used today only by the `/history` route, never as
+a fallback for the live cache). Also read `server/cacheBackfill.ts`
+(the shared `resolveCacheItems` helper this thread compiled in
+v1.0.899) and `server/sec8kEarnings.ts`'s already-fixed
+`refreshEarnings8kCache`/`backfillEarnings8kFromArchive` as the exact
+template to replicate — same helper, same two-call-site shape (the
+`try` body's live-win path and the `catch` block's live-throw path).
+
+FIX (v1.0.920): `edgar13f.ts` gained `backfill13FFromArchive(baseDir?,
+nowMs?, days=5, limit=40)`, a thin wrapper over the module's own existing
+`read13FHistory`. `refresh13FCache` now routes both the live-success and
+live-throw paths through `resolveCacheItems(cache !== null, filings, () =>
+backfill13FFromArchive())` instead of the old inline `||` condition — a
+non-empty live poll still always wins; an empty-or-thrown poll now
+attempts the disk backfill ONLY when there is no existing cache to fall
+back on already (never overwrites a good cache with a stale archive read
+on a transient empty poll — same invariant every prior fix in this thread
+preserves). Added `_reset13FCacheForTests()` (matches every sibling
+module's test-reset convention) since none existed before — `cache` had
+no external reset point in this file until now.
+
+TESTS: two new regression tests in `server/edgar13f.test.ts`, structural
+mirrors of `sec8kEarnings.test.ts`'s cold-cache pair (same DATA_DIR/
+archiveBaseDir() resolution convention, same "write one archived filing to
+disk, cold-start the cache, mock global.fetch to throw / return an empty
+feed, assert the cache backfills from the archived filing rather than
+staying null or fabricating data" shape): one for the live-throw path, one
+for the empty-but-non-throwing path. `mkFiling13F` typed `: Filing13F`
+(not `: any`) to match `sec8kEarnings.test.ts`'s `mkFiling8k: Earnings8K`
+precedent — an earlier draft of this fix typed it `: any`, which silently
+moved `boundary_any` 233->234 and `ts_any` 1239->1240 (`ts_any`'s own
+regex is `:\s*any\b`, so the return-type annotation counted, `as any`
+casts elsewhere in the same test do not); caught by running
+`scripts/program_status.sh` before finalizing, not after — re-typed to
+the real interface, both counters confirmed back at baseline.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a server-side cache/archive
+reliability fix in a raw-overlay data pipeline (13F institutional-holdings
+filings), no scoring, sizing, threshold, or strategy code touched, no
+trading-path file touched.
+
+GATES: `npx tsx --test server/edgar13f.test.ts`: 12/12 (10 pre-existing +
+2 new). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 (npm ci run
+first — fresh container). `bash scripts/gated_tests.sh` (after `pip
+install -r requirements.txt -r requirements-dev.txt`, fresh container):
+**GATE PASSED** — python 2080 passed/1 skipped/54 subtests, node/client
+suites green, quarantine 0/1 none overdue, deploy-gate smoke PASS (200 in
+11.0s). `bash scripts/counter_ratchet.sh`: reports `tests_run_in_ci`
+456->458 and `assertions` 14548->14565 as IMPROVED, but checked BEFORE
+re-pinning whether either delta is this session's own effect (measured
+both counters against a clean, unmodified HEAD via `git stash`, not
+assumed): `tests_run_in_ci` was **already 458 at clean HEAD** — the pin
+had drifted stale by 2 from unrelated merges before this session touched
+anything (this counter counts test FILES, and `edgar13f.test.ts` already
+existed, so adding two `test()` calls inside it moves nothing on this
+metric). `assertions` was already 14558 at clean HEAD (pin stale by 10,
+same pre-existing-drift shape), and this session's own two new tests add
+exactly +7 (14558->14565, confirmed by diffing the assert-count regex
+against the file before/after in isolation). Per PROMOTION RULE 5
+("attribution dies when changes are bundled") **neither pin is re-pinned
+in this PR** — both deltas are wholly or partly unrelated drift, and
+locking in unattributed gains under this PR's number would misattribute
+them; both counters already pass the ratchet as-is (`OK: 25 counters at
+or better than baseline`) since non-decreasing only requires current >=
+pin. Left for whichever session's own change actually produced the
+pre-existing +2/+10, matching the standing precedent in PROGRAM_STATE.md.
+`npm run build`/`npm run visual`: not run, zero `client/` files touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-16 US market hours
+(session start ~18:1x UTC / ~14:1x ET). This PR touches no trading-path
+code (a cache-backfill fix in a raw-overlay institutional-filings pipeline
++ its tests + a version bump) — per this repo's own
+recently-reconfirmed convention (research/wishlist.md's 15th-occurrence
+automerge/market-hours-hold note, PR #1096, same day) the `automerge` job
+merges on green CI regardless of market hours; noted here for the record,
+not held, matching every other diagnostic-shaped PR in this exact thread.
+
+NEXT: (1) `finraQuery.ts` — the remaining cheapest instance ("small,
+narrower fix than the others": `readPartition` exists but is only used
+post-success today, not as a cold-cache fallback for a failed
+partition-LIST call). (2) the 17 "new reader needed" instances in the same
+open_questions.md table — each needs its own archive-reader built first,
+higher cost per module than this thread's fixes so far. (3) KNOWN BROKEN
+#41's still-open threads (memory leak contained-not-fixed, latched kill
+switch) — human-decision items, re-check status only, no autonomous action
+available per RECURRENCE ESCALATES and the standing "human decision"
+framing in wishlist.md.
+
+STARVED: no — this session took the audit's own most-recently-filed,
+concretely-scoped, cheapest-remaining queued item and closed it with a
+gate-clean fix + regression tests, rather than starting a new
+investigation while a cheaper queued one sat unclaimed.
+
 ## 2026-09-16 (scheduled-routine session, fourth entry this UTC day, same-day addendum after PR #1096 merged) [RULE-REVIEW] — 15th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 TERRITORY: SHARED (research/wishlist.md, research/experiments.md only).
