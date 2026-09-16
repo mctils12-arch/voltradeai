@@ -37,6 +37,7 @@ import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { healthHttpCode, servingVerdict } from "./healthGate";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
+import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -1088,6 +1089,14 @@ export function registerBotRoutes(app: Express) {
   // git log; persist the version at boot so future audit queries
   // (?type=STARTUP) show it directly without re-deriving it.
   audit("STARTUP", `Server boot — code_version ${pkgVersion}, pid ${process.pid}`);
+  // KNOWN BROKEN #41 (2026-09-16): until today this process had NO
+  // unhandledRejection / uncaughtException handler, so a rejected promise
+  // nobody awaited ended Node (run_with_daemon.sh execs it -> the container
+  // dies -> Railway restarts) with the reason on a stderr no session can
+  // read. Rejections are now audited (FATAL-REJECTION) and survived;
+  // exceptions are audited (FATAL-EXCEPTION) and then exit(1). See
+  // server/crashVisibility.ts; counts surface on /api/health `checks.process`.
+  installCrashHandlers(process, { audit });
 
   // SSE for live bot audit log updates
   app.get("/api/bot/stream", requireOwner, (req, res) => {
@@ -1469,6 +1478,11 @@ print(json.dumps(data))
       checks.status = "degraded";
     }
     
+    // KNOWN BROKEN #41 (2026-09-16): how many times this process would have
+    // died silently before crashVisibility.ts, and the last reason — a
+    // restart loop with a non-zero count here names its own cause.
+    checks.checks.process = crashStats();
+
     // OOM fix: expose memory usage in health check for monitoring.
     // KNOWN BROKEN #41 (2026-09-16): ALSO expose the two walls — V8's heap
     // cap for this process and the container's cgroup limit/usage (Node +
