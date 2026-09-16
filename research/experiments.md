@@ -163,6 +163,14 @@ future audit: whether other ladder fields (readiness_trigger) have a
 similar "computed once, silently correct only by convention" pattern that
 should move server-side the way detail_route_label did.
 
+STARVED: no — this session's scope was the single highest-value PRODUCT
+action per the scheduled-task instructions (choose and execute one), not
+an open-ended fall-through budget; it completed that one action fully
+(fix, tests, gates, visual harness, PR) rather than stopping early with
+unspent capacity. The NEXT items above are filed for a future session's
+own primary-action selection, not evidence of this session leaving
+higher-value work undone.
+
 ## 2026-09-15 (scheduled-routine [PRODUCT] session, seventh session this UTC day) [PIPELINE] — cropConditions.ts joins the cold-cache-no-disk-backfill fix thread: continues the immediately preceding (sixth) session's own NEXT queue, first item (cheapest, existing reader to reuse) (v1.0.913, PR #1087)
 
 TERRITORY: T-DATACORE (server/cropConditions.ts, server/cropConditions.test.ts)
