@@ -330,11 +330,121 @@ def test_overall_exit_code_empty_is_ok():
     assert hc.overall_exit_code([]) == 0
 
 
-def test_run_all_checks_returns_seven_findings():
+def test_run_all_checks_returns_eight_findings():
+    # 7 -> 8 on 2026-09-16: check_deploy_gate joined (KNOWN BROKEN #41).
     findings = hc.run_all_checks(_health(), {"alive": True, "rss_mb": 100}, [], [], {})
-    assert len(findings) == 7
+    assert len(findings) == 8
     assert all("severity" in f and "label" in f and "detail" in f for f in findings)
-    assert {f["label"] for f in findings} >= {"deploy_freshness"}
+    assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate"}
+    assert findings[0]["label"] == "deploy_gate", "the deploy gate is the first line — a 503 there explains every other finding"
+
+
+# ── check_deploy_gate (KNOWN BROKEN #41: the 503 that vetoed 30 deploys) ─
+
+def _serving(ok=True, failing=None):
+    return {"ok": ok, "gates": ["server", "database"], "failing": failing or [], "note": "n"}
+
+
+def test_deploy_gate_ok_on_2xx_with_serving_block():
+    h = _health(); h["serving"] = _serving()
+    f = hc.check_deploy_gate(h)
+    assert f["severity"] == hc.OK
+    assert "would pass" in f["detail"]
+
+
+def test_deploy_gate_the_sept10_case_pre_healthgate_build_alarms_and_names_every_degraded_check():
+    # What production answered from 2026-09-10T15:30Z until the fix: HTTP 503,
+    # status degraded, liveness dark, NO `serving` block (old handler). The
+    # old _fetch_json dropped this as "fetch failed"; now it is the first
+    # ALARM and it says what gates the deploy.
+    h = _health(dark=True, status="degraded", detail="LIVENESS ALARM: trading loop dark for 26.0 market hours")
+    h["checks"]["bot"]["status"] = "killed"
+    h["_http_status"] = 503
+    f = hc.check_deploy_gate(h)
+    assert f["severity"] == hc.ALARM
+    assert "503" in f["detail"]
+    assert "pre-healthGate.ts" in f["detail"]
+    assert "bot" in f["detail"], "the degraded check must be named"
+    assert "rejected by Railway" in f["detail"]
+
+
+def test_deploy_gate_503_with_serving_block_names_the_failing_gate():
+    h = _health(status="degraded", bad_subsystem="database")
+    h["_http_status"] = 503
+    h["serving"] = _serving(ok=False, failing=["database"])
+    f = hc.check_deploy_gate(h)
+    assert f["severity"] == hc.ALARM
+    assert "database" in f["detail"]
+    assert "REJECT" in f["detail"]
+
+
+def test_deploy_gate_degraded_but_2xx_is_ok_alarms_stay_with_their_own_checks():
+    # The post-fix contract: liveness dark, status degraded, HTTP 200 —
+    # the alarm is check_liveness's job; the gate is fine.
+    h = _health(dark=True, status="degraded", detail="dark")
+    h["serving"] = _serving()
+    assert hc.check_deploy_gate(h)["severity"] == hc.OK
+    assert hc.check_liveness(h)["severity"] == hc.ALARM
+
+
+def test_deploy_gate_2xx_without_serving_block_warns_old_build():
+    f = hc.check_deploy_gate(_health())
+    assert f["severity"] == hc.WARN
+    assert "pre-healthGate.ts" in f["detail"]
+
+
+def test_deploy_gate_no_payload_alarms():
+    assert hc.check_deploy_gate(None)["severity"] == hc.ALARM
+
+
+def test_deploy_gate_contradiction_serving_false_with_2xx_alarms():
+    h = _health(); h["serving"] = _serving(ok=False, failing=["server"])
+    f = hc.check_deploy_gate(h)
+    assert f["severity"] == hc.ALARM
+    assert "contradiction" in f["detail"]
+
+
+# ── _fetch_json keeps an HTTP error's JSON body when it is a health payload ─
+
+class _FakeHTTPError(hc.urllib.error.HTTPError):
+    def __init__(self, code, body):
+        super().__init__("http://x/api/health", code, "err", {}, None)
+        self._body = body
+
+    def read(self):
+        return self._body
+
+
+def test_fetch_json_keeps_503_health_payload_with_status(monkeypatch):
+    payload = b'{"status":"degraded","checks":{"server":{"status":"ok"}}}'
+
+    def fake_urlopen(url, timeout=0):
+        raise _FakeHTTPError(503, payload)
+
+    monkeypatch.setattr(hc.urllib.request, "urlopen", fake_urlopen)
+    got = hc._fetch_json("http://x/api/health")
+    assert got is not None
+    assert got["_http_status"] == 503
+    assert got["status"] == "degraded"
+
+
+def test_fetch_json_drops_railway_edge_fallback_502(monkeypatch):
+    # Railway's own 502 page: {"status":"error","code":502,"message":...} — no
+    # `checks`, so it is NOT a health payload and must stay None (the outage
+    # tracker keys off None).
+    def fake_urlopen(url, timeout=0):
+        raise _FakeHTTPError(502, b'{"status":"error","code":502,"message":"Application failed to respond"}')
+
+    monkeypatch.setattr(hc.urllib.request, "urlopen", fake_urlopen)
+    assert hc._fetch_json("http://x/api/health") is None
+
+
+def test_fetch_json_drops_non_json_error_bodies(monkeypatch):
+    def fake_urlopen(url, timeout=0):
+        raise _FakeHTTPError(500, b"<html>nope</html>")
+
+    monkeypatch.setattr(hc.urllib.request, "urlopen", fake_urlopen)
+    assert hc._fetch_json("http://x/api/health") is None
 
 
 def test_run_all_checks_end_to_end_reproduces_live_known_broken_21_snapshot():

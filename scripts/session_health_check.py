@@ -60,6 +60,48 @@ def finding(severity, label, detail):
 
 # ── pure classifiers (no network) ────────────────────────────────────────
 
+# railway.json (FROZEN): healthcheckPath=/api/health, healthcheckTimeout=60.
+# A non-2xx answer REJECTS a new container — the deploy fails and whatever was
+# serving before (or Railway's 502 page) keeps serving. server/healthGate.ts
+# owns which checks may do that; this reads its `serving` block back.
+def check_deploy_gate(health):
+    """KNOWN BROKEN #41 (2026-09-10 -> 2026-09-16): every fresh container
+    answered Railway's probe with 503 for five days because a monitoring
+    alarm (liveness) was mapped onto the HTTP code, and no session noticed
+    because this script treated the 503 as 'no response'. Now: an app-level
+    non-2xx /api/health is its own ALARM naming what is gating it, and a
+    payload whose `serving.ok` is false says so even when reached via 200
+    (it cannot be, by construction — belt and braces)."""
+    if not isinstance(health, dict):
+        return finding(ALARM, "deploy_gate", "no /api/health payload — cannot tell whether a new container would pass Railway's healthcheck")
+    code = health.get("_http_status")
+    serving = health.get("serving") if isinstance(health.get("serving"), dict) else None
+    if code is not None and not (200 <= int(code) < 300):
+        failing = (serving or {}).get("failing")
+        if failing is None:
+            degraded = sorted(
+                k for k, v in (health.get("checks") or {}).items()
+                if isinstance(v, dict) and v.get("status") not in (None, "ok")
+            )
+            return finding(
+                ALARM, "deploy_gate",
+                f"/api/health answered HTTP {code} with NO `serving` block — a pre-healthGate.ts build is live, "
+                f"so EVERY degraded check gates the deploy: {degraded or '(none named)'}; any merged fix will be "
+                f"rejected by Railway until whatever is degraded clears or a human redeploys a build that carries "
+                f"server/healthGate.ts (KNOWN BROKEN #41)",
+            )
+        return finding(
+            ALARM, "deploy_gate",
+            f"/api/health answered HTTP {code}: Railway would REJECT a new container — gating checks failing: "
+            f"{failing} (gates={(serving or {}).get('gates')}); merged fixes cannot reach production until this clears",
+        )
+    if serving is not None and serving.get("ok") is False:
+        return finding(ALARM, "deploy_gate", f"serving.ok=false with a 2xx answer — contradiction, inspect server/healthGate.ts (failing={serving.get('failing')})")
+    if serving is None:
+        return finding(WARN, "deploy_gate", "2xx but no `serving` block — a pre-healthGate.ts build is live; a future degraded status would veto deploys (KNOWN BROKEN #41)")
+    return finding(OK, "deploy_gate", f"2xx, serving gates={serving.get('gates')} all ok — a new container would pass Railway's healthcheck")
+
+
 def check_liveness(health):
     """CLAUDE.md Amendment 1 LIVENESS ALARM: the loop going dark is a
     TOP-OF-REPORT alarm, never a dashboard-only discovery. /api/health
@@ -294,6 +336,7 @@ def save_outage_state(state, path=DEFAULT_OUTAGE_STATE_PATH):
 def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
                     local_version=None, server_version=None):
     return [
+        check_deploy_gate(health),
         check_liveness(health),
         check_health_subsystems(health),
         check_alt_data_enrichment(diagnostic_entries),
@@ -312,10 +355,32 @@ def overall_exit_code(findings):
 # ── network fetch (thin, not unit-tested directly) ───────────────────────
 
 def _fetch_json(url, timeout=DEFAULT_TIMEOUT_S):
+    """Returns the decoded JSON body, or None when nothing usable came back.
+
+    An HTTP error that CARRIES a JSON body (the app's own 503 from
+    /api/health) is returned with `_http_status` attached instead of being
+    dropped — KNOWN BROKEN #41: for the first ~5 hours of the 2026-09-10
+    outage the app itself was answering 503 with a payload that named the
+    exact check gating it, and this function threw it away as
+    "fetch failed", indistinguishable from Railway's 502 edge fallback.
+    Railway's fallback carries `"status":"error"` and no `checks`, so the
+    two remain told apart by check_deploy_gate below."""
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as e:
+    except urllib.error.HTTPError as e:
+        body = None
+        try:
+            body = json.loads(e.read().decode("utf-8"))
+        except (ValueError, OSError, AttributeError):
+            body = None
+        if isinstance(body, dict) and "checks" in body:
+            print(f"[session_health_check] {url} answered HTTP {e.code} WITH a health payload — keeping it", file=sys.stderr)
+            body["_http_status"] = e.code
+            return body
+        print(f"[session_health_check] fetch failed for {url}: {e}", file=sys.stderr)
+        return None
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
         print(f"[session_health_check] fetch failed for {url}: {e}", file=sys.stderr)
         return None
 

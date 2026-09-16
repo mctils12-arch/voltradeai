@@ -6402,6 +6402,57 @@
     "outage is unactionable from this sandbox, does not block other
     territories" precedent every session since 2026-09-11 has followed.
 
+    UPDATE 2026-09-16 (interactive session, human-directed) — THE NON-
+    RECOVERY IS ROOT-CAUSED AND FIXED (v1.0.915); the "restartPolicy-
+    MaxRetries exhausted, only a human restart can bring it back"
+    diagnosis every UPDATE above carried forward was WRONG about
+    everything after 20:18Z. A merge to main IS a fresh deploy with a
+    fresh retry budget, and 30 of them (#1049..#1088) merged during the
+    outage without the site ever coming back — including nights and the
+    weekend, when the market-hours crash loop could not run. What rejected
+    every one of them: the LIVENESS ALARM. The kill switch latched at
+    03:12:54Z on 09-10 (item #43's restored DD kill, on item #42's
+    disputed equity reading) and is persisted+restored on every boot by
+    design; so is the liveness stamp; after 2 market hours `loopDark()`
+    correctly set `status: "degraded"`, and the handler's last line mapped
+    ANY non-ok status to HTTP 503; `railway.json`'s healthcheck rejects a
+    non-2xx container. Every fresh container from ~15:30Z on 09-10 read
+    the latched state off the volume, answered 503, and was refused. The
+    OPS GOTCHAS entry below ("/api/health IS RAILWAY'S DEPLOY GATE") had
+    named this class on 2026-08-12, exempted the feed check by hand, and
+    left the general split as an OPEN QUESTION — now resolved. REPRODUCED
+    locally before fixing (built bundle + the two persisted files ->
+    503, `checks.server ok`, `checks.database ok`, `bot.liveness.dark
+    true`). FIX: `server/healthGate.ts` — only server+database decide the
+    HTTP code; every alarm still degrades `status` and is reported (the
+    amendment's "degraded state on /api/health" is untouched), and the
+    payload carries `serving: {ok, gates, failing}`. ENFORCEMENT:
+    `scripts/deploy_gate_smoke.mjs`, a required suite in gated_tests.sh,
+    boots the built bundle under the latched-kill-switch + stale-liveness
+    state and requires 200 within Railway's 60s — negative control on
+    main's handler: `REJECTED: 503 after 91.0s`, exit 1; on the fix: 200
+    in 4.8s. OBSERVABILITY: `session_health_check.py` now keeps an
+    app-level 503's body and its first finding names the gating check
+    (for the first ~5h of this outage the app was answering 503 WITH a
+    payload that said exactly this, and the script dropped it as "fetch
+    failed"). Full account: experiments.md 2026-09-16 entry.
+    STILL OPEN under this item, honestly separated: (a) the market-hours
+    Node memory growth itself (the 2026-09-08 crash loop) is NOT fixed by
+    this — it is gated behind `state.active && !state.killSwitch` for
+    Tier 2 and hourly Tier 3, so it cannot run while the bot is halted,
+    and once the human un-halts it any crash now recovers because new
+    containers pass the gate; a 6-finder/3-lens adversarial audit of
+    server/ ran this session in parallel — see the next UPDATE for what
+    survived; (b) the kill switch is still latched (human decision, #42);
+    (c) whether SERVING_CHECKS should also include python is a judgment
+    call recorded in healthGate.ts's header (no: a restart does not
+    remedy it and the data platform serves without it).
+    NEXT: (1) once v1.0.915 is live, `python3 scripts/session_health_check.py`
+    records the recovery in outage_state.json (this session does it if the
+    deploy lands before it ends); (2) the leak audit's surviving findings
+    -> own PR each, failing-first test each; (3) human: decide the kill
+    switch per #42/#43.
+
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
     daily-loss halt fired 36+ times over 3+ hours pre-market reporting an
@@ -7996,6 +8047,17 @@ confirmation, not a post-hoc rescue of this one's already-clear null.
   this class fast: `npm run build` at main HEAD, then boot `dist/index.cjs`
   locally — if it builds and serves, the fault is routing/healthcheck, not
   the code.
+  RESOLVED 2026-09-16 (v1.0.915, KNOWN BROKEN #41's five-day non-recovery
+  was exactly this class, via the LIVENESS ALARM): `server/healthGate.ts`
+  is now the one place that decides the HTTP code — `SERVING_CHECKS =
+  ["server", "database"]`, nothing else gates; every other check keeps
+  degrading `status` and reporting. The "boot dist/index.cjs locally"
+  diagnostic above is now `scripts/deploy_gate_smoke.mjs`, a REQUIRED
+  suite in gated_tests.sh, so a regression fails CI instead of
+  production. RULE going forward: a new check reports in its own block
+  and may set `status: "degraded"`; adding it to SERVING_CHECKS is a
+  deploy-gate change that needs "the container cannot serve AND a
+  restart is a plausible remedy" and its own test.
 
 - BRANCH RESET AUTO-CLOSES OPEN PRs (bit us 2026-07-16: the two live
   repairs in PR #498 silently stranded): force-pushing the branch to

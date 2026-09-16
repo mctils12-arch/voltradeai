@@ -192,6 +192,40 @@ logs for this window (or the market-hours window just before it) would be
 a second, independent chance at the V8-fatal-error-vs-bare-SIGKILL
 evidence this file has been asking for since 2026-09-08.
 
+UPDATE 2026-09-16 (interactive session, human-directed "fix it and get the
+site up") — the "manual Railway restart is the only path back" ask above is
+WITHDRAWN: it was never the blocker. Every merge since 09-10 was a fresh
+deploy, and every fresh container was REJECTED by Railway's healthcheck
+because /api/health answered 503 — the persisted kill switch kept the
+LIVENESS ALARM dark, the alarm (correctly) set `status: "degraded"`, and the
+handler mapped any degraded status to the HTTP code. Fixed in v1.0.915
+(`server/healthGate.ts`: only server+database gate the HTTP code; alarms
+keep their voice, lose their veto), enforced in CI by a boot smoke that runs
+Railway's probe under the latched state, and made visible to the routines
+(`session_health_check.py` now reads app-level 503 bodies). Full chain in
+KNOWN BROKEN #41's 2026-09-16 UPDATE and experiments.md.
+
+TWO THINGS STILL FOR THE HUMAN (unchanged in substance, re-stated because
+the site coming back changes what they are for):
+1. THE KILL SWITCH IS STILL LATCHED. The bot boots halted and stays halted
+   (by design). #42's evidence says the -17.9%-from-peak reading is a
+   broker data glitch (real book -$414 that day); clearing it is your call
+   via the owner /api/bot/kill toggle after checking the Alpaca dashboard.
+   Nothing autonomous will clear it.
+2. THE MEMORY LEAK IS NOT FIXED, ONLY CONTAINED: it cannot run while
+   halted, and a crash after un-halting now recovers (new containers pass
+   the gate). The Railway raw-log pull (V8 heap trace vs bare kill) is still
+   the single fastest piece of evidence; the in-repo audit's surviving
+   findings are under KNOWN BROKEN #41.
+
+CONSTITUTIONAL NOTE for the human (confirm or overrule): Amendment 1 says
+the loop going dark is "a degraded state on /api/health". This change keeps
+`status: "degraded"` + the `bot.liveness` block + the routine ALARM, and
+changes only the HTTP status code Railway's probe reads. If the intent was
+that a dark loop should also block deploys, that is a different mechanism
+(a deploy-time check, not a health probe) and should be designed as one —
+the 5-day outage is what conflating them costs.
+
 ## 🔴 ACTIVE LIVE CONCERN, FLAGGED 2026-09-09 (scheduled-routine session,
 ## fourth session this UTC day) — account reading ~-18% drawdown from its
 ## own tracked peak, ~11.7% "daily loss," continuously since ~08:37Z with

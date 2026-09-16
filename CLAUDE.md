@@ -654,6 +654,18 @@ read-before-write review.
   is normal, a few minutes) — just no more standing "CI may still be down"
   caveat is needed. Full outage history + evidence trail kept intact
   (append-only) in wishlist.md.
+- /api/health DEPLOY GATE (2026-09-16, v1.0.915, KNOWN BROKEN #41): the
+  HTTP code Railway's healthcheck reads is decided ONLY by
+  `server/healthGate.ts` (`SERVING_CHECKS = server, database`); every
+  other check (alpaca, python, bot liveness, scanner, feeds, licensing)
+  still sets `status: "degraded"` in the payload and never gates a
+  deploy. The 2026-09-10 -> 09-16 outage was 30 fresh containers
+  answering 503 on the persisted liveness alarm and being rejected.
+  `scripts/deploy_gate_smoke.mjs` (required suite in gated_tests.sh)
+  boots the built bundle under latched-kill-switch + stale-liveness
+  state and requires 200 within Railway's 60s. Diagnosing a 502 outage:
+  build + boot locally FIRST (the smoke does it), never re-log "still
+  down" without the health payload's `serving.failing`.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 

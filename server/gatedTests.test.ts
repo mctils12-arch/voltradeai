@@ -157,3 +157,19 @@ test("ci.yml runs the gate, and the test job no longer tolerates failure", () =>
     "it WAIT, which is exactly what T1.1 shipped deliberately",
   );
 });
+
+test("the gate runs the deploy probe (KNOWN BROKEN #41) as a required suite", () => {
+  // Five days of 502 across 30 green merges: every test passed, and nothing
+  // ever asked the built bundle the one question Railway asks. The smoke is
+  // wired here rather than in ci.yml (FROZEN) — this pins that it stays wired
+  // and stays blocking.
+  const raw = fs.readFileSync(SCRIPT, "utf8");
+  const code = raw.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  assert.match(code, /run_suite "deploy-gate smoke[^"]*"\s*\\?\s*\n?\s*node scripts\/deploy_gate_smoke\.mjs/,
+    "gated_tests.sh must run scripts/deploy_gate_smoke.mjs through run_suite (so a failure sets fail=1)");
+  assert.ok(fs.existsSync(path.join(repoRoot, "scripts", "deploy_gate_smoke.mjs")), "the smoke script must exist");
+  const smoke = fs.readFileSync(path.join(repoRoot, "scripts", "deploy_gate_smoke.mjs"), "utf8");
+  assert.match(smoke, /killSwitch: true/, "the smoke must boot with the kill switch latched — the Sept-10 state");
+  assert.match(smoke, /HEALTHCHECK_TIMEOUT_S = 60/, "the window must match railway.json's healthcheckTimeout");
+  assert.match(smoke, /last\.status === 200/, "only HTTP 200 passes — a 503 is Railway's rejection");
+});
