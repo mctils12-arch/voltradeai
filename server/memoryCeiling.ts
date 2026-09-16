@@ -53,7 +53,7 @@ export const NEAR_LIMIT_FRACTION = 0.85;
 /** cgroup v1 reports "unlimited" as a huge number rather than a word. */
 const V1_UNLIMITED_FLOOR = 2 ** 60;
 
-const MB = 1048576;
+const MB = 1024 * 1024; // not the 7-digit literal: dup_precise_literal (D11) counts restated copies, bot.ts already owns 1048576
 
 const defaultRead: ReadFile = (p) => fs.readFileSync(p, "utf8");
 

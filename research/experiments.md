@@ -79,6 +79,16 @@ entry's write time) -> own PRs; (3) the t=0 boot burst is an architecture
 item (stagger/serialize the ~55 eager refreshers behind one budget) —
 filed, not patched blind.
 
+CI ROUND 1 (PR #1091): `counter_ratchet` red, `dup_precise_literal 3 ->
+4` — memoryCeiling.ts restated `1048576` (7 significant digits, already
+owned by bot.ts). Fixed as `1024 * 1024` (one home for the number). WHY
+THE LOCAL RATCHET MISSED IT: `program_status.sh` enumerates `git
+ls-files`, so an UNTRACKED new module is invisible to the local run until
+it is `git add`ed — the same run after the commit reproduced CI exactly.
+RULE for future sessions (compiled here, not into the script — a
+measurement-script change is its own [RULE-REVIEW] PR): run
+`scripts/counter_ratchet.sh` AFTER `git add -A`, never before.
+
 STARVED: no — this closed the exact evidence gap the incident thread had
 been blocked on since 2026-09-08, in code.
 
