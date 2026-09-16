@@ -1087,19 +1087,24 @@ const FIXTURES = {
       { id: "fx_raw", name: "Fixture raw overlay", category: "environmental", status: "raw_only", current_gate: 0, last_update_date: "2026-07-08", note: "Display-only overlay, no predictive claim (fixture).", source_ref: "experiments.md:1 (fixture)" },
       { id: "fx_g1p", name: "Fixture gate-1 pending", category: "macro", status: "gate1_pending", current_gate: 0, last_update_date: "2026-07-06", note: "Archiver shipped, gate-1 criteria stated, no run result yet (fixture).", source_ref: "experiments.md:2 (fixture)" },
       { id: "fx_g1pass", name: "Fixture gate-1 pass", category: "macro", status: "gate1_pass", current_gate: 1, last_update_date: "2026-07-05", note: "Prod values exact-matched the published export (fixture).", source_ref: "experiments.md:3 (fixture)" },
+      // gate1_pass + detail_route (2026-09-16) — exercises the honest
+      // "view live data" label (never "signal") for a DATA-tier root that
+      // already has a dedicated RAW /data page but hasn't passed gate 2 yet
+      // — see server/signalLadder.ts's detailRouteLabel().
+      { id: "fx_g1pass_detail", name: "Fixture gate-1 pass with live RAW-DATA page", category: "macro", status: "gate1_pass", current_gate: 1, last_update_date: "2026-09-16", note: "Gate 1 pass with a dedicated live RAW-DATA page, gate 2 not attempted (fixture).", source_ref: "experiments.md:3b (fixture)", detail_route: "#/data/fred-macro", detail_route_label: "view live data →" },
       { id: "fx_g1fail", name: "Fixture gate-1 fail", category: "commodities", status: "gate1_fail", current_gate: 1, last_update_date: "2026-07-05", note: "Both sensor designs dead at gate 1 (fixture).", source_ref: "experiments.md:4 (fixture)" },
       { id: "fx_g2p", name: "Fixture gate-2 pending", category: "government_spending", status: "gate2_pending", current_gate: 2, last_update_date: "2026-07-26", note: "Gate 1 passed, first gate-2 run inconclusive (fixture).", source_ref: "experiments.md:5 (fixture)" },
       { id: "fx_killed", name: "Fixture killed root", category: "insider_trading", status: "killed", current_gate: 2, last_update_date: "2026-07-22", note: "Gate 2 kill in both directions (fixture).", source_ref: "experiments.md:6 (fixture)" },
       // gate2_pass + detail_route (2026-08-16) — exercises the "view live
       // signal" generic link (signalLadder.tsx), first real use being
       // gnss_integrity_adsb's #/data/gnss-integrity page.
-      { id: "fx_g2pass_detail", name: "Fixture gate-2 pass with live detail page", category: "geopolitical_intelligence", status: "gate2_pass", current_gate: 2, last_update_date: "2026-08-16", note: "Gate 2 pass with a dedicated live signal page (fixture).", source_ref: "experiments.md:7 (fixture)", detail_route: "#/data/gnss-integrity" },
+      { id: "fx_g2pass_detail", name: "Fixture gate-2 pass with live detail page", category: "geopolitical_intelligence", status: "gate2_pass", current_gate: 2, last_update_date: "2026-08-16", note: "Gate 2 pass with a dedicated live signal page (fixture).", source_ref: "experiments.md:7 (fixture)", detail_route: "#/data/gnss-integrity", detail_route_label: "view live signal →" },
     ],
     summary: {
-      total: 7,
-      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1, gate2_pass: 1 },
-      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1, geopolitical_intelligence: 1 },
-      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 3 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
+      total: 8,
+      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 2, gate1_fail: 1, gate2_pending: 1, killed: 1, gate2_pass: 1 },
+      by_category: { environmental: 1, macro: 3, commodities: 1, government_spending: 1, insider_trading: 1, geopolitical_intelligence: 1 },
+      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 3 }, { gate: 2, count: 3 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
       killed_count: 1,
       raw_only_count: 1,
       furthest_gate_reached: 2,

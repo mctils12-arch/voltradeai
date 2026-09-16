@@ -1,7 +1,13 @@
 // signalLadder.test.ts — MAP V2 ROADMAP R6(a) SIGNAL-STRENGTH dashboard.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summarizeLadder, loadSignalLadder, type LadderRoot } from "./signalLadder";
+import {
+  summarizeLadder,
+  loadSignalLadder,
+  isValidatedSignal,
+  detailRouteLabel,
+  type LadderRoot,
+} from "./signalLadder";
 
 function root(overrides: Partial<LadderRoot>): LadderRoot {
   return {
@@ -75,6 +81,33 @@ test("loadSignalLadder: raw_only roots always carry current_gate 0 — the ladde
   for (const r of roots) {
     if (r.status === "raw_only") {
       assert.equal(r.current_gate, 0, `${r.id} is raw_only but has a nonzero gate`);
+    }
+  }
+});
+
+test("isValidatedSignal/detailRouteLabel: a root only earns the SIGNAL label once it has actually passed gate 2+ — RAW OVERLAYS vs SIGNALS (CLAUDE.md) applies to ladder detail links too", () => {
+  assert.equal(isValidatedSignal("gate1_pass", 1), false, "gate1_pass is DATA-tier, not a validated signal");
+  assert.equal(isValidatedSignal("gate2_pass", 2), true);
+  assert.equal(isValidatedSignal("gate3_pass", 3), true);
+  assert.equal(isValidatedSignal("gate2_pending", 2), false, "pending is not a pass");
+  assert.equal(isValidatedSignal("gate2_fail", 2), false);
+  assert.equal(isValidatedSignal("raw_only", 0), false);
+  assert.equal(isValidatedSignal("killed", 2), false);
+
+  assert.equal(detailRouteLabel("gate1_pass", 1), "view live data →");
+  assert.equal(detailRouteLabel("gate2_pass", 2), "view live signal →");
+});
+
+test("loadSignalLadder: every root with a detail_route gets a detail_route_label, and it never overclaims 'signal' for a gate1_pass (DATA-only) page", () => {
+  const { roots } = loadSignalLadder();
+  const withRoute = roots.filter((r) => r.detail_route);
+  assert.ok(withRoute.length >= 11, "expected the backfilled gate1_pass detail_routes plus the pre-existing gate2_pass ones");
+  for (const r of withRoute) {
+    assert.ok(r.detail_route_label, `${r.id} has detail_route but no detail_route_label`);
+    if (isValidatedSignal(r.status, r.current_gate)) {
+      assert.equal(r.detail_route_label, "view live signal →", `${r.id} passed gate 2+ but isn't labeled as a signal`);
+    } else {
+      assert.equal(r.detail_route_label, "view live data →", `${r.id} hasn't passed gate 2 — must not claim 'signal'`);
     }
   }
 });

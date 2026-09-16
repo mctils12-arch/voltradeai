@@ -35,6 +35,28 @@ export interface LadderRoot {
   last_update_date: string;
   note: string;
   source_ref: string;
+  detail_route?: string;
+}
+
+/**
+ * A root only earns the SIGNAL label once it has actually passed the
+ * SIGNAL gate (gate 2) or further — a gate1_pass root is a validated DATA
+ * archive, not yet a validated signal (ROOT VALIDATION LADDER, CLAUDE.md).
+ * Mirrors summarizeLadder's own "genuine pass" convention (status ends in
+ * "_pass" AND current_gate is the gate actually being claimed) so the two
+ * never drift apart.
+ */
+export function isValidatedSignal(status: LadderStatus, current_gate: number): boolean {
+  return status.endsWith("_pass") && current_gate >= 2;
+}
+
+/**
+ * Label for a root's detail_route link. RAW OVERLAYS vs SIGNALS (CLAUDE.md)
+ * applies here too: a gate1_pass (DATA-only) page must never be called a
+ * "signal" — that overclaims exactly what the page's own header disclaims.
+ */
+export function detailRouteLabel(status: LadderStatus, current_gate: number): string {
+  return isValidatedSignal(status, current_gate) ? "view live signal →" : "view live data →";
 }
 
 export interface LadderSummary {
@@ -81,10 +103,12 @@ export function summarizeLadder(roots: readonly LadderRoot[]): LadderSummary {
   };
 }
 
+export type LadderRootView = LadderRoot & { detail_route_label?: string };
+
 export function loadSignalLadder(): {
   compiled: string;
   sources: string[];
-  roots: LadderRoot[];
+  roots: LadderRootView[];
   summary: LadderSummary;
 } {
   const data = signalLadderJson as {
@@ -92,10 +116,15 @@ export function loadSignalLadder(): {
     sources: string[];
     roots: LadderRoot[];
   };
+  const roots: LadderRootView[] = data.roots.map((r) =>
+    r.detail_route
+      ? { ...r, detail_route_label: detailRouteLabel(r.status, r.current_gate) }
+      : r,
+  );
   return {
     compiled: data.compiled,
     sources: data.sources,
-    roots: data.roots,
+    roots,
     summary: summarizeLadder(data.roots),
   };
 }
