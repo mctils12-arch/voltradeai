@@ -141,6 +141,21 @@ done < <(quarantined)
 # exclusion is conftest.py's `collect_ignore`.
 run_suite "python" python3 -m pytest -q $py_ignores
 
+# ── Gate 1b: the deploy probe (KNOWN BROKEN #41, 2026-09-16) ────────────────
+# Railway's healthcheck is the one test that decides whether a merge ever
+# reaches production, and until this line nothing in CI ran it: the site sat
+# at a 502 for five days across 30 green merges because every fresh container
+# answered /api/health with 503. This builds the bundle the Dockerfile ships,
+# boots it with the worst persisted state a volume can hand it (kill switch
+# latched, liveness stale, no broker creds) and requires HTTP 200 within
+# railway.json's 60s window. Required, like the suites above; set
+# DEPLOY_GATE_SMOKE=0 only for a local run that has no business booting the
+# server (never in CI — the wiring test pins that this line is present).
+if [ "${DEPLOY_GATE_SMOKE:-1}" != "0" ]; then
+  run_suite "deploy-gate smoke (build + boot + /api/health == 200)" \
+    node scripts/deploy_gate_smoke.mjs
+fi
+
 # ── Quarantined tests: run, report, never block ─────────────────────────────
 if [ "$q_count" -gt 0 ]; then
   echo "── quarantined (non-blocking) ─────────────────────────"

@@ -3,6 +3,192 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (interactive session, human-directed "fix it and get the site up and figure out how this problem would not occur again") [REPAIR] — KNOWN BROKEN #41's FIVE-DAY NON-RECOVERY ROOT-CAUSED AND FIXED: the site was not down because of the crash loop, it was down because every fresh container answered Railway's deploy probe with HTTP 503 (the LIVENESS ALARM mapped onto the HTTP code) and was rejected — 30 merged PRs never reached production; `server/healthGate.ts` splits alarms from the deploy gate, a boot smoke now runs the probe in CI, and `session_health_check.py` can see an app-level 503 (v1.0.915)
+
+TERRITORY: T-BOT (server/bot.ts /api/health handler, new server/healthGate.ts
++ test) + scripts tooling (scripts/deploy_gate_smoke.mjs new,
+scripts/gated_tests.sh, scripts/session_health_check.py +
+test_session_health_check.py, server/gatedTests.test.ts) + SHARED-minimal,
+last (ci/counter_baseline.txt re-pin, package.json/package-lock.json,
+CLAUDE.md KNOWN STATE fact, research/*). One logical change: "the deploy
+gate", in three coupled pieces (the contract, its CI enforcement, its
+observability) — none of the three is a separate hypothesis.
+
+LOOP-HEALTH RATIO CHECK (session-start): last 40 tagged entries =
+[PRODUCT]x23, [PIPELINE]x14, [REPAIR]x11, [RESEARCH]x3 by grep — no
+7-of-10 REPAIR thrash signal on the letter of the rule. On its substance
+the signal WAS there and the ratio missed it: 14 of the PIPELINE/PRODUCT
+entries since 2026-09-10 are the same "cold cache, no on-disk backfill"
+fix applied module-by-module, and 6 REPAIR entries are "re-confirmed still
+down" bookkeeping of one incident. Recorded here as a finding about the
+metric, not acted on (a constitutional question — see wishlist note).
+
+SESSION-START STATE (live, this session, 2026-09-16 ~02:12Z): voltradeai.com
+`/api/health` and `/api/data/layers` -> Railway edge 502 `"Application
+failed to respond"` (and the direct curl hung 15s before the edge gave up);
+`scripts/session_health_check.py` -> `[ALARM] outage_duration: 125.8h and
+counting` since `research/outage_state.json`'s 2026-09-10T20:18Z onset.
+Last 60 CI runs: 51 success, 5 failure, 4 cancelled — every failure a
+first-attempt on a branch (test gate x3: a research-prose parser test and
+suite reds; counter ratchet x1 `silent_py_handlers 255->256`; automerge x1
+on a draft PR), all fixed on the next push, NONE on main. So CI was green
+and merging for five days into a production that could not take the deploy.
+
+PRIOR (stated before reading the code): "Railway's restartPolicyMaxRetries=10
+was exhausted by the crash loop and the service sits dead until a manual
+restart" was every prior session's diagnosis, and I expected to confirm it.
+The thing that did not fit it: a merge to main IS a fresh deploy (a fresh
+container, a fresh retry budget), and 30 of them had merged since the onset
+(#1049..#1088) with the site never once coming back, not even overnight
+or across the weekend when the market-hours-only crash loop could not run.
+An exhausted retry budget cannot explain a fresh deploy failing. Something
+was rejecting every new container.
+
+ROOT CAUSE (read live this session, `server/bot.ts` /api/health handler
+lines ~1324-1500, `server/liveness.ts`, kill-switch/liveness persistence at
+lines ~600-690, `railway.json`): the chain, one variable at a time —
+  1. 2026-09-09: PR #1040 (v1.0.877, KNOWN BROKEN #43) restored the -10%
+     from-peak drawdown kill switch to actually run every Tier-1 cycle.
+  2. 2026-09-10T03:12:54Z: it fired on the account's reported equity
+     (~$90.8k vs peak $110.7k — the reading KNOWN BROKEN #42 shows is
+     almost certainly a broker-side data glitch, real book -$414 that day).
+     `state.killSwitch = true`, PERSISTED to
+     `/data/voltrade/voltrade_kill_switch.json` and restored on every boot
+     BY DESIGN (the 2026-07-07 lesson: a deploy must never un-kill the bot).
+  3. `activeNow = state.active && !state.killSwitch` -> false, so
+     `server/liveness.ts`'s stamp froze at 03:12Z, also PERSISTED
+     (`voltrade_liveness.json`, "restarts never reset the clock" — the
+     equityPeak lesson, also by design).
+  4. After 2 market hours (~15:30Z on 09-10) `loopDark()` -> `dark: true`
+     -> the handler set `checks.status = "degraded"` — CORRECT and REQUIRED
+     by CLAUDE.md Amendment 1 (the loop going dark is a degraded state on
+     /api/health).
+  5. The handler's last line: `const httpCode = checks.status === "ok" ?
+     200 : 503`. From 15:30Z every /api/health answer from ANY container
+     was HTTP 503.
+  6. `railway.json` (FROZEN): `healthcheckPath: "/api/health"`,
+     `healthcheckTimeout: 60`. A non-2xx answer FAILS the deployment; the
+     new container never takes over. #1047 merged 18:59Z -> rejected.
+     The old v1.0.881 container kept serving until 20:18Z, when it died
+     (the market-hours crash loop + retry budget, i.e. the OLD diagnosis,
+     which is right about the old container and wrong about everything
+     after). From then: nothing serving, and every one of the next 30
+     deploys booted, restored the latched kill switch and the stale
+     liveness stamp from the volume, answered 503, and was rejected.
+  The OPS GOTCHAS entry in open_questions.md ("/api/health IS RAILWAY'S
+  DEPLOY GATE — A CHECK THAT DEGRADES IT CAN TAKE THE SITE DOWN", bit us
+  2026-08-12 via the feed dead-air check, 15 min of 502) described this
+  exact class and left the general fix as an OPEN QUESTION; the feed check
+  was exempted by hand, the liveness check was not. Five sessions re-read
+  the 502 as "still down, unactionable from this sandbox" without booting
+  the bundle locally — the gotcha's own last sentence names that as the
+  fast diagnostic for this class.
+
+REPRODUCTION (before writing any fix): `npm run build`, then
+`NODE_ENV=production PORT=5055 VOLTRADE_DAEMON_ENABLED=false node
+dist/index.cjs` with `/tmp/voltrade_kill_switch.json` = `{killSwitch:true}`
+and `/tmp/voltrade_liveness.json` = `{lastActiveAt: <2026-09-10T03:12:54Z>}`
+(the /tmp fallback paths bot.ts uses when /data is absent). `curl -w
+'%{http_code}' /api/health` -> **503** in 0.48s, payload `status:
+"degraded"`, `checks.server ok`, `checks.database ok`, `checks.bot.liveness
+{dark:true, marketHours:26, wallHours:143.1}`. (The sandbox's alpaca check
+also errors for want of keys; production's does not — the prior sessions'
+live reads before 20:18Z on 09-10 show alpaca ok. Irrelevant either way
+once the gate is split.)
+
+CHANGE (v1.0.915, one logical change — the deploy gate):
+  (a) `server/healthGate.ts` (new, pure): `SERVING_CHECKS = ["server",
+      "database"]`; `servingVerdict(payload)` / `healthHttpCode(payload)`.
+      The HTTP code reflects ONLY whether this container can serve (process
+      up, SQLite answers `SELECT 1`). Every other check — alpaca, python,
+      bot/liveness, scanner, feeds, licensing — still sets `status:
+      "degraded"` exactly as before and is reported in the payload; it just
+      can no longer veto the deploy that would fix it. The payload gains
+      `serving: {ok, gates, failing, note}` so a reader learns the contract
+      without the source. `server/bot.ts` handler: `checks.serving =
+      servingVerdict(checks); const httpCode = healthHttpCode(checks);`
+      — the only lines touched in the handler; every alarm line above is
+      untouched (the source ratchet in the test pins both halves).
+      CONSTITUTIONAL READ: Amendment 1 says the dark loop is "a degraded
+      state on /api/health". It still is — `status: "degraded"`, the
+      `bot.liveness` block, `session_health_check.py`'s ALARM. The HTTP
+      status code was never named by the amendment; it is Railway's probe
+      contract. Filed in wishlist.md for the human to confirm or overrule.
+  (b) `scripts/deploy_gate_smoke.mjs` (new) + `scripts/gated_tests.sh`
+      (4th required suite) + `server/gatedTests.test.ts` (wiring pin):
+      CI now builds the bundle the Dockerfile ships, boots `node
+      dist/index.cjs` as run_with_daemon.sh does with the WORST persisted
+      state a volume can hand it (kill switch latched, liveness stamp from
+      2026-09-10T03:12:54Z, no broker creds, no daemon), and requires
+      /api/health == 200 within railway.json's 60s window. Refuses to run
+      where /data is a mount point. NEGATIVE CONTROL run this session:
+      with `server/bot.ts` stashed back to main's handler the smoke reports
+      `REJECTED: /api/health answered 503 after 91.0s` and exits 1; with
+      the fix, `PASS: 200 in 4.8s (status=degraded, serving gates=
+      server+database, liveness.dark=true)`. This is the test that would
+      have blocked #1040's successor deploys — every test in the repo was
+      green for five days because nothing asked the built bundle the one
+      question Railway asks.
+  (c) `scripts/session_health_check.py`: `_fetch_json` now KEEPS an HTTP
+      error's JSON body when it is a health payload (attaching
+      `_http_status`) instead of dropping it as "fetch failed" — for the
+      first ~5 hours of the outage the app itself was answering 503 with a
+      payload that named the gating check, indistinguishable to every
+      routine from Railway's 502. New `check_deploy_gate` is the FIRST
+      finding: an app-level non-2xx is an ALARM naming what gates the
+      deploy (and, on a pre-healthGate build, every degraded check);
+      Railway's own 502 stays `None` so the outage tracker is unchanged.
+      11 new tests, the count test 7->8.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1), traced two steps: the HTTP code
+change -> Railway now accepts containers whose loop is halted -> the site
+comes back with the kill switch STILL latched (trading stays halted; the
+owner toggle is still the only clear path, unchanged) -> the market-hours
+crash loop (KNOWN BROKEN #41 proper, the memory growth) is gated behind
+`state.active && !state.killSwitch` for Tier 2 and the hourly Tier 3, so it
+cannot run while halted; the 30s startup Tier-3 run is NOT gated by
+`state.active` and does run (it did in the smoke, cooldown-guarded, no
+crash) -> a human un-halting the bot during market hours re-exposes the
+leak, which restarts (restartPolicy ALWAYS) now recover from because new
+containers pass the gate. Second-order: a genuinely broken container
+(SQLite cannot open) still answers 503 and is still rejected — that is the
+one case where "keep the old container" is right.
+
+MEASUREMENT INTEGRITY note: /api/health is monitoring, not a performance
+ruler; before/after on identical inputs: before = any degraded check ->
+503; after = only server/database not-ok -> 503, payload identical plus
+`serving`. Direction of bias: none on any trading metric; on ops it can only
+make MORE deploys succeed, never fewer.
+
+ROLLBACK TRIGGER: if a deploy that should have been rejected takes over
+(a container that boots, answers 200, and cannot actually serve requests)
+— revert the handler to `healthHttpCode` gating on the full check set is
+NOT the fix (that re-creates this outage); the fix is adding the specific
+failing condition to SERVING_CHECKS with a test.
+
+WHAT THIS SESSION DID NOT DO, deliberately: (1) did not clear the kill
+switch — KNOWN BROKEN #42/#43's evidence says the drawdown reading is a
+broker data glitch, but clearing a live kill switch on inference is the
+human's call, exactly as those items say; (2) did not patch the memory
+leak a third time blind — a 6-finder/3-lens adversarial audit of server/
+was run in parallel this session (results in KNOWN BROKEN #41's UPDATE and,
+if a verified mechanism with a minimal fix came out of it, its own PR);
+(3) did not touch railway.json or ci.yml (FROZEN) — the gate lives in
+gated_tests.sh where the wiring test pins it.
+
+PREVENTION, the human's question answered in three layers: (i) MECHANISM —
+the deploy gate can no longer be flipped by a monitoring alarm
+(healthGate.ts, minimal by construction, tested); (ii) ENFORCEMENT — CI
+runs Railway's probe against the built bundle under the worst persisted
+state before every merge (deploy_gate_smoke.mjs), so a regression fails
+the PR, not production; (iii) OBSERVABILITY — the routine health check
+reads app-level 503 bodies and names the gate, so "still down" can never
+again be logged five times without the gating check being printed.
+
+STARVED: no — the human's ask was the single highest-priority item in the
+repo (Priority 1, a 5-day outage) and it is shipped; the leak root cause is
+queued under KNOWN BROKEN #41 with the audit's output, not starved.
+
 ## 2026-09-16 (scheduled-routine [PRODUCT] session) [PRODUCT] — signalLadder.tsx backfills detail_route for the 9 already-shipped gate1_pass /data pages the ladder never linked to, and fixes the honesty gap that reuse would otherwise create (v1.0.914, PR TBD)
 
 TERRITORY: primarily T-DATACORE (datacore/signal_ladder.json,

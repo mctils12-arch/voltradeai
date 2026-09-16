@@ -35,6 +35,7 @@ import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eve
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
 import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
+import { healthHttpCode, servingVerdict } from "./healthGate";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -1483,7 +1484,17 @@ print(json.dumps(data))
     // recording failure affect the health response itself.
     try { recordHealthSnapshot(checks); } catch {}
 
-    const httpCode = checks.status === "ok" ? 200 : 503;
+    // DEPLOY GATE (KNOWN BROKEN #41, 2026-09-16 — read server/healthGate.ts
+    // before touching this): railway.json (FROZEN) probes this path and a
+    // non-2xx answer REJECTS the new container. Until today any degraded
+    // `status` became 503, so the LIVENESS ALARM — persisted on the volume,
+    // correct, and loud — vetoed every deploy for five days while the site
+    // sat at Railway's 502 fallback. The HTTP code now reflects only
+    // server+database (can this container serve?); every alarm above still
+    // sets `status: "degraded"` and is reported here, it just cannot veto
+    // the deploy that would fix it. `serving` makes the split visible.
+    checks.serving = servingVerdict(checks);
+    const httpCode = healthHttpCode(checks);
     res.status(httpCode).json(checks);
   });
 
