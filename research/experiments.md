@@ -3,6 +3,143 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine [PRODUCT] session, second entry this UTC day) [PRODUCT]+[PIPELINE] — corrects a same-day stale finding (2 gate1_pass roots wrongly marked "no dedicated page" already have one) and reconciles port_dwell_maritime_transit's weekly GATE-2 accumulator with the server's own Tier-3 capture state (week 9), no code changed (v1.0.918, no version bump — docs+data-only)
+
+TERRITORY: T-DATACORE, docs+data-only (datacore/signal_ladder.json,
+research/open_questions.md) — no server/, client/, or bot files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then this file (newest-at-top)
+and open_questions.md's KNOWN BROKEN header. Live `curl
+https://voltradeai.com/api/health`: `status:"degraded"` — bot `"killed"`
+(the DD-halt kill switch from #42/#43, still latched, human decision per
+that item's own NEXT), LIVENESS ALARM firing (26.0 market hours / 153.9h
+wall-clock dark since 2026-09-10T03:12:26Z), `serving.ok:true` (the
+container itself is healthy and correctly still serving — KNOWN BROKEN
+#41's deploy-gate fix, v1.0.915, is holding). This is the SAME
+already-logged, already-escalated, human-decision-pending state every
+session today has re-confirmed, not a new finding — not re-notified. Per
+this session's own task framing ("product sessions do not preempt the
+DAILY routines' repair duty" and this alarm does not block T-DATACORE
+work), proceeded with PRODUCT work.
+
+PRIMARY-ACTION SELECTION: surveyed `datacore/signal_ladder.json`'s 12
+`gate1_pass` roots for the next actionable ladder step, the same method
+every recent PRODUCT session has used. All 12 were re-confirmed either
+GATE-2 time-blocked (cftc_cot, sec_8k, sec_edgar_13f, app_store,
+nrc_outage, dtcc_swaps, fleet_utilization, github_org_engineering_momentum
+— re-checked live, still 6 archived weeks/15-org panel, per the
+2026-09-06 session's own stated re-check condition) or infrastructure
+feeding another root's gate rather than a gate-2 candidate on its own
+terms (fred_macro, eu_macro, entity_map, sec_form4). `space_weather_swpc`
+(gate1_pending) was re-checked via the live `spaceweather_storm` diag
+probe: `maxG:0` across 50 days scanned (2026-07-29..2026-09-16, maxKp
+5.67) — still no G2+ storm window, still event-blocked, nothing new.
+
+Immediately preceding this session's own tagged entry (2026-09-16,
+`signalLadder.tsx backfills detail_route for 9 ... /data pages`, v1.0.914)
+filed as its own NEXT: "the 3 gate1_pass roots still without a dedicated
+page (sec_form4_bulk_archive, entity_map_operator_ticker,
+port_dwell_maritime_transit)". READ BEFORE WRITE caught this before
+repeating it: two EARLIER sessions (2026-09-07 fourth session and
+2026-09-08 fourth session, both cited by id at experiments.md's own
+lines ~7111-7123 and ~6507-6523) had already surveyed the exact same
+question and found the opposite for 2 of the 3 — explicitly naming
+`sec_form4_bulk_archive` as a **false positive of a naive id-vs-filename
+grep** that "resolves to filings.tsx under a different name", and listing
+`entity_map_operator_ticker` among the roots that "already has either a
+dedicated page or a live map layer." Verified both live, not from memory:
+`client/src/pages/filings.tsx` (#/data/filings) fetches
+`/api/data/insider/history`, the Form 4 archive this root's own note
+covers; `client/src/pages/graph.tsx` (#/data/graph) renders "operates"
+edges (facility→company via operator), and `server/dossier.ts`'s own
+tests confirm those edges are exactly this root's operator→ticker table
+joined into the Everything Graph. `port_dwell_maritime_transit` is
+different in kind, not wrongly flagged: it has a live product surface
+(the "portdwell" map-layer toggle in `client/src/pages/datamap.tsx`,
+sourced from `datacore/layers.json`'s own `portdwell` entry) but no
+standalone hash-routable page the way the other two have — left alone,
+correctly.
+
+FIX: added `detail_route` to `sec_form4_bulk_archive` (`#/data/filings`)
+and `entity_map_operator_ticker` (`#/data/graph`) in
+`datacore/signal_ladder.json`, using the exact same server-computed
+`detail_route_label` mechanism the immediately preceding session built
+(`server/signalLadder.ts`'s `isValidatedSignal`/`detailRouteLabel` —
+zero code change needed, both roots are `gate1_pass`/`current_gate 1` so
+they correctly resolve to "view live data →", never "view live signal
+→"). Each note gained a short dated append explaining the correction and
+naming the same-day session whose survey it supersedes, rather than
+silently overwriting — RECURRENCE ESCALATES' spirit (a claim already
+settled by two prior sessions resurfacing a third time is worth naming
+explicitly, even though this is a documentation gap, not a repair
+patch, so the rule's literal "forbidden" doesn't apply).
+
+Also ran `port_dwell_maritime_transit`'s own standing NEXT
+(`scripts/portdwell_weekly_snapshot.ts`, "keep running it every session")
+live against production: merged 1 new server-captured week (week 9,
+2026-09-04..09-11) into `datacore/port_dwell_weekly.json` — the
+fallback per-week HTTP loop had nothing to do (week 9 was already
+captured server-side by the Tier-3 in-process job; no week 10 complete
+yet). File now holds 4 weeks (6,7,8,9), all 9 ports, shape-consistent
+with weeks 6-8 (not interpreted further — 4 points is not a trend).
+This is the exact reconciliation the 2026-09-07 (fifth session) entry
+named as its own deferred follow-up. `current_gate`/`status` unchanged
+(1/`gate1_pass`) — still GATE-2 accumulation, not a result. Full
+open_questions.md UPDATE filed under PORT DWELL ANALYTICS.
+
+GATES: `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+and the equivalent for `port_dwell_weekly.json` — both valid.
+`npx tsx --test server/signalLadder.test.ts`: 7/7 passed (the existing
+`>= 11`-roots-with-detail_route assertion still holds at 13). `npx tsx
+--test server/*.test.ts`: 1711/1711 passed, 0 regressions. `npx tsc
+--noEmit`: 11 pre-existing errors (ci/tsc_baseline.txt pin), TS2304 = 0,
+none touching a file this session edited (only JSON data + this
+research/ file changed). `python3 -m pytest -q`: 2082 passed, 1 skipped,
+54 subtests, 0 regressions. `bash scripts/gated_tests.sh`: GATE PASSED
+(build clean, deploy-gate smoke 200 in 2.5s, quarantine 0/1 none
+overdue). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0. `bash
+scripts/counter_ratchet.sh`: 25 counters OK; 2 counters read IMPROVED
+(`tests_run_in_ci` 456→458, `assertions` 14548→14560) but NOT re-pinned
+here per PROMOTION RULE 5 — this session added zero test files, so both
+deltas are pre-existing drift from unrelated merges since the pins were
+last set, same discipline the Q23 entry in PROGRAM_STATE.md already
+established. `npm run build`/`npm run visual`: not run — no `client/`
+file touched by this diff (PROMOTION RULE 6 applies when client/ is
+touched; the visual harness's own signal-ladder fixture is static test
+data, unaffected by a real-registry edit either way).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure registry/documentation
+correction plus read-only data accumulation; no scoring, sizing,
+threshold, or trading-path code touched. MONETIZATION TRIPWIRE: not
+touched. VISUAL VERIFICATION: N/A, no client/ file touched.
+
+VERSION: no bump — matches the established "docs/data-only research
+changes" precedent (PR #990/#998, and the 2026-09-04/09-07
+port-dwell-accumulator entries in this file) for a PR touching only
+`datacore/*.json` and `research/*.md`; PROMOTION RULE 4's version bump
+exists to separate `code_version` trade-feedback attribution, which does
+not apply to a non-runtime research/registry file.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring path, or any live-serving code path — `detail_route` is
+read only by `signalLadder.ts`'s already-shipped, already-tested label
+computation, and `port_dwell_weekly.json` is a git-tracked research
+artifact, not the file the live `/api/data/portdwell` route reads (that
+route reads the rolling-window archive directly, unaffected).
+
+NEXT: (1) `port_dwell_maritime_transit` — keep running the snapshot
+script every session that touches this root; 4 of ~15-20 weeks needed
+for GATE 2. (2) the AUDITS & DEBT register's staleness/constitutional
+audits — not checked this session, capacity was used by the primary
+action; a future session's fall-through should check last-run dates.
+(3) KNOWN BROKEN #42/#43 (kill switch latch) remains a human decision,
+unchanged, not actionable by an autonomous session.
+
+STARVED: no — this session's scope was a single primary action (the
+correction, which also directly prevents a future session from
+attempting to build two redundant pages) plus the port-dwell root's own
+standing low-cost NEXT, both completed with gates green.
+
 ## 2026-09-16 (scheduled-routine session) [REPAIR] — `scripts/session_health_check.py` now ALARMs on `checks.process.unhandledRejections`/`uncaughtExceptions` — the NEXT step the crash-visibility fix (v1.0.917, prior session this date) queued for itself (v1.0.918)
 
 TERRITORY: ops/diagnostic tooling extending the same T-BOT /api/health surface

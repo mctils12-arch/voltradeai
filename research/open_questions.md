@@ -12093,6 +12093,23 @@ territory in their first commit)
 - **Imagery enrichment (later)**: Sentinel-2 berth occupancy at the same
   9 ports verifies AIS-derived in-port counts when that pipeline lands
   (Tier-3 spec) — imagery verifies, AIS remains primary.
+  UPDATE 2026-09-16 (scheduled-routine [PRODUCT] session): ran
+  `scripts/portdwell_weekly_snapshot.ts` live against production (this
+  root's own standing NEXT — "keep running it, idempotent, safe every
+  session"). The preferred path merged 1 new week the server's Tier-3
+  in-process job had already captured since the last reconciliation
+  (week 9, 2026-09-04..09-11, `captured_at 2026-09-11T00:27:46Z`) into
+  `datacore/port_dwell_weekly.json` — the fallback per-week HTTP loop had
+  nothing to do (week 9 was already server-captured; no week 10 yet,
+  `last_completed_week_index: 9`). File now holds 4 weeks (6, 7, 8, 9),
+  all 9 ports, aggregate-only — still short of the ~15-20 threshold for
+  GATE 2, `current_gate`/`status` unchanged (1/`gate1_pass`). Read before
+  writing (MEASUREMENT INTEGRITY): week 9's per-port numbers are
+  consistent in shape with weeks 6-8 (no outlier), not interpreted
+  further — 4 points is still not a trend. This was the same reconcile-
+  the-two-files follow-up the 2026-09-07 UPDATE above named as NOT done;
+  it is now current as of this session. Full account in experiments.md's
+  matching 2026-09-16 entry.
 
 ## FUSION HYPOTHESES (Map v2.2 directive 2026-07-04 — logged, NOT built; each with ladder path)
 
