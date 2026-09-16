@@ -6476,6 +6476,22 @@
     read of the payload, no Railway logs needed. NEXT unchanged, plus:
     read `pressure` on the first market-hours cycle after the human clears
     the kill switch.
+    UPDATE 2026-09-16T03:00Z (same session, v1.0.916 live + v1.0.917):
+    LIVE CEILINGS READ: `heapLimitMB 6192, cgroupLimitMB 22888,
+    cgroupUsageMB 1804 (boot), pressure ok`. The 09-08 loop died at rss
+    770-990MB — OOM of either kind is RULED OUT (caveat: the cgroup limit
+    on 09-08 is unverified, but a 2026-05 comment already cites 8GB).
+    And server/ had ZERO `unhandledRejection`/`uncaughtException`
+    handlers: on Node >= 15 an un-awaited rejection is fatal, the FROZEN
+    supervisor execs Node, so any such rejection = container restart with
+    the reason only on Railway's stderr. That is the 09-08 shape (kill
+    switch OFF then -> Tier 2 first scan at boot+10s; ON now -> stable).
+    SHIPPED v1.0.917 `server/crashVisibility.ts`: FATAL-REJECTION audited
+    + process kept alive; FATAL-EXCEPTION audited + exit(1); counts on
+    `/api/health checks.process`. The proof of the hypothesis is the first
+    FATAL-* line after the human clears the kill switch. 16-minute memory
+    watch of the v1.0.915 container: boot burst to ~1.18GB, GC to ~850MB,
+    +10min/+15min refresh sawteeth to ~1.5GB and back — stable.
     NEXT: (1) once v1.0.915 is live, `python3 scripts/session_health_check.py`
     records the recovery in outage_state.json (this session does it if the
     deploy lands before it ends); (2) the leak audit's surviving findings

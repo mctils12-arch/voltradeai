@@ -3,6 +3,73 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (interactive session, third entry, same human directive) [REPAIR] — KNOWN BROKEN #41: the process had NO unhandledRejection / uncaughtException handler, so any un-awaited rejected promise ended Node with the reason on a stderr no session can read; `server/crashVisibility.ts` now audits FATAL-REJECTION (and keeps the process alive) / FATAL-EXCEPTION (then exit 1), with counts on /api/health — AND the live memory ceilings (v1.0.916, read this session) rule OOM OUT for the 2026-09-08 restart loop (v1.0.917)
+
+TERRITORY: T-BOT (server/bot.ts boot + /api/health, new
+server/crashVisibility.ts + test) + SHARED-minimal, last (package.json/
+package-lock.json, research/*).
+
+THE EVIDENCE THAT REFRAMED THE INCIDENT (live, v1.0.916's first container,
+uptime 7s): `checks.memory` = `heapLimitMB 6192, cgroupLimitMB 22888,
+cgroupUsageMB 1804, cgroupSource v2, pressure ok`. So: V8's cap is 6.2GB
+(run_with_daemon.sh's 60%-of-cgroup rule hit its 6144 ceiling) inside a
+22.9GB container. The 2026-09-08 loop died at rss 770-990MB — under a
+sixth of the heap cap, under a twentieth of the cgroup. It was NOT an
+OOM of either kind, and the three sessions that called it one were
+reading a climbing rss (which this session measured as the NORMAL boot
+burst: every fresh container climbs ~650MB in its first 2.5 min and
+GCs back; refresh cycles add ~600MB sawteeth at +10min/+15min and GC
+back — 16-minute watch, stable baseline ~850MB) and inferring a wall
+that was never there. (Caveat, stated: the cgroup limit could have been
+different on 09-08; a 2026-05 code comment already cites "8GB available",
+so it was not sub-1GB.)
+
+WHAT ELSE ENDS A NODE PROCESS IN 90-130s WITH NO AUDIT TRACE: grep of
+server/ for `unhandledRejection` / `uncaughtException` — ZERO handlers.
+On Node >= 15 an unhandled rejection is fatal by default. ~55 eager
+`boot*Poll()` refreshers fire at t=0 (fetch -> parse -> fold chains,
+several minutes long); the Tier-2 first scan fires at boot+10s when the
+kill switch is OFF (it was OFF on 09-08, it is ON now — which is the one
+gating difference between the 09-08 loop and today's stable containers).
+`run_with_daemon.sh` (FROZEN) `exec`s Node, so a Node exit is a container
+exit is a Railway restart — with the reason only on Railway's stderr.
+This is the shape of the 09-08 loop. It is a hypothesis, not a proof: the
+proof arrives the first time the loop recurs, as a FATAL-* audit line.
+
+CHANGE (v1.0.917): `server/crashVisibility.ts` — `installCrashHandlers(
+process, { audit })` at boot right after the STARTUP line:
+  - `unhandledRejection` -> `audit("FATAL-REJECTION", reason + top stack
+    frames)`, process KEPT ALIVE. Registering the handler is what changes
+    Node's default from exit to reported — deliberate (Priority 1) and
+    loud: audit line, `/api/health checks.process {unhandledRejections,
+    uncaughtExceptions, lastRejection, lastException}`, console.error.
+  - `uncaughtException` -> `audit("FATAL-EXCEPTION", ...)` then exit(1)
+    after a 250ms flush grace (continuing after an uncaught exception is
+    unsafe per Node's own docs; the change is only that the reason is on
+    disk first — `audit()` -> `persistAudit()` is a synchronous SQLite
+    insert).
+  - neither handler can throw; idempotent per process object; non-Error
+    reasons (strings, undefined, objects) described, not dropped.
+  8 tests incl. two source ratchets on bot.ts.
+
+BEHAVIOR CHANGE, stated plainly: before, an un-awaited rejection killed
+the whole server (trading loop included); after, it is recorded and the
+server keeps running. A rejection that SHOULD have been fatal (corrupt
+state) is now a loud audit line + a health-payload count instead of a
+restart. ROLLBACK TRIGGER: if FATAL-REJECTION lines show a rejection
+whose continuation is unsafe (an order-path or state-persistence
+failure), the fix is to catch it at its source and decide there — not to
+remove the handler.
+
+DOWNSTREAM CHAIN: the crash counter is diagnostic, not gating (healthGate
+unchanged). `session_health_check.py` ignores unknown keys. NEXT: teach
+it to ALARM on `checks.process.unhandledRejections > 0` (own PR — the
+finding count test is pinned) and, on the next restart loop, read the
+FATAL-* lines FIRST.
+
+STARVED: no — the leak audit's verify phase is still running; its
+survivors are queued under KNOWN BROKEN #41.
+
 ## 2026-09-16 (interactive session, second entry, same human directive) [REPAIR] — KNOWN BROKEN #41 diagnosability: `/api/health` now reports BOTH memory walls (V8 heap cap, container cgroup limit + usage) and a `pressure` verdict naming the wall being approached; plus the first post-recovery live memory profile of a fresh container and a correction to the incident's "crash loop" narrative from the STARTUP audit history (v1.0.916)
 
 TERRITORY: T-BOT (server/bot.ts /api/health memory block, new
