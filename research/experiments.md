@@ -201,6 +201,216 @@ stay off.
 STARVED: no — the human's ask was the single highest-priority item in the
 repo (Priority 1, a 5-day outage) and it is shipped; the leak root cause is
 queued under KNOWN BROKEN #41 with the audit's output, not starved.
+## 2026-09-16 (scheduled-routine session, second session this UTC day) [PIPELINE] — edgar13f.ts joins the cold-cache-no-disk-backfill fix thread: continues the 2026-09-15 audit's own NEXT queue, second item (cheapest remaining, existing reader to reuse) (v1.0.916, PR TBD)
+
+TERRITORY: T-DATACORE (server/edgar13f.ts, server/edgar13f.test.ts) + SHARED-minimal, last commit per MERGE-ORDER PROTOCOL (package.json/package-lock.json version bump, ci/counter_baseline.txt re-pin, research/experiments.md).
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x6 (counting the
+immediately preceding [PRODUCT] entry as [PIPELINE] per CLAUDE.md's own
+equivalence), [REPAIR]x1, [RULE-REVIEW]x1, [RESEARCH]x2 — no thrash signal
+(threshold is 7+ REPAIR of 10).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE re-read per this
+session's own task instructions). research/open_questions.md's KNOWN BROKEN
+section: of 43 numbered items, only #41 (production outage,
+`research/outage_state.json` down_since 2026-09-10T20:18:00Z) is live and
+unmitigated.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -D- --max-time 25
+https://voltradeai.com/api/health` returned `HTTP/2 502`, identical
+`{"status":"error","code":502,"message":"Application failed to respond"}`
+body and `railway-hikari`/`x-railway-fallback: true`/`x-railway-edge: iad1`
+signature every session has logged since the 2026-09-10T20:18Z onset, at
+2026-09-16T02:34:56Z. `python3 scripts/session_health_check.py --base-url
+https://voltradeai.com` confirms via its own `outage_duration` ALARM
+classifier: **~126.3h continuous**, past both Amendment 1 LIVENESS ALARM
+thresholds (unchanged verdict from every session since 2026-09-10). NOT
+RE-NOTIFIED: the standing re-notify rule this thread has followed since
+2026-09-15 00:03Z ("next doubling from the last on-record notification,
+~76h," i.e. ~151h) is not crossed at ~126.3h, and this session found no new
+fact about the incident's state — `git log`/`git fetch origin main` since
+the immediately preceding (2026-09-16, first) session's own check shows
+zero commits touching any server-runtime or trading-path file. No third
+patch attempted (RECURRENCE ESCALATES already triggered 2026-09-08; zero
+live diagnostic access while the app is down, same as every prior session's
+finding). Per the multi-session precedent already established on this exact
+incident (repair duty exhausted without new evidence or Railway access;
+the outage does not block other territories), this session proceeded to
+queued T-DATACORE work rather than a fourth idle re-confirmation.
+
+PRIMARY-ACTION SELECTION: this session's own task instructions offered a
+choice of doctrine axes ((a) build a new free-data pipeline, (b) illiquid-
+universe capacity-constrained research — blocked on the fill-realism fix,
+not attempted, (c) a foreign-field import hypothesis, (d) compile recurring
+reasoning into code) "whichever has highest EV given what research/ shows
+is done." Checked axis (a) first, per SESSION BUDGET rule 1 (next queued
+item beats new research): every standing EDGE DOCTRINE example CLAUDE.md
+names (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT/TFF,
+FDA calendar, Google Trends) already has a shipped pipeline
+(`server/usaSpending.ts`, `server/cftcCot.ts`, `server/cftcTff.ts`,
+`server/fdaEvents.ts`, `scripts/gtrends_probe.py`, `sec_form4_bulk.py`,
+`sentinel2/`) — building a brand-new one from scratch this session would
+either duplicate existing work or require a multi-session licensing/gate-1
+research pass, neither of which fits a single-session budget as well as an
+already-queued, already-scoped item. The 2026-09-15 sixth-session audit
+(research/open_questions.md, "cold-cache-no-disk-backfill" thread) left an
+explicit, ordered NEXT: 19 vulnerable modules, `cropConditions.ts`/
+`edgar13f.ts` first (cheapest, existing reader to reuse). The immediately
+preceding (2026-09-15 seventh) session took `cropConditions.ts`; this
+session took the other cheapest-tier item, `edgar13f.ts`, per SESSION
+BUDGET rule 1. This IS doctrine axis (d) in substance (EDGE DOCTRINE #3,
+COMPILE KNOWLEDGE INTO CODE): the shared `cacheBackfill.ts` helper already
+compiled this exact recurring reasoning into one tested function
+(`resolveCacheItems`) on 2026-09-13 specifically so each new occurrence is
+a small, mechanical retrofit rather than re-deriving the fix by hand again.
+
+READ BEFORE WRITE: read `server/edgar13f.ts` in full this session (not
+grepped, not assumed from the audit table). Confirmed the exact bug shape:
+`refresh13FCache`'s only branch was `if (filings.length > 0 || !cache)
+cache = { at: Date.now(), filings };` — a cold boot or a transient SEC
+EDGAR outage (thrown fetch) left `cache` null forever even though
+`read13FHistory` already existed and could serve real archived 13F-HR
+filings from disk, so `/api/data/filings13f` would report `warming_up`
+over a real multi-week archive. Also read `server/edgarForm4.ts`'s sibling
+fix (`backfillForm4FromArchive` + `resolveCacheItems`, shipped 2026-09-12)
+and `server/cropConditions.ts`'s same-day fix (previous session) to match
+the established pattern exactly rather than inventing a new shape.
+
+FIX (v1.0.916, this session's own PR): `edgar13f.ts` imports
+`resolveCacheItems` from `./cacheBackfill`. New `backfill13FFromArchive(
+baseDir?, nowMs?, days=30, limit=40)` — a thin wrapper around the
+already-shipped `read13FHistory`, same convention as edgarForm4.ts's/
+sec8kEarnings.ts's own wrappers; `days`/`limit` defaults chosen to mirror
+`refresh13FCache`'s own 40-filing fetch and `read13FHistory`'s own 30-day
+default read window, so a backfill returns roughly what a live poll would
+have. `refresh13FCache` now routes both its success-but-empty branch and
+its outer-catch-on-throw branch through `resolveCacheItems`, exactly
+mirroring `edgarForm4.ts`'s `refreshForm4Cache`. `refresh13FCache` gained
+an optional `fetchImpl` parameter (default `fetch as any`, threaded through
+to `fetchLatest13FFilings`) — additive and non-breaking (grepped every
+call site file-wide first: only `boot13FPoll()`'s two internal calls exist,
+neither passes a second argument today) — needed so the throw-path test
+below can inject a failing fetch the same way every sibling module's test
+does; `fetchLatest13FFilings` itself already supported fetch injection, but
+nothing above it in the call chain exposed that. New `_reset13FCacheForTests()`
+test-only reset, same pattern as `_resetForm4CacheForTests`/
+`_resetCropConditionsCacheForTests`.
+
+RATCHET: 5 new tests in `server/edgar13f.test.ts` — (1) cold cache backfills
+from the on-disk archive when the live poll throws; (2) cold cache also
+backfills on an empty-but-non-throwing live poll (the feed's quiet-trickle
+days outside the quarterly filing-deadline burst); (3) a transient
+empty/failed poll never clobbers an already-warm cache with a stale archive
+read (built by actually warming the cache via `refresh13FCache` against the
+file's own real BURKETT fixture, then polling again with an empty feed and
+asserting the cached filing is unchanged — not a hand-constructed cache
+object); (4) `backfill13FFromArchive` reads through `read13FHistory` with
+the documented default window. A/B-verified: `git stash push -- server/
+edgar13f.ts` then running the new test file against the pre-fix module
+throws `SyntaxError: ... does not provide an export named
+'_reset13FCacheForTests'` — the whole file fails to load, confirming these
+tests exercise genuinely new code, not a no-op; `git stash pop` restored
+the fix, all 14 tests in the file (9 pre-existing + 5 new) pass.
+
+FIRST-DRAFT CORRECTION (caught before commit, not after a gate failure):
+the first draft of the new `mkArchived13F` test helper carried an explicit
+`: any` return-type annotation (matching several sibling test files' own
+`mkFiling` helpers, e.g. edgarForm4.test.ts) — `bash scripts/
+counter_ratchet.sh`'s `ts_any` non-increasing gate would have failed on
+this NEW occurrence (pre-existing ones in other files are already inside
+the pinned baseline; a new one is not). Fixed by importing the `Filing13F`
+type and annotating the helper with it instead of `any` — `ts_any` held
+exactly at its pin, unlike the sibling files' pre-existing pattern this
+session deliberately did not "fix" elsewhere (out of scope, not this
+session's bug).
+
+GATES: fresh sandbox needed `pip3 install -q -r requirements.txt
+-r requirements-dev.txt` and `npm ci` first (same recurring provisioning
+gap prior sessions have logged repeatedly). `npx tsx --test
+server/edgar13f.test.ts`: 14/14 passed. `npx tsx --test server/*.test.ts`:
+1595 passed, 8 failed — the failures are `aircraftTiling.test.ts`,
+`apiKeyAccounts.test.ts`, `cdcCancer.test.ts`, `compression.test.ts`,
+`gdeltEvents.test.ts`, `owmTiles.test.ts`, `seafloorTiles.test.ts`,
+`securityMiddleware.test.ts` — none touch `edgar13f.ts`/`cacheBackfill.ts`/
+any file this session edited, and the immediately preceding session's own
+PR (#1087, cropConditions.ts) logged the identical "8 failed, confirmed
+pre-existing on unmodified main" finding the same day; not re-verified via
+a second `git stash` this session since the file list is identical to that
+already-confirmed baseline. `python3 -m pytest -q`: 2066 passed, 1 skipped,
+0 regressions (Python side untouched by this diff; unchanged from the
+pre-session baseline, as expected). `python3 -m pytest -q
+test_ts_code_only.py`: 11/11 passed after the `ts_any` correction above
+(1 failed before it, on the exact counter this fix addresses). `bash
+scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — unchanged, zero `.ts`
+type-signature files touched in a way that adds an error (the new
+`fetchImpl` param reuses the already-declared `FetchFn` type). `bash
+scripts/gated_tests.sh`: GATE PASSED — server/client/python all green,
+quarantine 0/1, none overdue (this run also exercises the concurrent
+session's new `deploy_gate_smoke.mjs` required suite, unrelated to this
+diff — PASS). `bash scripts/counter_ratchet.sh`: IMPROVED (`assertions`
+14456->14489, this session's own 5 new tests' assertions — re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed green again after
+re-pinning; `tests_run_in_ci`/`tests_gating_merge` also read 455->456 but
+that is the concurrent session's own new required-suite file, not this
+session's effect — left un-re-pinned per PROMOTION RULE 5, same
+precedent PROGRAM_STATE.md's Q23 entry already established). `npm run build`:
+clean (same pre-existing chunk-size/dynamic-import warnings prior sessions
+already noted; zero `client/` files touched by this diff, so PROMOTION
+RULE 6's visual-harness requirement does not apply).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/P&L code
+touched. NOT A RULE-REVIEW THRESHOLD CHANGE: no risk-limit constant
+touched. HYPOTHESIS: none — this restores existing, already-designed
+"serve the archive when the live poll can't" behavior (Law V, Freshness);
+it does not change what the pipeline collects or claims, so PROMOTION
+RULE 3's Sharpe/drawdown gate is N/A, same as every prior fix in this
+thread.
+
+NEXT: per the 2026-09-15 audit's own ordering, `finraQuery.ts` is next
+(narrower fix — `readPartition` exists but is only used post-success, not
+as a cold-cache fallback for a failed partition-LIST call), then the 16
+modules needing a new archive-reader written from scratch
+(`cbpBorderWait.ts`, `censusImports.ts`, `dtccSwaps.ts` [explicitly
+lower-priority, its 8-day live lookback already mitigates], `euDayAheadPrices.ts`,
+`euGenerationMix.ts`, `euMacro.ts`, `faaStatus.ts`, `fdicBanks.ts`,
+`fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts`,
+`nhtsaComplaints.ts`, `nrcReactorStatus.ts`, `treasuryAuctions.ts`,
+`usaSpending.ts`, `usgsWater.ts`). 17 of the original 19 VULNERABLE
+modules now remain.
+
+STARVED: no — this session completed its one primary action (fix, tests,
+full gate suite, version bump, log entry) within a single-session scope,
+consistent with the established one-module-per-PR discipline this thread
+has followed since 2026-09-12.
+
+UPDATE (same session, at push time): `git fetch origin main` before pushing
+found KNOWN BROKEN #41 had been root-caused, fixed, and CONFIRMED LIVE
+RECOVERED while this session was working — see the immediately preceding
+entry above (interactive session, PR #1089/#1090, v1.0.915): the outage was
+never the crash loop, it was `/api/health` mapping the (correct, by-design)
+LIVENESS ALARM degraded status to HTTP 503, which Railway's deploy probe
+rejected on every one of the 30 merges since 2026-09-10T20:18Z. Re-verified
+independently this session (not just trusting the log): `curl -sS -D-
+https://voltradeai.com/api/health` at 2026-09-16T02:52:10Z returned
+`HTTP/2 200`, `serving.ok:true`, `serving.failing:[]` — genuinely live, not
+a stale cache read. `bot.status` is still `"killed"` (`drawdownPct:"-9.0"`,
+`liveness.dark:true`, 26 market hours / 143.7h wall-clock dark since the
+2026-09-10T03:12:26Z kill) — trading itself remains halted pending the
+still-open KNOWN BROKEN #42/#43 human resume decision, unrelated to and
+unresolved by this outage fix. This session's own version bump collided
+with the concurrent session's identical `1.0.915` tag on `origin/main`
+(both sessions read-and-incremented from the same pre-merge `1.0.914` at
+roughly the same time) — rebased onto `origin/main`, re-picked `1.0.916`
+per MERGE-ORDER PROTOCOL point 2 ("read-and-increment at commit time,
+never planned ahead"), and re-ran the full gate suite against the merged
+tree before pushing (see GATES above, numbers reflect the post-rebase
+state). Did not re-notify the human about the recovery itself: the fix
+that produced it was shipped by an interactive, human-directed session
+("fix it and get the site up") — the human was present and driving that
+exact fix, so they already know the site is back. The still-halted trading
+loop is an existing, already-tracked open item (#42/#43), not new
+information this session generated.
 
 ## 2026-09-16 (scheduled-routine [PRODUCT] session) [PRODUCT] — signalLadder.tsx backfills detail_route for the 9 already-shipped gate1_pass /data pages the ladder never linked to, and fixes the honesty gap that reuse would otherwise create (v1.0.914, PR TBD)
 

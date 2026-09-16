@@ -31,6 +31,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { parseFilingFeed } from "./edgarForm4";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export const FOCUSED_MAX_HOLDINGS = 250;
 
@@ -330,14 +331,33 @@ export function latest13FFilings(): { at: number; filings: Filing13F[] } | null 
   return cache;
 }
 
-export async function refresh13FCache(limit = 40): Promise<void> {
+/** Reconstructs a cache-shaped filings list from the on-disk filings13f
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (SEC EDGAR transient outage) or comes back with zero filings before any
+ *  cache exists. `read13FHistory` already returns newest-first, deduped
+ *  rows, so this is a thin, named wrapper reusing that existing pure
+ *  aggregation, same shape as edgarForm4.ts's `backfillForm4FromArchive` /
+ *  sec8kEarnings.ts's `readEarnings8kHistory` wrapper. Closes this root's
+ *  entry in the 2026-09-15 cold-cache-no-disk-backfill audit
+ *  (research/open_questions.md — "edgar13f.ts | read13FHistory (in file) |
+ *  cheap — reuse"). `days`/`limit` mirror `refresh13FCache`'s own defaults
+ *  (30-day read window, up to 40 filings) so a backfill returns roughly what
+ *  a live poll would have. */
+export function backfill13FFromArchive(baseDir?: string, nowMs?: number, days = 30, limit = 40): Filing13F[] {
+  return read13FHistory(days, baseDir, nowMs, limit);
+}
+
+export async function refresh13FCache(limit = 40, fetchImpl: FetchFn = fetch as any): Promise<void> {
   try {
-    const filings = await fetchLatest13FFilings(limit);
-    if (filings.length > 0 || !cache) cache = { at: Date.now(), filings };
+    const filings = await fetchLatest13FFilings(limit, fetchImpl);
+    const next = resolveCacheItems(cache !== null, filings, () => backfill13FFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
     try { archive13FFilings(filings); } catch {}
     try { gzipOld13FDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgar13f refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [], () => backfill13FFromArchive());
+    if (next) cache = { at: Date.now(), filings: next };
   }
 }
 
@@ -349,4 +369,13 @@ export function boot13FPoll(intervalMs = 15 * 60_000): void {
   polling = true;
   refresh13FCache();
   setInterval(() => { refresh13FCache(); }, intervalMs).unref?.();
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem edgarForm4.ts's `_resetForm4CacheForTests` solves for its own
+ *  module), so a test exercising the cold-cache backfill path must be able
+ *  to force `cache` back to null rather than rely on file execution order. */
+export function _reset13FCacheForTests(): void {
+  cache = null;
+  polling = false;
 }

@@ -16,6 +16,11 @@ import {
   read13FHistory,
   trimHoldings,
   FOCUSED_MAX_HOLDINGS,
+  refresh13FCache,
+  latest13FFilings,
+  backfill13FFromArchive,
+  _reset13FCacheForTests,
+  type Filing13F,
 } from "./edgar13f";
 
 // ROOT VALIDATION LADDER gate 1 (DATA) fixtures — both fetched live from
@@ -264,6 +269,114 @@ test("trimHoldings keeps the top-N rows by value", () => {
   const t = trimHoldings(f, 2);
   assert.deepEqual(t.holdings.map((h: any) => h.value), [9, 5]);
   assert.equal(f.holdings.length, 3, "original untouched");
+});
+
+// ── Cold-cache-no-disk-backfill (2026-09-15 audit, research/open_questions.md
+// — "edgar13f.ts | read13FHistory (in file) | cheap — reuse") ──────────────
+
+const mkArchived13F = (acc: string, filedAt: string): Filing13F => ({
+  managerCik: "1", managerName: "TEST MANAGER LLC", periodOfReport: filedAt,
+  submissionType: "13F-HR", entryTotal: 1, valueTotal: 1000, otherManagersCount: 0,
+  accession: acc, filedAt, cik: "0000000001", indexUrl: `https://www.sec.gov/x/${acc}/`,
+  holdings: null, holdingsOmitted: false,
+});
+
+test("refresh13FCache: cold cache backfills from the on-disk filings13f archive when the live poll throws — same class of live finding as edgarForm4.ts's backfillForm4FromArchive (a redeploy/SEC-EDGAR-outage must not report warming_up over real archived 13F filings)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "filings13f");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(mkArchived13F("COLD-1", today)) + "\n");
+
+    assert.equal(latest13FFilings(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("SEC EDGAR unreachable"); };
+    await refresh13FCache(40, failing as any);
+    const cached = latest13FFilings();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.filings.length, 1);
+    assert.equal(cached!.filings[0].accession, "COLD-1", "backfilled from the archived filing, not fabricated");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refresh13FCache: cold cache also backfills on an empty-but-non-throwing live poll (the feed's quiet-trickle days outside the quarterly deadline burst)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-coldcache-empty-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "filings13f");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(mkArchived13F("COLD-2", today)) + "\n");
+
+    const emptyAtomFeed = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>";
+    const emptyFetch = async () => ({ ok: true, status: 200, text: async () => emptyAtomFeed });
+    await refresh13FCache(40, emptyFetch as any);
+    const cached = latest13FFilings();
+    assert.ok(cached, "cache must be populated from the archive on an empty-but-successful poll");
+    assert.equal(cached!.filings[0].accession, "COLD-2");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refresh13FCache: a transient empty/failed poll never clobbers an already-warm cache with a stale archive read", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-warm-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "filings13f");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify(mkArchived13F("STALE-1", today)) + "\n");
+
+    // First poll: a real live filing (reusing the fixtures the parser tests
+    // already verify field-for-field) warms the cache with a genuine result.
+    const live = mockFetchFor({
+      "output=atom": FEED_ATOM,
+      "index.json": JSON.stringify({ directory: { item: [
+        { name: "primary_doc.xml" }, { name: "2026qtr2submissionapr2026.xml" },
+      ] } }),
+      "primary_doc.xml": BURKETT_PRIMARY_XML,
+      "2026qtr2submissionapr2026.xml": BURKETT_INFOTABLE_XML,
+    });
+    await refresh13FCache(40, live.impl as any);
+    const afterLive = latest13FFilings();
+    assert.equal(afterLive?.filings[0].accession, "0001762716-26-000003", "cache warmed from the real live filing, not the archive");
+
+    // Second poll: the feed comes back empty (non-throwing) — must leave the
+    // warm cache exactly as it was, never overwritten with the STALE-1 archive read.
+    const emptyFeed = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>";
+    const emptyFetch = async () => ({ ok: true, status: 200, text: async () => emptyFeed });
+    await refresh13FCache(40, emptyFetch as any);
+    const afterEmpty = latest13FFilings();
+    assert.equal(afterEmpty?.filings[0].accession, "0001762716-26-000003",
+      "an already-warm cache must be left untouched by a transient empty poll, not clobbered with a stale archive read");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("backfill13FFromArchive reads through read13FHistory with the documented default window", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt13f-backfill-"));
+  const t0 = Date.UTC(2026, 8, 15, 12, 0, 0);
+  const day = new Date(t0).toISOString().slice(0, 10);
+  const archDir = path.join(dir, "filings13f");
+  fs.mkdirSync(archDir, { recursive: true });
+  fs.writeFileSync(path.join(archDir, `${day}.jsonl`), JSON.stringify(mkArchived13F("BF-1", day)) + "\n");
+  const out = backfill13FFromArchive(dir, t0);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].accession, "BF-1");
 });
 
 // ── Wiring pins: route + boot registered; manifest present ─────────────────
