@@ -3,6 +3,43 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (scheduled-routine session, fourth entry this UTC day, same-day addendum after PR #1096 merged) [RULE-REVIEW] — 15th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+TERRITORY: SHARED (research/wishlist.md, research/experiments.md only).
+
+WHAT: this session's own PR #1096 (STALENESS AUDIT dead-code deletion,
+prior entry above) carried the standard "hold merge until after 4:00 PM
+ET" note in its body, per this session's own task instructions. It
+merged anyway at 2026-09-16T16:19:57Z (~12:20 PM ET), within ~5 minutes
+of opening — confirmed via the `pull_request.closed` webhook event this
+session received while watching the PR (`outcome:"merged"`), not
+inferred. This is the SAME already-fully-diagnosed FROZEN-`automerge`-
+job root cause the 2026-08-14 through 2026-09-14 thread already
+documents in full (research/wishlist.md, "PROCESS GAP" entries) — not a
+new investigation, just the 15th data point. Tallied into that file's
+running count (15 confirmed occurrences, 2026-08-14 through 2026-09-16,
+33 days, still 0% compliance) rather than left as an untallied footnote,
+per the eleventh-occurrence entry's own standing instruction to
+re-escalate there each time this recurs.
+
+NOT ACTED ON FURTHER: the two human-only fix options (edit the FROZEN
+`.github/workflows/ci.yml` automerge job, or drop the scheduled-task
+prompt's own hold-note instruction) are unchanged since first filed;
+this session has no new information to add and did not touch the
+FROZEN path.
+
+BACKTEST: N/A — docs-only, no code/config touched. VERSION: no bump,
+matching the established docs-only-research-change precedent (same as
+the 13th/14th-occurrence addendum, PR #1079).
+
+NEXT: unchanged — awaiting the human's decision between the two filed
+options. A future session hitting this gap again should keep tallying
+in research/wishlist.md rather than re-deriving the root cause.
+
+STARVED: no — this is a same-day addendum closing out this session's
+own PR-watching obligation (the merge event that arrived while this
+session was actively subscribed), not separate queued work left undone.
+
 ## 2026-09-16 (scheduled-routine session, third entry this UTC day) [REPAIR] — STALENESS AUDIT run (overdue since 2026-09-14): two expired REVIEW-BY items closed — `_setup_low_iv_breakout_buy`/`_setup_gamma_pin` deleted from `options_scanner.py`, OpenSky reinstatement item closed — register updated in place (v1.0.919)
 
 TERRITORY: T-BOT (options_scanner.py + its test files) + SHARED-minimal

@@ -963,6 +963,17 @@ here rather than left as two more untallied `experiments.md` footnotes,
 per the eleventh-occurrence entry's own stated reason for re-escalating
 to this file.
 
+**FIFTEENTH OCCURRENCE, 2026-09-16.** PR #1096 (this session's STALENESS
+AUDIT — dead-code deletion + a docs closure, no trading-path file)
+carried the same note, `created_at` ~2026-09-16T16:15Z, merged
+**16:19:57Z (~12:20 PM ET), within ~5 minutes of opening** (confirmed via
+the `pull_request.closed` webhook event, `outcome: "merged"`). Harmless,
+same as all 14 before it. **15 confirmed occurrences spanning
+2026-08-14 through 2026-09-16 (33 days), still 0% compliance.** No new
+information — still awaiting the human's pick of the two options the
+original entry filed. Not re-litigating further; each new occurrence
+only needs a one-line tally entry unless the mechanism itself changes.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
