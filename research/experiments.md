@@ -3,6 +3,85 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-16 (interactive session, second entry, same human directive) [REPAIR] — KNOWN BROKEN #41 diagnosability: `/api/health` now reports BOTH memory walls (V8 heap cap, container cgroup limit + usage) and a `pressure` verdict naming the wall being approached; plus the first post-recovery live memory profile of a fresh container and a correction to the incident's "crash loop" narrative from the STARTUP audit history (v1.0.916)
+
+TERRITORY: T-BOT (server/bot.ts /api/health memory block, new
+server/memoryCeiling.ts + test) + SHARED-minimal, last (package.json/
+package-lock.json, research/*).
+
+WHY THIS, NOW: every session on the 2026-09-08 crash loop ended on the same
+sentence — "cannot distinguish a V8 heap exhaustion from a cgroup kill from
+outside; needs Railway's raw logs." That is a diagnosability gap, and
+diagnosability gaps are code's job (EDGE DOCTRINE #3: compile the analysis).
+`run_with_daemon.sh` (FROZEN) computes the heap cap from the cgroup limit at
+boot and prints it once to a stdout this sandbox cannot read; nothing else
+ever reported either ceiling.
+
+CHANGE (v1.0.916): `server/memoryCeiling.ts` (pure, two injectable sysfs
+reads, never throws): `memoryCeiling()` -> `{heapLimitMB` (from
+`v8.getHeapStatistics().heap_size_limit`, i.e. what --max-old-space-size
+actually set), `cgroupLimitMB`, `cgroupUsageMB` (container-wide: Node +
+daemon + children), `cgroupHeadroomMB`, `cgroupSource` (v2 memory.max/
+memory.current, v1 fallback, "max"/2^60 sentinels -> null)}; and
+`memoryPressure(heapUsedMB, ceiling)` -> `ok | heap-near-limit |
+cgroup-near-limit | unknown` at NEAR_LIMIT_FRACTION 0.85 (one probe
+interval of warning on the observed ~90-130s ramps). `/api/health`'s
+`checks.memory` block carries all of it. 9 tests incl. a source ratchet on
+the handler. Read-only, no gating (healthGate.ts unchanged — `memory` was
+never and is not a serving check).
+
+LIVE MEMORY PROFILE of the first post-fix container (v1.0.915, booted
+02:39:20Z, kill switch latched so Tier 2 / hourly Tier 3 OFF; the 30s
+startup Tier 3 DID run, 02:39:55 "Strategic scan complete"):
+  uptime 16s  rss 526  heapUsed 243  heapTotal 313
+  uptime 44s  rss 945  heapUsed 589  heapTotal 718
+  uptime 75s  rss 1009 heapUsed 565  heapTotal 779
+  uptime 147s rss 1177 heapUsed 914  heapTotal 932
+  uptime 196s rss 1184 heapUsed 919  heapTotal 937   (then flat)
+  + EVENTLOOP-LAG 7443ms at boot+100s (02:41:05Z), the same ~7-8s stall
+    an earlier (rejected) container logged at boot+94s on 09-16 00:28Z.
+  SECOND container (the #1090 docs-merge redeploy, booted ~02:42:53Z),
+  same shape and then the GC takes it back down:
+  uptime 26s rss 795 / 56s 987 / 117s 1160 / 147s 1161 / 178s 1134 /
+  208s rss 911 heapUsed 589 — peak ~1.16GB, settles ~0.9GB. A transient,
+  not a leak.
+So a fresh container climbs ~650MB in its first ~2.5 minutes — the ~55
+eager `boot*Poll()` refreshers firing at t=0 (the parallel audit's finders
+name the big three: GNSS integrity 2x21-day aircraft-archive scan, entity
+graph 168h vessel fold + 36MB GEM parse, DTCC 1.15GB CSV stream) — and
+then PLATEAUS. It did not crash. Whether the daemon + subprocess children
+push the CONTAINER near its limit at the same moment is exactly what this
+change makes visible on the next read.
+
+NARRATIVE CORRECTION from `/api/diag/audit?type=STARTUP` (read live):
+between 2026-09-13 16:10Z and 2026-09-16 02:39Z there is exactly ONE boot
+per merged version (1.0.899 ... 1.0.915), each 2-3 minutes after its PR
+merged, and NO repeated boots of any version except 1.0.904 (one Railway
+retry). The rejected 1.0.914 container (00:26:47Z) lived 7 minutes with
+the same boot burst and was ended by Railway's SIGTERM at 00:34:04Z (the
+failed-healthcheck teardown), not by a crash. So during the outage there
+was no crash loop at all — every "still down at Nh" UPDATE was reading
+Railway's 502 page over a service with zero healthy containers, for the
+deploy-gate reason fixed in v1.0.915. The 2026-09-08 crash loop (rss
+770-990 -> gone, ~90-130s period, Tier 2 running, kill switch OFF) remains
+a real, separate, still-open mechanism; the pressure verdict is how the
+next occurrence gets classified in one read.
+
+DOWNSTREAM CHAIN: additive payload fields only; `session_health_check.py`
+ignores unknown keys (fixture tests unchanged); `recordHealthSnapshot`
+stores whatever the payload carries (the pipeline-health history gains
+the ceilings for free). No trading-path change.
+
+NEXT (filed under KNOWN BROKEN #41): (1) once the human clears the kill
+switch, the first market-hours cycle's `pressure` reading settles heap-vs-
+cgroup; (2) the audit's surviving findings (verify phase pending at this
+entry's write time) -> own PRs; (3) the t=0 boot burst is an architecture
+item (stagger/serialize the ~55 eager refreshers behind one budget) —
+filed, not patched blind.
+
+STARVED: no — this closed the exact evidence gap the incident thread had
+been blocked on since 2026-09-08, in code.
+
 ## 2026-09-16 (interactive session, human-directed "fix it and get the site up and figure out how this problem would not occur again") [REPAIR] — KNOWN BROKEN #41's FIVE-DAY NON-RECOVERY ROOT-CAUSED AND FIXED: the site was not down because of the crash loop, it was down because every fresh container answered Railway's deploy probe with HTTP 503 (the LIVENESS ALARM mapped onto the HTTP code) and was rejected — 30 merged PRs never reached production; `server/healthGate.ts` splits alarms from the deploy gate, a boot smoke now runs the probe in CI, and `session_health_check.py` can see an app-level 503 (v1.0.915)
 
 TERRITORY: T-BOT (server/bot.ts /api/health handler, new server/healthGate.ts
