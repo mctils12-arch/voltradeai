@@ -11,7 +11,7 @@ import os from "os";
 import zlib from "zlib";
 import {
   postQueryPage, fetchPartitions, fetchPartitionTuples, fetchPartitionRows, fetchPartitionRowsMulti,
-  archivePartition, isPartitionArchived, readPartition, compositeKey,
+  archivePartition, isPartitionArchived, readPartition, compositeKey, newestArchivedValue,
   summarizeShortInterest, summarizeThreshold,
   summarizeWeeklyBySymbol, summarizeMonthlyBySymbol, summarizeAtsBlocks,
   refreshFinraQuery, refreshFinraAts, latestFinraSi, latestFinraAts, backfillEnabled,
@@ -192,6 +192,50 @@ test("refresh survives transport failure with honest warming state (no cache fab
   assert.equal(latestFinraSi(), null);
 });
 
+test("cold-cache-no-disk-backfill fix: a failed partition-LIST call backfills SI + threshold from whatever's already archived on disk", async () => {
+  const base = tmp();
+  archivePartition("finrashortinterest", "2026-06-15", [SI_ROW("GME")], "2026-06-16", base);
+  archivePartition("finrashortinterest", "2026-05-29", [SI_ROW("OLD", { settlementDate: "2026-05-29" })], "2026-05-30", base);
+  archivePartition("finrathreshold", "2026-07-02", [TH_ROW("CHLSY")], "2026-07-03", base);
+  _resetFinraQueryForTests(); // simulates a cold boot: in-memory cache gone, archive on disk survives
+
+  const dead = async () => { throw new Error("ECONNRESET"); }; // /partitions LIST call itself fails
+  await refreshFinraQuery(dead as any, Date.parse("2026-07-07T02:00:00Z"), base);
+  const c = latestFinraSi();
+  assert.ok(c, "cache backfilled from disk instead of staying null despite a live LIST failure");
+  assert.equal(c!.si!.settlement_date, "2026-06-15", "newest archived SI partition picked, not an older one");
+  assert.equal(c!.threshold!.trade_date, "2026-07-02");
+});
+
+test("cold-cache-no-disk-backfill fix: a good existing cache is never overwritten by a transient empty LIST result", async () => {
+  const base = tmp();
+  const api = fakeApi({
+    consolidatedShortInterest: { "2026-06-15": [SI_ROW("GME")] },
+    thresholdList: { "2026-07-02": [TH_ROW("CHLSY")] },
+  });
+  await refreshFinraQuery(api.fetchImpl, Date.parse("2026-07-07T02:00:00Z"), base);
+  assert.equal(latestFinraSi()!.si!.settlement_date, "2026-06-15");
+
+  // archive a NEWER partition on disk directly (bypassing the cache) so a
+  // wrongly-unconditional fallback would be observable as a cache change.
+  archivePartition("finrashortinterest", "2026-06-29", [SI_ROW("NEWER", { settlementDate: "2026-06-29" })], "2026-06-30", base);
+  const dead = async () => { throw new Error("ECONNRESET"); };
+  await refreshFinraQuery(dead as any, Date.parse("2026-07-07T08:00:00Z"), base);
+  assert.equal(latestFinraSi()!.si!.settlement_date, "2026-06-15", "existing cache protected from a transient LIST failure, not replaced");
+});
+
+test("newestArchivedValue: max by fixed-width ISO date prefix, correct across single- and composite-key dirs, null when nothing archived", () => {
+  const base = tmp();
+  assert.equal(newestArchivedValue("finrashortinterest", base), null);
+  archivePartition("finrashortinterest", "2026-05-29", [SI_ROW("A")], "rt", base);
+  archivePartition("finrashortinterest", "2026-06-15", [SI_ROW("B")], "rt", base);
+  assert.equal(newestArchivedValue("finrashortinterest", base), "2026-06-15");
+
+  archivePartition("finraweekly", compositeKey(["2026-06-08", "T2"]), [WK_ROW({ weekStartDate: "2026-06-08", tierIdentifier: "T2" })], "rt", base);
+  archivePartition("finraweekly", compositeKey(["2026-06-15", "T1"]), [WK_ROW()], "rt", base);
+  assert.equal(newestArchivedValue("finraweekly", base), "2026-06-15__T1", "tier suffix never outranks an earlier date prefix");
+});
+
 test("backfill is env-gated OFF by default (R8 crash-loop lesson)", () => {
   assert.equal(backfillEnabled({} as any), false);
   assert.equal(backfillEnabled({ FINRA_QUERY_BACKFILL: "1" } as any), true);
@@ -335,4 +379,40 @@ test("refreshFinraAts: transport failure leaves the cache honestly null, no fabr
   const dead = async () => { throw new Error("ECONNRESET"); };
   await refreshFinraAts(dead as any, Date.parse("2026-07-08T02:00:00Z"), tmp());
   assert.equal(latestFinraAts(), null);
+});
+
+test("cold-cache-no-disk-backfill fix: a failed partition-LIST call backfills weekly/monthly/blocks from whatever's already archived on disk", async () => {
+  const base = tmp();
+  archivePartition("finraweekly", compositeKey(["2026-06-15", "T1"]), [WK_ROW({ issueSymbolIdentifier: "AAPL" })], "rt", base);
+  archivePartition("finraweekly", compositeKey(["2026-06-15", "T2"]), [WK_ROW({ tierIdentifier: "T2", issueSymbolIdentifier: "MSFT", summaryTypeCode: "ATS_W_SMBL" })], "rt", base);
+  archivePartition("finramonthly", compositeKey(["2026-05-01", "NMS"]), [MO_ROW()], "rt", base);
+  archivePartition("finrablocks", "2026-05-01", [BLK_ROW("ONE")], "rt", base);
+  _resetFinraQueryForTests();
+
+  const dead = async () => { throw new Error("ECONNRESET"); }; // /partitions LIST call itself fails
+  await refreshFinraAts(dead as any, Date.parse("2026-07-08T02:00:00Z"), base);
+  const c = latestFinraAts();
+  assert.ok(c, "ATS cache backfilled from disk instead of staying null despite a live LIST failure");
+  assert.equal(c!.weekly!.week_start, "2026-06-15");
+  assert.deepEqual(c!.weekly!.tiers_covered.sort(), ["T1", "T2"]);
+  assert.equal(c!.monthly!.month_start, "2026-05-01");
+  assert.equal(c!.blocks!.top_venues_by_block_volume[0].mpid, "ONE");
+});
+
+test("cold-cache-no-disk-backfill fix (ATS): a good existing weekly/monthly/blocks cache is never overwritten by a transient empty LIST result", async () => {
+  const base = tmp();
+  const api = fakeApi({
+    weeklySummary: { "2026-06-15__T1": [WK_ROW()] },
+    monthlySummary: { "2026-05-01__NMS": [MO_ROW()] },
+    blocksSummary: { "2026-05-01": [BLK_ROW("ONE")] },
+  });
+  await refreshFinraAts(api.fetchImpl, Date.parse("2026-07-08T02:00:00Z"), base, 1, 1);
+  assert.equal(latestFinraAts()!.weekly!.week_start, "2026-06-15");
+
+  // archive NEWER partitions directly on disk (bypassing the cache) so a
+  // wrongly-unconditional fallback would be observable as a cache change.
+  archivePartition("finraweekly", compositeKey(["2026-06-22", "T1"]), [WK_ROW({ weekStartDate: "2026-06-22" })], "rt", base);
+  const dead = async () => { throw new Error("ECONNRESET"); };
+  await refreshFinraAts(dead as any, Date.parse("2026-07-08T08:00:00Z"), base, 1, 1);
+  assert.equal(latestFinraAts()!.weekly!.week_start, "2026-06-15", "existing cache protected from a transient LIST failure, not replaced");
 });
