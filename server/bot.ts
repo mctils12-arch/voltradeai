@@ -36,6 +36,7 @@ import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_TH
 import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { healthHttpCode, servingVerdict } from "./healthGate";
+import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { version as pkgVersion } from "../package.json";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
@@ -1468,13 +1469,27 @@ print(json.dumps(data))
       checks.status = "degraded";
     }
     
-    // OOM fix: expose memory usage in health check for monitoring
+    // OOM fix: expose memory usage in health check for monitoring.
+    // KNOWN BROKEN #41 (2026-09-16): ALSO expose the two walls — V8's heap
+    // cap for this process and the container's cgroup limit/usage (Node +
+    // daemon + children) — and which one is being approached. Three sessions
+    // watched rss climb to ~990MB and the process vanish without being able
+    // to say whether V8 or the cgroup killed it, because neither ceiling was
+    // ever in the payload. Reads two sysfs files; never throws (nulls).
     const mem = process.memoryUsage();
+    const heapUsedMB = Math.round(mem.heapUsed / 1048576);
+    const ceiling = memoryCeiling();
     checks.checks.memory = {
-      heapUsedMB: Math.round(mem.heapUsed / 1048576),
+      heapUsedMB,
       heapTotalMB: Math.round(mem.heapTotal / 1048576),
       rssMB: Math.round(mem.rss / 1048576),
       externalMB: Math.round(mem.external / 1048576),
+      heapLimitMB: ceiling.heapLimitMB,
+      cgroupLimitMB: ceiling.cgroupLimitMB,
+      cgroupUsageMB: ceiling.cgroupUsageMB,
+      cgroupHeadroomMB: ceiling.cgroupHeadroomMB,
+      cgroupSource: ceiling.cgroupSource,
+      pressure: memoryPressure(heapUsedMB, ceiling),
     };
 
     // MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard time-series (2026-07-31):

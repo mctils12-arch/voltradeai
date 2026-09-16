@@ -6458,6 +6458,24 @@
     `last_recovered_utc 2026-09-16T02:40:06Z` — TOTAL OUTAGE 126.4h
     (2026-09-10T20:18Z -> 2026-09-16T02:39:36Z). New container at boot:
     rss 526MB / heap 243MB, matching the incident's ~500MB baseline.
+    UPDATE 2026-09-16T02:50Z (same session, v1.0.916): the fresh container
+    climbed rss 526 -> 1184MB / heap 243 -> 919MB over its first ~150s
+    (the t=0 boot burst of ~55 eager pollers; one 7.4s event-loop stall
+    at boot+100s) and then went FLAT — no crash, uptime past 196s and
+    counting. And `/api/diag/audit?type=STARTUP` shows ONE boot per merged
+    version 1.0.899..1.0.915 with no repeated boots (except one Railway
+    retry of 1.0.904): during the outage there was NO crash loop — only
+    rejected deploys, each container SIGTERMed by Railway after its failed
+    healthcheck (the 1.0.914 one lived 7 min). The 2026-09-08 market-hours
+    crash loop (kill switch OFF, Tier 2 running) is a separate, still-open
+    mechanism. SHIPPED v1.0.916: `/api/health` `checks.memory` now carries
+    `heapLimitMB` (V8's real cap), `cgroupLimitMB`/`cgroupUsageMB`/
+    `cgroupHeadroomMB` (container-wide, Node + daemon + children) and a
+    `pressure` verdict (`heap-near-limit` vs `cgroup-near-limit`) — the
+    heap-vs-cgroup question this item has asked since 09-08 is now one
+    read of the payload, no Railway logs needed. NEXT unchanged, plus:
+    read `pressure` on the first market-hours cycle after the human clears
+    the kill switch.
     NEXT: (1) once v1.0.915 is live, `python3 scripts/session_health_check.py`
     records the recovery in outage_state.json (this session does it if the
     deploy lands before it ends); (2) the leak audit's surviving findings
