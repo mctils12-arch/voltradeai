@@ -6447,6 +6447,17 @@
     (c) whether SERVING_CHECKS should also include python is a judgment
     call recorded in healthGate.ts's header (no: a restart does not
     remedy it and the data platform serves without it).
+    LIVE-CONFIRMED 2026-09-16T02:40Z: PR #1089 merged 02:37Z, Railway
+    deployed v1.0.915, `/api/health` answered **HTTP 200** at 02:39:36Z
+    (`server_version 1.0.915`, alpaca ok, database ok, python ok, feeds
+    ok, `bot.liveness.dark true` with production's real stamp
+    2026-09-10T03:12:26Z, `serving.failing []`). Alpaca being ok live
+    settles what the sandbox repro could not: the liveness alarm was the
+    ONLY check gating the deploy. `scripts/session_health_check.py` run
+    once post-recovery wrote `research/outage_state.json`
+    `last_recovered_utc 2026-09-16T02:40:06Z` — TOTAL OUTAGE 126.4h
+    (2026-09-10T20:18Z -> 2026-09-16T02:39:36Z). New container at boot:
+    rss 526MB / heap 243MB, matching the incident's ~500MB baseline.
     NEXT: (1) once v1.0.915 is live, `python3 scripts/session_health_check.py`
     records the recovery in outage_state.json (this session does it if the
     deploy lands before it ends); (2) the leak audit's surviving findings
