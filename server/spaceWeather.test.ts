@@ -13,7 +13,7 @@ import {
   parseKp, parseScales, parseSwpcAlerts, parseWindSummary, parseOvation,
   parseXray, classifyFlare,
   fetchSpaceWeather, archiveSpaceWeather, gzipOldSpaceWeatherDays, conditionsRow,
-  scanStormHistory,
+  scanStormHistory, kpToGScale,
 } from "./spaceWeather";
 
 const KP_FIX = [
@@ -202,6 +202,7 @@ test("scanStormHistory: no archive directory -> empty result, not a throw", () =
   assert.deepEqual(scanStormHistory(base), {
     daysScanned: 0, firstDay: null, lastDay: null,
     maxG: null, maxGDay: null, maxKp: null, maxKpDay: null, stormDays: [],
+    maxKpImpliedG: null, maxKpImpliedGDay: null, kpStormDays: [],
   });
   fs.rmSync(base, { recursive: true, force: true });
 });
@@ -229,6 +230,26 @@ test("scanStormHistory: finds the max observed G/Kp and flags only the day(s) cl
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+test("scanStormHistory: Kp-implied G can flag a storm day the NOAA-observed G field never shows (2026-08-02 shape)", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
+  const dir = path.join(base, "spaceweather");
+  // NOAA's own "current" scale row stays g:"0" all day (as archived live),
+  // but the SAME row's kp field reaches 5.67 ("6-"), inside the G2 Kp band.
+  writeConditionsDay(dir, "2026-08-02", [
+    { id: "a", g: "0", kp: 3.667 },
+    { id: "b", g: "0", kp: 5.67 },
+    { id: "c", g: "0", kp: 4.0 },
+  ]);
+  const result = scanStormHistory(base);
+  assert.equal(result.maxG, 0);
+  assert.deepEqual(result.stormDays, [], "NOAA-observed G never clears G2 in this fixture");
+  assert.equal(result.maxKp, 5.67);
+  assert.equal(result.maxKpImpliedG, 2);
+  assert.equal(result.maxKpImpliedGDay, "2026-08-02");
+  assert.deepEqual(result.kpStormDays, ["2026-08-02"], "Kp-implied scan catches what the observed-G scan misses");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 test("scanStormHistory: reads gzip-compressed day files identically to raw .jsonl", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-storm-"));
   const dir = path.join(base, "spaceweather");
@@ -252,6 +273,32 @@ test("scanStormHistory: a malformed line is skipped, not fatal", () => {
   assert.equal(result.maxG, 1);
   assert.equal(result.maxKp, 4.0);
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("kpToGScale: matches NOAA's published Kp->G table, including the named 9- exception", () => {
+  // below G1
+  assert.equal(kpToGScale(0), 0);
+  assert.equal(kpToGScale(4.33), 0); // "4+"
+  // G1 band: 5-, 5, 5+
+  assert.equal(kpToGScale(4.67), 1);
+  assert.equal(kpToGScale(5.0), 1);
+  assert.equal(kpToGScale(5.33), 1);
+  // G2 band: 6-, 6, 6+ (the live 2026-08-02 case: 5.67 = "6-")
+  assert.equal(kpToGScale(5.67), 2);
+  assert.equal(kpToGScale(6.0), 2);
+  assert.equal(kpToGScale(6.33), 2);
+  // G3 band: 7-, 7, 7+
+  assert.equal(kpToGScale(6.67), 3);
+  assert.equal(kpToGScale(7.33), 3);
+  // G4 band: 8-, 8, 8+, AND 9- (the named exception — NOT G5)
+  assert.equal(kpToGScale(7.67), 4);
+  assert.equal(kpToGScale(8.0), 4);
+  assert.equal(kpToGScale(8.33), 4);
+  assert.equal(kpToGScale(8.67), 4, "NOAA explicitly places 9- in G4, not G5");
+  // G5: Kp=9 only
+  assert.equal(kpToGScale(9.0), 5);
+  // non-finite input never throws
+  assert.equal(kpToGScale(NaN), 0);
 });
 
 test("conditionsRow: composite stamp keys the dedup; latest Kp row wins", () => {

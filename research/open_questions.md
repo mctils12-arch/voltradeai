@@ -9862,6 +9862,53 @@ ideas backlog (not active build)").
    accumulating; the OE-417 storm-coincident outage-excess validation
    runs once enough K/G events accrue (needs a G2+ event window —
    quiet-sun weeks prove nothing). Gate 2 untouched.
+   UPDATE 2026-09-17 (scheduled-routine [PRODUCT] session) — POSSIBLE
+   REAL DIVERGENCE FOUND between NOAA's own declared G-scale and NOAA's
+   own Kp-to-G table; gate-1's "still waiting on an event" framing may be
+   stale. `GET /api/diag/spaceweather_storm?token=$DIAG_TOKEN` against the
+   full live archive (50 days, 2026-07-29 to 2026-09-16): NOAA's declared
+   `g` field never exceeded 0 anywhere (`stormDays: []`, matching every
+   prior session's spot-check) — but the SAME archive's `maxKp` reached
+   5.67 on 2026-08-02, which is inside NOAA's own published G2 band (G2:
+   Kp=6, i.e. the 6-/6/6+ thirds — fetched live from
+   spaceweather.gov/noaa-scales-explanation this session). Checked whether
+   5.67 was a noisy PRELIMINARY estimate later revised away (spaceWeather.ts's
+   own header already documents "preliminary estimates; definitive Kp
+   posts later"): queried GFZ Potsdam's DEFINITIVE Kp series directly
+   (`kp.gfz.de/app/json/`, CC BY 4.0, an independent, non-NOAA, non-repo
+   ground truth) — returned `5.667` at `2026-08-02T15:00:00Z` with
+   `status:"def"` (definitive, not estimated). The elevated reading was
+   real and has since been confirmed by GFZ's own final index, not a
+   spike that got walked back.
+   SHIPPED (v1.0.922, no version-yet-merged at filing time): `server/
+   spaceWeather.ts` gained `kpToGScale(kp)` (a pure Kp->G lookup citing
+   NOAA's own page, including the documented "G4 includes a 9-" exception
+   to plain nearest-rounding) and extended `scanStormHistory`'s
+   `StormScanResult` with `maxKpImpliedG`/`maxKpImpliedGDay`/`kpStormDays`
+   — a SEPARATE, never-blended-with-`stormDays` field so a reader can
+   always tell which claim (NOAA's own declared scale vs. this repo's
+   Kp-table lookup) a number rests on, same discipline as `conditionsRow`'s
+   own "observed, never forecast" split. Re-running the probe against the
+   live archive would now show `kpStormDays: ["2026-08-02"]` once deployed.
+   NOT CLAIMED: that gate 1 is unblocked. Two things stay genuinely open,
+   deliberately not resolved here (REASONING STANDARD #4/#10 — a filed
+   hypothesis is a lead, not a finding): (1) whether a Kp-band-implied G2
+   (this session's new signal) is the right trigger for the OE-417 test,
+   versus waiting for NOAA's own declared G field specifically — a
+   methodology call, not a data question, that a future session should
+   make explicitly, arguably in the affirmative since Kp is the primitive
+   NOAA's own G-table is built from and the declared-G field could simply
+   be a coarser/lagged product; (2) the OE-417 (DOE/FERC electric-
+   disturbance reports) ground-truth series itself remains completely
+   unsourced — zero references anywhere in this repo, confirmed again
+   this session — so even accepting kpStormDays as the trigger, gate 1
+   cannot actually run until that series is built (a BUILD-FIRST writeup
+   belongs in wishlist.md before that attempt, per this file's own
+   standing convention for every other paid/gated ground-truth source).
+   NEXT: (1) decide the Kp-vs-declared-G methodology question above; (2)
+   BUILD-FIRST writeup + sourcing for OE-417; (3) keep polling
+   `spaceweather_storm` — a NOAA-declared G2+ may still land independently
+   of this finding. Full account: research/experiments.md, 2026-09-17.
 2. GROUND-BASED MAGNETOMETER SENSING OF PER-LINE LOAD — long-horizon
    PARK ("if we ever do physical sensors"). Physics is real: current
    in a conductor produces a measurable magnetic field at ground
