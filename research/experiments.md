@@ -3,6 +3,161 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine session, third session this UTC day) [PIPELINE] — cbpBorderWait.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live bwt.cbp.gov outage/empty poll) left the border-wait cache permanently null/stale despite a real on-disk change-only-dedup archive already on disk (v1.0.924)
+
+TERRITORY: T-DATACORE (server/cbpBorderWait.ts, server/cbpBorderWait.test.ts) +
+SHARED-minimal (package.json/package-lock.json version bump, research/experiments.md).
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai.com/api/health` -> HTTP
+200, `serving.ok:true` (KNOWN BROKEN #41's deploy-gate fix still holding).
+`status:"degraded"` for the SAME already-tracked, NOT-NEW reason every
+session since 2026-09-10 has confirmed: `bot.status:"killed"`,
+`bot.liveness.dark:true`, now 32.5 market hours / 175.9h wall-clock dark
+since 2026-09-10T03:12:26Z — the latched kill switch remains a standing
+human-decision item (research/wishlist.md's ACTIVE LIVE CONCERN header),
+not re-escalated per the same discipline (only notify on NEW information).
+`process.{unhandledRejections,uncaughtExceptions}` both 0.
+
+LOOP-HEALTH RATIO CHECK (HEALTH OF THE LOOP ITSELF): last 10 experiments.md
+tags before this entry — [PIPELINE]x4 (usaSpending, space_weather_swpc,
+finraQuery, edgar13f), [RULE-REVIEW]x1 (automerge tally), [REPAIR]x4
+(staleness audit, session_health_check ALARM, crash-visibility handlers,
+memory-wall diagnosability), [PRODUCT]+[PIPELINE]x1 (port_dwell). 4/10
+REPAIR — below the 7+ thrash threshold, no meta-problem to address.
+
+PRIMARY-ACTION SELECTION: this session's own task instructions named the
+standard fall-through order (fix a bug seen in audit logs > judge a
+matured experiment > start a new experiment > research). No fresh
+critical break found (system health check above). The next queued,
+previously-scoped item is `research/experiments.md`'s own NEXT line from
+the immediately preceding (usaSpending) session: 15 remaining VULNERABLE
+modules from the 2026-09-15 cold-cache-no-disk-backfill audit
+(`cbpBorderWait.ts`, `censusImports.ts`, `euDayAheadPrices.ts`,
+`euGenerationMix.ts`, `euMacro.ts`, `faaStatus.ts`, `fdicBanks.ts`,
+`fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts`,
+`nhtsaComplaints.ts`, `nrcReactorStatus.ts`, `treasuryAuctions.ts`,
+`usgsWater.ts`). Picked the first in that list, `cbpBorderWait.ts`
+(BUILD ORDER 5 #5, CBP land-border wait times) — a queued fix with an
+established template outranks starting fresh research per SESSION BUDGET.
+
+READ BEFORE WRITE: read `server/cbpBorderWait.ts` in full (212 lines) and
+`server/cacheBackfill.ts`'s shared `resolveCacheItems<T>` helper before
+touching anything. Confirmed the bug shape, DIFFERENT in one respect from
+every prior module in this thread: `refreshBorderWaits`'s `if (obs ===
+null) return;` correctly kept the last snapshot on a transport error —
+but on a COLD BOOT (no snapshot yet) that same early-return left `cache`
+null forever despite a real on-disk archive at `cbpborderwait/*.jsonl(.gz)`
+(seeded by `seedSeen`'s own change-only dedup). Also found, not previously
+flagged in this thread: the success path unconditionally did `cache = {at,
+obs}` even when `obs` was a successful-but-empty array, silently blanking
+an already-warm cache — the same class of bug the usaSpending/finraQuery
+sessions already fixed, just not yet found here.
+
+STRUCTURAL DIFFERENCE FROM THE THREAD'S TEMPLATE (why this isn't a
+copy-paste): every prior module's archive holds either a full poll
+snapshot or an append-only event ledger, so `resolveCacheItems`'s
+straight-`T[]` backfill (return every archived row in the lookback window)
+was correct as-is. `cbpBorderWait.ts`'s archive is CHANGE-ONLY dedup keyed
+on full observation identity+value (`archiveContractTxns`-style dedup, but
+here the key includes the observed VALUES, not just an entity id) — a
+naive replay of every archived row would return stale duplicate entries
+for the same crossing/lane at old delay values. `backfillBorderWaitsFromArchive`
+therefore reduces by a narrower identity (`port_number|crossing_name|lane`)
+and keeps only the latest-`rt` observation per identity, matching what
+`/api/data/border-waits` actually serves ("hourly snapshot flattened per
+lane class" per routes.ts's own response `note` field) — a snapshot cache,
+not an event ledger. Confirmed via `server/routes.ts`'s `/api/data/border-waits`
+handler before writing the reducer, not assumed.
+
+FIX (v1.0.924): new `backfillBorderWaitsFromArchive(baseDir?, nowMs?,
+days=3)` scans the archive's plain+gzipped daily files, keeping the
+newest-`rt` observation per `(port_number, crossing_name, lane)` identity.
+`refreshBorderWaits` now routes both the live-success and the
+transport-error paths through `resolveCacheItems(cache !== null, obs ??
+[], () => backfillBorderWaitsFromArchive(...))`; archiving (`archiveBorderWaits`
++ `gzipOldBorderWaitDays`) still only runs when the live poll actually
+returned data (`obs !== null`), unchanged from before. Added
+`_resetBorderWaitCacheForTests()`, mirroring edgar13f.ts/usaSpending.ts's
+identical export.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): grepped every call site of
+`cbpBorderWait`/`latestBorderWaits`/`refreshBorderWaits`/`bootBorderWaitPoll`
+— only `server/routes.ts`'s single `/api/data/border-waits` handler (no
+`/api/v1` mirror for this raw overlay, confirmed by grep) and this file's
+own poll loop. No exported function signature changed (only added new
+exports + changed `refreshBorderWaits`'s internal body), so no other
+caller needed updating. No Python/RPC surface — pure TS/Node datacore
+module, no bot.ts subprocess or daemon method-table entry applies.
+
+RATCHET: `server/cbpBorderWait.test.ts` — 15 tests total, 6 new: (1)
+`backfillBorderWaitsFromArchive` keeps only the latest-`rt` observation
+per identity across a plain+gzipped day, preserving a second distinct
+lane identity; (2) respects the `days` window; (3) cold cache backfills
+when the live poll throws; (4) also backfills on an empty-but-successful
+poll when cold; (5) a transient empty poll on an already-warm cache
+leaves it untouched. A/B-verified via `git stash push -- server/cbpBorderWait.ts`:
+all 15 tests in the file fail (`SyntaxError`, missing exports) against
+the pre-fix file; all 15 pass restored.
+
+NO RATCHET REGRESSION: both new JSON.parse guards use `catch { continue;
+}` (not a bare empty catch), matching the cboeVix.ts/usaSpending.ts
+precedent for `empty_ts_catch`; no `any`-typed parameters added.
+`bash scripts/counter_ratchet.sh` checked against a clean `git stash`ed
+HEAD first (same discipline the finraQuery.ts/edgar13f.ts/usaSpending.ts
+sessions established): `tests_run_in_ci` already 458 and `assertions`
+already 14614 at clean HEAD (pre-existing drift, not this diff) —
+this diff's own new assertions add exactly 14626-14614=12. Per PROMOTION
+RULE 5 and that same precedent, **neither pin is re-pinned in this PR**.
+`bash scripts/tsc_ratchet.sh` also re-checked against clean HEAD: reports
+11 -> 3 at BOTH clean HEAD and with this diff applied (identical
+pre-existing drift already logged by 5+ prior sessions per
+research/experiments.md's own `tsc_ratchet.sh` history, e.g. "reported
+11 -> 3 ... NOT re-pinned") — not re-pinned here either, consistent with
+that established precedent.
+
+BACKTEST: N/A per PROMOTION RULE 3 — cbpBorderWait is a RAW overlay (no
+predictive/signal claim, `kind: "raw"` in its own route response); this
+is a cache-freshness/reliability fix, not a scoring or sizing change.
+
+CROSS-SYSTEM INTEGRATION: none new — same archive, same route; only how
+soon the cache recovers from `warming_up` after a cold start or outage
+changes.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — zero `client/` files
+touched (client consumers of `/api/data/border-waits` are unaffected;
+response shape unchanged).
+
+GATES: fresh container needed `npm ci` (488 packages) before `npm run
+build` would resolve `tsx` locally — first gate attempt failed on that
+(`sh: 1: tsx: not found`), re-ran clean after install. `npx tsx --test
+server/cbpBorderWait.test.ts server/cacheBackfill.test.ts
+server/usaSpending.test.ts`: 15+6+30 pass, 0 regressions. `python3 -m
+pytest -q`: 2080 passed, 1 skipped, 54 subtests, 0 regressions (this diff
+touches no Python). `bash scripts/gated_tests.sh`: **GATE PASSED** —
+server/client/python all green, quarantine 0/1 none overdue, deploy-gate
+smoke PASS (200 in 5.4s, status=degraded/serving.ok as expected under the
+smoke's forced kill-switch+stale-liveness fixture). `npm run build`:
+clean, part of the deploy-gate smoke above.
+
+DEPLOY-COUPLING NOTE: this PR touches no trading-path code (a datacore
+cache-freshness fix + tests + a version bump + research logs) — per this
+repo's own recently-reconfirmed convention the `automerge` job merges on
+green CI regardless of market hours.
+
+NEXT: (1) work the remaining 14 VULNERABLE modules from the 2026-09-15
+audit table (`censusImports.ts`, `euDayAheadPrices.ts`, `euGenerationMix.ts`,
+`euMacro.ts`, `faaStatus.ts`, `fdicBanks.ts`, `fredMacro.ts`, `gdeltEvents.ts`,
+`gridDemand.ts`, `gridGeneration.ts`, `nhtsaComplaints.ts`,
+`nrcReactorStatus.ts`, `treasuryAuctions.ts`, `usgsWater.ts`; `dtccSwaps.ts`
+stays explicitly lower-priority per that audit's own note). (2) KNOWN
+BROKEN #41's still-open threads (memory leak contained-not-fixed) and the
+latched DRAWDOWN-KILL switch — human-decision items, re-confirmed
+unchanged this session (32.5 market hours / 175.9h wall-clock dark), not
+re-notified (no new information since the human was already notified).
+
 ## 2026-09-17 (scheduled-routine session, second session this UTC day) [PIPELINE] — usaSpending.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live USAspending outage) where the poll returns empty/throws left the federal-contracts cache permanently null or empty despite a real on-disk jsonl/jsonl.gz archive already on disk — one of the 16 remaining "new reader needed" modules from the 2026-09-15 module audit, closed with a from-scratch reader (v1.0.923)
 
 TERRITORY: T-DATACORE (server/usaSpending.ts, server/usaSpending.test.ts) +
