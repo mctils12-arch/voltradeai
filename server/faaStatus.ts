@@ -192,6 +192,53 @@ export function gzipOldFaaDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reconstructs a snapshot from the event-identity dedup archive: for
+ *  every (type, airport, direction) identity seen in the lookback window,
+ *  keeps the observation with the latest `rt` timestamp — the archive
+ *  only ever appends a row when a program's state CHANGES, so the newest
+ *  row per identity is the last known state, not a duplicate history of
+ *  every change. Same cold-cache-no-disk-backfill fix already shipped for
+ *  cbpBorderWait.ts/edgarForm4.ts/usaSpending.ts/censusImports.ts
+ *  (research/open_questions.md's cold-cache-no-disk-backfill table named
+ *  faaStatus.ts as one of the remaining "new reader needed" modules).
+ *
+ *  NOT wired through `cacheBackfill.ts`'s shared `resolveCacheItems`, by
+ *  design: that helper treats an empty live result as ambiguous with a
+ *  failed one, but this module's own existing test
+ *  ("empty NAS ... is a real state, not an error") already establishes
+ *  that a successful fetch returning zero events is a genuine, trusted
+ *  publishable state — `resolveCacheItems` would incorrectly discard that
+ *  real empty snapshot in favor of a disk backfill on a cold boot.
+ *  Backfill therefore triggers on exactly one condition below: the fetch
+ *  itself failed (`events === null`) AND there is no cache yet to fall
+ *  back on — never on a successful, merely-empty poll. */
+export function backfillFaaEventsFromArchive(baseDir?: string, nowMs?: number, days = 3): FaaEvent[] {
+  const dir = faaDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const latest = new Map<string, FaaEvent>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${d}.jsonl`), path.join(dir, `${d}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let e: FaaEvent;
+        try { e = JSON.parse(line); } catch { continue; }
+        if (!e || !e.airport) continue;
+        const identity = `${e.type}|${e.airport}|${e.direction || ""}`;
+        const prev = latest.get(identity);
+        if (!prev || (e.rt || "") > (prev.rt || "")) latest.set(identity, e);
+      }
+    }
+  }
+  return Array.from(latest.values());
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; update_time: string; events: FaaEvent[] } | null = null;
@@ -204,7 +251,16 @@ export function latestFaaStatus() {
 export async function refreshFaaStatus(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const events = await fetchFaaStatus(fetchImpl, nowMs);
-    if (events === null) return; // transport error — keep last snapshot
+    if (events === null) {
+      // transport error — keep last snapshot, or backfill from disk on a cold cache
+      if (!cache) {
+        const backfilled = backfillFaaEventsFromArchive(undefined, nowMs);
+        if (backfilled.length) {
+          cache = { at: Date.now(), update_time: backfilled[0]?.update_time || "", events: backfilled };
+        }
+      }
+      return;
+    }
     // an empty NAS (no programs anywhere) is a real, publishable state
     cache = { at: Date.now(), update_time: events[0]?.update_time || "", events };
     archiveFaaEvents(events, undefined, nowMs);
@@ -212,6 +268,10 @@ export async function refreshFaaStatus(fetchImpl: FetchFn = fetch as any, nowMs?
   } catch (e: any) {
     console.error("[datacore] faastatus refresh:", e?.message || e);
   }
+}
+
+export function _resetFaaCacheForTests(): void {
+  cache = null;
 }
 
 /** Delay programs are intraday phenomena — 15-min poll (96 light
