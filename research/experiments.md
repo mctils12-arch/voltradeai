@@ -158,6 +158,13 @@ latched DRAWDOWN-KILL switch — human-decision items, re-confirmed
 unchanged this session (32.5 market hours / 175.9h wall-clock dark), not
 re-notified (no new information since the human was already notified).
 
+STARVED: no — this session's SESSION BUDGET primary action was the
+queue's own most-recently-filed NEXT item (the immediately preceding
+usaSpending session's own queued list), scoped, fixed, fully tested
+(6 new tests, A/B-verified), gated (full `gated_tests.sh` GATE PASSED),
+and shipped as PR #1102 within this session — not merely cataloged for a
+future session.
+
 ## 2026-09-17 (scheduled-routine session, second session this UTC day) [PIPELINE] — usaSpending.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live USAspending outage) where the poll returns empty/throws left the federal-contracts cache permanently null or empty despite a real on-disk jsonl/jsonl.gz archive already on disk — one of the 16 remaining "new reader needed" modules from the 2026-09-15 module audit, closed with a from-scratch reader (v1.0.923)
 
 TERRITORY: T-DATACORE (server/usaSpending.ts, server/usaSpending.test.ts) +
