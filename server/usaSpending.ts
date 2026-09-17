@@ -35,6 +35,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export const CONTRACT_FLOOR_USD = 25_000;
 export const PARENT_LOOKUP_MIN_USD = 1_000_000;
@@ -369,6 +370,46 @@ export function gzipOldUsaDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reconstructs a cache-shaped txn list from the on-disk usaspending
+ *  archive — used to backfill a cold cache when a boot's live poll throws
+ *  (USAspending transient outage / fetch failure) or comes back with zero
+ *  txns before any cache exists. Same cold-cache-no-disk-backfill fix
+ *  already shipped for edgarForm4.ts/sec8kEarnings.ts/edgar13f.ts's
+ *  identically-shaped backfill helpers (research/open_questions.md's
+ *  cold-cache-no-disk-backfill table named usaSpending.ts as one of the
+ *  16 remaining vulnerable modules, "new reader needed"). Dedups by
+ *  (aid,mod,amt) exactly like `archiveContractTxns`'s own vintage-row
+ *  discipline, newest day first, since a cache is meant to reflect the
+ *  most recently seen txns, not the oldest. */
+export function backfillContractsFromArchive(baseDir?: string, nowMs?: number, days = 3): ContractTxn[] {
+  const dir = usaDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const out: ContractTxn[] = [];
+  const seen = new Set<string>();
+  for (let d = 0; d < days; d++) {
+    const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try {
+          const t: ContractTxn = JSON.parse(line);
+          const k = `${t.aid}|${t.mod}|${t.amt}`;
+          if (!t.aid || seen.has(k)) continue;
+          seen.add(k);
+          out.push(t);
+        } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
 // ── Cache + poll loop ───────────────────────────────────────────────────────
 
 let cache: { at: number; txns: ContractTxn[] } | null = null;
@@ -409,12 +450,19 @@ export async function refreshContractsCache(fetchImpl: FetchFn = fetch as any, n
       await new Promise((res) => setTimeout(res, 150));
     }
     saveUeiCache(ueiCache);
-    if (txns.length || !cache) cache = { at: Date.now(), txns };
+    const next = resolveCacheItems(cache !== null, txns, () => backfillContractsFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), txns: next };
     try { archiveContractTxns(txns, undefined, nowMs); } catch {}
     try { gzipOldUsaDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] usaspending refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [], () => backfillContractsFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), txns: next };
   }
+}
+
+export function _resetContractsCacheForTests(): void {
+  cache = null;
 }
 
 /** 6h poll — USAspending loads FPDS nightly; extra cycles catch late DoD

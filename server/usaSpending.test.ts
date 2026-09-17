@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import zlib from "zlib";
 import { fileURLToPath } from "url";
 import {
   normalizeCompanyName,
@@ -15,6 +16,10 @@ import {
   loadUeiCache,
   saveUeiCache,
   CONTRACT_FLOOR_USD,
+  backfillContractsFromArchive,
+  refreshContractsCache,
+  latestContracts,
+  _resetContractsCacheForTests,
 } from "./usaSpending";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -173,6 +178,130 @@ test("archive round-trip: (aid,mod,amt) dedup; a corrected amount appends as a n
   saveUeiCache({ X: { tkr: "BA", mm: "name", at: "2026-07-05" } } as any, dir);
   assert.equal(loadUeiCache(dir).X.tkr, "BA");
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("backfillContractsFromArchive: reads recent archived days (plain + gzipped), dedups by (aid,mod,amt), skips rows with no aid", () => {
+  // backfillContractsFromArchive resolves its dir via usaDir(baseDir), which
+  // appends "usaspending" to whatever baseDir is passed — same convention
+  // archiveContractTxns/loadUeiCache already use in the "archive round-trip"
+  // test above, so fixtures must land one level deeper than the tmpdir itself.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vtusa-backfill-"));
+  const dir = path.join(root, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Date.parse("2026-09-10T12:00:00Z");
+  const day0 = new Date(now).toISOString().slice(0, 10);
+  const day1 = new Date(now - 86400_000).toISOString().slice(0, 10);
+  const t1 = parseTxnRow({ ...REAL_ROW, "generated_internal_id": "BF-1" }, day0);
+  const t2 = { ...parseTxnRow({ ...REAL_ROW, "generated_internal_id": "BF-1" }, day0) }; // exact dup key
+  const t3 = parseTxnRow({ ...REAL_ROW, "generated_internal_id": "BF-2" }, day1);
+  const noAid = { ...parseTxnRow(REAL_ROW, day1), aid: "" };
+  fs.writeFileSync(path.join(dir, `${day0}.jsonl`), [t1, t2, noAid].map((t) => JSON.stringify(t)).join("\n") + "\n");
+  fs.writeFileSync(path.join(dir, `${day1}.jsonl.gz`), zlib.gzipSync(JSON.stringify(t3) + "\n"));
+  const out = backfillContractsFromArchive(root, now, 3);
+  const ids = out.map((t) => t.aid).sort();
+  assert.deepEqual(ids, ["BF-1", "BF-2"], "dedup by (aid,mod,amt) across a plain and a gzipped day; rows with no aid dropped");
+});
+
+test("backfillContractsFromArchive: respects the days window (older files outside it are not read)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vtusa-backfill-window-"));
+  const dir = path.join(root, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Date.parse("2026-09-10T12:00:00Z");
+  const tooOld = new Date(now - 10 * 86400_000).toISOString().slice(0, 10);
+  fs.writeFileSync(
+    path.join(dir, `${tooOld}.jsonl`),
+    JSON.stringify(parseTxnRow({ ...REAL_ROW, "generated_internal_id": "OLD-1" }, tooOld)) + "\n",
+  );
+  const out = backfillContractsFromArchive(root, now, 3);
+  assert.deepEqual(out, [], "a day 10 days back is outside the default 3-day backfill window");
+});
+
+test("refreshContractsCache: cold cache backfills from the on-disk usaspending archive when the live poll throws (USAspending outage must not report empty over real archived contracts)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-usa-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetContractsCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "usaspending");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(
+      path.join(dir, `${today}.jsonl`),
+      JSON.stringify(parseTxnRow({ ...REAL_ROW, "generated_internal_id": "COLD-1" }, today)) + "\n",
+    );
+    assert.equal(latestContracts(), null, "cache must still be cold going into this cycle");
+    const throwingFetch = (async () => { throw new Error("USAspending unreachable"); }) as any;
+    await refreshContractsCache(throwingFetch);
+    const cached = latestContracts();
+    assert.ok(cached, "cache must be populated, not left null, despite the live poll throwing");
+    assert.equal(cached!.txns.length, 1);
+    assert.equal(cached!.txns[0].aid, "COLD-1", "backfilled from the archived txn, not fabricated");
+  } finally {
+    _resetContractsCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refreshContractsCache: an empty-but-non-throwing live poll also backfills from disk when the cache is cold (not just the throw path)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-usa-coldcache-empty-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetContractsCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "usaspending");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(
+      path.join(dir, `${today}.jsonl`),
+      JSON.stringify(parseTxnRow({ ...REAL_ROW, "generated_internal_id": "COLD-2" }, today)) + "\n",
+    );
+    const emptyFetch = (async (url: string) => {
+      if (String(url).includes("company_tickers")) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: [], page_metadata: { hasNext: false } }) };
+    }) as any;
+    await refreshContractsCache(emptyFetch);
+    const cached = latestContracts();
+    assert.ok(cached, "cache must be populated from disk, not left null, on an empty-but-successful poll");
+    assert.equal(cached!.txns.length, 1);
+    assert.equal(cached!.txns[0].aid, "COLD-2");
+  } finally {
+    _resetContractsCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("refreshContractsCache: a transient empty poll never overwrites an already-good cache with a stale archive read", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-usa-warmcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetContractsCacheForTests();
+  try {
+    const goodFetch = (async (url: string, init?: { body?: string }) => {
+      if (String(url).includes("company_tickers")) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+      }
+      const body = JSON.parse(init?.body || "{}");
+      const rows = body.order === "desc" ? [{ ...REAL_ROW, "generated_internal_id": "WARM-1" }] : [];
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: rows, page_metadata: { hasNext: false } }) };
+    }) as any;
+    await refreshContractsCache(goodFetch);
+    assert.equal(latestContracts()!.txns.length, 1, "warm the cache first");
+
+    const emptyFetch = (async (url: string) => {
+      if (String(url).includes("company_tickers")) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: [], page_metadata: { hasNext: false } }) };
+    }) as any;
+    await refreshContractsCache(emptyFetch);
+    assert.equal(latestContracts()!.txns.length, 1, "an empty poll must not blank out an already-warm cache");
+    assert.equal(latestContracts()!.txns[0].aid, "WARM-1");
+  } finally {
+    _resetContractsCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
 
 test("routes.ts boots the contracts poll and registers /api/data/contracts; manifest exists with the DUNS + DoD honesty lines", () => {

@@ -1147,6 +1147,33 @@
     worked, and is also what NEXT step (2) (options fill realism) has
     been waiting on since 2026-07-23.
 
+    UPDATE 2026-09-17 (scheduled-routine [PIPELINE] session, EDGE-DOCTRINE
+    axis (b) check) — still can't be judged, and now with a concrete,
+    evidenced reason why, not just "not enough time has passed yet."
+    Live `/api/diag/ml?token=$DIAG_TOKEN` this session:
+    `live_options_outcome_breakdown: {"orphan_exit": 10}` — one more
+    orphan than the 2026-09-08 session's `{"orphan_exit": 9}` reading,
+    still zero win/loss/open. `live_record_date_range: ["2026-07-10",
+    "2026-09-08"]` — the newest feedback record on file is dated
+    2026-09-08, the same day the 2026-09-08 fix shipped. This is not a
+    coincidence of timing: KNOWN BROKEN #43's DRAWDOWN-KILL trip latched
+    the trading loop at 2026-09-10T03:12:26Z (`research/wishlist.md`'s
+    ACTIVE LIVE CONCERN thread) and it has stayed killed continuously
+    since — confirmed still `bot.status:"killed"` this session
+    (`liveness.dark:true`, 32.5 market hours / 167.4h wall-clock dark,
+    `drawdownPct:"-8.7"`). Zero live trades have executed since the halt,
+    so zero new standalone options closes exist to mature this NEXT
+    step's own falsifiable signal — the evaluation isn't merely pending,
+    it is structurally frozen until a human clears the kill switch (per
+    wishlist.md: "Nothing autonomous will clear it"). This is the same
+    human-decision item, not new information warranting a fresh
+    notification (the human was already told when this first tripped);
+    filed here because it directly explains why an axis-(b) options-side
+    check keeps coming back unchanged and answers this thread's own
+    "once this deploys" NEXT literally: it has deployed, and nothing
+    downstream of it can move while the loop is dark. No code changed
+    this update — a live-diagnostic read only.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/
@@ -20488,7 +20515,7 @@ empty/failed live poll):
 | nhtsaComplaints.ts | none | new reader needed |
 | nrcReactorStatus.ts | none | new reader needed |
 | treasuryAuctions.ts | none | new reader needed |
-| usaSpending.ts | none | new reader needed |
+| usaSpending.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.923** |
 | usgsWater.ts | none | new reader needed |
 
 5 were ALREADY SAFE (own existing `readArchived*`-backed restore path,
