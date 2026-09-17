@@ -3,6 +3,152 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine session, sixth session this UTC day) [PIPELINE] — usgsWater.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live waterservices.usgs.gov outage) on the very first poll left `/api/data/rivergauges` warming_up forever despite a real revision-append river-gauge archive already on disk (v1.0.928)
+
+TERRITORY: T-DATACORE (server/usgsWater.ts, server/usgsWater.test.ts) +
+SHARED-minimal (package.json version bump, research/open_questions.md,
+research/experiments.md), last and minimal per MERGE-ORDER PROTOCOL.
+
+TASK FRAMING: scheduled-routine session brief (read CLAUDE.md, experiments.md,
+open_questions.md, wishlist.md; check loop-health ratio; check system health;
+execute the single highest-value action per SESSION BUDGET; open one PR from
+a claude/ branch; append a tagged session log).
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -m 20
+https://voltradeai-production.up.railway.app/api/health` -> HTTP 200,
+`serving.ok: true`. `status: "degraded"` for the SAME already-tracked,
+NOT-NEW reason every session since 2026-09-10 has confirmed: `bot.status:
+"killed"`, `bot.liveness.dark: true`, "LIVENESS ALARM: trading loop dark for
+39.0 market hours (185.1h wall-clock) since 2026-09-10T03:12:26.354Z" —
+`drawdownPct: "-7.9"`. This is the same standing human-decision item
+research/wishlist.md's "TWO THINGS STILL FOR THE HUMAN" section already
+carries and research/open_questions.md KNOWN BROKEN #42/#43 already document
+in full (independent ground-truth reconstruction puts the real same-day P&L
+far smaller than the account's own reported figure — very likely a
+broker/data-quality artifact; the resume decision is the human's alone).
+Reading (39.0/185.1h, up from the immediately preceding session's 37.2/183.0h)
+is the same incremental, fully-expected aging of an already-flagged,
+already-explained, human-gated item — re-confirmed but NOT separately
+re-escalated, per this thread's own established "only notify on NEW
+information" discipline. `feeds` all alive (aircraft/vessels/trains
+`silent_hours` 0.28, none dead). `process.{unhandledRejections,
+uncaughtExceptions}` both 0. Noted, does not block T-DATACORE work, proceeded.
+`git fetch origin main`: HEAD already equals origin/main at `94f73cd`/
+v1.0.927/PR #1105 (the immediately preceding session's faaStatus.ts fix) — no
+reset needed.
+
+LOOP-HEALTH RATIO CHECK: last 10 tagged entries before this one = [PIPELINE]x6
+(faaStatus, censusImports, cbpBorderWait, usaSpending, space_weather_swpc,
+finraQuery), [PIPELINE] edgar13f x1, [RULE-REVIEW]x1 (16th auto-merge/
+market-hours-hold tally, folded into the same entry range), [REPAIR]x1
+(staleness audit), [PRODUCT]+[PIPELINE]x1 (port_dwell gate1_pass
+reconciliation). 1/10 REPAIR — well below the 7+ thrash threshold, no
+meta-problem to address. PROGRESS FLOOR: [PIPELINE]/[PRODUCT] work has
+shipped every day this week — no 14-day stall to flag.
+
+PRIMARY-ACTION SELECTION: checked both new-pipeline axes first, to avoid
+duplicating in-flight work: `python3 scripts/ladder_readiness_check.py` still
+0/3 gated roots ready (unchanged). `python3
+scripts/data_stream_registry_check.py --unbuilt` still 9/9 declined/blocked.
+`datacore/signal_ladder.json`: all gate1_pass/gate2_pass roots already carry
+a `detail_route`. With both axes exhausted for now, continued
+research/open_questions.md's cold-cache-no-disk-backfill audit table — the
+queue's own next concretely-scoped, unclaimed item per SESSION BUDGET rule 1,
+extending the thread a sixth session today. Of the remaining "new reader
+needed" modules (euDayAheadPrices.ts, euGenerationMix.ts, euMacro.ts,
+fdicBanks.ts, fredMacro.ts, gdeltEvents.ts, gridDemand.ts, gridGeneration.ts,
+nhtsaComplaints.ts, nrcReactorStatus.ts, treasuryAuctions.ts, usgsWater.ts —
+dtccSwaps.ts stays explicitly lower-priority per the audit's own note, its
+8-day live lookback already mitigating a single missed poll), usgsWater.ts
+was the smallest (199 lines) and most self-contained.
+
+READ BEFORE WRITE: read `server/usgsWater.ts` in full this session (not
+grepped). `fetchGauges` THROWS on a bad HTTP status or a network error
+(unlike the `null`-returning fetch functions in cbpBorderWait.ts/
+faaStatus.ts), and `refreshGaugeCache`'s existing logic —
+`if (gauges.length || !cache) cache = { at: Date.now(), gauges }` — already
+trusts a successful-but-empty poll as a real, publishable state when there's
+no prior cache (the same "empty is real" semantics faaStatus.ts's fix
+deliberately preserved, not `cacheBackfill.ts`'s `resolveCacheItems`, which
+treats empty as ambiguous with failed). The actual, narrower gap matches
+faaStatus.ts's exact shape: the THROW path (`fetchGauges` rejects) was caught
+by `refreshGaugeCache`'s outer try/catch, logged, and otherwise a no-op — on
+a cold boot (or an outage spanning the whole boot window), `cache` never gets
+set even though the on-disk `usgswater/*.jsonl(.gz)` archive already holds
+real recent gauge readings.
+
+FIX (v1.0.928): new `backfillGaugesFromArchive(baseDir?, nowMs?, days=3)` —
+scans the archive over the lookback window and keeps, per `(site, param)`
+identity, the reading with the latest observation timestamp `d` (ties broken
+by `rt`) — correct for this archive's revision-append shape, where a
+provisional value later revised to approved lands as a NEW row under the
+same identity rather than replacing the old one, so a naive "last line wins"
+read could surface a stale provisional over a later approved value if they
+ever land out of file order. Wired into `refreshGaugeCache`'s catch block on
+exactly the `!cache` condition — never touching an already-warm cache on a
+later transport failure, and never touching the existing successful-poll
+branch (so a genuinely empty-but-successful response stays trusted, matching
+current behavior). Added `_resetGaugeCacheForTests()` (this module had no
+cache-reset export before, unlike faaStatus.ts/cbpBorderWait.ts) so the new
+tests don't depend on execution order within the file.
+
+TESTS: 6 new tests in `server/usgsWater.test.ts` (4 -> 10, all pass).
+`backfillGaugesFromArchive`'s own unit tests (written directly to disk via
+`fs.writeFileSync`, not via `archiveGaugeObs` — that function's module-level
+`archivedKeys`/`seeded` dedup state persists across temp dirs within one test
+file, the same contamination risk faaStatus.test.ts/cbpBorderWait.test.ts's
+own backfill tests already worked around) assert the newer-`d` reading wins
+over an older provisional one, a second `(site, param)` identity is
+preserved independently, the default 3-day window excludes a 10-day-old
+file, and widening the window picks it back up. `refreshGaugeCache`'s tests
+exercise all three paths end-to-end: a cold cache backfills from disk when
+the live poll throws; a subsequently-warm cache is untouched by a second
+transport failure (no stale-disk-read clobber); and — the regression this
+session was most careful not to introduce — a genuinely empty but
+SUCCESSFUL poll on a cold cache is still trusted as the real state, not
+overridden by an archive that, in that scenario, has real readings sitting
+on disk. Confirmed the 4 pre-existing tests still pass unchanged.
+A/B-VERIFIED: `git stash push -- server/usgsWater.ts` then re-ran the test
+file — fails immediately (`_resetGaugeCacheForTests` doesn't exist on the
+pre-fix module), confirming the new tests actually exercise the fix.
+
+BACKTEST: N/A per PROMOTION RULE 3 — server-side cache/archive reliability
+fix in a RAW-overlay data pipeline (USGS river gauges, gate-2-locked, not
+gate-2-passed), no scoring, sizing, threshold, or strategy code touched, no
+trading-path file touched.
+
+GATES: `npx tsx --test server/usgsWater.test.ts`: 10/10 (4 pre-existing + 6
+new, 0 regressions). This sandbox's `node_modules` came up partially empty
+mid-session (only `typescript` present, `express` missing — not caused by
+this diff, no package.json dependency changed besides the version bump);
+`npm ci` (488 packages) restored it before any gate that needed the full
+tree ran. `npx tsx --test server/*.test.ts` (full server suite, post-`npm
+ci`): 1741/1741 pass, 0 failed. `bash scripts/tsc_ratchet.sh`: 3 <= 11
+pinned TOTAL, TS2304 = 0 — OK, but NOT lowering the pin this PR: the 3
+remaining errors are environment type-definition noise (`Cannot find type
+definition file for 'node'`/`'vite/client'`, a deprecated `tsconfig.json`
+`baseUrl` warning), not a code fix from this diff, and touching
+`ci/tsc_baseline.txt` for an unrelated, unverified environment artifact
+would violate PROMOTION RULE 5 (one logical change per PR) — left for
+whichever session actually diagnoses that drop. Full Python suite (after
+`pip install -r requirements.txt -r requirements-dev.txt`, needed cold in
+this sandbox): 2080 passed, 1 skipped, 54 subtests — this diff touches no
+Python. `bash scripts/gated_tests.sh`: **GATE PASSED** — server (192 files),
+client (102 files), python all green, deploy-gate smoke PASS (200 in 2.8s),
+quarantine 0/1, none overdue. `npm run build`: clean (pre-existing
+chunk-size/astronomy-engine warnings only; zero client/ files touched, so
+`npm run visual` was not run).
+
+NEXT: 11 VULNERABLE modules remain in the audit table (dtccSwaps.ts
+explicitly lower-priority; euDayAheadPrices.ts, euGenerationMix.ts,
+euMacro.ts, fdicBanks.ts, fredMacro.ts, gdeltEvents.ts, gridDemand.ts,
+gridGeneration.ts, nhtsaComplaints.ts, nrcReactorStatus.ts,
+treasuryAuctions.ts still need a from-scratch archive reader) — a future
+session continues this thread one module per PR, per its established
+discipline.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-17 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — faaStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nasstatus.faa.gov outage) on the very first poll left `/api/data/faa-status` warming_up forever, without disturbing this module's own deliberate "an empty NAS is a real state" honesty rule (v1.0.927)
 
 TERRITORY: T-DATACORE (server/faaStatus.ts, server/faaStatus.test.ts) +

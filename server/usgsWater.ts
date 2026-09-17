@@ -170,6 +170,55 @@ export function gzipOldUsgsDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reconstructs the latest known reading per (site, param) from the
+ *  revision-append archive: keeps the row with the newest observation
+ *  timestamp `d` (ties broken by `rt`, the vintage a provisional->approved
+ *  revision appends under) — a revision adds a NEW row rather than
+ *  replacing one, so a naive "last line wins" read would risk surfacing a
+ *  stale provisional value over a later approved one if they ever land out
+ *  of file order. Same cold-cache-no-disk-backfill fix already shipped for
+ *  cbpBorderWait.ts/faaStatus.ts/edgarForm4.ts (research/open_questions.md's
+ *  cold-cache-no-disk-backfill table named usgsWater.ts as one of the
+ *  remaining "new reader needed" modules).
+ *
+ *  NOT routed through `cacheBackfill.ts`'s shared `resolveCacheItems`, for
+ *  the same reason faaStatus.ts isn't: `refreshGaugeCache`'s existing
+ *  behavior already trusts a successful-but-empty poll as a real state
+ *  (`if (gauges.length || !cache)`) rather than treating it as ambiguous
+ *  with a failed one — `resolveCacheItems` would silently change that. The
+ *  gap this fix closes is narrower: only the THROW path (`fetchGauges`
+ *  rejects — bad HTTP status or a network error) currently leaves `cache`
+ *  untouched forever on a cold boot. */
+export function backfillGaugesFromArchive(baseDir?: string, nowMs?: number, days = 3): GaugeObs[] {
+  const dir = usgsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const latest = new Map<string, GaugeObs>();
+  for (let i = 0; i < days; i++) {
+    const day = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let o: GaugeObs;
+        try { o = JSON.parse(line); } catch { continue; }
+        if (!o || !o.site || !o.param) continue;
+        const identity = `${o.site}|${o.param}`;
+        const prev = latest.get(identity);
+        const newer = !prev
+          || Date.parse(o.d) > Date.parse(prev.d)
+          || (Date.parse(o.d) === Date.parse(prev.d) && (o.rt || "") > (prev.rt || ""));
+        if (newer) latest.set(identity, o);
+      }
+    }
+  }
+  return Array.from(latest.values());
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; gauges: GaugeObs[] } | null = null;
@@ -187,7 +236,23 @@ export async function refreshGaugeCache(fetchImpl: FetchFn = fetch as any, nowMs
     try { gzipOldUsgsDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] usgswater refresh:", e?.message || e);
+    // transport error (thrown by fetchGauges) — keep the last snapshot, or
+    // backfill from disk on a cold cache so a boot-time outage doesn't leave
+    // /api/data/rivergauges warming_up forever despite a real archive on disk.
+    if (!cache) {
+      const backfilled = backfillGaugesFromArchive(undefined, nowMs);
+      if (backfilled.length) cache = { at: Date.now(), gauges: backfilled };
+    }
   }
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem faaStatus.ts's `_resetFaaCacheForTests` solves for its own
+ *  module), so a test exercising the cold-cache backfill path must be able
+ *  to force `cache` back to null rather than rely on file execution order. */
+export function _resetGaugeCacheForTests(): void {
+  cache = null;
+  polling = false;
 }
 
 /** 1h poll — river stage moves slowly; one request covers all 14 sites. */
