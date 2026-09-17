@@ -25,6 +25,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export type LaneClass = "commercial_standard" | "commercial_FAST" | "passenger_standard";
 
@@ -180,6 +181,42 @@ export function gzipOldBorderWaitDays(baseDir?: string, nowMs?: number): number 
   return n;
 }
 
+/** Reconstructs a snapshot from the change-only dedup archive: for every
+ *  (port_number, crossing_name, lane) identity seen in the lookback window,
+ *  keeps the observation with the latest `rt` timestamp — the archive only
+ *  ever appends a row when a value CHANGES, so the newest row per identity
+ *  is the last known state, not a duplicate history of every change. Same
+ *  cold-cache-no-disk-backfill fix already shipped for edgarForm4.ts/
+ *  edgar13f.ts/usaSpending.ts's identically-motivated backfill helpers
+ *  (research/open_questions.md's cold-cache-no-disk-backfill table named
+ *  cbpBorderWait.ts as one of the 15 remaining vulnerable modules). */
+export function backfillBorderWaitsFromArchive(baseDir?: string, nowMs?: number, days = 3): BorderWaitObs[] {
+  const dir = bwtDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const latest = new Map<string, BorderWaitObs>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${d}.jsonl`), path.join(dir, `${d}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let o: BorderWaitObs;
+        try { o = JSON.parse(line); } catch { continue; }
+        if (!o || !o.port_number) continue;
+        const identity = `${o.port_number}|${o.crossing_name}|${o.lane}`;
+        const prev = latest.get(identity);
+        if (!prev || (o.rt || "") > (prev.rt || "")) latest.set(identity, o);
+      }
+    }
+  }
+  return Array.from(latest.values());
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; obs: BorderWaitObs[] } | null = null;
@@ -192,13 +229,19 @@ export function latestBorderWaits() {
 export async function refreshBorderWaits(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const obs = await fetchBorderWaits(fetchImpl, nowMs);
-    if (obs === null) return; // transport error — keep last snapshot
-    cache = { at: Date.now(), obs };
-    archiveBorderWaits(obs, undefined, nowMs);
-    gzipOldBorderWaitDays(undefined, nowMs);
+    const next = resolveCacheItems(cache !== null, obs ?? [], () => backfillBorderWaitsFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), obs: next };
+    if (obs !== null) {
+      archiveBorderWaits(obs, undefined, nowMs);
+      gzipOldBorderWaitDays(undefined, nowMs);
+    }
   } catch (e: any) {
     console.error("[datacore] cbpborderwait refresh:", e?.message || e);
   }
+}
+
+export function _resetBorderWaitCacheForTests(): void {
+  cache = null;
 }
 
 /** Waits move intra-day at commercial crossings — hourly poll; the
