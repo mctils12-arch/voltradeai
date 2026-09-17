@@ -518,6 +518,31 @@ export function archiveSpaceWeather(pull: SpaceWeatherPull, baseDir?: string, no
 
 // ── storm history scan (gate-1 readiness for space_weather_swpc) ───────────
 
+/**
+ * Kp index -> NOAA G-scale (geomagnetic storm) level, per NOAA's own
+ * published table (spaceweather.gov/noaa-scales-explanation, fetched live
+ * 2026-09-17): "G1: Kp=5", "G2: Kp=6", "G3: Kp=7", "G4: Kp=8, including a
+ * 9-", "G5: Kp=9". Kp is reported in thirds (5-, 5, 5+, 6-, ...; decimal
+ * n-1/3, n, n+1/3) — bucketing each third to its NEAREST whole Kp
+ * reproduces every rule above EXCEPT the explicitly-named exception: by
+ * nearest-rounding, "9-" (8.667) is closer to 9 than 8 and would land in
+ * G5, but NOAA's own text pulls it into G4 instead (G5 is reserved for
+ * Kp=9 exactly). That is the one deliberate deviation from plain
+ * nearest-rounding baked into the thresholds below; every other boundary
+ * (G1-G3) matches nearest-rounding exactly, which is why NOAA's page only
+ * needed to call out the G4/G5 one.
+ */
+export function kpToGScale(kp: number): 0 | 1 | 2 | 3 | 4 | 5 {
+  if (!Number.isFinite(kp)) return 0;
+  const EPS = 0.05; // absorbs rounding noise (e.g. archived "5.67" vs exact 17/3)
+  if (kp >= 9.0 - EPS) return 5;
+  if (kp >= 8.0 - 1 / 3 - EPS) return 4; // 8-, 8, 8+, AND 9- (the named exception)
+  if (kp >= 7.0 - 1 / 3 - EPS) return 3; // 7-, 7, 7+
+  if (kp >= 6.0 - 1 / 3 - EPS) return 2; // 6-, 6, 6+
+  if (kp >= 5.0 - 1 / 3 - EPS) return 1; // 5-, 5, 5+
+  return 0;
+}
+
 export interface StormScanResult {
   daysScanned: number;
   firstDay: string | null;
@@ -528,11 +553,27 @@ export interface StormScanResult {
   maxKpDay: string | null;
   /** distinct dates (YYYY-MM-DD) where an OBSERVED reading reached `minG` */
   stormDays: string[];
+  /** highest Kp-IMPLIED G level (kpToGScale(maxKp)) — a DERIVED figure,
+   *  never blended with maxG above. NOAA's own "current" G-scale field can
+   *  diverge from what its own published Kp table implies (found live
+   *  2026-09-17: 2026-08-02's archived maxKp of 5.67 falls in the G2 band,
+   *  cross-checked against GFZ Potsdam's DEFINITIVE Kp series —
+   *  kp.gfz.de, status "def", 5.667 at 2026-08-02T15:00Z, CC BY 4.0 — yet
+   *  maxG for the whole 50-day archive never exceeded 0). Kept as its own
+   *  field, never folded into maxG, so a reader can always tell which
+   *  claim (NOAA's declared scale vs. this repo's Kp-table lookup) a given
+   *  number rests on. */
+  maxKpImpliedG: number | null;
+  maxKpImpliedGDay: string | null;
+  /** distinct dates where the Kp-IMPLIED G level reached `minG` — may
+   *  include days absent from `stormDays` (see maxKpImpliedG's note). */
+  kpStormDays: string[];
 }
 
 const EMPTY_STORM_SCAN: StormScanResult = {
   daysScanned: 0, firstDay: null, lastDay: null,
   maxG: null, maxGDay: null, maxKp: null, maxKpDay: null, stormDays: [],
+  maxKpImpliedG: null, maxKpImpliedGDay: null, kpStormDays: [],
 };
 
 /**
@@ -568,10 +609,13 @@ export function scanStormHistory(baseDir?: string, minG = 2): StormScanResult {
 
   let maxG: number | null = null, maxGDay: string | null = null;
   let maxKp: number | null = null, maxKpDay: string | null = null;
+  let maxKpImpliedG: number | null = null, maxKpImpliedGDay: string | null = null;
   const stormDays: string[] = [];
+  const kpStormDays: string[] = [];
 
   for (const day of days) {
     let dayMaxG = -Infinity;
+    let dayMaxKpG = -Infinity;
     for (const fp of [path.join(dir, `conditions-${day}.jsonl`), path.join(dir, `conditions-${day}.jsonl.gz`)]) {
       let text: string;
       try {
@@ -587,13 +631,23 @@ export function scanStormHistory(baseDir?: string, minG = 2): StormScanResult {
           if (g > dayMaxG) dayMaxG = g;
         }
         const kp = row.kp == null ? null : Number(row.kp);
-        if (kp != null && Number.isFinite(kp) && (maxKp == null || kp > maxKp)) { maxKp = kp; maxKpDay = day; }
+        if (kp != null && Number.isFinite(kp)) {
+          if (maxKp == null || kp > maxKp) { maxKp = kp; maxKpDay = day; }
+          const kpG = kpToGScale(kp);
+          if (maxKpImpliedG == null || kpG > maxKpImpliedG) { maxKpImpliedG = kpG; maxKpImpliedGDay = day; }
+          if (kpG > dayMaxKpG) dayMaxKpG = kpG;
+        }
       }
     }
     if (dayMaxG >= minG) stormDays.push(day);
+    if (dayMaxKpG >= minG) kpStormDays.push(day);
   }
 
-  return { daysScanned: days.length, firstDay: days[0], lastDay: days[days.length - 1], maxG, maxGDay, maxKp, maxKpDay, stormDays };
+  return {
+    daysScanned: days.length, firstDay: days[0], lastDay: days[days.length - 1],
+    maxG, maxGDay, maxKp, maxKpDay, stormDays,
+    maxKpImpliedG, maxKpImpliedGDay, kpStormDays,
+  };
 }
 
 export function gzipOldSpaceWeatherDays(baseDir?: string, nowMs?: number): number {

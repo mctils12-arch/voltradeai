@@ -147,6 +147,14 @@ export const DIAG_PROBES = [
   // each occurred, and which dates cleared the (optional, default 2)
   // `minG` threshold; every field is a public-domain NOAA reading with no
   // secrets by construction, same posture as the "archive" probe above.
+  // EXTENDED 2026-09-17 (scheduled-routine PRODUCT session): also reports
+  // `maxKpImpliedG`/`kpStormDays` — the archived Kp cross-checked against
+  // NOAA's own published Kp->G table (kpToGScale in spaceWeather.ts),
+  // never blended with NOAA's own declared `g` field. Live finding: the
+  // archive's declared G never exceeded 0 across 50 days, yet its own
+  // maxKp (5.67 on 2026-08-02) falls in the G2 band — cross-verified
+  // against GFZ Potsdam's DEFINITIVE Kp series that same day, so this is
+  // real, not sourced from either field alone.
   // The generic "archive" probe cannot serve this: its reader
   // (readArchiveDay) expects `<stream>-<DAY>...` filenames starting with
   // the date, but this archive's files start with a feed prefix

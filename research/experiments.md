@@ -3,6 +3,213 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine [PRODUCT] session) [PIPELINE] — space_weather_swpc gate-1: NOAA's own declared G-scale never cleared 0 in 50 archived days, but the same archive's Kp reached the NOAA-published G2 band on 2026-08-02 — confirmed real via an independent external ground truth (GFZ Potsdam definitive Kp), not preliminary noise; scanStormHistory gains kpToGScale/maxKpImpliedG/kpStormDays so this is machine-readable going forward (v1.0.922)
+
+TERRITORY: T-DATACORE (server/spaceWeather.ts, server/spaceWeather.test.ts,
+server/diag.ts comment) + SHARED-minimal (datacore/signal_ladder.json one
+entry surgically edited, package.json/package-lock.json version bump,
+research/open_questions.md, research/experiments.md).
+
+TASK FRAMING: this session's own instructions name it a [PRODUCT] session
+(read CLAUDE.md in full, then research/, check system health/KNOWN BROKEN,
+then execute the single highest-value product action among: advance a
+datacore/ pipeline through its next ladder gate; build /data UI; propose a
+new root; improve datacore's API boundary/docs/tests).
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai.com/api/health` ->
+`HTTP 200`, `serving.ok: true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915,
+still holding). `status: "degraded"` for the SAME already-tracked, NOT-NEW
+reason every session since 2026-09-10 has confirmed: `bot.status: "killed"`,
+`bot.liveness.dark: true`, "LIVENESS ALARM: trading loop dark for 32.5 market
+hours (164.8h wall-clock) since 2026-09-10T03:12:26Z" — the latched kill
+switch research/wishlist.md's "ACTIVE LIVE INCIDENT" header already carries
+as a standing human-decision item ("Nothing autonomous will clear it — your
+call via the owner /api/bot/kill toggle after checking the Alpaca
+dashboard"). Per this task's own instructions ("if a critical trading-loop
+item is unfixed, note it but proceed with product work unless the break
+blocks you — product sessions do not preempt DAILY repair duty") and the
+same discipline every 2026-09-13 through 2026-09-16 session has applied
+(only notify on NEW information — the human was already notified when this
+first tripped and has an explicit standing action item), this was noted,
+not re-escalated, and did not block T-DATACORE work. `process.
+{unhandledRejections, uncaughtExceptions}` both 0.
+
+PRIMARY-ACTION SELECTION: surveyed `datacore/signal_ladder.json`'s 47 roots
+for open, concretely-actionable GATE 1/2 work. `scripts/
+ladder_readiness_check.py`: 0/3 ready (cftc_cot_positioning needs ~5 more
+weekly reports, sec_8k_earnings_language needs 15 more archive-days,
+fleet_utilization_aircraft needs 46 more days) — nothing time-gated is due.
+`space_weather_swpc` (gate1_pending, current_gate 0) stood out: its own
+ladder note names a concrete re-run condition ("OE-417 validation runs once
+a G2+ geomagnetic-storm window lands in the archive") and, unlike the
+other two gate1_pending/gate1_pending-adjacent roots, this one is an
+EVENT trigger a live probe can actually check today (2026-09-08's session
+built exactly this: `GET /api/diag/spaceweather_storm`) rather than a
+date/count trigger already known to be unmet. Chose it over starting a
+fresh hypothesis from scratch, per option (a)'s "advance a datacore/
+pipeline through its next ladder gate — gate 1 ground-truth validation IS
+product work" framing.
+
+READ BEFORE WRITE: read `server/spaceWeather.ts` in full (feed URLs,
+`parseKp`/`parseScales`/`conditionsRow`/`archiveSpaceWeather`/
+`scanStormHistory`) and `server/spaceWeather.test.ts` in full before
+touching either, plus `server/diag.ts`'s `spaceweather_storm` DIAG_PROBES
+comment and its case block in `server/bot.ts` (unchanged this session — the
+probe already spreads `scanStormHistory`'s full return object, so no
+signature/wiring change was needed to surface new fields).
+
+METHOD + LIVE RESULT: `curl "https://voltradeai.com/api/diag/spaceweather_storm?token=$DIAG_TOKEN"`
+(this sandbox's `DIAG_TOKEN` env var, already present) — `daysScanned: 50,
+firstDay: "2026-07-29", lastDay: "2026-09-16", maxG: 0, maxGDay:
+"2026-07-29", maxKp: 5.67, maxKpDay: "2026-08-02", stormDays: []`. NOAA's
+own declared G field never exceeded 0 across the WHOLE archive — consistent
+with every prior spot-check (2026-08-18, 2026-09-08) that this root's gate
+1 is "still waiting on an event." But `maxKp: 5.67` is not a quiet number:
+fetched NOAA's own G-scale explanation page live
+(`spaceweather.gov/noaa-scales-explanation`, redirected from
+`swpc.noaa.gov`) via WebFetch — "G1: Kp=5", "G2: Kp=6", "G3: Kp=7", "G4:
+Kp=8, including a 9-", "G5: Kp=9". Kp is reported in thirds (5-, 5, 5+,
+6-, ...decimal n-1/3, n, n+1/3); nearest-rounding each third to its whole
+Kp reproduces every boundary above except one NOAA explicitly calls out as
+an exception ("including a 9-" — by nearest-rounding 8.67/"9-" would land
+in G5, but NOAA pulls it into G4 instead). 5.67 is exactly "6-" — inside
+the G2 band (5.67-6.33) — by the SAME table's G1-G3 boundaries, which need
+no exception (nearest-rounding already gets them right, which is
+presumably why NOAA's page only needed to call out the one it doesn't).
+
+PRIOR (stated before checking further, REASONING STANDARD #10): given this
+repo's own module header already documents "[Kp is] preliminary estimates;
+definitive Kp posts later," expected a real chance this 5.67 reading was
+noisy real-time data that got revised down before NOAA's own G-scale
+product (which the archive's `g` field also reflects) ever registered it —
+i.e., a data-quality/timing artifact rather than a missed real event. Rated
+this closer to 50/50 than confident either way, since GENUINE moderate
+storms are also plausible at random over a 50-day window.
+
+METHOD + LIVE RESULT, the noise-vs-real check: queried GFZ Potsdam's
+DEFINITIVE Kp index API directly — `https://kp.gfz.de/app/json/?start=
+2026-08-01T00:00:00Z&end=2026-08-03T00:00:00Z&index=Kp&status=def` (CC BY
+4.0, an INDEPENDENT ground truth: not NOAA, not this repo's own archive).
+Result: `Kp: [...,3.667, 5.667, 4.0,...]`, `datetime: [...,
+"2026-08-02T15:00:00Z",...]`, `status: [...,"def",...]` for every value
+including that one — "def" means DEFINITIVE, the final, revised, published
+index, not the preliminary estimate. 5.667 (matching our own archived 5.67
+almost exactly) is GFZ's own final answer for that 3-hour window, not a
+spike that later got walked back. CONCLUSION: this was a real, moderate
+(G2-equivalent per NOAA's own Kp table) geomagnetic disturbance on
+2026-08-02 ~12:00-18:00 UTC (elevated across three consecutive 3-hour
+bins: 3.667, 5.667, 4.0) — genuinely landed in this repo's own archive —
+that NOAA's own "current" declared-G field in our archived rows never
+reflected as anything above 0. This is a real divergence between two NOAA
+products (or between NOAA's real-time declared scale and NOAA's own
+published Kp table), not a bug in this repo's capture — `conditionsRow`
+already stores `cur?.g` verbatim from `products/noaa-scales.json`'s
+own "current" row, unmodified (confirmed by re-reading the parse/archive
+code before concluding this, not assumed).
+
+WHAT SHIPPED (v1.0.922): `kpToGScale(kp)` — a pure, documented Kp->G
+lookup citing the NOAA page fetched this session, including the "G4
+includes a 9-" exception coded explicitly (not just the naive
+nearest-rounding, which would get that one boundary wrong). `StormScanResult`
+gained `maxKpImpliedG`/`maxKpImpliedGDay`/`kpStormDays` — computed in the
+SAME single pass over the archive `scanStormHistory` already runs (no new
+archive read, no new file format), but kept as SEPARATE fields, never
+blended into `maxG`/`stormDays`, so any future reader can always tell
+whether a number is NOAA's own declared scale or this repo's Kp-table
+derivation — same "observed, never forecast" discipline this file's header
+comment already applies to `g` vs the unused forecast rows. EDGE DOCTRINE
+#3 (compile a repeated derivation into code once): the Kp-band lookup this
+session had to do by hand (reading NOAA's page, working out the thirds
+encoding) now never needs re-deriving by a future session or a human.
+
+TESTS: `server/spaceWeather.test.ts` — new `kpToGScale` test (every
+boundary in the table above, including the 8.67/"9-" exception and a
+non-finite-input guard) + a new `scanStormHistory` test modeling exactly
+this session's live finding (a day whose `g` rows stay "0" but whose `kp`
+field hits 5.67 — asserts `stormDays: []` but `kpStormDays: ["day"]`,
+`maxKpImpliedG: 2`). Updated the pre-existing "no archive directory" test's
+`deepEqual` fixture for the three new always-present fields (unrelated
+existing tests untouched — they don't assert the full object shape).
+16 -> 42 tests in the combined `spaceWeather.test.ts server/diag.test.ts`
+run (26 pre-existing unaffected, 16 new/changed... actual count: 7 new
+assertions-bearing tests/edits), all pass.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure gate-1 instrumentation on a RAW
+overlay root (space_weather_swpc has made no predictive/signal claim; this
+diff touches no scoring/sizing/threshold code and no trading-path file).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `kpToGScale` is a new pure
+function with no existing caller before this diff; `scanStormHistory`'s
+three new return fields are additive (existing fields/shape unchanged) —
+its one caller (`bot.ts`'s `spaceweather_storm` diag case) already spreads
+the whole return object, so the new fields surface automatically with zero
+wiring change. No effect on `bootSpaceWeatherPoll`'s live fetch/archive
+cycle, the `/api/data/spaceweather` display route, or any Tier 1-3
+scheduling/regime/options path — confirmed by grep, this diff touches
+nothing else.
+
+CROSS-SYSTEM INTEGRATION: none new this session — read-only instrumentation
+over an existing archive. The GIC/grid-exposure join this root's own
+ladder note names (pairs as an event overlay with the GRID VISION layer)
+remains future work, unblocked by nothing this session changed.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — no client/ files touched.
+
+GATES: `npx tsx --test server/spaceWeather.test.ts server/diag.test.ts`:
+42/42 pass, 0 regressions (fresh container — `npm ci` run first, 488
+packages). `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0. Full
+`python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, fresh container): 2080 passed, 1 skipped, 54
+subtests, 0 regressions (this diff touches no Python). `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client suites green,
+python 2080/1/54, quarantine 0/1 none overdue, deploy-gate smoke PASS (200
+in 4.4s). `bash scripts/counter_ratchet.sh`: reports `tests_run_in_ci`
+456->458 and `assertions` 14548->14602 as IMPROVED; checked against a
+clean `git stash`ed HEAD before re-pinning, same discipline the immediately
+preceding two sessions on this file established: `tests_run_in_ci` was
+ALREADY 458 at clean HEAD (pre-existing drift — this diff adds tests to an
+existing file, not a new file, so this counter can't move on it).
+`assertions` was already 14580 at clean HEAD (pin stale by 32, pre-existing
+drift); this session's own new/changed assertions add exactly 14602-14580
+= 22. Per PROMOTION RULE 5 and the identical precedent the finraQuery.ts/
+edgar13f.ts sessions set on this same shared file, **neither pin is
+re-pinned in this PR** — both counters already pass as-is (`OK: 25 counters
+at or better than baseline`), and re-pinning to the mixed total would
+misattribute the pre-existing drift to this PR. `npm run build`: clean,
+part of the deploy-gate smoke above.
+
+DEPLOY-COUPLING NOTE: session ran outside market hours-agnostic concerns —
+this PR touches no trading-path code (a gate-1 instrumentation change in a
+RAW-overlay data module + tests + a version bump + research logs); per this
+repo's own recently-reconfirmed convention the `automerge` job merges on
+green CI regardless of market hours.
+
+NEXT: (1) decide the Kp-vs-declared-G methodology question this session
+deliberately left open — is `kpStormDays` (this session's new signal) the
+right trigger for the OE-417 gate-1 test, or should a future session keep
+waiting specifically for NOAA's own declared G field to clear 2? (2)
+source OE-417 (DOE/FERC electric-disturbance reports) — a BUILD-FIRST
+writeup belongs in wishlist.md before any attempt, per this file's own
+standing convention for gated ground-truth sources; zero references to it
+exist anywhere in this repo, re-confirmed this session. (3) keep polling
+`spaceweather_storm` — a NOAA-declared G2+ may still land independently.
+(4) KNOWN BROKEN #41's still-open threads (memory leak contained-not-fixed,
+latched kill switch) — human-decision items, re-confirmed unchanged this
+session (32.5 market hours / 164.8h wall-clock dark), not re-notified (no
+new information since the human was already told).
+
+STARVED: no — this session's own live probe query surfaced a genuine,
+previously-unnoticed cross-check (Kp vs. declared G) that no prior session
+of the many that have touched this exact root over six weeks had run,
+verified it against an independent external ground truth rather than
+taking either NOAA field at face value, shipped the finding as reusable
+instrumentation (not just a one-off research note) with full test coverage,
+and left the two genuinely open follow-on questions honestly open rather
+than forcing either to a premature conclusion.
+
 ## 2026-09-16 (scheduled-routine session) [PIPELINE] — finraQuery.ts joins the cold-cache-no-disk-backfill fix thread: a failed partition-LIST call (not just an empty/thrown data poll) left SI/threshold/weekly/monthly/blocks caches null forever despite `readPartition` already able to serve whatever's archived (v1.0.921)
 
 TERRITORY: T-DATACORE (server/finraQuery.ts, server/finraQuery.test.ts) +
