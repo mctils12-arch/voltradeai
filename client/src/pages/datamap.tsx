@@ -67,6 +67,7 @@ import FdaEventsView from "./fdaEvents";
 import VehicleComplaintsView from "./vehicleComplaints";
 import BankFailuresView from "./bankFailures";
 import UsaspendingContractsView from "./usaspendingContracts";
+import PortDwellView from "./portDwell";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2937,6 +2938,13 @@ export default function DataMapPage() {
   // "double zero" gap class as vehicle_complaints above).
   const [bankFailuresOpen, setBankFailuresOpen] = useState(() => window.location.hash === "#/data/bank-failures");
   const [contractsOpen, setContractsOpen] = useState(() => window.location.hash === "#/data/contracts");
+  // Port dwell & transit ranked table (#/data/port-dwell) — same "open full
+  // view" overlay pattern as nrc-reactor-status/plant-operations above: a
+  // per-port ranked table doesn't belong in the layer-toggle sidebar, this
+  // complements the portdwell map layer's markers, not a replacement.
+  // Closes the last remaining gate1_pass-root-with-no-dedicated-page gap
+  // (research/experiments.md 2026-09-16 session's own NEXT).
+  const [portDwellOpen, setPortDwellOpen] = useState(() => window.location.hash === "#/data/port-dwell");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3285,6 +3293,7 @@ export default function DataMapPage() {
       setVehicleComplaintsOpen(window.location.hash === "#/data/vehicle-complaints");
       setBankFailuresOpen(window.location.hash === "#/data/bank-failures");
       setContractsOpen(window.location.hash === "#/data/contracts");
+      setPortDwellOpen(window.location.hash === "#/data/port-dwell");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -13024,6 +13033,18 @@ export default function DataMapPage() {
               .join(" · ") || "no port calls in window yet (archive accumulating)"}
           </div>
         )}
+        {l.id === "portdwell" && on && (
+          // Same pattern as nrc_reactor_status/plant_operations above: a
+          // ranked per-port dwell table doesn't belong in a layer-toggle
+          // sidebar — this complements the map layer's markers, not a
+          // replacement for them.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/port-dwell"; setPortDwellOpen(true); }}>
+              Open port dwell view — ranked table, anomaly flags →
+            </button>
+          </div>
+        )}
         {l.id === "insider" && on && (
           // v2.3: the filings FEED does not belong inside a layer-toggle
           // sidebar — it lives in the full view; the panel keeps one button.
@@ -13518,6 +13539,9 @@ export default function DataMapPage() {
       )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
+      )}
+      {portDwellOpen && (
+        <PortDwellView onBack={() => { window.location.hash = "#/data"; setPortDwellOpen(false); }} />
       )}
 
       {/* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge, outside

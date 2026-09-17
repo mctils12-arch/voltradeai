@@ -91705,3 +91705,143 @@ re-running the same registry-completeness lens a third time, quantified
 rather than asserted the other region's partial explanation, and filed a
 new, broader hypothesis this specific finding surfaced rather than
 letting it die as a one-off footnote.
+
+## 2026-09-17 (scheduled-routine PRODUCT session) [PRODUCT] — port_dwell_maritime_transit gets its dedicated /data page, closing the last gate1_pass-root-with-no-detail_route gap (v1.0.925)
+
+TERRITORY: T-CLIENT-primary (client/src/pages/portDwell.tsx, client/src/lib/
+portDwellView.{ts,test.ts}, scripts/visual_check.mjs) + SHARED-minimal
+(datacore/signal_ladder.json, package.json/package-lock.json,
+ci/counter_baseline.txt, research/*), last and minimal.
+
+SESSION-START: read CLAUDE.md in full, then research/ (PROGRAM_STATE.md is
+the separate T-CLIENT rendering-law/audit-ratchet program, not this
+session's territory — noted, not worked). `git fetch origin main` confirmed
+local HEAD already matched origin/main (4811825, v1.0.924) before starting.
+KNOWN BROKEN: #41 (production outage) is fixed and has been since v1.0.915
+(re-confirmed via research/open_questions.md and wishlist.md — `serving.ok`
+green every session since). Two sub-threads stay open under that item (a
+contained-not-root-caused memory leak; a latched trading-loop kill switch
+awaiting a human resume decision) but both are explicitly human-gated, not
+something a PRODUCT session can act on, and this session's diff touches no
+trading-path file.
+
+PRIMARY ACTION SELECTION: dispatched a research pass over
+datacore/signal_ladder.json (all 47 roots), research/wishlist.md's tail,
+research/platform_program.md's RESUME STATE (P1-P4 shipped, P5
+HUMAN-GATED, queue clear), and research/experiments.md's most recent
+sessions, to avoid duplicating in-flight work. `python3
+scripts/ladder_readiness_check.py` confirmed 0/3 gated roots ready (same
+as the 2026-09-10 session's own finding, one week later); `python3
+scripts/data_stream_registry_check.py --unbuilt` confirmed the axis-(a)
+new-pipeline queue is still exhausted (9/35 uncatalogued candidates, all
+declined/blocked on a human key or dead source). Surveying every
+`gate1_pass` root for a missing `detail_route` field (the same field this
+file's own sec_form4_bulk_archive/nrc_outage_reports history already used
+as the "shipped-data-no-client-page" signal) found exactly one gap:
+`port_dwell_maritime_transit` was the ONLY gate1_pass root with no
+`detail_route` — every other one of the 12 already had a page. This is the
+literal residue of the 2026-09-16 session's own NEXT (v1.0.914,
+signalLadder.tsx): it named three gate1_pass roots as candidates lacking a
+page, then same-day corrected two of them as already covered
+(sec_form4_bulk_archive -> filings.tsx, entity_map_operator_ticker ->
+graph.tsx) — leaving port_dwell_maritime_transit as the one genuine
+remaining item, unclaimed since.
+
+BUILT:
+1. `client/src/lib/portDwellView.ts` (new, pure, no React) —
+   `sortPortsByActivity` (busiest-first: in_port_now desc, then
+   visits_completed desc, then name; never mutates), `filterPorts`
+   (all/active/anomaly), `totalAnomalies`. Same split-out-for-testability
+   convention as nrcReactorStatus.ts. 9 new unit tests
+   (portDwellView.test.ts): sort ordering + both tiebreaks + no-mutation,
+   each filter mode, and the empty-input edge case.
+2. `client/src/pages/portDwell.tsx` (new) — `PortDwellView`, modeled
+   directly on nrcReactorStatus.tsx's structure (read before copying, not
+   assumed): fetches `/api/data/portdwell` (an existing, already-live RAW
+   route — server/portDwell.ts/server/routes.ts untouched), renders a
+   ranked table (port / in-port-now / visits / unique vessels / dwell
+   median / dwell p90 / anomaly count), an all/active/anomaly filter row,
+   and a click-to-expand per-port anomaly-examples table (vessel / dwell /
+   port median) — reusing the vt-filings-* table shell, zero new CSS.
+   Honesty: header states "gate 1 (data) passed, dwell-anomaly signal not
+   attempted" and renders the route's own `caveat` string verbatim ("RAW
+   statistics; dwell figures are lower bounds; anomaly flags suppressed on
+   thin history") — no predictive claim, the anomaly flag is the server's
+   pre-existing 3x-median rule (ANOMALY_FACTOR in server/portDwell.ts), not
+   a new claim invented in this view.
+3. `client/src/pages/datamap.tsx` — new `portDwellOpen` hash-route state
+   (`#/data/port-dwell`), wired into the hashchange listener, a new "Open
+   port dwell view" button inside the existing `l.id === "portdwell"`
+   sidebar block (same pattern as the nrc_reactor_status/plant_operations
+   buttons immediately above it in the file), and the closing render block
+   — same three-piece wiring every prior overlay view in this file uses.
+4. `scripts/visual_check.mjs` — new `portdwellview` PAGES entry
+   (`/app#/data/port-dwell`); no new FIXTURES entry needed, `/api/data/
+   portdwell` already had one (used by the existing map layer/sidebar
+   summary).
+5. `datacore/signal_ladder.json` — `port_dwell_maritime_transit` gained
+   `"detail_route": "#/data/port-dwell"` and an appended UPDATE note (kept
+   to a targeted single-line string edit, not a full-file JSON re-dump —
+   the file's roots are one-line-per-object and a naive `json.dump`
+   reformat would have touched all 47 roots; reverted that first attempt
+   and redid it as two precise string edits, verified `git diff --stat`
+   showed exactly 1 line changed before committing).
+
+VERIFIED, not assumed:
+- `npx tsx --test client/src/lib/portDwellView.test.ts
+  client/src/lib/nrcReactorStatus.test.ts`: 16/16 pass.
+- `npx tsx --test server/visualPagesWiring.test.ts
+  server/layersWiring.test.ts`: 2/2 pass — the new `#/data/port-dwell`
+  hash route is correctly picked up as a subset of the new PAGES entry
+  (this is the exact ratchet a 2026-09-10 session built specifically to
+  catch a page shipped without one; confirmed it does its job here rather
+  than trusting it silently).
+- `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 0 — unchanged; the 11
+  pre-existing errors are all in files this diff never touches.
+- `npm run build`: clean (pre-existing chunk-size/astronomy-engine
+  warnings only).
+- `npm run visual -- --page portdwellview`: PASS at 390/768/1440, 0 hard
+  failures; screenshots inspected directly (not just the pass/fail line) —
+  the table renders sorted busiest-first, the anomaly filter badge shows
+  the right count, the mobile stacked-row layout matches nrcReactorStatus's
+  own already-verified pattern. The touch-target/clipped-control warnings
+  in the harness output are the same pre-existing global-nav warnings every
+  other page's run also prints, not new regressions.
+- `bash scripts/gated_tests.sh` (after `npm ci` + `pip install -r
+  requirements.txt -r requirements-dev.txt` in this fresh container):
+  **GATE PASSED** — server/client/python all green (2080 passed, 1
+  skipped, 54 subtests), deploy-gate smoke PASS, quarantine 0/1, none
+  overdue.
+- `bash scripts/counter_ratchet.sh`: IMPROVED on first run
+  (`tests_run_in_ci` 456->458, `assertions` 14548->14626) — re-pinned both
+  in `ci/counter_baseline.txt` in this same PR (confirmed via
+  `scripts/program_status.sh` that both live values now exactly match the
+  new pins) since local HEAD was verified equal to origin/main before
+  starting, so this delta is this session's own new test file, not
+  pre-existing drift from an unrelated merge (PROMOTION RULE 5). Re-ran
+  `counter_ratchet.sh` after re-pinning: 25/25 counters OK.
+- Version bumped 1.0.924 -> 1.0.925 (package.json + package-lock.json,
+  read-and-incremented from a freshly-fetched origin/main immediately
+  before committing, per the MERGE-ORDER PROTOCOL).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a client-only UI ship over an
+already-live, already-tested RAW route; no scoring/sizing/strategy/
+threshold code touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+NEXT: (1) gate 2 for this root (dwell-anomaly vs XRT/IYT forward returns)
+remains blocked on archive depth — datacore/port_dwell_weekly.json holds 4
+of the ~15-20 weeks needed as of the 2026-09-16 update; keep running
+scripts/portdwell_weekly_snapshot.ts each session (idempotent, cheap since
+the 2026-09-07 in-process-capture fix) until it clears that bar. (2) no
+other gate1_pass root is currently missing a detail_route (verified this
+session across all 47 roots) — the next PRODUCT session's queue is
+whichever of the ladder-readiness/unbuilt-registry checks has moved, or a
+fresh ACTIVE ANGLE-HUNTING hypothesis if neither has.
+
+STARVED: no — this session's PRIMARY action was a concretely unclaimed,
+already-named gap (the 2026-09-16 session's own NEXT residue), closed
+end-to-end (lib + tests + page + wiring + ratchet registration + ladder
+bookkeeping) with every gate run and verified, not assumed.
