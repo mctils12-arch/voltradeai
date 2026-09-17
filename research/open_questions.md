@@ -20516,7 +20516,7 @@ empty/failed live poll):
 | nrcReactorStatus.ts | none | new reader needed |
 | treasuryAuctions.ts | none | new reader needed |
 | usaSpending.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.923** |
-| usgsWater.ts | none | new reader needed |
+| usgsWater.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.928** |
 
 5 were ALREADY SAFE (own existing `readArchived*`-backed restore path,
 already following this thread's established pattern — no action needed):
