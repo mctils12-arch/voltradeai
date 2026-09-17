@@ -3,6 +3,170 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — censusImports.ts joins the cold-cache-no-disk-backfill fix thread: a keyless session, an unreleased FT920 month, or a live Census outage on a cold boot latched the port-imports cache to an empty result despite a real on-disk archive already on disk (v1.0.926)
+
+TERRITORY: T-DATACORE (server/censusImports.ts, server/censusImports.test.ts) +
+SHARED-minimal (package.json version bump, research/experiments.md).
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai.com/api/health` -> HTTP
+200, `serving.ok:true` (KNOWN BROKEN #41's deploy-gate fix still holding).
+`status:"degraded"` for the SAME already-tracked, NOT-NEW reason every
+session since 2026-09-10 has confirmed: `bot.status:"killed"`,
+`bot.liveness.dark:true`, now 35.0 market hours / 180.8h wall-clock dark
+since 2026-09-10T03:12:26Z — up from the immediately preceding session's
+32.5/175.9h reading, same standing human-decision item (wishlist.md's
+ACTIVE LIVE CONCERN header), not re-escalated (no new information, same
+discipline every session in this thread has followed). `feeds` all alive
+(aircraft/vessels/trains silent_hours ~1.0, none dead). `process.
+{unhandledRejections,uncaughtExceptions}` both 0. Also caught and fixed a
+stale local-branch artifact before starting: an initial combined
+`git fetch origin main claude/eloquent-dijkstra-cs7ext` failed atomically
+(the second ref doesn't exist as a remote branch) and silently left
+`origin/main` un-updated in this session's local view, briefly making it
+look like 47 merged PRs (#1056-#1103) were stuck un-merged on main — a
+`git fetch origin main` alone resolved it immediately; `origin/main` was in
+fact already at `0579e03` (#1103, port_dwell), same as HEAD. Recorded here
+so a future session doesn't waste a cycle re-diagnosing the same
+fetch-syntax mistake as a real merge-pipeline outage.
+
+LOOP-HEALTH RATIO CHECK (HEALTH OF THE LOOP ITSELF): last 10 experiments.md
+tags before this entry — [PIPELINE]x5 (cbpBorderWait, usaSpending,
+space_weather_swpc, finraQuery, edgar13f), [RULE-REVIEW]x1 (automerge
+tally), [REPAIR]x3 (staleness audit, session_health_check ALARM,
+crash-visibility handlers), [PRODUCT]+[PIPELINE]x1 (port_dwell reconcile).
+3/10 REPAIR — well below the 7+ thrash threshold, no meta-problem to
+address.
+
+PRIMARY-ACTION SELECTION: no fresh critical break found (health check
+above). Continued the immediately preceding (cbpBorderWait) session's own
+NEXT queue, first remaining item: `censusImports.ts` (BUILD ORDER 3 #4, US
+port-level import values) — a queued fix with an established template
+outranks starting fresh research per SESSION BUDGET.
+
+READ BEFORE WRITE: read `server/censusImports.ts` in full (246 lines),
+`server/cacheBackfill.ts`'s shared `resolveCacheItems<T>` helper, and
+`server/edgarForm4.ts`'s `backfillForm4FromArchive`/`refreshForm4Cache` as
+the closest prior retrofit of the same shared helper, before touching
+anything. Confirmed the bug: `refreshImportCache`'s `if (imports.length ||
+!cache) cache = {at, imports}` correctly leaves a WARM cache untouched by a
+transient empty poll (the `!cache` guard), but on a COLD boot (`!cache`
+true) an empty poll — which is the ROUTINE case here, not an edge case: no
+`CENSUS_API_KEY` in this container's env (confirmed via `echo
+$CENSUS_API_KEY` this session — matches the file's own header note that key
+availability is session-dependent), or simply no FT920 release yet for the
+requested months — latches `cache = {at, imports: []}` forever, identical
+to the bug this thread has fixed in 7+ other modules.
+
+STRUCTURAL DIFFERENCE FROM THE THREAD'S SHORT-LOOKBACK TEMPLATE (why this
+isn't a copy-paste of edgarForm4/nasaFirms/etc.): this archive is
+CHANGE-ONLY dedup keyed on full observation identity+value
+(`port|month|gen_val|cnt_val|cnt_wgt`, same dedup style as
+cbpBorderWait.ts's crossing archive) on a MONTHLY government source with
+rare revisions — a port|month observation fetched once early in the
+pipeline's life (BUILD ORDER 3 #4 unblocked 2026-07-05) sits undisturbed in
+that day's archive file indefinitely unless FT920 revises it. The 3-5 day
+lookback windows the rest of this thread uses for hourly/daily-changing
+feeds would find almost nothing on a cold boot months after the pipeline
+started. `backfillImportsFromArchive(baseDir?, nowMs?, days=400)` therefore
+scans a year+ window (cheap: a monthly-cadence source produces at most a
+few dozen archived rows per identity total) and keeps only the
+latest-`rt` observation per `port|month`, matching what a live poll would
+report for that pair — no recency filter on the month itself, since a
+stale reading carries its own honest `month` (same reasoning
+ndbcBuoys.ts's backfill already documented for buoy readings vs. an
+alert's implicit "current" claim).
+
+FIX (v1.0.926): new `backfillImportsFromArchive` exported from
+censusImports.ts; `refreshImportCache` now routes both the live-success and
+the transport-error/throw paths through
+`resolveCacheItems(cache !== null, imports, () =>
+backfillImportsFromArchive(undefined, nowMs))` — the 4th module using the
+shared helper directly (after nasaFirms/ndbcBuoys/usgsQuakes/edgarForm4).
+Added `_resetImportsCacheForTests()`, mirroring the thread's standard
+test-reset export.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): grepped every call site of
+`censusImports`/`latestImports`/`refreshImportCache`/`bootCensusPoll` —
+only `server/routes.ts`'s single `/api/data/imports` handler (no `/api/v1`
+mirror, confirmed by grep) and this file's own poll loop. No exported
+function signature changed (only added new exports + changed
+`refreshImportCache`'s internal body), so no other caller needed updating.
+No Python/RPC surface — pure TS/Node datacore module.
+
+RATCHET: `server/censusImports.test.ts` — 8 tests total, 4 new: (1)
+`backfillImportsFromArchive` reconstructs one row per port|month across a
+74-day gap between archive files, no recency filter; (2) a revision (later
+`rt`, same port|month) wins over the earlier vintage; (3) a keyless/empty
+cold poll backfills from the archive instead of latching empty; (4) an
+already-warm cache survives a transient empty poll (no regression from this
+fix). A/B-verified via `git stash push -- server/censusImports.ts`: all 8
+tests in the file fail (missing exports) against the pre-fix file; all 8
+pass restored.
+
+RATCHET SELF-CORRECTION (worth logging): the first `counter_ratchet.sh` run
+against this diff FAILED — `ts_any 1239->1240`, `boundary_any 233->234` —
+caused by a test helper (`fakeObs`) declared with a `: any` return type.
+Per MEASUREMENT INTEGRITY, fixed the code (typed it `ImportObs`, the
+interface the helper already constructs) rather than loosening the pin.
+Re-run clean: 25 counters at/better than baseline. `tests_run_in_ci`/
+`tests_gating_merge`/`assertions` show as "IMPROVED" but `git stash`
+confirmed the same improvement exists at clean HEAD before this diff
+(pre-existing drift, matching 5+ prior sessions' identical finding in this
+exact thread) — neither re-pinned here, per that established precedent.
+`bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0, unaffected by this
+diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — censusImports is a RAW overlay (no
+predictive/signal claim, `kind: "raw"` in its own route response); this is
+a cache-freshness/reliability fix, not a scoring or sizing change.
+
+CROSS-SYSTEM INTEGRATION: none new — same archive, same route; only how
+soon the cache recovers from an empty state after a keyless boot, an
+unreleased month, or a live outage changes.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff.
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — zero `client/` files
+touched (the `/api/data/imports` response shape is unchanged; client
+consumers in `client/src/lib/portImports.ts` are unaffected).
+
+GATES: fresh container needed `npm ci` (488 packages) and `pip install -r
+requirements-dev.txt` (pytest wasn't preinstalled) before either suite would
+run. `npx tsx --test` across every `server/*.test.ts`: 1734 passed, 0
+failed, 0 regressions. `python3 -m pytest -q`: 2080 passed, 1 skipped, 54
+subtests, 0 regressions (this diff touches no Python). `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all green,
+quarantine 0/1 none overdue, deploy-gate smoke PASS (200 in 5.8s,
+status=degraded/serving.ok as expected under the smoke's forced
+kill-switch+stale-liveness fixture). `npm run build`: clean (part of the
+deploy-gate smoke above).
+
+DEPLOY-COUPLING NOTE: this PR touches no trading-path code (a datacore
+cache-freshness fix + tests + a version bump + research logs). Per this
+session's own scheduled-task instructions (running during market hours),
+the PR body carries a MERGE TIMING note asking for a hold until after 4pm
+ET unless the change fixes a critical live break — it does not, so the note
+is advisory only; per the already-filed wishlist.md finding, this repo's
+`automerge` job has no time-of-day gate and will merge on green CI
+regardless.
+
+NEXT: (1) work the remaining 13 VULNERABLE modules from the 2026-09-15
+audit table (`euDayAheadPrices.ts`, `euGenerationMix.ts`, `euMacro.ts`,
+`faaStatus.ts`, `fdicBanks.ts`, `fredMacro.ts`, `gdeltEvents.ts`,
+`gridDemand.ts`, `gridGeneration.ts`, `nhtsaComplaints.ts`,
+`nrcReactorStatus.ts`, `treasuryAuctions.ts`, `usgsWater.ts`; `dtccSwaps.ts`
+stays explicitly lower-priority per that audit's own note). (2) KNOWN
+BROKEN #41's still-open threads (memory leak contained-not-fixed) and the
+latched DRAWDOWN-KILL switch — human-decision items, re-confirmed unchanged
+this session (35.0 market hours / 180.8h wall-clock dark), not re-notified
+(no new information since the human was already notified).
+
+STARVED: no — this session's SESSION BUDGET primary action was the queue's
+own most-recently-filed NEXT item, scoped, fixed, fully tested (4 new
+tests, A/B-verified), gated (full `gated_tests.sh` GATE PASSED), and
+shipped within this session — not merely cataloged for a future session.
+
 ## 2026-09-17 (scheduled-routine session, third session this UTC day) [PIPELINE] — cbpBorderWait.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live bwt.cbp.gov outage/empty poll) left the border-wait cache permanently null/stale despite a real on-disk change-only-dedup archive already on disk (v1.0.924)
 
 TERRITORY: T-DATACORE (server/cbpBorderWait.ts, server/cbpBorderWait.test.ts) +
