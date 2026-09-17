@@ -160,6 +160,11 @@ const PAGES = {
   // client-page" gap the 2026-08-25 /api/v1 mirror sweep flagged (session
   // #27, research/experiments.md).
   contracts: { route: "/app#/data/contracts", map: false },
+  // Port dwell & transit ranked table — closes the last remaining
+  // gate1_pass-root-with-no-dedicated-page gap (2026-09-16 session's own
+  // NEXT); same Phase 5 ratchet rule as contracts/bankfailures above.
+  // Fixture already exists at /api/data/portdwell (used by the map layer).
+  portdwellview: { route: "/app#/data/port-dwell", map: false },
   // Attention proxy (Wikipedia pageviews) — existing page, brought under
   // the Phase 5 ratchet this session (GATE 1 pass + honesty-note addition,
   // 2026-08-18) alongside the other /data detail views above.
