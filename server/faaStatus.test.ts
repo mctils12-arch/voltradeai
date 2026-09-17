@@ -8,7 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   parseFaaStatus, fetchFaaStatus, archiveFaaEvents, gzipOldFaaDays,
-  refreshFaaStatus, latestFaaStatus,
+  refreshFaaStatus, latestFaaStatus, backfillFaaEventsFromArchive,
+  _resetFaaCacheForTests,
 } from "./faaStatus";
 
 // Trimmed from the LIVE response captured 2026-07-05 (thunderstorm day).
@@ -72,4 +73,73 @@ test("fetchFaaStatus: non-200 -> null (transport), 200 -> parsed", async () => {
   assert.equal(await fetchFaaStatus((async () => ({ ok: false, status: 500, text: async () => "" })) as any), null);
   const ev = await fetchFaaStatus((async () => ({ ok: true, status: 200, text: async () => XML })) as any);
   assert.equal(ev!.length, 4);
+});
+
+test("backfillFaaEventsFromArchive: keeps the latest state per (type, airport, direction) identity", () => {
+  // Written directly to disk (not via archiveFaaEvents) — that function's
+  // own change-only dedup keeps module-level state (archivedKeys/seeded)
+  // that persists across temp dirs within this test file, the same reason
+  // backfillBorderWaitsFromArchive's own test does the same in
+  // cbpBorderWait.test.ts.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "faa-backfill-"));
+  const dir = path.join(root, "faastatus");
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Date.parse("2026-07-06T12:00:00Z");
+  const day1 = new Date(now - 86400_000).toISOString().slice(0, 10);
+  const day0 = new Date(now).toISOString().slice(0, 10);
+  const original = parseFaaStatus(XML, "2026-07-05T20:10:00Z");
+  // the JFK GDP worsens the next day — same identity, newer rt
+  const worse = parseFaaStatus(
+    XML.replace("2 hours and 30 minutes", "3 hours and 10 minutes"),
+    "2026-07-06T12:00:00Z",
+  ).find((e) => e.type === "ground_delay")!;
+  fs.writeFileSync(path.join(dir, `${day1}.jsonl`), original.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  fs.writeFileSync(path.join(dir, `${day0}.jsonl`), JSON.stringify(worse) + "\n");
+  const rebuilt = backfillFaaEventsFromArchive(root, now, 3);
+  assert.equal(rebuilt.length, 4, "one row per identity, not one per archived line");
+  const gd = rebuilt.find((e) => e.type === "ground_delay")!;
+  assert.equal(gd.avg, "3 hours and 10 minutes", "the newer-rt state wins over the older one");
+  assert.equal(backfillFaaEventsFromArchive(root, now, 0).length, 0, "no lookback window -> nothing reconstructed");
+});
+
+test("refreshFaaStatus: a cold cache backfills from disk on a transport failure, never on a real empty poll", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "faa-cold-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetFaaCacheForTests();
+  try {
+    const dir = path.join(base, "datacore_archive", "faastatus");
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(
+      path.join(dir, `${today}.jsonl`),
+      parseFaaStatus(XML, "2026-07-05T20:10:00Z").map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+    assert.equal(latestFaaStatus(), null, "cache must still be cold going into this cycle");
+    const err = async () => ({ ok: false, status: 503, text: async () => "" });
+    await refreshFaaStatus(err as any);
+    const backfilled = latestFaaStatus();
+    assert.ok(backfilled, "cold cache + transport failure backfills from the on-disk archive");
+    assert.equal(backfilled!.events.length, 4);
+
+    // a later transport failure must NOT clobber the now-warm cache with a stale disk read
+    const err2 = async () => ({ ok: false, status: 500, text: async () => "" });
+    await refreshFaaStatus(err2 as any);
+    assert.equal(latestFaaStatus(), backfilled, "warm cache survives a subsequent transport failure untouched");
+
+    // a genuinely empty, SUCCESSFUL poll on a cold cache must still be trusted as real,
+    // never overridden by an archive that (in this scenario) has real events sitting on disk
+    _resetFaaCacheForTests();
+    const emptyOk = async () => ({
+      ok: true, status: 200,
+      text: async () => `<AIRPORT_STATUS_INFORMATION><Update_Time>Sun Jul 5 22:00:00 2026 GMT</Update_Time></AIRPORT_STATUS_INFORMATION>`,
+    });
+    await refreshFaaStatus(emptyOk as any);
+    const empty = latestFaaStatus();
+    assert.ok(empty, "a real empty snapshot is still cached");
+    assert.equal(empty!.events.length, 0, "the live empty state is trusted, not replaced by the disk archive");
+  } finally {
+    _resetFaaCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });

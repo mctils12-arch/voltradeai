@@ -3,6 +3,218 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — faaStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nasstatus.faa.gov outage) on the very first poll left `/api/data/faa-status` warming_up forever, without disturbing this module's own deliberate "an empty NAS is a real state" honesty rule (v1.0.927)
+
+TERRITORY: T-DATACORE (server/faaStatus.ts, server/faaStatus.test.ts) +
+SHARED-minimal (package.json version bump, ci/counter_baseline.txt untouched
+this session — see GATES below, research/open_questions.md, research/
+experiments.md), last and minimal per MERGE-ORDER PROTOCOL.
+
+TASK FRAMING: scheduled-routine [PRODUCT] session brief (build the
+datacore/ pipelines and the /data section into a full product over time;
+check system health and KNOWN BROKEN first; execute the single
+highest-value product action among advancing a ladder gate, building
+product UI/UX, proposing a new feature/root, or improving datacore/'s API
+boundary/docs/tests toward spinout-readiness).
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -m 20
+https://voltradeai-production.up.railway.app/api/health` -> HTTP 200,
+`serving.ok: true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915, still
+holding). `status: "degraded"` for the SAME already-tracked, NOT-NEW reason
+every session since 2026-09-10 has confirmed: `bot.status: "killed"`,
+`bot.liveness.dark: true`, "LIVENESS ALARM: trading loop dark for 37.2
+market hours (183.0h wall-clock) since 2026-09-10T03:12:26.354Z" —
+`drawdownPct: "-7.9"`. This is the SAME standing human-decision item
+research/wishlist.md's "TWO THINGS STILL FOR THE HUMAN" section (2026-09-16
+update) already carries verbatim ("THE KILL SWITCH IS STILL LATCHED ...
+clearing it is your call ... Nothing autonomous will clear it") and
+research/open_questions.md KNOWN BROKEN #42/#43 already document in full
+(independent evidence — a market-close price reconstruction of the actual
+held book — puts the real same-day P&L at -$414.82 against the account's
+own reported -$12,059.74, i.e. very likely a broker/data-quality artifact,
+not a real loss; the resume decision itself is the human's alone). Every
+session since 2026-09-13 has applied the same standing discipline of this
+exact check ("only notify on NEW information, not on the reading simply
+getting older") and this session's own reading (37.2/183.0h, up from the
+immediately preceding session's 35.0/180.8h) is the same incremental,
+fully-expected aging of an already-flagged, already-explained, human-gated
+item — re-confirmed but NOT separately re-escalated here, for the same
+reason. `feeds` all alive (aircraft/vessels/trains `silent_hours` 0.17,
+none dead). `process.{unhandledRejections, uncaughtExceptions}` both 0.
+Per this session's own brief ("note it but proceed with product work
+unless the break blocks you"): noted, does not block T-DATACORE work,
+proceeded. `git fetch origin main`: HEAD already equals origin/main at
+`26d1e10`/v1.0.926/PR #1104 (the immediately preceding session's own
+censusImports.ts fix) — no reset needed.
+
+LOOP-HEALTH RATIO CHECK: last 10 tagged entries before this one =
+[PIPELINE]x6 (censusImports, cbpBorderWait, usaSpending, space_weather_swpc,
+finraQuery, edgar13f), [RULE-REVIEW]x1 (automerge/market-hours-hold tally),
+[REPAIR]x2 (staleness audit, session_health_check ALARM — both part of the
+now-resolved KNOWN BROKEN #41 cluster, not repeated re-breaking of the same
+fix), [PRODUCT]+[PIPELINE]x1 (port_dwell gate1_pass reconciliation). 2/10
+REPAIR — well below the 7+ thrash threshold, no meta-problem to address.
+PROGRESS FLOOR: [PIPELINE]/[PRODUCT] work has shipped every day this week —
+no 14-day stall to flag.
+
+PRIMARY-ACTION SELECTION: checked both new-pipeline axes first, to avoid
+duplicating in-flight work: `python3 scripts/ladder_readiness_check.py`
+still 0/3 gated roots ready (all three genuinely time-blocked, unchanged
+from every recent session's same check). `python3
+scripts/data_stream_registry_check.py --unbuilt` still 9/9 declined/blocked
+(no human action taken on any of them since the last check). `datacore/
+signal_ladder.json`: all 12 `gate1_pass` roots and both `gate2_pass` roots
+already carry a `detail_route` (re-verified this session — the immediately
+preceding PRODUCT session's own port_dwell fix closed the last gap). With
+both the "new root" and "new /data page" axes exhausted for now, took
+research/open_questions.md's own cold-cache-no-disk-backfill audit table
+(2026-09-15 module audit) — the queue's own next concretely-scoped,
+unclaimed item per SESSION BUDGET rule 1, continuing the thread three
+sessions today (cbpBorderWait.ts, usaSpending.ts, censusImports.ts) already
+advanced. Of the remaining "new reader needed" modules, `faaStatus.ts` was
+the smallest (225 lines) and most self-contained.
+
+READ BEFORE WRITE: read `server/faaStatus.ts` in full this session (not
+grepped). Its shape is a near-exact sibling of `cbpBorderWait.ts` (same
+event-identity change-only-dedup archive, same `seedSeen`/gzip-lifecycle
+pattern) with one deliberate difference this session had to respect rather
+than paper over: `refreshFaaStatus`'s own existing comment and its own
+existing test ("empty NAS (no programs) is a real state, not an error")
+establish that a SUCCESSFUL poll returning zero events is a genuine,
+trusted, publishable state — not an ambiguous signal. The shared
+`cacheBackfill.ts` helper (`resolveCacheItems`) used by 4 other modules in
+this thread treats an empty live result as ambiguous with a failed one by
+design (its own header even documents which modules it does NOT fit, for
+exactly this kind of reason) — wiring `faaStatus.ts` onto it directly would
+have silently overridden a real "no delay programs right now" snapshot
+with a stale disk read on a cold boot, which is a worse bug than the one
+being fixed. The actual, narrower gap: `refreshFaaStatus` returned early on
+a transport failure (`events === null`) with a bare comment "keep last
+snapshot" — true when a cache already exists, but on a cold boot (`cache
+=== null`) that "last snapshot" doesn't exist yet, so the very first
+transport failure (or an outage spanning the whole boot window) leaves
+`/api/data/faa-status` — and this module's own map-layer follow-up named in
+its file header — permanently reporting `warming_up` despite the on-disk
+event-identity archive already holding real, recent programs.
+
+FIX (v1.0.927): new `backfillFaaEventsFromArchive(baseDir?, nowMs?, days=3)`
+— scans the existing `faastatus/*.jsonl(.gz)` archive over the lookback
+window and keeps, per `(type, airport, direction)` identity, the
+observation with the latest `rt` timestamp (mirrors
+`backfillBorderWaitsFromArchive`'s own reconstruction logic exactly, since
+both archives are the same change-only-dedup shape). Wired into
+`refreshFaaStatus` on exactly one branch: `events === null && !cache` —
+never on a successful-but-empty poll, and never overwriting an
+already-warm cache on a later transport failure. Documented directly in
+the new function's own comment why this is deliberately NOT routed through
+`resolveCacheItems`, so a future session doesn't "simplify" it onto the
+shared helper and reintroduce the exact bug this design choice avoids.
+Added `_resetFaaCacheForTests()` (this module had no cache-reset export
+before, unlike every other module in this thread) so the new tests don't
+depend on execution order within the file.
+
+TESTS: 2 new tests in `server/faaStatus.test.ts` (4 -> 6, all pass).
+`backfillFaaEventsFromArchive`'s own unit test (writes directly to disk,
+not via `archiveFaaEvents` — that function's module-level change-only-dedup
+state, `archivedKeys`/`seeded`, persists across temp dirs within one test
+file, the same reason `backfillBorderWaitsFromArchive`'s own test in
+`cbpBorderWait.test.ts` does the same; hit this exact contamination once
+this session — first draft failed 0/4 events reconstructed until switched
+to direct `fs.writeFileSync`, confirmed by inspection of `archiveFaaEvents`'s
+`seeded` flag never re-arming per base dir) asserts the newer-rt state wins
+and an empty lookback window reconstructs nothing.
+`refreshFaaStatus`'s test exercises all three paths end-to-end: a cold
+cache backfills from disk on a transport failure; a subsequently-warm
+cache is untouched by a second transport failure (no stale-disk-read
+clobber); and — the specific regression this session was most careful not
+to introduce — a genuinely empty but SUCCESSFUL poll on a cold cache is
+still trusted as the real state and is NOT overridden by an archive that,
+in that scenario, has real events sitting on disk. Confirmed the 2
+pre-existing tests ("empty NAS ... real state" and the archive dedup test)
+still pass unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — server-side cache/archive reliability
+fix in a RAW-overlay data pipeline (FAA airspace status), no scoring,
+sizing, threshold, or strategy code touched, no trading-path file touched.
+
+GATES: `npx tsx --test server/faaStatus.test.ts`: 6/6 (4 pre-existing + 2
+new, 0 regressions). `npx tsx --test server/*.test.ts` (full server suite,
+fresh container after `npm ci`, 488 packages): 1736/1736 pass, 0 failed.
+`bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0. Full Python suite
+(after `pip install -r requirements.txt -r requirements-dev.txt`): 2080
+passed, 1 skipped, 54 subtests — this diff touches no Python. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all green,
+deploy-gate smoke PASS (200 in 4.9s), quarantine 0/1, none overdue. `npm run
+build`: clean (pre-existing chunk-size/astronomy-engine warnings only; zero
+client/ files touched, so `npm run visual` was not run). `bash
+scripts/counter_ratchet.sh`: reports `tests_run_in_ci`/`tests_gating_merge`
+458->459 and `assertions` 14626->14653 as IMPROVED, but per the identical
+precedent the immediately preceding (finraQuery.ts) session set on these
+same shared counters: checked BEFORE re-pinning via `git stash` whether the
+delta is this session's own effect. It is NOT entirely — at a clean,
+stashed HEAD (confirmed equal to origin/main before this session started),
+`tests_run_in_ci`/`tests_gating_merge` already read 459 (pre-existing drift
+from an unrelated merge, +1 over the 458 pin) and `assertions` already read
+14644 (+18 pre-existing). This session's own 2 new tests add exactly +9
+asserts (14644 -> 14653, confirmed against the new tests' own assert-call
+count) and 0 to the file-count metric (both new tests were added to an
+EXISTING test file, not a new one). Per PROMOTION RULE 5: **neither pin is
+re-pinned in this PR** — the ratchet-visible totals mix this session's real
++9 with unrelated pre-existing drift, and re-pinning to the mixed total
+would misattribute the drift to this PR. Both counters already pass as-is
+(`OK: 25 counters at or better than baseline`). Left for whichever session's
+own change actually produced the pre-existing drift.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-feature-gating code in this diff.
+
+DEPLOY-COUPLING NOTE: session start ~18:10 UTC / ~14:10 ET, inside 9:30-16:00
+ET regular market hours. This PR touches no trading-path code (a
+cache-backfill reliability fix in a RAW-overlay FAA data pipeline + its
+tests + a version bump) — per this repo's own recently-reconfirmed
+convention (research/wishlist.md's automerge/market-hours-hold thread, most
+recently tallied 2026-09-16) the `automerge` job merges on green CI
+regardless of market hours; noted here for the record, not held, matching
+every other diagnostic-shaped PR in this exact thread today.
+
+ALSO DONE THIS SESSION (factual bookkeeping, no code): backfilled the
+"FIXED" markers on `research/open_questions.md`'s cold-cache-no-disk-backfill
+audit table for `cbpBorderWait.ts` (v1.0.924) and `censusImports.ts`
+(v1.0.926) — both fixed by earlier sessions today but the shared table's
+own rows hadn't been annotated yet, unlike every other closed row in that
+same table; added this session's own `faaStatus.ts` FIXED marker at the
+same time. Separately noted, not chased further (out of this session's
+scope and budget): `research/experiments.md`'s own 2026-09-17 port_dwell
+entry (v1.0.925, PR #1103) is physically located near line 91873 of this
+92,000+-line file instead of near the top with today's other entries,
+breaking this file's own stated "newest at top" ordering for that one
+entry specifically — content is intact and not rewritten (MEMORY PROTOCOL
+is not violated), only its position is anomalous. Flagging for whichever
+future session has budget to investigate how it landed there, since a
+misplaced entry is invisible to any future session that only reads the
+top of this file.
+
+NEXT: (1) remaining "new reader needed" cold-cache-no-disk-backfill
+modules, cheapest-first by file size (per this session's own quick survey):
+treasuryAuctions.ts (221), usgsWater.ts (199), nhtsaComplaints.ts (234),
+gdeltEvents.ts (226), fdicBanks.ts (250, has a live alternate source
+`fetchHistoricalFailures` worth considering as an alternative fix shape),
+then the larger euMacro.ts/euGenerationMix.ts/euDayAheadPrices.ts/
+gridDemand.ts/gridGeneration.ts/nrcReactorStatus.ts/fredMacro.ts, with
+dtccSwaps.ts explicitly lower-priority (8-day live lookback already
+partially mitigates it). (2) the ladder-readiness and unbuilt-registry
+checks remain the two other standing per-session checks to re-run before
+picking a fresh item next time. (3) KNOWN BROKEN #41's still-open threads
+(memory leak contained-not-fixed, latched kill switch) — human-decision
+items, re-check status only next session, no autonomous action available.
+
+STARVED: no — this session ran both standing new-root/new-page checks
+before choosing, confirmed neither had moved, and closed a concretely
+queued, well-scoped item from the cold-cache-no-disk-backfill thread with
+a gate-clean fix, 2 new regression tests that specifically pin the
+honesty rule (empty-but-real state) this fix had to avoid breaking, and
+full-suite verification (1736 TS + 2080 Python tests green).
+
 ## 2026-09-17 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — censusImports.ts joins the cold-cache-no-disk-backfill fix thread: a keyless session, an unreleased FT920 month, or a live Census outage on a cold boot latched the port-imports cache to an empty result despite a real on-disk archive already on disk (v1.0.926)
 
 TERRITORY: T-DATACORE (server/censusImports.ts, server/censusImports.test.ts) +

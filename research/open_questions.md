@@ -20500,13 +20500,13 @@ empty/failed live poll):
 | edgar13f.ts | `read13FHistory` (in file) | cheap — reuse — **FIXED 2026-09-16, v1.0.920** |
 | sec8kEarnings.ts | `readEarnings8kHistory` (in file) | cheap — reuse — **FIXED THIS SESSION, v1.0.912** |
 | finraQuery.ts | `readPartition` exists but only used post-success, not as a cold-cache fallback for a failed partition-LIST call | small, narrower fix than the others — **FIXED 2026-09-16, v1.0.921** |
-| cbpBorderWait.ts (backs `borderWaits`) | none — write from scratch | new reader needed |
-| censusImports.ts | none | new reader needed |
+| cbpBorderWait.ts (backs `borderWaits`) | none — write from scratch | new reader needed — **FIXED 2026-09-17, v1.0.924** |
+| censusImports.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.926** |
 | dtccSwaps.ts | none (8-day live lookback partially mitigates) | new reader needed, lower priority |
 | euDayAheadPrices.ts | none | new reader needed |
 | euGenerationMix.ts | none | new reader needed |
 | euMacro.ts | none | new reader needed |
-| faaStatus.ts | none | new reader needed |
+| faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |
 | fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed |
 | fredMacro.ts | none | new reader needed |
 | gdeltEvents.ts | none | new reader needed |
