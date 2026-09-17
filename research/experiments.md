@@ -3,6 +3,224 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-17 (scheduled-routine session, second session this UTC day) [PIPELINE] — usaSpending.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live USAspending outage) where the poll returns empty/throws left the federal-contracts cache permanently null or empty despite a real on-disk jsonl/jsonl.gz archive already on disk — one of the 16 remaining "new reader needed" modules from the 2026-09-15 module audit, closed with a from-scratch reader (v1.0.923)
+
+TERRITORY: T-DATACORE (server/usaSpending.ts, server/usaSpending.test.ts) +
+SHARED-minimal (package.json/package-lock.json version bump,
+research/open_questions.md, research/experiments.md).
+
+TASK FRAMING: this scheduled session's own instructions named the four
+EDGE-DOCTRINE axes as the menu — (a) build a free-data pipeline end-to-end,
+(b) capacity-constrained/illiquid research (noted as gated on the
+fill-realism fix), (c) import one foreign-field hypothesis, (d) compile
+recurring reasoning into reusable code — with the instruction to check
+system health/KNOWN BROKEN first and become a [REPAIR] session if a
+critical item is unfixed.
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai.com/api/health` ->
+HTTP 200, `serving.ok:true` (KNOWN BROKEN #41's deploy-gate fix, v1.0.915,
+still holding — confirmed independently this session, not just read from
+research/). `status:"degraded"` for the SAME already-tracked, NOT-NEW
+reason every session since 2026-09-10 has confirmed: `bot.status:"killed"`,
+`bot.liveness.dark:true`, "LIVENESS ALARM: trading loop dark for 32.5
+market hours (167.4h wall-clock) since 2026-09-10T03:12:26Z" — the latched
+kill switch research/wishlist.md's ACTIVE LIVE CONCERN header already
+carries as a standing human-decision item ("Nothing autonomous will clear
+it — your call via the owner /api/bot/kill toggle after checking the
+Alpaca dashboard"). Per the same discipline every session since 2026-09-10
+has applied (only notify on NEW information — the human was already
+notified when this first tripped and has an explicit standing action
+item), this was noted, not re-escalated. `process.
+{unhandledRejections,uncaughtExceptions}` both 0. This is not a fresh
+critical break the Repair Mandate would force a [REPAIR] session over —
+it is a fully-diagnosed, human-decision-blocked item no autonomous session
+can code its way out of (clearing a latched, `can_auto_resume:false` kill
+switch is explicitly outside FROZEN-mechanism authority).
+
+PRIMARY-ACTION SELECTION, STATED PRIOR before checking (REASONING STANDARD
+#10): expected axis (a) to be fully exhausted again — dozens of prior
+sessions (grepped: 40+ near-identical restatements in experiments.md) have
+independently confirmed the CLAUDE.md-named examples (Sentinel-2 tank
+shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+Trends/pytrends) are all `built` or correctly `declined_*`. Checked via
+the compiled registry rather than re-deriving by hand: `python3 scripts/
+data_stream_registry_check.py --unbuilt` -> 9/35 NOT BUILT, all either
+`declined_dead_source` (3), `blocked_free_key` (2), or `blocked_registration`
+(2) — every one human-action-gated or a genuine dead end, confirming the
+prior exactly. Checked (b): `research/open_questions.md`'s "Options fill
+realism" entry (item 12(c)) — live `/api/diag/ml?token=$DIAG_TOKEN` showed
+`live_options_outcome_breakdown:{"orphan_exit":10}` (unchanged shape from
+2026-09-08's `{"orphan_exit":9}`) and `live_record_date_range` topping out
+at 2026-09-08 — the SAME kill-switch halt flagged above has frozen zero
+new live trades since, so this axis is not merely "not yet matured," it is
+structurally unable to move until a human clears the switch (filed as its
+own dated update to open_questions.md item 12(c), no code change from that
+check alone). Checked (c)/(d) as the live fallback: `research/
+open_questions.md`'s 2026-09-15 cold-cache-no-disk-backfill module audit
+(the systemic bug this thread has been closing module-by-module since
+2026-09-10 — a cache-level fetch failure/empty poll on a cold boot serving
+`warming_up`/empty over a real on-disk archive) still listed 16 of its 20
+originally-VULNERABLE modules unfixed, one of which — `usaSpending.ts` —
+is also literally one of axis (a)'s own named CLAUDE.md examples
+("USAspending contracts"), so fixing it advances BOTH axis (a) (deepening
+an already-built named pipeline, not a new one) and axis (d) (compiling
+the now-mechanical `resolveCacheItems` fix pattern into a 17th module).
+Picked this over a fresh axis-(c) foreign-field probe because it is a
+concretely queued, previously-scoped item with an established fix
+template (edgar13f.ts/finraQuery.ts/sec8kEarnings.ts/cropConditions.ts,
+all fixed 2026-09-15/16) rather than a from-scratch hypothesis, and
+SESSION BUDGET ranks a queued fix above starting fresh research.
+
+READ BEFORE WRITE: read `server/usaSpending.ts` in full (427 lines —
+`ContractTxn` shape, `parseTxnRow`, the archive/dedup functions `usaDir`/
+`archiveContractTxns`/`gzipOldUsaDays`/`seedSeen`, and the existing cache/
+poll loop `refreshContractsCache`/`bootContractsPoll`) before touching
+anything. Confirmed the exact bug shape this thread targets:
+`refreshContractsCache`'s success path did `if (txns.length || !cache)
+cache = { at: Date.now(), txns };` — on a cold boot with a live poll that
+resolves to zero txns (a real, common case: USAspending's FPDS load is
+nightly, so many 6h poll cycles legitimately see nothing new), `!cache` is
+true and this UNCONDITIONALLY set `cache = {at, txns:[]}` — a permanently
+empty, but now "not cold" cache that a later live poll's own `txns.length
+|| !cache` check could never trigger a backfill through again, discarding
+whatever contract history the on-disk `usaspending/*.jsonl(.gz)` archive
+already held. The catch branch (a thrown fetch — network failure, USAspending
+outage, or the ticker-map fetch failing) was worse: it did not touch
+`cache` at all, so a cold boot hitting an outage left `latestContracts()`
+null until the next successful 6h cycle, with `/api/data/contracts` (and
+its paid `/api/v1` mirror, confirmed by grepping routes.ts's `latestContracts`
+call sites) reporting `warming_up`/empty over a potentially large real
+archive the whole time. Read `server/cacheBackfill.ts` (the shared
+`resolveCacheItems<T>` helper 4 prior modules already use) and
+`server/edgar13f.ts`'s `backfill13FFromArchive`/`read13FHistory` as the
+closest-shaped precedent (same per-day jsonl/jsonl.gz archive scan,
+dedup-by-key, newest-first) before writing anything new.
+
+FIX (v1.0.923): `backfillContractsFromArchive(baseDir?, nowMs?, days=3)` —
+a new reader mirroring `seedSeen`'s own directory-scan shape (this file's
+existing dedup-seeding function) but returning full `ContractTxn` objects
+parsed back off the archived JSONL lines, not just dedup keys; dedups by
+the exact same `(aid,mod,amt)` key `archiveContractTxns` uses for its own
+vintage-row discipline, newest day first. `refreshContractsCache` now
+routes both branches through the shared `resolveCacheItems(cache !== null,
+txns, () => backfillContractsFromArchive(undefined, nowMs))` helper — on
+the success path (replacing the `txns.length || !cache` line) and,
+newly, on the catch path (previously touched `cache` not at all). Added
+`_resetContractsCacheForTests()` for testability, mirroring edgar13f.ts's
+identical export.
+
+ONE RATCHET REGRESSION FOUND AND FIXED BEFORE SHIPPING, NOT BY INSPECTION
+(same class the 2026-08-xx cboeVix.ts session already hit and documented):
+the first draft used a bare `catch {}` in `backfillContractsFromArchive`'s
+per-line JSON.parse guard (matching this file's own pre-existing `seedSeen`
+idiom) — `python3 -m pytest -q test_ts_code_only.py` failed the
+`empty_ts_catch` pinned-value test (492 vs the pinned 491), because
+`empty_ts_catch` is a `non-increasing` ratchet in `ci/counter_baseline.txt`
+and this added a 492nd instance on top of the pinned 491. Per
+`counter_ratchet.sh`'s own instruction ("fix the code, not the pin") and
+the cboeVix.ts precedent exactly, changed to `catch { continue; }`
+(explicit, not empty — skips the malformed line identically) rather than
+re-pinning upward. Also caught, independently, before running any gate:
+a test helper's `init?: any` parameter annotation would have pushed
+`ts_any` from 1239 to 1240 (also `non-increasing`) — retyped to
+`init?: { body?: string }`, the only shape the test actually needs.
+Re-measured both counters directly against the live tree after the fix
+(`ts_code_only.code_matches` over every tracked `.ts`/`.tsx` file, not
+just this diff's files): `empty_ts_catch` 491, `ts_any` 1239 — both
+exactly at the pinned baseline, zero regression shipped.
+
+TESTS (`server/usaSpending.test.ts`, 21 tests total, 6 new): (1)
+`backfillContractsFromArchive` reads a plain `.jsonl` day and a gzipped
+day, dedups an exact-duplicate `(aid,mod,amt)` key, and drops a row with
+no `aid`; (2) respects the `days` window (a file 10 days back is not read
+under the default 3-day lookback); (3) `refreshContractsCache` backfills
+from disk when the live poll throws and the cache is cold; (4) also
+backfills on an empty-but-non-throwing poll when cold (not just the throw
+path); (5) a transient empty poll on an ALREADY-warm cache leaves it
+untouched (never overwrites good live data with a stale archive read).
+A/B-verified via `git stash push -- server/usaSpending.ts`: the new tests
+fail with a `SyntaxError` (`_resetContractsCacheForTests` not exported)
+against the pre-fix file, all 21 pass restored.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `refreshContractsCache` is
+called only from `bootContractsPoll`'s `setInterval`/eager first call
+(confirmed by grep, no other call site); its only observable effect is
+what `latestContracts()` returns, consumed by three route.ts sites (the
+raw `/api/data/contracts` overlay, the paid `/api/v1` mirror per the
+existing test's own manifest assertion, and one summary-count read) — none
+of which change shape, only how soon they stop reporting `warming_up`
+after a cold boot or outage. No scoring/sizing/threshold/strategy code
+touched; no effect on ticker resolution, the UEI cache, or the parent-
+lookup budget (all untouched).
+
+BACKTEST: N/A per PROMOTION RULE 3 — usaspending is a RAW overlay
+(no predictive/signal claim; `datacore/signal_ladder.json` unchanged),
+and this is a cache-freshness/reliability fix, not a scoring or sizing
+change.
+
+CROSS-SYSTEM INTEGRATION: none new — same archive, same route, same
+ticker-resolution pipeline; only when the cache repopulates after a cold
+start changes.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff; the paid `/api/v1` mirror's behavior only
+changes in that it recovers from `warming_up`/empty sooner after a cold
+boot or outage, same license/attribution posture as before (unchanged
+manifest, unchanged `requireApiKey` gate).
+
+VISUAL VERIFICATION: N/A per PROMOTION RULE 6 — zero `client/` files
+touched.
+
+GATES: `npx tsx --test server/usaSpending.test.ts server/cacheBackfill.test.ts`:
+21+6 pass, 0 regressions. `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0
+(fresh container needed `npm ci`, 488 packages, first). `python3 -m
+pytest -q` (fresh container needed `pip install -r requirements.txt -r
+requirements-dev.txt` first): 2080 passed, 1 skipped, 54 subtests, 0
+regressions (this diff touches no Python). `bash scripts/gated_tests.sh`:
+**GATE PASSED** — server/client (1083/1083)/python all green, quarantine
+0/1, none overdue, deploy-gate smoke PASS (200 in 2.4s). `bash
+scripts/counter_ratchet.sh`: reports `tests_run_in_ci`/`assertions` as
+IMPROVED, but checked against a clean `git stash`ed HEAD first (same
+discipline the finraQuery.ts/edgar13f.ts/spaceWeather.ts sessions
+established on this shared file): `tests_run_in_ci` was ALREADY 458 at
+clean HEAD (pre-existing drift, this diff adds tests to an existing file
+so this counter can't move on it) and `assertions` was already 14602 at
+clean HEAD (pin stale by 54, pre-existing drift); this session's own new
+assertions add exactly 14614-14602=12. Per PROMOTION RULE 5 and that same
+identical precedent, **neither pin is re-pinned in this PR** — both
+counters already pass as-is, and re-pinning to the mixed total would
+misattribute the pre-existing drift to this PR. `npm run build`: clean,
+part of the deploy-gate smoke above.
+
+DEPLOY-COUPLING NOTE: this PR touches no trading-path code (a datacore
+cache-freshness fix + tests + a version bump + research logs) — per this
+repo's own recently-reconfirmed convention the `automerge` job merges on
+green CI regardless of market hours.
+
+NEXT: (1) work the remaining 15 VULNERABLE modules from the 2026-09-15
+audit table (`cbpBorderWait.ts`, `censusImports.ts`, `euDayAheadPrices.ts`,
+`euGenerationMix.ts`, `euMacro.ts`, `faaStatus.ts`, `fdicBanks.ts`,
+`fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts`,
+`nhtsaComplaints.ts`, `nrcReactorStatus.ts`, `treasuryAuctions.ts`,
+`usgsWater.ts`; `dtccSwaps.ts` stays explicitly lower-priority per that
+audit's own note). (2) KNOWN BROKEN #41's still-open threads (memory leak
+contained-not-fixed) and the latched DRAWDOWN-KILL switch — human-decision
+items, re-confirmed unchanged this session (32.5 market hours / 167.4h
+wall-clock dark), not re-notified (no new information since the human was
+already told). (3) axis (b)'s options-side fill-realism evaluation stays
+frozen until the kill switch clears — a future session should re-check
+`/api/diag/ml`'s `live_options_outcome_breakdown` once trading resumes,
+not before.
+
+STARVED: no — this session's own EDGE-DOCTRINE axis survey (checking (a)
+via the compiled registry, (b) via a live diagnostic read rather than
+assuming it was still blocked, then picking (d)/(a)'s intersection) found
+and shipped a genuinely queued, previously-scoped fix with full test
+coverage and a caught-before-shipping ratchet regression, and surfaced a
+sharper, evidenced account of why axis (b) remains blocked rather than
+repeating the same "needs more time" restatement a future session would
+otherwise have to re-derive.
+
 ## 2026-09-17 (scheduled-routine [PRODUCT] session) [PIPELINE] — space_weather_swpc gate-1: NOAA's own declared G-scale never cleared 0 in 50 archived days, but the same archive's Kp reached the NOAA-published G2 band on 2026-08-02 — confirmed real via an independent external ground truth (GFZ Potsdam definitive Kp), not preliminary noise; scanStormHistory gains kpToGScale/maxKpImpliedG/kpStormDays so this is machine-readable going forward (v1.0.922)
 
 TERRITORY: T-DATACORE (server/spaceWeather.ts, server/spaceWeather.test.ts,
