@@ -37,6 +37,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 export function censusEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.CENSUS_API_KEY);
@@ -223,15 +224,60 @@ export function latestImports() {
   return cache;
 }
 
+/** Reconstructs a cache-shaped imports list from the on-disk archive — used
+ *  to backfill a cold cache when a boot's live poll returns empty (keyless
+ *  session, month not yet released, or a live Census outage) before any
+ *  cache exists. Unlike cbpBorderWait's hourly-changing archive, this one is
+ *  change-only dedup on monthly government data: a port|month's value is
+ *  archived once and never re-written unless FT920 revises it, so an
+ *  observation fetched in an early session can sit undisturbed in a
+ *  months-old daily file — a short lookback window (the 3-5 days other
+ *  modules in this thread use) would miss almost everything. `days` is
+ *  intentionally generous (a year+) to cover this pipeline's full life since
+ *  BUILD ORDER 3 #4 unblocked (2026-07-05); the scan itself is cheap since a
+ *  monthly-cadence source produces at most a few dozen archived rows per
+ *  port|month identity. Keeps only the latest-`rt` observation per
+ *  `port|month`, matching what a live poll would report for that pair (no
+ *  recency filter on the month itself — a stale reading carries its own
+ *  honest `month`, unlike an alert's implicit "current" claim). */
+export function backfillImportsFromArchive(baseDir?: string, nowMs?: number, days = 400): ImportObs[] {
+  const dir = importsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const latest = new Map<string, ImportObs>();
+  for (let i = 0; i < days; i++) {
+    const day = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let o: ImportObs;
+        try { o = JSON.parse(line); } catch { continue; }
+        const key = `${o.port}|${o.month}`;
+        const prev = latest.get(key);
+        if (!prev || o.rt > prev.rt) latest.set(key, o);
+      }
+    }
+  }
+  return Array.from(latest.values());
+}
+
 export async function refreshImportCache(fetchImpl: FetchFn = fetch as any,
                                          env: NodeJS.ProcessEnv = process.env, nowMs?: number): Promise<void> {
   try {
     const imports = await fetchImports(fetchImpl, env, nowMs);
-    if (imports.length || !cache) cache = { at: Date.now(), imports };
+    const next = resolveCacheItems(cache !== null, imports, () => backfillImportsFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), imports: next };
     try { archiveImports(imports, undefined, nowMs); } catch {}
     try { gzipOldImportDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] censusimports refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [], () => backfillImportsFromArchive(undefined, nowMs));
+    if (next) cache = { at: Date.now(), imports: next };
   }
 }
 
@@ -243,4 +289,13 @@ export function bootCensusPoll(intervalMs = 24 * 60 * 60_000): void {
   polling = true;
   refreshImportCache();
   setInterval(() => { refreshImportCache(); }, intervalMs).unref?.();
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem every other module in the cold-cache-backfill thread solves for
+ *  itself), so a test exercising the backfill path must be able to force
+ *  `cache` back to null rather than rely on file execution order. */
+export function _resetImportsCacheForTests(): void {
+  cache = null;
+  polling = false;
 }
