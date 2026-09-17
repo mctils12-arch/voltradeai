@@ -147,6 +147,12 @@ treasuryAuctions.ts still need a from-scratch archive reader) — a future
 session continues this thread one module per PR, per its established
 discipline.
 
+STARVED: no — this session's scheduled-task brief scoped it to the single
+highest-value action plus its own gate verification, which is what
+shipped; the 11 remaining VULNERABLE modules are the thread's own queued
+backlog for a future session's SAME check, not high-value work this
+session was blocked from reaching.
+
 NOT A SPEND REQUEST.
 
 ## 2026-09-17 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — faaStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nasstatus.faa.gov outage) on the very first poll left `/api/data/faa-status` warming_up forever, without disturbing this module's own deliberate "an empty NAS is a real state" honesty rule (v1.0.927)
