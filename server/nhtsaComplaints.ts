@@ -200,27 +200,98 @@ export function latestComplaintStats() {
   return cache;
 }
 
+/** Test-only: this module's dedup/cache state is module-level singleton
+ *  (same class of problem as githubOrgActivity.ts's/euLoad.ts's own
+ *  `_reset*ForTests`), so a test exercising the cold-cache backfill path
+ *  must be able to reset it rather than rely on file execution order to
+ *  find `cache` still null. */
+export function _resetComplaintsForTests(): void {
+  seenOdi.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Per-vehicle stats from a set of complaint events — pure, so the live
+ *  sweep path and the disk-backfill path (below) compute the exact same
+ *  shape from whichever source produced events this cycle. Groups by the
+ *  vehicle identity (ticker+make+model+year) rather than assuming a
+ *  single vehicle, so it also works on a multi-vehicle archive scan. */
+export function computeVehicleStats(events: ComplaintEvent[]): VehicleStat[] {
+  const byVehicle = new Map<string, ComplaintEvent[]>();
+  for (const e of events) {
+    const key = `${e.ticker}|${e.make}|${e.model}|${e.model_year}`;
+    if (!byVehicle.has(key)) byVehicle.set(key, []);
+    byVehicle.get(key)!.push(e);
+  }
+  const stats: VehicleStat[] = [];
+  byVehicle.forEach((rows) => {
+    const v0 = rows[0];
+    stats.push({
+      ticker: v0.ticker, make: v0.make, model: v0.model, model_year: v0.model_year,
+      total_complaints: rows.length,
+      crash_count: rows.filter((e) => e.crash).length,
+      fire_count: rows.filter((e) => e.fire).length,
+      newest_filed: rows.reduce<string | null>(
+        (mx, e) => (e.filed && (!mx || e.filed > mx) ? e.filed : mx), null),
+    });
+  });
+  return stats;
+}
+
+/** Archived complaint events over the last `lookbackDays` calendar days
+ *  (plain or gz) — used to backfill the live cache when a cold boot's or
+ *  a live-outage cycle's sweep produces zero events across the ENTIRE
+ *  watchlist, so a transport failure doesn't report `warming_up` over
+ *  real archived history already on disk (Freshness Law; same pattern as
+ *  euLoad.ts's `readRecentArchivedLoad`/satellites.ts's
+ *  `readArchivedGroup`, the shipped precedents this generalizes). Kept
+ *  separate from `seedSeen`: that only tracks ODI dedup keys, this
+ *  returns full rows. 30-day default (vs. euLoad's 5): this is a
+ *  low-volume curated watchlist polled every 12h, not a high-frequency
+ *  series, so a short window would starve `total_complaints` of most of
+ *  what is actually archived. */
+export function readArchivedComplaints(baseDir?: string, nowMs?: number, lookbackDays = 30): ComplaintEvent[] {
+  const now = nowMs ?? Date.now();
+  const dir = complaintsDir(baseDir);
+  const out: ComplaintEvent[] = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
 /** Full watchlist sweep with politeness spacing; archives new events and
  *  rebuilds the per-vehicle stat cache. */
 export async function refreshComplaints(fetchImpl: FetchFn = fetch as any, nowMs?: number,
                                         baseDir?: string, spacingMs = CALL_SPACING_MS): Promise<void> {
-  const stats: VehicleStat[] = [];
+  const events: ComplaintEvent[] = [];
   for (const v of VEHICLES) {
-    const events = await fetchVehicleComplaints(v, fetchImpl, nowMs);
-    if (events.length) {
-      archiveNewComplaints(events, baseDir, nowMs);
-      stats.push({
-        ticker: v.ticker, make: v.make, model: v.model, model_year: v.modelYear,
-        total_complaints: events.length,
-        crash_count: events.filter((e) => e.crash).length,
-        fire_count: events.filter((e) => e.fire).length,
-        newest_filed: events.reduce<string | null>(
-          (mx, e) => (e.filed && (!mx || e.filed > mx) ? e.filed : mx), null),
-      });
+    const vEvents = await fetchVehicleComplaints(v, fetchImpl, nowMs);
+    if (vEvents.length) {
+      archiveNewComplaints(vEvents, baseDir, nowMs);
+      events.push(...vEvents);
     }
     if (spacingMs > 0) await sleep(spacingMs);
   }
-  if (stats.length) cache = { at: Date.now(), stats };
+  if (events.length > 0) {
+    cache = { at: Date.now(), stats: computeVehicleStats(events) };
+  } else if (!cache) {
+    const archived = readArchivedComplaints(baseDir, nowMs);
+    if (archived.length > 0) cache = { at: Date.now(), stats: computeVehicleStats(archived) };
+  }
   gzipOldComplaintDays(baseDir, nowMs);
 }
 

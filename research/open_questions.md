@@ -20512,7 +20512,7 @@ empty/failed live poll):
 | gdeltEvents.ts | none | new reader needed |
 | gridDemand.ts | none | new reader needed |
 | gridGeneration.ts | none | new reader needed |
-| nhtsaComplaints.ts | none | new reader needed |
+| nhtsaComplaints.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.931** |
 | nrcReactorStatus.ts | none | new reader needed |
 | treasuryAuctions.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.929** |
 | usaSpending.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.923** |
