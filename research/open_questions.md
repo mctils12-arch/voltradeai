@@ -20514,7 +20514,7 @@ empty/failed live poll):
 | gridGeneration.ts | none | new reader needed |
 | nhtsaComplaints.ts | none | new reader needed |
 | nrcReactorStatus.ts | none | new reader needed |
-| treasuryAuctions.ts | none | new reader needed |
+| treasuryAuctions.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.929** |
 | usaSpending.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.923** |
 | usgsWater.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.928** |
 

@@ -190,6 +190,48 @@ export function gzipOldAuctionDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Cold-cache-no-disk-backfill fix (thread started 2026-09-10; see
+ *  cbpBorderWait.ts/usgsWater.ts for the same shape). NOT retrofitted onto
+ *  `resolveCacheItems` (cacheBackfill.ts) for the same reason usgsWater.ts
+ *  isn't: `refreshAuctionCache`'s existing behavior already trusts a
+ *  successful-but-empty poll as a real state (`if (auctions.length ||
+ *  !cache)`) rather than treating it as ambiguous with a failed one —
+ *  `resolveCacheItems` would silently change that. The gap this fix closes
+ *  is narrower: only the THROW path (`fetchAuctions` rejects — bad HTTP
+ *  status or a network error) currently leaves `cache` untouched forever on
+ *  a cold boot, even though the on-disk `treasuryauctions/*.jsonl(.gz)`
+ *  archive already holds real, immutable auction results. Dedup key matches
+ *  the archive's own write-side key (cusip|auction_date); auction results
+ *  never change once published, so "latest rt wins" is a tie-break for
+ *  identical values, not a correctness requirement — kept for consistency
+ *  with every other module in this thread. */
+export function backfillAuctionsFromArchive(baseDir?: string, nowMs?: number, days = 30): AuctionRec[] {
+  const dir = auctionsDir(baseDir);
+  const now = nowMs ?? Date.now();
+  const latest = new Map<string, AuctionRec>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${d}.jsonl`), path.join(dir, `${d}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let a: AuctionRec;
+        try { a = JSON.parse(line); } catch { continue; }
+        if (!a || !a.cusip || !a.auction_date) continue;
+        const identity = keyOf(a);
+        const prev = latest.get(identity);
+        if (!prev || (a.rt || "") > (prev.rt || "")) latest.set(identity, a);
+      }
+    }
+  }
+  return Array.from(latest.values());
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; auctions: AuctionRec[] } | null = null;
@@ -207,7 +249,24 @@ export async function refreshAuctionCache(fetchImpl: FetchFn = fetch as any, now
     try { gzipOldAuctionDays(undefined, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] treasuryauctions refresh:", e?.message || e);
+    // transport error (thrown by fetchAuctions) — keep the last snapshot, or
+    // backfill from disk on a cold cache so a boot-time outage doesn't leave
+    // /api/data/treasury-auctions warming_up forever despite a real archive
+    // on disk.
+    if (!cache) {
+      const backfilled = backfillAuctionsFromArchive(undefined, nowMs);
+      if (backfilled.length) cache = { at: Date.now(), auctions: backfilled };
+    }
   }
+}
+
+/** Test-only reset — `cache`/`polling` are module-singleton state (same
+ *  problem usgsWater.ts's `_resetGaugeCacheForTests` solves for its own
+ *  module), so a test exercising the cold-cache backfill path must be able
+ *  to force `cache` back to null rather than rely on file execution order. */
+export function _resetAuctionCacheForTests(): void {
+  cache = null;
+  polling = false;
 }
 
 /** 6h poll — auctions settle ~1pm ET on auction days; the 30-day fetch
