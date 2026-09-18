@@ -321,13 +321,18 @@ def compute_outage_state(health_reachable, now_iso, prior_state=None):
     """
     prior = dict(prior_state or {})
     down_since = prior.get("down_since")
+    # The last outage's record is HISTORY, not state: every branch below
+    # carries it forward. Found 2026-09-18: the healthy-and-was-healthy
+    # branch returned a bare {down_since: None} and overwrote the 126.4h
+    # record of the 2026-09-10 -> 09-16 outage on the very next run.
+    history = {k: prior[k] for k in ("last_outage_started_utc", "last_recovered_utc") if prior.get(k)}
     if health_reachable:
         if down_since:
             return {"down_since": None, "last_recovered_utc": now_iso, "last_outage_started_utc": down_since}
-        return {"down_since": None}
+        return {"down_since": None, **history}
     if down_since:
         return prior
-    return {"down_since": now_iso}
+    return {"down_since": now_iso, **history}
 
 
 def check_outage_duration(state, now_iso):

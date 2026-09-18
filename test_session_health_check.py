@@ -533,3 +533,32 @@ def test_run_all_checks_end_to_end_reproduces_live_deploy_freeze_snapshot():
     by_label = {f["label"]: f for f in findings}
     assert by_label["deploy_freshness"]["severity"] == hc.WARN
     assert hc.overall_exit_code(findings) == 1
+
+
+# ── compute_outage_state keeps the last outage's record (found 2026-09-18) ─
+
+def test_outage_state_healthy_run_preserves_last_outage_record():
+    prior = {"down_since": None, "last_outage_started_utc": "2026-09-10T20:18:00+00:00",
+             "last_recovered_utc": "2026-09-16T02:40:06+00:00"}
+    got = hc.compute_outage_state(True, "2026-09-18T13:08:00+00:00", prior)
+    assert got["down_since"] is None
+    assert got["last_outage_started_utc"] == "2026-09-10T20:18:00+00:00"
+    assert got["last_recovered_utc"] == "2026-09-16T02:40:06+00:00"
+
+
+def test_outage_state_new_outage_keeps_previous_record_until_recovery():
+    prior = {"down_since": None, "last_outage_started_utc": "2026-09-10T20:18:00+00:00",
+             "last_recovered_utc": "2026-09-16T02:40:06+00:00"}
+    down = hc.compute_outage_state(False, "2026-09-20T10:00:00+00:00", prior)
+    assert down["down_since"] == "2026-09-20T10:00:00+00:00"
+    assert down["last_recovered_utc"] == "2026-09-16T02:40:06+00:00"
+    still = hc.compute_outage_state(False, "2026-09-20T11:00:00+00:00", down)
+    assert still == down
+    back = hc.compute_outage_state(True, "2026-09-20T12:00:00+00:00", still)
+    assert back == {"down_since": None, "last_outage_started_utc": "2026-09-20T10:00:00+00:00",
+                    "last_recovered_utc": "2026-09-20T12:00:00+00:00"}
+
+
+def test_outage_state_fresh_install_has_no_history_keys():
+    assert hc.compute_outage_state(True, "2026-09-18T13:08:00+00:00", None) == {"down_since": None}
+    assert hc.compute_outage_state(False, "2026-09-18T13:08:00+00:00", {}) == {"down_since": "2026-09-18T13:08:00+00:00"}
