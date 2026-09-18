@@ -3,6 +3,182 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine session, second entry this UTC day) [PIPELINE] — nhtsaComplaints.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live NHTSA ODI outage across the ENTIRE curated watchlist) left `/api/data/vehicle-complaints` warming_up forever despite a real per-vehicle complaint archive already on disk (v1.0.931)
+
+TERRITORY: T-DATACORE (server/nhtsaComplaints.ts + its test — datacore
+server module per WORKSTREAM PARTITION) + SHARED-minimal, last and
+minimal (package.json/package-lock.json version bump, research/
+open_questions.md, research/experiments.md).
+
+TASK FRAMING: scheduled-routine session brief — read CLAUDE.md in full,
+then research/experiments.md/open_questions.md/wishlist.md, check the
+loop-health ratio (last 10 tags), check system health + audit log,
+execute the single highest-value action, open one PR.
+
+LOOP-HEALTH RATIO: last 10 tagged entries (this UTC day back through
+2026-09-16) = 1 [RESEARCH] + 9 [PIPELINE]/[PRODUCT]+[PIPELINE], 0
+[REPAIR] — well under the 7+/10 REPAIR thrash threshold. No meta-problem
+to address.
+
+SYSTEM HEALTH CHECK: `curl -sS -m 20 https://voltradeai.com/api/health`
+-> HTTP 200, `serving.ok:true`. `status:"degraded"` for the same
+standing, already fully-diagnosed reason every session since 2026-09-10
+has confirmed: `bot.status:"killed"`, `liveness.dark:true`,
+`liveness.detail:"...trading loop dark for 39.0 market hours (199.9h
+wall-clock)..."`, `drawdownPct:"-7.5"` — KNOWN BROKEN #42/#43, the
+standing human-decision resume item. This session's own read (39.0h
+market / 199.9h wall, up from the immediately preceding session's 191.4h)
+is the same signature with no new information — per the established
+discipline every session today and this week has applied, re-confirmed
+but NOT re-notified. `feeds` all alive, `process.
+{unhandledRejections,uncaughtExceptions}` both 0. Walked KNOWN BROKEN for
+anything newly critical AND code-actionable: none found. NOT a REPAIR
+session.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item),
+`python3 scripts/ladder_readiness_check.py` still 0/3 gated roots ready
+(earliest 2026-11-02) and `python3 scripts/data_stream_registry_check.py
+--unbuilt` still 9/9 declined/blocked — both new-root axes exhausted,
+matching every session this week. Took the cold-cache-no-disk-backfill
+thread's own NEXT queue instead (`research/experiments.md`, immediately
+preceding session's own filed order, cheapest-first by file size):
+treasuryAuctions.ts and usgsWater.ts were both already closed (today and
+yesterday respectively) — `nhtsaComplaints.ts` (234 lines) was the next
+unclaimed item, confirmed via `grep` against this file (no prior fix
+entry existed for it before this session).
+
+READ BEFORE WRITE: read `server/nhtsaComplaints.ts` in full this session.
+`refreshComplaints` looped the curated watchlist, and per-vehicle only
+pushed a `VehicleStat` onto a local `stats` array when that vehicle's
+live API call returned events (`if (events.length) { ...; stats.push(...)
+}`); at the end, `if (stats.length) cache = { at, stats }` — the EXACT
+same shape already fixed 10+ times in this thread (githubOrgActivity.ts
+v1.0.881 onward), just with the failure surface being "every one of the
+~20 watchlist API calls fails/returns-empty this cycle" instead of "one
+API call fails." `seedSeen`/`archiveNewComplaints` already maintain a
+real per-day, ODI-deduped complaint archive on disk
+(`nhtsacomplaints/*.jsonl(.gz)`) that `latestComplaintStats()` never
+falls back to — `/api/data/vehicle-complaints` (server/routes.ts:3569-
+3584) returns `warming_up:true` forever on a cold boot or a full NHTSA
+outage despite that archive already holding real history. Also read
+`server/euLoad.ts`'s already-fixed `refreshLoad`/`readRecentArchivedLoad`/
+`computeZoneStats` (v1.0.892) as the closest structural template: like
+euLoad, nhtsaComplaints' cache holds a DERIVED per-entity aggregate
+(`VehicleStat[]`, keyed per vehicle) rather than a flat item list, so
+`cacheBackfill.ts`'s `resolveCacheItems<T>` helper (scoped explicitly to
+flat `{at, items[]}` caches per its own module docstring) does not apply
+here — the same reason it was not used for wikiAttention.ts/satellites.ts/
+euLoad.ts either.
+
+FIX (v1.0.931, mirrors euLoad.ts's `readRecentArchivedLoad`/
+`computeZoneStats` split exactly): (1) extracted the inline per-vehicle
+stat computation `refreshComplaints` already did into a new pure
+`computeVehicleStats(events: ComplaintEvent[])` — groups by vehicle
+identity (ticker+make+model+year) and computes the identical
+`VehicleStat` shape, so it works on either a single vehicle's live
+events or a multi-vehicle flat list read back off disk. Zero behavior
+change on the live path (verified: the pre-existing "refresh sweep" test
+still passes unmodified). (2) new `readArchivedComplaints(baseDir?,
+nowMs?, lookbackDays=30)` mirrors `seedSeen`'s own file-reading loop
+(plain/gz day-files under `nhtsacomplaints/`) but returns full parsed
+`ComplaintEvent[]` rows instead of just ODI dedup keys — 30-day default
+(vs. euLoad's 5) because this is a low-volume curated watchlist polled
+every 12h, not a high-frequency series; a short window would starve
+`total_complaints` of most of what is actually archived. (3)
+`refreshComplaints` now collects all vehicles' live events into one flat
+list; if that list is non-empty, `computeVehicleStats` feeds the cache
+exactly as before (unchanged partial-success behavior — a single
+vehicle's per-cycle failure among many successes is a separate,
+pre-existing behavior not in scope for this PR, one logical change per
+PROMOTION RULE 5); if the ENTIRE cycle produced zero events AND no cache
+already exists, it backfills from `readArchivedComplaints` through the
+same pure `computeVehicleStats`. (4) added `_resetComplaintsForTests()`
+(matches every sibling module's `_reset*ForTests` convention — none
+existed for this module before, so the new cold-cache test needed one to
+reach a genuinely cold `cache`/`seenOdi` state without relying on file
+execution order).
+
+TESTS: two new tests in `server/nhtsaComplaints.test.ts`. (1)
+`computeVehicleStats` unit test — a flat two-vehicle event list groups
+back into two correct per-vehicle stat rows (counts, crash/fire flags,
+newest_filed all independently verified). (2) the cold-cache regression:
+archives one real TSLA complaint, calls `_resetComplaintsForTests()`
+(simulated restart), asserts `latestComplaintStats()` is null going in,
+runs `refreshComplaints` with a fetch impl that throws for every single
+vehicle, and asserts the cache backfills to the one archived vehicle
+(never zero-filling the rest of the watchlist) rather than staying null
+— plus asserts `readArchivedComplaints` itself returns the raw archived
+row the backfill used. A/B-verified via `git stash push --
+server/nhtsaComplaints.ts` (test file kept, source reverted): the new
+test file fails to even IMPORT against the pre-fix source (`does not
+provide an export named '_resetComplaintsForTests'`) — proof the test
+exercises the new code path, not a pre-existing pass.
+
+BACKTEST: N/A per PROMOTION RULE 3 — server-side cache/archive
+reliability fix in a RAW-overlay data pipeline (NHTSA complaint counts),
+no scoring/sizing/threshold/strategy code touched, no trading-path file
+in scope.
+
+GATES: `npx tsx --test server/nhtsaComplaints.test.ts`: 7/7 (5
+pre-existing + 2 new). `npm ci` required first (fresh container, same
+`tsx: not found` gap prior sessions logged). `bash scripts/tsc_ratchet.sh`:
+11 <= 11 pinned, TS2304 = 0. `bash scripts/gated_tests.sh` (after `pip
+install -r requirements.txt -r requirements-dev.txt`): **GATE PASSED** —
+python 2103 passed/1 skipped/54 subtests (unchanged, no Python touched),
+node/client suites green, quarantine 0/1 none overdue, deploy-gate smoke
+PASS (200 in 4.7s). `bash scripts/counter_ratchet.sh`: reports
+`tests_run_in_ci`/`tests_gating_merge` 459->460 and `assertions`
+14680->14728 as IMPROVED, but checked BEFORE re-pinning whether either
+delta is this session's own effect (`git stash` against a clean HEAD,
+same discipline the 2026-09-16 edgar13f session established): both
+counters were ALREADY at 460/14713 respectively at clean HEAD — i.e.
+already drifted from their pins by unrelated prior merges before this
+session touched anything. This session's own two new tests add exactly
++15 assertions (14713->14728, isolated by diffing the clean-HEAD reading
+against this session's own reading). Per PROMOTION RULE 5 ("attribution
+dies when changes are bundled"), **neither pin is re-pinned in this PR**
+— locking in unattributed drift under this PR's number would misattribute
+it; both counters already pass the ratchet as-is (`OK: 25 counters at or
+better than baseline`, non-decreasing only requires current >= pin).
+`bash scripts/program_status.sh`: no new regressions on any of the
+non-increasing counters (empty_ts_catch, ts_any, boundary_any, etc. all
+unchanged). `npm run build`/`npm run visual`: build itself already ran
+as part of the deploy-gate smoke above; no `client/` file touched, so
+`npm run visual` not separately run.
+
+LADDER PATH: unchanged — RAW overlay, not a signal (per RAW OVERLAYS vs
+SIGNALS: complaint counts display as-is with attribution; the
+complaint-velocity SIGNAL stays gate-locked per this module's own header
+docstring, gate1_pass in `datacore/signal_ladder.json` untouched by this
+PR).
+
+MONETIZATION TRIPWIRE: not touched.
+
+DEPLOY-COUPLING NOTE: session ran 2026-09-18 ~11:0x UTC (~07:0x ET,
+pre-market). This PR touches zero trading-path code (a cache-backfill
+fix + tests + version bump in a raw-overlay vehicle-complaints pipeline)
+— per this repo's own reconfirmed automerge convention, merges on green
+CI regardless of market hours; noted for the record, not held.
+
+NEXT: (1) remaining "new reader needed" cold-cache-no-disk-backfill
+modules, cheapest-first by file size per the prior session's own survey:
+gdeltEvents.ts (226), fdicBanks.ts (250, has a live alternate source
+`fetchHistoricalFailures` worth considering as an alternative fix shape),
+then the larger euMacro.ts/euGenerationMix.ts/euDayAheadPrices.ts/
+gridDemand.ts/gridGeneration.ts/nrcReactorStatus.ts/fredMacro.ts, with
+dtccSwaps.ts explicitly lower-priority. (2) the ladder-readiness and
+unbuilt-registry checks remain the two standing per-session checks to
+re-run before picking a fresh item next time. (3) KNOWN BROKEN #42/#43's
+still-open human-decision item — re-check status only next session, no
+autonomous action available.
+
+STARVED: no — this session ran both standing new-root/new-page checks
+before choosing, confirmed neither had moved, and closed the next
+concretely queued, well-scoped item from the cold-cache-no-disk-backfill
+thread with a gate-clean fix, 2 new regression tests (one A/B-verified
+against pre-fix code), and full-suite verification (2103 Python + node/
+client suites green).
+
 ## 2026-09-18 (scheduled-routine session) [RESEARCH] — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (v1.0.930)
 
 TERRITORY: scripts/insider_cusum_probe.py + test_insider_cusum_probe.py
