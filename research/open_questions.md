@@ -20529,7 +20529,7 @@ empty/failed live poll):
 | cbpBorderWait.ts (backs `borderWaits`) | none — write from scratch | new reader needed — **FIXED 2026-09-17, v1.0.924** |
 | censusImports.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.926** |
 | dtccSwaps.ts | none (8-day live lookback partially mitigates) | new reader needed, lower priority |
-| euDayAheadPrices.ts | none | new reader needed |
+| euDayAheadPrices.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.934** |
 | euGenerationMix.ts | none | new reader needed |
 | euMacro.ts | none | new reader needed |
 | faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |

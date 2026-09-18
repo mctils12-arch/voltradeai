@@ -13,6 +13,7 @@ import {
   euDayAheadPricesEnabled, ZONES, periodStamp, priceUrl, parseAck, parsePrices,
   fetchPrices, archivePrices, refreshPrices, latestPrices, seedFileInWindow,
   SEED_WINDOW_DAYS, HOURS_BEFORE, HOURS_AFTER,
+  readRecentArchivedPrices, _resetEuDayAheadPricesForTests,
 } from "./euDayAheadPrices";
 
 // Mirrors the ENTSO-E Publication_MarketDocument shape (A44 price
@@ -152,4 +153,77 @@ test("refresh sweep: forward window covers not-yet-published tomorrow honestly, 
   assert.equal(fr.unit, "MWH");
   assert.equal(hit!.issues.SE, "ack: Authentication failed.");
   assert.ok(!("FR" in hit!.issues), "healthy zones carry no issue entry");
+});
+
+test("refreshPrices: cold cache backfills from disk when every zone's live fetch fails — same class of fix as euLoad.ts's own cold-cache backfill (a transient ENTSO-E outage must not report warming_up over real archived day-ahead price history)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "euprices-coldcache-"));
+  _resetEuDayAheadPricesForTests();
+  try {
+    // Real archived history for FR from before the simulated restart.
+    const priorObs = [{ zone: "FR", ts: "2026-07-05T10:00", price: 42.5, currency: "EUR", unit: "MWH", res: "PT60M", rt: "2026-07-05" }];
+    assert.equal(archivePrices(priorObs as any, base), 1);
+    _resetEuDayAheadPricesForTests(); // simulated restart — in-memory dedup/cache gone
+    assert.equal(latestPrices(), null, "cache must still be cold going into this cycle");
+    const failing = async () => { throw new Error("network unreachable"); };
+    await refreshPrices(failing as any, { ENTSOE_API_KEY: "k" } as any,
+                        Date.parse("2026-07-06T12:00:00Z"), base, 0);
+    const hit = latestPrices();
+    assert.ok(hit, "cache must be populated, not left null, despite every zone's live fetch failing");
+    assert.equal(hit!.stats.length, 1, "acked/failed zones absent — never zero-filled — but FR's archived history survives");
+    assert.equal(hit!.stats[0].zone, "FR");
+    assert.equal(hit!.stats[0].latest_price, 42.5);
+    const archived = readRecentArchivedPrices(base, Date.parse("2026-07-06T12:00:00Z"), 5);
+    assert.equal(archived.length, 1, "readRecentArchivedPrices itself returns the raw archived rows the backfill used");
+    assert.equal(archived[0].zone, "FR");
+  } finally {
+    _resetEuDayAheadPricesForTests();
+  }
+});
+
+test("refreshPrices: a live poll that returns SOME data must never be shadowed by disk backfill (live always wins over archive)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "euprices-livewins-"));
+  _resetEuDayAheadPricesForTests();
+  try {
+    const priorObs = [{ zone: "FR", ts: "2026-07-05T10:00", price: 1, currency: "EUR", unit: "MWH", res: "PT60M", rt: "2026-07-05" }];
+    archivePrices(priorObs as any, base);
+    _resetEuDayAheadPricesForTests();
+    const fake = async (url: string) => {
+      if (url.includes(ZONES.DE_LU)) {
+        return { ok: true, status: 200, text: async () => PUB(SERIES("EUR", "MWH", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "99"]]))) };
+      }
+      return { ok: true, status: 200, text: async () => "" };
+    };
+    await refreshPrices(fake as any, { ENTSOE_API_KEY: "k" } as any,
+                        Date.parse("2026-07-06T12:00:00Z"), base, 0);
+    const hit = latestPrices();
+    assert.ok(hit);
+    assert.equal(hit!.stats.length, 1, "only the zone with a real live result — archived FR is not blended in when live has any data");
+    assert.equal(hit!.stats[0].zone, "DE_LU");
+    assert.equal(hit!.stats[0].latest_price, 99);
+  } finally {
+    _resetEuDayAheadPricesForTests();
+  }
+});
+
+test("refreshPrices: an already-warm cache is never overwritten by a transient empty/failed poll", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "euprices-nooverwrite-"));
+  _resetEuDayAheadPricesForTests();
+  try {
+    const fake = async (url: string) => {
+      if (url.includes(ZONES.DE_LU)) {
+        return { ok: true, status: 200, text: async () => PUB(SERIES("EUR", "MWH", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "10"]]))) };
+      }
+      return { ok: true, status: 200, text: async () => "" };
+    };
+    await refreshPrices(fake as any, { ENTSOE_API_KEY: "k" } as any,
+                        Date.parse("2026-07-06T12:00:00Z"), base, 0);
+    assert.ok(latestPrices());
+    const failing = async () => { throw new Error("network unreachable"); };
+    await refreshPrices(failing as any, { ENTSOE_API_KEY: "k" } as any,
+                        Date.parse("2026-07-06T13:00:00Z"), base, 0);
+    const hit = latestPrices();
+    assert.equal(hit!.stats[0].latest_price, 10, "warm cache from the prior cycle survives a later failed poll untouched");
+  } finally {
+    _resetEuDayAheadPricesForTests();
+  }
 });

@@ -320,6 +320,77 @@ export function latestPrices() {
   return cache;
 }
 
+/** Test-only: `cache`/`seenObs`/`seeded`/`polling` are module-level
+ *  singletons (same class of problem as euLoad.ts's own
+ *  `_resetEuLoadForTests`), so a test exercising the cold-cache backfill
+ *  path must be able to reset them rather than rely on file execution
+ *  order to find `cache` still null. */
+export function _resetEuDayAheadPricesForTests(): void {
+  seenObs.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Per-zone latest/window stats from a set of observations — pure, so the
+ *  live fetch path and the disk-backfill path (below) compute the exact
+ *  same shape from whichever source produced rows this cycle (same split
+ *  euLoad.ts's own `computeZoneStats` uses). */
+export function computePriceStats(obs: PriceObs[]): PriceStat[] {
+  const byZone = new Map<string, PriceObs[]>();
+  for (const o of obs) {
+    if (!byZone.has(o.zone)) byZone.set(o.zone, []);
+    byZone.get(o.zone)!.push(o);
+  }
+  const stats: PriceStat[] = [];
+  byZone.forEach((rows, zone) => {
+    const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
+    const vals = rows.map((r) => r.price).filter((v): v is number => v != null);
+    stats.push({ zone, latest_ts: newest.ts, latest_price: newest.price,
+                 currency: newest.currency, unit: newest.unit,
+                 resolution: newest.res, points_in_window: rows.length,
+                 window_min_price: vals.length ? Math.min(...vals) : null,
+                 window_max_price: vals.length ? Math.max(...vals) : null,
+                 window_mean_price: vals.length
+                   ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100
+                   : null,
+                 negative_price_points: vals.filter((v) => v < 0).length });
+  });
+  stats.sort((a, b) => a.zone.localeCompare(b.zone));
+  return stats;
+}
+
+/** Raw observations from this stream's archived day-files over the last
+ *  `lookbackDays` calendar days (plain or gz) — used to backfill the live
+ *  cache when a cold boot's or a live ENTSO-E outage's poll returns zero
+ *  rows across every zone, so a transport failure doesn't report
+ *  `warming_up` over real archived auction history already on disk
+ *  (Freshness Law; same pattern as euLoad.ts's `readRecentArchivedLoad`,
+ *  the shipped precedent this generalizes to the sibling price stream).
+ *  Only walks PAST days — tomorrow's not-yet-published auction has
+ *  nothing to backfill from regardless. */
+export function readRecentArchivedPrices(baseDir?: string, nowMs?: number, lookbackDays = 5): PriceObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = priceDir(baseDir);
+  const out: PriceObs[] = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
 export async function refreshPrices(fetchImpl: FetchFn = fetch as any,
                                     env: NodeJS.ProcessEnv = process.env,
                                     nowMs?: number, baseDir?: string,
@@ -329,27 +400,12 @@ export async function refreshPrices(fetchImpl: FetchFn = fetch as any,
     const obs = await fetchPrices(fetchImpl, env, nowMs, spacingMs);
     if (obs.length) {
       archivePrices(obs, baseDir);
-      const byZone = new Map<string, PriceObs[]>();
-      for (const o of obs) {
-        if (!byZone.has(o.zone)) byZone.set(o.zone, []);
-        byZone.get(o.zone)!.push(o);
+      cache = { at: Date.now(), stats: computePriceStats(obs), issues: sweepIssues() };
+    } else if (!cache) {
+      const archived = readRecentArchivedPrices(baseDir, nowMs);
+      if (archived.length) {
+        cache = { at: Date.now(), stats: computePriceStats(archived), issues: sweepIssues() };
       }
-      const stats: PriceStat[] = [];
-      byZone.forEach((rows, zone) => {
-        const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
-        const vals = rows.map((r) => r.price).filter((v): v is number => v != null);
-        stats.push({ zone, latest_ts: newest.ts, latest_price: newest.price,
-                     currency: newest.currency, unit: newest.unit,
-                     resolution: newest.res, points_in_window: rows.length,
-                     window_min_price: vals.length ? Math.min(...vals) : null,
-                     window_max_price: vals.length ? Math.max(...vals) : null,
-                     window_mean_price: vals.length
-                       ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100
-                       : null,
-                     negative_price_points: vals.filter((v) => v < 0).length });
-      });
-      stats.sort((a, b) => a.zone.localeCompare(b.zone));
-      cache = { at: Date.now(), stats, issues: sweepIssues() };
     }
     gzipOldPriceDays(baseDir, nowMs);
   } catch (e: any) {
