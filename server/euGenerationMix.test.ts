@@ -8,10 +8,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import {
   euGenerationMixEnabled, ZONES, PSRTYPE_MAPPINGS, periodStamp, genMixUrl,
   parseAck, parseGenMix, fetchGenMix, archiveGenMix, refreshGenMix,
   latestGenMix, seedFileInWindow, SEED_WINDOW_DAYS,
+  computeGenMixStats, readArchivedGenMix, _resetGenMixForTests,
 } from "./euGenerationMix";
 
 const GL = (series: string) => `<?xml version="1.0"?>
@@ -113,6 +115,7 @@ test("archive: zone|psr|ts|res|VALUE dedup; revisions append as new vintage", ()
 });
 
 test("refresh sweep: stats grouped by zone|psr, acked zone surfaced in issues", async () => {
+  _resetGenMixForTests();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
   let calls = 0;
   const fake = async (url: string) => {
@@ -139,4 +142,100 @@ test("refresh sweep: stats grouped by zone|psr, acked zone surfaced in issues", 
   assert.equal(frSolar.window_mean_mw, 550);
   assert.equal(hit!.issues.SE, "ack: Authentication failed.");
   assert.ok(!("FR" in hit!.issues), "healthy zones carry no issue entry");
+});
+
+// ── cold-cache-no-disk-backfill fix thread (research/open_questions.md's
+// module audit table) — a cold boot or a live ENTSO-E outage (every zone
+// acking/erroring) left /api/data/eu-generation-mix warming_up forever
+// despite a real per-day archive already on disk. A/B-verified against
+// the pre-fix shape: the old refresh only ever wrote `cache` inside `if
+// (obs.length)`, so an all-zones-empty sweep on a cold boot left `cache`
+// permanently null even with archived days sitting right there.
+
+test("computeGenMixStats: pure aggregation, reused for both a live sweep and a backfilled archive day", () => {
+  const obs = parseGenMix(GL(
+    SERIES("B16", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "500"], [2, "600"]])) +
+    SERIES("B04", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "1000"]]))
+  ), "FR", "2026-07-07");
+  const stats = computeGenMixStats(obs);
+  assert.equal(stats.length, 2);
+  const solar = stats.find((s) => s.psr === "B16")!;
+  assert.equal(solar.latest_mw, 600);
+  assert.equal(solar.window_min_mw, 500);
+  assert.equal(solar.window_mean_mw, 550);
+});
+
+test("readArchivedGenMix: returns the most recent archived day's raw obs, not a merged multi-day window", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const day1 = parseGenMix(GL(SERIES("B16", PERIOD("2026-07-05T10:00Z", "PT60M", [[1, "100"]]))), "FR", "2026-07-05");
+  const day2 = parseGenMix(GL(SERIES("B16", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "200"]]))), "FR", "2026-07-06");
+  archiveGenMix(day1, base);
+  archiveGenMix(day2, base);
+  const obs = readArchivedGenMix(base, Date.parse("2026-07-07T00:00:00Z"));
+  assert.ok(obs.length > 0);
+  assert.ok(obs.every((o) => o.ts.startsWith("2026-07-06")), "walks back to the newest day with an archive file, not a blend of both days");
+});
+
+test("readArchivedGenMix: gzipped days are read too, and an empty archive returns []", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  assert.deepEqual(readArchivedGenMix(base, Date.parse("2026-07-07T00:00:00Z")), [], "no archive on disk at all");
+  const day = parseGenMix(GL(SERIES("B16", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "200"]]))), "FR", "2026-07-06");
+  archiveGenMix(day, base);
+  const dir = path.join(base, "eugenmix");
+  fs.readdirSync(dir).forEach((f) => {
+    if (!f.endsWith(".jsonl")) return;
+    const fp = path.join(dir, f);
+    fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+    fs.unlinkSync(fp);
+  });
+  const obs = readArchivedGenMix(base, Date.parse("2026-07-07T00:00:00Z"));
+  assert.equal(obs.length, day.length);
+});
+
+test("refresh: a cold cache backfills from disk when every zone acks/errors, aggregated exactly like a live result", async () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const day = parseGenMix(GL(
+    SERIES("B16", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "500"], [2, "600"]]))
+  ), "FR", "2026-07-06");
+  archiveGenMix(day, base);
+  assert.equal(latestGenMix(), null, "pre-fix baseline: cache starts cold");
+
+  const allAck = async () => ({ ok: true, status: 200, text: async () => ACK });
+  await refreshGenMix(allAck as any, { ENTSOE_API_KEY: "k" } as any,
+                      Date.parse("2026-07-07T12:00:00Z"), base, 0);
+  const hit = latestGenMix();
+  assert.ok(hit, "cold cache backfilled from the on-disk archive instead of staying warming_up forever");
+  assert.equal(hit!.stats.length, 1);
+  assert.equal(hit!.stats[0].zone, "FR");
+  assert.equal(hit!.stats[0].latest_mw, 600, "backfilled rows flow through the same computeGenMixStats aggregation as a live result");
+});
+
+test("refresh: an already-good cache is never clobbered by a transient all-zones-empty sweep", async () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const ok = async (url: string) => {
+    if (url.includes(ZONES.SE)) return { ok: true, status: 200, text: async () => "" };
+    return { ok: true, status: 200, text: async () => GL(SERIES("B16", PERIOD("2026-07-06T10:00Z", "PT60M", [[1, "500"]]))) };
+  };
+  await refreshGenMix(ok as any, { ENTSOE_API_KEY: "k" } as any,
+                      Date.parse("2026-07-06T12:00:00Z"), base, 0);
+  const first = latestGenMix();
+  assert.ok(first);
+
+  const allAck = async () => ({ ok: true, status: 200, text: async () => ACK });
+  await refreshGenMix(allAck as any, { ENTSOE_API_KEY: "k" } as any,
+                      Date.parse("2026-07-06T18:00:00Z"), base, 0);
+  assert.deepEqual(latestGenMix(), first, "a transient all-acked sweep with a good cache already in hand leaves it untouched, not overwritten by an archive re-read");
+});
+
+test("refresh: cold cache with nothing archived either stays honestly null, never fabricates a result", async () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const allAck = async () => ({ ok: true, status: 200, text: async () => ACK });
+  await refreshGenMix(allAck as any, { ENTSOE_API_KEY: "k" } as any,
+                      Date.parse("2026-07-07T12:00:00Z"), base, 0);
+  assert.equal(latestGenMix(), null, "no archive and no live result means warming_up is the honest state, not a fabricated one");
 });

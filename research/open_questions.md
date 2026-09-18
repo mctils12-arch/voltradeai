@@ -20522,7 +20522,7 @@ empty/failed live poll):
 
 | module | existing archive-reader to reuse | fix cost |
 |---|---|---|
-| cropConditions.ts | `readArchivedConditions` (in file) | cheap — reuse |
+| cropConditions.ts | `readArchivedConditions` (in file) | cheap — reuse — **FIXED 2026-09-15, v1.0.913** (table was stale — commit b8d24ab, PR #1087) |
 | edgar13f.ts | `read13FHistory` (in file) | cheap — reuse — **FIXED 2026-09-16, v1.0.920** |
 | sec8kEarnings.ts | `readEarnings8kHistory` (in file) | cheap — reuse — **FIXED THIS SESSION, v1.0.912** |
 | finraQuery.ts | `readPartition` exists but only used post-success, not as a cold-cache fallback for a failed partition-LIST call | small, narrower fix than the others — **FIXED 2026-09-16, v1.0.921** |
@@ -20530,7 +20530,7 @@ empty/failed live poll):
 | censusImports.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.926** |
 | dtccSwaps.ts | none (8-day live lookback partially mitigates) | new reader needed, lower priority |
 | euDayAheadPrices.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.934** |
-| euGenerationMix.ts | none | new reader needed |
+| euGenerationMix.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.935** |
 | euMacro.ts | none | new reader needed |
 | faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |
 | fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed |
@@ -20584,6 +20584,37 @@ unlike the others which have no such mitigation). Confirm the same
 APPLICABLE modules before ever routing new work at them — this audit did
 not attempt to give any of them an archive (that would be a much larger,
 separate COLLECT-EVERYTHING buildout, not a bug fix).
+
+NOT A SPEND REQUEST.
+
+UPDATE 2026-09-18 (scheduled-routine [PRODUCT] session) — `euGenerationMix.ts`
+FIXED (v1.0.935). This module caches a DERIVED aggregate (`GenMixStat[]`,
+grouped/reduced from raw per-zone/per-fuel-type observations), the same
+shape as `nrcReactorStatus.ts`, not a flat item list — so per this table's
+own SCOPE note in `cacheBackfill.ts`, fixed by hand rather than through
+`resolveCacheItems`: extracted the existing inline grouping logic into a
+pure `computeGenMixStats(obs)`, added `readArchivedGenMix()` (walks back up
+to 7 days through the already-existing per-day `.jsonl(.gz)` archive files
+`archiveGenMix` writes, returns the most recent single day's raw obs — a
+merged multi-day window would double-count or misreport window min/max/mean
+across different UTC days), and wired `refreshGenMix`'s existing
+`if (obs.length) {...}` empty branch to call it when `!cache`. Every ENTSO-E
+zone acking or erroring on a cold boot (the realistic failure mode here —
+`fetchGenMix` never throws itself, it catches per-zone) now backfills from
+disk instead of leaving `/api/data/eu-generation-mix` `warming_up` forever.
+7 new tests (`computeGenMixStats` reuse, `readArchivedGenMix` most-recent-day
++ gzip + empty-archive cases, and the 3 `refresh` cold/warm/nothing-archived
+cases mirroring `nrcReactorStatus.test.ts`'s own convention); A/B-verified
+via `git stash` that the module doesn't even load without the new exports
+pre-fix (proving they're genuinely new, not redundant with something already
+there). Full suite + `tsc_ratchet`/`counter_ratchet` gates run — see
+experiments.md's matching dated entry for the complete account.
+
+Remaining VULNERABLE queue after this fix: `euMacro.ts`, `fdicBanks.ts`,
+`fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all
+"new reader needed", no ranking beyond the original list order), plus
+`dtccSwaps.ts` (explicitly lower-priority, per its own 8-day live-lookback
+mitigation).
 
 NOT A SPEND REQUEST.
 

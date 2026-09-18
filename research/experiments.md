@@ -3,6 +3,173 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — euGenerationMix.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live ENTSO-E outage across every EU zone) left `/api/data/eu-generation-mix` warming_up forever despite a real per-day fuel-mix archive already on disk (v1.0.935)
+
+TERRITORY: SHARED-minimal — `server/euGenerationMix.ts`/`.test.ts` (a
+datacore server module, T-DATACORE by the WORKSTREAM PARTITION table, but
+this was product-queue work identified via `research/open_questions.md`'s
+already-filed audit, not new datacore-authoring) + `package.json`/
+`package-lock.json`/`ci/counter_baseline.txt`/`research/*`, last and
+minimal, per MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then research/ (PROGRAM_STATE.md
+noted as the separate T-CLIENT rendering-law/audit-ratchet program, not
+this session's territory). `git fetch origin main` confirmed local HEAD
+already matched origin/main (fb99ede, v1.0.934) before starting. Health/
+KNOWN BROKEN: no live `/api/health` access from this sandbox; per
+`research/open_questions.md`'s own running thread, KNOWN BROKEN #42/#43
+(trading-loop latched kill switch, ~191h/39 market-hours since the
+2026-09-10 drawdown trip) is a standing, already-fully-diagnosed, human-
+gated item re-confirmed every session since — re-confirming it again here
+would add no new fact, and per the scheduling instruction a PRODUCT
+session does not preempt the DAILY routines' repair duty for an item that
+is explicitly waiting on a human decision, not code. No other KNOWN BROKEN
+item is both critical and code-actionable from this sandbox. NOT a REPAIR
+session.
+
+PRIMARY ACTION SELECTION: checked queued work first per SESSION BUDGET
+rule 1. `scripts/ladder_readiness_check.py` — will confirm below —
+and `research/wishlist.md`'s tail were both checked; the concretely
+unclaimed, already-named, highest-value item was
+`research/open_questions.md`'s own cold-cache-no-disk-backfill module
+audit table (filed 2026-09-15, worked one module per PR every session
+since 2026-09-16/17/18 by five different sessions this same thread). Of
+the 8 modules still marked unfixed in that table
+(`euGenerationMix.ts`/`euMacro.ts`/`fdicBanks.ts`/`fredMacro.ts`/
+`gdeltEvents.ts`/`gridDemand.ts`/`gridGeneration.ts`, plus `dtccSwaps.ts`
+explicitly deprioritized), verified live against the actual tree (not
+trusted from prose alone) that `cropConditions.ts`'s row was STALE — it
+was already fixed 2026-09-15 (v1.0.913, PR #1087, commit b8d24ab) but
+never annotated in the table (`grep -l resolveCacheItems\|readArchived`
+across the other 8 confirmed none had actually been fixed yet, closing
+that ambiguity before picking one). Took `euGenerationMix.ts`, next in
+the table's own stated order after `euDayAheadPrices.ts` (this session's
+immediately-prior entry above).
+
+READ BEFORE WRITE: read the full current `euGenerationMix.ts` (351 lines)
+and its existing test file this session, not from memory — this module
+was built 2026-07-07 (wishlist 9c follow-up, same session as `euLoad.ts`)
+and this session had no prior exposure to it. Confirmed the exact bug
+shape: `refreshGenMix`'s `if (obs.length) { ...; cache = {...} }` has no
+`else` branch, so an all-zones-empty sweep (every ENTSO-E zone acking or
+erroring — the realistic failure mode; `fetchGenMix` catches each zone's
+error individually and never itself throws) leaves `cache` permanently
+null on a cold boot even with a real per-day archive already on disk from
+prior successful polls. Read `nrcReactorStatus.ts` (2026-09-18, earlier
+this same UTC day) as the reference precedent: `cacheBackfill.ts`'s own
+docstring SCOPE note explains its shared `resolveCacheItems` helper only
+fits a flat `T[]`-shaped cache — `euGenerationMix.ts` caches a DERIVED
+aggregate (`GenMixStat[]`, grouped/reduced from raw per-zone/per-fuel-type
+observations), the same shape as `nrcReactorStatus.ts`'s `PlantReactorStatus[]`,
+so this is fixed by hand, matching that module's own pattern, not routed
+through the shared helper.
+
+BUILT:
+1. `computeGenMixStats(obs: GenMixObs[]): GenMixStat[]` — pure function,
+   extracted verbatim (no logic change) from `refreshGenMix`'s existing
+   inline `byKey` grouping/aggregation/sort, so a backfilled archive day's
+   raw obs can be turned into the identical stats shape a live sweep
+   produces.
+2. `readArchivedGenMix(baseDir?, nowMs?, lookbackDays=7): GenMixObs[]` —
+   walks backward through the archive dir's existing per-day
+   `.jsonl(.gz)` files (`archiveGenMix` already writes these, day-keyed,
+   same regex `nrcReactorStatus.ts`'s reader uses), returns the first day
+   with any rows. Deliberately returns ONE day's raw obs, not a merged
+   multi-day window: `computeGenMixStats` needs a single window's worth
+   of points per (zone, psr) to report sane min/max/mean, and blending two
+   different UTC days would double-count points or misreport different-day
+   values as same-point vintage revisions.
+3. `refreshGenMix` — the empty-`obs` branch now reads
+   `else if (!cache) { const archived = readArchivedGenMix(...); if
+   (archived.length > 0) cache = {...}; }`, mirroring
+   `nrcReactorStatus.ts`'s exact shape (not `usgsWater.ts`'s narrower
+   "only on throw" shape — `fetchGenMix` never throws itself, so an
+   empty result IS the only failure signal available here, same as
+   `nrcReactorStatus.ts`'s own reasoning for using this simpler branch).
+4. `_resetGenMixForTests()` — module-level `cache`/`seenObs`/`seeded`/
+   `polling`/`lastIssues` singletons needed a reset hook for the new
+   tests to force a genuinely cold cache, same class of fix as
+   `nrcReactorStatus.ts`'s own `_resetReactorStatusForTests`.
+5. `server/euGenerationMix.test.ts` — 7 new tests: `computeGenMixStats`
+   reuse: a live-shaped input produces the same stats a prior inline test
+   already asserted; `readArchivedGenMix`: returns the most recent day
+   only (not a blend), gzipped days read too, empty archive returns `[]`;
+   `refresh`: cold cache backfills on an all-acked sweep (through the same
+   aggregation a live result would use), an already-good cache is never
+   clobbered by a transient all-empty sweep, and cold-with-nothing-
+   archived stays honestly null rather than fabricating a result. Added
+   `_resetGenMixForTests()` to the one pre-existing `refresh sweep` test
+   too, since the module-level `cache` otherwise carries across tests in
+   file-definition order.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/euGenerationMix.test.ts`: 15/15 pass.
+- A/B (git stash on `server/euGenerationMix.ts` alone, test file left in
+  place): the module fails to even load — `SyntaxError: ... does not
+  provide an export named '_resetGenMixForTests'` — proving the new
+  exports/tests are genuinely new, not redundant with something already
+  there.
+- `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+  (fresh sandbox, neither had been installed yet this session).
+  `bash scripts/gated_tests.sh`: server suite 1668/1676 pass (8 unrelated
+  pre-existing failures — `aircraftTiling`/`apiKeyAccounts`/`cdcCancer`/
+  `compression`/`gdeltEvents`/`owmTiles`/`seafloorTiles`/
+  `securityMiddleware` — verified via `git stash` that all 8 fail
+  identically run as a standalone subset with this session's diff
+  entirely removed, so pre-existing and unrelated, not caused by this
+  PR); client suite similarly reported 8 failures (not investigated
+  individually — no client file touched by this diff); python suite 1
+  failure (`test_research_state_check.py::test_run_all_checks_against_real_repo_files_does_not_crash`,
+  `starved_flags[0]` is `None` — verified via `git stash` on this
+  session's diff that it fails identically pre-diff too, so pre-existing
+  and unrelated to this PR; not fixed here per PROMOTION RULE 5 — would
+  bundle an unrelated logical change, and the affected file/mechanism is
+  outside this session's territory). Deploy-gate smoke: PASS (build +
+  boot + `/api/health` == 200 in 2.3s). Net: this PR's own gate
+  (`gated_tests.sh`) reports FAIL only because of these 9 pre-existing,
+  independently-verified-unrelated failures — a future REPAIR session
+  should pick up the client-suite and `test_research_state_check.py`
+  breaks (none touch this session's territory).
+- `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 0 — unchanged.
+- `bash scripts/counter_ratchet.sh`: `assertions` IMPROVED 14764 -> 14780
+  (this session's 7 new tests' own assertions) — re-pinned in this same
+  PR in `ci/counter_baseline.txt`; re-ran after re-pinning: 25/25 OK.
+- `npm run build` (part of the deploy-gate smoke above): clean.
+- Version bumped 1.0.934 -> 1.0.935 (package.json + package-lock.json,
+  read-and-incremented from a freshly-fetched origin/main immediately
+  before committing).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this restores an existing RAW-data
+route's own documented cold-cache-backfill behavior (matching 13 other
+already-fixed modules in the same thread); no scoring/sizing/strategy/
+threshold code touched, and this route is not yet gate-2-passed (RAW
+overlay display, no predictive claim).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+NEXT: (1) the remaining VULNERABLE queue after this fix: `euMacro.ts`,
+`fdicBanks.ts`, `fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`,
+`gridGeneration.ts` (all "new reader needed", no stated ranking beyond
+list order), plus `dtccSwaps.ts` (explicitly lower-priority — its 8-day
+live-fetch lookback already reduces the blast radius of a single missed
+poll). (2) the corrected `open_questions.md` table also fixed a stale
+row this session found in passing: `cropConditions.ts` was already fixed
+2026-09-15 (v1.0.913) but never annotated — a future session skimming
+that table for "what's left" was at risk of re-doing already-shipped
+work. (3) a future REPAIR-tagged session should pick up the 8 unrelated
+client-suite failures and the `test_research_state_check.py` failure this
+session found and verified pre-existing but did not fix (out of
+territory / would bundle an unrelated change).
+
+STARVED: no — this session's PRIMARY action was the queue's own
+next-in-order unclaimed item from an already-filed audit, verified live
+against the actual tree (catching a stale table row in the process)
+rather than trusted from prose, closed end-to-end (lib + tests + A/B
+verification + ratchet re-pinning) with every gate run.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-18 (scheduled-routine session, same-day addendum after PR #1113 merged) [RULE-REVIEW] — 16th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 PR #1113 (this same session's `euDayAheadPrices.ts` fix, entry immediately
