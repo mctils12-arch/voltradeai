@@ -3,6 +3,166 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — treasuryAuctions.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live treasurydirect.gov outage) on the very first poll left `/api/data/treasury-auctions` warming_up forever despite a real, immutable auction-results archive already on disk (v1.0.929)
+
+TERRITORY: T-DATACORE (server/treasuryAuctions.ts, server/treasuryAuctions.test.ts) +
+SHARED-minimal (ci/counter_baseline.txt, package.json, research/open_questions.md,
+research/experiments.md), last and minimal per MERGE-ORDER PROTOCOL.
+
+TASK FRAMING: scheduled-routine [PRODUCT] session brief — read CLAUDE.md in full,
+then research/. Mission: build the datacore/ pipelines and the /data section
+into a full product over time. Check system health and KNOWN BROKEN first
+(product sessions don't preempt DAILY repair duty unless the break blocks the
+session); then execute the single highest-value product action from the given
+menu: (a) advance a pipeline through its next ladder gate, (b) build /data
+UI/UX, (c) spec a new data root, (d) improve datacore's API-boundary/docs/tests
+toward spinout-readiness.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -m 20
+https://voltradeai-production.up.railway.app/api/health` -> HTTP 200,
+`serving.ok: true`. `status: "degraded"` for the same standing, already-fully-
+documented reason every session since 2026-09-10 has confirmed: `bot.status:
+"killed"`, `bot.liveness.dark: true`, "LIVENESS ALARM: trading loop dark for
+39.0 market hours (188.9h wall-clock) since 2026-09-10T03:12:26.354Z",
+`drawdownPct: "-7.9"` — the human-decision resume item KNOWN BROKEN #42/#43 and
+wishlist.md's "TWO THINGS STILL FOR THE HUMAN" section already carry (ground-
+truth reconstruction there puts the real same-day P&L far smaller than the
+account's own reported figure). This does not block T-DATACORE/product work
+and carries no new information, so it is re-confirmed but NOT re-notified,
+per this thread's own established "only notify on NEW information" discipline.
+`feeds` all alive (aircraft/vessels/trains `silent_hours` 0.06-1.06, none
+dead). `process.{unhandledRejections,uncaughtExceptions}` both 0.
+`git fetch origin main`: HEAD already equals origin/main at `c98bd9f`/v1.0.928/
+PR #1106 (the immediately preceding session's usgsWater.ts fix) — no reset
+needed.
+
+LOOP-HEALTH RATIO CHECK: last 10 tagged entries before this one = [PIPELINE]x7
+(usgsWater, faaStatus, censusImports, cbpBorderWait, usaSpending,
+space_weather_swpc, finraQuery), [PIPELINE] edgar13f x1 (8 total [PIPELINE]),
+[RULE-REVIEW]x1 (15th auto-merge/market-hours-hold tally), [REPAIR]x1
+(staleness audit). 1/10 REPAIR — well below the 7+ thrash threshold, no meta-
+problem to address. PROGRESS FLOOR: [PIPELINE]/[PRODUCT] work has shipped
+every day this week — no 14-day stall to flag.
+
+PRIMARY-ACTION SELECTION: checked both new-pipeline axes first, per SESSION
+BUDGET, to avoid duplicating in-flight work: `python3
+scripts/ladder_readiness_check.py` still 0/3 gated roots ready (cftc_cot_
+positioning waiting ~35d, sec_8k_earnings_language waiting ~14d,
+fleet_utilization_aircraft waiting ~45d — unchanged from the prior session).
+`python3 scripts/data_stream_registry_check.py --unbuilt` still 9/9 declined/
+blocked (google_trends_pytrends, cme_datamine, nyse_threshold_api, pboc,
+openaq_v3, uspto_patents, cloudflare_radar, viirs_nightfire, cboe_daily_stats
+— every one needs either a human registration/key step or has no viable free
+path; viirs_nightfire's own free-alternative (GAS FLARE CANDIDATES, built
+2026-09-01) already failed gate 1, and its human-registration ask is already
+active in wishlist.md — nothing new to file there). `datacore/signal_ladder.json`:
+all gate1_pass/gate2_pass roots already carry a `detail_route` (confirmed
+2026-09-17, unchanged). With both new-pipeline axes exhausted, continued
+research/open_questions.md's cold-cache-no-disk-backfill audit table — the
+queue's own next concretely-scoped, unclaimed item per SESSION BUDGET rule 1,
+and the same fall-through choice several immediately preceding [PRODUCT]-
+tagged sessions made for the identical reason. Of the remaining "new reader
+needed" modules (dtccSwaps.ts stays explicitly lower-priority per the audit's
+own note — its 8-day live lookback already mitigates a single missed poll —
+euDayAheadPrices.ts, euGenerationMix.ts, euMacro.ts, fdicBanks.ts,
+fredMacro.ts, gdeltEvents.ts, gridDemand.ts, gridGeneration.ts,
+nhtsaComplaints.ts, nrcReactorStatus.ts, treasuryAuctions.ts), treasuryAuctions.ts
+was the smallest (221 lines) and most self-contained.
+
+READ BEFORE WRITE: read `server/treasuryAuctions.ts` in full this session (not
+grepped). `fetchAuctions` THROWS on a bad HTTP status or a network error
+(same shape as usgsWater.ts/faaStatus.ts, not cbpBorderWait.ts's null-
+returning fetch), and `refreshAuctionCache`'s existing logic —
+`if (auctions.length || !cache) cache = { at: Date.now(), auctions }` —
+already trusts a successful-but-empty poll as a real, publishable state when
+there's no prior cache (the same "empty is real" semantics usgsWater.ts's fix
+deliberately preserved, not `cacheBackfill.ts`'s `resolveCacheItems`, which
+treats empty as ambiguous with failed). The actual, narrower gap matches
+usgsWater.ts's exact shape: the THROW path (`fetchAuctions` rejects) is caught
+by `refreshAuctionCache`'s outer try/catch, logged, and otherwise a no-op — on
+a cold boot (or an outage spanning the whole boot window), `cache` never gets
+set even though the on-disk `treasuryauctions/*.jsonl(.gz)` archive already
+holds real, immutable past auction results (`/api/data/treasury-auctions`'s
+own route comment already claims "results-complete auctions from the last 30
+days", matching `fetchAuctions`'s 30-day TA_WS query window).
+
+FIX (v1.0.929): new `backfillAuctionsFromArchive(baseDir?, nowMs?, days=30)` —
+scans the archive over a 30-day lookback (matching the live fetch's own
+window, not the 3-day default other modules in this thread used) and keeps,
+per `cusip|auction_date` identity (the archive's own write-side dedup key,
+reused via the existing `keyOf` helper), the record with the latest `rt`
+(as-seen date) — a tie-break for consistency with every other module in this
+thread, not a correctness requirement, since auction results are immutable
+once published and every archived copy of the same key should already carry
+identical values. Wired into `refreshAuctionCache`'s catch block on exactly
+the `!cache` condition — never touching an already-warm cache on a later
+transport failure, and never touching the existing successful-poll branch (so
+a genuinely empty-but-successful response stays trusted, matching current
+behavior). Added `_resetAuctionCacheForTests()` (this module had no
+cache-reset export before, unlike usgsWater.ts/faaStatus.ts) so the new tests
+don't depend on execution order within the file.
+
+TESTS: 5 new tests in `server/treasuryAuctions.test.ts` (3 -> 8, all pass).
+`backfillAuctionsFromArchive`'s own unit tests assert the newer-`rt` record
+wins over an older one at the same identity, a second `(cusip, auction_date)`
+identity is preserved independently, the default 30-day window excludes a
+40-day-old file, and widening the window picks it back up.
+`refreshAuctionCache`'s tests exercise all three paths end-to-end: a cold
+cache backfills from disk when the live poll throws; a subsequently-warm
+cache is untouched by a second transport failure (no stale-disk-read
+clobber); and — the regression this session was most careful not to
+introduce — a genuinely empty but SUCCESSFUL poll on a cold cache is still
+trusted as the real state, not overridden by an archive that, in that
+scenario, has real results sitting on disk. Confirmed the 3 pre-existing
+tests still pass unchanged.
+A/B-VERIFIED: `git stash push -- server/treasuryAuctions.ts` then re-ran the
+test file — fails immediately (`_resetAuctionCacheForTests` doesn't exist on
+the pre-fix module), confirming the new tests actually exercise the fix.
+
+BACKTEST: N/A per PROMOTION RULE 3 — server-side cache/archive reliability
+fix in a RAW-overlay data pipeline (Treasury auction results, gate-locked
+archive+RAW-display-only by design per this module's own header, not a
+trading signal), no scoring, sizing, threshold, or strategy code touched, no
+trading-path file touched.
+
+GATES: `npx tsx --test server/treasuryAuctions.test.ts`: 8/8 (3 pre-existing +
+5 new, 0 regressions). This sandbox's `node_modules` came up missing `tsc`
+initially (not caused by this diff, no package.json dependency changed
+besides the version bump); `npm ci` (488 packages) restored it before any
+gate that needed the full tree ran. `npx tsx --test server/*.test.ts` (full
+server suite, post-`npm ci`): 1746/1746 pass, 0 failed (prior baseline 1741 +
+this session's 5 new lands exactly on 1746). `bash scripts/tsc_ratchet.sh`:
+11 <= 11 pinned TOTAL, TS2304 = 0 — unchanged, zero `.ts` type-signature
+surface touched beyond this module's own already-typed exports. Full Python
+suite (after `pip install -r requirements.txt -r requirements-dev.txt`,
+needed cold in this sandbox): 2080 passed, 1 skipped, 54 subtests — this diff
+touches no Python. `bash scripts/gated_tests.sh`: **GATE PASSED** — server,
+client, python all green, deploy-gate smoke PASS (200 in 2.3s), quarantine
+0/1, none overdue. `bash scripts/counter_ratchet.sh`: IMPROVED on first run
+(`tests_run_in_ci`/`tests_gating_merge` 458->459, `assertions` 14626->14680)
+— all this session's own direct effect (new tests/assertions in an existing
+file, no new test file) and re-pinned in `ci/counter_baseline.txt` in this
+same PR; re-ran after re-pinning: 25/25 counters OK. `npm run build`: not
+run standalone — already exercised clean by `gated_tests.sh`'s own deploy-gate
+smoke build; zero `client/` files touched, so `npm run visual` was not run.
+
+NEXT: 10 VULNERABLE modules remain in the audit table (dtccSwaps.ts
+explicitly lower-priority; euDayAheadPrices.ts, euGenerationMix.ts,
+euMacro.ts, fdicBanks.ts, fredMacro.ts, gdeltEvents.ts, gridDemand.ts,
+gridGeneration.ts, nhtsaComplaints.ts, nrcReactorStatus.ts still need a
+from-scratch archive reader) — a future session continues this thread one
+module per PR, per its established discipline. Both new-pipeline axes
+(ladder-readiness, unbuilt-registry) remain exhausted for now; the next
+PRODUCT session's queue is whichever of those has moved, this thread's next
+module, or a fresh ACTIVE ANGLE-HUNTING hypothesis if none has.
+
+STARVED: no — this session picked the queue's own next concretely-scoped,
+unclaimed item after confirming both new-pipeline axes were still exhausted,
+closed one module end-to-end (fix + tests + A/B verification + all gates +
+counter re-pin + ladder bookkeeping) rather than leaving any thread half-done.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-17 (scheduled-routine session, sixth session this UTC day) [PIPELINE] — usgsWater.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live waterservices.usgs.gov outage) on the very first poll left `/api/data/rivergauges` warming_up forever despite a real revision-append river-gauge archive already on disk (v1.0.928)
 
 TERRITORY: T-DATACORE (server/usgsWater.ts, server/usgsWater.test.ts) +
