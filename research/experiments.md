@@ -26,6 +26,204 @@ own recovery replaces it; fresh install unchanged. 66/66 in the file.
 
 STARVED: yes — the audit's NEXT 1-4 remain queued (previous entry).
 
+## 2026-09-18 (scheduled-routine [PRODUCT] session, third entry this UTC day) [PIPELINE] — nrcReactorStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nrc.gov outage) left `/api/data/nrc-reactor-status` warming_up forever despite a real per-day archive already on disk (v1.0.933)
+
+TERRITORY: T-DATACORE (server/nrcReactorStatus.ts + its test — datacore
+server module per WORKSTREAM PARTITION) + SHARED-minimal, last and
+minimal (package.json/package-lock.json version bump, ci/
+counter_baseline.txt, research/open_questions.md, research/
+experiments.md).
+
+TASK FRAMING: scheduled-routine [PRODUCT] session brief (build the
+datacore/ pipelines and the /data user-facing section into a full
+product over time). First checks system health/KNOWN BROKEN, then picks
+the single highest-value product action among: (a) advance a datacore
+pipeline through its next ladder gate; (b) build /data UI/UX; (c)
+propose/spec a new product feature or data root; (d) improve datacore's
+API boundary/docs/tests toward spinout-readiness.
+
+SYSTEM HEALTH CHECK: origin/main and this session's designated branch
+were confirmed in sync (`git fetch origin main`; both at f2a75c8,
+v1.0.931 — an initial `git fetch`/`git log origin/main` read came back
+stale at a week-old commit, a local-ref caching artifact in this fresh
+shallow clone, resolved with `git fetch origin main --force` and
+double-checked against the GitHub API's own `list_commits(sha=main)`
+before trusting it, per READ BEFORE WRITE — worth naming since a stale
+local ref could otherwise cause a session to build a PR against the
+wrong base). KNOWN BROKEN: #41 (production outage) fixed since v1.0.915,
+re-confirmed via research/open_questions.md/wishlist.md. #42/#43
+(drawdown-kill trip, liveness dark) remains the standing human-gated
+item every session since 2026-09-10 has correctly re-confirmed and NOT
+re-notified (no new information this session either) — code-actionable
+only in the sense of continuing to surface it, not resolvable by a
+PRODUCT session's own diff. No other critical unfixed KNOWN BROKEN item
+found. Not a REPAIR session.
+
+LOOP-HEALTH RATIO: last 10 tagged entries (this UTC day back through
+2026-09-16) = 1 [RESEARCH] + 9 [PIPELINE]/[PRODUCT]+[PIPELINE], 0
+[REPAIR] — well under the 7+/10 REPAIR thrash threshold. The 8-of-10
+concentration in one thread (cold-cache-no-disk-backfill fixes) is real
+but each closes an independently-verified bug shape with its own
+regression test, not padding — judged not thrash, per REASONING
+STANDARD #4's spirit of preferring a proven, theory-motivated fix over
+manufacturing a new angle just to diversify the tag mix.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+still 0/3 gated roots ready (earliest 2026-11-02); `python3
+scripts/data_stream_registry_check.py --unbuilt` still 9/35, all
+declined/blocked on a human key or dead source — the axis-(a)
+new-pipeline queue and the gate-2 re-run queue are both exhausted, same
+as the immediately preceding sessions' own findings. Checked every
+gate1_pass root in datacore/signal_ladder.json for a missing
+detail_route (option (b)'s own gap-finding lens, per the 2026-09-17
+PRODUCT session's precedent): none found — port_dwell_maritime_transit
+(the prior session's own fix) was the last gap, confirmed still closed.
+That left the open_questions.md cold-cache-no-disk-backfill module audit
+table (SESSION BUDGET rule 1 — the next queued, concretely-testable
+item) as the genuinely highest-value unclaimed action: 9 modules remain
+listed VULNERABLE (dtccSwaps.ts explicitly deprioritized — an 8-day live
+lookback partially mitigates it). Picked `nrcReactorStatus.ts` over the
+EU/macro-feed modules (euDayAheadPrices/euGenerationMix/euMacro/
+fredMacro/gdeltEvents/fdicBanks/gridDemand/gridGeneration) because it
+already backs a real, actively-used /data page
+(client/src/pages/nrcReactorStatus.tsx, referenced by name in the
+2026-09-17 port_dwell session as the structural template that page
+copied) — fixing a real product-facing signal's cold-boot behavior is
+higher leverage than a macro/EU feed with no client page yet. This also
+satisfies option (d) (spinout-readiness: a paying API customer cannot
+tolerate `/api/data/nrc-reactor-status` reporting `warming_up` forever
+on a cold boot when a real archive sits on disk).
+
+READ BEFORE WRITE: read `server/nrcReactorStatus.ts` in full (434 lines)
+and its existing test file before changing anything. Confirmed the exact
+bug shape against `server/cacheBackfill.ts`'s own documented scope note
+(this module was not in its original 4-module retrofit list, since its
+cache holds a DERIVED shape — `{at, date, rows, plants}`, not a flat
+`T[]` — same class as wikiAttention.ts/euLoad.ts being excluded).
+`refreshReactorStatus` only ever wrote `cache` inside `if (rows.length)`
+— a cold boot or a live nrc.gov outage (any non-ok status or thrown
+fetch, both already coerced to `[]` by `fetchReactorStatus`) left `cache`
+permanently `null` even with a real per-day archive
+(`nrcreactorstatus/*.jsonl(.gz)`) already on disk. Also read
+`server/nhtsaComplaints.ts` (the immediately preceding session's own fix,
+same day) as the current reference idiom for this pattern
+(`readArchivedComplaints`/`_resetComplaintsForTests`) rather than an
+older sibling, since it's the freshest example of the convention.
+
+BUILT:
+1. `server/nrcReactorStatus.ts` — new `readArchivedReactorStatus(baseDir?,
+   nowMs?, lookbackDays=7)`: walks backward day-by-day (plain or gz) and
+   returns the MOST RECENT single day's rows found, not a merged
+   multi-day window — deliberately mirrors the live path's own
+   `latestDay`-filtered invariant (`fetchReactorStatus` already only ever
+   keeps one day), so `readArchivedReactorStatus`'s output flows through
+   `latestDay`/`joinToPlants` identically to a live result. Wired into
+   `refreshReactorStatus`'s existing `else if (!cache)` branch (added
+   alongside the untouched `if (rows.length)` branch) — a transient
+   failure with a good cache already in hand is left untouched, exactly
+   the same "never clobber a live cache with a stale archive read"
+   invariant every sibling fix in this thread enforces. Also added
+   `_resetReactorStatusForTests()` (this module had no test-reset helper
+   before — `cache`/`seenRows`/`seeded`/`polling` are module-level
+   singletons, same class as nhtsaComplaints.ts's own
+   `_resetComplaintsForTests`), needed for the new tests' isolation since
+   the existing test file runs sequentially with shared module state.
+2. `server/nrcReactorStatus.test.ts` — 6 new tests (15 -> 21):
+   `readArchivedReactorStatus` walks back to the newest archived day (not
+   a blend of two days) and handles gz + a fully-empty archive; the
+   cold-cache-backfill path end-to-end (rows join to the real registry
+   exactly like a live result, including the status bucketing); an
+   already-good cache is never clobbered by a transient failure; a
+   cold cache with nothing archived either stays honestly `null` (no
+   fabricated result). First pass caught a real cross-test-contamination
+   bug in my own new tests, not the module: `seenRows` is a shared
+   module-level dedup set, so two of my new tests reused the SAME
+   date/unit keys already archived by an earlier test in the same file —
+   `archiveReactorStatus` treated them as already-seen and silently wrote
+   nothing to the new tmpdir, failing the assertion (and, in the gz test,
+   never creating the directory at all). Fixed by calling
+   `_resetReactorStatusForTests()` at the start of each new test that
+   archives fresh fixture rows — verified this against the file's OWN
+   convention (the existing "refresh" test benefits from the same reset
+   for the same reason) rather than assuming a fix and moving on.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/nrcReactorStatus.test.ts`: 21/21 pass (was
+  15/15 before this session).
+- `npx tsx --test server/*.test.ts`: 1753/1753 pass, 0 regressions.
+- `python3 -m pytest -q`: 2103 passed, 1 skipped, 54 subtests — exact
+  match to the immediately preceding session's own baseline (this
+  sandbox needed `npm ci` + `pip install -r requirements.txt -r
+  requirements-dev.txt` first, the same fresh-container provisioning
+  step several prior sessions have logged, not a repo defect).
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server/client/python
+  all green, deploy-gate smoke PASS (build + boot under
+  latched-kill-switch + stale-liveness state, `/api/health` 200 in
+  4.7s), quarantine 0/1, none overdue.
+- `bash scripts/counter_ratchet.sh`: IMPROVED
+  (`tests_run_in_ci`/`tests_gating_merge` 459->460, `assertions`
+  14680->14741) — all three are this session's own direct effect (1
+  test file touched, 6 new tests/assertions), re-pinned in
+  `ci/counter_baseline.txt` in this same PR, confirmed green again
+  (25/25) after re-pinning.
+- `bash scripts/tsc_ratchet.sh`: 11 <= 11, TS2304 = 0 — unchanged; zero
+  `.tsx` files touched, and `server/nrcReactorStatus.ts`'s own new code
+  introduced no new type errors.
+- `npm run build`/`npm run visual`: not run standalone, zero `client/`
+  files touched — `npm run build` already ran clean inside the
+  deploy-gate smoke as a side effect of that gate.
+- Version bumped 1.0.931 -> 1.0.932 (package.json + package-lock.json,
+  read-and-incremented from a freshly-fetched, force-verified
+  origin/main immediately before committing, per the MERGE-ORDER
+  PROTOCOL) — then a SECOND time, 1.0.932 -> 1.0.933, after a concurrent
+  session's own PR (#1111, the leak-audit's own NEXT(5) follow-up) merged
+  to main with the identical 1.0.932 tag while this PR's CI was still
+  running. Caught via the "Auto-merge Claude PRs" check's own failure
+  (`GraphQL: Pull Request has merge conflicts`) rather than assumed;
+  `git fetch origin main` confirmed a second new commit (d0cae2f) past
+  the one already merged into this branch, re-merged (keep-both-sides on
+  research/experiments.md's top-of-file conflict, ordered by commit
+  timestamp per the file's own "newest at top" convention; ci/
+  counter_baseline.txt's `assertions` pin conflict resolved by re-running
+  `scripts/counter_ratchet.sh` fresh against the merged tree rather than
+  hand-summing both sessions' deltas), version bumped past the
+  now-taken 1.0.932 to keep this PR's tag unique, and every gate re-run
+  against the fully merged tree before pushing again.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a datacore reliability fix
+(cache-population logic for an already-shipped RAW data route); no
+scoring, sizing, threshold, or strategy code was touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session ran outside 9:30-16:00 ET (confirmed via
+system clock before starting); no market-hours merge hold needed.
+
+NEXT: (1) 8 modules remain VULNERABLE in the cold-cache-no-disk-backfill
+audit table (dtccSwaps.ts deprioritized): euDayAheadPrices.ts,
+euGenerationMix.ts, euMacro.ts, fdicBanks.ts, fredMacro.ts,
+gdeltEvents.ts, gridDemand.ts, gridGeneration.ts — recommend
+gridGeneration.ts/gridDemand.ts next (real, actively-developed GRID
+VISION product surfaces) over the EU/macro feeds (no client page yet).
+(2) once this thread clears, the next PRODUCT session's queue reverts to
+whichever of ladder-readiness/unbuilt-registry has moved, or a fresh
+ACTIVE ANGLE-HUNTING hypothesis. (3) port_dwell_maritime_transit's gate 2
+remains blocked on archive depth (datacore/port_dwell_weekly.json;
+scripts/portdwell_weekly_snapshot.ts keeps running each session). (4) the
+production outage (KNOWN BROKEN #41) stays fixed; #42/#43 stays
+human-gated, re-confirmed not re-notified.
+
+STARVED: no — this session picked the queue's own next concretely
+unclaimed, already-named item (the cold-cache audit table's next
+VULNERABLE module backing a real product page), closed it end-to-end
+(reader + wiring + test-reset helper + 6 regression tests + full gate
+suite + ratchet re-pinning + ladder/audit-table bookkeeping), and caught
+and fixed a real bug in its own new tests along the way rather than
+letting a flaky-looking failure go unexplained.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-18 (interactive session, fourth entry of the 2026-09-16 "fix it and get the site up" directive) [RESEARCH] — KNOWN BROKEN #41 leak audit FILED: 6 finders x 28 candidate mechanisms x 3 adversarial lenses over server/ — NO Node-heap leak found; 2 bounded boot transients upheld (GNSS integrity 2x21-day aircraft scan ~150-200MB + 60-100s CPU; DTCC swaps ~400-650MB transient + ~120MB retained seenIds, growing), 20 refuted, 8 UNVERIFIED (verifier budget exhausted); no synthesis — this entry is the synthesis (no code change)
 
 TERRITORY: SHARED research/* only.
