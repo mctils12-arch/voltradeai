@@ -3,6 +3,140 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (interactive session, fourth entry of the 2026-09-16 "fix it and get the site up" directive) [RESEARCH] — KNOWN BROKEN #41 leak audit FILED: 6 finders x 28 candidate mechanisms x 3 adversarial lenses over server/ — NO Node-heap leak found; 2 bounded boot transients upheld (GNSS integrity 2x21-day aircraft scan ~150-200MB + 60-100s CPU; DTCC swaps ~400-650MB transient + ~120MB retained seenIds, growing), 20 refuted, 8 UNVERIFIED (verifier budget exhausted); no synthesis — this entry is the synthesis (no code change)
+
+TERRITORY: SHARED research/* only.
+
+METHOD (Workflow run wf_6ec094ab-581, launched 2026-09-16 02:16Z from
+the same session that shipped v1.0.915-917): six independent finders,
+each a different search angle (tier-2 scan path; boot + tier-3; routes
+caches/archives; git history 2026-08-25..09-09; streams/listeners/SSE/
+RPC; tier-1 position monitor), returned 28 candidate mechanisms after
+dedup. Each was judged by three distinct-lens skeptics prompted to
+REFUTE (does it run in the crash window; is growth unbounded or a freed
+transient; can the magnitude reach hundreds of MB in 90-130s), default
+refuted when unconfirmable; a finding survives with <= 1 refutation.
+91 agents, ~8.7M subagent tokens, 3.4h wall. The verify phase ran into
+the account's session usage limit: 24 verifier agents + the synthesis
+agent FAILED ("session limit, resets 07:40 UTC"), so 8 mechanisms have
+NO verdict — listed below as UNVERIFIED, not as refuted (the script's
+survivor rule would have counted them as killed; corrected by hand).
+Judgment on everything below is this session's own read of the
+verifiers' cited code lines, per WORKSTREAM PARTITION's "subagent
+output ships only after the session's own review".
+
+RESULT — SURVIVED (2 of 3 lenses each; the "unbounded" lens refuted both
+as bounded, freed-per-cycle transients):
+  S1. server/routes.ts:4224-4236 `refreshGnssIntegritySignal` -> gnss
+      IntegritySignal.ts:199-206 -> gnssIntegrityQuery.ts:161-179 ->
+      datacoreArchive.ts:896-922. At boot (t=0, no guardedRefresh, no
+      gate of any kind) and every 10 min: Promise.all of TWO 21-day
+      region reads over the aircraft archive; every row of every hour
+      file (~504 files x2) is gunzipped + JSON.parsed even past the
+      834-rows/file cap (the cap only stops the push); all rows RETAINED
+      until aggregation. Measured 304 B/row x <=420k capped control rows
+      -> ~120-200MB transient peak, ~60-100s of main-thread CPU per run.
+      This is the 7-8s EVENTLOOP-LAG at boot+~100s that every container
+      logs. Window hit its full 21 days ~2026-09-01. Bounded (cap reached
+      2026-08-31), freed every cycle, identical in and out of market
+      hours, and the 2026-09-16 containers ran it every 10 min for 16+
+      minutes without dying — a headroom/CPU cost, NOT the crash.
+  S2. server/dtccSwaps.ts:506-511 `bootDtccSwapsPoll` -> refreshDtccSwaps
+      (routes.ts:3414, unconditional at boot, 6h interval). Streams the
+      ~132MB SEC_CUMULATIVE_EQUITIES zip (~1.15GB CSV, ~2M lines) through
+      inflateRaw+readline at t=0 on every boot, and `loadSeenIds` (:340-
+      349) gunzipSync + split + JSON.parse's EVERY archived day file
+      synchronously on every boot to rebuild a module-level Set that
+      production reports at 1,952,538 IDs. One verifier measured
+      +400-650MB heapUsed transient per boot (peak ~90-100s after boot)
+      with ~120MB RETAINED (the Set), growing ~6MB/day. Bounded per
+      cycle, freed except the Set; the biggest single contributor to
+      the boot burst and the only one that grows day over day.
+  Together S1+S2 account for the measured boot profile (rss 526 ->
+  ~1.18GB in the first 2.5 min, GC back to ~850MB; sawteeth at +10min).
+
+RESULT — REFUTED (20; the verifiers' cited lines are in the run journal):
+  tier-2 scan path end-to-end (every retained structure capped, daemon
+  RPC payload KB-scale); entityGraph bootGraphPoll's 168h fold + 36MB
+  GEM parse (transient ~150-300MB, freed; runs unconditionally at night
+  too); startup tier3Strategic at boot+30s (Node heap ~0; children are
+  the daemon's/cgroup's concern, and the cgroup has 21GB headroom);
+  pre-warm scanner 10x analyze.py at boot+3s (children, ~15s); heap-cap
+  sizing (context, not a leak — live: 6192MB cap); the ~55-refresher
+  boot burst as a whole (sum of transients, freed); fleetUtilization
+  (request-driven, not boot); gdeltEvents (100-300MB transient, freed);
+  nasaFirms (50-120MB resident baseline); siteTimeline (request-driven);
+  portDwellCapture captureIfDue (guarded since v1.0.869, confirmed);
+  crashSafeRefresh's guarded folds (confirmed working); tier3 step 1
+  ml_retrain_safe.py (child process; model was fresh on every 09-16
+  boot); market-window gating reframing (the 09-08 boots at 20:46Z/
+  20:48Z were AFTER the close — "market hours only" was never a clean
+  discriminator).
+
+RESULT — UNVERIFIED (8; verifiers failed on the usage limit, no verdict
+either way, queued for a future audit): bot.ts change-history delta for
+2026-08-23..09-09 (66 server/ merges enumerated by the finder, not
+judged); tier1Reflex step 2 "sync position monitor" + its 45s
+setInterval; startStreaming / ws.on("close") reconnect timer (Alpaca
+IEX bars WebSocket; two finders flagged possible handler stacking on
+reconnect + POST /api/bot/start); pythonRpc daemon Unix-socket client
+(pending-request map / buffers); broadcastSSE + GET /api/bot/stream
+(client list growth); tier1Reflex manage_positions execPythonSerialized
+(~300MB transient CHILD rss per 45s tick, market-hours-gated — the only
+market-hours-only heavy allocation any finder found, in a child, not
+Node). The reconnect-timer and SSE angles are the ones most worth a
+targeted re-verify: both are "runs unconditionally, accumulates per
+event" shapes that the daytime path exercises far more than the night.
+
+READ TOGETHER WITH THE LIVE EVIDENCE (entries 1-3 of this directive):
+no Node-heap leak; OOM of either kind impossible at ~1GB against a
+6.2GB heap cap / 22.9GB cgroup; two days of fresh containers
+(v1.0.915 -> 1.0.931, 14 deploys by other sessions) with ZERO
+FATAL-REJECTION / FATAL-EXCEPTION lines and `pressure: ok` throughout,
+kill switch latched the whole time. The 2026-09-08 restart loop is
+therefore constrained to: something the DAYTIME path does (kill switch
+OFF -> Tier 2 at boot+10s, Tier 1 every 45s, the WS bar stream under
+market-hours message rates) that ends the process WITHOUT a memory
+wall — an un-awaited rejection or a thrown exception being the shapes
+that fit, now guaranteed to leave a FATAL-* audit line + a health
+counter (v1.0.917). The proof is the first such line after the human
+clears the kill switch. This session does NOT patch any of the 28.
+
+PRIOR vs RESULT: the prior (stated 09-16 before launching) was "a
+full-archive read into memory or an unbounded per-cycle array in the
+Tier-2 path". Tier-2 came back clean on every lens; the two full-archive
+reads found are real but bounded and nocturnal. Prior partially wrong,
+recorded.
+
+NEXT (each its own PR, none started here):
+  1. DTCC (S2): persist seenIds as a compact sorted-id file instead of
+     re-parsing every archived day at boot; defer the first fetch
+     several minutes past boot behind guardedRefresh; stream-archive
+     rows instead of retaining them. Largest boot-burst reduction
+     available and the only growing one. T-DATACORE.
+  2. GNSS (S1): fold each day into per-cell aggregates instead of
+     retaining rows; read the two regions in one pass; abort a file at
+     its per-file cap. MEASUREMENT INTEGRITY applies — it is a gate-2
+     signal pipeline: the PR must show byte-identical summary output on
+     identical archive inputs before/after. T-DATACORE.
+  3. Boot-burst scheduling: one budgeted scheduler for the ~55 eager
+     refreshers (stagger + serialize the archive folds), the
+     architecture item the 2026-09-08 sessions' RECURRENCE ESCALATES
+     already pointed at. Wishlist-level design first.
+  4. Targeted re-verify of the 8 UNVERIFIED angles (reconnect timer and
+     SSE first) — a small workflow, not a full re-run; the run journal
+     has every finder's cited lines.
+  5. Tooling bug found while filing: `scripts/session_health_check.py`
+     `compute_outage_state` rewrites `research/outage_state.json` as
+     `{down_since: null}` on a healthy run, DROPPING `last_outage_
+     started_utc` / `last_recovered_utc` (the 126.4h record this
+     directive wrote on 09-16 was overwritten by this session's own
+     first run and restored from git). Own [REPAIR] PR with a test.
+
+STARVED: yes — NEXT 1, 2 and 5 are concrete, scoped and unblocked; this
+session is at the end of a long interactive directive and hands them to
+the queue rather than starting a fourth code PR.
+
 ## 2026-09-18 (scheduled-routine session, second entry this UTC day) [PIPELINE] — nhtsaComplaints.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live NHTSA ODI outage across the ENTIRE curated watchlist) left `/api/data/vehicle-complaints` warming_up forever despite a real per-vehicle complaint archive already on disk (v1.0.931)
 
 TERRITORY: T-DATACORE (server/nhtsaComplaints.ts + its test — datacore

@@ -6542,6 +6542,32 @@
     deploy lands before it ends); (2) the leak audit's surviving findings
     -> own PR each, failing-first test each; (3) human: decide the kill
     switch per #42/#43.
+    UPDATE 2026-09-18 (same directive, audit filed — full account in
+    experiments.md 2026-09-18 [RESEARCH]): the 6-finder x 3-lens
+    adversarial audit of server/ judged 28 candidate mechanisms — NO
+    Node-heap leak. Survived as BOUNDED boot transients: (S1) the GNSS
+    integrity refresher (routes.ts:4224-4236, unguarded, t=0 + every 10
+    min, two concurrent 21-day full-parse reads of the aircraft archive,
+    ~120-200MB freed per run + 60-100s CPU = the recurring 7-8s
+    EVENTLOOP-LAG at boot+100s); (S2) dtccSwaps.ts bootDtccSwapsPoll
+    (t=0, ~1.15GB CSV streamed + loadSeenIds re-parsing every archived
+    day into a 1.95M-ID Set: +400-650MB transient, ~120MB retained,
+    +~6MB/day). 20 refuted (tier-2 path clean on every lens; entity
+    graph fold, tier-3 startup, pre-warm, gdelt, firms, fleet, timeline
+    all bounded/freed or child-process). 8 UNVERIFIED (verifier agents
+    hit the usage limit): WS bar-stream reconnect timer stacking, SSE
+    client list, pythonRpc pending map, tier-1 sync + 45s interval,
+    tier-1 manage_positions child (~300MB child rss/tick, the only
+    market-hours-only heavy allocation found), change-history delta.
+    Two days live since (v1.0.915 -> 1.0.931): zero FATAL-* lines,
+    pressure ok, kill switch latched. STANDING CONCLUSION: the 09-08
+    loop was not memory; it lives on the daytime path and will name
+    itself via FATAL-REJECTION / FATAL-EXCEPTION the first time it
+    recurs after the human clears the kill switch. NEXT (own PRs): DTCC
+    seenIds persistence + deferred first fetch; GNSS per-day aggregation
+    with an identical-output test; budgeted boot-burst scheduler
+    (design in wishlist first); targeted re-verify of the 8 unverified
+    angles; fix `compute_outage_state` dropping the recovery record.
 
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's
