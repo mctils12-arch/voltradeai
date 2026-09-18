@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine session, same-day addendum after PR #1115 merged) [RULE-REVIEW] — 17th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+PR #1115 (this same session's `euGenerationMix.ts` fix, entry immediately
+below) carried this session's instructed "hold merge until after 4:00 PM
+ET" note. It auto-merged anyway at 2026-09-18T18:32:38Z
+(`merged_by: "github-actions[bot]"`), 4m43s after opening — the same
+FROZEN-`automerge`-job root cause research/wishlist.md's standing thread
+has now tracked 17 times since 2026-08-14 (35 days, 0% compliance).
+Harmless here (no trading-path file touched, same as every prior
+occurrence). Full account, options for the human, and the running tally:
+`research/wishlist.md`'s numbered-occurrences thread (top of file).
+STARVED: n/a — bookkeeping addendum, not a session action.
+
 ## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — euGenerationMix.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live ENTSO-E outage across every EU zone) left `/api/data/eu-generation-mix` warming_up forever despite a real per-day fuel-mix archive already on disk (v1.0.935)
 
 TERRITORY: SHARED-minimal — `server/euGenerationMix.ts`/`.test.ts` (a
