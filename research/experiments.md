@@ -3,6 +3,29 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (interactive session, fifth entry of the 2026-09-16 directive) [REPAIR] — `scripts/session_health_check.py` `compute_outage_state` dropped the last outage's record on every healthy run; fixed with tests (v1.0.932)
+
+TERRITORY: scripts tooling (scripts/session_health_check.py,
+test_session_health_check.py) + SHARED-minimal, last (package.json/
+package-lock.json, this entry).
+
+WHAT BROKE: the function's healthy-and-was-healthy branch returned a bare
+`{"down_since": null}`, so the first routine run after a recovery
+overwrote `last_outage_started_utc` / `last_recovered_utc` — this
+session's own 13:08Z run erased the 126.4h record of the 2026-09-10 ->
+09-16 outage that the 09-16 run had written (restored from git before
+committing anything). Found while filing the leak audit (previous entry,
+NEXT 5). The same-shape bug also existed on the healthy-to-down
+transition (a new outage's first record dropped the previous one).
+
+FIX: the two `last_*` keys are carried forward as history on every
+branch; a recovery still overwrites them with the new outage's dates;
+a fresh install still produces no history keys. 3 tests: healthy run
+preserves the record; a new outage keeps the previous record until its
+own recovery replaces it; fresh install unchanged. 66/66 in the file.
+
+STARVED: yes — the audit's NEXT 1-4 remain queued (previous entry).
+
 ## 2026-09-18 (interactive session, fourth entry of the 2026-09-16 "fix it and get the site up" directive) [RESEARCH] — KNOWN BROKEN #41 leak audit FILED: 6 finders x 28 candidate mechanisms x 3 adversarial lenses over server/ — NO Node-heap leak found; 2 bounded boot transients upheld (GNSS integrity 2x21-day aircraft scan ~150-200MB + 60-100s CPU; DTCC swaps ~400-650MB transient + ~120MB retained seenIds, growing), 20 refuted, 8 UNVERIFIED (verifier budget exhausted); no synthesis — this entry is the synthesis (no code change)
 
 TERRITORY: SHARED research/* only.
