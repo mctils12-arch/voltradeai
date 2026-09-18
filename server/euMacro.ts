@@ -260,6 +260,49 @@ export function latestEuMacro(): { at: number; series: EuSeriesSnapshot[] } | nu
   return cache;
 }
 
+/** Raw observations from this stream's archived day-files over the last
+ *  `lookbackDays` calendar days (plain or gz), across ALL series — used to
+ *  backfill a series whose live poll came back empty this cycle, so a
+ *  cold boot or a source-specific outage doesn't report a null latest
+ *  over real vintage history already on disk (Freshness Law; same pattern
+ *  as euLoad.ts's readRecentArchivedLoad / euDayAheadPrices.ts's
+ *  readRecentArchivedPrices). 200-day default matches refreshEuMacro's own
+ *  `since` reach — EU_INDPROD is monthly, so a short window would miss its
+ *  latest vintage entirely. */
+export function readRecentArchivedEuMacro(baseDir?: string, nowMs?: number, lookbackDays = 200): EuObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = euDir(baseDir);
+  const out: EuObs[] = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
+/** A single series' latest-up-to-30 (d,v) pairs, ascending, picked out of
+ *  a pool of raw observations (either this cycle's live fetch or the
+ *  archive backfill above) — pure, so both sources produce the exact same
+ *  snapshot shape. */
+function seriesHistory(seriesKey: string, obs: EuObs[]): Array<{ d: string; v: number }> {
+  return obs
+    .filter((o) => o.s === seriesKey)
+    .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0))
+    .slice(-30)
+    .map(({ d, v }) => ({ d, v }));
+}
+
 export async function refreshEuMacro(
   fetchImpl: FetchFn = fetch as any,
   nowMs?: number,
@@ -269,6 +312,8 @@ export async function refreshEuMacro(
   const now = nowMs ?? Date.now();
   const rt = new Date(now).toISOString().slice(0, 10);
   const since = new Date(now - 200 * 86400_000).toISOString().slice(0, 7); // ~6 months of monthlies
+  const prevByKey = new Map((cache?.series ?? []).map((s) => [s.key, s]));
+  let archivedObs: EuObs[] | null = null; // lazy — only touch disk if a series actually needs it
   const snapshots: EuSeriesSnapshot[] = [];
   const allObs: EuObs[] = [];
   for (const def of EU_SERIES) {
@@ -297,7 +342,23 @@ export async function refreshEuMacro(
       console.error(`[datacore] eumacro ${def.key}:`, e?.message || e);
     }
     allObs.push(...obs);
-    const hist = obs.slice(-30).map(({ d, v }) => ({ d, v }));
+    let hist = obs.slice(-30).map(({ d, v }) => ({ d, v }));
+    if (!hist.length) {
+      // this cycle's live fetch was empty/failed for this series — never let
+      // that wipe already-known-good data (cold-cache-no-disk-backfill class:
+      // a partial outage on ONE series used to blank it even while the other
+      // four kept updating, since the old code replaced the whole cache
+      // object whenever ANY series succeeded). Prefer the prior cache's own
+      // snapshot (freshest known value); fall back to the on-disk archive
+      // only when there's no prior cache at all (true cold boot).
+      const prevSnap = prevByKey.get(def.key);
+      if (prevSnap && prevSnap.latest) {
+        hist = prevSnap.history;
+      } else {
+        if (archivedObs === null) archivedObs = readRecentArchivedEuMacro(baseDir, now);
+        hist = seriesHistory(def.key, archivedObs);
+      }
+    }
     snapshots.push({
       ...def,
       latest: hist[hist.length - 1] || null,
@@ -306,7 +367,7 @@ export async function refreshEuMacro(
     });
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
-  if (snapshots.some((s) => s.latest) || !cache) cache = { at: now, series: snapshots };
+  cache = { at: now, series: snapshots };
   try { archiveEuObs(allObs, baseDir, now); } catch {}
   try { gzipOldEuDays(baseDir, now); } catch {}
 }
