@@ -6,11 +6,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import {
   parseReactorStatus, reactorStatusUrl, latestDay, normalizePlantName,
   matchToRegistry, EXPECTED_REGISTRY_ONLY, fetchReactorStatus,
   archiveReactorStatus, refreshReactorStatus, latestReactorStatus,
-  loadRegistryNuclearPlants, joinToPlants,
+  loadRegistryNuclearPlants, joinToPlants, readArchivedReactorStatus,
+  _resetReactorStatusForTests,
 } from "./nrcReactorStatus";
 
 const SAMPLE = [
@@ -166,6 +168,7 @@ test("archive: date|unit dedup across fetches and restarts", () => {
 });
 
 test("refresh: cache holds only the newest day's rows, plus the registry-joined plants view", async () => {
+  _resetReactorStatusForTests();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
   const ok = async () => ({ ok: true, status: 200, text: async () => SAMPLE });
   await refreshReactorStatus(ok as any, Date.parse("2026-08-03T12:00:00Z"), base);
@@ -182,4 +185,79 @@ test("refresh: cache holds only the newest day's rows, plus the registry-joined 
   const arkansas = hit!.plants.find((p) => p.name.includes("Arkansas"));
   assert.ok(arkansas, "Arkansas Nuclear 1 (100%) resolves to a registry plant");
   assert.equal(arkansas!.status, "full");
+});
+
+// ── cold-cache-no-disk-backfill fix thread (research/open_questions.md's
+// module audit table) — a cold boot or a live NRC outage on the very
+// first poll left /api/data/nrc-reactor-status warming_up forever despite
+// a real per-day archive already on disk. A/B-verified against the
+// pre-fix shape: the old refresh only ever wrote `cache` inside `if
+// (rows.length)`, so an empty/thrown fetch on a cold boot left `cache`
+// permanently null even with archived days sitting right there.
+
+test("readArchivedReactorStatus: returns the most recent archived day's rows, not a merged multi-day window", () => {
+  _resetReactorStatusForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
+  const day1 = parseReactorStatus(SAMPLE).filter((r) => r.date === "2026-08-02");
+  const day2 = parseReactorStatus(SAMPLE).filter((r) => r.date === "2026-08-03");
+  archiveReactorStatus(day1, base, Date.parse("2026-08-02T12:00:00Z"));
+  archiveReactorStatus(day2, base, Date.parse("2026-08-03T12:00:00Z"));
+  const rows = readArchivedReactorStatus(base, Date.parse("2026-08-04T00:00:00Z"));
+  assert.ok(rows.length > 0);
+  assert.ok(rows.every((r) => r.date === "2026-08-03"), "walks back to the newest day with an archive file, not a blend of both days");
+});
+
+test("readArchivedReactorStatus: gzipped days are read too, and an empty archive returns []", () => {
+  _resetReactorStatusForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
+  assert.deepEqual(readArchivedReactorStatus(base, Date.parse("2026-08-04T00:00:00Z")), [], "no archive on disk at all");
+  const day = parseReactorStatus(SAMPLE).filter((r) => r.date === "2026-08-03");
+  archiveReactorStatus(day, base, Date.parse("2026-08-03T12:00:00Z"));
+  fs.readdirSync(path.join(base, "nrcreactorstatus")).forEach((f) => {
+    if (!f.endsWith(".jsonl")) return;
+    const fp = path.join(base, "nrcreactorstatus", f);
+    fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+    fs.unlinkSync(fp);
+  });
+  const rows = readArchivedReactorStatus(base, Date.parse("2026-08-04T00:00:00Z"));
+  assert.equal(rows.length, day.length);
+});
+
+test("refresh: a cold cache backfills from disk when the live poll returns nothing, joined against the registry exactly like a live result", async () => {
+  _resetReactorStatusForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
+  const day = parseReactorStatus(SAMPLE).filter((r) => r.date === "2026-08-03");
+  archiveReactorStatus(day, base, Date.parse("2026-08-03T12:00:00Z"));
+  assert.equal(latestReactorStatus(), null, "pre-fix baseline: cache starts cold");
+
+  const failing = async () => { throw new Error("nrc.gov down"); };
+  await refreshReactorStatus(failing as any, Date.parse("2026-08-04T00:00:00Z"), base);
+  const hit = latestReactorStatus();
+  assert.ok(hit, "cold cache backfilled from the on-disk archive instead of staying warming_up forever");
+  assert.equal(hit!.date, "2026-08-03");
+  assert.ok(hit!.rows.every((r) => r.date === "2026-08-03"));
+  const arkansas = hit!.plants.find((p) => p.name.includes("Arkansas"));
+  assert.ok(arkansas, "backfilled rows flow through the same joinToPlants registry join as a live result");
+  assert.equal(arkansas!.status, "full");
+});
+
+test("refresh: an already-good cache is never clobbered by a transient empty/failed poll", async () => {
+  _resetReactorStatusForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
+  const ok = async () => ({ ok: true, status: 200, text: async () => SAMPLE });
+  await refreshReactorStatus(ok as any, Date.parse("2026-08-03T12:00:00Z"), base);
+  const first = latestReactorStatus();
+  assert.ok(first);
+
+  const failing = async () => { throw new Error("transient"); };
+  await refreshReactorStatus(failing as any, Date.parse("2026-08-03T18:00:00Z"), base);
+  assert.deepEqual(latestReactorStatus(), first, "a transient failure with a good cache already in hand leaves it untouched, not overwritten by an archive re-read");
+});
+
+test("refresh: cold cache with nothing archived either stays honestly null, never fabricates a result", async () => {
+  _resetReactorStatusForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
+  const failing = async () => { throw new Error("nrc.gov down"); };
+  await refreshReactorStatus(failing as any, Date.parse("2026-08-04T00:00:00Z"), base);
+  assert.equal(latestReactorStatus(), null, "no archive and no live result means warming_up is the honest state, not a fabricated one");
 });

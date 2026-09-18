@@ -408,6 +408,55 @@ export function latestReactorStatus() {
   return cache;
 }
 
+/** Test-only: `cache`/`seenRows`/`seeded`/`polling` are module-level
+ *  singletons (same class of problem as nhtsaComplaints.ts's own
+ *  `_resetComplaintsForTests`), so a test exercising the cold-cache
+ *  backfill path must be able to reset them rather than rely on file
+ *  execution order to find `cache` still null. */
+export function _resetReactorStatusForTests(): void {
+  seenRows.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
+/** Most recent archived day's rows (plain or gz), walked backward up to
+ *  `lookbackDays` — used to backfill the live cache when a cold boot's or
+ *  a live NRC outage's poll returns zero rows, so a transport failure
+ *  doesn't report `warming_up` over a real archived day already on disk
+ *  (Freshness Law; same pattern as nhtsaComplaints.ts's
+ *  `readArchivedComplaints`/euLoad.ts's `readRecentArchivedLoad`, the
+ *  shipped precedents this generalizes). Returns ONE day's rows, not a
+ *  merged window — mirrors the live cache's own "rows are always a single
+ *  `date`" invariant (`fetchReactorStatus` filters to `latestDay` the same
+ *  way), so `latestDay(archived)` and `joinToPlants` behave identically
+ *  whichever source produced the rows. 7-day default: this source updates
+ *  once/day and is polled every 6h, so a week comfortably covers any
+ *  cold-boot-during-a-multi-day-NRC-outage gap without scanning the whole
+ *  archive. */
+export function readArchivedReactorStatus(baseDir?: string, nowMs?: number, lookbackDays = 7): ReactorStatusRow[] {
+  const now = nowMs ?? Date.now();
+  const dir = statusDir(baseDir);
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    const rows: ReactorStatusRow[] = [];
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { rows.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+    if (rows.length > 0) return rows;
+  }
+  return [];
+}
+
 export async function refreshReactorStatus(fetchImpl: FetchFn = fetch as any,
                                            nowMs?: number, baseDir?: string): Promise<void> {
   try {
@@ -415,6 +464,11 @@ export async function refreshReactorStatus(fetchImpl: FetchFn = fetch as any,
     if (rows.length) {
       archiveReactorStatus(rows, baseDir, nowMs);
       cache = { at: Date.now(), date: latestDay(rows), rows, plants: joinToPlants(rows, REGISTRY_NUCLEAR_PLANTS) };
+    } else if (!cache) {
+      const archived = readArchivedReactorStatus(baseDir, nowMs);
+      if (archived.length > 0) {
+        cache = { at: Date.now(), date: latestDay(archived), rows: archived, plants: joinToPlants(archived, REGISTRY_NUCLEAR_PLANTS) };
+      }
     }
     gzipOldStatusDays(baseDir, nowMs);
   } catch (e: any) {
