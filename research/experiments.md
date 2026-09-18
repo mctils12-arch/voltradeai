@@ -3,6 +3,169 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine session, market-hours run) [PIPELINE] — euDayAheadPrices.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live ENTSO-E outage across every EU zone) left `/api/data/eu-day-ahead-prices` warming_up forever despite a real, immutable day-ahead auction-result archive already on disk (v1.0.934, PR pending — HOLD MERGE UNTIL AFTER 4:00 PM ET, see note below)
+
+TERRITORY: T-DATACORE (server/euDayAheadPrices.ts + its test — datacore
+server module per WORKSTREAM PARTITION) + SHARED-minimal, last and
+minimal (package.json/package-lock.json version bump, ci/
+counter_baseline.txt, research/open_questions.md, this entry).
+
+SESSION-START: read CLAUDE.md in full, then this file (newest-at-top) and
+open_questions.md's KNOWN BROKEN / cold-cache-backfill tracking table,
+then wishlist.md's tail. Confirmed local HEAD already matched a
+freshly-forced `git fetch origin main` (25fd9de, v1.0.932/933) before
+starting and again immediately before committing (no new merges landed
+in between) — MERGE-ORDER PROTOCOL's read-and-increment-at-commit-time
+version discipline.
+
+LOOP-HEALTH RATIO (CLAUDE.md HEALTH OF THE LOOP ITSELF): last 10 tagged
+entries at session start = 7 [PIPELINE], 2 [RESEARCH], 1 [REPAIR] — well
+under the 7-of-10-[REPAIR] thrash threshold; no meta-problem to address
+this session.
+
+SYSTEM HEALTH: `python3 scripts/session_health_check.py --json` against
+the live site (16:01Z): `deploy_gate` OK (a new container would pass
+Railway's healthcheck), `subsystems`/`process_faults`/`daemon_memory`/
+`tier2_daemon_timeouts`/`ml_feedback`/`deploy_freshness`
+(server_version=1.0.933 matches this checkout at session start) all OK.
+One ALARM: `liveness` — trading loop dark 41.5 market hours (204.8h
+wall-clock) since 2026-09-10T03:12:26Z, the SAME standing KNOWN BROKEN
+#42/#43 drawdown-kill latch every session since 2026-09-10 has correctly
+re-confirmed and left for the human's own resume decision (item #42's
+independent price reconstruction already found the triggering loss was
+a data anomaly, not a real -$12,059.74 market move, but clearing a live
+risk halt on inference alone is deliberately left to the human per RULE
+REVIEW's evidence bar). No new information this session — re-confirmed,
+not re-notified, matching every session today's own logged discipline.
+Not a REPAIR session.
+
+PRIMARY ACTION SELECTION: `scripts/ladder_readiness_check.py` (0/3 gated
+roots ready) and `scripts/data_stream_registry_check.py --unbuilt` (9/9
+unbuilt candidates still blocked on a human key/registration) both
+matched every session today — the new-pipeline queue is exhausted. Per
+SESSION BUDGET rule 1 (next queued item from open_questions.md), checked
+the cold-cache-no-disk-backfill fix thread's own tracking table (this
+file's 2026-09-15 module audit, open_questions.md): of the 9 remaining
+"new reader needed" VULNERABLE modules, `dtccSwaps.ts` is explicitly
+flagged lower-priority (an 8-day live-fetch lookback already mitigates a
+single missed poll, unlike the others). Verified directly (grepped every
+remaining module for the shared `cacheBackfill`/`resolveCacheItems`/
+`readArchived*` helper pattern — zero hits on all 9) rather than trusting
+the table alone, since several sessions today had already closed items
+in this same list. Picked `euDayAheadPrices.ts`, next in the thread's
+established alphabetical-after-lower-priority-skip order and not yet
+touched by any session today.
+
+WHAT BROKE: `refreshPrices()`'s only branch was `if (obs.length) {
+archivePrices(...); cache = {...} }` — no `else` at all. A cold boot, or
+a live ENTSO-E outage/auth failure hitting every one of the 8 EU zones
+in the same poll cycle (the exact shape `fetchPrices()`'s per-zone
+try/catch already tolerates and reports via `sweepIssues()`), left
+`cache` permanently `null` even though `archivePrices()` had already
+written real day-ahead auction results to disk on every prior successful
+cycle — `/api/data/eu-day-ahead-prices` would report `warming_up`
+forever in that state, identical in shape to the 20-module audit's other
+"new reader needed" findings (nrcReactorStatus.ts, nhtsaComplaints.ts,
+etc., all fixed earlier today) and to euLoad.ts's own already-shipped fix
+for the sibling ENTSO-E load stream.
+
+FIX (same shape as euLoad.ts's `readRecentArchivedLoad`/`computeZoneStats`
+split, the closest sibling — both are per-zone-stats-over-a-window
+caches, unlike nrcReactorStatus.ts's single-latest-day shape):
+1. Extracted the inline per-zone stats computation out of `refreshPrices`
+   into a new pure function, `computePriceStats(obs: PriceObs[]):
+   PriceStat[]` — byte-identical logic, now callable from both the live
+   path and the new backfill path so they can never compute the stat
+   shape differently.
+2. New `readRecentArchivedPrices(baseDir?, nowMs?, lookbackDays=5):
+   PriceObs[]` — walks the last 5 calendar days' day-files (plain or
+   `.gz`) backward from `now`, same walk shape as
+   `readRecentArchivedLoad`/`readArchivedReactorStatus`. Deliberately
+   PAST-days-only: tomorrow's not-yet-published auction has nothing to
+   backfill from regardless of window direction.
+3. `refreshPrices()` gained the missing `else if (!cache) { const
+   archived = readRecentArchivedPrices(...); if (archived.length) cache =
+   {...} }` branch — a transient empty/failed poll only ever backfills
+   when there is NO existing cache to fall back on already (never
+   overwrites a warm cache with a stale disk read, matching every sibling
+   fix's own invariant).
+4. New `_resetEuDayAheadPricesForTests()` (module-level `cache`/
+   `seenObs`/`seeded`/`polling` singletons needed a reset hook for the
+   cold-boot test, same class of gap `_resetEuLoadForTests`/
+   `_resetReactorStatusForTests` already solved for their modules).
+
+TESTS: 3 new (`server/euDayAheadPrices.test.ts`, modeled directly on
+`euLoad.test.ts`'s own cold-cache backfill test, read before copying,
+not assumed): (a) every zone's live fetch throwing still populates the
+cache from a real prior-session archived observation, and
+`readRecentArchivedPrices` itself returns the raw rows used; (b) a live
+poll that succeeds for even one zone is never blended with archived data
+for a DIFFERENT zone — live results alone populate the cache, archive
+backfill only fires when live is completely empty; (c) an already-warm
+cache from a prior successful cycle survives a later fully-failed poll
+untouched (no stale-overwrite regression). All 13 tests in the file
+pass (10 pre-existing + 3 new, 0 regressions).
+
+GATES: `npx tsx --test server/euDayAheadPrices.test.ts`: 13/13. This
+sandbox's `node_modules`/Python deps were both freshly empty at session
+start (fresh-container provisioning gap several prior sessions have
+logged, not a repo defect) — installed via `npm ci` (488 packages) and
+`pip install -r requirements.txt -r requirements-dev.txt` before running
+the full gate. `bash scripts/gated_tests.sh`: **GATE PASSED** — server,
+client (1040 tests), python (2106 passed / 1 skipped / 54 subtests),
+deploy-gate smoke (build + boot + `/api/health` 200 under latched
+kill-switch + stale liveness), quarantine 0/1 none overdue — all green,
+0 regressions. `bash scripts/counter_ratchet.sh`: IMPROVED on first run
+(`assertions` 14750->14764, this session's own 3 new tests' worth of
+assertions — re-pinned in `ci/counter_baseline.txt` in this same PR,
+confirmed 25/25 OK again after re-pinning). `bash scripts/tsc_ratchet.sh`:
+PASS, 3 <= 11 pinned, TS2304 0 — reports the SAME pre-existing 11->3 drop
+several prior sessions today have already found and declined to claim
+(zero `.ts` files outside this session's own diff were touched in a way
+that would explain it; `ci/tsc_baseline.txt` is SHARED-but-minimal
+territory and lowering someone else's gain is not this session's one
+logical change to make, per PROMOTION RULE 5). `npm run build`/`npm run
+visual`: build ran as part of the deploy-gate smoke above (clean, same
+pre-existing chunk-size/astronomy-engine warnings every session logs);
+`npm run visual` not run separately, zero `client/` files touched by
+this diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a server-side cache/archive
+reliability fix on a RAW (not ladder-gated) datacore stream; no scoring,
+sizing, threshold, or strategy code touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+MARKET-HOURS PR NOTE (this session's own instructed framing, since this
+run occurs during market hours): this PR touches no trading-path code
+(server/euDayAheadPrices.ts is a RAW datacore ingest module, not wired
+into deep_score/tier logic) — it is safe to merge on green CI per this
+repo's own recently-reconfirmed auto-merge-regardless-of-market-hours
+convention (wishlist.md, PR #1062 and sibling entries). Per this
+session's own explicit instruction, however: **merge should wait until
+after 4:00 PM ET** unless a critical live break demands otherwise; this
+change is not a critical live-break fix, so the hold applies. Noted here
+for the record per that instruction, not self-overridden.
+
+NEXT: (1) 8 VULNERABLE modules remain in the cold-cache-no-disk-backfill
+thread: `dtccSwaps.ts` (explicitly lower-priority, 8-day live lookback
+partially mitigates), `euGenerationMix.ts`, `euMacro.ts`, `fdicBanks.ts`,
+`fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` —
+`euGenerationMix.ts` is the natural next pick (same ENTSO-E family as
+this session's fix and euLoad.ts's own precedent, likely the same
+per-zone-stats shape). (2) the AUDITS & DEBT register's staleness/
+constitutional audit last-run dates were not checked this session
+(capacity used by the primary action) — a future session's fall-through
+should check them. (3) KNOWN BROKEN #42/#43 (kill switch latch) remains
+a human decision, unchanged, not actionable by an autonomous session.
+
+STARVED: no — the queue was checked and a concrete, well-specified,
+previously-unclaimed item from this session's own tracking table was
+closed end-to-end (lib split + new backfill reader + reset hook + 3
+regression tests + ratchet registration + tracking-table update), with
+every required gate run and verified green, not assumed.
+
 ## 2026-09-18 (interactive session, fifth entry of the 2026-09-16 directive) [REPAIR] — `scripts/session_health_check.py` `compute_outage_state` dropped the last outage's record on every healthy run; fixed with tests (v1.0.932)
 
 TERRITORY: scripts tooling (scripts/session_health_check.py,
