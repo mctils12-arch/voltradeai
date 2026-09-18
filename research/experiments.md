@@ -3,6 +3,174 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine session) [RESEARCH] — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (v1.0.930)
+
+TERRITORY: scripts/insider_cusum_probe.py + test_insider_cusum_probe.py
+(new files, no prior owner) + SHARED-minimal (package.json/package-lock.json
+version bump, research/open_questions.md, research/experiments.md), last
+and minimal per MERGE-ORDER PROTOCOL.
+
+TASK FRAMING: scheduled-routine session brief — read CLAUDE.md in full
+(EDGE DOCTRINE especially), then research/. Check system health and KNOWN
+BROKEN first; if a critical item is unfixed, become a [REPAIR] session,
+otherwise pick one doctrine axis: (a) a free-data pipeline end-to-end, (b)
+capacity-constrained/illiquid-universe research, (c) one foreign-field
+idea landed as a backtestable hypothesis or discarded, (d) compile
+recurring reasoning into reusable code.
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -m 20 https://voltradeai.com/api/health`
+-> HTTP 200, `serving.ok: true`. `status: "degraded"` for the same standing,
+already fully-diagnosed reason every session since 2026-09-10 has
+confirmed: `bot.status: "killed"`, `liveness.dark: true`,
+`liveness.detail: "LIVENESS ALARM: trading loop dark for 39.0 market hours
+(191.4h wall-clock)..."`, `drawdownPct: "-7.9"` — KNOWN BROKEN #42/#43, the
+human-decision resume item (item #42's own independent price
+reconstruction already leans data-anomaly — reconstructed equity-leg P&L
+-$414.82 vs. the account's own reported -$12,059.74 — but per RULE REVIEW
+a human confirmation is the bar for clearing a live risk halt on
+inference alone, not a session's own read of the evidence). An earlier
+session TODAY already re-confirmed this exact reading (~188.9h) and
+explicitly declined to re-notify (no new information); this session's own
+check (~2.5h later, same signature) adds nothing new either, so it is
+re-confirmed but NOT re-notified, per the same established discipline.
+`feeds` all alive, `process.{unhandledRejections,uncaughtExceptions}`
+both 0. Walked the remaining KNOWN BROKEN items for anything critical AND
+code-actionable: none found — item #37 (AIS archive gap) needs Railway
+volume access this sandbox lacks; item #40's second entry is a non-urgent,
+self-resolving (every Tuesday after a long weekend) T-BOT-territory test-
+hygiene defect, explicitly filed as "not urgent." This session is
+therefore NOT a REPAIR session.
+
+PRIMARY-ACTION SELECTION: checked queued work first per SESSION BUDGET
+rule 1 — `python3 scripts/ladder_readiness_check.py` still 0/3 gated
+roots ready, `python3 scripts/data_stream_registry_check.py --unbuilt`
+still 9/9 declined/blocked, `datacore/signal_ladder.json` still fully
+detail-routed — both new-pipeline axes exhausted, matching every session
+today. Fell through to this task's own instructed fall-through: axis (c),
+import one foreign-field idea.
+
+PRIOR (stated before building or running anything, REASONING STANDARD
+#10): expected this to be a WEAK-TO-SKEPTICAL prior overall — see the
+full pre-registration in `scripts/insider_cusum_probe.py`'s own module
+docstring. In short: this file's own 2026-07-22 per-ticker Form-4-cluster
+kill is evidence against insider transactions carrying much exploitable
+information content in this dataset at all (though the aggregate-breadth
+framing tested here is a structurally different claim, not the same one
+re-tested); the academic literature on aggregate insider sentiment as a
+market-timing signal (Seyhun) finds an effect only at month-scale
+horizons and reports it decaying once EDGAR made the data cheap to watch
+— the exact "arbitraged away once cheap to see" mechanism REASONING
+STANDARD #5 asks about; and six prior foreign-field imports in this file
+are already GATE-2-killed or unresolved, which REASONING STANDARD #4 says
+should discount a seventh further. Worth one clean run anyway because
+both the statistical design (Page's CUSUM — a sequential change-detection
+accumulator, not a windowed re-estimated statistic) and the data axis
+(aggregate non-price breadth, not price-series correlation) are new to
+this family, per the 2026-09-12/09-13 Hurst sessions' own filed
+conclusion that the two untried axes remaining after six price-only
+imports were "(a) intraday structure and (b) a non-price data source."
+
+WHAT SHIPPED: `scripts/insider_cusum_probe.py` (new, 262 lines) —
+`net_flow_by_filing_date()` (market-wide net officer/director P-minus-S
+dollar flow, keyed strictly on FILING_DATE per `form4_gate2_test.py`'s
+own established no-lookahead convention, never trans_date),
+`align_to_trading_days()` (binary-search roll-forward onto the SPY
+trading calendar — a filing disclosed on a weekend/holiday becomes
+actionable at the next open, never rolled backward), `rolling_zscore()`
+(trailing-window-only standardization), `cusum()` (Page's two-sided
+recurrence — c_plus/c_minus computed strictly from z[0..t], resets to
+zero across a gap in the series rather than carrying a stale accumulation
+through it), `cusum_alarms()` (the textbook binary-onset view, kept for
+comparison, explicitly NOT the primary analysis given this family's own
+onset-counting power problem), `continuation_scores()` scored via reused
+`spearman()`/`destrided_spearman()` from `hurst_exponent_probe.py`
+(imported with `importlib`, EDGE DOCTRINE #3 — a third copy of the same
+significance-testing helper was not written). `run_probe()` wires it to
+real data: `sec_form4_bulk.load_all_records()` for the flow series,
+`backtest_v2.fetch_bars("SPY", ...)` for returns — and degrades to a
+plain `{"error": ...}` dict (verified live, not just read from source)
+when `sec_form4_bulk.archived_quarters()` is empty, which it is in this
+sandbox (the real archive lives on the Railway volume, built
+incrementally by the bot's own live Tier 3 hourly call).
+
+`test_insider_cusum_probe.py` (new, root, 23 tests, synthetic data only,
+no network) — mirrors `test_hurst_exponent_probe.py`'s rigor discipline
+specifically: a dedicated no-lookahead test for BOTH new causal functions
+(`rolling_zscore()`, `cusum()`) that mutates only the tail of a second
+copy of an otherwise-identical synthetic series and asserts the earlier
+output is byte-identical in both copies; a known sustained-shift fixture
+(flat noise, then a clean +/-2-sigma sustained shift) verifying the CUSUM
+accumulator stays near zero before the shift and crosses well past the
+h=5.0 default threshold after 40 steps of it; a gap-reset test proving
+the accumulator does not carry a pre-gap value across a `None` in the
+input; and a live smoke test that `run_probe()` against this sandbox's
+real (empty) Form-4 archive returns a graceful error dict, not an
+exception. All 23 pass. Full suite `python3 -m pytest -q`: 2103 passed, 1
+skipped, 54 subtests — 0 regressions (baseline was 2080 per the
+2026-09-17 port-dwell session's own reading, +23 this session's new
+tests = 2103, exact match).
+
+SANDBOX LIMITATION, stated plainly rather than glossed over: this session
+could NOT run the probe against real data — `sec_form4_bulk.archived_quarters()`
+returns `[]` in this container (confirmed live). This matches the
+established precedent of several prior foreign-field imports in this file
+(permutation-entropy 2026-09-05, hazard-rate 2026-08-29) that shipped
+"script built, not yet run against real data" on their own filing
+session, with the actual run left to a future session with production
+archive access.
+
+LADDER PATH: GATE 2 (SIGNAL) only. Nothing wired into `deep_score`/tier
+decisions. `datacore/signal_ladder.json` intentionally NOT touched,
+matching every prior probe in this family (strategy-layer research, not
+a datacore root).
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 —
+GATE 2 signal-only research probe, no scoring/sizing/strategy code
+touched.
+
+GATES: `python3 -m pytest -q test_insider_cusum_probe.py`: 23/23. Full
+suite: 2103 passed, 1 skipped, 54 subtests, 0 regressions.
+`bash scripts/counter_ratchet.sh`: OK, 25/25 counters at or better than
+baseline (`tests_run_in_ci`/`tests_gating_merge` read 459/459, exactly
+matching the pin — this counter apparently does not credit a bare new
+Python test file, so no re-pin was needed or made). `bash
+scripts/tsc_ratchet.sh`: PASS, 3 <= 11 pinned, TS2304 0 — this reports the
+SAME pre-existing 11->3 drop the 2026-09-16 session already found and
+explicitly declined to claim (`ci/tsc_baseline.txt` is SHARED-but-minimal
+territory, and lowering a gain this session's diff did not itself earn is
+not this session's one logical change, per PROMOTION RULE 5 — left
+un-lowered again, for whoever's diff actually produced the drop). A fresh
+container this session required `npm ci` before `bash
+scripts/gated_tests.sh` would run at all (`tsx: not found` — the same
+first-session-in-a-fresh-container `node_modules` gap several prior
+sessions have logged for the JS/TS side) — ran it, then re-ran the full
+gate clean. `npm run build`: not run standalone (covered by the gate's
+own deploy-gate smoke once `node_modules` existed; no client/server file
+is touched by this diff regardless).
+
+NEXT: (1) a future session with production/Railway archive access should
+run `python3 scripts/insider_cusum_probe.py` against the real Form 4
+archive — the k=0.5/h=5.0 CUSUM parameters and zscore_window=60/horizon=20
+defaults are the textbook, un-tuned choices named in the probe's own
+docstring and must NOT be adjusted after seeing the real result
+(REASONING STANDARD #4/MEASUREMENT INTEGRITY spirit: one theory-motivated
+spec, run once, report honestly). (2) if GATE 2 passes, the natural GATE
+3 candidate is a coarse market-timing overlay (a small SPY/QQQ
+hedge-ratio tilt), not an individual-stock strategy — this probe's claim
+is about the broad market. (3) per REASONING STANDARD #4, an eighth
+foreign-field import in this exact "statistic vs. forward SPY return"
+shape should carry a materially raised prior against success; the
+remaining structurally-different axis this file has explicitly named
+(intraday structure) is worth more than a ninth same-shape variant.
+
+STARVED: no — queued-work axes were checked and confirmed exhausted
+before starting a new probe; the hypothesis was pre-registered before any
+code was written; the probe was built with real synthetic unit tests
+including dedicated no-lookahead coverage for both new causal functions
+(not assumed correct); and it was run live against this sandbox's actual
+archive state rather than left untested, with the resulting limitation
+stated plainly rather than glossed over.
+
 ## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — treasuryAuctions.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live treasurydirect.gov outage) on the very first poll left `/api/data/treasury-auctions` warming_up forever despite a real, immutable auction-results archive already on disk (v1.0.929)
 
 TERRITORY: T-DATACORE (server/treasuryAuctions.ts, server/treasuryAuctions.test.ts) +
