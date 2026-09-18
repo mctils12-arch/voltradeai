@@ -295,11 +295,93 @@ export interface GenMixStat {
   window_mean_mw: number | null;
 }
 
+/** Pure aggregation, extracted so a disk-backfilled day's raw obs can be
+ *  turned into the same stats shape a live sweep produces (cold-cache-no-
+ *  disk-backfill fix thread, research/open_questions.md's module audit
+ *  table — this was the last remaining logical-generation-mix-shaped gap;
+ *  euGenerationMix.ts caches a DERIVED aggregate, not a flat item list, so
+ *  per `cacheBackfill.ts`'s own SCOPE note this is fixed by hand, same as
+ *  nrcReactorStatus.ts, not routed through the shared `resolveCacheItems`). */
+export function computeGenMixStats(obs: GenMixObs[]): GenMixStat[] {
+  const byKey = new Map<string, GenMixObs[]>();
+  for (const o of obs) {
+    const k = `${o.zone}|${o.psr}`;
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k)!.push(o);
+  }
+  const stats: GenMixStat[] = [];
+  byKey.forEach((rows, key) => {
+    const [zone, psr] = key.split("|");
+    const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
+    const vals = rows.map((r) => r.mw).filter((v): v is number => v != null);
+    stats.push({ zone, psr, psr_name: PSRTYPE_MAPPINGS[psr] || psr,
+                 latest_ts: newest.ts, latest_mw: newest.mw,
+                 resolution: newest.res, points_in_window: rows.length,
+                 window_min_mw: vals.length ? Math.min(...vals) : null,
+                 window_max_mw: vals.length ? Math.max(...vals) : null,
+                 window_mean_mw: vals.length
+                   ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+                   : null });
+  });
+  stats.sort((a, b) => a.zone.localeCompare(b.zone) || a.psr.localeCompare(b.psr));
+  return stats;
+}
+
+/** Most recent archived day's raw obs (plain or gz), walked backward up to
+ *  `lookbackDays` — used to backfill the live cache when a cold boot's or
+ *  a live ENTSO-E outage's sweep returns nothing (e.g. the key is set but
+ *  every zone acks or errors), so a transport failure doesn't report
+ *  `warming_up` over a real archived day already on disk (Freshness Law).
+ *  Same pattern as nrcReactorStatus.ts's `readArchivedReactorStatus`; the
+ *  day-file naming/dedup here is already exactly that shape (`archiveGenMix`'s
+ *  own per-day `.jsonl(.gz)` files). Returns one day's raw obs, not a
+ *  merged multi-day window — `computeGenMixStats` needs a single window's
+ *  worth of points per (zone, psr) to report sane min/max/mean, and
+ *  blending two different UTC days would double-count or (if `mw` values
+ *  differ) misreport them as vintage revisions of the same point. 7-day
+ *  default: hourly-ish source polled every 2h, so a week comfortably
+ *  covers a multi-day ENTSO-E outage without scanning the whole archive. */
+export function readArchivedGenMix(baseDir?: string, nowMs?: number, lookbackDays = 7): GenMixObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = genMixDir(baseDir);
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    const obs: GenMixObs[] = [];
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { obs.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+    if (obs.length > 0) return obs;
+  }
+  return [];
+}
+
 let cache: { at: number; stats: GenMixStat[]; issues: Record<string, string> } | null = null;
 let polling = false;
 
 export function latestGenMix() {
   return cache;
+}
+
+/** Test-only: `cache`/`seenObs`/`seeded`/`polling`/`lastIssues` are
+ *  module-level singletons (same class of problem as
+ *  nrcReactorStatus.ts's own `_resetReactorStatusForTests`), so a test
+ *  exercising the cold-cache backfill path must be able to reset them
+ *  rather than rely on file execution order to find `cache` still null. */
+export function _resetGenMixForTests(): void {
+  seenObs.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+  for (const k of Object.keys(lastIssues)) delete lastIssues[k];
 }
 
 export async function refreshGenMix(fetchImpl: FetchFn = fetch as any,
@@ -311,28 +393,12 @@ export async function refreshGenMix(fetchImpl: FetchFn = fetch as any,
     const obs = await fetchGenMix(fetchImpl, env, nowMs, spacingMs);
     if (obs.length) {
       archiveGenMix(obs, baseDir);
-      const byKey = new Map<string, GenMixObs[]>();
-      for (const o of obs) {
-        const k = `${o.zone}|${o.psr}`;
-        if (!byKey.has(k)) byKey.set(k, []);
-        byKey.get(k)!.push(o);
+      cache = { at: Date.now(), stats: computeGenMixStats(obs), issues: sweepIssues() };
+    } else if (!cache) {
+      const archived = readArchivedGenMix(baseDir, nowMs);
+      if (archived.length > 0) {
+        cache = { at: Date.now(), stats: computeGenMixStats(archived), issues: sweepIssues() };
       }
-      const stats: GenMixStat[] = [];
-      byKey.forEach((rows, key) => {
-        const [zone, psr] = key.split("|");
-        const newest = rows.reduce((mx, r) => (r.ts > mx.ts ? r : mx), rows[0]);
-        const vals = rows.map((r) => r.mw).filter((v): v is number => v != null);
-        stats.push({ zone, psr, psr_name: PSRTYPE_MAPPINGS[psr] || psr,
-                     latest_ts: newest.ts, latest_mw: newest.mw,
-                     resolution: newest.res, points_in_window: rows.length,
-                     window_min_mw: vals.length ? Math.min(...vals) : null,
-                     window_max_mw: vals.length ? Math.max(...vals) : null,
-                     window_mean_mw: vals.length
-                       ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-                       : null });
-      });
-      stats.sort((a, b) => a.zone.localeCompare(b.zone) || a.psr.localeCompare(b.psr));
-      cache = { at: Date.now(), stats, issues: sweepIssues() };
     }
     gzipOldGenMixDays(baseDir, nowMs);
   } catch (e: any) {
