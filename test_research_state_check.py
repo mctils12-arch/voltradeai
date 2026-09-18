@@ -381,11 +381,12 @@ def test_run_all_checks_against_real_repo_files_does_not_crash():
     # from the real files' current headings.
     assert len(register) >= 1
     assert len(items) >= 1
-    # the real file's most recent sessions are STARVED: no (checked by hand
-    # this session) — this is a live-data smoke assertion, not a synthetic
-    # pin, so it only guards against the parser crashing or mis-reading the
-    # real format, not against the file's content ever changing.
-    assert starved_flags[0] == "no"
+    # live-data smoke assertion, not a synthetic pin: the parser must read a
+    # VALID flag off the newest real entry (None = it missed the STARVED line
+    # or mis-read the format). It must NOT pin which value — 2026-09-18: the
+    # newest entries honestly log STARVED: yes (the leak audit's queued NEXT
+    # items), and pinning "no" here made every Python PR red for saying so.
+    assert starved_flags[0] in ("yes", "no"), starved_flags[:3]
 
 
 def test_run_all_checks_without_starved_flags_stays_three_findings():

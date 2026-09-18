@@ -3,7 +3,30 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-18 (scheduled-routine [PRODUCT] session, third entry this UTC day) [PIPELINE] — nrcReactorStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nrc.gov outage) left `/api/data/nrc-reactor-status` warming_up forever despite a real per-day archive already on disk (v1.0.932)
+## 2026-09-18 (interactive session, fifth entry of the 2026-09-16 directive) [REPAIR] — `scripts/session_health_check.py` `compute_outage_state` dropped the last outage's record on every healthy run; fixed with tests (v1.0.932)
+
+TERRITORY: scripts tooling (scripts/session_health_check.py,
+test_session_health_check.py) + SHARED-minimal, last (package.json/
+package-lock.json, this entry).
+
+WHAT BROKE: the function's healthy-and-was-healthy branch returned a bare
+`{"down_since": null}`, so the first routine run after a recovery
+overwrote `last_outage_started_utc` / `last_recovered_utc` — this
+session's own 13:08Z run erased the 126.4h record of the 2026-09-10 ->
+09-16 outage that the 09-16 run had written (restored from git before
+committing anything). Found while filing the leak audit (previous entry,
+NEXT 5). The same-shape bug also existed on the healthy-to-down
+transition (a new outage's first record dropped the previous one).
+
+FIX: the two `last_*` keys are carried forward as history on every
+branch; a recovery still overwrites them with the new outage's dates;
+a fresh install still produces no history keys. 3 tests: healthy run
+preserves the record; a new outage keeps the previous record until its
+own recovery replaces it; fresh install unchanged. 66/66 in the file.
+
+STARVED: yes — the audit's NEXT 1-4 remain queued (previous entry).
+
+## 2026-09-18 (scheduled-routine [PRODUCT] session, third entry this UTC day) [PIPELINE] — nrcReactorStatus.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live nrc.gov outage) left `/api/data/nrc-reactor-status` warming_up forever despite a real per-day archive already on disk (v1.0.933)
 
 TERRITORY: T-DATACORE (server/nrcReactorStatus.ts + its test — datacore
 server module per WORKSTREAM PARTITION) + SHARED-minimal, last and
@@ -152,7 +175,20 @@ VERIFIED, not assumed:
 - Version bumped 1.0.931 -> 1.0.932 (package.json + package-lock.json,
   read-and-incremented from a freshly-fetched, force-verified
   origin/main immediately before committing, per the MERGE-ORDER
-  PROTOCOL).
+  PROTOCOL) — then a SECOND time, 1.0.932 -> 1.0.933, after a concurrent
+  session's own PR (#1111, the leak-audit's own NEXT(5) follow-up) merged
+  to main with the identical 1.0.932 tag while this PR's CI was still
+  running. Caught via the "Auto-merge Claude PRs" check's own failure
+  (`GraphQL: Pull Request has merge conflicts`) rather than assumed;
+  `git fetch origin main` confirmed a second new commit (d0cae2f) past
+  the one already merged into this branch, re-merged (keep-both-sides on
+  research/experiments.md's top-of-file conflict, ordered by commit
+  timestamp per the file's own "newest at top" convention; ci/
+  counter_baseline.txt's `assertions` pin conflict resolved by re-running
+  `scripts/counter_ratchet.sh` fresh against the merged tree rather than
+  hand-summing both sessions' deltas), version bumped past the
+  now-taken 1.0.932 to keep this PR's tag unique, and every gate re-run
+  against the fully merged tree before pushing again.
 
 BACKTEST: N/A per PROMOTION RULE 3 — this is a datacore reliability fix
 (cache-population logic for an already-shipped RAW data route); no
