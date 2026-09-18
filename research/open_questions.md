@@ -20531,7 +20531,7 @@ empty/failed live poll):
 | dtccSwaps.ts | none (8-day live lookback partially mitigates) | new reader needed, lower priority |
 | euDayAheadPrices.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.934** |
 | euGenerationMix.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.935** |
-| euMacro.ts | none | new reader needed |
+| euMacro.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.936** |
 | faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |
 | fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed |
 | fredMacro.ts | none | new reader needed |
@@ -20615,6 +20615,30 @@ Remaining VULNERABLE queue after this fix: `euMacro.ts`, `fdicBanks.ts`,
 "new reader needed", no ranking beyond the original list order), plus
 `dtccSwaps.ts` (explicitly lower-priority, per its own 8-day live-lookback
 mitigation).
+
+NOT A SPEND REQUEST.
+
+UPDATE 2026-09-18 (scheduled-routine [PRODUCT] session) — `euMacro.ts`
+FIXED (v1.0.936). Same-file investigation surfaced a related-but-distinct
+bug beyond the originally-scoped cold-boot class: the finalize line
+replaced the WHOLE cache object every cycle whenever at least one of the
+five series succeeded, blanking any OTHER series' `latest` to null if its
+own live fetch came back empty that cycle — a single-source outage (e.g.
+ECB alone) was silently erasing three of five series' real cached values
+for as long as that source stayed down, unbounded, not just on cold boot.
+Fixed by having each series independently fall back to (1) the prior
+cache's own snapshot for that series, then (2) a new
+`readRecentArchivedEuMacro()` disk backfill (200-day window — EU_INDPROD
+is monthly), only ever reaching (3) an honest null when neither exists.
+Full account in experiments.md's matching dated entry, including the
+explicit flag that `fredMacro.ts` (this file's own docstring calls it a
+"fredMacro clone") likely shares the same partial-failure shape, not just
+the classic cold-boot one already scoped for it — worth checking first
+when that module's turn in this queue comes up.
+
+Remaining VULNERABLE queue: `fdicBanks.ts`, `fredMacro.ts`,
+`gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all "new reader
+needed"), plus `dtccSwaps.ts` (still explicitly lower-priority).
 
 NOT A SPEND REQUEST.
 

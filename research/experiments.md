@@ -3,6 +3,171 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — euMacro.ts joins the cold-cache-no-disk-backfill fix thread, plus a related same-file bug it exposed: a partial per-series live-fetch failure used to blank that series' already-cached value even while its four siblings kept updating normally (v1.0.936)
+
+TERRITORY: SHARED-minimal — `server/euMacro.ts`/`.test.ts` (T-DATACORE by
+the WORKSTREAM PARTITION table, product-queue work per the already-filed
+audit, not new datacore-authoring) + `package.json`/`package-lock.json`/
+`ci/counter_baseline.txt`/`research/*`, last and minimal, per MERGE-ORDER
+PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then research/experiments.md,
+open_questions.md, wishlist.md (in that order, per MEMORY PROTOCOL).
+LOOP-HEALTH RATIO: last 10 experiments.md entries tag as RULE-REVIEW,
+PIPELINE, RULE-REVIEW, PIPELINE, REPAIR, PIPELINE, RESEARCH, PIPELINE,
+RESEARCH, PIPELINE — 1/10 REPAIR, well under the 7+ thrash trigger; no
+meta-problem to address this session.
+
+HEALTH CHECK (`python3 scripts/session_health_check.py`, live, this
+session): `deploy_gate` OK (a new container would pass Railway's
+healthcheck); `subsystems`/`process_faults`/`daemon_memory`/
+`tier2_daemon_timeouts`/`ml_feedback`/`deploy_freshness`/`outage_duration`
+all OK; **`liveness` ALARM — trading loop dark for 45.5 market hours
+(209.1h wall-clock) since 2026-09-10T03:12:26Z.** This is the standing
+KNOWN BROKEN #42/#43 drawdown-kill trip: `#43`'s fix correctly restored
+the -10% JS-side kill switch's reachability (it now fires on every
+Tier-1 cycle instead of only on a non-empty-morning-queue day, exactly as
+designed) and it tripped on real data; `#42`'s own independent
+market-close price reconstruction (`scripts/reconstruct_position_pnl.py`,
+run live against the actual incident 2026-09-10) already settled the
+question toward DATA-ANOMALY, not a real ~-18% loss (reconstructed
+equity-leg P&L -$414.82 vs. the account's own reported -$12,059.74) — but
+resuming a tripped, `can_auto_resume:false` risk halt on inference alone
+is exactly what RULE REVIEW reserves for human judgment, not a session's
+own call. The human was already notified directly (PushNotification) by
+the sessions that found and fixed this on 2026-09-09/10, and every
+session since (including the one immediately preceding this one, same
+UTC day) has re-confirmed the identical reading and correctly declined to
+re-notify absent new information — this session's own reading adds no
+new fact (same signature, ~6h further elapsed) and follows that same
+established discipline: NOT re-notified. No other KNOWN BROKEN item is
+both critical and code-actionable from this sandbox. NOT a REPAIR
+session.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET rule 1, checked queued work
+first. `research/open_questions.md`'s own cold-cache-no-disk-backfill
+module audit table (filed 2026-09-15, one module per PR every session
+since) lists six modules still VULNERABLE after this same UTC day's
+`euDayAheadPrices.ts`/`euGenerationMix.ts` fixes: `euMacro.ts`,
+`fdicBanks.ts`, `fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`,
+`gridGeneration.ts` (all "new reader needed", no ranking beyond the
+original list order, `dtccSwaps.ts` still explicitly deprioritized).
+Took `euMacro.ts`, next in the table's own stated order.
+
+READ BEFORE WRITE: read the full current `euMacro.ts` (323 lines) and its
+existing test file this session, not from memory. Confirmed the exact
+bug shape, which is a DIFFERENT (and more consequential) variant than the
+other seven modules this thread has fixed so far: `refreshEuMacro`'s
+finalize line was `if (snapshots.some((s) => s.latest) || !cache) cache =
+{ at: now, series: snapshots };` — snapshots is rebuilt from scratch
+EVERY cycle, one entry per series, with a series' `latest` set to `null`
+whenever that cycle's live fetch for it returned nothing. The `!cache`
+half covers the classic cold-boot case (first-ever poll, everything
+empty) the same way the other six fixes did. But the `snapshots.some(...)`
+half means: on ANY cycle where at least one of the five series succeeds
+(the overwhelmingly common case — five independent sources, ECB/
+Eurostat/Bundesbank, rarely all down at once), the ENTIRE cache object is
+replaced — including setting `latest: null` for every series that failed
+THIS cycle, even if that series had a perfectly good cached value from
+five minutes ago. A single-source outage (e.g. the ECB host alone having
+a bad day) was silently blanking three of five series' live values every
+poll for as long as that source stayed down, while the other two kept
+updating normally — worse than the pure cold-cache class, since it's not
+limited to first-boot and had no upper bound on how long a real,
+previously-fetched value could be missing from `/api/data/eu-macro`.
+
+BUILT (v1.0.936, own PR): `readRecentArchivedEuMacro(baseDir?, nowMs?,
+lookbackDays=200)` — same shape as `euDayAheadPrices.ts`'s
+`readRecentArchivedPrices`/`euGenerationMix.ts`'s `readArchivedGenMix`,
+walking back through the existing per-day `.jsonl(.gz)` archive files
+`archiveEuObs` already writes, returning raw obs across ALL series (200
+days, not 5-7 like the sibling fixes, because `EU_INDPROD` is monthly —
+a short window would miss its latest vintage entirely). A pure
+`seriesHistory(seriesKey, obs)` helper picks one series' latest-30
+ascending (d,v) pairs out of a pool, so both the live path and the
+backfill path build the identical snapshot shape. `refreshEuMacro` now
+snapshots a `prevByKey` map from the OUTGOING cache before rebuilding,
+and for any series whose live fetch was empty this cycle: prefer the
+prior cache's own snapshot for that series (freshest known value,
+zero disk I/O) over the archive, and only fall through to
+`readRecentArchivedEuMacro` (lazily, read once and shared across all
+five series, not once per series) when there is no prior cache entry at
+all — the true cold-boot case. `cache = {...}` now always executes
+unconditionally (the old `snapshots.some(...) || !cache` gate is gone —
+it's provably always safe now, since every series individually falls
+back instead of ever silently regressing to null from a good state).
+
+RATCHET: 3 new tests in `server/euMacro.test.ts` (10 total, up from 7) —
+`readRecentArchivedEuMacro` walks plain + gzipped day-files across
+series; a true cold boot (no prior cache, empty live poll) backfills
+every series including the monthly one from a seeded on-disk archive
+instead of reporting null; and the partial-failure case this session
+found (ECB dark, Eurostat+Bundesbank still succeeding) preserves the
+three ECB series' prior cached values while the two live ones keep
+updating — the exact bug this session's own reading of the code found,
+not just the originally-scoped cold-boot class. A/B-verified via `git
+stash server/euMacro.ts`: the module fails to even load without the fix
+(`readRecentArchivedEuMacro` doesn't exist), proving the new tests are
+genuinely new, not redundant with pre-fix behavior. The pre-existing
+"refresh survives total transport failure with honest empty snapshots"
+test is UNCHANGED and still passes post-fix (it uses a fresh empty temp
+dir as the archive base with no prior cache, so there is nothing to
+backfill from — the fix correctly still reports honest nulls when there
+really is no known-good data anywhere, live or archived).
+
+GATES: `npx tsx --test server/euMacro.test.ts` 10/10 pass. Full
+`npx tsx --test server/*.test.ts`: 1668/1676 pass — the 8 failures
+(aircraftTiling/apiKeyAccounts/cdcCancer/compression/gdeltEvents/
+owmTiles/seafloorTiles/securityMiddleware) are pre-existing and
+IDENTICAL with or without this change (verified via `git stash` A/B on
+the full suite this session, not assumed from memory of prior sessions'
+notes) — same pre-existing network-dependent-test class documented
+repeatedly in this file, unrelated to any TS file this PR touches.
+`python3 -m pytest -q` could not run in this sandbox (`pytest` module
+missing from this shell's `python3`, though a separate `/root/.local/bin/
+pytest` binary exists — an environment/PATH gap, not a code issue; zero
+Python files touched by this PR in any case). `npx tsc --noEmit`: same 3
+pre-existing sandbox-environment errors (missing @types/node/vite type
+entry points, deprecated tsconfig `baseUrl` option) as every prior
+session's baseline, unrelated. `bash scripts/tsc_ratchet.sh`: reports
+3 <= pin 11 (an 8-error DROP) — confirmed via `git stash` A/B that this
+gap exists identically with or without this PR's diff, i.e. it is the
+same sandbox-environment divergence the pin file's own header warns
+against "fixing" by lowering the pin ("If CI reports a count that does
+NOT match this file and your diff cannot explain it, that is an
+environment divergence, not a regression") — `ci/tsc_baseline.txt`
+deliberately left UNCHANGED at 11, not lowered to 3, since this PR
+cannot honestly claim credit for a gap it didn't create. `bash
+scripts/counter_ratchet.sh`: `assertions` genuinely improved 14780 ->
+14791 from this PR's own 3 new tests' real assertions (re-pinned in
+`ci/counter_baseline.txt`, the one counter this PR actually affects); all
+other 24 counters unchanged. `npm run build` could not run (`tsx` binary
+absent from `node_modules/.bin` in this sandbox — the same pre-existing
+environment gap prior sessions' entries already document, e.g. the
+v1.0.310 and v1.0.397 entries above); moot in spirit, this PR's only
+non-doc/non-version files are `server/euMacro.ts`/`.test.ts`.
+
+Backtest: N/A — RAW OVERLAY-tier datacore pipeline fix (archive/cache
+reliability), not a scoring, sizing, or threshold change; no PROMOTION
+RULE 3 comparison applies.
+
+Remaining VULNERABLE queue after this fix: `fdicBanks.ts`, `fredMacro.ts`,
+`gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all "new reader
+needed"), plus `dtccSwaps.ts` (still explicitly lower-priority per its
+own 8-day live-lookback mitigation). `fredMacro.ts` is worth flagging for
+the next session in this thread: it is described in this file's own
+`euMacro.ts` docstring as "same pattern... fredMacro clone" — likely
+shares the exact same partial-failure whole-cache-replace bug shape this
+session found, not just the classic cold-boot class already scoped for
+it. A future session should read it fresh rather than assume, per READ
+BEFORE WRITE, but the specific thing to check for is named here so it
+isn't re-discovered from scratch.
+
+NOT A SPEND REQUEST.
+
+STARVED: no — this was the single highest-value queued action available
+and completed within budget; no higher-priority item was skipped.
+
 ## 2026-09-18 (scheduled-routine session, same-day addendum after PR #1115 merged) [RULE-REVIEW] — 17th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 PR #1115 (this same session's `euGenerationMix.ts` fix, entry immediately

@@ -8,10 +8,11 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import zlib from "zlib";
 import {
   parseEcbCsv, parseEurostatJsonStat, parseBbkJson, isoWeekFriday,
   archiveEuObs, refreshEuMacro, latestEuMacro, _resetEuMacroForTests,
-  EU_SERIES,
+  readRecentArchivedEuMacro, EU_SERIES,
 } from "./euMacro";
 
 function tmp(): string {
@@ -122,4 +123,75 @@ test("refresh survives total transport failure with honest empty snapshots (no f
   await refreshEuMacro(dead as any, Date.parse("2026-07-07T12:00:00Z"), tmp(), 0);
   const hit = latestEuMacro()!;
   assert.ok(hit.series.every((s) => s.latest === null && s.history.length === 0));
+});
+
+test("readRecentArchivedEuMacro: walks back through plain and gzipped day-files, across series", () => {
+  const base = tmp();
+  const NOW = Date.parse("2026-07-10T12:00:00Z");
+  assert.equal(archiveEuObs([{ s: "ECB_EURUSD", d: "2026-07-08", v: 1.14, rt: "2026-07-08" }], base, Date.parse("2026-07-08T12:00:00Z")), 1);
+  assert.equal(archiveEuObs([{ s: "DE_BUND10Y", d: "2026-07-09", v: 3.02, rt: "2026-07-09" }], base, Date.parse("2026-07-09T12:00:00Z")), 1);
+  fs.writeFileSync(
+    path.join(base, "eumacro", "2026-06-01.jsonl.gz"),
+    zlib.gzipSync(Buffer.from(JSON.stringify({ s: "EU_INDPROD", d: "2026-06-01", v: 97.1, rt: "2026-06-01" }) + "\n")),
+  );
+  const rows = readRecentArchivedEuMacro(base, NOW, 45);
+  assert.deepEqual(rows.map((r) => [r.s, r.d, r.v]).sort(), [
+    ["DE_BUND10Y", "2026-07-09", 3.02],
+    ["ECB_EURUSD", "2026-07-08", 1.14],
+    ["EU_INDPROD", "2026-06-01", 97.1],
+  ]);
+});
+
+test("cold boot: a live poll that returns nothing for every series backfills each series' latest from its own on-disk archive instead of reporting null", async () => {
+  const base = tmp();
+  // Simulate a prior day's successful archive write directly (no live cache carried over — cold boot).
+  archiveEuObs(
+    [
+      { s: "ECB_EURUSD", d: "2026-07-06", v: 1.1415, rt: "2026-07-06" },
+      { s: "ECB_ESTR", d: "2026-07-06", v: 2.18, rt: "2026-07-06" },
+      { s: "ECB_BS_TOTAL", d: "2026-06-26", v: 6117260, rt: "2026-07-06" },
+      { s: "EU_INDPROD", d: "2026-06-01", v: 98.1, rt: "2026-07-06" },
+      { s: "DE_BUND10Y", d: "2026-07-06", v: 2.95, rt: "2026-07-06" },
+    ],
+    base,
+    Date.parse("2026-07-06T12:00:00Z"),
+  );
+  _resetEuMacroForTests(); // archiveEuObs seeds its own module-level dedup map; the cache stays cold
+  const dead = async () => { throw new Error("ECONNRESET"); };
+  await refreshEuMacro(dead as any, Date.parse("2026-07-07T09:00:00Z"), base, 0);
+  const hit = latestEuMacro()!;
+  const by = Object.fromEntries(hit.series.map((s) => [s.key, s]));
+  assert.equal(by.ECB_EURUSD.latest!.v, 1.1415, "backfilled from yesterday's archive, not left null");
+  assert.equal(by.EU_INDPROD.latest!.v, 98.1, "monthly series backfills too — 200-day default window reaches it");
+  assert.equal(by.DE_BUND10Y.latest!.v, 2.95);
+});
+
+test("a single series' transport failure does not blank its already-cached value while sibling series keep updating (the partial-failure class the old whole-cache-replace logic got wrong)", async () => {
+  const base = tmp();
+  const firstPoll = async (url: string) => {
+    let body = "";
+    if (url.includes("EXR/D.USD")) body = "KEY,TIME_PERIOD,OBS_VALUE\nx,2026-07-06,1.1415\n";
+    else if (url.includes("EST/B.EU000")) body = "KEY,TIME_PERIOD,OBS_VALUE\nx,2026-07-03,2.183\n";
+    else if (url.includes("ILM/W.U2")) body = "KEY,TIME_PERIOD,OBS_VALUE\nx,2026-W26,6117260\n";
+    else if (url.includes("eurostat")) body = JSON.stringify({ value: { "0": 98.3 }, status: {}, dimension: { time: { category: { index: { "2026-05": 0 } } } } });
+    else body = JSON.stringify({ data: { dataSets: [{ series: { k: { observations: { "0": ["2.98", 0] } } } }], structure: { dimensions: { observation: [{ values: [{ id: "2026-07-06" }] }] } } } });
+    return { ok: true, status: 200, text: async () => body };
+  };
+  await refreshEuMacro(firstPoll as any, Date.parse("2026-07-07T12:00:00Z"), base, 0);
+  assert.equal(latestEuMacro()!.series.find((s) => s.key === "ECB_EURUSD")!.latest!.v, 1.1415, "sanity: first poll populated the cache");
+
+  // Second poll: ECB (EUR/USD, ESTR, BS_TOTAL) all go dark (a transport error on the ECB host only);
+  // Eurostat and Bundesbank keep succeeding with fresh values.
+  const secondPoll = async (url: string) => {
+    if (url.includes("data-api.ecb.europa.eu")) throw new Error("ECONNRESET");
+    if (url.includes("eurostat")) return { ok: true, status: 200, text: async () => JSON.stringify({ value: { "0": 99.0 }, status: {}, dimension: { time: { category: { index: { "2026-06": 0 } } } } }) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: { dataSets: [{ series: { k: { observations: { "0": ["3.05", 0] } } } }], structure: { dimensions: { observation: [{ values: [{ id: "2026-07-07" }] }] } } } }) };
+  };
+  await refreshEuMacro(secondPoll as any, Date.parse("2026-07-07T18:00:00Z"), base, 0);
+  const hit = latestEuMacro()!;
+  const by = Object.fromEntries(hit.series.map((s) => [s.key, s]));
+  assert.equal(by.ECB_EURUSD.latest!.v, 1.1415, "ECB dark this cycle — prior cached value preserved, not blanked to null");
+  assert.equal(by.ECB_BS_TOTAL.latest!.v, 6117260, "same for the other two ECB series");
+  assert.equal(by.EU_INDPROD.latest!.v, 99.0, "Eurostat's own fresh value still lands");
+  assert.equal(by.DE_BUND10Y.latest!.v, 3.05, "Bundesbank's own fresh value still lands");
 });
