@@ -20560,3 +20560,173 @@ not attempt to give any of them an archive (that would be a much larger,
 separate COLLECT-EVERYTHING buildout, not a bug fix).
 
 NOT A SPEND REQUEST.
+
+## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (no archived Form 4 quarters in this sandbox)
+
+CONTEXT: scheduled-routine session. System health checked first
+(`/api/health`): `serving.ok: true`, `status: "degraded"` for the same
+standing, already fully-diagnosed reason every session since 2026-09-10 —
+`bot.status: "killed"`, `liveness.dark: true`, ~191h wall-clock / 39 market
+hours since the 2026-09-10T03:12:26Z drawdown-kill trip (KNOWN BROKEN
+#42/#43). Both items are explicitly a HUMAN decision (item #42's own
+independent price reconstruction already settled the real-loss-vs-data-
+anomaly question toward data-anomaly — reconstructed equity-leg P&L
+-$414.82 vs. the account's own reported -$12,059.74 — but resuming trading
+is deliberately left to the human, per RULE REVIEW's bar for clearing a
+live risk halt on inference alone); every session since has re-confirmed
+this live and correctly declined to re-notify absent new information (most
+recently this same UTC day, per experiments.md's own "re-confirmed but NOT
+re-notified" line) — this session's own health check adds no new fact
+(same signature, ~2.5h more elapsed than the same day's earlier check) and
+follows the same established discipline. No other KNOWN BROKEN item is
+both critical and code-actionable this session (item #37, the AIS archive
+gap, needs Railway volume access this sandbox does not have; item #40's
+second entry is a non-urgent, self-resolving test-hygiene defect in T-BOT
+territory). This is therefore NOT a REPAIR session.
+
+Checked queued work first per SESSION BUDGET rule 1:
+`scripts/ladder_readiness_check.py` and `scripts/data_stream_registry_check.py
+--unbuilt` both still fully exhausted (0/3 gated roots ready, 9/9 unbuilt
+candidates blocked on a human key/registration), matching every session
+today. Fell through to this task's own instructed axis (c): import one
+foreign-field idea as a backtestable hypothesis this session, or discard.
+
+FULL WRITE-UP AND PRE-REGISTRATION lives in
+`scripts/insider_cusum_probe.py`'s own module docstring (this repo's
+established convention — see `hurst_exponent_probe.py`,
+`permutation_entropy_probe.py`, etc.). Summary here:
+
+FOREIGN FIELD: statistical process control / industrial quality
+engineering — E.S. Page's CUSUM (cumulative sum) control chart (1954),
+building on Shewhart (1924). A SEVENTH field for this file, after ecology
+(critical slowing down, 2026-08-18), epidemiology (R_t, 2026-08-26),
+reliability engineering (hazard rate, 2026-08-29), seismology (Omori-Utsu,
+2026-08-30), information theory (permutation entropy, 2026-09-05), and
+hydrology (Hurst exponent, 2026-09-12) — all six GATE 2 killed or
+unresolved. Per the 2026-09-12/09-13 Hurst sessions' own filed conclusion,
+the two REMAINING untried axes after six price-only imports were "(a)
+intraday structure and (b) a non-price data source" — this picks (b).
+
+NON-PRICE DATA SOURCE: `sec_form4_bulk.py`'s already gate-1-passed SEC
+Form 4 bulk archive (officer/director open-market P/S transactions,
+FILING_DATE-keyed, no lookahead). Distinct from the EXISTING Form-4 work
+in this file: `form4_gate2_test.py` tests a PER-TICKER, PER-EVENT question
+and was GATE 2 KILLED 2026-07-22 (no 20d separation, significant negative
+60d — a momentum/timing-at-extremes confound). This probe asks a
+market-wide BREADTH question instead (does aggregate net officer/director
+buying/selling, summed across every filer, lead the BROAD market?) — the
+same relationship shape `wikimedia_pageviews_attention`'s already-gate-2-
+passed design uses. The 2026-07-22 kill is real evidence against
+individual-name insider alpha in this dataset but does not settle the
+aggregate-breadth question.
+
+HYPOTHESIS (pre-registered before running, full text in the script):
+standardize market-wide net insider dollar flow into a rolling z-score,
+run a two-sided Page CUSUM over it (cusum_t = signed cumulative deviation,
+strictly causal — computed only from z[0..t]), and correlate cusum_t
+against forward H-day SPY log returns via the SAME de-strided
+(non-overlapping-window) significance test the Hurst session built and
+this probe reuses via `importlib` (EDGE DOCTRINE #3 — not reimplemented).
+Continuous-score design throughout, not onset-counting, per the 2026-09-05/
+09-12 sessions' own structural finding that onset-counting hits a n~10-15
+power ceiling every time.
+
+PRIOR (stated before running, REASONING STANDARD #10): weak-to-skeptical.
+(1) this file's own 2026-07-22 per-ticker kill is evidence against insider
+transactions carrying much information content in this dataset at all,
+even though the aggregate framing is a different claim; (2) REASONING
+STANDARD #5 — aggregate insider-sentiment market-timing is an old idea in
+the literature (Seyhun 1986/1988 finds SOME aggregate predictive content,
+but at month-scale horizons, not this codebase's 5-60 trading-day GATE 2
+convention, and Seyhun's later work finds the edge decayed once EDGAR made
+the data cheap to watch — the faster/bigger-players-arbitrage-it-away
+mechanism this standard asks about); (3) six prior foreign-field imports
+in this file are already GATE-2-killed or unresolved, and REASONING
+STANDARD #4 discounts a seventh further. Worth one clean run anyway: the
+CUSUM design and the aggregate-breadth framing are both new to this
+family, and testing against SPY itself (not a single stock) sidesteps the
+2026-07-22 kill's specific momentum/timing-at-extremes confound.
+
+LADDER PATH: GATE 2 (SIGNAL) only — no trading logic, no sizing, nothing
+wired into `deep_score`/tier decisions regardless of outcome.
+`datacore/signal_ladder.json` intentionally NOT touched, matching every
+prior foreign-field probe in this family (these are strategy-layer
+research probes, not datacore roots).
+
+WHAT SHIPPED: `scripts/insider_cusum_probe.py` (new) —
+`net_flow_by_filing_date()`, `align_to_trading_days()` (rolls a
+non-trading-day filing forward, never backward — no-lookahead-safe),
+`rolling_zscore()` (trailing-window-only), `cusum()` (Page's two-sided
+recurrence, resets across gaps, strictly causal), `cusum_alarms()` (the
+textbook onset view, provided for comparison, not the primary analysis),
+`continuation_scores()` + reused `spearman()`/`destrided_spearman()` (via
+`importlib` against `hurst_exponent_probe.py`, EDGE DOCTRINE #3).
+`test_insider_cusum_probe.py` (new, root, 23 tests, synthetic data only,
+no network): includes a dedicated no-lookahead test for both
+`rolling_zscore()` and `cusum()` (mutates only the tail of a second copy
+of a synthetic series and asserts the earlier output is byte-identical —
+mirroring `rolling_hurst()`'s own no-lookahead test convention), a known
+sustained-shift synthetic fixture verifying the CUSUM accumulator crosses
+a chosen threshold only after a real shift and stays near zero before it,
+and a gap-reset test (CUSUM must not carry an accumulated value across a
+`None` in the input series). All 23 pass; full suite `python3 -m pytest -q`:
+2103 passed, 1 skipped, 54 subtests (0 regressions).
+
+SANDBOX LIMITATION (stated honestly, not glossed over): this sandbox has
+no archived Form 4 quarters on disk (`sec_form4_bulk.archived_quarters()`
+returns `[]` here — the real archive lives on the Railway volume, built
+incrementally by the live bot's own Tier 3 hourly call). `run_probe()`
+detects this and returns a plain `{"error": "no archived Form 4 quarters
+available in this sandbox", ...}` rather than fabricating a result —
+verified live this session (`python3 scripts/insider_cusum_probe.py`
+prints exactly that JSON). This matches the established precedent of
+several prior foreign-field imports in this file (permutation-entropy,
+hazard-rate) that shipped "script built, not yet run against real data" on
+their filing session.
+
+MONETIZATION TRIPWIRE: not touched. BACKTEST: N/A per PROMOTION RULE 3 —
+GATE 2 signal-only research probe, no scoring/sizing/strategy code
+touched.
+
+GATES: `python3 -m pytest -q test_insider_cusum_probe.py`: 23/23. Full
+suite: 2103 passed, 1 skipped, 54 subtests, 0 regressions.
+`bash scripts/counter_ratchet.sh`: OK, 25/25 at or better than baseline
+(no counter moved by this diff specifically — `tests_run_in_ci`/
+`tests_gating_merge` read 459/459, matching baseline exactly; this
+counter apparently does not credit a new bare Python test file, so no
+re-pin needed). `bash scripts/tsc_ratchet.sh`: PASS, 3 <= 11 pinned,
+TS2304 0 — reports the SAME pre-existing 11->3 drop the 2026-09-16 session
+already found and declined to claim (`ci/tsc_baseline.txt` is
+SHARED-but-minimal territory and lowering someone else's gain is not this
+session's one logical change either, per PROMOTION RULE 5 — left for
+whoever's diff actually earned it). `npm run build`: not run (no
+client/server file touched by this diff).
+
+NEXT: (1) a future session with production/Railway volume access should
+run `python3 scripts/insider_cusum_probe.py` against the real archive
+once the human resumes access (or once a scheduled session happens to run
+with live Alpaca/network reach the way several prior sessions
+intermittently have) — the k=0.5/h=5.0 CUSUM parameters and the
+zscore_window=60/horizon=20 defaults are the textbook, un-tuned choices
+named in the probe's own docstring and should NOT be adjusted after
+seeing the real result (REASONING STANDARD #4/MEASUREMENT INTEGRITY
+spirit — one theory-motivated spec, run once, report honestly). (2) if
+GATE 2 passes, the natural GATE 3 candidate is a coarse market-timing
+overlay (e.g. a small SPY/QQQ hedge-ratio tilt), not a new individual-
+stock strategy — this probe's own claim is about the broad market, not
+stock-picking. (3) per REASONING STANDARD #4, a future session should
+treat an eighth foreign-field import in this exact "statistic vs. forward
+SPY return" shape with a materially raised prior against success; the two
+structurally different remaining axes this file has named
+(intraday-structure, and now that this session has used the second
+non-price-source slot named by the Hurst sessions, a genuinely different
+third axis not yet identified) are worth more than a ninth variant.
+
+STARVED: no — queued-work axes were checked and confirmed exhausted before
+starting; the probe was pre-registered before writing any code, built with
+real synthetic unit tests including dedicated no-lookahead coverage for
+both new causal functions, run live against this sandbox's actual (empty)
+archive rather than left untested, and its own limitation stated plainly
+rather than assumed away.
+
+NOT A SPEND REQUEST.
