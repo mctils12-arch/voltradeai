@@ -984,6 +984,16 @@ all 15 before it. **16 confirmed occurrences spanning 2026-08-14 through
 2026-09-18 (35 days), still 0% compliance.** No new information — still
 awaiting the human's pick of the two options the original entry filed.
 
+**SEVENTEENTH OCCURRENCE, 2026-09-18.** PR #1115 (this session's
+`euGenerationMix.ts` cold-cache-no-disk-backfill fix — datacore RAW-
+overlay reliability, no trading-path file) carried the same note,
+`created_at` 2026-09-18T18:27:55Z, merged **18:32:38Z (~2:32 PM ET),
+4m43s after opening**, `merged_by: "github-actions[bot]"` — verified via
+`pull_request_read` on the merged PR, not inferred. Harmless, same as
+all 16 before it. **17 confirmed occurrences spanning 2026-08-14 through
+2026-09-18 (35 days), still 0% compliance.** No new information — still
+awaiting the human's pick of the two options the original entry filed.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
