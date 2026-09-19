@@ -20975,3 +20975,80 @@ archive rather than left untested, and its own limitation stated plainly
 rather than assumed away.
 
 NOT A SPEND REQUEST.
+
+UPDATE 2026-09-19 (scheduled-routine session, fourth session this UTC day)
+— `gridGeneration.ts` FIXED (v1.0.941), closing this thread's last named
+"new reader needed" entry. Took the queue's own next-in-order item per
+SESSION BUDGET rule 1. Full account in research/experiments.md's matching
+dated entry. Same bug shape as its direct sibling gridDemand.ts (both are
+EIA-930 region/fuel-type modules sharing the same RESPONDENTS list and
+poll cadence): `refreshGeneration`'s `cache` (`{at, stats:
+RespondentGenerationStat[]}`, one row per respondent with its latest-period
+fuel mix) was written only inside `if (obs.length)` — a cold boot's or a
+live EIA outage's all-12-respondents-failed sweep left `/api/data/
+gridgeneration` `warming_up` forever despite `gridgeneration/YYYY-MM-DD
+.jsonl(.gz)` already holding real archived days. Fixed with the identical
+two-piece shape gridDemand.ts's own fix used: `computeGenerationStats`
+(the existing per-respondent fuel-mix aggregation, extracted verbatim,
+unchanged output) + `readArchivedGeneration` (newest-single-day-only
+archive read, same 7-day-lookback convention as every "new reader needed"
+sibling), wired through `refreshGeneration`'s new `else if (!cache)`
+branch. 6 new tests (computeGenerationStats pure-aggregation, two
+readArchivedGeneration cases — newest-day-only and gzipped-days-too — and
+three refresh-path cases: cold backfill from disk, a good cache never
+clobbered by a transient all-fail sweep, and honest null when neither a
+live result nor an archive exists).
+
+Remaining VULNERABLE queue: `dtccSwaps.ts` only — still explicitly
+lower-priority (a different bug shape, a growing in-memory dedup set
+rather than a blankable per-poll cache, per KNOWN BROKEN #41's leak-audit
+NEXT, not this thread's cold-cache class). Every "new reader needed" entry
+this table ever named is now closed; a future session should re-survey
+`server/*.ts`'s cache-write sites fresh (the same discovery method the
+2026-09-13-era sessions used) before assuming the thread is fully
+exhausted, since new modules ship regularly and could reintroduce the same
+`if (obs.length)`-only shape.
+
+GATES: `npx tsx --test server/gridGeneration.test.ts`: 12/12 (6 pre-existing
++ 6 new). Full suite `npx tsx --test server/*.test.ts` (after `npm ci` in
+this fresh container — 8 files failed with `ERR_MODULE_NOT_FOUND` before
+that, the same fresh-container provisioning gap several prior sessions
+have logged, not a repo defect): 1788 passed, 0 failed. `python3 -m pytest
+-q` (after `pip install -r requirements.txt -r requirements-dev.txt`):
+2106 passed, 1 skipped, 54 subtests, 0 regressions. `bash
+scripts/gated_tests.sh`: GATE PASSED — server/client/python all green,
+deploy-gate smoke PASS, quarantine 0/1, none overdue. `bash
+scripts/counter_ratchet.sh`: IMPROVED on first run (`assertions` 14838 ->
+14856, this session's own 6 new tests) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, confirmed 25/25 OK after
+re-pinning. `bash scripts/tsc_ratchet.sh`: 3 <= 11 pinned, TS2304 0 — the
+same pre-existing 11->3 drop the 2026-09-16 session found and declined to
+claim (SHARED-but-minimal territory, not this diff's own gain); not
+re-pinned here either, for the same reason. `npm run build`: clean
+(pre-existing chunk-size/astronomy-engine warnings only). Version bumped
+1.0.940 -> 1.0.941 (package.json + package-lock.json, read-and-incremented
+from a freshly-fetched origin/main immediately before committing, per the
+MERGE-ORDER PROTOCOL — origin/main still matched this checkout's starting
+HEAD when checked).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure cache-freshness bug fix, no
+scoring/sizing/strategy/threshold code touched. MONETIZATION TRIPWIRE: not
+touched.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-19 US market hours.
+This PR touches no trading-path file (a datacore-style EIA-930 module +
+its test file + a version bump + a counter re-pin + this research-log
+entry) — per this repo's own recently-reconfirmed automerge convention
+(wishlist.md's 17th-occurrence tally, same week) the automerge job merges
+on green CI regardless of market hours; this session's task instructions
+additionally asked to note in the PR that merge should wait until after
+4:00 PM ET unless the change fixes a critical live break — noted in the PR
+body, not enforced (same known gap wishlist.md already tracks).
+
+STARVED: no — this session picked the queue's own last-remaining
+concretely-testable item, closed it end-to-end (lib + tests + wiring +
+ratchet re-pin) with every gate run and verified, not assumed, and left
+the queue's state (now just dtccSwaps.ts, explicitly lower-priority)
+accurately updated for the next session.
+
+NOT A SPEND REQUEST.

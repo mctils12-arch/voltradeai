@@ -269,6 +269,83 @@ export function latestGeneration() {
   return cache;
 }
 
+/** Pure aggregation, extracted so a disk-backfilled day's raw obs can be
+ *  turned into the same stats shape a live sweep produces (cold-cache-no-
+ *  disk-backfill fix thread, research/open_questions.md's module audit
+ *  table — gridGeneration.ts was the last "new reader needed" entry).
+ *  Same convention as gridDemand.ts's computeDemandStats. */
+export function computeGenerationStats(obs: GenerationObs[]): RespondentGenerationStat[] {
+  const byResp = new Map<string, GenerationObs[]>();
+  for (const o of obs) {
+    if (!byResp.has(o.respondent)) byResp.set(o.respondent, []);
+    byResp.get(o.respondent)!.push(o);
+  }
+  const stats: RespondentGenerationStat[] = [];
+  byResp.forEach((rows, respondent) => {
+    const latestPeriod = rows.reduce((mx, r) => (r.period > mx ? r.period : mx), rows[0].period);
+    const atLatest = rows.filter((r) => r.period === latestPeriod);
+    const fuel_mix = atLatest
+      .map((r) => ({ fueltype: r.fueltype, latest_mwh: r.mwh }))
+      .sort((a, b) => (b.latest_mwh ?? -Infinity) - (a.latest_mwh ?? -Infinity));
+    const total_mwh = atLatest.some((r) => r.mwh != null)
+      ? atLatest.reduce((sum, r) => sum + (r.mwh ?? 0), 0)
+      : null;
+    const distinctPeriods = new Set(rows.map((r) => r.period)).size;
+    stats.push({ respondent, latest_period: latestPeriod, total_mwh, fuel_mix, hours_in_window: distinctPeriods });
+  });
+  stats.sort((a, b) => a.respondent.localeCompare(b.respondent));
+  return stats;
+}
+
+/** Most recent archived day's raw obs (plain or gz), walked backward up to
+ *  `lookbackDays` — used to backfill the live cache when a cold boot's or
+ *  a live EIA outage's sweep returns nothing across every respondent, so a
+ *  transport failure doesn't report `warming_up` over a real archived day
+ *  already on disk (RENDERING & MOTION LAW, Freshness). Same pattern as
+ *  gridDemand.ts's readArchivedDemand — gridGeneration's own per-day
+ *  `.jsonl(.gz)` files (keyed by observation day, `archiveGeneration`'s
+ *  own convention) are already exactly that shape. Returns one day's raw
+ *  obs, not a merged multi-day window: computeGenerationStats needs a
+ *  single window's worth of rows per respondent for hours_in_window/
+ *  latest_period to mean what they say. 7-day default matches
+ *  gridDemand.ts's own lookback rationale (~1-2h source lag, 2h poll —
+ *  comfortably covers a multi-day EIA outage without scanning the whole
+ *  archive). */
+export function readArchivedGeneration(baseDir?: string, nowMs?: number, lookbackDays = 7): GenerationObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = generationDir(baseDir);
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    const obs: GenerationObs[] = [];
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { obs.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+    if (obs.length > 0) return obs;
+  }
+  return [];
+}
+
+/** Test-only: cache/seenObs/seeded/polling are module-level singletons
+ *  (same class of problem as gridDemand.ts's own
+ *  _resetGridDemandForTests), so a test exercising the cold-cache backfill
+ *  path must be able to reset them rather than rely on file execution
+ *  order to find `cache` still null. */
+export function _resetGridGenerationForTests(): void {
+  seenObs.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
 export async function refreshGeneration(fetchImpl: FetchFn = fetch as any,
                                         env: NodeJS.ProcessEnv = process.env,
                                         nowMs?: number, baseDir?: string,
@@ -278,26 +355,12 @@ export async function refreshGeneration(fetchImpl: FetchFn = fetch as any,
     const obs = await fetchGeneration(fetchImpl, env, nowMs, spacingMs);
     if (obs.length) {
       archiveGeneration(obs, baseDir);
-      const byResp = new Map<string, GenerationObs[]>();
-      for (const o of obs) {
-        if (!byResp.has(o.respondent)) byResp.set(o.respondent, []);
-        byResp.get(o.respondent)!.push(o);
+      cache = { at: Date.now(), stats: computeGenerationStats(obs) };
+    } else if (!cache) {
+      const archived = readArchivedGeneration(baseDir, nowMs);
+      if (archived.length > 0) {
+        cache = { at: Date.now(), stats: computeGenerationStats(archived) };
       }
-      const stats: RespondentGenerationStat[] = [];
-      byResp.forEach((rows, respondent) => {
-        const latestPeriod = rows.reduce((mx, r) => (r.period > mx ? r.period : mx), rows[0].period);
-        const atLatest = rows.filter((r) => r.period === latestPeriod);
-        const fuel_mix = atLatest
-          .map((r) => ({ fueltype: r.fueltype, latest_mwh: r.mwh }))
-          .sort((a, b) => (b.latest_mwh ?? -Infinity) - (a.latest_mwh ?? -Infinity));
-        const total_mwh = atLatest.some((r) => r.mwh != null)
-          ? atLatest.reduce((sum, r) => sum + (r.mwh ?? 0), 0)
-          : null;
-        const distinctPeriods = new Set(rows.map((r) => r.period)).size;
-        stats.push({ respondent, latest_period: latestPeriod, total_mwh, fuel_mix, hours_in_window: distinctPeriods });
-      });
-      stats.sort((a, b) => a.respondent.localeCompare(b.respondent));
-      cache = { at: Date.now(), stats };
     }
     gzipOldGenerationDays(baseDir, nowMs);
   } catch (e: unknown) {
