@@ -27,6 +27,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 
 const FAILURES_URL = "https://api.fdic.gov/banks/failures";
 const FIELDS = "NAME,CERT,FAILDATE,CITYST,PSTALP,CHCLASS,RESTYPE,QBFASSET,QBFDEP,COST,SAVR";
@@ -217,6 +218,50 @@ export function gzipOldFailureDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** Reconstructs a cache-shaped failures list from the on-disk archive —
+ *  used to backfill a cold cache when a boot's first live poll comes back
+ *  empty (a transient FDIC API outage) before any cache exists. Unlike the
+ *  FAA/CBP siblings this module's own docstring names as its archive
+ *  pattern, day-file DATE here is FETCH date, not FAILDATE — a failure
+ *  from any year can land in whichever day-file first observed it, so
+ *  (failures being rare, well under 10/year per the module docstring) this
+ *  scans every archived day rather than a fixed recent-day window, the
+ *  same full-directory-scan shape `seedSeen` above already uses for the
+ *  identical reason. Dedups by event identity, newest FAILDATE first,
+ *  capped at `limit` to match what a live poll would have returned. Same
+ *  cold-cache-no-disk-backfill fix already shipped for edgarForm4.ts/
+ *  cbpBorderWait.ts/usaSpending.ts (research/open_questions.md's
+ *  cold-cache-no-disk-backfill table named fdicBanks.ts as one of the
+ *  remaining vulnerable modules). */
+export function backfillFailuresFromArchive(
+  baseDir?: string, nowMs?: number, limit = FAILURES_FETCH_LIMIT,
+): BankFailure[] {
+  const dir = failuresDir(baseDir);
+  const byKey = new Map<string, BankFailure>();
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
+      const fp = path.join(dir, f);
+      let text: string;
+      try {
+        text = f.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let rec: BankFailure;
+        try { rec = JSON.parse(line); } catch { continue; }
+        if (!rec || !rec.fail_date) continue;
+        byKey.set(eventKey(rec), rec);
+      }
+    }
+  } catch { return []; }
+  return Array.from(byKey.values())
+    .sort((a, b) => b.fail_date.localeCompare(a.fail_date))
+    .slice(0, limit);
+}
+
 // ── Cache + poll ────────────────────────────────────────────────────────────
 
 let cache: { at: number; failures: BankFailure[] } | null = null;
@@ -230,14 +275,21 @@ export async function refreshFailures(fetchImpl: FetchFn = fetch as any, nowMs?:
                                       baseDir?: string): Promise<void> {
   try {
     const failures = await fetchRecentFailures(fetchImpl, nowMs);
-    if (failures.length) {
-      archiveNewFailures(failures, baseDir, nowMs);
-      cache = { at: Date.now(), failures };
-    }
+    const next = resolveCacheItems(cache !== null, failures,
+      () => backfillFailuresFromArchive(baseDir, nowMs));
+    if (next) cache = { at: Date.now(), failures: next };
+    if (failures.length) archiveNewFailures(failures, baseDir, nowMs);
     gzipOldFailureDays(baseDir, nowMs);
   } catch (e: any) {
     console.error("[datacore] fdicfailures refresh:", e?.message || e);
+    const next = resolveCacheItems(cache !== null, [],
+      () => backfillFailuresFromArchive(baseDir, nowMs));
+    if (next) cache = { at: Date.now(), failures: next };
   }
+}
+
+export function _resetFailuresCacheForTests(): void {
+  cache = null;
 }
 
 /** Event-driven source (failures announced Friday evenings ET when they

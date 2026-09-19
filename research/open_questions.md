@@ -20533,7 +20533,7 @@ empty/failed live poll):
 | euGenerationMix.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.935** |
 | euMacro.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.936** |
 | faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |
-| fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed |
+| fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed — **FIXED 2026-09-19, v1.0.937** |
 | fredMacro.ts | none | new reader needed |
 | gdeltEvents.ts | none | new reader needed |
 | gridDemand.ts | none | new reader needed |
@@ -20639,6 +20639,63 @@ when that module's turn in this queue comes up.
 Remaining VULNERABLE queue: `fdicBanks.ts`, `fredMacro.ts`,
 `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all "new reader
 needed"), plus `dtccSwaps.ts` (still explicitly lower-priority).
+
+NOT A SPEND REQUEST.
+
+UPDATE 2026-09-19 (scheduled-routine [PRODUCT] session) — `fdicBanks.ts`
+FIXED (v1.0.937). Took the queue's own next-in-order item. READ BEFORE
+WRITE found the bug shape differs from the day-file-keyed-by-FAILDATE
+pattern this module's own docstring names as its archive precedent
+(FAA/CBP): `fdicfailures/` day-files are keyed by FETCH date (when a
+failure was first observed live), not FAILDATE, because
+`archiveNewFailures` only appends genuinely-new events to TODAY's file —
+a failure from any year can land in whichever day-file first observed it.
+A fixed recent-day lookback window (the shape every other sibling fix in
+this thread uses) would therefore silently miss older failures scattered
+across old day-files. Since failures run well under 10/year (module
+docstring), a full-directory scan (the same unbounded shape `seedSeen`
+already uses in this exact file for the identical reason) was cheap and
+correct where a windowed one would not have been. Built
+`backfillFailuresFromArchive(baseDir?, nowMs?, limit=FAILURES_FETCH_LIMIT)`
+— scans every archived day-file (plain + gzipped), dedups by the module's
+own existing `eventKey` (cert|fail_date) identity, sorts newest-FAILDATE-
+first, caps at the live-poll's own limit (50) so a cold-cache read returns
+the same shape a live poll would. `refreshFailures` now routes through the
+shared `resolveCacheItems` helper (`cacheBackfill.ts`, the same one
+cbpBorderWait.ts/edgarForm4.ts/nasaFirms.ts/ndbcBuoys.ts/usgsQuakes.ts
+already use) instead of its old `if (failures.length) {...}` gate, which
+left `cache` null forever if the very first live poll on a fresh boot came
+back empty. 5 new tests in `fdicBanks.test.ts` (10 total, up from 7):
+`backfillFailuresFromArchive` dedups a re-observed event across two
+day-files and sorts/caps correctly; a cold cache backfills from the
+archive when the live poll returns zero rows; and — the specific
+regression `resolveCacheItems` exists to prevent — an already-warm cache
+is NOT overwritten by a stale archive read on a later empty poll.
+A/B-verified via `git stash server/fdicBanks.ts`: the test file fails to
+even load without the fix (`backfillFailuresFromArchive`/
+`_resetFailuresCacheForTests` don't exist), proving the new tests are
+genuinely new. Full gates run this session (fresh container — `npm ci` +
+`pip install -r requirements.txt -r requirements-dev.txt` first, since
+`npx tsc`/`npx tsx` without them silently used a bare `typescript`
+install and reported a misleading tsc-error count — noted so a future
+session recognizes the same false-divergence signature): `npx tsx --test
+server/*.test.ts` 1768/1768 pass, 0 failures; `bash scripts/tsc_ratchet.sh`
+11 <= 11 pin, TS2304 0; `bash scripts/gated_tests.sh` GATE PASSED (2106
+python passed/1 skipped/54 subtests, full JS suite green, deploy-gate
+smoke PASS, quarantine 0/1 none overdue); `bash scripts/counter_ratchet.sh`
+IMPROVED on first run (`assertions` 14791->14802, the new test file's own
+assertions), re-pinned in `ci/counter_baseline.txt` in this same PR, 25/25
+OK on re-run. Version bumped 1.0.936 -> 1.0.937 (read-and-incremented from
+a freshly-fetched origin/main immediately before committing, confirmed
+still current, per MERGE-ORDER PROTOCOL).
+
+Remaining VULNERABLE queue: `fredMacro.ts`, `gdeltEvents.ts`,
+`gridDemand.ts`, `gridGeneration.ts` (all "new reader needed" — per the
+2026-09-18 session's own note, `fredMacro.ts` — a stated "fredMacro
+clone" of euMacro.ts — should be checked first for the same
+partial-source-outage shape euMacro.ts's fix found, not just the classic
+cold-boot class originally scoped), plus `dtccSwaps.ts` (still explicitly
+lower-priority).
 
 NOT A SPEND REQUEST.
 
