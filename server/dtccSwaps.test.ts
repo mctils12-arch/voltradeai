@@ -16,7 +16,7 @@ import {
   isUsUnderlier, isBasketField, parseDtccLine,
   tryParseLocalHeader, streamDtccZip, dtccUrl,
   archiveNewRows, _resetDtccForTests, loadSeenIds,
-  refreshDtccSwaps, latestDtcc, topNotionalRows,
+  refreshDtccSwaps, latestDtcc, topNotionalRows, readArchivedDtccRows,
 } from "./dtccSwaps";
 
 const HEADER_COLS = [...REQUIRED_COLUMNS, "Some Future Column"];
@@ -298,6 +298,82 @@ test("refreshDtccSwaps: nothing published anywhere in the lookback window — le
     new Date(nowMs - i * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "_"));
   await refreshDtccSwaps(dateBlockedFetch(allBlocked, zip), nowMs, dir);
   assert.equal(latestDtcc(), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── readArchivedDtccRows / cold-cache disk backfill (closes the VULNERABLE-
+//    queue's last remaining entry, research/open_questions.md's cold-cache-
+//    no-disk-backfill table) ─────────────────────────────────────────────
+
+test("readArchivedDtccRows: returns the newest archived day within the window, skipping empty/missing days", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-backfill-"));
+  const r = (diss: string) => ({
+    disseminationId: diss, originalDisseminationId: diss, actionType: "NEWT",
+    eventTimestamp: "2026-08-10T12:00:00Z", effectiveDate: "2026-08-10",
+    notionalAmountLeg1: 50_000_000, notionalCurrencyLeg1: "USD",
+    underlierId: "US0378331005", underlierIdSource: "ISIN", underlierName: "APPLE INC",
+  });
+  fs.mkdirSync(path.join(dir, "dtccswaps"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "dtccswaps", "2026-08-08.jsonl.gz"), zlib.gzipSync(JSON.stringify(r("800")) + "\n"));
+  fs.writeFileSync(path.join(dir, "dtccswaps", "2026-08-10.jsonl"), JSON.stringify(r("801")) + "\n");
+  const nowMs = Date.parse("2026-08-11T12:00:00Z"); // "today" itself has no file
+  const result = readArchivedDtccRows(dir, nowMs);
+  assert.ok(result);
+  assert.equal(result!.fileDate, "2026-08-10", "newest archived day wins, not the oldest in range");
+  assert.equal(result!.rows.length, 1);
+  assert.equal(result!.rows[0].disseminationId, "801");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("readArchivedDtccRows: no archived day anywhere in the window returns null, not an empty-but-truthy result", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-backfill-empty-"));
+  assert.equal(readArchivedDtccRows(dir, Date.parse("2026-08-11T12:00:00Z")), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: nothing published anywhere in the lookback window, but an earlier day is already archived on disk — backfills instead of staying warming_up forever", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-"));
+  const archivedRow = {
+    disseminationId: "900", originalDisseminationId: "900", actionType: "NEWT",
+    eventTimestamp: "2026-08-10T12:00:00Z", effectiveDate: "2026-08-10",
+    notionalAmountLeg1: 50_000_000, notionalCurrencyLeg1: "USD",
+    underlierId: "US0378331005", underlierIdSource: "ISIN", underlierName: "APPLE INC",
+  };
+  fs.mkdirSync(path.join(dir, "dtccswaps"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "dtccswaps", "2026-08-10.jsonl.gz"), zlib.gzipSync(JSON.stringify(archivedRow) + "\n"));
+
+  const zip = buildZip(HEADER_LINE + "\n");
+  const nowMs = Date.parse("2026-08-23T12:00:00Z");
+  const allBlocked = Array.from({ length: 8 }, (_, i) =>
+    new Date(nowMs - i * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "_"));
+  await refreshDtccSwaps(dateBlockedFetch(allBlocked, zip), nowMs, dir);
+  const hit = latestDtcc();
+  assert.ok(hit, "must not stay warming_up forever — a real archived day sits on disk");
+  assert.equal(hit!.fileDate, "2026-08-10", "backfilled from the newest archived day file");
+  assert.equal(hit!.sourceDate, "", "vendor source date is honestly unknown on a disk backfill, never fabricated");
+  assert.equal(hit!.usRows, 1);
+  assert.equal(hit!.newRows, 0, "a backfill archives nothing new this cycle");
+  assert.equal(hit!.totalArchived, 1);
+  assert.equal(hit!.topRows[0].underlierId, "US0378331005");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: an already-warm cache is not clobbered by a disk backfill on a later fully-blocked poll", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-"));
+  const csv = [HEADER_LINE, row("501", "US88160R1014", "ISIN", "TESLA INC")].join("\n") + "\n";
+  const zip = buildZip(csv);
+  const firstNowMs = Date.parse("2026-08-21T18:00:00Z");
+  await refreshDtccSwaps(dateBlockedFetch([], zip), firstNowMs, dir);
+  const warm = latestDtcc();
+  assert.ok(warm);
+
+  const secondNowMs = Date.parse("2026-08-25T12:00:00Z");
+  const allBlocked = Array.from({ length: 8 }, (_, i) =>
+    new Date(secondNowMs - i * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "_"));
+  await refreshDtccSwaps(dateBlockedFetch(allBlocked, zip), secondNowMs, dir);
+  assert.deepEqual(latestDtcc(), warm, "cache untouched — the backfill guard is `if (!cache)`, not unconditional");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
