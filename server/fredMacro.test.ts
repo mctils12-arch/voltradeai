@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import zlib from "zlib";
 import { fileURLToPath } from "url";
 import {
   FRED_SERIES,
@@ -13,6 +14,7 @@ import {
   buildMacroPayload,
   refreshFredCache,
   latestFredSeries,
+  readRecentArchivedFredMacro,
   fredEnabled,
   bootFredPoll,
 } from "./fredMacro";
@@ -94,6 +96,87 @@ test("refreshFredCache end-to-end with mocked API; public payload excludes restr
     "restricted series must NEVER appear in the public payload");
   assert.ok(ids.includes("DGS10") && payload.series.find((s: any) => s.id === "DGS10").latest.v === 4.48);
   assert.ok(payload.series.every((s: any) => s.license === undefined), "license field stripped from payload");
+});
+
+// ── [PIPELINE 2026-09-19] cold-cache-no-disk-backfill fix thread — this
+// module is euMacro.ts's own documented clone, and had the exact same
+// whole-cache-replace defect: `if (snapshots.some((s) => s.latest) ||
+// !cache) cache = { at: now, series: snapshots }` meant that whenever AT
+// LEAST ONE of the ~31 series succeeded, the entire snapshot array —
+// including any series whose OWN individual FRED call failed this cycle —
+// replaced the prior cache wholesale, silently blanking that series to
+// null even while its ~30 siblings kept updating. ──────────────────────────
+
+test("readRecentArchivedFredMacro: walks back through plain and gzipped day-files, across series", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfred-arch-"));
+  const NOW = Date.parse("2026-07-10T12:00:00Z");
+  assert.equal(archiveFredObs([{ s: "DGS10", d: "2026-07-08", v: 4.4, rt: "2026-07-08" }], dir, Date.parse("2026-07-08T12:00:00Z")), 1);
+  assert.equal(archiveFredObs([{ s: "UNRATE", d: "2026-07-09", v: 4.1, rt: "2026-07-09" }], dir, Date.parse("2026-07-09T12:00:00Z")), 1);
+  fs.writeFileSync(
+    path.join(dir, "fredmacro", "2026-06-01.jsonl.gz"),
+    zlib.gzipSync(Buffer.from(JSON.stringify({ s: "CPIAUCSL", d: "2026-06-01", v: 314.2, rt: "2026-06-01" }) + "\n")),
+  );
+  const rows = readRecentArchivedFredMacro(dir, NOW, 45);
+  assert.deepEqual(rows.map((r) => [r.s, r.d, r.v]).sort(), [
+    ["CPIAUCSL", "2026-06-01", 314.2],
+    ["DGS10", "2026-07-08", 4.4],
+    ["UNRATE", "2026-07-09", 4.1],
+  ]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("cold boot: a live poll that fails for every series backfills each series' latest from its own on-disk archive instead of reporting null", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfred-cold-"));
+  archiveFredObs(
+    [
+      { s: "DGS10", d: "2026-07-06", v: 4.35, rt: "2026-07-06" },
+      { s: "UNRATE", d: "2026-06-01", v: 4.0, rt: "2026-07-06" },
+    ],
+    dir,
+    Date.parse("2026-07-06T12:00:00Z"),
+  );
+  _resetFredArchiveState(); // archiveFredObs seeds its own module-level dedup map; the cache stays cold
+  const dead = async () => { throw new Error("ECONNRESET"); };
+  await refreshFredCache({ FRED_API_KEY: "test-key" } as any, dead as any, 0, Date.parse("2026-07-07T09:00:00Z"), dir);
+  const hit = latestFredSeries()!;
+  const by = Object.fromEntries(hit.series.map((s) => [s.id, s]));
+  assert.equal(by.DGS10.latest!.v, 4.35, "backfilled from yesterday's archive, not left null");
+  assert.equal(by.UNRATE.latest!.v, 4.0, "monthly series backfills too — 200-day default window reaches it");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("a single series' fetch failure does not blank its already-cached value while sibling series keep updating (the whole-cache-replace class the old logic got wrong)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vtfred-partial-"));
+  _resetFredArchiveState();
+  const firstPoll = async (url: string) => {
+    const id = new URL(url).searchParams.get("series_id");
+    return {
+      ok: true, status: 200, text: async () => JSON.stringify({
+        observations: [{ date: "2026-07-06", value: id === "DGS10" ? "4.35" : "4.10" }],
+      }),
+    };
+  };
+  await refreshFredCache({ FRED_API_KEY: "test-key" } as any, firstPoll as any, 0, Date.parse("2026-07-07T12:00:00Z"), dir);
+  assert.equal(latestFredSeries()!.series.find((s) => s.id === "DGS10")!.latest!.v, 4.35, "sanity: first poll populated the cache");
+
+  // Second poll: DGS10 alone goes dark (a transport error on just that
+  // series' own FRED call); every other series keeps succeeding with a
+  // fresh value.
+  const secondPoll = async (url: string) => {
+    const id = new URL(url).searchParams.get("series_id");
+    if (id === "DGS10") throw new Error("ECONNRESET");
+    return {
+      ok: true, status: 200, text: async () => JSON.stringify({
+        observations: [{ date: "2026-07-07", value: "4.15" }],
+      }),
+    };
+  };
+  await refreshFredCache({ FRED_API_KEY: "test-key" } as any, secondPoll as any, 0, Date.parse("2026-07-07T18:00:00Z"), dir);
+  const hit = latestFredSeries()!;
+  const by = Object.fromEntries(hit.series.map((s) => [s.id, s]));
+  assert.equal(by.DGS10.latest!.v, 4.35, "DGS10 dark this cycle — prior cached value preserved, not blanked to null");
+  assert.equal(by.UNRATE.latest!.v, 4.15, "sibling series' fresh value still lands");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("key gating: disabled without FRED_API_KEY; bootFredPoll no-ops", () => {
