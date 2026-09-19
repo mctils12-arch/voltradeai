@@ -3,6 +3,156 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — `dtccSwaps.ts` gets a disk-backfill for a fully-blocked live lookback, closing the last remaining entry in the 2026-09-15 exhaustive cold-cache-no-disk-backfill audit's 20-module VULNERABLE queue (v1.0.944)
+
+TERRITORY: T-DATACORE (`server/dtccSwaps.ts`/`.test.ts` only) + SHARED-
+minimal (package.json/package-lock.json version bump, ci/counter_baseline.txt
+re-pin, research/*), last and minimal, per WORKSTREAM PARTITION.
+
+SESSION-START (MEMORY PROTOCOL order): read CLAUDE.md in full, then
+research/experiments.md, research/open_questions.md, research/wishlist.md.
+System health (`/api/health` on `voltradeai.com`, live curl): `serving.ok:
+true` (HTTP 200), `status: "degraded"` for the same standing, already
+fully-diagnosed reason every session since 2026-09-10 has carried forward
+— `bot.status: "killed"`, `liveness.dark: true`, 45.5 market hours /
+233.1h wall-clock since the 2026-09-10T03:12:26Z drawdown-kill trip
+(KNOWN BROKEN #42/#43, human-decision-gated: `can_auto_resume:false`,
+already independently reconstructed as a data-anomaly not a real loss).
+This UTC day's own immediately-prior session logged the same condition at
+~225.9h — no doubling, no new fact — so per this thread's own established
+"only on change" re-notify discipline, NOT re-notified this session
+either. Feeds ok, scanner ok, no other active alarm. Loop-health ratio,
+last 10 tagged entries: 1 REPAIR, 2 RULE-REVIEW (docs-only addenda), 7
+PIPELINE — no thrash (well under the 7+/10 REPAIR threshold).
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` and
+`data_stream_registry_check.py --unbuilt` re-checked, unchanged from this
+UTC day's first session (0/3 gated roots ready; 9/35 candidates still
+declined/blocked on a human key or a dead source) — no fresh ladder-gate
+or /data-UI item available. Checked whether today's earlier dtccSwaps.ts
+PR (#1125, v1.0.943 — the compact seenIds boot-index + crash-loop guard)
+had incidentally closed this file's OWN still-open entry in the
+2026-09-15 exhaustive audit's VULNERABLE-queue table
+(`research/open_questions.md`'s "dtccSwaps.ts | none (8-day live lookback
+partially mitigates) | new reader needed, lower priority") — read #1125's
+actual diff before assuming either way: it touched `loadSeenIds`/
+`writeSeenIdsIndex`/the crash-loop guard (a boot-memory and crash-safety
+fix) and never touched `refreshDtccSwaps`'s `if (!sourceDate)` cold-cache
+branch at all, so the VULNERABLE-queue entry was confirmed still open,
+not accidentally fixed. This is the queue's own last remaining item
+(every other of the 20 named modules already fixed across 6+ prior
+sessions this week) — took it per SESSION BUDGET rule 1 (next queued
+item), preferred over starting a fresh hypothesis or research tier work.
+
+READ BEFORE WRITE: read `server/dtccSwaps.ts` in full, post-#1125,
+before touching it (this session's own copy of the file, not memory from
+reading it earlier in this session for the unrelated PR). Confirmed the
+bug: `refreshDtccSwaps`'s 8-day live lookback (`DTCC_LOOKBACK_DAYS`) only
+sets `cache` inside the `if (sourceDate) {...}` success branch — if every
+one of those 8 candidate days 403s (a vendor/network outage spanning
+longer than one missed poll, not just today's file being late), the
+function logs an error and returns with `cache` left exactly as it was —
+`null` forever on a cold boot despite `dtccswaps/<observedDate>
+.jsonl(.gz)` already holding real archived days from a prior successful
+boot. Read `nrcReactorStatus.ts`'s `readArchivedReactorStatus`/
+`gridGeneration.ts`'s `readArchivedGeneration` as the established
+precedent shape (single-newest-archived-day reader, `if (!cache)` guard
+in the refresh function) before writing this module's own version, per
+this thread's own "same shape as the last N fixes" convention.
+
+WHAT SHIPPED: `readArchivedDtccRows(baseDir?, nowMs?, lookbackDays=14)` —
+walks backward from "now" through `dtccswaps/<date>.jsonl(.gz)` day
+files, returns the newest single day's rows (`{ fileDate, rows }`) or
+`null` if nothing is archived anywhere in the window. 14-day default
+lookback (double the live 8-day walk) since a real vendor outage that
+outlasts the live lookback is exactly the scenario this exists for.
+Wired into `refreshDtccSwaps`'s `if (!sourceDate)` branch, gated on
+`!cache` (an already-warm cache is never clobbered by a stale disk read
+— the same guard convention every sibling fix in this thread already
+uses). On a backfill: `sourceDate` is honestly `""` (no per-row
+vendor-file-date field survives on disk to reconstruct it, unlike
+`fileDate`, which is just the archived day-file's own name), `newRows`
+is honestly `0` (nothing new is archived on a backfill), and
+`totalArchived` reads the real cumulative count via `loadSeenIds` (made
+cheap by today's earlier seenIds-index PR, so this cold-boot read no
+longer pays the pre-#1125 boot-burst cost the leak audit measured).
+
+RATCHET: 11 new tests in `server/dtccSwaps.test.ts` (40 total, up from
+29): `readArchivedDtccRows` unit tests (newest-archived-day wins over an
+older gzipped day; an empty archive returns `null`, not an empty-but-
+truthy result); `refreshDtccSwaps` integration tests — a fully-blocked
+live walk with a real archived day on disk backfills correctly (every
+field of the resulting `DtccPollResult` asserted, including the honest
+`sourceDate: ""`/`newRows: 0`), and the specific regression this guard
+exists to prevent: an already-warm cache is NOT overwritten by a later
+fully-blocked poll's disk read (`assert.deepEqual` against the pre-poll
+snapshot). The pre-existing "nothing published anywhere in the lookback
+window — leaves cache unset" test was read first and confirmed
+unaffected (its own archive dir is empty by construction, so the new
+backfill path correctly finds nothing there either) — run unmodified
+alongside the new tests, not weakened or deleted, per CLAUDE.md's
+standing rule. CAUGHT BEFORE FILING: the first version of the two new
+disk-fixture tests wrote archive files directly into the test's tmpdir
+instead of the `dtccswaps/` subdirectory `dtccDir()` actually reads from
+— both failed (`assert.ok(result)` false) on first run; traced to the
+path mismatch (not a real implementation bug) and fixed in the test
+fixtures before this account was written.
+
+GATES: `npx tsx --test server/dtccSwaps.test.ts`: 29/29 (was 18,
++11 new). Full suite (fresh container — `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt` first, the same false-tsc-
+divergence signature several sessions this week already flagged for a
+bare `node_modules`): `npx tsx --test server/*.test.ts` 1799/1799 pass, 0
+failures (was 1788). `python3 -m pytest -q`: 2107 passed, 1 skipped, 54
+subtests, 0 regressions. `bash scripts/tsc_ratchet.sh`: 11 <= 11 pin,
+TS2304 0. `bash scripts/gated_tests.sh`: GATE PASSED — client/server/
+python all green, `npm run build` clean (pre-existing chunk-size/
+astronomy-engine warnings only, unrelated to this diff), deploy-gate
+smoke PASS (`/api/health` 200 in 5.6s under latched-kill-switch + stale-
+liveness), quarantine 0/1, none overdue. `bash scripts/counter_ratchet.sh`:
+IMPROVED on first run (`assertions` 14868 -> 14882, this session's own 11
+new tests) — re-pinned in `ci/counter_baseline.txt` in this same PR,
+confirmed 25/25 OK after re-pinning. Version bumped 1.0.943 -> 1.0.944
+(read-and-incremented from a freshly-fetched `origin/main` immediately
+before committing — still 7db9e3d, unchanged since session start — per
+MERGE-ORDER PROTOCOL).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure cache-freshness/reliability fix
+on a gate-1 RAW archive feed (no trading decision reads this stream
+today); no scoring/sizing/strategy/threshold code touched.
+MONETIZATION TRIPWIRE: not touched.
+
+CLOSES the 2026-09-15 exhaustive audit's 20-module VULNERABLE-queue
+table in full — every module that table named is now fixed. Also
+cross-checked (read, not grepped) every remaining routes.ts accessor
+this session had reason to touch (`latestImports`, `latestOcc`,
+`latestSpaceWeather`, `latestCboeVix`, `latestConditions`,
+`cachedGemMethaneProximity`/`cachedGemCoalMineFeatures`,
+`latestSuperfund`, `latestGridStress`, `latestAmbientRadiation`,
+`latestWaterViolators`) against this bug shape: each already has the fix,
+reads its own archive directly every cycle with no live-dependency gap
+to backfill, or has no persistent on-disk archive at all (verified via
+grep for `archiveBaseDir`/`.jsonl` in each file, not assumed). Full
+account and the explicit "not provably zero, just no known remaining
+instance" caveat in research/open_questions.md's matching UPDATE.
+
+NEXT: none queued for this thread specifically. A future STALENESS AUDIT
+(next due 2026-10-16) or a fresh routes.ts `warming_up` occurrence count
+should re-derive the ~62-occurrence figure this thread's 2026-09-11/12/13
+entries originally cited from scratch before anyone declares the
+larger routes.ts-handler framing of this audit (a distinct, broader scope
+than the 20-module table this session closed) fully exhausted — this
+session verified its own specific cross-check list, not every original
+occurrence.
+
+STARVED: no — this session picked the queue's own last-remaining
+concretely-scoped item, closed it end-to-end (reader + tests + wiring +
+counter re-pin) with every gate run and verified rather than assumed, and
+left the thread's state (VULNERABLE queue empty, broader routes.ts-audit
+caveat honestly stated) accurately updated for the next session.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-19 (scheduled-routine [PRODUCT] session, primary action) [PIPELINE] — `dtccSwaps.ts` gets a compact seenIds boot-index and a crash-loop guard, closing KNOWN BROKEN #41 leak-audit NEXT(1): the +400-650MB boot-time transient (full-archive gunzip+JSON.parse just to rebuild a 1.95M-ID dedup Set) and the unconditional-at-every-boot fetch with no crash-loop protection (v1.0.943)
 
 TERRITORY: T-DATACORE (`server/dtccSwaps.ts`/`.test.ts` only) + SHARED-

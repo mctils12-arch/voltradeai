@@ -469,6 +469,51 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
   return { newRows: fresh.length, seenTotal: seenIds.size };
 }
 
+/** Most recently archived day's rows (plain or gz), walked backward up to
+ *  `lookbackDays` — used to backfill the live cache when EVERY day in
+ *  `refreshDtccSwaps`'s own `DTCC_LOOKBACK_DAYS` vendor-side walk 403s (a
+ *  cold boot during a multi-day vendor/network outage), so that outage
+ *  doesn't report `warming_up` forever over a real archived day already on
+ *  disk. Same pattern as nrcReactorStatus.ts's `readArchivedReactorStatus`/
+ *  gridGeneration.ts's `readArchivedGeneration` — the VULNERABLE-queue
+ *  entry this closes (research/open_questions.md's cold-cache-no-disk-
+ *  backfill table named dtccSwaps.ts as the queue's last remaining entry,
+ *  explicitly lower-priority because this module's own live 8-day lookback
+ *  already mitigates a single missed poll; this is the disk fallback for
+ *  when even that lookback comes up empty). Returns ONE day's rows, not a
+ *  merged window, since `topNotionalRows`'s own contract is "this cycle's
+ *  file" — merging days would silently turn a single-file top-N into a
+ *  multi-day one. `fileDate` is the day-file's own name (the day the
+ *  pipeline RAN, not any row's event date — same `observedDate` semantics
+ *  `archiveNewRows` writes under), a separate, deliberately-longer default
+ *  window than the live walk (14 vs 7) since a real vendor outage lasting
+ *  longer than the live lookback is exactly the case this exists for. */
+export function readArchivedDtccRows(baseDir?: string, nowMs?: number, lookbackDays = 14): { fileDate: string; rows: DtccSwapRow[] } | null {
+  const now = nowMs ?? Date.now();
+  const dir = dtccDir(baseDir);
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    const rows: DtccSwapRow[] = [];
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try {
+          const r = JSON.parse(line);
+          if (r?.disseminationId) rows.push(r);
+        } catch { continue; }
+      }
+    }
+    if (rows.length > 0) return { fileDate: iso, rows };
+  }
+  return null;
+}
+
 // ── Cache + poll ─────────────────────────────────────────────────────────
 
 // How many rows to keep in memory for the /data browsing view — a bounded
@@ -590,6 +635,18 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       }
       if (!sourceDate) {
         console.error(`[datacore] dtccswaps: no published file found across the last ${DTCC_LOOKBACK_DAYS + 1} days (last HTTP ${lastStatus})`);
+        if (!cache) {
+          const backfill = readArchivedDtccRows(baseDir, nowMs);
+          if (backfill) {
+            if (!seenIds) seenIds = loadSeenIds(dtccDir(baseDir));
+            cache = {
+              at: Date.now(), fileDate: backfill.fileDate, sourceDate: "",
+              usRows: backfill.rows.length, newRows: 0, totalArchived: seenIds.size,
+              topRows: topNotionalRows(backfill.rows),
+            };
+            console.log(`[datacore] dtccswaps: live walk found nothing — backfilled from archived ${backfill.fileDate} (${backfill.rows.length} rows)`);
+          }
+        }
         return;
       }
       const observedDate = now.toISOString().slice(0, 10);

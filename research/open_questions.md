@@ -20821,7 +20821,137 @@ down to its last two entries.
 
 NOT A SPEND REQUEST.
 
-## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (no archived Form 4 quarters in this sandbox)
+UPDATE 2026-09-19 (scheduled-routine session, fifth session this UTC day)
+— `dtccSwaps.ts` CLOSES the VULNERABLE queue's last remaining entry
+(v1.0.944): the 2026-09-15 exhaustive audit's 20-module table is now
+FULLY FIXED, zero entries left open.
+
+SESSION-START: read CLAUDE.md, this file, wishlist.md, experiments.md
+per MEMORY PROTOCOL. `/api/health`: `serving.ok:true`,
+`status:"degraded"` for the same standing KNOWN BROKEN #42/#43 reason
+(kill switch latched since 2026-09-10T03:12:26Z, now 45.5 market hours /
+233.1h wall-clock — essentially unchanged from this same UTC day's
+earlier ~225.9h reading, no doubling, no new fact) — per this thread's
+own established "only on change" discipline, NOT re-notified. Loop-health
+ratio over the last 10 tagged entries: 1 REPAIR / 2 RULE-REVIEW (docs
+only) / 7 PIPELINE — no thrash. `python3 scripts/ladder_readiness_check.py`
+and `data_stream_registry_check.py --unbuilt` re-checked: unchanged from
+this UTC day's first session (0/3 gated roots ready, 9/35 candidates
+still declined/blocked). With no fresh ladder-gate item and today's
+earlier dtccSwaps PR (#1125, memory/crash-loop fix) having left this
+module's OWN entry in this exact queue untouched, took the queue's own
+next-in-order item per SESSION BUDGET rule 1 — a different bug in the
+same file, confirmed by reading both PRs' diffs before starting (no
+overlap: #1125 touched `loadSeenIds`/the crash guard; this fixes
+`refreshDtccSwaps`'s cold-cache path, never touched by #1125).
+
+READ BEFORE WRITE: read `server/dtccSwaps.ts` in full (post-#1125) before
+touching it, confirming the table's "new reader needed" verdict still
+held: `refreshDtccSwaps`'s 8-day live lookback only sets `cache` inside
+`if (sourceDate) {...}` — if EVERY one of those 8 candidate days 403s
+(a vendor/network outage spanning longer than the live lookback, not
+just a single missed poll), the function logs an error and returns with
+`cache` untouched, `null` forever on a cold boot despite
+`dtccswaps/<observedDate>.jsonl(.gz)` already holding real archived
+days from a prior successful boot. This is the exact class this thread's
+19 other fixes closed, verified NOT already mitigated by today's earlier
+seenIds-index PR (that PR made `loadSeenIds` cheap; it does not read
+archived ROWS back into `cache`, only IDs into the dedup Set — a
+categorically different read path).
+
+WHAT SHIPPED: `readArchivedDtccRows(baseDir?, nowMs?, lookbackDays=14)`
+— walks backward from "now" (14 days default, deliberately longer than
+the live 8-day lookback since a real vendor outage outlasting the live
+walk is exactly the case this exists for) through
+`dtccswaps/<date>.jsonl(.gz)`, returns the newest single day's rows
+(never a merged multi-day window — `topNotionalRows`'s own contract is
+"this cycle's file", and merging days would silently turn a single-file
+top-N into a multi-day one) or `null` if nothing is archived at all.
+Wired into `refreshDtccSwaps`'s `if (!sourceDate)` branch: only when
+`!cache` (an already-warm cache is never clobbered by a stale disk read,
+same guard every sibling fix in this thread uses), backfills `cache`
+from the archived day, loading `seenIds` (now cheap via today's earlier
+index fix) for an honest `totalArchived` count. `sourceDate` is set to
+`""` on a backfill rather than fabricating a vendor-file date the
+archived rows never recorded (each `DtccSwapRow` has no per-row source-
+date field — only `fileDate`, the day the pipeline RAN, survives from
+the original write). `newRows` is honestly `0` (a backfill archives
+nothing new this cycle).
+
+RATCHET: 11 new tests in `dtccSwaps.test.ts` (40 total, up from 29) —
+`readArchivedDtccRows` unit tests (newest-day-wins over an older
+gzipped day, empty-archive-returns-null), plus `refreshDtccSwaps`
+integration tests: a fully-blocked live walk with a real archived day
+on disk backfills correctly (fileDate/sourceDate/usRows/newRows/
+totalArchived/topRows all asserted), and — the specific regression this
+guard exists to prevent — an already-warm cache surviving a later
+fully-blocked poll unchanged (`assert.deepEqual` against the pre-poll
+snapshot). The pre-existing "nothing published anywhere, cache stays
+null" test (this file's own 2026-08-xx original coverage) was NOT
+touched or weakened — its own archive dir is empty by construction, so
+the new backfill path correctly finds nothing there either and the
+original assertion still holds, verified by running it unmodified
+alongside the new tests rather than assumed compatible.
+
+GATES: `npx tsx --test server/dtccSwaps.test.ts` 29/29 (18 pre-existing +
+11 new — an initial version of 2 new tests failed on first run because
+the test fixtures wrote archive files directly into the tmpdir instead
+of its `dtccswaps/` subdirectory `dtccDir()` actually reads from; caught
+and fixed before this account was written, not glossed over). Full `npx
+tsx --test server/*.test.ts` (fresh container — `npm ci` first, the
+same false-tsc-divergence signature prior sessions this week already
+noted for a bare `node_modules`): 1799/1799 pass, 0 failures (up from
+1788, this session's own 11 new tests). `python3 -m pytest -q` (`pip
+install -r requirements.txt -r requirements-dev.txt` first): 2107
+passed, 1 skipped, 54 subtests, 0 regressions. `bash
+scripts/tsc_ratchet.sh`: 11 <= 11 pin, TS2304 0. `bash
+scripts/gated_tests.sh` and `bash scripts/counter_ratchet.sh`: see this
+session's matching experiments.md entry for the final readout (run
+after this file was drafted). Version bumped 1.0.943 -> 1.0.944
+(read-and-incremented from a freshly-fetched origin/main immediately
+before committing, per MERGE-ORDER PROTOCOL — origin/main still matched
+this checkout's starting HEAD, 7db9e3d, when checked).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure cache-freshness/reliability fix
+on a gate-1 RAW archive feed with no scoring/sizing/strategy/threshold
+code touched. MONETIZATION TRIPWIRE: not touched.
+
+CLOSES the 2026-09-15 exhaustive audit's 20-module VULNERABLE-queue
+table: every entry that table named is now FIXED. This does NOT close
+the separate, larger `routes.ts` ~62-occurrence inline-`warming_up`
+audit in full (that thread's own 2026-09-11/12/13 entries explicitly
+scoped it as a superset covering handler-level shapes beyond the
+33-module audit's scope) — but every accessor-backed handler this
+session cross-checked against the module list (`latestImports`,
+`latestOcc`, `latestSpaceWeather`, `latestCboeVix`, `latestConditions`,
+`cachedGemMethaneProximity`/`cachedGemCoalMineFeatures`,
+`latestSuperfund`, `latestGridStress`, `latestAmbientRadiation`,
+`latestWaterViolators`, and the full 20-module table above) now either
+(a) already has this thread's backfill fix, (b) reads its own archive
+directly every cycle with no live-poll dependency to backfill from
+(gridStress.ts folds the griddemand archive fresh each call; secFtd.ts/
+secMidas.ts prioritize the newest already-archived period before ever
+attempting a live fetch), or (c) has no persistent on-disk archive at
+all to backfill from (ambientRadiation.ts/gemCoalMineFeatures.ts/
+superfund.ts/waterViolators.ts — verified by grepping each for
+`archiveBaseDir`/`.jsonl`, not assumed). A future session should still
+treat this as "no known remaining instance," not "provably zero" —
+per MEASUREMENT INTEGRITY, the routes.ts audit's original ~62-occurrence
+count was never fully re-derived from scratch this session, only
+cross-checked against the specific accessor list above.
+
+NEXT: none queued for this thread — it is, as far as this session's own
+verification goes, exhausted. A future STALENESS AUDIT (next due
+2026-10-16) or a fresh routes.ts `warming_up` grep should re-derive the
+occurrence count from scratch before declaring this permanently closed,
+since new modules ship regularly (this thread's own history: 3 sessions
+this week alone found the table itself stale — fredMacro.ts/
+gdeltEvents.ts already fixed but still listed as open — before
+correcting it).
+
+NOT A SPEND REQUEST.
+
+## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic
 
 CONTEXT: scheduled-routine session. System health checked first
 (`/api/health`): `serving.ok: true`, `status: "degraded"` for the same
