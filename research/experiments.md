@@ -3,6 +3,171 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — gridGeneration.ts joins the cold-cache-no-disk-backfill fix thread, closing this thread's last named "new reader needed" entry: a cold boot or a live EIA outage across every one of the 12 respondents left `/api/data/gridgeneration` warming_up forever despite a real per-day generation-by-fuel-type archive already on disk (v1.0.941)
+
+TERRITORY: SHARED-minimal — `server/gridGeneration.ts`/`.test.ts` (same
+WORKSTREAM PARTITION note every prior session in this thread has made: this
+is a datacore-style EIA-930 raw-overlay module with no trading-logic
+import, filed as SHARED-minimal T-DATACORE product-queue work, matching
+this thread's own established convention) + `ci/counter_baseline.txt`/
+`package.json`/`package-lock.json`/`research/*`, last and minimal, per
+MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then `research/experiments.md`'s
+tail (this thread's own history across 15+ prior sibling PRs), `research/
+open_questions.md`'s KNOWN BROKEN section and the cold-cache-no-disk-
+backfill module-audit table (its latest entry, this same UTC day's
+gridDemand.ts fix, named `gridGeneration.ts` as the one remaining "new
+reader needed" item alongside the explicitly-lower-priority
+`dtccSwaps.ts`), and `research/wishlist.md`'s tail. `git fetch origin
+main` confirmed local HEAD already matched origin/main (8a9774b,
+v1.0.940) before starting.
+
+SYSTEM HEALTH CHECKED FIRST (`python3 scripts/session_health_check.py`):
+`[OK] deploy_gate`, `[OK] subsystems` (server/db/alpaca/python/scanner/
+licensing all ok), `[OK] process_faults`, `[OK] daemon_memory` (164MB,
+well under the 400MB trim threshold), `[OK] tier2_daemon_timeouts`, `[OK]
+ml_feedback`, `[OK] deploy_freshness` (server_version 1.0.940 matched this
+checkout pre-bump), `[OK] outage_duration` (site reachable, no outage in
+progress — KNOWN BROKEN #41's deploy-gate fix, v1.0.915, still holding).
+**`[ALARM] liveness`: trading loop dark 45.5 market hours / 228.8h
+wall-clock since 2026-09-10T03:12:26.354Z** — the SAME standing KNOWN
+BROKEN #42/#43 latched DRAWDOWN-KILL condition every session since
+2026-09-10 has confirmed: already root-caused as a data anomaly
+(independent equity-leg P&L reconstruction: -$414.82 vs. the account's own
+reported -$12,059.74), resuming trading deliberately left to the human's
+own Alpaca-dashboard check + `/api/bot/kill` toggle, `can_auto_resume:
+false` by design, outside FROZEN-mechanism authority. This session's own
+check adds no new fact beyond the same UTC day's earlier check (same
+signature, marginally more elapsed time) — per the established discipline
+every session since 2026-09-08 has applied, NOT re-notified via
+PushNotification. Not code-actionable (no auto-resume path exists
+anywhere in `server/bot.ts`, confirmed by multiple prior sessions), so
+this scheduled-routine session proceeds to the queue's own next item with
+the alarm noted, not acted on.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET rule 1 (next queued item
+beats new research) and this thread's own one-module-per-PR discipline,
+took `research/open_questions.md`'s explicitly-named next item:
+`gridGeneration.ts`, the last "new reader needed" entry in the cold-cache-
+no-disk-backfill module audit table.
+
+READ BEFORE WRITE: read `server/gridGeneration.ts` in full this session
+(316 lines) before editing — confirmed the exact same bug shape as its
+direct sibling `gridDemand.ts` (fixed earlier this same UTC day, v1.0.940):
+`refreshGeneration`'s `cache` (`{at, stats: RespondentGenerationStat[]}`,
+one row per respondent carrying its latest-period fuel mix) was written
+only inside `if (obs.length)`; `fetchGeneration` already catches
+per-respondent fetch errors internally so an all-12-respondents-failed
+sweep returns `[]` without ever throwing to the outer catch — a cold
+boot's or an EIA outage's very first poll left `/api/data/gridgeneration`
+`warming_up` forever despite `gridgeneration/YYYY-MM-DD.jsonl(.gz)`
+already holding real archived days.
+
+BUILT: read `server/gridDemand.ts`'s already-merged fix in full as the
+template (EDGE DOCTRINE #3 — this exact shape is now mechanical, not
+research, across 16 prior sibling modules in this thread) and applied the
+identical two-piece pattern: `computeGenerationStats` (the existing
+per-respondent fuel-mix/total_mwh/hours_in_window aggregation loop,
+extracted verbatim out of `refreshGeneration` into its own pure function,
+byte-identical output — confirmed via the pre-existing "refresh sweep"
+test still passing unchanged) + `readArchivedGeneration` (newest-single-
+day-only archive read walking back up to 7 days, plain-or-gz, same
+convention as `readArchivedDemand`) + `_resetGridGenerationForTests`
+(module-level singleton reset, same class as gridDemand.ts's own). Wired
+through `refreshGeneration`'s new `else if (!cache)` branch: a live sweep
+still always wins and re-archives; only a fully-empty sweep with no
+existing cache falls back to disk.
+
+6 new tests in `server/gridGeneration.test.ts` (mirroring gridDemand.ts's
+own cold-cache-no-disk-backfill test block): `computeGenerationStats` pure
+aggregation (reused output matches a live sweep's shape exactly); two
+`readArchivedGeneration` cases (newest-day-only, not a merged multi-day
+blend; gzipped days read correctly, empty archive returns `[]`); and three
+`refresh` cases — cold cache backfills from disk when every respondent
+request fails, an already-good cache is never clobbered by a transient
+all-fail sweep, and a cold cache with nothing archived either stays
+honestly null rather than fabricating a result. All 12 tests in the file
+pass (6 pre-existing + 6 new).
+
+VERIFIED, not assumed:
+- `npx tsx --test server/gridGeneration.test.ts`: 12/12 pass.
+- Full suite `npx tsx --test server/*.test.ts`: FAILED first run with 8
+  files erroring `ERR_MODULE_NOT_FOUND` (`server/aircraftTiling.test.ts`,
+  `apiKeyAccounts`, `cdcCancer`, `compression`, `gdeltEvents`, `owmTiles`,
+  `seafloorTiles`, `securityMiddleware`) — this fresh container had no
+  `node_modules` yet, the same provisioning gap several prior sessions
+  have logged (not a repo defect, and none of the 8 files touch this
+  diff). `npm ci` (488 packages) resolved it; re-run: **1788 passed, 0
+  failed**.
+- `python3 -m pytest -q`: needed `pip install -r requirements.txt -r
+  requirements-dev.txt` first (same fresh-container gap, Python side) —
+  after that, **2106 passed, 1 skipped, 54 subtests, 0 regressions**.
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server/client/python
+  all green, deploy-gate smoke PASS (`/api/health` answered 200 in 5.3s
+  under latched-kill-switch + stale-liveness state), quarantine 0/1, none
+  overdue.
+- `bash scripts/counter_ratchet.sh`: IMPROVED on first run (`assertions`
+  14838 -> 14856, this session's own 6 new tests — confirmed via
+  `git diff --stat` this diff touches exactly `server/gridGeneration.ts`
+  and `server/gridGeneration.test.ts` before crediting the delta to
+  itself, PROMOTION RULE 5) — re-pinned in `ci/counter_baseline.txt` in
+  this same PR; re-ran after pinning: 25/25 counters OK.
+- `bash scripts/tsc_ratchet.sh`: 3 <= 11 pinned, TS2304 0 — the SAME
+  pre-existing 11->3 drop the 2026-09-16 session already found and
+  declined to claim (`ci/tsc_baseline.txt` is SHARED-but-minimal
+  territory and this diff touches zero `.ts` files outside
+  `server/gridGeneration.ts`, which was already typechecking clean) — not
+  re-pinned here either, same reasoning.
+- `npm run build`: clean (pre-existing chunk-size/astronomy-engine
+  warnings only, same as every prior session in this thread).
+- Version bumped 1.0.940 -> 1.0.941 (package.json + package-lock.json,
+  read-and-incremented from a freshly-fetched origin/main immediately
+  before committing — origin/main still matched this checkout's starting
+  HEAD when checked, per the MERGE-ORDER PROTOCOL).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure cache-freshness bug fix
+(when-to-show-a-real-archived-day-instead-of-nothing), no scoring/sizing/
+strategy/threshold code touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: this session ran during 2026-09-19 US market hours.
+This PR's diff (a datacore-style raw-overlay module + its test file + a
+version bump + a counter re-pin + two research-log entries) touches no
+trading-path file, so the market-hours hold carries no live-trading risk
+in this specific case — same reasoning every session in this thread has
+applied. Per this repo's own recently-reconfirmed convention (wishlist.md's
+17th-occurrence tally, same week) the `automerge` job merges on green CI
+regardless of market hours; this session's own task instructions asked to
+note in the PR that merge should wait until after 4:00 PM ET unless the
+change fixes a critical live break — noted in the PR body per that
+instruction, not enforced by the workflow (the same known, already-filed
+gap; not re-tallied as a fresh occurrence here since this PR's own hold
+note is informational only and the session is not tracking whether this
+specific PR merges early).
+
+NEXT: (1) the cold-cache-no-disk-backfill thread's remaining VULNERABLE
+queue is now just `dtccSwaps.ts` (explicitly lower-priority — a different
+bug shape, a growing in-memory dedup set rather than a blankable per-poll
+cache, per KNOWN BROKEN #41's leak-audit NEXT). Every "new reader needed"
+entry this table ever named is now closed. (2) a future session should
+re-survey `server/*.ts`'s cache-write sites fresh before assuming this
+thread is fully exhausted — new modules ship regularly and could
+reintroduce the same `if (obs.length)`-only shape; this is a recurring
+class check, not a one-time completed list. (3) KNOWN BROKEN #42/#43's
+latched drawdown-kill switch remains open, human-decision-gated, 45.5
+market hours / 228.8h wall-clock dark as of this session — unchanged from
+every session since 2026-09-08, not re-notified.
+
+STARVED: no — this session picked the queue's own explicitly-named,
+last-remaining concretely-testable item, closed it end-to-end (lib + tests
++ wiring + ratchet re-pin + research-log bookkeeping in both
+open_questions.md and here) with every gate run and verified, not assumed,
+and left the thread's state accurately updated (now effectively closed
+except for the deliberately-deferred dtccSwaps.ts) for the next session.
+
 ## 2026-09-19 (scheduled-routine [PRODUCT] session, third session this UTC day) [PIPELINE] — gridDemand.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot or a live EIA outage across every one of the 12 respondents left `/api/data/griddemand` warming_up forever despite a real per-day demand archive already on disk (v1.0.940)
 
 TERRITORY: SHARED-minimal — `server/gridDemand.ts`/`.test.ts` (T-BOT by the

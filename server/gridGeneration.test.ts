@@ -8,9 +8,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import {
   gridGenerationEnabled, parseGeneration, generationUrl, fetchGeneration, archiveGeneration,
   refreshGeneration, latestGeneration, RESPONDENTS, HOURS_PER_FETCH,
+  computeGenerationStats, readArchivedGeneration, _resetGridGenerationForTests,
 } from "./gridGeneration";
 
 // Mirrors the live EIA v2 shape verified 2026-09-09 (real EIA_API_KEY probe):
@@ -105,4 +107,103 @@ test("data-quality gate: implausible generation rows are quarantined, storage ne
   const huge    = { period: "2026-09-09T03", respondent: "ERCO", fueltype: "NG", mwh: 9_999_999, rt: "2026-09-09" }; // absurd
   const n = archiveGeneration([good, storageNeg, tooNeg, huge], base);
   assert.equal(n, 2, "the plausible positive row and the plausible storage-negative row are archived; the two absurd rows are quarantined");
+});
+
+// ── cold-cache-no-disk-backfill fix thread (research/open_questions.md's
+// module audit table) — a cold boot or a live EIA outage (every respondent
+// request failing/erroring) left /api/data/gridgeneration warming_up
+// forever despite a real per-day archive already on disk. A/B-verified
+// against the pre-fix shape: the old refresh only ever wrote `cache` inside
+// `if (obs.length)`, so an all-respondents-empty sweep on a cold boot left
+// `cache` permanently null even with archived days sitting right there.
+// Same shape as gridDemand.ts's own thread entry, this module's direct
+// sibling.
+
+test("computeGenerationStats: pure aggregation, reused for both a live sweep and a backfilled archive day", () => {
+  const obs = parseGeneration(ENVELOPE([
+    ROW("2026-09-08T21", "US48", "NG", "244668"),
+    ROW("2026-09-08T21", "US48", "COL", "50000"),
+    ROW("2026-09-08T20", "US48", "NG", "200000"),
+  ]), "2026-09-09");
+  const stats = computeGenerationStats(obs);
+  assert.equal(stats.length, 1);
+  assert.equal(stats[0].respondent, "US48");
+  assert.equal(stats[0].latest_period, "2026-09-08T21");
+  assert.equal(stats[0].total_mwh, 294668);
+  assert.equal(stats[0].hours_in_window, 2);
+  assert.equal(stats[0].fuel_mix[0].fueltype, "NG");
+});
+
+test("readArchivedGeneration: returns the most recent archived day's raw obs, not a merged multi-day window", () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "gridgeneration-"));
+  const day1 = parseGeneration(ENVELOPE([ROW("2026-09-07T10", "US48", "NG", "100")]), "2026-09-07");
+  const day2 = parseGeneration(ENVELOPE([ROW("2026-09-08T10", "US48", "NG", "200")]), "2026-09-08");
+  archiveGeneration(day1, base);
+  archiveGeneration(day2, base);
+  const obs = readArchivedGeneration(base, Date.parse("2026-09-09T00:00:00Z"));
+  assert.ok(obs.length > 0);
+  assert.ok(obs.every((o) => o.period.startsWith("2026-09-08")), "walks back to the newest day with an archive file, not a blend of both days");
+});
+
+test("readArchivedGeneration: gzipped days are read too, and an empty archive returns []", () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "gridgeneration-"));
+  assert.deepEqual(readArchivedGeneration(base, Date.parse("2026-09-09T00:00:00Z")), [], "no archive on disk at all");
+  const day = parseGeneration(ENVELOPE([ROW("2026-09-08T10", "US48", "NG", "200")]), "2026-09-08");
+  archiveGeneration(day, base);
+  const dir = path.join(base, "gridgeneration");
+  fs.readdirSync(dir).forEach((f) => {
+    if (!f.endsWith(".jsonl")) return;
+    const fp = path.join(dir, f);
+    fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+    fs.unlinkSync(fp);
+  });
+  const obs = readArchivedGeneration(base, Date.parse("2026-09-09T00:00:00Z"));
+  assert.equal(obs.length, day.length);
+});
+
+test("refresh: a cold cache backfills from disk when every respondent request fails, aggregated exactly like a live result", async () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "gridgeneration-"));
+  const day = parseGeneration(ENVELOPE([
+    ROW("2026-09-08T21", "US48", "NG", "244668"),
+    ROW("2026-09-08T21", "US48", "COL", "50000"),
+  ]), "2026-09-08");
+  archiveGeneration(day, base);
+  assert.equal(latestGeneration(), null, "pre-fix baseline: cache starts cold");
+
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshGeneration(allFail as any, { EIA_API_KEY: "k" } as any,
+                          Date.parse("2026-09-09T12:00:00Z"), base, 0);
+  const hit = latestGeneration();
+  assert.ok(hit, "cold cache backfilled from the on-disk archive instead of staying warming_up forever");
+  assert.equal(hit!.stats.length, 1);
+  assert.equal(hit!.stats[0].respondent, "US48");
+  assert.equal(hit!.stats[0].total_mwh, 294668, "backfilled rows flow through the same computeGenerationStats aggregation as a live result");
+});
+
+test("refresh: an already-good cache is never clobbered by a transient all-respondents-empty sweep", async () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "gridgeneration-"));
+  const ok = async () => ({ ok: true, status: 200,
+    text: async () => JSON.stringify(ENVELOPE([ROW("2026-09-08T10", "US48", "NG", "500")])) });
+  await refreshGeneration(ok as any, { EIA_API_KEY: "k" } as any,
+                          Date.parse("2026-09-08T12:00:00Z"), base, 0);
+  const first = latestGeneration();
+  assert.ok(first);
+
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshGeneration(allFail as any, { EIA_API_KEY: "k" } as any,
+                          Date.parse("2026-09-08T18:00:00Z"), base, 0);
+  assert.deepEqual(latestGeneration(), first, "a transient all-failed sweep with a good cache already in hand leaves it untouched, not overwritten by an archive re-read");
+});
+
+test("refresh: cold cache with nothing archived either stays honestly null, never fabricates a result", async () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "gridgeneration-"));
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshGeneration(allFail as any, { EIA_API_KEY: "k" } as any,
+                          Date.parse("2026-09-09T12:00:00Z"), base, 0);
+  assert.equal(latestGeneration(), null, "no archive and no live result means warming_up is the honest state, not a fabricated one");
 });
