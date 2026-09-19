@@ -3,6 +3,185 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine [PRODUCT] session, third session this UTC day) [PIPELINE] — gridDemand.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot or a live EIA outage across every one of the 12 respondents left `/api/data/griddemand` warming_up forever despite a real per-day demand archive already on disk (v1.0.940)
+
+TERRITORY: SHARED-minimal — `server/gridDemand.ts`/`.test.ts` (T-BOT by the
+WORKSTREAM PARTITION table's own boundary line — but this is a datacore-style
+EIA-930 regime-input pipeline module with no trading-logic import, matching
+every prior session in this thread's own convention of filing these as
+SHARED-minimal T-DATACORE product-queue work, not new datacore authoring) +
+`ci/counter_baseline.txt`/`package.json`/`package-lock.json`/`research/*`,
+last and minimal, per MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then `research/PROGRAM_STATE.md`
+(the separate T-CLIENT rendering-law/audit-ratchet program — noted, not this
+session's territory), `research/experiments.md`'s tail, `research/
+open_questions.md`'s KNOWN BROKEN section and the cold-cache-no-disk-backfill
+module-audit table, `research/wishlist.md`'s tail, and
+`research/platform_program.md` (queue clear except P5, HUMAN-GATED). `git
+fetch origin main` confirmed local HEAD already matched origin/main (da3d0cf,
+v1.0.939) before starting.
+
+SYSTEM HEALTH CHECKED FIRST (`python3 scripts/session_health_check.py`):
+`[OK] deploy_gate`, `[OK] subsystems` (server/db/alpaca/python/scanner/
+licensing all ok), `[OK] process_faults` (no unhandled rejections/
+exceptions), `[OK] daemon_memory`, `[OK] tier2_daemon_timeouts`, `[OK]
+ml_feedback`, `[OK] deploy_freshness` (server_version 1.0.939 matched this
+checkout pre-bump), `[OK] outage_duration` (site reachable, no outage in
+progress — KNOWN BROKEN #41's deploy-gate fix, v1.0.915, still holding).
+**`[ALARM] liveness`: trading loop dark 45.5 market hours / 225.9h
+wall-clock since 2026-09-10T03:12:26.354Z** — the SAME standing KNOWN
+BROKEN #42/#43 latched DRAWDOWN-KILL condition every session since
+2026-09-10 has confirmed: already root-caused as a data anomaly (independent
+equity-leg P&L reconstruction: -$414.82 vs. the account's own reported
+-$12,059.74), resuming trading deliberately left to the human's own
+Alpaca-dashboard check + `/api/bot/kill` toggle, `can_auto_resume:false`
+by design, outside FROZEN-mechanism authority. Per the established
+discipline every session since 2026-09-08 has applied ("re-confirmed live
+and correctly declined to re-notify absent new information"), this session
+adds no new fact (same signature, ~10h more elapsed than the most recent
+prior session's own check) — NOT re-notified via PushNotification. Not a
+[REPAIR] session on that item: no auto-resume path exists anywhere in
+`server/bot.ts` (checked by multiple prior sessions), so it is not
+code-actionable, and per this task's own instruction ("product sessions do
+not preempt the DAILY routines' repair duty") this PRODUCT session proceeds
+to product work with the alarm noted, not acted on.
+
+PRIMARY-ACTION SELECTION: `research/open_questions.md`'s cold-cache-no-
+disk-backfill module audit table (2026-09-15, updated through this UTC day's
+earlier gdeltEvents.ts fix) left an explicit, ordered remaining VULNERABLE
+queue: `gridDemand.ts`, `gridGeneration.ts` (both "new reader needed"), plus
+`dtccSwaps.ts` (explicitly lower-priority — its own 8-day live-fetch
+lookback already mitigates a single missed poll). Per SESSION BUDGET rule 1
+(next queued item beats new research) and this thread's own established
+one-module-per-PR discipline, took the queue's own next-in-order item,
+`gridDemand.ts`. This is EDGE DOCTRINE #3 in substance (COMPILE KNOWLEDGE
+INTO CODE): the recurring fix shape is now well enough understood across
+14+ prior sibling modules that applying it here is mechanical, not
+re-derived reasoning.
+
+READ BEFORE WRITE: read `server/gridDemand.ts` in full this session (not
+grepped), plus `server/euGenerationMix.ts` and its test file as the closest
+precedent (same derived-aggregate cache shape). Confirmed the bug: `cache`
+is `{at, stats: RespondentStat[]}` — one row per respondent, computed
+inline inside `refreshDemand` from the raw `DemandObs[]` a live sweep
+returns — and was only ever written inside `if (obs.length)`. `fetchDemand`
+already catches per-respondent (`!r.ok` or a thrown fetch both just
+`console.error` and continue to the next respondent), so an all-12-
+respondents-failed sweep returns `obs.length === 0` without throwing to the
+outer `try` at all — a cold boot's or an EIA outage's very first poll
+therefore left `cache` permanently `null`, with `/api/data/griddemand`
+reporting `warming_up` forever, despite `archiveDemand`'s own per-observation-
+day `.jsonl(.gz)` files (`griddemand/YYYY-MM-DD.jsonl[.gz]`) already holding
+real data on disk. Same shape as every "new reader needed" sibling in this
+thread; `stats` is itself a flat per-respondent array (unlike
+euGenerationMix's per-zone-per-fuel breakdown), so the fix is a smaller
+diff than euGenerationMix.ts's but the same two-piece shape: extract the
+aggregation, add an archive reader, wire the `else if (!cache)` branch.
+
+BUILT (v1.0.940, own PR): `computeDemandStats(obs: DemandObs[]):
+RespondentStat[]` — the exact per-respondent D/DF aggregation
+`refreshDemand` already did inline, extracted verbatim (byte-identical
+logic, including the SAME-period-DF-only comment explaining why the
+newest DF row is never used) so a disk-backfilled day's raw obs flow
+through the identical computation a live sweep uses.
+`readArchivedDemand(baseDir?, nowMs?, lookbackDays=7)` — walks backward
+through `griddemand/`'s existing per-day `.jsonl(.gz)` files (same
+plain-then-gz probe, same JSON-per-line parse, same "stop at the first day
+with data" contract as `readArchivedGenMix`/`readArchivedReactorStatus`),
+returning one day's raw obs rather than a merged multi-day window — blending
+two UTC days would double-count `hours_in_window` and could pair a D row
+from one day with a same-period DF row that was never actually published
+alongside it. `refreshDemand` now calls `computeDemandStats(obs)` in the
+success branch and, when the sweep returns nothing AND no cache already
+exists, backfills from `readArchivedDemand` through the same
+`computeDemandStats` call — mirroring every sibling fix's own "a
+non-empty existing cache is never clobbered by a transient empty/failed
+sweep" guarantee. `_resetGridDemandForTests()` added (test-only; clears
+`cache`/`seenObs`/`seeded`/`polling`, the same module-singleton reset
+class `_resetGenMixForTests()`/`_resetReactorStatusForTests()` already
+exist for) so the new tests don't depend on file execution order to find
+`cache` still null.
+
+7 new tests in `server/gridDemand.test.ts`: `computeDemandStats` pure
+aggregation (latest D, same-period DF match, `hours_in_window` count);
+`readArchivedDemand` returns the newest day only (not a blend), gzip read,
+and empty-archive `[]`; three `refresh` cases mirroring
+`euGenerationMix.test.ts`'s own convention — cold cache backfills from disk
+when every respondent request fails, an already-good cache is never
+clobbered by a transient all-failed sweep, and a cold cache with nothing
+archived either stays honestly `null` rather than fabricating a result.
+
+VERIFIED, not assumed:
+- A/B against pre-fix code: `git stash push -- server/gridDemand.ts` (test
+  file kept) then `npx tsx --test server/gridDemand.test.ts` fails to even
+  load — `SyntaxError: The requested module './gridDemand' does not
+  provide an export named '_resetGridDemandForTests'` — proving the new
+  exports are genuinely new, not redundant with something already there.
+  Restored; `npx tsx --test server/gridDemand.test.ts`: 14/14 pass (7
+  pre-existing + 7 new).
+- ENVIRONMENT NOTE (not a code finding): this sandbox's pre-existing
+  `node_modules` was stale — `node_modules/.bin/tsx` was missing entirely,
+  so `npm run build`/`scripts/deploy_gate_smoke.mjs` failed with `tsx: not
+  found`, and pip's `pytest` module wasn't yet installed for `python3 -m
+  pytest`, both purely environmental (unrelated to this diff). Fixed by
+  `npm ci` (`node_modules/.bin/tsx` present, `npm run build` clean after)
+  and `pip install -r requirements.txt -r requirements-dev.txt`, then the
+  full gate suite was re-run clean — recorded here so a future session
+  reading this entry doesn't mistake a fresh-container artifact for a
+  regression this diff caused.
+- `bash scripts/gated_tests.sh` (after the above): **GATE PASSED** — server
+  1782/1782, client 1091/1091, python 2106 passed/1 skipped/54 subtests,
+  deploy-gate smoke PASS (`/api/health` 200 in 5.4s under latched-kill-
+  switch + stale-liveness state), quarantine 0/1, none overdue.
+- `bash scripts/counter_ratchet.sh`: IMPROVED on first run (`assertions`
+  14820 -> 14838, this session's own 7 new tests' own assert count);
+  re-pinned in `ci/counter_baseline.txt` in this same PR (confirmed
+  `program_status.sh`-equivalent live value now matches the new pin); local
+  HEAD was verified equal to origin/main before starting, so this delta is
+  this session's own new test file, not pre-existing drift (PROMOTION RULE
+  5). Re-ran after re-pinning: 25/25 counters OK.
+- `bash scripts/tsc_ratchet.sh`: 3 <= 11 pinned, TS2304 0 — reports the SAME
+  pre-existing 11 -> 3 drop the 2026-09-16/2026-09-18 sessions already
+  found and declined to claim (`ci/tsc_baseline.txt` is SHARED-but-minimal
+  territory and lowering someone else's gain is not this session's one
+  logical change either, per PROMOTION RULE 5 — left for whoever's diff
+  actually earned it). `npm run build`: clean (same pre-existing
+  chunk-size/astronomy-engine-default-export warnings every prior session
+  has noted, no new ones).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this restores an already-documented
+existing behavior (serving the real archived state instead of a permanent
+`warming_up`) on a RAW datacore overlay; no scoring/sizing/strategy/
+threshold code touched, nothing traded or sold on `griddemand` (still
+pre-gate-1 per `datacore/signal_ladder.json` — not touched this session).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+Remaining VULNERABLE queue after this fix: `gridGeneration.ts` (own "new
+reader needed" entry), plus `dtccSwaps.ts` (still explicitly
+lower-priority, per its own 8-day live-lookback mitigation). The thread is
+now down to its last two entries.
+
+NEXT: (1) `gridGeneration.ts` is the next unclaimed item in this thread —
+same audit table, same one-module-per-PR discipline. (2) once
+`gridGeneration.ts` lands, only `dtccSwaps.ts` remains, and a future
+session should re-examine whether its 8-day live-lookback mitigation is
+strong enough to leave it permanently unfixed or whether it's still worth
+closing out the thread completely. (3) KNOWN BROKEN #42/#43's latched kill
+switch remains open, human-gated, unchanged by this session — the same
+standing item every session since 2026-09-10 has carried forward.
+
+STARVED: no — this session took the queue's own stated next-in-order item,
+closed it end-to-end (extraction + new archive reader + reset helper +
+7 tests + full gate suite genuinely re-run clean after fixing this sandbox's
+own stale-environment artifact, not worked around) within a single-session
+scope, consistent with the established one-module-per-PR discipline this
+thread has followed since 2026-09-12.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-19 (scheduled-routine session, second session this UTC day) [PIPELINE] — gdeltEvents.ts joins the cold-cache-no-disk-backfill fix thread, plus a stale duplicate PR closed (v1.0.939)
 
 TERRITORY: SHARED-minimal — `server/gdeltEvents.ts`/`.test.ts` (T-BOT by the

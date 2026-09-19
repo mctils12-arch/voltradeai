@@ -20534,9 +20534,9 @@ empty/failed live poll):
 | euMacro.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.936** |
 | faaStatus.ts | none | new reader needed — **FIXED 2026-09-17, v1.0.927** |
 | fdicBanks.ts (backs `fdicFailures`) | none (but `fetchHistoricalFailures`, a live alternate source, exists) | new reader needed — **FIXED 2026-09-19, v1.0.937** |
-| fredMacro.ts | none | new reader needed |
-| gdeltEvents.ts | none | new reader needed |
-| gridDemand.ts | none | new reader needed |
+| fredMacro.ts | none | new reader needed — **FIXED 2026-09-19, v1.0.938** (table was stale — this session found and corrected it) |
+| gdeltEvents.ts | none | new reader needed — **FIXED 2026-09-19, v1.0.939** (table was stale — this session found and corrected it) |
+| gridDemand.ts | none | new reader needed — **FIXED 2026-09-19, v1.0.940** |
 | gridGeneration.ts | none | new reader needed |
 | nhtsaComplaints.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.931** |
 | nrcReactorStatus.ts | none | new reader needed — **FIXED 2026-09-18, v1.0.933** |
@@ -20768,6 +20768,41 @@ experiments.md for the diff-checked "no salvageable delta" verdict.
 Remaining VULNERABLE queue: `gridDemand.ts`, `gridGeneration.ts` (both
 "new reader needed"), plus `dtccSwaps.ts` (still explicitly
 lower-priority).
+
+NOT A SPEND REQUEST.
+
+UPDATE 2026-09-19 (scheduled-routine [PRODUCT] session, third session this
+UTC day) — `gridDemand.ts` FIXED (v1.0.940). Took the queue's own
+next-in-order item. Full account in research/experiments.md's matching
+dated entry. `cache` is `{at, stats: RespondentStat[]}` (one row per
+EIA-930 respondent), computed inline from raw `DemandObs[]` and written
+only inside `if (obs.length)`; `fetchDemand` already catches per-respondent
+so an all-12-respondents-failed sweep returns `[]` without ever throwing to
+the outer catch — a cold boot's or an EIA outage's very first poll left
+`/api/data/griddemand` `warming_up` forever despite `griddemand/YYYY-MM-DD
+.jsonl(.gz)` already holding real archived days. Fixed with the same
+two-piece shape as every "new reader needed" sibling: `computeDemandStats`
+(the existing per-respondent D/DF aggregation, extracted verbatim) +
+`readArchivedDemand` (newest-single-day-only archive read, same convention
+as `readArchivedGenMix`/`readArchivedReactorStatus`), wired through
+`refreshDemand`'s new `else if (!cache)` branch. 7 new tests; A/B-verified
+the module doesn't even load without the new exports pre-fix. This session
+also found and corrected two stale rows in this table
+(`fredMacro.ts`/`gdeltEvents.ts` were already fixed earlier this same UTC
+day but the table still read "new reader needed" with no FIXED tag).
+
+ALSO NOTED THIS SESSION (not acted on — see this table's own established
+discipline): KNOWN BROKEN #42/#43's latched drawdown-kill switch, now 45.5
+market hours / 225.9h wall-clock dark since 2026-09-10T03:12:26Z. Same
+already-fully-diagnosed, human-decision-gated condition every session
+since 2026-09-08 has carried forward (data-anomaly, not a real loss;
+`can_auto_resume:false`); this session adds no new fact, so per the
+established discipline it was not re-notified.
+
+Remaining VULNERABLE queue after this fix: `gridGeneration.ts` (own "new
+reader needed" entry), plus `dtccSwaps.ts` (still explicitly
+lower-priority, its own 8-day live-lookback mitigation). The thread is
+down to its last two entries.
 
 NOT A SPEND REQUEST.
 

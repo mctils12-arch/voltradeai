@@ -245,6 +245,93 @@ export function latestDemand() {
   return cache;
 }
 
+/** Pure aggregation, extracted so a disk-backfilled day's raw obs can be
+ *  turned into the same stats shape a live sweep produces (cold-cache-no-
+ *  disk-backfill fix thread, research/open_questions.md's module audit
+ *  table — gridDemand.ts was one of the two remaining "new reader needed"
+ *  entries after gdeltEvents.ts). gridDemand.ts caches a DERIVED aggregate
+ *  (one RespondentStat per respondent), not a flat item list, so per
+ *  cacheBackfill.ts's own SCOPE note this is fixed by hand, same as
+ *  nrcReactorStatus.ts/euGenerationMix.ts, not routed through the shared
+ *  resolveCacheItems. */
+export function computeDemandStats(obs: DemandObs[]): RespondentStat[] {
+  const byResp = new Map<string, DemandObs[]>();
+  for (const o of obs) {
+    if (!byResp.has(o.respondent)) byResp.set(o.respondent, []);
+    byResp.get(o.respondent)!.push(o);
+  }
+  const stats: RespondentStat[] = [];
+  byResp.forEach((rows, respondent) => {
+    const d = rows.filter((r) => (r.type || "D") === "D");
+    const df = rows.filter((r) => r.type === "DF");
+    const newest = d.length
+      ? d.reduce((mx, r) => (r.period > mx.period ? r : mx), d[0])
+      : rows.reduce((mx, r) => (r.period > mx.period ? r : mx), rows[0]);
+    // SAME-period DF only — DF is day-ahead, so its newest rows sit in
+    // FUTURE hours where aggregates are partial (live probe 2026-07-07:
+    // US48 DF T+2h = 74k vs 550k once fully reported). The comparable
+    // number is the forecast for the hour the demand reading covers.
+    const dfAtPeriod = df.find((r) => r.period === newest.period) || null;
+    stats.push({ respondent, latest_period: newest.period,
+                 latest_mwh: d.length ? newest.mwh : null,
+                 latest_forecast_mwh: dfAtPeriod ? dfAtPeriod.mwh : null,
+                 hours_in_window: d.length });
+  });
+  stats.sort((a, b) => a.respondent.localeCompare(b.respondent));
+  return stats;
+}
+
+/** Most recent archived day's raw obs (plain or gz), walked backward up to
+ *  `lookbackDays` — used to backfill the live cache when a cold boot's or
+ *  a live EIA outage's sweep returns nothing across every respondent, so a
+ *  transport failure doesn't report `warming_up` over a real archived day
+ *  already on disk (RENDERING & MOTION LAW, Freshness). Same pattern as
+ *  nrcReactorStatus.ts's readArchivedReactorStatus / euGenerationMix.ts's
+ *  readArchivedGenMix — griddemand's own per-day `.jsonl(.gz)` files
+ *  (keyed by observation day, `archiveDemand`'s own convention) are
+ *  already exactly that shape. Returns one day's raw obs, not a merged
+ *  multi-day window: computeDemandStats needs a single window's worth of
+ *  D rows per respondent for hours_in_window/latest_period to mean what
+ *  they say, and blending two UTC days would double-count or misreport
+ *  them as a single window. 7-day default: ~1-2h source lag, 2h poll, so a
+ *  week comfortably covers a multi-day EIA outage without scanning the
+ *  whole ~2,700-day-file archive. */
+export function readArchivedDemand(baseDir?: string, nowMs?: number, lookbackDays = 7): DemandObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = demandDir(baseDir);
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    const obs: DemandObs[] = [];
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { obs.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+    if (obs.length > 0) return obs;
+  }
+  return [];
+}
+
+/** Test-only: cache/seenObs/seeded/polling are module-level singletons
+ *  (same class of problem as nrcReactorStatus.ts's own
+ *  _resetReactorStatusForTests / euGenerationMix.ts's
+ *  _resetGenMixForTests), so a test exercising the cold-cache backfill
+ *  path must be able to reset them rather than rely on file execution
+ *  order to find `cache` still null. */
+export function _resetGridDemandForTests(): void {
+  seenObs.clear();
+  seeded = false;
+  cache = null;
+  polling = false;
+}
+
 export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
                                     env: NodeJS.ProcessEnv = process.env,
                                     nowMs?: number, baseDir?: string,
@@ -254,30 +341,12 @@ export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
     const obs = await fetchDemand(fetchImpl, env, nowMs, spacingMs);
     if (obs.length) {
       archiveDemand(obs, baseDir);
-      const byResp = new Map<string, DemandObs[]>();
-      for (const o of obs) {
-        if (!byResp.has(o.respondent)) byResp.set(o.respondent, []);
-        byResp.get(o.respondent)!.push(o);
+      cache = { at: Date.now(), stats: computeDemandStats(obs) };
+    } else if (!cache) {
+      const archived = readArchivedDemand(baseDir, nowMs);
+      if (archived.length > 0) {
+        cache = { at: Date.now(), stats: computeDemandStats(archived) };
       }
-      const stats: RespondentStat[] = [];
-      byResp.forEach((rows, respondent) => {
-        const d = rows.filter((r) => (r.type || "D") === "D");
-        const df = rows.filter((r) => r.type === "DF");
-        const newest = d.length
-          ? d.reduce((mx, r) => (r.period > mx.period ? r : mx), d[0])
-          : rows.reduce((mx, r) => (r.period > mx.period ? r : mx), rows[0]);
-        // SAME-period DF only — DF is day-ahead, so its newest rows sit in
-        // FUTURE hours where aggregates are partial (live probe 2026-07-07:
-        // US48 DF T+2h = 74k vs 550k once fully reported). The comparable
-        // number is the forecast for the hour the demand reading covers.
-        const dfAtPeriod = df.find((r) => r.period === newest.period) || null;
-        stats.push({ respondent, latest_period: newest.period,
-                     latest_mwh: d.length ? newest.mwh : null,
-                     latest_forecast_mwh: dfAtPeriod ? dfAtPeriod.mwh : null,
-                     hours_in_window: d.length });
-      });
-      stats.sort((a, b) => a.respondent.localeCompare(b.respondent));
-      cache = { at: Date.now(), stats };
     }
     gzipOldDemandDays(baseDir, nowMs);
   } catch (e: any) {
