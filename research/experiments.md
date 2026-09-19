@@ -3,6 +3,166 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine [PRODUCT] session) [PIPELINE] — fdicBanks.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live FDIC API outage) on the very first poll left `/api/data/bank-failures` cold forever despite a real on-disk failures archive already on disk, and the archive here is keyed by FETCH date rather than FAILDATE — a shape none of the thread's prior fixes had to handle (v1.0.937)
+
+TERRITORY: SHARED-minimal — `server/fdicBanks.ts`/`.test.ts` (T-DATACORE by
+the WORKSTREAM PARTITION table, product-queue work per the already-filed
+audit, not new datacore-authoring) + `package.json`/`package-lock.json`/
+`ci/counter_baseline.txt`/`research/*`, last and minimal, per MERGE-ORDER
+PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then research/experiments.md,
+research/open_questions.md's KNOWN BROKEN section, research/wishlist.md.
+LOOP-HEALTH RATIO: last 10 experiments.md entries tag as PIPELINE,
+RULE-REVIEW, PIPELINE, RULE-REVIEW, PIPELINE, REPAIR, PIPELINE, RESEARCH,
+PIPELINE, RESEARCH — 1/10 REPAIR, well under the 7+ thrash trigger; no
+meta-problem to address this session.
+
+HEALTH CHECK (`python3 scripts/session_health_check.py`, live, this
+session): `deploy_gate`/`subsystems`/`process_faults`/`alt_data_enrichment`/
+`daemon_memory`/`tier2_daemon_timeouts`/`ml_feedback`/`outage_duration` all
+OK; **`liveness` ALARM — trading loop dark for 45.5 market hours (213.1h
+wall-clock) since 2026-09-10T03:12:26Z.** This is the standing KNOWN
+BROKEN #42/#43 drawdown-kill trip: already root-caused (data-anomaly, not
+a real ~-18% loss — `#42`'s own live market-close reconstruction), already
+human-notified by the sessions that found it, and every session since has
+correctly declined to re-notify absent new information. This session's own
+reading adds no new fact (same signature, further elapsed time) and
+follows that same established discipline: NOT re-notified. This is a
+human-gated resume decision, not something a PRODUCT session can act on —
+noted per this session's own task instructions ("note it but proceed with
+product work"), not preempted; no code in this diff touches the trading
+path. No other KNOWN BROKEN item is both critical and code-actionable from
+this sandbox.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET rule 1, checked queued work
+first. `research/open_questions.md`'s cold-cache-no-disk-backfill module
+audit table (filed 2026-09-15, one module fixed per session since) listed
+five modules still VULNERABLE after the prior session's `euMacro.ts` fix:
+`fdicBanks.ts`, `fredMacro.ts`, `gdeltEvents.ts`, `gridDemand.ts`,
+`gridGeneration.ts` (all "new reader needed", no ranking beyond the
+original list order, `dtccSwaps.ts` still explicitly deprioritized). Took
+`fdicBanks.ts`, next in the table's own stated order.
+
+READ BEFORE WRITE: read the full current `fdicBanks.ts` (251 lines) and its
+existing test file this session, not from memory. `refreshFailures`'s
+finalize line was `if (failures.length) { archiveNewFailures(...); cache =
+{...}; } gzipOldFailureDays(...)` — on a fresh boot, `cache` starts null; if
+that boot's first live poll to api.fdic.gov returns empty (a transient
+outage, or simply a poll landing between rare failure events with the API
+having a bad moment), `cache` never gets set and stays null indefinitely
+(the poll interval is 12h), reporting `/api/data/bank-failures` cold
+despite `fdicfailures/` already holding a real on-disk archive from every
+prior session's polling. Same class as the 8 sibling fixes this thread has
+already shipped (cbpBorderWait/censusImports/edgar13f/euDayAheadPrices/
+euGenerationMix/euMacro/faaStatus/nhtsaComplaints/nrcReactorStatus/
+treasuryAuctions/usaSpending/usgsWater), but ONE STRUCTURAL DIFFERENCE
+found by actually reading the archive-writing code rather than assuming
+the FAA/CBP day-file pattern this module's own docstring names as its
+precedent applies unchanged: `archiveNewFailures` writes into TODAY's
+day-file only the failures NOT already in `seenEvents` (event-identity
+dedup, `cert|fail_date`) — so the archive's day-file names are keyed by
+FETCH date (when a failure was first observed live), not FAILDATE. A
+failure from 2010 could sit in a day-file from whenever this system first
+polled and saw it, scattered arbitrarily across the archive's history — a
+fixed recent-day lookback window (the shape every sibling fix in this
+thread uses, since their archives ARE dated by observation date that
+tracks the underlying event) would silently miss most of the archive here.
+Correctly identifying this before writing the fix (not discovering it via
+a failing test after the fact) is exactly the READ BEFORE WRITE protocol's
+purpose.
+
+BUILT (v1.0.937, own PR): `backfillFailuresFromArchive(baseDir?, nowMs?,
+limit=FAILURES_FETCH_LIMIT)` — scans EVERY archived day-file (plain +
+gzipped, same unbounded-directory-scan shape this file's own `seedSeen`
+already uses for the identical reason: failures run well under 10/year per
+the module docstring, so a full scan is cheap and, unlike a windowed one,
+correct here), dedups by the module's own existing `eventKey` identity
+(`cert|fail_date`), sorts newest-FAILDATE-first, and caps at `limit` so a
+backfilled cache matches the shape a live poll would have returned.
+`refreshFailures` now routes through the shared `resolveCacheItems`
+helper (`server/cacheBackfill.ts` — the same decision function
+cbpBorderWait.ts/edgarForm4.ts/nasaFirms.ts/ndbcBuoys.ts/usgsQuakes.ts
+already use) instead of its old `if (failures.length) {...}` gate: a
+non-empty live result always wins; an empty result backfills from disk
+ONLY when no cache already exists (never regressing an already-good cache
+to a stale archive read on a transient empty poll).
+
+RATCHET: 5 new tests in `server/fdicBanks.test.ts` (10 total, up from 7)
+— `backfillFailuresFromArchive` scans multiple day-files, dedups a
+re-observed event across two of them, sorts newest-first regardless of
+which day-file first saw it, respects `limit`, and returns `[]` rather
+than throwing on a missing archive dir; a cold cache backfills from the
+archive when the live poll returns zero rows; and — the specific
+regression `resolveCacheItems` exists to prevent, tested directly rather
+than only inferred from the helper's own existing unit tests — an
+already-warm cache is NOT overwritten by a stale archive read when a
+LATER poll comes back empty. A/B-verified via `git stash
+server/fdicBanks.ts`: the test file fails to even load pre-fix
+(`backfillFailuresFromArchive`/`_resetFailuresCacheForTests` don't exist),
+proving the new tests are genuinely new, not redundant with pre-fix
+behavior. The pre-existing "gz after 2d + refresh caches recent failures"
+test is unchanged and still passes post-fix.
+
+GATES: fresh container this session — `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt` run first, since `npx tsc`/
+`npx tsx` without a real `npm ci` silently fell back to a bare, standalone
+`typescript` install with no project `node_modules` and reported a
+misleading tsc-error count (3, not the pinned 11) before `npm ci` fixed
+it — noted here so a future session hitting the same false-divergence
+signature recognizes it immediately rather than re-diagnosing it (the
+`ci/tsc_baseline.txt` file's own header already warns "if CI reports a
+count that does NOT match this file and your diff cannot explain it, that
+is an environment divergence, not a regression" — this was exactly that).
+`npx tsx --test server/fdicBanks.test.ts` 10/10 pass. Full `npx tsx --test
+server/*.test.ts`: 1768/1768 pass, 0 failures. `bash
+scripts/tsc_ratchet.sh`: 11 <= 11 pin, TS2304 0 — unchanged, byte-matches
+baseline once the environment was fixed. `npm run build`: clean
+(pre-existing chunk-size/astronomy-engine warnings only, unrelated to this
+diff). `bash scripts/gated_tests.sh`: **GATE PASSED** — 2106 python passed
+(1 skipped, 54 subtests), full JS suite green, deploy-gate smoke PASS
+(`/api/health` 200 in 2.4s under kill-switch+stale-liveness fixtures),
+quarantine 0/1, none overdue. `bash scripts/counter_ratchet.sh`: IMPROVED
+on first run (`assertions` 14791->14802, this session's own new
+assertions) — re-pinned in `ci/counter_baseline.txt` in this same PR
+(confirmed via `scripts/program_status.sh` the new live value matches the
+new pin exactly); 25/25 OK on re-run. Version bumped 1.0.936 -> 1.0.937
+(package.json + package-lock.json, read-and-incremented from a
+freshly-fetched origin/main immediately before committing — confirmed
+still at 1.0.936/HEAD unchanged since this session's own start, per the
+MERGE-ORDER PROTOCOL).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a server-side RAW-data
+reliability fix over an already-live, already-tested archive/poll
+pipeline; no scoring/sizing/strategy/threshold code touched, and the fix
+restores documented intended behavior (serve the real archive instead of
+reporting cold) rather than introducing a new rule or threshold.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+NEXT: (1) the remaining VULNERABLE queue is `fredMacro.ts`,
+`gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all "new reader
+needed"), plus `dtccSwaps.ts` (still explicitly lower-priority) — the
+2026-09-18 session's own note that `fredMacro.ts` ("a fredMacro clone" per
+euMacro.ts's own docstring) likely shares euMacro's partial-source-outage
+shape, not just the classic cold-boot class originally scoped, should be
+checked first when that module's turn comes up, the same way this
+session's own READ BEFORE WRITE caught fdicBanks.ts's day-file-keyed-by-
+fetch-date structural difference before writing the fix rather than after.
+(2) KNOWN BROKEN #42/#43's drawdown-kill trip remains open, human-gated,
+unchanged this session (213.1h wall-clock as of this session's own health
+check) — still not this session's scope, per the task's own PRODUCT-
+session instructions.
+
+STARVED: no — this session's PRIMARY action was the queue's own
+next-in-order item, closed end-to-end (lib fix + tests + full gate suite +
+counter re-pin + ladder-table bookkeeping) with a genuine structural
+difference from every prior fix in the thread found by actually reading
+the code (not assumed from the pattern's precedent) and handled correctly
+rather than papered over with a copy-pasted windowed backfill that would
+have silently under-served most of the archive.
+
 ## 2026-09-18 (scheduled-routine [PRODUCT] session) [PIPELINE] — euMacro.ts joins the cold-cache-no-disk-backfill fix thread, plus a related same-file bug it exposed: a partial per-series live-fetch failure used to blank that series' already-cached value even while its four siblings kept updating normally (v1.0.936)
 
 TERRITORY: SHARED-minimal — `server/euMacro.ts`/`.test.ts` (T-DATACORE by

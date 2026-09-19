@@ -10,6 +10,7 @@ import {
   parseFailures, normalizeFailDate, fetchRecentFailures,
   archiveNewFailures, gzipOldFailureDays, refreshFailures,
   latestFailures, FAILURES_FETCH_LIMIT, fetchHistoricalFailures,
+  backfillFailuresFromArchive, _resetFailuresCacheForTests,
 } from "./fdicBanks";
 
 // Mirrors the live FDIC envelope verified 2026-07-06: rows nested under
@@ -115,4 +116,71 @@ test("gz after 2d + refresh caches recent failures", async () => {
   const hit = latestFailures();
   assert.ok(hit);
   assert.equal(hit!.failures[0].name, "FRESH BANK");
+});
+
+test("backfillFailuresFromArchive: scans every day-file (fetch-date, not fail-date, keyed), dedups by event identity, newest FAILDATE first, capped at limit", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fdic-backfill-"));
+  // Two separate "first observed" days, each contributing failures with
+  // unrelated FAILDATEs, plus a duplicate event re-observed on the second
+  // day (must not double-count).
+  archiveNewFailures(parseFailures(ENVELOPE([
+    WRAP("OLDEST BANK", 1, "1/15/2020", 500),
+    WRAP("MIDDLE BANK", 2, "6/1/2023", 1000),
+  ]), "2026-01-01"), base, Date.parse("2026-01-01T00:00:00Z"));
+  archiveNewFailures(parseFailures(ENVELOPE([
+    WRAP("MIDDLE BANK", 2, "6/1/2023", 1000), // same event, re-fetched later — not a dupe row
+    WRAP("NEWEST BANK", 3, "5/1/2026", null),
+  ]), "2026-05-02"), base, Date.parse("2026-05-02T00:00:00Z"));
+
+  const all = backfillFailuresFromArchive(base, Date.parse("2026-05-02T00:00:00Z"));
+  assert.equal(all.length, 3, "3 distinct events, the re-observed duplicate must not double-count");
+  assert.deepEqual(all.map((f) => f.name), ["NEWEST BANK", "MIDDLE BANK", "OLDEST BANK"],
+    "newest FAILDATE first, regardless of which day-file each was first seen in");
+
+  const capped = backfillFailuresFromArchive(base, Date.parse("2026-05-02T00:00:00Z"), 2);
+  assert.equal(capped.length, 2);
+  assert.deepEqual(capped.map((f) => f.name), ["NEWEST BANK", "MIDDLE BANK"]);
+
+  assert.deepEqual(backfillFailuresFromArchive(path.join(base, "does-not-exist")), [],
+    "a missing/unreadable archive dir returns [] rather than throwing");
+});
+
+test("refreshFailures: cold cache backfills from the on-disk archive when the live poll comes back empty (transient FDIC API outage on a fresh boot)", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fdic-coldcache-"));
+  const t0 = Date.parse("2026-08-01T00:00:00Z");
+  archiveNewFailures(parseFailures(ENVELOPE([
+    WRAP("ARCHIVED BANK", 55, "7/1/2026", 2500),
+  ]), "2026-08-01"), base, t0);
+
+  _resetFailuresCacheForTests();
+  assert.equal(latestFailures(), null, "cache must still be cold going into this cycle");
+  const empty = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(ENVELOPE([])) });
+  await refreshFailures(empty as any, t0 + 60_000, base);
+  const hit = latestFailures();
+  assert.ok(hit, "cache must be populated from the archive, not left null, despite the live poll returning zero rows");
+  assert.equal(hit!.failures.length, 1);
+  assert.equal(hit!.failures[0].name, "ARCHIVED BANK", "backfilled from the archive, not fabricated");
+  _resetFailuresCacheForTests();
+});
+
+test("refreshFailures: an empty live poll must NOT overwrite an already-warm cache with a stale archive read", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fdic-warmcache-"));
+  const t0 = Date.parse("2026-08-01T00:00:00Z");
+  archiveNewFailures(parseFailures(ENVELOPE([
+    WRAP("STALE ARCHIVED BANK", 66, "1/1/2020", 100),
+  ]), "2026-08-01"), base, t0);
+
+  _resetFailuresCacheForTests();
+  const ok = async () => ({
+    ok: true, status: 200,
+    text: async () => JSON.stringify(ENVELOPE([WRAP("LIVE BANK", 77, "7/31/2026", null)])),
+  });
+  await refreshFailures(ok as any, t0, base);
+  assert.equal(latestFailures()!.failures[0].name, "LIVE BANK", "warm the cache with the live result first");
+
+  const empty = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(ENVELOPE([])) });
+  await refreshFailures(empty as any, t0 + 60_000, base);
+  assert.equal(latestFailures()!.failures[0].name, "LIVE BANK",
+    "a transient empty poll must leave the already-good cache untouched, not regress it to the archive");
+  _resetFailuresCacheForTests();
 });
