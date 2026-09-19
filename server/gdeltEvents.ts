@@ -28,6 +28,7 @@ import path from "path";
 import zlib from "zlib";
 import { unzipSync } from "fflate";
 import { archiveBaseDir } from "./datacoreArchive";
+import { resolveCacheItems } from "./cacheBackfill";
 import strategicSites from "../datacore/sites/strategic_sites.json";
 
 export const GDELT_BBOX_DEG = 0.5;
@@ -202,17 +203,85 @@ export function latestGdeltEvents(): { at: number; events: GdeltEvent[] } | null
   return cache;
 }
 
-export async function refreshGdeltCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
+/** Test-only reset — `cache`/`polling`/`archivedIds`/`seeded`/
+ *  `lastExportUrl` are all module-singleton state (same problem every
+ *  sibling module in the cold-cache-no-disk-backfill thread solves for
+ *  itself), so a test exercising the cold-cache backfill path must be able
+ *  to force them back to their cold-boot values rather than rely on file
+ *  execution order or bleed state into a later test's own temp directory. */
+export function _resetGdeltCacheForTests(): void {
+  cache = null;
+  polling = false;
+  archivedIds.clear();
+  seeded = false;
+  lastExportUrl = null;
+}
+
+/** Rebuilds a cache-shaped 48h rolling window of matched events from the
+ *  on-disk gdelt/ archive — used when a cold boot's (or a live GDELT
+ *  network outage's) poll has nothing live to build the rolling window
+ *  from, closing the same cold-cache-no-disk-backfill gap already fixed
+ *  across this datacore thread (research/open_questions.md's module audit
+ *  table). gdeltEvents.ts's cache is a DERIVED rolling-merge aggregate
+ *  (prior in-window events + fresh ones), not a flat "latest snapshot"
+ *  list, so per `cacheBackfill.ts`'s own SCOPE note the archive read
+ *  itself is hand-written (same as euGenerationMix.ts/nrcReactorStatus.ts)
+ *  — but the resulting list is handed to the same shared
+ *  `resolveCacheItems` decision `refreshGdeltCache` below uses, since once
+ *  reconstructed it's exactly the flat item list that helper expects.
+ *  Scans up to `windowHours`+1 days of `archiveGdeltEvents`'s own per-day
+ *  `.jsonl(.gz)` files, dedups by GlobalEventID, and keeps only events
+ *  whose own `rt` (as-seen fetch timestamp, not `day`) still falls inside
+ *  the window — an event archived days ago because GDELT republished it
+ *  late must not resurrect a stale window. */
+export function readRecentArchivedGdelt(baseDir?: string, nowMs?: number, windowHours = 48): GdeltEvent[] {
+  const now = nowMs ?? Date.now();
+  const dir = gdeltDir(baseDir);
+  const seen = new Set<string>();
+  const out: GdeltEvent[] = [];
+  const days = Math.ceil(windowHours / 24) + 1;
+  for (let d = 0; d < days; d++) {
+    const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try {
+          const e: GdeltEvent = JSON.parse(line);
+          if (!e.id || seen.has(e.id)) continue;
+          if (now - Date.parse(e.rt) >= windowHours * 3600_000) continue;
+          seen.add(e.id);
+          out.push(e);
+        } catch { continue; }
+      }
+    }
+  }
+  out.sort((a, b) => Date.parse(b.rt) - Date.parse(a.rt));
+  return out;
+}
+
+export async function refreshGdeltCache(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
+  const now = nowMs ?? Date.now();
+  const hadCache = cache !== null;
   try {
     const events = await fetchGdeltEvents(fetchImpl, nowMs);
     // rolling 48h window of matched events for the API surface
-    const prior = (cache?.events || []).filter((e) => Date.now() - Date.parse(e.rt) < 48 * 3600_000);
+    const prior = (cache?.events || []).filter((e) => now - Date.parse(e.rt) < 48 * 3600_000);
     const ids = new Set(prior.map((e) => e.id));
-    cache = { at: Date.now(), events: [...prior, ...events.filter((e) => !ids.has(e.id))] };
-    try { archiveGdeltEvents(events, undefined, nowMs); } catch {}
-    try { gzipOldGdeltDays(undefined, nowMs); } catch {}
+    const merged = [...prior, ...events.filter((e) => !ids.has(e.id))];
+    const next = resolveCacheItems(hadCache, merged, () => readRecentArchivedGdelt(baseDir, nowMs));
+    if (next) cache = { at: now, events: next };
+    try { archiveGdeltEvents(events, baseDir, nowMs); } catch {}
+    try { gzipOldGdeltDays(baseDir, nowMs); } catch {}
   } catch (e: any) {
     console.error("[datacore] gdelt refresh:", e?.message || e);
+    const next = resolveCacheItems(hadCache, [], () => readRecentArchivedGdelt(baseDir, nowMs));
+    if (next) cache = { at: now, events: next };
   }
 }
 
