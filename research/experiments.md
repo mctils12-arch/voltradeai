@@ -3,6 +3,170 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine [PRODUCT] session, primary action) [PIPELINE] — `dtccSwaps.ts` gets a compact seenIds boot-index and a crash-loop guard, closing KNOWN BROKEN #41 leak-audit NEXT(1): the +400-650MB boot-time transient (full-archive gunzip+JSON.parse just to rebuild a 1.95M-ID dedup Set) and the unconditional-at-every-boot fetch with no crash-loop protection (v1.0.943)
+
+TERRITORY: T-DATACORE (`server/dtccSwaps.ts`/`.test.ts` only) + SHARED-
+minimal (package.json/package-lock.json version bump, research/*), last
+and minimal.
+
+SESSION-START: read CLAUDE.md in full, then research/ (PROGRAM_STATE.md
+noted as the separate T-CLIENT rendering-law/audit-ratchet program, not
+this session's territory). `bash scripts/gated_tests.sh` on a freshly
+fetched `origin/main` (c6a3298) came back RED — see the entry directly
+below (PR #1124, v1.0.942, merged first as its own blocking fix before
+this session's actual primary product action). KNOWN BROKEN #41
+(production leak audit) re-checked: no NEW live incident, kill switch
+still latched per the standing human-gated item in wishlist.md — noted,
+not re-escalated, and did not block T-DATACORE work per this run's own
+instructions.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`:
+0/3 gated roots ready (cftc_cot_positioning/sec_8k_earnings_language/
+fleet_utilization_aircraft all still time-gated, unchanged from the prior
+session's own finding). `python3 scripts/data_stream_registry_check.py
+--unbuilt`: 9/35 uncatalogued candidates, all declined/blocked on a human
+key or a dead source — no new pipeline to build. Every `gate1_pass`+ root
+in `datacore/signal_ladder.json` already has a `detail_route` (checked
+all 47). `research/platform_program.md`'s queue: clear except P5
+(HUMAN-GATED). With no ladder-gate or /data-UI item ready, fell through
+to `research/open_questions.md`'s item 41 (KNOWN BROKEN #41 leak audit,
+2026-09-18) — its own NEXT(1), "DTCC seenIds persistence + deferred first
+fetch," is the single unclaimed, concretely-scoped item across the whole
+queue: confirmed via `git log --all | grep -i dtcc` that no session has
+touched it since the audit filed. Chosen over starting a fresh
+hypothesis, per SESSION BUDGET's "judge a matured experiment > start a
+new experiment" and REASONING STANDARD's "fix a bug seen in audit logs"
+outranking new research — this is exactly that: a filed, dated finding
+("the only growing one," "largest boot-burst reduction available") from
+this session's own read-before-write of `research/experiments.md`'s most
+recent KNOWN BROKEN #41 entry.
+
+READ BEFORE WRITE: read `server/dtccSwaps.ts` in full (the zip streamer,
+`loadSeenIds`/`archiveNewRows`, `refreshDtccSwaps`'s lookback walk) and
+`server/dtccSwaps.test.ts` in full before touching either. Read
+`server/crashSafeRefresh.ts` (the `guardedRefresh` crash-loop guard
+built 2026-09-08 for this exact bug shape) and its two existing
+consumers in `server/routes.ts` (`refreshShadowStats`/`refreshPortDwell`)
+to match the established wrapping convention exactly rather than
+inventing a new one. Confirmed via the leak audit's own S2 finding
+(experiments.md 2026-09-18) that `loadSeenIds` — not `archiveNewRows` or
+the zip streamer — is the actual +400-650MB-transient/~120MB-retained
+contributor: every archived day file gunzipped, then EVERY line
+JSON.parse'd into a full 10-field row object just to read one field
+(`disseminationId`) off it, on every single boot, unconditionally.
+
+WHAT SHIPPED (two changes, both serving the one audit finding named as
+NEXT(1) — not two unrelated features bundled together):
+
+1. COMPACT seenIds INDEX (the boot-burst fix). New
+   `_seen_ids_index.jsonl.gz` file per archive dir: one bare
+   Dissemination-Identifier string per line, gzip-compressed — no
+   per-row JSON reconstruction. `loadSeenIds` (now exported, was
+   internal) tries this index first (`readSeenIdsIndex`); only on a
+   missing or corrupt index does it fall back to the original full
+   day-file scan, and it then WRITES the index (`writeSeenIdsIndex`) so
+   every later boot takes the fast path instead of re-paying the scan.
+   `archiveNewRows` appends newly-archived IDs to the index
+   (`appendSeenIdsIndex`) via the same read-modify-write-gzip shape it
+   already uses for its own per-day files — a routine (every ~6h, only
+   when new rows exist) cost, never a boot-path one. The day-file glob
+   inside the fallback scan is now name-anchored to
+   `^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$` (was a loose `.endsWith` check) —
+   same tightening fdicBanks.ts's `seedSeen` already uses — so a
+   corrupt/unreadable index file sitting in the same directory can never
+   be misread as a day file during the fallback path. HONESTLY SCOPED:
+   this does NOT shrink the retained Set itself (~120MB is inherent to
+   needing all IDs resident to dedup a cumulative-from-inception
+   upstream file, per the module's own docstring) — only the CPU/memory
+   burst of REBUILDING it every boot, which the audit itself named as
+   "the biggest single contributor to the boot burst and the only one
+   that grows day over day."
+
+2. CRASH-LOOP GUARD (`guardedRefresh`, matching the routes.ts
+   shadowstats/portdwell-dashboard convention exactly: same 6h cooldown
+   constant convention, same `refreshing`-flag-plus-guardedRefresh-plus-
+   outer-try/catch/finally shape). `bootDtccSwapsPoll` calls
+   `refreshDtccSwaps` unconditionally at every boot — if the ~132MB
+   zip stream + seenIds rebuild OOM-kills the process before `cache`/the
+   index are written, the crash erases the only evidence an attempt was
+   made and the very next boot retries the identical expensive fetch
+   immediately, the exact bug shape `crashSafeRefresh.ts` was built to
+   close for shadowstats/portdwell. `refreshDtccSwaps`'s existing
+   try-body (unchanged internal logic — the lookback walk, archiving,
+   cache assignment) now runs inside `guardedRefresh("dtccswaps",
+   6h, ...)`; an unresolved marker from a genuine crash now cools the
+   next boot down for 6h instead of an immediate identical retry. An
+   ORDINARY failure (no file found in the lookback window, a thrown
+   network error) still resolves the marker normally — only a hard
+   process death (marker never reaches its `finally`) triggers the
+   cooldown, per `guardedRefresh`'s own documented contract.
+
+TESTS: `server/dtccSwaps.test.ts` — 7 new (24 -> 31 total in this file):
+`loadSeenIds` fresh-dir/empty-index-write, migration-path (pre-existing
+day files, no index yet -> scanned once, index written to match),
+fast-path precedence (an index is trusted over a day file that would
+give a DIFFERENT answer if scanned, proving the index and not the day
+file drives the result), corrupt-index fallback (never misreads its own
+index file as a day file); `archiveNewRows` appends to the index, not
+just the day file; `refreshDtccSwaps` crash-marker cooldown (an
+unresolved marker suppresses a poll that would otherwise have
+succeeded) and normal-run marker resolution (so a clean run never
+falsely cools down the next boot). All existing tests pass UNCHANGED —
+confirmed the pre-existing "archiveNewRows: dedups... seeded from disk"
+and all three `refreshDtccSwaps` lookback-walk tests still pass exactly
+as before with no test-file changes needed for them, since the index is
+purely an internal optimization of `loadSeenIds`'s existing contract.
+
+GATES: `npx tsx --test server/dtccSwaps.test.ts server/crashSafeRefresh.test.ts`:
+31/31. Full `npx tsx --test server/*.test.ts` (after `npm ci` in this
+fresh container — the same fresh-container ERR_MODULE_NOT_FOUND
+provisioning gap several prior sessions have logged, not a repo defect):
+1795/1795, 0 failed. `python3 -m pytest -q` (after `pip install` both
+requirements files): 2107 passed, 1 skipped, 54 subtests, 0 regressions.
+`bash scripts/tsc_ratchet.sh`: 11 <= 11 pinned, TS2304 0 — unchanged,
+this diff is additive TypeScript with no new `any`/unsafe casts. `bash
+scripts/gated_tests.sh`: **GATE PASSED** — server/client/python all
+green, deploy-gate smoke PASS, quarantine 0/1, none overdue. Version
+bumped 1.0.942 -> 1.0.943 (package.json + package-lock.json,
+read-and-incremented from a freshly-fetched origin/main immediately
+before committing, per the MERGE-ORDER PROTOCOL — confirmed this
+checkout's HEAD matched origin/main's tip, now carrying PR #1124, before
+starting this diff).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a boot-reliability/memory fix on a
+RAW-overlay, gate1_pass (not yet gate-2-validated) datacore module; no
+scoring/sizing/strategy/threshold code touched, no trading-path file
+touched. MONETIZATION TRIPWIRE: not touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `loadSeenIds`'s return
+CONTRACT is unchanged (same `Set<string>`, same callers, same
+`archiveNewRows` dedup semantics) — only how it's populated changed, so
+every existing caller/test that doesn't inspect the on-disk index file
+directly is unaffected by construction, confirmed by the unchanged
+pre-existing test results above rather than assumed. `refreshDtccSwaps`'s
+public signature and `DtccPollResult` cache shape are both unchanged;
+`bootDtccSwapsPoll`'s call site in `server/routes.ts` needed no edit.
+
+NEXT: (1) not attempted — "stream-archive rows instead of retaining
+them" (the leak audit's own third, vaguer NEXT(1) sub-item) — deferred as
+a separate, less concretely-scoped future session per PROMOTION RULE 5's
+scope discipline. (2) the leak audit's other named items (GNSS per-day
+aggregation with an identical-output test, the budgeted boot-burst
+scheduler, the 8 UNVERIFIED angles, the `compute_outage_state` drop-on-
+healthy-run tooling bug) remain unclaimed — a future session should pick
+up NEXT(2) from that audit next. (3) this fix reduces the boot-time
+transient the audit measured but does not, by itself, prove the 09-08
+crash-loop is resolved — the audit's own STANDING CONCLUSION already says
+the loop was not memory and lives on the daytime path instead; this PR
+is pure hardening against a DIFFERENT (real, but not-yet-observed-as-
+fatal) risk the same audit flagged, not a claim that it fixes the
+09-08 incident.
+
+STARVED: no — closed a filed, dated, concretely-scoped queue item
+end-to-end (both named sub-fixes, tests, gates), after first fixing a
+session-start-blocking CI break (logged separately below) rather than
+letting it sit or filing around it.
+
 ## 2026-09-19 (scheduled-routine [PRODUCT] session, session-start finding) [REPAIR] — `gated_tests.sh` was RED on `main`: the immediately-prior commit's own lightweight addendum entry (no STARVED line by design) broke a too-narrow live-data smoke assertion in `test_research_state_check.py`, blocking every future PR's CI gate (v1.0.942)
 
 TERRITORY: SHARED-minimal — `test_research_state_check.py` (a test-only
