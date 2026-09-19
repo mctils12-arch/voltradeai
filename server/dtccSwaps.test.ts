@@ -15,7 +15,7 @@ import {
   isinCheckDigitValid, cusipCheckDigitValid, cusipFromUsIsin,
   isUsUnderlier, isBasketField, parseDtccLine,
   tryParseLocalHeader, streamDtccZip, dtccUrl,
-  archiveNewRows, _resetDtccForTests,
+  archiveNewRows, _resetDtccForTests, loadSeenIds,
   refreshDtccSwaps, latestDtcc, topNotionalRows,
 } from "./dtccSwaps";
 
@@ -298,5 +298,111 @@ test("refreshDtccSwaps: nothing published anywhere in the lookback window — le
     new Date(nowMs - i * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "_"));
   await refreshDtccSwaps(dateBlockedFetch(allBlocked, zip), nowMs, dir);
   assert.equal(latestDtcc(), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── seenIds compact index (KNOWN BROKEN #41 leak-audit NEXT(1)) ─────────
+// Boot-burst fix: loadSeenIds must prefer a persisted compact index over
+// re-scanning every archived day file, self-heal (build + persist the
+// index) the first time it finds none, and never let a corrupt/foreign
+// file in the same directory poison either path.
+
+test("loadSeenIds: fresh archive dir, no index yet — empty Set, and an index is written so a later legitimately-empty archive doesn't re-scan every boot", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-seenids-"));
+  const seen = loadSeenIds(dir);
+  assert.equal(seen.size, 0);
+  assert.ok(fs.existsSync(path.join(dir, "_seen_ids_index.jsonl.gz")));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadSeenIds: migration path — pre-existing day files with no index yet are scanned once, and the index written afterward matches", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-seenids-"));
+  const day = [{ disseminationId: "A1" }, { disseminationId: "A2" }]
+    .map((r) => JSON.stringify(r)).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-21.jsonl.gz"), zlib.gzipSync(day));
+
+  const seen = loadSeenIds(dir);
+  assert.deepEqual([...seen].sort(), ["A1", "A2"]);
+
+  const indexRaw = zlib.gunzipSync(fs.readFileSync(path.join(dir, "_seen_ids_index.jsonl.gz"))).toString("utf8");
+  assert.deepEqual(indexRaw.split("\n").filter(Boolean).sort(), ["A1", "A2"],
+    "index now matches the scanned archive, so the NEXT boot takes the fast path");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadSeenIds: fast path — once an index exists it is trusted over the day files, never re-scanned", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-seenids-"));
+  // A day file that would produce a DIFFERENT id set if scanned — proves
+  // the index, not the day file, is what actually gets returned.
+  const day = JSON.stringify({ disseminationId: "STALE-WOULD-BE-WRONG" }) + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-21.jsonl.gz"), zlib.gzipSync(day));
+  fs.writeFileSync(path.join(dir, "_seen_ids_index.jsonl.gz"), zlib.gzipSync("B1\nB2\n"));
+
+  const seen = loadSeenIds(dir);
+  assert.deepEqual([...seen].sort(), ["B1", "B2"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadSeenIds: a corrupt index falls back to the day-file scan, and the name-anchored glob never misreads the index file itself as a day file", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-seenids-"));
+  const day = JSON.stringify({ disseminationId: "C1" }) + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-21.jsonl.gz"), zlib.gzipSync(day));
+  fs.writeFileSync(path.join(dir, "_seen_ids_index.jsonl.gz"), Buffer.from("not gzip"));
+
+  const seen = loadSeenIds(dir);
+  assert.deepEqual([...seen], ["C1"],
+    "recovers from the real day file; picks up nothing from its own unparseable, wrong-shape index file sitting in the same directory");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("archiveNewRows: newly-archived ids are appended to the compact index, not just the day file", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-archive-idx-"));
+  _resetDtccForTests();
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const r = [parseDtccLine(row("X1", "US0378331005", "ISIN", "APPLE INC"), idx, n)!];
+  archiveNewRows(r, "2026-08-21", dir);
+
+  const indexPath = path.join(dir, "dtccswaps", "_seen_ids_index.jsonl.gz");
+  assert.ok(fs.existsSync(indexPath));
+  const ids = zlib.gunzipSync(fs.readFileSync(indexPath)).toString("utf8").split("\n").filter(Boolean);
+  assert.deepEqual(ids, ["X1"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── refreshDtccSwaps: crash-loop guard (KNOWN BROKEN #41 leak-audit
+//    NEXT(1)) — the same guardedRefresh cooldown convention routes.ts
+//    already applies to refreshShadowStats/refreshPortDwell.
+
+test("refreshDtccSwaps: an unresolved crash marker (simulated OOM mid-fetch on a prior boot) triggers the cooldown — skips this poll instead of immediately re-running the expensive fetch", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-crashguard-"));
+  const csv = [HEADER_LINE, row("900", "US0378331005", "ISIN", "APPLE INC")].join("\n") + "\n";
+  const zip = buildZip(csv);
+  const nowMs = Date.parse("2026-09-19T12:00:00Z");
+
+  // A real process crash never reaches guardedRefresh's `finally`, leaving
+  // exactly this shape on disk: started, never completed.
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "voltrade_refresh_attempt_dtccswaps.json"),
+    JSON.stringify({ startedAt: nowMs - 60_000 }));
+
+  await refreshDtccSwaps(dateBlockedFetch([], zip), nowMs, dir);
+  assert.equal(latestDtcc(), null, "cooldown suppresses the poll even though the fetch would have succeeded");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: a normal completed poll resolves the crash marker so the next boot is not stuck in cooldown", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-crashguard-"));
+  const csv = [HEADER_LINE, row("901", "US0378331005", "ISIN", "APPLE INC")].join("\n") + "\n";
+  const zip = buildZip(csv);
+  const nowMs = Date.parse("2026-09-19T12:00:00Z");
+
+  await refreshDtccSwaps(dateBlockedFetch([], zip), nowMs, dir);
+  assert.ok(latestDtcc(), "first poll runs normally");
+
+  const marker = JSON.parse(fs.readFileSync(path.join(dir, "voltrade_refresh_attempt_dtccswaps.json"), "utf8"));
+  assert.ok(marker.completedAt, "marker resolved after a normal (non-crashing) run, so it never falsely cools down the next boot");
   fs.rmSync(dir, { recursive: true, force: true });
 });

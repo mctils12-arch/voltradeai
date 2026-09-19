@@ -6568,6 +6568,21 @@
     with an identical-output test; budgeted boot-burst scheduler
     (design in wishlist first); targeted re-verify of the 8 unverified
     angles; fix `compute_outage_state` dropping the recovery record.
+    UPDATE 2026-09-19 (scheduled-routine [PRODUCT] session, v1.0.943,
+    full account in experiments.md) — the DTCC (S2) item above is DONE:
+    `dtccSwaps.ts` gained a compact `_seen_ids_index.jsonl.gz` boot-time
+    index (removes the +400-650MB per-boot transient from gunzip+JSON.
+    parsing every archived day file just to rebuild the dedup Set — does
+    NOT shrink the ~120MB retained Set itself, which is inherent to the
+    dedup requirement) and a `guardedRefresh` crash-loop guard (6h
+    cooldown, matching routes.ts's shadowstats/portdwell-dashboard
+    convention) so a boot-time crash no longer triggers an immediate
+    identical retry. 7 new tests. Remaining from this UPDATE's own list:
+    GNSS per-day aggregation, the budgeted boot-burst scheduler design,
+    and the 8 UNVERIFIED angles re-verify. The `compute_outage_state` fix
+    is ALSO already done (v1.0.932, a same-day interactive-session
+    [REPAIR] — experiments.md 2026-09-18) — noted here only so a future
+    session doesn't re-discover and re-fix it.
 
 42. **[FOUND 2026-09-09, scheduled-routine session, LIVE PRODUCTION
     INCIDENT, MECHANICALLY HARDENED — NOT ROOT-CAUSE-RESOLVED] Tier-2's

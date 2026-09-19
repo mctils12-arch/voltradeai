@@ -60,6 +60,7 @@ import readline from "readline";
 import fs from "fs";
 import path from "path";
 import { archiveBaseDir } from "./datacoreArchive";
+import { guardedRefresh } from "./crashSafeRefresh";
 
 const BASE_URL = "https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod";
 
@@ -333,12 +334,97 @@ function dtccDir(baseDir?: string): string {
 
 let seenIds: Set<string> | null = null;
 
-function loadSeenIds(dir: string): Set<string> {
+// ── Compact seenIds index (boot-burst fix, KNOWN BROKEN #41 leak-audit
+//    NEXT(1), 2026-09-18) ────────────────────────────────────────────────
+//
+// The leak audit (research/experiments.md 2026-09-18) measured
+// `loadSeenIds`'s ORIGINAL full-archive scan at +400-650MB heapUsed
+// transient per boot: every archived day file gunzipped, then EVERY line
+// JSON.parse'd into a full 10-field DtccSwapRow object just to read one
+// field off it (disseminationId), for a Set that already held 1.95M IDs
+// in production. This index makes the boot-time read cheap: one flat file
+// of bare ID strings, no per-row JSON reconstruction. It does NOT shrink
+// the retained Set itself (that's inherent to needing all IDs resident to
+// dedup a cumulative-from-inception upstream file) — only the CPU/memory
+// burst of rebuilding it at every boot, which the audit named as "the
+// biggest single contributor to the boot burst and the only one that
+// grows day over day."
+const SEEN_IDS_INDEX_FILE = "_seen_ids_index.jsonl.gz";
+
+function seenIdsIndexPath(dir: string): string {
+  return path.join(dir, SEEN_IDS_INDEX_FILE);
+}
+
+/** Fast path: one ID per line, gzip-compressed. Returns null (not an empty
+ *  Set) when the index doesn't exist yet or fails to read, so the caller
+ *  can tell "no index" from "index exists and is empty" apart and fall
+ *  back to the full scan instead of silently starting from zero. */
+function readSeenIdsIndex(dir: string): Set<string> | null {
+  const file = seenIdsIndexPath(dir);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = zlib.gunzipSync(fs.readFileSync(file)).toString("utf8");
+    const seen = new Set<string>();
+    for (const line of raw.split("\n")) {
+      if (line) seen.add(line);
+    }
+    return seen;
+  } catch (e) {
+    console.error("[datacore] dtccswaps readSeenIdsIndex:", e);
+    return null;
+  }
+}
+
+/** Full rewrite from a Set — used once, right after the legacy full-archive
+ *  scan below (first boot after this fix, or any future from-scratch
+ *  rebuild). Never called on the routine append path. */
+function writeSeenIdsIndex(dir: string, ids: Set<string>): void {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const payload = Array.from(ids).join("\n") + (ids.size ? "\n" : "");
+    fs.writeFileSync(seenIdsIndexPath(dir), zlib.gzipSync(payload));
+  } catch (e) {
+    console.error("[datacore] dtccswaps writeSeenIdsIndex:", e);
+  }
+}
+
+/** Routine (non-boot) write path: appends newly-archived IDs to the compact
+ *  index, same read-modify-write-gzip shape `archiveNewRows` already uses
+ *  for its own per-day files, just for this one small file instead of N
+ *  full row-object files. Runs only when a poll actually finds fresh rows
+ *  (at most once per ~6h poll), never on the boot read path above. */
+function appendSeenIdsIndex(dir: string, ids: string[]): void {
+  if (!ids.length) return;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = seenIdsIndexPath(dir);
+    const existing = fs.existsSync(file) ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf8") : "";
+    const payload = existing + ids.join("\n") + "\n";
+    fs.writeFileSync(file, zlib.gzipSync(payload));
+  } catch (e) {
+    console.error("[datacore] dtccswaps appendSeenIdsIndex:", e);
+  }
+}
+
+/** Reconstructs the full seenIds Set — index fast path first; falls back
+ *  to the legacy full-archive scan (gunzip + JSON.parse every day file)
+ *  only when no index exists yet (this fix's own first boot against an
+ *  existing archive, or a from-scratch archive dir), then persists the
+ *  index so every later boot takes the fast path instead of re-paying
+ *  this cost. The day-file glob is name-anchored to the actual
+ *  `<observedDate>.jsonl(.gz)` convention `archiveNewRows` writes (same
+ *  pattern fdicBanks.ts's `seedSeen` already uses) so a corrupt/unreadable
+ *  index file sitting in the same directory is never itself misread as a
+ *  day file during the fallback scan. */
+export function loadSeenIds(dir: string): Set<string> {
+  const indexed = readSeenIdsIndex(dir);
+  if (indexed) return indexed;
+
   const seen = new Set<string>();
   let malformedLines = 0;
   try {
     for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith(".jsonl.gz") && !f.endsWith(".jsonl")) continue;
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
       const raw = f.endsWith(".gz")
         ? zlib.gunzipSync(fs.readFileSync(path.join(dir, f))).toString("utf8")
         : fs.readFileSync(path.join(dir, f), "utf8");
@@ -354,10 +440,11 @@ function loadSeenIds(dir: string): Set<string> {
   if (malformedLines) {
     console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
   }
+  writeSeenIdsIndex(dir, seen);
   return seen;
 }
 
-export function _resetDtccForTests(): void { seenIds = null; cache = null; }
+export function _resetDtccForTests(): void { seenIds = null; cache = null; refreshing = false; }
 
 /** Appends only rows whose Dissemination Identifier has never been archived
  *  before, to <archive>/dtccswaps/<observedDate>.jsonl.gz (one file per
@@ -378,6 +465,7 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
   } catch (e) {
     console.error("[datacore] dtccswaps archive:", e);
   }
+  appendSeenIdsIndex(dir, fresh.map((r) => r.disseminationId));
   return { newRows: fresh.length, seenTotal: seenIds.size };
 }
 
@@ -452,51 +540,73 @@ const DTCC_LOOKBACK_DAYS = 7;
  *  semantics — "one file per calendar day this pipeline RAN") regardless
  *  of which vendor-dated file supplied them; `sourceDate` records which
  *  one actually did, for honesty (FRESHNESS LAW). */
+// Crash-loop guard (KNOWN BROKEN #41 leak-audit NEXT(1)): this refresh runs
+// UNCONDITIONALLY at every process boot (bootDtccSwapsPoll below) and
+// streams a ~132MB zip + rebuilds/reads the seenIds index — the audit's own
+// S2 finding, the single biggest contributor to the measured boot-memory
+// burst. If that burst OOM-kills the process before `cache`/the index are
+// written, the crash erases the only evidence an attempt was made and the
+// very next boot retries the identical expensive fetch immediately — the
+// exact bug shape `crashSafeRefresh.ts` was built to close for
+// refreshShadowStats/refreshPortDwell (routes.ts). Same 6h cooldown
+// convention as those two, matched to this module's own poll cadence.
+const DTCC_CRASH_COOLDOWN_MS = 6 * 60 * 60_000;
+let refreshing = false;
+
 export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
+  if (refreshing) return;
+  refreshing = true;
   try {
-    const now = new Date(nowMs ?? Date.now());
-    let sourceDate = "";
-    let foundRows: DtccSwapRow[] = [];
-    let foundLines = 0;
-    let lastStatus = 0;
-    for (let back = 0; back <= DTCC_LOOKBACK_DAYS; back++) {
-      const candidate = new Date(now.getTime() - back * 86_400_000);
-      const candidateYmd = ymdUnderscore(candidate);
-      let idx: Record<string, number> | null = null;
-      let expectedCols = 0;
-      const rows: DtccSwapRow[] = [];
-      const { ok, status, lines } = await streamDtccZip(dtccUrl(candidateYmd), (line, isHeader) => {
-        if (isHeader) {
-          idx = parseHeader(line);
-          expectedCols = parseCsvLine(line).length;
-          return;
+    const result = await guardedRefresh("dtccswaps", DTCC_CRASH_COOLDOWN_MS, async () => {
+      const now = new Date(nowMs ?? Date.now());
+      let sourceDate = "";
+      let foundRows: DtccSwapRow[] = [];
+      let foundLines = 0;
+      let lastStatus = 0;
+      for (let back = 0; back <= DTCC_LOOKBACK_DAYS; back++) {
+        const candidate = new Date(now.getTime() - back * 86_400_000);
+        const candidateYmd = ymdUnderscore(candidate);
+        let idx: Record<string, number> | null = null;
+        let expectedCols = 0;
+        const rows: DtccSwapRow[] = [];
+        const { ok, status, lines } = await streamDtccZip(dtccUrl(candidateYmd), (line, isHeader) => {
+          if (isHeader) {
+            idx = parseHeader(line);
+            expectedCols = parseCsvLine(line).length;
+            return;
+          }
+          if (!idx) return;
+          const row = parseDtccLine(line, idx, expectedCols);
+          if (row) rows.push(row);
+        }, fetchImpl);
+        lastStatus = status;
+        if (ok) {
+          sourceDate = candidate.toISOString().slice(0, 10);
+          foundRows = rows;
+          foundLines = lines;
+          break;
         }
-        if (!idx) return;
-        const row = parseDtccLine(line, idx, expectedCols);
-        if (row) rows.push(row);
-      }, fetchImpl);
-      lastStatus = status;
-      if (ok) {
-        sourceDate = candidate.toISOString().slice(0, 10);
-        foundRows = rows;
-        foundLines = lines;
-        break;
+        console.error(`[datacore] dtccswaps ${candidateYmd}: HTTP ${status} / no body${back < DTCC_LOOKBACK_DAYS ? " — trying the prior day" : ""}`);
       }
-      console.error(`[datacore] dtccswaps ${candidateYmd}: HTTP ${status} / no body${back < DTCC_LOOKBACK_DAYS ? " — trying the prior day" : ""}`);
+      if (!sourceDate) {
+        console.error(`[datacore] dtccswaps: no published file found across the last ${DTCC_LOOKBACK_DAYS + 1} days (last HTTP ${lastStatus})`);
+        return;
+      }
+      const observedDate = now.toISOString().slice(0, 10);
+      const { newRows, seenTotal } = archiveNewRows(foundRows, observedDate, baseDir);
+      cache = {
+        at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
+        totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
+      };
+      console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
+    }, baseDir, nowMs);
+    if (!result.ran) {
+      console.error(`[datacore] dtccswaps: skipped this cycle (${result.reason}) — ${result.detail}`);
     }
-    if (!sourceDate) {
-      console.error(`[datacore] dtccswaps: no published file found across the last ${DTCC_LOOKBACK_DAYS + 1} days (last HTTP ${lastStatus})`);
-      return;
-    }
-    const observedDate = now.toISOString().slice(0, 10);
-    const { newRows, seenTotal } = archiveNewRows(foundRows, observedDate, baseDir);
-    cache = {
-      at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
-      totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
-    };
-    console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
   } catch (e) {
     console.error("[datacore] dtccswaps refresh:", e);
+  } finally {
+    refreshing = false;
   }
 }
 
