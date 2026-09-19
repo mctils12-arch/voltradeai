@@ -20699,6 +20699,54 @@ lower-priority).
 
 NOT A SPEND REQUEST.
 
+UPDATE 2026-09-19 (scheduled-routine session) — `fredMacro.ts` FIXED
+(v1.0.938). Took the queue's own next-in-order item, confirming the prior
+two sessions' own predicted shape exactly: `fredMacro.ts`'s docstring says
+"Key-gated exactly like nasaFirms.ts" and `euMacro.ts`'s docstring
+independently calls itself a "fredMacro.ts clone" — the same
+whole-cache-replace defect `euMacro.ts` had was present here too, just
+under a different call topology (fredMacro fetches ONE series per HTTP
+call, each with its own try/catch, rather than one call covering several
+series per source) — the finalize line
+(`if (snapshots.some((s) => s.latest) || !cache) cache = { at: now, series:
+snapshots }`) still replaced the WHOLE ~31-series array whenever at least
+one series succeeded, so any single series whose own call failed that
+cycle (a transient timeout/rate-limit on one of 31 independent HTTP calls)
+had its cached value silently blanked to null even while its ~30 siblings
+kept updating. Fixed by mirroring `euMacro.ts`'s fix verbatim: each series
+now falls back to (1) the prior cache's own snapshot for that series, then
+(2) a new `readRecentArchivedFredMacro()` disk backfill (200-day window —
+several series here, e.g. `UNRATE`/`CPIAUCSL`, are monthly), only reaching
+(3) an honest null when neither exists. 3 new tests in `fredMacro.test.ts`
+(11 total, up from 8), A/B-verified via `git stash push -- server/
+fredMacro.ts`: the test file fails to even load without the fix
+(`readRecentArchivedFredMacro` doesn't exist — a hard `SyntaxError`, not a
+soft assertion failure). Full gates (fresh container — `npm ci` + `pip
+install -r requirements.txt -r requirements-dev.txt` first, same
+false-tsc-divergence signature the prior two sessions already noted for a
+bare `node_modules`): `npx tsx --test server/*.test.ts` 1771/1771 pass, 0
+failures; `python3 -m pytest -q` 2106 passed/1 skipped/54 subtests, 0
+regressions; `bash scripts/tsc_ratchet.sh` 11 <= 11 pin, TS2304 0; `npm run
+build` clean; `bash scripts/gated_tests.sh` GATE PASSED (deploy-gate smoke
+PASS, quarantine 0/1 none overdue); `bash scripts/counter_ratchet.sh`
+IMPROVED on first run (`assertions` 14802->14810, the new test file's own
+assertions), re-pinned in `ci/counter_baseline.txt` in this same PR
+(confirmed local HEAD still matched a freshly-fetched origin/main
+immediately before the re-pin), 25/25 OK on re-run. Version bumped
+1.0.937 -> 1.0.938 (read-and-incremented from a freshly-fetched
+origin/main immediately before committing, confirmed still current, per
+MERGE-ORDER PROTOCOL). BACKTEST: N/A per PROMOTION RULE 3 — reliability/
+visibility fix over an already-live regime-input feed with no import from
+trading logic; no scoring/sizing/threshold code touched.
+
+Remaining VULNERABLE queue: `gdeltEvents.ts`, `gridDemand.ts`,
+`gridGeneration.ts` (all "new reader needed"), plus `dtccSwaps.ts` (still
+explicitly lower-priority — a different bug shape, a growing in-memory
+dedup set rather than a blankable per-poll cache, per KNOWN BROKEN #41's
+leak-audit NEXT, not this thread's cold-cache class).
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (no archived Form 4 quarters in this sandbox)
 
 CONTEXT: scheduled-routine session. System health checked first

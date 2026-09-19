@@ -3,6 +3,204 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine session) [PIPELINE] — fredMacro.ts joins the cold-cache-no-disk-backfill fix thread: a single series' own FRED call failing used to wipe the whole cache and blank that one series to null even while its ~30 siblings kept updating (v1.0.938)
+
+TERRITORY: SHARED-minimal — `server/fredMacro.ts`/`.test.ts` (T-BOT by the
+WORKSTREAM PARTITION table's own boundary line for `server/bot.ts` "outside
+frozen paths" siblings — but this is a datacore-style regime-input pipeline
+module with no trading-logic import, matching the file's own established
+convention of filing euMacro/fdicBanks/etc. as SHARED-minimal T-DATACORE
+product-queue work, not new datacore authoring) + `ci/counter_baseline.txt`/
+`package.json`/`package-lock.json`/`research/*`, last and minimal, per
+MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full (EDGE DOCTRINE re-read per this
+session's own task instructions), then `research/experiments.md`'s tail,
+`research/open_questions.md`'s KNOWN BROKEN section, `research/wishlist.md`'s
+tail. `git fetch origin main` confirmed local HEAD already matched
+origin/main (dedda51, v1.0.937) before starting.
+
+SYSTEM HEALTH CHECKED FIRST (`python3 scripts/session_health_check.py`,
+DIAG_TOKEN set): `[OK] deploy_gate`, `[OK] subsystems` (server/db/alpaca/
+python/scanner/licensing all ok), `[OK] process_faults` (no unhandled
+rejections/exceptions), `[OK] deploy_freshness` (server_version matches this
+checkout). **`[ALARM] liveness`: trading loop dark 45.5 market hours /
+215.4h wall-clock since 2026-09-10T03:12:26Z** — this is KNOWN BROKEN
+#42/#43 (`research/open_questions.md`), a standing, already-fully-diagnosed,
+explicitly HUMAN-decision-gated condition (item #42's own independent
+price-reconstruction already settled the real-loss-vs-data-anomaly question
+toward data-anomaly; resuming trading is deliberately left to the human's
+`/api/bot/kill` toggle after an Alpaca-dashboard check this sandbox cannot
+perform). Per the established discipline documented in every session since
+2026-09-08 ("re-confirmed live and correctly declined to re-notify absent
+new information"), this session adds no new fact to that condition (same
+signature, ~24h more elapsed than the most recent prior session's own
+check) and follows the same discipline — NOT re-notified via
+PushNotification. This IS the one item CLAUDE.md's REPAIR MANDATE would
+otherwise make Priority 1, but it is not code-actionable by an autonomous
+session (no auto-resume path exists anywhere in `server/bot.ts`, checked by
+multiple prior sessions) — so per the same reasoning every session since
+2026-09-08 has applied, this is NOT a REPAIR session on that item, and
+SESSION BUDGET rule 1 (take the next queued item) governs instead.
+
+QUEUED-WORK CHECK (SESSION BUDGET rule 1, before falling through to a new
+axis-(a)/(b)/(c)/(d) build): `scripts/ladder_readiness_check.py` (0/3 gated
+roots ready) and `scripts/data_stream_registry_check.py --unbuilt` (9/35
+uncatalogued candidates, all declined/blocked on a human key/registration)
+both still fully exhausted, matching every session today. This session's own
+task instructions named six standing axis-(a) EDGE-DOCTRINE examples
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar,
+Google Trends/pytrends) — confirmed already built via `datacore/
+signal_ladder.json` (`sentinel_tank_fill_cushing`, `sec_form4_bulk_archive`/
+`sec_form4_insider_clustering`, `usaspending_contracts`, `cftc_cot_
+positioning`/`cftc_tff_positioning`, `google_trends_pytrends` [declined,
+superseded by wikiattention]) and `server/fdaEvents.ts` (grepped this
+session, matching every prior session's own note that this example list is
+now fully stale). Axis (c) (foreign-field import) was already run
+YESTERDAY (2026-09-18, Page's CUSUM) — REASONING STANDARD #4 discounts a
+same-week repeat of the same axis without new archive data to test it
+against. Axis (b) (illiquid-universe capacity-constrained research) has an
+extensive prior history (mean_reversion-in-illiquid already shipped as a
+strategy variant) but the OPTIONS-side fill-realism prerequisite this
+file's own "Options fill realism" entry names remains open, unchanged since
+its last check — not attempted this session (a fresh options-fill-realism
+build is a much larger, dedicated undertaking than this session's remaining
+budget after the health check + queue check, and REASONING STANDARD #4's
+discipline against a rushed, unverified attempt applies).
+
+Fell through instead to the actively in-progress, concretely-scoped
+`research/open_questions.md` cold-cache-no-disk-backfill module audit
+(2026-09-15) — this compiles the EXACT same repeated-diagnosis-turned-code
+pattern EDGE DOCTRINE #3 asks for (18 modules already fixed by this thread
+before this session; this is axis (d) in substance even though its own
+entries are tagged [PIPELINE], since each fix removes a recurring
+reasoning burden from every future session that would otherwise re-diagnose
+the same defect shape from scratch in a new module). The prior session's own
+queued list named `fredMacro.ts` FIRST, with a specific note: "a stated
+`fredMacro` clone of euMacro.ts — should be checked first for the same
+partial-source-outage shape euMacro.ts's fix found, not just the classic
+cold-boot class originally scoped."
+
+READ BEFORE WRITE (this session, not assumed from the queue note): read
+`server/fredMacro.ts` in full. Confirmed the queue note's prediction exactly
+— `fredMacro.ts`'s own docstring literally says "Key-gated exactly like
+nasaFirms.ts" and `euMacro.ts`'s own docstring says "Pattern: fredMacro.ts
+clone." `refreshFredCache()`'s per-series loop caught a failed
+`fetchSeries()` call and pushed `{...def, latest: null, prev: null,
+history: []}` for JUST that series, but the loop's final line —
+`if (snapshots.some((s) => s.latest) || !cache) cache = { at: now, series:
+snapshots }` — is the SAME whole-cache-replace pattern `euMacro.ts` had
+before yesterday's fix: whenever AT LEAST ONE of the ~31 series succeeded
+this cycle (the overwhelmingly common case — FRED itself is reliable, this
+is about ANY single series call failing, e.g. a transient rate-limit or
+timeout on one ID out of 31), the ENTIRE snapshot array — including any
+series whose own individual call failed — replaced the prior cache
+wholesale, silently blanking that one series to null even while its ~30
+siblings kept updating. Same root cause, same fix shape, different call
+topology (fredMacro fetches ONE series per HTTP call vs. euMacro's ONE call
+covering several series per source) — the per-series fallback logic
+transfers unchanged; only the "per-source outage blanks several series at
+once" framing doesn't literally apply here since each series already has
+its own independent try/catch, but the CONSEQUENCE (the whole-cache-replace
+line ignoring that per-series protection) is byte-for-byte the same defect.
+
+WHAT SHIPPED (v1.0.938, own PR): mirrored `euMacro.ts`'s fix verbatim onto
+`fredMacro.ts` — `readRecentArchivedFredMacro(baseDir?, nowMs?,
+lookbackDays=200)` (walks back through plain/gz day-files under
+`<archive>/fredmacro/`, across all series; 200-day default matches
+`refreshFredCache`'s own `obsStart` reach so monthly series like `UNRATE`/
+`CPIAUCSL` remain reachable) and a private `seriesHistory(seriesId, obs)`
+pure helper (last-30 (d,v) pairs, ascending) — both are the exact same
+functions `euMacro.ts` already has under different-but-parallel names,
+kept private/exported to match that file's own visibility choices.
+`refreshFredCache()` gained a `baseDir?: string` trailing parameter
+(backward-compatible — the one existing 4-arg call site in the test file is
+unaffected, defaulting to `archiveBaseDir()` exactly as before) and now
+tracks `prevByKey` from the current cache before the fetch loop; when a
+series' `hist` comes back empty this cycle, it falls back to the prior
+cache's own snapshot (freshest known value) if one exists, else lazily
+loads the on-disk archive backfill (touched at most once per refresh
+cycle, not once per series). The final `if (snapshots.some(...) || !cache)`
+guard is gone — `cache = { at: now, series: snapshots }` now runs
+unconditionally, safe because every series individually protects itself
+against blanking before it ever reaches the snapshot array.
+`_resetFredArchiveState()` (the existing test hook) now also clears
+`cache`/`polling`, matching `_resetEuMacroForTests()`'s scope, so a test can
+simulate a genuine cold restart rather than only the archive-dedup state.
+
+RATCHET: `server/fredMacro.test.ts` gained 3 new tests (A/B-verified via
+`git stash push -- server/fredMacro.ts`: with the test file's new imports
+present but the implementation reverted, the suite fails HARD at import
+time — `SyntaxError: ... does not provide an export named
+'readRecentArchivedFredMacro'` — rather than a soft assertion failure,
+which is itself confirmation the new code path is genuinely exercised, not
+vacuously passing; restored, all 11 tests in the file pass): (1)
+`readRecentArchivedFredMacro` walks plain + gzipped day-files across
+multiple series; (2) a cold boot where every series' fetch throws backfills
+each series' latest from its own on-disk archive instead of reporting null,
+including a monthly series (`UNRATE`) reaching back through the 200-day
+window; (3) a single series' fetch failure (`DGS10` alone throwing) leaves
+its own prior cached value intact while a sibling series' (`UNRATE`) fresh
+value still lands — the literal reproduction of the bug's own failure mode.
+
+GATES: fresh-container prep this session (`npm ci`; `pip install -r
+requirements.txt -r requirements-dev.txt` — a prior session's own noted
+false-tsc-divergence signature from a stale `node_modules` recurred here
+too, 8 whole-file test failures all `ERR_MODULE_NOT_FOUND` on unrelated
+files, gone after `npm ci`, confirming it's this fresh sandbox's own state
+and not this diff). `npx tsx --test server/*.test.ts`: 1771/1771 pass, 0
+failures (post-`npm ci`). `python3 -m pytest -q`: 2106 passed, 1 skipped,
+54 subtests, 0 regressions. `bash scripts/tsc_ratchet.sh`: 11 <= 11 pin,
+TS2304 0 — unchanged (no `.tsx`/type-surface change). `npm run build`:
+clean (pre-existing chunk-size/astronomy-engine warnings only; this diff
+touches no client file). `bash scripts/gated_tests.sh`: **GATE PASSED**
+(server/client/python all green, deploy-gate smoke PASS, quarantine 0/1
+none overdue). `bash scripts/counter_ratchet.sh`: IMPROVED on first run
+(`assertions` 14802 -> 14810, this diff's own new test file assertions),
+re-pinned in `ci/counter_baseline.txt` in this same PR (confirmed local
+HEAD still matched a freshly-fetched origin/main immediately before the
+re-pin, per PROMOTION RULE 5 / MERGE-ORDER PROTOCOL), 25/25 OK on re-run.
+Version bumped 1.0.937 -> 1.0.938 (read-and-incremented from a
+freshly-fetched origin/main immediately before committing, confirmed still
+current).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a reliability/visibility fix
+over an already-live, already-tested regime-input feed; it changes no
+scoring, sizing, threshold, or trading-decision code (this module has no
+import from trading logic per its own documented boundary), so the
+Sharpe/max-drawdown comparison does not apply, matching every prior entry
+in this exact fix thread (euMacro/fdicBanks/nrcReactorStatus/etc., none of
+which ran a backtest either).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff, and `fredMacro.ts`'s existing restricted-series product
+filter (`buildMacroPayload`'s `license === "public"` exclusion) is
+unchanged by this fix (verified by the untouched existing test asserting
+`VIXCLS`/`BAMLH0A0HYM2`/`UMCSENT` never reach the public payload).
+
+NEXT: (1) the cold-cache-no-disk-backfill audit's remaining VULNERABLE
+queue after this fix: `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts`
+(all "new reader needed"), plus `dtccSwaps.ts` (still explicitly
+lower-priority — its bug shape is different, a growing in-memory dedup set
+rather than a blankable per-poll cache, per KNOWN BROKEN #41's leak-audit
+NEXT). (2) once v1.0.938 is live, no functional verification is needed
+beyond the gate — this class of fix has no user-visible behavior change
+except "stops going null," which is not independently observable without
+provoking a real FRED outage; the shipped tests are the verification. (3)
+this session's own health-check/queue-check disposition (no new axis-(a)/
+(b)/(c) work attempted, continued the in-progress pipeline-hygiene thread
+instead) should be revisited by the next session that has budget for the
+options-fill-realism prerequisite axis (b) has been blocked on for
+multiple sessions now — it is the single most stale of the four doctrine
+axes named in this session's own task instructions.
+
+STARVED: no — this session's PRIMARY action was a concretely queued,
+already-named, already-precedented fix (the prior session's own
+first-named item in its VULNERABLE queue, with the exact defect shape
+predicted in advance and confirmed by reading the code, not assumed), shipped
+end-to-end (implementation + tests, A/B-verified against the pre-fix code)
+with every gate run and verified.
+
 ## 2026-09-19 (scheduled-routine [PRODUCT] session) [PIPELINE] — fdicBanks.ts joins the cold-cache-no-disk-backfill fix thread: a cold boot (or a live FDIC API outage) on the very first poll left `/api/data/bank-failures` cold forever despite a real on-disk failures archive already on disk, and the archive here is keyed by FETCH date rather than FAILDATE — a shape none of the thread's prior fixes had to handle (v1.0.937)
 
 TERRITORY: SHARED-minimal — `server/fdicBanks.ts`/`.test.ts` (T-DATACORE by

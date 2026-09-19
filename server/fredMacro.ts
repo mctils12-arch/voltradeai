@@ -150,6 +150,8 @@ let seeded = false;
 export function _resetFredArchiveState(): void {
   latestVal.clear();
   seeded = false;
+  cache = null;
+  polling = false;
 }
 
 function fredDir(baseDir?: string): string {
@@ -227,6 +229,49 @@ export function latestFredSeries(): { at: number; series: FredSeriesSnapshot[] }
   return cache;
 }
 
+/** Raw observations from this stream's archived day-files over the last
+ *  `lookbackDays` calendar days (plain or gz), across ALL series — used to
+ *  backfill a series whose live poll came back empty/failed this cycle, so
+ *  a cold boot or a per-series FRED outage doesn't report a null latest
+ *  over real vintage history already on disk (Freshness Law; same pattern
+ *  as euMacro.ts's readRecentArchivedEuMacro — this module is its own
+ *  documented clone). 200-day default matches refreshFredCache's own
+ *  `obsStart` reach — several series here are monthly, so a short window
+ *  would miss their latest vintage entirely. */
+export function readRecentArchivedFredMacro(baseDir?: string, nowMs?: number, lookbackDays = 200): FredObs[] {
+  const now = nowMs ?? Date.now();
+  const dir = fredDir(baseDir);
+  const out: FredObs[] = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+    for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+      let text: string | null = null;
+      try {
+        text = fp.endsWith(".gz")
+          ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+          : fs.readFileSync(fp, "utf8");
+      } catch { continue; }
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { continue; }
+      }
+    }
+  }
+  return out;
+}
+
+/** A single series' latest-up-to-30 (d,v) pairs, ascending, picked out of
+ *  a pool of raw observations (either this cycle's live fetch or the
+ *  archive backfill above) — pure, so both sources produce the exact same
+ *  snapshot shape. */
+function seriesHistory(seriesId: string, obs: FredObs[]): Array<{ d: string; v: number }> {
+  return obs
+    .filter((o) => o.s === seriesId)
+    .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0))
+    .slice(-30)
+    .map(({ d, v }) => ({ d, v }));
+}
+
 /** The public route payload: license:"restricted" series are EXCLUDED —
  *  third-party copyrighted data never reaches a product surface. */
 export function buildMacroPayload(hit: { at: number; series: FredSeriesSnapshot[] } | null) {
@@ -247,35 +292,56 @@ export async function refreshFredCache(
   fetchImpl: FetchFn = fetch as any,
   delayMs = 250,
   nowMs?: number,
+  baseDir?: string,
 ): Promise<void> {
   const key = env.FRED_API_KEY || "";
   if (!key) return;
   const now = nowMs ?? Date.now();
   const rt = new Date(now).toISOString().slice(0, 10);
   const obsStart = new Date(now - 120 * 86400_000).toISOString().slice(0, 10);
+  const prevByKey = new Map((cache?.series ?? []).map((s) => [s.id, s]));
+  let archivedObs: FredObs[] | null = null; // lazy — only touch disk if a series actually needs it
   const snapshots: FredSeriesSnapshot[] = [];
   const allObs: FredObs[] = [];
   for (const def of FRED_SERIES) {
+    let obs: FredObs[] = [];
     try {
       const json = await fetchSeries(def.id, key, obsStart, fetchImpl);
-      const obs = parseObservations(def.id, json, rt);
-      allObs.push(...obs);
-      const hist = obs.slice(-30).map(({ d, v }) => ({ d, v }));
-      snapshots.push({
-        ...def,
-        latest: hist[hist.length - 1] || null,
-        prev: hist[hist.length - 2] || null,
-        history: hist,
-      });
+      obs = parseObservations(def.id, json, rt);
     } catch (e: any) {
       console.error("[datacore] fredmacro fetch:", def.id, e?.message || e);
-      snapshots.push({ ...def, latest: null, prev: null, history: [] });
     }
+    allObs.push(...obs);
+    let hist = obs.slice(-30).map(({ d, v }) => ({ d, v }));
+    if (!hist.length) {
+      // this cycle's live fetch was empty/failed for this ONE series — never
+      // let that wipe already-known-good data (cold-cache-no-disk-backfill
+      // class: the old code replaced the WHOLE cache object whenever ANY
+      // series succeeded, so a single-series outage blanked that series to
+      // null even while the other ~30 kept updating). Prefer the prior
+      // cache's own snapshot (freshest known value); fall back to the
+      // on-disk archive only when there's no prior cache at all (true cold
+      // boot). Same pattern as euMacro.ts's readRecentArchivedEuMacro —
+      // this module is its own documented clone.
+      const prevSnap = prevByKey.get(def.id);
+      if (prevSnap && prevSnap.latest) {
+        hist = prevSnap.history;
+      } else {
+        if (archivedObs === null) archivedObs = readRecentArchivedFredMacro(baseDir, now);
+        hist = seriesHistory(def.id, archivedObs);
+      }
+    }
+    snapshots.push({
+      ...def,
+      latest: hist[hist.length - 1] || null,
+      prev: hist[hist.length - 2] || null,
+      history: hist,
+    });
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
-  if (snapshots.some((s) => s.latest) || !cache) cache = { at: now, series: snapshots };
-  try { archiveFredObs(allObs, undefined, now); } catch {}
-  try { gzipOldFredDays(undefined, now); } catch {}
+  cache = { at: now, series: snapshots };
+  try { archiveFredObs(allObs, baseDir, now); } catch {}
+  try { gzipOldFredDays(baseDir, now); } catch {}
 }
 
 /** 6h poll: daily series update once per business day; the extra cycles
