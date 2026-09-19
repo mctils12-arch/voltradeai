@@ -3,6 +3,210 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine session, second session this UTC day) [PIPELINE] — gdeltEvents.ts joins the cold-cache-no-disk-backfill fix thread, plus a stale duplicate PR closed (v1.0.939)
+
+TERRITORY: SHARED-minimal — `server/gdeltEvents.ts`/`.test.ts` (T-BOT by the
+WORKSTREAM PARTITION table's own boundary line for `server/bot.ts` "outside
+frozen paths" siblings — but this is a datacore-style pipeline module with
+no import from trading logic, same class every prior session in this thread
+has filed as SHARED-minimal) + SHARED (package.json/package-lock.json
+version bump, ci/counter_baseline.txt re-pin, research/experiments.md),
+last commit per MERGE-ORDER PROTOCOL.
+
+LOOP-HEALTH RATIO CHECK (session-start, per CLAUDE.md HEALTH OF THE LOOP
+ITSELF): last 10 tagged entries before this one = [PIPELINE]x6,
+[RULE-REVIEW]x2, [REPAIR]x1, [RESEARCH]x1 — no thrash signal (threshold is
+7+ REPAIR of 10).
+
+SYSTEM HEALTH CHECK FIRST: `curl -sS -m 20 https://voltradeai.com/api/health`
+(and the `-production.up.railway.app` host, both independently) -> HTTP 200,
+`serving.ok:true`, `serving.failing:[]` (KNOWN BROKEN #41's deploy-gate fix,
+v1.0.915, still holding). `status:"degraded"` for the SAME already-tracked,
+NOT-NEW reason every session since 2026-09-10 has confirmed: `bot.status:
+"killed"`, `drawdownPct:"-7.4"`, `liveness.dark:true`, "LIVENESS ALARM:
+trading loop dark for 45.5 market hours (223.9h wall-clock) since
+2026-09-10T03:12:26.354Z" — the latched DRAWDOWN-KILL switch
+research/wishlist.md's ACTIVE LIVE CONCERN header already carries as a
+standing human-decision item (root-caused as a data anomaly, not a real
+loss; resume decision is the human's alone; `can_auto_resume:false`,
+outside FROZEN-mechanism authority). Per the same discipline every session
+since 2026-09-10 has applied (only notify on NEW information), this was
+noted, not re-escalated — not a fresh critical break the REPAIR MANDATE
+would force a [REPAIR] session over. `process.{unhandledRejections,
+uncaughtExceptions}` both 0.
+
+STALE DUPLICATE PR FOUND AND CLOSED (housekeeping, before the primary
+action): `mcp__github__list_pull_requests` showed PR #1092
+("edgar13f.ts joins the cold-cache-no-disk-backfill fix thread", v1.0.916,
+opened 2026-09-16) still open. Diffed it against current main: its entire
+fix (`resolveCacheItems`, `backfill13FFromArchive`) was already merged via
+PR #1098 (v1.0.920, 2026-09-16) three days earlier — #1092 was superseded
+before it was ever reviewed, per the MERGE-ORDER PROTOCOL's own
+supersession precedent ("first-merged wins, the duplicate salvages its
+unique delta"). Checked for a salvageable unique delta: #1092 additionally
+threaded a `fetchImpl` injection parameter through `refresh13FCache` and
+reset a `polling` flag in its test helper; neither is needed by main's own
+already-passing `edgar13f.test.ts` (14/14 green without them), so nothing
+was salvaged. Commented on and closed #1092 (not merged) rather than
+leaving a confusing stale PR sitting in the queue — the exact process gap
+research/wishlist.md's "auto-merge/market-hours-hold" thread already
+worries about in a different shape (a session's own PR outliving its
+relevance): here it was a *second* session's PR racing an already-merged
+first one, not a merge-timing note being ignored.
+
+PRIMARY-ACTION SELECTION: research/open_questions.md's cold-cache-no-
+disk-backfill audit table (2026-09-15, updated through 2026-09-19) left an
+explicit, ordered remaining VULNERABLE queue after fredMacro.ts's fix
+earlier today: `gdeltEvents.ts`, `gridDemand.ts`, `gridGeneration.ts` (all
+"new reader needed"), plus `dtccSwaps.ts` (explicitly lower-priority, its
+own 8-day live-lookback already mitigates). Per SESSION BUDGET rule 1
+(next queued item beats new research) and this thread's own established
+one-module-per-PR discipline, took the queue's own next-in-order item,
+`gdeltEvents.ts`. This is EDGE DOCTRINE #3 in substance (COMPILE KNOWLEDGE
+INTO CODE): the shared `cacheBackfill.ts` helper already compiled the
+flat-list-cache version of this recurring fix; this module's DERIVED
+rolling-window cache needed the archive-read half hand-written (same class
+as euGenerationMix.ts/nrcReactorStatus.ts) but reuses the shared
+`resolveCacheItems` decision once that read is done.
+
+READ BEFORE WRITE: read `server/gdeltEvents.ts` in full this session (not
+grepped). Confirmed the bug shape differs from every flat-list sibling in
+this thread: `refreshGdeltCache`'s cache is a DERIVED 48h ROLLING MERGE
+(`prior` = the existing cache's own events filtered to the 48h window,
+concatenated with dedup against fresh `events`), not a single "latest
+snapshot" being replaced wholesale. The success branch always overwrote
+`cache` with `{at, events: merged}` regardless of whether `merged` ended
+up empty — so a cold boot (or the first poll after a live GDELT/network
+outage) whose live fetch came back with zero facility-matching rows would
+permanently mark the cache "warm" with an empty array, even with a real
+per-day event archive already on disk (`archiveGdeltEvents`'s own
+`gdelt/YYYY-MM-DD.jsonl(.gz)` files) never consulted. `fetchGdeltEvents`
+itself also has NO internal per-call try/catch (unlike euMacro.ts/
+euGenerationMix.ts's per-series/per-zone catches) — a `lastupdate.txt` or
+export-zip fetch failure genuinely throws all the way to the outer catch,
+which only logged and left `cache` untouched forever if it started null.
+Both branches needed the fix, unlike wikiAttention.ts/euLoad.ts's
+2026-09-13 finding where the catch path was provably dead code.
+
+BUILT (v1.0.939, own PR): `readRecentArchivedGdelt(baseDir?, nowMs?,
+windowHours=48)` — scans `windowHours/24 + 1` days of the existing
+`gdelt/` day-files (plain + gzipped, same convention as every sibling
+reader in this thread), dedups by GlobalEventID, and keeps only events
+whose own `rt` (as-seen fetch timestamp, not `day`) still falls inside the
+window — an event archived days ago because GDELT republished it late
+must not resurrect a stale window. `refreshGdeltCache` now threads `now`/
+`baseDir` consistently (previously mixed `nowMs` and a bare `Date.now()`
+across the same function — a minor pre-existing inconsistency, fixed as a
+direct byproduct of making the backfill path testable, not a separate
+change) and routes both the success-but-empty-merge branch and the
+outer-catch-on-throw branch through the shared `resolveCacheItems(
+hadCache, merged-or-[], () => readRecentArchivedGdelt(baseDir, nowMs))` —
+`hadCache` captured as `cache !== null` before the fetch attempt, so a
+transient failure/empty result on an ALREADY-warm cache never gets
+clobbered by a stale archive read (mirrors every sibling fix's own
+"non-empty cache is never overwritten by an empty/failed poll" guarantee).
+Added `_resetGdeltCacheForTests()` (test-only; also clears `archivedIds`/
+`seeded`/`lastExportUrl`, all separate module-singleton state this file
+already had, so tests don't bleed state into each other's temp
+directories — a testability gap this session's own test-writing surfaced,
+not tied to the cold-cache bug itself).
+
+FIRST-DRAFT CORRECTION (caught before commit, via `python3 -m pytest -q`,
+not after a stale gate report): the first draft of
+`readRecentArchivedGdelt`'s per-line JSON-parse guard used a bare
+`catch {}` — syntactically identical to `seedSeen`'s own pre-existing
+idiom two functions above it in this same file, and to `read13FHistory`'s
+in edgar13f.ts. `test_ts_code_only.py`'s `empty_ts_catch` pin (491,
+non-increasing) failed on exactly this: the counter is a hard cap on the
+TOTAL count codebase-wide, so a NEW occurrence fails the gate regardless
+of how many pre-existing ones already share the shape (same class of
+gotcha the edgar13f.ts session logged for `ts_any` on 2026-09-16). Fixed
+by changing it to `catch { continue; }` (semantically identical at that
+loop position, syntactically non-empty) — confirmed this does NOT
+reclassify under the separate `commented_empty_catch` counter either
+(that one matches a catch that BLANKS to empty after comment-stripping;
+`continue;` is real code, so it stays outside both counters). `python3 -m
+pytest -q test_ts_code_only.py`: 11/11 after the fix (1 failed before it).
+
+RATCHET: 6 new tests in `server/gdeltEvents.test.ts` (10 total, up from
+4) — `readRecentArchivedGdelt`: dedup-across-day-files + window-filtering
++ newest-first sort in one test, plus an empty-archive case;
+`refreshGdeltCache`: cold cache backfills on a thrown fetch, cold cache
+also backfills on an empty-but-successful poll (a real export file with
+no facility-matching rows — the feed's normal quiet cycle, not simulated
+via the `lastupdate.txt`-republish short-circuit, which would have needed
+priming state that risked contaminating the very archive dir under test),
+and a transient throw never clobbers an already-warm cache. A shared
+`mockGdeltFetch(exportName, csv)` test helper builds a real, valid zip via
+`fflate`'s own `zipSync`/`strToU8` (already a project dependency, used by
+the module itself) matching `fetchGdeltEvents`' real two-call shape
+(lastupdate.txt, then the export zip it names) rather than stubbing
+`fetchGdeltEvents` itself — exercises the real parse path, same rigor as
+edgar13f.test.ts's BURKETT XML fixtures. A/B-verified: `git stash push --
+server/gdeltEvents.ts` then running the new test file against the pre-fix
+module fails the whole file to load (`SyntaxError`: `readRecentArchivedGdelt`/
+`refreshGdeltCache`'s new `baseDir` param/`_resetGdeltCacheForTests` don't
+exist as expected by the new tests) — confirms these are genuinely new
+tests, not a no-op; `git stash pop` restored the fix, all 10 tests pass.
+
+GATES: fresh sandbox needed `npm ci` (488 packages) and `pip install -q -r
+requirements.txt -r requirements-dev.txt` first (same recurring
+fresh-container provisioning gap prior sessions have logged repeatedly —
+not a repo defect). `npx tsx --test server/gdeltEvents.test.ts`: 10/10
+pass. `npx tsx --test server/*.test.ts`: **1776/1776 pass, 0 regressions**
+(this thread's own prior sessions' "8 pre-existing failures on a bare
+`node_modules`" false-divergence signature did NOT recur here — `npm ci`
+was run before the full-suite pass, not after, this time). `python3 -m
+pytest -q`: 2106 passed, 1 skipped, 54 subtests, 0 regressions (after the
+`empty_ts_catch` fix above; 1 genuine failure before it, on this session's
+own new code — not a pre-existing baseline issue). `bash
+scripts/tsc_ratchet.sh`: 11 <= 11 pin, TS2304 = 0 — unchanged, no `.ts`
+type-signature files touched in a way that adds an error. `bash
+scripts/counter_ratchet.sh`: IMPROVED on first run (`assertions`
+14810->14820, this session's own 6 new tests' assertions) — re-pinned in
+`ci/counter_baseline.txt` in this same PR (confirmed local HEAD still
+matched a freshly-fetched `origin/main` immediately before the re-pin, per
+MERGE-ORDER PROTOCOL), 25/25 OK on re-run — `empty_ts_catch` held exactly
+at 491 thanks to the FIRST-DRAFT CORRECTION above, not a near-miss left to
+chance. `bash scripts/gated_tests.sh`: **GATE PASSED** — server (all
+files)/client/python all green, deploy-gate smoke PASS (`/api/health`
+answered 200 in 7.2s under latched-kill-switch + stale-liveness state,
+same as every other session's run of this suite), quarantine 0/1, none
+overdue. `npm run build`/`npm run visual`: not run — zero `client/` files
+touched by this diff, PROMOTION RULE 6's visual-harness requirement does
+not apply. Version bumped 1.0.938 -> 1.0.939 (read-and-incremented from a
+freshly-fetched `origin/main` immediately before committing, confirmed
+still current, per MERGE-ORDER PROTOCOL).
+
+NOT A MEASUREMENT INTEGRITY CHANGE: no scoring/sizing/threshold/P&L code
+touched. NOT A RULE-REVIEW THRESHOLD CHANGE: no risk-limit constant
+touched. BACKTEST: N/A per PROMOTION RULE 3 — reliability/visibility fix
+over an already-live regime-input feed (unrest/strike event mentions,
+gate 2 not attempted per this module's own header) with no import from
+trading logic; no scoring/sizing/threshold code touched. HYPOTHESIS: none
+— this restores existing, already-designed "serve the archive when the
+live poll can't" behavior (Law V, Freshness); it does not change what the
+pipeline collects or claims.
+
+NEXT: (1) the remaining VULNERABLE queue: `gridDemand.ts`, `gridGeneration.ts`
+(both "new reader needed"), plus `dtccSwaps.ts` (still explicitly
+lower-priority — a growing in-memory dedup set, not a blankable per-poll
+cache, per KNOWN BROKEN #41's leak-audit NEXT, a different bug shape than
+this thread's class). (2) none identified this session for gdeltEvents.ts
+itself — gate 2 (SIGNAL) for this root remains unattempted per its own
+header, unrelated to this reliability fix. (3) the latched DRAWDOWN-KILL
+switch (KNOWN BROKEN #42/#43) — unchanged, re-confirmed live at this
+session's own health check, still awaiting the human's resume decision,
+not re-notified (no new information).
+
+STARVED: no — this session completed a real housekeeping find (a stale,
+superseded PR closed with its diff actually checked for salvageable
+content, not just assumed stale) plus its one primary action (fix, tests,
+full gate suite including a genuine gate failure caught and fixed rather
+than worked around, version bump, log entry) within a single-session
+scope, consistent with the established one-module-per-PR discipline this
+thread has followed since 2026-09-12.
+
 ## 2026-09-19 (scheduled-routine session) [PIPELINE] — fredMacro.ts joins the cold-cache-no-disk-backfill fix thread: a single series' own FRED call failing used to wipe the whole cache and blank that one series to null even while its ~30 siblings kept updating (v1.0.938)
 
 TERRITORY: SHARED-minimal — `server/fredMacro.ts`/`.test.ts` (T-BOT by the

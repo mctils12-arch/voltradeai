@@ -20747,6 +20747,30 @@ leak-audit NEXT, not this thread's cold-cache class).
 
 NOT A SPEND REQUEST.
 
+UPDATE 2026-09-19 (scheduled-routine session, second session this UTC day)
+— `gdeltEvents.ts` FIXED (v1.0.939). Took the queue's own next-in-order
+item. Full account in research/experiments.md's matching dated entry.
+Bug shape differed from every flat-list sibling fix in this thread:
+`refreshGdeltCache`'s cache is a DERIVED 48h rolling merge (prior
+in-window events + fresh ones), not a single replaceable snapshot, so the
+archive-read half was hand-written (`readRecentArchivedGdelt`, same class
+as euGenerationMix.ts/nrcReactorStatus.ts) while the resulting flat list
+still routes through the shared `resolveCacheItems`. Also unlike euMacro.ts/
+euGenerationMix.ts, `fetchGdeltEvents` has no internal per-call try/catch,
+so its outer catch (a `lastupdate.txt`/export-zip fetch failure) is
+genuinely reachable — both the success-but-empty-merge and the
+thrown-fetch branches needed the fix, not just one (a different finding
+than wikiAttention.ts/euLoad.ts's 2026-09-13 dead-code verdict). Also
+closed a stale duplicate PR (#1092, edgar13f.ts) found this session whose
+entire fix had already merged via #1098 three days earlier — see
+experiments.md for the diff-checked "no salvageable delta" verdict.
+
+Remaining VULNERABLE queue: `gridDemand.ts`, `gridGeneration.ts` (both
+"new reader needed"), plus `dtccSwaps.ts` (still explicitly
+lower-priority).
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic — script built and unit-tested, NOT yet run against real data (no archived Form 4 quarters in this sandbox)
 
 CONTEXT: scheduled-routine session. System health checked first
