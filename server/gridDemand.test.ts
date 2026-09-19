@@ -6,9 +6,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import {
   gridDemandEnabled, parseDemand, demandUrl, fetchDemand, archiveDemand,
   refreshDemand, latestDemand, RESPONDENTS, HOURS_PER_FETCH,
+  computeDemandStats, readArchivedDemand, _resetGridDemandForTests,
 } from "./gridDemand";
 
 // Mirrors the live EIA v2 shape verified 2026-07-06 (DEMO_KEY probe):
@@ -173,4 +175,105 @@ test("data-quality gate: implausible demand rows are quarantined, not archived",
   const huge = { period: "2026-07-11T02", respondent: "ERCO", type: "D" as const, mwh: 9_999_999, rt: "2026-07-11" }; // absurd
   const n = archiveDemand([good, neg, huge], base);
   assert.equal(n, 1, "only the plausible row is archived; the negative + absurd rows are quarantined");
+});
+
+// ── cold-cache-no-disk-backfill fix thread (research/open_questions.md's
+// module audit table) — a cold boot or a live EIA outage (every respondent
+// request failing/erroring) left /api/data/griddemand warming_up forever
+// despite a real per-day archive already on disk. A/B-verified against the
+// pre-fix shape: the old refresh only ever wrote `cache` inside `if
+// (obs.length)`, so an all-respondents-empty sweep on a cold boot left
+// `cache` permanently null even with archived days sitting right there.
+
+test("computeDemandStats: pure aggregation, reused for both a live sweep and a backfilled archive day", () => {
+  const obs = parseDemand({
+    response: {
+      data: [
+        ROW("2026-07-06T21", "US48", "678730"),
+        ROW("2026-07-06T20", "US48", "600000"),
+        { ...ROW("2026-07-06T21", "US48", "690000"), type: "DF" },
+      ],
+    },
+  }, "2026-07-07");
+  const stats = computeDemandStats(obs);
+  assert.equal(stats.length, 1);
+  assert.equal(stats[0].respondent, "US48");
+  assert.equal(stats[0].latest_period, "2026-07-06T21");
+  assert.equal(stats[0].latest_mwh, 678730);
+  assert.equal(stats[0].latest_forecast_mwh, 690000);
+  assert.equal(stats[0].hours_in_window, 2);
+});
+
+test("readArchivedDemand: returns the most recent archived day's raw obs, not a merged multi-day window", () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "griddemand-"));
+  const day1 = parseDemand(ENVELOPE([ROW("2026-07-05T10", "US48", "100")]), "2026-07-05");
+  const day2 = parseDemand(ENVELOPE([ROW("2026-07-06T10", "US48", "200")]), "2026-07-06");
+  archiveDemand(day1, base);
+  archiveDemand(day2, base);
+  const obs = readArchivedDemand(base, Date.parse("2026-07-07T00:00:00Z"));
+  assert.ok(obs.length > 0);
+  assert.ok(obs.every((o) => o.period.startsWith("2026-07-06")), "walks back to the newest day with an archive file, not a blend of both days");
+});
+
+test("readArchivedDemand: gzipped days are read too, and an empty archive returns []", () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "griddemand-"));
+  assert.deepEqual(readArchivedDemand(base, Date.parse("2026-07-07T00:00:00Z")), [], "no archive on disk at all");
+  const day = parseDemand(ENVELOPE([ROW("2026-07-06T10", "US48", "200")]), "2026-07-06");
+  archiveDemand(day, base);
+  const dir = path.join(base, "griddemand");
+  fs.readdirSync(dir).forEach((f) => {
+    if (!f.endsWith(".jsonl")) return;
+    const fp = path.join(dir, f);
+    fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+    fs.unlinkSync(fp);
+  });
+  const obs = readArchivedDemand(base, Date.parse("2026-07-07T00:00:00Z"));
+  assert.equal(obs.length, day.length);
+});
+
+test("refresh: a cold cache backfills from disk when every respondent request fails, aggregated exactly like a live result", async () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "griddemand-"));
+  const day = parseDemand(ENVELOPE([
+    ROW("2026-07-06T21", "US48", "678730"),
+    ROW("2026-07-06T20", "US48", "600000"),
+  ]), "2026-07-06");
+  archiveDemand(day, base);
+  assert.equal(latestDemand(), null, "pre-fix baseline: cache starts cold");
+
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshDemand(allFail as any, { EIA_API_KEY: "k" } as any,
+                      Date.parse("2026-07-07T12:00:00Z"), base, 0);
+  const hit = latestDemand();
+  assert.ok(hit, "cold cache backfilled from the on-disk archive instead of staying warming_up forever");
+  assert.equal(hit!.stats.length, 1);
+  assert.equal(hit!.stats[0].respondent, "US48");
+  assert.equal(hit!.stats[0].latest_mwh, 678730, "backfilled rows flow through the same computeDemandStats aggregation as a live result");
+});
+
+test("refresh: an already-good cache is never clobbered by a transient all-respondents-empty sweep", async () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "griddemand-"));
+  const ok = async () => ({ ok: true, status: 200,
+    text: async () => JSON.stringify(ENVELOPE([ROW("2026-07-06T10", "US48", "500")])) });
+  await refreshDemand(ok as any, { EIA_API_KEY: "k" } as any,
+                      Date.parse("2026-07-06T12:00:00Z"), base, 0);
+  const first = latestDemand();
+  assert.ok(first);
+
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshDemand(allFail as any, { EIA_API_KEY: "k" } as any,
+                      Date.parse("2026-07-06T18:00:00Z"), base, 0);
+  assert.deepEqual(latestDemand(), first, "a transient all-failed sweep with a good cache already in hand leaves it untouched, not overwritten by an archive re-read");
+});
+
+test("refresh: cold cache with nothing archived either stays honestly null, never fabricates a result", async () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "griddemand-"));
+  const allFail = async () => ({ ok: false, status: 500, text: async () => "" });
+  await refreshDemand(allFail as any, { EIA_API_KEY: "k" } as any,
+                      Date.parse("2026-07-07T12:00:00Z"), base, 0);
+  assert.equal(latestDemand(), null, "no archive and no live result means warming_up is the honest state, not a fabricated one");
 });
