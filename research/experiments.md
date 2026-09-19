@@ -3,6 +3,114 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine [PRODUCT] session, session-start finding) [REPAIR] — `gated_tests.sh` was RED on `main`: the immediately-prior commit's own lightweight addendum entry (no STARVED line by design) broke a too-narrow live-data smoke assertion in `test_research_state_check.py`, blocking every future PR's CI gate (v1.0.942)
+
+TERRITORY: SHARED-minimal — `test_research_state_check.py` (a test-only
+fix; `scripts/research_state_check.py` itself, the production parser, was
+NOT touched — it already handled this case correctly) + package.json/
+package-lock.json version bump + this entry.
+
+SESSION-START HEALTH CHECK: this session's own task instructions are
+[PRODUCT] (advance datacore/ pipelines and the /data section). Before
+picking a product action, ran the standard local gates on a freshly
+fetched `origin/main` (c6a3298) as a baseline sanity check — `bash
+scripts/gated_tests.sh` came back **GATE FAILED**, not green. Read-before-
+write into the failure (not assumed): `python3 -m pytest -q` isolated it
+to exactly one test, `test_research_state_check.py::
+test_run_all_checks_against_real_repo_files_does_not_crash`, asserting
+`starved_flags[0] in ("yes", "no")` and getting `[None, 'no', 'no']`.
+
+ROOT CAUSE: `research/experiments.md`'s own newest-at-top convention means
+`starved_flags[0]` reads whichever entry is physically newest — and the
+immediately-prior commit (c6a3298, this session's own predecessor, "18th
+confirmed occurrence of the auto-merge/market-hours-hold gap") is a
+lightweight same-day [RULE-REVIEW] addendum ("no code change") that never
+ran a session budget/fall-through cycle, so it legitimately carries no
+`STARVED:` line — `parse_starved_flags` correctly reports `None` for it
+(its own docstring: "None means no STARVED: line was found... not
+silently dropped"), and `check_starvation_signal` already treats None
+exactly like a "no" (breaks the streak, per its own docstring) — the
+PRODUCTION code was never wrong. This is the test's SECOND failure on the
+same over-narrow assumption: its own comment already records a 2026-09-18
+fix that stopped pinning WHICH value the newest entry carries; today's
+break is the same root over-specification in a new guise — requiring the
+newest entry to carry a value AT ALL, which is false given the now
+18-times-repeated lightweight-addendum pattern.
+
+RECURRENCE ESCALATES (CLAUDE.md HEALTH OF THE LOOP ITSELF rule 4)
+CONSIDERED: a second failure of the same assertion is exactly the
+"patching it again is FORBIDDEN, do root-cause analysis" trigger. Judged
+this a genuine root-cause fix, not a third narrow patch: the assertion
+now checks the REAL invariant production code (`check_starvation_signal`)
+actually relies on — that the parser can produce at least one valid flag
+within a small recent window — rather than an invented, ever-more-false
+guarantee about the single newest entry specifically. This cannot recur
+the same way again, because it no longer encodes an assumption about
+which entry shape happens to be newest. Not filed to wishlist.md instead
+of fixing, because leaving `gated_tests.sh` red on `main` blocks every
+other session's PR (including this session's own planned DTCC work) —
+KEEP THE SYSTEM ALIVE (GOAL priority 1) extends to the merge pipeline
+itself, and the fix is small, isolated to test-only code, and directly
+addresses the identified root cause rather than papering over it.
+
+WHAT SHIPPED: `test_run_all_checks_against_real_repo_files_does_not_crash`
+now asserts `any(f in ("yes","no") for f in starved_flags[:5])` instead of
+`starved_flags[0] in (...)`, with the reasoning recorded inline. NEW
+regression test `test_parse_starved_flags_newest_entry_with_no_starved_
+line_is_none_not_a_crash` pins the exact real-world shape that broke
+(newest entry = a headerless-STARVED addendum, next entry = a normal
+session) against a synthetic fixture, independent of real file content —
+so this exact bug shape is now caught by a fast, isolated unit test
+without needing to wait for real content to happen to reproduce it again.
+`scripts/research_state_check.py` itself: UNCHANGED — read in full before
+concluding this, not assumed; its parsing and the starvation-signal check
+were both already correct.
+
+GATES: `python3 -m pytest -q test_research_state_check.py`: 42/42 (41
+pre-existing + 1 new). A/B-verified: reverted the assertion change alone
+(`git stash` on just that hunk) and confirmed the exact same failure
+reproduces against real file content, then restored it — proving the fix,
+not an unrelated change, is what turns it green. Full `python3 -m pytest
+-q`: 2107 passed, 1 skipped, 54 subtests (was 2105 passed/1 failed before
+this fix — net +1 pass, +1 new test, the one prior failure now gone,
+zero new regressions). `npx tsx --test server/*.test.ts`: 1795/1795 (ran
+after `npm ci` in this fresh container — 8 files failed with
+ERR_MODULE_NOT_FOUND before that, the same fresh-container provisioning
+gap several prior sessions have logged, not a repo defect). `bash
+scripts/tsc_ratchet.sh`: 11 <= 11 pinned, TS2304 0 — unchanged, this diff
+touches no TypeScript. `bash scripts/gated_tests.sh`: **GATE PASSED**
+(re-ran after this fix — server/client/python all green, deploy-gate
+smoke PASS, quarantine 0/1, none overdue). Version bumped 1.0.941 ->
+1.0.942 (package.json + package-lock.json, read-and-incremented from a
+freshly-fetched origin/main immediately before committing — confirmed
+this checkout's HEAD still matched origin/main's tip when checked).
+
+BACKTEST: N/A per PROMOTION RULE 3 — test-only fix, no scoring/sizing/
+strategy/threshold code touched. MONETIZATION TRIPWIRE: not touched.
+MEASUREMENT INTEGRITY: this touches test code that measures repo-hygiene
+signals (the STARVATION SIGNAL audit), not backtest/fill/P&L measurement
+code — the elevated "own PR, state before/after, direction of bias" MEASUREMENT
+INTEGRITY protocol is scoped to that narrower class in CLAUDE.md; still
+kept as its own isolated PR regardless, consistent with PROMOTION RULE 5.
+Before/after on identical real input, stated per that same spirit: before
+this fix, `parse_starved_flags`/`check_starvation_signal` themselves
+already returned `[None, 'no', 'no', ...]` and correctly treated the
+leading None as breaking the streak (0 consecutive) — this PR changes
+nothing about what the audit itself reports, only what the TEST asserts
+about it, so there is no bias risk toward making any real signal look
+better or worse.
+
+NEXT: this was a session-start blocker fix, not this session's own chosen
+PRIMARY action — the [PRODUCT] session continues to its actual primary
+pick (DTCC seenIds boot-burst fix, KNOWN BROKEN #41 leak-audit NEXT(1)),
+logged as its own separate entry/PR below.
+
+STARVED: no — found via the session's own routine pre-flight gate check
+(not from a queued item), root-caused rather than re-patched superficially
+despite the RECURRENCE ESCALATES trigger, shipped with a regression test,
+and the session continues on to its planned product work rather than
+stopping here.
+
 ## 2026-09-19 (scheduled-routine session, same-day addendum after PR #1122 merged) [RULE-REVIEW] — 18th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 PR #1122 (this session's own `gridGeneration.ts` cold-cache-no-disk-
