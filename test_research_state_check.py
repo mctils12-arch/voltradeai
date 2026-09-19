@@ -381,12 +381,31 @@ def test_run_all_checks_against_real_repo_files_does_not_crash():
     # from the real files' current headings.
     assert len(register) >= 1
     assert len(items) >= 1
-    # live-data smoke assertion, not a synthetic pin: the parser must read a
-    # VALID flag off the newest real entry (None = it missed the STARVED line
-    # or mis-read the format). It must NOT pin which value — 2026-09-18: the
-    # newest entries honestly log STARVED: yes (the leak audit's queued NEXT
-    # items), and pinning "no" here made every Python PR red for saying so.
-    assert starved_flags[0] in ("yes", "no"), starved_flags[:3]
+    # live-data smoke assertion, not a synthetic pin: the parser must be
+    # ABLE to read a valid flag off real content (None = it missed the
+    # STARVED line or mis-read the format). It must NOT pin which value —
+    # 2026-09-18: the newest entries honestly log STARVED: yes (the leak
+    # audit's queued NEXT items), and pinning "no" here made every Python
+    # PR red for saying so.
+    #
+    # 2026-09-19 CORRECTION (this assertion's second failure, same root
+    # cause as the 2026-09-18 one — an over-narrow guarantee production
+    # code never made): it also must not require the SINGLE NEWEST entry
+    # specifically to carry a flag. research/experiments.md legitimately
+    # has two entry shapes — full session entries (always end with
+    # STARVED: yes/no, per CLAUDE.md SESSION BUDGET) and lightweight
+    # same-day addenda tagged e.g. [RULE-REVIEW]/"no code change" (the
+    # auto-merge/market-hours-hold tally, 18 occurrences and counting as
+    # of this fix) that never ran a session budget/fall-through cycle to
+    # report on, so they carry no STARVED line by design. check_starvation_
+    # signal already treats that None correctly (breaks the streak, same
+    # as an explicit "no" — see its own docstring); this smoke test now
+    # checks the same real invariant production code relies on — the
+    # parser recently produced AT LEAST ONE valid flag — over a small
+    # window, not the newest single entry, so a genuine regression (every
+    # recent entry silently losing its flag) still fails loudly.
+    window = starved_flags[:5]
+    assert any(f in ("yes", "no") for f in window), starved_flags[:5]
 
 
 def test_run_all_checks_without_starved_flags_stays_three_findings():
@@ -454,6 +473,28 @@ STARVED: yes — more queue.
 def test_parse_starved_flags_reads_newest_first():
     flags = rsc.parse_starved_flags(STARVED_FIXTURE, max_scan=10)
     assert flags == ["no", "yes", "yes", None, "yes"]
+
+
+def test_parse_starved_flags_newest_entry_with_no_starved_line_is_none_not_a_crash():
+    """Regression, 2026-09-19: research/experiments.md's real newest entry
+    can legitimately be a lightweight same-day addendum with no STARVED
+    line at all (e.g. a [RULE-REVIEW] "no code change" tally, like the
+    auto-merge/market-hours-hold occurrence count) — it never ran a
+    session budget/fall-through cycle to report on. The parser must
+    report None for it rather than crash or silently skip to an older
+    entry. STARVED_FIXTURE above only ever put the no-line case in the
+    MIDDLE of the list; this pins the newest-entry case specifically,
+    which is what broke test_run_all_checks_against_real_repo_files_
+    does_not_crash's old starved_flags[0]-must-be-valid assertion against
+    the real file that same day."""
+    text = (
+        "## 2026-09-19 — [RULE-REVIEW] tally, no code change\n\n"
+        "no STARVED line — this entry never ran a session budget cycle.\n\n"
+        "## 2026-09-18 — [PIPELINE] real session\n\n"
+        "STARVED: no — queue clear.\n"
+    )
+    flags = rsc.parse_starved_flags(text, max_scan=10)
+    assert flags == [None, "no"]
 
 
 def test_check_starvation_signal_ok_when_broken_by_a_no():
