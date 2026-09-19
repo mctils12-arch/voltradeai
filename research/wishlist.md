@@ -994,6 +994,17 @@ all 16 before it. **17 confirmed occurrences spanning 2026-08-14 through
 2026-09-18 (35 days), still 0% compliance.** No new information — still
 awaiting the human's pick of the two options the original entry filed.
 
+**EIGHTEENTH OCCURRENCE, 2026-09-19.** PR #1122 (this session's
+`gridGeneration.ts` cold-cache-no-disk-backfill fix — same thread as the
+seventeenth occurrence, again a datacore RAW-overlay reliability fix, no
+trading-path file) carried the same note, `created_at`
+2026-09-19T16:17:03Z, merged **16:21:11Z (~12:21 PM ET), 4m8s after
+opening**, `merged_by: "github-actions[bot]"` — verified via
+`pull_request_read` on the merged PR, not inferred. Harmless, same as all
+17 before it. **18 confirmed occurrences spanning 2026-08-14 through
+2026-09-19 (36 days), still 0% compliance.** No new information — still
+awaiting the human's pick of the two options the original entry filed.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)

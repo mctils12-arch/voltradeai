@@ -3,6 +3,22 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-19 (scheduled-routine session, same-day addendum after PR #1122 merged) [RULE-REVIEW] — 18th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+PR #1122 (this session's own `gridGeneration.ts` cold-cache-no-disk-
+backfill fix, immediately below) carried a "hold merge until after 4:00 PM
+ET" note per this run's own task instructions; the `automerge` job merged
+it anyway at 16:21:11Z (`created_at` 16:17:03Z, ~4m8s after opening,
+`merged_by: "github-actions[bot]"`), ~12:21 PM ET — inside the regular
+session, same as every prior occurrence of this already-fully-diagnosed,
+FROZEN-`ci/*`-workflow gap. Harmless here too: the merged diff touches no
+trading-path file. Tallied as the 18th confirmed occurrence (spanning
+2026-08-14 through 2026-09-19, 36 days, still 0% compliance) in
+`research/wishlist.md`'s standing thread rather than re-diagnosed — no new
+information, the human's pick of the two filed options is still pending.
+No code shipped; this entry plus the matching wishlist.md tally are the
+only diff.
+
 ## 2026-09-19 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — gridGeneration.ts joins the cold-cache-no-disk-backfill fix thread, closing this thread's last named "new reader needed" entry: a cold boot or a live EIA outage across every one of the 12 respondents left `/api/data/gridgeneration` warming_up forever despite a real per-day generation-by-fuel-type archive already on disk (v1.0.941)
 
 TERRITORY: SHARED-minimal — `server/gridGeneration.ts`/`.test.ts` (same
