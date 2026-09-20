@@ -3,6 +3,173 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine [PRODUCT] session) [RESEARCH] — `space_weather_swpc` gate 1: BUILD-FIRST-checked the OE-417 ground-truth source its own ladder note named as NEXT(2) — both OE-417 and its better sibling EAGLE-I are free but structurally annual-lag-blocked for a 2026 event; corrected the ladder's re-run trigger from "wait for a storm" (already met) to "wait for the 2026 annual data release" (~2027-02), no code change
+
+TERRITORY: SHARED-minimal (`research/wishlist.md`, `datacore/
+signal_ladder.json` one entry surgically edited, `research/experiments.md`)
+only — no code, no package.json bump (no trading-path, server, or client
+file touched this session).
+
+SESSION-START: read CLAUDE.md in full, then `research/PROGRAM_STATE.md`
+(confirmed out of territory — the separate T-CLIENT rendering-law/audit-
+ratchet program, not this session's work), then the rest of `research/`.
+`git status`/`git log` confirmed local HEAD matched origin/main at
+`bfa73c2` (v1.0.944) before starting, no uncommitted work to disturb.
+
+SYSTEM HEALTH CHECK FIRST (`curl https://voltradeai.com/api/health`):
+`serving.ok: true`, HTTP 200 — site up. `status: "degraded"` for the SAME
+already-tracked, already-human-notified reason every session since
+2026-09-10 has confirmed: `bot.status: "killed"`, `liveness.dark: true`,
+"LIVENESS ALARM: trading loop dark for 45.5 market hours (236.9h
+wall-clock)" — the latched drawdown-kill switch, a standing human-decision
+item (wishlist.md's "ACTIVE LIVE INCIDENT" header; KNOWN BROKEN #41/#42/#43
+in open_questions.md). No new information this session (same signature,
+further elapsed time only) — per this task's own instructions ("note it
+but proceed with product work unless the break blocks you") and the
+discipline every session since 2026-09-13 has applied, this was noted, not
+re-escalated, and did not block product work. `process.
+{unhandledRejections, uncaughtExceptions}` both 0; `feeds` all alive.
+
+PRIMARY-ACTION SELECTION: `scripts/ladder_readiness_check.py` — 0/3 gated
+roots ready (same three as every recent session: `cftc_cot_positioning`
+~35d short, `sec_8k_earnings_language` ~12d short, `fleet_utilization_
+aircraft` ~43d short — none newly due). `scripts/data_stream_registry_
+check.py --unbuilt` — 9/9 unbuilt candidates still blocked on a human
+key/registration or a confirmed-dead source, unchanged. Checked all 47
+`datacore/signal_ladder.json` roots for a `gate1_pass` root missing a
+`detail_route` (the class of gap the 2026-09-17 `port_dwell` session
+closed) — none found; all 12 `gate1_pass` roots already have one, confirmed
+this session. `platform_program.md`'s API-product queue is clear except P5
+(HUMAN-GATED, unchanged since 2026-08-31). With the time-gated/unbuilt/
+UI-gap queues all genuinely exhausted, picked the one CONCRETE, previously
+unclaimed item any session could see by reading the ladder itself:
+`space_weather_swpc`'s own note (UPDATE 2026-09-17) named its NEXT(2) as
+"source the OE-417/DOE-FERC electric-disturbance series (BUILD-FIRST
+writeup first, per wishlist.md convention)" — unclaimed since filed,
+zero references to OE-417 anywhere in the repo (re-confirmed via grep
+before starting). Chosen over starting a fresh hypothesis from scratch,
+per option (a)'s "advance a datacore/ pipeline through its next ladder
+gate — gate 1 ground-truth validation IS product work" framing, and per
+CLAUDE.md's explicit instruction that this writeup must exist before any
+OE-417 build attempt.
+
+METHOD: WebSearch + WebFetch, live this session, not assumed from
+training (per the BUILD-FIRST clause's own honesty requirement and this
+program's standing "verify live, don't assume" discipline). Checked in
+CLAUDE.md's BUILD-FIRST order:
+
+1. Raw material already ingested — n/a; this is a ground-truth
+   VALIDATION source for an already-built free archive, not a feed to
+   build on top of. Moved straight to (4).
+2/3. Accumulation/inference substitutes — n/a; gate 1 needs an
+   INDEPENDENT ground truth for a fixed historical date, so a
+   home-grown substitute would defeat the test's purpose.
+4. Accessibility, checked live: `oe.netl.doe.gov` (the historically-cited
+   OE-417 host, including this repo's own prior sessions' citations) —
+   `getaddrinfo ENOTFOUND` on every page tried (the main OE-417 page, the
+   annual-summary page). Confirmed this is a DEAD/MOVED subdomain, not a
+   general `doe.gov` block: `energy.gov`, `osti.gov`, `ornl.gov` all
+   resolved and served content fine in the same session. A
+   search-indexed successor URL under `energy.gov/ceser/...` 404'd live;
+   CESER's current org page (fetched live) has no visible OE-417 link.
+   `eaglei.doe.gov` (EAGLE-I's interactive viewer) has the identical dead-
+   subdomain symptom, `getaddrinfo ENOTFOUND`, confirmed live. A
+   third-party CSV mirror of OE-417 (securethegrid.com, fetched live)
+   confirmed the deeper, domain-independent problem: the canonical public
+   product is an ANNUAL summary, and that mirror's own most recent
+   coverage stops at March 2023 (unmaintained since, not just slow). A
+   second purported mirror (michaelmabee.info) is fully dead — the domain
+   now redirects to an unrelated commercial site. Found EAGLE-I (ORNL) as
+   a free, better-suited alternative — continuous county-level 15-minute
+   outage-count data rather than OE-417's onset/binary incident
+   categories — but its OSTI.gov listing (fetched live) shows the "EAGLE-I
+   Power Outage Data 2025" (full calendar year) was published 2026-02,
+   confirming the SAME roughly-annual, months-after-year-end cadence as
+   OE-417 — no faster path exists via this alternative either.
+
+VERDICT (full writeup filed in `research/wishlist.md`, "BUILD-FIRST
+ANALYSIS 2026-09-20"): neither source is paid — this is not a spend
+request, and CLAUDE.md's BUILD-FIRST ladder step 4 ("only if the raw
+material itself is inaccessible... is the capability genuinely paid") is
+answered NO on the cost axis but effectively YES on the TIMING axis for
+this specific gate-1 test: a same-year join against the 2026-08-02 event
+is structurally impossible until one of these two annual DOE releases
+produces its calendar-2026 file, expected ~2027-02 at the earliest for
+EAGLE-I (the preferred target, per the continuous-score reasoning above —
+this program's foreign-field-import family has independently converged on
+avoiding onset/binary designs after permutation-entropy (2026-09-05) and
+Hurst (2026-09-12) both hit the same n~10-15 power ceiling that shape
+produces).
+
+WHAT SHIPPED: `research/wishlist.md` gained the full BUILD-FIRST writeup
+(prepended, matching the file's newest-first convention) — verdict, the
+dead-subdomain finding, the EAGLE-I alternative, and the corrected
+timing analysis; explicitly NOT a request for human action (no key/
+registration to approve). `datacore/signal_ladder.json`'s
+`space_weather_swpc` entry gained a targeted UPDATE 2026-09-20 appended
+to its existing `note` string (single-line JSON edit — `git diff --stat`
+confirmed exactly 1 line changed before committing, same discipline the
+2026-09-17 port_dwell session established after that session's own first
+attempt at a full `json.dump` reformat touched all 47 roots and had to be
+reverted; this session made the identical mistake first via a Python
+`json.dump(d, indent=2)` round-trip, caught it the same way (`git diff
+--stat` showing 507 insertions/49 deletions instead of ~2), reverted with
+`git checkout --`, and redid it as a precise `Edit` string replacement)
+recording the corrected re-run trigger ("watch osti.gov/DOE Data Explorer
+for the EAGLE-I 2026 annual release" in place of "wait for a G2+ storm,"
+which had already silently been satisfied and was answering the wrong
+question) plus `last_update_date` and `source_ref` updates.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/strategy/threshold
+code touched; this is gate-1 ground-truth sourcing research on a RAW
+overlay root, filed as docs/ladder-metadata only.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none — a `note`/`last_update_
+date`/`source_ref` string field on one `signal_ladder.json` entry has no
+runtime reader (confirmed by the same convention every prior surgical
+ladder-note edit in this file relies on: these fields are documentation,
+not wired into any server route or scoring path). `research/wishlist.md`
+is human-reviewed, not machine-read. Zero code paths affected.
+
+GATES: no code changed — `python3 -m pytest -q` /
+`bash scripts/gated_tests.sh` / `bash scripts/tsc_ratchet.sh` /
+`bash scripts/counter_ratchet.sh` / `npm run build` / `npm run visual` all
+N/A per this session's own diff (docs + one JSON string field), matching
+the precedent every "no code change" tallied entry in this file sets.
+Verified instead: `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"` — valid JSON; `git diff --stat datacore/
+signal_ladder.json` — exactly 1 line changed.
+
+DEPLOY-COUPLING NOTE: session ran outside a specific market-hours
+instruction; this diff touches no trading-path, server, or client file at
+all (research/docs + one ladder-metadata field) — no deploy-timing
+concern either way.
+
+NEXT: (1) a future session should re-run the WebSearch for OE-417's
+current hosting — a government site reorganizing its pages is the kind of
+thing that gets silently fixed, and today's dead-link finding should not
+be assumed permanent. (2) watch for "EAGLE-I Power Outage Data 2026" on
+osti.gov/DOE Data Explorer (expected ~2027-02) — once it lands, gate 1 for
+`space_weather_swpc` can actually run. (3) no other gate1_pending/gate2_
+pending root has a similarly concrete, unclaimed next step this session
+found (`cftc_cot_positioning`/`sec_8k_earnings_language`/`fleet_
+utilization_aircraft` are all genuinely time-gated, not action-gated). (4)
+KNOWN BROKEN #41's still-open threads (memory leak contained-not-fixed,
+latched kill switch) — human-decision items, re-confirmed unchanged this
+session (45.5 market hours / 236.9h wall-clock dark), not re-notified (no
+new information since the human was already told).
+
+STARVED: no — this session closed out a concretely named, previously
+unclaimed NEXT item from the ladder's own most recent entry, corrected a
+standing re-run trigger that would otherwise have kept a future session
+polling the wrong condition indefinitely (the storm already happened;
+nothing was going to make NOAA's declared-G field retroactively show it),
+and left the genuinely time-gated queue items honestly time-gated rather
+than forcing action where none was available.
+
 ## 2026-09-19 (scheduled-routine session, fifth session this UTC day) [PIPELINE] — `dtccSwaps.ts` gets a disk-backfill for a fully-blocked live lookback, closing the last remaining entry in the 2026-09-15 exhaustive cold-cache-no-disk-backfill audit's 20-module VULNERABLE queue (v1.0.944)
 
 TERRITORY: T-DATACORE (`server/dtccSwaps.ts`/`.test.ts` only) + SHARED-

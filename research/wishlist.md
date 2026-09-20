@@ -1,5 +1,120 @@
 # Data / Access Wishlist — human reviews weekly
 
+## BUILD-FIRST ANALYSIS 2026-09-20 (scheduled-routine [PRODUCT] session) — OE-417 electric-disturbance ground truth for `space_weather_swpc` gate 1: VERDICT — genuinely free, NOT genuinely accessible on this test's timescale; corrected the ladder's re-run trigger instead of requesting anything paid
+
+Required by `space_weather_swpc`'s own ladder note (`datacore/
+signal_ladder.json`, UPDATE 2026-09-17): "source the OE-417/DOE-FERC
+electric-disturbance series (BUILD-FIRST writeup first, per wishlist.md
+convention)" — NEXT(2) of that session's own filed follow-ups. This entry
+is that writeup; it also resolves NEXT(1) (the Kp-vs-declared-G
+methodology question) as a byproduct, and both are compiled into a
+`signal_ladder.json` edit alongside this filing (see experiments.md's
+matching entry for the exact diff).
+
+WHAT OE-417 OFFERS: DOE Form OE-417 (Electric Emergency Incident and
+Disturbance Report) — utilities self-report qualifying disturbances
+(date/time began, date/time restored, NERC region, event type/cause,
+demand loss MW, customers affected) to DOE's Office of Cybersecurity,
+Energy Security, and Emergency Response (CESER). This is the exact
+ground truth `space_weather_swpc`'s own ladder note names for a
+storm-coincident-outage-excess gate-1 test.
+
+BUILD-FIRST LADDER (CLAUDE.md order) — checked live this session via
+WebSearch/WebFetch, not assumed from training:
+
+1. **Do we already receive the raw material?** No trading-path
+   relevance to check here — this is a ground-truth VALIDATION source
+   for an already-built, already-free archive (`server/spaceWeather.ts`),
+   not processing on top of something we already ingest. Moves to (4)
+   directly — the question isn't "can we build on what we have," it's
+   "can we reach this specific external source at all."
+2. Accumulation — n/a, this is a one-off validation join against a
+   fixed historical date (2026-08-02), not a recurring feed we could
+   grow into.
+3. Inference substitute — n/a for the same reason; the whole point of
+   gate 1 is comparing our signal against an INDEPENDENT ground truth,
+   so substituting our own inference would defeat the test.
+4. **Is the raw material itself accessible?** This is where the real
+   finding is, and it splits into two independent problems:
+
+   **(a) The classic hosting domain is dead.** `oe.netl.doe.gov` (the
+   URL this repo's own prior sessions and most of the public web still
+   cite for OE-417) returns `getaddrinfo ENOTFOUND` — confirmed live via
+   WebFetch this session, on multiple pages under that host (the main
+   OE-417 page, the annual-summary page). This is NOT a general
+   `doe.gov`-wide access problem: `energy.gov` itself, `osti.gov`, and
+   `ornl.gov` (checked live this session) all resolve and serve content
+   fine — it is specifically the legacy NETL-hosted subdomain that is
+   gone. A search-indexed successor URL
+   (`energy.gov/ceser/activities/energy-security/monitoring-reporting-
+   analysis/electric-disturbance-events-oe-417`) also 404s live. CESER's
+   own current org page (checked live) has no visible link to an
+   OE-417/incident-data section at all. **This part is a dead/moved
+   public-sector URL, not a paywall** — worth a fresh WebSearch by a
+   future session rather than assuming today's finding is permanent (a
+   government site reorganizing pages is exactly the kind of thing that
+   gets fixed without notice).
+
+   **(b) Even when reachable, OE-417's public product is annual, and
+   annual is the actual blocker, not the domain.** Multiple independent
+   sources (a third-party CSV mirror at securethegrid.com, checked live
+   this session; public search results on the form's own cadence) agree
+   the canonical public release is an ANNUAL summary, and the
+   third-party mirror's own most recent coverage stops at March 2023 —
+   over 3 years stale, not actively maintained past that point. A
+   calendar-2026 annual summary covering the 2026-08-02 event this
+   root's gate 1 needs would not be expected to publish until well into
+   2027 at the earliest, based on the pattern of prior years' releases.
+
+   **A better-suited, equally free alternative exists and was checked
+   live: EAGLE-I (Oak Ridge National Laboratory).** County-level,
+   15-minute-interval customer-outage-count data — a continuous
+   quantitative series, not OE-417's qualitative self-reported incident
+   categories. This matches the CONTINUOUS-SCORE preference this
+   program's own foreign-field-import family has converged on the hard
+   way (permutation-entropy 2026-09-05 and Hurst 2026-09-12 both filed
+   the same structural finding: onset/binary-counting designs hit an
+   n~10-15 power ceiling every time; a continuous series like EAGLE-I's
+   outage-count-over-time sidesteps that same trap OE-417's incident
+   list would walk straight into). Free, no registration, hosted via
+   OSTI.gov/DOE Data Explorer (`osti.gov`, confirmed reachable) — but it
+   has the IDENTICAL annual-lag problem: the "EAGLE-I Power Outage Data
+   2025" dataset (full calendar year 2025) was published February 2026,
+   per its own OSTI.gov listing — so the calendar-2026 file covering
+   this root's target event would not be expected before roughly
+   February 2027. (`eaglei.doe.gov`, the interactive viewer, has the
+   same dead-subdomain problem as `oe.netl.doe.gov` — checked live,
+   `getaddrinfo ENOTFOUND` — irrelevant to the dataset release itself,
+   which is hosted on OSTI/ORNL, not that subdomain.)
+
+VERDICT: **neither source is paid, so this is not a spend request** —
+both are genuinely free, no-key, no-registration public data once their
+current hosting is found. The actual blocker this session surfaces is
+TIMING, not cost or access-in-principle: a same-year gate-1 join against
+either ground truth is structurally impossible given how these two DOE
+programs publish. `space_weather_swpc`'s ladder note previously framed
+the re-run condition as "wait for a G2+ storm to land" — that condition
+is now MET (2026-08-02, independently confirmed via GFZ Potsdam
+definitive Kp, per the 2026-09-17 session) and was therefore the wrong
+thing to keep waiting on. The real re-run condition, corrected in
+`signal_ladder.json` alongside this filing, is: wait for ORNL/OSTI to
+publish the "EAGLE-I Power Outage Data 2026" annual dataset (watch
+`osti.gov`/DOE Data Explorer for it), expected on the same cadence as
+the 2025 file (published ~February following year-end) — i.e. not
+before ~2027-02, and EAGLE-I preferred over OE-417 as the primary target
+once it lands, per the continuous-score reasoning above. OE-417 stays
+filed here as a secondary/corroborating source, not the primary plan.
+
+NOT REQUESTED: nothing — there is no human action item here (no key to
+buy, no registration to approve). Filed per this file's own standing
+convention for gated ground-truth sources (CLAUDE.md: "source OE-417...
+a BUILD-FIRST writeup belongs in wishlist.md before any attempt"), and
+because a future session hitting the same dead `oe.netl.doe.gov`/
+`eaglei.doe.gov` links should find this account instead of re-deriving
+it. Full account, the `signal_ladder.json` diff, and the corrected
+`readiness_trigger` in `research/experiments.md`'s matching 2026-09-20
+entry.
+
 ## 🟡 PROCESS GAP FOUND 2026-09-14 (scheduled-routine session, fifth session
 ## this UTC day) — a session's "hold merge until after market hours" note in
 ## a PR body is NOT enforced by anything; `.github/workflows/ci.yml`'s
