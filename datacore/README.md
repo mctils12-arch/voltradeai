@@ -28,6 +28,13 @@ Constitution: CLAUDE.md → KNOWN STATE → SPINOUT-READY DATA LAYER
    here and its experiments in `research/experiments.md`. Failed roots log
    their layer of death. No gate-skipping.
 
+Rules 1 and 2 above are mechanically enforced by `test_spinout_boundary.py`
+(repo root, added 2026-09-20) — a required test in every gate run, not
+just prose. It checks two directions: no `server/*.ts` module other than
+the HTTP wiring layer (`routes.ts`) imports `server/bot.ts`, and none of
+the live trading-logic Python files reference `datacore/` directly. See
+that file's own docstring for the full rationale and scope.
+
 ## Layout
 
 - `sites/` — static reference data (strategic sites: tank farms, mills,
