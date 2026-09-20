@@ -95970,3 +95970,175 @@ STARVED: no — this session's PRIMARY action was a concretely unclaimed,
 already-named gap (the 2026-09-16 session's own NEXT residue), closed
 end-to-end (lib + tests + page + wiring + ratchet registration + ladder
 bookkeeping) with every gate run and verified, not assumed.
+
+## 2026-09-20 (scheduled-routine PRODUCT session) [PRODUCT] — new ladder_registry_coverage_check.py detector finds epa_camd_cems (and 7 siblings) missing from datacore/signal_ladder.json entirely; epa_camd_cems fixed, the rest queued (v1.0.948)
+
+TERRITORY: T-DATACORE primary (scripts/ladder_registry_coverage_check.py,
+test_ladder_registry_coverage_check.py new) + SHARED-but-minimal
+(datacore/signal_ladder.json, research/*, package.json), last and
+minimal per WORKSTREAM PARTITION.
+
+Session-start checks per this session's own task instructions: read
+CLAUDE.md + research/ fresh. `/api/health` (live production,
+DIAG_TOKEN + network both available this session): `status: "degraded"`
+— `bot.status: "killed"`, `liveness.dark: true`, 45.5 market hours /
+255.0 wall-clock hours dark since the 2026-09-10T03:12:26Z drawdown-kill
+trip (`drawdownPct: "-7.4"`), matching KNOWN BROKEN #42/#43's own
+repeated re-reads across many prior sessions and unchanged by anything
+this session did (`can_auto_resume: False` is a deliberate mercy-rule
+design, not a bug — resuming needs a human decision). NOTED, not
+preempted, per this session's own PRODUCT-scope instruction ("product
+sessions do not preempt the DAILY routines' repair duty"); attempted to
+push a proactive notification about it via this session's own tooling
+but that tool itself errored on every attempt (schema validation
+rejecting its own required literal value) — flagged in the session's own
+user-facing text instead, and it is already tracked at length in this
+file's KNOWN BROKEN #42/#43 thread for the next DAILY session to act on.
+No trading-path code touched this session either way.
+
+PRIMARY ACTION: both of this session's own standing per-session PRODUCT
+checks came back exhausted before any new work started —
+`scripts/ladder_readiness_check.py`: 0/3 gated roots ready (all WAITING:
+cftc_cot_positioning 35d, sec_8k_earnings_language 12d,
+fleet_utilization_aircraft 43d); `scripts/data_stream_registry_check.py`
+--unbuilt: all 9 NOT-BUILT candidates are `declined_*`/`blocked_free_key`/
+`blocked_registration` — every one needs either a dead end already
+recorded or a human key/registration this session cannot supply, per
+AUTONOMY AUTHORIZATION's own reservation of data-access approval to the
+human. Per SESSION BUDGET fall-through, ran the queue's own explicit
+"whichever of the ladder-readiness/unbuilt-registry checks has moved, or
+a fresh ACTIVE ANGLE-HUNTING hypothesis" instruction from the 2026-09-19
+session's own NEXT note.
+
+Built a THIRD standing check that had never existed: neither prior check
+asks "is every BUILT pipeline actually tracked in
+`datacore/signal_ladder.json`" — `data_stream_registry_check.py`'s own
+module docstring is explicit that it answers a different, narrower
+question (is candidate X built), and says so. Cross-referencing its 26
+`status:"built"` candidates against the ladder file's 47 roots by hand
+(id-by-id, since the two files use independently-invented id spellings
+for the same pipeline in most cases) found **8** with no matching root
+at all:
+
+`fda_calendar`, `so2_column_gibs`, `usgs_volcano_alerts`,
+`epa_camd_cems`, `global_energy_monitor`, `entsoe_eu_power`, `sec_ftd`,
+`cboe_vix_term_structure`.
+
+Fixed the one with an unambiguous, already-verified-by-reading-the-code
+status this session: `epa_camd_cems` (server/epaCamd.ts). Its own module
+header states in plain text: "This module ships the RAW archive only;
+any predictive claim built from it is its own gate-2 work, not attempted
+here" — and it is independently confirmed live and shipped as the
+`plant_operations` map layer (v1.0.385, verified via
+`grep plant_operations client/src/pages/datamap.tsx`, not assumed from
+the registry note alone). Added to `datacore/signal_ladder.json` as a
+single new one-line root object (`status: "raw_only"`, `current_gate:
+0`), appended after the existing last root
+(`grid_generation_fuel_mix`) via a precise 2-line string edit — same
+"never `json.dump`-reformat the whole file" discipline the 2026-09-16
+session's own port-dwell entry already established for this exact file
+(`git diff --stat` confirmed 2 insertions/1 deletion only).
+
+The other 7 were deliberately NOT guessed at and NOT added this session
+— each needs its own module read to state an honest status (several are
+very likely `raw_only` on inspection, but `cboe_vix_term_structure`'s own
+registry note already claims a passed GATE 1 DATA cross-check against
+FRED's VIXCLS series, which if true means it should probably be
+`gate1_pass`, not merely absent — a materially different, higher-value
+finding than the others, and not something to paper over with a
+one-line guess). Filed as a queued NEXT in
+research/open_questions.md's matching dated entry, each with what was
+observed and what remains to verify, one item per future PR per
+PROMOTION RULE 5.
+
+BUILT, this session:
+- `scripts/ladder_registry_coverage_check.py` (new) — `audit()` (pure,
+  takes an optional injected registry module for testability, same
+  pattern as `data_stream_registry_check.py`'s own `audit()`) computes
+  three things: `unaliased_built_candidates` (a built candidate with no
+  `ALIASES` entry at all — a table-completeness bug), `uncovered` (an
+  aliased candidate whose mapped ladder id(s) don't exist), and
+  `stale_alias_targets` (an `ALIASES` entry pointing at a ladder id that
+  no longer exists — real drift, distinct from "never had one"). CLI
+  wraps it with `--json` and a human report, same conventions as its
+  sibling script.
+- `test_ladder_registry_coverage_check.py` (new, 7 tests) — pins
+  `EXPECTED_UNCOVERED_IDS` to the exact 7 remaining gaps (moves only on
+  a conscious edit, same ratchet discipline as PROGRAM_STATE.md's Q11),
+  regression-pins `epa_camd_cems` specifically as covered (the fix this
+  PR made), and — mirroring `test_data_stream_registry_check.py`'s own
+  "prove the detector isn't vacuously passing" tests — feeds the checker
+  a fake registry module with a deliberately unaliased candidate and a
+  deliberately uncovered one and confirms both are actually flagged.
+- `datacore/signal_ladder.json` — +1 root (`epa_camd_cems`), described
+  above.
+
+ALSO this session (idempotent maintenance, zero code, folded into this
+same PR rather than its own per PROMOTION RULE 5's spirit for trivial
+non-code data refreshes — same precedent as the 2026-09-16 session's own
+combined [PRODUCT]+[PIPELINE] entry): ran
+`npx tsx scripts/portdwell_weekly_snapshot.ts` (DIAG_TOKEN + live network
+both available this session) for `port_dwell_maritime_transit`'s GATE 2
+accumulator — merged 1 new week (week 10) from the server's own Tier-3
+capture state, `datacore/port_dwell_weekly.json` now holds 5 of the
+~15-20 weeks needed. No code touched; this is exactly the "keep running
+each session" maintenance the 2026-09-16 session's own NEXT note asked
+for.
+
+VERIFIED, not assumed:
+- `python3 -m pytest -q test_ladder_registry_coverage_check.py -v`:
+  7/7 pass.
+- `python3 -m pytest -q test_data_stream_registry_check.py
+  test_ladder_readiness_check.py`: 23/23 pass, unaffected by this diff.
+- `npx tsx --test server/signalLadder.test.ts`: 7/7 pass — specifically
+  confirms the new `epa_camd_cems` root satisfies
+  `loadSignalLadder`'s own live-registry assertions (required fields
+  present, unique id, non-empty source_ref) and the
+  "raw_only roots always carry current_gate 0" invariant, over the
+  real committed file, not a mock.
+- `python3 scripts/ladder_registry_coverage_check.py`: human report
+  correctly shows 26 built candidates checked, 0 unaliased, 0 stale
+  targets, 7 uncovered (the exact pinned set) — exit code 0.
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+  parses; `git diff --stat datacore/signal_ladder.json` shows exactly
+  the intended 2-line change.
+
+GATES: full suite run in this fresh container after `npm ci` and
+`pip install -r requirements.txt -r requirements-dev.txt`. Full account
+of exact pass counts deferred to CI (the promotion-rule-required local
+run above covers every file this diff touches or could plausibly
+affect); no source file outside the ones named above was edited.
+Version bumped 1.0.947 -> 1.0.948 (package.json + package-lock.json,
+read-and-incremented from a freshly-fetched origin/main immediately
+before committing — origin/main briefly lagged this session's own
+already-fetched HEAD by 17 commits on a first fetch, re-fetched
+successfully to confirm the two matched exactly before proceeding, per
+the MERGE-ORDER PROTOCOL's own "verify HEAD equals origin/main before
+starting" discipline).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure bookkeeping/tooling change,
+no scoring/sizing/strategy/threshold code touched. MONETIZATION
+TRIPWIRE: not touched.
+
+DEPLOY-COUPLING NOTE: 2026-09-20 is a Sunday — markets closed, no
+market-hours merge-timing concern for this PR.
+
+NEXT: (1) the 7 queued roots named above and in research/
+open_questions.md's matching entry — one per future PR. (2)
+`cboe_vix_term_structure` specifically deserves a priority read before
+the others, since its own registry note already claims a passed GATE 1,
+which if confirmed on re-read means it should ship as `gate1_pass` (a
+real ladder-status fix), not just a `raw_only` bookkeeping add like the
+other 6 are likely to be. (3) `port_dwell_maritime_transit` still needs
+~10-15 more weekly snapshots before GATE 2 is attemptable — keep running
+`scripts/portdwell_weekly_snapshot.ts` each session per the standing
+instruction.
+
+STARVED: no — both standing per-session checks were confirmed exhausted
+before starting, a new mechanical check was built and run rather than
+left as manual archaeology, one already-verifiable finding was closed
+end-to-end (ladder entry + detector + pinned regression test), and the
+remaining unverified findings were filed with enough detail for a future
+session to act without re-deriving them.
+
+NOT A SPEND REQUEST.

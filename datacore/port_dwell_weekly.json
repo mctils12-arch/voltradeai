@@ -390,5 +390,103 @@
         "in_port_now": 24
       }
     ]
+  },
+  {
+    "week_index": 10,
+    "week_start": "2026-09-11T00:00:00.000Z",
+    "week_end": "2026-09-18T00:00:00.000Z",
+    "captured_at": "2026-09-18T00:29:18.489Z",
+    "ports": [
+      {
+        "id": "port_la",
+        "name": "Port of Los Angeles",
+        "dwell_median_h": 7.3,
+        "dwell_p90_h": 15.7,
+        "dwell_max_h": 48.8,
+        "visits_completed": 338,
+        "unique_vessels": 121,
+        "in_port_now": 60
+      },
+      {
+        "id": "port_lb",
+        "name": "Port of Long Beach",
+        "dwell_median_h": 7.6,
+        "dwell_p90_h": 15.7,
+        "dwell_max_h": 49.6,
+        "visits_completed": 318,
+        "unique_vessels": 133,
+        "in_port_now": 53
+      },
+      {
+        "id": "port_nynj",
+        "name": "Port of NY/NJ (Elizabeth)",
+        "dwell_median_h": 7,
+        "dwell_p90_h": 15.5,
+        "dwell_max_h": 30.8,
+        "visits_completed": 169,
+        "unique_vessels": 97,
+        "in_port_now": 30
+      },
+      {
+        "id": "port_savannah",
+        "name": "Port of Savannah (Garden City)",
+        "dwell_median_h": 7.7,
+        "dwell_p90_h": 18.9,
+        "dwell_max_h": 29.2,
+        "visits_completed": 56,
+        "unique_vessels": 52,
+        "in_port_now": 18
+      },
+      {
+        "id": "port_houston",
+        "name": "Port of Houston (Barbours Cut)",
+        "dwell_median_h": 6.2,
+        "dwell_p90_h": 15.5,
+        "dwell_max_h": 49.5,
+        "visits_completed": 81,
+        "unique_vessels": 56,
+        "in_port_now": 24
+      },
+      {
+        "id": "port_oakland",
+        "name": "Port of Oakland",
+        "dwell_median_h": 7.1,
+        "dwell_p90_h": 15.8,
+        "dwell_max_h": 43.2,
+        "visits_completed": 221,
+        "unique_vessels": 74,
+        "in_port_now": 30
+      },
+      {
+        "id": "port_seattle",
+        "name": "Port of Seattle",
+        "dwell_median_h": 7.6,
+        "dwell_p90_h": 15.8,
+        "dwell_max_h": 54.3,
+        "visits_completed": 210,
+        "unique_vessels": 93,
+        "in_port_now": 27
+      },
+      {
+        "id": "port_charleston",
+        "name": "Port of Charleston (Wando Welch)",
+        "dwell_median_h": 7.5,
+        "dwell_p90_h": 24.2,
+        "dwell_max_h": 24.2,
+        "visits_completed": 9,
+        "unique_vessels": 10,
+        "in_port_now": 2
+      },
+      {
+        "id": "port_norfolk",
+        "name": "Port of Virginia (Norfolk NIT)",
+        "dwell_median_h": 7.9,
+        "dwell_p90_h": 15.7,
+        "dwell_max_h": 35.1,
+        "visits_completed": 142,
+        "unique_vessels": 76,
+        "in_port_now": 29
+      }
+    ]
   }
 ]

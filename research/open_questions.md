@@ -21314,3 +21314,85 @@ the queue's state (now just dtccSwaps.ts, explicitly lower-priority)
 accurately updated for the next session.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-20 (scheduled-routine PRODUCT session) [PRODUCT] — datacore/signal_ladder.json is missing 7 more "built" pipelines besides the epa_camd_cems gap this session fixed; queued NEXT for individual verification (v1.0.948)
+
+New mechanical check this session, `scripts/ladder_registry_coverage_check.py`
+(+ `test_ladder_registry_coverage_check.py`), cross-references every
+`status:"built"` candidate in `scripts/data_stream_registry_check.py`
+against `datacore/signal_ladder.json`'s roots via a hand-verified
+`ALIASES` map (the two files use different id conventions for the same
+pipeline in most cases, e.g. `cftc_cot` here vs `cftc_cot_positioning` +
+`cftc_tff_positioning` there). First live run found **8** built
+candidates with zero matching ladder root — a real completeness gap in
+the file SPINOUT-READY DATA LAYER / RAW OVERLAYS vs SIGNALS bookkeeping
+depends on, not a naming artifact (each was checked against the full
+47-entry ladder id list by hand before being called a gap).
+
+**FIXED this session**: `epa_camd_cems` (server/epaCamd.ts) — the
+clearest case, since the module's own header states its status in plain
+text ("ships the RAW archive only; any predictive claim... is its own
+gate-2 work, not attempted here") and it is independently confirmed live
+as the `plant_operations` map layer (v1.0.385, `client/src/pages/
+datamap.tsx`). Added to `datacore/signal_ladder.json` as `status:
+"raw_only"`, `current_gate: 0`.
+
+**QUEUED, not attempted this session** (each needs its own module read to
+assign an honest ladder status — this is a "no big-bang backfill"
+situation, same discipline as `PROGRAM_STATE.md`'s Q11
+renderKind/lod pin): the remaining 7, pinned in
+`test_ladder_registry_coverage_check.py`'s `EXPECTED_UNCOVERED_IDS` so
+the set can't drift silently in either direction —
+
+- `fda_calendar` (server/fdaEvents.ts) — FDA approval/advisory-committee
+  calendar events; likely `raw_only` (a calendar of dated events, not an
+  inference), but not confirmed by reading the module this session.
+- `so2_column_gibs` (client/src/lib/gibs.ts) — SO2 column density tile
+  pass-through; the registry's own note already calls it "RAW overlay,
+  no archive manifest by design", so likely a quick `raw_only` add.
+- `usgs_volcano_alerts` (server/usgsVolcanoes.ts) — alert levels + GVP
+  coordinates; likely `raw_only`.
+- `global_energy_monitor` (scripts/gem_ingest.py) — the raw GEM asset
+  registry itself (distinct from `gem_methane_plume_proximity`, which
+  IS tracked as a derived gate2_fail signal built on top of it) — the
+  registry has no entry for the base registry.
+- `entsoe_eu_power` (server/euLoad.ts + euGenerationMix.ts +
+  euDayAheadPrices.ts) — EU load/generation/day-ahead prices; this is a
+  3-module cluster, so it may need one ladder root or several — worth
+  checking whether a signal hypothesis has ever been attempted on the
+  day-ahead-price piece specifically before defaulting to `raw_only`.
+- `sec_ftd` (server/secFtd.ts) — SEC fails-to-deliver; this one is the
+  most likely to actually deserve a `gate1_pending`/`gate2_*` status
+  rather than `raw_only`, since FTD spikes are a commonly-cited
+  short-squeeze-adjacent signal candidate elsewhere in this file — check
+  whether a gate-1/2 attempt already exists under a different name
+  before assuming none does.
+- `cboe_vix_term_structure` (server/cboeVix.ts) — the registry's own note
+  already states its GATE 1 (DATA) cross-check passed 2026-08-07
+  ("CBOE's own VIX close matched FRED's independent VIXCLS series
+  exactly for 3/3 dates") and names it "candidate cleaner replacement
+  for the VXX-ratio regime proxy behind KNOWN BROKEN #20" — this reads
+  like it should already be `gate1_pass`, not merely un-tracked; the
+  likeliest of the 7 to be a real backlog item rather than a documentation
+  gap.
+
+NEXT for whoever picks one of these up: re-run
+`python3 scripts/ladder_registry_coverage_check.py` first to confirm the
+set hasn't already moved, read the named module(s), add the
+`datacore/signal_ladder.json` entry with an honest status +
+`source_ref`, add the module's id to `ALIASES` in
+`scripts/ladder_registry_coverage_check.py` pointing at the new root, and
+narrow `EXPECTED_UNCOVERED_IDS` in the test file to match — one root per
+PR, per PROMOTION RULE 5 (don't batch multiple modules' status
+judgments into one change; each is its own attribution-bearing read).
+
+STARVED: no — this was a fresh ACTIVE ANGLE-HUNTING-adjacent mechanical
+check (SESSION BUDGET fall-through: both standing per-session checks,
+`ladder_readiness_check.py` — 0/3 ready, all WAITING — and
+`data_stream_registry_check.py`'s own unbuilt list — 9/9 blocked or
+declined, all needing human action — came back exhausted this session,
+matching the 2026-09-19 session's own queued NEXT), built end-to-end
+(script + pinned test + one verified fix), not left as an unactioned
+observation.
+
+NOT A SPEND REQUEST.
