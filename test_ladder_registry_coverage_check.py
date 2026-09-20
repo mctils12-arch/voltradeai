@@ -5,7 +5,7 @@ candidates against datacore/signal_ladder.json's roots (see that script's
 module docstring for the full rationale: a built pipeline can otherwise
 carry zero ladder-bookkeeping entry with nothing to notice).
 
-Four things are asserted:
+Five things are asserted:
   1. The ALIASES table covers every currently-built candidate (a future
      session adding a new "built" candidate without an ALIASES entry
      fails this loudly instead of the coverage check silently ignoring it).
@@ -17,6 +17,10 @@ Four things are asserted:
      direction, but only on a conscious edit to this test, never silently.
   4. epa_camd_cems specifically is regression-pinned as COVERED -- the
      fix this check's first run motivated in the same PR.
+  5. usgs_volcano_alerts specifically is regression-pinned as COVERED --
+     the first of the 7 originally-queued gaps to get a real ladder entry
+     (raw_only, same session as PR #1133's own epa_camd_cems fix,
+     different PR).
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -47,7 +51,6 @@ EXPECTED_UNCOVERED_IDS = [
     "global_energy_monitor",
     "sec_ftd",
     "so2_column_gibs",
-    "usgs_volcano_alerts",
 ]
 
 
@@ -93,6 +96,17 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "datacore/signal_ladder.json (status raw_only) in the same PR that "
             "added this check; if that root was removed, this test should be "
             "updated deliberately, not left to fail silently",
+        )
+
+    def test_usgs_volcano_alerts_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "usgs_volcano_alerts", uncovered_ids,
+            "usgs_volcano_alerts regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json (status raw_only) in the PR that removed "
+            "it from EXPECTED_UNCOVERED_IDS; if that root was removed, this test "
+            "should be updated deliberately, not left to fail silently",
         )
 
 

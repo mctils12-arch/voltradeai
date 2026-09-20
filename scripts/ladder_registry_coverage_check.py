@@ -70,7 +70,7 @@ ALIASES = {
     "cbp_border_wait": ["cbp_border_wait_times"],
     "noaa_swpc_space_weather": ["space_weather_swpc"],
     "so2_column_gibs": [],
-    "usgs_volcano_alerts": [],
+    "usgs_volcano_alerts": ["usgs_volcano_alerts"],
     "epa_camd_cems": ["epa_camd_cems"],
     "global_energy_monitor": [],
     "entsoe_eu_power": [],
