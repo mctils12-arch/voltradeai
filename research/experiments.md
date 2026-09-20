@@ -3,6 +3,29 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine session, same-day addendum after PR #1131 merged) [RULE-REVIEW] — 19th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+TERRITORY: SHARED-minimal (research/* only). PR #1131 (this session's own
+`spaceWeather.ts` `everSucceeded` fix, v1.0.947) carried the standard
+"merge should wait until after 4:00 PM ET" note and was auto-merged by
+`github-actions[bot]` at 2026-09-20T16:23:57Z, 6m23s after opening
+(`created_at` 16:17:34Z) — ~12:24 PM ET, well before the 4pm ET hold this
+session's own task instructions asked the PR body to state. Verified via
+`pull_request_read` on the merged PR, not inferred. Same already-tracked,
+already-escalated `.github/workflows/` `automerge` job root cause
+(research/wishlist.md's "PROCESS GAP FOUND 2026-08-15" thread) — no new
+mechanism, no new information beyond confirming the pattern continues.
+Harmless here too: the merged change is a RAW-overlay display-honesty fix
+with zero effect on the trading loop, scoring, sizing, or any FROZEN path.
+Tallied as the 19th occurrence (spanning 2026-08-14 through 2026-09-20, 37
+days, still 0% compliance) in wishlist.md rather than left as an untallied
+footnote, per the thread's own standing instruction that each new
+occurrence gets a one-line tally entry there. Still awaiting the human's
+pick of the two filed options (a real time/label gate on the FROZEN
+`automerge` job, or dropping the scheduled-routine prompt's own
+unenforced "note the market-hours wait" instruction) — no autonomous
+session can resolve this unilaterally.
+
 ## 2026-09-20 (scheduled-routine session, fifth session this UTC day) [REPAIR] — `spaceWeather.ts` gets an `everSucceeded` honesty flag, closing a Law V (Freshness Law) gap a third-session finding today left open: a cold boot into a total NOAA SWPC outage used to permanently report `/api/data/spaceweather` as live/"active" instead of `warming_up` (v1.0.947)
 
 TERRITORY: SHARED-minimal touching a server data module (`server/spaceWeather.ts`,
