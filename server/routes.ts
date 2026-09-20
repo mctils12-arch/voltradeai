@@ -2281,7 +2281,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.get("/api/data/spaceweather", (_req, res) => {
     const hit = latestSpaceWeather();
-    if (!hit) {
+    // 2026-09-20 fix: `!hit` alone used to miss a cold-boot-into-total-
+    // outage case — the poller's own eager-boot write (KNOWN BROKEN #9)
+    // makes `hit` non-null after the very first attempt regardless of
+    // whether NOAA was actually reached, so this must also check
+    // `everSucceeded` (spaceWeather.ts's own honesty flag) rather than
+    // just presence of a cache object — see that field's doc comment.
+    if (!hit || !hit.everSucceeded) {
       return res.json({ kind: "raw", source: "NOAA SWPC (services.swpc.noaa.gov)", warming_up: true });
     }
     res.set("Cache-Control", "public, max-age=120");
