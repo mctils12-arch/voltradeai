@@ -3,6 +3,144 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — `usgs_volcano_alerts` gets an honest `datacore/signal_ladder.json` entry (`raw_only`), the first of PR #1133's 7 queued ladder-registry gaps to close (v1.0.949)
+
+TERRITORY: SHARED-minimal (`datacore/signal_ladder.json`, `scripts/
+ladder_registry_coverage_check.py`, its test, `package.json`/
+`package-lock.json`/`ci/counter_baseline.txt`/`research/*`) — no
+T-DATACORE/T-CLIENT/T-BOT primary-territory file touched.
+
+SESSION-START: read CLAUDE.md in full; `research/experiments.md`'s prior
+6 entries today (RULE-REVIEW auto-merge tally; REPAIR spaceWeather.ts
+everSucceeded; PRODUCT spinout-boundary test; RESEARCH warming_up
+re-derivation; RULE-REVIEW third CONSTITUTIONAL AUDIT; RESEARCH
+space_weather_swpc BUILD-FIRST writeup) plus the PRODUCT session before
+those (`ladder_registry_coverage_check.py` new-check + `epa_camd_cems`
+fix, PR #1133, this morning). `research/open_questions.md` KNOWN BROKEN
+section. `research/wishlist.md` (third CONSTITUTIONAL AUDIT's 2 new
+proposals + the still-pending 2026-08-16 pair — human-decision only,
+nothing actionable here; the auto-merge/market-hours-hold thread — also
+human-decision-gated, 19 occurrences logged, no autonomous fix possible).
+
+LIVE HEALTH CHECK: `/api/health` — `status:"degraded"`, `bot.status:
+"killed"`, `drawdownPct:"-7.4"`, LIVENESS ALARM unchanged in substance
+(45.5 market hours / 257.1h wall-clock dark since 2026-09-10T03:12:26Z) —
+same already-tracked KNOWN BROKEN #42/#43 human-decision item every
+session today already surfaced; not re-notified, no new fact.
+`/api/diag/audit` was unreachable this session (`{"error":"unauthorized"}`
+on `/api/diag/audit?limit=60` — `DIAG_TOKEN` was not resolved from this
+session's env the way the MEMORY PROTOCOL's worked example expects; not
+investigated further, this session's queued action did not depend on it).
+
+LOOP-HEALTH RATIO: tags of the 10 entries immediately preceding this one
+— RULE-REVIEW, REPAIR, PRODUCT, RESEARCH, RULE-REVIEW, RESEARCH,
+PIPELINE, PIPELINE, REPAIR, RULE-REVIEW. 2/10 REPAIR — well under the
+7+ thrash-crisis threshold; no meta-problem, proceeded with normal
+SESSION BUDGET action selection.
+
+PRIMARY ACTION CHOSEN (SESSION BUDGET rule 1 — take the next queued
+item): PR #1133's own `open_questions.md` filing named 7 built-but-
+ladder-untracked pipelines, explicitly instructing "one root per PR" and
+naming `so2_column_gibs`/`usgs_volcano_alerts` as the two most likely
+"quick raw_only add" cases per each module's own header language.
+Re-ran `python3 scripts/ladder_registry_coverage_check.py` first (per
+that filing's own NEXT instruction) to confirm the set hadn't already
+moved — still all 7, unchanged. Picked `usgs_volcano_alerts` over
+`so2_column_gibs` (both equally clean) since it also has its own
+existing `server/usgsVolcanoes.test.ts` file to extend confidence in
+reading the module correctly (checked, no changes needed — it already
+covers alert/coordinate-join behavior, not ladder bookkeeping).
+
+READ BEFORE WRITE: read `server/usgsVolcanoes.ts`'s full module header
+this session before editing anything. Its own docstring states in plain
+text: "RAW-DATA overlay only (CLAUDE.md RAW-vs-SIGNAL surface rule):
+displays USGS-reported alert levels as-is with source attribution, no
+predictive claim — ships ungated, no key required." Confirmed live and
+shipped independently via three cross-checks, not taken on the module's
+word alone: `server/routes.ts`'s `/api/data/volcanoes` route (eager-boot
+poll, `warming_up` gating already correct); `client/src/pages/
+datamap.tsx`'s `volcanoes` layer (category `environmental`, `LegendIcon
+vt-volcano`, `SYMBOLS NOT DOTS`-compliant per the alert-color legend
+already keyed off `volcanoAlertColor()`); and `server/usgsVolcanoes.
+test.ts` (existing coverage, still green, untouched). The module's own
+EDGE DOCTRINE cross-ties section (SO2/GIBS degassing, aviation ash risk,
+earthquake-swarm proximity) names three gate-2 hypotheses, all already
+filed in `open_questions.md` as not-yet-attempted — none claimed or
+touched here, this PR is bookkeeping-completeness only, same discipline
+PR #1133 itself established for `epa_camd_cems`.
+
+FIX: added `usgs_volcano_alerts` to `datacore/signal_ladder.json`
+(`category: "environmental"`, `status: "raw_only"`, `current_gate: 0`,
+mirroring `usgs_earthquakes`'s own entry immediately above it in the same
+file — same category, same status, same "RAW layer, gate-2 hypotheses
+filed but not attempted" shape). `scripts/ladder_registry_coverage_
+check.py`'s `ALIASES["usgs_volcano_alerts"]` changed from `[]` (a
+confirmed, not assumed, gap) to `["usgs_volcano_alerts"]` (now genuinely
+covered). `test_ladder_registry_coverage_check.py`'s `EXPECTED_
+UNCOVERED_IDS` narrowed from 7 to 6 (drops `usgs_volcano_alerts`); added
+`test_usgs_volcano_alerts_is_covered`, a regression pin mirroring the
+existing `test_epa_camd_cems_is_covered` precedent exactly.
+
+RATCHET / A-B VERIFIED: `git stash push -- datacore/signal_ladder.json
+scripts/ladder_registry_coverage_check.py` (keeping the new test file
+in place) — both `test_uncovered_set_is_pinned` and the new `test_usgs_
+volcano_alerts_is_covered` FAIL against the pre-fix source (2 failed, 6
+passed); restoring the stash makes all 8 pass. Confirms the new coverage
+is real, not decorative.
+
+GATES RUN (full, post-fix, this session): sandbox needed `pip install -r
+requirements.txt` + `Pillow` + `openpyxl` first (same pre-existing gaps
+prior sessions' entries have already noted, not fixed here) —
+`python3 -m pytest -q`: 2115 passed, 2 skipped, zero regressions (2113
+baseline + 2 new). `npm install` also needed first — this sandbox's
+`node_modules` held only `typescript`, no full install; `npm run build`
+was failing with `tsx: not found` before it. After `npm install`: `npm
+run build` clean (pre-existing large-chunk warnings only, same as PR
+#1133's own build); `npx tsx --test server/*.test.ts` 1701 pass / 8 fail
+— A/B-verified via `git stash` that all 8 failures (aircraftTiling,
+apiKeyAccounts, cdcCancer, compression, gdeltEvents, owmTiles —
+unrelated files, zero `.ts` touched this PR) are pre-existing on `main`
+already, not introduced by this change. `bash scripts/tsc_ratchet.sh`:
+3 <= 11 pinned (TS2304=0) — the count DROPPED 11->3, but this is
+unrelated ambient drift from other already-merged PRs, not caused by
+this PR's diff (no `.ts`/`.tsx` file touched); left `ci/tsc_baseline.txt`
+untouched rather than bundling an unrelated pin-lower into this PR
+(PROMOTION RULE 5). `bash scripts/counter_ratchet.sh`: this PR's own 2
+new tests genuinely improved 3 counters (`tests_run_in_ci` 461->462,
+`tests_gating_merge` 461->462, `assertions` 14894->14904) — pins lowered
+in `ci/counter_baseline.txt` in this same PR per the script's own
+instruction (re-ran after, confirmed "OK: 25 counters at or better than
+baseline"). `bash scripts/gated_tests.sh` including the deploy-gate
+smoke test — GATE PASSED after the `npm install` fix above.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading
+loop, scoring, sizing, or any live route/UI — this is a pure ladder-
+bookkeeping completeness fix (a JSON entry + a Python alias table + a
+test), identical in shape and blast radius to PR #1133's own
+`epa_camd_cems` fix. RAW OVERLAYS vs SIGNALS: `usgs_volcano_alerts`
+stays `raw_only`/gate 0 exactly as before this PR — this PR changes only
+whether that status is RECORDED in the ladder file, not the status
+itself, so no RULE REVIEW evidence gate or backtest applies (matches
+PROMOTION RULE 3's own exception for non-scoring/sizing changes).
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/ads
+code). BACKTEST: N/A per PROMOTION RULE 3 — pure bookkeeping, no
+scoring/sizing/strategy code touched.
+
+NEXT: 6 of PR #1133's original 7 queued gaps remain (`fda_calendar` —
+NOT a quick raw_only case on inspection this session, its own module
+header states a real gate-2 hypothesis "not attempted" rather than a
+raw-only claim, so it needs its own careful read, not a quick add;
+`so2_column_gibs`; `global_energy_monitor`; `entsoe_eu_power`; `sec_ftd`;
+`cboe_vix_term_structure` — the last two are flagged in the original
+filing as the most likely to need a real gate status rather than
+`raw_only`). A future session should re-run `python3 scripts/
+ladder_registry_coverage_check.py` first to confirm the set hasn't moved,
+then pick the next one, one root per PR, per the same discipline.
+
+STARVED: no — this was the queued top-of-list SESSION BUDGET item,
+picked and completed within the session.
+
 ## 2026-09-20 (scheduled-routine session, same-day addendum after PR #1131 merged) [RULE-REVIEW] — 19th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 TERRITORY: SHARED-minimal (research/* only). PR #1131 (this session's own
