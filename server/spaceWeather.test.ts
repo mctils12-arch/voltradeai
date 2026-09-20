@@ -14,6 +14,7 @@ import {
   parseXray, classifyFlare,
   fetchSpaceWeather, archiveSpaceWeather, gzipOldSpaceWeatherDays, conditionsRow,
   scanStormHistory, kpToGScale,
+  refreshSpaceWeatherCache, latestSpaceWeather, _resetSpaceWeatherCacheForTests,
 } from "./spaceWeather";
 
 const KP_FIX = [
@@ -152,6 +153,46 @@ test("fetchSpaceWeather: one dead feed never blanks the rest", async () => {
   assert.equal(pull.xray.length, 3);
   assert.equal(pull.errors.length, 1);
   assert.match(pull.errors[0], /503/);
+});
+
+test("refreshSpaceWeatherCache: everSucceeded stays false through a cold-boot total SWPC outage (routes.ts must keep reporting warming_up, not a false 'active'), flips true on the first real reading, and stays true (sticky) through a LATER outage while last-good fields are kept — 2026-09-20 fix for the routes.ts warming_up thread's own filed 'narrower honesty nuance'", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-swpc-coldcache-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetSpaceWeatherCacheForTests();
+  try {
+    assert.equal(latestSpaceWeather(), null, "cache must still be cold going into this cycle");
+
+    const dead = async () => ({ ok: false, status: 503, text: async () => "" });
+    await refreshSpaceWeatherCache(dead as any, Date.parse("2026-07-29T13:00:00Z"));
+    let hit = latestSpaceWeather();
+    assert.ok(hit, "the eager-boot write (KNOWN BROKEN #9 rule) still creates a cache object");
+    assert.equal(hit!.everSucceeded, false, "never once reached NOAA — must not look like a live 'active' reading");
+    assert.equal(hit!.kpRecent.length, 0);
+    assert.equal(hit!.anyStale, true);
+
+    const live = async (url: string) => {
+      if (url.includes("ovation")) return { ok: false, status: 503, text: async () => "" };
+      if (url.includes("k-index")) return { ok: true, status: 200, text: async () => JSON.stringify(KP_FIX) };
+      if (url.includes("noaa-scales")) return { ok: true, status: 200, text: async () => JSON.stringify(SCALES_FIX) };
+      if (url.includes("alerts")) return { ok: true, status: 200, text: async () => JSON.stringify(ALERTS_FIX) };
+      if (url.includes("solar-wind-speed")) return { ok: true, status: 200, text: async () => JSON.stringify([{ proton_speed: 400, time_tag: "2026-07-29T12:00:00Z" }]) };
+      if (url.includes("xrays")) return { ok: true, status: 200, text: async () => JSON.stringify(XRAY_FIX) };
+      return { ok: true, status: 200, text: async () => JSON.stringify([{ bt: 5, bz_gsm: 2, time_tag: "2026-07-29T12:00:00Z" }]) };
+    };
+    await refreshSpaceWeatherCache(live as any, Date.parse("2026-07-29T13:05:00Z"));
+    hit = latestSpaceWeather();
+    assert.equal(hit!.everSucceeded, true, "a real reading landed");
+    assert.equal(hit!.kpRecent.length, 2);
+
+    await refreshSpaceWeatherCache(dead as any, Date.parse("2026-07-29T13:10:00Z"));
+    hit = latestSpaceWeather();
+    assert.equal(hit!.everSucceeded, true, "sticky — a LATER total outage must not revert to warming_up");
+    assert.equal(hit!.kpRecent.length, 2, "last-good values kept across the outage — unchanged pre-existing behavior");
+  } finally {
+    _resetSpaceWeatherCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
 });
 
 test("archive: kp dedup by time_tag, alerts by id, conditions by upstream stamp, xray by time_tag+energy; gz lifecycle", () => {

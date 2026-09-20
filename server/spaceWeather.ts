@@ -684,6 +684,30 @@ export interface SpaceWeatherCache {
   /** Phase 0.4: per-feed freshness at fetch time (additive on the API response) */
   freshness: Record<SwFeedKey, FeedFreshness>;
   anyStale: boolean;
+  /** Honesty flag (2026-09-20 fix — the routes.ts warming_up thread's own
+   *  filed "narrower honesty nuance"): true once at least one poll has
+   *  actually reached NOAA and returned SOMETHING (gotAnything below),
+   *  sticky thereafter. Distinguishes "SWPC is genuinely quiet right now"
+   *  from "we have never once successfully reached SWPC" — before this
+   *  field existed, the `!cache` eager-boot write (KNOWN BROKEN #9 rule:
+   *  populate immediately, don't wait an interval) created a real,
+   *  non-null, all-null-fields cache on the FIRST poll attempt regardless
+   *  of outcome, so a SWPC outage spanning cold boot made
+   *  `/api/data/spaceweather` permanently report `warming_up: false` with
+   *  an empty aurora grid and a blank condition line — read by the client
+   *  as `setStatus("spaceweather", "active", 0, "NOAA SWPC")`, an honest-
+   *  looking "active, nothing going on" state that was actually "we have
+   *  never gotten a reading," violating Law V ("a layer that cannot say
+   *  how old it is may not claim to be live") despite the per-feed
+   *  `freshness`/`anyStale` fields already being correct underneath it.
+   *  Deliberately NOT a disk-archive backfill (the shape used for
+   *  wikiAttention/satellites/nasaFirms/etc. — see cacheBackfill.ts):
+   *  spaceWeather's cache is a derived multi-field aggregate, not a flat
+   *  item list, and NOAA's OVATION aurora grid is never archived at all
+   *  (too large — see archiveSpaceWeather's own header note), so a true
+   *  backfill could never be complete; a sticky boolean is the honest,
+   *  minimal fix for this specific gap. */
+  everSucceeded: boolean;
 }
 
 const XRAY_RECENT = 180; // long-band minutes (3h) — enough for a sparkline
@@ -694,6 +718,22 @@ let polling = false;
 
 export function latestSpaceWeather(): SpaceWeatherCache | null {
   return cache;
+}
+
+/** Test-only: this module's cache/polling/archive-dedup state is a
+ *  module-level singleton (same class of problem edgarForm4.ts's
+ *  `_resetForm4CacheForTests`/ndbcBuoys.ts's `_resetBuoysCacheForTests`
+ *  exist for), so a test exercising cache-transition behavior (e.g.
+ *  `everSucceeded`) must be able to reset it rather than rely on file
+ *  execution order. */
+export function _resetSpaceWeatherCacheForTests(): void {
+  cache = null;
+  polling = false;
+  seeded = false;
+  seenKp.clear();
+  seenAlerts.clear();
+  seenCond.clear();
+  seenXray.clear();
 }
 
 const ALERTS_RECENT = 20;
@@ -722,6 +762,10 @@ export async function refreshSpaceWeatherCache(fetchImpl: FetchFn = fetch as any
         errors: pull.errors,
         freshness,
         anyStale,
+        // sticky: once true, stays true — a later total outage keeps
+        // serving the last-good fields above (existing behavior,
+        // unchanged), it must not un-ring this bell back to warming_up.
+        everSucceeded: !!(gotAnything || cache?.everSucceeded),
       };
     }
     try { archiveSpaceWeather(pull, undefined, nowMs); } catch {}

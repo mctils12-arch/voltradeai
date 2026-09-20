@@ -3,6 +3,146 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine session, fifth session this UTC day) [REPAIR] — `spaceWeather.ts` gets an `everSucceeded` honesty flag, closing a Law V (Freshness Law) gap a third-session finding today left open: a cold boot into a total NOAA SWPC outage used to permanently report `/api/data/spaceweather` as live/"active" instead of `warming_up` (v1.0.947)
+
+TERRITORY: SHARED-minimal touching a server data module (`server/spaceWeather.ts`,
+`server/routes.ts`, `server/spaceWeather.test.ts`) + `package.json`/
+`package-lock.json`/`research/*` — no T-DATACORE/T-CLIENT/T-BOT trading-logic
+file touched; this module sits alongside the other `server/*.ts` raw-overlay
+data pipelines the cold-cache-no-disk-backfill thread has been working
+through all week (fredMacro/euMacro/fdicBanks/gdeltEvents/gridDemand/
+gridGeneration/dtccSwaps), same class of fix.
+
+SESSION-START: read CLAUDE.md in full, research/experiments.md (today's four
+prior entries — [PRODUCT] spinout boundary test v1.0.946/PR #1130 merged;
+[RESEARCH] routes.ts warming_up re-derivation, no code change; [RULE-REVIEW]
+third CONSTITUTIONAL AUDIT + stale-note fix v1.0.945; [RESEARCH]
+space_weather_swpc gate-1 BUILD-FIRST writeup, no code change), research/
+open_questions.md KNOWN BROKEN section, research/wishlist.md (third-ever
+CONSTITUTIONAL AUDIT's 2 new proposals + still-pending 2026-08-16 ones —
+human-decision only, nothing actionable here).
+
+LIVE HEALTH CHECK: `/api/health` — `status:"degraded"`, `bot.status:"killed"`,
+`drawdownPct:"-7.4"`, LIVENESS ALARM unchanged in substance from every prior
+session since 2026-09-10 (now ~45.5+ market hours / ~253h wall-clock dark).
+Same already-tracked KNOWN BROKEN #42/#43 human-decision item; already
+surfaced to the human via push notification earlier today by the fourth
+session. NOT re-notified again this session — no new fact, matching the
+established "only on change" discipline. `/api/diag/audit` showed routine
+TIER3 strategic-scan cycling and the same repeating MANIPULATION-detector
+lines (MRNO/BENF/P/RETO/AGNC) each hourly cycle — consistent with the
+scanner re-observing the same static conditions, not a new anomaly.
+
+LOOP-HEALTH RATIO: tags of the 10 entries immediately preceding this one —
+PRODUCT, RESEARCH, RULE-REVIEW, RESEARCH, PIPELINE, PIPELINE, REPAIR,
+RULE-REVIEW, PIPELINE, PIPELINE. 1/10 REPAIR — well under the 7+
+thrash-crisis threshold; no meta-problem, proceeded with normal SESSION
+BUDGET action selection.
+
+QUEUE CHECK (SESSION BUDGET rule 1): axis (a) gate-advancement exhausted
+(third session today re-confirmed 0/3 gated roots ready, only 2 roots
+gate2_pass with no queued GATE 3 attempt); axis (b) options-fill-realism
+re-trace still declined at every prior session's own depth; axis (c)
+foreign-field imports discounted per the 2026-09-18/19 CUSUM session's own
+filed recommendation against an eighth same-shape variant. The two
+remaining open_questions.md queue candidates — `gnss_integrity` GATE 3 (no
+tradable-ticker hypothesis exists yet to backtest against) and the
+celestial-camera pole-crossing bug (explicitly deferred twice already as
+too large/high-blast-radius for a scheduled session) — were both judged
+unsafe to start and finish within one session, so neither was attempted.
+
+PRIMARY ACTION CHOSEN — audit-log-adjacent repair (SESSION BUDGET's own
+top-ranked candidate: "fix a bug seen in audit logs" family, here a bug
+*named* by today's third session's own routes.ts `warming_up` re-derivation
+rather than literally an audit-log line): that session's re-derivation pass
+flagged (without fixing) a "narrower honesty nuance" specific to
+`spaceWeather.ts` and left it as a named follow-up rather than folding it
+into the generic cold-cache-no-disk-backfill thread's shape, because this
+module's cache is a derived multi-field aggregate (not a flat item list)
+and NOAA's OVATION aurora grid is never archived at all (too large —
+`archiveSpaceWeather`'s own header note) — a true disk-backfill (the shape
+used for wikiAttention/nasaFirms/fredMacro/etc.) could never be complete
+here, so it needed its own fix shape, not a mechanical extension of the
+existing thread. That's this session's fix.
+
+READ BEFORE WRITE: read `server/spaceWeather.ts`'s full cache/polling
+section (the `SpaceWeatherCache` interface, `refreshSpaceWeatherCache`, the
+eager-boot write path) and `server/routes.ts`'s `/api/data/spaceweather`
+route this session before editing either. Grepped every call site of
+`latestSpaceWeather()` — exactly one, the route just named; no other caller
+to update.
+
+BUG CONFIRMED (root cause, not assumed): `refreshSpaceWeatherCache`'s
+eager-boot write (`if (gotAnything || !cache)`, the KNOWN BROKEN #9 "populate
+immediately, don't wait an interval" rule) writes a real, non-null
+`SpaceWeatherCache` object on the very first poll attempt *regardless of
+outcome*. A total NOAA SWPC outage spanning cold boot therefore leaves
+`/api/data/spaceweather`'s `!hit` check permanently false (the cache object
+exists, just with empty/null fields), so the route reports `warming_up:
+false` forever with an empty aurora grid and blank condition line — the
+client reads this as `setStatus("spaceweather", "active", 0, "NOAA SWPC")`,
+an honest-looking "active, quiet" state that is actually "never once
+reached NOAA." This violates Law V (RENDERING & MOTION LAW, Amendment 6):
+"a layer that cannot say how old it is may not claim to be live" — despite
+the per-feed `freshness`/`anyStale` fields already being correct
+underneath it, nothing upstream of the route was reading them to decide
+`warming_up`.
+
+FIX: added a sticky `everSucceeded: boolean` field to `SpaceWeatherCache`
+(`server/spaceWeather.ts`), set `!!(gotAnything || cache?.everSucceeded)`
+on every refresh — true the first time a poll actually returns any data
+(kp/scales/aurora/alerts/xray), and sticky thereafter so a *later* total
+outage keeps serving last-good fields (existing, unchanged behavior)
+without reverting to `warming_up`. `server/routes.ts`'s
+`/api/data/spaceweather` route now gates on `!hit || !hit.everSucceeded`
+instead of just `!hit`. Added `_resetSpaceWeatherCacheForTests()` (mirrors
+the existing `_resetForm4CacheForTests`/`_resetBuoysCacheForTests`
+precedent for this module-level-singleton-cache class of test problem).
+
+RATCHET / A-B VERIFIED: new `server/spaceWeather.test.ts` case drives three
+refresh cycles — cold-boot total outage (`everSucceeded` stays false, cache
+object exists per the eager-boot rule, `kpRecent` empty, `anyStale` true) →
+first real reading (`everSucceeded` flips true) → later total outage
+(`everSucceeded` stays true/sticky, last-good `kpRecent` values kept
+unchanged). Confirmed the new surface is genuinely new, not decorative: the
+pre-fix file has no `_resetSpaceWeatherCacheForTests`/`everSucceeded`
+export, so the test file fails to even load against pre-fix code.
+
+GATES RUN (full, post-fix, this session): `npx tsx --test
+server/spaceWeather.test.ts` — 17/17 pass. `python3 -m pytest -q` — 2110
+passed, 1 skipped, 54 subtests passed, zero regressions. `npx tsx --test
+server/*.test.ts` — 1800/1800 pass. `npx tsc --noEmit` — pre-existing
+baseline errors only (TradeChart.tsx, datamap.tsx, billing.ts, bot.ts,
+owmTiles.ts — none in the two files this PR touches); zero new errors
+introduced. `bash scripts/gated_tests.sh` run to a clean exit 0 ("GATE
+PASSED: all required suites green; quarantine 0/1, none overdue") including
+the deploy-gate smoke test.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop,
+scoring, sizing, or any live route besides the one line changed — this is a
+RAW OVERLAY (STANDING BEHAVIORS: raw overlays display as-is, no ladder
+gating, no predictive claim), so the ladder/RULE REVIEW evidence
+requirements don't apply. The only observable effect is `/api/data/
+spaceweather`'s `warming_up` field correctly staying `true` through a
+cold-boot-into-outage case it previously reported as false; no scoring,
+threshold, or FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched. VISUAL VERIFICATION: N/A per PROMOTION
+RULE 6 — no client/ file touched (server-side field + route condition only;
+the client's existing `setStatus`/`warming_up` handling for this layer is
+unchanged and already correct once fed an honest `warming_up` value).
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring/sizing/strategy/threshold
+value touched, a display-honesty bug fix on a RAW overlay.
+
+PR opened from `claude/eloquent-dijkstra-1ias4g`, v1.0.947. Runs during
+market hours — PR body notes merge should wait until after 4:00 PM ET
+(this is not a live-break fix; the trading loop and all order-flow paths
+are untouched).
+
+STARVED: no — this was the one clean, safely-completable action available
+after axis (a)/(b)/(c) and both open_questions.md queue candidates were
+ruled out this session; nothing higher-value was left on the table.
+
 ## 2026-09-20 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PRODUCT] — SPINOUT-READY DATA LAYER boundary gets its first mechanical enforcement: test_spinout_boundary.py (v1.0.946)
 
 TERRITORY: SHARED-minimal (new root-level test_spinout_boundary.py,
