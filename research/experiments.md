@@ -3,6 +3,211 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine session, second session this UTC day) [RULE-REVIEW] — THIRD-EVER CONSTITUTIONAL AUDIT (5 days overdue): 2 new consolidation proposals filed in wishlist.md, both prior (2026-08-16) proposals re-checked live and confirmed still pending 5 weeks later; plus a [REPAIR]-shaped fix to a stale note in `scripts/data_stream_registry_check.py` found while surveying axis (a)
+
+TERRITORY: SHARED (`research/*`, `scripts/data_stream_registry_check.py`,
+`package.json`/`package-lock.json`) — no `datacore/`, `client/src/`, or
+bot-logic file touched.
+
+SESSION-START: read CLAUDE.md in full, then all of `research/`. `git
+fetch origin main` + `git status` confirmed local HEAD matched
+origin/main (`a68e744`, v1.0.944) before starting, nothing uncommitted.
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai-production.up.railway
+.app/api/health` — `serving.ok: true`, HTTP-serving healthy. `status:
+"degraded"` for the SAME already-tracked, already-repeatedly-human-
+notified reason every session since 2026-09-10 (KNOWN BROKEN #42/#43):
+`bot.status: "killed"`, `liveness.dark: true`, "LIVENESS ALARM: trading
+loop dark for 45.5 market hours (239.4h wall-clock)" since the
+2026-09-10T03:12:26Z drawdown-kill trip — a standing, explicitly
+human-decision item (item #42's own independent price reconstruction
+already found the reported loss was a data anomaly, not real: -$414.82
+reconstructed vs. -$12,059.74 reported; resuming trading is deliberately
+left to the human per RULE REVIEW's bar against clearing a live risk halt
+on inference alone). This session's own health check (with `DIAG_TOKEN`,
+present in this sandbox unlike most prior sessions) adds one new,
+non-actionable data point: `/api/diag/ml`'s `live_options_outcome_
+breakdown: {"orphan_exit": 10}` confirms 100% of options exits are still
+unattributed (KNOWN BROKEN #12(c), the gate behind the still-open
+"Options fill realism" item), unchanged from the last time a session
+checked with token access — record date range still ends 2026-09-08,
+consistent with zero new trades since the halt. No new fact changes the
+liveness-alarm picture; per the discipline every session since 2026-09-13
+has applied (most recently this same UTC day's own first session, whose
+task instructions explicitly said "note it but proceed... unless the
+break blocks you"), this was NOT re-escalated with a duplicate
+notification — noted, not re-notified, and did not block this session's
+work. `python3 scripts/research_state_check.py`: `thrash_ratio` 0/10 OK,
+`known_broken` 44 items/4 without an explicit close marker (advisory
+only), `starvation_signal` 0/10 OK, `audits_register` **WARN: overdue —
+CONSTITUTIONAL AUDIT (due 2026-09-15)**, 5 days overdue at session start.
+This is NOT a [REPAIR] session by the Repair Mandate's own test (no
+code-actionable critical break; the liveness alarm is human-gated and
+already fully diagnosed/mitigated on the code side).
+
+AXIS SURVEY (this task's own instructed EDGE DOCTRINE axes, checked live,
+not inherited): **(a)** `python3 scripts/data_stream_registry_check.py
+--unbuilt` — 9/35 unbuilt, all `declined_*`/`blocked_registration`/
+`blocked_free_key`, matching every recent session's own reading — with
+one exception found this session (see FIX below). `python3
+scripts/ladder_readiness_check.py` — 0/3 gated roots ready (same three as
+every recent session). **(b)** grep-verified "Options fill realism" (this
+file) still explicitly gated behind KNOWN BROKEN #12(c) (options
+multi-leg/roll exit attribution — single-leg CSP only, per the
+2026-09-05 session's own finding, re-confirmed live this session via
+`/api/diag/ml` above: options attribution is still 100% orphan_exit) —
+unchanged, still gated; not attempted blind in this session given the
+depth of prior tracing that gate has required and the trading loop being
+currently halted (nothing live to validate a fix against right now
+anyway). **(c)** the 2026-09-18 CUSUM session's own filed NEXT explicitly
+recommends a materially raised prior against an 8th foreign-field import
+in the same "statistic vs. forward SPY return" shape until a genuinely
+different axis is identified — none was this session, so not attempted
+rather than padding a discounted variant. **(d)** compiled: see FIX below,
+and the fall-through CONSTITUTIONAL AUDIT itself (compiling this session's
+own rule-consistency reasoning into a filed, human-actionable proposal
+rather than a one-off observation).
+
+FIX (own commit, [REPAIR]-shaped, tagged separately from the audit below
+per PROMOTION RULE 5 — one logical change per PR is honored via two
+distinct commits on this session's single assigned branch, not two
+PRs): while checking axis (a), `data_stream_registry_check.py`'s
+`viirs_nightfire` entry claimed "needs a BUILD-FIRST free-alternative
+writeup before it may even enter wishlist.md" — false. That writeup was
+filed 2026-09-01 (wishlist.md), **13 days before this script itself was
+even created** (`git log --follow`: the script's only commit is
+`ac31541`, 2026-09-14). The free alternative was not just designed but
+actually BUILT and RUN against live production data
+(`server/gasFlareCandidates.ts`, persistent-hotspot detection over the
+already-archived NASA FIRMS feed — zero new key or registration) and
+GATE 1 FAILED three independent times (n=8/n=9, baseline and an
+FRP-coefficient-of-variation refinement, Spearman rho -0.4667 to -0.5
+against the World Bank's published per-country flaring rank — wrong
+direction, not just non-significant; see
+`datacore/signal_ladder.json`'s `gas_flare_candidates` root,
+`status: gate1_fail`). The resulting registration ask was already filed
+in wishlist.md 2026-09-01 (updated 2026-09-03) and remains outstanding.
+This is a real, if small, EDGE DOCTRINE #3 risk realized: this stale note
+almost cost this session a full re-derivation of already-completed,
+already-failed work (I had independently proposed rebuilding the exact
+same persistent-hotspot FIRMS approach before checking
+`datacore/signal_ladder.json` and finding it already built and killed).
+Corrected the `note` field only — `status: "blocked_registration"` is
+still factually correct and unchanged, so no drift/audit test needed a
+new pin. `python3 -m pytest -q test_data_stream_registry_check.py`: 8/8
+pass (no test asserts the note's text, so this is a safe, isolated
+correction — confirmed by reading the test file first). Full suite:
+2107 passed, 1 skipped, 54 subtests, 0 regressions. `bash
+scripts/gated_tests.sh`: GATE PASSED (server/client/python all green,
+deploy-gate smoke PASS, quarantine 0/1 none overdue). `bash
+scripts/counter_ratchet.sh`: OK, 25/25 (no counter moved — a note-text
+change touches nothing any counter scans). `bash scripts/tsc_ratchet.sh`:
+11 <= 11 pinned, TS2304 0 — unchanged, zero `.ts` files touched. Version
+bumped 1.0.944 -> 1.0.945 (package.json + package-lock.json,
+read-and-incremented from the freshly-fetched origin/main HEAD
+immediately before committing, MERGE-ORDER PROTOCOL). BACKTEST: N/A per
+PROMOTION RULE 3 — a decision-support script's own note text, no
+scoring/sizing/strategy/threshold code touched. MONETIZATION TRIPWIRE:
+not touched.
+
+CONSTITUTIONAL AUDIT (own commit, docs-only, no version bump — same
+precedent as both prior audits): with axis (a) exhausted beyond the fix
+above, axis (b) gated, and axis (c) discounted per its own filed
+recommendation, this session's fall-through reached SESSION BUDGET's
+research tier, whose own text says to "check the AUDITS & DEBT register
+first and run the most overdue audit" — CONSTITUTIONAL AUDIT, 5 days
+overdue, the only overdue item (STALENESS ran more recently, 2026-09-16,
+not due until 2026-10-16).
+
+SCOPE: rather than re-run the 2026-08-16 audit's own coverage (STANDING
+BEHAVIORS, MEMORY PROTOCOL, GOAL, AUTONOMY AUTHORIZATION — read, but not
+re-litigated absent new drift), this session targeted sections that
+audit's own entry does not mention checking: REASONING STANDARD, EDGE
+DOCTRINE, ROOT VALIDATION LADDER, HEALTH OF THE LOOP ITSELF, REPAIR
+MANDATE, READ BEFORE WRITE, RULE REVIEW, MEASUREMENT INTEGRITY, AUDITS &
+DEBT itself, WORKSTREAM PARTITION, and — the largest genuinely new
+territory, added 2026-08-12 (4 days before that audit ran) and not
+mentioned in its scope — Amendment 6's RENDERING & MOTION LAW.
+
+FINDINGS (both filed as exact before/after proposals in
+`research/wishlist.md`, human approval required, NEITHER self-applied to
+CLAUDE.md per the audit's own "never changes rules itself" rule):
+
+1. **RULE-TEXT-VS-COMPILED-REALITY DRIFT** — AUDITS & DEBT's own prose
+   describes the register schema as three fields, "{audit · cadence ·
+   last run}". The register the 2026-08-16 audit actually created (and
+   this session's own register update above continues) has always had a
+   fourth column, "Next due" — and that column is load-bearing:
+   `scripts/research_state_check.py`'s `check_audits_overdue()` parses
+   `row["next_due"]` directly; nothing computes it from "last run" +
+   cadence. A future session building this register from CLAUDE.md's
+   literal text alone would build something the existing checker cannot
+   parse. Same class of defect as the 2026-08-16 audit's own Proposal 1
+   (a rule's text not updated after a later change moved the ground
+   under it) — found this time in the very section that exists to catch
+   that pattern elsewhere.
+2. **SCATTERED, NON-CROSS-REFERENCED PR GATES** — Amendment 5's PREMIUM
+   EXPERIENCE STANDARD (STANDING BEHAVIORS) sets 6 lettered criteria for
+   "every user-facing surface" and Amendment 6's RENDERING & MOTION LAW
+   separately sets an 11-item "Definition of done — any layer PR"
+   checklist for the same PR class, in mechanical rendering-specific
+   detail. Neither references the other; a session satisfying one has no
+   pointer telling it the other also gates the same PR. Same shape as
+   the 2026-08-16 audit's Proposal 2 (VISION.md/GIP.md's read-order split
+   across two disconnected sections).
+
+INTERACTION CHECKS (clean, no new findings, this session's targeted
+sections): REASONING STANDARD vs. RULE REVIEW's evidence bar — consistent
+(both demand base rates / counterfactual evidence before crediting a
+change). REPAIR MANDATE vs. SESSION BUDGET's fix-first ordering —
+consistent. HEALTH OF THE LOOP's "[PRODUCT] counts as [PIPELINE]" clause
+vs. TAG EVERY SESSION's tag list — consistent, no drift. RENDERING &
+MOTION LAW's Law I ("nothing visual may be recomputed on a map event,
+ever") vs. WORKSTREAM PARTITION's T-CLIENT territory description — no
+conflict found. No FROZEN PATHS text touched or proposed for change. No
+factual KNOWN STATE drift found in the sections read this pass.
+
+STILL PENDING: both 2026-08-16 proposals re-checked live against the
+CURRENT CLAUDE.md text this session (not assumed from the old log entry)
+— both present verbatim as originally filed, unresolved 5 weeks later.
+Re-flagged in wishlist.md for visibility, not re-argued or re-filed.
+
+REGISTER updated in place (see block above this entry): CONSTITUTIONAL
+AUDIT last run 2026-09-20, next due 2026-10-20.
+
+DOCS-ONLY: no version bump on this commit — no runtime behavior changed,
+same precedent as both prior audits' own entries.
+
+NEXT: (1) the human reviews wishlist.md's 4 total pending proposals (2
+new, 2 from 2026-08-16) and approves/rejects/amends — approved ones ship
+as one docs PR per the audit's own rule. (2) KNOWN BROKEN #42/#43 remains
+a standing human-decision item, now 45.5+ market hours / 239+ wall-clock
+hours dark — unchanged, not this session's to resolve. (3) "Options fill
+realism" / KNOWN BROKEN #12(c) (options multi-leg/roll attribution)
+remains the standing axis-(b) gate; a future session with deep capacity
+to re-trace `options_manager.py`/`options_execution.py`/
+`tiered_strategy.py`/`shadow_portfolio.py`/`exitFill.ts` exit paths (the
+same rigor the 2026-08-07 KNOWN BROKEN #12(b) resolution used) is the
+real unblock, not a repeat of this session's lighter survey. (4) a future
+STALENESS AUDIT should check whether `research/experiments.md`'s OLD,
+never-updated "## AUDIT REGISTER" block (created 2026-07-15-era, stuck
+mid-file around the MASTER PROGRAM section, last touched 2026-08-16 and
+never since) should be deleted now that the real "## AUDITS & DEBT
+REGISTER" block (created 2026-08-16, the one this session updated) is the
+one CLAUDE.md's rule and `research_state_check.py` both actually use —
+found while researching this audit, not chased down this session since
+it's a STALENESS-audit-shaped cleanup, not a constitutional one.
+
+STARVED: no — axis (a) was exhausted (with a real fix shipped along the
+way, not just re-confirmed), axis (b) is gated on a genuinely deep item
+not safely attemptable at this session's depth of context, axis (c) is
+explicitly discounted by its own prior session's filed recommendation,
+and the fall-through correctly reached and executed the single most
+overdue item in the AUDITS & DEBT register rather than defaulting to
+padding.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-20 (scheduled-routine [PRODUCT] session) [RESEARCH] — `space_weather_swpc` gate 1: BUILD-FIRST-checked the OE-417 ground-truth source its own ladder note named as NEXT(2) — both OE-417 and its better sibling EAGLE-I are free but structurally annual-lag-blocked for a 2026 event; corrected the ladder's re-run trigger from "wait for a storm" (already met) to "wait for the 2026 annual data release" (~2027-02), no code change
 
 TERRITORY: SHARED-minimal (`research/wishlist.md`, `datacore/
@@ -26883,8 +27088,18 @@ change, so it is created directly rather than proposed in wishlist.md.
 | Audit | Cadence | Last run | Next due |
 |---|---|---|---|
 | STALENESS AUDIT | 30d | 2026-09-16 | 2026-10-16 |
-| CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
+| CONSTITUTIONAL AUDIT | 30d | 2026-09-20 | 2026-10-20 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
+
+CONSTITUTIONAL AUDIT run 2026-09-20 (scheduled-routine session, see the
+tagged log entry that date, THIRD-EVER run): 2 new consolidation
+proposals filed in wishlist.md (AUDITS & DEBT's own described register
+schema drifted from the 4-column register/checker that actually exists;
+RENDERING & MOTION LAW's "Definition of done" checklist and PREMIUM
+EXPERIENCE STANDARD's checklist never cross-reference each other). Both
+2026-08-16 proposals re-checked live against current CLAUDE.md text and
+confirmed STILL UNRESOLVED, unchanged, 5 weeks pending human review — not
+re-filed, only re-flagged for visibility in wishlist.md.
 
 STALENESS AUDIT run 2026-09-16 (scheduled-routine session, see the
 tagged log entry that date): found two expired review-by items —

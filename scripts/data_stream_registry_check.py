@@ -158,8 +158,19 @@ CANDIDATES = [
     {"id": "viirs_nightfire", "name": "VIIRS Nightfire gas flaring (EOG/Colorado Mines)",
      "edge_doctrine_named": False, "status": "blocked_registration",
      "manifest_keys": [], "layer_ids": [],
-     "note": "eogdata.mines.edu 302s to a registration flow; strongest pure EDGE-DOCTRINE candidate on the "
-             "board but needs a BUILD-FIRST free-alternative writeup before it may even enter wishlist.md"},
+     "note": "STALE NOTE CORRECTED 2026-09-20: this entry previously claimed a BUILD-FIRST writeup was "
+             "still needed before this could enter wishlist.md — false as of this script's own 2026-09-14 "
+             "creation date, since that writeup was already filed 2026-09-01 (wishlist.md), 2 weeks earlier. "
+             "The free alternative (server/gasFlareCandidates.ts, persistent-hotspot detection over the "
+             "already-archived NASA FIRMS feed, zero new key/registration) was actually BUILT and RUN against "
+             "live production data, not just designed: GATE 1 FAIL, 3 independent runs (n=8/n=9, baseline and "
+             "an FRP-coefficient-of-variation wildfire-discriminator refinement) all landed a NEGATIVE "
+             "Spearman correlation (rho -0.4667 to -0.5) against the World Bank's published per-country flaring "
+             "rank — wrong direction, not just non-significant (see datacore/signal_ladder.json's "
+             "gas_flare_candidates root, status gate1_fail). eogdata.mines.edu's free ID.me-style registration "
+             "was filed as the resulting ask in wishlist.md 2026-09-01 (updated 2026-09-03) and remains "
+             "outstanding, awaiting the human (AUTONOMY AUTHORIZATION reserves data-access approval to them) — "
+             "status blocked_registration is still correct, only this note was wrong."},
 
     # --- Probed, viable, simply not yet built (lower rank / needs a build decision) ---
     {"id": "cboe_daily_stats", "name": "CBOE daily put/call ratios + VX curve",
