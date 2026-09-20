@@ -3,6 +3,207 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine [PRODUCT] session, fourth session this UTC day) [PRODUCT] — SPINOUT-READY DATA LAYER boundary gets its first mechanical enforcement: test_spinout_boundary.py (v1.0.946)
+
+TERRITORY: SHARED-minimal (new root-level test_spinout_boundary.py,
+research/*, package.json, package-lock.json) — read-only static scan of
+server/*.ts and the trading-logic *.py files; no T-DATACORE/T-CLIENT/T-BOT
+file modified.
+
+SESSION-START: read CLAUDE.md in full, then all of research/ (PROGRAM_STATE.md
+— stale, dated 2026-08-15, its own Track 1 already complete; experiments.md
+tail; open_questions.md KNOWN BROKEN section; wishlist.md — third-ever
+CONSTITUTIONAL AUDIT filed today, human-decision only, nothing actionable
+here; platform_program.md — P1-P4 fully shipped, P5 HUMAN-GATED, confirmed
+fresh not assumed; data_census.md — axis (a) build queue exhausted).
+
+LIVE HEALTH CHECK FIRST (per this session's own task instructions):
+`/api/health` — `status:"degraded"`, `bot.status:"killed"`, `drawdownPct:
+"-7.4"`, `liveness.dark:true`, `liveness.detail:"LIVENESS ALARM: trading
+loop dark for 45.5 market hours (250.0h wall-clock) since
+2026-09-10T03:12:26.354Z..."`. Same already-tracked, already-escalated
+KNOWN BROKEN #42/#43 standing human-decision item every session since
+2026-09-10 has found (the drawdown-kill fired correctly per #43's fix; #42's
+independent P&L reconstruction found the reported loss was very likely a
+data anomaly, not a real one; resuming trading is deliberately left to the
+human, per RULE REVIEW's bar against clearing a live risk halt on inference
+alone). No new fact this session (reading is consistent with the same
+incident continuing to age) — not re-logged as a fresh finding in
+open_questions.md, matching the established "only on change" discipline,
+but surfaced directly to the human via this session's own push notification
+since the halt has now run a full 10+ days with no visible resolution and
+CLAUDE.md's own LIVENESS ALARM rule demands top-of-report surfacing, not
+silent restatement in a file only a future session will read. Not a REPAIR
+session by the Repair Mandate's own test: nothing here is code-actionable
+from this sandbox (no Alpaca/Railway dashboard access), and per this
+session's own PRODUCT-scope instructions, noting it is the correct action,
+not preempting.
+
+QUEUE CHECK (per SESSION BUDGET rule 1, before starting fresh research):
+`python3 scripts/ladder_readiness_check.py` — 0/3 gated roots ready
+(unchanged). Read `datacore/signal_ladder.json` in full (47 roots): every
+gate1_pass root either already carries a documented time-block on its own
+GATE 2 attempt (crop_conditions_usda_nass GATE 2 FAIL, needs a deeper
+archive before re-run; app_store_rank_review_velocity needs ~90 archived
+days, earliest 2026-10-30; nrc_outage_reports needs a quarter of history;
+sec_edgar_13f_institutional_clustering waits for a second quarterly filing
+period, ~Oct-Nov 2026; fleet_utilization_aircraft waits on TMDX's Q3 2026
+earnings date; port_dwell_maritime_transit and github_org_engineering_
+momentum are both still short of their own stated archive-depth bars) or is
+a regime-conditioning RAW input never meant to carry a standalone gate-2
+signal claim (fred_macro_series, eu_macro_ecb_eurostat_bundesbank, both
+say so explicitly in their own ladder notes) or is too freshly built to
+have accumulated anything (un_comtrade_bilateral_trade, dtcc_sbsdr_equity_
+swaps). Only 2 roots are gate2_pass in the entire ladder
+(wikiattention/wiki_attention_signal, gnss_integrity) and neither has an
+open GATE 3 (LOGIC/backtest-ablation) attempt queued anywhere in
+open_questions.md's KNOWN BROKEN or ladder-adjacent sections that this
+session found. Confirms and extends the third session's own "axis (a)
+exhausted" finding — not assumed, independently re-verified against the
+ladder file itself rather than the registry-check script alone. Axis (b)
+(options fill realism, KNOWN BROKEN #12(c)) stays gated on a deep re-trace
+multiple prior sessions have all declined to attempt at their own session
+depth — not attempted here either, same reasoning. Axis (c) (foreign-field
+imports) stays discounted per the 2026-09-18/19 CUSUM session's own filed
+recommendation against an eighth same-shape "statistic vs. forward SPY
+return" variant.
+
+PRIMARY PRODUCT ACTION — chose option (d) from this session's own task
+instructions ("improve datacore's API boundary, docs, or tests toward
+spinout-readiness") since (a) gate-advancement and (b) UI-for-a-validated-
+signal were both confirmed unavailable above, and (c) a new hypothesis
+would either duplicate the just-discounted axis or need a queue check this
+session already ran clean.
+
+FINDING: the SPINOUT-READY DATA LAYER standing behavior (CLAUDE.md KNOWN
+STATE, human-approved 2026-07-03, restated as datacore/README.md's
+"Boundary rules (non-negotiable)") has been cited by name in dozens of
+prior sessions' own PRs (grepped `research/experiments.md` for
+"SPINOUT-READY" — many hits, all citing the rule, none checking it
+mechanically) but had never once been enforced by a test. This is exactly
+the gap the RENDERING & MOTION LAW section already names in general terms
+("Prose in CLAUDE.md is not enforcement... assertions are part of the
+harness") — applied here to a different, older rule that had the same gap.
+
+VERIFIED THE INVARIANT WAS TRUE BEFORE WRITING A TEST FOR IT (not assumed):
+`grep -n "datacore" bot_engine.py system_config.py tiered_strategy.py
+ml_model_v2.py strategies/*.py analyze.py insights.py
+instrument_selector.py` — zero hits. `grep -rEl "from ['\"]\./bot(\.js)?
+['\"]|require\(['\"]\./bot(\.js)?['\"]\)" server/*.ts` — exactly one hit,
+`server/routes.ts` (the HTTP wiring layer itself, a legitimate boundary
+consumer, not a data/pipeline module). Both checks confirm the rule
+already holds live in this codebase — this locks in a real invariant, not
+a strawman that would need an immediate carve-out.
+
+WHAT SHIPPED: `test_spinout_boundary.py` (new, root) — two directions,
+matching the rule's own two clauses:
+1. `TestSpinoutBoundaryDirection1` — scans every `server/*.ts` file
+   (excluding `bot.ts` itself) for an import of `./bot`; asserts the set
+   of importers equals a single explicit, reviewed allowlist
+   (`{"routes.ts"}`). A new file starting to import `bot.ts` fails this
+   loudly and must be deliberately added to the allowlist in the same PR —
+   same discipline `dup_precise_literal`/`conflicting_const` already use
+   in `scripts/program_status.sh`'s counter ratchet.
+2. `TestSpinoutBoundaryDirection2` — asserts none of CLAUDE.md's own
+   CODEBASE MAP / MUTABLE-listed live trading-logic files (`bot_engine.py`,
+   `system_config.py`, `risk_kill_switch.py`, `ml_model_v2.py`,
+   `tiered_strategy.py`, `analyze.py`, `insights.py`,
+   `instrument_selector.py`, `strategies/*.py`) contain the literal string
+   `datacore` — i.e. none of them reach into the datacore/ archive
+   directly, bypassing the `/api/data/*` API boundary and RAW-vs-SIGNAL
+   ladder-gate labeling the way an external API customer's own access is
+   required to go through. `scripts/*_gate1.ts`/`*_gate2.py` ladder-testing
+   scripts are deliberately OUT of scope (the ROOT VALIDATION LADDER
+   explicitly expects those to read datacore/ directly to grade a root
+   before it ever reaches the bot — that's gate testing, not the live
+   trading path).
+
+A/B-VERIFIED BOTH DIRECTIONS CATCH A REAL REGRESSION, not just theoretical
+coverage (this repo's own established discipline — see e.g. the R19/CSP
+fix's `git stash` pre/post comparison): (1) appended a canary `# datacore`
+comment to a scratch copy of `bot_engine.py`'s tail, ran the suite, watched
+`TestSpinoutBoundaryDirection2` fail with the exact offending file named,
+reverted, watched it pass again; (2) wrote a scratch `server/
+__spinout_canary.ts` importing `./bot`, ran the suite, watched
+`TestSpinoutBoundaryDirection1` fail naming the canary file, deleted it,
+watched it pass again. Neither scratch file was committed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop,
+scoring path, or any live route — this is a static source-text scan that
+executes none of the files it reads. No scoring/sizing/threshold value
+touched. If it had found a violation, the fix would belong to whichever
+session introduced it, not this one (this session only builds the ratchet,
+consistent with `test_law_iv_context_modules.py`'s own precedent of
+shipping instrumentation for a gap without also being obligated to close
+every instance in the same PR — except here there was nothing to close).
+
+RULE REVIEW / FROZEN PATHS: no trading rule, threshold, or FROZEN path
+touched. One logical change in this PR (the new boundary test). Not a
+MEASUREMENT INTEGRITY item — this tests architecture/import structure, not
+a P&L or metric computation, so the "own PR, never combined with a
+strategy change" rule for measurement code doesn't apply the way it would
+to fills/backtest changes; still kept as its own PR anyway per PROMOTION
+RULE 5.
+
+MONETIZATION TRIPWIRE: not touched. VISUAL VERIFICATION: N/A per PROMOTION
+RULE 6 — no client/ file touched. BACKTEST: N/A per PROMOTION RULE 3 — no
+scoring/sizing/strategy/threshold code touched, pure architectural ratchet.
+
+GATES: `python3 -m pytest -q test_spinout_boundary.py`: 3/3 pass. Full
+`bash scripts/gated_tests.sh` (after `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt`, both needed fresh in this
+container): GATE PASSED — python 2110 passed/1 skipped/54 subtests (3 new,
+0 regressions), server/client green, deploy-gate smoke PASS, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: 25/25 OK, no counter
+moved (the tracked counters apparently don't credit a new bare
+root-level Python test file, matching the 2026-09-19 CUSUM session's own
+identical observation — no re-pin needed). `bash scripts/tsc_ratchet.sh`:
+11 <= 11 pinned, TS2304 0, no drift (no TS file touched by this diff).
+`python3 scripts/research_state_check.py`: thrash_ratio 0/10 REPAIR
+(well under the 7+ trigger), known_broken 44 items/4 advisory-only
+(already re-verified elsewhere, not re-litigated here), starvation 0/10,
+audits_register none overdue. `npm run build`: clean (ran as part of the
+deploy-gate smoke; pre-existing chunk-size/astronomy-engine warnings only,
+unrelated to this diff).
+
+VERSION: v1.0.946 (package.json, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed origin/main
+was still at cf3f7b6/v1.0.945/PR #1129 — no concurrent session had moved
+it). package-lock.json resynced via `npm install --package-lock-only`;
+diff confirms only the two version-string lines changed.
+
+DEPLOY-COUPLING NOTE: session ran during 2026-09-20 US market hours. This
+PR touches no trading-path file (a new root-level test file + research
+log + version bump) — noted in the PR body that automerge is fine per this
+repo's own reconfirmed convention, but if a human is reviewing live, the
+preference is still to let it land after the 4:00 PM ET close per this
+session's own task instructions.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a structural/architectural
+ratchet over the existing boundary, not a new data root, join, or surface.
+
+NEXT: (1) if a future session ever needs to add a legitimate new
+`server/bot.ts` importer (a genuine second HTTP-wiring-layer file), add it
+to `ALLOWED_BOT_IMPORTERS` deliberately in that same PR — the test is
+designed to force that conscious decision, not to be silently edited
+around. (2) the two gate2_pass roots (wikiattention, gnss_integrity) have
+no queued GATE 3 (LOGIC/backtest-ablation) attempt anywhere in
+open_questions.md that this session found — a future PRODUCT or RESEARCH
+session should check whether either is ready for that step, since axis (a)
+is otherwise fully time-blocked for weeks. (3) KNOWN BROKEN #42/#43's
+resume-or-not decision remains the standing human item, now 10+ days
+dark — flagged via this session's own push notification per CLAUDE.md's
+LIVENESS ALARM rule, not actionable from this sandbox.
+
+STARVED: no — this session's queue check (ladder readiness, the full
+signal_ladder.json re-read, axis (b)/(c) status) came back clean before
+choosing this action; the action itself closed a real, previously-
+unenforced gap between this repo's own written constitution and its
+mechanical enforcement, verified both directions actually catch a
+regression rather than assumed to work, with every gate run and green.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-20 (scheduled-routine session, third session this UTC day) [RESEARCH] — routes.ts `warming_up` cold-cache-no-disk-backfill thread RE-DERIVED FROM SCRATCH (independent full re-count + re-trace, not a cross-check): still 68 occurrences, still zero VULNERABLE, 5 previously-uncatalogued modules classified
 
 TERRITORY: SHARED (`research/*` only) — no `datacore/`, `client/src/`, or
