@@ -1,5 +1,128 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-09-20 (third-ever run, prior were 2026-07-03 and 2026-08-16) — 2 new consolidation proposals, human approval needed before either ships; both 2026-08-16 proposals below still unaddressed after 5 weeks, re-flagged for visibility only
+
+Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule ("the audit NEVER changes
+rules itself — it files exact before/after proposals in wishlist.md...
+for human approval"). Full audit trace in `research/experiments.md`'s
+2026-09-20 "[RULE-REVIEW] ... THIRD-EVER CONSTITUTIONAL AUDIT" entry.
+This audit ran 5 days overdue (last run 2026-08-16, due 2026-09-15, per
+the AUDITS & DEBT REGISTER) — the STALENESS AUDIT ran more recently
+(2026-09-16) and was not the more-overdue item this time. SCOPE this
+session: a fresh full pass was not repeated over ground the 2026-08-16
+audit already covered (STANDING BEHAVIORS, MEMORY PROTOCOL, GOAL,
+AUTONOMY AUTHORIZATION); this session instead targeted the sections that
+audit's own entry does not mention checking — REASONING STANDARD, EDGE
+DOCTRINE, ROOT VALIDATION LADDER, HEALTH OF THE LOOP ITSELF, REPAIR
+MANDATE, READ BEFORE WRITE, RULE REVIEW, MEASUREMENT INTEGRITY, AUDITS &
+DEBT itself, WORKSTREAM PARTITION, and — the largest genuinely new
+territory, added 2026-08-12 and never audited — Amendment 6's RENDERING &
+MOTION LAW. Neither proposal below changes what the system does — both
+are wording/consolidation fixes to CLAUDE.md itself, same as both prior
+audits' proposals.
+
+### Proposal 1 — AUDITS & DEBT's own described register schema (3 fields)
+no longer matches the register that actually exists and that the
+compiled overdue-checker actually requires (4 fields)
+
+WHAT IT PRESERVES: the register's actual current contents, its "Last
+run"/"Next due" columns, and `scripts/research_state_check.py`'s
+`parse_audits_register()` (which already requires and parses exactly
+"| Audit | Cadence | Last run | Next due |" — four columns, unchanged by
+this proposal) are all completely untouched.
+
+WHAT IT DROPS: nothing observable — this only widens CLAUDE.md's own
+prose description of a format that already has four fields in practice.
+
+WHAT IT RESOLVES: CLAUDE.md's AUDITS & DEBT section describes the
+register's schema as three fields — "{audit · cadence · last run}" — but
+the register the 2026-08-16 audit actually created (per that session's
+own entry, and confirmed still current this session) has always had a
+fourth column, "Next due", and that column is not decorative: it is the
+literal field `scripts/research_state_check.py`'s `audits_register` check
+parses to decide whether an audit is overdue (`check_audits_overdue`
+reads `row["next_due"]`, not anything derived from "last run" + cadence
+arithmetic). A future session reading CLAUDE.md's prose literally, without
+also reading the compiled script or the register itself, would build a
+three-column register that the existing overdue-checker cannot parse —
+exactly the kind of "rule text drifted from the compiled reality it
+spawned" gap the 2026-08-16 audit's own Proposal 1 found in a different
+section (a rule's exit condition made unreachable by a later change no one
+went back and updated the rule text for). This is the same class of
+defect, caught this time on the AUDITS & DEBT section itself — the section
+that exists specifically to catch this kind of drift elsewhere in the
+document.
+
+BEFORE (verbatim, AUDITS & DEBT section, CLAUDE.md):
+> Debt is anything stale that costs attention: dead code, obsolete rules,
+> expired adapters. Three audits run on the register at the top of
+> research/experiments.md {audit · cadence · last run}; when a session's
+> fall-through reaches the research tier, run the most overdue and update
+> the register.
+
+AFTER (proposed — only the four-field braced list changes):
+> Debt is anything stale that costs attention: dead code, obsolete rules,
+> expired adapters. Three audits run on the register at the top of
+> research/experiments.md {audit · cadence · last run · next due}; when a
+> session's fall-through reaches the research tier, run the most overdue
+> and update the register.
+
+### Proposal 2 — RENDERING & MOTION LAW's "Definition of done — any layer
+PR" checklist and STANDING BEHAVIORS' PREMIUM EXPERIENCE STANDARD
+checklist are two separate, never-cross-referenced completion bars for
+the same class of PR
+
+WHAT IT PRESERVES: the full text and substance of both checklists are
+completely unchanged — this proposal inserts one clarifying clause and
+restates nothing.
+
+WHAT IT DROPS: nothing.
+
+WHAT IT RESOLVES: Amendment 5 (PREMIUM EXPERIENCE STANDARD, STANDING
+BEHAVIORS) sets 6 lettered criteria (a)-(f) for "every user-facing
+surface", including "(b) perceived performance is a feature ... the perf
+harness gates feel, not just load time" and "(f) shipping test: would a
+paying data customer screenshot this and trust it?" — criteria that
+plainly apply to any client rendering/layer PR. Amendment 6 (RENDERING &
+MOTION LAW) separately sets an 11-item "Definition of done — any layer
+PR" checklist covering the same PR class in mechanical detail (frame
+loop discipline, tile readiness, teardown, budgets, 60fps). Neither
+section's checklist references the other. A session shipping a layer PR
+that checks only the Amendment 6 boxes could still miss Amendment 5's
+"paying customer would trust this" bar (a design/polish judgment,
+not a frame-timing one), and vice versa a session focused on Amendment
+5's polish criteria has no pointer telling it Amendment 6's mechanical
+checklist also gates the same PR. Same shape as the 2026-08-16 audit's
+Proposal 2 (VISION.md/GIP.md's read-order split across two sections) —
+one governing rule's applicability living only in a different section
+than where a session actually looks for the PR gate.
+
+BEFORE (verbatim, RENDERING & MOTION LAW, CLAUDE.md):
+> ### Definition of done — any layer PR
+>
+> A layer PR does not merge unless all of these are true:
+
+AFTER (proposed — only the lead-in sentence changes, the 11-item
+checklist itself is untouched):
+> ### Definition of done — any layer PR
+>
+> A layer PR does not merge unless all of these are true (in addition to,
+> not instead of, STANDING BEHAVIORS' PREMIUM EXPERIENCE STANDARD
+> checklist, which already applies to this PR as a user-facing surface):
+
+### Still pending — both 2026-08-16 proposals (Proposal 1: USAGE-CALIBRATION
+LOOP's orphaned "Revisit ~2026-07-24" clause; Proposal 2: MEMORY PROTOCOL's
+read-order list omitting VISION.md/GIP.md) — re-checked live this session
+against the current CLAUDE.md text, BOTH still present verbatim as
+originally filed, unresolved after 5 weeks. Re-flagged here for visibility
+per this audit's own register update, not re-argued — see this file's own
+"CONSTITUTIONAL AUDIT FINDINGS 2026-08-16" entry below for their full
+before/after text, unchanged.
+
+NOT A SPEND REQUEST — no data access, registration, or payment involved;
+this is a rules-consolidation proposal only, requiring human approval
+before either change ships (per CLAUDE.md's own audit rule), not funding.
+
 ## BUILD-FIRST ANALYSIS 2026-09-20 (scheduled-routine [PRODUCT] session) — OE-417 electric-disturbance ground truth for `space_weather_swpc` gate 1: VERDICT — genuinely free, NOT genuinely accessible on this test's timescale; corrected the ladder's re-run trigger instead of requesting anything paid
 
 Required by `space_weather_swpc`'s own ladder note (`datacore/
