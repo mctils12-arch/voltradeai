@@ -20951,6 +20951,123 @@ correcting it).
 
 NOT A SPEND REQUEST.
 
+UPDATE 2026-09-20 (scheduled-routine session, third session this UTC
+day) — occurrence count RE-DERIVED FROM SCRATCH per the immediately
+preceding session's own NEXT: still 68, still zero VULNERABLE.
+
+SESSION-START: read CLAUDE.md, this file, wishlist.md, experiments.md.
+`git fetch origin main`: local HEAD already matched origin/main
+(`0eaaf5d`, v1.0.945) before starting, nothing uncommitted. `/api/health`:
+`serving.ok: true`, `status: "degraded"` for the same standing KNOWN
+BROKEN #42/#43 reason every session since 2026-09-10 (`bot.status:
+"killed"`, liveness dark 45.5 market hours / 247.8h wall-clock,
+essentially unchanged from the immediately preceding session's own
+~239.4h reading — no new fact) — per this thread's own established
+"only on change" discipline, NOT re-notified. Loop-health ratio over the
+last 10 tagged entries (this session's own count, independent of the
+prior session's): 1 REPAIR / 2 RULE-REVIEW (docs-only) / 7 PIPELINE — no
+thrash, matches the immediately preceding session's own reading.
+`python3 scripts/ladder_readiness_check.py` and `data_stream_registry_check.py
+--unbuilt` re-checked live: unchanged (0/3 gated roots ready, 9/35
+candidates still declined/blocked/registration-gated) — axis (a)
+remains exhausted. Axis (b) (options fill realism, KNOWN BROKEN #12(c))
+remains gated on a deep re-trace not safely attemptable at this
+session's depth. Axis (c) (foreign-field imports) remains explicitly
+discounted per the CUSUM session's own filed recommendation against an
+eighth same-shape variant. With no fresh ladder-gate item, no new
+axis-(a)/(b)/(c) opening, and no other KNOWN BROKEN item both critical
+and code-actionable (spot-checked items #35/#36, found already fully
+CLOSED — their bold headers just never got a RESOLVED/FIXED tag added to
+the opening line; #37 needs Railway volume access this sandbox lacks),
+took the queue's own most-recently-filed, concretely-testable item per
+SESSION BUDGET rule 1: this thread's own NEXT asking for a from-scratch
+re-derivation.
+
+METHOD: delegated a read-only Explore subagent to independently grep
+`server/routes.ts` for every `warming_up` occurrence (not reuse the
+prior session's count), trace each one line-by-line to its backing
+module/accessor, and classify anything not already on the fixed/
+correctly-triaged lists (spot-checked, not trusted blind, per READ
+BEFORE WRITE — this parent session verified the module list the
+subagent's report named against the actual FIXED/triaged rosters this
+thread's own history already established, rather than taking the
+subagent's classification labels at face value).
+
+RESULT: `grep -c "warming_up" server/routes.ts` = **68** — exact match
+to the prior session's own citation, confirming no silent count drift
+since 2026-09-19. Of the 68, 4 are comment-only (not live response
+paths). Every remaining occurrence traced to a module already on the
+FIXED or correctly-triaged rosters this thread's history established,
+plus 3 cross-tie consumer routes (fires-near-facilities,
+plants-near-rivergauges, plants-under-alerts) that read already-covered
+caches (nasaFirms/usgsWater/nwsAlerts) with no new bug surface of their
+own.
+
+FIVE GENUINELY NEW/PREVIOUSLY-UNCATALOGUED MODULES surfaced and
+classified this session (none VULNERABLE):
+- `server/spaceWeather.ts` (`/api/data/spaceweather`) — ALREADY-SAFE.
+  `refreshSpaceWeatherCache`'s write condition is `if (gotAnything ||
+  !cache)` — the `!cache` disjunct populates the cache on the very first
+  poll attempt regardless of live-fetch success, so `warming_up` can only
+  appear in the brief in-flight window before that first async pull
+  resolves, never persistently. (Distinct, narrower honesty nuance not
+  actioned here: a fully-dead SWPC on cold boot yields an all-null-fields
+  object rather than an honest `warming_up` — outside this thread's
+  specific "stuck forever" bug class, filed for a future session's
+  judgment call, same shape as the nwsAlerts/usgsVolcanoes precedent.)
+- `server/finraShortVolume.ts` (`/api/data/short-volume`) —
+  ALREADY-SAFE, and already self-documenting: `refreshShortVol`'s own
+  in-code comment states the exact intent this thread's fix pattern
+  encodes elsewhere ("A restart with the newest day already on disk
+  rebuilds the cache FROM the archive instead of serving warming_up").
+- `server/gemMethaneProximity.ts` / `server/gemCoalMineFeatures.ts`
+  (`/api/data/methane-plumes`, `/api/data/coal-mine-features`) —
+  NOT-APPLICABLE, same class as streamsInventory/entityGraph/gridStress:
+  purely static disk-ingested reference data (`datacore/gem/*.geojson.gz`,
+  re-ingested ~2x/year by a manual script), no live poll to backfill
+  against at all.
+- The AIS-archive-derived route cluster (`/api/data/shadowstats`,
+  `/api/data/portdwell`, `/api/data/gnss-integrity-signal`,
+  `/api/data/pipeline-health-dashboard`) — NOT-APPLICABLE: these compute
+  directly from our own on-disk AIS/health-check archive with no separate
+  live-cache-vs-disk-archive split to exploit; the archive IS the source,
+  so `warming_up` here only reflects first-scan/history-accumulation
+  still in progress, same class as `entityGraph.ts`.
+
+VERDICT: the cold-cache-no-disk-backfill thread is CONFIRMED exhausted a
+second time, from an independent full re-derivation rather than a
+cross-check against the existing list (closing the specific
+MEASUREMENT-INTEGRITY-flavored gap the immediately preceding session's
+own NEXT named). Per that session's own caution ("no known remaining
+instance," not "provably zero"), this is filed as the same qualified
+verdict, not upgraded to permanent closure — a future STALENESS AUDIT or
+routes.ts diff should re-run this same grep-and-trace method after any
+batch of new server/*.ts modules ships, since that is exactly how this
+thread found fresh instances 3 times in the same week it was otherwise
+believed closed.
+
+NO CODE CHANGE — this is a verification/documentation session, same
+class as this file's own 2026-09-20 BUILD-FIRST/space_weather_swpc entry
+and the CONSTITUTIONAL AUDIT entry earlier the same day. No PROMOTION
+RULE 3 backtest applies (no scoring/sizing/strategy/threshold code
+touched). MONETIZATION TRIPWIRE: not touched.
+
+NEXT: none queued for this thread specifically. The two narrower,
+genuinely-new honesty judgment calls this pass surfaced (spaceWeather.ts's
+all-null-on-cold-dead-source shape; confirming gemMethaneProximity.ts/
+gemCoalMineFeatures.ts's ~2x/year manual-ingest cadence is still current
+practice) are left for whichever future session's scope naturally
+reaches them, not chased down here as scope creep on a verification pass.
+
+STARVED: no — this session checked every standing queue axis live before
+falling through, confirmed all were genuinely exhausted or gated (not
+assumed from the prior session's cache), and then closed the one
+concretely queued, well-specified verification item left in the file
+end-to-end (independent re-derivation, cross-checked, newly-surfaced
+modules classified and reasoned through, not just re-counted).
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-18 — FOREIGN-FIELD IMPORT (axis c): statistical process control's Page CUSUM (industrial quality engineering) as a market-wide insider-flow regime-shift diagnostic
 
 CONTEXT: scheduled-routine session. System health checked first

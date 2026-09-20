@@ -3,6 +3,133 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-20 (scheduled-routine session, third session this UTC day) [RESEARCH] — routes.ts `warming_up` cold-cache-no-disk-backfill thread RE-DERIVED FROM SCRATCH (independent full re-count + re-trace, not a cross-check): still 68 occurrences, still zero VULNERABLE, 5 previously-uncatalogued modules classified
+
+TERRITORY: SHARED (`research/*` only) — no `datacore/`, `client/src/`, or
+bot-logic file touched. No `scripts/` file touched either (this session
+read `server/routes.ts` and the modules it dispatches to, but changed
+none of them).
+
+SESSION-START: read CLAUDE.md in full, then all of `research/`. `git
+fetch origin main` confirmed local HEAD already matched origin/main
+(`0eaaf5d`, v1.0.945) before starting, nothing uncommitted.
+
+SYSTEM HEALTH CHECK FIRST: `curl https://voltradeai-production.up.railway
+.app/api/health` — `serving.ok: true`, HTTP-serving healthy. `status:
+"degraded"` for the SAME already-tracked, already-repeatedly-human-
+notified reason every session since 2026-09-10 (KNOWN BROKEN #42/#43):
+`bot.status: "killed"`, `liveness.dark: true`, trading loop dark 45.5
+market hours (247.8h wall-clock) since the 2026-09-10T03:12:26Z
+drawdown-kill trip — essentially unchanged from this same UTC day's
+immediately preceding session's own ~239.4h reading (no new fact,
+standing human-decision item per RULE REVIEW's bar against clearing a
+live risk halt on inference alone). Not re-notified, per the
+established "only on change" discipline every session since 2026-09-13
+has applied. Loop-health ratio over the last 10 tagged entries: 1
+REPAIR / 2 RULE-REVIEW (docs-only) / 7 PIPELINE — no thrash, matches the
+immediately preceding session's own independent count.
+
+QUEUE CHECK: `python3 scripts/ladder_readiness_check.py` — 0/3 gated
+roots ready (unchanged). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — 9/35 unbuilt, all declined/blocked, unchanged. Axis (a)
+exhausted. Axis (b) (options fill realism / KNOWN BROKEN #12(c)) stays
+gated on a deep re-trace not safely attemptable at this session's depth,
+same reasoning the immediately preceding session applied. Axis (c)
+(foreign-field imports) stays explicitly discounted per the 2026-09-18
+CUSUM session's own filed recommendation against an eighth same-shape
+variant absent a genuinely new axis. Spot-checked KNOWN BROKEN items
+#35 and #36 (research/open_questions.md) on the chance either was still
+code-actionable and unfixed — both are already fully CLOSED (their bold
+opening lines predate a RESOLVED/FIXED tag being added, but the body
+text of each confirms a shipped, tested fix); #37 (AIS archive gap)
+needs Railway volume access this sandbox lacks. No critical,
+code-actionable break exists this session — NOT a [REPAIR] session by
+the Repair Mandate's own test.
+
+PRIMARY ACTION: this file's own most-recently-filed queued item — the
+2026-09-19 fifth session's own NEXT, asking a future session to
+"re-derive the [routes.ts warming_up] occurrence count from scratch
+before declaring this permanently closed" (research/open_questions.md,
+2026-09-15 exhaustive-audit thread's tail). This is the direct
+MEASUREMENT INTEGRITY-flavored gap that session left open: every prior
+disposition of "the thread is exhausted" had been a cross-check against
+the existing 20-module+triaged-list roster, never an independent
+from-scratch re-count.
+
+METHOD: delegated a read-only Explore subagent (no file edits) to
+independently `grep -c "warming_up" server/routes.ts`, trace every
+occurrence line-by-line to its backing module/accessor by reading the
+actual dispatch code (not inferring from route names), and classify
+anything not already on this thread's own FIXED/ALREADY-SAFE/
+NOT-APPLICABLE/NEEDS-JUDGMENT rosters. Per READ BEFORE WRITE, the
+subagent's classification was spot-checked against this thread's own
+established history (research/open_questions.md's 2026-09-15/16/17/18/19
+entries) before being accepted, not taken on faith — cross-verified
+that every module it named as "already on the fixed/triaged list" is in
+fact present in one of those two named categories in this session's own
+re-read of the source file.
+
+RESULT: **68** — exact match to the prior session's own citation
+(`grep -c "warming_up" server/routes.ts`), confirming zero silent count
+drift in the intervening day. 4 of the 68 are comment-only occurrences,
+not live response paths. Every remaining occurrence resolves to a
+module already FIXED or correctly triaged by this thread's history, plus
+3 cross-tie consumer routes that read already-covered caches
+(nasaFirms/usgsWater/nwsAlerts) with no independent bug surface.
+
+FIVE PREVIOUSLY-UNCATALOGUED MODULES surfaced and classified (full
+reasoning for each in research/open_questions.md's matching dated
+UPDATE — pointer only here, this is the full account per this file's
+own convention that experiments.md carries the narrative and
+open_questions.md carries the standing disposition table):
+`spaceWeather.ts` (ALREADY-SAFE — `if (gotAnything || !cache)` guards
+against a persistent stuck state; a narrower honesty nuance on a
+fully-dead source noted but not actioned, filed for a future session),
+`finraShortVolume.ts` (ALREADY-SAFE, self-documented in its own code
+comment), `gemMethaneProximity.ts`/`gemCoalMineFeatures.ts`
+(NOT-APPLICABLE — static disk-ingested reference data, no live poll to
+backfill against), and the AIS-archive-derived route cluster
+(shadowstats/portdwell/gnss-integrity-signal/pipeline-health-dashboard,
+NOT-APPLICABLE — the archive IS the source, no live-cache/disk-archive
+split exists to exploit).
+
+VERDICT: the cold-cache-no-disk-backfill thread is CONFIRMED exhausted
+a second time, this time from an independent from-scratch re-derivation
+rather than a cross-check — closing the specific gap the immediately
+preceding session's own NEXT named. Filed as the same qualified verdict
+that session used ("no known remaining instance," not "provably zero"),
+since this thread's own history shows 3 separate sessions in the same
+week found the disposition table itself stale before correcting it —
+the honest claim is "re-verified clean today," not "permanently closed."
+
+NO CODE CHANGE — pure verification/documentation session (same
+precedent as this same UTC day's earlier BUILD-FIRST/space_weather_swpc
+and CONSTITUTIONAL AUDIT entries, and the "docs: Nth confirmed
+occurrence" auto-merge-gap tallies). No version bump. BACKTEST: N/A per
+PROMOTION RULE 3 — no scoring/sizing/strategy/threshold code touched.
+MONETIZATION TRIPWIRE: not touched.
+
+GATES: none apply — no code, config, or test file changed. `git diff
+--stat` confirms exactly two files touched: `research/experiments.md`
+(this entry) and `research/open_questions.md` (the matching UPDATE).
+
+NEXT: none queued for this thread specifically. A future STALENESS
+AUDIT (next due 2026-10-16) or any session noticing a batch of new
+`server/*.ts` modules ship should re-run this same grep-and-trace method
+rather than assume permanence — that is exactly how this thread has
+found fresh instances multiple times after being called "exhausted."
+
+STARVED: no — every standing queue axis (ladder readiness, unbuilt
+registry, options-fill-realism gate, foreign-field-import discount, two
+spot-checked KNOWN BROKEN items) was checked live rather than assumed
+from the prior session's cache, all confirmed exhausted or gated, and
+the session then closed the one concretely queued, well-specified
+verification item remaining in the file end-to-end — an independent
+re-derivation with newly-surfaced modules reasoned through individually,
+not a re-statement of the existing count.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-20 (scheduled-routine session, second session this UTC day) [RULE-REVIEW] — THIRD-EVER CONSTITUTIONAL AUDIT (5 days overdue): 2 new consolidation proposals filed in wishlist.md, both prior (2026-08-16) proposals re-checked live and confirmed still pending 5 weeks later; plus a [REPAIR]-shaped fix to a stale note in `scripts/data_stream_registry_check.py` found while surveying axis (a)
 
 TERRITORY: SHARED (`research/*`, `scripts/data_stream_registry_check.py`,
