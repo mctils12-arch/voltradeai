@@ -64,7 +64,7 @@ ALIASES = {
     "edgar_form4": ["sec_form4_bulk_archive", "sec_form4_insider_clustering"],
     "usaspending": ["usaspending_contracts"],
     "cftc_cot": ["cftc_cot_positioning", "cftc_tff_positioning"],
-    "fda_calendar": [],
+    "fda_calendar": ["fda_calendar"],
     "wikimedia_pageviews": ["wikimedia_pageviews_attention"],
     "faa_airport_status": ["faa_airport_status"],
     "cbp_border_wait": ["cbp_border_wait_times"],

@@ -5,7 +5,7 @@ candidates against datacore/signal_ladder.json's roots (see that script's
 module docstring for the full rationale: a built pipeline can otherwise
 carry zero ladder-bookkeeping entry with nothing to notice).
 
-Five things are asserted:
+Eight things are asserted:
   1. The ALIASES table covers every currently-built candidate (a future
      session adding a new "built" candidate without an ALIASES entry
      fails this loudly instead of the coverage check silently ignoring it).
@@ -29,6 +29,11 @@ Five things are asserted:
      third of the 7 originally-queued gaps, added as raw_only since
      client/src/pages/datamap.tsx's own inline comment for the layer
      states "As-is display only -- no predictive claim".
+  8. fda_calendar specifically is regression-pinned as COVERED -- the
+     fifth of the 7 originally-queued gaps, added as raw_only since
+     server/fdaEvents.ts's own module header states its hypothesis as
+     "gate 2, not attempted" and the live endpoint self-labels
+     kind:"raw".
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -54,7 +59,6 @@ _spec.loader.exec_module(check)
 # it can be added -- see research/open_questions.md for the filed NEXT.
 EXPECTED_UNCOVERED_IDS = [
     "entsoe_eu_power",
-    "fda_calendar",
     "global_energy_monitor",
 ]
 
@@ -153,6 +157,20 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "fail silently",
         )
 
+    def test_fda_calendar_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "fda_calendar", uncovered_ids,
+            "fda_calendar regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json (status raw_only; fdaEvents.ts's "
+            "own header calls its IV-ramp-into-catalysts idea 'gate 2, not "
+            "attempted', and the live endpoint self-labels kind:'raw') in "
+            "the PR that removed it from EXPECTED_UNCOVERED_IDS; if that "
+            "root was removed, this test should be updated deliberately, "
+            "not left to fail silently",
+        )
+
 
 class TestCoverageDetectorCatchesRealGaps(unittest.TestCase):
     """Proves the checker isn't vacuously passing -- feed it a registry
@@ -175,12 +193,12 @@ class TestCoverageDetectorCatchesRealGaps(unittest.TestCase):
     def test_detects_genuinely_uncovered_candidate(self):
         fake = self._FakeRegistry()
         fake.CANDIDATES = [{
-            "id": "fda_calendar", "name": "fixture", "status": "built",
+            "id": "global_energy_monitor", "name": "fixture", "status": "built",
             "manifest_keys": [], "layer_ids": [], "note": "",
         }]
         result = check.audit(registry_module=fake)
         self.assertEqual(len(result["uncovered"]), 1)
-        self.assertEqual(result["uncovered"][0]["id"], "fda_calendar")
+        self.assertEqual(result["uncovered"][0]["id"], "global_energy_monitor")
 
     def test_recognizes_a_covered_candidate(self):
         fake = self._FakeRegistry()
