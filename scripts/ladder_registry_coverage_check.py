@@ -72,7 +72,7 @@ ALIASES = {
     "so2_column_gibs": ["so2_column_gibs"],
     "usgs_volcano_alerts": ["usgs_volcano_alerts"],
     "epa_camd_cems": ["epa_camd_cems"],
-    "global_energy_monitor": [],
+    "global_energy_monitor": ["global_energy_monitor"],
     "entsoe_eu_power": ["entsoe_eu_power"],
     "usgs_earthquakes": ["usgs_earthquakes"],
     "ndbc_buoys": ["ndbc_buoys"],
