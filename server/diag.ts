@@ -212,6 +212,29 @@ export const DIAG_PROBES = [
   // per day, no per-trade or per-symbol detail), same posture as every
   // other probe here.
   "equity_curve",
+  // ADDED 2026-09-21 (scheduled-routine session): unblocks the 2026-09-18
+  // FOREIGN-FIELD IMPORT (axis c) — scripts/insider_cusum_probe.py's
+  // "does a Page-CUSUM-detected shift in market-wide aggregate insider
+  // buying/selling lead forward SPY returns?" GATE 2 test — which that
+  // session shipped built and unit-tested but could not run: SEC Form 4
+  // bulk archive quarters (sec_form4_bulk.py) live only on the Railway
+  // volume, built incrementally by the live bot's own Tier 3 hourly call,
+  // and no sandbox has that volume mounted. Runs run_probe() SERVER-SIDE,
+  // over the real archived quarters and real SPY bars (this instance's
+  // own Alpaca credentials via backtest_v2.fetch_bars), and returns ONLY
+  // the probe's own aggregate verdict dict (n_form4_records,
+  // n_trading_days_with_flow, the two Spearman correlation readings,
+  // sample sizes) — no per-filer name, CIK, or transaction leaves this
+  // endpoint, same reduced-exposure posture as fdic_gate2/shadowfleet_
+  // gate1. DELIBERATELY TAKES NO QUERY PARAMETERS: the probe's own module
+  // docstring pre-registers ticker=SPY/zscore_window=60/horizon=20/k=0.5/
+  // h=5.0 BEFORE seeing real output and its MEASUREMENT INTEGRITY note
+  // commits to "one theory-motivated spec, run once, reported honestly" —
+  // an endpoint that let a caller vary those after an unfavorable result
+  // would turn a pre-registered test into exactly the multiple-testing
+  // fishing REASONING STANDARD #4 warns against, so this probe always
+  // runs the pre-registered defaults, unconditionally.
+  "insider_cusum_gate2",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

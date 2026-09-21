@@ -96419,3 +96419,176 @@ full local verification across both languages before commit. No
 higher-priority queued item was skipped to do this.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-21 (scheduled-routine session, second session this UTC day) [RESEARCH] — SHARED-minimal (server/diag.ts, server/bot.ts, server/diag.test.ts, ci/counter_baseline.txt, package.json/package-lock.json, research/*): insider_cusum_probe GATE 2 UNBLOCKED — new `/api/diag/insider_cusum_gate2` probe runs the 2026-09-18 pre-registered FOREIGN-FIELD test server-side (v1.0.951)
+
+TERRITORY: SHARED-minimal per WORKSTREAM PARTITION — `server/diag.ts`/
+`server/bot.ts`/`server/diag.test.ts` are not exclusively any of
+T-DATACORE/T-CLIENT/T-BOT's named files; treated as SHARED and kept
+minimal (one new probe, no other diag surface touched), version bump and
+`research/*` last per the MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then all of `research/` per this
+session's own task instructions (PROGRAM_STATE.md, open_questions.md,
+wishlist.md, experiments.md's tail — the 2026-09-21 first-session-this-
+UTC-day `cboe_vix_term_structure` ladder entry). `git fetch origin main`:
+local HEAD (576f568, v1.0.950) already matched — no rebase needed.
+
+SYSTEM HEALTH CHECKED FIRST, live (this session had both network egress
+and `DIAG_TOKEN` — not every prior session did): `curl https://
+voltradeai.com/api/health` → `status: "degraded"`, `bot.status: "killed"`,
+`liveness.dark: true`, "trading loop dark for 45.5 market hours (263.4h
+wall-clock) since 2026-09-10T03:12:26.354Z". `python3
+scripts/session_health_check.py --base-url https://voltradeai.com` (the
+existing compiled health-check script) confirmed this is the ONLY
+non-OK finding — deploy_gate/subsystems/process_faults/alt_data_
+enrichment/daemon_memory/tier2_daemon_timeouts/ml_feedback/
+deploy_freshness/outage_duration all OK, `server_version: 1.0.950`
+matching this checkout exactly. `/api/diag/account`: `killSwitch: true`,
+`equity: 102892.57` vs `equityPeak: 110727.04` (drawdownPct -7.1%,
+recovered from the -18.0% trip). This is KNOWN BROKEN #42/#43, unchanged
+in substance from every session since 2026-09-10 — item #42's own
+independent price reconstruction (2026-09-10, `scripts/
+reconstruct_position_pnl.py`) already settled real-loss-vs-data-anomaly
+toward data-anomaly, and resuming is explicitly a human decision per
+RULE REVIEW (no threshold may be loosened on inference alone). NOT a new
+KNOWN BROKEN item, NOT re-diagnosed — but PUSH-NOTIFIED fresh this
+session given the halt has now run essentially two full weeks unresolved,
+which this session judged worth surfacing again rather than silently
+re-confirming for an Nth time (CLAUDE.md Amendment 1: "surfaced loudly,
+never discovered by human on a dashboard" — a repeat notification after
+this long a gap is squarely in that spirit, not noise). No other KNOWN
+BROKEN item is both critical and code-actionable from this sandbox (item
+#37 needs Railway volume access; item #40's second entry is a non-urgent,
+self-resolving test-hygiene defect in T-BOT territory) — NOT a REPAIR
+session.
+
+TASK INSTRUCTIONS this session: named four candidate doctrine axes
+((a) build a free-data pipeline end-to-end, (b) capacity-constrained/
+illiquid-universe research, (c) one foreign-field hypothesis, (d) compile
+recurring reasoning into code) and asked for the highest-EV pick given
+what research/ shows is done.
+
+STATED PRIOR before picking: axis (a)'s own standing examples (Sentinel-2
+tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+Trends/pytrends) are ALL already built — verified by grepping for each
+(`server/fdaEvents.ts`, `server/cftcCot.ts`/`cftcTff.ts`,
+`server/usaSpending.ts`, `server/edgarForm4.ts`, `social_data.py`'s
+pytrends usage, `scripts/cdse_site_chips.py`+`test_tankfill_estimator.py`)
+before assuming there was fresh axis-(a) work; `data_stream_registry_
+check.py --unbuilt` independently confirmed 9/9 unbuilt candidates are
+all `declined_*`/`blocked_*` on a dead source or a human key/registration
+this session cannot supply. Axis (b) is explicitly gated ("requires the
+fill-realism fix first, or results are simulator fiction") — not checked
+this session whether that fix has shipped, so not picked without first
+confirming that prerequisite. Between (c) and (d): the 2026-09-18 session
+already built and pre-registered a FOREIGN-FIELD probe
+(`scripts/insider_cusum_probe.py`, Page CUSUM / statistical process
+control, a genuinely new field per its own docstring) that could not run
+in ANY sandbox because the real archive lives only on the Railway volume
+— its own filed NEXT(1) explicitly asked for exactly this. Judging that
+matured, already-scoped item (SESSION BUDGET rule: "judge a matured
+experiment" ranks above "start a new experiment") by building the missing
+remote-read capability is simultaneously axis (c)'s own queued follow-up
+AND axis (d) (EDGE DOCTRINE #3 — the compiled diagnostic pattern every
+python-backed GATE-2 diag probe already follows: fdic_gate2,
+shadowfleet_gate1, midas_quarter). PRIOR: this closes the loop's own named
+blocker with high confidence (mechanical wiring, not a new hypothesis)
+but does NOT itself predict what `run_probe()` will find — REASONING
+STANDARD #10/#4 still apply once a future session reads the real GATE 2
+number: six of seven prior foreign-field imports in this family are
+already killed/unresolved, so even a clean run here should be read
+skeptically, not as confirmation.
+
+WHAT SHIPPED: `server/diag.ts` — new `"insider_cusum_gate2"` DIAG_PROBES
+entry. `server/bot.ts` — matching `case "insider_cusum_gate2"`, shelling
+out via the existing `execPythonSerialized` pattern (same convention as
+the Tier-3 `TIER3-FORM4BULK` call and every other python-backed diag
+probe) to call `scripts/insider_cusum_probe.run_probe()` with ZERO
+query-parameter overrides — the probe's own pre-registered
+ticker=SPY/zscore_window=60/horizon=20/k=0.5/h=5.0 defaults, always,
+by construction, so this endpoint can never become a vector for
+post-hoc parameter fishing against the pre-registered spec. Response is
+`run_probe()`'s own aggregate verdict dict (record counts, sample sizes,
+two Spearman correlation readings) passed through `sanitizeDiag` — no
+per-filer CIK/name/transaction and no raw SPY bar series ever leave the
+endpoint, matching `fdic_gate2`/`shadowfleet_gate1`'s reduced-exposure
+precedent exactly. `server/diag.test.ts` — new static-source test:
+confirms the probe is whitelisted, actually calls the shared
+`run_probe()` (not a re-derived copy), NEVER reads `req.query` (the
+no-tunable-params invariant, regression-pinned rather than left to
+discipline alone), passes through `sanitizeDiag`, and that `run_probe()`
+itself has no `"records":` key in its return shape.
+
+VERIFIED, not assumed (fresh container, `npm ci` +
+`pip3 install --break-system-packages -r requirements.txt -r
+requirements-dev.txt`):
+- Ran the exact python one-liner the new TS case executes, standalone:
+  correctly returns `{"error": "no archived Form 4 quarters available in
+  this sandbox", ...}` in this sandbox (same limitation the 2026-09-18
+  session found — confirms the wiring/import path is correct, not that
+  the sandbox suddenly has data).
+- `npx tsx --test server/diag.test.ts`: 27/27 pass (1 new).
+- `npx tsx --test server/*.test.ts` (full TS suite): 1801/1801 pass, 0
+  regressions.
+- `python3 -m pytest -q test_insider_cusum_probe.py`: 23/23 (unchanged —
+  no Python source touched, only a new remote caller of the existing,
+  already-tested `run_probe()`).
+- `python3 -m pytest -q` (full suite): 2119 passed, 1 skipped, 54
+  subtests, 0 regressions.
+- `npx tsc --noEmit` / `bash scripts/tsc_ratchet.sh`: 11 errors, exact
+  match to `ci/tsc_baseline.txt`'s pin (no `.ts` source file this diff
+  touches introduces a new error).
+- `npm run build`: clean (same pre-existing chunk-size/pngjs/billing/
+  datamap warnings every prior session has already noted, none new).
+- `bash scripts/counter_ratchet.sh`: `assertions` improved 14904->14914,
+  re-pinned in this same PR (`ci/counter_baseline.txt`) since local HEAD
+  was verified equal to freshly-fetched origin/main before starting, so
+  this delta is this diff's own new test, not pre-existing drift
+  (PROMOTION RULE 5); re-ran after re-pinning: 25/25 counters OK.
+- Version bumped 1.0.950 -> 1.0.951 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript: diag.ts/bot.ts/diag.test.ts; no Python source changed, only
+a new remote caller of an already-tested function); CI runs the same on
+the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a new read-only diagnostic surface;
+no scoring, sizing, strategy, or threshold code touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-21 (a Sunday, markets closed
+all day) — no market-hours merge-timing concern.
+
+NEXT: (1) once v1.0.951 is live, GET `/api/diag/insider_cusum_gate2?
+token=$DIAG_TOKEN` (a future session, or the human) settles the
+2026-09-18 GATE 2 question directly — check `n_form4_records`/
+`n_trading_days_with_flow` for sample-size sanity before trusting either
+`spearman_naive_daily`/`spearman_destrided` reading, per `run_probe()`'s
+own docstring. (2) do not add query parameters to this probe later "just
+to check" a different ticker/window/k/h — a genuinely different
+hypothesis should get its own pre-registered probe and its own diag
+endpoint, per this family's established convention; this probe's whole
+design point is that it cannot be used to fish. (3) full write-up and the
+live-health/prior-selection reasoning also filed in
+`research/open_questions.md`'s matching 2026-09-21 dated entry
+(appended after the 2026-09-18 insider_cusum_probe entry it directly
+follows up on). (4) KNOWN BROKEN #42/#43's human resume decision remains
+the one outstanding LIVENESS ALARM item, unaffected by this diff (a
+read-only diag probe touches no trading-path file) — re-escalated via
+this session's own push notification given the now-~11-day duration, not
+re-diagnosed here.
+
+STARVED: no — this session's primary action closed a concretely-named,
+already-scoped NEXT step from a genuinely queued research thread (ranking
+above starting a fresh, discount-laden eighth foreign-field variant per
+REASONING STANDARD #4), shipped end-to-end (probe + wiring + regression
+test + ratchet re-pin) with full local verification across both
+languages, and named the exact single follow-up call that completes the
+loop instead of leaving it implicit.
+
+NOT A SPEND REQUEST.

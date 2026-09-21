@@ -495,3 +495,27 @@ test("github_activity_poll_health probe (2026-09-08): wired, read-only passthrou
   assert.ok(mod.includes("export interface GithubActivityPollHealth") && mod.includes("attempted"),
     "the reused health shape must already be aggregate-only (counts + timestamps, no per-org detail)");
 });
+
+test("insider_cusum_gate2 probe (2026-09-21): wired, runs the pre-registered probe server-side, takes NO tunable query params, never leaks raw records", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("insider_cusum_gate2"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const start = bot.indexOf('case "insider_cusum_gate2"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "insider_cusum_gate2 probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("insider_cusum_probe") && block.includes("run_probe()"),
+    "must call the shared scripts/insider_cusum_probe.py run_probe(), not re-derive the CUSUM logic inline");
+  assert.ok(!/req\.query/.test(block),
+    "this probe must never read req.query — it always runs the probe's own pre-registered defaults, never a caller-tunable ticker/window/k/h (avoids turning a pre-registered test into multiple-testing fishing)");
+  assert.ok(block.includes("sanitizeDiag"), "insider_cusum_gate2 probe must pass the sanitizer like every other probe");
+  assert.ok(block.includes("execPythonSerialized"), "must run the Python probe via the shared subprocess helper, matching every other python-backed diag probe");
+  const mod = fs.readFileSync(path.join(here, "..", "scripts", "insider_cusum_probe.py"), "utf8");
+  const probeStart = mod.indexOf("def run_probe(");
+  const probeEnd = mod.indexOf('if __name__', probeStart);
+  assert.ok(probeStart > 0 && probeEnd > probeStart, "run_probe() not found in insider_cusum_probe.py");
+  const probeBody = mod.slice(probeStart, probeEnd);
+  assert.ok(probeBody.includes('"spearman_naive_daily"') && probeBody.includes('"n_form4_records"'),
+    "run_probe() must return the aggregate verdict fields this probe relies on");
+  assert.ok(!probeBody.includes('"records":'),
+    "run_probe() must never return the raw per-filer records list, only the aggregate verdict");
+});
