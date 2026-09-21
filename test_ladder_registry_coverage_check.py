@@ -56,7 +56,6 @@ EXPECTED_UNCOVERED_IDS = [
     "entsoe_eu_power",
     "fda_calendar",
     "global_energy_monitor",
-    "sec_ftd",
 ]
 
 
@@ -125,6 +124,20 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "GATE 1 cross-check vs. FRED VIXCLS) in the PR that removed it from "
             "EXPECTED_UNCOVERED_IDS; if that root was removed, this test should "
             "be updated deliberately, not left to fail silently",
+        )
+
+    def test_sec_ftd_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "sec_ftd", uncovered_ids,
+            "sec_ftd regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json (status raw_only; the settlement-"
+            "stress composite hypothesis in secFtd.ts's own header stays "
+            "gate-locked/untested, per the 2026-09-21 backfill session) in "
+            "the PR that removed it from EXPECTED_UNCOVERED_IDS; if that "
+            "root was removed, this test should be updated deliberately, "
+            "not left to fail silently",
         )
 
     def test_so2_column_gibs_is_covered(self):
