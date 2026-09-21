@@ -21462,9 +21462,15 @@ renderKind/lod pin): the remaining 7, pinned in
 `test_ladder_registry_coverage_check.py`'s `EXPECTED_UNCOVERED_IDS` so
 the set can't drift silently in either direction —
 
-- `fda_calendar` (server/fdaEvents.ts) — FDA approval/advisory-committee
+- ~~`fda_calendar` (server/fdaEvents.ts) — FDA approval/advisory-committee
   calendar events; likely `raw_only` (a calendar of dated events, not an
-  inference), but not confirmed by reading the module this session.
+  inference), but not confirmed by reading the module this session.~~
+  **[DONE 2026-09-21, scheduled-routine session, fourth session this UTC
+  day]** confirmed on read exactly as predicted here — added to
+  `datacore/signal_ladder.json` as `raw_only`/`current_gate: 0`, per
+  `fdaEvents.ts`'s own "HYPOTHESIS (gate 2, not attempted)" header and the
+  live endpoint's own `kind: "raw"` self-label. See research/experiments.md's
+  matching dated entry.
 - ~~`so2_column_gibs` (client/src/lib/gibs.ts) — SO2 column density tile
   pass-through; the registry's own note already calls it "RAW overlay,
   no archive manifest by design", so likely a quick `raw_only` add.~~
@@ -21514,7 +21520,9 @@ the set can't drift silently in either direction —
   (2026-09-21, later same-day session): `so2_column_gibs` and `sec_ftd`
   are now also DONE (struck above) — 3 of the original 7 gaps remain
   (`fda_calendar`, `global_energy_monitor`, `entsoe_eu_power`) — one per
-  future PR.
+  future PR. UPDATE (2026-09-21, fourth session this UTC day):
+  `fda_calendar` is now also DONE (struck above) — 2 of the original 7
+  gaps remain (`global_energy_monitor`, `entsoe_eu_power`).
 
 NEXT for whoever picks one of these up: re-run
 `python3 scripts/ladder_registry_coverage_check.py` first to confirm the
