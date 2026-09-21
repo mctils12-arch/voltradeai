@@ -25,6 +25,10 @@ Five things are asserted:
      COVERED -- the second of the 7 originally-queued gaps, added as
      gate1_pass (not raw_only) since its own module header and manifest
      both document a real GATE 1 cross-check against FRED's VIXCLS series.
+  7. so2_column_gibs specifically is regression-pinned as COVERED -- the
+     third of the 7 originally-queued gaps, added as raw_only since
+     client/src/pages/datamap.tsx's own inline comment for the layer
+     states "As-is display only -- no predictive claim".
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -53,7 +57,6 @@ EXPECTED_UNCOVERED_IDS = [
     "fda_calendar",
     "global_energy_monitor",
     "sec_ftd",
-    "so2_column_gibs",
 ]
 
 
@@ -122,6 +125,19 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "GATE 1 cross-check vs. FRED VIXCLS) in the PR that removed it from "
             "EXPECTED_UNCOVERED_IDS; if that root was removed, this test should "
             "be updated deliberately, not left to fail silently",
+        )
+
+    def test_so2_column_gibs_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "so2_column_gibs", uncovered_ids,
+            "so2_column_gibs regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json (status raw_only, per datamap.tsx's "
+            "own 'as-is display only -- no predictive claim' comment) in the "
+            "PR that removed it from EXPECTED_UNCOVERED_IDS; if that root was "
+            "removed, this test should be updated deliberately, not left to "
+            "fail silently",
         )
 
 
