@@ -21486,11 +21486,24 @@ the set can't drift silently in either direction —
   registry itself (distinct from `gem_methane_plume_proximity`, which
   IS tracked as a derived gate2_fail signal built on top of it) — the
   registry has no entry for the base registry.
-- `entsoe_eu_power` (server/euLoad.ts + euGenerationMix.ts +
+- ~~`entsoe_eu_power` (server/euLoad.ts + euGenerationMix.ts +
   euDayAheadPrices.ts) — EU load/generation/day-ahead prices; this is a
   3-module cluster, so it may need one ladder root or several — worth
   checking whether a signal hypothesis has ever been attempted on the
-  day-ahead-price piece specifically before defaulting to `raw_only`.
+  day-ahead-price piece specifically before defaulting to `raw_only`.~~
+  **[DONE 2026-09-21, scheduled-routine PRODUCT session, fifth session
+  this UTC day]** read all three module headers in full: every one says
+  "HYPOTHESIS (gate-locked)" and none has ever had a gate-1/2 attempt
+  (grepped the whole repo) — ONE ladder root, not three, since the three
+  modules share one joint hypothesis thread (eumacro census #7) and
+  `data_stream_registry_check.py` already treats the cluster as a single
+  candidate. Added to `datacore/signal_ladder.json` as `raw_only`/
+  `current_gate: 0`, `detail_route: "#/data/eu-power"`. Byproduct finding:
+  `client/src/pages/datamap.tsx`'s `euPowerOpen` comment had an unsupported
+  "euLoad gate1_pass 2026-07-07" label (a ship date mislabeled as a gate
+  result, dating to the 2026-09-15 whole-file reconstruction, PR #1090) —
+  corrected in the same PR. See research/experiments.md's matching dated
+  entry for the full account.
 - ~~`sec_ftd` (server/secFtd.ts) — SEC fails-to-deliver; this one is the
   most likely to actually deserve a `gate1_pending`/`gate2_*` status
   rather than `raw_only`, since FTD spikes are a commonly-cited
@@ -21522,7 +21535,10 @@ the set can't drift silently in either direction —
   (`fda_calendar`, `global_energy_monitor`, `entsoe_eu_power`) — one per
   future PR. UPDATE (2026-09-21, fourth session this UTC day):
   `fda_calendar` is now also DONE (struck above) — 2 of the original 7
-  gaps remain (`global_energy_monitor`, `entsoe_eu_power`).
+  gaps remain (`global_energy_monitor`, `entsoe_eu_power`). UPDATE
+  (2026-09-21, fifth session this UTC day): `entsoe_eu_power` is now also
+  DONE (struck above) — 1 of the original 7 gaps remains
+  (`global_energy_monitor`).
 
 NEXT for whoever picks one of these up: re-run
 `python3 scripts/ladder_registry_coverage_check.py` first to confirm the

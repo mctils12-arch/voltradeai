@@ -34,6 +34,14 @@ Eight things are asserted:
      server/fdaEvents.ts's own module header states its hypothesis as
      "gate 2, not attempted" and the live endpoint self-labels
      kind:"raw".
+  9. entsoe_eu_power specifically is regression-pinned as COVERED -- the
+     sixth of the 7 originally-queued gaps, added as ONE raw_only root
+     covering all three ENTSO-E modules (euLoad/euGenerationMix/
+     euDayAheadPrices), each still "HYPOTHESIS (gate-locked)" per its own
+     module header. This session also corrected an unsupported
+     "euLoad gate1_pass 2026-07-07" label found in datamap.tsx's
+     euPowerOpen comment (a ship date mislabeled as a gate result) --
+     the ladder entry's status is raw_only, not gate1_pass.
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -58,7 +66,6 @@ _spec.loader.exec_module(check)
 # assign an honest ladder status (raw_only vs a real gate number) before
 # it can be added -- see research/open_questions.md for the filed NEXT.
 EXPECTED_UNCOVERED_IDS = [
-    "entsoe_eu_power",
     "global_energy_monitor",
 ]
 
@@ -167,6 +174,20 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "own header calls its IV-ramp-into-catalysts idea 'gate 2, not "
             "attempted', and the live endpoint self-labels kind:'raw') in "
             "the PR that removed it from EXPECTED_UNCOVERED_IDS; if that "
+            "root was removed, this test should be updated deliberately, "
+            "not left to fail silently",
+        )
+
+    def test_entsoe_eu_power_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "entsoe_eu_power", uncovered_ids,
+            "entsoe_eu_power regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json as ONE raw_only root covering all "
+            "three ENTSO-E modules (euLoad/euGenerationMix/euDayAheadPrices), "
+            "each still 'HYPOTHESIS (gate-locked)' per its own module header, "
+            "in the PR that removed it from EXPECTED_UNCOVERED_IDS; if that "
             "root was removed, this test should be updated deliberately, "
             "not left to fail silently",
         )
