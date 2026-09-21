@@ -5,7 +5,7 @@ candidates against datacore/signal_ladder.json's roots (see that script's
 module docstring for the full rationale: a built pipeline can otherwise
 carry zero ladder-bookkeeping entry with nothing to notice).
 
-Eight things are asserted:
+Ten things are asserted:
   1. The ALIASES table covers every currently-built candidate (a future
      session adding a new "built" candidate without an ALIASES entry
      fails this loudly instead of the coverage check silently ignoring it).
@@ -42,6 +42,13 @@ Eight things are asserted:
      "euLoad gate1_pass 2026-07-07" label found in datamap.tsx's
      euPowerOpen comment (a ship date mislabeled as a gate result) --
      the ladder entry's status is raw_only, not gate1_pass.
+  10. global_energy_monitor specifically is regression-pinned as
+     COVERED -- the seventh and last of the 7 originally-queued gaps,
+     added as raw_only (scripts/gem_ingest.py's own catalogued-registry
+     framing, no gate-1/gate-2 attempt filed anywhere on this asset
+     registry itself, distinct from the already-tracked derived
+     gem_methane_plume_proximity root built on top of it). Closes the
+     original 7-gap queue: EXPECTED_UNCOVERED_IDS is now empty.
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -49,6 +56,7 @@ import importlib.util
 import os
 import sys
 import unittest
+import unittest.mock
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
@@ -60,14 +68,13 @@ _spec = importlib.util.spec_from_file_location(
 check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check)
 
-# The exact set of registry-"built" candidate ids this session confirmed
-# have no matching root in datacore/signal_ladder.json, by hand, after
-# fixing epa_camd_cems in the same PR. Each needs its own module read to
-# assign an honest ladder status (raw_only vs a real gate number) before
-# it can be added -- see research/open_questions.md for the filed NEXT.
-EXPECTED_UNCOVERED_IDS = [
-    "global_energy_monitor",
-]
+# The exact set of registry-"built" candidate ids confirmed to have no
+# matching root in datacore/signal_ladder.json. Empty since the
+# global_energy_monitor PR closed the last of the original 7 gaps queued
+# by the epa_camd_cems cross-check PR (#1133) -- a future session adding
+# a new "built" candidate without a ladder root will grow this list again,
+# deliberately, not silently.
+EXPECTED_UNCOVERED_IDS = []
 
 
 class TestLadderRegistryCoverage(unittest.TestCase):
@@ -192,6 +199,19 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "not left to fail silently",
         )
 
+    def test_global_energy_monitor_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "global_energy_monitor", uncovered_ids,
+            "global_energy_monitor regressed back to uncovered -- it was added to "
+            "datacore/signal_ladder.json (status raw_only; scripts/gem_ingest.py's "
+            "own catalogued-registry framing, no gate-1/gate-2 attempt filed on the "
+            "raw asset registry itself) in the PR that emptied EXPECTED_UNCOVERED_IDS; "
+            "if that root was removed, this test should be updated deliberately, "
+            "not left to fail silently",
+        )
+
 
 class TestCoverageDetectorCatchesRealGaps(unittest.TestCase):
     """Proves the checker isn't vacuously passing -- feed it a registry
@@ -212,14 +232,23 @@ class TestCoverageDetectorCatchesRealGaps(unittest.TestCase):
         self.assertEqual(result["unaliased_built_candidates"], ["totally_new_unaliased_candidate"])
 
     def test_detects_genuinely_uncovered_candidate(self):
+        # Every real ALIASES entry now maps to a live ladder root (the
+        # global_energy_monitor PR closed the last empty-mapping gap), so
+        # "genuinely uncovered" is exercised via a temporary fake ALIASES
+        # entry rather than a real, currently-empty-mapped candidate id --
+        # there no longer is one. patch.dict restores the real table after
+        # the test regardless of pass/fail.
         fake = self._FakeRegistry()
         fake.CANDIDATES = [{
-            "id": "global_energy_monitor", "name": "fixture", "status": "built",
-            "manifest_keys": [], "layer_ids": [], "note": "",
+            "id": "fixture_candidate_with_no_ladder_root", "name": "fixture",
+            "status": "built", "manifest_keys": [], "layer_ids": [], "note": "",
         }]
-        result = check.audit(registry_module=fake)
+        with unittest.mock.patch.dict(
+            check.ALIASES, {"fixture_candidate_with_no_ladder_root": []}
+        ):
+            result = check.audit(registry_module=fake)
         self.assertEqual(len(result["uncovered"]), 1)
-        self.assertEqual(result["uncovered"][0]["id"], "global_energy_monitor")
+        self.assertEqual(result["uncovered"][0]["id"], "fixture_candidate_with_no_ladder_root")
 
     def test_recognizes_a_covered_candidate(self):
         fake = self._FakeRegistry()
