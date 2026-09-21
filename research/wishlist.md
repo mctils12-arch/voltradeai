@@ -1254,6 +1254,18 @@ all 18 before it. **19 confirmed occurrences spanning 2026-08-14 through
 2026-09-20 (37 days), still 0% compliance.** No new information — still
 awaiting the human's pick of the two options the original entry filed.
 
+**TWENTIETH OCCURRENCE, 2026-09-21.** PR #1139 (this session's
+`fda_calendar` `signal_ladder.json` bookkeeping entry — the 5th of the 7
+`ladder_registry_coverage_check.py` gaps, no functional/UI change, no
+trading-path file) carried the same "merge should wait until after
+4:00 PM ET" note and merged at **2026-09-21T16:24:52Z (~12:24 PM ET),
+3m27s after opening** (`created_at` 16:21:25Z, `merged_by:
+"github-actions[bot]"`) — verified via `pull_request_read` on the merged
+PR, not inferred. Harmless, same as all 19 before it. **20 confirmed
+occurrences spanning 2026-08-14 through 2026-09-21 (38 days), still 0%
+compliance.** No new information — still awaiting the human's pick of
+the two options the original entry filed.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
