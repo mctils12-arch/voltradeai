@@ -76,7 +76,7 @@ ALIASES = {
     "entsoe_eu_power": [],
     "usgs_earthquakes": ["usgs_earthquakes"],
     "ndbc_buoys": ["ndbc_buoys"],
-    "sec_ftd": [],
+    "sec_ftd": ["sec_ftd"],
     "sec_midas": ["sec_midas"],
     "occ_options_volume": ["occ_options_volume"],
     "finra_query_cluster": ["finra_short_volume"],

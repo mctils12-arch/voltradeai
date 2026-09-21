@@ -21465,9 +21465,15 @@ the set can't drift silently in either direction —
 - `fda_calendar` (server/fdaEvents.ts) — FDA approval/advisory-committee
   calendar events; likely `raw_only` (a calendar of dated events, not an
   inference), but not confirmed by reading the module this session.
-- `so2_column_gibs` (client/src/lib/gibs.ts) — SO2 column density tile
+- ~~`so2_column_gibs` (client/src/lib/gibs.ts) — SO2 column density tile
   pass-through; the registry's own note already calls it "RAW overlay,
-  no archive manifest by design", so likely a quick `raw_only` add.
+  no archive manifest by design", so likely a quick `raw_only` add.~~
+  **[DONE 2026-09-21, scheduled-routine PRODUCT session]** confirmed on
+  read exactly as predicted here — added to `datacore/signal_ladder.json`
+  as `raw_only`/`current_gate: 0`, per `datamap.tsx`'s own "as-is display
+  only — no predictive claim" comment. This bullet was left unstruck by
+  the session that shipped it (PR #1137); struck now by the next session
+  in this thread rather than left stale.
 - `usgs_volcano_alerts` (server/usgsVolcanoes.ts) — alert levels + GVP
   coordinates; likely `raw_only`.
 - `global_energy_monitor` (scripts/gem_ingest.py) — the raw GEM asset
@@ -21479,12 +21485,20 @@ the set can't drift silently in either direction —
   3-module cluster, so it may need one ladder root or several — worth
   checking whether a signal hypothesis has ever been attempted on the
   day-ahead-price piece specifically before defaulting to `raw_only`.
-- `sec_ftd` (server/secFtd.ts) — SEC fails-to-deliver; this one is the
+- ~~`sec_ftd` (server/secFtd.ts) — SEC fails-to-deliver; this one is the
   most likely to actually deserve a `gate1_pending`/`gate2_*` status
   rather than `raw_only`, since FTD spikes are a commonly-cited
   short-squeeze-adjacent signal candidate elsewhere in this file — check
   whether a gate-1/2 attempt already exists under a different name
-  before assuming none does.
+  before assuming none does.~~ **[DONE 2026-09-21, scheduled-routine
+  PRODUCT session, third session this UTC day]** checked as instructed —
+  no gate-1/2 attempt exists under any name (grepped the whole repo); the
+  module's own header marks its "settlement-stress composite" hypothesis
+  explicitly "gate-locked" / untested, so the honest status is `raw_only`/
+  `current_gate: 0`, not a pending gate. This session's earlier framing
+  ("most likely to deserve gate1_pending") does not hold up on read —
+  narrowed, not confirmed. See research/experiments.md's matching dated
+  entry for the full account.
 - ~~`cboe_vix_term_structure` (server/cboeVix.ts) — the registry's own note
   already states its GATE 1 (DATA) cross-check passed 2026-08-07
   ("CBOE's own VIX close matched FRED's independent VIXCLS series
@@ -21496,9 +21510,11 @@ the set can't drift silently in either direction —
   on read exactly as predicted here — added to `datacore/signal_ladder.json`
   as `gate1_pass`/`current_gate: 1` (not `raw_only`), with `detail_route`
   pointing at the already-shipped `client/src/pages/vixTermStructure.tsx`
-  page. See research/experiments.md's matching dated entry. 5 of the
-  original 7 gaps remain (fda_calendar, so2_column_gibs,
-  global_energy_monitor, entsoe_eu_power, sec_ftd) — one per future PR.
+  page. See research/experiments.md's matching dated entry. UPDATE
+  (2026-09-21, later same-day session): `so2_column_gibs` and `sec_ftd`
+  are now also DONE (struck above) — 3 of the original 7 gaps remain
+  (`fda_calendar`, `global_energy_monitor`, `entsoe_eu_power`) — one per
+  future PR.
 
 NEXT for whoever picks one of these up: re-run
 `python3 scripts/ladder_registry_coverage_check.py` first to confirm the
