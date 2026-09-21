@@ -73,7 +73,7 @@ ALIASES = {
     "usgs_volcano_alerts": ["usgs_volcano_alerts"],
     "epa_camd_cems": ["epa_camd_cems"],
     "global_energy_monitor": [],
-    "entsoe_eu_power": [],
+    "entsoe_eu_power": ["entsoe_eu_power"],
     "usgs_earthquakes": ["usgs_earthquakes"],
     "ndbc_buoys": ["ndbc_buoys"],
     "sec_ftd": ["sec_ftd"],

@@ -2873,10 +2873,15 @@ export default function DataMapPage() {
   // midas/methaneHotspots above.
   const [gnssIntegrityOpen, setGnssIntegrityOpen] = useState(() => window.location.hash === "#/data/gnss-integrity");
   // EU power markets — ENTSO-E load/generation-mix/day-ahead-price
-  // (#/data/eu-power) — three RAW pipelines (euLoad gate1_pass 2026-07-07,
-  // euGenerationMix 2026-07-21, euDayAheadPrices 2026-07-27) shipped
-  // API-only with no client view until now; same overlay pattern as
-  // eu-macro/fred-macro above.
+  // (#/data/eu-power) — three RAW pipelines (euLoad shipped 2026-07-07,
+  // euGenerationMix 2026-07-21, euDayAheadPrices 2026-07-27), each still
+  // "HYPOTHESIS (gate-locked)" per its own module header — no gate-1
+  // attempt has ever been run for any of the three (datacore/
+  // signal_ladder.json entsoe_eu_power, status raw_only; a prior version
+  // of this comment incorrectly said "euLoad gate1_pass 2026-07-07",
+  // conflating the ship date with a gate result — corrected 2026-09-21).
+  // Shipped API-only with no client view until euPower.tsx; same overlay
+  // pattern as eu-macro/fred-macro above.
   const [euPowerOpen, setEuPowerOpen] = useState(() => window.location.hash === "#/data/eu-power");
   // SEC CNS fails-to-deliver (#/data/ftd) — same overlay pattern
   // (DATACORE MAXIMUS census build #6's own filed UI follow-up,
