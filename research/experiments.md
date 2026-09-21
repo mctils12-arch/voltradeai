@@ -96280,3 +96280,142 @@ remaining unverified findings were filed with enough detail for a future
 session to act without re-deriving them.
 
 NOT A SPEND REQUEST.
+
+---
+
+## 2026-09-21 — [PRODUCT] scheduled-routine session — `cboe_vix_term_structure`
+gets its ladder entry as `gate1_pass`, second of the 7 queued
+ladder-registry gaps closed (v1.0.950)
+
+TERRITORY: T-DATACORE (`datacore/signal_ladder.json`,
+`scripts/ladder_registry_coverage_check.py` + its test — datacore/scripts
+tooling per WORKSTREAM PARTITION), with the standard SHARED touches
+(`package.json`/`package-lock.json` version bump, this file, plus a
+one-bullet mark-done edit in `research/open_questions.md`'s existing
+queued list — no new prose added there beyond marking the item resolved).
+
+CONTEXT: this is a scheduled [PRODUCT] session (mission: build the
+datacore/ pipelines and the /data user-facing section into a full
+product). Checked KNOWN BROKEN first per the routine's own instruction:
+items #42/#43 (2026-09-09, live-production daily-loss-halt/drawdown-kill
+incidents) are still open in `research/open_questions.md` but neither
+blocks datacore/ or client/src/pages/ work — noted, not touched, per the
+routine's own "note it but proceed... unless the break blocks you" rule
+(product sessions don't preempt DAILY repair duty). No live Alpaca/Railway
+access exists in this sandbox to re-check current state either way.
+
+PRIMARY ACTION: continued the exact NEXT queued by the 2026-09-20
+session's own PR #1133/#1134 thread — 7 `data_stream_registry_check.py`
+"built" candidates had no matching root in `datacore/signal_ladder.json`
+at all (a pure bookkeeping gap: the pipeline runs live, the registry
+cross-check just never got backfilled for it). Two of the 7 were already
+closed as `raw_only` (`epa_camd_cems`, `usgs_volcano_alerts`); the
+2026-09-20 session's own NEXT note flagged `cboe_vix_term_structure`
+specifically as the priority read among the remaining 5, since — unlike
+the others — its own registry note already claimed a passed GATE 1, which
+if confirmed is a materially different, higher-value finding than a
+`raw_only` bookkeeping add.
+
+READ BEFORE WRITE, this session: read `server/cboeVix.ts`'s full module
+header and `datacore/manifests/cboevix.json` end to end (not just grepped
+for the claim). Both independently and explicitly state a real GATE 1
+(DATA) cross-check: CBOE's own `VIX_History.csv` close matched FRED's
+independently-published VIXCLS series exactly for 2026-08-03/04/05
+(15.86/16.50/15.81, both sources, both dates) — an external ground-truth
+match, not a self-referential check, so the honest ladder status is
+`gate1_pass`/`current_gate: 1`, not `raw_only`. Both sources are equally
+explicit this stops there: "RAW/regime-feature framing only... any
+predictive claim about the ratios stays gate-locked pending SIGNAL-layer
+validation" — no gate-2 claim made or implied by this PR. Also confirmed,
+by grepping `server/routes.ts` and `client/src/pages/`, that this root
+already has a full product surface: `GET /api/data/vix-term-structure`
+(free RAW display route) AND `GET /api/v1/stats/vix-term-structure` (the
+metered external-customer API, `meterUsage`-tracked), plus its own
+dedicated client page (`client/src/pages/vixTermStructure.tsx`, linked
+from `#/data/vix-term-structure` inside `datamap.tsx`). This is
+functionally a complete gate-1 product slice already shipping — the
+ladder file was simply never told about it.
+
+BUILT/CHANGED, this session:
+- `datacore/signal_ladder.json` — +1 root (`cboe_vix_term_structure`,
+  category `macro`, status `gate1_pass`, `current_gate: 1`, `detail_route:
+  "#/data/vix-term-structure"`), appended after `usgs_volcano_alerts` via
+  a precise string edit (`git diff --stat` confirms exactly 2
+  insertions/1 deletion, same discipline as the two prior sessions in
+  this thread — never reformat the whole file).
+- `scripts/ladder_registry_coverage_check.py` — `ALIASES["cboe_vix_term_structure"]`
+  changed from `[]` (confirmed-no-root) to `["cboe_vix_term_structure"]`
+  (now points at the new root above).
+- `test_ladder_registry_coverage_check.py` — removed
+  `cboe_vix_term_structure` from `EXPECTED_UNCOVERED_IDS` (7 -> 5
+  remaining: `entsoe_eu_power`, `fda_calendar`, `global_energy_monitor`,
+  `sec_ftd`, `so2_column_gibs`), and added
+  `test_cboe_vix_term_structure_is_covered` — a regression pin mirroring
+  the existing `epa_camd_cems`/`usgs_volcano_alerts` pins, same rationale
+  (this class of fix has now flipped 3 times; a 4th flip is a real
+  regression, not archaeology, if this pin is ever tripped).
+- `research/open_questions.md` — struck the now-resolved
+  `cboe_vix_term_structure` bullet in the existing queued list with a
+  `[DONE 2026-09-21]` marker pointing back here, same convention KNOWN
+  BROKEN items use; the other 5 queued bullets are untouched.
+
+VERIFIED, not assumed (fresh container, `npm ci` +
+`pip3 install --break-system-packages -r requirements.txt -r
+requirements-dev.txt` run first since neither was pre-installed):
+- `python3 -m pytest -q test_ladder_registry_coverage_check.py -v`: 9/9
+  pass (the new pin included).
+- `python3 -m pytest -q test_data_stream_registry_check.py
+  test_ladder_readiness_check.py test_ladder_registry_coverage_check.py`:
+  32/32 pass, unaffected by this diff.
+- `python3 -m pytest -q` (full suite): 2119 passed, 1 skipped, 0 failed —
+  no regression anywhere outside this diff's own files.
+- `python3 scripts/ladder_registry_coverage_check.py`: human report now
+  shows 26 built candidates checked, 0 unaliased, 0 stale targets, 5
+  uncovered (the exact new pinned set) — exit code 0.
+- `npx tsx --test server/signalLadder.test.ts`: 7/7 pass — confirms the
+  new root satisfies `loadSignalLadder`'s live-registry invariants
+  (required fields, unique id, non-empty source_ref) and that its
+  `detail_route_label` correctly reads "view live data ->" rather than
+  "view live signal ->" for a `gate1_pass` (DATA-only, not yet SIGNAL)
+  root, over the real committed file.
+- `npx tsx --test server/*.test.ts` (full TS suite): 1800/1800 pass.
+- `npx tsc --noEmit`: 14 errors, all pre-existing per
+  `research/tsc_baseline.md`'s ongoing triage (no `.ts` source file was
+  touched by this PR — only `.py`/`.json`/`.md`).
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+  parses; `git diff --stat datacore/signal_ladder.json` shows exactly the
+  intended 2-line change.
+
+GATES: full local suite above covers every file this diff touches or
+could plausibly affect (both languages); CI will run the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure ladder-bookkeeping/tooling
+change; no scoring, sizing, threshold, or trading-path code touched.
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/subscription/ad
+code touched; the pre-existing `/api/v1/stats/vix-term-structure` route
+this entry documents was already metered before this session and is
+unchanged here).
+
+DEPLOY-COUPLING NOTE: session run mid-day UTC on 2026-09-21 (a Sunday —
+markets closed all day); no market-hours merge-timing concern regardless.
+
+NEXT: (1) the 5 remaining queued roots — `sec_ftd` flagged by the prior
+session's own note as the next most likely to deserve a real
+`gate1_pending`/`gate2_*` status rather than a `raw_only` default (FTD
+spikes are a commonly-cited short-squeeze-adjacent signal candidate
+elsewhere in this file) — read it next. (2) `entsoe_eu_power` is a
+3-module cluster (`euLoad.ts`/`euGenerationMix.ts`/`euDayAheadPrices.ts`)
+that may need one root or several — decide on read, don't assume one.
+(3) the still-standing `port_dwell_maritime_transit` weekly-snapshot
+accumulation (per the 2026-09-20 entry) was NOT re-run this session
+(this session's fall-through capacity went entirely to the ladder-gap
+thread instead) — a future session should resume it.
+
+STARVED: no — this was the SESSION BUDGET's primary action (an explicitly
+queued, previously-scoped NEXT item, the highest-value available per the
+prior session's own priority flag), completed end-to-end (ladder entry +
+alias table + pinned regression test + open_questions.md mark-done), with
+full local verification across both languages before commit. No
+higher-priority queued item was skipped to do this.
+
+NOT A SPEND REQUEST.

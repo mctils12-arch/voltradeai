@@ -86,7 +86,7 @@ ALIASES = {
     # (both CANDIDATES entries share that manifest_key) -- one pipeline,
     # two registry rows, one ladder root.
     "nasdaq_finra_threshold_list": ["finra_short_volume"],
-    "cboe_vix_term_structure": [],
+    "cboe_vix_term_structure": ["cboe_vix_term_structure"],
     "dtcc_sbsdr": ["dtcc_sbsdr_equity_swaps"],
     "un_comtrade": ["un_comtrade_bilateral_trade"],
 }

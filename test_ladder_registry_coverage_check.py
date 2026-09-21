@@ -21,6 +21,10 @@ Five things are asserted:
      the first of the 7 originally-queued gaps to get a real ladder entry
      (raw_only, same session as PR #1133's own epa_camd_cems fix,
      different PR).
+  6. cboe_vix_term_structure specifically is regression-pinned as
+     COVERED -- the second of the 7 originally-queued gaps, added as
+     gate1_pass (not raw_only) since its own module header and manifest
+     both document a real GATE 1 cross-check against FRED's VIXCLS series.
 
 Run: python3 -m pytest test_ladder_registry_coverage_check.py -v
 """
@@ -45,7 +49,6 @@ _spec.loader.exec_module(check)
 # assign an honest ladder status (raw_only vs a real gate number) before
 # it can be added -- see research/open_questions.md for the filed NEXT.
 EXPECTED_UNCOVERED_IDS = [
-    "cboe_vix_term_structure",
     "entsoe_eu_power",
     "fda_calendar",
     "global_energy_monitor",
@@ -107,6 +110,18 @@ class TestLadderRegistryCoverage(unittest.TestCase):
             "datacore/signal_ladder.json (status raw_only) in the PR that removed "
             "it from EXPECTED_UNCOVERED_IDS; if that root was removed, this test "
             "should be updated deliberately, not left to fail silently",
+        )
+
+    def test_cboe_vix_term_structure_is_covered(self):
+        result = check.audit()
+        uncovered_ids = {u["id"] for u in result["uncovered"]}
+        self.assertNotIn(
+            "cboe_vix_term_structure", uncovered_ids,
+            "cboe_vix_term_structure regressed back to uncovered -- it was added "
+            "to datacore/signal_ladder.json (status gate1_pass, on a verified "
+            "GATE 1 cross-check vs. FRED VIXCLS) in the PR that removed it from "
+            "EXPECTED_UNCOVERED_IDS; if that root was removed, this test should "
+            "be updated deliberately, not left to fail silently",
         )
 
 

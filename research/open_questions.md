@@ -21367,14 +21367,20 @@ the set can't drift silently in either direction —
   short-squeeze-adjacent signal candidate elsewhere in this file — check
   whether a gate-1/2 attempt already exists under a different name
   before assuming none does.
-- `cboe_vix_term_structure` (server/cboeVix.ts) — the registry's own note
+- ~~`cboe_vix_term_structure` (server/cboeVix.ts) — the registry's own note
   already states its GATE 1 (DATA) cross-check passed 2026-08-07
   ("CBOE's own VIX close matched FRED's independent VIXCLS series
   exactly for 3/3 dates") and names it "candidate cleaner replacement
   for the VXX-ratio regime proxy behind KNOWN BROKEN #20" — this reads
   like it should already be `gate1_pass`, not merely un-tracked; the
   likeliest of the 7 to be a real backlog item rather than a documentation
-  gap.
+  gap.~~ **[DONE 2026-09-21, scheduled-routine PRODUCT session]** confirmed
+  on read exactly as predicted here — added to `datacore/signal_ladder.json`
+  as `gate1_pass`/`current_gate: 1` (not `raw_only`), with `detail_route`
+  pointing at the already-shipped `client/src/pages/vixTermStructure.tsx`
+  page. See research/experiments.md's matching dated entry. 5 of the
+  original 7 gaps remain (fda_calendar, so2_column_gibs,
+  global_energy_monitor, entsoe_eu_power, sec_ftd) — one per future PR.
 
 NEXT for whoever picks one of these up: re-run
 `python3 scripts/ladder_registry_coverage_check.py` first to confirm the
