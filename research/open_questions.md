@@ -21540,6 +21540,27 @@ the set can't drift silently in either direction —
   DONE (struck above) — 1 of the original 7 gaps remains
   (`global_energy_monitor`).
 
+UPDATE (2026-09-22, scheduled-routine PRODUCT session): the settlement-
+stress composite gate-2 hypothesis this `sec_ftd` entry filed as "a real,
+filed, but NOT-YET-ATTEMPTED gate-2 hypothesis" was attempted this
+session — new `scripts/settlement_stress_gate2.ts` (+ 10 unit tests) run
+live against the full production archive. VERDICT: WAITING, not a
+PASS/FAIL — the raw archive's 33 rows collapse to only 8 INDEPENDENT
+episodes (persistence-day runs, not distinct events), and 7 of those 8
+are foreign ADRs/ordinary shares, a plausible cross-border-settlement
+confound distinct from any short-squeeze mechanism. Only 1 domestic
+episode exists against a pre-registered `MIN_DOMESTIC_EPISODES=20` bar —
+far too few to render any verdict without violating Reasoning Standard
+#4. Full account, the new `datacore/signal_ladder.json` root
+(`settlement_stress_composite`, `gate1_pass`/`current_gate: 1`), and the
+exploratory (non-gating) forward-return descriptives are in
+research/experiments.md's matching dated entry. NEXT: re-run the script
+periodically as the underlying archives grow (no faster than monthly —
+the composite's own poll is bottlenecked on SEC's FTD half-month
+publication lag, not on this repo); a future session should also weigh
+excluding foreign-listed symbols from the JOIN itself, not just from the
+readiness count, given how dominant that population has been so far.
+
 NEXT for whoever picks one of these up: re-run
 `python3 scripts/ladder_registry_coverage_check.py` first to confirm the
 set hasn't already moved, read the named module(s), add the
