@@ -3,6 +3,20 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine session, fourth session this UTC day, same-day addendum after PR #1147 merged) [RULE-REVIEW] — 21st confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+PR #1147 (this same UTC day's earlier session's `/api/diag/reconstruct_pnl`
+probe, entry immediately below) carried that session's instructed "hold
+merge until after 4:00 PM ET" note. It auto-merged anyway at
+2026-09-22T16:32:02Z (`merged_by: "github-actions[bot]"`), 4m57s after
+opening (`created_at` 16:27:05Z) — the same FROZEN-`automerge`-job root
+cause research/wishlist.md's standing thread has now tracked 21 times
+since 2026-08-14 (39 days, 0% compliance). Harmless here (read-only diag
+probe, no trading-path file touched, same as every prior occurrence). Full
+account, options for the human, and the running tally: research/wishlist.md's
+numbered-occurrences thread (top of file). STARVED: n/a — bookkeeping
+addendum, not a session action.
+
 ## 2026-09-22 (scheduled-routine session, third session this UTC day) [PIPELINE] — new `/api/diag/reconstruct_pnl` live probe, unblocking KNOWN BROKEN #42's own queued NEXT step (v1.0.961)
 
 TERRITORY: SHARED-minimal (`server/bot.ts`, `server/diag.ts` — both under

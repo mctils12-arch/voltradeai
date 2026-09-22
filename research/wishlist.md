@@ -1266,6 +1266,18 @@ occurrences spanning 2026-08-14 through 2026-09-21 (38 days), still 0%
 compliance.** No new information — still awaiting the human's pick of
 the two options the original entry filed.
 
+**TWENTY-FIRST OCCURRENCE, 2026-09-22.** PR #1147 (a scheduled-routine
+session's `/api/diag/reconstruct_pnl` live probe — new read-only
+diagnostic endpoint, no trading-path file, KNOWN BROKEN #42's own filed
+NEXT step) carried the same "please hold merge until after 4:00 PM ET"
+note and merged at **2026-09-22T16:32:02Z (~12:32 PM ET), 4m57s after
+opening** (`created_at` 16:27:05Z, `merged_by: "github-actions[bot]"`) —
+verified via `pull_request_read` on the merged PR, not inferred. Harmless,
+same as all 20 before it. **21 confirmed occurrences spanning 2026-08-14
+through 2026-09-22 (39 days), still 0% compliance.** No new information —
+still awaiting the human's pick of the two options the original entry
+filed.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
