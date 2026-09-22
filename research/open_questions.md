@@ -13384,6 +13384,90 @@ territory in their first commit)
   cleanly. Full account: `research/experiments.md`, 2026-09-14 (fifth
   session this date).
 
+  UPDATE 2026-09-22 (scheduled-routine session, third session this UTC
+  day, [RESEARCH]) — picks up the fourth session's own NEXT(1) fork
+  ("weigh stopping here versus a third independent capacity source"),
+  unclaimed for 8 days. CHECKED FIRST: re-verified live whether EIA-860M
+  has published a newer snapshot than July 2026 (the specific sub-
+  question the 2026-09-14 second-session UPDATE left "UNANSWERABLE, not
+  negative") — still no. `curl -A "Mozilla/5.0"` against
+  `xls/{august,september,october,november,december}_generator2026.xlsx`
+  and `archive/xls/{august,september}_generator2026.xlsx` (the archive
+  index page lists both as present, but the files themselves 200 with
+  a generic HTML landing page, not real content, while
+  `xls/july_generator2026.xlsx` still returns a real 13.9MB xlsx) — all
+  five candidate newer months are unpublished or unreachable; this
+  sub-question remains unanswerable, unchanged, 8 days later.
+
+  Took the fork's other branch instead: found and ran a genuine THIRD
+  independent capacity source neither the DPV check nor any prior
+  session had touched — Form EIA-861's Net Metering and Non-Net-Metering
+  Distributed Generation tables (a state utility-REGULATION survey,
+  independent of both EIA-930, generation-metering, and EIA-923,
+  DPV generation — a different federal form, different reporting
+  chain). New `scripts/eia861_dg_capacity_share.py` (23 new unit tests,
+  A/B-verified against a deliberately broken column index) sums
+  EIA-861 2025-early-release Photovoltaic capacity (net-metered +
+  non-net-metered distributed) for OK/KS/NE against EIA-860 2025
+  ANNUAL's own utility-scale solar nameplate capacity for the same
+  three states — this closes the DPV check's own generation-vs-capacity
+  UNIT MISMATCH (the gate-1 test itself is capacity-denominated; the
+  DPV check was generation-denominated and could only ever be a proxy).
+
+  LIVE RESULT (real downloads this session, not mocked): combined DG PV
+  capacity OK/KS/NE = 327.8 MW (OK 163.3, KS 126.7, NE 37.8) vs.
+  utility-scale solar capacity (EIA-860 2025 annual, OP status) 961.7 MW
+  (OK 523.5, KS 278.4, NE 159.8) — DG capacity share 25.42%, implying
+  (via the same `1/(1-share)` transform the DPV check uses) an overshoot
+  of **1.3408x** — this EXCEEDS the observed SWPP solar gate-1 overshoot
+  (1.286x), whereas the DPV check's generation-based share (15.56%)
+  implied only 1.1843x, covering ~67% of the gap. Two independent
+  methodologies now point the same direction, and the newer one is
+  numerically SUFFICIENT on its own to explain the full residual — not
+  just a partial contributor.
+
+  HONESTY CAVEATS (stated in the module docstring, repeated here since
+  they materially weaken how much this should move anyone's confidence):
+  (1) EIA-861's 2025 data is an EARLY RELEASE (published August 2026)
+  carrying EIA's own verbatim warning on every row: "inappropriate for
+  aggregation, such as to state or national totals" — this script does
+  exactly that aggregation; final edited 2025 data is not out yet. (2)
+  a DOUBLE-COUNTING risk exists (utility-owned non-net-metered DG might
+  already have a row in our EIA-860 utility-scale registry) — bounded,
+  not resolved: the all-technology (not PV-specific — the source table
+  doesn't break utility-ownership out by fuel) utility-owned share pools
+  to 12.93% of non-net-metering capacity, a small fraction of the 327.8
+  MW total even under a worst-case uniform-across-technologies
+  extrapolation. (3) CAPACITY share is not necessarily equal to
+  GENERATION share at the specific peak hour gate-1's MAX metric reads
+  (rooftop/distributed PV typically has a lower capacity factor at any
+  given hour than utility-scale tracking arrays) — this is a distinct,
+  complementary estimate, not a strictly superior replacement for the
+  DPV check's number. (4) same OK/KS/NE state-level scope caveat as the
+  DPV check (SWPP's real 14-state footprint does not follow state
+  lines) — a share, not an absolute MW figure attributed to SWPP.
+
+  VERDICT: still not a clean gate-1 close (none of the four caveats
+  above are resolved, and "sufficient in a plausibility check" is not
+  "confirmed" — no document from SWPP's own respondent-level accounting
+  has been found either session), but the honest disposition changes
+  from "mechanism (ii) plausible, ~67% partial" to "mechanism (ii)
+  plausible and, on two independent magnitude checks now, numerically
+  sufficient — the search for a fourth mechanism is no longer well-
+  motivated by the residual's size alone." `datacore/signal_ladder.json`
+  note updated to match; `current_gate`/`status` unchanged (raw_only/0 —
+  a magnitude plausibility check is not a gate-1 pass).
+
+  NEXT: (1) when EIA-861's FINAL (non-early-release) 2025 data ships
+  ("later in 2026" per EIA's own notice), re-run this script against it
+  to remove caveat (1) — the single most fixable of the four. (2) the
+  production outage (KNOWN BROKEN #43, unchanged) — not re-notified,
+  same unchanged-reading disposition every session in that thread has
+  used. Full account, live JSON output, and gate results (2147 passed/1
+  skipped python — up from 2124, this session's own +23 — 25/25
+  counters, gated_tests.sh GATE PASSED): `research/experiments.md`,
+  2026-09-22 (third session this date).
+
 - **(c) Ship-movement anomalies × commodity/retail tickers.** PAIRING:
   our port-transit stats (arrivals at the 9 imagery-verified ports from
   the vessel archive) + shadow-fleet zone rates × (i) tanker basket

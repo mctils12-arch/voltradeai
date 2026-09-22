@@ -97117,3 +97117,273 @@ already notified earlier the same day), thrash ratio 1/10 [REPAIR]
 (this entry itself) well under the 7+ trigger.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-22 (scheduled-routine session, third session this UTC day) [PIPELINE] — FUSION HYPOTHESIS (b) / SWPP solar residual: a second, independent, capacity-denominated BTM check (Form EIA-861 Net Metering + Non-Net-Metering) now exceeds the observed overshoot, up from the earlier generation-based check's ~67% partial coverage (v1.0.959)
+
+TERRITORY: T-DATACORE-adjacent (`scripts/eia861_dg_capacity_share.py`
+new, `test_eia861_dg_capacity_share.py` new) + SHARED-minimal
+(`datacore/signal_ladder.json`, `research/open_questions.md`,
+`ci/counter_baseline.txt`, `package.json`/`package-lock.json` — last,
+per MERGE-ORDER PROTOCOL). No `server/bot.ts`/`system_config.py`/
+`strategies/` touched.
+
+SESSION-START: read CLAUDE.md in full. `git fetch origin main`: local
+HEAD (`5b51ad0`, v1.0.958) already matched. `research/experiments.md`'s
+last 10 tagged entries (newest first): REPAIR (this UTC day's second
+session), PRODUCT, PRODUCT, PRODUCT, PRODUCT, PRODUCT, RESEARCH,
+PRODUCT, PRODUCT, PRODUCT — 1/10 REPAIR, well under the 7+ thrash
+threshold, no meta-problem. `research/open_questions.md` KNOWN BROKEN
+section: #43 (drawdown-kill halt, human-decision-gated) and #44
+(insider_cusum_gate2 500s, Dockerfile fix proposed and still awaiting
+human approval — confirmed live this session, `grep scripts/ Dockerfile`
+still empty) both unchanged since the immediately preceding session.
+`research/wishlist.md` tail: the Dockerfile proposal is the only new
+entry since the last check, still pending, nothing else actionable.
+
+LIVE HEALTH CHECK (`curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` —
+"trading loop dark for 52.0 market hours (296.0h wall-clock) since
+2026-09-10T03:12:26.354Z", `drawdownPct:"-5.8"` — unchanged in
+substance from both of today's earlier sessions (KNOWN BROKEN #43),
+NOT re-notified (already push-notified multiple times, no new
+information). `server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/
+`process`/`memory` all `status:"ok"`.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): both today's earlier
+sessions' own explicitly-named NEXT items were checked first and found
+not fruitful this session. (1) `scripts/portdwell_weekly_snapshot.ts`
+(queued since 2026-09-20, "re-run every future session") — ran live
+(`DIAG_TOKEN` present): `last_completed_week_index` still 10, unchanged
+since the 2026-09-20 session's own capture (a new week only completes
+weekly; `datacore/port_dwell_weekly.json` correctly left untouched,
+`git diff` empty, idempotent no-op as designed). (2) the FDA IV-ramp
+gate-2 hypothesis — re-confirmed still blocked on an options-IV data
+pipeline this sandbox has no established source for, unchanged. (3)
+`python3 scripts/ladder_readiness_check.py`: 0/3 gated roots ready
+(`cftc_cot_positioning` waiting 35d, `sec_8k_earnings_language` waiting
+10d, `fleet_utilization_aircraft` waiting 41d — none newly unblocked).
+(4) `python3 scripts/data_stream_registry_check.py --unbuilt`: 9/35, all
+declined/blocked-on-human-registration, unchanged. (5) AUDITS & DEBT
+register: STALENESS AUDIT next due 2026-10-16, CONSTITUTIONAL AUDIT
+next due 2026-10-20 — neither due.
+
+With every directly-queued item exhausted, fell through to SESSION
+BUDGET's research tier ("deepening open hypotheses"). Surveyed
+`research/open_questions.md` for the longest-unclaimed live thread and
+found FUSION HYPOTHESIS (b)'s SWPP solar residual (grid_generation_fuel_mix):
+the 2026-09-14 fourth session's own NEXT left an explicit fork —
+"a future session should weigh stopping here versus a third independent
+capacity source" — unclaimed for 8 days (longer than any other filed,
+concretely-actionable NEXT in the file).
+
+STATED PRIOR (REASONING STANDARD #10, before touching any live data):
+expected EIA-860M still would not have a newer-than-July snapshot (the
+2026-09-14 second-session sub-question), since EIA's monthly cadence
+runs ~2 months behind and only 8 days had passed; expected a "third
+independent capacity source" to be hard to find at all (most obvious
+state-level capacity data is either what the DPV check already used or
+paid), with no prior expectation on direction if one were found.
+
+CHECKED FIRST (per the fork's own first branch): `curl -A "Mozilla/5.0"`
+against `xls/{august,september,october,november,december}_generator2026.xlsx`
+and `archive/xls/{august,september}_generator2026.xlsx` — all five
+return a generic 55,745-byte HTML landing page (confirmed via `file`
+and title-tag inspection, not just status code), while
+`xls/july_generator2026.xlsx` still returns a real 13.9MB xlsx
+(`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+EIA-860M has NOT published a newer snapshot; this sub-question remains
+UNANSWERABLE, unchanged, confirming the prior.
+
+Took the fork's other branch: web-navigated EIA's own site structure
+(not assumed from training) and found Form EIA-861 (a state utility-
+REGULATION survey — Net Metering and Non-Net-Metering Distributed
+Generation tables) publishes a 2025 EARLY RELEASE
+(`zip/f8612025er.zip`, real file, August 2026 internal timestamps) that
+neither this thread nor the DPV check had ever touched. This is
+genuinely independent of both EIA-930 (generation metering, what
+gate-1 reads) and EIA-923 (the DPV check's own source) — a different
+federal form filed by different respondents (utilities, not BAs) for a
+different regulatory purpose (net-metering/interconnection tracking,
+not generation reporting).
+
+READ BEFORE WRITE / DATA-STRUCTURE VERIFICATION (done carefully, twice
+— caught and corrected its own error mid-session): inspected both
+xlsx files' "States- State Level" sheets with `openpyxl`, hand-decoded
+the multi-block repeated-column header structure (each fuel/ownership
+category repeats a 5- or 6-column Residential/Commercial/Industrial/
+Transportation/[DirectConnected]/Total block; a positional read is
+required, `header.index()` by name cannot disambiguate repeats). FIRST
+PASS mistakenly read the "All Technologies" trailing block's Total
+column (PV+Battery+Wind+Other combined) as if it were PV-specific,
+producing an inflated OK figure (191.006 MW vs the correct 161.562).
+CAUGHT before shipping by manually reconciling the row's own
+Residential+Commercial+Industrial+Transportation sub-values against
+each candidate Total column and finding only one block's arithmetic
+closed — re-verified against a second state (KS) before trusting the
+correction. This is exactly the self-verification REASONING STANDARD
+asks for before a claim ships, not caught by a reviewer after the fact.
+
+WHAT SHIPPED: `scripts/eia861_dg_capacity_share.py` — pure functions
+(`net_metering_pv_capacity_mw`, `non_net_metering_pv_capacity_mw`,
+`combined_dg_pv_capacity`, `all_tech_utility_owned_bound`,
+`utility_scale_solar_capacity_by_state`, `dg_capacity_share`,
+`implied_overshoot_from_capacity_share`) plus I/O loaders for both
+EIA-861 xlsx tables and EIA-860 2025 annual's Plant/Solar schedules
+(mirrors `eia860_add_missing_plants.py`'s/`eia860_missing_plants_check.py`'s
+existing load-by-header-name convention for the EIA-860 side, EDGE
+DOCTRINE #3 — reused the pattern, not the code, since those modules'
+functions are not import-friendly across this repo's established
+self-contained-script convention). `test_eia861_dg_capacity_share.py`
+— 23 new tests, synthetic fixtures matching the real column layout,
+including three tests pinned to this session's own live numbers
+(`327.797`, `0.1293`, `1.3408`) as regression anchors. A/B-verified
+live: deliberately mis-set `NET_METERING_PV_TOTAL_CAPACITY_COL` to the
+wrong index — 4 tests correctly fail; reverted, all 23 pass.
+
+LIVE RUN (this session, real downloads — `curl -A "Mozilla/5.0"` for
+both EIA-861's `f8612025er.zip` and EIA-860's `eia8602025.zip`, no
+mocks): combined DG PV capacity for OK/KS/NE = **327.8 MW** (OK 163.3
+[161.562 net-metered + 1.733 non-net-metered], KS 126.7 [104.618 +
+22.064], NE 37.8 [27.283 + 10.537]) vs. utility-scale solar capacity
+(EIA-860 2025 annual, OP-status generators only, joined Plant Code ->
+State) = **961.7 MW** (OK 523.5, KS 278.4, NE 159.8). DG capacity share
+**25.42%**, implying (via the same `1/(1-share)` transform the DPV
+check uses) an overshoot of **1.3408x** — this EXCEEDS the observed
+SWPP solar gate-1 overshoot (1.286x, unchanged since 2026-09-14),
+whereas the DPV check's generation-based 15.56% share only implied
+1.1843x (~67% of the gap). Both independent methodologies now point
+the same direction, and the newer one is numerically sufficient alone.
+
+HONESTY CAVEATS (REASONING STANDARD #4/#7/#10 — stated in the module
+docstring and repeated in `research/open_questions.md`'s dated entry,
+not buried): (1) EIA-861's 2025 data is an EARLY RELEASE carrying EIA's
+own verbatim warning ("inappropriate for aggregation... to state
+totals") on every row — final edited data is not out yet. (2) a
+DOUBLE-COUNTING risk exists (utility-owned non-net-metered DG possibly
+already in the EIA-860 registry) — bounded, not resolved: the
+all-technology (not PV-specific) utility-owned share pools to 12.93%
+of non-net-metering capacity, small even under a worst-case uniform
+extrapolation. (3) CAPACITY share is not guaranteed to equal
+GENERATION share at gate-1's specific peak-hour metric (rooftop/
+distributed PV typically has a lower capacity factor at any given hour
+than utility-scale tracking arrays) — a complementary estimate, not a
+strict replacement for the DPV check's number. (4) same OK/KS/NE
+state-level scope caveat as the DPV check (SWPP's real 14-state
+footprint does not follow state lines).
+
+VERDICT: still not a clean gate-1 close — none of the four caveats are
+resolved and no SWPP respondent-level accounting document has been
+found by either session — but the honest disposition moves from
+"mechanism (ii) plausible, ~67% partial" to "mechanism (ii) plausible
+and, on two independent magnitude checks now, numerically sufficient —
+a search for a fourth mechanism is no longer well-motivated by the
+residual's size alone." `datacore/signal_ladder.json`'s
+`grid_generation_fuel_mix` note updated to match (surgical text edit,
+not a full JSON re-dump — see VERIFIED below for why that distinction
+mattered this session); `current_gate`/`status` unchanged
+(`raw_only`/0 — a magnitude plausibility check is not a gate-1 pass).
+
+CAUGHT AND FIXED MID-SESSION (own mistake, logged per READ BEFORE
+WRITE discipline, not glossed over): the first attempt to write the
+`signal_ladder.json` update used `json.load`/`json.dump` in Python,
+which silently reformatted the ENTIRE file (compact single-line-per-
+root JSON -> pretty-printed, ~600-line diff) rather than making a
+surgical addition — caught via `git diff --stat` before staging,
+reverted with `git checkout --`, redone as a targeted text edit
+(2-line diff: `last_update_date` + note-field append). Filed here as a
+process note for any future session editing this specific file:
+`json.dump` round-trips are lossy for formatting on this repo's
+hand-maintained compact JSON files.
+
+VERIFIED, not assumed:
+- `npx tsx --test test_eia861_dg_capacity_share.py` equivalent —
+  actually `python3 -m pytest -q test_eia861_dg_capacity_share.py`:
+  23/23 pass (both before AND after the A/B mis-index check above).
+- `python3 -m pytest -q` (full suite): 2147 passed, 1 skipped, 54
+  subtests, zero regressions (up from 2124 the prior 2026-09-22
+  session — this session's own +23).
+- `python3 -m pytest -q test_ladder_registry_coverage_check.py
+  test_ladder_readiness_check.py`: 29/29 pass — the note-only
+  `signal_ladder.json` edit does not touch any field either script's
+  invariants check (`status`/`current_gate`/`readiness_trigger` all
+  unchanged).
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+  valid, 56 roots (unchanged count — a note update, not a new root).
+- `npx tsc --noEmit` / `bash scripts/tsc_ratchet.sh`: 11 errors, exact
+  match to `ci/tsc_baseline.txt`'s pin, TS2304=0 (no TS file touched
+  this session).
+- `bash scripts/counter_ratchet.sh`: `assertions` 14952 -> 14988 (this
+  session's own +36 asserts in the new test file — required `git add`
+  first; `program_status.sh` reads `git ls-files`, an untracked new
+  test file undercounts, same discovery this UTC day's first session
+  already logged for a different file, confirmed to still hold here);
+  `tests_run_in_ci`/`tests_gating_merge` 462 -> 463 (one new test
+  file). All three re-pinned in `ci/counter_baseline.txt` in this same
+  PR; re-ran after re-pinning: 25/25 counters OK. No other counter
+  moved (confirmed via a full live-vs-pin diff before touching
+  anything, not assumed).
+- `npm ci` run fresh this session (container had no `node_modules`);
+  `npm run build`: clean (same pre-existing chunk-size/astronomy-engine
+  warnings every prior session has already noted, none new).
+- `bash scripts/gated_tests.sh`: GATE PASSED, run three times this
+  session (once immediately after `npm ci` to confirm the fresh-
+  container provisioning gap wasn't masking anything, once after the
+  `signal_ladder.json` fix, once final on the fully-staged tree) —
+  client 1091/1091, python 2147/1 skipped, deploy-gate smoke PASS
+  (`/api/health` 200 in 2.5s under latched-kill-switch + stale-
+  liveness fixtures), quarantine 0/1, none overdue.
+- Version bumped 1.0.958 -> 1.0.959 (`package.json` +
+  `package-lock.json`, read-and-incremented from freshly-fetched
+  `origin/main` immediately before committing — unchanged at `5b51ad0`
+  since this session's own start).
+
+GATES: full local suite above covers every file this diff touches; no
+runtime `.ts`/`.py` behavior changed outside the new research script,
+its test, and documentation/bookkeeping files — `server/bot.ts`,
+`system_config.py`, `strategies/`, and every order-path file are
+untouched. CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a ROOT VALIDATION LADDER gate-1
+magnitude-plausibility script and research bookkeeping, not a trading
+strategy, sizing, or threshold change; `grid_generation_fuel_mix` is
+not wired into `deep_score`/any order path (unchanged from every prior
+session in this thread).
+
+MEASUREMENT INTEGRITY: `scripts/eia861_dg_capacity_share.py` is new
+research/gate-1 measurement code, its own PR, not bundled with any
+strategy change. It does not touch `gate2_stats.py`/`statsUtils.ts`/
+the backtest engine/the fills tracker/any existing metric definition —
+"before vs after on identical inputs" does not apply (nothing existing
+was changed); stated for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+ads code in this diff.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-22 ~11:38 UTC = ~07:38 AM ET
+(confirmed via this session's own `/api/health` timestamp) — well
+outside 9:30-16:00 ET market hours, so no merge-hold applies.
+
+NEXT: (1) when EIA-861's FINAL (non-early-release) 2025 data ships
+("later in 2026" per EIA's own notice), re-run
+`eia861_dg_capacity_share.py` against it to remove the early-release
+caveat — the single most fixable of the four honesty caveats. (2)
+`scripts/portdwell_weekly_snapshot.ts` — still the right idempotent
+re-run-every-session item, unchanged, will pick up week 11 once it
+completes. (3) KNOWN BROKEN #43/#44's human-decision items — unchanged,
+not re-notified. (4) the still-standing FDA IV-ramp gate-2 hypothesis
+remains unclaimed, same blocker (no options-IV pipeline) as every
+prior session that considered it.
+
+STARVED: no — this session exhausted every directly-queued NEXT item
+first (portdwell, FDA IV, ladder readiness, unbuilt-candidate sweep,
+audits register) before falling through to research per SESSION
+BUDGET's own ordering, then picked the single longest-unclaimed
+concretely-actionable open thread (8 days) rather than starting a
+fresh, unrelated hypothesis, shipped a genuinely new and independent
+data source (not a re-run of existing tooling), caught and corrected
+its own indexing error before it shipped, and left a concrete, dated
+NEXT. No higher-priority queued item was skipped — no LIVENESS
+escalation was warranted (unchanged reading, already notified earlier
+today), thrash ratio 1/10 [REPAIR] well under the 7+ trigger.
+
+NOT A SPEND REQUEST.
