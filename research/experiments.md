@@ -3,6 +3,241 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine session, later this UTC day) [REPAIR] — GNSS-integrity permanent daily archive: found + fixed a structural 30-day depth cap on gnss_integrity_adsb while pursuing a new cross-connection hypothesis; hypothesis pre-registered and filed, not yet runnable (v1.0.963)
+
+TERRITORY: T-BOT-adjacent (server/gnssIntegrityDaily.ts new,
+server/gnssIntegrityDaily.test.ts new, server/routes.ts wiring — a
+data-archive/pipeline fix, not scoring/sizing/strategy logic) + SHARED-
+minimal, LAST commit per WORKSTREAM PARTITION (datacore/signal_ladder.json,
+ci/counter_baseline.txt, package.json/package-lock.json, research/*).
+
+SESSION-START: read CLAUDE.md in full, research/experiments.md's most
+recent entries (today's 8+ prior sessions — RULE-REVIEW automerge tally,
+GEM coal_terminals PRODUCT, and the run before that), research/
+open_questions.md's KNOWN BROKEN section, research/wishlist.md's recent
+entries, per MEMORY PROTOCOL and this session's own orchestrator brief
+(fresh checks already run: ladder_readiness_check.py 0/3 ready,
+data_stream_registry_check.py --unbuilt 9/9 blocked, portdwell weekly
+snapshot week-10 no-op, neither audit due — all confirmed unchanged, not
+repeated).
+
+LIVE HEALTH CHECK: unchanged in substance from the orchestrating
+session's own same-day check — `/api/health` `status:"degraded"`,
+`bot.status:"killed"`, LIVENESS ALARM active (~58.5 market hours / ~305
+wall-clock hours dark since 2026-09-10T03:12:26Z, drawdown -5.3%). This
+is the standing human-decision item (KNOWN BROKEN #42/#43), already
+notified multiple times including today — NOT re-notified here (no new
+fact; per the orchestrating session's own instruction, this is being
+separately weighed there, not this session's job). KNOWN BROKEN #44
+(insider_cusum_gate2 500s, scripts/ not copied into the Docker image)
+is fully diagnosed and mitigated, fix filed in wishlist.md awaiting
+human approval (Dockerfile is FROZEN) — not touched.
+
+PRIMARY-ACTION SELECTION: all directly-queued items were exhausted per
+the orchestrator's own fresh checks (repeated above, not re-run). Per
+CLAUDE.md's ACTIVE ANGLE-HUNTING standing behavior and this session's own
+task instructions ("generate a genuinely NEW hypothesis... rather than
+mechanically continuing the registry-entry pattern"), surveyed
+open_questions.md for CROSS-CONNECTION candidates not yet tried. Found
+`gnss_integrity_adsb` (datacore/signal_ladder.json, gate2_pass since
+2026-08-13/15) has carried "no tradable-ticker hypothesis exists yet to
+backtest against" as its own stated GATE 3 blocker since 2026-08-24, with
+no session having picked that specific thread up since (confirmed via
+grep across experiments.md/open_questions.md). Chose this over an 8th
+"foreign-field-import, price-statistic-vs-SPY" variant (7 already tried,
+all killed/unresolved — REASONING STANDARD #4 discounts further ones
+explicitly) because it is a structurally different shape: a non-price,
+already-gate2-validated geopolitical signal joined against a SECTOR-
+SPECIFIC ticker, not a price-derived statistic against the broad index.
+
+STATED PRIOR (REASONING STANDARD #10, before touching any data): WEAK.
+(1) the causal chain (Baltic GNSS jamming -> defense-sector re-rating) is
+narrow and low-base-rate — most days carry no escalation signal; (2) this
+is still the file's 8th speculative cross-domain hypothesis in the
+"compute a rate/statistic, correlate with forward ticker returns" shape,
+discounted accordingly even though source and target are both new;
+(3) full design in research/open_questions.md's matching dated entry.
+
+READ BEFORE WRITE: read `server/gnssIntegrityQuery.ts` in full
+(`aggregateGnssIntegrity`, `bandForRow`, `originOfPosType`, `IntegrityCell`,
+`readGnssIntegrityWindow`), `server/gnssIntegritySignal.ts` in full
+(`CANDIDATE_BBOX`/`CONTROL_BBOX`, `computeGnssIntegritySignal`,
+`recentDays`, `WRITER_LIVE_SINCE`), `server/fleetUtilization.ts`'s
+`preserveWeeklyBeforeRollup`/`scanFile`/`addWeekly` (the exact 2026-08-02
+architectural precedent for this fix shape), `server/datacoreArchive.ts`'s
+`rollupOldDaysAsync`/`accumulateTrackLine`/`emitDaySummary` (confirming
+what the generic rollup keeps vs. drops), and `server/routes.ts`'s
+maintenance-tick wiring, before writing or editing anything.
+
+WHAT I WAS ACTUALLY TRYING TO BUILD, AND WHAT I FOUND INSTEAD: attempting
+to construct the daily GNSS-jamming-intensity time series the cross-
+connection probe needs, I live-probed `/api/diag/gnss_integrity` for the
+Baltic bbox across individual days back to `WRITER_LIVE_SINCE`
+(2026-08-11, per gnssIntegritySignal.ts's own constant). Every day from
+2026-08-11 through 2026-08-23 came back `days_missing` on production
+TODAY; 2026-08-24 onward (within `RAW_RETENTION_DAYS`=30 of "today",
+2026-09-22) still reads. ROOT CAUSE, confirmed by reading
+`datacoreArchive.ts`'s `accumulateTrackLine`/`emitDaySummary`: the
+generic 30-day rollup that turns an aged-out raw aircraft hour file into
+a permanent per-entity daily-track summary keeps only
+`{i, n, t0, t1, bbox, pl}` — position/time/coarse polyline. It NEVER
+carries `ni` (nic), `pt` (pos_type), or `al` (altitude) — the three
+fields `gnss_integrity_adsb`'s entire signal is computed from. So this
+root's archive has been structurally incapable of exceeding ~30 days of
+usable depth since the writer shipped (2026-08-11), no matter how long
+the system has run — the SAME bug shape the 2026-08-02 fleet-utilization
+session found and fixed (`preserveWeeklyBeforeRollup`), but in a
+DIFFERENT module: that fix preserves per-owner flight-session deltas, and
+never touched the integrity/altitude fields this root needs — it does
+not cover this root at all.
+
+PRACTICAL IMPACT, stated honestly: the already-shipped, already-
+gate2_pass LIVE computation (`computeGnssIntegritySignal`) is NOT broken
+by this — `recentDays(maxDays=21, ...)` only ever asks for the last <=21
+days, safely inside the 30-day raw-retention floor, so its two published
+gate-2 passes (2026-08-13, 2026-08-15) and its live `/api/data/gnss-
+integrity-signal` route are unaffected. The gap only bites a genuinely
+LONGER-history use — exactly the market-correlation probe this session
+was trying to build, and any future attempt to widen the live signal's
+own window past ~30 days.
+
+WHAT SHIPPED (one PR, one logical change — the writer only, per the
+"scope deliberately" note below):
+- `server/gnssIntegrityDaily.ts` (new): `preserveGnssIntegrityDailyBeforeRollup`
+  (mirrors `preserveWeeklyBeforeRollup`'s fold-before-delete/processedFiles-
+  set/merge-add shape exactly, adapted to this root's band x origin cell
+  data instead of per-owner flight deltas) folds every raw aircraft hour
+  file older than `RAW_RETENTION_DAYS` into a small permanent
+  `gnss_integrity_daily.json.gz`, keyed by calendar day, holding
+  `aggregateGnssIntegrity`'s own cell output (reused verbatim, EDGE
+  DOCTRINE #3 — not reimplemented) for BOTH `CANDIDATE_BBOX` (Baltic) and
+  `CONTROL_BBOX` (NY+Paris), the same two canonical regions the existing
+  gate-2 test already uses. `loadGnssIntegrityDailyArchive` is the
+  read-back (used by tests and any future in-process consumer).
+- `server/gnssIntegrityDaily.test.ts` (new, 6 tests): fold-into-both-
+  bboxes-correctly (including a no-`ni`-field row correctly excluded from
+  the denominator and an outside-both-bboxes row correctly excluded from
+  both cell sets), survives-raw-file-deletion, idempotent-if-called-twice-
+  before-deletion, additive-merge-across-two-rollup-ticks-for-the-same-
+  day, a not-yet-past-retention file is left alone (no-op), and a corrupt/
+  truncated `.gz` file degrades rather than crashing.
+- `server/routes.ts`: `preserveGnssIntegrityDailyBeforeRollup` wired into
+  the SAME 6h maintenance-tick chain as `preserveWeeklyBeforeRollup`,
+  BEFORE `rollupOldDaysAsync` (the ordering that makes the fold-before-
+  delete guarantee hold — mirrors the existing chain's own comment and
+  structure exactly, only the sequencing runs one more preserve step
+  before the shared rollup).
+- `datacore/signal_ladder.json`: `gnss_integrity_adsb`'s note extended
+  (targeted string edit, not a full re-serialize — confirmed the diff
+  touches only this one entry) with the full diagnosis, the fix, and the
+  honest "closes the gap going forward only" cost statement; gate status
+  UNCHANGED (still `gate2_pass`/2) — this is archive-depth infrastructure,
+  not a new statistical result.
+- `research/open_questions.md`: the pre-registered GNSS-jamming x
+  defense-sector-ETF (ITA, SPY control) cross-connection hypothesis filed
+  as its own dated entry — full design (signal definition, z-score
+  window, horizon, statistic, readiness bar), stated prior, second-order
+  reasoning, and NEXT steps, explicitly NOT run this session (archive
+  depth is insufficient by construction until real calendar time passes
+  under this fix).
+
+SCOPED DELIBERATELY, one logical change per PROMOTION RULE 5: no diag-
+probe read path was added this session (a future session adds it once
+enough days have genuinely accumulated to be worth reading — mirrors this
+same root's own precedent of shipping Phase 1/ground-truth, Phase 2/
+writer, and Phase 3/reader as three separate sessions), and the
+correlation-probe script itself (`scripts/gnss_defense_correlation_probe.ts`
+per the pre-registered design) was NOT built this session either — building
+it now, before any real data exists to run it against, would risk a
+future session tuning parameters after finally seeing a real (thin, noisy)
+result, which the pre-registration in open_questions.md is specifically
+there to prevent. `computeGnssIntegritySignal`'s live rolling-window
+computation is untouched, byte-for-byte — MEASUREMENT INTEGRITY: a metric
+definition and a data-availability fix for it should not ship in the same
+diff.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/gnssIntegrityDaily.test.ts`: 6/6 pass.
+- `npx tsx --test server/*.test.ts` (full suite, `npm ci` run first — this
+  fresh container's `node_modules` was stale, same recurring sandbox-
+  provisioning note prior sessions have logged, 8 files failed with
+  `ERR_MODULE_NOT_FOUND` before `npm ci`, 0 failures after): 1829/1829
+  pass (1823 pre-existing + 6 new), 0 regressions.
+- `python3 -m pytest -q`: 2147 passed, 1 skipped, 54 subtests — 0
+  regressions (no Python file touched this session).
+- `npm run build`: clean (pre-existing chunk-size/astronomy-engine
+  warnings only, unrelated to this diff).
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server/client/python
+  all green, quarantine 0/1 none overdue, deploy-gate smoke PASS. Run
+  TWICE (once mid-session, once again after the signal_ladder.json/
+  open_questions.md/version-bump edits landed) — both clean.
+- `bash scripts/tsc_ratchet.sh`: `OK: 11 <= 11, TS2304 = 0` — matches
+  `ci/tsc_baseline.txt`'s pin exactly (an earlier mid-session run showed
+  the same pre-existing 11->3 drop several prior sessions have found and
+  declined to claim; after `npm ci` restored the exact committed
+  `node_modules`, the count returned to 11, its true baseline-matching
+  value — not re-pinned either way, since neither reading is this diff's
+  own gain).
+- `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge`
+  463->465, `assertions` 14988->15047 — confirmed via a fresh
+  `git fetch origin main` immediately before re-pinning that this
+  checkout's HEAD still matched `origin/main` exactly (833a9f7, zero
+  drift), so the whole delta is this diff's own 6 new tests, not
+  pre-existing drift; re-pinned in `ci/counter_baseline.txt` in this same
+  PR, re-ran clean (25/25 OK) after.
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+  valid, 56 roots (unchanged count — one root's note extended, matching
+  the same "unchanged root count" pattern every prior note-only update in
+  this file has logged).
+
+Backtest: N/A per PROMOTION RULE 3 — a data-archive/pipeline repair, no
+scoring/sizing/strategy/threshold code touched; the new module is not
+wired into `deep_score`/any order path, and the cross-connection
+hypothesis this session filed was explicitly NOT run (no result exists
+to backtest against yet).
+
+MEASUREMENT INTEGRITY: `computeGnssIntegritySignal` (the LIVE, already-
+gate2_pass metric computation) is untouched — confirmed by reading it
+this session and by this diff not modifying `gnssIntegritySignal.ts` at
+all. The new module only adds a permanent WRITE path for data the live
+computation never reads (it stays inside the 21-day rolling window); no
+existing metric's reported value changes before vs. after this diff on
+identical historical inputs.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session running 2026-09-22, later UTC afternoon
+(after the day's PR #1149 automerge tally). This PR touches no order-
+path/trading-logic file (a server-side archive-preservation fix + tests
++ a research-log-only update) — per the repo's own recently-reconfirmed
+automerge convention it will likely merge on green CI regardless of
+market hours; noted in the PR body per this session's own instructions,
+not enforced (the same tracked gap wishlist.md's automerge thread
+already carries — not re-tallied here, this diff is unrelated to that
+thread's own subject).
+
+NEXT: (1) a future session adds the diag-probe read path for the
+permanent daily archive (mirrors `insider_cusum_gate2`'s precedent —
+token-gated, aggregate-only, no query parameters needed since the read
+target is fixed); (2) once >=15 de-strided pairs of real accumulated
+depth exist (verify live via the new read path, never assume from the
+calendar date — the exact mistake the 2026-08-02 fleet-utilization
+fix's own first NEXT note made and a later session had to correct), a
+future session builds and runs `scripts/gnss_defense_correlation_probe.ts`
+per the design pre-registered in open_questions.md; (3) report the
+READY/WAITING or PASS/FAIL/INCONCLUSIVE verdict honestly, no retuning
+after seeing the real result.
+
+STARVED: no — the primary action (archive-depth REPAIR) shipped
+end-to-end with tests and full local verification across both languages;
+the cross-connection hypothesis this session set out to test is filed as
+a complete, pre-registered RESEARCH-tier artifact per SESSION BUDGET
+fall-through, honestly marked not-yet-runnable rather than forced on
+insufficient data or left as unrecorded browsing.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-22 (scheduled-routine session, same-day addendum after PR #1149 merged) [RULE-REVIEW] — 21st confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
 
 TERRITORY: SHARED-minimal (research/* only). PR #1149 (this session's own

@@ -108,6 +108,7 @@ import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { fleetSeriesCached, preserveWeeklyBeforeRollup } from "./fleetUtilization";
+import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
@@ -1317,13 +1318,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // 30min/6h — periodic multi-second stalls for every response AND the
   // trading loop with zero user interaction. Streamed variants breathe.
   setInterval(() => { compressOldHoursAsync().catch(() => {}); }, 30 * 60_000).unref?.();
-  // preserveWeeklyBeforeRollup MUST run first: it folds aircraft hour files
-  // into the permanent fleet-utilization weekly archive before
-  // rollupOldDaysAsync deletes those same files past RAW_RETENTION_DAYS —
-  // see fleetUtilization.ts's "permanent weekly archive" section for why.
+  // preserveWeeklyBeforeRollup / preserveGnssIntegrityDailyBeforeRollup MUST
+  // both run first: they fold aircraft hour files into their own permanent
+  // archives (fleet-utilization weekly totals; gnss_integrity_adsb daily
+  // band x origin cells) before rollupOldDaysAsync deletes those same files
+  // past RAW_RETENTION_DAYS — see fleetUtilization.ts's "permanent weekly
+  // archive" section and gnssIntegrityDaily.ts's own header for why each
+  // exists (same bug shape, two different fields the generic rollup drops).
   setInterval(() => {
     preserveWeeklyBeforeRollup().catch((e) => console.error("[fleet-weekly]", e?.message || e))
-      .finally(() => { rollupOldDaysAsync().catch(() => {}); });
+      .finally(() => {
+        preserveGnssIntegrityDailyBeforeRollup().catch((e) => console.error("[gnss-daily]", e?.message || e))
+          .finally(() => { rollupOldDaysAsync().catch(() => {}); });
+      });
   }, 6 * 3600_000).unref?.();
 
   // NONSTOP PLANE TRACKER (human directive 2026-08-08): named tail numbers

@@ -21816,3 +21816,165 @@ STARVED: no — filed as an artifact per SESSION BUDGET fall-through
 shipping the one item it names as closed.
 
 NOT A SPEND REQUEST.
+
+## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
+
+CONTEXT: per this session's own task instructions (SESSION BUDGET fall-
+through, ACTIVE ANGLE-HUNTING standing behavior), all directly-queued
+items were exhausted first (ladder_readiness_check.py 0/3 ready,
+data_stream_registry_check.py --unbuilt 9/9 blocked/declined,
+portdwell_weekly_snapshot.ts still week-10 idempotent no-op — all
+re-confirmed unchanged from the orchestrating session's own same-day
+check). `/api/health` re-checked: unchanged in substance from every
+session today (LIVENESS ALARM / KNOWN BROKEN #42/#43, standing human-
+decision item, not re-notified — no new fact). Fell through to a
+genuinely NEW hypothesis rather than the day's 7th-plus GEM-registry-
+route PRODUCT continuation, per this session's own explicit instruction
+to diversify away from that mechanical pattern.
+
+WHY THIS AXIS: `gnss_integrity_adsb` (datacore/signal_ladder.json) is
+gate2_pass — a real, physically-corroborated, ADS-B-derived GNSS-jamming/
+spoofing signal in the Baltic corridor, unique to this archive (nobody
+else computes this from raw integrity-field passthrough) — but its own
+note has stated since 2026-08-24 "no tradable-ticker hypothesis exists
+yet to backtest against" as the reason it cannot advance past GATE 2. No
+prior session had picked THAT specific open thread up. This is a genuine
+CROSS-CONNECTION (join an existing, already-validated geopolitical
+signal with an existing market data source) distinct from this file's
+already-saturated "foreign-field-import, price-statistic-vs-SPY" family
+(7 prior attempts, all killed/unresolved/discounted per REASONING
+STANDARD #4) — a structurally different shape: non-price signal source
+x a SECTOR-SPECIFIC ticker, not a price-derived statistic x the broad
+index.
+
+HYPOTHESIS (pre-registered before writing or running any test code, per
+REASONING STANDARD #10): sustained elevation in Baltic-corridor GNSS-
+jamming intensity (the SAME cruise/mid-band, broadcast-origin nic==0
+rate this root's own gate-2 test already validates as real and
+physically corroborated — see gnssIntegritySignal.ts's CANDIDATE_BBOX)
+is a leading indicator of Russia-NATO hybrid-conflict escalation, which
+historically co-moves with European/US defense-sector equity re-ratings
+(the 2022 Ukraine-invasion precedent: Rheinmetall/Saab/BAE-class names
+and, for the more liquid US-listed proxy this probe would actually use,
+ITA — iShares U.S. Aerospace & Defense ETF — all re-rated sharply on
+escalation headlines). CANDIDATE: ITA forward H-day returns. CONTROL/
+BASE RATE (REASONING STANDARD #3): SPY forward H-day returns over the
+identical window — isolates whether any relationship is defense-sector-
+specific or just "jamming days happen to be noisy market days" market-
+wide noise.
+
+SECOND-ORDER REASONING (REASONING STANDARD #5 — who is on the other
+side, why hasn't this been arbitraged away): institutional geopolitical-
+risk desks certainly watch Baltic jamming via public reporting (DTU
+Space/Bornholm RF station, gpsjam.org, OPSGROUP NOTAMs — all already
+investigated and either used or rejected as gate-1 sources in this
+root's own history). The structural reason a DAILY, ADS-B-derived
+INTENSITY series specifically might carry incremental signal beyond
+those qualitative reports: this archive computes a continuous rate
+metric from raw integrity fields nobody else publishes at daily
+granularity (existing public sources are narrative incident logs, not a
+continuous series) — EDGE DOCTRINE #1 (build data, don't buy it) applied
+to a genuinely novel derived series, not a repackaging of a public feed.
+This is a plausible, not a proven, structural reason — stated honestly
+as a hypothesis to be discounted like every other untested edge.
+
+PRIOR (stated before running, REASONING STANDARD #10): WEAK. (1) the
+underlying relationship (geopolitical-tension proxy -> sector ETF) is a
+single, narrow, low-base-rate causal chain — most days carry no
+escalation signal at all, so the EFFECTIVE sample of informative days
+within any archive window is much smaller than the raw day count; (2)
+REASONING STANDARD #4 — this file already carries 7 discounted foreign-
+field imports and this is the file's 8th cross-domain speculative
+hypothesis in the "compute a rate/statistic, correlate with forward
+ticker returns" shape, even though the SOURCE and TARGET are both new;
+discount accordingly; (3) the archive depth problem below means this
+prior cannot even be tested honestly yet — the correct move is to
+pre-register the design NOW (so a future run is not tuned after seeing
+results) and file it as NOT YET ACTIONABLE, not to force a run on
+insufficient data.
+
+ARCHIVE DEPTH BLOCKER (the actual finding this session shipped code
+for): attempting to build the daily jamming-intensity time series this
+probe needs surfaced a genuine, previously-undiscovered structural bug —
+`gnss_integrity_adsb`'s archive can never exceed ~30 days of depth
+because `datacoreArchive.ts`'s generic 30-day rollup drops the exact
+fields (nic/pos_type/altitude) this root reads, permanently, once a raw
+hour file ages out. Full diagnosis, the fix
+(`server/gnssIntegrityDaily.ts`, `preserveGnssIntegrityDailyBeforeRollup`),
+and its tests are this session's shipped PR — see research/experiments.md's
+matching dated entry and datacore/signal_ladder.json's `gnss_integrity_adsb`
+note for the complete writeup. That fix closes the gap GOING FORWARD
+ONLY (every day before 2026-09-22 in this shape is unrecoverable) — so
+this probe cannot be run with real statistical power until real calendar
+time has passed under the fix. Deliberately NOT forced this session
+(REASONING STANDARD #4/#8 — a probe run on ~20-30 noisy days would be
+theater, not evidence).
+
+LADDER PATH: this is downstream of `gnss_integrity_adsb`'s existing
+GATE 2 (already pass) — this cross-connection is effectively testing
+whether that validated signal ALSO has return-predictive power against a
+specific tradable ticker, which is the literal CLAUDE.md GATE 2 (SIGNAL)
+definition ("predictive power is measured statistically, with no trading
+involved") applied to a return target for the first time (the existing
+gate2_pass result validated the signal's own statistical reality against
+a control REGION, not its predictive power against a ticker) — filed
+here as its own distinct test, not silently folded into the existing
+gate2_pass status. A pass would still need GATE 3 (LOGIC — entry/exit
+rules, backtested by ablation) before any trading claim; this probe
+alone never reaches that.
+
+PRE-REGISTERED DESIGN (fixed now, before any real run, so a future
+session cannot silently retune after seeing an unfavorable result —
+MEASUREMENT INTEGRITY / REASONING STANDARD #10):
+  - Signal: daily rate_t = n_zero / n_total, summed across the cruise +
+    mid bands' broadcast-origin cells (the same two bands the existing
+    gate-2 test found physically elevated), read from the permanent
+    daily archive this session's fix now accumulates
+    (`loadGnssIntegrityDailyArchive`, once a read path exists).
+  - Rolling z-score window: 10 trading days (two weeks) — deliberately
+    SHORT, sized to the archive's own known-thin depth rather than
+    reusing the 60-day window other probes in this file use for a decade
+    of price history; stated now so it cannot be picked after seeing the
+    real series length.
+  - Horizon: 5 trading days — the shorter of this repo's two standard
+    horizons {5,20}, chosen because the deeper history 20-day de-strided
+    sampling needs does not exist yet, not because 5 looked better.
+  - Statistic: naive daily Spearman AND de-strided (stride=horizon)
+    Spearman, mirroring hurst_exponent_probe.py's own established
+    de-correlation safeguard (EDGE DOCTRINE #3 — reuse, do not
+    reimplement); a TS-side `spearman()` helper belongs in
+    scripts/statsUtils.ts (t-approximation via the module's existing
+    `tCrit005`, since Node has no scipy) when this is actually built.
+  - READINESS bar, pre-registered: at least 15 valid DE-STRIDED
+    (non-overlapping) pairs required before rendering any PASS/FAIL/
+    INCONCLUSIVE verdict — below that, report WAITING with the real
+    counts, exactly like settlement_stress_composite's own
+    MIN_DOMESTIC_EPISODES=20 precedent. With the archive's real depth as
+    of this session (~20-30 raw calendar days, now permanently preserved
+    from 2026-09-22 forward), this bar will NOT be cleared for some
+    weeks — a future session must check the live accumulated day count,
+    not assume from the calendar date (same mistake a prior session's
+    own re-baselined-trigger note already flagged and corrected once).
+
+NEXT (in order, for whoever picks this back up): (1) ship the diag-probe
+read path for the permanent daily archive (queued in this session's
+gnssIntegrityDaily.ts header and the signal_ladder.json note); (2) once
+>=15 destrided pairs are available (verify live, do not estimate), build
+`scripts/gnss_defense_correlation_probe.ts` per the pre-registered design
+above, reusing `fetchYahooDaily`/`toSeries`/`fwdReturn`/`meanStd` from
+`scripts/occ_volume_gate2.ts` (EDGE DOCTRINE #3) for the ITA/SPY price
+side; (3) report the READY/WAITING or PASS/FAIL/INCONCLUSIVE verdict
+honestly per the pre-registered bar above — no post-hoc parameter
+changes if the first run disappoints (MEASUREMENT INTEGRITY); (4) per
+REASONING STANDARD #4, treat any positive result here as ONE data point
+in a family that has now tried 8 speculative cross-domain/foreign-field
+hypotheses — a real pass still needs independent out-of-sample
+confirmation before it influences GATE 3 work.
+
+STARVED: no — this session's primary action (the archive-depth REPAIR)
+shipped end-to-end with tests; this entry is the RESEARCH-tier artifact
+SESSION BUDGET fall-through explicitly allows filing without running code
+against insufficient data, rather than either forcing a premature/
+underpowered result or leaving the finding as unrecorded browsing.
+
+NOT A SPEND REQUEST.
