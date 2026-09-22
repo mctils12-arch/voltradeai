@@ -311,14 +311,23 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
 // PR consciously updates the pin — silent drift in either direction fails.
 test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
   const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
-  const PINNED_GAP = 249; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
-  // 248 -> 249 this PR: new "grid_generation" layer, a non-rendered RAW
-  // tabular root (respondent leaderboard, no map geometry) — same class as
-  // its own sibling "grid_demand" and "treasury_dts", both of which also
-  // carry neither field. renderKind/lod describe HOW a layer paints on the
+  const PINNED_GAP = 250; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  // 248 -> 249: new "grid_generation" layer, a non-rendered RAW tabular
+  // root (respondent leaderboard, no map geometry) — same class as its own
+  // sibling "grid_demand" and "treasury_dts", both of which also carry
+  // neither field. renderKind/lod describe HOW a layer paints on the
   // map/globe; a layer with no map presence has nothing to declare there,
   // same reasoning already applied to every other filings/facilities-group
   // RAW leaderboard root in this registry.
+  // 249 -> 250: new "coal_terminals" layer DOES render on the map (a
+  // MapLibre symbol layer, same class as "aircraft") and gained
+  // renderKind:"point-symbol" for it — but, like "aircraft", carries no
+  // `lod` (a fixed ~521-point static registry has no distance-based level
+  // of detail to declare; lod is meaningful for orbital_sats-class layers
+  // with a real altitude fade band, not this one), so it still counts as
+  // "missing" under this test's OR predicate. Partial metadata (one of two
+  // fields) is still real progress over the prior zero, even though the
+  // pinned count itself can only move on the all-or-nothing AND it checks.
   assert.equal(
     missing.length,
     PINNED_GAP,

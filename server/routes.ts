@@ -54,6 +54,7 @@ import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
+import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
@@ -3260,6 +3261,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "activity, output, or emissions claims.",
       count: hit.features.length,
       features: hit.features,
+    });
+  });
+
+  // GEM "Global Coal Terminals Tracker" — 521 port coal-handling
+  // terminals worldwide, RAW/FACTUAL (server/gemCoalTerminals.ts). STATIC
+  // reference dataset, same seeded pattern as coal-mine-features above:
+  // re-ingested on GEM's ~2x/year release cadence via scripts/
+  // gem_ingest.py, not a live poll. Closes the shipped-data-no-map-layer
+  // gap for this GEM artifact (global_energy_monitor's own ladder note
+  // named gas_pipelines/gas_finance as the still-unrouted half — this is
+  // a separate, previously-unrouted registry it did not name).
+  app.get("/api/data/coal-terminals", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemCoalTerminals();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Global Coal Terminals Tracker",
+                         warming_up: true, count: 0, terminals: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Global Coal Terminals Tracker",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "Port coal-handling terminals as catalogued by GEM: lifecycle status, terminal type "
+        + "(imports/exports/domestic, or a mixed combination), product type, and stated capacity. "
+        + "Locations/status as catalogued; no throughput, activity, or output claims.",
+      count: hit.terminals.length,
+      terminals: hit.terminals,
     });
   });
 

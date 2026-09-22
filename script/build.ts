@@ -89,6 +89,10 @@ async function buildAll() {
   // added here in the SAME PR this time, per the R14/2026-07-20 lesson
   // (the ratchet test below caught the miss before it ever reached prod).
   await cp("datacore/gem/coal_mine_features.geojson.gz", "dist/datacore/gem/coal_mine_features.geojson.gz");
+  // [PRODUCT] server/gemCoalTerminals.ts reads this via repoDataPath at
+  // runtime (new /api/data/coal-terminals route) — added in the same PR,
+  // same R14/2026-07-20 lesson, caught by the ratchet test below.
+  await cp("datacore/gem/coal_terminals.json", "dist/datacore/gem/coal_terminals.json");
 }
 
 buildAll().catch((err) => {

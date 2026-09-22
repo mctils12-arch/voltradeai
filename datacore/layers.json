@@ -2663,6 +2663,17 @@
    "description": "2,116 catalogued mine features: 333 mine-boundary polygons plus 1,783 point features — ventilation shafts, degasification/drainage wells, and other mapped mine infrastructure (preparation plants, coal storage, combined heat and power). This is the underlying GEM asset geometry the Methane Plumes layer above already matches detections against, shown directly for the first time. Symbol = feature category (boundary / ventilation / degasification / other); colour = catalogued coal grade (metallurgical / thermal / thermal & met / unstated) — never a production or output claim. Locations and boundaries as catalogued by GEM; no activity, output, or emissions claims. Off by default (same GEM-family precedent as Methane Plumes)."
   },
   {
+   "id": "coal_terminals",
+   "name": "Coal terminals (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "renderKind": "point-symbol",
+   "source": "Global Energy Monitor — Global Coal Terminals Tracker, CC BY 4.0 (server/gemCoalTerminals.ts)",
+   "description": "521 port coal-handling terminals worldwide. Symbol = terminal role as catalogued by GEM (exports / imports / domestic / mixed for multi-role terminals / unstated when the source doesn't say); colour = lifecycle status (Operating / Construction / Proposed / Shelved / Mothballed / Retired / Cancelled) — never a throughput or output claim. Ties into the existing AIS-derived port-dwell and dark-ship layers (both under Filings & flows) as a real geographic join, not yet attempted. Locations/status as catalogued by GEM; a small number of rows share a parent GEM Terminal ID (multiple berths/phases at one physical terminal) and render as separate points. Off by default (same GEM-family precedent as Coal Mine Boundaries & Methane Plumes)."
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

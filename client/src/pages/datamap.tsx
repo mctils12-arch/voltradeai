@@ -16,6 +16,7 @@ import {
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
   COAL_CATEGORY_ICON, COAL_CATEGORY_LABEL, coalGradeColor, COAL_GRADE_COLOR, COAL_GRADE_UNKNOWN_COLOR,
+  COAL_TERMINAL_TYPE_ICON, COAL_TERMINAL_TYPE_LABEL, coalTerminalStatusColor,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
@@ -473,7 +474,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -879,6 +880,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
+  coal_terminals: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
@@ -1568,7 +1570,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1629,6 +1631,21 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(90)} label="Wait 60+ min" />
                     <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(null)} label="Not Published" />
                     <span className="vt-legend-note">CBP land-border wait times — worst currently published lane per crossing, hourly snapshot</span>
+                  </>
+                )}
+                {enabled.coal_terminals && (
+                  <>
+                    {Object.keys(COAL_TERMINAL_TYPE_ICON).map((cls) => (
+                      <LegendIcon key={cls} icon={COAL_TERMINAL_TYPE_ICON[cls]} color="#94a3b8" label={COAL_TERMINAL_TYPE_LABEL[cls]} />
+                    ))}
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Operating")} label="Status: Operating" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Construction")} label="Status: Construction" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Proposed")} label="Status: Proposed" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Shelved")} label="Status: Shelved" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Mothballed")} label="Status: Mothballed" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Retired")} label="Status: Retired" />
+                    <LegendIcon icon="vt-coalpile" color={coalTerminalStatusColor("Cancelled")} label="Status: Cancelled" />
+                    <span className="vt-legend-note">Global Energy Monitor — Global Coal Terminals Tracker: shape = terminal role, color = lifecycle status. Off by default. No throughput or output claim.</span>
                   </>
                 )}
               </div>
@@ -10634,6 +10651,97 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.coal_mine_features, mapReady, mapSettled, setStatus]);
 
+  // ── GEM coal terminals (RAW; server/gemCoalTerminals.ts) — 521 port
+  // coal-handling terminals worldwide. Symbol = terminal type class
+  // (exports/imports/domestic/mixed/unstated, symbols-not-dots directive);
+  // color = lifecycle status (Operating/Construction/Proposed/Shelved/
+  // Mothballed/Retired/Cancelled). Static reference dataset (GEM releases
+  // ~2x/year, a human re-runs the ingest on delivery), mounts once per
+  // toggle-on — same Law-I-compliant pattern as coal_mine_features above. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        if (map.getLayer("coalterm-pt")) map.removeLayer("coalterm-pt");
+        if (map.getSource("coalterm-points")) map.removeSource("coalterm-points");
+      } catch {}
+    };
+    if (!enabled.coal_terminals) { clear(); setStatus("coal_terminals", "off"); return; }
+    if (!mapSettled) { setStatus("coal_terminals", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("coal_terminals", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/coal-terminals", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.terminals)) throw new Error("no terminals");
+        if (map.getSource("coalterm-points")) return;
+        map.addSource("coalterm-points", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.terminals.map((t: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [t.lon, t.lat] },
+              properties: {
+                ...t,
+                tint: coalTerminalStatusColor(t.status),
+                icon: COAL_TERMINAL_TYPE_ICON[t.typeClass] || "vt-mineinfra",
+              },
+            })),
+          } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "coalterm-pt", type: "symbol", source: "coalterm-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 8, 0.55],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const typeLabel = COAL_TERMINAL_TYPE_LABEL[p.typeClass] || p.typeClass;
+          setDetail({
+            kind: "coalterminal",
+            title: p.name,
+            subtitle: `${p.status || "Status not stated"} · ${typeLabel}`,
+            stats: [
+              { label: "Status", value: p.status || "not stated" },
+              { label: "Role", value: typeLabel },
+              { label: "Product", value: p.productType || "—" },
+              { label: "Capacity", value: p.capacityMt != null ? `${p.capacityMt} Mt/yr` : "not stated" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Owner", value: p.owner || "—" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `${p.parentPort ? `Part of: ${p.parentPort}\n` : ""}` +
+                  `Terminal type (as catalogued): ${p.typeRaw || "not stated"}\n` +
+                  `${p.startYear ? `Start year: ${p.startYear}\n` : ""}` +
+                  `${p.retiredYear ? `Retired year: ${p.retiredYear}\n` : ""}` +
+                  `Location accuracy: ${p.locationAccuracy || "not stated"}\n\n` +
+                  `Source: Global Energy Monitor — Global Coal Terminals Tracker (CC BY 4.0). ` +
+                  `Location/status/type as catalogued; no throughput, activity, or output claims.`,
+            sourceUrl: p.wiki || undefined,
+          });
+        };
+        detach = attachLayerInteractions(map, "coalterm-pt", onClick);
+        setStatus("coal_terminals", "active", d.count,
+          `${d.count.toLocaleString()} terminals — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("coal_terminals", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.coal_terminals, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -12566,6 +12674,7 @@ export default function DataMapPage() {
     id === "faa_airports" ? <TowerControl size={15} /> :
     id === "border_waits" ? <Milestone size={15} /> :
     id === "coal_mine_features" ? <Mountain size={15} /> :
+    id === "coal_terminals" ? <ArrowLeftRight size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -12616,7 +12725,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
