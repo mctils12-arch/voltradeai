@@ -3,6 +3,29 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine session, same-day addendum after PR #1149 merged) [RULE-REVIEW] — 21st confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wishlist.md thread (no code change)
+
+TERRITORY: SHARED-minimal (research/* only). PR #1149 (this session's own
+`coal_terminals` GEM registry addition, v1.0.962) carried the standard
+"merge should wait until after 4:00 PM ET" note and was auto-merged by
+`github-actions[bot]` at 2026-09-22T19:06:37Z, 5m44s after opening
+(`created_at` 19:00:53Z) — ~3:06 PM ET, before the 4pm ET hold this
+session's own task instructions asked the PR body to state. Verified via
+`pull_request_read` on the merged PR, not inferred. Same already-tracked,
+already-escalated `.github/workflows/` `automerge` job root cause
+(research/wishlist.md's "PROCESS GAP FOUND 2026-08-15" thread) — no new
+mechanism, no new information beyond confirming the pattern continues.
+Harmless here too: the merged change is a RAW-overlay data pipeline + map
+layer with zero effect on the trading loop, scoring, sizing, or any
+FROZEN path. Tallied as the 21st occurrence (spanning 2026-08-14 through
+2026-09-22, 39 days, still 0% compliance) in wishlist.md rather than left
+as an untallied footnote, per the thread's own standing instruction that
+each new occurrence gets a one-line tally entry there. Still awaiting the
+human's pick of the two filed options (a real time/label gate on the
+FROZEN `automerge` job, or dropping the scheduled-routine prompt's own
+unenforced "note the market-hours wait" instruction) — no autonomous
+session can resolve this unilaterally.
+
 ## 2026-09-22 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `coal_terminals` GEM registry shipped end-to-end: server/gemCoalTerminals.ts + /api/data/coal-terminals + a new symbols-not-dots datamap.tsx map layer (v1.0.962)
 
 TERRITORY: T-DATACORE-adjacent (server/gemCoalTerminals.ts new, server/

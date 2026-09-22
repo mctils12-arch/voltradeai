@@ -1266,6 +1266,17 @@ occurrences spanning 2026-08-14 through 2026-09-21 (38 days), still 0%
 compliance.** No new information — still awaiting the human's pick of
 the two options the original entry filed.
 
+**TWENTY-FIRST OCCURRENCE, 2026-09-22.** PR #1149 (this session's new
+`coal_terminals` GEM registry — a RAW-overlay data pipeline + map layer,
+no trading-path file) carried the same "merge should wait until after
+4:00 PM ET" note and merged at **2026-09-22T19:06:37Z (~3:06 PM ET),
+5m44s after opening** (`created_at` 19:00:53Z, `merged_by:
+"github-actions[bot]"`) — verified via `pull_request_read` on the merged
+PR, not inferred. Harmless, same as all 20 before it. **21 confirmed
+occurrences spanning 2026-08-14 through 2026-09-22 (39 days), still 0%
+compliance.** No new information — still awaiting the human's pick of
+the two options the original entry filed.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
