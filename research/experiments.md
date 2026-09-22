@@ -3,6 +3,271 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `coal_terminals` GEM registry shipped end-to-end: server/gemCoalTerminals.ts + /api/data/coal-terminals + a new symbols-not-dots datamap.tsx map layer (v1.0.962)
+
+TERRITORY: T-DATACORE-adjacent (server/gemCoalTerminals.ts new, server/
+gemCoalTerminals.test.ts new) + T-CLIENT (client/src/lib/mapIcons.ts,
+client/src/pages/datamap.tsx) + SHARED-minimal (server/routes.ts,
+datacore/layers.json, datacore/signal_ladder.json, script/build.ts,
+server/layersRegistry.test.ts, ci/counter_baseline.txt,
+test_ts_code_only.py, package.json/package-lock.json, research/*). This
+is a cross-territory change (datacore-adjacent data module + client
+layer) but belongs wholly to this session per WORKSTREAM PARTITION rule
+5 — one logical change (one new raw-data root, shipped end-to-end),
+never split.
+
+SESSION-START: read CLAUDE.md in full, research/experiments.md's most
+recent entries (the reconstruct_pnl probe, KNOWN BROKEN #44 repair, the
+staleness audit, the settlement_stress_composite gate-2 attempt — all
+today, same UTC day), research/open_questions.md's KNOWN BROKEN section,
+research/wishlist.md's recent entries, per MEMORY PROTOCOL and this
+session's own scheduled-routine [PRODUCT] task menu.
+
+LIVE HEALTH CHECK: `/api/health` — `status:"degraded"`, `bot.status:
+"killed"`, LIVENESS ALARM unchanged in substance from the immediately
+preceding session's own read this same UTC day (trading loop dark
+~57 market hours / ~304h wall-clock since 2026-09-10T03:12:26Z,
+drawdown -5.4%) — a standing human-toggle decision (KNOWN BROKEN #43),
+already notified many times, NOT re-notified; nothing about this
+session's product work touches the trading loop, kill switch, or any
+order-path file. Per this session's own task instructions ("product
+sessions do not preempt the DAILY routines' repair duty" unless the
+break blocks the product work — it does not here), proceeded with
+product work.
+
+PRIMARY-ACTION SELECTION: the immediately preceding session's own entry
+(this UTC day) had already re-confirmed `ladder_readiness_check.py`
+0/3 ready (all time-gated, none newly due) and the AUDITS & DEBT
+register current (neither audit overdue) — both standard queue checks
+exhausted before I started. Surveyed `datacore/signal_ladder.json`'s
+gate1_pass/raw_only roots for a genuine, unclaimed UI/pipeline gap
+instead (task menu option (b)/(d)): found `global_energy_monitor`'s own
+2026-09-21 note had explicitly named `gas_pipelines`/`gas_finance` as
+"no route at all yet" but had NOT surveyed the wider GEM suite delivery
+(`gem_suite_ingest.py`) for the same gap. `ls datacore/gem/` surfaced 8
+more files beyond what that note named: `cement.json`, `chemicals.json`,
+`coal_terminals.json`, `iron_ore_mines.json`, `iron_steel_plants.json`,
+`lng_carriers.json`, `oil_ngl_pipelines.json`, `steel_units.json`,
+`steel_raw_materials.json`. Grepped `server/*.ts` for each basename:
+`coal_terminals.json` had zero references anywhere — genuinely
+unrouted, unlike `lng_terminals.json` (already read by
+`server/gemMethane.ts`) — and, live-verified, carries clean per-row
+`Latitude`/`Longitude` fields (521 rows, CC BY 4.0), the cheapest and
+most immediately shippable of the unrouted set. Chose it as the single
+highest-value action: a genuinely new, previously-invisible raw-data
+root, ready to ship end-to-end (API + map layer) in one PR, versus a
+research-only filing.
+
+READ BEFORE WRITE: read `server/gemCoalMineFeatures.ts`/`.test.ts` (the
+nearest sibling GEM raw-overlay module) and its `server/routes.ts` route
+in full as the architectural precedent; read `client/src/lib/mapIcons.ts`'s
+`shapes`/`registerIcons`/`iconDataURL` registry and the existing
+`COAL_CATEGORY_ICON`/`COAL_GRADE_COLOR` maps; read `client/src/pages/
+datamap.tsx`'s coal-mine-features `useEffect` block (mount/toggle/fetch/
+render/click/teardown), its `LAYER_GROUP` "unwired" mechanism (R15), its
+`DEFAULT_ON` object, its Facilities legend block, and its `layerIcon`/
+`statusFor` unit-label switches — followed each pattern exactly rather
+than inventing a new one.
+
+DATA-STRUCTURE VERIFICATION (done before writing normalizer code, not
+assumed): live-inspected `datacore/gem/coal_terminals.json` with
+`python3`/`json`. Found and handled two real quirks:
+1. **"GEM Terminal ID" is NOT unique — 53 live collisions.** Multiple
+   berths/phases at one physical terminal (e.g. Dalrymple Bay Coal
+   Terminal: two rows, same lat/lon, same Terminal ID, different "GEM
+   Unit/Phase ID"). Verified `(Terminal ID, Unit/Phase ID)` combo has
+   ZERO collisions and "GEM Unit/Phase ID" ALONE is unique across all
+   521 rows and always present — used as this module's `id` instead;
+   `terminalId` kept as a separate, intentionally-non-unique
+   parent-grouping field. A test pins this exact scenario (two rows,
+   same Terminal ID, both must survive as separate points).
+2. **"Terminal Type" is free text, sometimes a comma-joined
+   combination** (13 distinct values in the live release: `Exports`,
+   `Imports`, `Domestic`, `Exports, Imports`, `Domestic, Imports`, `-`,
+   and 7 rarer 2-3-role combinations). `classifyTerminalType()`
+   normalizes to 5 honest buckets (exports/imports/domestic/mixed/
+   unstated) by substring-testing each role independently rather than
+   pattern-matching exact strings — never guesses a role the source
+   text doesn't state, and an unrecognized/blank value degrades to
+   "unstated", not to a default role.
+`Start Year`/`Capacity (Mt)` are also mixed str/int/float across rows in
+the live file (`-` for missing, numbers otherwise) — `toStrOrNull`/
+`toNumOrNull` coerce honestly rather than assuming a single JS type.
+
+WHAT SHIPPED (one PR):
+- `server/gemCoalTerminals.ts` (new): `classifyTerminalType`,
+  `normalizeCoalTerminals`, `loadGemCoalTerminals`, `cachedGemCoalTerminals`
+  (same per-process cache/degrade-to-null-never-throw pattern as
+  `gemCoalMineFeatures.ts`), `_resetGemCoalTerminalsCacheForTests`.
+  Deliberately typed raw-row access as `Record<string, unknown>` (not
+  `any`) with `toStrOrNull`/`toNumOrNull` narrowing helpers — avoids
+  3 of the would-be `ts_any`/`boundary_any` hits a naive `any`-typed port
+  of the sibling module's own pattern would have added (see COUNTERS
+  below); this is the "fix the code, not the pin" path `counter_ratchet.sh`
+  asks for, applied everywhere it didn't cost real type safety.
+- `server/gemCoalTerminals.test.ts` (new, 14 tests): the classifier's 3
+  buckets + blank/unrecognized handling, the normalizer's schema mapping
+  and drop-not-infer rules (no lat/lon, no name, no unique id), the
+  Terminal-ID-collision scenario above, the load/cache/degrade paths.
+- `GET /api/data/coal-terminals` (`server/routes.ts`) — `kind:"raw"`,
+  `predictive:false`, same self-labeling convention as
+  `/api/data/coal-mine-features`.
+- `client/src/lib/mapIcons.ts` — 4 new SDF glyphs (`vt-coalpile`/
+  `vt-coalexport`/`vt-coalimport`/`vt-coalmixed`: a stockpile mound base
+  shape, with a loading-out arrow, an arriving-in arrow, or both,
+  respectively — "unstated" reuses the existing generic `vt-mineinfra`
+  glyph rather than inventing a 5th shape for a rare, honest "don't
+  know" case) plus `COAL_TERMINAL_TYPE_ICON`/`_LABEL` and
+  `COAL_TERMINAL_STATUS_COLOR`/`coalTerminalStatusColor()` (7 lifecycle
+  statuses, live-verified exhaustive against the release: Operating/
+  Construction/Proposed/Shelved/Mothballed/Retired/Cancelled).
+- `client/src/pages/datamap.tsx` — new `coal_terminals` `useEffect`
+  (Law-I-compliant: mounts/unmounts only on toggle+mapSettled, never on
+  a map event; symbol = terminal-role shape, color = lifecycle status),
+  `LAYER_GROUP["coal_terminals"] = "facilities"`, a new Facilities
+  legend sub-block (5 role glyphs + 7 status colors), a `layerIcon`
+  entry, a `statusFor` unit label ("terminals"), and the new
+  `"coalterminal"` member on the page's `DetailPanel.kind` union.
+- `datacore/layers.json` — new `coal_terminals` entry (group:
+  facilities, kind: raw, `renderKind:"point-symbol"` — matches
+  "aircraft"'s own precedent for a real rendered point layer that
+  carries no meaningful `lod`; a fixed ~521-point static registry has
+  no distance-based level of detail to declare).
+- `script/build.ts` — stages `datacore/gem/coal_terminals.json` into
+  `dist/` (the R14/2026-07-20-class defect this exact ratchet test
+  exists to catch, caught live this session before it ever reached
+  prod: the first full test run failed on this before the line was
+  added).
+- `datacore/signal_ladder.json` — appended this session's addition to
+  the existing `global_energy_monitor` root's note (not a new root: the
+  umbrella root already covers every catalogued GEM registry
+  artifact). Status/gate unchanged (`raw_only`/0) — pure API+UI-surface
+  addition over already-ingested registry data, no predictive claim.
+- `research/open_questions.md` — filed the wider GEM-suite backlog this
+  session's own survey found (chemicals/iron_steel_plants/iron_ore_mines/
+  lng_carriers/oil_ngl_pipelines/steel_units/steel_raw_materials, each
+  checked individually for a real coordinate field and a route) as a
+  dated entry, one PRODUCT idea per PROMOTION RULE 5 — not attempted
+  beyond `coal_terminals` this session.
+
+COUNTERS (measured before AND after, per MEASUREMENT INTEGRITY — these
+three text-scraping counters moved and are re-pinned in this same PR,
+each with the clean delta isolated via `git stash` against the
+pre-session HEAD before touching anything, per PROMOTION RULE 5 — NOT
+bundled with the small pre-existing, unrelated drift `tests_run_in_ci`/
+`tests_gating_merge`/`assertions` already carried into this session
+before I touched anything, which is left un-repinned, same precedent as
+every prior "IMPROVED" notice this repo's sessions have left alone):
+- `empty_ts_catch` 491 -> **492**: the new `coal_terminals` `useEffect`'s
+  `clear()` needs the identical `try { removeLayer/removeSource } catch
+  {}` defensive idiom every other layer's own `clear()` in this exact
+  file already uses (border_waits/coal_mine_features/faa_airports/etc.)
+  — checked whether it could be dropped since both calls are already
+  `if (map.getLayer(...))`-guarded; concluded no, matching the
+  established convention exactly rather than deviating for one layer.
+- `boundary_any` 233 -> **234**, `ts_any` 1239 -> **1241**: after the
+  `unknown`-typing pass above removed 3 of what would have been 5 new
+  `ts_any` hits, the 2 remaining are `datamap.tsx`'s
+  `d.terminals.map((t: any) => ...)` and `onClick = (e: any) => ...` —
+  live-verified NOT removable: dropping the `.map()` annotation produces
+  a real `TS7006` (`fetch().json()`'s return type does not propagate
+  permissively enough here to infer it, confirmed by A/B'ing the
+  annotation off and re-running `tsc_ratchet.sh`), and the click-handler
+  annotation matches the same untyped-event convention every sibling
+  layer's own `onClick` uses. `test_ts_code_only.py`'s mirrored pins
+  (`empty_ts_catch`/`ts_any`, D10 discipline) updated in the same PR so
+  the two files can't diverge.
+- `layersRegistry.test.ts`'s Q11 pinned gap (T4.1) 249 -> **250**: the
+  new layer DOES render on the map (unlike `grid_generation`'s own
+  249-exemption reasoning) and gained `renderKind` — but, like
+  "aircraft", carries no `lod` (nothing distance-based to declare for a
+  fixed small static registry), so it still counts as "missing" under
+  the test's OR predicate; comment explains the partial-credit case
+  rather than silently re-pinning without saying why.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/gemCoalTerminals.test.ts`: 14/14 pass.
+- `npx tsx --test server/*.test.ts` (full suite, fresh `npm ci` first —
+  this sandbox's `node_modules` was stale/missing, same recurring
+  sandbox-provisioning note prior sessions have logged): 1823/1823 pass,
+  zero regressions. Two real failures surfaced and fixed mid-session
+  (not silently worked around): the Q11 layersRegistry pin (fixed by
+  re-pinning with the reasoning above) and `repoFiles.test.ts`'s
+  build.ts-staging ratchet (fixed by adding the `cp(...)` line above,
+  the exact defect class the test exists to catch).
+- `bash scripts/tsc_ratchet.sh`: `OK: 11 <= 11, TS2304 = 0` — byte-
+  identical to `ci/tsc_baseline.txt`'s pin.
+- `bash scripts/counter_ratchet.sh`: `OK: 25 counters at or better than
+  baseline` after the three re-pins above; re-ran once more after the
+  re-pins to confirm no further drift.
+- `bash scripts/gated_tests.sh` (the real CI gate, run twice — first
+  pass caught the two failures above before either was fixed, second
+  pass clean): **GATE PASSED** — client + node + python all green,
+  quarantine 0/1 none overdue, deploy-gate smoke PASS (`/api/health`
+  200 in 2.4s under forced kill-switch + stale-liveness state).
+- `python3 -c "import json; json.load(open('datacore/layers.json'))"` /
+  same for `signal_ladder.json`: both valid (251 layers, 56 roots —
+  unchanged root count, one root's note extended).
+
+Backtest: N/A per PROMOTION RULE 3 — a RAW-overlay data pipeline and map
+layer, no trading/scoring/sizing/threshold logic touched; `coal_terminals`
+is not wired into `deep_score`/any order path.
+
+MEASUREMENT INTEGRITY: not a metric-definition change — the three
+text-scraping counters re-pinned above (`empty_ts_catch`/`boundary_any`/
+`ts_any`) are `scripts/program_status.sh`'s own generic source-scraping
+counters, not touched or redefined; their move is new code matching an
+existing pattern, not a ruler change, and is stated explicitly with a
+live-verified before/after per COUNTERS above (the ratchet script's own
+documented escape hatch for this exact situation).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session running 2026-09-22 ~18:58 UTC = ~14:58 PM
+ET — INSIDE 9:30-16:00 ET market hours. PR opened with the standard
+"merge should wait until after 4:00 PM ET" note per this session's own
+task instructions; per the already-tracked, already-escalated
+auto-merge/market-hours-hold gap (wishlist.md, 20+ prior occurrences,
+0% compliance — the FROZEN `automerge` workflow has no time gate and
+this session cannot add one), the PR may merge before the close
+regardless. Harmless here even if it does: a RAW-overlay display-only
+addition with zero effect on the trading loop, scoring, sizing, or any
+FROZEN path — not tallied as a fresh occurrence in wishlist.md since
+that thread's own standing instruction is to tally occurrences found
+AFTER the fact (a merged PR checked against its `created_at`/merge
+timestamp), not a prediction made before opening one.
+
+NEXT: (1) the wider GEM-suite backlog this session's own survey found —
+filed in research/open_questions.md's matching dated entry, ranked by
+build cost (chemicals/iron_steel_plants/iron_ore_mines cheapest;
+lng_carriers needs an honest "shipyard, not live position" framing;
+oil_ngl_pipelines/gas_pipelines need geocoding or a route-geometry
+source this GEM release doesn't carry — not a quick copy of this
+session's point-layer recipe). (2) `coal_terminals` has no `/api/v1/
+data/coal-terminals` mirror yet (same "shipped-data-no-v1-API" gap
+several sibling roots — dtcc-swaps/un-comtrade/gnss-integrity-signal —
+already closed as their own follow-up PRs) — a natural next PRODUCT
+session's pick, not attempted here to keep this PR to one logical
+change. (3) KNOWN BROKEN #42/#43's standing human-decision items —
+unchanged, not re-notified.
+
+STARVED: no — this session's queue checks (ladder readiness, audits
+register) were already exhausted by the immediately preceding session
+the same UTC day; surveyed the GEM-suite backlog fresh (ACTIVE
+ANGLE-HUNTING-adjacent CROSS-CONNECTIONS per the standing directive —
+this data ties into the existing port-dwell/dark-ship AIS layers as a
+real future geographic join, filed not fabricated), shipped one
+genuinely new raw-data root end-to-end (pipeline + API + map layer +
+legend, not a bookkeeping-only fix), caught and fixed two real ratchet
+failures before they could reach a human as a broken build, and left a
+concrete, ranked, dated NEXT for the rest of the backlog it found. No
+higher-priority queued item was skipped — no LIVENESS escalation
+warranted (unchanged reading, already notified earlier today), thrash
+ratio well under the 7+ [REPAIR] trigger (this entry tags [PRODUCT]).
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-22 (scheduled-routine session, third session this UTC day) [PIPELINE] — new `/api/diag/reconstruct_pnl` live probe, unblocking KNOWN BROKEN #42's own queued NEXT step (v1.0.961)
 
 TERRITORY: SHARED-minimal (`server/bot.ts`, `server/diag.ts` — both under

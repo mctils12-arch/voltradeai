@@ -788,6 +788,52 @@ const shapes: Record<string, () => ImageData> = {
     ctx.stroke();
     ctx.fillRect(m + 4, m - 16, 3, 8);
   }),
+  // ── GEM coal terminals (symbols-not-dots directive): icon SHAPE encodes
+  // GEM's own "Terminal Type" (exports/imports/domestic/mixed/unstated —
+  // classifyTerminalType()); icon COLOR carries lifecycle Status. A stockpile
+  // mound is the shared base glyph; a directional arrow (out/in/both) or its
+  // absence (domestic, unstated) reads at a glance without a click. ──
+  // domestic-only: a plain stockpile, no cross-border arrow at all.
+  "vt-coalpile": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(6, s - 8); ctx.lineTo(m - 7, 11); ctx.lineTo(m + 7, 11); ctx.lineTo(s - 6, s - 8);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(4, s - 8); ctx.lineTo(s - 4, s - 8); ctx.stroke(); // base line
+  }),
+  // exports: pile on the left, arrow loading OUT to the right (toward the ship).
+  "vt-coalexport": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(3, s - 8); ctx.lineTo(10, 15); ctx.lineTo(18, 15); ctx.lineTo(20, s - 8);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 3.2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(21, m); ctx.lineTo(s - 7, m); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(s - 13, m - 5.5); ctx.lineTo(s - 5, m); ctx.lineTo(s - 13, m + 5.5); ctx.closePath(); ctx.fill();
+  }),
+  // imports: pile on the right, arrow arriving IN from the left.
+  "vt-coalimport": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(s - 3, s - 8); ctx.lineTo(s - 10, 15); ctx.lineTo(s - 18, 15); ctx.lineTo(s - 20, s - 8);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 3.2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(7, m); ctx.lineTo(s - 21, m); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13, m - 5.5); ctx.lineTo(5, m); ctx.lineTo(13, m + 5.5); ctx.closePath(); ctx.fill();
+  }),
+  // mixed (both roles at one terminal): centered pile, arrows both ways.
+  "vt-coalmixed": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m - 8, s - 8); ctx.lineTo(m - 3.5, 19); ctx.lineTo(m + 3.5, 19); ctx.lineTo(m + 8, s - 8);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 2.6; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(3, 9); ctx.lineTo(m - 10, 9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 4, 5); ctx.lineTo(3, 9); ctx.lineTo(m - 4, 13); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(m + 10, 9); ctx.lineTo(s - 3, 9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m + 4, 5); ctx.lineTo(s - 3, 9); ctx.lineTo(m + 4, 13); ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -1026,6 +1072,42 @@ export const COAL_GRADE_UNKNOWN_COLOR = "#64748b"; // slate — grade not stated
 export function coalGradeColor(grade?: string | null): string {
   if (grade && grade in COAL_GRADE_COLOR) return COAL_GRADE_COLOR[grade];
   return COAL_GRADE_UNKNOWN_COLOR;
+}
+
+// GEM coal terminals (server/gemCoalTerminals.ts): terminal type class ->
+// symbol (matches CoalTerminalTypeClass exactly — an unrecognized/blank
+// source value already normalizes server-side to "unstated", never guessed
+// here).
+export const COAL_TERMINAL_TYPE_ICON: Record<string, string> = {
+  exports: "vt-coalexport",
+  imports: "vt-coalimport",
+  domestic: "vt-coalpile",
+  mixed: "vt-coalmixed",
+  unstated: "vt-mineinfra",
+};
+export const COAL_TERMINAL_TYPE_LABEL: Record<string, string> = {
+  exports: "Exports",
+  imports: "Imports",
+  domestic: "Domestic only",
+  mixed: "Mixed (multiple roles)",
+  unstated: "Role not stated",
+};
+// GEM's own lifecycle "Status" column (7 values, live-verified exhaustive
+// across the release) -> tint. A FACT about the catalogued terminal's
+// lifecycle stage, never a throughput or output claim.
+export const COAL_TERMINAL_STATUS_COLOR: Record<string, string> = {
+  Operating: "#4ade80",    // green — active
+  Construction: "#38bdf8", // sky — being built
+  Proposed: "#a78bfa",     // violet — not yet committed
+  Shelved: "#fbbf24",      // amber — paused, not abandoned
+  Mothballed: "#78716c",   // stone — dormant but still exists
+  Retired: "#64748b",      // slate — permanently closed
+  Cancelled: "#f87171",    // red — never built / abandoned
+};
+export const COAL_TERMINAL_STATUS_UNKNOWN_COLOR = "#94a3b8"; // gray — status not stated
+export function coalTerminalStatusColor(status?: string | null): string {
+  if (status && status in COAL_TERMINAL_STATUS_COLOR) return COAL_TERMINAL_STATUS_COLOR[status];
+  return COAL_TERMINAL_STATUS_UNKNOWN_COLOR;
 }
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).

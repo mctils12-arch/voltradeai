@@ -21757,3 +21757,62 @@ matching the 2026-09-19 session's own queued NEXT), built end-to-end
 observation.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-22 (scheduled-routine [PRODUCT] session) [PRODUCT] — a GEM
+GEM-suite registry backlog beyond the already-named gas_pipelines/
+gas_finance gap: 7 more lat/lon-bearing GEM datasets sit fully ingested
+under `datacore/gem/` with zero server route and zero map layer
+
+Read every file under `datacore/gem/` (already ingested by
+`scripts/gem_ingest.py`/`gem_suite_ingest.py`, all CC BY 4.0) against
+`grep -rl <basename> server/*.ts` this session, while shipping the
+`coal_terminals.json` layer (see experiments.md's matching dated entry
+for that build). Found this root's own `global_energy_monitor` ladder
+note (2026-09-21) had already named `gas_pipelines`/`gas_finance` as
+unrouted, but had not surveyed the WIDER `gem_suite_ingest.py` delivery
+for the same gap. Checked each of the suite's other files for a real
+lat/lon field and a route:
+
+- `chemicals.json` (`plants[]`, `Coordinates` field, same catalogued-plant
+  shape as `iron_steel_plants.json`) — NO route.
+- `iron_steel_plants.json` (`plants[]`, `Coordinates`) — NO route.
+- `iron_ore_mines.json` (`mines[]`, `Coordinates`, plus multi-year
+  production tonnage) — NO route.
+- `coal_terminals.json` — HAD no route; CLOSED this session (see the
+  matching experiments.md entry).
+- `lng_carriers.json` (`carriers[]`, shipyard `Yard location latitude/
+  longitude` — a BUILD location, not the vessel's current position; a
+  live-position claim from this file would be dishonest) — NO route.
+- `oil_ngl_pipelines.json` (`pipelines[]`, `StartLocation`/segment fields,
+  NOT lat/lon — would need geocoding or a route-geometry field this
+  variant doesn't carry, same "no route geometry in this variant" caveat
+  `global_energy_monitor`'s note already states for `gas_pipelines.json`)
+  — NOT mappable without further work, distinct case from the others.
+- `steel_units.json` (furnace-level detail, keyed to
+  `iron_steel_plants.json`'s "GEM plant ID", no coordinates of its own)
+  — attribute data for the plants layer above, not a standalone point
+  layer. `steel_raw_materials.json` is COUNTRY-level (a `Country` ->
+  met-coal/iron-ore mined/consumed/produced balance sheet, live-verified
+  this session — not plant-keyed at all) — a possible future choropleth,
+  not a point layer, and not attempted here.
+
+Not attempted this session beyond `coal_terminals` (kept to one logical
+change per PROMOTION RULE 5). Ladder path: all raw/factual (catalogued
+registry data, no predictive claim), same RAW OVERLAYS treatment as
+`coal_mine_features`/`plant_operations`/now `coal_terminals` — no gate-1/
+gate-2 attempt needed before shipping a map layer, only before any
+signal claim built on top of one. Rough build-cost ranking for whoever
+picks the next one: `chemicals.json`/`iron_steel_plants.json`/
+`iron_ore_mines.json` are the cheapest (clean lat/lon, same shape as
+`coal_terminals`'s own ship-and-verify pattern); `lng_carriers.json`
+needs the "this is a shipyard, not a live position" honesty framing
+before shipping; `oil_ngl_pipelines.json`/`gas_pipelines.json` are NOT
+simple ports of this pattern — they need either a geocoding step or a
+route-geometry source this GEM release doesn't carry, and should not be
+attempted as a quick copy of the point-layer recipe.
+
+STARVED: no — filed as an artifact per SESSION BUDGET fall-through
+(a queued backlog item, not unrecorded browsing), immediately after
+shipping the one item it names as closed.
+
+NOT A SPEND REQUEST.
