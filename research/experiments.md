@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine session, third session this UTC day) [PIPELINE] — new `/api/diag/reconstruct_pnl` live probe, unblocking KNOWN BROKEN #42's own queued NEXT step (v1.0.961)
+
+TERRITORY: SHARED-minimal (`server/bot.ts`, `server/diag.ts` — both under
+the SHARED `server/routes.ts`-adjacent diag-probe surface every recent
+PRODUCT session has added probes to the same way; plus `server/
+reconstructPnl.ts`/`.test.ts`, new files, and `package.json`/
+`package-lock.json` version bump). No `client/src/`, `datacore/`,
+`bot_engine.py`/`ml_model_v2.py`/`system_config.py`/`strategies/`, or
+order-path file touched.
+
+SESSION-START: read CLAUDE.md in full, `research/experiments.md`'s top 2-3
+entries, `research/open_questions.md` KNOWN BROKEN section, `research/
+wishlist.md`'s recent entries — per MEMORY PROTOCOL. Orchestrating session
+had already checked and reported: loop-health ratio 2/10 REPAIR (no
+thrash crisis); live `/api/health` degraded solely on the already-known,
+already-notified LIVENESS ALARM (KNOWN BROKEN #43, trading loop `killed`,
+dark ~55 market hours — a human toggle, not session-actionable, not
+re-notified); 0/3 gated ladder roots ready to judge; audit log clean
+(no new actionable bug, EVENTLOOP-LAG noise already discounted); both
+AUDITS & DEBT register rows current (neither due); KNOWN BROKEN #44's
+diagnosability fix already shipped, its Dockerfile root-cause fix already
+filed in wishlist.md awaiting human approval on a FROZEN PATH, not
+re-touched here. PRIMARY-ACTION menu (fix > judge matured experiment >
+new experiment > research) exhausted per the orchestrator's own checks —
+fell through to SESSION BUDGET tier 1: next queued item from open_
+questions.md/wishlist.md that fits.
+
+QUEUED ITEM FOUND: KNOWN BROKEN #42's 2026-09-10 update (the account
+equity-vs-reality incident) names its own unbuilt follow-up verbatim in
+its NEXT section: "a `/api/diag/reconstruct_pnl` live probe (auto-pulling
+current positions + date, mirroring the `account`/`equity_curve` probes
+shipped 2026-09-10 morning) would remove the manual position-JSON step
+[that `scripts/reconstruct_position_pnl.py` needed], but was not built
+[that session] since the standalone script already fully answered this
+incident's open question." Read-before-write: read `scripts/
+reconstruct_position_pnl.py` in full (the CLI script this probe replaces
+the manual half of), `server/diag.ts`'s `DIAG_PROBES` whitelist and
+`positionsSummary`/`positionRow`/`accountRow` shaping helpers, `server/
+bot.ts`'s `/api/diag/:probe` switch (all 20 existing cases, focusing on
+"account"/"equity_curve" — the two sibling probes this item names — and
+"fdic_gate2", the precedent for a probe that fetches live Alpaca daily
+bars via the existing `fetchDailyBarsRange` helper and runs a PURE,
+separately-tested statistics module against them), and `server/
+fdicGate2.ts`/`.test.ts` as the exact architectural precedent (I/O in the
+route case, pure aggregator in its own module, synthetic-fixture tests).
+
+DELIBERATE DESIGN DECISION, made BEFORE writing any code, directly because
+of this session's own earlier read of KNOWN BROKEN #44 (found by the
+IMMEDIATELY PRECEDING session, same UTC day): #44 found that ANY diag
+probe importing a `scripts/*.py` module 500s in production, because
+`scripts/` is never `COPY`'d into the Dockerfile's production stage — and
+`scripts/reconstruct_position_pnl.py` (the very script this item's NEXT
+step is about) lives in exactly that directory. Reviving it as a
+Python-subprocess-backed probe (`sys.path.insert(0, 'scripts'); import
+reconstruct_position_pnl`) would have shipped a SIXTH probe hitting the
+identical known trap the moment it merged — self-diagnosing via #44's own
+mitigation, but dead on arrival regardless. Chose instead to PORT the
+script's `reconstruct()` logic to TypeScript as a pure, standalone module
+(`server/reconstructPnl.ts`), calling it from the diag route the same way
+`fdic_gate2` calls `eventStudy()` — no Python subprocess at all, so the
+Dockerfile gap is structurally irrelevant to this probe rather than
+merely diagnosed. REASONING STANDARD #1 (trace the downstream chain
+before changing something coupled) applies as much to "what does a new
+probe depend on" as to a parameter change — checking this BEFORE writing
+code is what caught it.
+
+WHAT SHIPPED (own PR):
+- `server/reconstructPnl.ts` (new) — `isOptionPosition(symbol, assetClass)`
+  (same length>8-or-us_option heuristic `diag.ts`'s `positionsSummary`
+  already uses, kept as the one classifier rather than a second regex) and
+  `reconstructPortfolioPnl(positions, date, reportedPnl?)`, a pure
+  function: given each position's pre-fetched daily bars, finds `date`'s
+  exact-match close and the immediately preceding bar's close, sums
+  `qty * (close - prevClose)` across non-option legs, and reports
+  `excluded_options`/`excluded_no_data` (weekend/holiday date, no prior
+  bar, non-positive close, failed fetch) honestly rather than silently
+  dropping them. Mirrors the Python script's own documented behavior
+  (exact-date match only, no nearby-day substitution; options excluded,
+  never mistreated as equities — no free historical options-quote source
+  exists, research/wishlist.md).
+- `server/bot.ts` — new `"reconstruct_pnl"` case in the `/api/diag/:probe`
+  switch: validates `date` (required, `YYYY-MM-DD`) and optional
+  `reported_pnl` (numeric), auto-pulls `/v2/positions` live (same read
+  "positions-detail" already exposes), fetches each non-option symbol's
+  daily bars via the existing `fetchDailyBarsRange` helper over a 15-day-
+  back-to-date+1 window (mirrors the script's own `days_lookback=15`), and
+  calls `reconstructPortfolioPnl`. Options are detected before any bars
+  fetch is attempted (cheaper, and per the design above, correct).
+- `server/diag.ts` — `"reconstruct_pnl"` added to `DIAG_PROBES` with the
+  same dated, reduced-exposure-posture comment convention every other
+  probe entry carries.
+- `server/reconstructPnl.test.ts` (new, 9 tests, synthetic bar fixtures,
+  no fs/network) — multi-leg summation math (reproduces the exact
+  2026-09-10 incident numbers: QQQ 51sh 718.36->716.31, SMH 20sh
+  573.73->574.29, net -$93.35), option-leg exclusion, missing-date
+  exclusion, first-bar-in-window exclusion, null-bars (fetch failure)
+  exclusion, zero/NaN-qty skip (not a data-failure exclusion), and the
+  `reported_pnl`/`gap` side-by-side readout (reproduces the actual
+  incident's $11,955.19 gap for a single QQQ leg) including its OMITTED
+  case (absent, not null/0 — a caller checking for the field's presence
+  must see it truly missing).
+
+NOT DONE, deliberately: no change to any measurement/kill-switch code
+(`evaluateDrawdown`/`evaluateDailyPnl`/`risk_kill_switch.py`), no
+Dockerfile touch, no re-litigation of KNOWN BROKEN #42's own open
+real-loss-vs-anomaly verdict (already settled by the 2026-09-10 session's
+script run, -$414.82 reconstructed vs. -$12,059.74 reported for the
+actual incident) — this is read-only tooling for the NEXT time this class
+of question comes up, per the item's own NEXT(2) framing.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/reconstructPnl.test.ts`: 9/9 pass.
+- `npx tsx --test server/*.test.ts` (full suite, fresh `npm ci` first —
+  this sandbox's `node_modules` had no `@types/node` before that, which
+  had also been silently swallowing `npx tsc --noEmit` into "0 errors,
+  can't find node types" rather than a real signal): 1712 pass, 8 fail —
+  A/B-verified via `git stash -u`: the SAME 8 files fail on the
+  unmodified tree (`aircraftTiling`, `apiKeyAccounts`, `cdcCancer`,
+  `compression`, `gdeltEvents`, `owmTiles`, `seafloorTiles`,
+  `securityMiddleware` — none touched by this session), confirming zero
+  regressions from this change.
+- `bash scripts/tsc_ratchet.sh`: `OK: 11 <= 11` — byte-identical to
+  `ci/tsc_baseline.txt`'s pin, zero new errors from the new files/imports.
+- `bash scripts/gated_tests.sh` (the real CI gate, run twice — first pass
+  correctly FAILED on `No module named pytest` because this sandbox's
+  Python deps weren't installed yet, a sandbox-state issue not a code
+  issue; `pip install -r requirements.txt -r requirements-dev.txt` then
+  a clean second run): **GATE PASSED** — client 1091/1091, python 2147
+  passed/1 skipped/54 subtests (byte-identical count to the immediately
+  preceding session's own run), deploy-gate smoke PASS (`/api/health`
+  200 in 2.3s under forced kill-switch+stale-liveness state).
+- `bash scripts/counter_ratchet.sh`: `OK: 25 counters at or better than
+  baseline.`
+- `python3 test_auto_discovery.py`: 199/203, the same 4 pre-existing
+  failures the immediately preceding session already confirmed unrelated
+  (`bot_engine.score_stock`/`garch_vol_estimate`, two `bot.ts` feedback-
+  field checks) — no Python file touched by this session at all.
+
+Backtest: N/A per PROMOTION RULE 3 — this is a read-only diagnostic probe
+(no trading/scoring/sizing logic changed), same class as every prior
+`/api/diag/*` probe addition (account, equity_curve, fdic_gate2, etc.),
+none of which have carried a backtest requirement.
+
+NEXT: (1) once live, the next equity/last_equity-vs-reality question (a
+recurrence of KNOWN BROKEN #42's own pattern, or any future incident of
+the same shape) can be checked with one GET (`/api/diag/reconstruct_pnl?
+date=YYYY-MM-DD&reported_pnl=<n>&token=$DIAG_TOKEN`) instead of a human
+pasting a positions JSON into a local script run. (2) this item's own
+"NOT A SPEND REQUEST" companion doesn't apply — no cost either way. (3) a
+future session should update KNOWN BROKEN #42's own NEXT(2) text in
+open_questions.md to point at this shipped probe once the PR merges (not
+done in this same commit, to keep the SHARED `research/*` edit small and
+per WORKSTREAM PARTITION's "last commit, as small as possible" merge-order
+guidance — this experiments.md entry is that minimal SHARED edit for this
+session; open_questions.md's own item-closure edit is left for whichever
+session next reads #42, consistent with how #30/#35/#36's own multi-
+session closure threads were handled).
+
+STARVED: no — this was the correctly-selected next queued fall-through
+item per SESSION BUDGET, not a stopgap; no higher-value queued work was
+skipped to do this.
+
 ## 2026-09-22 (scheduled-routine PRODUCT session, second session this UTC day) [REPAIR] — STALENESS AUDIT run (the AUDIT REGISTER's own row was 37 days stale, not just the audit); found and deleted genuinely dead `ThreadPoolExecutor` code still spinning up an OS thread on every deep-score cycle (v1.0.960)
 
 TERRITORY: T-BOT (`bot_engine.py`) + SHARED-minimal (`ci/counter_baseline.txt`,
