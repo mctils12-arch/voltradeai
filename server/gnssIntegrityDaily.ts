@@ -196,7 +196,7 @@ export async function preserveGnssIntegrityDailyBeforeRollup(
         try {
           const r = JSON.parse(line);
           if (r && typeof r.i === "string") rows.push(r as ArchiveAircraftRow);
-        } catch { /* skip corrupt line, matches every other archive reader */ }
+        } catch { continue; } // skip corrupt line, matches every other archive reader
       }
     }
     const candidate = aggregateGnssIntegrity(rows, CANDIDATE_BBOX);
