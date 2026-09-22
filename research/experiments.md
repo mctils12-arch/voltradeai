@@ -3,6 +3,225 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-22 (scheduled-routine PRODUCT session, second session this UTC day) [REPAIR] — STALENESS AUDIT run (the AUDIT REGISTER's own row was 37 days stale, not just the audit); found and deleted genuinely dead `ThreadPoolExecutor` code still spinning up an OS thread on every deep-score cycle (v1.0.960)
+
+TERRITORY: T-BOT (`bot_engine.py`) + SHARED-minimal (`ci/counter_baseline.txt`,
+`package.json`/`package-lock.json`, `research/*`) — no `client/src/`,
+`datacore/`, or order-path file touched.
+
+SESSION-START: read CLAUDE.md in full, then `research/PROGRAM_STATE.md`,
+`research/open_questions.md` KNOWN BROKEN, `research/wishlist.md` tail,
+`research/experiments.md` tail. Last 10 tags before this session: PRODUCT,
+REPAIR, PRODUCT, PRODUCT, PRODUCT, PRODUCT, PRODUCT, RULE-REVIEW, RESEARCH,
+RULE-REVIEW — 2/10 REPAIR, well under the 7+ thrash-crisis trigger, normal
+SESSION BUDGET action selection applies.
+
+LIVE HEALTH CHECK: `/api/health` — `status:"degraded"`, `bot.status:"killed"`,
+`drawdownPct:"-5.9"`, LIVENESS ALARM: trading loop dark for 52.0 market hours
+(298.1h / ~12.4 days wall-clock) since 2026-09-10T03:12:26Z (KNOWN BROKEN
+#43). Unchanged in substance from every session since the trip; the
+2026-09-21 session already sent this thread's PushNotification once no
+active push had been logged for it, and this UTC day's earlier PRODUCT
+session (v1.0.959) already confirmed "already notified earlier today, no
+LIVENESS escalation warranted" — same standing human-decision item, no new
+fact, not re-notified again here (RULE REVIEW forbids loosening a risk
+threshold without evidence; still only a human toggle clears it). Task
+instructions for this PRODUCT session explicitly allow proceeding past an
+unfixed critical trading-loop item when it doesn't block product work — it
+does not here (repair-mandate ownership sits with the DAILY routine, not
+this session). All other `/api/health` checks green.
+
+PRIMARY-ACTION SELECTION: checked option (a) first (advance a datacore/
+pipeline through its next ladder gate) per this session's task menu.
+`scripts/ladder_readiness_check.py` (the mechanical readiness gate for
+every ladder root that has a registered numeric trigger): 0/3 READY —
+`sec_8k_earnings_language` 80/90 days elapsed (10d out), `cftc_cot_
+positioning` ~10/15 reports (35d out, estimate), `fleet_utilization_
+aircraft` 41d until its 2026-11-02 TMDX-Q3-earnings trigger. Manually
+walked every other `gate1_pass` root without a registered trigger for a
+plausible NOW-ready gate-2 candidate: `github_org_engineering_momentum`
+looked promising (its own note calls gate 2 "unstarted", and the earlier
+2026-09-08→09-19 archiver-stall repair thread is now confirmed CLOSED —
+live-checked `/api/data/github-activity/history?weeks=90`, 9 consecutive
+weeks archived 2026-07-20 through 2026-09-20, 15/15 orgs every week, zero
+gaps) but only 9 weeks of panel history exist, not the ~90-day/13-week
+depth this codebase's own established convention treats as a minimum
+before a trailing-baseline design is trustworthy (matching `app_store_
+rank_review_velocity`'s own explicit "needs ~90 days... not yet attempted"
+bar) — forcing a verdict now would violate REASONING STANDARD #4/#10
+(multiple-hypothesis fishing on a still-thin sample) the same way the
+2026-09-22 `settlement_stress_composite` session correctly declined to.
+Every other `gate1_pass` root is either a non-trading-signal regime input
+(`fred_macro_series`, `eu_macro_ecb_eurostat_bundesband`) or already
+correctly blocked (`sec_edgar_13f_institutional_clustering` next Q filing,
+`dtcc_sbsdr_equity_swaps`/`un_comtrade_bilateral_trade` archive-depth or
+structural-input-only by their own notes). Also re-ran `scripts/portdwell_
+weekly_snapshot.ts` (idempotent, safe every session per its own established
+convention): `weeks_captured_this_run: []` — week 11 still incomplete,
+correct no-op. Option (a) is genuinely exhausted this session, not skipped.
+
+Fell through to SESSION BUDGET tier 2 (research/debt), whose own text
+explicitly says "check the AUDITS & DEBT register first and run the most
+overdue audit" — read the register at this file's own `## AUDIT REGISTER`
+block and found the finding before even starting the audit: the staleness-
+audit row still read "2026-08-16 COMPLETE... Next full pass due 2026-09-15"
+(7 days overdue on its face), but a live search found a 2026-09-16 partial
+pass (`git log`, commit `0882dc2`, "STALENESS AUDIT — delete expired dead
+code, close expired review item") that closed 2 expired review-by items
+and was NEVER reflected in this row — so the audit was actually current to
+09-16 but the register itself had silently drifted 37 days out of sync with
+reality, the exact "debt that costs attention" class CLAUDE.md's AUDITS &
+DEBT section exists to catch, one level up (the tracking mechanism itself
+went stale). Same true of the constitutional-audit row: still read
+"2026-07-04", but a 2026-09-20 THIRD-EVER CONSTITUTIONAL AUDIT session had
+already run and filed 2 new wishlist.md proposals. Both rows corrected in
+place this session (the register's one documented append-only exception).
+
+STALENESS AUDIT PROPER, run fresh (not just re-reading old results):
+1. Python deps (`requirements.txt`+`requirements-dev.txt`) vs actual
+   imports: all 17 declared packages confirmed used. One near-miss caught
+   and resolved rather than reported as a false gap: a naive `grep -rlE
+   "^\s*(import|from)\s+yaml" --include="*.py"` found ZERO hits for
+   `pyyaml`, but `scripts/program_status.sh` (a `.sh` file, invisible to
+   a `*.py`-only grep) embeds an inline `python3 -c "import yaml; ..."`
+   heredoc that genuinely uses it — verified directly before concluding
+   anything, not assumed clean from the miss. `undeclared_py_import`
+   (D6) unchanged at 2 (laspy/ultralytics, already-tracked GRID VISION
+   GPU tooling).
+2. Env vars: diffed `process.env.` reads added since the 09-16 partial
+   pass (`git diff 0882dc2 HEAD`) rather than re-deriving the full ~63-var
+   inventory the 08-16 audit already built — 3 new reads
+   (`DATA_DIR`/`DIAG_TOKEN`/`VOLTRADE_PROD_URL`), all traced to real call
+   sites (the established test-override pattern and the standard
+   diag-script auth pattern every gate-2 script in this thread already
+   uses). Zero Python env var additions in the same diff range. Zero
+   dead reads found.
+3. Review-by dates: `grep -rniE "review.?by[: ]"` repo-wide — the two
+   items this file's own history ever logged (options_scanner.py Setup
+   4/5, OpenSky reinstatement) are both already closed (09-16); zero new
+   disabled-adapter exceptions logged anywhere since, zero currently
+   overdue.
+4. Commented-out-code sweep: grepped for `OLD`/`DEPRECATED`/`UNUSED`/
+   `DEAD CODE`/`NO LONGER` comment markers across `*.py`/`*.ts`/`*.tsx`.
+   Every `.ts`/`.tsx` hit was narrative prose (variable/comment names
+   containing "old", e.g. "oldest-half trim"), zero real dead code. The
+   `.py` sweep found the one real finding below.
+
+**FINDING, FIXED SAME SESSION**: `bot_engine.py`'s `_scan_market_inner`
+(the deep-score phase) carried a block the codebase had already labeled
+dead TWICE in its own comments (`# DEAD CODE — legacy ThreadPool replaced
+by serial loop above` / `# DEAD CODE — serial loop above handles deep
+scoring`) but never removed — a `with ThreadPoolExecutor(max_workers=1) as
+_dpool: futures = {}; try: pass; except TimeoutError: pass` block, left
+over from the 2026-04-21 MEM FIX that replaced parallel deep-scoring with
+the serial loop directly above it (documented in that same function's own
+"MEM FIX 2026-04-21: switch from ThreadPool to serial execution" comment).
+The block did nothing functionally (empty try/pass), but it was NOT free:
+it still constructed and tore down a real OS `ThreadPoolExecutor` on every
+`scan_market` cycle that had `top_candidates` — genuine, avoidable
+per-cycle overhead on a container whose entire MEM FIX lineage in this
+same function exists because Railway SIGKILLs it under memory/resource
+pressure (GOAL priority 1, KEEP THE SYSTEM ALIVE). Deleted the block,
+its now-orphaned `from concurrent.futures import ThreadPoolExecutor,
+as_completed` import (confirmed via `grep`/manual read that neither name
+was used anywhere else in this function — `as_completed` was never used
+even by the dead block itself), and reworded the doc comment immediately
+above (previously "Deep analyze top 5 in PARALLEL... Per-future timeout
+(8s)" — stale documentation describing behavior that hasn't existed since
+the same 2026-04-21 fix) to state the current serial reality instead of
+re-asserting it. Net diff: -11/+3 lines, `bot_engine.py` only.
+
+VERIFIED, not assumed:
+- `python3 -c "import ast; ast.parse(open('bot_engine.py').read())"`:
+  syntax OK.
+- `grep -n "ThreadPoolExecutor\|as_completed" bot_engine.py`: the only
+  remaining hits are the separate, still-used import/call inside
+  `deep_score()` itself (line ~721) and one unrelated `TimeoutError`
+  raise/except pair in `scan_market`'s own 50s hard-cap guard (line
+  ~2413/2422, a different, still-live mechanism) — confirmed untouched.
+- `python3 -m pytest -q` (full suite, `pip install -r requirements.txt -r
+  requirements-dev.txt` run fresh first): 2147 passed, 1 skipped, 54
+  subtests — bit-for-bit the same count as the immediately-preceding
+  session's own run on the unmodified tree, confirming zero behavior
+  change from removing an already-inert code path.
+- `python3 test_auto_discovery.py`: 199/203 passed, the same 4
+  pre-existing failures (`bot_engine.score_stock`, `bot_engine.
+  garch_vol_estimate`, two `bot.ts` feedback-field checks) confirmed via
+  `git stash`/re-run on the unmodified tree to be unrelated to this
+  diff, not newly introduced.
+- `bash scripts/counter_ratchet.sh`: caught a real, expected improvement
+  — `silent_py_handlers` 255 -> 254 (the deleted `except TimeoutError:
+  pass` was exactly the shape that counter tracks) — re-pinned in
+  `ci/counter_baseline.txt` in this same PR per the script's own
+  instruction; re-ran after re-pinning: 25/25 counters OK, zero other
+  counter moved.
+- `npm ci` (fresh container, no `node_modules`) then `bash scripts/
+  gated_tests.sh`: GATE PASSED — python 2147/1 skipped, deploy-gate smoke
+  PASS (`npm run build` clean modulo the same pre-existing chunk-size/
+  astronomy-engine warnings every prior session has logged; `/api/health`
+  200 in 2.4s under latched-kill-switch + stale-liveness fixtures),
+  quarantine 0/1, none overdue. No client suite regression possible in
+  principle either (zero `.ts`/`.tsx` files in this diff) but the gate
+  still covers it end-to-end.
+- Version bumped 1.0.959 -> 1.0.960 (`package.json` + `package-lock.json`,
+  read-and-incremented from a freshly-fetched `origin/main` immediately
+  before committing — unchanged at `8eea20b` since this session's own
+  start, confirmed via `git fetch origin main` + hash compare).
+
+GATES: full local suite above covers the one file this diff touches;
+`server/bot.ts`, `system_config.py`, `risk_kill_switch.py`, every options-
+execution file, and every order-path file are untouched. CI runs the same
+on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure dead-code removal with a
+verified-identical test-pass count before/after, no scoring/sizing/
+strategy/threshold value changed. `deep_score`'s actual candidate
+selection, ranking, and timeout behavior are byte-for-byte unchanged;
+only inert scaffolding and its stale doc comment were removed.
+
+MEASUREMENT INTEGRITY: not applicable — no metric-definition file
+(`gate2_stats.py`/`statsUtils.ts`/the backtest engine/the fills tracker)
+touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+REPAIRS MUST RATCHET: this is a dead-code deletion with a verified-zero
+behavior delta (existing test suite, identical pass count, is the
+regression coverage — there is no new *behavior* to write a new test
+against, since the removed code was already a no-op). The counter
+re-pin (`silent_py_handlers` 255->254) is itself the ratchet: this exact
+class of leftover empty-except scaffolding can never silently regress
+back to 255 without CI catching it.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-22, timestamp confirmed via
+this session's own `/api/health` read at 13:18 UTC = ~09:18 AM ET — well
+outside 9:30-16:00 ET market hours, so no merge-hold applies.
+
+NEXT: (1) `github_org_engineering_momentum` gate 2 — register a concrete
+readiness_trigger once the panel reaches a defensible depth (this
+session's own reasoning above suggests ~13 weeks/90 days as the bar this
+codebase already applies elsewhere; currently 9 weeks, so roughly 4 more
+weeks out) so a future `ladder_readiness_check.py` run surfaces it
+automatically instead of needing another manual walk — not built this
+session, scope discipline (one logical change per PR). (2) `scripts/
+portdwell_weekly_snapshot.ts` — keep re-running every session, unchanged,
+will pick up week 11 once it completes. (3) KNOWN BROKEN #43/#44's
+human-decision items — unchanged, not re-notified. (4) AUDIT REGISTER
+next full passes now correctly dated: staleness due 2026-10-22,
+constitutional due 2026-10-20 — a future session should trust these two
+rows again now that they're back in sync with the actual git history.
+
+STARVED: no — this session worked SESSION BUDGET's own fall-through order
+top to bottom (queued item -> exhausted with evidence, not assumed; AUDITS
+& DEBT register -> found stale before even running the audit it names, a
+second-order finding worth logging in its own right; the audit itself ->
+one real dead-code finding, fixed end-to-end with full verification and a
+locked-in counter improvement) and left a concrete, dated NEXT rather than
+an open-ended observation.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-21 (scheduled-routine session) [PRODUCT] — `so2_column_gibs` gets an honest `datacore/signal_ladder.json` entry (`raw_only`), the third of the original 7 ladder-registry gaps to close, 4 remain (v1.0.952)
 
 TERRITORY: SHARED-minimal (`datacore/signal_ladder.json`, `scripts/
@@ -48482,8 +48701,8 @@ exception to append-only; the log below it stays append-only)
 
 | audit | cadence | last run |
 |---|---|---|
-| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-08-16 COMPLETE, clean bill of health (see same-date log entry) — Python deps (requirements.txt + requirements-dev.txt) all used, zero new undeclared beyond the already-tracked laspy/ultralytics (D6); 36 Python env vars + 27 server env vars traced to real call sites, zero dead reads found; commented-out-code sweep across server/*.ts + bot core + strategies/ found zero real hits (all narrative prose); every KILLED-experiment's code confirmed out of the live path. One dated item surfaced for the NEXT session: OpenSky reinstatement review-by is 2026-08-17 (tomorrow) — check for a human reply, close or reinstate per open_questions.md:4758. Next full pass due 2026-09-15 |
-| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
+| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-09-22 COMPLETE (this session; register itself was the finding — see 2026-09-22 log entry) — a 2026-09-16 partial pass (#1096) closed 2 expired review-by items (options_scanner.py Setup 4/5, OpenSky reinstatement) but never updated this row, so it silently read 37 days stale against a 30d cadence. This session: re-verified Python deps (requirements.txt + requirements-dev.txt) all used incl. the yaml/pyyaml false-negative (inline in scripts/program_status.sh, missed by a naive *.py grep, confirmed real via direct grep of the script); undeclared_py_import unchanged at 2 (laspy/ultralytics, already-tracked GPU tooling, D6); diffed process.env additions since #1096 (DATA_DIR/DIAG_TOKEN/VOLTRADE_PROD_URL, all live call sites, none dead); zero open review-by items found repo-wide (both prior ones already closed, no new adapter exceptions logged since). ONE REAL FINDING, fixed same session: `bot_engine.py`'s deep-score block in `_scan_market_inner` carried a self-labeled "DEAD CODE" `ThreadPoolExecutor(max_workers=1)` block (2 comments naming it dead) left over from the 2026-04-21 ThreadPool->serial-loop MEM FIX — an inert `try: pass / except TimeoutError: pass` that still spun up and tore down a real OS thread pool on every scan cycle with candidates, plus its now-unrelated `ThreadPoolExecutor, as_completed` import and a stale "in PARALLEL" doc comment describing behavior that hasn't existed since that same fix. Deleted per DEAD CODE POLICY; `silent_py_handlers` improved 255->254 (re-pinned in `ci/counter_baseline.txt` same PR). Next full pass due 2026-10-22; THIS ROW is now the authoritative record — update it in place on every future run, do not let a partial pass go unreflected again. |
+| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-09-20 (THIRD-EVER, 5 days overdue at run time — #1140ish; see that date's [RULE-REVIEW] log entry) — 2 new consolidation proposals filed in wishlist.md, both 2026-08-16-era proposals re-confirmed still pending human review. This row was also stale (last read 2026-07-04) until this session's fix; next full pass due 2026-10-20. Original 2026-07-04 CONSTITUTIONAL REPAIR's 4 proposals remain awaiting approval, unchanged. |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
 ## 2026-07-15 [PRODUCT] — EARTH TWIN O6: focus, find & follow (v1.0.343-345, human directive w/ screenshot)
