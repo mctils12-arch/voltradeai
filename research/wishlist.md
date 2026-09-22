@@ -4361,3 +4361,64 @@ now the honest disposition either way.
 
 **NOT A SPEND REQUEST** — still a free signup, not payment; recorded
 here for the human's weekly wishlist review, not self-actioned.
+
+## 2026-09-22 — DOCKERFILE GAP: `scripts/` is never copied into the production runtime image, so `insider_cusum_gate2` (and any future `scripts/`-backed diag probe) 500s in production forever [FROZEN-PATH PROPOSAL]
+
+FOUND executing the 2026-09-21 session's own queued NEXT step (judge the
+`insider_cusum_gate2` probe that session shipped) — see
+`research/open_questions.md` KNOWN BROKEN #44 for the full root-cause
+trace; this entry is the proposal, not a restatement.
+
+ROOT CAUSE: `Dockerfile`'s production stage (`FROM node:20-slim`, the
+second, non-discarded stage) copies `*.py`, `strategies/`, and
+`alphadesk/` but never `scripts/`. `scripts/` IS present in the builder
+stage (`COPY . .`) but that stage is discarded — only `dist/` and
+`node_modules` cross over via `COPY --from=builder`. Any diag probe that
+imports a `scripts/*.py` module therefore fails LIVE with
+`ModuleNotFoundError`, confirmed this session against production:
+`curl https://voltradeai.com/api/diag/insider_cusum_gate2?token=...` →
+`"No module named 'insider_cusum_probe'"`.
+
+PROPOSAL (Dockerfile is FROZEN — human approval needed): add one line
+right after the existing `alphadesk/` copy (`Dockerfile`, production
+stage):
+
+    COPY alphadesk/ ./alphadesk/
+    # ── Research/diag probe scripts (needed at runtime by scripts/-backed
+    # diag probes, e.g. insider_cusum_gate2) ──────────────────────────
+    COPY scripts/ ./scripts/
+
+COST/RISK: negligible. `scripts/` is pure Python research-probe source
+(~100KB class, no secrets, no native deps beyond what `requirements.txt`
+already installs) — same class of addition as the existing `strategies/`/
+`alphadesk/` lines, not a new attack surface or a meaningfully larger
+image. No behavior change to anything already working; this only makes
+currently-dead imports resolve.
+
+WHY NOT WORKED AROUND INSTEAD: KNOWN BROKEN #44 in open_questions.md
+records that moving the specific files (`insider_cusum_probe.py` +
+its 3-deep dynamic-load chain) to repo root was considered and rejected
+— it would silently break `scripts/hurst_exponent_cross_sectional_probe.py`,
+an unrelated, currently-working standalone research script that loads
+`hurst_exponent_probe.py` by same-directory co-location. The Dockerfile
+line is the only fix with no collateral damage, which is exactly why it
+belongs here rather than being patched around.
+
+FORWARD-LOOKING VALUE (not just this one probe): this is a general trap,
+not a one-off — ANY future `scripts/`-backed diag probe (the established,
+growing pattern this codebase already uses for `fdic_gate2`,
+`shadowfleet_gate1`, `midas_quarter`, etc., none of which happen to live
+in `scripts/` today) would hit the identical failure the moment one does.
+Approving this once closes the whole class, not just `insider_cusum_gate2`.
+
+MITIGATION SHIPPED WITHOUT TOUCHING THE FROZEN PATH: `server/bot.ts`'s
+shared `/api/diag/:probe` catch block now recognizes this exact failure
+signature (evidence-checked via `fs.existsSync`, not guessed) and returns
+a `known_broken` field pointing here instead of a bare traceback — so
+this is at least self-diagnosing until the line above ships. Full detail,
+tests, and the query the probe itself is blocked on: `research/
+open_questions.md` KNOWN BROKEN #44.
+
+**NOT A SPEND REQUEST** — a one-line Dockerfile change, no cost; needs
+human approval only because Dockerfile is a FROZEN PATH, not because of
+price.

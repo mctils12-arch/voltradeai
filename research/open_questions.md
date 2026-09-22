@@ -7116,6 +7116,98 @@
     anything this sandbox can infer — see item #43's own NEXT for the
     resume procedure once item #42 is actually resolved either way.
 
+44. **[FOUND 2026-09-22, scheduled-routine session, LIVE PRODUCTION BUG,
+    DIAGNOSABILITY FIX SHIPPED — root cause needs a FROZEN PATH (Dockerfile),
+    fix proposed in wishlist.md, NOT self-applied.] `insider_cusum_gate2`
+    (the diag probe the 2026-09-21 session's own NEXT step asked a future
+    session to judge) has never worked in production — it 500s on every
+    call with a raw `ModuleNotFoundError`, not a real GATE 2 result.**
+    Found while executing exactly the queued step: this session's own
+    SESSION BUDGET primary-action survey ranked "judge a matured
+    experiment" above starting new research, and the 2026-09-21 session's
+    own filed NEXT(1) was "GET `/api/diag/insider_cusum_gate2?
+    token=$DIAG_TOKEN` settles the 2026-09-18 GATE 2 question directly."
+    Doing exactly that, live, this session (`curl https://voltradeai.com/
+    api/diag/insider_cusum_gate2?token=$DIAG_TOKEN`) returned:
+    `{"error":"Command failed: python3 -c ... ModuleNotFoundError: No
+    module named 'insider_cusum_probe'"}` — not a data result, a crash.
+    ROOT CAUSE (read, not assumed): `Dockerfile` (FROZEN PATH) builds the
+    production runtime in a fresh `FROM node:20-slim` stage (line 27) that
+    only receives `COPY *.py ./`, `COPY strategies/ ./strategies/`, and
+    `COPY alphadesk/ ./alphadesk/` — there is no `COPY scripts/
+    ./scripts/` line anywhere in either build stage. `scripts/` is copied
+    into the BUILDER stage only (`COPY . .`, line 19), which is discarded;
+    the production stage never inherits it except via the explicit
+    `COPY --from=builder` lines (`dist/`, `node_modules` only). Every
+    other python-backed diag probe (`fdic_gate2`, `shadowfleet_gate1`,
+    `midas_quarter`, etc.) calls root-level `*.py` modules or in-repo
+    packages that ARE copied — grepped `server/bot.ts` + `server/*.ts` for
+    any other `scripts/`-importing code this session: `insider_cusum_gate2`
+    (shipped 2026-09-21, v1.0.951) is the ONLY diag probe that imports a
+    `scripts/*.py` module (`sys.path.insert(0, 'scripts'); import
+    insider_cusum_probe`), and the module it imports has a further
+    transitive same-directory dependency chain — `insider_cusum_probe.py`
+    dynamically loads `hurst_exponent_probe.py`, which loads
+    `permutation_entropy_probe.py`, which loads
+    `critical_slowing_down_probe.py` (all via co-located
+    `importlib.util.spec_from_file_location`, all four files living only
+    in `scripts/`) — so even if the entry-point import were fixed, the
+    chain would still fail deeper in, for the same reason.
+    WHY NOT FIXED BY MOVING THE FILES INSTEAD (considered and rejected
+    this session, not just not-attempted): moving all four files to repo
+    root (where `COPY *.py ./` would ship them) is possible without
+    touching the Dockerfile, but has real collateral cost found while
+    scoping it — `scripts/hurst_exponent_cross_sectional_probe.py` (a
+    separate, standalone research CLI script, not on this runtime path)
+    ALSO dynamically loads `hurst_exponent_probe.py` by same-directory
+    co-location; moving `hurst_exponent_probe.py` out of `scripts/` would
+    silently break that unrelated script's own future manual runs. A
+    workaround that fixes one production bug by quietly breaking a
+    different, currently-working research tool is not a clean root-cause
+    fix — REASONING STANDARD #1 (trace the downstream chain before
+    changing something coupled) applies to file moves, not just parameter
+    changes. The Dockerfile addition is the actual root-cause fix and has
+    no such collateral: `COPY scripts/ ./scripts/` (python source only, no
+    secrets, no size/security concern — mirrors the existing `strategies/`/
+    `alphadesk/` COPY lines exactly) added once, after the `alphadesk/`
+    line. Per CLAUDE.md FROZEN PATHS: "If a change seems to require
+    touching a frozen path, write the proposal to research/wishlist.md
+    instead and stop that line of work" — done, not self-applied.
+    NOT A LIVENESS OR TRADING-PATH ISSUE: `insider_cusum_gate2` is a
+    read-only, DIAG_TOKEN-gated research probe added yesterday, not wired
+    into `deep_score`/any order path, and never yet load-bearing on
+    anything — this bug has cost zero live trading impact. It DOES mean
+    the 2026-09-18 GATE 2 hypothesis is still genuinely unresolved (not
+    "checked and inconclusive" — never actually run against real data at
+    all), so a future session should not assume otherwise.
+    WHAT SHIPPED THIS SESSION (diagnosability only, no Dockerfile touch):
+    the shared `/api/diag/:probe` catch block (`server/bot.ts`) now
+    detects this EXACT failure signature — a `ModuleNotFoundError` whose
+    named module exists under `scripts/` but not at repo root (checked via
+    `fs.existsSync`, not guessed, so it can never misfire on an unrelated
+    import error) — and returns a `known_broken` field pointing straight
+    at this entry and the wishlist proposal, instead of a bare traceback.
+    This benefits every future `scripts/`-importing probe someone adds
+    before the Dockerfile fix lands, not just this one. New regression
+    test `server/diag.test.ts` ("KNOWN BROKEN #44"), A/B-verified via
+    `git stash` on `server/bot.ts` alone: fails pre-fix (1/28), passes
+    post-fix (28/28).
+    VERIFIED: `npx tsx --test server/*.test.ts`: full suite green, 0
+    regressions. `npx tsc --noEmit` / `bash scripts/tsc_ratchet.sh`:
+    unchanged from baseline. No Python file touched by this fix.
+    NEXT: (1) once a human approves and merges the Dockerfile line from
+    wishlist.md, re-run `curl .../api/diag/insider_cusum_gate2` — it
+    should then return a real result (or a real, different error) instead
+    of this ModuleNotFoundError, and the 2026-09-18 GATE 2 question can
+    finally be judged. (2) the same wishlist entry flags that this trap is
+    generic — ANY future diag probe wired to a `scripts/*.py` module hits
+    the identical failure until the Dockerfile line ships, so a future
+    session adding a new `scripts/`-backed probe should check this item
+    first rather than rediscovering the same root cause. (3) this item's
+    diagnosability fix is NOT itself a substitute for the real fix — do
+    not close this item until the Dockerfile line actually ships and the
+    probe has been confirmed live.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
