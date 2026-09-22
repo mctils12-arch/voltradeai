@@ -519,3 +519,37 @@ test("insider_cusum_gate2 probe (2026-09-21): wired, runs the pre-registered pro
   assert.ok(!probeBody.includes('"records":'),
     "run_probe() must never return the raw per-filer records list, only the aggregate verdict");
 });
+
+test("KNOWN BROKEN #44 (2026-09-22): the shared /api/diag/:probe catch block explains a scripts/-only ModuleNotFoundError instead of returning a raw traceback", () => {
+  // ROOT CAUSE: Dockerfile (FROZEN PATH) only COPYs *.py / strategies/ /
+  // alphadesk/ into the runtime image — scripts/ ships in neither stage
+  // of the production image, so insider_cusum_gate2 (the only probe that
+  // imports a scripts/*.py module) fails LIVE with
+  // "ModuleNotFoundError: No module named 'insider_cusum_probe'" and no
+  // hint why. Live-reproduced this session:
+  // `curl https://voltradeai.com/api/diag/insider_cusum_gate2?token=...`.
+  // This test pins the diagnostic added to the shared catch block, not a
+  // fix to the underlying missing-directory problem (that needs the
+  // Dockerfile, a FROZEN PATH — proposal filed in research/wishlist.md
+  // for human approval per CLAUDE.md's own routing rule).
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const catchStart = bot.indexOf("} catch (e: any) {", bot.indexOf('app.get("/api/diag/:probe"'));
+  const catchEnd = bot.indexOf("\n  });", catchStart);
+  assert.ok(catchStart > 0 && catchEnd > catchStart, "the /api/diag/:probe catch block was not found where expected");
+  const block = bot.slice(catchStart, catchEnd);
+
+  assert.ok(/ModuleNotFoundError/.test(block), "must detect the ModuleNotFoundError signature");
+  assert.ok(/fs\.existsSync\(`\$\{missing\}\.py`\)/.test(block),
+    "must confirm the missing module is ABSENT at repo root — never guess for an unrelated ImportError");
+  assert.ok(/fs\.existsSync\(`scripts\/\$\{missing\}\.py`\)/.test(block),
+    "must confirm the missing module genuinely lives under scripts/ — evidence-based, not a blind pattern match");
+  assert.ok(block.includes("known_broken"), "must surface a named, greppable known_broken field");
+  assert.ok(block.includes("wishlist.md"), "must point at the filed Dockerfile fix proposal");
+  assert.ok(block.includes("sanitizeDiag(msg)"),
+    "the enriched response must still pass every error string through the sanitizer, same as the unmatched path");
+
+  // The fallback path (an ordinary, unrelated error) must be unchanged in
+  // shape — this diagnostic must never suppress or alter a real error.
+  assert.ok(/return res\.status\(500\)\.json\(\{ error: sanitizeDiag\(msg\) \}\);\s*\n\s*\}/.test(block),
+    "the plain error path (no scripts/-only module detected) must still return exactly {error: sanitizeDiag(msg)}");
+});

@@ -2902,7 +2902,28 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
     } catch (e: any) {
-      return res.status(500).json({ error: sanitizeDiag(String(e?.message || e)) });
+      const msg = String(e?.message || e);
+      // FOUND 2026-09-22 (scheduled-routine session), KNOWN BROKEN #44:
+      // Dockerfile (FROZEN PATH) only COPYs *.py / strategies/ / alphadesk/
+      // into the runtime image — scripts/ is never shipped, so ANY diag
+      // probe that imports a scripts/*.py module (insider_cusum_gate2 is
+      // the first, but not necessarily the last) fails here with a raw
+      // ModuleNotFoundError traceback that gives no hint why. Confirmed,
+      // not guessed: only surfaces this note when the missing module name
+      // really does exist under scripts/ but not at repo root, so this
+      // can't misfire on an unrelated import error. Full root-cause and
+      // the proposed one-line Dockerfile fix are in research/wishlist.md
+      // (human approval needed — Dockerfile is FROZEN PATHS).
+      const missing = /ModuleNotFoundError: No module named '([\w.]+)'/.exec(msg)?.[1];
+      if (missing && !fs.existsSync(`${missing}.py`) && fs.existsSync(`scripts/${missing}.py`)) {
+        return res.status(500).json({
+          error: sanitizeDiag(msg),
+          known_broken: "scripts/ is not copied into the production Docker image (Dockerfile is FROZEN PATHS) — " +
+            `'${missing}' lives under scripts/, which this runtime never receives. See KNOWN BROKEN #44, ` +
+            "research/open_questions.md and the Dockerfile proposal in research/wishlist.md.",
+        });
+      }
+      return res.status(500).json({ error: sanitizeDiag(msg) });
     }
   });
 

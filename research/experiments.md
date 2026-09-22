@@ -96930,3 +96930,190 @@ NEXT: re-run `npx tsx scripts/settlement_stress_gate2.ts` periodically (no faste
 STARVED: no — this session picked the highest-value unclaimed item from the immediately preceding session's own queued NEXT, built and ran the compiled tool the EDGE DOCTRINE explicitly asks for (a raw-event-count vs. independent-episode distinction that a future session would otherwise have to re-derive from the same 33 rows by hand), rendered an honest non-verdict rather than either a fished PASS or a premature FAIL, and left a concrete, dated NEXT for the exact re-check condition. No higher-priority queued item was skipped — no LIVENESS escalation was warranted (unchanged reading, already notified), thrash ratio 0/10 [REPAIR].
 
 NOT A SPEND REQUEST.
+
+## 2026-09-22 (scheduled-routine session, second session this UTC day) [REPAIR] — KNOWN BROKEN #44 found + diagnosability fix shipped: `insider_cusum_gate2` has 500'd on every call since it shipped yesterday — `scripts/` is never copied into the production Docker image; root-cause fix proposed in wishlist.md (Dockerfile is FROZEN) (v1.0.958)
+
+TERRITORY: SHARED-minimal (`server/bot.ts`, `server/diag.test.ts` — not
+exclusively T-BOT/T-DATACORE/T-CLIENT; `research/*`, `ci/counter_baseline.txt`,
+`package.json`/`package-lock.json` last per MERGE-ORDER PROTOCOL). No
+Python file touched.
+
+SESSION-START: read CLAUDE.md in full (special attention to the EDGE
+DOCTRINE per this routine's own instruction), then `research/PROGRAM_STATE.md`,
+`research/open_questions.md` KNOWN BROKEN section in full (items #1-43;
+confirmed #43/#42 unchanged since the first 2026-09-22 session, #30/#35/#36
+already closed, #40's second entry is a non-urgent self-resolving test-
+hygiene defect in T-BOT territory), and `research/experiments.md`'s tail
+(today's first session, settlement_stress_composite). `git fetch origin
+main`: local HEAD (`d93c34a`, v1.0.957) already matched.
+
+SYSTEM HEALTH CHECKED FIRST, live (`curl https://voltradeai.com/api/health`,
+`DIAG_TOKEN` present this session): `status:"degraded"`, `bot.status:
+"killed"`, `liveness.dark:true` — "trading loop dark for 52.0 market hours
+(287.4h wall-clock) since 2026-09-10T03:12:26.354Z", `drawdownPct:"-5.6"` —
+identical reading to the first session's own check hours earlier (same UTC
+day), continuing the same monotonic-recovery trend every session since
+2026-09-10 has logged. KNOWN BROKEN #43, unchanged, already push-notified
+multiple times including earlier today — NOT re-notified for an unchanged
+reading, per this thread's own established precedent. `server`/`database`/
+`alpaca`/`python`/`scanner`/`feeds`/`process`/`memory` all `status:"ok"`.
+Resuming is a human decision (RULE REVIEW forbids loosening a risk-limit
+trigger on inference alone) that does not block product/repair work — same
+disposition every session in this thread has reached. Loop-health ratio:
+last 10 tagged entries = 8x [PRODUCT]/[PIPELINE], 1x [RESEARCH], 1x this
+entry's own [REPAIR] — well under the 7+ thrash trigger. NOT a thrash
+crisis.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order — "fix a bug seen in audit
+logs" and "judge a matured experiment" both rank above starting new
+research): the immediately preceding session's own 2026-09-21 NEXT(1) was
+explicit — "GET `/api/diag/insider_cusum_gate2?token=$DIAG_TOKEN` settles
+the 2026-09-18 GATE 2 question directly." Did exactly that as this
+session's first live check, before surveying the four doctrine axes this
+routine's own brief also named. It did not return a GATE 2 result — it
+500'd with a raw Python traceback. Judging a matured experiment surfaced a
+live production bug instead of a data point; per SESSION BUDGET's own
+ordering, diagnosing and fixing what's fixable from this bug immediately
+outranks picking a fresh doctrine axis, so this became the session's
+primary action ([REPAIR], not [PRODUCT]/[PIPELINE]/[RESEARCH]).
+
+READ BEFORE WRITE: read `Dockerfile` in full (both build stages) before
+concluding anything — confirmed the production stage's exact `COPY` list
+(`*.py`, `strategies/`, `alphadesk/`, plus `--from=builder` for `dist/`/
+`node_modules`) has no `scripts/` line, and that the builder stage's own
+`COPY . .` is discarded (a fresh `FROM node:20-slim` starts stage 2, no
+`COPY --from=builder /app` catch-all). Read `scripts/insider_cusum_probe.py`
+in full (already read in part by the 2026-09-21 session that shipped it,
+re-read fresh this session per READ BEFORE WRITE, not assumed from that
+session's own log) — traced its `_load_hurst_probe()` dynamic same-directory
+load into `hurst_exponent_probe.py`, which itself dynamically loads
+`permutation_entropy_probe.py`, which loads `critical_slowing_down_probe.py`
+— a 4-file transitive chain, all four living only in `scripts/`. Grepped
+`server/bot.ts` + `server/*.ts` for every other `scripts/`-importing call
+site: `insider_cusum_gate2` is the ONLY one — this is not a systemic
+break affecting other probes today, only a trap waiting for the next one
+that follows the same pattern.
+
+WHY NOT FIXED BY MOVING THE FILES (considered, scoped, rejected — not
+skipped): relocating the 4-file chain to repo root (where `COPY *.py ./`
+already ships) avoids touching the Dockerfile entirely and was the first
+option evaluated. Rejected after finding real collateral: `scripts/
+hurst_exponent_cross_sectional_probe.py` (an unrelated, currently-working
+standalone research script, not on this runtime path) ALSO dynamically
+loads `hurst_exponent_probe.py` by same-directory co-location — moving
+that file out of `scripts/` would silently break a second, unrelated
+script's future manual runs to fix one production endpoint. REASONING
+STANDARD #1 (trace the downstream chain at least two steps before any
+change) applies to file relocation exactly as it does to a parameter
+change; a fix that breaks something else working is not root-cause-clean.
+The Dockerfile line has no such collateral — the only genuinely correct
+fix, and per CLAUDE.md FROZEN PATHS ("if a change seems to require
+touching a frozen path, write the proposal to wishlist.md instead and
+stop that line of work"), not self-applied.
+
+WHAT SHIPPED (diagnosability only, no Dockerfile touch, no behavior
+change to anything already working): the shared `/api/diag/:probe` catch
+block (`server/bot.ts`) now recognizes this exact failure signature — a
+`ModuleNotFoundError` whose named module exists under `scripts/` but not
+at repo root, checked live via `fs.existsSync` (not a guessed string
+match, so it cannot misfire on an unrelated `ImportError`) — and returns
+a `known_broken` field naming KNOWN BROKEN #44 and the wishlist proposal
+instead of a bare traceback. This benefits any future `scripts/`-backed
+diag probe hitting the same trap before the Dockerfile line ships, not
+just this one endpoint.
+
+`server/diag.test.ts` gained one new test ("KNOWN BROKEN #44"), source-
+text-anchored on the catch block (matching this file's own established
+convention for testing `bot.ts` route logic, which has no individually
+importable/exported helpers to unit-test directly — `registerBotRoutes`
+is the file's only export). Asserts: the `ModuleNotFoundError` detection
+regex exists; both `fs.existsSync` evidence checks are present (root-
+absent AND scripts-present, not a blind pattern match); the response
+carries a `known_broken` field and points at `wishlist.md`; every
+response — matched or not — still passes through `sanitizeDiag`; and the
+unmatched (ordinary-error) path is byte-identical in shape to the
+pre-existing `{error: sanitizeDiag(msg)}` fallback, so this diagnostic
+can never suppress or reshape a real, unrelated error.
+
+VERIFIED, not assumed (fresh container this session — `npm ci` needed
+first, confirmed via 8 pre-existing `ERR_MODULE_NOT_FOUND: express`
+failures across unrelated test files before it ran, 0 after — the same
+provisioning gap prior sessions have repeatedly logged, not a regression
+from this diff):
+- A/B via `git stash push -- server/bot.ts` (diag.test.ts kept staged,
+  new test present): pre-fix 27/28 pass (the new test fails with "must
+  detect the ModuleNotFoundError signature" — confirms it actually
+  exercises the new logic, not a tautology); post-fix (`git stash pop`)
+  28/28 pass.
+- `npx tsx --test server/*.test.ts` (full TS suite, post `npm ci`):
+  1802/1802 pass, 0 regressions.
+- `python3 -m pytest -q` (full suite, untouched by this diff — no Python
+  file changed): 2124 passed, 1 skipped, 54 subtests — identical count to
+  the first session's own run earlier today.
+- `npx tsc --noEmit` / `bash scripts/tsc_ratchet.sh`: 11 errors, exact
+  match to `ci/tsc_baseline.txt`'s pin, TS2304=0.
+- `npm run build`: clean (same pre-existing chunk-size/astronomy-engine/
+  pngjs/mapIcons warnings every prior session has already noted, none
+  new).
+- `bash scripts/gated_tests.sh`: GATE PASSED — client/server/python
+  suites green, deploy-gate smoke PASS (`/api/health` 200 in 2.4s under
+  latched-kill-switch + stale-liveness fixtures), quarantine 0/1, none
+  overdue.
+- `bash scripts/counter_ratchet.sh`: `assertions` improved 14944 -> 14952
+  (this session's own new test) — re-pinned in `ci/counter_baseline.txt`
+  in this same PR (local HEAD verified equal to freshly-fetched
+  `origin/main`, `d93c34a`, immediately before pinning, so this delta is
+  this diff's own new test, not pre-existing drift, PROMOTION RULE 5);
+  re-ran after re-pinning: 25/25 counters OK.
+- Version bumped 1.0.957 -> 1.0.958 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript only: `server/bot.ts`, `server/diag.test.ts`; no Python
+source changed, no order-path file touched, no Dockerfile/FROZEN PATH
+edited). CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a diagnosability fix on a read-only
+diag endpoint; no scoring, sizing, strategy, or threshold code touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code
+(P&L, slippage, fills, the backtest engine); it is error-message shaping
+on a token-gated research probe endpoint, stated here for completeness
+rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-22 (same UTC day as the first
+session), well outside 9:30-16:00 ET market hours at commit time
+(confirmed via this session's own `/api/health` timestamp, ~02:xx UTC —
+~22:xx ET the prior evening) — no merge-hold applies.
+
+NEXT: (1) the actual fix is queued in `research/wishlist.md` (one-line
+Dockerfile addition, `COPY scripts/ ./scripts/`) awaiting human approval —
+a future session should check whether it has been approved/merged, and if
+so, re-poll `/api/diag/insider_cusum_gate2` to finally judge the
+2026-09-18 GATE 2 hypothesis this bug has kept unresolved. (2) full
+root-cause trace lives in `research/open_questions.md` KNOWN BROKEN #44 —
+do not close that item until the Dockerfile line has actually shipped and
+the probe confirmed live, not merely once this diagnosability fix lands.
+(3) KNOWN BROKEN #42/#43's human resume decision remains the one
+outstanding LIVENESS item, unaffected by this diff (no trading-path file
+touched) — not re-escalated this session, unchanged reading already
+notified earlier today.
+
+STARVED: no — this session's primary action was forced by judging the
+immediately preceding session's own queued NEXT step exactly as
+instructed, found a genuine live production bug instead of a data point,
+root-caused it fully (including why the obvious workaround was rejected,
+not just why the obvious fix couldn't be self-applied), shipped the
+complete diagnosability mitigation available without touching a FROZEN
+PATH, filed a precise, ready-to-approve proposal for the part that
+does need one, and left an exact, checkable NEXT for whichever future
+session or human closes the loop. No higher-priority queued item was
+skipped — no LIVENESS escalation was warranted (unchanged reading,
+already notified earlier the same day), thrash ratio 1/10 [REPAIR]
+(this entry itself) well under the 7+ trigger.
+
+NOT A SPEND REQUEST.
