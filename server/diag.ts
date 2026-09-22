@@ -212,6 +212,25 @@ export const DIAG_PROBES = [
   // per day, no per-trade or per-symbol detail), same posture as every
   // other probe here.
   "equity_curve",
+  // ADDED 2026-09-22 (scheduled-routine session): unblocks KNOWN BROKEN
+  // #42's own queued NEXT step (2) — a live version of
+  // scripts/reconstruct_position_pnl.py (the 2026-09-10 incident's CLI
+  // script, which needed a human to paste a positions JSON by hand). Pulls
+  // /v2/positions live and reconstructs the requested day's equity-leg P&L
+  // from published Alpaca daily closes (fetchDailyBarsRange, the same
+  // helper fdic_gate2 already uses), independent of the account's own
+  // equity/last_equity bookkeeping. Implemented entirely in TypeScript
+  // (server/reconstructPnl.ts) rather than as a scripts/*.py-backed probe
+  // — see KNOWN BROKEN #44 for why any scripts/*.py import 500s in
+  // production today. Options legs are detected and excluded (no free
+  // historical options-quote source exists), stated in the response.
+  // Same reduced-exposure posture as every other probe: only the
+  // reconstructed total, per-leg close/delta/contribution (equities only,
+  // already implied by /v2/positions which this token already exposes via
+  // "positions-detail"), and exclusion reasons leave this endpoint. See
+  // the "reconstruct_pnl" case in bot.ts for the date/reported_pnl query
+  // params.
+  "reconstruct_pnl",
   // ADDED 2026-09-21 (scheduled-routine session): unblocks the 2026-09-18
   // FOREIGN-FIELD IMPORT (axis c) — scripts/insider_cusum_probe.py's
   // "does a Page-CUSUM-detected shift in market-wide aggregate insider

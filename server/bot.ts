@@ -22,6 +22,7 @@ import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./sha
 import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
+import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
@@ -2450,6 +2451,70 @@ print(json.dumps(s))
             count: Math.min(equityCurve.length, days),
             days: equityCurve.slice(0, days),
           }));
+        }
+        case "reconstruct_pnl": {
+          // ADDED 2026-09-22 (scheduled-routine session): unblocks KNOWN
+          // BROKEN #42's own queued NEXT step (2) — "a /api/diag/
+          // reconstruct_pnl live probe (auto-pulling current positions +
+          // date ...) would remove the manual position-JSON step" the
+          // 2026-09-10 incident needed scripts/reconstruct_position_pnl.py
+          // (a local CLI script, human pastes a positions JSON by hand) to
+          // answer. Pulls the account's CURRENT positions live (same
+          // /v2/positions read "positions-detail" already exposes) and
+          // reconstructs the requested day's equity-leg P&L from published
+          // Alpaca daily closes — the SAME fetchDailyBarsRange helper
+          // fdic_gate2 already uses, entirely independent of the account's
+          // own equity/last_equity bookkeeping (the exact cross-check that
+          // settled the 2026-09-09 incident). DELIBERATELY TYPESCRIPT, NOT
+          // A scripts/*.py PROBE: this session's own KNOWN BROKEN #44
+          // finding is that any diag probe invoking a scripts/*.py module
+          // 500s in production (scripts/ is never COPYed into the
+          // Dockerfile's production stage, fix pending human approval on a
+          // FROZEN PATH) — reconstructPnl.ts ports the CLI script's logic
+          // to Node instead of adding a fifth probe that would hit the same
+          // trap. Option legs are detected and excluded (no free historical
+          // options-quote source exists — research/wishlist.md), stated
+          // honestly in the response, not hidden — same scope limitation
+          // the original script already carried. `date` = required
+          // YYYY-MM-DD trading day; optional `reported_pnl` for the
+          // side-by-side gap readout the incident actually needed.
+          const date = String(req.query.date || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ error: "invalid date (expected YYYY-MM-DD)" });
+          }
+          let reportedPnl: number | null = null;
+          if (req.query.reported_pnl !== undefined) {
+            const n = parseFloat(String(req.query.reported_pnl));
+            if (!Number.isFinite(n)) return res.status(400).json({ error: "invalid reported_pnl (expected a number)" });
+            reportedPnl = n;
+          }
+          const positionsRaw = await alpaca("/v2/positions");
+          const arr = Array.isArray(positionsRaw) ? positionsRaw : [];
+          const start = new Date(date + "T00:00:00Z");
+          start.setUTCDate(start.getUTCDate() - 15); // matches the Python script's own days_lookback=15
+          const startISO = start.toISOString().slice(0, 10);
+          const end = new Date(date + "T00:00:00Z");
+          end.setUTCDate(end.getUTCDate() + 1); // inclusive of `date` regardless of Alpaca's end-exclusivity
+          const endISO = end.toISOString().slice(0, 10);
+
+          const inputs: ReconPositionInput[] = [];
+          for (const p of arr) {
+            const symbol = String(p?.symbol || "");
+            const qty = parseFloat(p?.qty) || 0;
+            const assetClass = String(p?.asset_class || "");
+            if (isOptionPosition(symbol, assetClass)) {
+              inputs.push({ symbol, qty, assetClass, bars: null }); // never fetched — no options bar source exists
+              continue;
+            }
+            try {
+              const bars = await fetchDailyBarsRange(symbol, startISO, endISO);
+              inputs.push({ symbol, qty, assetClass, bars });
+            } catch {
+              inputs.push({ symbol, qty, assetClass, bars: null });
+            }
+          }
+          const result = reconstructPortfolioPnl(inputs, date, reportedPnl);
+          return res.json(sanitizeDiag({ probe: "reconstruct_pnl", ...result }));
         }
         case "orders": {
           // Whitelist widened 2026-07-07 (human-directed) — see diag.ts.
