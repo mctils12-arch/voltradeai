@@ -2798,10 +2798,9 @@ def _scan_market_inner():
         "trades": [],
         "partial": True,
     }
-    # Step 3: Deep analyze top 5 in PARALLEL (capped from 10 for timeout safety)
-    # Each deep_score internally runs 5 data sources in parallel too.
-    # Per-future timeout (8s) + total cap (35s) prevents yfinance hangs.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Step 3: Deep analyze top candidates (capped from 10 for timeout safety).
+    # SERIAL since the MEM FIX 2026-04-21 below (ThreadPool caused SIGKILLs);
+    # total cap (35s) prevents yfinance hangs.
     _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
     _timing_log("quick_scan")
 
@@ -2969,13 +2968,6 @@ def _scan_market_inner():
             except Exception:
                 deep_scored[_idx] = None
             _gc.collect()
-        # DEAD CODE — legacy ThreadPool replaced by serial loop above
-        with ThreadPoolExecutor(max_workers=1) as _dpool:
-            futures = {}  # DEAD CODE — serial loop above handles deep scoring
-            try:
-                pass
-            except TimeoutError:
-                pass
         _gc_checkpoint("after_deep_score")  # MEM: drop ml_model_v2/DataFrames before trade gen
 
     _timing_log("deep_score")
