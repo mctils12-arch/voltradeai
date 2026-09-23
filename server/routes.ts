@@ -56,6 +56,7 @@ import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximit
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { cachedGemIronOreMines } from "./gemIronOreMines";
+import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
@@ -3331,6 +3332,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "catalogued; no forecast, valuation, or trading signal.",
       count: hit.mines.length,
       mines: hit.mines,
+    });
+  });
+
+  // GEM "Global Iron and Steel Tracker" — 1,293 iron and steel plants
+  // worldwide, RAW/FACTUAL (server/gemIronSteelPlants.ts). STATIC
+  // reference dataset, same seeded pattern as coal-terminals/iron-ore-
+  // mines above: re-ingested on GEM's ~2x/year release cadence via
+  // scripts/gem_ingest.py, not a live poll. Closes the second of the 3
+  // "cheapest" unrouted GEM-suite gaps the 2026-09-22 coal_terminals
+  // PRODUCT session's own backlog survey named (chemicals/
+  // iron_steel_plants/iron_ore_mines).
+  app.get("/api/data/iron-steel-plants", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemIronSteelPlants();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Global Iron and Steel Tracker",
+                         warming_up: true, count: 0, plants: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Global Iron and Steel Tracker",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "Iron and steel plants as catalogued by GEM: primary production technology (blast "
+        + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
+        + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
+        + "no forecast, valuation, or trading signal.",
+      count: hit.plants.length,
+      plants: hit.plants,
     });
   });
 
