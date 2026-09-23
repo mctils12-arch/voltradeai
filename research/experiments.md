@@ -3,6 +3,98 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine session, second session this UTC day) [REPAIR] — KNOWN BROKEN #42/#43 re-verified 13 days dark; no code change, human escalation is this session's deliverable
+
+TERRITORY: SHARED-minimal (research/open_questions.md, research/experiments.md only — no code, no other file touched).
+
+SESSION-START: read CLAUDE.md in full per protocol, with the EDGE
+DOCTRINE re-read as directed by this session's own task menu. Checked
+`/api/health` live before anything else per the Repair Mandate
+("consult KNOWN BROKEN section first"): `status:"degraded"`,
+`bot.status:"killed"`, `liveness.dark:true`, "trading loop dark for
+58.5 market hours (311.5h wall-clock) since
+2026-09-10T03:12:26.354Z". This is a LIVENESS ALARM condition per
+CLAUDE.md GOAL priority 1 (top-of-report, every session) that has now
+persisted 13 days — ~13x the 24-wall-hour trigger — so per this
+session's own task instructions ("if any critical item remains
+unfixed, this session becomes a [REPAIR] session per the Repair
+Mandate"), this session is [REPAIR], not a fresh doctrine-axis pick.
+
+WHAT WAS FOUND, live this session (`/api/diag/account`,
+`/api/diag/equity_curve?days=20`, `/api/diag/positions-detail`, all
+via `$DIAG_TOKEN` present in this session's environment):
+`equity=104702.87`, `equityPeak=110727.04`, `drawdownPct=-5.44`,
+`killSwitch=true`. The daily equity curve from 2026-09-10 through
+2026-09-23 shows normal, modest day-to-day swings with zero recurrence
+of anything resembling the 2026-09-09 -$12,059.74 anomaly, and the
+account has recovered to within 5.2% of its pre-incident all-time-high
+peak purely via mark-to-market drift on a static, untraded book (the
+kill switch has blocked all order flow since the trip — confirmed via
+`/api/diag/positions-detail` showing the same class of small,
+unremarkable positions every prior session already characterized:
+FCEL/KWEB/QQQ/SMH/VXUS plus one near-worthless short HPE put, gross
+exposure $69,466). This is a third independent confirmation (alongside
+the 2026-09-10 `reconstruct_position_pnl.py` reconstruction that found
+-$414.82 actual vs. -$12,059.74 reported, and 13 days of zero
+recurrence) that item #42's incident was a data-quality artifact, not
+a real loss.
+
+WHY THIS IS THE PRIMARY ACTION, NOT A QUEUE ITEM: per REASONING
+STANDARD and GOAL's explicit priority ordering, priority 1 (KEEP THE
+SYSTEM ALIVE — "a dead system learns nothing") never loses to priority
+2 or below. A fully-diagnosed, high-confidence-safe trading loop
+sitting fully dark for 13 days on a PAPER account (zero real-dollar
+risk either way) is a larger, growing cost than any new pipeline or
+research angle this session could otherwise pick from the SESSION
+BUDGET menu — every additional dark day is guaranteed lost learning
+data, ML feedback, and signal generation, for a cost of confirming
+what three lines of evidence already show.
+
+WHAT WAS DELIBERATELY NOT DONE: did not toggle `state.killSwitch` off.
+Per RULE REVIEW and every prior session's own explicit reasoning on
+this exact item, clearing a live risk-limit kill switch is reserved
+for human judgment, and elapsed time alone does not relax that
+reservation — inference, however strong and however many times
+independently replicated, is not the Alpaca-dashboard confirmation
+this item has asked for since 2026-09-09. AUTONOMY AUTHORIZATION's
+delegation covers merging/deploying code changes under green CI, not
+overriding a human-reserved operational judgment call on a live risk
+mechanism.
+
+WHAT WAS SHIPPED (docs-only, this PR): an UPDATE addendum to item #43
+in `research/open_questions.md` recording today's 13-day re-verification
+and evidence, and — the actual deliverable of this session — a direct
+push notification to the human summarizing the 13-day dark state, the
+threefold-confirmed data-anomaly finding, and an explicit recommendation
+to resume, since several PRODUCT sessions between 2026-09-16 and
+2026-09-23 correctly logged the unchanged alarm but declined to
+re-notify (reasoning the account *reading* was unchanged) — true, but
+the *cost* of continued silence compounds daily regardless, and this
+session runs with the scheduled routine's actual human-facing
+notification channel, not just a log entry a future session might
+read. Also flagged (open_questions.md item #43 NEXT (3)) a standing
+gap: no KNOWN-BROKEN item currently auto-escalates by age; every
+re-notification to date has depended on a session choosing to act, and
+this 13-day gap is itself evidence that can silently lapse — filed as
+a future wishlist candidate, not built this session (would touch
+`/api/health`/audit code, its own logical change, not bundled here).
+
+LOOP-HEALTH CHECK (rule 2): last 10 tagged entries before this one
+include this same day's [PRODUCT] coal_terminals ship, 2026-09-22's
+[PRODUCT]/[REPAIR]/[PIPELINE] mix, and 2026-09-21's run of [PRODUCT]
+ladder-registry closes — well under the 7+/10 REPAIR thrash trigger;
+this entry is the only [REPAIR] in the window and is human-decision-
+gated, not a sign of a break-generating subsystem.
+
+NO BACKTEST/VERSION BUMP: no code changed, so PROMOTION RULE 3/4 do
+not apply; this is a documentation + escalation entry only, its own
+logical change per PROMOTION RULE 5.
+
+NEXT: (1) once the human resumes (or explicitly declines), close
+items #42/#43 in the session that confirms it. (2) the auto-escalation
+gap noted above is a good future wishlist.md candidate for a session
+with capacity after this incident closes.
+
 ## 2026-09-23 (scheduled-routine PRODUCT session) [PRODUCT] — `coal_terminals` closes its own filed NEXT(2): `/api/v1/data/coal-terminals` keyed mirror shipped, the last of the GEM raw-data roots this sweep has API-boundary-gapped (v1.0.964)
 
 TERRITORY: T-DATACORE-adjacent / API-boundary (server/apiProduct.ts,

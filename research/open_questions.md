@@ -7115,6 +7115,69 @@
     the Alpaca dashboard directly, that confirmation still outranks
     anything this sandbox can infer — see item #43's own NEXT for the
     resume procedure once item #42 is actually resolved either way.
+    **UPDATE 2026-09-23 (scheduled-routine session, [REPAIR], this session)
+    — re-verified live 13 days after the trip; RESUME BLOCKER ESCALATED,
+    not self-cleared.** `/api/health`: `bot.status:"killed"`,
+    `liveness.dark:true`, "trading loop dark for 58.5 market hours
+    (311.5h wall-clock) since 2026-09-10T03:12:26.354Z" — the LIVENESS
+    ALARM has now been continuously active for 13 days straight, ~13x the
+    CLAUDE.md 24-wall-hour threshold. `/api/diag/account`: `equity:
+    104702.87`, `equityPeak: 110727.04`, `drawdownPct: -5.44`,
+    `killSwitch: true`. `/api/diag/equity_curve?days=20`: equity has
+    round-tripped cleanly since the 2026-09-09 anomaly day and every
+    daily close since (09-10 through 09-23) shows normal, modest
+    single/low-triple-digit-to-low-four-figure swings consistent with
+    unmanaged mark-to-market drift on a static book, not a second
+    anomaly or a continued real decline — 09-22 closed $104,964.45, only
+    $5,762 (5.2%) under the pre-incident peak, entirely via price
+    movement with zero new orders (the kill switch has blocked all
+    trading since the trip). `/api/diag/positions-detail`: 6 positions
+    (FCEL/KWEB/QQQ/SMH/VXUS long + one near-worthless short HPE put),
+    gross exposure $69,466, nothing anomalous. This is now three
+    independent lines of evidence converging on the same conclusion the
+    2026-09-10 session's `reconstruct_position_pnl.py` first established
+    (-$414.82 reconstructed vs. -$12,059.74 reported): (a) the
+    reconstruction itself, (b) 13 days of subsequent normal equity
+    behavior with zero recurrence, (c) the book fully round-tripping in
+    value with no trades to explain it — i.e., the price data, not the
+    account, was the anomaly, and it was a one-day event.
+    WHY NOT SELF-RESUMED: unchanged from item #43's own reasoning —
+    toggling a live risk-limit kill switch is the class of hard-to-reverse,
+    human-judgment action RULE REVIEW and this file's own prior sessions
+    have consistently reserved for explicit human sign-off, not inference,
+    however strong. That reservation is not relaxed by elapsed time alone.
+    BUT: 13 days of a fully-diagnosed, high-confidence-safe-to-resume
+    trading loop sitting dark is itself now the dominant cost under GOAL
+    priority 1 (KEEP THE SYSTEM ALIVE outranks priority 2's caution) —
+    every additional dark day is lost learning data on a PAPER account
+    where the downside of a wrong resume is zero real dollars, while the
+    downside of continued silence is guaranteed: zero trades, zero
+    signal-generation, zero ML feedback, for two full weeks and counting.
+    Several PRODUCT sessions between 2026-09-16 and 2026-09-23 correctly
+    noted the alarm but declined to re-notify, reasoning the reading was
+    "unchanged" — true of the account state, but NOT true of the cost,
+    which compounds daily. This session (running as the scheduled
+    routine with actual human-notification capability, not just a log
+    entry future sessions will read) re-escalated directly to the human
+    via push notification, explicitly recommending resume given the
+    now-threefold-confirmed data-anomaly finding, while leaving the
+    actual toggle to them.
+    NEXT: (1) once the human flips `killSwitch` off (via the existing
+    owner-gated `/api/bot/kill`-equivalent route), close items #42/#43
+    together in the same session that confirms it, and note whether any
+    fresh calibration is needed (13 days stale ML/regime state, per
+    ml_model_v2.py's `code_version` gating — worth a one-line check, not
+    a rebuild). (2) if the human explicitly declines to resume or wants
+    the account left dark deliberately, record that decision here and
+    stop the repeat-escalation cadence. (3) a standing gap this incident
+    surfaced: there is no automatic re-escalation for a KNOWN BROKEN item
+    that stays open past some age threshold — every re-notification so
+    far (2026-09-10, today) has depended on a session noticing and
+    choosing to act rather than a mechanical trigger; worth a future
+    wishlist.md proposal (e.g., `/api/health` or the audit log flags any
+    KNOWN-BROKEN-tagged halt older than N days as needing fresh human
+    attention) rather than relying on session judgment alone, which this
+    13-day gap shows can silently lapse.
 
 44. **[FOUND 2026-09-22, scheduled-routine session, LIVE PRODUCTION BUG,
     DIAGNOSABILITY FIX SHIPPED — root cause needs a FROZEN PATH (Dockerfile),
