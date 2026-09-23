@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -42,4 +42,17 @@ test("volcanoAlertColor: USGS's own color_code vocabulary maps directly, unrecog
   assert.equal(volcanoAlertColor(null), "#9aa5b1");
   assert.equal(volcanoAlertColor(undefined), "#9aa5b1");
   assert.equal(volcanoAlertColor("UNKNOWN"), "#9aa5b1", "never guesses a severity color for an unrecognized code");
+});
+
+test("ironOreStatusColor: GEM's 7 lowercase Operating status buckets map directly, unrecognized/missing falls back to gray", () => {
+  assert.equal(ironOreStatusColor("operating"), "#4ade80");
+  assert.equal(ironOreStatusColor("proposed"), "#a78bfa");
+  assert.equal(ironOreStatusColor("mothballed"), "#78716c");
+  assert.equal(ironOreStatusColor("retired"), "#64748b");
+  assert.equal(ironOreStatusColor("shelved"), "#fbbf24");
+  assert.equal(ironOreStatusColor("cancelled"), "#f87171");
+  assert.equal(ironOreStatusColor("unknown"), "#94a3b8");
+  assert.equal(ironOreStatusColor(null), "#94a3b8");
+  assert.equal(ironOreStatusColor(undefined), "#94a3b8");
+  assert.equal(ironOreStatusColor("not-a-real-bucket"), "#94a3b8", "never guesses a lifecycle color for an unrecognized status");
 });

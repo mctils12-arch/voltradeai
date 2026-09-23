@@ -21892,6 +21892,24 @@ shipping the one item it names as closed.
 
 NOT A SPEND REQUEST.
 
+UPDATE (2026-09-23, scheduled-routine [PRODUCT] session): picked
+`iron_ore_mines.json` off this entry's own "cheapest" ranking (the other
+two, `coal_terminals`/`coal-mine-features`, had already been closed by
+that date via their own routes AND `/api/v1` mirrors). SHIPPED end-to-end
+— `server/gemIronOreMines.ts` (949 mines, packed "lat, lon" Coordinates
+string parsed via `parseGemCoordinates`, lowercase 7-bucket
+`classifyMineStatus`, GEM's own numeric sentinel strings including the
+"unkonwn" typo handled honestly), `GET /api/data/iron-ore-mines`, a
+`datamap.tsx` map layer (one symbol for the whole layer — unlike
+`coal_terminals`, this release has no per-row role field to encode as
+shape — colour = lifecycle Operating status), and `script/build.ts`
+staged into `dist/` in the same PR (R14/2026-07-20 lesson). Full account
+in `research/experiments.md`'s matching dated entry. Remaining backlog,
+unchanged from this entry's own ranking: `chemicals.json`/
+`iron_steel_plants.json` are the two cheapest still-unrouted GEM
+sub-registries; `lng_carriers.json`/`oil_ngl_pipelines.json`/
+`gas_pipelines.json` remain the harder cases named above, not attempted.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-

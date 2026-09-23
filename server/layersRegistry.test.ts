@@ -311,7 +311,7 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
 // PR consciously updates the pin — silent drift in either direction fails.
 test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
   const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
-  const PINNED_GAP = 250; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  const PINNED_GAP = 251; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
   // 248 -> 249: new "grid_generation" layer, a non-rendered RAW tabular
   // root (respondent leaderboard, no map geometry) — same class as its own
   // sibling "grid_demand" and "treasury_dts", both of which also carry
@@ -328,6 +328,11 @@ test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration ga
   // "missing" under this test's OR predicate. Partial metadata (one of two
   // fields) is still real progress over the prior zero, even though the
   // pinned count itself can only move on the all-or-nothing AND it checks.
+  // 250 -> 251: new "iron_ore_mines" layer, same shape as "coal_terminals"
+  // immediately above — a MapLibre symbol layer with renderKind:
+  // "point-symbol" but no `lod` (a fixed ~949-point static registry, same
+  // "no distance-based LOD to declare" reasoning), so it still counts as
+  // "missing" under the OR predicate.
   assert.equal(
     missing.length,
     PINNED_GAP,

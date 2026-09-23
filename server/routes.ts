@@ -55,6 +55,7 @@ import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from ".
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { cachedGemCoalTerminals } from "./gemCoalTerminals";
+import { cachedGemIronOreMines } from "./gemIronOreMines";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
@@ -3299,6 +3300,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "Locations/status as catalogued; no throughput, activity, or output claims.",
       count: hit.terminals.length,
       terminals: hit.terminals,
+    });
+  });
+
+  // GEM "Global Iron Ore Mines Tracker" — 949 iron ore mines worldwide,
+  // RAW/FACTUAL (server/gemIronOreMines.ts). STATIC reference dataset,
+  // same seeded pattern as coal-terminals/coal-mine-features above:
+  // re-ingested on GEM's ~2x/year release cadence via scripts/
+  // gem_ingest.py, not a live poll. Closes one of the 3 "cheapest"
+  // unrouted GEM-suite gaps the 2026-09-22 coal_terminals PRODUCT
+  // session's own backlog survey named (chemicals/iron_steel_plants/
+  // iron_ore_mines — research/open_questions.md's dated GEM-suite entry).
+  app.get("/api/data/iron-ore-mines", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemIronOreMines();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Global Iron Ore Mines Tracker",
+                         warming_up: true, count: 0, mines: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Global Iron Ore Mines Tracker",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "Iron ore mines as catalogued by GEM: lifecycle operating status, and stated production "
+        + "(2022-2024), design capacity, and reserve/resource tonnage. Locations/status/tonnage as "
+        + "catalogued; no forecast, valuation, or trading signal.",
+      count: hit.mines.length,
+      mines: hit.mines,
     });
   });
 

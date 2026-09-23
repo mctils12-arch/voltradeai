@@ -3,6 +3,283 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `iron_ore_mines` GEM registry shipped end-to-end — server/gemIronOreMines.ts, /api/data/iron-ore-mines, datamap.tsx map layer (v1.0.967)
+
+TERRITORY: T-DATACORE-adjacent / API+UI surface (server/gemIronOreMines.ts,
+server/gemIronOreMines.test.ts, server/routes.ts, script/build.ts,
+client/src/lib/mapIcons.ts, client/src/lib/mapIcons.test.ts,
+client/src/pages/datamap.tsx, server/layersRegistry.test.ts) + SHARED
+(datacore/layers.json, datacore/signal_ladder.json, ci/counter_baseline.txt,
+test_ts_code_only.py, package.json/package-lock.json, research/* — last,
+per MERGE-ORDER PROTOCOL).
+
+SESSION-START: read CLAUDE.md in full, then all of research/ (this is a
+scheduled [PRODUCT] session per its own task instructions: build the
+data-intelligence product over time — datacore/ pipelines and the /data
+user-facing section).
+
+LIVENESS ALARM CHECK (Repair Mandate — consulted first, per the task's own
+instruction to check KNOWN BROKEN before starting product work): live
+`/api/health` reads `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true`, "trading loop dark for 58.5 market hours (322.1h
+wall-clock) since 2026-09-10T03:12:26.354Z" — unchanged from the prior
+session's reading a few hours earlier (KNOWN BROKEN #42/#43,
+human-decision-gated resume). The 2026-09-23 first-session-of-the-day
+liveness-reminder mechanism (`shouldSendLivenessReminder`) already covers
+re-escalation on its own cadence, so this reading was not re-notified —
+no new information, and per the task's own instruction this is noted but
+does not block product work. KNOWN BROKEN #44 (`insider_cusum_gate2`)
+also unchanged: Dockerfile fix proposed in wishlist.md, awaiting human
+approval on a FROZEN PATH.
+
+PRIMARY-ACTION SELECTION: per the task's explicit options (a-d), picked
+(b) — build product UI/UX (a new /data map layer + its RAW API route) —
+by taking the single most concretely-scoped, already-ranked queued item:
+the 2026-09-22 `coal_terminals` PRODUCT session's own GEM-suite backlog
+survey (`research/open_questions.md`'s dated entry) ranked
+`chemicals.json`/`iron_steel_plants.json`/`iron_ore_mines.json` as the
+three cheapest still-unrouted GEM sub-registries (clean lat/lon, same
+shape as `coal_terminals`'s ship-and-verify pattern). By this same
+session's own earlier date (2026-09-23), `coal_terminals` and its sibling
+`coal-mine-features` had both since gained their own `/api/v1` mirrors
+(verified via `git log`/`grep` before starting) — confirming the two
+"cheapest" items besides iron_ore_mines (chemicals/iron_steel_plants)
+remained genuinely unclaimed, not already closed under a different name.
+Picked `iron_ore_mines.json` specifically over its two same-tier siblings
+because it alone carries a lifecycle status field (`Operating status`)
+suited to the SYMBOLS NOT DOTS colour dimension the way `coal_terminals`
+already demonstrates, plus genuine EDGE-DOCTRINE-relevant production/
+reserve tonnage (commodity-supply angle, "fish where whales can't" —
+small/illiquid mining tickers), where `chemicals.json`/
+`iron_steel_plants.json` have no comparable lifecycle/production field to
+build the second symbol dimension from.
+
+READ BEFORE WRITE: read `server/gemCoalTerminals.ts` + its test file in
+full as the template (same GEM-family static-reference-dataset pattern:
+in-memory cache, drop-not-infer normalization, missing/corrupt-file
+degrade-to-null). Read the real `datacore/gem/iron_ore_mines.json` with
+`python3`/`json` (not assumed from the coal_terminals shape) and found two
+real structural differences before writing any code: (1) this release
+packs `lat, lon` into one `"Coordinates"` string column — no separate
+Latitude/Longitude fields like coal_terminals — needing a dedicated
+parser; (2) GEM's own numeric columns (`Production 2024 (ttpa)` etc.) mix
+real numbers with sentinel strings `"N/A"`/`"unknown"`/and a literal typo
+`"unkonwn"` present in the checked-in release itself (live-verified via
+`collections.Counter` over all 949 rows) for unreported values. Read
+`server/routes.ts`'s `/api/data/coal-terminals` route and `script/
+build.ts`'s R14/2026-07-20 lesson (a `repoDataPath()` read with no matching
+`cp()` line silently empties on Railway, since the frozen Dockerfile ships
+`dist/` only) before writing the route, so the new file's staging line
+shipped in this same PR rather than as a follow-up repair. Read
+`server/repoFiles.test.ts`'s generalized RATCHET (scans every
+`repoDataPath("datacore/...")` call site in `server/*.ts` against
+`script/build.ts`'s `cp()` lines) — confirmed it would have caught a
+missed staging line by construction, then verified it passes with the
+staging line added. Read `server/layersRegistry.test.ts`'s Q11
+renderKind/lod PINNED_GAP test and `datamap.tsx`'s LAYER_GROUP/layerIcon/
+legend/detail-panel-kind touch points end to end (via
+`server/layersWiring.test.ts`'s own RATCHET, which scans LAYER_GROUP
+against every live registry id) so every mechanical wiring check this
+codebase already runs would catch a missed touch point, not just the
+five found by inspection.
+
+WHAT SHIPPED (one PR, one logical change — a new RAW-data root routed
+end-to-end, no `/api/v1` mirror in this PR, matching the established
+two-step precedent: `coal_terminals` shipped its route+map layer first,
+its `/api/v1` mirror as a separate later PR):
+
+- `server/gemIronOreMines.ts` — `parseGemCoordinates` (packed "lat, lon"
+  string parser, returns null on anything that doesn't cleanly split into
+  two finite numbers), `classifyMineStatus` (GEM's 7 lowercase
+  `Operating status` buckets, including `"unknown"` as one of GEM's own
+  real catalogued values, not just a fallback — an unrecognized string
+  also degrades to `"unknown"` honestly, keeping the original in
+  `statusRaw`), `normalizeIronOreMines` (drop-not-infer: rows with no
+  usable coordinates, no name, or no id are dropped, never guessed;
+  numeric sentinel strings — including the "unkonwn" typo — degrade to
+  `null` via a plain `typeof v === "number"` check, no need to enumerate
+  every misspelling), `loadGemIronOreMines`/`cachedGemIronOreMines`
+  (missing/corrupt-file degrades to `null`, never throws; in-memory
+  cache, parsed once per process lifetime — identical shape to
+  `gemCoalTerminals.ts`).
+- `server/gemIronOreMines.test.ts` — 13 new tests: the 7-bucket status
+  classifier (including case-insensitivity and the unrecognized-value
+  fallback), the coordinate parser (valid/malformed/wrong-arity input),
+  full-row normalization pinned against the REAL release's own row shape
+  (`Ghoryan_Mine`, Afghanistan), the sentinel-string-to-null rule
+  including the literal `"unkonwn"` typo, the drop-not-infer rule, the
+  fixture-file round trip, the missing/corrupt-file degrade path, and the
+  cache-identity check exercised against the actual checked-in
+  `datacore/gem/iron_ore_mines.json` (not a fixture) as a live integration
+  check.
+- `GET /api/data/iron-ore-mines` (`server/routes.ts`) — RAW/FACTUAL
+  (`kind:"raw"`, `predictive:false`), same `warming_up`-on-null-cache
+  degrade shape as every sibling GEM route, `Cache-Control: public,
+  max-age=86400` (static reference dataset).
+- `script/build.ts` — `cp("datacore/gem/iron_ore_mines.json", "dist/...")`
+  added in this same PR (R14 lesson), verified staged
+  (`ls dist/datacore/gem/iron_ore_mines.json` after a real `npm run
+  build`) and covered by `server/repoFiles.test.ts`'s generalized ratchet
+  without needing that test file edited.
+- `client/src/lib/mapIcons.ts` — new `"vt-oremine"` SDF icon (same
+  terraced open-pit cross-section as the existing `vt-minepit` glyph —
+  both are real open-pit mines — plus a filled ore-nugget diamond resting
+  in the pit floor, a deliberately distinct silhouette so the two GEM
+  mine layers never read as the same dot per the human's SYMBOLS NOT DOTS
+  "readable at a glance" test); `IRON_ORE_STATUS_COLOR`/
+  `ironOreStatusColor`/`IRON_ORE_STATUS_LABEL` (green-active/red-abandoned
+  convention matching `COAL_TERMINAL_STATUS_COLOR`, a FACT about
+  lifecycle stage, never a production/output claim). One symbol for the
+  whole layer, unlike `coal_terminals`' per-row role field — this release
+  has no comparable role column to encode as shape, so only colour
+  carries the SYMBOLS NOT DOTS second dimension here.
+- `client/src/lib/mapIcons.test.ts` — 1 new test for `ironOreStatusColor`
+  (all 7 buckets + unrecognized/missing fallback).
+- `client/src/pages/datamap.tsx` — new `useEffect` map-layer block
+  (`oremine-points`/`oremine-pt`, same Law-I-compliant toggle-on/off
+  mount pattern as every sibling GEM layer, `runResilientLoad` +
+  `attachLayerInteractions`), `LAYER_GROUP.iron_ore_mines = "facilities"`,
+  legend section entry (gated on `enabled.iron_ore_mines`, one
+  `LegendIcon` per status bucket), the facilities-group legend visibility
+  gate, `layerIcon`'s `Gem` lucide icon, the `statusFor` unit label
+  (`"mines"`), and a new `"ironoremine"` member on the `Detail.kind`
+  union for the click-through detail panel (status, 2024 production,
+  design capacity, country, owner, plus reserves/resource/dates in the
+  body — no forecast or valuation claim anywhere in the copy).
+- `server/layersRegistry.test.ts` — Q11's `PINNED_GAP` 250 → 251 (the new
+  layer carries `renderKind:"point-symbol"` but, like `coal_terminals`
+  and `aircraft`, no `lod` — a fixed ~949-point static registry has no
+  distance-based level of detail to declare), with the same reasoning
+  documented inline as `coal_terminals`' own 249→250 comment.
+- `datacore/layers.json` — new `iron_ore_mines` entry (raw, live,
+  facilities group, point-symbol, GEM CC BY 4.0 attribution).
+- `datacore/signal_ladder.json` — `global_energy_monitor`'s note gained a
+  dated UPDATE (surgical text-append, not a `json.dump` round-trip — per
+  the 2026-09-22 session's own logged lesson that `json.dump` silently
+  reformats this hand-maintained compact-JSON file). `status`/
+  `current_gate` unchanged (`raw_only`/0) — pure API+UI-surface addition
+  over already-ingested registry data, no predictive claim.
+
+NOT A SIGNAL, NOT A LADDER CHANGE: RAW catalogued geometry + lifecycle
+status + production/reserve tonnage only — no forecast, valuation, or
+trading signal. `global_energy_monitor` stays a `raw_only` root at
+`current_gate 0`, same posture as every other GEM artifact on this API.
+
+VERIFIED, not assumed:
+- `npx tsx --test server/gemIronOreMines.test.ts`: 13/13 pass, including
+  against the real checked-in `datacore/gem/iron_ore_mines.json`.
+- `npx tsx --test server/*.test.ts` (full server suite, after `npm ci` —
+  fresh sandbox container, same recurring provisioning gap prior sessions
+  have logged): **1848/1848 pass**, 0 regressions.
+- `npx tsx --test client/src/**/*.test.ts client/src/**/*.test.tsx`
+  (full client suite): **457/457 pass**, 0 regressions.
+- `python3 -m pytest -q` (full suite, untouched by this diff — no Python
+  file changed): **2147 passed, 1 skipped, 54 subtests** — identical
+  count to the prior session's reading, confirming no drift.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match to
+  `ci/tsc_baseline.txt`'s pin.
+- `bash scripts/counter_ratchet.sh`: first run correctly FAILED —
+  `empty_ts_catch` 492→493 (the new layer's `clear()` function uses the
+  same `catch {}` idiom every sibling GEM layer's clear function already
+  uses), `ts_any` 1241→1243, `boundary_any` 234→235 (both from the two
+  `: any` map/click-handler callback parameters, same idiom
+  `coal_terminals`' own block already uses — its PR re-pinned the
+  identical three counters for the identical reason, confirmed via `git
+  show` before treating this as acceptable rather than something to
+  engineer around). Re-pinned all three in `ci/counter_baseline.txt` in
+  this same PR (local HEAD verified equal to freshly-fetched
+  `origin/main`, `f63df68`, immediately before pinning) plus
+  `test_ts_code_only.py`'s own hardcoded parametrize pins (which tie the
+  counter module directly to the baseline file, independent of
+  `program_status.sh`) — `python3 -m pytest -q test_ts_code_only.py`:
+  11/11 pass after re-pinning. `assertions` improved 15100→15110 (this
+  session's own +14 new asserts across both new test files), also
+  re-pinned. Re-ran after re-pinning: **25/25 counters OK**. No other
+  counter moved.
+- `npx tsx --test server/layersRegistry.test.ts server/layersWiring.test.ts
+  client/src/pages/datamap.symbols.test.ts server/repoFiles.test.ts`:
+  all pass — the Q11 pin, the LAYER_GROUP ratchet, the SYMBOLS NOT DOTS
+  ratchet (unaffected — pins two unrelated legacy layers, not a generic
+  check), and the `script/build.ts` staging ratchet.
+- `python3 -m pytest -q test_ladder_registry_coverage_check.py
+  test_ladder_readiness_check.py`: 29/29 pass — the note-only
+  `signal_ladder.json` edit does not touch any field either script's
+  invariants check.
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+  and the equivalent for `datacore/layers.json`: both valid, 56 roots /
+  252 layers (unchanged root count, +1 layer, as expected).
+- `npm run build`: clean (same pre-existing chunk-size/astronomy-engine/
+  mapIcons dynamic-import warnings every prior session has already
+  noted, none new); confirmed `dist/datacore/gem/iron_ore_mines.json`
+  exists after the build.
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server (all required
+  suites), client (102 files, 1092/1092), python (2147/1 skipped/54
+  subtests), deploy-gate smoke PASS (`/api/health` 200 in 4.9s under
+  latched-kill-switch + stale-liveness fixtures), quarantine 0/1, none
+  overdue.
+- Version bumped 1.0.966 → 1.0.967 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing — unchanged at `f63df68` since this session's own
+  start).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript: `server/gemIronOreMines.ts`, `server/routes.ts`,
+`script/build.ts`, `client/src/lib/mapIcons.ts`,
+`client/src/pages/datamap.tsx`, plus their test files; Python:
+`test_ts_code_only.py` pin update only, no runtime Python touched). No
+order-path file, no FROZEN path (other than the one already-pending,
+still-unapproved Dockerfile proposal, untouched here) touched. CI runs
+the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a RAW-overlay data pipeline and map
+layer, no trading/scoring/sizing/threshold logic touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code
+(P&L, slippage, fills, the backtest engine, or any existing metric
+definition); it is a new, additive RAW data root and map layer, stated
+here for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff; no `/api/v1` route added in this PR (deferred to a
+follow-up mirror PR per the established two-step precedent), so no new
+licensed-resale surface either.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-23, confirmed via this
+session's own live `/api/health` timestamp check at start (~13:1x UTC =
+~09:1x AM ET) — well outside 9:30-16:00 ET market hours. No merge-hold
+applies.
+
+NEXT: (1) `chemicals.json`/`iron_steel_plants.json` remain the two
+cheapest still-unrouted GEM sub-registries per this thread's own ranking
+— a natural next pick for a future PRODUCT session, though neither
+carries a lifecycle/production field as clean as this one's, so their
+symbol/colour design needs its own fresh read of the real release rather
+than a direct copy of this PR. (2) an `/api/v1/data/iron-ore-mines` keyed
+mirror is the natural same-shape follow-up PR, matching the
+`coal_terminals`→`coal-mine-features` precedent (route+map layer first,
+mirror second) — a future session should verify live via `grep` that the
+gap still exists before starting, in case another session closes it
+first. (3) `lng_carriers.json`/`oil_ngl_pipelines.json`/
+`steel_units.json`/`steel_raw_materials.json` remain the harder,
+not-yet-attempted cases named in this thread's earlier entries (shipyard-
+location honesty framing, no route geometry, or country-level not
+plant-level scope). (4) KNOWN BROKEN #42/#43/#44 — unchanged, not
+re-notified (already covered by the automated liveness-reminder
+mechanism and no new information on #44's Dockerfile approval).
+
+STARVED: no — this session read CLAUDE.md and research/ in full per its
+own task instructions, checked KNOWN BROKEN/liveness first, then took the
+single highest-value already-ranked queued PRODUCT item (option (b):
+build UI/UX for a new RAW overlay), verified live that the two competing
+"cheapest" backlog items were still genuinely unclaimed before starting,
+shipped end-to-end with new tests, full gates green, and a precise NEXT
+for whoever picks up the remaining backlog or the `/api/v1` mirror.
+Thrash ratio unchanged from this same UTC day's own already-logged
+reading (4/10 REPAIR in the last 10 entries before this session started),
+well under the 7+ trigger — no meta-problem.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-23 (scheduled-routine session, new session this UTC day) [PRODUCT] — `coal-mine-features` closes the sibling GEM raw-data root's `/api/v1` mirror gap, the exact item the prior `coal_terminals` PRODUCT session filed as its own NEXT(2) (v1.0.966)
 
 TERRITORY: T-DATACORE-adjacent / API-boundary (server/apiProduct.ts,

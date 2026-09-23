@@ -834,6 +834,31 @@ const shapes: Record<string, () => ImageData> = {
     ctx.beginPath(); ctx.moveTo(m + 10, 9); ctx.lineTo(s - 3, 9); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(m + 4, 5); ctx.lineTo(s - 3, 9); ctx.lineTo(m + 4, 13); ctx.closePath(); ctx.fill();
   }),
+  // ── GEM iron ore mines (server/gemIronOreMines.ts): one glyph for the
+  // whole layer (a single catalogued "kind" — no per-row role field the
+  // way coal terminals has); icon-color carries lifecycle Operating
+  // status instead (symbols-not-dots directive still applies to color).
+  // Same terraced open-pit cross-section as vt-minepit (both are real
+  // open-pit mines) but with a filled ore nugget resting in the pit
+  // floor — deliberately distinct silhouette so the two GEM mine layers
+  // never read as the same dot at a glance. ──
+  "vt-oremine": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.6;
+    ctx.lineJoin = "round";
+    const widths = [15, 10.5, 6.5];
+    const ys = [8, 14.5, 21];
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(m - widths[i], ys[i]); ctx.lineTo(m + widths[i], ys[i]); ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(m - widths[0], ys[0]); ctx.lineTo(m - widths[1], ys[1]); ctx.lineTo(m - widths[2], ys[2]);
+    ctx.moveTo(m + widths[0], ys[0]); ctx.lineTo(m + widths[1], ys[1]); ctx.lineTo(m + widths[2], ys[2]);
+    ctx.stroke();
+    ctx.beginPath(); // ore nugget resting on the pit floor
+    ctx.moveTo(m, ys[2] + 2.5); ctx.lineTo(m + 5, ys[2] + 7); ctx.lineTo(m, ys[2] + 11.5); ctx.lineTo(m - 5, ys[2] + 7);
+    ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -1109,6 +1134,35 @@ export function coalTerminalStatusColor(status?: string | null): string {
   if (status && status in COAL_TERMINAL_STATUS_COLOR) return COAL_TERMINAL_STATUS_COLOR[status];
   return COAL_TERMINAL_STATUS_UNKNOWN_COLOR;
 }
+
+// GEM iron ore mines (server/gemIronOreMines.ts): lowercase "Operating
+// status" bucket (matches classifyMineStatus/IronOreMineStatus exactly,
+// including "unknown" as one of GEM's own catalogued values, not just a
+// fallback) -> tint. Same green-active/red-abandoned convention as
+// COAL_TERMINAL_STATUS_COLOR above — a FACT about the catalogued mine's
+// lifecycle stage, never a production or output claim.
+export const IRON_ORE_STATUS_COLOR: Record<string, string> = {
+  operating: "#4ade80",  // green — active
+  proposed: "#a78bfa",   // violet — not yet committed
+  mothballed: "#78716c", // stone — dormant but still exists
+  retired: "#64748b",    // slate — permanently closed
+  shelved: "#fbbf24",    // amber — paused, not abandoned
+  cancelled: "#f87171",  // red — never built / abandoned
+};
+export const IRON_ORE_STATUS_UNKNOWN_COLOR = "#94a3b8"; // gray — GEM's own "unknown" bucket
+export function ironOreStatusColor(status?: string | null): string {
+  if (status && status in IRON_ORE_STATUS_COLOR) return IRON_ORE_STATUS_COLOR[status];
+  return IRON_ORE_STATUS_UNKNOWN_COLOR;
+}
+export const IRON_ORE_STATUS_LABEL: Record<string, string> = {
+  operating: "Operating",
+  proposed: "Proposed",
+  mothballed: "Mothballed",
+  retired: "Retired",
+  shelved: "Shelved",
+  cancelled: "Cancelled",
+  unknown: "Status not stated",
+};
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
  *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
