@@ -1277,6 +1277,56 @@ occurrences spanning 2026-08-14 through 2026-09-22 (39 days), still 0%
 compliance.** No new information — still awaiting the human's pick of
 the two options the original entry filed.
 
+**TWENTY-SECOND OCCURRENCE, 2026-09-22 (recovered out of order,
+2026-09-23) — PR #1147, plus a related but distinct PROCESS GAP: the PR
+that first tallied it, #1148, never merged.** PR #1147 (that day's
+earlier session, the `/api/diag/reconstruct_pnl` live probe, KNOWN
+BROKEN #42 NEXT step) carried the same "hold merge until after 4:00 PM
+ET" note and merged at **2026-09-22T16:32:02Z (~12:32 PM ET), 4m57s
+after opening** (`created_at` 16:27:05Z, `merged_by:
+"github-actions[bot]"`) — verified via `pull_request_read` on the merged
+PR, not inferred. This is a genuinely distinct occurrence from the
+TWENTY-FIRST above (PR #1149, same UTC day, ~2.5 hours later, different
+session) — the two only collided onto the same ordinal number because
+each session tallied its own instance without seeing the other's
+not-yet-merged PR. **22 confirmed occurrences spanning 2026-08-14
+through 2026-09-22 (39 days), still 0% compliance.**
+
+THE STUCK-PR MECHANISM (new finding, distinct from the note-is-decorative
+gap itself): the session that found PR #1147's occurrence pushed its
+tally commit onto the SAME branch (`claude/eloquent-dijkstra-x5mye2`)
+immediately after #1147 had already merged FROM that branch. Because
+#1147 merged via squash (new SHA `5d64084`, not a fast-forward of the
+branch's own `ed7a643`), the branch's history still carried the
+pre-squash `ed7a643` commit underneath the new tally commit. Opening
+PR #1148 from that branch therefore diffed as BOTH commits against the
+(now-advanced) `main` — re-proposing already-merged content
+(`server/reconstructPnl.ts` et al.) alongside the new tally. Confirmed
+via `git merge-tree`: real `<<<<<<<` conflicts in
+`package.json`/`package-lock.json` (version regression 1.0.967→1.0.961)
+and in `research/experiments.md`/`wishlist.md` (competing appends).
+Separately confirmed via `pull_request_read get_check_runs`: **zero CI
+runs were ever recorded against PR #1148's head SHA** (`0a6479c5`) across
+the ~24 hours it sat open — cause undetermined; no repro found checking
+sibling PRs opened the same and adjacent sessions, all of which
+triggered CI normally, so this is logged as an open anomaly rather than
+chased further (REASONING STANDARD: don't over-fit an unreplicated
+single data point).
+
+RESOLUTION (2026-09-23, this session): per the WORKSTREAM PARTITION
+supersession precedent ("first-merged wins, the duplicate salvages its
+unique delta") — PR #1147 already won (merged first, 2026-09-22
+16:32:02Z). Checked #1148's unique delta: only its tally commit, whose
+data point is salvaged into this entry above under a fresh (unclaimed)
+ordinal rather than the "21st" it originally — and, per this same day's
+separate #1150 PR, incorrectly — claimed. PR #1148 closed unmerged with
+an explanation comment; its branch left untouched (confirmed via `git
+log` it carries no commits beyond the two already accounted for here).
+No code shipped; no version bump, matching the established
+pure-docs-commit precedent (2026-08-19/2026-08-20 entries above).
+
+**NOT A SPEND REQUEST.**
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
