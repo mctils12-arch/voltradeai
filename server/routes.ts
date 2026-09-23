@@ -5555,6 +5555,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Coal Mine Boundaries and Methane Sources" catalogued-geometry
+  // keyed mirror — closes the same "shipped-data-no-v1-API" gap the
+  // coal_terminals PR's own filed NEXT(1) named (research/experiments.md,
+  // 2026-09-22 coal_terminals PRODUCT session's own NEXT: "coal-mine-
+  // features (the sibling GEM raw overlay coal_terminals was itself
+  // modeled on) also has no /api/v1 mirror yet"), same class of gap
+  // dtcc-swaps/un-comtrade/gnss-integrity-signal/coal-terminals already
+  // closed as their own follow-up PRs. Reuses the existing
+  // cachedGemCoalMineFeatures() cache the RAW /api/data/coal-mine-features
+  // route already populates — no new fetch, no new poller, no new
+  // computation. Static reference dataset (re-ingested on GEM's ~2x/year
+  // release cadence, not a live poll) so there is no warming_up cache-miss
+  // state to model beyond the same null-cache 503 every sibling GEM
+  // mirror already returns. RAW catalogued geometry, no predictive claim
+  // — global_energy_monitor is a raw_only root (datacore/signal_ladder.json,
+  // current_gate 0). attribution/license are hardcoded (not read off the
+  // cache result) because CoalMineFeaturesResult carries no top-level
+  // provenance object — same reasoning as the RAW /api/data/coal-mine-
+  // features route above, which hardcodes the identical two strings.
+  app.get("/api/v1/data/coal-mine-features", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemCoalMineFeatures();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/coal-mine-features", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/coal-mine-features", {
+        count: hit.features.length,
+        attribution: "Global Energy Monitor",
+        license: "CC BY 4.0",
+        release: hit.buildVersion,
+        note: "Mine boundary polygons, ventilation/degasification points, and other catalogued mine "
+          + "infrastructure as researched and mapped by GEM. Locations/geometry as catalogued; no "
+          + "activity, output, or emissions claims.",
+        features: hit.features,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/coal-mine-features", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/coal-mine-features", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW

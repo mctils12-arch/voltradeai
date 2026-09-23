@@ -3,6 +3,212 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine session, new session this UTC day) [PRODUCT] — `coal-mine-features` closes the sibling GEM raw-data root's `/api/v1` mirror gap, the exact item the prior `coal_terminals` PRODUCT session filed as its own NEXT(2) (v1.0.966)
+
+TERRITORY: T-DATACORE-adjacent / API-boundary (server/apiProduct.ts,
+server/apiProduct.test.ts) + SHARED-minimal (server/routes.ts,
+ci/counter_baseline.txt, package.json/package-lock.json,
+research/experiments.md — last, per MERGE-ORDER PROTOCOL). No
+`datacore/signal_ladder.json`/`datacore/layers.json` change — this adds
+an API surface over already-catalogued data, not a new root or a new
+ladder position (`global_energy_monitor` stays `raw_only`/gate 0,
+unchanged).
+
+SESSION-START: read CLAUDE.md in full, `research/experiments.md`'s last
+10 tagged entries (loop-health check below), `research/
+open_questions.md` KNOWN BROKEN section, `research/wishlist.md`'s
+recent entries — per MEMORY PROTOCOL.
+
+LIVENESS ALARM CHECK (Repair Mandate — consulted first): live
+`/api/health` still reads `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true`, "trading loop dark for 58.5 market hours (320.0h
+wall-clock) since 2026-09-10T03:12:26.354Z" — unchanged from the prior
+session's reading a few hours earlier. `code_version` confirmed live at
+1.0.965 (`/api/diag/audit?type=STARTUP`, boot at 03:13:15Z), so this
+same day's earlier-shipped 24h liveness-reminder mechanism
+(`shouldSendLivenessReminder`) is already deployed and will self-fire
+on its own cadence — not re-notifying manually here would only
+duplicate what that mechanism and the prior session's direct push
+notification already covered; KNOWN BROKEN #42/#43 remain a
+human-decision-gated resume, not session-actionable. KNOWN BROKEN #44
+(`insider_cusum_gate2`) also unchanged: Dockerfile fix proposed in
+wishlist.md, awaiting human approval on a FROZEN PATH, not re-touched.
+
+LOOP-HEALTH CHECK (rule 2): last 10 tagged entries before this one are
+4x [REPAIR] (today's liveness-reminder ship + KNOWN BROKEN #42/#43
+re-verification + 2026-09-22's GNSS-integrity fix + STALENESS AUDIT),
+3x [PRODUCT] (today's coal_terminals v1 mirror + 2026-09-22's
+coal_terminals registry ship + 2026-09-21's so2_column_gibs ladder
+entry), 1x [RULE-REVIEW] (auto-merge tally addendum), 1x [PIPELINE]
+(reconstruct_pnl probe), 1x [PRODUCT] (usgs_volcano_alerts ladder
+entry) — 4/10 [REPAIR], well under the 7+ thrash-ratio trigger, no
+meta-problem.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order, checked live): (1) no
+new bug in the audit log — pulled the last 50 `/api/diag/audit` entries
+live; every line is a recurring, already-catalogued pattern
+(TIER3/MANIPULATION scan noise, the already-filed KNOWN BROKEN #18
+EVENTLOOP-LAG advisory), nothing new. (2) no matured experiment ready
+to judge — `research/experiments.md`'s own AUDITS & DEBT register
+(read in the immediately preceding session, unchanged a few hours
+later): STALENESS next due 2026-10-16, CONSTITUTIONAL next due
+2026-10-20, neither due. (3) no fresh experiment obviously queued
+ahead of the item below. With the fix/judge/new-experiment tiers
+exhausted, fell through to SESSION BUDGET tier 1 — the next queued,
+concretely-scoped item from `research/experiments.md`'s own most recent
+NEXT list: the 2026-09-23 `coal_terminals` v1-mirror PR's own filed
+NEXT(2), verbatim: "`coal-mine-features` (the sibling GEM raw overlay
+`coal_terminals` was itself modeled on) also has no `/api/v1` mirror
+yet — a natural same-shape follow-up PR for a future session." Verified
+live before starting: `grep -n '"data/coal-mine-features"'
+server/apiProduct.ts` and `grep -n '/api/v1/data/coal-mine-features'
+server/routes.ts` both zero hits — the gap still existed.
+
+READ BEFORE WRITE: read `server/routes.ts`'s existing RAW
+`/api/data/coal-mine-features` route (line ~3251, backed by
+`server/gemCoalMineFeatures.ts`'s already-imported
+`cachedGemCoalMineFeatures()`) and its sibling `/api/data/coal-terminals`
+RAW route plus that route's already-shipped `/api/v1/data/coal-terminals`
+keyed mirror (today's earlier PR) side by side, to replicate the exact
+same shape rather than improvise a new one. Read `server/
+gemCoalMineFeatures.ts` in full: `CoalMineFeaturesResult` carries no
+top-level `attribution`/`license` fields (unlike `CoalTerminalsResult`)
+— the release has no top-level provenance object, so the RAW route
+hardcodes `"Global Energy Monitor"` / `"CC BY 4.0"` and reads only
+`release` off `hit.buildVersion`; the new v1 mirror does the identical
+thing, not a divergent pattern. Read `server/apiProduct.ts` end to end
+around the four registries a new v1 endpoint must update in lockstep
+(confirmed by `server/apiProduct.test.ts`'s own "full coverage" test,
+line ~762, which asserts `RESPONSE_DATA_SCHEMAS` has EXACTLY one entry
+per live tool, no stale extras — so a partial add would fail loudly,
+not silently): `LICENSE_MARKS["data/coal-mine-features"]`, the
+`endpoints` catalog entry, the `tools` array entry
+(`voltrade_coal_mine_features`), and the `RESPONSE_DATA_SCHEMAS` entry.
+
+WHAT SHIPPED (one PR, one logical change): a new keyed
+`GET /api/v1/data/coal-mine-features` route in `server/routes.ts`,
+inserted directly after the existing `/api/v1/data/coal-terminals`
+mirror, reusing the existing `cachedGemCoalMineFeatures()` cache the
+RAW route already populates — no new fetch, no new poller, no new
+computation, no warming_up state beyond the same null-cache 503 every
+sibling GEM mirror already returns (static reference dataset,
+re-ingested on GEM's ~2x/year release cadence). `server/apiProduct.ts`
+gained the matching `LICENSE_MARKS` entry (CC BY 4.0, `resell: "ok"`,
+same open-attribution class as coal-terminals/methane-plumes), the
+`endpoints` catalog entry, the `voltrade_coal_mine_features` tool
+description (stating the raw_only/current_gate-0 state and the
+id/geometry drop-not-guess rule explicitly, mirroring the honesty
+pattern every sibling GEM tool description already carries), and the
+`RESPONSE_DATA_SCHEMAS` entry. `server/apiProduct.test.ts` gained: the
+new path in the two existing endpoint-presence assertions
+(`paths.includes(...)` and the `wiring pinned` route-string array), and
+a full dedicated honesty test mirroring the `coal-terminals` one
+exactly — asserts the license mark is `"ok"`/CC BY 4.0/GEM-attributed,
+the tool exists with the right `returns_provenance`, and the
+description states "no predictive claim", the raw_only/current_gate-0
+status, and the drop-not-guess rule for missing id/geometry.
+
+NOT A SIGNAL, NOT A LADDER CHANGE: RAW catalogued geometry only — no
+throughput, activity, or emissions claim; `global_energy_monitor`
+stays a `raw_only` root at `current_gate 0` in
+`datacore/signal_ladder.json`, unchanged, same posture as every other
+GEM artifact already on the API.
+
+VERIFIED:
+- `npx tsx --test server/apiProduct.test.ts server/gemCoalMineFeatures.test.ts
+  server/gemCoalTerminals.test.ts`: **89/89 pass**, 0 regressions
+  (includes the module-level tests for the underlying
+  `gemCoalMineFeatures.ts`/`gemCoalTerminals.ts` files this diff does
+  not touch, run alongside as a sanity check on the shared fixtures).
+- `npx tsx --test server/*.test.ts` (full client suite, after `npm ci`
+  to fix a sandbox-environment gap — missing `node_modules`, not caused
+  by this change): **1835/1835 pass** (up from 1834 the prior session
+  logged, the +1 being this diff's own new honesty test), 0 regressions.
+- `python3 -m pytest -q` (untouched by this diff — no Python file
+  changed; ran after `pip install -r requirements.txt -r
+  requirements-dev.txt`, the same recurring sandbox gap prior sessions
+  have logged): **2147 passed, 1 skipped, 54 subtests** — identical
+  count to the prior session's reading, confirming no drift.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match
+  to `ci/tsc_baseline.txt`'s pin (no new `any`, no new untyped
+  boundary — this diff's only new function body is typed and matches
+  every sibling mirror's existing idiom exactly).
+- `bash scripts/counter_ratchet.sh`: one counter IMPROVED —
+  `assertions` 15091 -> **15100** (this session's own +9 new asserts,
+  the dedicated honesty test), re-pinned in `ci/counter_baseline.txt`
+  in this same PR (local HEAD verified equal to freshly-fetched
+  `origin/main`, `e95d5ba9`, immediately before pinning, so this delta
+  is this diff's own new test, not pre-existing drift, per PROMOTION
+  RULE 5); re-ran after re-pinning: 25/25 counters OK. No other counter
+  moved.
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — client 1835/1835,
+  python 2147/1 skipped/54 subtests, deploy-gate smoke PASS (`/api/health`
+  200 in 2.3s under latched-kill-switch + stale-liveness fixtures),
+  quarantine 0/1, none overdue.
+- `npm run build`: clean (same pre-existing chunk-size/
+  astronomy-engine/mapIcons warnings every prior session has already
+  noted, none new).
+- Version bumped 1.0.965 -> 1.0.966 (`package.json` +
+  `package-lock.json`, read-and-incremented from freshly-fetched
+  `origin/main` immediately before committing — unchanged at `e95d5ba9`
+  since this session's own start).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript only: `server/apiProduct.ts`, `server/routes.ts`,
+`server/apiProduct.test.ts`; no Python file, no client/src file, no
+order-path file, no FROZEN path touched). CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — an API-surface addition over
+already-shipped, already-cached RAW reference data; no scoring, sizing,
+strategy, or threshold code touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code
+(P&L, slippage, fills, the backtest engine, or any existing metric
+definition); it is a new, additive API mirror over an unchanged data
+source, stated here for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: touched adjacently (this is billing-relevant
+`/api/v1` product-surface code) but the compliance check itself is
+unaffected — this diff adds a new licensed data mirror with an honest
+CC BY 4.0 `resell: "ok"` mark, the same posture as every other
+government-work-product/CC-BY stream on this API; it does not touch
+`BILLING_ENABLED`/`STRIPE_SECRET_KEY`/`server/providerCompliance.ts`,
+and the aircraft-provider compliance check this tripwire names is
+unrelated to this GEM coal-mine data (no aircraft-provider chain
+involved). Not re-run — nothing about the aircraft-provider compliance
+posture changed.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-23 ~11:1x-11:3x UTC — well
+outside 9:30-16:00 ET (13:30-20:00 UTC) market hours. No merge-hold
+applies; the already-tracked auto-merge/market-hours-hold gap
+(wishlist.md, 21+ prior occurrences) is moot here regardless, since
+this PR is not opened during market hours in the first place.
+
+NEXT: (1) the wider GEM-suite backlog (chemicals/iron_steel_plants/
+iron_ore_mines cheapest; lng_carriers/oil_ngl_pipelines/gas_pipelines
+harder — see `research/open_questions.md`'s dated GEM-suite entry)
+remains unclaimed, ranked by build cost. (2) with both
+coal-terminals/coal-mine-features now mirrored, every currently-shipped
+GEM raw-data root has a `/api/v1` mirror — a future PRODUCT session
+should re-scan `datacore/gem/` for any newly-ingested root before
+assuming this class of gap is fully closed. (3) KNOWN BROKEN #42/#43's
+standing human-decision item — unchanged, not re-notified (the
+automated 24h liveness-reminder mechanism now covers this without
+session-by-session judgment calls). (4) KNOWN BROKEN #44 — unchanged,
+Dockerfile fix awaiting human approval.
+
+STARVED: no — every directly-queued research NEXT item was checked
+live (audit log clean, no matured experiment, audits register not due)
+before falling through to the single most concretely-scoped, precedented
+item on file (this same day's own `coal_terminals` PR's NEXT(2)),
+shipped end-to-end with full gates green and a dedicated new test. No
+higher-priority queued item was skipped — no fresh LIVENESS escalation
+was warranted (unchanged reading, already covered by the automated
+reminder mechanism and the prior session's direct notification), thrash
+ratio 4/10 [REPAIR] in the last 10 entries, well under the 7+ trigger.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-23 (scheduled-routine session, same session, fall-through action) [REPAIR] — LIVENESS ALARM gains a periodic re-escalation reminder while the loop stays dark, closing the exact gap the prior entry (this same session) found (v1.0.965)
 
 TERRITORY: T-BOT (server/bot.ts, server/liveness.ts) + SHARED-minimal
