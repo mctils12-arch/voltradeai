@@ -5666,6 +5666,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Global Iron Ore Mines Tracker" keyed mirror — closes the same
+  // "shipped-data-no-v1-API" gap the iron_ore_mines PR's own filed NEXT(2)
+  // named (research/experiments.md, 2026-09-23 iron_ore_mines PRODUCT
+  // session), same class of gap coal-terminals/coal-mine-features already
+  // closed as their own follow-up PRs. Reuses the existing
+  // cachedGemIronOreMines() cache the RAW /api/data/iron-ore-mines route
+  // already populates — no new fetch, no new poller, no new computation.
+  // Static reference dataset (re-ingested on GEM's ~2x/year release cadence,
+  // not a live poll) so there is no warming_up cache-miss state to model
+  // beyond the same null-cache 503 every sibling GEM mirror already returns.
+  // RAW catalogued reference data, no predictive claim — global_energy_
+  // monitor is a raw_only root (datacore/signal_ladder.json, current_gate 0).
+  app.get("/api/v1/data/iron-ore-mines", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemIronOreMines();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-ore-mines", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/iron-ore-mines", {
+        count: hit.mines.length,
+        attribution: hit.attribution,
+        license: hit.license,
+        release: hit.release,
+        note: "Iron ore mines as catalogued by GEM: lifecycle operating status, and stated production "
+          + "(2022-2024), design capacity, and reserve/resource tonnage. Locations/status/tonnage as "
+          + "catalogued; no forecast, valuation, or trading signal.",
+        mines: hit.mines,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-ore-mines", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-ore-mines", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW
