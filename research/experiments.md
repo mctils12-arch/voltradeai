@@ -3,6 +3,258 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine PRODUCT session) [PRODUCT] — `coal_terminals` closes its own filed NEXT(2): `/api/v1/data/coal-terminals` keyed mirror shipped, the last of the GEM raw-data roots this sweep has API-boundary-gapped (v1.0.964)
+
+TERRITORY: T-DATACORE-adjacent / API-boundary (server/apiProduct.ts,
+server/apiProduct.test.ts) + T-CLIENT-adjacent-but-untouched (no
+client/src file changed — this is a server-only mirror of an existing
+RAW display route) + SHARED-minimal (server/routes.ts,
+ci/counter_baseline.txt, package.json/package-lock.json,
+research/experiments.md — last, per MERGE-ORDER PROTOCOL). No
+`datacore/signal_ladder.json`/`datacore/layers.json` change — this adds
+an API surface over already-catalogued data, not a new root or a new
+ladder position (`global_energy_monitor` stays `raw_only`/gate 0,
+unchanged).
+
+SESSION-START: read CLAUDE.md in full. `git fetch origin main`:
+`claude/quirky-hopper-4ishsg` already matched `origin/main` at
+`c3916f9b` (no rebase needed). Read `research/experiments.md`'s last
+~10 entries (2026-09-22's four sessions: settlement_stress_composite
+gate-2 WAITING verdict, KNOWN BROKEN #44 diagnosability fix, the
+EIA-861 FUSION HYPOTHESIS check, the `coal_terminals` GEM registry
+PRODUCT ship, the `reconstruct_pnl` diag probe, the STALENESS AUDIT
+dead-ThreadPoolExecutor repair, and the same-day GNSS-integrity
+permanent-archive repair — 2/10 tagged [REPAIR] in the last 10, well
+under the 7+ thrash-ratio trigger, no meta-problem). `research/
+open_questions.md` KNOWN BROKEN section: confirmed #43 (drawdown-kill
+halt) and #44 (`insider_cusum_gate2` 500s, Dockerfile fix proposed,
+still awaiting human approval) are the two most recent entries, both
+unchanged, both human-decision-gated. `research/wishlist.md` top:
+the 2026-09-20 CONSTITUTIONAL AUDIT's two consolidation proposals and
+the 2026-08-16 pair remain the only open items, all human-approval-
+gated, unchanged since yesterday; the 21st auto-merge/market-hours-hold
+tally (same-day addendum after PR #1149) is the newest entry, no new
+mechanism.
+
+LIVE HEALTH CHECK (`https://voltradeai.com/api/health`, this session):
+`status:"degraded"`, `bot.status:"killed"`, LIVENESS ALARM unchanged in
+substance — "trading loop dark for 58.5 market hours (309.1h
+wall-clock) since 2026-09-10T03:12:26.354Z", `drawdownPct:"-5.3"`
+(recovered further from -17.9% at trip time and -5.4/-5.8% read by
+yesterday's sessions). `server`/`database`/`alpaca`/`python`/
+`scanner`/`feeds`/`process`/`memory` all `status:"ok"`. KNOWN BROKEN
+#43/#44 both standing human-decision items, NOT re-notified (unchanged
+reading, already notified many times by prior sessions) — per this
+session's own task instructions, a product session notes the alarm but
+does not preempt it, and neither break blocks product work.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order, re-checked live before
+choosing): (1) `scripts/portdwell_weekly_snapshot.ts` — attempted to
+re-run live; the auto-mode permission classifier refused passing
+`DIAG_TOKEN` inline as a credential-leakage risk this session, so this
+could not be re-verified directly, but the prior session's own reading
+(week 10, weekly cadence, checked 3 days ago) makes a new completed
+week within this window unlikely — not pursued further as the primary
+action given the blocker. (2) EIA-861 FINAL (non-early-release) 2025
+data — checked live (`curl -A "Mozilla/5.0" -L https://www.eia.gov/
+electricity/data/eia861/zip/f8612025.zip`): 200 but a generic
+55,745-byte HTML page (same signature yesterday's session used to
+confirm EIA-860M's own non-availability), not yet published. (3)
+`python3 scripts/ladder_readiness_check.py`: still 0/3 gated roots
+ready (all three readiness triggers are calendar/archive-day gated,
+one day further from due than yesterday's reading changes nothing
+materially). (4) AUDITS & DEBT register: STALENESS next due
+2026-10-16, CONSTITUTIONAL next due 2026-10-20 — neither due.
+
+With every directly-queued research NEXT item exhausted or blocked,
+surveyed `datacore/signal_ladder.json` per task menu option (d) instead
+(SPINOUT-READY DATA LAYER / API-boundary work) and found yesterday's
+own `coal_terminals` PRODUCT session had filed its own NEXT(2) in
+explicit, concrete, one-session-scoped terms: "`coal_terminals` has no
+`/api/v1/data/coal-terminals` mirror yet (same 'shipped-data-no-v1-API'
+gap several sibling roots — dtcc-swaps/un-comtrade/gnss-integrity-
+signal — already closed as their own follow-up PRs) — a natural next
+PRODUCT session's pick, not attempted here to keep this PR to one
+logical change." Verified live via grep that this gap still existed
+(`grep -n '"data/coal-terminals"' server/apiProduct.ts` — zero hits)
+before starting. Chose it over a fresh GEM-suite build (the NEXT(1)
+backlog — chemicals/iron_steel_plants/iron_ore_mines/etc.) because it
+is smaller, precedented four times over (dtcc-swaps/gnss-integrity-
+signal/un-comtrade/methane-plumes all ship the identical shape), and
+closes a gap the immediately preceding session's own filed NEXT
+explicitly asked for — a change of pace toward API-boundary work per
+this session's own task menu, after several research/pipeline-heavy
+days.
+
+READ BEFORE WRITE: read `server/gemCoalTerminals.ts` in full (the
+module the RAW `/api/data/coal-terminals` route already backs) and the
+existing RAW route in `server/routes.ts` (response shape: kind,
+predictive, source, attribution, license, release, note, count,
+terminals). Read the four nearest architectural precedents end-to-end
+before writing anything: the GEM methane-plumes `/api/v1/data/
+methane-plumes` mirror (closest by data provider — CC BY 4.0 GEM,
+poller-backed nullable cache, `warming_up` 503 path) and the JODI/
+UN-Comtrade mirrors (closest by data shape — static, session-ingested
+reference file, `v1Envelope` wrapping a small typed payload). Found
+`cachedGemCoalTerminals()` CAN return `null` (missing/corrupt file
+degrades to null, per its own doc comment) — unlike `jodiOilStocksView()`
+which never returns null — so this mirror needed the methane-plumes/
+dtcc-swaps/gnss-integrity-signal nullable-cache 503 pattern, not the
+JODI/un-comtrade always-present pattern; verified this distinction by
+reading `loadGemCoalTerminals()`'s own try/catch before choosing the
+shape, not by copying the nearest file blindly.
+
+WHAT SHIPPED (one PR, one logical change — a v1 API mirror over
+already-shipped, already-cached RAW data; no new fetch, no new poller,
+no new computation):
+- `server/apiProduct.ts` — new `"data/coal-terminals"` `LICENSE_MARKS`
+  entry (CC BY 4.0, `resell: "ok"`, same class as `methane-plumes`/
+  JODI/eu-macro/CFTC-COT — GEM's release carries no share-alike
+  clause, per `research/data_census.md`'s own "(CC BY 4.0, no
+  share-alike!)" note on this exact provider); new `apiMeta().endpoints`
+  entry; new `voltrade_coal_terminals` tool in `agentToolSpec()`
+  (states the raw_only/current_gate-0/no-predictive-claim status and
+  the terminal-role classifier's drop-not-infer rule explicitly, same
+  honesty discipline every other GEM/JODI/Comtrade tool description in
+  this file already carries); new `RESPONSE_DATA_SCHEMAS.
+  voltrade_coal_terminals` entry (keeps `openApiSpec()`'s 100%
+  hand-verified-schema coverage intact — the existing test enforcing
+  this would have failed otherwise, confirmed by running it before AND
+  after).
+- `server/routes.ts` — new `GET /api/v1/data/coal-terminals` route:
+  `requireApiKey` guard, reuses `cachedGemCoalTerminals()` (imported
+  since the `coal_terminals` PR, already in scope), 503+`Retry-After`
+  on a null cache (mirrors the RAW route's own `warming_up` framing),
+  `v1Envelope("data/coal-terminals", {...})` wrapping count/
+  attribution/license/release/note/terminals — the note field copied
+  verbatim from the RAW route so the two surfaces never describe the
+  same data two different ways, `meterUsage` on every exit path (200/
+  503/500), matching every sibling mirror's shape exactly.
+- `server/apiProduct.test.ts` — added `/api/v1/data/coal-terminals` to
+  both the "meta honesty" and "wiring pinned" path-inclusion lists
+  (same lists every prior mirror PR has extended); one new dedicated
+  honesty test (mirrors the methane-plumes/JODI/un-comtrade test
+  pattern): asserts the license mark is `"ok"` and mentions CC BY 4.0 +
+  Global Energy Monitor, the tool exists with the right
+  `returns_provenance`, and the tool description states "no predictive
+  claim", the raw_only/gate-0 status, and the classifier's
+  never-infer-a-role rule — so a future edit cannot silently drop any
+  of those honesty statements without a test noticing. Updated the
+  pre-existing "openapi spec: full coverage — every one of the 40 live
+  tools..." test title to "41" (the assertion itself was already
+  computed dynamically off `agentToolSpec().tools.length`, so nothing
+  needed fixing there — only the descriptive title was stale after this
+  session's own addition; left the separate, unrelated, already-stale
+  "37 live tools" comment at `apiProduct.ts:762` untouched, pre-existing
+  drift from a different session, not this diff's own effect, per
+  PROMOTION RULE 5).
+
+VERIFIED, not assumed:
+- `npx tsx --test server/apiProduct.test.ts`: 65/65 pass (was 63 before
+  this session's own +2 tests — the new dedicated honesty test plus the
+  RESPONSE_DATA_SCHEMAS coverage test picking up the new tool
+  automatically).
+- `npx tsx --test server/*.test.ts` (full suite, fresh `npm ci` first —
+  this sandbox's `node_modules` was absent, the same recurring
+  provisioning gap prior sessions have logged): **1830/1830 pass**, 0
+  regressions.
+- `python3 -m pytest -q` (full suite, untouched by this diff — no
+  Python file changed; ran after `pip install -r requirements.txt -r
+  requirements-dev.txt`, the same recurring gap): **2147 passed, 1
+  skipped, 54 subtests** — identical count to yesterday's last session,
+  confirming no drift.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match
+  to `ci/tsc_baseline.txt`'s pin (this diff added no `any`, no new
+  untyped boundary — `(e as Error)?.message` matches every sibling
+  mirror's existing catch-block idiom).
+- `bash scripts/counter_ratchet.sh`: one counter IMPROVED —
+  `assertions` 15071 -> **15080** (this session's own +9 new asserts,
+  the dedicated honesty test), re-pinned in `ci/counter_baseline.txt`
+  in this same PR (local HEAD verified equal to freshly-fetched
+  `origin/main`, `c3916f9b`, immediately before pinning, so this delta
+  is this diff's own new test, not pre-existing drift, per PROMOTION
+  RULE 5); re-ran after re-pinning: 25/25 counters OK. No other
+  counter moved — `boundary_any`/`ts_any`/`empty_ts_catch` all
+  unchanged (this diff's only new function bodies are typed,
+  catch-and-rethrow-as-JSON blocks matching the established mirror
+  idiom exactly, no new `any`).
+- `npm run build`: clean (same pre-existing chunk-size/
+  astronomy-engine/pngjs/mapIcons warnings every prior session has
+  already noted, none new).
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — client 1091/1091,
+  python 2147/1 skipped, deploy-gate smoke PASS (`/api/health` 200 in
+  2.5s under latched-kill-switch + stale-liveness fixtures), quarantine
+  0/1, none overdue.
+- Version bumped 1.0.963 -> 1.0.964 (`package.json` +
+  `package-lock.json`, read-and-incremented from freshly-fetched
+  `origin/main` immediately before committing — unchanged at `c3916f9b`
+  since this session's own start).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript only: `server/apiProduct.ts`, `server/routes.ts`,
+`server/apiProduct.test.ts`; no Python file, no client/src file, no
+order-path file, no FROZEN path touched). CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — an API-surface addition over
+already-shipped, already-cached RAW reference data; no scoring, sizing,
+strategy, or threshold code touched; `coal_terminals`/
+`global_energy_monitor` stay `raw_only`/gate 0, unchanged.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code
+(P&L, slippage, fills, the backtest engine, or any existing metric
+definition); it is a new, additive API mirror over an unchanged data
+source, stated here for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: touched adjacently (this is billing-relevant
+`/api/v1` product-surface code) but the compliance check itself is
+unaffected — this diff adds a new licensed data mirror with an honest
+CC BY 4.0 `resell: "ok"` mark, the same posture as every other
+government-work-product/CC-BY stream on this API; it does not touch
+`BILLING_ENABLED`/`STRIPE_SECRET_KEY`/`server/providerCompliance.ts`,
+and the aircraft-provider compliance check this tripwire names is
+unrelated to this GEM coal-terminal data (no aircraft-provider chain
+involved). Not re-run — nothing about the aircraft-provider compliance
+posture changed.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-22 ~20:23 ET / 2026-09-23
+~00:2x UTC (confirmed via `TZ=America/New_York date` at session start)
+— well outside 9:30-16:00 ET market hours. No merge-hold applies; the
+already-tracked auto-merge/market-hours-hold gap (wishlist.md, 21+
+prior occurrences) is moot here regardless of whether it fires, since
+this PR is not opened during market hours in the first place.
+
+NEXT: (1) the wider GEM-suite backlog yesterday's session filed
+(chemicals/iron_steel_plants/iron_ore_mines cheapest; lng_carriers/
+oil_ngl_pipelines/gas_pipelines harder — see `research/
+open_questions.md`'s dated GEM-suite entry) remains unclaimed, ranked
+by build cost. (2) `coal-mine-features` (the sibling GEM raw overlay
+`coal_terminals` was itself modeled on) also has no `/api/v1` mirror
+yet — a natural same-shape follow-up PR for a future session, not
+attempted here to keep this PR to one logical change. (3) the blocked
+`portdwell_weekly_snapshot.ts` re-run from this session's own primary-
+action survey should be retried by a session whose permission
+classifier allows the `DIAG_TOKEN` env var on that specific script
+(or via the `/api/diag/portdwell_weekly_captured` cheap-probe path the
+script's own header documents as preferred). (4) KNOWN BROKEN #43/#44's
+standing human-decision items — unchanged, not re-notified.
+
+STARVED: no — this session exhausted every directly-queued research
+NEXT item (portdwell blocked by a tool-permission classifier not a
+missing item, EIA-861 final still unpublished, ladder readiness 0/3,
+audits register not due) before falling through to the task's own
+menu option (d), then picked the single most concretely-scoped,
+explicitly-filed, precedented-four-times-over item available
+(yesterday's own `coal_terminals` PR's NEXT(2)) rather than starting a
+larger, less-scoped GEM-suite build or an open-ended research entry —
+shipped it end-to-end with full gates green and a dedicated new test,
+and left a concrete, ranked NEXT for the rest of the backlog it did not
+attempt. No higher-priority queued item was skipped — no LIVENESS
+escalation was warranted (unchanged reading, already notified many
+times), thrash ratio 2/10 [REPAIR] in the last 10 entries, well under
+the 7+ trigger.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-22 (scheduled-routine session, later this UTC day) [REPAIR] — GNSS-integrity permanent daily archive: found + fixed a structural 30-day depth cap on gnss_integrity_adsb while pursuing a new cross-connection hypothesis; hypothesis pre-registered and filed, not yet runnable (v1.0.963)
 
 TERRITORY: T-BOT-adjacent (server/gnssIntegrityDaily.ts new,
