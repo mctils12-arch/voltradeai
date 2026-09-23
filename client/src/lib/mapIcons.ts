@@ -1164,6 +1164,35 @@ export const IRON_ORE_STATUS_LABEL: Record<string, string> = {
   unknown: "Status not stated",
 };
 
+// GEM iron & steel plants (server/gemIronSteelPlants.ts): primary
+// production TECHNOLOGY bucket (matches classifyProductionTechnology/
+// SteelProductionTechnology exactly) -> tint. This release has no
+// lifecycle status column, unlike coal_terminals/iron_ore_mines, so the
+// color dimension here is the catalogued steelmaking route instead — a
+// FACT about which reduction technology the plant uses, never an
+// output/activity claim. Cooler tones for the lower-emission/green-
+// steel-adjacent routes (DRI, EAF), warmer for the integrated BF/BOF
+// route, consistent with no other layer's color convention (this is its
+// own dimension, not a lifecycle-stage reuse).
+export const IRON_STEEL_TECH_COLOR: Record<string, string> = {
+  bf_bof: "#f97316", // orange — integrated blast-furnace/basic-oxygen route
+  dri: "#22d3ee",    // cyan — direct-reduced-iron route
+  eaf: "#4ade80",    // green — electric-arc (scrap-based) route
+  if: "#a78bfa",     // violet — induction furnace
+  other: "#94a3b8",  // gray — technology not stated / unspecified
+};
+export function ironSteelTechColor(tech?: string | null): string {
+  if (tech && tech in IRON_STEEL_TECH_COLOR) return IRON_STEEL_TECH_COLOR[tech];
+  return IRON_STEEL_TECH_COLOR.other;
+}
+export const IRON_STEEL_TECH_LABEL: Record<string, string> = {
+  bf_bof: "Blast furnace / basic oxygen",
+  dri: "Direct reduced iron",
+  eaf: "Electric arc furnace",
+  if: "Induction furnace",
+  other: "Technology not stated",
+};
+
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
  *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
  *  magnitude (rare — automatic events pre-review) tints as the lowest band

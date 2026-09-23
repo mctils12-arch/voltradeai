@@ -18,6 +18,7 @@ import {
   COAL_CATEGORY_ICON, COAL_CATEGORY_LABEL, coalGradeColor, COAL_GRADE_COLOR, COAL_GRADE_UNKNOWN_COLOR,
   COAL_TERMINAL_TYPE_ICON, COAL_TERMINAL_TYPE_LABEL, coalTerminalStatusColor,
   IRON_ORE_STATUS_LABEL, ironOreStatusColor,
+  IRON_STEEL_TECH_LABEL, ironSteelTechColor,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
@@ -475,7 +476,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -883,6 +884,7 @@ const LAYER_GROUP: Record<string, string> = {
   plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
   coal_terminals: "facilities",
   iron_ore_mines: "facilities",
+  iron_steel_plants: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
@@ -1572,7 +1574,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1656,6 +1658,14 @@ const LegendPanel = memo(function LegendPanel({
                       <LegendIcon key={st} icon="vt-oremine" color={ironOreStatusColor(st)} label={IRON_ORE_STATUS_LABEL[st]} />
                     ))}
                     <span className="vt-legend-note">Global Energy Monitor — Global Iron Ore Mines Tracker: colour = lifecycle operating status. Off by default. No production or valuation claim.</span>
+                  </>
+                )}
+                {enabled.iron_steel_plants && (
+                  <>
+                    {Object.keys(IRON_STEEL_TECH_LABEL).map((t) => (
+                      <LegendIcon key={t} icon="vt-mill" color={ironSteelTechColor(t)} label={IRON_STEEL_TECH_LABEL[t]} />
+                    ))}
+                    <span className="vt-legend-note">Global Energy Monitor — Global Iron and Steel Tracker: colour = primary production technology, as catalogued. Off by default. No output or valuation claim.</span>
                   </>
                 )}
               </div>
@@ -10840,6 +10850,95 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.iron_ore_mines, mapReady, mapSettled, setStatus]);
 
+  // ── GEM iron & steel plants (RAW; server/gemIronSteelPlants.ts) — 1,293
+  // plants worldwide. One symbol for the whole layer (reuses the existing
+  // "vt-mill" glyph the "sites" layer's own steel_mill facility type
+  // already draws — the same real-world object, not a new invented
+  // shape); color = catalogued primary production technology (bf_bof/
+  // dri/eaf/if/other), this release's own lifecycle-status-free
+  // dimension. Static reference dataset, same Law-I-compliant
+  // toggle-on/off mount pattern as coal_terminals/iron_ore_mines above. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        if (map.getLayer("ironsteel-pt")) map.removeLayer("ironsteel-pt");
+        if (map.getSource("ironsteel-points")) map.removeSource("ironsteel-points");
+      } catch {}
+    };
+    if (!enabled.iron_steel_plants) { clear(); setStatus("iron_steel_plants", "off"); return; }
+    if (!mapSettled) { setStatus("iron_steel_plants", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("iron_steel_plants", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/iron-steel-plants", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.plants)) throw new Error("no plants");
+        if (map.getSource("ironsteel-points")) return;
+        map.addSource("ironsteel-points", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.plants.map((p: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+              properties: { ...p, tint: ironSteelTechColor(p.technology), icon: "vt-mill" },
+            })),
+          } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "ironsteel-pt", type: "symbol", source: "ironsteel-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 8, 0.55],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const techLabel = IRON_STEEL_TECH_LABEL[p.technology] || p.technology;
+          setDetail({
+            kind: "ironsteelplant",
+            title: p.name,
+            subtitle: techLabel,
+            stats: [
+              { label: "Technology", value: techLabel },
+              { label: "Product category", value: p.categorySteelProduct || "not stated" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Owner", value: p.owner || "—" },
+              { label: "Workforce", value: p.workforceSize != null ? p.workforceSize.toLocaleString() : "not stated" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `${p.parent ? `Parent company: ${p.parent}\n` : ""}` +
+                  `Production equipment (as catalogued): ${p.technologyRaw || "not stated"}\n` +
+                  `${p.startDate ? `Start date: ${p.startDate}\n` : ""}` +
+                  `${p.idledDate ? `Idled date: ${p.idledDate}\n` : ""}` +
+                  `${p.retiredDate ? `Retired date: ${p.retiredDate}\n` : ""}` +
+                  `${p.soeStatus ? `SOE status: ${p.soeStatus}\n` : ""}` +
+                  `Coordinate accuracy: ${p.coordinateAccuracy || "not stated"}\n\n` +
+                  `Source: Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0). ` +
+                  `Location/technology as catalogued; no forecast, valuation, or trading signal.`,
+            sourceUrl: p.wiki || undefined,
+          });
+        };
+        detach = attachLayerInteractions(map, "ironsteel-pt", onClick);
+        setStatus("iron_steel_plants", "active", d.count,
+          `${d.count.toLocaleString()} plants — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("iron_steel_plants", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.iron_steel_plants, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -12774,6 +12873,7 @@ export default function DataMapPage() {
     id === "coal_mine_features" ? <Mountain size={15} /> :
     id === "coal_terminals" ? <ArrowLeftRight size={15} /> :
     id === "iron_ore_mines" ? <Gem size={15} /> :
+    id === "iron_steel_plants" ? <Factory size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -12824,7 +12924,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

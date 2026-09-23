@@ -2685,6 +2685,17 @@
    "description": "949 iron ore mines worldwide. One symbol for the whole layer (a single catalogued kind, unlike Coal Terminals' per-row role field); colour = lifecycle Operating status as catalogued by GEM (Operating / Proposed / Mothballed / Retired / Shelved / Cancelled / status not stated) — never a production or valuation claim. Also carries catalogued production tonnage (2022-2024) and reserve/resource tonnage, shown in the detail popup only, not as a symbol dimension. Locations/status/tonnage as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals & Coal Mine Boundaries)."
   },
   {
+   "id": "iron_steel_plants",
+   "name": "Iron & steel plants (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "renderKind": "point-symbol",
+   "source": "Global Energy Monitor — Global Iron and Steel Tracker, CC BY 4.0 (server/gemIronSteelPlants.ts)",
+   "description": "1,293 iron and steel plants worldwide. This release has no lifecycle status column (unlike Coal Terminals/Iron Ore Mines), so the symbol reuses the existing 'steel mill' glyph (the same real-world object the Sites layer already draws for its steel_mill facility type) and colour instead carries the catalogued primary production technology (blast furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as stated) — never an output or valuation claim. Also carries catalogued product category, workforce size, and lifecycle dates, shown in the detail popup only. Locations/technology as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals & Iron Ore Mines)."
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",
