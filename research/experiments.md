@@ -277,9 +277,26 @@ MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
 code in this diff; no `/api/v1` route added in this PR (deferred to a
 follow-up mirror PR per the established two-step precedent).
 
-DEPLOY-COUPLING NOTE: session run 2026-09-23, confirmed via this
-session's own live `/api/health` timestamp check at start (well outside
-9:30-16:00 ET market hours). No merge-hold applies.
+DEPLOY-COUPLING NOTE (CORRECTED): this session's own live `/api/health`
+timestamp check, re-verified at the point of opening the PR (not just at
+session start), reads 2026-09-23T18:44:35Z = 14:44 ET — INSIDE
+9:30-16:00 ET market hours, not outside it as an earlier draft of this
+paragraph incorrectly stated before being caught and fixed in this same
+commit. This PR (`chemicals.json`/`iron_steel_plants.json` earlier route/
+map-layer PRs opened during the same UTC day genuinely were pre-market,
+which is likely why this paragraph was drafted by pattern-matching on
+their language rather than re-deriving the actual clock time this
+session — a mistake, not a repeat of an established fact). Per the
+task's own instruction ("prefer merging PRs outside 9:30-16:00 ET; if
+working mid-market, prepare the PR and note in it that merge should wait
+for the close"): this PR is docs+RAW-overlay-only (no order-path file
+touched) so it carries zero trading-path risk either way, matching the
+same-day REPAIR session's own reasoning on PR #1148/#1150's thread — but
+the PR description has been updated to note merge should wait for
+market close per the letter of the instruction, consistent with the
+standing 22-occurrence auto-merge/market-hours-hold thread in
+wishlist.md (this would be the 23rd, if auto-merge does not in fact
+hold).
 
 NEXT: (1) `chemicals.json` remains the one still-unrouted GEM sub-
 registry from this thread's original three-item backlog — it needs its
