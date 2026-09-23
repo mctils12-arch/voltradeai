@@ -3,6 +3,225 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine session, new session this UTC day) [PRODUCT] — `iron_ore_mines` closes its own filed NEXT(2): `/api/v1/data/iron-ore-mines` keyed mirror shipped, matching the coal_terminals/coal-mine-features precedent exactly (v1.0.969)
+
+TERRITORY: SHARED-minimal (server/apiProduct.ts, server/apiProduct.test.ts,
+server/routes.ts) + SHARED (ci/counter_baseline.txt, package.json/
+package-lock.json, research/* — last, per MERGE-ORDER PROTOCOL). No
+`bot_engine.py`/`system_config.py`/`strategies/`/`client/src/` touched.
+
+SESSION-START: read CLAUDE.md in full, then `research/experiments.md`
+(tail), `research/open_questions.md` (KNOWN BROKEN header),
+`research/wishlist.md` (standing threads). Loop-health check: last 10
+session tags before this one (newest first) — PRODUCT (iron_steel_plants),
+REPAIR (closed stale duplicate PR #1148), PRODUCT (iron_ore_mines),
+PRODUCT (coal-mine-features v1 mirror), REPAIR (liveness re-escalation
+reminder), REPAIR (KNOWN BROKEN #42/#43 re-verify), PRODUCT (coal_terminals
+v1 mirror), PIPELINE (EIA-861 SWPP capacity check), REPAIR (KNOWN BROKEN
+#44 Dockerfile gap found), PIPELINE (settlement_stress_composite gate 2) —
+4/10 REPAIR, well under the 7+ thrash-ratio trigger, unchanged from every
+same-UTC-day session's own reading — no meta-problem.
+
+LIVE HEALTH CHECK (`curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` —
+"trading loop dark for 65.0 market hours (329.1h wall-clock) since
+2026-09-10T03:12:26.354Z" (KNOWN BROKEN #42/#43, standing human-decision-
+gated resume). NOT re-notified this session — no new information beyond
+what every session today has already read, and the shipped
+`shouldSendLivenessReminder` mechanism (server/liveness.ts,
+LIVENESS_REMINDER_INTERVAL_HOURS=24) already owns re-escalation on its own
+cadence independent of session cadence. KNOWN BROKEN #44
+(`insider_cusum_gate2`) also unchanged: Dockerfile fix proposed in
+wishlist.md, still awaiting human approval on a FROZEN PATH. `server`/
+`database`/`alpaca`/`python`/`scanner`/`feeds`/`process`/`memory` all
+`status:"ok"`. Audit log (`/api/diag/audit`, last 200 entries) scanned for
+new problems: only RULES/MANIPULATION/TIER3/SCHEDULE/EXECUTION/SYSTEM/
+EVENTLOOP-LAG (KNOWN BROKEN #18, already tracked)/STREAM/TIER3-DIAG/
+POS-MONITOR/SHUTDOWN/STARTUP types present — no new error class.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): checked the immediately-
+preceding `iron_steel_plants` session's own queued NEXT items first.
+Option (a) (advance a ladder gate) re-screened and found still genuinely
+exhausted: `scripts/ladder_readiness_check.py` unchanged at 0/3 READY
+(`cftc_cot_positioning` 28d out, `sec_8k_earnings_language` 9d out,
+`fleet_utilization_aircraft` 40d out); `scripts/portdwell_weekly_
+snapshot.ts` re-run (idempotent, safe every session): `last_completed_
+week_index` still 10, week 11 not yet complete, correct no-op;
+`scripts/data_stream_registry_check.py --unbuilt`: 9/35, all still
+declined/blocked-on-human-registration, nothing newly unblocked.
+
+Two competing already-filed NEXT(2) items existed, both unclaimed same
+day: `iron_steel_plants`'s own session named its `/api/v1/data/
+iron-steel-plants` mirror; `iron_ore_mines`'s own earlier session (same
+UTC day) named `/api/v1/data/iron-ore-mines`. Live-verified via `grep
+server/routes.ts` that NEITHER v1 mirror existed yet (only `/api/data/
+iron-ore-mines` and `/api/data/iron-steel-plants`, the RAW routes,
+present) — both gaps genuinely still open, not closed under a different
+name. Picked `iron-ore-mines` (the older of the two same-day gaps,
+queued first) — matching this thread's own established practice of
+closing the longest-unclaimed queued item first (the `coal_terminals` ->
+`coal-mine-features` mirror sequence set this precedent explicitly).
+`chemicals.json`'s harder bucketing-design NEXT(1) was screened and
+passed over in favor of this lower-risk, already-precedented,
+already-verified-safe follow-up.
+
+READ BEFORE WRITE: read `server/gemIronOreMines.ts` in full (the
+`IronOreMine`/`IronOreMinesResult` interfaces this mirror serves) before
+writing anything — confirmed every field's exact null-ability (drop-not-
+infer on id/name/coordinates; every tonnage/date/owner/parent/wiki field
+is `| null`). Read the live `/api/v1/data/coal-terminals` and `/api/v1/
+data/coal-mine-features` mirrors in `server/routes.ts` end to end as the
+template (same `requireApiKey` guard, `v1Envelope` wrap, `cachedGem*()`
+cache reuse — no new fetch/poller/computation, static reference dataset
+so no `warming_up` state beyond the null-cache 503 every sibling mirror
+already returns). Read `server/apiProduct.ts`'s `LICENSE_MARKS`,
+`apiMeta().endpoints`, `agentToolSpec().tools`, and `RESPONSE_DATA_
+SCHEMAS` end to end for the coal-terminals/coal-mine-features entries —
+confirmed all four touch points are required per-endpoint (the openapi
+spec's own "full coverage" test asserts `RESPONSE_DATA_SCHEMAS` has
+exactly one entry per live agent-tools name, so a new tool with no schema
+entry would fail CI). Read `server/apiProduct.test.ts`'s existing
+dedicated coal-terminals/coal-mine-features license-mark tests as the
+template for a matching iron-ore-mines test.
+
+WHAT SHIPPED (one PR, one logical change — a keyed `/api/v1` mirror for
+an already-shipped RAW route, no new data, no new fetch):
+
+- `server/routes.ts` — `GET /api/v1/data/iron-ore-mines`: `requireApiKey`
+  guard, reuses `cachedGemIronOreMines()` verbatim (the same cache
+  `/api/data/iron-ore-mines` already populates), `v1Envelope`-wrapped,
+  503 on cold/missing cache, 500 on unexpected error, `meterUsage` on
+  every branch — byte-for-byte the same shape as the coal-terminals/
+  coal-mine-features mirrors immediately above it.
+- `server/apiProduct.ts` — new `"data/iron-ore-mines"` `LICENSE_MARKS`
+  entry (CC BY 4.0, `resell: "ok"`, same open-attribution class as every
+  other GEM stream on this API); `apiMeta().endpoints` doc entry;
+  `voltrade_iron_ore_mines` agent tool (states the raw_only/current_gate
+  0/no-predictive-claim status and the operating-status classifier's
+  degrade-to-"unknown"-never-guessed rule honestly, matching the
+  established honesty-in-description convention); a hand-verified
+  `RESPONSE_DATA_SCHEMAS.voltrade_iron_ore_mines` entry (every field read
+  directly off the real `IronOreMine` interface, not guessed — required:
+  id/name/status/lat/lon only, matching `normalizeIronOreMines`'s own
+  drop-not-infer rule; every other field ANY since it is `| null` in the
+  source type).
+- `server/apiProduct.test.ts` — extended the existing "meta honesty" and
+  "wiring pinned" tests with the new path (2 assertions), plus one new
+  dedicated test mirroring the coal-terminals/coal-mine-features license-
+  mark tests: asserts `resell: "ok"`, the license string names CC BY 4.0 +
+  Global Energy Monitor, the agent tool exists with the correct
+  `returns_provenance`, and the description carries the raw_only/
+  current_gate-0/no-predictive-claim/never-guessed honesty language.
+
+NOT A SIGNAL, NOT A LADDER CHANGE: this is API-surface plumbing for an
+already-RAW, already-shipped route — no new data, no forecast, no
+trading claim. `global_energy_monitor` stays a `raw_only` root at
+`current_gate 0`; `datacore/signal_ladder.json` NOT touched this session
+(live-verified against the `coal_terminals` v1-mirror PR's own precedent,
+which also left that file untouched for the identical class of change).
+
+VERIFIED, not assumed (fresh container — `npm ci` needed first, same
+recurring sandbox-provisioning gap every prior session has logged; `pip
+install` also needed `Pillow`/`openpyxl`, missing from `requirements.txt`
+but unrelated to this diff — no Python file touched):
+- `npx tsx --test server/apiProduct.test.ts`: **67/67 pass**, including
+  the one new dedicated test.
+- `npx tsx --test server/apiProduct.test.ts server/gemIronOreMines.test.ts`:
+  **80/80 pass** — `gemIronOreMines.ts` itself is untouched by this diff,
+  confirming the mirror's reuse of its existing exports didn't disturb it.
+- `npx tsx --test server/*.test.ts` (full server suite): **1867/1867
+  pass**, 0 regressions (up from 1866 — this session's own +1 new test).
+- `npx tsx --test client/src/**/*.test.ts client/src/**/*.test.tsx`:
+  **458/458 pass**, unchanged (no client file touched).
+- `python3 -m pytest -q` (full suite, untouched by this diff): 2144
+  passed, 2 skipped, 54 subtests — no Python file in this diff.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match to
+  `ci/tsc_baseline.txt`'s pin.
+- `bash scripts/counter_ratchet.sh`: first run correctly FAILED —
+  `tests_run_in_ci`/`tests_gating_merge` 467→468 (this session's own +1
+  new test), `assertions` 15164→15222 (this session's own +58 new
+  asserts, mostly the new dedicated test plus the two extended existing
+  tests). Re-pinned both in `ci/counter_baseline.txt` in this same PR
+  (local HEAD verified equal to freshly-fetched `origin/main`, `72da4f7`,
+  immediately before pinning). Re-ran after re-pinning: **25/25 counters
+  OK**. No other counter moved.
+- Live end-to-end smoke test (not just unit tests): booted the real
+  built `dist/index.cjs` locally with a test `API_PRODUCT_KEYS` value —
+  `GET /api/v1/data/iron-ore-mines` with a valid key returned the real
+  949-mine dataset wrapped in the `v1Envelope` shell (verified
+  `api_version`/`license`/`attribution`/`resell`/`generated_at`/
+  `disclaimer`/`data` all present, `data.count === 949`, real row shape —
+  e.g. Ghoryan Mine, Afghanistan, status "proposed"); the same call with
+  no `x-api-key` header returned 401, confirming the guard is live, not
+  just present in source.
+- `npm run build`: clean (same pre-existing chunk-size/astronomy-engine/
+  mapIcons warnings every prior session has already noted, none new).
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server/client/python
+  suites all green, deploy-gate smoke PASS (`/api/health` 200 in 2.5s
+  under latched-kill-switch + stale-liveness fixtures), quarantine 0/1,
+  none overdue.
+- Version bumped 1.0.968 → 1.0.969 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing — unchanged at `72da4f7` since this session's own
+  start).
+
+GATES: full local suite above covers every file this diff touches
+(TypeScript only: `server/routes.ts`, `server/apiProduct.ts`, `server/
+apiProduct.test.ts`; no Python source changed). No order-path file, no
+FROZEN path (other than the one already-pending, still-unapproved
+Dockerfile proposal, untouched here) touched. CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a keyed-API mirror for an already-
+shipped RAW data route, no trading/scoring/sizing/threshold logic
+touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code (no
+P&L, slippage, fills, backtest engine, or existing metric definition
+touched); it is additive API-surface plumbing, stated here for
+completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: this diff DOES touch the licensed API-product
+surface (a new `/api/v1` endpoint + `LICENSE_MARKS` entry) — the
+aircraft-provider compliance check (`server/providerCompliance.ts`) was
+re-read: unaffected, this diff carries no aircraft/ADS-B data and adds no
+new provider to the chain (GEM's own CC BY 4.0 terms, already used
+identically by the coal-terminals/coal-mine-features/methane-plumes
+mirrors). `resell: "ok"` is correct per GEM's own release terms, matching
+the sibling GEM mirrors' identical marking — not a new judgment call.
+
+DEPLOY-COUPLING NOTE: this session's own live `/api/health` timestamp
+check at the point of finishing (`2026-09-23T20:29:47Z` = 16:29 ET) is
+OUTSIDE 9:30-16:00 ET market hours (29 minutes past close) — no
+merge-hold applies.
+
+NEXT: (1) `chemicals.json` remains the one still-unrouted GEM sub-
+registry from the original three-item backlog — needs its own bucketing
+design (68 distinct "Primary products" combinations, no clean small
+bucket set), not a direct copy of any prior PR. (2)
+`lng_carriers.json`/`oil_ngl_pipelines.json`/`steel_units.json`/
+`steel_raw_materials.json` remain the harder, not-yet-attempted cases
+named in this thread's earlier entries. (3) KNOWN BROKEN #42/#43/#44 —
+unchanged, not re-notified (already covered by the automated liveness-
+reminder mechanism and no new information on #44's Dockerfile approval).
+(4) with both `coal_terminals`'s and `iron_ore_mines`'s `/api/v1`
+mirror gaps now closed, `iron_steel_plants` is the one remaining shipped-
+route-no-mirror gap in this thread — a future session should verify live
+via `grep` that it's still open before starting, matching this session's
+own verification discipline.
+
+STARVED: no — this session read CLAUDE.md and research/ in full per its
+own task instructions, checked KNOWN BROKEN/liveness/audit log first,
+screened option (a) and found it genuinely exhausted (matching every
+prior same-day session's own screening), verified live that both
+competing same-day NEXT(2) mirror gaps were still genuinely open before
+picking the older of the two, shipped end-to-end with a new dedicated
+test plus extensions to two existing tests, full gates green including a
+live end-to-end smoke test against the real built server (not just unit
+tests), and a precise NEXT for whoever picks up the remaining backlog.
+Thrash ratio 4/10 REPAIR, well under the 7+ trigger — no meta-problem.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-23 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `iron_steel_plants` GEM registry shipped end-to-end — server/gemIronSteelPlants.ts, /api/data/iron-steel-plants, datamap.tsx map layer (v1.0.968)
 
 TERRITORY: T-DATACORE-adjacent / API+UI surface (server/gemIronSteelPlants.ts,

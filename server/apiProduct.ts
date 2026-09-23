@@ -254,6 +254,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Global Energy Monitor — Coal Mine Boundaries and Methane Sources (CC BY 4.0)",
     resell: "ok",
   },
+  "data/iron-ore-mines": {
+    license: "Global Energy Monitor — Global Iron Ore Mines Tracker (949 iron ore mines worldwide, lifecycle operating status + stated 2022-2024 production + design capacity + reserve/resource tonnage, as catalogued by GEM) — GEM publishes this release under CC BY 4.0, the same open-attribution class as the coal-terminals/coal-mine-features/methane-plumes/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/Digitraffic-trains streams above, NOT conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams or the informational-use-terms OCC/Cboe/FINRA streams.",
+    attribution: "Global Energy Monitor — Global Iron Ore Mines Tracker (CC BY 4.0)",
+    resell: "ok",
+  },
   "data/jodi-oil-stocks": {
     license: "JODI (Joint Organisations Data Initiative) World Primary database, TOTCRUDE closing-stock levels — JODI's own terms are free with acknowledgment (JODI data are publicly available for use with attribution), the same open-attribution class as the eu-macro/attention/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC streams above, NOT conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams or the informational-use-terms OCC/Cboe/FINRA streams.",
     attribution: "JODI (Joint Organisations Data Initiative) World Primary database",
@@ -325,6 +330,7 @@ export function apiMeta() {
       { path: "/api/v1/data/methane-plumes", params: "-", desc: "Global Energy Monitor Methane Emitters Tracker (GMET): dated satellite methane-plume detections (CarbonMapper/GHGSat-class providers, as catalogued by GEM), each joined to its nearest catalogued GEM oil/gas-extraction or coal-mine asset within a stated match radius (or null when nothing catalogued is that close). GATE 1 (plume detection itself) is calibrated upstream by GEM/CarbonMapper/GHGSat and effectively trivial to inherit. GATE 2(a) (the proximity join) and 2(b) (per-asset repeat-detection rate) are SHIPPED. GATE 2(c) (same-universe base rate) was RUN against real data: FAIL at all 3 horizons (5/20/60d) — but on only N=32 events across 8 resolvable tickers, one of which (an unrelated bankruptcy-recovery story) dominates 74-83% of the result, so this is a DATA-AVAILABILITY-LIMITED fail, not a clean kill. GATE 2(d) (matching operators' own disclosed emissions) is CURRENTLY UNSOURCED, not attempted. nearestAsset is a GEOMETRIC PROXIMITY FACT, not a confirmed or claimed emissions attribution — RAW display only, no predictive claim. GEM publishes both source datasets under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/methane-plumes" },
       { path: "/api/v1/data/coal-terminals", params: "-", desc: "Global Energy Monitor Global Coal Terminals Tracker: 521 port coal-handling terminals worldwide, each carrying a lifecycle status (Operating/Construction/Proposed/Shelved/Mothballed/Retired/Cancelled), a classified terminal-role bucket (exports/imports/domestic/mixed/unstated, derived from GEM's free-text Terminal Type column without inferring any role the source string does not state), stated capacity (Mt), owner, and parent port. RAW catalogued reference data — no throughput, activity, or output claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/coal-terminals" },
       { path: "/api/v1/data/coal-mine-features", params: "-", desc: "Global Energy Monitor Coal Mine Boundaries and Methane Sources: catalogued mine boundary polygons, ventilation/degasification points, and other mapped mine infrastructure, each carrying GEM's own per-feature id, mine name/id, owners, parent company, country, coal grade, and GEM wiki link where stated. RAW catalogued geometry — locations/geometry as catalogued, no activity, output, or emissions claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/coal-mine-features" },
+      { path: "/api/v1/data/iron-ore-mines", params: "-", desc: "Global Energy Monitor Global Iron Ore Mines Tracker: 949 iron ore mines worldwide, each carrying a lowercase lifecycle operating-status bucket (operating/proposed/mothballed/retired/shelved/cancelled/unknown), stated production (2022-2024, thousand tonnes/year), design capacity, and reserve/resource tonnage, owner, parent, and country/region. RAW catalogued reference data — no forecast, valuation, or trading claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/iron-ore-mines" },
       { path: "/api/v1/data/jodi-oil-stocks", params: "-", desc: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported closing crude-oil stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness is never smoothed over, some areas stopped reporting TOTCRUDE years before the archive's overall latest period. GATE 1 (DATA) PASSED 2026-08-06 (reconciles against EIA within 1.2%, scripts/jodi_eia_reconcile.py). GATE 2 (SIGNAL) KILLED 2026-08-06 — a pre-registered non-OECD stock-build composite found no significant BNO/USO forward-return signal in any of 4 pre-registered comparisons. RAW self-reported levels only, no predictive claim. JODI data are free with acknowledgment, freely resellable with attribution.", preview: "/api/data/jodi-oil-stocks" },
       { path: "/api/v1/data/un-comtrade", params: "-", desc: "UN Comtrade USA bilateral goods-trade archive: latest reported period per partner (China/Mexico/Canada/Japan/Germany/South Korea) — imports CIF, exports FOB, computed trade balance, and the prior-period import delta, sorted by import value descending. GATE 1 (DATA) PASSED 2026-09-07 (every partner's CIF import value reconciles against FRED's independent Census-Bureau customs-basis import series within a stable, narrow CIF/customs offset band — means 1.01-1.06, stdev<=0.0097, n=21 months each). GATE 2 (SIGNAL) not attempted — this root was flagged too lagged for direct alpha, structural-thesis input only (research/data_census.md). RAW self-reported trade levels only, no predictive claim. UN Comtrade's own terms are free with citation but do not permit bulk redistribution of the raw database — conditional resell, see license_marks.", preview: "/api/data/un-comtrade" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
@@ -729,6 +735,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       returns_provenance: ["data/coal-mine-features"],
     },
     {
+      name: "voltrade_iron_ore_mines",
+      description: "Global Energy Monitor Global Iron Ore Mines Tracker: 949 iron ore mines worldwide, each carrying a lowercase lifecycle operating-status bucket (operating/proposed/mothballed/retired/shelved/cancelled/unknown — a value outside this set is never guessed, it degrades to 'unknown' honestly), stated production for 2022/2023/2024 (thousand tonnes/year), design capacity, total reserves (proven and probable) and total resource (inferred, indicated and measured) tonnage, start/stop dates, owner, parent, and GEM wiki link where GEM states one. RAW catalogued display, no predictive claim — this is reference infrastructure data, not wired into any ladder gate (global_energy_monitor is a raw_only root, current_gate 0). GEM publishes this release under CC BY 4.0 — freely resellable with attribution, same posture as the coal-terminals/coal-mine-features/CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/iron-ore-mines",
+      returns_provenance: ["data/iron-ore-mines"],
+    },
+    {
       name: "voltrade_jodi_oil_stocks",
       description: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported crude-oil closing stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness (some areas stopped reporting TOTCRUDE years ago) is never smoothed over. RAW self-reported display, no predictive claim. GATE 1 (DATA) PASSED — reconciles against EIA within 1.2%. NOT a trading signal — GATE 2 (a pre-registered non-OECD stock-build composite vs. BNO/USO forward returns) was KILLED: none of 4 pre-registered comparisons cleared even an uncorrected 0.05 bar. JODI data are free with acknowledgment — freely resellable with attribution, same posture as the CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools above.",
       input_schema: { type: "object", properties: {}, required: [] },
@@ -906,6 +919,22 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
   voltrade_coal_mine_features: dataObj({
     count: INT, attribution: STR, license: STR, release: ANY, note: STR, features: ARR,
   }, ["count", "attribution", "license", "note", "features"]),
+  // server/gemIronOreMines.ts's IronOreMinesResult/IronOreMine: same static
+  // reference shape family as voltrade_coal_terminals/voltrade_coal_mine_
+  // features above. Each mine row's own field list read directly off the
+  // IronOreMine interface (id/name/status/statusRaw required by
+  // normalizeIronOreMines' own drop-not-infer rule; every tonnage/date/
+  // owner/parent/wiki field is `| null`, so ANY not required).
+  voltrade_iron_ore_mines: dataObj({
+    count: INT, attribution: STR, license: STR, release: ANY, note: STR,
+    mines: { type: "array", items: dataObj({
+      id: STR, name: STR, status: STR, statusRaw: ANY, country: ANY, region: ANY, municipality: ANY,
+      subnationalUnit: ANY, coordinateAccuracy: ANY, production2024Kt: ANY, production2023Kt: ANY,
+      production2022Kt: ANY, designCapacityKt: ANY, totalReservesKt: ANY, totalResourceKt: ANY,
+      startDate: ANY, stopDate: ANY, owner: ANY, parent: ANY, wiki: ANY,
+      lat: { type: "number" }, lon: { type: "number" },
+    }, ["id", "name", "status", "lat", "lon"]) },
+  }, ["count", "attribution", "license", "note", "mines"]),
   voltrade_jodi_oil_stocks: dataObj({
     product: STR, archiveLatestPeriod: ANY, seriesCount: INT, countriesReporting: ANY, note: STR, rows: ARR,
   }, ["product", "seriesCount", "note", "rows"]),
