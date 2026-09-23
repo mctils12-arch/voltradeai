@@ -7178,6 +7178,18 @@
     KNOWN-BROKEN-tagged halt older than N days as needing fresh human
     attention) rather than relying on session judgment alone, which this
     13-day gap shows can silently lapse.
+    **CLOSED (3) 2026-09-23, same session, v1.0.965** — built rather than
+    filed, since it was concretely scoped and this session had capacity:
+    `server/liveness.ts` gained `shouldSendLivenessReminder()` +
+    `LIVENESS_REMINDER_INTERVAL_HOURS=24`, wired into `bot.ts`'s existing
+    60s liveness heartbeat to re-fire the existing `sendEmailAlert(...)`
+    drawdown-kill notification every 24h while the loop stays dark,
+    instead of only once at trip time. Resets automatically on resume.
+    4 new tests in `server/liveness.test.ts` (9/9 total pass; A/B-verified
+    via `git stash` on the source files alone — pre-fix tree fails to even
+    load the test module). Full account in `research/experiments.md`'s
+    2026-09-23 fall-through entry. This item's (1)/(2) remain open —
+    resuming is still the human's call.
 
 44. **[FOUND 2026-09-22, scheduled-routine session, LIVE PRODUCTION BUG,
     DIAGNOSABILITY FIX SHIPPED — root cause needs a FROZEN PATH (Dockerfile),

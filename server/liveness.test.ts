@@ -7,8 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  nextLiveness, marketHoursBetween, loopDark,
-  LOOP_DARK_MARKET_HOURS, LOOP_DARK_WALLCLOCK_HOURS,
+  nextLiveness, marketHoursBetween, loopDark, shouldSendLivenessReminder,
+  LOOP_DARK_MARKET_HOURS, LOOP_DARK_WALLCLOCK_HOURS, LIVENESS_REMINDER_INTERVAL_HOURS,
 } from "./liveness";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -63,4 +63,37 @@ test("wiring pinned: /api/health consumes the assessment and degrades on dark", 
     "a dark loop must degrade overall /api/health status");
   assert.equal(LOOP_DARK_MARKET_HOURS, 2, "approved threshold: 2 market hours");
   assert.equal(LOOP_DARK_WALLCLOCK_HOURS, 24, "approved ceiling: 24h wall-clock");
+});
+
+// KNOWN BROKEN #42/#43 (2026-09-23): the one-time drawdown-kill trip email
+// never re-fires while the loop stays dark, and a real incident sat 13
+// days before a session noticed nobody had re-notified. These pin the
+// re-escalation gate that closes that hole.
+test("reminder: never fires while active or not dark", () => {
+  assert.equal(shouldSendLivenessReminder(false, null, WED_13ET), false);
+  assert.equal(shouldSendLivenessReminder(false, WED_10ET, WED_13ET), false, "a stale reminder stamp must not force a fire once resolved");
+});
+
+test("reminder: fires immediately the first time a dark loop has no reminder on record", () => {
+  assert.equal(shouldSendLivenessReminder(true, null, WED_13ET), true);
+  assert.equal(shouldSendLivenessReminder(true, undefined, WED_13ET), true);
+  assert.equal(shouldSendLivenessReminder(true, NaN, WED_13ET), true, "a corrupt persisted stamp must not permanently suppress reminders");
+});
+
+test("reminder: gated to once per LIVENESS_REMINDER_INTERVAL_HOURS, not on every tick", () => {
+  const firstReminderAt = WED_13ET;
+  const justUnder = firstReminderAt + (LIVENESS_REMINDER_INTERVAL_HOURS - 0.01) * 3_600_000;
+  const atInterval = firstReminderAt + LIVENESS_REMINDER_INTERVAL_HOURS * 3_600_000;
+  const wellPast = firstReminderAt + (LIVENESS_REMINDER_INTERVAL_HOURS + 5) * 3_600_000;
+  assert.equal(shouldSendLivenessReminder(true, firstReminderAt, justUnder), false, "must not re-fire before the interval elapses");
+  assert.equal(shouldSendLivenessReminder(true, firstReminderAt, atInterval), true, "must fire exactly at the interval boundary");
+  assert.equal(shouldSendLivenessReminder(true, firstReminderAt, wellPast), true, "must fire well past the interval too — no upper cap");
+});
+
+test("wiring pinned: bot.ts sends a periodic dark-loop reminder, gated by shouldSendLivenessReminder", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes("shouldSendLivenessReminder"), "bot.ts must consult the re-escalation gate");
+  assert.ok(bot.includes("lastReminderAt"), "bot.ts must persist the reminder timestamp so it survives restarts");
+  assert.ok(/shouldSendLivenessReminder\([\s\S]{0,600}sendEmailAlert/.test(bot),
+    "the gate's true branch must actually send an email, not just compute a flag");
 });

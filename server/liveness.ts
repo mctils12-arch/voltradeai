@@ -16,9 +16,19 @@
 export const LOOP_DARK_MARKET_HOURS = 2;
 export const LOOP_DARK_WALLCLOCK_HOURS = 24;
 
+// Re-escalation cadence (filed 2026-09-23, KNOWN BROKEN #42/#43): the
+// initial alarm above is a one-time trip — nothing re-notifies while the
+// loop stays dark. That let a real 13-day-and-counting dark stretch go a
+// full week without a fresh nudge once sessions started treating "reading
+// unchanged" as a reason not to re-notify. The reading being unchanged
+// doesn't make the cost of continued silence unchanged — it compounds
+// daily. This constant governs how often a reminder fires while dark.
+export const LIVENESS_REMINDER_INTERVAL_HOURS = 24;
+
 export interface LivenessFile {
   lastActiveAt: number; // epoch ms the loop was last seen active
   savedAt?: string;
+  lastReminderAt?: number; // epoch ms the last re-escalation reminder fired
 }
 
 /** Heartbeat transition — pure. Active now: stamp now. Inactive with no
@@ -76,4 +86,19 @@ export function loopDark(
         `paused/halted/stopped state is a top-of-report alarm, never a dashboard discovery`
       : "",
   };
+}
+
+/** Ongoing re-escalation gate, pure. True only once per
+ *  LIVENESS_REMINDER_INTERVAL_HOURS while the loop is dark — never while
+ *  active, never twice within the interval, and immediately the first
+ *  time a dark loop has no reminder on record yet. Callers own persisting
+ *  the returned "yes, fire" decision (this function has no side effects
+ *  and takes no dependency on wall-clock `Date.now()` internally, so it
+ *  stays trivially testable). */
+export function shouldSendLivenessReminder(
+  dark: boolean, lastReminderAt: number | null | undefined, nowMs: number,
+): boolean {
+  if (!dark) return false;
+  if (lastReminderAt == null || !Number.isFinite(lastReminderAt)) return true;
+  return (nowMs - lastReminderAt) / 3_600_000 >= LIVENESS_REMINDER_INTERVAL_HOURS;
 }
