@@ -3,6 +3,149 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine session, same session, fall-through action) [REPAIR] — LIVENESS ALARM gains a periodic re-escalation reminder while the loop stays dark, closing the exact gap the prior entry (this same session) found (v1.0.965)
+
+TERRITORY: T-BOT (server/bot.ts, server/liveness.ts) + SHARED-minimal
+(server/liveness.test.ts, package.json/package-lock.json,
+ci/counter_baseline.txt, research/experiments.md — last, per
+MERGE-ORDER PROTOCOL).
+
+CONTEXT (this session, immediately prior entry): re-verifying KNOWN
+BROKEN #42/#43 found the trading loop has been kill-switched for 13
+days, and that PRODUCT sessions over the preceding week correctly
+logged the unchanged alarm but explicitly declined to re-notify,
+reasoning the reading was "unchanged" — a judgment call, not a
+mechanical trigger, that let a real alarm go a week+ without a fresh
+human nudge. That entry filed this exact gap as NEXT (3): "no
+automatic re-escalation for a KNOWN BROKEN item that stays open past
+some age threshold... worth a future wishlist.md proposal." Per the
+SESSION BUDGET fall-through order, with the primary action (escalating
+the current incident) complete and this being a queued, concretely
+scoped, one-session item just filed by this same session, built it now
+rather than deferring — EDGE DOCTRINE axis (c)/(d) framing: this
+compiles a piece of reasoning ("is 13 days of unchanged-but-dark worth
+re-notifying?") that a human operator was implicitly re-deriving every
+session into code that decides it mechanically instead.
+
+PRIOR (stated before building, per REASONING STANDARD #10): expected
+this to be a small, additive change to the existing pure `liveness.ts`
+module (already has 100% pure, well-tested functions for the alarm
+itself) plus a few lines wiring it into the existing `sendEmailAlert`
+infrastructure already used for the one-time drawdown-kill trip email
+— no new subsystem, no new dependency, no threshold change to any risk
+mechanism (RULE REVIEW does not apply: this changes WHEN a
+notification re-fires, not any trading/risk threshold).
+
+READ BEFORE WRITE: read `server/liveness.ts` in full (79 lines,
+already pure and tested — `nextLiveness`/`marketHoursBetween`/
+`loopDark`) and `server/liveness.test.ts` in full for the existing
+test-pattern convention (pure-function unit tests + a source-text
+"wiring pinned" test on `bot.ts`). Grepped every `sendEmailAlert(` call
+site in `bot.ts` (6, all one-shot: drawdown-kill x2, manual kill-switch
+toggle, all-positions-liquidated, circuit-breaker x2) — confirmed NONE
+of them re-fire on a standing condition; all are edge-triggered at the
+moment a state transition happens, which is exactly the pattern that
+left the 2026-09-10 drawdown-kill email as a single email 13 days ago
+and silence since. Read the existing 60s `setInterval` liveness
+heartbeat (`server/bot.ts`, maintains `livenessState` via
+`nextLiveness`/`saveLiveness`) as the natural, already-existing,
+self-driven (not traffic-dependent) cadence to hang the reminder off
+of, rather than the `/api/health` route's own separate
+`nextLiveness`/`loopDark` call (traffic-dependent — would only fire as
+often as something happens to poll health, and would risk a second,
+independent reminder-timer source disagreeing with the interval's).
+
+WHAT SHIPPED (one PR, one logical change):
+- `server/liveness.ts` — new `LIVENESS_REMINDER_INTERVAL_HOURS = 24`
+  constant, new field `lastReminderAt?: number` on `LivenessFile`
+  (purely additive — `nextLiveness`'s existing active/inactive
+  transition logic is untouched; a resume naturally drops the field
+  when the loop next goes active, so a future dark period starts its
+  reminder cadence fresh, which is the correct semantics), and a new
+  pure function `shouldSendLivenessReminder(dark, lastReminderAt,
+  nowMs)`: false while not dark, true immediately the first time a
+  dark loop has no reminder on record (handles `null`/`undefined`/
+  `NaN` — a corrupted persisted stamp must not permanently suppress
+  reminders, mirroring the existing `Number.isFinite` defensiveness
+  pattern already used for `lastActiveAt`), then gated to at most once
+  per `LIVENESS_REMINDER_INTERVAL_HOURS`.
+- `server/bot.ts` — `loadLiveness()` now also parses `lastReminderAt`
+  off the persisted JSON (backward-compatible: an old file with no such
+  field parses fine, function returns without it, `shouldSend...`
+  treats that as "never sent" and fires immediately on the next dark
+  tick — the intended behavior for upgrading an already-dark
+  production instance, not a bug). The existing 60s `setInterval`
+  block now also computes `loopDark(...)` and, when
+  `shouldSendLivenessReminder` says yes, persists the new
+  `lastReminderAt` and calls the existing `sendEmailAlert(...)` with a
+  message embedding `lv.detail` (the exact same alarm text `/api/health`
+  already surfaces) plus a note naming the recurring cadence. No new
+  interval, no new persisted file — reuses the existing heartbeat tick
+  and the existing `voltrade_liveness.json`/`/tmp` fallback path
+  byte-for-byte.
+- `server/liveness.test.ts` — 4 new tests: never fires while
+  active/not-dark (and a stale reminder stamp left over from a
+  resolved incident must not force a spurious fire once resolved —
+  covered explicitly since `nextLiveness` dropping the field on resume
+  is a real code path, not just an assumption); fires immediately on a
+  dark loop with no reminder on record, INCLUDING a corrupted `NaN`
+  stamp; gated to exactly once per `LIVENESS_REMINDER_INTERVAL_HOURS`
+  (just-under/at-boundary/well-past cases); a "wiring pinned" test that
+  greps `bot.ts` for `shouldSendLivenessReminder`, `lastReminderAt`,
+  and — the one that actually matters, not just "the flag is computed"
+  — that the gate's true branch is within a few hundred characters of
+  an actual `sendEmailAlert(` call.
+
+VERIFIED: `git stash push -- server/bot.ts server/liveness.ts` (leaving
+the new test file in place) then re-running
+`npx tsx --test server/liveness.test.ts`: the pre-fix tree fails to
+even load the test module (`SyntaxError: The requested module
+'./liveness' does not provide an export named
+'LIVENESS_REMINDER_INTERVAL_HOURS'`) — the whole suite errors, 0/1
+files pass. Post-fix (stash popped): 9/9 pass. Full gate suite this
+session (after `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` to fix two unrelated sandbox-environment gaps —
+missing `@types/node` and missing `numpy`/`pandas`/`requests`/`pytest`,
+neither caused by this change, confirmed by reproducing the same
+failures against the pre-fix tree first): `bash
+scripts/gated_tests.sh`: python 2147 passed/1 skipped/54 subtests,
+`npx tsx --test server/*.test.ts`: 1834/1834, deploy-gate smoke PASS
+(build + boot + `/api/health` 200 under forced kill-switch-ON +
+stale-liveness fixtures — the exact scenario this change's own email
+path would fire under, confirming it doesn't block boot or the health
+gate). `bash scripts/tsc_ratchet.sh`: 11/11 unchanged. `bash
+scripts/counter_ratchet.sh`: `assertions` improved 15080->15091 (the
+9 new test assertions), re-pinned in `ci/counter_baseline.txt` in this
+PR per the script's own instruction; all 24 other counters unchanged.
+`npm run build`: clean (same pre-existing unrelated warnings prior
+sessions already noted — astronomy-engine default-export interop,
+chunk-size advisories).
+
+NOT A RULE-REVIEW ITEM: no risk-limit threshold, halt condition, or
+trading logic changed — this only affects when an already-existing
+notification email re-fires. Not a MEASUREMENT INTEGRITY item either:
+no metric definition, backtest, P&L, or slippage computation touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): while `state.killSwitch`
+stays true, this adds one `sendEmailAlert` call per
+`LIVENESS_REMINDER_INTERVAL_HOURS` (24h) — worst case one extra Resend
+API call per day, no-op entirely if `RESEND_KEY` is unset (existing
+early-return in `sendEmailAlert`), and the persisted
+`lastReminderAt` write reuses the exact same file-write path as the
+existing per-minute liveness heartbeat, so no new I/O pattern. Once
+the human resumes trading, `activeNow` becomes true, `nextLiveness`
+resets to a fresh `{lastActiveAt: now}` with no `lastReminderAt`, and
+reminders stop immediately — no manual cleanup needed.
+
+NEXT: (1) once this deploys, the current 13-day-and-counting KNOWN
+BROKEN #42/#43 incident should receive its first reminder email on the
+next 60s tick after boot (its persisted `lastReminderAt` is currently
+absent — genuinely never sent one before). (2) `LIVENESS_REMINDER_
+INTERVAL_HOURS = 24` is a starting value, not evidence-backed by
+counterfactual data (there's no "counterfactual" here — this isn't a
+trading rule) — if 24h proves too frequent or too sparse in practice,
+adjusting it is a one-line change, not a RULE-REVIEW item.
+
 ## 2026-09-23 (scheduled-routine session, second session this UTC day) [REPAIR] — KNOWN BROKEN #42/#43 re-verified 13 days dark; no code change, human escalation is this session's deliverable
 
 TERRITORY: SHARED-minimal (research/open_questions.md, research/experiments.md only — no code, no other file touched).

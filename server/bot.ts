@@ -7,7 +7,7 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
-import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
+import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
@@ -654,7 +654,12 @@ function loadLiveness(): LivenessFile | null {
     try {
       if (fs.existsSync(p)) {
         const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
-        if (Number.isFinite(parsed?.lastActiveAt)) return { lastActiveAt: parsed.lastActiveAt };
+        if (Number.isFinite(parsed?.lastActiveAt)) {
+          return {
+            lastActiveAt: parsed.lastActiveAt,
+            ...(Number.isFinite(parsed?.lastReminderAt) ? { lastReminderAt: parsed.lastReminderAt } : {}),
+          };
+        }
       }
     } catch (e: any) {
       console.error(`[liveness] could not load ${p}:`, e?.message || e);
@@ -682,8 +687,26 @@ setInterval(() => {
   try {
     // active → fresh stamp (new object) → saved each minute; inactive →
     // same object back (or a one-time seed) → no disk churn while dark.
-    const next = nextLiveness(livenessState, state.active && !state.killSwitch, Date.now());
+    const activeNow = state.active && !state.killSwitch;
+    const next = nextLiveness(livenessState, activeNow, Date.now());
     if (next !== livenessState) { livenessState = next; saveLiveness(next); }
+    // Re-escalation (found 2026-09-23, KNOWN BROKEN #42/#43): the trip
+    // alert above (sendEmailAlert on the drawdown-kill itself) fires once.
+    // Nothing previously re-notified while the loop stayed dark, and a
+    // real incident went 13 days before a session caught that gap — this
+    // closes it with a periodic reminder, gated so it can never fire more
+    // than once per LIVENESS_REMINDER_INTERVAL_HOURS regardless of how
+    // often this interval ticks.
+    const lv = loopDark(livenessState, activeNow, Date.now());
+    if (shouldSendLivenessReminder(lv.dark, livenessState?.lastReminderAt, Date.now())) {
+      const withReminder: LivenessFile = { ...(livenessState as LivenessFile), lastReminderAt: Date.now() };
+      livenessState = withReminder;
+      saveLiveness(withReminder);
+      sendEmailAlert(
+        "Trading Loop Still Dark — Resume Decision Needed",
+        `${lv.detail} Recurring reminder (every ${LIVENESS_REMINDER_INTERVAL_HOURS}h while dark) so a resume decision can't go silent for days at a time.`,
+      );
+    }
   } catch {}
 }, 60_000);
 
