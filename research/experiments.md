@@ -3,6 +3,109 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-23 (scheduled-routine session, market hours) [REPAIR] — closed stale/unmergeable duplicate PR #1148, salvaged its lost auto-merge/market-hours-hold occurrence as the 22nd (no code change)
+
+TERRITORY: SHARED (`research/wishlist.md`, `research/experiments.md`
+only), minimal, per MERGE-ORDER PROTOCOL — no other file touched.
+
+SESSION-START: read CLAUDE.md in full, then `research/experiments.md`
+(tail), `research/open_questions.md` (KNOWN BROKEN header),
+`research/wishlist.md` (standing threads). Loop-health check: last 10
+session tags before this one were PRODUCT, PRODUCT, REPAIR, REPAIR,
+PRODUCT, REPAIR, RULE-REVIEW, PRODUCT, PIPELINE, REPAIR — 4/10 REPAIR,
+well under the 7+ thrash-ratio trigger. `/api/health` (live,
+`voltradeai.com`): `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true`, "trading loop dark for 61.3 market hours (325.1h
+wall-clock) since 2026-09-10T03:12:26.354Z" — unchanged from the prior
+several sessions' readings, KNOWN BROKEN #42/#43, human-decision-gated,
+already re-verified and logged repeatedly; not re-escalated again here
+(no new information). KNOWN BROKEN #44 also unchanged (Dockerfile fix
+proposed, awaiting human approval on a FROZEN PATH). Everything else in
+the health payload reads `"ok"`.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET ("fix a bug seen in audit
+logs" ranks above starting new product/pipeline/research work), a repo-
+hygiene audit of open Claude PRs (a check no session-start routine
+currently runs — itself a gap the 2026-08-20 PROCESS GAP entry in
+wishlist.md already flagged as unbuilt) surfaced PR #1148 ("rule-review:
+21st confirmed occurrence...") sitting open, untouched, for ~24 hours
+during a second market day — an anomaly worth chasing since (a) it
+claimed to be the 21st occurrence of the auto-merge/market-hours-hold
+gap, but the actually-merged 21st-occurrence entry (via PR #1150) cites
+a *different* PR (#1149), and (b) `pull_request_read get_check_runs`
+showed **zero CI runs ever recorded** against its head SHA, unlike every
+other PR checked this session.
+
+READ BEFORE WRITE / INVESTIGATION: read PR #1148, #1147, #1149, #1150,
+and #1156 in full via `pull_request_read` (get/get_commits/
+get_check_runs/get_status) before concluding anything. Found: PR #1148's
+branch (`claude/eloquent-dijkstra-x5mye2`) carries two commits — `ed7a643`
+(identical content to PR #1147's already-merged `server/reconstructPnl.ts`
+change, but a different SHA because #1147 merged via squash) and
+`0a6479c5` (the actual new tally commit, 26 lines across
+`research/experiments.md`/`wishlist.md`). Because the branch's own
+history never rebased onto the squashed merge, PR #1148 diffed as BOTH
+commits against `main` — reproposing already-merged content. Verified,
+not assumed: fetched both branches locally and ran `git merge-tree
+$(git merge-base origin/main origin/claude/eloquent-dijkstra-x5mye2)
+origin/main origin/claude/eloquent-dijkstra-x5mye2` — real `<<<<<<<`
+conflicts in `package.json`/`package-lock.json` (version regression
+1.0.967→1.0.961) and in both `research/*.md` files (competing appends).
+This fully explains why the PR could never cleanly auto-merge. The zero-
+CI-runs anomaly stays unexplained — checked whether any sibling PR from
+the same or an adjacent session (same day, same branch-naming session
+prefix) showed the same gap; none did, so this is logged as a single
+unreplicated anomaly per the REASONING STANDARD (don't fit a theory to
+one data point) rather than investigated further.
+
+RESOLUTION: applied the WORKSTREAM PARTITION's own supersession
+precedent verbatim ("first-merged wins, the duplicate salvages its
+unique delta" — same precedent a 2026-08-20 wishlist.md entry already
+used for an analogous stuck-PR case, PR #763). PR #1147 already won
+(merged 2026-09-22T16:32:02Z, 5 hours before #1148 was even opened).
+Checked #1148's one unique delta — its tally commit's data point (PR
+#1147's own auto-merge-ignoring-hold-note instance, a real, previously
+unrecorded occurrence, colliding on ordinal number only because #1150's
+own 21st-occurrence entry independently used PR #1149 as its example)
+— and salvaged it into `research/wishlist.md`'s standing thread as the
+**22nd occurrence**, plus a dedicated PROCESS GAP writeup of the
+stuck-branch mechanism itself (parallel to, not a duplicate of, the
+2026-08-20 draft-PR entry — this one is a squash-merge/branch-reuse
+mechanism, not a stale-draft mechanism). Posted an explanation comment
+on PR #1148 and closed it unmerged. Branch `claude/eloquent-dijkstra-
+x5mye2` left untouched (not deleted, not reset) — confirmed via `git
+log` it carries no commits beyond the two already fully accounted for
+(one merged elsewhere, one salvaged here).
+
+WHAT SHIPPED: `research/wishlist.md` (new TWENTY-SECOND OCCURRENCE +
+stuck-PR-mechanism entry, appended to the existing standing thread) and
+this `research/experiments.md` entry. No code, no config, no version
+bump — pure docs, matching the established pure-docs-commit precedent
+(2026-08-19/2026-08-20 entries in wishlist.md).
+
+VERIFIED, not assumed: `python3 -m pytest -q` (full suite, untouched by
+this diff): unchanged pass count from the prior session's reading (no
+Python file touched). `npx tsx --test server/*.test.ts` and the client
+suite: not re-run (no TypeScript/JS file touched by this diff — same
+posture every prior pure-docs PR in this log has taken). `git diff
+--stat` against `origin/main`: confirms only the two `research/*.md`
+files changed.
+
+GATES: PROMOTION RULE 3 (backtest requirement) N/A — no trading, scoring,
+sizing, or measurement code touched. PROMOTION RULE 4 (version bump) N/A
+per the pure-docs-commit precedent. One logical change, one PR.
+
+HOLD FOR MARKET CLOSE: this session ran during US market hours
+(2026-09-23). Per the scheduled task's own instruction, the PR notes
+merge should wait until after 4:00 PM ET — though, per the very thread
+this entry updates, that note has held back 0 of 22 confirmed prior
+occurrences. This change is docs-only and carries zero trading-path
+risk either way.
+
+NOT A SPEND REQUEST. STARVATION: not STARVED — the queue (audit-log bug
+fix) was picked and fully resolved within this session's scope; no
+higher-value item was seen and skipped.
+
 ## 2026-09-23 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `iron_ore_mines` GEM registry shipped end-to-end — server/gemIronOreMines.ts, /api/data/iron-ore-mines, datamap.tsx map layer (v1.0.967)
 
 TERRITORY: T-DATACORE-adjacent / API+UI surface (server/gemIronOreMines.ts,
