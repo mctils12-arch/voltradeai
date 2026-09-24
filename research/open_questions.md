@@ -21910,6 +21910,39 @@ unchanged from this entry's own ranking: `chemicals.json`/
 sub-registries; `lng_carriers.json`/`oil_ngl_pipelines.json`/
 `gas_pipelines.json` remain the harder cases named above, not attempted.
 
+UPDATE (2026-09-23, later the same UTC day): `iron_steel_plants.json`
+shipped too (`server/gemIronSteelPlants.ts`, `GET /api/data/iron-steel-
+plants`, reused the existing "vt-mill" glyph, colour = catalogued primary
+production technology). One item left of the original 3.
+
+UPDATE (2026-09-24, scheduled-routine [PRODUCT] session): picked the last
+of the 3 — `chemicals.json` (868 chemical plants). SHIPPED end-to-end:
+`server/gemChemicals.ts` (`classifyFeedstockFamily`/`parseGemCoordinates`/
+`normalizeChemicalPlants`/`loadGemChemicals`/`cachedGemChemicals`, 21 new
+tests), `GET /api/data/chemicals`, a NEW `vt-flask` glyph (no existing
+icon fit a chemical plant — a genuinely different kind from the mill/
+mine/terminal symbols already drawn, per SYMBOLS NOT DOTS), and a
+`datamap.tsx` map layer + legend. Independently re-verified rather than
+taking the prior session's screening on faith: `chemicals.json` really
+does have no lifecycle-status column and "Primary products" really does
+have 68 distinct free-text combinations with no clean bucket set (live
+`collections.Counter` scan). Used "Feedstock" instead — also free-text/
+semicolon-separated, but the top single tokens (natural gas 255, coal
+153, naphtha 147, ethane 86, crude oil 70...) cleanly cover a small
+6-bucket presence-priority family set (coal > natural_gas > petroleum >
+ngl > low_carbon > other), a real industry grouping, not invented. Full
+account in `research/experiments.md`'s matching dated entry. **This
+closes the full original 3-item "cheapest" GEM-suite backlog** (chemicals/
+iron_steel_plants/iron_ore_mines, all three now routed end-to-end).
+Remaining backlog, unchanged: `lng_carriers.json`/`oil_ngl_pipelines.json`/
+`steel_units.json`/`steel_raw_materials.json` remain the harder,
+not-yet-attempted cases named above (shipyard-location honesty framing,
+no route geometry, or country-level not plant-level). None of the three
+newly-shipped registries has an `/api/v1` keyed mirror yet either
+(`coal_terminals`/`coal-mine-features`/`iron_ore_mines` do) — a natural
+next follow-up PR for whichever registry a future session picks, matching
+the established two-step route-then-mirror precedent.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-

@@ -2696,6 +2696,17 @@
    "description": "1,293 iron and steel plants worldwide. This release has no lifecycle status column (unlike Coal Terminals/Iron Ore Mines), so the symbol reuses the existing 'steel mill' glyph (the same real-world object the Sites layer already draws for its steel_mill facility type) and colour instead carries the catalogued primary production technology (blast furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as stated) — never an output or valuation claim. Also carries catalogued product category, workforce size, and lifecycle dates, shown in the detail popup only. Locations/technology as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals & Iron Ore Mines)."
   },
   {
+   "id": "chemicals",
+   "name": "Chemical plants (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "renderKind": "point-symbol",
+   "source": "Global Energy Monitor — Global Chemicals Inventory, CC BY 4.0 (server/gemChemicals.ts)",
+   "description": "868 chemical plants worldwide. This release, like Iron & Steel Plants, has no lifecycle status column; its 'Primary products' field was screened and rejected as the colour dimension (68 distinct free-text combinations, no clean small bucket set), so a new dedicated flask glyph is used and colour instead carries the catalogued primary feedstock family (coal / natural gas / petroleum-liquid / NGL / low-carbon / other, bucketed by presence-priority over GEM's own semicolon-separated Feedstock column) — never an output or valuation claim. Also carries catalogued primary/secondary products, shown in the detail popup only. Locations/feedstock as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals, Iron Ore Mines & Iron and Steel Plants)."
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

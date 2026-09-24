@@ -859,6 +859,21 @@ const shapes: Record<string, () => ImageData> = {
     ctx.moveTo(m, ys[2] + 2.5); ctx.lineTo(m + 5, ys[2] + 7); ctx.lineTo(m, ys[2] + 11.5); ctx.lineTo(m - 5, ys[2] + 7);
     ctx.closePath(); ctx.fill();
   }),
+  // chemical plant: Erlenmeyer flask — neck, flared body, liquid fill line
+  "vt-flask": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.4;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(m - 3, m - 15); ctx.lineTo(m - 3, m - 3);
+    ctx.lineTo(m - 11, m + 14); ctx.lineTo(m + 11, m + 14); ctx.lineTo(m + 3, m - 3);
+    ctx.lineTo(m + 3, m - 15);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 5.5, m - 15); ctx.lineTo(m + 5.5, m - 15); ctx.stroke(); // neck cap
+    ctx.beginPath(); // liquid fill below the flare line
+    ctx.moveTo(m - 7, m + 5.5); ctx.lineTo(m - 11, m + 14); ctx.lineTo(m + 11, m + 14); ctx.lineTo(m + 7, m + 5.5);
+    ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -1191,6 +1206,38 @@ export const IRON_STEEL_TECH_LABEL: Record<string, string> = {
   eaf: "Electric arc furnace",
   if: "Induction furnace",
   other: "Technology not stated",
+};
+
+// GEM chemical plants (server/gemChemicals.ts): primary FEEDSTOCK FAMILY
+// bucket (matches classifyFeedstockFamily/ChemicalFeedstockFamily exactly).
+// This release, like iron_steel_plants, has no lifecycle status column, and
+// its "Primary products" field was screened and rejected as the color
+// dimension (68 distinct free-text combinations, no clean small bucket
+// set — research/open_questions.md's dated GEM-suite backlog entry) — so
+// "Feedstock" is used instead, a FACT about the catalogued feedstock, never
+// an output/activity claim. Warmer tones for the higher-carbon-intensity
+// routes (coal, petroleum), cooler for the lower-carbon ones (low_carbon),
+// consistent with no other layer's color convention (its own dimension,
+// not a lifecycle-stage reuse).
+export const CHEMICAL_FEEDSTOCK_COLOR: Record<string, string> = {
+  coal: "#f87171",        // red — highest-carbon-intensity solid feedstock
+  natural_gas: "#fbbf24", // amber — dominant gas feedstock
+  petroleum: "#f97316",   // orange — liquid petroleum-derived feedstocks
+  ngl: "#a78bfa",         // violet — natural gas liquids
+  low_carbon: "#4ade80",  // green — green hydrogen/biomass/bioethanol/CO2
+  other: "#94a3b8",       // gray — feedstock not stated / downstream chemical
+};
+export function chemicalFeedstockColor(family?: string | null): string {
+  if (family && family in CHEMICAL_FEEDSTOCK_COLOR) return CHEMICAL_FEEDSTOCK_COLOR[family];
+  return CHEMICAL_FEEDSTOCK_COLOR.other;
+}
+export const CHEMICAL_FEEDSTOCK_LABEL: Record<string, string> = {
+  coal: "Coal",
+  natural_gas: "Natural gas",
+  petroleum: "Petroleum-liquid",
+  ngl: "Natural gas liquids",
+  low_carbon: "Low-carbon (H2/biomass/CO2)",
+  other: "Feedstock not stated / downstream chemical",
 };
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).

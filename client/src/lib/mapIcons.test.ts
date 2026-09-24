@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -66,4 +66,16 @@ test("ironSteelTechColor: GEM's 5 production-technology buckets map directly, un
   assert.equal(ironSteelTechColor(null), "#94a3b8");
   assert.equal(ironSteelTechColor(undefined), "#94a3b8");
   assert.equal(ironSteelTechColor("not-a-real-bucket"), "#94a3b8", "never guesses a technology color for an unrecognized bucket");
+});
+
+test("chemicalFeedstockColor: GEM chemicals' 6 feedstock-family buckets map directly, unrecognized/missing falls back to the 'other' gray", () => {
+  assert.equal(chemicalFeedstockColor("coal"), "#f87171");
+  assert.equal(chemicalFeedstockColor("natural_gas"), "#fbbf24");
+  assert.equal(chemicalFeedstockColor("petroleum"), "#f97316");
+  assert.equal(chemicalFeedstockColor("ngl"), "#a78bfa");
+  assert.equal(chemicalFeedstockColor("low_carbon"), "#4ade80");
+  assert.equal(chemicalFeedstockColor("other"), "#94a3b8");
+  assert.equal(chemicalFeedstockColor(null), "#94a3b8");
+  assert.equal(chemicalFeedstockColor(undefined), "#94a3b8");
+  assert.equal(chemicalFeedstockColor("not-a-real-bucket"), "#94a3b8", "never guesses a feedstock color for an unrecognized bucket");
 });

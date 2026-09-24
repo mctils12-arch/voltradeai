@@ -3,6 +3,282 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-24 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `chemicals` GEM registry shipped end-to-end, closing the full 3-item "cheapest" GEM-suite backlog (chemicals/iron_steel_plants/iron_ore_mines, all three now routed) — server/gemChemicals.ts, /api/data/chemicals, a new "vt-flask" glyph, datamap.tsx map layer (v1.0.970)
+
+TERRITORY: T-DATACORE-adjacent / API+UI surface (server/gemChemicals.ts,
+server/gemChemicals.test.ts, server/routes.ts, script/build.ts,
+client/src/lib/mapIcons.ts, client/src/lib/mapIcons.test.ts,
+client/src/pages/datamap.tsx, server/layersRegistry.test.ts,
+test_ts_code_only.py) + SHARED (datacore/layers.json,
+datacore/signal_ladder.json, ci/counter_baseline.txt,
+package.json/package-lock.json, research/* — last, per MERGE-ORDER
+PROTOCOL).
+
+SESSION-START: read CLAUDE.md in full, then all of research/ (this is a
+scheduled [PRODUCT] session per its own task instructions: build the
+data-intelligence product over time — datacore/ pipelines and the /data
+user-facing section). Loop-health check: last 10 session tags before this
+one (newest first) — PRODUCT (iron_ore_mines v1 mirror), REPAIR (closed
+stale duplicate PR #1148), PRODUCT (iron_steel_plants), PRODUCT
+(iron_ore_mines), PRODUCT (coal-mine-features v1 mirror), REPAIR (liveness
+re-escalation reminder), REPAIR (KNOWN BROKEN #42/#43 re-verify), PRODUCT
+(coal_terminals v1 mirror), PIPELINE (EIA-861 SWPP capacity check), REPAIR
+(GNSS permanent archive) — 4/10 REPAIR, well under the 7+ thrash-ratio
+trigger — no meta-problem.
+
+LIVENESS ALARM CHECK (Repair Mandate — consulted first, per the task's own
+instruction to check KNOWN BROKEN before starting product work): live
+`/api/health` (`voltradeai.com`) read `status:"degraded"`, `bot.status:
+"killed"`, `liveness.dark:true`, "trading loop dark for 65.0 market hours
+(333.3h wall-clock) since 2026-09-10T03:12:26.354Z" — unchanged from every
+prior session's own reading (KNOWN BROKEN #42/#43, standing human-decision-
+gated resume, already escalated repeatedly including a dedicated
+PushNotification). Not re-notified — no new information, and the shipped
+`shouldSendLivenessReminder` mechanism already owns re-escalation on its
+own cadence independent of session cadence. KNOWN BROKEN #44
+(`insider_cusum_gate2`) also unchanged: Dockerfile fix proposed in
+wishlist.md, still awaiting human approval on a FROZEN PATH. Per the
+task's own instructions this is noted but does not block product work
+(this session's scope touches no trading-loop path; DAILY routines own
+repair duty). `server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/
+`process`/`memory`/`licensing` all read `"ok"`.
+
+PRIMARY-ACTION SELECTION: screened option (a) first (advance a datacore/
+pipeline through its next ladder gate) per the task's own menu.
+`scripts/ladder_readiness_check.py`: 0/3 READY, all three unchanged from
+every immediately-preceding same-thread session's own reading (one day's
+elapsed time changes none of their multi-week trigger dates). Re-ran
+`scripts/portdwell_weekly_snapshot.ts` (idempotent, safe every session):
+still correctly a no-op, week 11 not yet complete. Option (a) genuinely
+exhausted, matching every prior session's own screening — not skipped.
+
+Took option (b)/(d) together (a new RAW map layer + its API route) — the
+single most concretely-scoped, already-ranked queued item this thread has
+carried since 2026-09-22: `chemicals.json`, the one remaining entry of the
+original 3-item "cheapest" GEM-suite backlog after `iron_ore_mines` and
+`iron_steel_plants` closed theirs on 2026-09-23. Live-verified via `grep
+server/routes.ts` before starting that `chemicals` was still genuinely
+unrouted (only `coal-terminals`/`iron-ore-mines`/`iron-steel-plants`
+present) — the gap was still open, not closed under a different name.
+
+READ BEFORE WRITE / DESIGN DECISION: read the real `datacore/gem/
+chemicals.json` (868 rows) with `python3`/`json` before writing anything,
+not assuming the 2026-09-23 `iron_steel_plants` session's own screening
+note about it. Confirmed independently: no lifecycle/status column (full
+column-name `Counter` scan across all 868 rows), and "Primary products"
+does carry the 68-distinct-combination problem that session's note
+described (`ammonia` 309, `methanol` 81, `ethylene` 60, `ethylene;
+propylene` 52, `benzene; toluene; xylene` 34, ... down a long tail) — no
+clean small bucket set, confirmed rather than taken on faith. Screened the
+release's OTHER free-text semicolon-separated field, "Feedstock", as the
+alternative color dimension before assuming it would have the same
+problem: single-token frequency scan (`natural gas` 255, `coal` 153,
+`naphtha` 147, `unknown` 121, `ethane` 86, `crude oil` 70, `propane` 53,
+`liquid petroleum gas (LPG)` 24, `green hydrogen` 20, `butane` 19, ...)
+shows the top ~10 single tokens cleanly cover the overwhelming majority of
+rows into real, standard industry feedstock families (solid coal / gas /
+petroleum-liquid / natural-gas-liquid / low-carbon), unlike "Primary
+products"'s combinatorial explosion of DOWNSTREAM outputs. Designed a
+6-bucket `classifyFeedstockFamily` (presence-priority: coal > natural_gas >
+petroleum > ngl > low_carbon > other) — an honest, stated, arbitrary
+priority order over real catalogued tokens, same shape as
+`classifyProductionTechnology`'s own BF > DRI > EAF > IF > BOF precedent,
+never inferring a feedstock the row doesn't state. Read
+`server/gemIronSteelPlants.ts` + its test file in full as the closest
+template (same GEM-family static-reference-dataset pattern: in-memory
+cache, drop-not-infer normalization, missing/corrupt-file degrade-to-null,
+packed "lat, lon" Coordinates parser — this release uses the identical
+packed-coordinate shape, live-verified: 0/868 rows fail to parse; "GEM
+plant ID" unique across all 868 rows). Read `client/src/lib/mapIcons.ts`'s
+full shape registry before adding anything: unlike `iron_steel_plants`
+(which correctly reused the existing "vt-mill" glyph for the same
+real-world object the generic `sites` layer already draws), no existing
+glyph represents a chemical plant — SYMBOLS NOT DOTS requires a symbol
+that encodes the feature's KIND, and a chemical plant is genuinely not a
+mill/mine/terminal/tank, so a new "vt-flask" (Erlenmeyer flask) glyph was
+drawn, following the same SDF-shape-drawing convention as every existing
+glyph (white fill on transparent, registered once, tinted per-feature via
+`icon-color`). Read `server/layersRegistry.test.ts`'s Q11 `PINNED_GAP`
+test and `datamap.tsx`'s LAYER_GROUP/layerIcon/legend/detail-panel-kind
+touch points end to end so every mechanical wiring check this codebase
+already runs would catch a missed touch point.
+
+WHAT SHIPPED (one PR, one logical change — a new RAW-data root routed
+end-to-end, no `/api/v1` mirror in this PR, matching the established
+two-step precedent):
+
+- `server/gemChemicals.ts` — `classifyFeedstockFamily` (buckets the
+  "Feedstock" semicolon-list into one of 6 families by presence-priority:
+  coal beats natural_gas beats petroleum beats ngl beats low_carbon beats
+  a residual "other" that also catches the "unknown" sentinel and pure
+  downstream-chemical feedstocks like methanol/ethylene/benzene;
+  unrecognized/blank never guessed), `parseGemCoordinates` (packed "lat,
+  lon" parser, same logic as `gemIronSteelPlants.ts`'s, duplicated
+  locally per this file family's established one-module-per-file
+  convention), `normalizeChemicalPlants` (drop-not-infer: no
+  coordinates/name/id -> dropped), `loadGemChemicals`/`cachedGemChemicals`
+  (missing/corrupt-file degrades to null, in-memory cache, identical
+  shape to every sibling GEM module).
+- `server/gemChemicals.test.ts` — 21 new tests: the 6-bucket feedstock
+  classifier's full priority order (including multi-token rows and
+  case-insensitivity), the coordinate parser, full-row normalization
+  pinned against the REAL release's own row shape (Fertial Annaba Ammonia
+  Plant, Algeria), the "unknown" sentinel -> null-raw-but-"other"-family
+  rule, the drop-not-infer rule, the fixture round trip, the
+  missing/corrupt-file degrade path, and the cache-identity check
+  exercised against the actual checked-in `datacore/gem/chemicals.json`.
+- `GET /api/data/chemicals` (`server/routes.ts`) — RAW/FACTUAL
+  (`kind:"raw"`, `predictive:false`), same `warming_up`-on-null-cache
+  degrade shape as every sibling GEM route, `Cache-Control: public,
+  max-age=86400`.
+- `script/build.ts` — `cp("datacore/gem/chemicals.json", ...)` added in
+  this same PR (R14 lesson), covered by `server/repoFiles.test.ts`'s
+  generalized ratchet without needing that test file edited.
+- `client/src/lib/mapIcons.ts` — new `"vt-flask"` SDF shape (Erlenmeyer
+  flask: neck, flared body, liquid fill line); `CHEMICAL_FEEDSTOCK_COLOR`/
+  `chemicalFeedstockColor`/`CHEMICAL_FEEDSTOCK_LABEL` (6 buckets: coal
+  red, natural_gas amber, petroleum orange, ngl violet, low_carbon green,
+  other gray — a FACT about the catalogued feedstock, never an
+  output/activity claim).
+- `client/src/lib/mapIcons.test.ts` — 1 new test for `chemicalFeedstockColor`
+  (all 6 buckets + unrecognized/missing fallback).
+- `client/src/pages/datamap.tsx` — new `useEffect` map-layer block
+  (`chemicals-points`/`chemicals-pt`, same Law-I-compliant toggle-on/off
+  mount pattern as every sibling GEM layer), `LAYER_GROUP.chemicals =
+  "facilities"`, legend section entry (gated on `enabled.chemicals`, one
+  `LegendIcon` per feedstock-family bucket), the facilities-group legend
+  visibility gate, `layerIcon`'s `FlaskConical` lucide icon (already
+  imported, no new import needed), the `statusFor` unit label
+  (`"plants"`), and a new `"chemicalplant"` member on the `Detail.kind`
+  union for the click-through detail panel (feedstock family, primary
+  products, country, owner, plus secondary products/raw feedstock/
+  coordinate accuracy in the body — no forecast or valuation claim
+  anywhere in the copy).
+- `server/layersRegistry.test.ts` — Q11's `PINNED_GAP` 252 → 253 (same
+  reasoning as `iron_ore_mines`/`iron_steel_plants`: a fixed ~868-point
+  static registry has no distance-based LOD to declare).
+- `datacore/layers.json` — new `chemicals` entry (raw, live, facilities
+  group, point-symbol, GEM CC BY 4.0 attribution). 253 → 254 layers.
+- `datacore/signal_ladder.json` — `global_energy_monitor`'s note gained a
+  dated UPDATE (surgical text-append into the note field with an
+  `assert old in s` precondition check and a full JSON-validity re-read
+  before finalizing — this session's first attempt used unescaped `"`
+  inside the JSON string value and broke the file; caught by re-parsing
+  before moving on, reverted via `git checkout`, and redone with `\"`
+  escaping matching the file's own existing convention). `status`/
+  `current_gate` unchanged (`raw_only`/0).
+
+NOT A SIGNAL, NOT A LADDER CHANGE: RAW catalogued geometry + feedstock
+family + primary/secondary products only — no forecast, valuation, or
+trading signal. `global_energy_monitor` stays a `raw_only` root at
+`current_gate 0`, same posture as every other GEM artifact on this API.
+
+VERIFIED, not assumed (this sandbox's `node_modules` had almost nothing
+installed at session start, and `python3 -m pytest` was entirely missing
+— both `npm ci` and `pip install -r requirements.txt -r
+requirements-dev.txt` were run fresh first, same recurring
+provisioning-gap prior sessions have logged):
+- `npx tsx --test server/gemChemicals.test.ts server/layersRegistry.test.ts
+  server/repoFiles.test.ts`: 47/47 pass, including against the real
+  checked-in `datacore/gem/chemicals.json` and the `script/build.ts`
+  staging ratchet.
+- `npx tsx --test client/src/lib/mapIcons.test.ts`: 7/7 pass, including
+  the new `chemicalFeedstockColor` test.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match to
+  `ci/tsc_baseline.txt`'s pin (a first pre-`npm ci` run misleadingly
+  showed 3 errors from missing `@types/node`/`vite/client`, resolved by
+  `npm ci`, same false reading every prior fresh-sandbox session has
+  logged).
+- `bash scripts/counter_ratchet.sh`: first run correctly FAILED —
+  `empty_ts_catch` 494→495, `ts_any` 1245→1247, `boundary_any` 236→237
+  (all three from the same established idiom every sibling GEM layer's
+  `clear()`/click-handler/`.map()` callbacks already use — traced each
+  delta to its exact source line before treating it as acceptable rather
+  than something to engineer around: the `clear()` function's `catch {}`,
+  the inline `(p: any) =>` inside `.map()` [ts_any only — an anonymous
+  arrow, not a named `const` arrow, so `boundary_any`'s narrower regex
+  correctly excludes it], and the named `const onClick = (e: any) =>`
+  [both counters]). Re-pinned all three in `ci/counter_baseline.txt`,
+  PLUS `test_ts_code_only.py`'s own hardcoded parametrize pins for
+  `empty_ts_catch`/`ts_any` in this same PR (that Python test ties itself
+  to the pin file and fails loudly if the two drift — caught this by
+  running the full python suite, not assumed). `tests_run_in_ci`/
+  `tests_gating_merge` improved 468→469 (this session's own +1 new test
+  file) and `assertions` improved 15222→15285 (this session's own +63 new
+  asserts across both new/extended test files, re-measured a second time
+  after the `mapIcons.test.ts` addition and re-pinned again) — both this
+  session's own direct effect, both re-pinned in the same PR. Re-ran
+  after each re-pin: **25/25 counters OK**. No other counter moved.
+- `python3 -m pytest -q`: **2147 passed, 1 skipped, 54 subtests** —
+  identical count to the prior session's reading (only
+  `test_ts_code_only.py`'s pin-sync edit touches Python, and it now
+  matches the re-pinned baseline).
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+  and the equivalent for `datacore/layers.json`: both valid, 56 roots /
+  254 layers (unchanged root count, +1 layer, as expected) — run AFTER
+  the signal_ladder.json escaping mistake above was caught and fixed, not
+  before.
+- `npm run build`: clean (same pre-existing chunk-size/astronomy-engine/
+  mapIcons dynamic-import warnings every prior session has already
+  noted, none new); confirmed `dist/datacore/gem/chemicals.json` exists
+  after the build.
+- `bash scripts/gated_tests.sh`: **GATE PASSED** (ran twice — the first
+  run predates this same PR's `mapIcons.test.ts`/pin-sync additions and
+  is superseded; the second, on the fully-staged tree, is the one that
+  counts): client 1093+/1093+, python 2147/1 skipped, deploy-gate smoke
+  PASS (`/api/health` 200 in the boot smoke, status=degraded/
+  liveness.dark=true fixtures as designed), quarantine 0/1, none overdue.
+- Version bumped 1.0.969 → 1.0.970 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing — unchanged at `a586451` since this session's own
+  start).
+
+GATES: full local suite above covers every file this diff touches. No
+order-path file, no FROZEN path (other than the one already-pending,
+still-unapproved Dockerfile proposal, untouched here) touched. CI runs
+the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a RAW-overlay data pipeline and map
+layer, no trading/scoring/sizing/threshold logic touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code; it
+is a new, additive RAW data root and map layer, stated here for
+completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff; no `/api/v1` route added in this PR (deferred to a
+follow-up mirror PR per the established two-step precedent).
+
+DEPLOY-COUPLING NOTE: this session's own live `/api/health` timestamp
+check at the point of finishing reads 2026-09-24T00:31:23Z = 20:31 ET
+(2026-09-23 local) — OUTSIDE 9:30-16:00 ET market hours. No merge-hold
+applies.
+
+NEXT: (1) with `chemicals`/`iron_steel_plants`/`iron_ore_mines` all now
+routed, `lng_carriers.json`/`oil_ngl_pipelines.json`/`steel_units.json`/
+`steel_raw_materials.json` remain the harder, not-yet-attempted cases
+named in this thread's earlier entries (shipyard-location honesty
+framing, no route geometry, or country-level not plant-level). (2) an
+`/api/v1/data/chemicals` keyed mirror is the natural same-shape follow-up
+PR, matching the `iron_ore_mines`/`iron_steel_plants`/`coal_terminals`
+precedent (route+map layer first, mirror second) — a future session
+should verify live via `grep` that the gap still exists before starting.
+(3) KNOWN BROKEN #42/#43/#44 — unchanged, not re-notified.
+
+STARVED: no — this session read CLAUDE.md and research/ in full per its
+own task instructions, checked KNOWN BROKEN/liveness first, screened
+option (a) and found it genuinely exhausted (matching every prior
+session's own screening), then took the single highest-value already-
+ranked queued PRODUCT item (the last of the original 3-item backlog),
+independently re-verified the design decision rather than taking a prior
+session's screening note on faith, shipped end-to-end with new tests,
+caught and fixed its own JSON-escaping mistake before it could have
+reached a PR, full gates green, and a precise NEXT for whoever picks up
+the remaining harder backlog or the `/api/v1` mirror. Thrash ratio 4/10
+REPAIR, well under the 7+ trigger — no meta-problem.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-23 (scheduled-routine session, new session this UTC day) [PRODUCT] — `iron_ore_mines` closes its own filed NEXT(2): `/api/v1/data/iron-ore-mines` keyed mirror shipped, matching the coal_terminals/coal-mine-features precedent exactly (v1.0.969)
 
 TERRITORY: SHARED-minimal (server/apiProduct.ts, server/apiProduct.test.ts,
