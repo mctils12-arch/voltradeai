@@ -98,6 +98,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/iron-ore-mines"), "GEM Global Iron Ore Mines Tracker keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/chemicals"), "GEM Global Chemicals Inventory keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/iron-steel-plants"), "GEM Global Iron and Steel Tracker keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/lng-shipyards"), "GEM Global LNG Carrier Tracker (by shipyard) keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -105,7 +106,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/lng-shipyards", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -639,6 +640,20 @@ test("GEM Global Iron and Steel Tracker license mark: CC BY 4.0 GEM data is free
   assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW catalogued reference data must not read as a trading signal");
   assert.ok(tool.description.includes("raw_only") || tool.description.includes("current_gate 0"), "honesty: the raw_only/no-ladder-gate state must travel with the tool description");
   assert.ok(tool.description.toLowerCase().includes("never inferring"), "honesty: the production-technology classifier's presence-priority/never-infer rule must travel with the tool description");
+});
+
+test("GEM Global LNG Carrier Tracker (by shipyard) license mark: CC BY 4.0 GEM data is freely resellable with attribution like coal-terminals/coal-mine-features/iron-ore-mines/chemicals/iron-steel-plants/methane-plumes/the government-produced streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the raw_only/no-ladder-gate state AND the shipyard-not-vessel-position aggregation honestly", () => {
+  assert.equal(LICENSE_MARKS["data/lng-shipyards"].resell, "ok",
+    "GEM publishes this release under CC BY 4.0 — must not be mismarked conditional like the issuer-authored or informational-use-terms streams");
+  assert.ok(LICENSE_MARKS["data/lng-shipyards"].license.includes("CC BY 4.0"));
+  assert.ok(LICENSE_MARKS["data/lng-shipyards"].license.includes("Global Energy Monitor"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_lng_shipyards");
+  assert.ok(tool, "voltrade_lng_shipyards tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/lng-shipyards"]);
+  assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW catalogued reference data must not read as a trading signal");
+  assert.ok(tool.description.includes("raw_only") || tool.description.includes("current_gate 0"), "honesty: the raw_only/no-ladder-gate state must travel with the tool description");
+  assert.ok(tool.description.includes("NEVER a per-carrier point layer") || tool.description.toLowerCase().includes("not its current position"), "honesty: the shipyard-not-vessel-position aggregation framing must travel with the tool description, not just live in code comments");
 });
 
 test("JODI oil closing-stock license mark: free-with-acknowledgment JODI data resells freely with attribution like the government-produced/CC-BY streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the gate-1-pass/gate-2-KILLED state honestly, not a silent gate-2-not-attempted", () => {
