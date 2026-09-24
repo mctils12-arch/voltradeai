@@ -5862,6 +5862,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Global LNG Carrier Tracker" (by shipyard) keyed mirror — closes the
+  // last remaining "/api/v1 mirror" gap the 2026-09-24 lng-shipyards session's
+  // own filed NEXT(2) named (research/experiments.md), matching the RAW-
+  // route-then-mirror precedent every other GEM registry in this family
+  // followed (coal-terminals/coal-mine-features/iron-ore-mines/chemicals/
+  // iron-steel-plants). Reuses the existing cachedGemLngShipyards() cache the
+  // RAW /api/data/lng-shipyards route already populates — no new fetch, no
+  // new poller, no new aggregation. Static reference dataset (re-ingested on
+  // GEM's ~2x/year release cadence, not a live poll), so there is no
+  // warming_up cache-miss state to model beyond the same null-cache 503 every
+  // sibling GEM mirror already returns. RAW catalogued reference data, no
+  // predictive claim — global_energy_monitor is a raw_only root (datacore/
+  // signal_ladder.json, current_gate 0). HONESTY NOTE carried through from
+  // the RAW route: each row is a SHIPBUILDING YARD, not a vessel position —
+  // the note field says so explicitly.
+  app.get("/api/v1/data/lng-shipyards", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemLngShipyards();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/lng-shipyards", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/lng-shipyards", {
+        count: hit.shipyards.length,
+        totalCarriers: hit.totalCarriers,
+        attribution: hit.attribution,
+        license: hit.license,
+        release: hit.release,
+        note: "LNG carrier SHIPBUILDING YARDS, not vessel positions — each point is where GEM's "
+          + "tracked carriers were physically built, not where any vessel is today. Carrier counts "
+          + "by lifecycle status (active / on order / proposed) and summed nameplate capacity as "
+          + "catalogued; no output, valuation, or trading signal.",
+        shipyards: hit.shipyards,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/lng-shipyards", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/lng-shipyards", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW
