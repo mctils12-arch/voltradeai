@@ -5738,6 +5738,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Global Chemicals Inventory" keyed mirror — closes the last
+  // "shipped-data-no-v1-API" gap named in the 2026-09-23 iron_ore_mines
+  // PRODUCT session's own open_questions.md entry ("None of the three
+  // newly-shipped registries has an /api/v1 keyed mirror yet either
+  // ... a natural next follow-up PR for whichever registry a future
+  // session picks, matching the established two-step route-then-mirror
+  // precedent"). Reuses the existing cachedGemChemicals() cache the RAW
+  // /api/data/chemicals route already populates — no new fetch, no new
+  // poller, no new computation. Static reference dataset (re-ingested on
+  // GEM's ~2x/year release cadence, not a live poll) so there is no
+  // warming_up cache-miss state to model beyond the same null-cache 503
+  // every sibling GEM mirror already returns. RAW catalogued reference
+  // data, no predictive claim — global_energy_monitor is a raw_only root
+  // (datacore/signal_ladder.json, current_gate 0).
+  app.get("/api/v1/data/chemicals", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemChemicals();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/chemicals", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/chemicals", {
+        count: hit.plants.length,
+        attribution: hit.attribution,
+        license: hit.license,
+        release: hit.release,
+        note: "Chemical plants as catalogued by GEM: catalogued primary/secondary products and "
+          + "primary feedstock family (coal / natural gas / petroleum-liquid / NGL / low-carbon / "
+          + "other, as stated). Locations/feedstock as catalogued; no output, valuation, or trading "
+          + "signal.",
+        plants: hit.plants,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/chemicals", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/chemicals", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW
