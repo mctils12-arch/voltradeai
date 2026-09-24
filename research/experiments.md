@@ -3,7 +3,170 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-09-24 (scheduled-routine session, EDGE DOCTRINE task, new session this UTC day) [PIPELINE] — sentinel2 tank-fill archives caught up after a ~12-week stall + a near-miss data-loss bug found and fixed in the S1 whole-file-rebuild path + a compiled staleness check so this can't silently recur (v1.0.971)
+## 2026-09-24 (scheduled-routine session, third session this UTC day) [PIPELINE] — `research_state_check.py`'s `archive_freshness` manifest extended to cover `datacore/port_dwell_weekly.json`, closing the exact NEXT(2) the prior (sentinel2) session this same UTC day filed for whoever picked it up next (v1.0.972)
+
+TERRITORY: SHARED-minimal (scripts/research_state_check.py, test_research_state_check.py,
+ci/counter_baseline.txt, package.json/package-lock.json, research/* — last,
+per MERGE-ORDER PROTOCOL). No T-DATACORE/T-CLIENT/T-BOT file touched.
+
+SESSION-START: read CLAUDE.md in full, then research/experiments.md (head —
+this file is newest-at-top; the session immediately before this one today
+had already been read in full via its own log entry), research/
+open_questions.md's KNOWN BROKEN section, and research/wishlist.md's tail
+(no PROGRESS FLOOR stall note present — a [RESEARCH]/[PIPELINE]-class
+session shipped within the last 14 days, most recently this same UTC day).
+Loop-health check: last 10 tagged entries before this one (newest first) —
+PIPELINE (sentinel2 catch-up), PRODUCT (chemicals GEM registry), PRODUCT
+(iron_ore_mines v1 mirror), REPAIR (closed stale duplicate PR #1148),
+PRODUCT (iron_steel_plants), PRODUCT (iron_ore_mines), PRODUCT
+(coal-mine-features v1 mirror), REPAIR (liveness re-escalation reminder),
+REPAIR (KNOWN BROKEN #42/#43 re-verify), PRODUCT (coal_terminals v1
+mirror) — 3/10 REPAIR, well under the 7+ thrash trigger, no meta-problem.
+
+LIVENESS ALARM CHECK (Repair Mandate, consulted first): live `/api/health`
+(2026-09-24T11:13:56Z) reads `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true`, "trading loop dark for 65.0 market hours (344.0h
+wall-clock) since 2026-09-10T03:12:26.354Z" — unchanged from this same
+session's immediate predecessor (v1.0.971) minutes/hours prior. Not
+re-notified: no new information since that check, this is the standing
+KNOWN BROKEN #42/#43 human-decision-gated hold already escalated
+repeatedly, and the shipped `shouldSendLivenessReminder` mechanism
+(v1.0.965) already owns periodic re-escalation independent of session
+cadence. KNOWN BROKEN #44 (Dockerfile `scripts/` copy gap) unchanged —
+awaiting human approval on a FROZEN PATH, read-only diag-probe impact
+only, does not block this session's scope. All other `/api/health`
+subsystems read `"ok"`. Neither blocks this session's PRIMARY action.
+
+PRIMARY-ACTION SELECTION: the immediately preceding session (v1.0.971,
+this same UTC day) filed a concrete, already-designed, one-entry-addition
+NEXT item in its own log: extend the just-built `ARCHIVE_MANIFEST` +
+`check_archive_freshness`/`gather_archive_freshness` staleness check
+(built that session to catch exactly the class of silent 12-week
+sentinel2 stall it found) to cover `datacore/port_dwell_weekly.json`, "the
+other named idempotent re-run-every-session collector on record"
+(`scripts/portdwell_weekly_snapshot.ts`). This is SESSION BUDGET's
+top-priority fall-through tier ("next queued item from open_questions.md
+or the roadmap that fits") and avoids re-deriving a prior session's own
+already-filed design — picked over the alternative candidate (the wider
+GEM-suite backlog: lng_carriers/oil_ngl_pipelines/gas_pipelines, "more
+expensive" per today's earlier chemicals-session NEXT note, i.e. lower
+EV-per-session-cost than this small, concrete, already-scoped item).
+
+WHAT SHIPPED: `scripts/research_state_check.py`'s `ARCHIVE_MANIFEST`
+gained a `port_dwell_weekly` entry. Confirmed BEFORE writing any code that
+`datacore/port_dwell_weekly.json` is NOT JSONL like `sentinel2`'s three
+archives — it is one JSON array of per-week objects (`week_index`,
+`week_start`, `week_end`, `captured_at`, `ports`), 5 weeks on disk
+(indices 6-10, newest `week_end` 2026-09-18) — so the existing
+`_max_jsonl_date` helper does not apply as-is. Rather than force the
+mismatched format through the JSONL reader, added a manifest-level
+`"format"` key (default `"jsonl"`, unchanged for the existing sentinel2
+entry) and a sibling pure function `_max_json_array_date(path,
+date_field)` that loads the JSON array, reads each record's `date_field`
+(here `captured_at`, a full ISO timestamp — truncated to its leading
+`YYYY-MM-DD` since `check_archive_freshness`'s existing parser expects a
+bare date), and returns the max. `gather_archive_freshness` now dispatches
+on a small `_ARCHIVE_DATE_EXTRACTORS = {"jsonl": ..., "json_array": ...}`
+table instead of hardcoding the JSONL reader — the one-line-manifest-entry
+promise the prior session's docstring made is kept literally: no new
+checker, no change to `check_archive_freshness`/`run_all_checks`/the CLI
+entry point, only the manifest + one new small extractor function.
+`refresh_hint` points at `scripts/portdwell_weekly_snapshot.ts` and names
+both its preferred (Tier-3 in-process capture probe) and fallback
+(per-week `/api/diag/portdwell_window`) paths per that script's own
+docstring, matching the sentinel2 entry's own multi-path-hint style.
+
+LIVE RESULT (run against the real repo, not just the synthetic test
+fixtures): `python3 scripts/research_state_check.py` now reports `[OK]
+archive_freshness:port_dwell_weekly: 6d since newest record (2026-09-18)
+— below the 21d trigger` alongside the existing sentinel2 line — no WARN,
+since the collector's own ~weekly cadence means week 11 (ending
+2026-09-25) is not yet complete as of this session. This is intentionally
+NOT a repair of an active stall (unlike the sentinel2 session that
+motivated the manifest) — it is closing the coverage gap BEFORE a stall
+has a chance to go unnoticed the same way sentinel2's did, per that
+session's own stated rationale for building the manifest generically.
+
+VERIFIED, not assumed:
+- New tests added to `test_research_state_check.py`: `_max_json_array_date`
+  returns the max truncated date across records
+  (`test_max_json_array_date_returns_max_truncated_to_date`), returns
+  `None` on a missing file and on malformed JSON
+  (`test_max_json_array_date_missing_file_returns_none`,
+  `test_max_json_array_date_malformed_json_returns_none`), skips records
+  missing the field (`test_max_json_array_date_skips_records_missing_the_field`),
+  and `gather_archive_freshness` correctly dispatches the new
+  `"json_array"` format for a `port_dwell_weekly`-shaped fixture
+  (`test_gather_archive_freshness_covers_port_dwell_weekly_via_json_array_format`).
+  5 new tests, all passing.
+- `python3 -m pytest -q test_research_state_check.py`: 57/57 pass (52
+  baseline + this session's own +5).
+- `python3 -m pytest -q` (full suite, container-fresh — `pytest`,
+  `openpyxl`, `pillow` were all missing from this container and installed
+  via `pip install` before the suite would even collect, same class of
+  fresh-container provisioning gap prior sessions have already logged for
+  `node_modules`): 2159 passed, 2 skipped, 54 subtests. A/B-verified via
+  `git stash`/`git stash pop`: baseline (pre-change) is 2154 passed, 2
+  skipped — this session's own +5, zero regressions.
+- `python3 -m pytest -q test_ladder_registry_coverage_check.py
+  test_ladder_readiness_check.py`: 29/29 pass (unaffected by this diff,
+  run as a sanity check since a prior port_dwell_related session's own
+  precedent does the same).
+- `bash scripts/counter_ratchet.sh`: first run caught `assertions` 15300
+  -> 15305 (this session's own net new asserts); re-pinned in
+  `ci/counter_baseline.txt` in this same PR; re-ran clean: 25/25 counters
+  OK. No other counter moved.
+- No `.ts`/`.tsx`/client file touched (confirmed via `git diff --stat`
+  before staging) — PROMOTION RULE 6's VISUAL VERIFICATION requirement
+  does not apply; `npx tsc --noEmit`/`npm run build` not run, not silently
+  skipped (out of this diff's scope, same as the prior sentinel2 session's
+  own equivalent note).
+- Version bumped 1.0.971 -> 1.0.972 (`package.json` + `package-lock.json`,
+  read-and-incremented from freshly-fetched `origin/main` immediately
+  before committing — unchanged at `d18c7d5` since this session's own
+  predecessor).
+
+GATES: full local Python suite above covers every file this diff touches
+(`scripts/research_state_check.py`, its test file); `server/bot.ts`,
+`system_config.py`, `strategies/`, and every order-path file are
+untouched. CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a diagnostic/tooling
+extension (a staleness-detection manifest entry), not a strategy,
+sizing, or threshold change; `port_dwell_weekly` freshness is not wired
+into `deep_score`/any order path.
+
+MEASUREMENT INTEGRITY: `research_state_check.py`'s `archive_freshness`
+check is session-bookkeeping tooling, not a trading metric, P&L
+computation, or existing measurement definition — does not touch
+`gate2_stats.py`/`statsUtils.ts`/the backtest engine/the fills tracker.
+Stated for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-24 ~11:00-11:30 UTC ≈ 7:00-7:30
+AM ET — well outside 9:30-16:00 ET market hours; no merge-hold applies.
+
+NEXT: (1) the sentinel2 session's own remaining NEXT items (v3.1
+multi-week composite-window design, still gated on scene-count
+accumulation; KNOWN BROKEN #42/#43/#44) are unchanged, not re-actioned
+here — out of this PR's one-logical-change scope. (2) a future session
+extending `ARCHIVE_MANIFEST` further (any new session-run collector) now
+has two shapes to copy from (`"jsonl"` and `"json_array"`) rather than
+one. (3) once `port_dwell_weekly.json` actually goes stale (its own
+weekly-capture job stalling, or a `>21d` gap), this manifest entry is
+what will surface it — nothing further to do proactively until then.
+
+STARVED: no — this session picked the single most concrete,
+already-designed, unclaimed NEXT item on record (avoiding re-deriving a
+prior session's own filed design) and shipped it end-to-end with tests,
+a live-repo verification, and a clean full-suite gate. No higher-priority
+queued item was skipped — LIVENESS/KNOWN-BROKEN were checked first per
+the Repair Mandate and found already-escalated/already-mitigated, not
+newly broken; thrash ratio 3/10 well under the 7+ trigger.
+
+NOT A SPEND REQUEST.
 
 TERRITORY: T-DATACORE (scripts/cdse_s1_chips.py, scripts/tankfill_s1_estimator.py,
 scripts/research_state_check.py, datacore/sentinel2/*, datacore/signal_ladder.json)

@@ -419,6 +419,40 @@ def test_gather_archive_freshness_takes_max_across_multiple_paths(tmp_path):
     assert out["sentinel2_tank_fill"] == "2026-09-10"
 
 
+def test_max_json_array_date_returns_max_truncated_to_date(tmp_path):
+    p = tmp_path / "weekly.json"
+    p.write_text(
+        '[{"captured_at": "2026-09-03T13:30:13.648Z"}, '
+        '{"captured_at": "2026-09-18T00:29:18.489Z"}, '
+        '{"captured_at": "2026-09-11T00:27:46.285Z"}]'
+    )
+    assert rsc._max_json_array_date(str(p), "captured_at") == "2026-09-18"
+
+
+def test_max_json_array_date_missing_file_returns_none(tmp_path):
+    assert rsc._max_json_array_date(str(tmp_path / "nope.json"), "captured_at") is None
+
+
+def test_max_json_array_date_skips_records_missing_the_field(tmp_path):
+    p = tmp_path / "weekly.json"
+    p.write_text('[{"other": true}, {"captured_at": "2026-08-01T00:00:00.000Z"}]')
+    assert rsc._max_json_array_date(str(p), "captured_at") == "2026-08-01"
+
+
+def test_max_json_array_date_malformed_json_returns_none(tmp_path):
+    p = tmp_path / "weekly.json"
+    p.write_text("not json")
+    assert rsc._max_json_array_date(str(p), "captured_at") is None
+
+
+def test_gather_archive_freshness_covers_port_dwell_weekly_via_json_array_format(tmp_path):
+    (tmp_path / "datacore").mkdir(parents=True)
+    p = tmp_path / "datacore" / "port_dwell_weekly.json"
+    p.write_text('[{"captured_at": "2026-09-18T00:29:18.489Z"}]')
+    out = rsc.gather_archive_freshness(str(tmp_path))
+    assert out["port_dwell_weekly"] == "2026-09-18"
+
+
 def test_run_all_checks_appends_one_finding_per_manifest_entry_when_freshness_given():
     freshness = {root["name"]: "2020-01-01" for root in rsc.ARCHIVE_MANIFEST}
     findings = rsc.run_all_checks([], [], [], date.today(), archive_freshness=freshness)
