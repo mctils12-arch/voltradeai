@@ -5780,6 +5780,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Global Iron and Steel Tracker" keyed mirror — the last of the 3
+  // "cheapest" GEM-suite backlog registries (chemicals/iron_steel_plants/
+  // iron_ore_mines) to get its /api/v1 mirror; chemicals and iron_ore_mines
+  // above already closed theirs, iron_steel_plants was the one this backlog's
+  // own filed NEXT named as the natural remaining pick (research/
+  // experiments.md, 2026-09-24 chemicals-mirror PRODUCT session). Reuses the
+  // existing cachedGemIronSteelPlants() cache the RAW /api/data/iron-steel-
+  // plants route already populates — no new fetch, no new poller, no new
+  // computation. Static reference dataset (re-ingested on GEM's ~2x/year
+  // release cadence, not a live poll) so there is no warming_up cache-miss
+  // state to model beyond the same null-cache 503 every sibling GEM mirror
+  // already returns. RAW catalogued reference data, no predictive claim —
+  // global_energy_monitor is a raw_only root (datacore/signal_ladder.json,
+  // current_gate 0).
+  app.get("/api/v1/data/iron-steel-plants", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemIronSteelPlants();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-steel-plants", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/iron-steel-plants", {
+        count: hit.plants.length,
+        attribution: hit.attribution,
+        license: hit.license,
+        release: hit.release,
+        note: "Iron and steel plants as catalogued by GEM: primary production technology (blast "
+          + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
+          + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
+          + "no forecast, valuation, or trading signal.",
+        plants: hit.plants,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-steel-plants", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-steel-plants", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW
