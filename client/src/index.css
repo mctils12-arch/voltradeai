@@ -662,6 +662,9 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   transform: translateY(-50%);
   color: var(--text-tertiary);
   pointer-events: none;
+  /* the icon precedes the input in the DOM, so without this the input's
+     semi-opaque background painted over it and the reserved gap sat empty */
+  z-index: 1;
 }
 .search-input {
   width: 100%;
@@ -2052,7 +2055,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     left: 0;
     right: 0;
     z-index: 100;
-    height: 64px;
+    /* the home-indicator inset is ADDED to the 64px, never carved out of it
+       (it was inside a fixed 64px, which would crush the icons to ~30px on
+       Face-ID iPhones the moment viewport-fit=cover is enabled) */
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
     background: rgba(5, 10, 18, 0.95);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -2071,6 +2077,7 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     justify-content: center;
     gap: 2px;
     flex: 1;
+    min-height: 48px;
     padding: 6px 0;
     color: var(--text-tertiary);
     transition: color 150ms ease;
@@ -2082,9 +2089,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     text-shadow: 0 0 8px rgba(77, 159, 255, 0.5);
   }
   .mobile-tab-label {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     line-height: 1;
+    white-space: nowrap;
   }
   .mobile-tab-lock {
     position: absolute;
@@ -2092,6 +2100,92 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     right: calc(50% - 18px);
     font-size: 8px;
   }
+
+  /* Tax estimator trade rows: a 720px table of inputs on a 390px phone meant
+     scrolling sideways to reach every field. Each row becomes a labeled 2-col
+     card instead (labels from data-label). */
+  .vt-tax-trades { min-width: 0 !important; }
+  .vt-tax-trades thead { display: none; }
+  .vt-tax-trades, .vt-tax-trades tbody { display: block; }
+  .vt-tax-trades tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .vt-tax-trades tr:first-child { padding-top: 2px; }
+  .vt-tax-trades td { display: block; padding: 0 !important; min-width: 0; }
+  .vt-tax-trades td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    color: #7e8ca0;
+    margin-bottom: 4px;
+  }
+  .vt-tax-trades td input,
+  .vt-tax-trades td select { width: 100% !important; box-sizing: border-box; }
+  .vt-tax-trades td.vt-tax-remove { grid-column: 1 / -1; text-align: right; }
+
+  /* "More" sheet — the overflow tabs, one tap away, above the bar */
+  .mobile-more-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(2, 6, 12, 0.55);
+    animation: vt-fade-in 140ms ease-out;
+  }
+  .mobile-more-sheet {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 8px);
+    background: #080e18;
+    isolation: isolate;
+    border: 1px solid rgba(77, 159, 255, 0.2);
+    border-radius: 14px;
+    padding: 8px 12px 14px;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+    animation: vt-sheet-up 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .mobile-more-grip {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(148, 163, 184, 0.35);
+    margin: 0 auto 10px;
+  }
+  .mobile-more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .mobile-more-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 72px;
+    border-radius: 10px;
+    border: 1px solid rgba(77, 159, 255, 0.12);
+    background: rgba(77, 159, 255, 0.04);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-more-item.active {
+    color: #4d9fff;
+    border-color: rgba(77, 159, 255, 0.45);
+    background: rgba(77, 159, 255, 0.1);
+  }
+  @keyframes vt-sheet-up {
+    from { transform: translateY(12px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes vt-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
   /* Adjust page content for mobile: shorter top bar, bottom bar padding */
   .page-container {
@@ -2109,8 +2203,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   }
 
   /* Tighten up various elements for mobile */
-  .search-input { height: 42px; font-size: 0.9rem; }
+  .search-input { height: 46px; font-size: 0.9rem; letter-spacing: 0.02em; }
   .analyze-btn { height: 42px; padding: 0 1rem; font-size: 0.82rem; }
+  /* Stock search stacks on phones: sharing a row with the ANALYZE button
+     left the field ~170px of text room, so "Enter a ticker — AAPL, SPY…"
+     truncated to "Enter a ticker — A". Full-width field, full-width button
+     (a proper thumb-sized target) below it. */
+  .search-form { flex-direction: column; align-items: stretch; }
+  .search-form .analyze-btn { width: 100%; height: 46px; justify-content: center; }
   .company-name { font-size: 1rem; }
   .chip { font-size: 0.7rem; padding: 0.2rem 0.55rem; }
   .metric-card { padding: 0.65rem 0.75rem; }
@@ -3726,6 +3826,11 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;
   color: var(--text-secondary); font-family: var(--font-body);
+  /* endpoint captions render live license text from /api/v1/meta, which
+     includes slash-joined source lists (and paths) with no break opportunity;
+     one such token widened the whole page to 521px on a 390px phone. Break
+     only when a token cannot fit — normal words are unaffected. */
+  overflow-wrap: anywhere;
 }
 .vt-dev-hero h1 { color: var(--text-primary); font-size: clamp(26px, 4.5vw, 40px); line-height: 1.15; margin: 0 0 14px; }
 .vt-dev-hero p { font-size: 15.5px; line-height: 1.65; max-width: 640px; }
@@ -4222,4 +4327,18 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-device-notice button:hover { background: rgba(120, 168, 255, 0.25); }
 @media (max-width: 720px) {
   .vt-device-notice { bottom: 132px; }
+}
+
+/* iOS Safari zooms the entire page when a focused input's font-size is under
+   16px, and it does not zoom back out. Every input on the site was 13-15px
+   (stock search 14.4px, research 14px, news/scanner filters 13.6px, planner
+   and tax fields 13px), so the first tap on any of them zoomed the page.
+   Touch devices only — desktop keeps its denser form styling. !important
+   because most of these inputs set font-size inline. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

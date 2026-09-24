@@ -255,7 +255,7 @@ export default function TaxesPage() {
           </button>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 720 }}>
+          <table className="vt-tax-trades" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 720 }}>
             <thead>
               <tr style={{ color: "#7e8ca0", textAlign: "left" }}>
                 <th style={{ padding: "4px 6px", fontWeight: 500 }}>Symbol</th>
@@ -272,19 +272,19 @@ export default function TaxesPage() {
                 const cell: React.CSSProperties = { ...input, padding: "6px 8px", fontSize: 12.5 };
                 return (
                   <tr key={i}>
-                    <td style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 80, textTransform: "uppercase" }} value={t.symbol} onChange={e => setTrade(i, { symbol: e.target.value.toUpperCase() })} /></td>
-                    <td style={{ padding: "3px 4px" }}>
+                    <td data-label="Symbol" style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 80, textTransform: "uppercase" }} value={t.symbol} onChange={e => setTrade(i, { symbol: e.target.value.toUpperCase() })} /></td>
+                    <td data-label="Account" style={{ padding: "3px 4px" }}>
                       <select style={{ ...cell, width: 150 }} value={t.account} onChange={e => setTrade(i, { account: e.target.value as Account })}>
                         {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
                       </select>
                     </td>
-                    <td style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 130 }} type="date" value={t.buy_date} onChange={e => setTrade(i, { buy_date: e.target.value })} /></td>
-                    <td style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 130 }} type="date" value={t.sell_date} onChange={e => setTrade(i, { sell_date: e.target.value })} /></td>
-                    <td style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 100 }} type="number" placeholder="0" value={t.proceeds} onChange={e => setTrade(i, { proceeds: e.target.value })} /></td>
-                    <td style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 100 }} type="number" placeholder="0" value={t.cost_basis} onChange={e => setTrade(i, { cost_basis: e.target.value })} /></td>
-                    <td style={{ padding: "3px 4px" }}>
+                    <td data-label="Buy date" style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 130 }} type="date" value={t.buy_date} onChange={e => setTrade(i, { buy_date: e.target.value })} /></td>
+                    <td data-label="Sell date" style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 130 }} type="date" value={t.sell_date} onChange={e => setTrade(i, { sell_date: e.target.value })} /></td>
+                    <td data-label="Proceeds" style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 100 }} type="number" placeholder="0" value={t.proceeds} onChange={e => setTrade(i, { proceeds: e.target.value })} /></td>
+                    <td data-label="Cost basis" style={{ padding: "3px 4px" }}><input style={{ ...cell, width: 100 }} type="number" placeholder="0" value={t.cost_basis} onChange={e => setTrade(i, { cost_basis: e.target.value })} /></td>
+                    <td className="vt-tax-remove" style={{ padding: "3px 4px" }}>
                       {trades.length > 1 && (
-                        <button onClick={() => removeTrade(i)} style={{ background: "none", border: "none", color: "#ff6b5a", cursor: "pointer", padding: 4 }}><Trash2 size={14} /></button>
+                        <button onClick={() => removeTrade(i)} aria-label={`Remove trade ${i + 1}`} style={{ background: "none", border: "none", color: "#ff6b5a", cursor: "pointer", padding: 4 }}><Trash2 size={14} /></button>
                       )}
                     </td>
                   </tr>
