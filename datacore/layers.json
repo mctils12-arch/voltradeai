@@ -2707,6 +2707,17 @@
    "description": "868 chemical plants worldwide. This release, like Iron & Steel Plants, has no lifecycle status column; its 'Primary products' field was screened and rejected as the colour dimension (68 distinct free-text combinations, no clean small bucket set), so a new dedicated flask glyph is used and colour instead carries the catalogued primary feedstock family (coal / natural gas / petroleum-liquid / NGL / low-carbon / other, bucketed by presence-priority over GEM's own semicolon-separated Feedstock column) — never an output or valuation claim. Also carries catalogued primary/secondary products, shown in the detail popup only. Locations/feedstock as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals, Iron Ore Mines & Iron and Steel Plants)."
   },
   {
+   "id": "lng_shipyards",
+   "name": "LNG carrier shipyards (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "renderKind": "point-symbol",
+   "source": "Global Energy Monitor — Global LNG Carrier Tracker, CC BY 4.0 (server/gemLngCarriers.ts)",
+   "description": "32 LNG-carrier shipbuilding yards, aggregated from 1,125 located carriers (of 1,143 total in the release; 18 'proposed' carriers with no yard assigned yet are dropped). This release's only per-carrier coordinate is the yard where the ship was BUILT, not its current position — a per-carrier point layer would misread as a vessel tracker, so this layer serves one point per shipyard instead, carrying built-there carrier counts by lifecycle status (active/on order/proposed) and summed nameplate capacity. New dedicated 'shipyard' glyph (gantry crane over a hull) — deliberately not the vessel icons, per the symbols directive this must read as a different kind. Colour = shipbuilder's country (South Korea/China/Japan get their own tier; every other nation pools to 'other' — a real, extreme concentration: South Korea alone builds 831 of 1,125 located carriers). Off by default (same GEM-family precedent as Coal Terminals, Iron Ore Mines, Iron and Steel Plants & Chemicals)."
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",

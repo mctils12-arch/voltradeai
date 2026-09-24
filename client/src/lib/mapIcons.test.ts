@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor, lngShipyardCountryTier } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -78,4 +78,14 @@ test("chemicalFeedstockColor: GEM chemicals' 6 feedstock-family buckets map dire
   assert.equal(chemicalFeedstockColor(null), "#94a3b8");
   assert.equal(chemicalFeedstockColor(undefined), "#94a3b8");
   assert.equal(chemicalFeedstockColor("not-a-real-bucket"), "#94a3b8", "never guesses a feedstock color for an unrecognized bucket");
+});
+
+test("lngShipyardCountryTier: the top-3 shipbuilding nations get their own tier, every other country pools to 'other'", () => {
+  assert.equal(lngShipyardCountryTier("South Korea"), "south_korea");
+  assert.equal(lngShipyardCountryTier("China"), "china");
+  assert.equal(lngShipyardCountryTier("Japan"), "japan");
+  assert.equal(lngShipyardCountryTier("Russia"), "other");
+  assert.equal(lngShipyardCountryTier("France"), "other");
+  assert.equal(lngShipyardCountryTier(null), "other");
+  assert.equal(lngShipyardCountryTier(undefined), "other");
 });

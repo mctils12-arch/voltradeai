@@ -311,7 +311,7 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
 // PR consciously updates the pin — silent drift in either direction fails.
 test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
   const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
-  const PINNED_GAP = 253; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  const PINNED_GAP = 254; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
   // 248 -> 249: new "grid_generation" layer, a non-rendered RAW tabular
   // root (respondent leaderboard, no map geometry) — same class as its own
   // sibling "grid_demand" and "treasury_dts", both of which also carry
@@ -341,6 +341,11 @@ test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration ga
   // immediately above — a MapLibre symbol layer with renderKind:
   // "point-symbol" but no `lod` (a fixed ~868-point static registry, same
   // "no distance-based LOD to declare" reasoning).
+  // 253 -> 254: new "lng_shipyards" layer, same shape as "chemicals"
+  // immediately above — a MapLibre symbol layer with renderKind:
+  // "point-symbol" but no `lod` (a fixed 32-point static registry
+  // aggregated from the release, same "no distance-based LOD to declare"
+  // reasoning).
   assert.equal(
     missing.length,
     PINNED_GAP,
