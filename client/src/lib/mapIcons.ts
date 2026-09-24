@@ -874,6 +874,25 @@ const shapes: Record<string, () => ImageData> = {
     ctx.moveTo(m - 7, m + 5.5); ctx.lineTo(m - 11, m + 14); ctx.lineTo(m + 11, m + 14); ctx.lineTo(m + 7, m + 5.5);
     ctx.closePath(); ctx.fill();
   }),
+  // LNG shipyard: gantry crane (two legs + boom, the real silhouette a
+  // shipbuilding yard reads as from above) over a hull on the ways below —
+  // deliberately NOT vt-tanker/vt-cargo (a BUILD site, not a vessel
+  // position; per SYMBOLS NOT DOTS this must read as a different kind)
+  "vt-shipyard": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.8;
+    ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(m - 10, s - 11); ctx.lineTo(m - 10, 9); ctx.stroke();  // left leg
+    ctx.beginPath(); ctx.moveTo(m + 10, s - 11); ctx.lineTo(m + 10, 9); ctx.stroke();  // right leg
+    ctx.beginPath();                                                                   // boom + apex
+    ctx.moveTo(m - 13, 9); ctx.lineTo(m - 10, 3); ctx.lineTo(m + 10, 3); ctx.lineTo(m + 13, 9);
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 13, 9); ctx.lineTo(m + 13, 9); ctx.stroke();       // boom rail
+    ctx.beginPath();                                                                   // hull on the ways
+    ctx.moveTo(m - 9, s - 11); ctx.lineTo(m + 9, s - 11);
+    ctx.lineTo(m + 6, s - 5); ctx.lineTo(m - 6, s - 5);
+    ctx.closePath(); ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -1238,6 +1257,36 @@ export const CHEMICAL_FEEDSTOCK_LABEL: Record<string, string> = {
   ngl: "Natural gas liquids",
   low_carbon: "Low-carbon (H2/biomass/CO2)",
   other: "Feedstock not stated / downstream chemical",
+};
+
+// GEM LNG carrier shipyards (server/gemLngCarriers.ts): color dimension is
+// the catalogued "Shipbuilder yard country/area" — a genuinely small,
+// real bucket set here (live-verified this session: only 12 distinct
+// countries build LNG carriers at all, and South Korea alone accounts for
+// 831 of 1,125 located carriers across 6 of the 32 yards — a real, extreme
+// concentration worth surfacing, not an artifact of the bucketing). The
+// top 3 shipbuilding nations get their own color; every other country
+// (Russia/France/Spain/US/Finland/Italy/Germany/Singapore/Norway — 9
+// countries, 44 carriers combined) buckets to "other" rather than being
+// split into 9 near-invisible single-color legend rows.
+export type LngShipyardCountryTier = "south_korea" | "china" | "japan" | "other";
+export const LNG_SHIPYARD_COUNTRY_COLOR: Record<LngShipyardCountryTier, string> = {
+  south_korea: "#fbbf24", // amber — dominant shipbuilding nation (831 of 1,125 carriers)
+  china: "#f87171",       // red
+  japan: "#60a5fa",       // blue
+  other: "#94a3b8",       // gray — every other shipbuilding nation, pooled
+};
+export function lngShipyardCountryTier(country?: string | null): LngShipyardCountryTier {
+  if (country === "South Korea") return "south_korea";
+  if (country === "China") return "china";
+  if (country === "Japan") return "japan";
+  return "other";
+}
+export const LNG_SHIPYARD_COUNTRY_LABEL: Record<LngShipyardCountryTier, string> = {
+  south_korea: "South Korea",
+  china: "China",
+  japan: "Japan",
+  other: "Other shipbuilding nation",
 };
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).

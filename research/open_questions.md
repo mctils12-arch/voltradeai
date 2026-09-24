@@ -21960,6 +21960,33 @@ newly-shipped registry still missing its mirror — the natural next pick
 off this same backlog. Full account in `research/experiments.md`'s
 matching dated entry.
 
+UPDATE (2026-09-24, scheduled-routine [PRODUCT] session, fifth session
+this UTC day): `iron_steel_plants` also got its `/api/v1/data/
+iron-steel-plants` mirror (PR #1165), so all 4 of the originally-shipped
+registries now have both a RAW route and an `/api/v1` mirror. Then
+`lng_carriers.json` — the FIRST of the four "harder" cases this note
+names — SHIPPED, closing the honesty-framing gap this note itself
+flagged: live-verified the release's only per-carrier coordinate is a
+shipyard BUILD location (32 distinct yards across 1,125 located
+carriers of 1,143 total, one shipbuilder per yard, live-recounted this
+session not assumed from this note's summary), so it ships as an
+AGGREGATED shipyard layer (32 points, carrier counts by lifecycle
+status + summed capacity per yard) rather than a per-carrier point
+layer — a genuinely different shape from every other GEM sub-registry
+in this family, not a mechanical copy of the point-layer recipe.
+`server/gemLngCarriers.ts`, `GET /api/data/lng-shipyards`, new
+`vt-shipyard` glyph, `datamap.tsx` layer + legend (colour = shipbuilder
+country — South Korea alone builds 831 of 1,125 carriers, a real
+concentration). Full account in `research/experiments.md`'s matching
+dated entry. Remaining backlog, now down to two: `oil_ngl_pipelines.
+json`/`gas_pipelines.json` (no route geometry in this GEM release
+variant, need geocoding or a different source) and `steel_units.json`/
+`steel_raw_materials.json` (furnace-level attribute data keyed to
+`iron_steel_plants.json`, or a country-level balance sheet — a future
+choropleth candidate, not a point layer). `lng_carriers` has no
+`/api/v1` mirror yet either — the natural next pick off this same
+backlog, same two-step precedent.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-

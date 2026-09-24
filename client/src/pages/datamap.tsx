@@ -20,6 +20,7 @@ import {
   IRON_ORE_STATUS_LABEL, ironOreStatusColor,
   IRON_STEEL_TECH_LABEL, ironSteelTechColor,
   CHEMICAL_FEEDSTOCK_LABEL, chemicalFeedstockColor,
+  LNG_SHIPYARD_COUNTRY_LABEL, lngShipyardCountryTier, LNG_SHIPYARD_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
@@ -477,7 +478,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "lngshipyard" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -887,6 +888,7 @@ const LAYER_GROUP: Record<string, string> = {
   iron_ore_mines: "facilities",
   iron_steel_plants: "facilities",
   chemicals: "facilities",
+  lng_shipyards: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
@@ -1576,7 +1578,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants || enabled.chemicals) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants || enabled.chemicals || enabled.lng_shipyards) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1676,6 +1678,14 @@ const LegendPanel = memo(function LegendPanel({
                       <LegendIcon key={f} icon="vt-flask" color={chemicalFeedstockColor(f)} label={CHEMICAL_FEEDSTOCK_LABEL[f]} />
                     ))}
                     <span className="vt-legend-note">Global Energy Monitor — Global Chemicals Inventory: colour = primary feedstock family, as catalogued. Off by default. No output or valuation claim.</span>
+                  </>
+                )}
+                {enabled.lng_shipyards && (
+                  <>
+                    {Object.keys(LNG_SHIPYARD_COUNTRY_LABEL).map((t) => (
+                      <LegendIcon key={t} icon="vt-shipyard" color={LNG_SHIPYARD_COUNTRY_COLOR[t as keyof typeof LNG_SHIPYARD_COUNTRY_COLOR]} label={LNG_SHIPYARD_COUNTRY_LABEL[t as keyof typeof LNG_SHIPYARD_COUNTRY_LABEL]} />
+                    ))}
+                    <span className="vt-legend-note">Global Energy Monitor — Global LNG Carrier Tracker: one point per SHIPBUILDING YARD, not a vessel position — colour = shipbuilder's country. Off by default. No output or valuation claim.</span>
                   </>
                 )}
               </div>
@@ -11034,6 +11044,96 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.chemicals, mapReady, mapSettled, setStatus]);
 
+  // ── GEM LNG carrier shipyards (RAW; server/gemLngCarriers.ts) — 32
+  // shipbuilding yards worldwide, AGGREGATED from 1,125 located carriers
+  // (32 of 1,143 total; 18 "proposed" carriers with no yard assigned yet
+  // are dropped upstream). New "vt-shipyard" glyph (a gantry crane over a
+  // hull — a BUILD site, deliberately not vt-tanker/vt-cargo, per SYMBOLS
+  // NOT DOTS this must read as a different kind from a vessel position);
+  // colour = shipbuilder's country (top-3: South Korea/China/Japan, every
+  // other nation pools to "other" — real concentration, not an artifact,
+  // see mapIcons.ts's own comment). HONESTY NOTE: this is NOT a per-carrier
+  // point layer — the release's only coordinate is where the ship was
+  // built, not its current position; plotting all 1,143 rows would imply
+  // 1,143 vessel positions that don't exist. Static reference dataset,
+  // same Law-I-compliant toggle-on/off mount pattern as coal_terminals/
+  // iron_ore_mines/iron_steel_plants/chemicals above. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        if (map.getLayer("lngshipyard-pt")) map.removeLayer("lngshipyard-pt");
+        if (map.getSource("lngshipyard-points")) map.removeSource("lngshipyard-points");
+      } catch {}
+    };
+    if (!enabled.lng_shipyards) { clear(); setStatus("lng_shipyards", "off"); return; }
+    if (!mapSettled) { setStatus("lng_shipyards", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("lng_shipyards", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/lng-shipyards", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.shipyards)) throw new Error("no shipyards");
+        if (map.getSource("lngshipyard-points")) return;
+        map.addSource("lngshipyard-points", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.shipyards.map((y: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [y.lon, y.lat] },
+              properties: { ...y, tint: LNG_SHIPYARD_COUNTRY_COLOR[lngShipyardCountryTier(y.country)], icon: "vt-shipyard" },
+            })),
+          } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "lngshipyard-pt", type: "symbol", source: "lngshipyard-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.35, 8, 0.65],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const countryLabel = LNG_SHIPYARD_COUNTRY_LABEL[lngShipyardCountryTier(p.country)];
+          setDetail({
+            kind: "lngshipyard",
+            title: p.shipbuilder,
+            subtitle: `${p.carrierCount.toLocaleString()} LNG carriers built here`,
+            stats: [
+              { label: "Country", value: p.country || "—" },
+              { label: "Active", value: p.activeCount.toLocaleString() },
+              { label: "On order", value: p.onOrderCount.toLocaleString() },
+              { label: "Proposed", value: p.proposedCount.toLocaleString() },
+              { label: "Total nameplate capacity", value: p.totalCapacityCbm != null ? `${p.totalCapacityCbm.toLocaleString()} cbm (${p.knownCapacityCount.toLocaleString()} of ${p.carrierCount.toLocaleString()} carriers reporting)` : "not stated" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `This is where GEM's tracked LNG carriers were physically BUILT, not a vessel position — `
+                  + `ships move, this shipyard does not. ${countryLabel} shipbuilding yard.\n`
+                  + `Coordinate accuracy: ${p.coordinateAccuracy || "not stated"}\n\n`
+                  + `Source: Global Energy Monitor — Global LNG Carrier Tracker (CC BY 4.0). `
+                  + `Carrier counts/capacity as catalogued; no output, valuation, or trading signal.`,
+          });
+        };
+        detach = attachLayerInteractions(map, "lngshipyard-pt", onClick);
+        setStatus("lng_shipyards", "active", d.count,
+          `${d.count.toLocaleString()} shipyards (${d.totalCarriers.toLocaleString()} carriers) — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("lng_shipyards", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.lng_shipyards, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -12970,6 +13070,7 @@ export default function DataMapPage() {
     id === "iron_ore_mines" ? <Gem size={15} /> :
     id === "iron_steel_plants" ? <Factory size={15} /> :
     id === "chemicals" ? <FlaskConical size={15} /> :
+    id === "lng_shipyards" ? <Anchor size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -13020,7 +13121,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "lng_shipyards" ? "shipyards" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

@@ -58,6 +58,7 @@ import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { cachedGemIronOreMines } from "./gemIronOreMines";
 import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
 import { cachedGemChemicals } from "./gemChemicals";
+import { cachedGemLngShipyards } from "./gemLngCarriers";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
@@ -3397,6 +3398,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "signal.",
       count: hit.plants.length,
       plants: hit.plants,
+    });
+  });
+
+  // GEM "Global LNG Carrier Tracker" — 1,143 LNG carriers worldwide,
+  // AGGREGATED BY SHIPBUILDING YARD (server/gemLngCarriers.ts), RAW/
+  // FACTUAL. STATIC reference dataset, same seeded pattern as coal-
+  // terminals/iron-ore-mines/iron-steel-plants/chemicals above: re-ingested
+  // on GEM's ~2x/year release cadence via scripts/gem_ingest.py, not a
+  // live poll. HONESTY NOTE (the exact gap the 2026-09-22 GEM-suite backlog
+  // survey flagged, research/open_questions.md): this release's only
+  // per-carrier coordinate is where the ship was BUILT, not its current
+  // position — a per-carrier point layer would misread as a vessel
+  // tracker. This route instead serves one point per shipyard (32 total),
+  // each carrying its built-there carrier counts by lifecycle status and
+  // summed nameplate capacity — see gemLngCarriers.ts's own module comment
+  // for the full live-verified reasoning (32 distinct yard coordinates
+  // across 1,125 located carriers, one shipbuilder per coordinate).
+  app.get("/api/data/lng-shipyards", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemLngShipyards();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Global LNG Carrier Tracker (by shipyard)",
+                         warming_up: true, count: 0, shipyards: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Global LNG Carrier Tracker (by shipyard)",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "LNG carrier SHIPBUILDING YARDS, not vessel positions — each point is where GEM's "
+        + "tracked carriers were physically built, not where any vessel is today. Carrier counts "
+        + "by lifecycle status (active / on order / proposed) and summed nameplate capacity as "
+        + "catalogued; no output, valuation, or trading signal.",
+      count: hit.shipyards.length,
+      totalCarriers: hit.totalCarriers,
+      shipyards: hit.shipyards,
     });
   });
 
