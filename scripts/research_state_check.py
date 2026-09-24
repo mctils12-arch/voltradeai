@@ -376,6 +376,26 @@ ARCHIVE_MANIFEST = [
             "session's sandbox never has the gitignored chip TIFFs a prior session pulled)"
         ),
     },
+    {
+        # Queued 2026-09-24 (v1.0.971 session's own NEXT(2)): the other
+        # named "idempotent re-run-every-session" collector, extended into
+        # this manifest exactly as that session's docstring anticipated —
+        # a one-entry addition, no new checker. Stored as one JSON array
+        # (not JSONL), so it uses the "json_array" format + _max_json_array_date
+        # below rather than _max_jsonl_date.
+        "name": "port_dwell_weekly",
+        "paths": ("datacore/port_dwell_weekly.json",),
+        "date_field": "captured_at",
+        "format": "json_array",
+        "refresh_hint": (
+            "scripts/portdwell_weekly_snapshot.ts (captures one completed week "
+            "at a time into datacore/port_dwell_weekly.json — preferred path "
+            "reads server/portDwellCapture.ts's Tier-3 in-process capture via "
+            "the /api/diag/portdwell_weekly_captured probe; fallback calls "
+            "/api/diag/portdwell_window per still-missing week — see the "
+            "script's own docstring)"
+        ),
+    },
 ]
 
 
@@ -398,12 +418,44 @@ def _max_jsonl_date(path, date_field):
     return best
 
 
+def _max_json_array_date(path, date_field):
+    """Thin I/O sibling of _max_jsonl_date, for an archive stored as one JSON
+    array of objects rather than one object per line (e.g.
+    datacore/port_dwell_weekly.json). Returns the max value of `date_field`,
+    truncated to its leading YYYY-MM-DD (the field may carry a full ISO
+    timestamp, e.g. that file's `captured_at`), or None if the file is
+    missing/empty/unparseable."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            records = json.load(fh)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[research_state_check] could not parse {path}: {e}", file=sys.stderr)
+        return None
+    best = None
+    for rec in records:
+        d = rec.get(date_field) if isinstance(rec, dict) else None
+        if d:
+            d = d[:10]
+            if best is None or d > best:
+                best = d
+    return best
+
+
+_ARCHIVE_DATE_EXTRACTORS = {
+    "jsonl": _max_jsonl_date,
+    "json_array": _max_json_array_date,
+}
+
+
 def gather_archive_freshness(repo_root, manifest=ARCHIVE_MANIFEST):
     """I/O: {name: newest_date_str_or_None} across each manifest entry's paths."""
     out = {}
     for root in manifest:
+        extractor = _ARCHIVE_DATE_EXTRACTORS[root.get("format", "jsonl")]
         dates = [d for p in root["paths"]
-                 if (d := _max_jsonl_date(os.path.join(repo_root, p), root["date_field"]))]
+                 if (d := extractor(os.path.join(repo_root, p), root["date_field"]))]
         out[root["name"]] = max(dates) if dates else None
     return out
 
