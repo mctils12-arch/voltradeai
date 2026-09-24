@@ -100641,3 +100641,155 @@ since they asked what's working. Not code-actionable here.
 
 LADDER/BACKTEST: N/A (client layout only; no trading logic, no data
 claims changed).
+
+## 2026-09-24 (scheduled-routine session, later the same UTC day) [PRODUCT] — T-BOT/shared (server/routes.ts, server/apiProduct.ts) — chemicals gets its /api/v1/data/chemicals keyed mirror, PR #1164 (v1.0.974)
+
+Territory: shared (server/routes.ts, server/apiProduct.ts, package.json)
+per WORKSTREAM PARTITION — kept as the LAST commit, minimal diff, per the
+protocol.
+
+CONTEXT: session started per the standard [PRODUCT] mission (datacore/
+pipelines + /data user-facing surface). Read CLAUDE.md, PROGRAM_STATE.md
+(a separate, stale MASTER PROGRAM quality-audit track last touched
+2026-08-15 — not the active thread; not claimed this session), the tail
+of experiments.md/open_questions.md/wishlist.md. Live health check first
+per the task's own instruction: `/api/health` reads `status: "degraded"`
+solely from the already-known KNOWN BROKEN #43 LIVENESS ALARM (bot
+"killed", drawdownPct -6.5%, dark 65 market hours / 346 wall hours since
+2026-09-10 — resuming is a standing human decision per RULE REVIEW,
+already repeatedly notified by prior sessions, not re-notified here per
+this session's own instructions: "product sessions do not preempt the
+DAILY routines' repair duty" and this is not a new fact). Not
+code-actionable from this session; noted, not blocking.
+
+PICKED: the 2026-09-22 GEM-suite backlog entry's own explicit NEXT,
+restated by the 2026-09-24 (earlier, same UTC day) chemicals-registry
+session's UPDATE: "None of the three newly-shipped registries has an
+/api/v1 keyed mirror yet either (coal_terminals/coal-mine-features/
+iron_ore_mines do) — a natural next follow-up PR for whichever registry
+a future session picks, matching the established two-step
+route-then-mirror precedent." Chosen over the harder remaining GEM
+sub-registries (lng_carriers/oil_ngl_pipelines/steel_units/
+steel_raw_materials, all previously screened and correctly declined as
+not simple ports of the point-layer recipe) because it is the smallest,
+most mechanical, most clearly-scoped highest-value item actually queued
+— matching the exact `/api/v1/data/coal-terminals` / `/api/v1/data/
+iron-ore-mines` precedent byte-for-byte.
+
+WHAT SHIPPED: `GET /api/v1/data/chemicals` in `server/routes.ts`, reusing
+the existing `cachedGemChemicals()` cache the RAW `/api/data/chemicals`
+route (shipped earlier today) already populates — no new fetch, no new
+poller, no new computation, no `warming_up` cache-miss state beyond the
+same null-cache 503 every sibling GEM mirror already returns (static
+reference dataset, re-ingested on GEM's ~2x/year release cadence).
+`server/apiProduct.ts` gained: the `data/chemicals` `LICENSE_MARKS` entry
+(CC BY 4.0, `resell: "ok"`, matching the coal-terminals/coal-mine-features/
+iron-ore-mines class), an `apiMeta()` endpoint listing entry, a
+`voltrade_chemicals` `agentToolSpec` tool entry (`returns_provenance:
+["data/chemicals"]`), and a `RESPONSE_DATA_SCHEMAS.voltrade_chemicals`
+entry mirroring `ChemicalPlant`'s real field list (`id`/`name`/
+`feedstockFamily` required, everything else optional per
+`normalizeChemicalPlants`'s own drop-not-infer rule) — this feeds
+`openApiSpec()` automatically, no separate wiring needed there.
+`server/apiProduct.test.ts` gained two new assertions matching the
+established per-registry pattern: the meta-honesty test (line ~99) and
+the route-wiring test's endpoint list (line ~107).
+
+RAW catalogued reference data, no predictive claim — `global_energy_
+monitor` is a `raw_only` root (`datacore/signal_ladder.json`,
+`current_gate` 0), unchanged by this PR (route-only work, no ladder gate
+attempted or claimed).
+
+VERIFIED, not assumed:
+- `npx tsx --test server/apiProduct.test.ts server/gemChemicals.test.ts`:
+  83/83 pass, including the two new assertions.
+- `bash scripts/tsc_ratchet.sh`: 11 errors (matches `ci/tsc_baseline.txt`
+  pin exactly), TS2304 = 0 — no TS file's type surface changed shape,
+  only new route/schema code added.
+- `bash scripts/counter_ratchet.sh`: `assertions` 15305 -> 15306 (this
+  PR's own +1 `assert.ok` in `apiProduct.test.ts`) — re-pinned in
+  `ci/counter_baseline.txt` in the same commit per PROMOTION RULE 5; all
+  other 24 counters unchanged; re-ran after re-pinning, 25/25 OK.
+- `bash scripts/gated_tests.sh` (full suite, run twice this session — the
+  first run's python leg failed only because this fresh sandbox
+  container had no `pytest` installed yet, `pip install -r
+  requirements.txt -r requirements-dev.txt` fixed it, matching the
+  well-established Q16/L14 lesson from a prior PROGRAM_STATE.md session
+  that this is a provisioning gap, not a real failure; the client leg
+  passed clean on both runs, 1094/1094 node tests; `npm run build`
+  clean, same pre-existing chunk-size/astronomy-engine warnings every
+  prior session has already noted, none new; deploy-gate smoke PASSED,
+  `/api/health` 200 in 2.4s under latched-kill-switch + stale-liveness
+  fixtures). Second full run finished after PR #1164 was opened; confirmed
+  final line: "GATE PASSED: all required suites green; quarantine 0/1,
+  none overdue." Remote CI (`.github/workflows/ci.yml`) re-runs the same
+  gates independently before auto-merge — this PR is subscribed and will
+  be driven to green if CI disagrees.
+- `git fetch origin main` immediately before committing: branch was
+  already at `origin/main`'s tip (`a99951e`, the mobile-pass PR #1163) —
+  no rebase needed.
+- Version bumped 1.0.973 -> 1.0.974 (`package.json` + `package-lock.json`,
+  read-and-incremented immediately before commit, matching the prior
+  session's own stale-lockfile-version convention: `package-lock.json`
+  had drifted to 1.0.972, both `version` fields there updated to match).
+
+GATES: no runtime trading code touched — `server/bot.ts`, `bot_engine.py`,
+`system_config.py`, `strategies/`, `risk_kill_switch.py`, and every
+order-path file are untouched. This is API-surface/docs-generation code
+only (route registration + license/schema metadata + tests).
+
+BACKTEST: N/A per PROMOTION RULE 3 — not a trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff.
+
+MONETIZATION TRIPWIRE: this PR touches the paid API-product surface
+(`/api/v1`, license marks, resell terms) but does NOT touch billing,
+pricing, subscriptions, ads, or paid-feature gating — no
+BILLING_ENABLED/STRIPE_SECRET_KEY code path, no aircraft-provider
+compliance-relevant code. The tripwire's own re-check condition (a
+session touching billing/pricing/subscriptions/ads/paid-feature gating)
+is not met here; not re-run.
+
+DEPLOY-COUPLING NOTE: session ran ~09:2x-09:3x AM ET (right at/crossing
+9:30 market open, confirmed via `TZ=America/New_York date` at push time
+~09:26 ET) — per this session's own task instructions ("prefer merging
+PRs outside 9:30-16:00 ET; if working mid-market, prepare the PR and
+note in it that the merge should wait for the close"), this is noted
+honestly rather than assumed clear. This repo's CI auto-merge
+(`.github/workflows/ci.yml`'s `automerge` job) has NO actual
+time-of-day gate — it merges any green `claude/*` PR regardless of
+market hours, a structural gap this thread has already tracked as the
+"auto-merge/market-hours-hold" thread in `research/wishlist.md`/
+`experiments.md` (22+ prior confirmed occurrences as of the 2026-09-23
+duplicate-PR-#1148 salvage entry). This PR (#1164) is a zero-trading-code
+API-surface change, so the market-hours risk this mechanism exists to
+guard against (a deploy interrupting the live trading loop mid-session)
+does not apply in substance even if the merge lands during market hours
+— stated for completeness per the standing instruction, not re-tallied
+as a new numbered occurrence here (that bookkeeping belongs to whichever
+session next runs the full RULE-REVIEW tally, not to every PRODUCT
+session that happens to push near 9:30).
+
+NEXT: (1) the remaining harder GEM-suite backlog items are unchanged —
+`lng_carriers.json` (needs the "this is a shipyard, not a live position"
+honesty framing before shipping), `oil_ngl_pipelines.json`/
+`gas_pipelines.json` (no route geometry in this GEM release variant,
+need geocoding or a different data source), `steel_units.json`
+(furnace-level attribute data keyed to `iron_steel_plants.json`, not a
+standalone point layer), `steel_raw_materials.json` (country-level
+balance sheet, a possible future choropleth, not a point layer). (2)
+KNOWN BROKEN #43/#44 remain standing human-decision items, unchanged,
+not re-notified. (3) the GNSS-jamming x defense-sector-ETF cross-connection
+probe (filed 2026-09-22) remains archive-depth-blocked, unchanged — a
+future session should check the live accumulated day count against its
+pre-registered >=15 destrided-pairs bar before running it.
+
+STARVED: no — this session's primary action was the queue's own
+explicitly-named next item, unclaimed since the 2026-09-24 (earlier)
+chemicals-registry session filed it as this exact follow-up; shipped
+end-to-end with tests, matching the established two-step precedent
+byte-for-byte, no invented scope.
+
+NOT A SPEND REQUEST.

@@ -21949,6 +21949,17 @@ newly-shipped registries has an `/api/v1` keyed mirror yet either
 next follow-up PR for whichever registry a future session picks, matching
 the established two-step route-then-mirror precedent.
 
+UPDATE (2026-09-24, scheduled-routine [PRODUCT] session, later the same
+UTC day, PR #1164): `chemicals` gets its `/api/v1/data/chemicals` keyed
+mirror — `LICENSE_MARKS`/`apiMeta()`/`agentToolSpec`/
+`RESPONSE_DATA_SCHEMAS` entries in `server/apiProduct.ts`, matching test
+coverage in `server/apiProduct.test.ts`. All 4 of `coal_terminals`/
+`coal-mine-features`/`iron_ore_mines`/`chemicals` now have both a RAW
+route and an `/api/v1` mirror. `iron_steel_plants` remains the one
+newly-shipped registry still missing its mirror — the natural next pick
+off this same backlog. Full account in `research/experiments.md`'s
+matching dated entry.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-
