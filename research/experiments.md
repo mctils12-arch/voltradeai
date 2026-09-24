@@ -101264,3 +101264,177 @@ remaining two genuinely-harder items or the `/api/v1` mirror. Thrash
 ratio well under the 7+ trigger — no meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-24 (scheduled-routine session, sixth session this UTC day) [PRODUCT] — SHARED-minimal (server/routes.ts, server/apiProduct.ts) — `lng_shipyards` gets its `/api/v1/data/lng-shipyards` keyed mirror, closing the full GEM-suite "/api/v1 mirror" backlog for a second time over (v1.0.977, PR #1168)
+
+TERRITORY: T-BOT/shared (server/routes.ts, server/apiProduct.ts,
+package.json) per WORKSTREAM PARTITION — kept as the LAST commits (routes/
+schema/tests in one commit, then this `research/experiments.md` entry as
+its own minimal follow-on), matching the MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then the tail of `research/
+experiments.md` (the 2026-09-24 fifth-session `lng_shipyards` RAW-layer
+entry, immediately above — the most recent, matching `git log`'s tip
+`a8f9f5c`/#1167/v1.0.976, confirmed in sync before starting), `research/
+open_questions.md`'s KNOWN BROKEN tail (items #42/#43/#44), and `research/
+wishlist.md`'s tail. Loop-health check: last 10 tagged entries =
+[PRODUCT]x3, [PRODUCT], [PRODUCT], [REPAIR], [PIPELINE], [PRODUCT], [PRODUCT],
+[PRODUCT] — 8 PRODUCT / 1 REPAIR / 1 PIPELINE, well under the 7+ [REPAIR]
+thrash-ratio trigger; no meta-problem to address.
+
+LIVE HEALTH CHECK: KNOWN BROKEN #42/#43/#44's standing LIVENESS ALARM
+(trading loop killed/halted since 2026-09-10, drawdown kill switch latched,
+now 2+ weeks dark) is unchanged and has already been push-notified
+repeatedly by prior sessions with no new fact to add — consistent with
+those sessions' own judgement calls, not re-notified again here (no code
+action available from a PRODUCT session's mandate; this remains a standing
+human-decision item per RULE REVIEW). Every other health dimension
+(server/database/alpaca/python/scanner/feeds/licensing) was not
+independently re-polled this session (no live `/api/health` access from
+this sandbox); relying on the immediately-prior session's own same-day
+reading plus this session's own deploy-gate smoke (below), which exercises
+the real health-gate code path and passed.
+
+PICKED: the immediately-prior (fifth) session's own explicit NEXT(2):
+"an `/api/v1/data/lng-shipyards` keyed mirror is the natural same-shape
+follow-up PR, matching the chemicals/iron-steel-plants/iron-ore-mines/
+coal-terminals precedent... a future session should verify live via grep
+that the gap still exists before starting." Verified live via `grep -n
+"lng-shipyards" server/routes.ts server/apiProduct.ts` before starting:
+only the RAW `/api/data/lng-shipyards` route existed, no `/api/v1` mirror,
+no `LICENSE_MARKS`/`agentToolSpec`/`RESPONSE_DATA_SCHEMAS` entry — gap
+confirmed, not assumed. Other queued items re-checked and correctly
+declined: NEXT(1) (`oil_ngl_pipelines`/`gas_pipelines`/`steel_units`/
+`steel_raw_materials`) remains a genuinely harder, differently-shaped port
+(no route geometry or a country-level balance-sheet shape unsuited to a
+point layer) — not a same-session mechanical pick; NEXT(3) (visually
+toggle the `lng_shipyards` layer ON live) is a `client/`-touching
+verification task, not this session's server-only pick, and this PR
+touches no `client/` files so PROMOTION RULE 6's visual harness does not
+apply here; NEXT(4)/KNOWN BROKEN #42-44 remain standing human-decision
+items, unchanged.
+
+WHAT SHIPPED: `GET /api/v1/data/lng-shipyards` in `server/routes.ts`,
+reusing the existing `cachedGemLngShipyards()` cache the RAW `/api/data/
+lng-shipyards` route (shipped 2026-09-24, fifth session) already
+populates — no new fetch, no new poller, no new aggregation, same
+null-cache-503 `warming_up` shape every sibling GEM mirror uses (static
+reference dataset, GEM's ~2x/year release cadence). `server/apiProduct.ts`
+gained: the `data/lng-shipyards` `LICENSE_MARKS` entry (CC BY 4.0,
+`resell: "ok"`, matching the coal-terminals/coal-mine-features/
+iron-ore-mines/chemicals/iron-steel-plants class), an `apiMeta()` listing
+entry, and a `voltrade_lng_shipyards` `agentToolSpec` tool entry whose
+description carries the shipyard-not-vessel-position aggregation honesty
+framing forward from `gemLngCarriers.ts`'s own module comment into the
+public-facing tool description itself (not left implicit in code
+comments) — `returns_provenance: ["data/lng-shipyards"]`. Added a
+`RESPONSE_DATA_SCHEMAS.voltrade_lng_shipyards` entry mirroring the
+`LngShipyard` interface's real field list (`id`/`shipbuilder`/
+`carrierCount`/`lat`/`lon` required — present on every aggregated group by
+construction; `country`/`coordinateAccuracy`/`totalCapacityCbm`
+`| null` per the module's own drop-not-infer rule) — feeds `openApiSpec()`
+automatically. `server/apiProduct.test.ts` gained: the route-wiring path
+assertion in the big `/api/v1/meta` listing test, plus a full dedicated
+license-mark test (matching the iron-steel-plants/iron-ore-mines
+precedent) asserting the CC BY 4.0/resell-ok mark, the tool's existence,
+its `returns_provenance`, and the honesty phrases (`"no predictive
+claim"`, `"raw_only"`/`"current_gate 0"`, and the shipyard-not-vessel-
+position framing) — 9 new assertions total.
+
+This closes the GEM-suite "/api/v1 mirror" backlog for a second time
+over: all 5 of `coal_terminals`/`coal-mine-features`/`iron_ore_mines`/
+`chemicals`/`iron_steel_plants`/`lng_shipyards` (6 registries with a
+shipped map layer) now have both a RAW route and an `/api/v1` mirror. The
+two remaining GEM-suite items (`oil_ngl_pipelines`/`gas_pipelines`/
+`steel_units`/`steel_raw_materials`) are still blocked on a data-shape
+decision, per NEXT below — no mirror to build until a RAW route for them
+ships first.
+
+RAW catalogued reference data, no predictive claim — `global_energy_
+monitor` stays a `raw_only` root (`datacore/signal_ladder.json`,
+`current_gate` 0), unchanged by this PR (route-only/schema-only work, no
+ladder gate attempted or claimed).
+
+VERIFIED, not assumed:
+- This sandbox's `node_modules` was empty at session start (`npm ci` run
+  fresh) and Python test deps were missing too — `python3 -m pytest -q`
+  failed with `No module named pytest` until `pip install -r
+  requirements-dev.txt` was run (pytest lives there, not in
+  `requirements.txt`) — same recurring fresh-container provisioning gap
+  prior sessions in this thread have already logged, root-caused live
+  rather than assumed.
+- `npx tsx --test server/apiProduct.test.ts server/gemLngCarriers.test.ts`:
+  80/80 pass, including the new license-mark test.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match to
+  `ci/tsc_baseline.txt`'s pin (no TS file's type surface changed shape,
+  only new route/schema/test code added).
+- `bash scripts/counter_ratchet.sh`: first run correctly reported
+  `assertions` improved 15356 -> 15365 (this PR's own +9 asserts); no
+  other counter moved (reused existing `dataObj`/route/test idioms, no
+  new `any`/empty-catch introduced). Re-pinned `assertions` in `ci/
+  counter_baseline.txt` in the same commit per PROMOTION RULE 5; re-ran:
+  **25/25 counters OK**.
+- `python3 -m pytest -q` (after fixing the dev-deps gap above): **2162
+  passed, 1 skipped, 54 subtests** — byte-identical to the immediately-
+  prior session's own reading (no Python file touched this session).
+- `bash scripts/gated_tests.sh` (full suite, run once after both fresh-
+  container provisioning gaps were closed): "GATE PASSED: all required
+  suites green; quarantine 0/1, none overdue" — deploy-gate smoke PASSED
+  (`/api/health` 200 in 5.1s under latched-kill-switch + stale-liveness
+  fixtures, `status=degraded` as designed, `npm run build` clean, same
+  pre-existing chunk-size/astronomy-engine warnings every prior session
+  has already noted, none new).
+- `git fetch origin main` immediately before committing: branch was
+  already at `origin/main`'s tip (`a8f9f5c`, PR #1167, the fifth-session
+  `lng_shipyards` RAW-layer PR) — no rebase needed.
+- Version bumped 1.0.976 -> 1.0.977 (`package.json` + `package-lock.json`,
+  read-and-incremented immediately before commit; both `version` fields in
+  `package-lock.json` updated to match).
+
+GATES: no runtime trading code touched — `server/bot.ts`, `bot_engine.py`,
+`system_config.py`, `strategies/`, `risk_kill_switch.py`, and every
+order-path file are untouched. No `client/` file touched — PROMOTION RULE
+6's visual-harness requirement does not apply to this PR. API-surface/
+docs-generation code only (route registration + license/schema metadata +
+tests).
+
+BACKTEST: N/A per PROMOTION RULE 3 — not a trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff.
+
+MONETIZATION TRIPWIRE: this PR touches the paid API-product surface
+(`/api/v1`, license marks, resell terms) but does NOT touch billing,
+pricing, subscriptions, ads, or paid-feature gating — no
+BILLING_ENABLED/STRIPE_SECRET_KEY code path, no aircraft-provider
+compliance-relevant code. Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran ~16:25 ET (confirmed via `TZ=America/
+New_York date` at commit time) — AFTER the 16:00 ET close, outside market
+hours. No merge-hold caveat needed this time (unlike the fourth/fifth
+sessions earlier this same UTC day, both mid-market).
+
+NEXT: (1) `oil_ngl_pipelines.json`/`gas_pipelines.json` (no route geometry
+in this GEM release variant) and `steel_units.json`/`steel_raw_materials.
+json` (furnace-level attribute data, or a country-level balance sheet
+better suited to a future choropleth than a point layer) remain the only
+unrouted GEM-suite items — still blocked on a data-shape/source decision,
+not a mechanical pick. (2) visually verify the ON state of the
+`lng_shipyards` map layer live (toggle it, confirm legend + detail popup
+render as designed) — flagged by the fifth session, still not done from
+any headless sandbox run. (3) KNOWN BROKEN #42/#43/#44 remain standing
+human-decision items, unchanged, not re-notified.
+
+STARVED: no — this session read CLAUDE.md and research/ per its own task
+instructions, checked KNOWN BROKEN/liveness first, independently
+re-verified the mirror gap actually existed via live `grep` rather than
+trusting the prior session's note, shipped the smallest clearly-scoped
+queued item with full gates green (including re-diagnosing and fixing two
+separate fresh-container provisioning gaps — missing `node_modules` and
+missing Python dev-deps — rather than skipping the checks), and left a
+precise NEXT for whoever picks up the remaining harder GEM items or the
+visual-verification follow-up. Thrash ratio well under the 7+ trigger — no
+meta-problem.
+
+NOT A SPEND REQUEST.
