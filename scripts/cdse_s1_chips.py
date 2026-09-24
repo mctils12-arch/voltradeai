@@ -28,6 +28,16 @@ Outputs:
 Run:
   python3 scripts/cdse_s1_chips.py --since 2024-07-01 --dry-run
   python3 scripts/cdse_s1_chips.py --since 2024-07-01
+
+REHYDRATION (found 2026-09-24, scheduled-routine session): chip_dir is
+GITIGNORED and does not survive across sessions/containers, but the index
+is committed and does. A fresh session's dedup-by-index therefore reports
+"0 new" for scenes it has never actually downloaded a chip for in ITS OWN
+container. --redownload-missing re-fetches the chip file for any already-
+indexed scene whose file is absent on disk (without touching or
+duplicating the index) — required before a full-history run of the
+tank_fill_s1_estimator.py whole-file rebuild, or it will silently rebuild
+from whatever partial subset of chips happens to be locally present.
 """
 import argparse
 import json
@@ -242,12 +252,33 @@ def fetch_chip(scene, token, chip_dir=CHIP_DIR):
     return fname, len(tif)
 
 
+def missing_indexed_chips(index_path=INDEX, chip_dir=CHIP_DIR):
+    """Already-indexed records whose chip file is absent on disk (index is
+    committed/persistent; chip_dir is gitignored/ephemeral per-session)."""
+    out = []
+    if os.path.exists(index_path):
+        with open(index_path) as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except Exception as e:
+                    print(f"  ! malformed line in {index_path}: {e}", file=sys.stderr)
+                    continue
+                if not os.path.exists(os.path.join(chip_dir, rec.get("file", ""))):
+                    out.append(rec)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="2024-07-01")
     ap.add_argument("--until", default=datetime.now(timezone.utc).date().isoformat())
     ap.add_argument("--max-scenes", type=int, default=0, help="0 = no cap")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--redownload-missing", action="store_true",
+                     help="also re-fetch already-indexed scenes whose chip file is "
+                          "missing on disk (this session's container never downloaded "
+                          "it); does not touch or duplicate the index")
     args = ap.parse_args()
 
     w, h = chip_px()
@@ -257,18 +288,24 @@ def main():
     scenes = pick_scene_per_date([s for s in parse_stac(cat) if usable(s)])
     seen = seen_scenes()
     todo = [s for s in scenes if s["scene"] not in seen]
+    redownload = missing_indexed_chips() if args.redownload_missing else []
     if args.max_scenes:
         todo = todo[: args.max_scenes]
+        redownload = redownload[: args.max_scenes]
     spent = month_pu_spent()
+    planned_pu = per_scene * (len(todo) + len(redownload))
     print(f"chip {w}x{h}px FLOAT32 {'+'.join(BANDS)} -> {per_scene:.2f} PU/scene; "
-          f"{len(scenes)} usable scenes, {len(todo)} new; "
-          f"month PU: {spent:.1f} spent + {per_scene * len(todo):.1f} planned "
+          f"{len(scenes)} usable scenes, {len(todo)} new"
+          + (f", {len(redownload)} indexed-but-missing-on-disk" if args.redownload_missing else "")
+          + f"; month PU: {spent:.1f} spent + {planned_pu:.1f} planned "
           f"of {FREE_TIER_PU_MONTH} free tier")
-    if spent + per_scene * len(todo) > FREE_TIER_PU_MONTH * 0.5:
+    if spent + planned_pu > FREE_TIER_PU_MONTH * 0.5:
         sys.exit("refusing: planned pull would exceed 50% of the monthly free tier — split the backfill")
     if args.dry_run:
         for s in todo:
             print(f"  {s['date']} {s['scene']} {s['orbit_state']}/{s['relative_orbit']}")
+        for s in redownload:
+            print(f"  (rehydrate) {s['date']} {s['scene']} {s.get('orbit_state')}/{s.get('relative_orbit')}")
         return
 
     token = get_token()
@@ -290,6 +327,14 @@ def main():
         })
         append_index(rec)
         print(f"  {s['date']} {s['scene']} ({s['orbit_state']}/{s['relative_orbit']}) -> {fname} ({nbytes/1e6:.1f} MB)")
+        time.sleep(1)
+    for s in redownload:
+        try:
+            fname, nbytes = fetch_chip(s, token)
+        except Exception as e:
+            print(f"  ! (rehydrate) {s['scene']}: {e}", file=sys.stderr)
+            continue
+        print(f"  (rehydrate) {s['date']} {s['scene']} -> {fname} ({nbytes/1e6:.1f} MB)")
         time.sleep(1)
 
 

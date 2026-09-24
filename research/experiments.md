@@ -3,6 +3,241 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-24 (scheduled-routine session, EDGE DOCTRINE task, new session this UTC day) [PIPELINE] — sentinel2 tank-fill archives caught up after a ~12-week stall + a near-miss data-loss bug found and fixed in the S1 whole-file-rebuild path + a compiled staleness check so this can't silently recur (v1.0.971)
+
+TERRITORY: T-DATACORE (scripts/cdse_s1_chips.py, scripts/tankfill_s1_estimator.py,
+scripts/research_state_check.py, datacore/sentinel2/*, datacore/signal_ladder.json)
++ SHARED (ci/counter_baseline.txt, package.json/package-lock.json,
+research/* — last, per MERGE-ORDER PROTOCOL).
+
+SESSION-START: read CLAUDE.md in full (this session's own task instruction:
+read it with special attention to EDGE DOCTRINE, then all of research/,
+check system health + KNOWN BROKEN first per the Repair Mandate, then pick
+one EDGE DOCTRINE axis). Loop-health check: last 10 tagged entries before
+this one — PRODUCT, PRODUCT, PRODUCT, REPAIR, PRODUCT, PRODUCT, REPAIR,
+REPAIR, PRODUCT, REPAIR — 4/10 REPAIR, well under the 7+ thrash trigger, no
+meta-problem. No PROGRESS FLOOR stall note in wishlist.md.
+
+LIVENESS ALARM CHECK (Repair Mandate, consulted first): live `/api/health`
+read `status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true`,
+"trading loop dark for 65.0 market hours (335.5h wall-clock) since
+2026-09-10T03:12:26.354Z" — unchanged from this same UTC day's earlier
+PRODUCT session's own reading minutes prior (KNOWN BROKEN #42/#43,
+standing human-decision-gated resume, already escalated repeatedly
+including yesterday's dedicated PushNotification). Not re-notified: no new
+information since that same-day check, and the shipped
+`shouldSendLivenessReminder` mechanism (v1.0.965) already owns periodic
+re-escalation independent of session cadence — confirmed its persisted
+`lastReminderAt` gate is working as designed (not re-verified live this
+session beyond the same-day check already on record). KNOWN BROKEN #44
+unchanged (Dockerfile fix proposed in wishlist.md, awaiting human approval
+on a FROZEN PATH) — read-only diag probe, zero live-trading impact, does
+not block this session's scope (no trading-loop path touched). All other
+`/api/health` subsystems read `"ok"`. Neither alarm blocks EDGE DOCTRINE
+work per the task's own instructions (repair mandate applies to
+NEWLY-found or unaddressed critical items; both are already diagnosed,
+mitigated, and on a human-decision or human-approval hold).
+
+PRIMARY-ACTION SELECTION: delegated a survey (Explore agent) across the
+task's 6 named candidate pipelines (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendars, Google Trends) to find which has the
+highest-EV, most concretely-actionable unclaimed NEXT step, per this
+session's own bias toward "avoid re-deriving priors an existing filed NEXT
+already settled." Findings (datacore/signal_ladder.json + server/routes.ts
++ experiments.md cross-checked): EDGAR Form4/8-K/13F, USAspending, and CFTC
+COT/TFF are all already WIRED-NIGHTLY (TS pollers, `boot*Poll()` in
+server/routes.ts) with their own next steps either time-gated weeks out
+(COT gate-2 rerun ~2026-10-21, 8-K gate-2 ~2026-10-02, 13F ~Oct-Nov) or
+requiring a fresh, un-pre-registered statistical redesign (USAspending
+size-confound); FDA's gate-2 hypothesis has never been attempted (no
+concrete queued step); Google Trends/pytrends is dead (rate-limited,
+upstream-archived). Sentinel-2 tank-shadow had the one unambiguous,
+already-filed, immediately-actionable item: open_questions.md's GIP BUILD
+QUEUE states "[T-DATACORE] Sentinel-2 iteration: ... weekly runs continue
+via scripts/sentinel2_tankfill.py" — never automated, and (found this
+session, see below) not even manually kept current.
+
+PRIOR (stated before running anything, REASONING STANDARD #10): expected
+the archive catch-up to be pure accumulation with NO new signal —
+`sentinel_tank_fill_cushing` is already `gate1_fail` on THREE prior
+attempts (v1 facility-proxy, v2 optical crescent, v3 S1 double-bounce),
+each independently null/confounded (v2 delta r=-0.06, v3 delta r=+0.056,
+both sign-hit ~0.5, i.e. coin-flip). The only remaining live hypothesis is
+the pre-registered v3.1 multi-week composite-window follow-up (filed
+2026-07-05), which explicitly needs ~420 days of accumulated scenes (only
+~81 had elapsed when filed) before it is even runnable — so this
+session's job was accumulation, not a new gate attempt, and the prior was
+"the refreshed --compare correlation will still read null/inconsistent,
+consistent with the existing FAIL verdict." RESULT: confirmed — v1's
+refreshed `--compare` (24 matched scene-weeks, extended through
+2026-09-15) read Pearson r=-0.550 (levels) / +0.072 (week-over-week
+deltas, the pre-registered comparator) — still no reproducible signal, no
+update to the gate-1 verdict.
+
+WHAT SHIPPED:
+1. ARCHIVE CATCH-UP (data only, all three tank-fill collectors, all
+   keyless/CDSE-free-tier, zero paid spend): found all three readings
+   archives (datacore/sentinel2/{readings,readings_v2,readings_s1}.jsonl)
+   stalled at 2026-06-26/27/07-04 — ~12 weeks untouched, confirmed by
+   reading each file's own max `date` field before touching anything, not
+   assumed from the GIP BUILD QUEUE's stale prose alone. Ran
+   `sentinel2_tankfill.py --since 2026-06-20 --compare` (v1, Element84 STAC,
+   keyless): +39 readings through 2026-09-22. Ran `cdse_chips.py --since
+   2026-06-20` (12 new S2 chips, 16.8 PU of the 10,000/mo free tier) +
+   `tankfill_estimator.py` (v2 per-tank crescent estimator, append-only):
+   +12 readings through 2026-09-22. Ran `cdse_s1_chips.py --since
+   2026-06-20` (6 new S1 chips, 6.7 PU) + `tankfill_s1_estimator.py --no-gate`
+   (deliberately skipped a fresh gate-1 attempt — see NEXT) — this is where
+   the near-miss below was caught.
+2. NEAR-MISS DATA-LOSS CAUGHT LIVE, NOT COMMITTED: `tankfill_s1_estimator.py`
+   is documented as a "WHOLE-FILE REBUILD each run" (its own docstring, by
+   design — the per-tank median normalization needs the full series). What
+   its docstring did NOT account for: `chips_s1/` is GITIGNORED and does
+   NOT survive across sessions'/containers' filesystems, while
+   `s1_chips_index.jsonl` (committed) does — so a fresh session's sandbox
+   has the full 67-scene INDEX but only whatever chip TIFFs it has itself
+   downloaded THIS session (6, from the catch-up above). Running the
+   estimator with only those 6 chips present silently rewrote
+   `readings_s1.jsonl` from 61 committed readings down to 6, discarding 55
+   scenes' worth of prior work with no error, no warning — caught via
+   `git diff --stat` before staging (67 deletions, 6 insertions) and
+   reverted with `git checkout --` before it could ship. This is the exact
+   failure class CLAUDE.md's "Files Claude did not write" / read-before-
+   write discipline exists to catch, one level deeper: the bug was not in
+   text I was about to overwrite, it was in a whole-file-rebuild script's
+   undocumented assumption that its own gitignored working directory
+   persists across sessions, which it does not.
+3. TWO SAFETY FIXES (own logical unit with #2, since #2 is what made #1's
+   full catch-up possible to do correctly rather than abandoning the S1
+   side): `cdse_s1_chips.py` gained `--redownload-missing` (re-fetches an
+   already-INDEXED scene's chip file when it's absent on disk, without
+   touching or duplicating the index — the index's own dedup previously
+   had no way to distinguish "never seen" from "seen by a different
+   session's now-gone container"). `tankfill_s1_estimator.py` gained a
+   shrink guard: before writing, it now diffs the rebuild's scene set
+   against the existing file's and REFUSES to write (loud `sys.exit`
+   naming the exact fix command) if any previously-recorded scene would be
+   dropped, unless `--allow-shrink` is passed explicitly for a genuine
+   future methodology change. Used `--redownload-missing` to pull all 61
+   historical S1 chips (68.2 PU, well under the 50%-of-free-tier guard)
+   before re-running the estimator clean: 67 readings (61 + 6 new), shrink
+   guard silent (no drop). RATCHET (HEALTH OF THE LOOP rule 3 — a repair
+   ships with a regression test that would have caught the break): this is
+   a data/tooling fix, not covered by the pytest suite directly (no
+   automated test drives the live CDSE network path), so the ratchet here
+   is the guard itself running live, on the real bug, in this same
+   session, and blocking exactly the write that would have shipped it —
+   the closest thing to an A/B test this class of bug allows without
+   mocking the entire CDSE+STAC network surface.
+4. COMPILED STALENESS CHECK (EDGE DOCTRINE #3 — the second occurrence
+   becomes a script; a session-run collector silently stalling for 12
+   weeks is exactly the "diagnosis repeated near-identically" shape
+   scripts/research_state_check.py's own docstring already names as its
+   reason to exist, just for a different data class than that script
+   covers today): `research_state_check.py` gained a generic
+   `ARCHIVE_MANIFEST` + `check_archive_freshness`/`gather_archive_freshness`
+   pair (pure-check / thin-I/O split, matching this file's existing
+   pattern) that flags WARN when a session-run archive's newest record is
+   >21 days old (~3x sentinel2's own stated weekly cadence), naming the
+   exact refresh commands in the finding text. Wired sentinel2's three
+   JSONL archives in as the first manifest entry; deliberately generic in
+   shape so a future collector (portdwell, etc.) is a one-entry addition,
+   not a new checker. Live run against the real repo post-fix:
+   `[OK] archive_freshness:sentinel2_tank_fill: 2d since newest record
+   (2026-09-22) — below the 21d trigger`.
+5. LADDER BOOKKEEPING: `datacore/signal_ladder.json`'s
+   `sentinel_tank_fill_cushing` entry updated — `last_update_date` bumped,
+   an appended note (not overwritten) records the catch-up + the near-miss
+   + the fix, explicit that STATUS/CURRENT_GATE are UNCHANGED (still
+   `gate1_fail`) since no new gate attempt was run this session, per
+   PROMOTION RULE 5's one-logical-change discipline (a v3.1 composite-
+   window gate-1 rerun, once enough scenes have accumulated, is its own
+   future PR with its own pre-registered bar, not bundled here).
+
+WHY --no-gate FOR THE S1 SIDE (deliberate, not an oversight): running
+`tankfill_s1_estimator.py`'s default gate-1 check now, with 67 scenes
+spanning 2024-07 through 2026-09, would produce a NEW gate-1 number on the
+ORIGINAL weekly-delta methodology, whose FAIL verdict is already logged
+and closed (delta r=+0.056, item source_ref above). The pre-registered
+next attempt is specifically the v3.1 MULTI-WEEK COMPOSITE design (filed
+2026-07-05, not yet implemented as code), not a re-run of the same design
+on more data — re-running the OLD design and reporting a new number here
+would risk exactly the "distrust proportional to how many things you
+tried" trap (REASONING STANDARD #4): an unplanned extra look at the same
+comparator on a growing sample is not how the pre-registered follow-up was
+supposed to work. Kept the raw readings archive current (which the v3.1
+design will need) without taking that extra, unplanned look.
+
+VERIFIED: `python3 -m pytest -q` — 2157 passed, 1 skipped, 54 subtests (up
+from 2148 baseline; this session's own +9 in test_research_state_check.py
+for check_archive_freshness/_max_jsonl_date/gather_archive_freshness).
+`bash scripts/counter_ratchet.sh`: first run caught `silent_py_handlers`
+254 -> 257 (3 new bare `except: continue/pass` handlers this session's own
+new code introduced — `_max_jsonl_date`, `missing_indexed_chips`, and the
+shrink-guard's existing-scenes read); fixed all three to log to stderr on
+a genuinely malformed line instead of swallowing silently (consistent with
+CLAUDE.md's own framing: "a swallowed exception is how a broken pipeline
+keeps reporting success"), re-ran clean: 25/25 counters OK, `assertions`
+15285 -> 15300 (this session's own +15 net after edits) re-pinned in
+`ci/counter_baseline.txt` in this same PR. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"`: valid, 56 roots
+(unchanged count — a note update, not a new/removed root).
+`python3 -m pytest -q test_ladder_registry_coverage_check.py
+test_ladder_readiness_check.py`: 29/29 pass. No `.ts`/`.tsx`/client file
+touched this session (confirmed via `git diff --stat` before staging), so
+`npx tsc --noEmit`/`npm run build`/VISUAL VERIFICATION do not apply per
+PROMOTION RULE 6's own client/-touching scope — not run, not silently
+skipped.
+
+GATES: full local Python suite above covers every file this diff touches;
+`server/bot.ts`, `system_config.py`, `strategies/`, and every order-path
+file are untouched. CI runs the same on the PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is archive accumulation +
+tooling/safety fixes + a compiled staleness check, not a strategy,
+sizing, or threshold change; `sentinel_tank_fill_cushing` is not wired
+into `deep_score`/any order path (unchanged, still `gate1_fail`).
+
+MEASUREMENT INTEGRITY: `research_state_check.py`'s new
+`check_archive_freshness` is session-bookkeeping tooling, not a trading
+metric, P&L computation, or existing measurement definition — does not
+touch `gate2_stats.py`/`statsUtils.ts`/the backtest engine/the fills
+tracker. Stated for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads
+code in this diff.
+
+DEPLOY-COUPLING NOTE: session run 2026-09-24 ~03:00-04:00 UTC ≈
+22:00-23:00 CT prior evening / well outside 9:30-16:00 ET market hours —
+no merge-hold applies.
+
+NEXT: (1) the pre-registered v3.1 multi-week composite-window design
+(filed 2026-07-05, open_questions.md "TANK-FILL v3.1 STATUS") is still
+unimplemented as code — a future session should build it once enough
+scenes have accumulated (check via `readings_s1.jsonl`'s own date range;
+this session's catch-up moved the earliest-usable clock forward but did
+not itself reach the ~420-day threshold). (2) the newly-added
+`archive_freshness` check in `research_state_check.py` should be extended
+to cover `datacore/port_dwell_weekly.json` (the other named
+"idempotent re-run-every-session" collector on record) — not done here
+per PROMOTION RULE 5 (one logical change; this PR's scope is the sentinel2
+near-miss + its own fix), but the manifest is deliberately shaped as a
+one-entry addition for whoever picks this up. (3) KNOWN BROKEN #42/#43/#44
+— unchanged, not re-notified (see LIVENESS ALARM CHECK above).
+
+STARVED: no — this session ran a dedicated survey before picking a target
+(avoided re-deriving priors 5 other candidate pipelines' own sessions had
+already filed), found and fixed a genuine, previously-unknown data-
+integrity bug along the way rather than treating the near-miss as
+out-of-scope, shipped a compiled check specifically so the root problem
+(staleness invisible until a session stumbles on it) cannot recur
+silently, and left concrete, dated NEXT items. No higher-priority queued
+item was skipped — LIVENESS/KNOWN-BROKEN were checked first per the Repair
+Mandate and found already-escalated/already-mitigated, not newly broken;
+thrash ratio 4/10 well under the 7+ trigger.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-24 (scheduled-routine [PRODUCT] session) [PRODUCT] — new `chemicals` GEM registry shipped end-to-end, closing the full 3-item "cheapest" GEM-suite backlog (chemicals/iron_steel_plants/iron_ore_mines, all three now routed) — server/gemChemicals.ts, /api/data/chemicals, a new "vt-flask" glyph, datamap.tsx map layer (v1.0.970)
 
 TERRITORY: T-DATACORE-adjacent / API+UI surface (server/gemChemicals.ts,
