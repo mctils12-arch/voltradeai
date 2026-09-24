@@ -11740,6 +11740,12 @@ territory in their first commit)
 - [T-DATACORE] **Sentinel-2 iteration**: per-tank annulus geometry at
   Cushing (the gate-1 path — facility index logged, confounded);
   weekly runs continue via scripts/sentinel2_tankfill.py.
+  UPDATE 2026-09-24 (scheduled-routine session): this line had gone
+  unenforced for ~12 weeks (archive stalled 2026-06-27/07-04, caught +
+  caught up this session, see experiments.md). "Weekly runs continue" is
+  now a compiled check, not just this sentence — see
+  `scripts/research_state_check.py`'s `archive_freshness` finding, which
+  WARNs if the archive goes >21d stale again.
 - [T-DATACORE] **Part 5 research results (4-agent workflow, primary
   sources, filed 2026-07-04):**
   1. AIRCRAFT REGISTRIES — BUILD the 4-registry spine pipeline: FAA

@@ -348,6 +348,89 @@ def classify_known_broken(item):
     return "NEEDS-REVIEW"
 
 
+ARCHIVE_FRESHNESS_WARN_DAYS = 21  # ~3x sentinel2_tankfill.py's own stated weekly cadence
+
+# EDGE DOCTRINE #3 / HEALTH OF THE LOOP: a session-run collector's own
+# filed NEXT ("weekly runs continue via scripts/X.py") is not compiled
+# knowledge — it is a sentence a session can forget to act on, and one did:
+# found live 2026-09-24, the sentinel2 tank-fill archives (readings.jsonl /
+# readings_v2.jsonl / readings_s1.jsonl) had gone ~12 weeks untouched with
+# no mechanical flag anywhere. This manifest is deliberately generic (not
+# sentinel2-specific in shape) so a future session adding another
+# session-run collector (portdwell, etc.) only has to append an entry here,
+# not write a new checker.
+ARCHIVE_MANIFEST = [
+    {
+        "name": "sentinel2_tank_fill",
+        "paths": (
+            "datacore/sentinel2/readings.jsonl",
+            "datacore/sentinel2/readings_v2.jsonl",
+            "datacore/sentinel2/readings_s1.jsonl",
+        ),
+        "date_field": "date",
+        "refresh_hint": (
+            "scripts/sentinel2_tankfill.py --since <last_date> --compare (v1, keyless); "
+            "scripts/cdse_chips.py + scripts/tankfill_estimator.py (v2, CDSE creds); "
+            "scripts/cdse_s1_chips.py --redownload-missing + scripts/tankfill_s1_estimator.py "
+            "(v3 — read both scripts' shrink-guard/rehydration docstrings first, a fresh "
+            "session's sandbox never has the gitignored chip TIFFs a prior session pulled)"
+        ),
+    },
+]
+
+
+def _max_jsonl_date(path, date_field):
+    """Thin I/O, not unit-tested directly (see local file I/O section below).
+    Returns the max value of `date_field` across all lines of a JSONL file,
+    or None if the file is missing/empty/has no parseable dates."""
+    best = None
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line).get(date_field)
+            except Exception as e:
+                print(f"[research_state_check] malformed line in {path}: {e}", file=sys.stderr)
+                continue
+            if d and (best is None or d > best):
+                best = d
+    return best
+
+
+def gather_archive_freshness(repo_root, manifest=ARCHIVE_MANIFEST):
+    """I/O: {name: newest_date_str_or_None} across each manifest entry's paths."""
+    out = {}
+    for root in manifest:
+        dates = [d for p in root["paths"]
+                 if (d := _max_jsonl_date(os.path.join(repo_root, p), root["date_field"]))]
+        out[root["name"]] = max(dates) if dates else None
+    return out
+
+
+def check_archive_freshness(name, newest_date, today, warn_days, refresh_hint):
+    """Pure: given the newest ISO date already found for one archive, decide
+    OK vs WARN. Kept separate from gather_archive_freshness's I/O so this
+    logic is unit-testable without touching disk, matching this file's own
+    check_*/gather() split."""
+    if newest_date is None:
+        return finding(WARN, f"archive_freshness:{name}",
+                        "no dated records found — check the manifest paths/date_field")
+    try:
+        age_days = (today - date.fromisoformat(newest_date)).days
+    except ValueError:
+        return finding(WARN, f"archive_freshness:{name}",
+                        f"newest date field '{newest_date}' is not ISO YYYY-MM-DD — check parsing")
+    if age_days > warn_days:
+        return finding(
+            WARN, f"archive_freshness:{name}",
+            f"{age_days}d stale (newest record {newest_date}, trigger {warn_days}d+) — "
+            f"refresh via: {refresh_hint}",
+        )
+    return finding(OK, f"archive_freshness:{name}",
+                    f"{age_days}d since newest record ({newest_date}) — below the {warn_days}d trigger")
+
+
 def check_known_broken(items):
     if not items:
         return finding(WARN, "known_broken", "no numbered KNOWN BROKEN items found — parser or file may have drifted")
@@ -362,7 +445,7 @@ def check_known_broken(items):
     return finding(OK, "known_broken", f"{len(items)} items total, all carry an explicit close marker")
 
 
-def run_all_checks(register, tags, known_broken_items, today, starved_flags=None):
+def run_all_checks(register, tags, known_broken_items, today, starved_flags=None, archive_freshness=None):
     checks = [
         check_audits_overdue(register, today),
         check_thrash_ratio(tags),
@@ -370,6 +453,13 @@ def run_all_checks(register, tags, known_broken_items, today, starved_flags=None
     ]
     if starved_flags is not None:
         checks.append(check_starvation_signal(starved_flags))
+    if archive_freshness is not None:
+        by_name = {root["name"]: root for root in ARCHIVE_MANIFEST}
+        for name, newest_date in archive_freshness.items():
+            root = by_name[name]
+            checks.append(check_archive_freshness(
+                name, newest_date, today, ARCHIVE_FRESHNESS_WARN_DAYS, root["refresh_hint"],
+            ))
     return checks
 
 
@@ -398,7 +488,8 @@ def gather(repo_root):
     starved_flags = parse_starved_flags(experiments)
     kb_section = extract_known_broken_section(open_questions)
     items = parse_known_broken_items(kb_section)
-    return register, tags, items, starved_flags
+    archive_freshness = gather_archive_freshness(repo_root)
+    return register, tags, items, starved_flags, archive_freshness
 
 
 def main():
@@ -410,8 +501,8 @@ def main():
     ap.add_argument("--json", action="store_true", help="emit findings as JSON instead of text")
     args = ap.parse_args()
 
-    register, tags, items, starved_flags = gather(os.path.abspath(args.repo_root))
-    findings = run_all_checks(register, tags, items, date.today(), starved_flags)
+    register, tags, items, starved_flags, archive_freshness = gather(os.path.abspath(args.repo_root))
+    findings = run_all_checks(register, tags, items, date.today(), starved_flags, archive_freshness)
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))

@@ -30,12 +30,24 @@ delta-sign >= 65%. Matched weeks < 20 -> INSUFFICIENT-SAMPLE, not FAIL.
 Run (session-side; deps numpy + tifffile + xlrd):
   python3 scripts/tankfill_s1_estimator.py            # estimate + gate-1
   python3 scripts/tankfill_s1_estimator.py --no-gate  # readings only
+
+SHRINK GUARD (found 2026-09-24, scheduled-routine session): this is a
+whole-file rebuild deterministic from the locally present chips_s1/ TIFFs
+— but chips_s1/ is gitignored and does NOT survive across sessions'
+containers, while s1_chips_index.jsonl (committed) does. A fresh session
+running this with only a partial chip set present (e.g. just the newest
+few, freshly pulled) would silently REWRITE readings_s1.jsonl down to
+that partial subset, discarding every earlier scene's committed reading —
+this exact failure was caught live before being committed. main() now
+refuses to write if the rebuild would drop any scene already on record,
+unless --allow-shrink is passed explicitly.
 """
 import argparse
 import importlib.util
 import json
 import math
 import os
+import sys
 
 BASE = os.path.join(os.path.dirname(__file__), "..")
 CHIP_DIR = os.path.join(BASE, "datacore", "sentinel2", "chips_s1")
@@ -124,6 +136,12 @@ def main():
     import tifffile
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--allow-shrink", action="store_true",
+                     help="allow the whole-file rebuild to drop scenes already recorded "
+                          "in readings_s1.jsonl (dangerous — normally means this "
+                          "session's sandbox is missing gitignored chip TIFFs a prior "
+                          "session had; re-pull full history first via "
+                          "`cdse_s1_chips.py --redownload-missing`)")
     args = ap.parse_args()
 
     est2 = _load("tankfill_estimator", "tankfill_estimator.py")
@@ -167,6 +185,29 @@ def main():
     fills_by_scene = self_ratio_series(db_by_scene)
     readings = [scene_reading(meta_by_scene[s], f, tanks_by_id)
                 for s, f in sorted(fills_by_scene.items(), key=lambda kv: meta_by_scene[kv[0]]["date"])]
+
+    existing_scenes = set()
+    if os.path.exists(OUT_JSONL):
+        with open(OUT_JSONL) as fh:
+            for line in fh:
+                try:
+                    existing_scenes.add(json.loads(line)["scene"])
+                except Exception as e:
+                    print(f"  ! malformed line in {OUT_JSONL}: {e}", file=sys.stderr)
+    new_scenes = {r["scene"] for r in readings}
+    dropped = existing_scenes - new_scenes
+    if dropped and not args.allow_shrink:
+        sys.exit(
+            f"REFUSING TO WRITE (shrink guard): rebuild would drop {len(dropped)} of "
+            f"{len(existing_scenes)} scenes already in {os.path.relpath(OUT_JSONL)} "
+            f"({len(existing_scenes)} -> {len(new_scenes)} readings). This almost always "
+            f"means this session's sandbox is missing gitignored chip TIFFs under "
+            f"{os.path.relpath(CHIP_DIR)} that a prior session had. Re-pull full history "
+            f"first: `python3 scripts/cdse_s1_chips.py --since 2024-07-01 "
+            f"--redownload-missing`, then rerun. Pass --allow-shrink only for a "
+            f"deliberate registry/methodology change that legitimately excludes scenes."
+        )
+
     with open(OUT_JSONL, "w") as fh:  # whole-file rebuild (see module docstring)
         for r in readings:
             fh.write(json.dumps(r) + "\n")

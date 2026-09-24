@@ -356,6 +356,77 @@ def test_check_known_broken_warn_when_no_items_found():
     assert f["severity"] == rsc.WARN
 
 
+# ── check_archive_freshness / gather_archive_freshness ─────────────────────
+
+def test_check_archive_freshness_ok_when_recent():
+    f = rsc.check_archive_freshness("x", "2026-09-20", date(2026, 9, 24), 21, "run x.py")
+    assert f["severity"] == rsc.OK
+    assert "4d since newest record" in f["detail"]
+
+
+def test_check_archive_freshness_warn_when_stale():
+    f = rsc.check_archive_freshness("sentinel2_tank_fill", "2026-06-27", date(2026, 9, 24), 21, "run x.py")
+    assert f["severity"] == rsc.WARN
+    assert "stale" in f["detail"]
+    assert "run x.py" in f["detail"]
+
+
+def test_check_archive_freshness_warn_when_no_dates_found():
+    f = rsc.check_archive_freshness("x", None, date(2026, 9, 24), 21, "run x.py")
+    assert f["severity"] == rsc.WARN
+    assert "no dated records" in f["detail"]
+
+
+def test_check_archive_freshness_warn_on_unparseable_date():
+    f = rsc.check_archive_freshness("x", "not-a-date", date(2026, 9, 24), 21, "run x.py")
+    assert f["severity"] == rsc.WARN
+    assert "not ISO" in f["detail"]
+
+
+def test_check_archive_freshness_boundary_exactly_at_trigger_is_ok():
+    # 21 days old with a 21-day trigger: age_days > warn_days is strict, so
+    # exactly-at-trigger stays OK (matches check_audits_overdue's own >
+    # convention elsewhere in this file).
+    f = rsc.check_archive_freshness("x", "2026-09-03", date(2026, 9, 24), 21, "run x.py")
+    assert f["severity"] == rsc.OK
+
+
+def test_max_jsonl_date_returns_max_across_lines(tmp_path):
+    p = tmp_path / "readings.jsonl"
+    p.write_text('{"date": "2026-06-01"}\n{"date": "2026-07-15"}\n{"date": "2026-06-20"}\n')
+    assert rsc._max_jsonl_date(str(p), "date") == "2026-07-15"
+
+
+def test_max_jsonl_date_missing_file_returns_none(tmp_path):
+    assert rsc._max_jsonl_date(str(tmp_path / "nope.jsonl"), "date") is None
+
+
+def test_max_jsonl_date_skips_malformed_lines(tmp_path):
+    p = tmp_path / "readings.jsonl"
+    p.write_text('not json\n{"date": "2026-08-01"}\n{"no_date_field": true}\n')
+    assert rsc._max_jsonl_date(str(p), "date") == "2026-08-01"
+
+
+def test_gather_archive_freshness_takes_max_across_multiple_paths(tmp_path):
+    (tmp_path / "datacore" / "sentinel2").mkdir(parents=True)
+    p1 = tmp_path / "datacore" / "sentinel2" / "readings.jsonl"
+    p2 = tmp_path / "datacore" / "sentinel2" / "readings_v2.jsonl"
+    p3 = tmp_path / "datacore" / "sentinel2" / "readings_s1.jsonl"
+    p1.write_text('{"date": "2026-07-01"}\n')
+    p2.write_text('{"date": "2026-09-10"}\n')
+    p3.write_text("")  # empty/missing readings for this archive
+    out = rsc.gather_archive_freshness(str(tmp_path))
+    assert out["sentinel2_tank_fill"] == "2026-09-10"
+
+
+def test_run_all_checks_appends_one_finding_per_manifest_entry_when_freshness_given():
+    freshness = {root["name"]: "2020-01-01" for root in rsc.ARCHIVE_MANIFEST}
+    findings = rsc.run_all_checks([], [], [], date.today(), archive_freshness=freshness)
+    labels = [f["label"] for f in findings]
+    for root in rsc.ARCHIVE_MANIFEST:
+        assert f"archive_freshness:{root['name']}" in labels
+
+
 # ── overall_exit_code ───────────────────────────────────────────────────────
 
 def test_overall_exit_code_worst_of_all_findings():
@@ -372,9 +443,9 @@ def test_overall_exit_code_zero_when_all_ok():
 
 def test_run_all_checks_against_real_repo_files_does_not_crash():
     repo_root = os.path.join(os.path.dirname(__file__))
-    register, tags, items, starved_flags = rsc.gather(repo_root)
-    findings = rsc.run_all_checks(register, tags, items, date.today(), starved_flags)
-    assert len(findings) == 4
+    register, tags, items, starved_flags, archive_freshness = rsc.gather(repo_root)
+    findings = rsc.run_all_checks(register, tags, items, date.today(), starved_flags, archive_freshness)
+    assert len(findings) == 4 + len(rsc.ARCHIVE_MANIFEST)
     assert all(f["severity"] in (rsc.OK, rsc.WARN, rsc.ALARM) for f in findings)
     # the real register and KNOWN BROKEN section must both be non-empty —
     # an empty result here would mean the section-boundary parsing drifted
