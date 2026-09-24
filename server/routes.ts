@@ -57,6 +57,7 @@ import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { cachedGemIronOreMines } from "./gemIronOreMines";
 import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
+import { cachedGemChemicals } from "./gemChemicals";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
@@ -3362,6 +3363,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
         + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
         + "no forecast, valuation, or trading signal.",
+      count: hit.plants.length,
+      plants: hit.plants,
+    });
+  });
+
+  // GEM "Global Chemicals Inventory" — 868 chemical plants worldwide,
+  // RAW/FACTUAL (server/gemChemicals.ts). STATIC reference dataset, same
+  // seeded pattern as coal-terminals/iron-ore-mines/iron-steel-plants
+  // above: re-ingested on GEM's ~2x/year release cadence via scripts/
+  // gem_ingest.py, not a live poll. Closes the last of the 3 "cheapest"
+  // unrouted GEM-suite gaps the 2026-09-22 coal_terminals PRODUCT
+  // session's own backlog survey named (chemicals/iron_steel_plants/
+  // iron_ore_mines — research/open_questions.md's dated GEM-suite entry).
+  app.get("/api/data/chemicals", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemChemicals();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Global Chemicals Inventory",
+                         warming_up: true, count: 0, plants: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Global Chemicals Inventory",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "Chemical plants as catalogued by GEM: catalogued primary/secondary products and "
+        + "primary feedstock family (coal / natural gas / petroleum-liquid / NGL / low-carbon / "
+        + "other, as stated). Locations/feedstock as catalogued; no output, valuation, or trading "
+        + "signal.",
       count: hit.plants.length,
       plants: hit.plants,
     });

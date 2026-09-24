@@ -19,6 +19,7 @@ import {
   COAL_TERMINAL_TYPE_ICON, COAL_TERMINAL_TYPE_LABEL, coalTerminalStatusColor,
   IRON_ORE_STATUS_LABEL, ironOreStatusColor,
   IRON_STEEL_TECH_LABEL, ironSteelTechColor,
+  CHEMICAL_FEEDSTOCK_LABEL, chemicalFeedstockColor,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
@@ -476,7 +477,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -885,6 +886,7 @@ const LAYER_GROUP: Record<string, string> = {
   coal_terminals: "facilities",
   iron_ore_mines: "facilities",
   iron_steel_plants: "facilities",
+  chemicals: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
@@ -1574,7 +1576,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants || enabled.chemicals) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1666,6 +1668,14 @@ const LegendPanel = memo(function LegendPanel({
                       <LegendIcon key={t} icon="vt-mill" color={ironSteelTechColor(t)} label={IRON_STEEL_TECH_LABEL[t]} />
                     ))}
                     <span className="vt-legend-note">Global Energy Monitor — Global Iron and Steel Tracker: colour = primary production technology, as catalogued. Off by default. No output or valuation claim.</span>
+                  </>
+                )}
+                {enabled.chemicals && (
+                  <>
+                    {Object.keys(CHEMICAL_FEEDSTOCK_LABEL).map((f) => (
+                      <LegendIcon key={f} icon="vt-flask" color={chemicalFeedstockColor(f)} label={CHEMICAL_FEEDSTOCK_LABEL[f]} />
+                    ))}
+                    <span className="vt-legend-note">Global Energy Monitor — Global Chemicals Inventory: colour = primary feedstock family, as catalogued. Off by default. No output or valuation claim.</span>
                   </>
                 )}
               </div>
@@ -10939,6 +10949,91 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.iron_steel_plants, mapReady, mapSettled, setStatus]);
 
+  // ── GEM chemical plants (RAW; server/gemChemicals.ts) — 868 plants
+  // worldwide. New "vt-flask" glyph (a chemical plant is a genuinely
+  // different real-world kind from the mill/mine/terminal symbols above,
+  // per SYMBOLS NOT DOTS — no existing glyph fit); color = catalogued
+  // primary feedstock family (coal/natural_gas/petroleum/ngl/low_carbon/
+  // other) — this release's own lifecycle-status-free dimension, same as
+  // iron_steel_plants. Static reference dataset, same Law-I-compliant
+  // toggle-on/off mount pattern as coal_terminals/iron_ore_mines/
+  // iron_steel_plants above. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        if (map.getLayer("chemicals-pt")) map.removeLayer("chemicals-pt");
+        if (map.getSource("chemicals-points")) map.removeSource("chemicals-points");
+      } catch {}
+    };
+    if (!enabled.chemicals) { clear(); setStatus("chemicals", "off"); return; }
+    if (!mapSettled) { setStatus("chemicals", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("chemicals", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/chemicals", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.plants)) throw new Error("no plants");
+        if (map.getSource("chemicals-points")) return;
+        map.addSource("chemicals-points", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.plants.map((p: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+              properties: { ...p, tint: chemicalFeedstockColor(p.feedstockFamily), icon: "vt-flask" },
+            })),
+          } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "chemicals-pt", type: "symbol", source: "chemicals-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 8, 0.55],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const familyLabel = CHEMICAL_FEEDSTOCK_LABEL[p.feedstockFamily] || p.feedstockFamily;
+          setDetail({
+            kind: "chemicalplant",
+            title: p.name,
+            subtitle: familyLabel,
+            stats: [
+              { label: "Feedstock family", value: familyLabel },
+              { label: "Primary products", value: p.primaryProducts || "not stated" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Owner", value: p.owner || "—" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `${p.secondaryProducts ? `Secondary products: ${p.secondaryProducts}\n` : ""}` +
+                  `Feedstock (as catalogued): ${p.feedstockRaw || "not stated"}\n` +
+                  `Coordinate accuracy: ${p.coordinateAccuracy || "not stated"}\n\n` +
+                  `Source: Global Energy Monitor — Global Chemicals Inventory (CC BY 4.0). ` +
+                  `Location/feedstock as catalogued; no forecast, valuation, or trading signal.`,
+            sourceUrl: p.wiki || undefined,
+          });
+        };
+        detach = attachLayerInteractions(map, "chemicals-pt", onClick);
+        setStatus("chemicals", "active", d.count,
+          `${d.count.toLocaleString()} plants — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("chemicals", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.chemicals, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -12874,6 +12969,7 @@ export default function DataMapPage() {
     id === "coal_terminals" ? <ArrowLeftRight size={15} /> :
     id === "iron_ore_mines" ? <Gem size={15} /> :
     id === "iron_steel_plants" ? <Factory size={15} /> :
+    id === "chemicals" ? <FlaskConical size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -12924,7 +13020,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
