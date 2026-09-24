@@ -100985,3 +100985,282 @@ end-to-end with tests, matching the established two-step precedent
 byte-for-byte, no invented scope.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-24 (scheduled-routine [PRODUCT] session, fifth session this UTC day) [PRODUCT] — SHARED-minimal (server/routes.ts) + T-CLIENT (mapIcons.ts, datamap.tsx) + datacore/* — `lng_carriers.json` gets an honest shipyard-aggregated `/api/data/lng-shipyards` layer, closing the last of the four "harder" GEM-suite backlog items (v1.0.976)
+
+Territory: mixed by necessity, same shape as every prior GEM-suite session
+this thread — a new `server/gemLngCarriers.ts` module (T-BOT-adjacent but
+not actually bot/strategy code), a `server/routes.ts` route addition
+(SHARED, kept minimal/last per WORKSTREAM PARTITION), and `client/src/
+lib/mapIcons.ts` + `client/src/pages/datamap.tsx` (T-CLIENT) for the new
+map layer + legend + icon.
+
+CONTEXT: read CLAUDE.md in full, then `research/PROGRAM_STATE.md`
+(confirmed still the separate, stale MASTER-PROGRAM quality-audit track
+last touched 2026-08-15, not this session's thread — not claimed), the
+tail of `experiments.md`/`open_questions.md`/`wishlist.md`. Live health
+check first per this session's own task instructions: KNOWN BROKEN #42/
+#43's standing LIVENESS ALARM (trading loop killed since 2026-09-10,
+drawdown kill switch latched) is unchanged and already repeatedly
+notified by prior sessions — per this session's own instructions
+("product sessions do not preempt the DAILY routines' repair duty" and
+this is not a new fact), not re-notified here; noted, not blocking. No
+other KNOWN BROKEN item is code-actionable from a PRODUCT session's
+mandate.
+
+PICKED: `lng_carriers.json` off the 2026-09-24 (earlier, same UTC day)
+chemicals-registry session's own explicit NEXT/remaining-backlog list —
+the item research/open_questions.md's 2026-09-22 GEM-suite backlog entry
+flagged as needing "the shipyard honesty framing before shipping" before
+it could ship at all, unlike the three "cheapest" items (chemicals/
+iron_steel_plants/iron_ore_mines) all closed by 2026-09-24 earlier
+today. Independently re-verified the honesty framing rather than taking
+the prior note on faith — read `datacore/gem/lng_carriers.json` directly
+this session (1,143 carrier rows, `provenance.release`
+"LNG-Carrier-Tracker-December-2025-release.xlsx"): the only per-row
+coordinate is `Yard location latitude/longitude`, and a live `Counter`
+scan over exact (not rounded) lat/lon pairs found exactly 32 distinct
+values across the 1,125 rows that carry coordinates at all (18 rows,
+all `Status: "proposed"`, have none — no yard assigned yet) — and every
+one of those 32 coordinates maps to exactly ONE `Shipbuilder` name and
+one `Shipbuilder yard country/area` (checked all 32 groups for a
+multi-builder collision; found zero). So the per-row coordinate is
+really a per-SHIPYARD fact repeated once per hull built there, not
+1,143 independent vessel positions — plotting all 1,143 rows would
+either stack ~1,100 invisible duplicates on 32 pixels or imply 1,143
+distinct live vessel positions that don't exist, both dishonest under
+CLAUDE.md's RAW OVERLAYS vs SIGNALS rule (no predictive claim, but also
+no FABRICATED positional claim).
+
+DESIGN DECISION (this session's own, not prescribed by the backlog
+note): AGGREGATE by shipyard instead of shipping a per-carrier point
+layer at all — a genuinely different shape from every sibling GEM
+module in this family (chemicals/iron_steel_plants/iron_ore_mines/
+coal_terminals all ship one point per catalogued row). One point per
+shipbuilding yard (32 total), each carrying the count of carriers built
+there broken down by lifecycle status (active/on order/proposed) and
+the summed nameplate capacity (cbm) of the carriers with a known
+capacity. This is arguably a MORE useful fact than a per-carrier layer
+would have been even if the honesty problem didn't exist: it directly
+shows the extreme, real concentration of global LNG-carrier
+shipbuilding capacity (South Korea alone: 831 of 1,125 located
+carriers, across 6 of the 32 yards; China 141 carriers/8 yards; Japan
+109/6 yards; the remaining 9 countries combined, 44 carriers/12 yards).
+
+WHAT SHIPPED:
+- `server/gemLngCarriers.ts` — `classifyCarrierStatus` (the 3
+  exhaustively-observed lifecycle buckets: active/on order/proposed,
+  case-insensitive, unrecognized falls to "other" honestly, never
+  guessed), `slugifyShipyardId` (stable id from the Shipbuilder name;
+  live-verified unique across all 32 groups, no collision handling
+  needed), `normalizeLngShipyards` (the aggregation — groups by exact
+  `(lat, lon)`, sums per-group status counts and known capacity, drops
+  rows with no yard coordinates or no shipbuilder name per this file
+  family's established drop-not-infer rule), `loadGemLngShipyards`/
+  `cachedGemLngShipyards` (same missing/corrupt-file-degrades-to-null
+  precedent as every sibling module). 12 new tests — caught its own
+  arithmetic mistake before it shipped: the first test draft asserted
+  `totalCarriers: 1143` (the release's raw carrier count) and the real
+  run returned 1125, because `totalCarriers` correctly sums only
+  carriers actually placed in a shipyard group (the 18 uncoordinated
+  "proposed" rows are dropped, by design) — fixed the test and the
+  module docstring to state 1,125 precisely rather than loosening the
+  assertion, per READ-BEFORE-WRITE / MEASUREMENT INTEGRITY discipline
+  ("distrust results in proportion to how many things you tried" — one
+  wrong number, caught by running the test, not shipped).
+- `GET /api/data/lng-shipyards` (`server/routes.ts`) — `kind:"raw"`,
+  `predictive:false`, same `warming_up`-on-null-cache degrade shape and
+  `Cache-Control: public, max-age=86400` as every sibling GEM route; the
+  response `note` field states the shipyard-not-vessel-position honesty
+  framing explicitly, not just in code comments.
+- `client/src/lib/mapIcons.ts` — new `"vt-shipyard"` SDF shape (a
+  gantry crane over a hull on the ways — deliberately NOT `vt-tanker`/
+  `vt-cargo`, a BUILD site is a genuinely different kind from a vessel
+  position, per SYMBOLS NOT DOTS); `LNG_SHIPYARD_COUNTRY_COLOR`/
+  `lngShipyardCountryTier`/`LNG_SHIPYARD_COUNTRY_LABEL` (South Korea/
+  China/Japan each get their own tier — a real, extreme concentration
+  live-verified this session, not an artifact of the bucketing — every
+  other of the 12 shipbuilding nations pools to "other" rather than 9
+  near-invisible single-color legend rows).
+- `client/src/lib/mapIcons.test.ts` — 1 new test for
+  `lngShipyardCountryTier` (all 3 named tiers + unrecognized/missing
+  fallback).
+- `client/src/pages/datamap.tsx` — new `useEffect` map-layer block
+  (`lngshipyard-points`/`lngshipyard-pt`, same Law-I-compliant
+  toggle-on/off mount pattern as every sibling GEM layer), `LAYER_GROUP.
+  lng_shipyards = "facilities"`, legend section entry (gated on
+  `enabled.lng_shipyards`, one `LegendIcon` per country tier plus a
+  note stating the shipyard-not-vessel-position framing), the
+  facilities-group legend visibility gate, `layerIcon`'s `Anchor`
+  lucide icon (reused, already imported — same reuse precedent as
+  `Zap` appearing twice for powerplants/nrc_reactor_status), the
+  `statusFor` unit label (`"shipyards"`), and a new `"lngshipyard"`
+  member on the `Detail.kind` union for the click-through detail panel
+  (shipbuilder name, country, carrier counts by status, total nameplate
+  capacity — the body copy leads with the honesty statement: "This is
+  where GEM's tracked LNG carriers were physically BUILT, not a vessel
+  position").
+- `server/layersRegistry.test.ts` — Q11's `PINNED_GAP` 253 → 254 (same
+  reasoning as every sibling GEM layer: a fixed 32-point static
+  registry aggregated from the release has no distance-based LOD to
+  declare).
+- `datacore/layers.json` — new `lng_shipyards` entry (raw, live,
+  facilities group, point-symbol, GEM CC BY 4.0 attribution, full
+  honesty framing in the description field itself). 254 → 255 layers.
+- `datacore/signal_ladder.json` — `global_energy_monitor`'s note gained
+  a dated UPDATE (surgical text-append with an `assert old in s`
+  precondition check and a full JSON-validity re-read before
+  finalizing, per the L-lesson a prior session in this thread already
+  logged about `json.dump` reformatting this file). `status`/
+  `current_gate` unchanged (`raw_only`/0).
+- `script/build.ts` — `cp("datacore/gem/lng_carriers.json", ...)` added
+  in this same PR (R14 lesson), covered by `server/repoFiles.test.ts`'s
+  generalized ratchet without needing that test file edited (verified
+  live: the ratchet test passed and specifically exercises this new
+  line).
+
+NOT A SIGNAL, NOT A LADDER CHANGE: RAW catalogued geometry + lifecycle
+status + capacity only — no forecast, valuation, or trading signal.
+`global_energy_monitor` stays a `raw_only` root at `current_gate 0`,
+same posture as every other GEM artifact on this API.
+
+VERIFIED, not assumed (this sandbox's `node_modules` was empty at
+session start — `npm ci` run fresh, same recurring provisioning-gap
+every prior session in this thread has logged):
+- `npx tsx --test server/gemLngCarriers.test.ts client/src/lib/
+  mapIcons.test.ts server/layersRegistry.test.ts server/repoFiles.
+  test.ts`: 50/50 pass, including against the real checked-in
+  `datacore/gem/lng_carriers.json` (32 shipyards/1,125 carriers pinned
+  as a regression anchor) and the `script/build.ts` staging ratchet.
+- `bash scripts/tsc_ratchet.sh`: `11 <= 11, TS2304 = 0` — exact match
+  to `ci/tsc_baseline.txt`'s pin (a first pre-`npm ci` run misleadingly
+  showed 3 errors from missing `@types/node`/`vite/client`, resolved by
+  `npm ci`, same false reading every prior fresh-sandbox session has
+  logged).
+- `bash scripts/counter_ratchet.sh`: first run correctly FAILED —
+  `empty_ts_catch` 495→496, `ts_any` 1247→1249, `boundary_any`
+  237→238 (all three from the same established idiom every sibling GEM
+  layer's `clear()`/click-handler/`.map()` callbacks already use —
+  traced each delta to its exact source line: the `clear()` function's
+  `catch {}`, the inline `(y: any) =>` inside `.map()` [`ts_any` only —
+  an anonymous arrow, `boundary_any`'s narrower regex correctly
+  excludes it, same distinction the 2026-09-24 chemicals session's own
+  entry already documented], and the named `const onClick = (e: any)
+  =>` [both counters]). Re-pinned all three in `ci/counter_baseline.
+  txt`, PLUS `test_ts_code_only.py`'s own hardcoded parametrize pins
+  for `empty_ts_catch`/`ts_any` in this same PR (that Python test ties
+  itself to the pin file and fails loudly if the two drift — caught
+  this by running the full python suite, not assumed: it failed on the
+  stale 495/1247 pins until fixed). `tests_run_in_ci`/
+  `tests_gating_merge` improved 469→470 (this session's own +1 new test
+  file — only visible after `git add`, matching the L-lesson that
+  `program_status.sh`/`scripts/ts_code_only.py`-family counters read
+  `git ls-files` and undercount an untracked new file) and `assertions`
+  improved 15315→15356 (re-measured twice, once before and once after
+  `git add`, re-pinned each time — this session's own +41 new asserts
+  across both new/extended test files). Re-ran after each re-pin:
+  **25/25 counters OK**.
+- `python3 -m pytest -q`: first run showed 2 failures (the stale
+  `test_ts_code_only.py` pins above); fixed, re-ran: **2162 passed, 1
+  skipped, 54 subtests** — zero regressions, up from 2147 the prior
+  2026-09-24 (chemicals) session's own reading (this session's own +15:
+  13 net Python-visible assertions plus the 2 previously-failing cases
+  now passing).
+- `python3 -c "import json; json.load(open('datacore/signal_ladder.
+  json'))"` and the equivalent for `datacore/layers.json`: both valid,
+  56 roots / 255 layers (unchanged root count, +1 layer, as expected).
+- `npm run build`: clean (same pre-existing chunk-size/astronomy-engine
+  warnings every prior session has already noted, none new); confirmed
+  `dist/datacore/gem/lng_carriers.json` exists after the build.
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — client (full node
+  suite including all edits above), python 2162/1 skipped, deploy-gate
+  smoke PASS (`/api/health` 200 in 2.4s under latched-kill-switch +
+  stale-liveness fixtures, `status=degraded` as designed), quarantine
+  0/1, none overdue.
+- `npm run visual` at 390/768/1440 (PROMOTION RULE 6, this PR touches
+  `client/`): **0 hard failures**. Every warning printed (touch-target
+  sizes, clipped controls on landing/newsletterissue/developers/
+  apikeys) is pre-existing and unrelated to this diff — grepped the
+  full run output for any `datamap`/`shipyard` line and found none,
+  consistent with this layer defaulting OFF (same as every sibling GEM
+  layer) so the harness's default-state screenshot never mounts it;
+  visually verifying the ON state (toggle it live, confirm the legend
+  and detail popup) is a fair follow-up for whoever next touches this
+  layer, not attempted from this headless sandbox run.
+- Version bumped 1.0.975 → 1.0.976 (`package.json` + `package-lock.
+  json`, read-and-incremented from freshly-fetched `origin/main`
+  immediately before committing — branch tip already equal to `origin/
+  main`'s tip at `3b3e534`, the PR #1166 market-hours-hold docs commit,
+  confirmed via `git merge-base HEAD origin/main`, no rebase needed).
+
+GATES: full local suite above covers every file this diff touches; no
+runtime `.ts`/`.py` behavior changed outside the new research module,
+its tests, and documentation/bookkeeping files — `server/bot.ts`,
+`bot_engine.py`, `system_config.py`, `strategies/`, `risk_kill_switch.
+py`, and every order-path file are untouched. CI runs the same gates on
+the PR; subscribed to drive it green if CI disagrees.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a RAW-overlay data pipeline and map
+layer, no trading/scoring/sizing/threshold logic touched.
+
+MEASUREMENT INTEGRITY: not applicable — this is not measurement code;
+stated for completeness rather than silently omitted.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+ads code in this diff; no `/api/v1` route added in this PR (deferred to
+a follow-up mirror PR per the established two-step precedent — every
+sibling GEM route in this family got its RAW `/api/data/*` route first,
+`/api/v1` mirror second, in separate PRs).
+
+DEPLOY-COUPLING NOTE: session ran ~14:40 ET (confirmed via `TZ=America/
+New_York date` at commit time) — INSIDE 9:30-16:00 ET market hours.
+Per this session's own task instructions ("prefer merging PRs outside
+9:30-16:00 ET; if working mid-market, prepare the PR and note in it
+that merge should wait for the close"), stated honestly in the PR body:
+merge should wait until after 4:00 PM ET. This repo's CI auto-merge
+(`.github/workflows/ci.yml`'s `automerge` job) has no actual
+time-of-day gate — it merges any green `claude/*` PR regardless of
+market hours, the same structural gap this thread has already tracked
+repeatedly (22+ prior confirmed occurrences as of the 2026-09-23
+duplicate-PR-#1148 salvage entry, most recently PR #1165/#1166 earlier
+this same UTC day). This PR is a zero-trading-code API-surface/map-layer
+change, so the market-hours risk the mechanism exists to guard against
+(a deploy interrupting the live trading loop mid-session) does not
+apply in substance even if the merge lands mid-market — stated for
+completeness per the standing instruction, not re-tallied as a new
+numbered occurrence here (that bookkeeping belongs to whichever session
+next runs the full RULE-REVIEW tally).
+
+NEXT: (1) `oil_ngl_pipelines.json`/`gas_pipelines.json` (no route
+geometry in this GEM release variant, need geocoding or a different
+data source) and `steel_units.json`/`steel_raw_materials.json`
+(furnace-level attribute data keyed to `iron_steel_plants.json`, or a
+country-level balance sheet better suited to a future choropleth than
+a point layer) are now the ONLY remaining unrouted GEM-suite items —
+every point-layer-shaped candidate named in the 2026-09-22 backlog
+entry is now shipped. (2) an `/api/v1/data/lng-shipyards` keyed mirror
+is the natural same-shape follow-up PR, matching the `chemicals`/
+`iron_steel_plants`/`iron_ore_mines`/`coal_terminals` precedent
+(route+map layer first, mirror second) — a future session should
+verify live via `grep` that the gap still exists before starting. (3)
+visually verify the ON state of this layer live (toggle it, confirm
+legend + detail popup render as designed) — not done from this headless
+sandbox run. (4) KNOWN BROKEN #42/#43/#44 remain standing human-decision
+items, unchanged, not re-notified.
+
+STARVED: no — this session read CLAUDE.md and research/ per its own
+task instructions, checked KNOWN BROKEN/liveness first, then took the
+single explicitly-named remaining item from the GEM-suite backlog
+(the one flagged as blocked on a design decision, not merely
+unclaimed), independently re-verified the honesty framing rather than
+taking the prior note on faith (live-verified all 32 groups have
+exactly one shipbuilder each, not assumed from the summary count),
+made and documented its own design decision (aggregate by shipyard, not
+a per-carrier layer) rather than mechanically copying the sibling
+point-layer recipe where it didn't honestly apply, caught and fixed its
+own test's wrong number before it shipped, full gates green including
+the visual harness, and a precise NEXT for whoever picks up the
+remaining two genuinely-harder items or the `/api/v1` mirror. Thrash
+ratio well under the 7+ trigger — no meta-problem.
+
+NOT A SPEND REQUEST.
