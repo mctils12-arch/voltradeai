@@ -871,9 +871,13 @@
     border-radius: 12px; padding: 6px; position: relative;
   }
   .waitlist input {
-    flex: 1; background: transparent; border: none; color: var(--ink);
+    /* min-width:0 lets the input actually shrink — a flex item's default
+       min-width is its intrinsic width, which pushed the Subscribe button
+       ~33px past the form's edge on a 390px phone */
+    flex: 1; min-width: 0; background: transparent; border: none; color: var(--ink);
     padding: 12px 16px; font-family: var(--sans); font-size: 15px; outline: none;
   }
+  .waitlist .btn { flex-shrink: 0; white-space: nowrap; }
   .waitlist input::placeholder { color: var(--muted); }
   .cta-meta {
     margin-top: 20px; font-family: var(--mono); font-size: 11px;

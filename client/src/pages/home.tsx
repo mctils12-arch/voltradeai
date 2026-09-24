@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
@@ -36,6 +36,12 @@ const TABS: Tab[] = [
   { id: "taxes",     label: "Taxes",     icon: <Calculator size={14} />, mobileIcon: <Calculator size={20} />, requiresAuth: false },
   { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
 ];
+
+// Phone bottom bar (2026-09-24): 8-9 tabs squeezed into a 390px bar left
+// ~43px per tab, so labels ran together ("AnalyzeResearchScanner") and tap
+// targets fell under the 44px minimum. Four primary tabs + a More sheet is
+// the standard phone pattern; everything stays one tap from the sheet.
+const MOBILE_PRIMARY_TABS: TabId[] = ["analyze", "research", "news", "data"];
 
 function Logo() {
   return (
@@ -241,7 +247,16 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     setActiveTab("analyze");
   };
 
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileMoreOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileMoreOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileMoreOpen]);
+
   const handleTabClick = (tabId: TabId) => {
+    setMobileMoreOpen(false);
     const tab = TABS.find(t => t.id === tabId);
     if (tab?.requiresAuth && !authenticated) {
       setPendingTab(tabId);
@@ -533,21 +548,60 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       </main>
 
       {/* ── Mobile bottom tab bar (shown only on mobile) ── */}
-      <nav className="mobile-bottom-bar">
-        {TABS.filter(tab => !tab.requiresOwner || isOwner).map(tab => (
-          <button
-            key={tab.id}
-            className={`mobile-tab-btn ${activeTab === tab.id ? "active" : ""}`}
-            onClick={() => handleTabClick(tab.id)}
-          >
-            {tab.mobileIcon}
-            <span className="mobile-tab-label">{tab.label}</span>
-            {tab.requiresAuth && !authenticated && (
-              <span className="mobile-tab-lock">🔒</span>
+      {(() => {
+        const visible = TABS.filter(tab => !tab.requiresOwner || isOwner);
+        const primary = visible.filter(t => MOBILE_PRIMARY_TABS.includes(t.id));
+        const overflow = visible.filter(t => !MOBILE_PRIMARY_TABS.includes(t.id));
+        const activeOverflow = overflow.find(t => t.id === activeTab);
+        return (
+          <>
+            {mobileMoreOpen && (
+              <div className="mobile-more-backdrop" onClick={() => setMobileMoreOpen(false)}>
+                <div className="mobile-more-sheet" role="dialog" aria-label="More sections"
+                     onClick={(e) => e.stopPropagation()}>
+                  <div className="mobile-more-grip" aria-hidden="true" />
+                  <div className="mobile-more-grid">
+                    {overflow.map(tab => (
+                      <button key={tab.id}
+                              className={`mobile-more-item ${activeTab === tab.id ? "active" : ""}`}
+                              onClick={() => handleTabClick(tab.id)}>
+                        {tab.mobileIcon}
+                        <span>{tab.label}</span>
+                        {tab.requiresAuth && !authenticated && <span className="mobile-tab-lock">🔒</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
-          </button>
-        ))}
-      </nav>
+            <nav className="mobile-bottom-bar">
+              {primary.map(tab => (
+                <button
+                  key={tab.id}
+                  className={`mobile-tab-btn ${activeTab === tab.id ? "active" : ""}`}
+                  onClick={() => handleTabClick(tab.id)}
+                >
+                  {tab.mobileIcon}
+                  <span className="mobile-tab-label">{tab.label}</span>
+                  {tab.requiresAuth && !authenticated && (
+                    <span className="mobile-tab-lock">🔒</span>
+                  )}
+                </button>
+              ))}
+              <button
+                className={`mobile-tab-btn ${activeOverflow || mobileMoreOpen ? "active" : ""}`}
+                aria-expanded={mobileMoreOpen}
+                aria-label={activeOverflow ? `More sections (showing ${activeOverflow.label})` : "More sections"}
+                onClick={() => setMobileMoreOpen(v => !v)}
+                data-vt-mobile-more
+              >
+                {activeOverflow ? activeOverflow.mobileIcon : <LayoutGrid size={20} />}
+                <span className="mobile-tab-label">{activeOverflow ? activeOverflow.label : "More"}</span>
+              </button>
+            </nav>
+          </>
+        );
+      })()}
     </div>
   );
 }

@@ -100580,3 +100580,64 @@ escalation was warranted (unchanged reading, already notified earlier
 today), thrash ratio 1/10 [REPAIR] well under the 7+ trigger.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-24 [PRODUCT] — T-CLIENT — MOBILE PASS: tab bar, page overflows, iOS input zoom, stacked stock search (v1.0.973)
+
+Human request: "optimize for mobile … look at the other features of the
+site and see if they're still working, like the news and stock search."
+
+METHOD (measured, not eyeballed): built main locally (bundle hash
+verified IDENTICAL to production, index-B-i12gfq.js), served it with
+/api/* forwarded to LIVE production, and drove it in Chromium at
+360/390/430px with isMobile+touch. Sandbox Chromium cannot trust the
+egress proxy's CA, so the local-build-plus-API-forward rig is the way
+to screenshot "prod" from here — kept in the session scratchpad.
+
+FEATURE AUDIT — all working end-to-end at 390px against live data:
+stock search (AAPL: 14 result sections, 3.0s), research (MSFT
+verdict, 10.5s — slow but correct), news + ticker filter (TSLA),
+scanner (24 rows, table in a scrollable wrapper), watchlist add
+(NVDA). Zero page errors, zero failed API calls (one transient 502 on
+/api/data/shadowstats was the forwarder; direct read 200 in 0.2s).
+Finding filed for its own PR: pre-market the AAPL options chain has
+no live quotes (bid/ask=0), so top_spreads=[] — correct behaviour —
+but the page then silently drops the spreads section while its copy
+promises "top-ranked options spreads". Needs an honest empty state.
+
+FIXED (one logical change — phone layout):
+1. Bottom tab bar: 8 tabs (9 for owner) in 390px = ~43px each,
+   labels touching ("AnalyzeResearchScanner"). Now 4 primary tabs +
+   More sheet (3-col grid, backdrop/Esc close, More adopts the active
+   overflow tab's icon+label). Measured at 360px: 70px buttons, 48px
+   tall, 21px between labels. Desktop unaffected (bar display:none).
+2. /developers laid out at 521px on a 390px phone (whole page zoomed
+   out). Root cause is DATA: an endpoint caption renders live license
+   text containing a slash-joined source list with no line-break
+   opportunity; every new registry lengthens it, so this would have
+   recurred. Fixed at page level (overflow-wrap:anywhere) → 390px.
+3. Every input on the site was 13-15px; iOS Safari zooms the whole
+   page on focusing an input <16px. Global touch-device rule
+   ((hover:none) and (pointer:coarse)) → 16px. Audit: 0 sub-16px
+   inputs across 8 pages after, no new overflow from the larger text.
+4. Taxes trade entry: a 720px table of inputs → labeled 2-col card per
+   trade on phones (CSS-only, data-label; desktop keeps the table).
+5. Landing waitlist: input lacked min-width:0, pushing Subscribe 33px
+   past the form edge.
+6. Stock search stacks on phones (full-width field + full-width
+   Analyze button); placeholder no longer truncates to "Enter a
+   ticker — A". Search icon was painted UNDER the input's
+   semi-opaque background (DOM order) → z-index:1; it now shows in
+   the gap reserved for it (desktop too).
+7. Bottom bar height now ADDS the safe-area inset instead of carving
+   it out of a fixed 64px (latent: would crush icons to ~30px on
+   Face-ID iPhones the day viewport-fit=cover is enabled).
+
+LIVE HEALTH at session start: status degraded solely from KNOWN
+BROKEN #43 — trading loop killed since 2026-09-10 (drawdown kill at
+-18.0%, drawdownPct now -6.5%, 65 market hours dark). Resuming is a
+human decision per RULE REVIEW; already push-notified repeatedly by
+prior sessions — surfaced to the human directly in-session this time
+since they asked what's working. Not code-actionable here.
+
+LADDER/BACKTEST: N/A (client layout only; no trading logic, no data
+claims changed).
