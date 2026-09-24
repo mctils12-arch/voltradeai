@@ -172,6 +172,29 @@ GEM-suite mirror backlog rather than leaving a partial thread.
 
 NOT A SPEND REQUEST.
 
+ADDENDUM (2026-09-24, ~12:17 PM ET, minutes after PR open): PR #1165
+merged automatically despite this entry's own explicit MERGE HOLD note
+and PR-body request to wait until after 4:00 PM ET — confirmed via the
+`pull_request.closed`/`outcome: "merged"` subscription event this
+session received, `/api/health` re-checked immediately after (still
+`status: "degraded"` solely from the unchanged KNOWN BROKEN #43 liveness
+alarm, no new alarm, deploy had not yet rolled to this container at
+uptime_s 9732). This is another confirmed occurrence of the
+already-tracked "auto-merge has no time-of-day gate" gap
+(`.github/workflows/ci.yml`'s `automerge` job — see this file's/
+wishlist.md's running tally, 22+ occurrences as of the 2026-09-23
+duplicate-PR-#1148 salvage entry, not re-tallied with a number here per
+that same entry's own convention that the full tally belongs to a
+dedicated RULE-REVIEW session). Not a live break — this PR is a
+zero-trading-code API-surface change, so the market-hours risk the hold
+convention exists to guard against does not apply in substance here
+either, same as PR #1164's own DEPLOY-COUPLING NOTE reasoned. No action
+taken beyond this log entry; the structural fix (a real time-of-day gate
+in the automerge job, or the automerge job dropped in favor of a human/
+scheduled merge trigger) remains a wishlist.md item for the next
+RULE-REVIEW or CI-workflow-adjacent session, not self-applied here
+(`.github/workflows/` is a FROZEN PATH).
+
 ## 2026-09-24 (scheduled-routine session, third session this UTC day) [PIPELINE] — `research_state_check.py`'s `archive_freshness` manifest extended to cover `datacore/port_dwell_weekly.json`, closing the exact NEXT(2) the prior (sentinel2) session this same UTC day filed for whoever picked it up next (v1.0.972)
 
 TERRITORY: SHARED-minimal (scripts/research_state_check.py, test_research_state_check.py,
