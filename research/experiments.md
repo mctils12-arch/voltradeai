@@ -3,6 +3,175 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-24 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — SHARED-minimal (server/routes.ts, server/apiProduct.ts) — `iron_steel_plants` gets its `/api/v1/data/iron-steel-plants` keyed mirror, closing the full GEM-suite "/api/v1 mirror" backlog (v1.0.975, PR pending — MERGE HOLD until after 4:00 PM ET)
+
+TERRITORY: T-BOT/shared (server/routes.ts, server/apiProduct.ts, package.json)
+per WORKSTREAM PARTITION — kept as the LAST commit, minimal diff, per the
+MERGE-ORDER PROTOCOL.
+
+SESSION-START: read CLAUDE.md in full, then research/experiments.md's tail
+(the 2026-09-24 chemicals-mirror PRODUCT session's entry, the most recent),
+research/open_questions.md's KNOWN BROKEN section, and research/
+wishlist.md's tail. Loop-health check: last 10 tagged entries =
+[RESEARCH],[PRODUCT]x5,[REPAIR],[PIPELINE],[PRODUCT]x2 — 7/10 PRODUCT, 1
+REPAIR, well under the 7+ [REPAIR] thrash-ratio trigger; no meta-problem to
+address. Live health check first per this session's own instructions:
+`/api/health` reads `status: "degraded"` solely from the already-known
+KNOWN BROKEN #43 LIVENESS ALARM (`bot.status: "killed"`, drawdownPct -6.6%,
+dark 65.0 market hours / 348.8 wall-clock hours since the 2026-09-10T03:12
+drawdown-kill trip) — unchanged from every session since, a standing
+human-decision item per RULE REVIEW, already push-notified repeatedly by
+prior sessions; not re-notified here (no new fact — this session's own
+PushNotification judgement call, consistent with the "err toward silence
+on an unchanged, already-surfaced condition" guidance). Every other
+`/api/health` check (server/database/alpaca/python/scanner/feeds/
+licensing/process/memory) reads `"ok"`. Not code-actionable from this
+session (resuming the loop is the standing human decision, not a bug this
+session can fix).
+
+PICKED: the 2026-09-24 (earlier, same UTC day) chemicals-mirror PRODUCT
+session's own explicit NEXT: "`iron_steel_plants` remains the one
+newly-shipped registry still missing its mirror — the natural next pick
+off this same backlog." All other directly-queued items re-checked and
+confirmed unchanged/still blocked before falling through to this: KNOWN
+BROKEN #43/#44 are standing human-decision items (not re-actionable here),
+the GNSS-jamming x defense-ETF cross-connection probe remains
+archive-depth-blocked (pre-registered 2026-09-22, not yet re-checked for
+day-count — not re-checked again this session either, no reason to expect
+it cleared in ~2 days), and the harder remaining GEM-suite registries
+(lng_carriers/oil_ngl_pipelines/steel_units/steel_raw_materials) remain
+correctly-declined non-simple ports, unchanged. This mirror pick is the
+smallest, most mechanical, most clearly-scoped highest-value item actually
+queued — matching the established two-step route-then-mirror precedent
+byte-for-byte (same class of PR as PR #1164's chemicals mirror, itself
+following coal-terminals/coal-mine-features/iron-ore-mines).
+
+WHAT SHIPPED: `GET /api/v1/data/iron-steel-plants` in `server/routes.ts`,
+reusing the existing `cachedGemIronSteelPlants()` cache the RAW
+`/api/data/iron-steel-plants` route (shipped 2026-09-22) already
+populates — no new fetch, no new poller, no new computation, no
+`warming_up` cache-miss state beyond the same null-cache 503 every sibling
+GEM mirror already returns (static reference dataset, re-ingested on GEM's
+~2x/year release cadence). `server/apiProduct.ts` gained: the
+`data/iron-steel-plants` `LICENSE_MARKS` entry (CC BY 4.0, `resell: "ok"`,
+matching the coal-terminals/coal-mine-features/iron-ore-mines/chemicals
+class), an `apiMeta()` endpoint listing entry, a `voltrade_iron_steel_
+plants` `agentToolSpec` tool entry (`returns_provenance:
+["data/iron-steel-plants"]`), and a
+`RESPONSE_DATA_SCHEMAS.voltrade_iron_steel_plants` entry mirroring
+`IronSteelPlant`'s real field list (`id`/`name`/`technology` required,
+everything else optional per `normalizeIronSteelPlants`'s own
+drop-not-infer rule) — this feeds `openApiSpec()` automatically, no
+separate wiring needed there. `server/apiProduct.test.ts` gained: the two
+minimal meta-honesty/route-wiring assertions matching the chemicals PR's
+own precedent, PLUS a full dedicated license-mark test (matching the
+fuller iron-ore-mines precedent, since this closes out the registry
+family rather than being a same-day same-registry follow-up) asserting
+the CC BY 4.0/resell-ok mark, the tool's existence, its
+`returns_provenance`, and three honesty phrases (`"no predictive claim"`,
+`"raw_only"`/`"current_gate 0"`, and the production-technology
+classifier's `"never inferring"` presence-priority rule) — 9 new
+assertions total.
+
+This closes the FULL GEM-suite "/api/v1 mirror" backlog: all 4 of
+`coal_terminals`/`coal-mine-features`/`iron_ore_mines`/`chemicals`/
+`iron_steel_plants` (5 registries, `coal_terminals`+`coal-mine-features`
+were the original pair) now have both a RAW route and an `/api/v1` mirror.
+No further follow-up PR is queued on this specific thread.
+
+RAW catalogued reference data, no predictive claim — `global_energy_
+monitor` is a `raw_only` root (`datacore/signal_ladder.json`,
+`current_gate` 0), unchanged by this PR (route-only work, no ladder gate
+attempted or claimed).
+
+VERIFIED, not assumed:
+- `npx tsx --test server/apiProduct.test.ts server/gemIronSteelPlants.test.ts`:
+  86/86 pass, including the new license-mark test — caught and fixed one
+  own test-wording bug in the same session (the tool description used
+  `"NEVER inferring"` (capitalized) while the test asserted lowercase
+  `"never inferring"` via case-sensitive `.includes()`; fixed the test to
+  `.toLowerCase()` rather than weakening the description's honesty
+  wording).
+- `npx tsc`/`bash scripts/tsc_ratchet.sh`: first run (before `npm ci`, this
+  fresh sandbox container had no `node_modules`) misreported 3 errors —
+  root-caused live via `npx tsc --noEmit` (TS2688 "cannot find type
+  definition file for 'node'"/`'vite/client'`, no `node_modules/@types`
+  directory on disk) as the well-established fresh-container provisioning
+  gap prior sessions have already documented, not a real regression; after
+  `npm ci`, re-ran clean: 11 errors, exact match to `ci/tsc_baseline.txt`'s
+  pin, TS2304=0 (no TS file's type surface changed shape, only new
+  route/schema code added).
+- `bash scripts/counter_ratchet.sh`: `assertions` 15306 -> 15315 (this
+  PR's own +9 asserts across the new/modified test blocks) — re-pinned in
+  `ci/counter_baseline.txt` in the same commit per PROMOTION RULE 5; all
+  other 24 counters unchanged; re-ran after re-pinning, 25/25 OK.
+- `bash scripts/gated_tests.sh` (full suite, run once this session after
+  the fresh-container `npm ci`/`pip install` provisioning was already
+  done): "GATE PASSED: all required suites green; quarantine 0/1, none
+  overdue" — python 2162/1 skipped, 54 subtests; deploy-gate smoke PASSED
+  (`/api/health` 200 in 4.5s under latched-kill-switch + stale-liveness
+  fixtures, `npm run build` clean, same pre-existing chunk-size/
+  astronomy-engine warnings every prior session has already noted, none
+  new). Remote CI (`.github/workflows/ci.yml`) re-runs the same gates
+  independently before auto-merge — this PR will be subscribed and driven
+  to green if CI disagrees.
+- `git fetch origin main` immediately before committing: branch was
+  already at `origin/main`'s tip (`5a2ec17`, the chemicals-mirror PR
+  #1164) — no rebase needed.
+- Version bumped 1.0.974 -> 1.0.975 (`package.json` + `package-lock.json`,
+  read-and-incremented immediately before commit; both `version` fields in
+  `package-lock.json` — the top-level and the nested `packages[""]` entry
+  — updated to match).
+
+GATES: no runtime trading code touched — `server/bot.ts`, `bot_engine.py`,
+`system_config.py`, `strategies/`, `risk_kill_switch.py`, and every
+order-path file are untouched. This is API-surface/docs-generation code
+only (route registration + license/schema metadata + tests).
+
+BACKTEST: N/A per PROMOTION RULE 3 — not a trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff.
+
+MONETIZATION TRIPWIRE: this PR touches the paid API-product surface
+(`/api/v1`, license marks, resell terms) but does NOT touch billing,
+pricing, subscriptions, ads, or paid-feature gating — no
+BILLING_ENABLED/STRIPE_SECRET_KEY code path, no aircraft-provider
+compliance-relevant code. The tripwire's own re-check condition is not
+met here; not re-run.
+
+DEPLOY-COUPLING NOTE: session ran ~12:0x PM ET (confirmed via `TZ=America/
+New_York date` at commit time), squarely inside 9:30-16:00 ET market
+hours. Per this scheduled run's own task instructions, the PR is prepared
+but merge should be HELD until after 4:00 PM ET — this is a
+zero-trading-code API-surface change (no order-path, sizing, or risk file
+touched), so it is not a "critical live break" fix that would justify an
+earlier merge. This repo's CI auto-merge (`.github/workflows/ci.yml`'s
+`automerge` job) has no time-of-day gate (the standing tracked gap, per
+the 2026-09-23/09-24 sessions' own notes in this file/wishlist.md) — the
+PR description states the hold explicitly since the mechanism itself will
+not enforce it.
+
+NEXT: (1) the harder remaining GEM-suite backlog items are unchanged —
+`lng_carriers.json`/`oil_ngl_pipelines.json`/`gas_pipelines.json`/
+`steel_units.json`/`steel_raw_materials.json`, all previously screened and
+correctly declined as not simple ports of the point-layer recipe. (2)
+KNOWN BROKEN #43/#44 remain standing human-decision items, unchanged, not
+re-notified. (3) the GNSS-jamming x defense-sector-ETF cross-connection
+probe (filed 2026-09-22) remains archive-depth-blocked — a future session
+should check the live accumulated destrided-pairs count against its
+pre-registered >=15 bar.
+
+STARVED: no — this session's primary action was the queue's own
+explicitly-named next item, unclaimed since the 2026-09-24 (earlier)
+chemicals-mirror session filed it as this exact follow-up; shipped
+end-to-end with tests matching the established precedent, caught and
+fixed its own test-wording bug before it shipped, closed out the entire
+GEM-suite mirror backlog rather than leaving a partial thread.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-24 (scheduled-routine session, third session this UTC day) [PIPELINE] — `research_state_check.py`'s `archive_freshness` manifest extended to cover `datacore/port_dwell_weekly.json`, closing the exact NEXT(2) the prior (sentinel2) session this same UTC day filed for whoever picked it up next (v1.0.972)
 
 TERRITORY: SHARED-minimal (scripts/research_state_check.py, test_research_state_check.py,
