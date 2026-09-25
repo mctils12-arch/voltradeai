@@ -478,7 +478,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "lngshipyard" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "lngshipyard" | "steelrawmaterials" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -889,6 +889,7 @@ const LAYER_GROUP: Record<string, string> = {
   iron_steel_plants: "facilities",
   chemicals: "facilities",
   lng_shipyards: "facilities",
+  steel_raw_materials: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
@@ -1014,6 +1015,20 @@ function cancerRateColor(rate: number | null | undefined): string {
   for (const [stop, c] of CANCER_RATE_STOPS) { if (rate >= stop) color = c; else break; }
   return color;
 }
+
+// GEM steel raw-materials country choropleth (server/gemSteelRawMaterials.ts)
+// — a sequential green ramp (deliberately NOT the red/orange hazard palette
+// above: this is a production-volume statistic, not a danger reading) on
+// iron ore mined (ttpa). Three distinct states, never conflated (same
+// no-data-must-never-look-like-a-good-reading rule as the cancer choropleth
+// above): NO DATA (has_data:false — no GEM record for this country) vs. a
+// reported ZERO (has_data:true, most countries genuinely mine no iron ore —
+// a real fact) vs. the positive-value ramp.
+const STEEL_RAW_NO_DATA = "#334155";
+const STEEL_RAW_ZERO = "#1c2b31";
+const STEEL_RAW_STOPS: Array<[number, string]> = [
+  [0, "#e3f5ec"], [1000, "#a9dfc4"], [10000, "#67c297"], [50000, "#289566"], [200000, "#0b5c3f"],
+];
 
 // GRID VISION national rollout — one OSM-derived PMTiles per state (built by
 // scripts/build_power_tiles.sh, committed under client/public/tiles/). The
@@ -1578,7 +1593,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants || enabled.chemicals || enabled.lng_shipyards) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits || enabled.coal_terminals || enabled.iron_ore_mines || enabled.iron_steel_plants || enabled.chemicals || enabled.lng_shipyards || enabled.steel_raw_materials) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1686,6 +1701,19 @@ const LegendPanel = memo(function LegendPanel({
                       <LegendIcon key={t} icon="vt-shipyard" color={LNG_SHIPYARD_COUNTRY_COLOR[t as keyof typeof LNG_SHIPYARD_COUNTRY_COLOR]} label={LNG_SHIPYARD_COUNTRY_LABEL[t as keyof typeof LNG_SHIPYARD_COUNTRY_LABEL]} />
                     ))}
                     <span className="vt-legend-note">Global Energy Monitor — Global LNG Carrier Tracker: one point per SHIPBUILDING YARD, not a vessel position — colour = shipbuilder's country. Off by default. No output or valuation claim.</span>
+                  </>
+                )}
+                {enabled.steel_raw_materials && (
+                  <>
+                    {STEEL_RAW_STOPS.map(([stop, color], i) => (
+                      <span key={stop} className="vt-legend-chip">
+                        <i style={{ background: color }} />
+                        {i === STEEL_RAW_STOPS.length - 1 ? `≥ ${stop.toLocaleString()}` : `${stop.toLocaleString()}–${STEEL_RAW_STOPS[i + 1][0].toLocaleString()}`} kt/yr
+                      </span>
+                    ))}
+                    <span className="vt-legend-chip"><i style={{ background: STEEL_RAW_ZERO }} /> Reports 0 mined</span>
+                    <span className="vt-legend-chip"><i style={{ background: STEEL_RAW_NO_DATA }} /> No GEM record</span>
+                    <span className="vt-legend-note">Global Energy Monitor — national met-coal/iron-ore balance sheet: colour = iron ore mined (ttpa), country-level accounting figure. Off by default. No forecast or trading signal.</span>
                   </>
                 )}
               </div>
@@ -11133,6 +11161,99 @@ export default function DataMapPage() {
     );
     return () => { stopLoad(); detach(); };
   }, [enabled.lng_shipyards, mapReady, mapSettled, setStatus]);
+
+  // ── GEM steel raw-materials country balance sheet (RAW/FACTUAL; server/
+  // gemSteelRawMaterials.ts) — the Iron & Steel Tracker's companion national
+  // met-coal/iron-ore accounting release. Choropleth FILL by admin0 country
+  // polygon (server/gemSteelRawMaterials.ts pre-joins geometry + balance
+  // into one ready GeoJSON FeatureCollection, same shape as
+  // server/cdcCancer.ts's county join) — deliberately NOT points: this
+  // release has no per-row coordinates at all, only a country name, so a
+  // point/centroid rendering would invent a location the data doesn't
+  // carry. Static artifact, rebuilt session-side on GEM's own ~2x/year
+  // release cadence — no boot poll. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.steel_raw_materials) {
+      try {
+        if (map.getLayer("steelraw-fill")) map.removeLayer("steelraw-fill");
+        if (map.getLayer("steelraw-outline")) map.removeLayer("steelraw-outline");
+        if (map.getSource("steelraw")) map.removeSource("steelraw");
+      } catch {}
+      setStatus("steel_raw_materials", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("steel_raw_materials", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("steel_raw_materials", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/steel-raw-materials", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!d.geojson?.features?.length) throw new Error("no country geometry in response");
+        if (map.getSource("steelraw")) return;
+        map.addSource("steelraw", {
+          type: "geojson",
+          data: d.geojson,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "steelraw-fill", type: "fill", source: "steelraw",
+          paint: {
+            "fill-color": [
+              "case",
+              ["==", ["get", "has_data"], false], STEEL_RAW_NO_DATA,
+              ["==", ["get", "iron_ore_mined_ttpa"], null], STEEL_RAW_NO_DATA,
+              ["==", ["get", "iron_ore_mined_ttpa"], 0], STEEL_RAW_ZERO,
+              ["step", ["get", "iron_ore_mined_ttpa"],
+                STEEL_RAW_STOPS[0][1],
+                STEEL_RAW_STOPS[1][0], STEEL_RAW_STOPS[1][1],
+                STEEL_RAW_STOPS[2][0], STEEL_RAW_STOPS[2][1],
+                STEEL_RAW_STOPS[3][0], STEEL_RAW_STOPS[3][1],
+                STEEL_RAW_STOPS[4][0], STEEL_RAW_STOPS[4][1],
+              ],
+            ],
+            "fill-opacity": opacityOf("steel_raw_materials") / 100,
+          },
+        } as any);
+        map.addLayer({
+          id: "steelraw-outline", type: "line", source: "steelraw",
+          paint: { "line-color": "rgba(255,255,255,0.12)", "line-width": 0.5 },
+        } as any);
+        const fmt = (v: number | null, unit = "kt/yr") => v == null ? "not stated" : `${Math.round(v).toLocaleString()} ${unit}`;
+        detach = attachLayerInteractions(map, "steelraw-fill", (e) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "steelrawmaterials",
+            title: p.name || "Country",
+            subtitle: p.has_data ? "GEM steel raw-materials balance" : "no GEM record",
+            body: p.has_data
+              ? `Met coal mined: ${fmt(p.met_coal_mined_ttpa)}\n` +
+                `Iron ore mined: ${fmt(p.iron_ore_mined_ttpa)}\n` +
+                `Met coal consumed (pig iron route): ${fmt(p.met_coal_consumed_pig_iron_ttpa)}\n` +
+                `Iron ore consumed — pig iron route: ${fmt(p.iron_ore_consumed_pig_iron_ttpa)}\n` +
+                `Iron ore consumed — DRI route: ${fmt(p.iron_ore_consumed_dri_ttpa)}\n` +
+                `Iron ore consumed total: ${fmt(p.iron_ore_consumed_total_ttpa)}\n` +
+                `Pig iron produced: ${fmt(p.pig_iron_produced_ttpa)}\n` +
+                `DRI produced: ${fmt(p.dri_produced_ttpa)}\n\n` +
+                `COUNTRY-LEVEL ACCOUNTING STATISTIC — Global Energy Monitor, CC BY 4.0. ` +
+                `Not a forecast, valuation, or trading signal.`
+              : `No GEM record for this country in this release — not a "zero mined" reading, simply no ` +
+                `published figure here.`,
+          });
+        });
+        const matched = typeof d.matched_countries === "number" ? d.matched_countries : d.geojson.features.length;
+        setStatus("steel_raw_materials", "active", matched,
+          `${matched.toLocaleString()} countries with a GEM record — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("steel_raw_materials", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.steel_raw_materials, mapReady, mapSettled, setStatus]);
 
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024

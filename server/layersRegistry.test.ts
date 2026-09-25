@@ -311,7 +311,7 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
 // PR consciously updates the pin — silent drift in either direction fails.
 test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
   const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
-  const PINNED_GAP = 254; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  const PINNED_GAP = 255; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
   // 248 -> 249: new "grid_generation" layer, a non-rendered RAW tabular
   // root (respondent leaderboard, no map geometry) — same class as its own
   // sibling "grid_demand" and "treasury_dts", both of which also carry
@@ -346,6 +346,15 @@ test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration ga
   // "point-symbol" but no `lod` (a fixed 32-point static registry
   // aggregated from the release, same "no distance-based LOD to declare"
   // reasoning).
+  // 254 -> 255: new "steel_raw_materials" layer — a DIFFERENT shape from
+  // every layer above: a MapLibre FILL (choropleth) layer, not a
+  // point-symbol one, and it carries no per-row coordinates to place a
+  // symbol at (see gemSteelRawMaterials.ts's header). `renderKind`'s
+  // current vocabulary (V2_RENDER_KINDS above) has no choropleth-fill
+  // value yet — the same gap "cancerrates", the one other choropleth layer
+  // in this registry, already carries (also missing both fields) — so
+  // this one stays consistent with its one true sibling rather than
+  // inventing a one-off renderKind value alone.
   assert.equal(
     missing.length,
     PINNED_GAP,

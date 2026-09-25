@@ -58,6 +58,7 @@ import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { cachedGemIronOreMines } from "./gemIronOreMines";
 import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
 import { cachedGemChemicals } from "./gemChemicals";
+import { cachedGemSteelRawMaterials, cachedSteelRawMaterialsGeoJSON } from "./gemSteelRawMaterials";
 import { cachedGemLngShipyards } from "./gemLngCarriers";
 import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
@@ -3398,6 +3399,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "signal.",
       count: hit.plants.length,
       plants: hit.plants,
+    });
+  });
+
+  // GEM "Production-Consumption of Met Coal & Iron Ore by Steel Industry" —
+  // the Iron & Steel Tracker's companion COUNTRY-LEVEL balance sheet
+  // (server/gemSteelRawMaterials.ts), RAW/FACTUAL. Closes the "choropleth
+  // candidate" half of the 2-item GEM-suite backlog research/
+  // open_questions.md's 2026-09-24 entry left open (the other half,
+  // oil_ngl_pipelines/gas_pipelines, needs geocoding this release doesn't
+  // provide — a separate, harder pick). Genuinely different shape from
+  // every point-layer GEM registry shipped so far: no per-row coordinates,
+  // joined by country name onto the already-vendored Natural Earth 1:110m
+  // admin0 boundaries instead (see gemSteelRawMaterials.ts's header for the
+  // full name-join account). STATIC reference dataset, same ~2x/year
+  // re-ingest cadence as the rest of the GEM family.
+  app.get("/api/data/steel-raw-materials", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemSteelRawMaterials();
+    const geo = cachedSteelRawMaterialsGeoJSON();
+    if (!hit || !geo) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry",
+                         warming_up: true, count: 0, balances: [], geojson: null });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry",
+      attribution: hit.attribution,
+      license: hit.license,
+      release: hit.release,
+      note: "National met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, as "
+        + "catalogued by GEM, one row per country. A country-level ACCOUNTING STATISTIC, not a "
+        + "forecast, valuation, or trading signal. Choropleth-filled by iron ore mined (ttpa); every "
+        + "other catalogued figure (met coal mined/consumed, iron ore consumed by pig-iron vs. DRI "
+        + "route, pig iron and DRI produced) is in the per-country detail. Countries with no polygon "
+        + "at this boundary resolution (mostly micro-states/territories) still appear in `balances` "
+        + "but not on the map fill; countries with a polygon but no GEM record render as 'no data', "
+        + "never a false zero — a reported 0 (most countries mine no iron ore) is GEM's own figure.",
+      count: hit.balances.length,
+      balances: hit.balances,
+      geojson: geo.geo,
+      matched_countries: geo.matched,
+      unmatched_countries: geo.unmatched,
     });
   });
 

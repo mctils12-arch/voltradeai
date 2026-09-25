@@ -2696,6 +2696,17 @@
    "description": "1,293 iron and steel plants worldwide. This release has no lifecycle status column (unlike Coal Terminals/Iron Ore Mines), so the symbol reuses the existing 'steel mill' glyph (the same real-world object the Sites layer already draws for its steel_mill facility type) and colour instead carries the catalogued primary production technology (blast furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as stated) — never an output or valuation claim. Also carries catalogued product category, workforce size, and lifecycle dates, shown in the detail popup only. Locations/technology as catalogued by GEM. Off by default (same GEM-family precedent as Coal Terminals & Iron Ore Mines)."
   },
   {
+   "id": "steel_raw_materials",
+   "name": "Steel raw materials (met coal & iron ore, GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry, CC BY 4.0 (server/gemSteelRawMaterials.ts)",
+   "description": "National met-coal/iron-ore mining and pig-iron/DRI production-consumption balance for 251 countries, choropleth-filled by iron ore mined (ttpa) — the country-level rollup companion to the Iron Ore Mines and Iron & Steel Plants point layers. A COUNTRY-LEVEL ACCOUNTING STATISTIC, never a forecast, valuation, or trading signal. Joined by name onto the already-vendored Natural Earth 1:110m admin0 boundaries (no per-row coordinates in this GEM release, unlike every other point layer in this family). Countries with no boundary polygon at this resolution (mostly micro-states) still list in the detail table but never on the map fill; countries with a polygon but no GEM record render as 'no data', never a false zero. Click a country for the full balance sheet (met coal mined/consumed, iron ore mined/consumed by pig-iron vs. DRI route, pig iron and DRI produced). Off by default (same GEM-family precedent as the rest of this suite).",
+   "field": false
+  },
+  {
    "id": "chemicals",
    "name": "Chemical plants (GEM)",
    "kind": "raw",
