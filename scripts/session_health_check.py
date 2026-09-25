@@ -49,6 +49,9 @@ DEFAULT_TIMEOUT_S = 20
 DEFAULT_OUTAGE_STATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "research", "outage_state.json"
 )
+DEFAULT_LIVENESS_NOTIFY_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "research", "liveness_notify_state.json"
+)
 
 OK, WARN, ALARM = "OK", "WARN", "ALARM"
 _SEVERITY_RANK = {OK: 0, WARN: 1, ALARM: 2}
@@ -355,6 +358,60 @@ def check_outage_duration(state, now_iso):
     )
 
 
+def compute_liveness_notify_state(dark, wall_hours, now_iso, prior_state=None):
+    """Persists the notify-threshold state for the LIVENESS ALARM (the loop
+    dark while the SITE ITSELF stays reachable — e.g. a latched kill switch,
+    as opposed to compute_outage_state's site-unreachable case). Before this,
+    every session decided by hand whether to (re-)notify by grepping old
+    experiments.md/wishlist.md prose for "already notified twice, don't
+    repeat" — the 2026-09-10 kill-switch incident alone has at least six
+    sessions independently re-deriving the same "notify on first alarm, then
+    only once wall-clock duration has roughly doubled since the last
+    notification" policy from scratch by reading history. EDGE DOCTRINE #3:
+    the second occurrence of the same reasoning becomes code, not another
+    manual re-derivation. Pure function — the only I/O is
+    load_outage_state/save_outage_state below (reused as-is: both are
+    generic path-parameterized JSON state helpers, not outage-specific)."""
+    prior = dict(prior_state or {})
+    if not dark:
+        if prior.get("dark_since"):
+            return {"dark_since": None, "last_notified_utc": None, "last_notified_wall_hours": None}
+        return {"dark_since": None, "last_notified_utc": None, "last_notified_wall_hours": None}
+    last_notified_hours = prior.get("last_notified_wall_hours")
+    should_notify = last_notified_hours is None or wall_hours >= 2 * last_notified_hours
+    return {
+        "dark_since": prior.get("dark_since") or now_iso,
+        "last_notified_utc": now_iso if should_notify else prior.get("last_notified_utc"),
+        "last_notified_wall_hours": wall_hours if should_notify else last_notified_hours,
+    }
+
+
+def check_liveness_notification(prior_state, new_state, wall_hours):
+    """Reports whether THIS run crossed the doubling threshold above and is
+    therefore a fresh notify-worthy checkpoint for a session (or an
+    automated caller) deciding whether to send a human notification about
+    the ongoing dark loop. WARN, not ALARM: check_liveness already carries
+    ALARM for "the loop is dark" itself on every run — this is the softer,
+    distinct "and this specific run is new information" signal, so a
+    RECOVERED loop (or one already notified at this duration) does not
+    re-trip the alarm tier."""
+    if not new_state.get("dark_since"):
+        return finding(OK, "liveness_notify", "loop not dark, nothing to notify")
+    notified_this_run = new_state.get("last_notified_utc") not in (None, (prior_state or {}).get("last_notified_utc"))
+    if notified_this_run:
+        prior_hours = (prior_state or {}).get("last_notified_wall_hours")
+        return finding(
+            WARN, "liveness_notify",
+            f"NOTIFY-WORTHY: loop dark {wall_hours:.1f}h wall-clock — first alarm, or doubled since the "
+            f"last notification at {prior_hours}h. A session with PushNotification access should send one.",
+        )
+    return finding(
+        OK, "liveness_notify",
+        f"loop dark {wall_hours:.1f}h wall-clock, already notified at {new_state.get('last_notified_wall_hours')}h "
+        "— no new notify threshold crossed, do not repeat",
+    )
+
+
 def load_outage_state(path=DEFAULT_OUTAGE_STATE_PATH):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -471,6 +528,15 @@ def main():
     if outage_state != prior_outage_state:
         save_outage_state(outage_state)
     findings.append(check_outage_duration(outage_state, now_iso))
+
+    lv = ((health or {}).get("checks") or {}).get("bot", {}).get("liveness") or {}
+    dark = bool(lv.get("dark"))
+    wall_hours = lv.get("wallHours") or 0
+    prior_notify_state = load_outage_state(path=DEFAULT_LIVENESS_NOTIFY_STATE_PATH)
+    notify_state = compute_liveness_notify_state(dark, wall_hours, now_iso, prior_notify_state)
+    if notify_state != prior_notify_state:
+        save_outage_state(notify_state, path=DEFAULT_LIVENESS_NOTIFY_STATE_PATH)
+    findings.append(check_liveness_notification(prior_notify_state, notify_state, wall_hours))
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))

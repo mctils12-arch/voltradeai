@@ -7190,6 +7190,15 @@
     load the test module). Full account in `research/experiments.md`'s
     2026-09-23 fall-through entry. This item's (1)/(2) remain open —
     resuming is still the human's call.
+    **TOOLING 2026-09-25 (scheduled-routine session, v1.0.979):**
+    `scripts/session_health_check.py` gained `compute_liveness_notify_state`/
+    `check_liveness_notification` — a SEPARATE, session-level "should THIS
+    session also fire its own PushNotification" doubling-threshold policy
+    (persisted to `research/liveness_notify_state.json`), distinct from
+    v1.0.965's server-side 24h email reminder above. Run it (`python3
+    scripts/session_health_check.py`) instead of re-deriving "have we
+    already notified" from this file's prose. Full account: `research/
+    experiments.md`'s 2026-09-25 entry.
 
 44. **[FOUND 2026-09-22, scheduled-routine session, LIVE PRODUCTION BUG,
     DIAGNOSABILITY FIX SHIPPED — root cause needs a FROZEN PATH (Dockerfile),
