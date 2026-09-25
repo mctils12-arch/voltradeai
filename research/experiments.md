@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-25 (scheduled-routine session) [PIPELINE] — T-BOT/shared-minimal (scripts/session_health_check.py, test_session_health_check.py, research/liveness_notify_state.json (new), package.json/package-lock.json) — compile the manual "have we already notified the human about the latched kill switch" reasoning into `session_health_check.py` (v1.0.979)
+
+TASK PRIOR (stated before building, REASONING STANDARD #10): this session's
+own brief is check system health / KNOWN BROKEN first; if a critical item
+remains unfixed, become a [REPAIR] session, else pick one EDGE DOCTRINE
+axis. Expected KNOWN BROKEN #42/#43 (the 2026-09-10 latched kill switch)
+to still be open and non-code-actionable (every session since 2026-09-10
+has logged the same finding) — prior expected to be confirmed, not
+falsified, and it was.
+
+SESSION-START HEALTH CHECK (live, DIAG_TOKEN + network available):
+`/api/health` — `status: "degraded"` solely from the standing LIVENESS
+ALARM: `bot.status: "killed"`, `drawdownPct: -6.1`, `liveness.dark: true`,
+"trading loop dark for 65.0 market hours (359.4h wall-clock) since
+2026-09-10T03:12:26.354Z". `/api/diag/account`: `killSwitch: true`,
+`equity: 103920.05` vs `equityPeak: 110727.04`. `/api/diag/equity_curve`
+(30 days): equity has been essentially flat/mildly recovering since the
+2026-09-09 anomaly day (101.5K -> 104K range for two weeks), confirming
+the drawdown reading is not deteriorating further. `/api/diag/audit?
+type=DRAWDOWN-KILL` and `?type=DD-HALT` both return zero entries in the
+current window (older than the log retention, not a new signal). Every
+other `/api/health` subsystem (server/db/alpaca/python/scanner/feeds/
+licensing/process/memory) reads `ok`. This is KNOWN BROKEN #42/#43,
+unchanged in substance — still a standing human-resume decision per RULE
+REVIEW (no threshold may be loosened on inference alone), still not
+code-actionable from this sandbox (no auto-resume path exists by design).
+
+NOT RE-NOTIFIED: grepped this file's own recent history — the human was
+push-notified for this exact incident on 2026-09-10 (x2) and again around
+2026-09-21 (x2, at a ~276.9h wall-clock reading); every session since has
+correctly declined to repeat an unchanged finding. This session's own
+141th-percentile-more-of-the-same reading (359.4h, up from 348.8h twelve
+hours ago per the prior session's entry) is not new information under
+that established convention — same call this session would have made by
+hand, which is exactly what motivated the fix below instead of a ninth
+"re-derived the notify-or-not policy from prose" log entry.
+
+WHAT SHIPPED: this exact judgment call — "read old prose, find the last
+notification, compute wall-clock-doubling, decide whether to repeat" — has
+now been made by hand across at least 6+ sessions for this one incident
+(2026-09-10 x2, ~09-13, ~09-15, ~09-21 x2, ~09-24, this one), each
+re-deriving the same policy from old text instead of reading a computed
+answer. EDGE DOCTRINE #3 (COMPILE KNOWLEDGE INTO CODE): `scripts/
+session_health_check.py` gained `compute_liveness_notify_state` +
+`check_liveness_notification`, mirroring the existing `compute_outage_state`
+/ `check_outage_duration` pair (KNOWN BROKEN #41's site-unreachable-outage
+tracker) but for the DIFFERENT case of the site being reachable while the
+loop itself is dark (a latched kill switch, as here). Policy compiled
+directly from the convention that emerged by hand over this incident's own
+UPDATE history: notify on the first dark reading, then again only once
+wall-clock duration has at least DOUBLED since the last notification.
+State persists to a new `research/liveness_notify_state.json` (same
+git-committed-JSON pattern as `outage_state.json`, reusing its generic
+`load_outage_state`/`save_outage_state` I/O helpers with a different path
+rather than duplicating them). Seeded this session from the real history
+above (`dark_since` = the actual 2026-09-10T03:12:26.354Z liveness
+timestamp off `/api/health`; `last_notified_wall_hours` = 276.9, the
+reading named in the 2026-09-21 second-session entry, `last_notified_utc`
+reconstructed from that offset — a best-effort backfill, not a live
+capture, since the mechanism did not exist before this PR; documented here
+so a future session doesn't mistake it for a precise timestamp). Wired
+into `main()` right after the existing outage-state block. Live run this
+session against production: `[OK] liveness_notify: loop dark 359.5h
+wall-clock, already notified at 276.9h — no new notify threshold crossed,
+do not repeat` — matches this session's own hand-derived judgment call
+above exactly, and the doubling threshold (~553.8h, ~23 days from onset)
+is now a number a future session reads instead of re-deriving.
+
+RATCHET: 8 new tests in `test_session_health_check.py` (74 total, was 66)
+covering: not-dark stays clear, first-dark-notifies, below-doubling holds,
+at-or-above-doubling re-notifies, recovery clears state, and the three
+`check_liveness_notification` severity branches. All 8 exercise the new
+functions directly (no fixture existed to A/B against, since the functions
+are new — same shape as `compute_outage_state`'s own original test suite).
+
+GATES: `python3 -m pytest -q` — 2167 passed, 2 skipped, 54 subtests (was
+2159/2 before this PR's 8 new tests — full local run, after installing
+this sandbox's missing `yfinance`/`scipy`/`openpyxl`/`Pillow` from
+`requirements.txt` + the conftest hermetic-yfinance fixture's own import,
+none of which this PR added — pre-existing sandbox-provisioning gaps, not
+a defect this diff introduced). No `.ts`/`.tsx` file touched — `npx tsx
+--test server/*.test.ts` / `tsc` / `npm run build` not re-run (nothing in
+this diff can affect them; `git status` confirms only the two Python
+files, one new JSON, and package.json/package-lock.json's version fields
+changed). Zero trading-path code touched (`server/bot.ts`, `bot_engine.py`,
+`system_config.py`, `risk_kill_switch.py`, `strategies/` — none read this
+new module; it is read-only diagnostic tooling, same class as
+`compute_outage_state` before it).
+
+BACKTEST: N/A per PROMOTION RULE 3 — read-only diagnostic tooling, not a
+trading strategy, sizing, or threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest engine,
+slippage/fill model, P&L computation, or counterfactual logger in this
+diff; this is HARNESS/observability tooling over an already-computed
+`/api/health` field (`checks.bot.liveness`), not a change to how anything
+is measured.
+
+MONETIZATION TRIPWIRE: not touched, condition not met.
+
+VERSION: read-and-increment, `1.0.978` -> `1.0.979` (`package.json` +
+`package-lock.json`'s two matching version fields — no dependency changed,
+`npm install` not re-run in this network-light sandbox; hand-edited to the
+same two fields `npm version` would touch, verified via `grep` that no
+other version string in the lockfile needed changing).
+
+DOCTRINE AXIS CHOSEN: (d) compress the system's own cost by compiling
+recurring reasoning into reusable code — the other three axes ((a) new
+free-data pipeline, (b) capacity-constrained-corner research, (c) a
+foreign-field hypothesis) were considered and set aside this session
+because the KNOWN BROKEN check surfaced concrete, already-recurring,
+low-risk repair-adjacent work first (REPAIR MANDATE: fixing/hardening
+around a known break outranks starting new research), and every STANDING
+EXAMPLE pipeline this file's doctrine section names by name (EDGAR Form 4,
+USAspending, FDA calendar, CFTC COT/TFF, Sentinel-2, Google Trends) was
+confirmed already built via `find`/`grep` before ruling out axis (a) as
+"pick a new one, don't duplicate."
+
+STARVED: no — this session read CLAUDE.md and research/ per its own task
+instructions, checked system health/KNOWN BROKEN first (confirmed the one
+critical item is unchanged, non-code-actionable, and correctly not
+re-notified), then used its remaining capacity on axis (d) rather than
+leaving the queue untouched. Loop-health ratio: last 10 tagged entries
+before this one = mostly [PRODUCT]/[PIPELINE] with one [REPAIR], well
+under the 7+ [REPAIR] thrash-ratio trigger — no meta-problem.
+
+CLARIFICATION found while writing this entry (READ BEFORE WRITE on
+`server/liveness.ts` before claiming novelty): a DIFFERENT, more
+authoritative fix for a related concern already shipped one day before
+this session — `shouldSendLivenessReminder()` / `LIVENESS_REMINDER_
+INTERVAL_HOURS` (v1.0.965, 2026-09-23, per open_questions.md KNOWN BROKEN
+#43's own dated update) makes the PRODUCTION APP itself re-send its own
+`sendEmailAlert(...)` every 24h while the loop stays dark. That is the
+live, unconditional, always-running notification channel for this
+incident and is NOT superseded or duplicated by this PR. What this PR adds
+is a SEPARATE, narrower concern: whether a given autonomous SESSION should
+ALSO fire its own Agent-tool PushNotification (a different channel, to a
+different surface, decided per-session rather than by the always-on
+server) — the exact judgment call the 6+ sessions listed above kept
+re-deriving from prose. The two are complementary (one guarantees the
+human's inbox gets a beat every 24h regardless of whether any session
+runs; the other stops each of potentially several same-day sessions from
+either staying silent past a session-notify-worthy threshold or spamming
+a duplicate push), not the same mechanism twice.
+
+NEXT: (1) KNOWN BROKEN #42/#43's human resume decision remains outstanding,
+unchanged — the next session whose `/api/health` read crosses the ~553.8h
+doubling threshold (or whose read shows any actual state change: recovery,
+a human toggle, new evidence) should let `liveness_notify` findings decide
+whether to notify, rather than re-deriving the policy from this prose
+again. (2) `oil_ngl_pipelines.json`/`gas_pipelines.json` remain the one
+still-blocked GEM-suite item (needs a geocoding/source decision). (3) the
+still-open `lng_shipyards`/`steel_raw_materials` visual-verification flags
+from the last two PRODUCT sessions remain open, unchanged.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-24 (scheduled-routine session, fourth session this UTC day) [PRODUCT] — SHARED-minimal (server/routes.ts, server/apiProduct.ts) — `iron_steel_plants` gets its `/api/v1/data/iron-steel-plants` keyed mirror, closing the full GEM-suite "/api/v1 mirror" backlog (v1.0.975, PR pending — MERGE HOLD until after 4:00 PM ET)
 
 TERRITORY: T-BOT/shared (server/routes.ts, server/apiProduct.ts, package.json)

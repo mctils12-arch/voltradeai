@@ -349,6 +349,82 @@ def test_load_outage_state_missing_file_returns_empty_dict():
     assert hc.load_outage_state(path="/nonexistent/outage_state.json") == {}
 
 
+# ── compute_liveness_notify_state / check_liveness_notification ──────────
+# (LIVENESS ALARM re-notify policy — the site stays reachable, the loop
+# itself is dark, e.g. the 2026-09-10 latched kill switch. Distinct from
+# compute_outage_state above, which is for the site being unreachable.)
+
+def test_liveness_notify_state_not_dark_with_no_prior_stays_clear():
+    got = hc.compute_liveness_notify_state(False, 0, "2026-09-25T00:00:00+00:00", {})
+    assert got == {"dark_since": None, "last_notified_utc": None, "last_notified_wall_hours": None}
+
+
+def test_liveness_notify_state_first_dark_reading_notifies():
+    got = hc.compute_liveness_notify_state(True, 12.8, "2026-09-10T15:00:00+00:00", {})
+    assert got == {
+        "dark_since": "2026-09-10T15:00:00+00:00",
+        "last_notified_utc": "2026-09-10T15:00:00+00:00",
+        "last_notified_wall_hours": 12.8,
+    }
+
+
+def test_liveness_notify_state_below_doubling_does_not_renotify():
+    prior = {
+        "dark_since": "2026-09-10T03:12:26+00:00",
+        "last_notified_utc": "2026-09-21T16:06:26+00:00",
+        "last_notified_wall_hours": 276.9,
+    }
+    got = hc.compute_liveness_notify_state(True, 359.5, "2026-09-25T02:37:00+00:00", prior)
+    assert got == prior
+
+
+def test_liveness_notify_state_at_doubling_renotifies():
+    prior = {
+        "dark_since": "2026-09-10T03:12:26+00:00",
+        "last_notified_utc": "2026-09-21T16:06:26+00:00",
+        "last_notified_wall_hours": 276.9,
+    }
+    got = hc.compute_liveness_notify_state(True, 560.0, "2026-10-03T00:00:00+00:00", prior)
+    assert got["last_notified_utc"] == "2026-10-03T00:00:00+00:00"
+    assert got["last_notified_wall_hours"] == 560.0
+    assert got["dark_since"] == prior["dark_since"]
+
+
+def test_liveness_notify_state_recovery_clears():
+    prior = {
+        "dark_since": "2026-09-10T03:12:26+00:00",
+        "last_notified_utc": "2026-09-21T16:06:26+00:00",
+        "last_notified_wall_hours": 276.9,
+    }
+    got = hc.compute_liveness_notify_state(False, 0, "2026-09-26T00:00:00+00:00", prior)
+    assert got == {"dark_since": None, "last_notified_utc": None, "last_notified_wall_hours": None}
+
+
+def test_check_liveness_notification_ok_when_not_dark():
+    f = hc.check_liveness_notification({}, {"dark_since": None}, 0)
+    assert f["severity"] == hc.OK
+
+
+def test_check_liveness_notification_warns_on_fresh_notify():
+    prior = {}
+    new = {"dark_since": "2026-09-10T15:00:00+00:00", "last_notified_utc": "2026-09-10T15:00:00+00:00",
+           "last_notified_wall_hours": 12.8}
+    f = hc.check_liveness_notification(prior, new, 12.8)
+    assert f["severity"] == hc.WARN
+    assert "NOTIFY-WORTHY" in f["detail"]
+
+
+def test_check_liveness_notification_ok_when_already_notified_this_threshold():
+    state = {
+        "dark_since": "2026-09-10T03:12:26+00:00",
+        "last_notified_utc": "2026-09-21T16:06:26+00:00",
+        "last_notified_wall_hours": 276.9,
+    }
+    f = hc.check_liveness_notification(state, state, 359.5)
+    assert f["severity"] == hc.OK
+    assert "do not repeat" in f["detail"]
+
+
 def test_read_local_package_version_reads_real_repo_version():
     # Integration-shaped on purpose: proves the relative path from
     # scripts/session_health_check.py to the repo root's package.json is
