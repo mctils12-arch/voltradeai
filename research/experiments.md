@@ -101917,3 +101917,183 @@ continues this backlog. Thrash ratio well under the 7+ trigger — no
 meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-25 (scheduled-routine session) [PRODUCT] — T-CLIENT (scripts/visual_check.mjs) — closes the two standing PROMOTION RULE 6 visual-verification gaps `lng_shipyards`/`steel_raw_materials` left open (v1.0.981)
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs, the visual-tooling file this
+territory owns per WORKSTREAM PARTITION). No T-DATACORE/T-BOT files touched.
+
+SESSION-START HEALTH CHECK: read CLAUDE.md in full, then research/
+open_questions.md's KNOWN BROKEN tail (#40-44) and the last several
+research/experiments.md entries. No self-fixable liveness alarm — KNOWN
+BROKEN #42/#43's standing LIVENESS ALARM (trading loop `killSwitch:true`
+since 2026-09-10) is CONFIRMED STILL ACTIVE this session (live
+`curl https://voltradeai.com/api/health`: `status:"degraded"`,
+`bot.status:"killed"`, `liveness.dark:true`, "trading loop dark for 65.0
+market hours (370.2h wall-clock) since 2026-09-10T03:12:26.354Z",
+`drawdownPct:"-5.8"`) — unchanged in substance from every session since
+2026-09-10, already push-notified multiple times, and per `research/
+liveness_notify_state.json` + the c1df3aa (#1170) compiled re-notify
+judgment, `last_notified_utc: 2026-09-21` means this is NOT a fresh
+notification trigger. Resuming remains a human decision per RULE REVIEW
+(no kill-switch threshold may be loosened on inference alone) — noted
+here, not re-notified, not actioned; this session's own task instructions
+say a PRODUCT session proceeds with product work when the break doesn't
+structurally block it, and it doesn't. `server`/`database`/`alpaca`/
+`python`/`scanner`/`feeds`/`process`/`memory`/`licensing` all `status:"ok"`.
+
+PRIMARY ACTION: this session's own instructions named a specific, already-
+identified PROMOTION RULE 6 debt item — two prior sessions today
+(2026-09-24, fifth and seventh) shipped `lng_shipyards` (#1168) and
+`steel_raw_materials` (#1169) as client-touching PRs but both honestly
+flagged "NOT DONE" for `npm run visual` because "no display/browser
+harness available this session". This sandbox DOES have a working headless
+Chromium (confirmed via `npm run build && node scripts/visual_check.mjs
+--page data`, which completed end-to-end with real screenshots), so the
+gap was finally closeable rather than re-flagged a third time.
+
+ROOT CAUSE FOUND (not assumed — grepped `scripts/visual_check.mjs`'s own
+`/api/data/layers` fixture array before touching anything): it was NOT
+simply that nobody ran the harness — the harness COULD NOT have exercised
+either layer even if run, because `lng_shipyards` and `steel_raw_materials`
+were never added to the fixture's `layers` array in the first place. This
+is the exact same defect class this file already documents twice in this
+same fixture (the R15 2026-07-07 `powergrid` gap and the 2026-07-25
+9-layer gap): a layer shipped end-to-end (client symbol/choropleth layer +
+server route) but the fixture never listed it, so the self-see/toggle-
+consistency/legend-parity batteries — which all derive their layer list
+from `FIXTURES["/api/data/layers"].layers` — silently never touched it,
+and the unmocked `/api/data/lng-shipyards`/`/api/data/steel-raw-materials`
+routes fell through to the harness's generic `{}` fallback for any
+unlisted `/api/*` path, which both layers' own fetch code treats as a
+hard failure (`!Array.isArray(d.shipyards)` / `!d.geojson?.features?.length`
+both throw on `{}`). Live-verified this session (not assumed): the SAME
+gap exists for the entire rest of the GEM point-layer suite too
+(coal_terminals/iron_ore_mines/iron_steel_plants/chemicals/
+coal_mine_features are also absent from this fixture) — noted in NEXT
+below as a separate, larger follow-up rather than pulled into this PR
+(PROMOTION RULE 5: this PR closes exactly the two layers this session's
+task named, not a general audit).
+
+SHIPPED (own PR, this file only):
+- Two new `/api/data/layers` fixture rows (`lng_shipyards`,
+  `steel_raw_materials`, `status:"live"`) with a `[REPAIR]`-tagged comment
+  naming the precedent, so both now flow automatically through the
+  self-see/toggle-consistency/legend-parity batteries — no per-layer
+  special-casing needed, matching this fixture's own established
+  "every toggleable registry layer must appear here" rule.
+- Real `/api/data/lng-shipyards` fixture: 4 shipyards spanning all three
+  named `LNG_SHIPYARD_COUNTRY_LABEL` tiers (South Korea/China/Japan) plus
+  "other" (Finland), so legend-parity actually exercises every legend
+  chip, not just one.
+- Real `/api/data/steel-raw-materials` fixture: 3 countries covering the
+  choropleth's three visually-distinct paint-expression branches
+  (`server/gemSteelRawMaterials.ts`'s `joinCountryChoropleth`) —
+  `has_data:true` with a positive `iron_ore_mined_ttpa` (ramp color), a
+  real reported 0 (`has_data:true`, zero — the distinct "reports 0 mined"
+  color), and `has_data:false` (no GEM record — the distinct "no data"
+  color), plus the matching `balances` rows.
+
+VERIFIED, not claimed:
+- `npm run build && node scripts/visual_check.mjs --page data`: **0 hard
+  failure(s)** across all three canonical widths (390/768/1440).
+  `toggleConsistency` info line: "56 layers toggled clean" (was 54 before
+  this PR's two additions — confirms both new layers were actually
+  exercised, not skipped). `legendParity`: "15 used / 17 entries" at every
+  width, unchanged shape (both new layers' icons/fills are registered, not
+  orphaned).
+- Beyond the harness's own pass/fail, this session additionally built a
+  throwaway (not shipped) Playwright verification script reusing the same
+  fixture-server pattern to directly answer this session's own task
+  instructions ("review the actual screenshots... confirm legend entries
+  render, popups/detail panels show real data, the three-state choropleth
+  fill is visually distinct") rather than trust "0 hard failures" alone:
+  toggled both layers ON at all three widths, confirmed both reach
+  `data-vt-rt="active"` with the correct counts ("4 shipyards" / "2
+  steel_raw_materials", matching the fixtures exactly, at 390/768/1440);
+  expanded the legend panel and confirmed its text contains "South
+  Korea"/"China"/"Japan"/"Other shipbuilding nation" and the full 5-stop
+  ramp + "Reports 0 mined"/"No GEM record" chips + both descriptive notes,
+  at all three widths; and (at 1440, non-touch — the same width this
+  file's own `toggleConsistency` battery restricts state-wiring clicks to,
+  "exercises state wiring, not layout") clicked a rendered `lngshipyard-pt`
+  symbol and the `steelraw-fill` polygon via `map.project()`-computed
+  pixel coordinates and confirmed the real detail popup renders the real
+  fixture data: `"Fixture China Shipbuilding Yard12 LNG carriers built
+  hereCountryChinaActive9On order3Proposed0GEM CC BY 4.0"` and `"Fixture
+  Ore NationGEM steel raw-materials balance...Met coal mined: 1,200
+  kt/yr\nIron ore mined: 250,000 kt/yr..."` — byte-matching the fixture
+  values, not placeholder/error text. Screenshot evidence kept only in
+  this session's own scratchpad (not committed — throwaway verification
+  tooling per this task's own guidance to keep any harness extension
+  "minimal and generic", not a one-off script shipped to the repo).
+- `npx tsx --test server/*.test.ts`: 1921/1921 (server tests unaffected by
+  this client-tooling-only change; run as a sanity check, not because this
+  PR touches server/). `npx tsx --test client/src/lib/*.test.ts`: 279/279.
+- `bash scripts/tsc_ratchet.sh`: 11/11 (TS2304=0), unchanged.
+- `bash scripts/counter_ratchet.sh`: 25/25 OK, no counter moved (pure
+  fixture-data addition, no new `any`/empty-catch/assertion introduced by
+  this specific file).
+- `python3 -m pytest -q`: 2170 passed, 1 skipped, 54 subtests — untouched
+  territory, run as a sanity check.
+- `bash scripts/gated_tests.sh`: "GATE PASSED: all required suites green;
+  quarantine 0/1, none overdue" — deploy-gate smoke PASSED (`/api/health`
+  200 in 4.0s under latched-kill-switch + stale-liveness fixtures).
+- Version bumped 1.0.980 -> 1.0.981 (read-and-incremented at commit time
+  against `origin/main`'s live tip, confirmed via `git fetch origin main`
+  immediately before committing — branch was already at that tip, no
+  rebase needed).
+
+GATES: no runtime trading code touched. No server/ or datacore/ file
+touched — this PR is `scripts/visual_check.mjs` (+ `package.json`/
+`package-lock.json` version bump) only.
+
+BACKTEST: N/A per PROMOTION RULE 3 — test-harness fixture data, not a
+trading strategy, sizing, or threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff. (The
+visual-harness fixtures are UI-rendering test data, not a trading/P&L
+measurement path — outside this rule's scope, same distinction the
+2026-09-24 seventh session's own entry drew for its counter-baseline
+re-pins.)
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, paid-feature gating, or the aircraft-provider
+compliance chain. Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran ~09:50 ET on a trading day (confirmed
+via `TZ=America/New_York date` at commit time) — INSIDE the 9:30-16:00 ET
+market session. Per this task's own instruction, this PR is left OPEN
+(not self-merged) for a human/later session to merge after the close, or
+at their discretion given this diff touches only test tooling (zero
+runtime/trading-path risk either way).
+
+NEXT: (1) the SAME fixture-completeness gap this PR closed for 2 layers
+still exists for the rest of the GEM point-layer suite
+(coal_terminals/iron_ore_mines/iron_steel_plants/chemicals/
+coal_mine_features are also absent from `scripts/visual_check.mjs`'s
+`/api/data/layers` fixture, live-verified this session) — a natural
+next PROMOTION-RULE-6-debt-closing PR, same recipe as this one, not
+attempted here per PROMOTION RULE 5 (this PR closes exactly the two
+layers named). (2) a companion PR this same session adds the
+`steel_units.json` furnace-unit detail-panel enrichment onto the existing
+`iron_steel_plants` layer (own PR/branch, own experiments.md entry,
+per this session's own SESSION BUDGET fall-through instruction) — see
+that entry immediately below. (3) KNOWN BROKEN #42/#43's standing
+LIVENESS ALARM (65.0 market hours / 370.2h wall-clock dark as of this
+session) remains a human-decision item, unchanged, not re-notified this
+session per the compiled re-notify judgment.
+
+STARVED: no — this session read CLAUDE.md and research/ per its own task
+instructions, checked KNOWN BROKEN/liveness first (confirmed still-active
+but already-notified, not a fresh trigger), root-caused the visual-
+verification gap live (grepped the fixture array rather than assuming
+"nobody ran the harness" was the whole story), closed exactly the two
+layers this session's task named with real end-to-end verification
+(harness pass/fail AND direct popup-content confirmation, not just "0
+failures"), and fell through to a second, separate PRIMARY-territory
+action (furnace-unit enrichment, its own entry below) with capacity
+remaining. Thrash ratio well under the 7+ trigger — no meta-problem.
+
+NOT A SPEND REQUEST.

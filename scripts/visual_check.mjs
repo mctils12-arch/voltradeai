@@ -265,6 +265,17 @@ const FIXTURES = {
       // consistency/self-see/legend-parity batteries never exercised it.
       { id: "nrc_reactor_status", name: "US nuclear reactor status (NRC, daily)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "U.S. NRC daily Power Reactor Status Reports (nrc.gov, public domain, keyless)", description: "Percent-of-rated-thermal-power per operating unit, joined onto the nuclear-plant registry." },
       { id: "border_waits", name: "CBP land-border wait times", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "CBP Border Wait Times (public domain)", description: "Hourly wait times at US land ports of entry." },
+      // [REPAIR, found this session, same class of gap as the R15
+      // (2026-07-07) and 2026-07-25 fixes above]: `lng_shipyards` and
+      // `steel_raw_materials` (datacore/layers.json) shipped end-to-end
+      // (client symbol/choropleth layer + server route) but were never
+      // added here — so the self-see/toggle-consistency/legend-parity
+      // batteries never exercised either, closing the visual-verification
+      // gap the 2026-09-24 fifth/seventh sessions' own experiments.md
+      // entries flagged as NOT DONE. Every toggleable registry layer must
+      // appear in this fixture; see the powergrid note above.
+      { id: "lng_shipyards", name: "LNG carrier shipyards (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global LNG Carrier Tracker (CC BY 4.0)", description: "32 shipbuilding yards, aggregated carrier counts by lifecycle status and country." },
+      { id: "steel_raw_materials", name: "Steel raw materials (met coal & iron ore, GEM)", kind: "raw", status: "live", field: true, group: "facilities", costTier: "light", source: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry (CC BY 4.0)", description: "Country-level met-coal/iron-ore balance sheet, choropleth-filled by iron ore mined (ttpa)." },
       { id: "nucleartests", name: "Nuclear tests 1945–1998 (time machine)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "SIPRI / Johnston archive nuclear explosions catalog", description: "2,027 located tests, emplacement symbols, year-slider scrub." },
       { id: "radiation", name: "Ambient radiation (gamma)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "BfS · Health Canada · STUK/FMI · EPA RadNet", description: "Observed gamma dose-rate monitors, four national networks." },
       { id: "nukeaccidents", name: "Nuclear accidents & incidents", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "46 accident/incident sites 1949–2024, INES-tinted." },
@@ -1290,6 +1301,55 @@ const FIXTURES = {
       lat: 31.9, lon: -102.1,
       nearestAsset: { kind: "oil_gas_extraction", id: "A1", name: "Fixture Field", distanceKm: 0.4, operator: "Fixture Operator LLC" },
     }],
+  },
+  // [REPAIR, added this session] matching client/src/lib/mapIcons.ts's
+  // LngShipyard consumer (datamap.tsx ~line 11104): d.shipyards must be a
+  // real array (an unmocked "{}" fallback makes `!Array.isArray(d.shipyards)`
+  // throw and the layer render "error" forever) — four shipyards across
+  // three named country tiers + "other" so the legend-parity battery
+  // exercises every LNG_SHIPYARD_COUNTRY_LABEL entry, not just one.
+  "/api/data/lng-shipyards": {
+    kind: "raw", predictive: false,
+    source: "Global Energy Monitor — Global LNG Carrier Tracker (by shipyard) (fixture)",
+    attribution: "Global Energy Monitor (fixture)", license: "CC BY 4.0", release: "2026-Q2 (fixture)",
+    note: "LNG carrier SHIPBUILDING YARDS, not vessel positions (fixture).",
+    count: 4, totalCarriers: 47,
+    shipyards: [
+      { id: "fixture-korea", shipbuilder: "Fixture Korea Heavy Industries", country: "South Korea", lat: 35.1, lon: 129.0, coordinateAccuracy: "city", carrierCount: 22, activeCount: 18, onOrderCount: 4, proposedCount: 0, otherCount: 0, totalCapacityCbm: 3960000, knownCapacityCount: 22 },
+      { id: "fixture-china", shipbuilder: "Fixture China Shipbuilding Yard", country: "China", lat: 31.2, lon: 121.5, coordinateAccuracy: "city", carrierCount: 12, activeCount: 9, onOrderCount: 3, proposedCount: 0, otherCount: 0, totalCapacityCbm: 2040000, knownCapacityCount: 12 },
+      { id: "fixture-japan", shipbuilder: "Fixture Japan Marine United", country: "Japan", lat: 34.4, lon: 132.5, coordinateAccuracy: "city", carrierCount: 8, activeCount: 8, onOrderCount: 0, proposedCount: 0, otherCount: 0, totalCapacityCbm: 1360000, knownCapacityCount: 8 },
+      { id: "fixture-other", shipbuilder: "Fixture Nordic Yards", country: "Finland", lat: 60.2, lon: 25.0, coordinateAccuracy: "city", carrierCount: 5, activeCount: 3, onOrderCount: 1, proposedCount: 1, otherCount: 0, totalCapacityCbm: 850000, knownCapacityCount: 5 },
+    ],
+  },
+  // [REPAIR, added this session] matching client/src/lib/mapIcons.ts's
+  // consumer (datamap.tsx ~line 11192): `!d.geojson?.features?.length`
+  // throws on an unmocked "{}" fallback, so the layer never rendered under
+  // this harness at all. Three features exercise the three visually
+  // distinct fill states the choropleth's own paint expression switches on
+  // (server/gemSteelRawMaterials.ts's joinCountryChoropleth): has_data:false
+  // (no GEM record), a real reported 0 (has_data:true, iron_ore_mined_ttpa:0),
+  // and a positive value inside the ramp's top stop.
+  "/api/data/steel-raw-materials": {
+    kind: "raw", predictive: false,
+    source: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry (fixture)",
+    attribution: "Global Energy Monitor (fixture)", license: "CC BY 4.0", release: "2026-Q2 (fixture)",
+    note: "National met-coal/iron-ore balance sheet, one row per country (fixture).",
+    count: 2, matched_countries: 2, unmatched_countries: 1,
+    balances: [
+      { country: "Fixture Ore Nation", metCoalMinedTtpa: 1200, ironOreMinedTtpa: 250000, metCoalConsumedPigIronTtpa: 900, ironOreConsumedPigIronTtpa: 180000, ironOreConsumedDriTtpa: 20000, ironOreConsumedTotalTtpa: 200000, pigIronProducedTtpa: 110000, driProducedTtpa: 8000 },
+      { country: "Fixture Zero Nation", metCoalMinedTtpa: 0, ironOreMinedTtpa: 0, metCoalConsumedPigIronTtpa: 0, ironOreConsumedPigIronTtpa: 0, ironOreConsumedDriTtpa: 0, ironOreConsumedTotalTtpa: 0, pigIronProducedTtpa: 0, driProducedTtpa: 0 },
+    ],
+    geojson: {
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", properties: { name: "Fixture Ore Nation", iso3: "FX1", has_data: true, met_coal_mined_ttpa: 1200, iron_ore_mined_ttpa: 250000, met_coal_consumed_pig_iron_ttpa: 900, iron_ore_consumed_pig_iron_ttpa: 180000, iron_ore_consumed_dri_ttpa: 20000, iron_ore_consumed_total_ttpa: 200000, pig_iron_produced_ttpa: 110000, dri_produced_ttpa: 8000 },
+          geometry: { type: "Polygon", coordinates: [[[10.0, 45.0], [15.0, 45.0], [15.0, 50.0], [10.0, 50.0], [10.0, 45.0]]] } },
+        { type: "Feature", properties: { name: "Fixture Zero Nation", iso3: "FX2", has_data: true, met_coal_mined_ttpa: 0, iron_ore_mined_ttpa: 0, met_coal_consumed_pig_iron_ttpa: 0, iron_ore_consumed_pig_iron_ttpa: 0, iron_ore_consumed_dri_ttpa: 0, iron_ore_consumed_total_ttpa: 0, pig_iron_produced_ttpa: 0, dri_produced_ttpa: 0 },
+          geometry: { type: "Polygon", coordinates: [[[-70.0, -10.0], [-65.0, -10.0], [-65.0, -5.0], [-70.0, -5.0], [-70.0, -10.0]]] } },
+        { type: "Feature", properties: { name: "Fixture No-Record Nation", iso3: "FX3", has_data: false, met_coal_mined_ttpa: null, iron_ore_mined_ttpa: null, met_coal_consumed_pig_iron_ttpa: null, iron_ore_consumed_pig_iron_ttpa: null, iron_ore_consumed_dri_ttpa: null, iron_ore_consumed_total_ttpa: null, pig_iron_produced_ttpa: null, dri_produced_ttpa: null },
+          geometry: { type: "Polygon", coordinates: [[[100.0, 20.0], [110.0, 20.0], [110.0, 28.0], [100.0, 28.0], [100.0, 20.0]]] } },
+      ],
+    },
   },
   "/api/data/coal-mine-features": {
     kind: "raw", predictive: false, source: "Global Energy Monitor (fixture)", count: 1, release: "fixture",
