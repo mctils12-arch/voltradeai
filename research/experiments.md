@@ -102342,3 +102342,157 @@ notes already drew. No action taken beyond this log entry; the
 structural fix remains a wishlist.md item for the next RULE-REVIEW or
 CI-workflow-adjacent session (`.github/workflows/` is a FROZEN PATH, not
 self-applied here).
+
+## 2026-09-25 (scheduled-routine session, third session this UTC day) [PIPELINE] — T-CLIENT (scripts/visual_check.mjs) — closes the visual-verification fixture gap for 4 of the 5 GEM point layers the immediately-prior session's own NEXT(1) flagged (v1.0.983)
+
+TASK PRIOR (stated before building, REASONING STANDARD #10): this
+session's own brief is check system health/KNOWN BROKEN first, then
+execute the single highest-value SESSION BUDGET action. Expected KNOWN
+BROKEN #42/#43 (the 2026-09-10 latched kill switch) to still be open,
+unchanged, and non-code-actionable, and expected the primary action to
+come from the explicitly-queued backlog (the immediately-prior session's
+own NEXT(1)) rather than a fresh survey — both expectations confirmed.
+
+SYSTEM HEALTH CHECKED FIRST (live, `python3 scripts/session_health_check.py`,
+DIAG_TOKEN present): `deploy_gate` ok, `deploy_freshness` ok
+(`server_version:1.0.982` matched this checkout's pre-bump `package.json`
+exactly). `liveness: ALARM` — "trading loop dark for 65.0 market hours
+(377.1h wall-clock) since 2026-09-10T03:12:26.354Z" — KNOWN BROKEN
+#42/#43, unchanged in substance from every session since 2026-09-10;
+`liveness_notify` computed "already notified at 276.9h — no new notify
+threshold crossed, do not repeat" — NOT re-notified, same call the
+compiled check itself made. Every other subsystem (`server`/`db`/
+`alpaca`/`python`/`scanner`/`process_faults`/`daemon_memory`/
+`tier2_daemon_timeouts`/`ml_feedback`/`outage_duration`) read OK. Loop-
+health ratio: last 10 tagged experiments.md entries (this entry
+backward, reading the file's true tail — see MEASUREMENT NOTE below) =
+8x [PRODUCT], 1x [PIPELINE], 1x [REPAIR] — well under the 7+ [REPAIR]
+thrash-ratio trigger, no meta-problem.
+
+MEASUREMENT NOTE (found this session, not fixed — out of scope for a one-
+logical-change PR): this file's own header says "newest at top", but the
+actual practice for at least the last several thousand lines has been
+append-at-BOTTOM (confirmed this session: the true most-recent entries,
+matching the highest version numbers and latest git log commits, sit at
+the file's tail, not after the header). This session read the real tail
+to get the true last-10 loop-health ratio and files this note rather than
+silently perpetuating the drift or unilaterally rewriting history/
+convention mid-PR; a future STALENESS or CONSTITUTIONAL AUDIT session
+should decide whether to fix CLAUDE.md's prose or the practice.
+
+PRIMARY ACTION (SESSION BUDGET fall-through rule 1: take the next queued
+item from the immediately-prior session's own NEXT list): that session
+(furnace-unit enrichment, v1.0.982) named "the fixture-completeness gap
+... `coal_terminals`/`iron_ore_mines`/`iron_steel_plants`/`chemicals`/
+`coal_mine_features` all still absent from `scripts/visual_check.mjs`'s
+`/api/data/layers` fixture array" as the natural next PROMOTION-RULE-6
+debt-closing PR.
+
+READ BEFORE WRITE caught a stale claim before writing anything: grepping
+`scripts/visual_check.mjs` directly (not trusting the prior entry's
+prose) showed `coal_mine_features` was ALREADY present in the fixture
+array (added by an earlier, differently-scoped PR) — only 4 of the
+named 5 were actually missing: `coal_terminals`, `iron_ore_mines`,
+`iron_steel_plants`, `chemicals`. Cross-checked each against its real
+`datacore/layers.json` registry entry (name/source/description/group/
+costTier) so the new fixture rows describe the real shipped layers, not
+guessed placeholders, matching the exact fields the `lng_shipyards`/
+`coal_mine_features` fixture rows already carry (id/name/kind/status/
+group/costTier/source/description — no `field` key, since these are
+point-symbol layers, not continuous-field overlays). Confirmed via
+`grep` on `FIXTURES["/api/data/layers"].layers.map((l) => l.id)`
+(scripts/visual_check.mjs:2588) that this array is what the self-see/
+toggle-consistency/legend-parity batteries generically iterate over —
+no other file needed a matching change for these batteries to pick the
+4 new rows up.
+
+WHAT SHIPPED: 4 new fixture rows in `scripts/visual_check.mjs`'s
+`FIXTURES["/api/data/layers"].layers` array (`coal_terminals`,
+`iron_ore_mines`, `iron_steel_plants`, `chemicals`), same class of fix as
+the R15 (2026-07-07)/2026-07-25/2026-09-24 precedents this file's own
+inline comments document. No app code touched — this is harness-fixture-
+only, closing PROMOTION RULE 6 visual-verification debt for layers that
+were already shipped end-to-end across the 2026-09-23/24 sessions.
+
+VERIFIED, not claimed: `npm ci && npm run build` clean (this sandbox had
+no `node_modules` at session start). `npx tsx --test server/*.test.ts`:
+1921/1921 (unchanged — no server code touched). `npx tsx --test
+client/src/lib/*.test.ts`: 283/283 (unchanged — no client code touched).
+`bash scripts/tsc_ratchet.sh`: 11/11, TS2304=0, byte-identical to the
+pinned baseline. `bash scripts/counter_ratchet.sh`: 25/25 OK.
+
+VISUAL VERIFICATION (PROMOTION RULE 6), `node scripts/visual_check.mjs
+--page data` at 390/768/1440 — MEASUREMENT INTEGRITY A/B performed
+because the first run showed 1 hard failure (768px median frame 217ms >
+200ms gate, "steady-state jank", aircraft-layer perf sampling), which
+this file's own standing MEASUREMENT-DEBT entry (filed 2026-07-25,
+open_questions.md) already documents as a container-noise-flaky gate on
+UNTOUCHED code, not a real regression signal, at these SwiftShader-
+software-rendering margins. This session did the A/B the entry itself
+prescribes rather than assuming either verdict: `git stash` isolated
+this diff's one file, re-ran on the untouched base — 0 hard failures,
+768px median 167ms (comfortably under gate); restored this diff, ran a
+third time — 0 hard failures, 768px median 167ms again. Three
+back-to-back runs on effectively the same code (this diff only adds
+off-by-default fixture rows, never toggled during the default-on
+aircraft-layer perf sample) read fail/pass/pass — matching the
+documented flakiness exactly, not a regression this PR introduced. Final
+state: 0 hard failures across all three widths; self-see/toggle-
+consistency/legend-parity all exercised the 4 new layer rows via the
+generic `layerIds` map (confirmed no `self-see: registered layer 'X' has
+no reachable panel row` failures for any of the 4 new ids in any clean
+run). Touch-target/clipped-control soft warnings present are identical
+across baseline and diff runs (pre-existing, unrelated to this PR, not
+this session's own regression to fix per PROMOTION RULE 5's one-logical-
+change rule).
+
+GATES: `python3 -m pytest -q` not run — zero Python files touched by this
+diff. `bash scripts/gated_tests.sh` not separately re-run beyond the
+above (no server/Python change; deploy-gate smoke is unaffected by a
+harness-fixture-only diff). Zero trading-path code touched (`server/
+bot.ts`, `bot_engine.py`, `system_config.py`, `strategies/`,
+`risk_kill_switch.py`, every order-path file) — this is test-harness-
+fixture code only.
+
+BACKTEST: N/A per PROMOTION RULE 3 — not a trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: this diff does not change any production metric
+definition, backtest engine, slippage/fill model, or counterfactual
+logger — `scripts/visual_check.mjs` is a client-side DESIGN.md-
+enforcement test harness, not a live measurement path. The A/B performed
+above is itself an application of this rule (verifying a red gate
+against an untouched baseline before attributing it to this diff), not a
+change subject to it.
+
+MONETIZATION TRIPWIRE: not touched, condition not met.
+
+DEPLOY-COUPLING NOTE: session ran ~16:49 ET on a trading day (`TZ=
+America/New_York date` at commit time) — AFTER the 16:00 ET market
+close, so no market-hours-hold applies; this PR is safe to auto-merge
+per the existing convention (zero trading-path files touched regardless).
+
+VERSION: read-and-increment (`git fetch origin main` confirmed this
+branch's parent, `9f508f3`, IS current `origin/main` HEAD — no stale
+base), `1.0.982` -> `1.0.983` (`package.json` + `package-lock.json`'s two
+matching version fields).
+
+NEXT: (1) the fixture-completeness gap is now fully closed for all 5
+originally-named layers (`coal_mine_features` was already present,
+confirmed this session; the other 4 shipped here). (2) narrow-viewport
+(390/768) confirmation of the furnace-unit popup change from the
+immediately-prior session remains open, unclaimed. (3) the file-ordering
+MEASUREMENT NOTE above (newest-at-top prose vs. newest-at-bottom
+practice) is unresolved — flagged for a future STALENESS/CONSTITUTIONAL
+AUDIT session, not self-applied here. (4) KNOWN BROKEN #42/#43's standing
+LIVENESS ALARM (65.0 market hours / 377.1h wall-clock dark as of this
+session) remains a human-decision item, unchanged, not re-notified.
+
+STARVED: no — this session's primary action was the queue's own
+explicitly-named next item, corrected a stale claim within it via READ
+BEFORE WRITE rather than trusting the log, shipped end-to-end with full
+local gates clean, and ran a real MEASUREMENT INTEGRITY A/B (not just a
+single pass/fail read) against a known-flaky gate before drawing a
+conclusion.
+
+NOT A SPEND REQUEST.

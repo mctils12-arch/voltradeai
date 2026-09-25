@@ -283,6 +283,21 @@ const FIXTURES = {
       { id: "cancerrates", name: "County cancer rates (NCI State Cancer Profiles)", kind: "raw", status: "live", field: true, group: "hazards", costTier: "moderate", source: "National Cancer Institute, State Cancer Profiles, public domain", description: "County-level incidence/mortality choropleth, 3,143 US counties." },
       { id: "methane_plumes", name: "Methane plumes (GEM GMET)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "Global Energy Monitor GMET (CC BY 4.0)", description: "Satellite methane-plume detections, nearest-asset match." },
       { id: "coal_mine_features", name: "Coal mine boundaries & infrastructure (GEM)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "Global Energy Monitor (CC BY 4.0)", description: "Mine boundary polygons + point infrastructure features." },
+      // [REPAIR, found 2026-09-25 while verifying the immediately-prior
+      // session's own claim that 5 layers were fixture-absent]: only these
+      // 4 GEM point layers were actually missing — `coal_mine_features`
+      // above was already present (that prior entry's list was stale/
+      // wrong, caught here by grepping the fixture directly rather than
+      // trusting the log). Same class of gap as the R15 (2026-07-07) and
+      // 2026-07-25/2026-09-24 fixes above: shipped end-to-end (client
+      // symbol layer + server route) across several prior sessions but
+      // never added here, so the self-see/toggle-consistency/legend-
+      // parity batteries never exercised them. Every toggleable registry
+      // layer must appear in this fixture; see the powergrid note above.
+      { id: "coal_terminals", name: "Coal terminals (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Coal Terminals Tracker (CC BY 4.0)", description: "521 port coal-handling terminals, symbol by terminal role, colour by lifecycle status." },
+      { id: "iron_ore_mines", name: "Iron ore mines (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron Ore Mines Tracker (CC BY 4.0)", description: "949 iron ore mines worldwide, colour by lifecycle status." },
+      { id: "iron_steel_plants", name: "Iron & steel plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0)", description: "1,293 iron and steel plants worldwide, colour by primary production technology; furnace-unit detail in the popup." },
+      { id: "chemicals", name: "Chemical plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Chemicals Inventory (CC BY 4.0)", description: "868 chemical plants worldwide, colour by primary feedstock family." },
       // freshness (Phase 5, three of the five fixture health states so the
       // visual harness actually exercises the chip's color/label variants):
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed.", freshness: { stream: "filings", health: "live", age_hours: 0.4, health_note: "newest file 0.4h old" } },
