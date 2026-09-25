@@ -101917,3 +101917,186 @@ continues this backlog. Thrash ratio well under the 7+ trigger — no
 meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-25 (scheduled-routine session, second PR this session) [PRODUCT] — T-DATACORE (server/gemSteelUnits.ts) + T-BOT-adjacent minimal (server/routes.ts, client/src/pages/datamap.tsx detail popup) — `steel_units.json` furnace-unit detail joined onto the existing `iron_steel_plants` layer (v1.0.982)
+
+TERRITORY: primarily T-DATACORE (new `server/gemSteelUnits.ts` pipeline
+module, same one-file-per-GEM-source-file convention as every sibling
+`gemXxx.ts` module) with a minimal, same-PR touch of `server/routes.ts`
+(the join) and `client/src/pages/datamap.tsx` (the detail-popup body only
+— no new layer, no new map source/layer id, no legend change). SHARED
+files (`ci/counter_baseline.txt`, `package.json`) kept minimal, last
+commit. This PR is independent of, and does not depend on, this same
+session's other PR (#1172, the `lng_shipyards`/`steel_raw_materials`
+visual-verification fixture fix) — branched separately from `origin/main`
+so the two ship and can merge in either order.
+
+SESSION-START HEALTH CHECK: same as this session's first PR (see that
+entry immediately above) — no fresh liveness-alarm trigger, KNOWN BROKEN
+#42/#43 unchanged and already notified, not re-checked a second time this
+session for an unchanged condition.
+
+PRIMARY ACTION (this session's fall-through pick, per SESSION BUDGET):
+after closing the visual-verification gap (PR #1172), picked the
+explicitly-named follow-up candidate from the 2026-09-24 GEM-suite
+backlog note (`research/open_questions.md`): "`steel_units.json` —
+furnace-level unit attribute data keyed to `iron_steel_plants.json` ...
+a plausible follow-up detail-panel enrichment of the existing
+`iron_steel_plants` layer rather than a new top-level layer." Explicitly
+NOT the blocked `oil_ngl_pipelines.json`/`gas_pipelines.json` items (no
+route geometry in this GEM release, a human source/geocoding decision,
+not code) — this session's own task instructions named this exact
+distinction.
+
+DATA INVESTIGATED FIRST (READ BEFORE WRITE, live-verified, not assumed):
+`datacore/gem/steel_units.json` holds four furnace-technology arrays —
+`eaf` (1,408 rows), `bof` (1,531), `induction` (605), `open_hearth` (10,
+an essentially extinct technology kept for completeness) — each row
+carrying a `"GEM plant ID"` join key, a `"Unit status"` lifecycle field
+(8 distinct values live-scanned: operating/operating pre-retirement/
+announced/construction/retired/mothballed/mothballed pre-retirement/
+cancelled), and a `"Current capacity (ttpa)"` figure. Live join-integrity
+check (`python3` set-difference against `iron_steel_plants.json`'s 1,293
+plant IDs, this session): **0 of the 1,210 distinct plant IDs referenced
+across all four arrays are orphaned** — every unit cleanly joins to an
+existing plant, no fuzzy matching needed. 1,210 of 1,293 plants (94%)
+have at least one catalogued unit; the remaining 83 plants (a real GEM
+data gap, not a bug) get `furnaceUnits: null`.
+
+WHY A DETAIL-PANEL JOIN, NOT A NEW LAYER: this release's units carry no
+coordinates of their own (only their parent plant's "GEM plant ID" to
+join by) — a plant already has one point on the map from the existing
+`iron_steel_plants` layer; a second, co-located symbol per unit would be
+pure visual noise with nothing new to place. SYMBOLS NOT DOTS is
+unaffected (no new symbol/color dimension added) — this enriches the
+EXISTING plant point's click-through detail only.
+
+SHIPPED:
+- `server/gemSteelUnits.ts` (new) + 11 tests: `normalizeSteelUnits` (one
+  per furnace-type array, drop-not-infer on missing plant ID, GEM's
+  "unknown" sentinel handling matching `gemIronSteelPlants.ts`'s own
+  `NULL_SENTINELS`), `aggregateUnitsByPlant` (counts every unit across
+  EVERY lifecycle status — a plant whose EAFs already retired still
+  honestly shows "3 EAF", never silently drops to 0 — but sums
+  `operatingCapacityTtpa` across `operating`/`operating pre-retirement`
+  units ONLY, live-verified via a dedicated test that a retired unit's
+  1,950 ttpa capacity does NOT inflate the operating total), `load/
+  cachedGemSteelUnits`, `cachedPlantFurnaceSummaries` (verified against
+  the REAL repo release: plant `P100000120882` has exactly 1 operating
+  EAF at 1,100 ttpa, matching this same plant's own already-shipped
+  `iron_steel_plants.json` row — a real cross-file consistency check, not
+  a synthetic fixture only).
+- `server/routes.ts`'s existing `/api/data/iron-steel-plants` route now
+  joins `cachedPlantFurnaceSummaries()` onto every plant row as
+  `furnaceUnits` (null when the enrichment artifact failed to load OR
+  this specific plant has no catalogued unit — never a zero-filled row
+  standing in for "no data"). Route's own `note` field updated to
+  document the new field inline (API self-documentation, same pattern
+  every sibling GEM route already follows).
+- `client/src/pages/datamap.tsx`'s existing `ironsteelplant` detail-popup
+  body gains a furnace-unit line (e.g. "Furnace units (all catalogued
+  lifecycle statuses): 2 EAF, 1 BOF") and an operating-capacity line when
+  present — defensively parsed exactly like the existing `nearestAsset`
+  precedent (methane-plumes popup) for MapLibre's own nested-object-
+  property-through-vector-tiles stringification quirk (`typeof
+  p.furnaceUnits === "string" ? JSON.parse(...) : p.furnaceUnits`) — a
+  real gotcha this session caught live rather than by memory (the first
+  pass omitted this and the field silently failed to parse; caught before
+  shipping by direct verification, see below).
+- `script/build.ts` stages `datacore/gem/steel_units.json` into `dist/`
+  (the R14/2026-07-20 lesson this file's own ratchet test — see below —
+  is designed to catch by construction, not by hand-remembering).
+- `server/apiProduct.ts`'s `RESPONSE_DATA_SCHEMAS.voltrade_iron_steel_plants`
+  gains the `furnaceUnits: ANY` field (documentation completeness — the
+  schema has no `additionalProperties: false`, so this was not required
+  for correctness, but every sibling GEM schema in this file keeps exact
+  parity with its real interface and this keeps that precedent).
+
+VERIFIED, not assumed:
+- `npx tsx --test server/gemSteelUnits.test.ts`: 11/11, including the
+  live cross-check against the real checked-in `steel_units.json` +
+  `iron_steel_plants.json` (not a synthetic-fixture-only test).
+- `npx tsx --test server/*.test.ts`: 1921/1921 (full suite, this branch,
+  isolated from this session's other PR — branched separately from
+  `origin/main` so each PR's gates are self-contained).
+- `npx tsx --test client/src/lib/*.test.ts`: 279/279.
+- `bash scripts/tsc_ratchet.sh`: 11/11 (TS2304=0), unchanged.
+- `bash scripts/counter_ratchet.sh`: first run reported `assertions`
+  improved 15394 -> 15415 (this PR's own +21 new assertions across
+  `gemSteelUnits.test.ts`'s 11 tests); no other counter moved (reused
+  existing `dataObj`/`toStrOrNull`/`toNumOrNull`/route-join idioms, no
+  new `any`/empty-catch introduced). Re-pinned `assertions` in
+  `ci/counter_baseline.txt` in the same commit per PROMOTION RULE 5;
+  re-ran: **25/25 counters OK**.
+- `python3 -m pytest -q`: 2170 passed, 1 skipped, 54 subtests — untouched
+  territory (no Python file in this diff), run as a sanity check only.
+- `npm run build`: clean (only the pre-existing astronomy-engine/chunk-
+  size warnings every prior session has already noted, none new);
+  confirmed the staged `steel_units.json` lands in `dist/datacore/gem/`.
+- `bash scripts/gated_tests.sh` (full suite, this isolated branch,
+  separate from PR #1172's own run): "GATE PASSED: all required suites
+  green; quarantine 0/1, none overdue" — deploy-gate smoke PASSED
+  (`/api/health` 200 in 5.6s under latched-kill-switch + stale-liveness
+  fixtures).
+- Version bumped 1.0.980 -> 1.0.982 (this session's OTHER PR, #1172,
+  already independently claimed 1.0.981 off the same `origin/main` tip —
+  deliberately skipped to 1.0.982 rather than let both PRs collide on the
+  same number, per the SHARED-file "read-and-increment at commit time"
+  protocol; whichever of the two PRs merges second may still need a
+  human/CI re-bump at merge time if a third PR lands between them, same
+  as any other SHARED-file collision).
+
+GATES: no runtime trading code touched — `bot_engine.py`, `system_config.py`,
+`strategies/`, `risk_kill_switch.py`, `ml_model_v2.py`, and every order-path
+file are untouched. This PR touches `server/routes.ts` (one new route join,
+no new route) and `client/src/pages/datamap.tsx` (detail-popup body text
+only, no new map source/layer/legend entry) — PROMOTION RULE 6's visual
+harness does not gate a popup-text-only change the way a new layer would,
+but this session ran it anyway as part of PR #1172's own work and it
+remains green; no NEW `npm run visual` run was needed for a text-only
+popup-body addition to an EXISTING, already-visually-verified layer.
+
+BACKTEST: N/A per PROMOTION RULE 3 — RAW/FACTUAL enrichment (`kind:"raw",
+predictive:false` unchanged on the route), not a trading strategy, sizing,
+or threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff. The
+counter-baseline re-pin above is HARNESS measurement (code-quality
+ratchets), not trading/P&L measurement.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, paid-feature gating, or the aircraft-provider
+compliance chain (the `/api/data/iron-steel-plants` route it extends is
+already CC BY 4.0/resell-ok, unchanged by this PR — no new license-mark
+or `/api/v1` route added here). Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran mid-morning ET on a trading day (see
+this session's other PR's entry for the exact confirmed timestamp) —
+INSIDE 9:30-16:00 ET market hours. Left OPEN, not self-merged, per this
+task's own instruction — zero runtime/trading-path risk either way (no
+order-path, strategy, or risk-limit file touched).
+
+NEXT: (1) `oil_ngl_pipelines.json`/`gas_pipelines.json` remain the one
+still-genuinely-blocked GEM-suite item (needs a human geocoding/source
+decision). (2) the visual-verification fixture-completeness gap this
+session's other PR (#1172) found for the REST of the GEM point-layer
+suite (`coal_terminals`/`iron_ore_mines`/`iron_steel_plants`/`chemicals`/
+`coal_mine_features` all still absent from `scripts/visual_check.mjs`'s
+fixture) is a good next PROMOTION-RULE-6-debt PR. (3) KNOWN BROKEN
+#42/#43's standing LIVENESS ALARM remains a human-decision item, unchanged.
+
+STARVED: no — this session closed its named PRIMARY action (PR #1172)
+with capacity remaining, picked the one explicitly-flagged, mechanically-
+pickable fall-through item (per this session's own task instructions,
+which named it directly and explicitly excluded the blocked pipeline
+items), read-before-wrote every touched function and every call site of
+`cachedGemIronSteelPlants`/the `/api/data/iron-steel-plants` route before
+changing its output shape, live-verified the join against the real
+checked-in release data rather than a synthetic fixture alone, caught and
+fixed a real MapLibre nested-property gotcha before shipping (not after),
+and shipped it as its own PR/branch/commit per PROMOTION RULE 5 rather
+than bundling it with PR #1172. Thrash ratio well under the 7+ trigger —
+no meta-problem.
+
+NOT A SPEND REQUEST.

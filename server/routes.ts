@@ -57,6 +57,7 @@ import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { cachedGemCoalTerminals } from "./gemCoalTerminals";
 import { cachedGemIronOreMines } from "./gemIronOreMines";
 import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
+import { cachedPlantFurnaceSummaries } from "./gemSteelUnits";
 import { cachedGemChemicals } from "./gemChemicals";
 import { cachedGemSteelRawMaterials, cachedSteelRawMaterialsGeoJSON } from "./gemSteelRawMaterials";
 import { cachedGemLngShipyards } from "./gemLngCarriers";
@@ -3354,6 +3355,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                          source: "Global Energy Monitor — Global Iron and Steel Tracker",
                          warming_up: true, count: 0, plants: [] });
     }
+    // Furnace-unit enrichment (server/gemSteelUnits.ts, own PR) — a
+    // detail-panel-only join of datacore/gem/steel_units.json onto each
+    // plant row by "GEM plant ID", per research/open_questions.md's
+    // 2026-09-24 GEM-suite backlog note. `furnaceUnits` is null when the
+    // enrichment artifact itself failed to load OR when this specific
+    // plant has no catalogued furnace unit (a real GEM data gap, not an
+    // error) — never fabricated as zero-filled counts.
+    const summaries = cachedPlantFurnaceSummaries();
+    const plants = summaries
+      ? hit.plants.map((p) => ({ ...p, furnaceUnits: summaries.get(p.id) ?? null }))
+      : hit.plants.map((p) => ({ ...p, furnaceUnits: null }));
     res.json({
       kind: "raw",
       predictive: false,
@@ -3364,9 +3376,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "Iron and steel plants as catalogued by GEM: primary production technology (blast "
         + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
         + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
-        + "no forecast, valuation, or trading signal.",
+        + "no forecast, valuation, or trading signal. `furnaceUnits` (when present) is a "
+        + "GEM steel_units.json join: furnace counts by type across every catalogued lifecycle "
+        + "status, and total capacity (ttpa) summed across operating units only.",
       count: hit.plants.length,
-      plants: hit.plants,
+      plants,
     });
   });
 

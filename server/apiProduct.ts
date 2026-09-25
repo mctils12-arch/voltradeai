@@ -1017,6 +1017,11 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
       workforceSize: ANY, startDate: ANY, retiredDate: ANY, idledDate: ANY, owner: ANY, parent: ANY,
       soeStatus: ANY, wiki: ANY,
       lat: { type: "number" }, lon: { type: "number" },
+      // server/gemSteelUnits.ts's PlantFurnaceSummary join (own PR) — null
+      // when GEM catalogues no furnace unit for this plant (a real data
+      // gap, 83 of 1,293 plants) or the enrichment artifact itself failed
+      // to load; never a zero-filled row standing in for "no data".
+      furnaceUnits: ANY,
     }, ["id", "name", "technology", "lat", "lon"]) },
   }, ["count", "attribution", "license", "note", "plants"]),
   // server/gemLngCarriers.ts's LngShipyard — AGGREGATED by shipyard, not one

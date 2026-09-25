@@ -10953,6 +10953,21 @@ export default function DataMapPage() {
         const onClick = (e: any) => {
           const f = e.features?.[0]; if (!f) return; const p = f.properties;
           const techLabel = IRON_STEEL_TECH_LABEL[p.technology] || p.technology;
+          // Furnace-unit enrichment (server/gemSteelUnits.ts) — a join of
+          // datacore/gem/steel_units.json onto this plant, null when GEM
+          // catalogues no furnace unit for it (a real data gap, not an
+          // error) or the enrichment artifact itself failed to load.
+          // MapLibre GL round-trips a GeoJSON source's nested-object
+          // properties through vector tiles internally, which flattens to
+          // a JSON string — same defensive parse as nearestAsset above.
+          const fu = p.furnaceUnits ? (typeof p.furnaceUnits === "string" ? JSON.parse(p.furnaceUnits) : p.furnaceUnits) : null;
+          const unitParts: string[] = [];
+          if (fu) {
+            if (fu.eaf) unitParts.push(`${fu.eaf} EAF`);
+            if (fu.bof) unitParts.push(`${fu.bof} BOF`);
+            if (fu.induction) unitParts.push(`${fu.induction} induction`);
+            if (fu.openHearth) unitParts.push(`${fu.openHearth} open-hearth`);
+          }
           setDetail({
             kind: "ironsteelplant",
             title: p.name,
@@ -10967,6 +10982,8 @@ export default function DataMapPage() {
             sourceTag: "GEM CC BY 4.0",
             body: `${p.parent ? `Parent company: ${p.parent}\n` : ""}` +
                   `Production equipment (as catalogued): ${p.technologyRaw || "not stated"}\n` +
+                  `${unitParts.length ? `Furnace units (all catalogued lifecycle statuses): ${unitParts.join(", ")}\n` : ""}` +
+                  `${fu?.operatingCapacityTtpa != null ? `Operating furnace capacity: ${Math.round(fu.operatingCapacityTtpa).toLocaleString()} ttpa\n` : ""}` +
                   `${p.startDate ? `Start date: ${p.startDate}\n` : ""}` +
                   `${p.idledDate ? `Idled date: ${p.idledDate}\n` : ""}` +
                   `${p.retiredDate ? `Retired date: ${p.retiredDate}\n` : ""}` +

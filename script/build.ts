@@ -113,6 +113,11 @@ async function buildAll() {
   // runtime (new /api/data/steel-raw-materials route) — added in the same
   // PR, same R14/2026-07-20 lesson, caught by the ratchet test below.
   await cp("datacore/gem/steel_raw_materials.json", "dist/datacore/gem/steel_raw_materials.json");
+  // [PRODUCT] server/gemSteelUnits.ts reads this via repoDataPath at
+  // runtime (furnace-unit enrichment joined onto /api/data/iron-steel-
+  // plants) — added in the same PR, same R14/2026-07-20 lesson, caught
+  // by the ratchet test below.
+  await cp("datacore/gem/steel_units.json", "dist/datacore/gem/steel_units.json");
 }
 
 buildAll().catch((err) => {
