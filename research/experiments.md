@@ -102322,3 +102322,23 @@ harness doesn't yet exercise. Thrash ratio well under the 7+ trigger — no
 meta-problem.
 
 NOT A SPEND REQUEST.
+
+ADDENDUM (2026-09-25, ~15:03 PM ET, minutes after PR #1175 opened): PR
+#1175 merged automatically despite this entry's own DEPLOY-COUPLING NOTE
+stating it was prepared mid-market-hours and left open — confirmed via
+the `pull_request.closed`/`outcome: "merged"` subscription event this
+session received. Another confirmed occurrence of the already-tracked
+"auto-merge has no time-of-day gate" gap (`.github/workflows/ci.yml`'s
+`automerge` job — see the running tally this file/wishlist.md already
+carry, not re-tallied here per that tally's own convention that the full
+count belongs to a dedicated RULE-REVIEW session; same gap PR #1165's
+2026-09-24 addendum logged). Not a live break: `/api/health` re-checked
+immediately after (still `status: "degraded"` solely from the unchanged
+KNOWN BROKEN #42/#43 liveness alarm, no new alarm), and this PR's own
+diff is a zero-trading-code RAW reference-data enrichment, so the
+market-hours risk the hold convention exists to guard against does not
+apply in substance here either — same reasoning PR #1164/#1165's own
+notes already drew. No action taken beyond this log entry; the
+structural fix remains a wishlist.md item for the next RULE-REVIEW or
+CI-workflow-adjacent session (`.github/workflows/` is a FROZEN PATH, not
+self-applied here).
