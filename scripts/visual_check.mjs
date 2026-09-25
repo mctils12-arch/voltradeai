@@ -283,6 +283,19 @@ const FIXTURES = {
       { id: "cancerrates", name: "County cancer rates (NCI State Cancer Profiles)", kind: "raw", status: "live", field: true, group: "hazards", costTier: "moderate", source: "National Cancer Institute, State Cancer Profiles, public domain", description: "County-level incidence/mortality choropleth, 3,143 US counties." },
       { id: "methane_plumes", name: "Methane plumes (GEM GMET)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "Global Energy Monitor GMET (CC BY 4.0)", description: "Satellite methane-plume detections, nearest-asset match." },
       { id: "coal_mine_features", name: "Coal mine boundaries & infrastructure (GEM)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "Global Energy Monitor (CC BY 4.0)", description: "Mine boundary polygons + point infrastructure features." },
+      // [REPAIR, found this session]: same class of gap as the lng_shipyards/
+      // steel_raw_materials fix immediately above (2026-09-25 first session
+      // today) — coal_terminals/iron_ore_mines/iron_steel_plants/chemicals
+      // (datacore/layers.json) all shipped end-to-end (client symbol layer +
+      // server route, 2026-09-22 through 2026-09-24) but were never added
+      // here, so the self-see/toggle-consistency/legend-parity batteries
+      // never exercised any of them either. Closes the "rest of the GEM
+      // point-layer suite" gap that same session's own NEXT(1) flagged live-
+      // verified but deliberately left unattempted per PROMOTION RULE 5.
+      { id: "coal_terminals", name: "Coal terminals (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Coal Terminals Tracker (CC BY 4.0)", description: "521 port coal-handling terminals, symbol by role, colour by lifecycle status." },
+      { id: "iron_ore_mines", name: "Iron ore mines (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron Ore Mines Tracker (CC BY 4.0)", description: "949 iron ore mines worldwide, colour by lifecycle operating status." },
+      { id: "iron_steel_plants", name: "Iron & steel plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0)", description: "1,293 iron and steel plants worldwide, colour by primary production technology." },
+      { id: "chemicals", name: "Chemical plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Chemicals Inventory (CC BY 4.0)", description: "868 chemical plants worldwide, colour by primary feedstock family." },
       // freshness (Phase 5, three of the five fixture health states so the
       // visual harness actually exercises the chip's color/label variants):
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed.", freshness: { stream: "filings", health: "live", age_hours: 0.4, health_note: "newest file 0.4h old" } },
@@ -1358,6 +1371,66 @@ const FIXTURES = {
       owners: "Fixture Coal Co", mineId: "FX1", dataSourceDate: "2025-01-01",
       geometry: { type: "Point", coordinates: [-81.5, 37.8] },
     }],
+  },
+  // Fixtures for the four GEM point layers this session added to the
+  // `layers` array above (coal_terminals/iron_ore_mines/iron_steel_plants/
+  // chemicals) — each carries 2 rows spanning distinct symbol/colour
+  // categories so toggle-consistency and legend-parity actually exercise
+  // more than one branch, same discipline as the lng_shipyards/
+  // steel_raw_materials fixtures below.
+  "/api/data/coal-terminals": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Coal Terminals Tracker (fixture)",
+    release: "fixture", count: 2,
+    terminals: [
+      { id: "FX1", terminalId: "FXT1", name: "Fixture Export Terminal", parentPort: "Fixture Port", status: "Operating",
+        typeClass: "exports", typeRaw: "Exports", productType: "Thermal coal", capacityMt: 12.5,
+        owner: "Fixture Coal Co", country: "Australia", region: "Oceania", startYear: "1998", retiredYear: null,
+        locationAccuracy: "Exact", wiki: null, lat: -23.5, lon: 151.9 },
+      { id: "FX2", terminalId: "FXT2", name: "Fixture Import Terminal", parentPort: null, status: "Proposed",
+        typeClass: "imports", typeRaw: "Imports", productType: "Thermal coal", capacityMt: null,
+        owner: "Fixture Import Co", country: "India", region: "Asia", startYear: null, retiredYear: null,
+        locationAccuracy: "Approximate", wiki: null, lat: 19.0, lon: 72.8 },
+    ],
+  },
+  "/api/data/iron-ore-mines": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Iron Ore Mines Tracker (fixture)",
+    release: "fixture", count: 2,
+    mines: [
+      { id: "FXM1", name: "Fixture Ore Mine", status: "operating", statusRaw: "Operating", country: "Brazil",
+        region: "South America", coordinateAccuracy: "Exact", production2024Kt: 5000, designCapacityKt: 6000,
+        totalReservesKt: 200000, totalResourceKt: 500000, startDate: "1985", stopDate: null,
+        owner: "Fixture Mining Co", parent: "Fixture Holdings", wiki: null, lat: -20.0, lon: -43.5 },
+      { id: "FXM2", name: "Fixture Proposed Mine", status: "proposed", statusRaw: "Proposed", country: "Guinea",
+        region: "Africa", coordinateAccuracy: "Approximate", production2024Kt: null, designCapacityKt: 3000,
+        totalReservesKt: 800000, totalResourceKt: null, startDate: null, stopDate: null,
+        owner: "Fixture Exploration Co", parent: null, wiki: null, lat: 10.0, lon: -12.5 },
+    ],
+  },
+  "/api/data/iron-steel-plants": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Iron and Steel Tracker (fixture)",
+    release: "fixture", count: 2,
+    plants: [
+      { id: "FXS1", name: "Fixture Integrated Steel Plant", technology: "bf_bof", technologyRaw: "Blast Furnace/Basic Oxygen Furnace",
+        categorySteelProduct: "Crude", country: "China", region: "Asia", coordinateAccuracy: "Exact", workforceSize: 8000,
+        startDate: "1970", retiredDate: null, idledDate: null, owner: "Fixture Steel Group", parent: null,
+        soeStatus: "State-owned", wiki: null, lat: 39.9, lon: 116.4 },
+      { id: "FXS2", name: "Fixture Mini-mill", technology: "eaf", technologyRaw: "Electric Arc Furnace",
+        categorySteelProduct: "Finished rolled", country: "United States", region: "North America", coordinateAccuracy: "Exact",
+        workforceSize: 450, startDate: "2005", retiredDate: null, idledDate: null, owner: "Fixture Mini-Mill LLC",
+        parent: null, soeStatus: null, wiki: null, lat: 33.7, lon: -84.4 },
+    ],
+  },
+  "/api/data/chemicals": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Chemicals Inventory (fixture)",
+    release: "fixture", count: 2,
+    plants: [
+      { id: "FXC1", name: "Fixture Ammonia Plant", feedstockFamily: "natural_gas", feedstockRaw: "Natural Gas",
+        primaryProducts: "Ammonia", secondaryProducts: "Urea", country: "United States", region: "North America",
+        coordinateAccuracy: "Exact", owner: "Fixture Chemical Co", wiki: null, lat: 29.7, lon: -95.4 },
+      { id: "FXC2", name: "Fixture Refinery Petrochemical Complex", feedstockFamily: "petroleum", feedstockRaw: "Petroleum Liquid",
+        primaryProducts: "Ethylene", secondaryProducts: "Propylene", country: "Germany", region: "Europe",
+        coordinateAccuracy: "Exact", owner: "Fixture Petro AG", wiki: null, lat: 51.5, lon: 6.5 },
+    ],
   },
   "/api/data/airport-status": {
     kind: "raw", source: "FAA National Airspace System Status (fixture)", time: 1, update_time: "2026-07-25T00:00:00Z", count: 1,
