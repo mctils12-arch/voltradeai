@@ -3363,8 +3363,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       release: hit.release,
       note: "Iron and steel plants as catalogued by GEM: primary production technology (blast "
         + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
-        + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
-        + "no forecast, valuation, or trading signal.",
+        + "stated), product category, and lifecycle dates. Each plant's `units` array carries "
+        + "its individual furnaces (from GEM's companion steel-unit-level release, joined by "
+        + "plant id): furnace type (EAF/BOF/induction/open-hearth), lifecycle status, current "
+        + "capacity (ttpa), and dates — 1,210 of 1,293 plants carry at least one joined unit, "
+        + "3,554 units total. Locations/technology as catalogued; no forecast, valuation, or "
+        + "trading signal.",
       count: hit.plants.length,
       plants: hit.plants,
     });
@@ -5896,8 +5900,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         release: hit.release,
         note: "Iron and steel plants as catalogued by GEM: primary production technology (blast "
           + "furnace/basic oxygen, direct-reduced-iron, electric-arc, or induction furnace, as "
-          + "stated), product category, and lifecycle dates. Locations/technology as catalogued; "
-          + "no forecast, valuation, or trading signal.",
+          + "stated), product category, and lifecycle dates. Each plant's `units` array carries "
+          + "its individual furnaces (from GEM's companion steel-unit-level release, joined by "
+          + "plant id): furnace type (EAF/BOF/induction/open-hearth), lifecycle status, current "
+          + "capacity (ttpa), and dates — 1,210 of 1,293 plants carry at least one joined unit, "
+          + "3,554 units total. Locations/technology as catalogued; no forecast, valuation, or "
+          + "trading signal.",
         plants: hit.plants,
       }));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/iron-steel-plants", status: 200, tier: auth.tier });

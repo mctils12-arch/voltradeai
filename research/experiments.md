@@ -102097,3 +102097,228 @@ action (furnace-unit enrichment, its own entry below) with capacity
 remaining. Thrash ratio well under the 7+ trigger — no meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-25 (scheduled-routine [PRODUCT] session, second session this UTC day) [PRODUCT] — T-DATACORE-adjacent (server/gemIronSteelPlants.ts) + T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx) + SHARED-minimal (server/routes.ts, server/apiProduct.ts, script/build.ts, ci/counter_baseline.txt, package.json/package-lock.json): `iron_steel_plants` gets furnace-unit detail-panel enrichment from GEM's companion `steel_units.json` release (v1.0.982)
+
+TERRITORY: spans T-DATACORE (a new server-side join, no new fetch/archive
+machinery — same "static reference dataset" class as the rest of the GEM
+suite) and T-CLIENT (the detail-panel popup body). No T-BOT files touched.
+
+SESSION-START HEALTH CHECK: read CLAUDE.md in full, then `research/
+PROGRAM_STATE.md` (Track 1 quality-gate program — complete except the moon
+GPU bake, which needs `basisu`/RunPod tooling this sandbox lacks, not
+product-relevant) and `research/open_questions.md`'s KNOWN BROKEN tail.
+`scripts/session_health_check.py` confirmed the standing LIVENESS ALARM
+(KNOWN BROKEN #42/#43, `killSwitch:true` since 2026-09-10) is unchanged in
+substance (65.0 market hours / 374.8h wall-clock dark) and its own compiled
+re-notify judgment (`liveness_notify: ... already notified at 276.9h — no
+new notify threshold crossed, do not repeat`) says this is not a fresh
+trigger — confirmed live, not re-notified, not actioned (resuming the
+trading loop is a human decision per RULE REVIEW). All other subsystems
+(`server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/`process`/
+`memory`/`licensing`) reported `ok`. This break does not block product
+work, per this session's own task instructions.
+
+PRIMARY ACTION: `scripts/ladder_readiness_check.py` (0/3 gated roots ready
+— cftc_cot/sec_8k_earnings/fleet_utilization all still WAITING on their own
+pre-registered re-run clocks, live-recomputed this session) and
+`scripts/data_stream_registry_check.py` (9/9 unbuilt candidates still
+`declined_*`/`blocked_registration`/`blocked_free_key` — no state change)
+were both re-checked first and confirmed empty, so this session fell
+through to the queue's own next concrete item rather than starting a new
+speculative angle: the immediately-prior session in this same UTC day (the
+`lng_shipyards`/`steel_raw_materials` visual-verification PR) filed its own
+NEXT(2) — `steel_units.json` (furnace-level unit attribute data keyed to
+`iron_steel_plants.json` by `"GEM plant ID"`) had sat as "a plausible
+future detail-panel enrichment" since three separate prior sessions
+(2026-09-23 iron_steel_plants ship, 2026-09-24 seventh session, 2026-09-25
+first session) each independently named it and moved on. Live-verified
+before writing anything (READ BEFORE WRITE): `datacore/gem/steel_units.json`
+has 4 GEM-native sheets (`eaf`/`bof`/`induction`/`open_hearth`, counts
+1408/1531/605/10 = 3,554 total furnace units), each row carrying its own
+`"GEM plant ID"` join key, `"Unit status"` (a real 8-value catalogued set,
+Counter-verified across all 4 sheets: operating/operating pre-retirement/
+announced/construction/mothballed/mothballed pre-retirement/retired/
+cancelled), `"Current capacity (ttpa)"`, dates, and manufacturer — real
+per-furnace detail a plant-level row alone cannot carry (a plant can mix an
+idled BF with a newly-commissioned EAF).
+
+SHIPPED (own PR, this file only):
+- `server/gemIronSteelPlants.ts`: `SteelFurnaceUnit`/`SteelFurnaceType`/
+  `SteelUnitStatus` types, `classifyUnitStatus` (same drop-not-infer
+  discipline as `classifyMineStatus` in `gemIronOreMines.ts` — an
+  unrecognized/blank status falls to `"unknown"`, never guessed),
+  `normalizeSteelUnits`, `loadGemSteelUnits`, `groupSteelUnitsByPlant`. Kept
+  `loadGemIronSteelPlants`/`normalizeIronSteelPlants` themselves PURE and
+  single-file (an optional `unitsByPlantId` param, defaulting to no join —
+  the function's own existing single-arg test callers are unchanged,
+  `units: []` on every row when omitted); the actual join happens one level
+  up in `cachedGemIronSteelPlants()`, matching `gemSteelRawMaterials.ts`'s
+  own precedent of keeping the country-boundary join (`joinCountryChoropleth`)
+  as a separate step from the plain-file loader.
+- `IronSteelPlant` gains a `units: SteelFurnaceUnit[]` field (never absent,
+  `[]` when nothing joins) — flows automatically through both
+  `/api/data/iron-steel-plants` and its `/api/v1/data/iron-steel-plants`
+  keyed mirror, since both already just serve `hit.plants` unchanged.
+- `client/src/lib/mapIcons.ts`: `FURNACE_TYPE_LABEL` + `summarizeFurnaceUnits`
+  — groups a plant's units by furnace type into one summary line each
+  (unit count, a real status breakdown — never collapsed to a single
+  "active" bucket — and the combined stated capacity, explicitly marked
+  "capacity known for N/M" whenever not every unit in that group states
+  one, never a silently-partial sum).
+- `client/src/pages/datamap.tsx`'s `ironsteel-pt` click handler: adds a
+  "Furnace units" stat + the `summarizeFurnaceUnits` lines to the popup
+  body. `p.units` is explicitly `JSON.stringify`'d when written into the
+  GeoJSON source `properties` and `JSON.parse`'d back in the click handler
+  — the same defensive pattern this file's `nrc-reactor`/`border_waits`/
+  `methane_plumes` layers already use for nested array properties
+  (MapLibre GL's GeoJSON-source property pipeline flattens nested
+  arrays/objects to JSON strings internally; this codebase already has the
+  gotcha documented at 4 other call sites, not rediscovered here).
+- `script/build.ts`: `datacore/gem/steel_units.json` staged into `dist/` —
+  caught BEFORE merge by `server/repoFiles.test.ts`'s own R14/2026-07-20
+  ratchet test (`not ok 1459`, live-verified this session: it failed on
+  the first full-suite run with the exact diagnostic message naming the
+  missing `cp()` line), not discovered after a prod 503 the way the
+  original 2026-07-20 defect was — the ratchet doing its job.
+- `/api/data/iron-steel-plants` and `/api/v1/data/iron-steel-plants`
+  route notes, `server/apiProduct.ts`'s `LICENSE_MARKS`/`agentToolSpec`
+  description/`RESPONSE_DATA_SCHEMAS` entry (added a nested `units` array
+  schema, `[]` never absent) all updated to document the enrichment
+  honestly (coverage numbers stated, not vibes: 1,210 of 1,293 plants /
+  3,554 units total).
+
+VERIFIED, not claimed:
+- `server/gemIronSteelPlants.test.ts`: 29/29 (11 new tests —
+  `classifyUnitStatus`'s 8-bucket recognition + unknown-fallback,
+  `normalizeSteelUnits`'s column mapping/drop-rule/null-capacity handling,
+  `loadGemSteelUnits`'s 4-sheet concatenation + missing/corrupt-file
+  degrade, `groupSteelUnitsByPlant`'s grouping, the new
+  `normalizeIronSteelPlants` unitsByPlantId-join test, and a live
+  integration test against the REAL checked-in `datacore/gem/steel_units.json`
+  confirming `cachedGemIronSteelPlants()` actually joins real data: 1,210
+  of 1,293 real plants get >=1 real unit, every joined unit's `plantId`
+  matches its parent plant's `id`).
+- `client/src/lib/mapIcons.test.ts`: 12/12 (4 new tests for
+  `summarizeFurnaceUnits` — empty input, multi-type grouping with a real
+  capacity sum, mixed-status-within-one-type never collapsed, and the
+  "capacity known for N/M" partial-sum flag).
+- `npx tsx --test server/*.test.ts`: 1921/1921 (full suite, not just the
+  touched files — caught the `script/build.ts` gap above on the first
+  full run; 1921/1921 again after the fix).
+- `npx tsx --test client/src/lib/*.test.ts`: 283/283.
+- `npm run build` clean; `dist/datacore/gem/steel_units.json` confirmed
+  present after the fix (2.8MB, matches the source file).
+- `bash scripts/tsc_ratchet.sh`: 11/11, TS2304=0 — MEASUREMENT NOTE: a
+  first run (before `npm ci`, stale `node_modules` in this sandbox missing
+  `@types/node`/`vite`) read 3, a drop from the 11 pin that this session
+  did NOT attribute to its own diff or use to lower the pin, per this
+  file's own standing MEASUREMENT INTEGRITY discipline and the ratchet
+  script's own header warning ("an unexplained count is an environment
+  divergence, not a regression/gain — do not touch the pin on it"). A
+  clean `npm ci` reproduced the pinned 11 exactly, confirming no real
+  change and no drift to lock in.
+- `bash scripts/counter_ratchet.sh`: 25/25 OK. `assertions` 15394 -> 15454
+  re-pinned in this PR (this session's own 15 new test assertions, the
+  session's direct effect — not bundled with any unrelated drift).
+- `python3 -m pytest -q`: 2170 passed, 1 skipped, 54 subtests — untouched
+  territory, run as a sanity check.
+- `bash scripts/gated_tests.sh`: GATE PASSED — python green, deploy-gate
+  smoke PASSED (`/api/health` 200 in 4.3s under latched-kill-switch +
+  stale-liveness fixtures), quarantine 0/1 none overdue.
+- VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+  --page data` at 390/768/1440 — 0 hard failures. HONEST GAP, same class
+  this file's own immediately-prior entry (today, first session) already
+  documented for `lng_shipyards`/`steel_raw_materials`: `iron_steel_plants`
+  is STILL absent from `scripts/visual_check.mjs`'s own `/api/data/layers`
+  fixture array (confirmed via `grep`, unchanged from that entry's own
+  live-verified finding), so the harness's toggle-consistency/self-see/
+  legend-parity batteries never actually exercise this layer or its new
+  popup content — closing that fixture gap for the whole remaining
+  5-layer backlog (`coal_terminals`/`iron_ore_mines`/`iron_steel_plants`/
+  `chemicals`/`coal_mine_features`) is a separate PR per PROMOTION RULE 5
+  (this PR is the furnace-unit enrichment, not a general fixture audit).
+  Instead of leaving this as an unverified claim, this session built a
+  THROWAWAY (not shipped — kept only in this session's own scratchpad,
+  matching the 2026-09-25 first session's own precedent) standalone
+  Playwright script reusing `visual_check.mjs`'s own static-file-serving +
+  SwiftShader-GL-args pattern against the real `dist/public` build, with a
+  minimal single-layer `/api/data/iron-steel-plants` fixture (1 plant, 3
+  units spanning 2 furnace types and 3 different statuses, one unit with a
+  null capacity to exercise the "partial" flag). Debugged and fixed two
+  real coordinate-space bugs in the THROWAWAY SCRIPT itself along the way
+  (not in shipped code): `map.project()` returns container-relative
+  pixels, not page-absolute — needed the map container's own
+  `getBoundingClientRect()` offset before a real `page.mouse.click()`; and
+  the default camera view doesn't have the fixture's single point on
+  screen at all without an explicit `jumpTo()` first. At 1440px
+  (non-touch — the same width this file's own `toggleConsistency` battery
+  restricts state-wiring clicks to, "exercises state wiring, not layout",
+  same restriction this session inherits rather than re-litigates):
+  toggled the layer on (confirmed `data-vt-rt="active"`, "1 plants"),
+  clicked the real rendered `ironsteel-pt` symbol via computed pixel
+  coordinates, expanded the popup's own `DETAILS` disclosure, and read the
+  live-rendered text byte-for-byte: `"Fixture Steel Works / Electric arc
+  furnace ... Furnace units (GEM steel-unit release): 2x EAF (1 operating,
+  1 retired), 1,100 ttpa (capacity known for 1/2) / 1x BOF (1 operating
+  pre-retirement), 1,950 ttpa"` — exactly matching the fixture's 3 units
+  and exercising the partial-capacity flag live, not just in the unit
+  test. Screenshot kept in this session's own scratchpad only (not
+  committed, matching the same precedent). 390/768 (touch-emulated
+  viewport, no touch events actually dispatched by this ad hoc script)
+  did not reach the same confirmed state in the time available — left
+  unverified at those two widths rather than claimed; the underlying
+  string-building logic (`summarizeFurnaceUnits`) is unit-tested
+  independently of viewport width, so this gap is about click-interaction
+  plumbing at narrow widths, not about whether the feature works.
+
+GATES: no runtime trading code touched (T-BOT untouched). Datacore change
+is a pure additive server-side join over an already-vendored static
+reference file — no new fetch, no new archive-append machinery, no
+network call. RAW/FACTUAL overlay per CLAUDE.md's RAW-vs-SIGNAL rule
+(furnace lifecycle status/capacity as catalogued by GEM, no forecast,
+valuation, or trading claim) — `global_energy_monitor` stays a
+`raw_only` root, `current_gate 0`, unaffected by this PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, or paid-feature gating. Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran ~14:56 ET on a trading day (confirmed
+via `TZ=America/New_York date` at commit time) — INSIDE the 9:30-16:00 ET
+market session. Per this task's own instruction, this PR is left OPEN
+(not self-merged) for a human/later session to merge after the close, or
+at their discretion given this diff touches only a RAW reference-data
+enrichment (zero runtime/trading-path risk either way).
+
+NEXT: (1) the fixture-completeness gap this entry's VISUAL VERIFICATION
+section named — `coal_terminals`/`iron_ore_mines`/`iron_steel_plants`/
+`chemicals`/`coal_mine_features` all still absent from
+`scripts/visual_check.mjs`'s `/api/data/layers` fixture — remains the
+natural next PROMOTION-RULE-6-debt-closing PR, unchanged in scope from
+the immediately-prior session's own note. (2) narrow-viewport (390/768)
+confirmation of this session's own popup change, left honestly unverified
+above. (3) KNOWN BROKEN #42/#43's standing LIVENESS ALARM (65.0 market
+hours / 374.8h wall-clock dark as of this session) remains a human-decision
+item, unchanged, not re-notified this session per the compiled re-notify
+judgment.
+
+STARVED: no — this session read CLAUDE.md and PROGRAM_STATE.md per its
+own task instructions, checked KNOWN BROKEN/liveness first (confirmed
+still-active but already-notified, not a fresh trigger), re-confirmed
+both the ladder-readiness and unbuilt-candidate queues were genuinely
+empty before picking a fall-through item rather than assuming so, closed
+a three-times-independently-flagged backlog item end-to-end (server join
++ client popup + docs/schema + build-staging + tests), caught and fixed
+a real pre-merge defect via the repo's own ratchet test (not after a prod
+incident), and built real (if throwaway) end-to-end browser verification
+rather than trusting "0 hard failures" alone for a layer the shipped
+harness doesn't yet exercise. Thrash ratio well under the 7+ trigger — no
+meta-problem.
+
+NOT A SPEND REQUEST.

@@ -18,7 +18,7 @@ import {
   COAL_CATEGORY_ICON, COAL_CATEGORY_LABEL, coalGradeColor, COAL_GRADE_COLOR, COAL_GRADE_UNKNOWN_COLOR,
   COAL_TERMINAL_TYPE_ICON, COAL_TERMINAL_TYPE_LABEL, coalTerminalStatusColor,
   IRON_ORE_STATUS_LABEL, ironOreStatusColor,
-  IRON_STEEL_TECH_LABEL, ironSteelTechColor,
+  IRON_STEEL_TECH_LABEL, ironSteelTechColor, summarizeFurnaceUnits,
   CHEMICAL_FEEDSTOCK_LABEL, chemicalFeedstockColor,
   LNG_SHIPYARD_COUNTRY_LABEL, lngShipyardCountryTier, LNG_SHIPYARD_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
@@ -10933,7 +10933,7 @@ export default function DataMapPage() {
             features: d.plants.map((p: any) => ({
               type: "Feature",
               geometry: { type: "Point", coordinates: [p.lon, p.lat] },
-              properties: { ...p, tint: ironSteelTechColor(p.technology), icon: "vt-mill" },
+              properties: { ...p, units: JSON.stringify(p.units || []), tint: ironSteelTechColor(p.technology), icon: "vt-mill" },
             })),
           } as any,
           attribution: "Global Energy Monitor (CC BY 4.0)",
@@ -10953,6 +10953,9 @@ export default function DataMapPage() {
         const onClick = (e: any) => {
           const f = e.features?.[0]; if (!f) return; const p = f.properties;
           const techLabel = IRON_STEEL_TECH_LABEL[p.technology] || p.technology;
+          const units: { furnaceType: string; status: string; capacityTtpa: number | null }[] =
+            typeof p.units === "string" ? JSON.parse(p.units || "[]") : (p.units || []);
+          const furnaceLines = summarizeFurnaceUnits(units);
           setDetail({
             kind: "ironsteelplant",
             title: p.name,
@@ -10963,6 +10966,7 @@ export default function DataMapPage() {
               { label: "Country", value: p.country || "—" },
               { label: "Owner", value: p.owner || "—" },
               { label: "Workforce", value: p.workforceSize != null ? p.workforceSize.toLocaleString() : "not stated" },
+              { label: "Furnace units", value: units.length > 0 ? String(units.length) : "not catalogued" },
             ],
             sourceTag: "GEM CC BY 4.0",
             body: `${p.parent ? `Parent company: ${p.parent}\n` : ""}` +
@@ -10971,8 +10975,9 @@ export default function DataMapPage() {
                   `${p.idledDate ? `Idled date: ${p.idledDate}\n` : ""}` +
                   `${p.retiredDate ? `Retired date: ${p.retiredDate}\n` : ""}` +
                   `${p.soeStatus ? `SOE status: ${p.soeStatus}\n` : ""}` +
-                  `Coordinate accuracy: ${p.coordinateAccuracy || "not stated"}\n\n` +
-                  `Source: Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0). ` +
+                  `Coordinate accuracy: ${p.coordinateAccuracy || "not stated"}\n` +
+                  `${furnaceLines.length > 0 ? `\nFurnace units (GEM steel-unit release):\n${furnaceLines.join("\n")}\n` : ""}` +
+                  `\nSource: Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0). ` +
                   `Location/technology as catalogued; no forecast, valuation, or trading signal.`,
             sourceUrl: p.wiki || undefined,
           });
