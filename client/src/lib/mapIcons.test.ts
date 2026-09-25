@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor, lngShipyardCountryTier } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor, lngShipyardCountryTier, summarizeFurnaceUnits } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -78,6 +78,39 @@ test("chemicalFeedstockColor: GEM chemicals' 6 feedstock-family buckets map dire
   assert.equal(chemicalFeedstockColor(null), "#94a3b8");
   assert.equal(chemicalFeedstockColor(undefined), "#94a3b8");
   assert.equal(chemicalFeedstockColor("not-a-real-bucket"), "#94a3b8", "never guesses a feedstock color for an unrecognized bucket");
+});
+
+test("summarizeFurnaceUnits: no units returns [], never a fabricated summary", () => {
+  assert.deepEqual(summarizeFurnaceUnits(null), []);
+  assert.deepEqual(summarizeFurnaceUnits(undefined), []);
+  assert.deepEqual(summarizeFurnaceUnits([]), []);
+});
+
+test("summarizeFurnaceUnits: groups by furnace type, one line per type, with a status breakdown and capacity sum", () => {
+  const lines = summarizeFurnaceUnits([
+    { furnaceType: "eaf", status: "operating", capacityTtpa: 1100 },
+    { furnaceType: "eaf", status: "operating", capacityTtpa: 900 },
+    { furnaceType: "bof", status: "retired", capacityTtpa: 1950 },
+  ]);
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0], "2x EAF (2 operating), 2,000 ttpa");
+  assert.equal(lines[1], "1x BOF (1 retired), 1,950 ttpa");
+});
+
+test("summarizeFurnaceUnits: mixed statuses within one furnace type are broken out, never collapsed", () => {
+  const lines = summarizeFurnaceUnits([
+    { furnaceType: "eaf", status: "operating", capacityTtpa: 1100 },
+    { furnaceType: "eaf", status: "retired", capacityTtpa: null },
+  ]);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes("1 operating"));
+  assert.ok(lines[0].includes("1 retired"));
+  assert.ok(lines[0].endsWith("(capacity known for 1/2)"), "capacity sum must flag itself as partial, never silently omit the unknown unit");
+});
+
+test("summarizeFurnaceUnits: a furnace type with no unit stating a capacity reports no capacity figure at all (never a fabricated 0)", () => {
+  const lines = summarizeFurnaceUnits([{ furnaceType: "induction", status: "announced", capacityTtpa: null }]);
+  assert.equal(lines[0], "1x Induction furnace (1 announced)");
 });
 
 test("lngShipyardCountryTier: the top-3 shipbuilding nations get their own tier, every other country pools to 'other'", () => {

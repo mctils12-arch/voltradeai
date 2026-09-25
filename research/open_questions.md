@@ -22037,6 +22037,29 @@ decision (no route geometry in this GEM release variant); `steel_units.json`
 remains a plausible future detail-panel enrichment, not queued. Full
 account in `research/experiments.md`'s matching dated entry.
 
+UPDATE (2026-09-25, scheduled-routine [PRODUCT] session, second session
+this UTC day, v1.0.982): `steel_units.json` SHIPPED as the furnace-level
+detail-panel enrichment this note named three sessions running without
+anyone picking it up. Joined by `"GEM plant ID"` onto `iron_steel_plants`
+(`server/gemIronSteelPlants.ts`'s `loadGemSteelUnits`/
+`groupSteelUnitsByPlant`, kept as a separate join step so the base
+plant loader stays pure) — 1,210 of 1,293 plants / 3,554 of 3,554 units
+join cleanly (live-verified, not assumed). The `/api/data/iron-steel-
+plants` and `/api/v1/data/iron-steel-plants` routes now carry each
+plant's `units` array (furnace type, an 8-value catalogued status, ttpa
+capacity, dates, manufacturer) with no route change needed (both already
+serve `hit.plants` unchanged). The client popup (`datamap.tsx`'s
+`ironsteel-pt` click handler) now summarizes them per furnace type via a
+new `summarizeFurnaceUnits` helper (`client/src/lib/mapIcons.ts`),
+live-verified rendering correctly in a real headless browser at 1440px
+(byte-matched the fixture's furnace-unit text). This closes the ONLY
+remaining item this note's own thread had left open besides the already-
+genuinely-blocked `oil_ngl_pipelines.json`/`gas_pipelines.json` pair —
+the full original GEM-suite backlog (all point/choropleth layers,
+`/api/v1` mirrors, and now the one detail-panel enrichment) is done.
+Full account, including the honest 390/768 visual-verification gap this
+session left open, in `research/experiments.md`'s matching dated entry.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-

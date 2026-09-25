@@ -1227,6 +1227,61 @@ export const IRON_STEEL_TECH_LABEL: Record<string, string> = {
   other: "Technology not stated",
 };
 
+// GEM steel-unit furnace type (server/gemIronSteelPlants.ts's
+// SteelFurnaceType, joined from datacore/gem/steel_units.json by plant
+// id) -> display label, for the iron_steel_plants detail panel's
+// per-plant furnace-unit summary below.
+export const FURNACE_TYPE_LABEL: Record<string, string> = {
+  eaf: "EAF",
+  bof: "BOF",
+  induction: "Induction furnace",
+  open_hearth: "Open hearth furnace",
+};
+
+export interface SteelFurnaceUnitLike {
+  furnaceType: string;
+  status: string;
+  capacityTtpa: number | null;
+}
+
+/** Groups a plant's joined furnace units (server/gemIronSteelPlants.ts's
+ *  SteelFurnaceUnit[]) by furnace type into one summary line per type:
+ *  unit count, a status breakdown (GEM's own 8-value catalogued set, as
+ *  stated — never collapsed to a single "active" bucket), and the
+ *  combined stated capacity (ttpa). The capacity sum is marked "partial"
+ *  whenever not every unit in that group states a capacity, so it is
+ *  never presented as covering the whole group. Returns [] for no units
+ *  — never fabricates a summary line for an empty list. */
+export function summarizeFurnaceUnits(units: SteelFurnaceUnitLike[] | null | undefined): string[] {
+  if (!units || units.length === 0) return [];
+  const byType = new Map<string, SteelFurnaceUnitLike[]>();
+  for (const u of units) {
+    const arr = byType.get(u.furnaceType);
+    if (arr) arr.push(u);
+    else byType.set(u.furnaceType, [u]);
+  }
+  const lines: string[] = [];
+  for (const [type, us] of byType) {
+    const label = FURNACE_TYPE_LABEL[type] || type;
+    const statusCounts = new Map<string, number>();
+    let capSum = 0;
+    let capKnown = 0;
+    for (const u of us) {
+      statusCounts.set(u.status, (statusCounts.get(u.status) || 0) + 1);
+      if (u.capacityTtpa != null) {
+        capSum += u.capacityTtpa;
+        capKnown++;
+      }
+    }
+    const statusStr = [...statusCounts.entries()].map(([s, n]) => `${n} ${s}`).join(", ");
+    const capStr = capKnown > 0
+      ? `, ${capSum.toLocaleString()} ttpa${capKnown < us.length ? ` (capacity known for ${capKnown}/${us.length})` : ""}`
+      : "";
+    lines.push(`${us.length}x ${label} (${statusStr})${capStr}`);
+  }
+  return lines;
+}
+
 // GEM chemical plants (server/gemChemicals.ts): primary FEEDSTOCK FAMILY
 // bucket (matches classifyFeedstockFamily/ChemicalFeedstockFamily exactly).
 // This release, like iron_steel_plants, has no lifecycle status column, and

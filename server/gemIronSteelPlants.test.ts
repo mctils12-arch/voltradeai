@@ -20,6 +20,11 @@ import {
   loadGemIronSteelPlants,
   cachedGemIronSteelPlants,
   _resetGemIronSteelPlantsCacheForTests,
+  classifyUnitStatus,
+  normalizeSteelUnits,
+  loadGemSteelUnits,
+  groupSteelUnitsByPlant,
+  type SteelFurnaceUnit,
 } from "./gemIronSteelPlants";
 
 function mkFixture(body: unknown): string {
@@ -139,7 +144,31 @@ test("normalizeIronSteelPlants: maps GEM's raw columns to the clean schema", () 
     wiki: "https://www.gem.wiki/Aba_Iron_and_Steel_Payas_plant",
     lat: 36.747413,
     lon: 36.21733,
+    units: [],
   });
+});
+
+test("normalizeIronSteelPlants: attaches furnace units by 'GEM plant ID' when a units map is supplied", () => {
+  const unit: SteelFurnaceUnit = {
+    plantId: "P100000120882",
+    unitId: "U100000144311",
+    name: "unknown EAF (1)",
+    furnaceType: "eaf",
+    status: "operating",
+    capacityTtpa: 1100,
+    startDate: null,
+    retiredDate: null,
+    manufacturer: "AyTekno",
+  };
+  const map = new Map([["P100000120882", [unit]]]);
+  const out = normalizeIronSteelPlants([FULL_ROW], map);
+  assert.deepEqual(out[0].units, [unit]);
+});
+
+test("normalizeIronSteelPlants: a plant with no matching entry in the units map gets units: []", () => {
+  const map = new Map([["some-other-plant-id", [{} as SteelFurnaceUnit]]]);
+  const out = normalizeIronSteelPlants([FULL_ROW], map);
+  assert.deepEqual(out[0].units, []);
 });
 
 test("normalizeIronSteelPlants: GEM's own 'unknown'/'N/A' sentinel cells stay null, never fabricated", () => {
@@ -182,6 +211,118 @@ test("loadGemIronSteelPlants: a missing/corrupt file degrades to null, never thr
   const fp = path.join(dir, "iron_steel_plants.json");
   fs.writeFileSync(fp, "{not json");
   assert.equal(loadGemIronSteelPlants(fp), null);
+});
+
+const FULL_UNIT_ROW = {
+  "GEM plant ID": "P100000120882",
+  "GEM unit ID": "U100000144311",
+  "Unit name": "unknown EAF (1)",
+  "Unit status": "operating",
+  "Current capacity (ttpa)": 1100,
+  "Start date": "unknown",
+  "Retired date": "unknown",
+  "Furnace manufacturer": "AyTekno",
+};
+
+test("classifyUnitStatus: recognizes GEM's own 8 catalogued values, case-insensitive", () => {
+  assert.equal(classifyUnitStatus("operating"), "operating");
+  assert.equal(classifyUnitStatus("Operating Pre-Retirement"), "operating pre-retirement");
+  assert.equal(classifyUnitStatus("MOTHBALLED"), "mothballed");
+  assert.equal(classifyUnitStatus("cancelled"), "cancelled");
+});
+
+test("classifyUnitStatus: unrecognized/blank/missing values fall to 'unknown', never guessed", () => {
+  assert.equal(classifyUnitStatus(""), "unknown");
+  assert.equal(classifyUnitStatus(null), "unknown");
+  assert.equal(classifyUnitStatus(undefined), "unknown");
+  assert.equal(classifyUnitStatus("idle"), "unknown");
+});
+
+test("normalizeSteelUnits: maps GEM's raw unit columns to the clean schema", () => {
+  const out = normalizeSteelUnits("eaf", [FULL_UNIT_ROW]);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], {
+    plantId: "P100000120882",
+    unitId: "U100000144311",
+    name: "unknown EAF (1)",
+    furnaceType: "eaf",
+    status: "operating",
+    capacityTtpa: 1100,
+    startDate: null, // "unknown" sentinel
+    retiredDate: null, // "unknown" sentinel
+    manufacturer: "AyTekno",
+  });
+});
+
+test("normalizeSteelUnits: drops rows with no plant id or no unit id", () => {
+  assert.equal(normalizeSteelUnits("eaf", [{ ...FULL_UNIT_ROW, "GEM plant ID": undefined }]).length, 0);
+  assert.equal(normalizeSteelUnits("eaf", [{ ...FULL_UNIT_ROW, "GEM unit ID": undefined }]).length, 0);
+});
+
+test("normalizeSteelUnits: a missing/'unknown' capacity degrades to null, never fabricated", () => {
+  const out = normalizeSteelUnits("bof", [{ ...FULL_UNIT_ROW, "Current capacity (ttpa)": "unknown" }]);
+  assert.equal(out[0].capacityTtpa, null);
+});
+
+function mkUnitsFixture(body: unknown): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gemsteelunits-"));
+  const fp = path.join(dir, "steel_units.json");
+  fs.writeFileSync(fp, JSON.stringify(body));
+  return fp;
+}
+
+test("loadGemSteelUnits: reads a fixture file end-to-end, concatenating all 4 sheets", () => {
+  const fp = mkUnitsFixture({
+    provenance: {
+      attribution: "Global Energy Monitor",
+      license: "CC BY 4.0 (per-release Copyright sheets)",
+      release: "Steel_unit_data_Global_Iron_and_Steel_Tracker_June_2026_V1.xlsx",
+    },
+    eaf: [FULL_UNIT_ROW],
+    bof: [{ ...FULL_UNIT_ROW, "GEM unit ID": "U2", "Unit status": "retired" }],
+    induction: [],
+    open_hearth: [],
+    counts: { eaf: 1, bof: 1, induction: 0, open_hearth: 0 },
+  });
+  const hit = loadGemSteelUnits(fp);
+  assert.ok(hit);
+  assert.equal(hit!.release, "Steel_unit_data_Global_Iron_and_Steel_Tracker_June_2026_V1.xlsx");
+  assert.equal(hit!.units.length, 2);
+  assert.equal(hit!.units[0].furnaceType, "eaf");
+  assert.equal(hit!.units[1].furnaceType, "bof");
+});
+
+test("loadGemSteelUnits: a missing/corrupt file degrades to null, never throws", () => {
+  assert.equal(loadGemSteelUnits("/nonexistent/path/steel_units.json"), null);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gemsteelunits-bad-"));
+  const fp = path.join(dir, "steel_units.json");
+  fs.writeFileSync(fp, "{not json");
+  assert.equal(loadGemSteelUnits(fp), null);
+});
+
+test("groupSteelUnitsByPlant: groups multiple units under the same plant id, preserves order", () => {
+  const a: SteelFurnaceUnit = { ...normalizeSteelUnits("eaf", [FULL_UNIT_ROW])[0] };
+  const b: SteelFurnaceUnit = { ...normalizeSteelUnits("bof", [{ ...FULL_UNIT_ROW, "GEM unit ID": "U2" }])[0] };
+  const c: SteelFurnaceUnit = { ...normalizeSteelUnits("eaf", [{ ...FULL_UNIT_ROW, "GEM plant ID": "OTHER", "GEM unit ID": "U3" }])[0] };
+  const grouped = groupSteelUnitsByPlant([a, b, c]);
+  assert.deepEqual(grouped.get("P100000120882"), [a, b]);
+  assert.deepEqual(grouped.get("OTHER"), [c]);
+  assert.equal(grouped.size, 2);
+});
+
+test("cachedGemIronSteelPlants: joins real furnace-unit data from datacore/gem/steel_units.json onto real plants", () => {
+  _resetGemIronSteelPlantsCacheForTests();
+  try {
+    const hit = cachedGemIronSteelPlants();
+    assert.ok(hit, "expected the real repo fixture to load");
+    const withUnits = hit!.plants.filter((p) => p.units.length > 0);
+    assert.ok(withUnits.length > 0, "expected at least one real plant to have joined furnace units");
+    for (const p of withUnits.slice(0, 5)) {
+      for (const u of p.units) assert.equal(u.plantId, p.id);
+    }
+  } finally {
+    _resetGemIronSteelPlantsCacheForTests();
+  }
 });
 
 test("cachedGemIronSteelPlants: caches across calls (same object reference, parsed once per process)", () => {
