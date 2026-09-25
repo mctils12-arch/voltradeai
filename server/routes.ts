@@ -5951,6 +5951,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM "Production-Consumption of Met Coal & Iron Ore by Steel Industry"
+  // keyed mirror — closes the last item on the GEM-suite "/api/v1 mirror"
+  // backlog research/open_questions.md's 2026-09-24 entry named as the
+  // natural next pick once steel_raw_materials shipped its RAW choropleth
+  // route (chemicals/iron_steel_plants/iron_ore_mines/lng_shipyards mirrors
+  // above already closed theirs). Reuses the existing
+  // cachedGemSteelRawMaterials()/cachedSteelRawMaterialsGeoJSON() caches the
+  // RAW /api/data/steel-raw-materials route already populates — no new
+  // fetch, no new poller, no new join computation. Static reference dataset
+  // (re-ingested on GEM's ~2x/year release cadence, not a live poll), so
+  // there is no warming_up cache-miss state to model beyond the same
+  // null-cache 503 every sibling GEM mirror already returns — checked on
+  // both caches here since cachedSteelRawMaterialsGeoJSON() degrades to
+  // null whenever the underlying balance-sheet load fails (its own degrade
+  // contract, gemSteelRawMaterials.ts). RAW catalogued reference data, no
+  // predictive claim — global_energy_monitor is a raw_only root
+  // (datacore/signal_ladder.json, current_gate 0).
+  // SHAPE NOTE carried through from the RAW route: this is the one GEM
+  // mirror with no per-row coordinates — `balances` is a flat country-level
+  // accounting sheet and `geojson`/`matched_countries`/`unmatched_countries`
+  // carry the admin0-boundary choropleth join, field names matching the RAW
+  // route exactly (not camelCased) so the two never disagree on shape.
+  app.get("/api/v1/data/steel-raw-materials", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemSteelRawMaterials();
+      const geo = cachedSteelRawMaterialsGeoJSON();
+      if (!hit || !geo) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/steel-raw-materials", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/steel-raw-materials", {
+        count: hit.balances.length,
+        attribution: hit.attribution,
+        license: hit.license,
+        release: hit.release,
+        note: "National met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, as "
+          + "catalogued by GEM, one row per country. A country-level ACCOUNTING STATISTIC, not a "
+          + "forecast, valuation, or trading signal. Countries with no polygon at this boundary "
+          + "resolution (mostly micro-states/territories) still appear in `balances` but not on the "
+          + "choropleth fill; countries with a polygon but no GEM record render as 'no data', never a "
+          + "false zero — a reported 0 (most countries mine no iron ore) is GEM's own figure.",
+        balances: hit.balances,
+        geojson: geo.geo,
+        matched_countries: geo.matched,
+        unmatched_countries: geo.unmatched,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/steel-raw-materials", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/steel-raw-materials", status: 500, tier: auth.tier });
+    }
+  });
+
   // JODI World oil closing-stock levels keyed mirror — closes the same
   // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
   // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW

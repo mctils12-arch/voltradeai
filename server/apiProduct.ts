@@ -274,6 +274,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Global Energy Monitor — Global LNG Carrier Tracker (CC BY 4.0)",
     resell: "ok",
   },
+  "data/steel-raw-materials": {
+    license: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry (national met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, one row per country, as catalogued by GEM) — GEM publishes this release under CC BY 4.0, the same open-attribution class as the coal-terminals/coal-mine-features/iron-ore-mines/chemicals/iron-steel-plants/lng-shipyards/methane-plumes/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/Digitraffic-trains streams above, NOT conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams or the informational-use-terms OCC/Cboe/FINRA streams.",
+    attribution: "Global Energy Monitor — Production-Consumption of Met Coal & Iron Ore by Steel Industry (CC BY 4.0)",
+    resell: "ok",
+  },
   "data/jodi-oil-stocks": {
     license: "JODI (Joint Organisations Data Initiative) World Primary database, TOTCRUDE closing-stock levels — JODI's own terms are free with acknowledgment (JODI data are publicly available for use with attribution), the same open-attribution class as the eu-macro/attention/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC streams above, NOT conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams or the informational-use-terms OCC/Cboe/FINRA streams.",
     attribution: "JODI (Joint Organisations Data Initiative) World Primary database",
@@ -349,6 +354,7 @@ export function apiMeta() {
       { path: "/api/v1/data/chemicals", params: "-", desc: "Global Energy Monitor Global Chemicals Inventory: 868 chemical plants worldwide, each carrying catalogued primary/secondary products and a primary feedstock family bucket (coal/natural_gas/petroleum/ngl/low_carbon/other, derived by presence-priority over GEM's free-text semicolon-separated Feedstock column, never inferring a feedstock the row doesn't state), owner, and country/region. RAW catalogued reference data — no output, valuation, or trading claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/chemicals" },
       { path: "/api/v1/data/iron-steel-plants", params: "-", desc: "Global Energy Monitor Global Iron and Steel Tracker: 1,293 iron and steel plants worldwide, each carrying a classified primary production-technology bucket (bf_bof/dri/eaf/if/other, derived by presence-priority over GEM's free-text semicolon-separated Main production equipment column, never inferring a technology the row doesn't state), product category, workforce size, lifecycle dates, owner, parent, and country/region. RAW catalogued reference data — no forecast, valuation, or trading claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/iron-steel-plants" },
       { path: "/api/v1/data/lng-shipyards", params: "-", desc: "Global Energy Monitor Global LNG Carrier Tracker, AGGREGATED BY SHIPBUILDING YARD (32 yards, 1,125 located carriers) — each row is where GEM's tracked LNG carriers were physically BUILT, not a vessel position (the release's only per-carrier coordinate is the build yard's location; live-verified this thread: 1,125 located carriers map to exactly 32 distinct yard coordinates, one shipbuilder per coordinate). Carries carrier counts by lifecycle status (active/on_order/proposed/other) and summed nameplate capacity (cbm) per yard. RAW catalogued reference data — no forecast, valuation, or trading claim; not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/lng-shipyards" },
+      { path: "/api/v1/data/steel-raw-materials", params: "-", desc: "Global Energy Monitor Production-Consumption of Met Coal & Iron Ore by Steel Industry: national met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, one row per country. A country-level ACCOUNTING STATISTIC, not a forecast, valuation, or trading signal — not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GENUINELY DIFFERENT SHAPE from the rest of the GEM family: no per-row coordinates, so this endpoint also returns a country-choropleth GeoJSON (joined by name onto the vendored Natural Earth 1:110m admin0 boundaries) alongside the flat balance rows; countries with a polygon but no GEM record render as 'no data', never a false zero. GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/steel-raw-materials" },
       { path: "/api/v1/data/jodi-oil-stocks", params: "-", desc: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported closing crude-oil stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness is never smoothed over, some areas stopped reporting TOTCRUDE years before the archive's overall latest period. GATE 1 (DATA) PASSED 2026-08-06 (reconciles against EIA within 1.2%, scripts/jodi_eia_reconcile.py). GATE 2 (SIGNAL) KILLED 2026-08-06 — a pre-registered non-OECD stock-build composite found no significant BNO/USO forward-return signal in any of 4 pre-registered comparisons. RAW self-reported levels only, no predictive claim. JODI data are free with acknowledgment, freely resellable with attribution.", preview: "/api/data/jodi-oil-stocks" },
       { path: "/api/v1/data/un-comtrade", params: "-", desc: "UN Comtrade USA bilateral goods-trade archive: latest reported period per partner (China/Mexico/Canada/Japan/Germany/South Korea) — imports CIF, exports FOB, computed trade balance, and the prior-period import delta, sorted by import value descending. GATE 1 (DATA) PASSED 2026-09-07 (every partner's CIF import value reconciles against FRED's independent Census-Bureau customs-basis import series within a stable, narrow CIF/customs offset band — means 1.01-1.06, stdev<=0.0097, n=21 months each). GATE 2 (SIGNAL) not attempted — this root was flagged too lagged for direct alpha, structural-thesis input only (research/data_census.md). RAW self-reported trade levels only, no predictive claim. UN Comtrade's own terms are free with citation but do not permit bulk redistribution of the raw database — conditional resell, see license_marks.", preview: "/api/data/un-comtrade" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
@@ -781,6 +787,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       returns_provenance: ["data/lng-shipyards"],
     },
     {
+      name: "voltrade_steel_raw_materials",
+      description: "Global Energy Monitor Production-Consumption of Met Coal & Iron Ore by Steel Industry: national met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, one row per country (met coal mined, iron ore mined, met coal/iron ore consumed by pig-iron vs. DRI route, pig iron and DRI produced — all in thousand tonnes/year, ttpa). RAW catalogued country-level ACCOUNTING STATISTIC, no predictive claim — this is reference infrastructure data, not wired into any ladder gate (global_energy_monitor is a raw_only root, current_gate 0). GENUINELY DIFFERENT SHAPE from the rest of the GEM family: no per-facility coordinates, so this tool also returns a country-choropleth GeoJSON (joined by name onto the vendored Natural Earth 1:110m admin0 boundaries); a reported 0 is GEM's own figure and is kept distinct from an unreported country (has_data:false), never conflated. GEM publishes this release under CC BY 4.0 — freely resellable with attribution, same posture as the coal-terminals/coal-mine-features/iron-ore-mines/chemicals/iron-steel-plants/lng-shipyards/CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/steel-raw-materials",
+      returns_provenance: ["data/steel-raw-materials"],
+    },
+    {
       name: "voltrade_jodi_oil_stocks",
       description: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported crude-oil closing stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness (some areas stopped reporting TOTCRUDE years ago) is never smoothed over. RAW self-reported display, no predictive claim. GATE 1 (DATA) PASSED — reconciles against EIA within 1.2%. NOT a trading signal — GATE 2 (a pre-registered non-OECD stock-build composite vs. BNO/USO forward returns) was KILLED: none of 4 pre-registered comparisons cleared even an uncorrected 0.05 bar. JODI data are free with acknowledgment — freely resellable with attribution, same posture as the CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools above.",
       input_schema: { type: "object", properties: {}, required: [] },
@@ -1020,6 +1033,24 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
       lat: { type: "number" }, lon: { type: "number" },
     }, ["id", "shipbuilder", "carrierCount", "lat", "lon"]) },
   }, ["count", "totalCarriers", "attribution", "license", "note", "shipyards"]),
+  // server/gemSteelRawMaterials.ts's CountryBalanceResult — a COUNTRY-level
+  // accounting balance sheet, not a per-facility row (see the module's own
+  // header comment). Every CountryBalance field beyond `country` is
+  // `| null` per the module's own drop-not-infer rule (GEM's "unknown"
+  // sentinel and any non-numeric value degrade to null, never guessed).
+  // `geojson` carries the country-choropleth join (admin0 FeatureCollection,
+  // `has_data`/ttpa fields on each feature's properties); `matchedCountries`/
+  // `unmatchedCountries` are the join's own counts, same as the RAW route.
+  voltrade_steel_raw_materials: dataObj({
+    count: INT, attribution: STR, license: STR, release: ANY, note: STR,
+    balances: { type: "array", items: dataObj({
+      country: STR, metCoalMinedTtpa: ANY, ironOreMinedTtpa: ANY,
+      metCoalConsumedPigIronTtpa: ANY, ironOreConsumedPigIronTtpa: ANY,
+      ironOreConsumedDriTtpa: ANY, ironOreConsumedTotalTtpa: ANY,
+      pigIronProducedTtpa: ANY, driProducedTtpa: ANY,
+    }, ["country"]) },
+    geojson: ANY, matched_countries: INT, unmatched_countries: INT,
+  }, ["count", "attribution", "license", "note", "balances"]),
   voltrade_jodi_oil_stocks: dataObj({
     product: STR, archiveLatestPeriod: ANY, seriesCount: INT, countriesReporting: ANY, note: STR, rows: ARR,
   }, ["product", "seriesCount", "note", "rows"]),
