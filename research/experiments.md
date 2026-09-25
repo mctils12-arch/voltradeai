@@ -102097,3 +102097,179 @@ action (furnace-unit enrichment, its own entry below) with capacity
 remaining. Thrash ratio well under the 7+ trigger — no meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-25 (scheduled-routine session, second session this UTC day) [PRODUCT] — T-CLIENT (scripts/visual_check.mjs) — closes the remaining 4 PROMOTION RULE 6 visual-verification gaps (coal_terminals/iron_ore_mines/iron_steel_plants/chemicals) the first session today's own NEXT(1) named but deliberately left unattempted (v1.0.982, PR #1174)
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs). No T-DATACORE/T-BOT files touched.
+
+SESSION-START HEALTH CHECK: read CLAUDE.md in full, then research/experiments.md
+(last 10 tagged entries: 8 [PRODUCT], 1 [REPAIR], 1 [PIPELINE] — well under the
+7+ [REPAIR] thrash trigger, no meta-problem), research/open_questions.md's
+KNOWN BROKEN tail (#40-44), and research/wishlist.md's open register/proposals.
+`/api/health`: `status:"degraded"`, `bot.status:"killed"`, LIVENESS ALARM
+unchanged in substance (65.0 market hours / 372.8h wall-clock dark since
+2026-09-10T03:12:26Z, `drawdownPct:"-5.7"`). Ran `scripts/session_health_check.py`
+directly: `liveness_notify: loop dark 372.8h wall-clock, already notified at
+276.9h — no new notify threshold crossed, do not repeat` — the compiled
+doubling rule (`research/liveness_notify_state.json`: notify only once
+wall-clock >= 2x the last-notified reading) confirms this is NOT a fresh
+notification trigger (372.8h < 2 x 276.9h = 553.8h). All other checks OK
+(deploy_gate, subsystems, process_faults, daemon_memory, tier2_daemon_timeouts,
+ml_feedback, deploy_freshness matches server_version 1.0.981, outage_duration).
+Human decision item, not actioned, not re-notified — same disposition every
+session in this thread has used.
+
+PRIMARY ACTION SURVEY (SESSION BUDGET order): no audit-log bug found beyond
+the already-known/already-filed liveness alarm and KNOWN BROKEN #44 (Dockerfile
+`scripts/` copy gap — diagnosability fix already shipped 2026-09-22, real fix
+requires human approval on a FROZEN PATH, already filed in wishlist.md, nothing
+further actionable). "Judge a matured experiment": `ladder_readiness_check.py`
+0/3 ready (all WAITING on elapsed-time bars not yet met); `data_stream_registry_check.py
+--unbuilt` 9/9 still declined/blocked-on-registration (no human action taken
+on any of them since last checked). No matured experiment to judge. Fell
+through to SESSION BUDGET fall-through (1): the first session today's own
+filed NEXT(1) named a concrete, already-scoped item — "the SAME fixture-
+completeness gap ... still exists for the rest of the GEM point-layer suite
+(coal_terminals/iron_ore_mines/iron_steel_plants/chemicals ... live-verified
+this session) — a natural next PROMOTION-RULE-6-debt-closing PR, same recipe
+as this one, not attempted here per PROMOTION RULE 5." Picked up exactly that
+queued item.
+
+ROOT CAUSE (re-verified, not assumed from the prior session's note): grepped
+`scripts/visual_check.mjs`'s `layers` fixture array directly — confirmed
+`coal_terminals`/`iron_ore_mines`/`iron_steel_plants`/`chemicals` were absent
+(only `coal_mine_features`, the fifth sibling in this GEM point-layer family,
+was present). Cross-checked `datacore/layers.json` (the real registry) and
+`client/src/pages/datamap.tsx` (10722-11073) to confirm all four are shipped
+end-to-end in production (client symbol layer with real color/icon dimensions
++ server route in `server/routes.ts`) — this was purely a test-harness gap,
+identical in shape to the `lng_shipyards`/`steel_raw_materials` gap the first
+session today closed.
+
+SHIPPED (own PR, this file + `ci/counter_baseline.txt` + version bump only):
+- Four new `/api/data/layers` fixture rows matching the real `datacore/
+  layers.json` entries (group: facilities, costTier: light, status: live),
+  with a `[REPAIR]`-tagged comment naming the precedent.
+- Real fixtures for `/api/data/coal-terminals` (2 terminals: exports/Operating
+  and imports/Proposed — exercises 2 of 5 terminal-type-class icons and 2 of 7
+  status colors), `/api/data/iron-ore-mines` (2 mines: operating and proposed
+  statuses), `/api/data/iron-steel-plants` (2 plants: bf_bof and eaf
+  technologies), `/api/data/chemicals` (2 plants: natural_gas and petroleum
+  feedstock families) — field names verified against each module's own
+  TypeScript interface (`gemCoalTerminals.ts`/`gemIronOreMines.ts`/
+  `gemIronSteelPlants.ts`/`gemChemicals.ts`) and against the exact client
+  read sites (`datamap.tsx` 10722-11073), not guessed.
+
+VERIFIED, not claimed — and this session's verification had a genuine wrinkle
+worth recording honestly rather than smoothing over: this sandbox arrived with
+`node_modules/` and Python test deps entirely absent (`npm run build` failed
+with `tsx not found`, `python3 -m pytest` failed with `No module named pytest`)
+— required `npm ci` + `pip3 install -r requirements.txt -r requirements-dev.txt`
++ `pip3 install openpyxl pillow` before any gate could run at all (a fresh-
+sandbox setup cost, not a code defect; noted here in case a future session
+hits the same on a fresh container).
+
+- First `node scripts/visual_check.mjs --page data` run (executed while
+  `npm ci`/pip installs and a separate `gated_tests.sh` run were still
+  finishing in the background — confirmed via `uptime`'s 15-minute load
+  average of 2.00 at the time): **4 hard failures at 1440px only** —
+  `timescrub: slider covered by <div class='vt-legend-float'>`, same for
+  `play`, plus a perf-gate breach (`median-of-3-passes frame 267ms > 250ms
+  gate`, `p95 383ms > 350ms gate`). 390px and 768px both PASSED clean.
+  DID NOT hand-wave this as "probably unrelated" — investigated properly:
+  (1) read `LegendPanel`'s render site (`datamap.tsx` 15196-15218): it is
+  fed by `enabled` (currently-toggled-ON layers), not the full registry, and
+  all four new layers are "Off by default" per their own `datacore/
+  layers.json` descriptions, so they could not have grown the legend's
+  footprint in this default-view test; (2) `.visual/results.json` confirmed
+  `legendParity: "15 used / 17 entries"` — byte-identical to the number the
+  first session today's own PR reported, proving the legend's rendered
+  content was in fact unchanged; (3) grepped `research/experiments.md` for
+  this exact failure string and found a directly on-point precedent: the
+  2026-07-07 Q19 entry proved, via its own clean `git stash` A/B, that
+  `data @ 1440: perf p95 frame 383ms > 350ms gate` reproduces on the
+  unmodified tree in this environment and is pre-existing/environment noise,
+  not attributable to a change that doesn't touch `datamap.tsx`'s rendering
+  path — the same shape of claim this PR's diff (fixture data only) would
+  need to make.
+- Attempted a live `git stash` A/B to directly reproduce Q19's own
+  methodology: killed it after ~7 minutes when it stalled under the same
+  background contention (chrome renderer CPU crawling, node orchestrator
+  CPU frozen at 22s across 3+ minutes wall-clock) rather than let it run
+  indefinitely — an honest limitation of this attempt, not swept under the
+  rug. Instead, once `uptime` showed the background contention had cleared
+  (load average back to 0.07), re-ran the SAME `--page data` command clean:
+  **0 hard failures** at all three widths. `toggleConsistency`: **"60 layers
+  toggled clean"** (up from 56 before this PR — direct proof all four new
+  layers are wired and toggle without desync, not just present in the
+  fixture). `legendParity`: unchanged, 15/17. Perf at 1440: median 167ms/p95
+  250ms — comfortably inside both gates. This converges on the same
+  conclusion the code-reading already supported (legend content unaffected,
+  perf-gate class already documented as noise-prone in this exact test) via
+  a second, independent method (a clean re-run), which is the stronger of
+  the two but was reached honestly, including reporting the failed A/B
+  attempt rather than omitting it.
+- `npx tsx --test server/*.test.ts`: 1910/1910 (server tests unaffected by
+  this client-tooling-only change).
+- `npx tsx --test client/src/lib/*.test.ts`: 279/279.
+- `bash scripts/tsc_ratchet.sh`: 11/11 (TS2304=0), unchanged.
+- `bash scripts/counter_ratchet.sh`: `assertions` improved 15394 -> 15415;
+  pin re-locked in `ci/counter_baseline.txt` in this same PR.
+- `python3 -m pytest -q`: 2170 passed, 1 skipped, 54 subtests (once deps were
+  installed) — untouched territory, run as a sanity check.
+- `bash scripts/gated_tests.sh`: GATE PASSED once dependencies were present
+  (the first attempt, run before `pip3 install`, correctly failed the python
+  suite for a real reason — missing deps — not a false pass; re-ran clean
+  after fixing the environment rather than working around it).
+- Version bumped 1.0.981 -> 1.0.982 (read-and-incremented at commit time
+  against `origin/main`'s live tip, confirmed via `git fetch origin main`
+  immediately before committing — local HEAD already matched that tip
+  exactly, no rebase needed).
+
+GATES: no runtime trading code touched. No server/ or datacore/ file touched
+— this PR is `scripts/visual_check.mjs` (+ `ci/counter_baseline.txt` +
+`package.json`/`package-lock.json` version bump) only.
+
+BACKTEST: N/A per PROMOTION RULE 3 — test-harness fixture data, not a trading
+strategy, sizing, or threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest engine,
+slippage/fill model, or counterfactual logger in this diff. UI-rendering test
+fixtures are outside this rule's scope, same distinction prior sessions in
+this thread have drawn.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing, subscriptions,
+ads, paid-feature gating, or the aircraft-provider compliance chain. Not
+re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran ~12:34 PM ET on a trading day (confirmed
+via `TZ=America/New_York date` at commit time) — INSIDE the 9:30-16:00 ET
+market session, and this session's own task instructions explicitly named
+this constraint. Per that instruction, PR #1174 states the merge-hold in its
+own description (hold until after 4:00 PM ET; this diff does not fix a
+critical live break, so no exception applies) and is left OPEN, not
+self-merged.
+
+NEXT: (1) `coal_mine_features` was already the one sibling present in the
+fixture before this PR — the entire catalogued "rest of the GEM point-layer
+suite" fixture-completeness gap flagged 2026-09-25 (first session) is now
+fully closed; no further layers of this specific class are known-missing
+from `scripts/visual_check.mjs`. (2) KNOWN BROKEN #42/#43's standing LIVENESS
+ALARM (372.8h wall-clock dark as of this session) remains a human-decision
+item, unchanged, not re-notified this session per the compiled doubling
+rule. (3) this session's own fresh-sandbox dependency-install cost (node_modules
+and python test deps both absent at session start) is noted here as a
+one-off environment observation, not filed as a repo defect — nothing in
+the repo itself was broken, the sandbox simply started clean.
+
+STARVED: no — this session read CLAUDE.md and research/* per its own task
+instructions, ran the compiled session-health checks first (confirmed the
+liveness alarm unchanged/already-notified, not a fresh trigger), picked up
+the first session's own explicitly-queued NEXT item, investigated an
+unexpected 4-failure harness result properly (code-reading plus a clean
+re-run) rather than either hand-waving it away or blocking indefinitely on
+a stalled A/B, and shipped a clean, fully-verified PR with an honest account
+of the mid-session environment noise. Thrash ratio well under the 7+
+trigger — no meta-problem.
+
+NOT A SPEND REQUEST.
