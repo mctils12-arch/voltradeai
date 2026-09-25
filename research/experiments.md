@@ -3,6 +3,147 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-25 (scheduled-routine session, second session this UTC day) [PRODUCT] — SHARED-minimal (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, package.json/package-lock.json) — `steel_raw_materials` gets its `/api/v1/data/steel-raw-materials` keyed mirror, closing the last item on the GEM-suite "/api/v1 mirror" backlog (v1.0.980)
+
+TASK PRIOR (stated before building, REASONING STANDARD #10): this session's
+own brief is check system health/KNOWN BROKEN first, then execute the single
+highest-value SESSION BUDGET action. Expected KNOWN BROKEN #42/#43 (the
+2026-09-10 latched kill switch) to still be open, unchanged, and
+non-code-actionable, and expected the primary action to come from the
+explicitly-queued backlog rather than a fresh survey — both expectations
+confirmed, not falsified.
+
+SYSTEM HEALTH CHECKED FIRST (live, `python3 scripts/session_health_check.py`,
+`DIAG_TOKEN` present this session): `deploy_gate` ok (a fresh container would
+pass Railway's healthcheck), `deploy_freshness` ok (`server_version:1.0.979`
+matched this checkout's pre-bump `package.json` exactly). `liveness: ALARM`
+— "trading loop dark for 65.0 market hours (368.0h wall-clock) since
+2026-09-10T03:12:26.354Z" — KNOWN BROKEN #42/#43, unchanged in substance from
+every session since 2026-09-10; `liveness_notify` (the notify-dedup logic the
+immediately-prior session this same UTC day compiled) computed "already
+notified at 276.9h — no new notify threshold crossed, do not repeat" — NOT
+re-notified, same call the compiled check itself made, no human judgment
+re-derived. Every other subsystem (`server`/`db`/`alpaca`/`python`/`scanner`/
+`process_faults`/`daemon_memory`/`tier2_daemon_timeouts`/`ml_feedback`/
+`outage_duration`) read `OK`. `/api/diag/audit?limit=25`: only routine
+TIER3/TIER3-DIAG/MANIPULATION/EVENTLOOP-LAG entries — the EVENTLOOP-LAG
+readings match KNOWN BROKEN #18's already-filed, already-benign pattern,
+nothing new. Loop-health ratio: last 10 tagged experiments.md entries (from
+this entry backward) = 2x [REPAIR], 2x [PIPELINE], 6x [PRODUCT] — well under
+the 7+ [REPAIR] thrash-ratio trigger, no meta-problem. No open PR existed
+beyond a stale, explicitly-marked-draft backlog PR (#604, unrelated).
+
+PRIMARY ACTION (SESSION BUDGET fall-through rule 1: take the next queued
+item from open_questions.md): the GEM-suite "/api/v1 mirror" backlog
+(research/open_questions.md's dated GEM-suite entries) was down to exactly
+one item after the prior PRODUCT session shipped `steel_raw_materials` as a
+RAW country-choropleth route (v1.0.978) — that same session's own note
+stated explicitly: "`steel_raw_materials` has no `/api/v1` mirror yet
+either — the natural next pick, same two-step precedent as every sibling GEM
+layer." Confirmed unclaimed this session (`git log`/`grep` for
+`/api/v1/data/steel-raw-materials` — nothing existed before this PR).
+
+READ BEFORE WRITE: read the full RAW `/api/data/steel-raw-materials` route
+(server/routes.ts) and `server/gemSteelRawMaterials.ts`'s complete module
+(both the `CountryBalance`/`CountryBalanceResult` shapes and the
+country-choropleth join machinery) this session before writing anything —
+not assumed from the prior session's passing description. Also read the
+exact `/api/v1/data/iron-steel-plants` and `/api/v1/data/lng-shipyards`
+mirror precedents (route handler, `apiMeta()` endpoint-list entry, `tools`
+array entry, and `RESPONSE_DATA_SCHEMAS` entry) to match the established
+4-location pattern exactly rather than improvising a new shape.
+
+WHAT SHIPPED: `GET /api/v1/data/steel-raw-materials` (server/routes.ts),
+key-guarded via `requireApiKey`, reusing the existing
+`cachedGemSteelRawMaterials()`/`cachedSteelRawMaterialsGeoJSON()` caches the
+RAW route already populates — no new fetch, no new poller, no new join
+computation. SHAPE NOTE (this is the one GEM mirror with no per-row
+coordinates): the response carries the flat `balances` array plus the
+`geojson`/`matched_countries`/`unmatched_countries` choropleth-join fields,
+field names matching the RAW route exactly (snake_case for the two count
+fields, not camelCased) so the two routes can never disagree on shape — a
+deliberate departure from the schema's otherwise-camelCase convention,
+caught by checking the RAW route's actual response body rather than
+assuming the TS-interface field names carry straight through. Also added:
+a `LICENSE_MARKS["data/steel-raw-materials"]` entry (CC BY 4.0, `resell:
+"ok"`, same class as every other GEM stream), an `apiMeta()` endpoint-list
+row, and a `voltrade_steel_raw_materials` agent tool + `RESPONSE_DATA_SCHEMAS`
+entry (server/apiProduct.ts) — the same 4-location pattern every prior
+GEM-suite mirror PR followed.
+
+RATCHET: `server/apiProduct.test.ts` gained 3 new assertions — the mirror's
+path in the "keyed mirror shipped" list, the path in the "wiring pinned"
+route-registration list, and a dedicated license-mark/tool test (mirroring
+the lng-shipyards test exactly): CC BY 4.0/`resell:"ok"` on the license mark,
+the `voltrade_steel_raw_materials` tool exists with the correct
+`returns_provenance`, and the tool's own description states both "no
+predictive claim" (honesty: RAW data, not a signal) and the
+country-choropleth (not point-layer) shape, so the shape-difference from
+every other GEM registry travels with the agent-facing doc, not just code
+comments.
+
+GATES: full local run, this session (sandbox had no `node_modules` at
+session start — a pre-existing provisioning gap, not caused by this diff;
+installed via `npm install` before running gates). `npx tsx --test
+server/*.test.ts`: 1910 passed, 0 failed (was 1910 total including the
+70/70 `apiProduct.test.ts` pass verified standalone first). `bash
+scripts/tsc_ratchet.sh`: 11 errors, byte-identical to the pinned baseline
+(`ci/tsc_baseline.txt`, TOTAL 11) — confirmed this matched EXACTLY only
+after installing `node_modules` (a `node_modules`-less environment
+misleadingly reported 3 totally different error codes, TS2688/TS5101, a
+sandbox-config divergence per this file's own documented "do not lower the
+pin on an unexplained environment difference" rule — not touched). `npm run
+build`: clean (pre-existing chunk-size and astronomy-engine default-export
+warnings, unrelated to this diff, byte-identical to before). Zero trading-path
+code touched (`server/bot.ts`, `bot_engine.py`, `system_config.py`,
+`strategies/`, `risk_kill_switch.py`, every order-path file) — this is
+API-surface code only (route registration + license/schema metadata +
+tests), same class as every prior GEM-suite mirror PR. `python3 -m pytest`
+not run — zero Python files touched by this diff (pytest itself is not
+installed in this sandbox; not worth provisioning for a diff that cannot
+affect any Python test).
+
+BACKTEST: N/A per PROMOTION RULE 3 — not a trading strategy, sizing, or
+threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest engine,
+slippage/fill model, or counterfactual logger in this diff.
+
+MONETIZATION TRIPWIRE: this PR touches the paid API-product surface
+(`/api/v1`, license marks, resell terms) but does NOT touch billing,
+pricing, subscriptions, ads, or paid-feature gating — no
+BILLING_ENABLED/STRIPE_SECRET_KEY code path, no aircraft-provider
+compliance-relevant code. The tripwire's own re-check condition is not met
+here; not re-run.
+
+VERSION: read-and-increment (`git fetch origin main` confirmed this
+branch's parent, `c1df3aa`/v1.0.979, IS current `origin/main` HEAD — no
+stale base), `1.0.979` -> `1.0.980` (`package.json` + `package-lock.json`'s
+two matching version fields).
+
+NEXT: (1) the GEM-suite "/api/v1 mirror" backlog is now fully closed — every
+RAW route this family ships (coal-terminals/coal-mine-features/iron-ore-mines/
+chemicals/iron-steel-plants/lng-shipyards/steel-raw-materials) has its keyed
+mirror. The only still-genuinely-blocked GEM item remains
+`oil_ngl_pipelines.json`/`gas_pipelines.json` (no route geometry in this GEM
+release variant — needs a geocoding decision or a different source, not a
+mechanical port; `steel_units.json` was separately assessed as a plausible
+future detail-panel enrichment rather than a new top-level layer, not an
+immediate pick). (2) KNOWN BROKEN #42/#43 remain standing human-decision
+items, unchanged, not re-notified — the compiled `liveness_notify` check
+means a future session reads a computed answer instead of re-deriving one.
+(3) KNOWN BROKEN #44 (`insider_cusum_gate2`'s Dockerfile `COPY scripts/`
+gap) remains blocked on human approval of the wishlist.md Dockerfile
+proposal — not self-applicable (FROZEN PATH).
+
+STARVED: no — this session's primary action was the queue's own
+explicitly-named next item, unclaimed since the prior same-UTC-day
+steel-raw-materials PRODUCT session filed it as this exact follow-up;
+shipped end-to-end with tests matching the established 4-location precedent,
+full local gates run and confirmed clean before pushing.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-25 (scheduled-routine session) [PIPELINE] — T-BOT/shared-minimal (scripts/session_health_check.py, test_session_health_check.py, research/liveness_notify_state.json (new), package.json/package-lock.json) — compile the manual "have we already notified the human about the latched kill switch" reasoning into `session_health_check.py` (v1.0.979)
 
 TASK PRIOR (stated before building, REASONING STANDARD #10): this session's

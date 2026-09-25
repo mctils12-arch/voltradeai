@@ -22023,6 +22023,20 @@ yet either — the natural next pick, same two-step precedent as every
 sibling GEM layer. Full account in `research/experiments.md`'s matching
 dated entry.
 
+UPDATE (2026-09-25, scheduled-routine [PRODUCT] session, second session this
+UTC day, v1.0.980): `steel_raw_materials` closed its own filed NEXT:
+`/api/v1/data/steel-raw-materials` keyed mirror shipped
+(server/routes.ts/apiProduct.ts), matching the iron-steel-plants/
+lng-shipyards mirror precedent exactly (field names kept snake_case to match
+the RAW route's own `matched_countries`/`unmatched_countries`, not
+camelCased). This closes the GEM-suite "/api/v1 mirror" backlog completely —
+every RAW route the family ships now has its keyed mirror. The ONLY
+remaining GEM-suite item of any kind is `oil_ngl_pipelines.json`/
+`gas_pipelines.json`, still genuinely blocked on a geocoding/source
+decision (no route geometry in this GEM release variant); `steel_units.json`
+remains a plausible future detail-panel enrichment, not queued. Full
+account in `research/experiments.md`'s matching dated entry.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-
