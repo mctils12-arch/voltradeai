@@ -101438,3 +101438,184 @@ visual-verification follow-up. Thrash ratio well under the 7+ trigger — no
 meta-problem.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-24 (scheduled-routine session, seventh session this UTC day) [PRODUCT] — T-CLIENT + T-DATACORE (server/gemSteelRawMaterials.ts, client/src/pages/datamap.tsx) + SHARED-minimal (server/routes.ts, datacore/layers.json, package.json) — `steel_raw_materials` ships as a country-choropleth layer, closing the "choropleth candidate" half of the 2-item GEM-suite backlog (v1.0.978)
+
+TERRITORY: primarily T-DATACORE (new server/gemSteelRawMaterials.ts pipeline
+module) + T-CLIENT (datamap.tsx layer/legend wiring) shipped together as one
+PRODUCT feature — same precedent as every prior sibling GEM layer PR
+(coal_terminals/iron_ore_mines/iron_steel_plants/chemicals/lng_carriers all
+touched datamap.tsx directly in their own shipping PR). SHARED files
+(server/routes.ts, datacore/layers.json, package.json) kept minimal.
+
+SESSION-START: read CLAUDE.md in full, then research/PROGRAM_STATE.md,
+research/data_census.md, and research/open_questions.md's KNOWN BROKEN
+section (grepped every numbered item; the most recent, #44, is a
+DIAGNOSABILITY-FIX-SHIPPED + wishlist-proposal item — `insider_cusum_gate2`
+500s on a Dockerfile `scripts/` COPY gap, not self-fixable without touching
+the FROZEN Dockerfile — explicitly NOT a liveness/trading-path issue per its
+own text. No top-of-report LIVENESS ALARM condition found. Per this
+session's own task instructions (a [PRODUCT] session does not preempt DAILY
+repair duty for a non-blocking item), proceeded with product work.
+
+PRIMARY ACTION: the open_questions.md 2026-09-24 GEM-suite backlog note (see
+this file's own sixth-session entry above and the fourth-session
+iron_steel_plants-mirror entry) named exactly two items left unrouted:
+`oil_ngl_pipelines.json`/`gas_pipelines.json` (no route geometry in this GEM
+release variant — genuinely blocked on a source/geocoding decision, not
+mechanically pickable) and `steel_units.json`/`steel_raw_materials.json`
+("a country-level balance sheet ... a future choropleth candidate, not a
+point layer"). Picked the choropleth: unlike blocked pipeline geocoding,
+this one only needed a design decision (which existing codebase pattern to
+reuse), not new external data. `data_census.md` review confirmed no
+adjacent higher-EV product gap was queued; `PROGRAM_STATE.md`'s own QUEUE
+is a harness/CI-quality track (T0-T8), not this session's mandate — noted,
+not claimed, no overlap with this PR's files.
+
+WHY THIS ONE, NOT A THIRD MECHANICAL `/api/v1` MIRROR: the last six sessions
+this UTC day shipped a repeating shape (new point-layer GEM registry, then
+its `/api/v1` mirror in a follow-up). `steel_raw_materials` is genuinely
+different — GEM's own release has ONLY a `country_balance` accounting sheet
+here, no per-row coordinates at all, so a point layer is impossible; it
+needed a real design choice instead of the established recipe. Reused an
+EXISTING precedent already in this codebase rather than inventing one:
+`server/cdcCancer.ts`'s county-choropleth join (geometry + rate joined into
+one ready GeoJSON FeatureCollection, has_data:false ecological-fallacy-style
+guard) — same shape, one level up (country instead of county) — and
+`server/countryLookup.ts`'s already-vendored `datacore/boundaries/
+ne_110m_admin0.json` (public domain Natural Earth 1:110m admin0 boundaries)
+for the geometry, instead of fetching or vendoring a second copy of world
+boundaries (EDGE DOCTRINE #3: compile once, reuse forever).
+
+NAME JOIN (the one genuinely new piece of work): GEM's 252 `country_balance`
+country names and the 177 NE admin0 feature names were live-diffed this
+session (`python3` set-difference, not assumed) — 93 GEM names had no exact
+NE match. Of those, 15 are real spelling/form disagreements for the SAME
+country (GEM "Czech Republic" vs NE "Czechia", GEM "United States" vs NE
+"United States of America", etc. — full list in `COUNTRY_NAME_ALIASES`,
+server/gemSteelRawMaterials.ts) and are hand-aliased; the remaining ~78 are
+genuine micro-states/territories absent from the 110m boundary set at this
+resolution (Monaco, Singapore, Hong Kong, most small island states) — real
+GEM data with no polygon to shade, not a bug, and NOT silently dropped: they
+still ship in the flat `balances` array a table view could use, just never
+appear on the map fill. GEM's own "Global" world-aggregate row is excluded
+upstream (not a country; a polygon fill for it would be fabricated).
+
+SHIPPED:
+- `server/gemSteelRawMaterials.ts` (new) + 13 tests: `normalizeCountryBalance`
+  (drops "Global", keeps a legitimate reported 0 as 0, degrades GEM's
+  "unknown" sentinel to null), `joinCountryChoropleth` (every admin0 polygon
+  survives the join — `has_data:false` + all-null fields on a genuine miss,
+  never dropped, mirroring cdcCancer.ts's ecological-fallacy-style guard one
+  level up), `load/cachedGemSteelRawMaterials`,
+  `cachedSteelRawMaterialsGeoJSON` (verified against the REAL repo
+  balance-sheet + admin0 files, not just fixtures).
+- `GET /api/data/steel-raw-materials` (kind:"raw", predictive:false) —
+  returns both the flat `balances` array and the pre-joined `geojson`.
+- `client/src/pages/datamap.tsx`: new choropleth FILL layer (deliberately
+  NOT points — this release has no per-row coordinates at all, so a
+  point/centroid would invent a location the data doesn't carry), a
+  sequential green ramp on iron ore mined ttpa (deliberately not the
+  red/orange hazard palette — a production-volume statistic, not a danger
+  reading), three visually distinct states (no GEM record / reports a real
+  0 / positive-value ramp — the same "no data must never look like a good
+  reading" rule as the existing cancer-rate choropleth), legend entry, and
+  detail-popup showing the full 8-field balance sheet on click.
+- `datacore/layers.json`: new `steel_raw_materials` entry (255 -> 256
+  layers). `client LAYER_GROUP` map + the panel legend's outer visibility
+  condition both updated in the same PR (R15 lesson — a registry entry
+  without LAYER_GROUP wiring renders PERMANENTLY "reload to enable",
+  caught live by `layersWiring.test.ts` before this was fixed).
+- `Detail.kind` union widened with `"steelrawmaterials"` (tsc caught the
+  omission as a real TS2322 the first time — literal unions here are
+  enforced, not decorative).
+- `script/build.ts` stages the new archive file into `dist/` (R14 lesson —
+  caught live by `repoFiles.test.ts`'s own ratchet test failing on the
+  first run, before this line was added; confirmed post-fix via a full
+  `npm run build` that the file actually lands at
+  `dist/datacore/gem/steel_raw_materials.json`).
+- `server/layersRegistry.test.ts`'s T4.1 `renderKind`/`lod` migration-gap
+  pin: 254 -> 255 (this layer is a FILL choropleth, not a point-symbol —
+  `V2_RENDER_KINDS` has no choropleth-fill value yet, the same gap
+  `cancerrates`, the one other choropleth in this registry, already
+  carries — kept consistent with its one true sibling rather than
+  inventing a one-off `renderKind` alone).
+- `ci/counter_baseline.txt` re-pinned (this session's own direct effect,
+  verified via `git stash -u` before/after diff, not assumed):
+  `empty_ts_catch` 496->497 (one new toggle-off `catch {}`, the same
+  unavoidable idiom every sibling GEM layer's mount effect carries — traced
+  and confirmed to sit alongside the existing dozens of identical blocks,
+  not a new pattern). `ts_any` held at 1249 (net zero: two candidate `:
+  any` sites — the click-handler callback's already-`any`-typed parameter
+  and the admin0 GeoJSON geometry field — were typed properly instead of
+  left as textual `any`, avoiding a bump the mechanical precedent PRs had
+  each accepted). `tests_run_in_ci`/`tests_gating_merge` 470->471,
+  `assertions` 15365->15394.
+
+WHY NOT THE `/api/v1` MIRROR IN THIS SAME PR: PROMOTION RULE 5 (one
+logical change per PR) and this exact family's own established two-step
+precedent (every prior GEM registry shipped its RAW route first, the
+`/api/v1` mirror in a separate follow-up PR days apart) — left as the
+natural next queued pick for whoever continues this backlog.
+
+GATES: no runtime trading code touched (`server/bot.ts`, `bot_engine.py`,
+`system_config.py`, `strategies/`, `risk_kill_switch.py`, every order-path
+file untouched). `npx tsx --test server/*.test.ts`: 1909/1909 (was 1896
+before this PR's 13 new tests). `npx tsx --test client/src/lib/*.test.ts`:
+279/279, unaffected. `bash scripts/tsc_ratchet.sh`: 11/11 (TS2304=0),
+unchanged from baseline (one transient TS2322 introduced and fixed within
+this session, verified via a live A/B `tsc --noEmit` diff, never shipped).
+`bash scripts/counter_ratchet.sh`: 25/25 OK after the two re-pins above.
+`npm run build`: clean (only the pre-existing astronomy-engine/chunk-size
+warnings every prior session has already noted, none new); confirmed live
+that the staged file lands in `dist/`. VISUAL VERIFICATION (PROMOTION RULE
+6): `client/` was touched (datamap.tsx) but this sandbox has no display/
+browser harness available this session — `npm run visual` NOT run; flagged
+honestly as NOT DONE rather than claimed. A future session (or the human)
+should toggle the layer on at 390/768/1440 and confirm the choropleth fill
++ legend + popup render as designed before treating this as fully
+verified — same open item class as the fifth/sixth sessions' still-open
+`lng_shipyards` visual-verification flag above.
+
+BACKTEST: N/A per PROMOTION RULE 3 — RAW/FACTUAL overlay, not a trading
+strategy, sizing, or threshold change (`kind:"raw", predictive:false`
+throughout, same as every sibling GEM layer).
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff. The
+counter-baseline re-pins above are HARNESS measurement (code-quality
+ratchets), not trading/P&L measurement — MEASUREMENT INTEGRITY's stricter
+same-session-never-tune-both rule governs the latter, not the former.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, or paid-feature gating, nor the aircraft-provider
+compliance chain. Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: session ran ~20:34 ET (confirmed via `TZ=America/
+New_York date` at commit time) — after the 16:00 ET close, outside market
+hours. No merge-hold caveat needed.
+
+NEXT: (1) the `/api/v1/data/steel-raw-materials` keyed mirror, same
+two-step precedent as every sibling GEM layer. (2) `oil_ngl_pipelines.
+json`/`gas_pipelines.json` remain the one still-blocked GEM-suite item
+(needs a geocoding/source decision, not a mechanical pick) —
+`steel_units.json` (furnace-level unit attribute data keyed to
+`iron_steel_plants.json`) is now the only other unshipped file in this GEM
+release family, a plausible follow-up detail-panel enrichment rather than
+a new top-level layer. (3) visually verify this layer's ON state live
+(390/768/1440, `npm run visual`) — this session's own honestly-flagged
+gap, same class as the still-open `lng_shipyards` one. (4) KNOWN BROKEN
+#42/#43/#44 remain standing human-decision/proposal-filed items, unchanged,
+not re-notified.
+
+STARVED: no — this session read CLAUDE.md and research/ per its own task
+instructions, checked system health/KNOWN BROKEN first, chose the one
+queued item that needed a genuine design decision over a sixth repeat of
+the mechanical mirror pattern, caught and fixed two real pre-merge defects
+this session's own diff would otherwise have introduced (the R14 dist-copy
+gap and the R15 LAYER_GROUP-wiring gap, both caught by their own ratchet
+tests before merge, not after), and left precise NEXT items for whoever
+continues this backlog. Thrash ratio well under the 7+ trigger — no
+meta-problem.
+
+NOT A SPEND REQUEST.

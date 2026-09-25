@@ -21987,6 +21987,33 @@ choropleth candidate, not a point layer). `lng_carriers` has no
 `/api/v1` mirror yet either — the natural next pick off this same
 backlog, same two-step precedent.
 
+UPDATE (2026-09-24, scheduled-routine [PRODUCT] session, seventh session
+this UTC day, v1.0.978): `steel_raw_materials.json` SHIPPED as a
+country-choropleth layer — `server/gemSteelRawMaterials.ts`,
+`GET /api/data/steel-raw-materials`, `datamap.tsx` fill layer + legend.
+Confirmed this session (not assumed from this note's own "or a
+country-level balance sheet" framing): the release's `country_balance`
+array has no per-row coordinates at all, so it is genuinely a country
+rollup, not a point layer — reused `server/cdcCancer.ts`'s
+county-choropleth join pattern one level up plus the already-vendored
+`datacore/boundaries/ne_110m_admin0.json` (server/countryLookup.ts's own
+geometry) for the join, joined by country NAME (15 hand-verified aliases
+for real spelling disagreements — GEM "Czech Republic" vs NE "Czechia"
+etc. — the remaining ~78 unmatched GEM names are genuine micro-states
+absent from the 110m boundary set, not a bug). Choropleth-filled by iron
+ore mined (ttpa); the other 7 catalogued fields (met coal mined/consumed,
+iron ore consumed by pig-iron vs. DRI route, pig iron/DRI produced) are in
+the per-country detail popup. `steel_units.json` (furnace-level unit
+attribute data keyed to `iron_steel_plants.json`) is now the ONLY
+remaining file in this GEM release family with no shipped route — a
+plausible future detail-panel enrichment rather than a new top-level
+layer. Remaining backlog, now down to one genuinely blocked item:
+`oil_ngl_pipelines.json`/`gas_pipelines.json` (still needs a
+geocoding/source decision). `steel_raw_materials` has no `/api/v1` mirror
+yet either — the natural next pick, same two-step precedent as every
+sibling GEM layer. Full account in `research/experiments.md`'s matching
+dated entry.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-

@@ -109,6 +109,10 @@ async function buildAll() {
   // runtime (new /api/data/lng-shipyards route) — added in the same PR,
   // same R14/2026-07-20 lesson, caught by the ratchet test below.
   await cp("datacore/gem/lng_carriers.json", "dist/datacore/gem/lng_carriers.json");
+  // [PRODUCT] server/gemSteelRawMaterials.ts reads this via repoDataPath at
+  // runtime (new /api/data/steel-raw-materials route) — added in the same
+  // PR, same R14/2026-07-20 lesson, caught by the ratchet test below.
+  await cp("datacore/gem/steel_raw_materials.json", "dist/datacore/gem/steel_raw_materials.json");
 }
 
 buildAll().catch((err) => {

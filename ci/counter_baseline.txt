@@ -17,11 +17,11 @@
 # gates them in node-build against ci/tsc_baseline.txt, and two pins for one
 # number is how they drift apart.
 
-tests_run_in_ci          470      non-decreasing
-tests_gating_merge       470      non-decreasing
+tests_run_in_ci          471      non-decreasing
+tests_gating_merge       471      non-decreasing
 silent_py_handlers       254      non-increasing
 bare_except              3        non-increasing
-empty_ts_catch           496      non-increasing
+empty_ts_catch           497      non-increasing
 ts_any                   1249     non-increasing
 layers_full_schema       1        non-decreasing
 layers_with_lod          1        non-decreasing
@@ -35,7 +35,7 @@ conflicting_const        3        non-increasing
 undeclared_py_import     2        non-increasing
 dead_workflow_env        0        non-increasing
 uncapped_surface         0        non-increasing
-assertions               15365    non-decreasing
+assertions               15394    non-decreasing
 harness_rules_checked    71       non-decreasing
 baseline_divergence      0        non-increasing
 dup_precise_literal      3        non-increasing
