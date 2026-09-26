@@ -7762,12 +7762,16 @@ export default function DataMapPage() {
           // layer never called fetchDossier — every other clickable layer does
           // (aircraft/trains/fires/gauges/quakes/buoys all pass entityId:null +
           // lat/lon for "nearest_sites"+hazards enrichment, per fetchDossier's own
-          // doc comment). HIFLD plants have no entity-graph node of their own yet
+          // doc comment). HIFLD plants have no entity-graph node of their own
           // (entityGraph.ts's facility:plant:N ids are built from the WRI GPPD
-          // array only — see research/open_questions.md PRODUCT-DEBT entry for
-          // why a full consolidation onto HIFLD needs that migrated first), so
-          // entityId stays null here rather than guessing a WRI index; lat/lon
-          // alone still surfaces the location-dossier hazard/nearest-site section.
+          // array only). entityId stays null here because no reliable row-level
+          // WRI<->HIFLD id crosswalk exists — NOT because HIFLD is expected to
+          // eventually replace WRI as entityGraph.ts's source: re-checked
+          // 2026-09-26 (research/open_questions.md PRODUCT-DEBT entry) and WRI is
+          // now the larger, more recently refreshed registry of the two (14,428
+          // EIA-860-supplemented plants vs. HIFLD's static ~2022-vintage 11,810),
+          // so that migration is no longer the presumed direction. lat/lon alone
+          // still surfaces the location-dossier hazard/nearest-site section.
           const dossierKey = `plant_hifld:${e.lngLat?.lat},${e.lngLat?.lng}:${Date.now()}`;
           setDetail({
             kind: "powerplant",
