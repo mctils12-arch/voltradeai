@@ -103189,3 +103189,187 @@ order, read the underlying registry file fresh rather than trusting a
 rather than re-deferring it a fourth time.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-26 (scheduled-routine session, second session this UTC day) [PIPELINE] — SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md) + new standalone module (scripts/hardcoded_palette_hex.py, test_hardcoded_palette_hex.py): MASTER PROGRAM §0.7 DETECT duty discharged after ~6 weeks unclaimed — D13 `hardcoded_palette_hex` ships (v1.0.987)
+
+READ ORDER followed: CLAUDE.md, `research/experiments.md` tail,
+`research/open_questions.md` KNOWN BROKEN section, `research/wishlist.md`
+tail.
+
+SYSTEM HEALTH CHECKED FIRST (live, `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — "trading
+loop dark for 65.0 market hours (396.8h wall-clock) since
+2026-09-10T03:12:26.354Z", `drawdownPct:"-5.8"`. This is the standing KNOWN
+BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in substance and already
+push-notified many times across the 16 days it has run — resuming is a
+human decision per RULE REVIEW (no kill-switch threshold may be loosened on
+inference alone); NOT re-notified this session (no new development). KNOWN
+BROKEN #44 (`insider_cusum_gate2`, Dockerfile FROZEN PATH proposal) also
+unchanged, still awaiting human merge in `research/wishlist.md`. Loop-health
+ratio: last 10 tagged entries prior to this one = 7x PRODUCT, 2x PIPELINE,
+1x REPAIR — well under the 7+ REPAIR thrash trigger, no meta-problem to
+address.
+
+PRIMARY-ACTION SURVEY: `python3 scripts/ladder_readiness_check.py` (0/4
+READY, all WAITING on time/report-count conditions already tracked),
+`python3 scripts/data_stream_registry_check.py` (26/35 built, 9/9 not-built
+all already declined/blocked with documented reasons), and `python3
+scripts/ladder_registry_coverage_check.py` (26/26 full coverage) all came
+back exhausted — matching the pattern the prior session (a few hours
+earlier this same UTC day) already logged. Rather than mine an 8th
+ACTIVE-ANGLE-HUNTING hypothesis on an already heavily-mined set, or
+re-survey `open_questions.md` for another PRODUCT-DEBT item (the prior
+session just closed one), checked `research/PROGRAM_STATE.md` — read as
+part of the standing PRODUCT-session read order — and ran its own
+`scripts/program_status.sh`.
+
+FINDING: `detectors_registered` (MASTER PROGRAM §0.7 — "the counter set
+must grow ... a session that adds no detector has not discharged the
+duty ... MUST INCREASE EACH SESSION") has sat at **12** since D12 shipped
+2026-08-15. Grepped `research/experiments.md` for every later
+`detectors_registered` mention and every session header since: none show
+an increase — roughly six weeks and dozens of scheduled-routine sessions
+have passed without discharging this stated duty. `ci/counter_baseline.txt`
+pins it `non-decreasing` (not a hard "must increase" CI gate — staying flat
+does not fail the build), which is exactly why nothing caught the drift
+mechanically; the duty is prose-enforced in PROGRAM_STATE.md, and prose
+enforcement is what this whole counter program exists to replace elsewhere
+in the codebase. Treated this as the session's primary action: well-
+specified (an explicit named gap in PROGRAM_STATE.md's own "Seeds not yet
+taken" list), unclaimed, and directly actionable without touching any
+FROZEN path or trading-path file.
+
+TOOK THE SEED: "theme-token literals hardcoded instead of referenced (D11)
+— partly covered by design_token_drift; the off-palette-hex half is not
+yet built." READ BEFORE WRITE: confirmed `scripts/design_token_drift.py`
+(D12) only diffs DESIGN.md's table against `client/src/index.css`'s
+`:root` block — it has no way to know whether a component actually
+references `var(--accent)` at its call site or restates `"#4d9fff"` as a
+literal string. Confirmed `dup_precise_literal` (D11) can't see this
+either: its threshold is >=7 significant digits, and a 6-hex-digit color
+literal never crosses it (verified by reading `scripts/program_status.sh`'s
+D11 block directly, not assumed from the table's one-line description).
+
+BUILT: `scripts/hardcoded_palette_hex.py` — a standalone, importable module
+(the `design_token_drift.py` precedent, not inlined in `program_status.sh`,
+so the detector has direct unit coverage from day one rather than only ever
+running embedded and unverified). It extracts DESIGN.md's 11 hex-valued
+canonical tokens (`palette_hex_values()`), then scans every tracked
+`client/src/**/*.ts(x)` file (excluding `.test.` and `index.css` itself —
+the latter is the definition site D12 already keeps honest) for a
+case-insensitive occurrence of any of those 11 hex strings. The comment/
+string handling is the DELIBERATE INVERSE of `ts_code_only.blank_source`:
+a color hex value lives INSIDE the string literal at its call site
+(`fill: "#4d9fff"`), so `_blank_comments_keep_strings()` blanks only
+comment text and leaves string/template-literal content untouched — using
+`blank_source` here (which blanks strings too, correct for `ts_any`/
+`empty_ts_catch`/D11) would have blanked out every real match this
+detector exists to find. Verified this distinction with a synthetic test
+before trusting the live count (`test_hex_inside_string_literal_counts`
+asserts a hit, `test_hex_inside_line_comment_does_not_count` and
+`test_hex_inside_trailing_comment_does_not_count` assert none).
+
+LIVE COUNT: **402** occurrences across ~40 files (spot-checked via
+`--verbose`: `DataWorldMap.tsx`, `SectorHeatmap.tsx`, `TradingActivity.tsx`,
+`mapIcons.ts`, `ETFBuilderView.tsx`, `perfHud.ts`, etc. — mostly `--accent`
+`#4d9fff` and `--accent-green` `#4ade80`, the two most commonly restated).
+This is real, substantial pre-existing debt, NOT retroactively fixed this
+session — refactoring ~40 files to reference CSS vars instead of literals
+is its own large, multi-file, non-trivial-risk PR (each site needs
+confirming the literal is a static UI color and not, e.g., a data-driven
+severity/altitude encoding that only coincidentally matches a token value),
+not "one logical change" alongside shipping the detector. Seeded
+`non-increasing` at 402 in `ci/counter_baseline.txt`, same precedent as D3
+`boundary_any` (seeded 233) and D4 `commented_empty_catch` (seeded 112) —
+the counter's job from here is to block NEW hardcoded palette hex, not to
+retroactively demand the existing 402 gets fixed in this PR. Shrinking it
+is a legitimate future session's target (D11's own 5→4→3 history is the
+precedent for that kind of incremental paydown).
+
+SHIPPED: `scripts/hardcoded_palette_hex.py` (new); `test_hardcoded_palette_
+hex.py` (new, root, 10 tests — synthetic comment/string/case-sensitivity
+semantics plus a live-repo count pinned to 402, mirroring
+`test_design_token_drift.py`'s two-tier convention); `scripts/
+program_status.sh` (new `hardcoded_palette_hex=$(python3 scripts/
+hardcoded_palette_hex.py)` block with full docstring-style comment, wired
+into both the `--json` output and the printf summary table, placed as
+"9m. D13" after the existing "9l. D12" `orphaned_set_interval` block);
+`ci/counter_baseline.txt` (`hardcoded_palette_hex 402 non-increasing` new
+row; `detectors_registered 12 -> 13`); `research/PROGRAM_STATE.md` (new D13
+row in the DETECTORS table with full rationale; removed the now-taken seed
+from "Seeds not yet taken"; new dated SESSION LOG entry at the top per this
+file's own newest-first convention).
+
+GATES (full — `npm ci` and `pip install -r requirements.txt -r
+requirements-dev.txt` both ran clean this session, no sandbox-dependency
+gap this time, unlike several recent prior sessions): `bash scripts/
+tsc_ratchet.sh` — 11, TS2304 0, byte-identical to baseline (zero `.ts`/
+`.tsx` files touched by this diff). `bash scripts/counter_ratchet.sh` —
+26 counters (25 + the new one) all OK; `hardcoded_palette_hex` live 402 =
+pin 402 exactly; `detectors_registered` live 13 = pin 13 exactly (both
+confirmed via a direct `bash scripts/program_status.sh --no-tsc` run before
+pinning, not assumed). `bash scripts/gated_tests.sh` — **GATE PASSED**:
+server 200 files green, client 102 files green, python 2182 passed/1
+skipped/54 subtests, deploy-gate smoke PASS (`npm run build` clean, booted
+`dist/index.cjs` under forced kill-switch+stale-liveness state, `/api/
+health` answered 200 in 2.4s). `python3 -m unittest discover -p
+"test_*.py"`: 10/10 new tests pass on their own; full-suite run shows 154
+pre-existing failures/errors, A/B-verified via `git stash` to be
+byte-identical count and content before and after this diff (missing
+`pytest`/`numpy` inside two tests that shell out to a fresh `python3`
+interpreter — a sandbox/environment gap, not a repo defect, matching the
+class of gap several prior sessions have already logged). `npm run visual`:
+NOT run — zero `client/`, `server/`, or rendering-adjacent file touched by
+this diff, so PROMOTION RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; this is a new static-analysis counter over source
+text, not a change to any existing measurement.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`08bcf18`, v1.0.986) already matched `origin/main`'s real
+HEAD before bumping — `1.0.986 -> 1.0.987` (`package.json` +
+`package-lock.json`'s two matching version fields).
+
+WORKSTREAM PARTITION: every touched file (`scripts/program_status.sh`,
+`ci/counter_baseline.txt`, `package.json`/`package-lock.json`, `research/
+PROGRAM_STATE.md`, `research/experiments.md`) is SHARED; the two new files
+(`scripts/hardcoded_palette_hex.py`, root `test_hardcoded_palette_hex.py`)
+are new standalone tooling, not owned by any territory. No T-BOT/
+T-CLIENT/T-DATACORE file touched or claimed.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+DEPLOY-COUPLING NOTE: `TZ=America/New_York date` at commit time reads
+Saturday 2026-09-26 — markets closed all day (weekend), so this run's own
+market-hours-hold instruction ("since this run occurs during market hours
+... merge should wait until after 4:00 PM ET") does not actually apply
+today regardless; stated in the PR anyway per the instruction's own text,
+and moot a second way since zero trading-path files are touched either
+way (no `server/bot.ts`, no Python trading modules) — nothing here could
+affect the live loop even if merged immediately.
+
+NEXT: (1) the 402-count existing hardcoded-palette-hex debt is a
+legitimate future paydown target, file-by-file, verifying each site is a
+genuine static UI color (not a data-driven encoding that coincidentally
+matches a token value) before switching it to `var(--token)`. (2) the
+"Seeds not yet taken" list in PROGRAM_STATE.md still has three entries
+(`useEffect` dependency-array ref omission, `any` at a module boundary —
+possibly already redundant with D3 `boundary_any`, worth checking before
+building it — and parameter-shadows-outer-binding, the inverse of D1) for
+whichever future session next owes the §0.7 duty; a future session should
+not let this go another six weeks unclaimed. (3) the standing LIVENESS
+ALARM and KNOWN BROKEN #44 remain exactly as documented above — both
+already correctly gated on a human decision, no new action warranted.
+
+STARVED: no — this session's own automated-backlog survey came back
+exhausted, so it fell through to PROGRAM_STATE.md's own long-neglected
+§0.7 DETECT duty per SESSION BUDGET's fall-through order, and shipped a
+fully-specified, tested, gated detector end-to-end rather than leaving the
+duty queued a further session.
+
+NOT A SPEND REQUEST.

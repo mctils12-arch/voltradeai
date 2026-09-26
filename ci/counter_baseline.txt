@@ -40,5 +40,6 @@ harness_rules_checked    71       non-decreasing
 baseline_divergence      0        non-increasing
 dup_precise_literal      3        non-increasing
 orphaned_set_interval    0        non-increasing
-detectors_registered     12       non-decreasing
+hardcoded_palette_hex    402      non-increasing
+detectors_registered     13       non-decreasing
 quarantine_size          0        non-increasing
