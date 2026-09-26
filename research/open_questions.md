@@ -4188,7 +4188,7 @@
     pre-fix code. `low_iv_candidates` checked per the sketch's own ask:
     it has no `.sort()` call at all (no comment claims an order for it),
     so it carries no equivalent bug — left untouched, one-logical-change
-    scope. Full trace in experiments.md same date.
+    scope. Full trace in experiments.md same date. **ITEM #26 CLOSED.**
 
 27. **[FOUND + FIXED 2026-07-29, v1.0.532, scheduled-routine REPAIR
     session] Both copies of `_dynamic_options_size()` (options_execution.py
@@ -5227,7 +5227,7 @@
     freed slot lets the next sync re-attempt the liquidation instead of
     leaving a dead resting order forever. Strictly an improvement over
     the prior state; same risk profile as the already-merged #32 exit
-    push.
+    push. **ITEM #34 CLOSED.**
 
 35. **[FOUND 2026-08-24, scheduled-routine session #15, NOT fixed —
     found while closing #34, deliberately left open (one logical change
@@ -5836,6 +5836,10 @@
     `/api/diag/audit?type=LEARN` for whether the weight-shift cadence has
     settled down (fewer, more stable transitions) now that the window
     persists across redeploys instead of resetting every few hours.
+    **ITEM #38 CLOSED** (the deploy-timestamp reset bug itself; the NEXT
+    monitoring step above remains open as a follow-up observation, not a
+    reason to keep this item flagged as unresolved).
+
 39. **[FOUND 2026-09-02, scheduled-routine PRODUCT session; ROOT CAUSE
     DIAGNOSED 2026-09-02 (2), scheduled-routine REPAIR session — FIX
     ALREADY SHIPPED FORWARD, no new code needed, CLOSED]
