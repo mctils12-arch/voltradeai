@@ -254,6 +254,24 @@ export const DIAG_PROBES = [
   // fishing REASONING STANDARD #4 warns against, so this probe always
   // runs the pre-registered defaults, unconditionally.
   "insider_cusum_gate2",
+  // ADDED 2026-09-26 (scheduled-routine PRODUCT session): the read path
+  // for gnssIntegrityDaily.ts's permanent daily archive, which the
+  // 2026-09-22 session shipped the WRITER for and deliberately deferred
+  // this reader to "a follow-up session ... once enough days have
+  // actually accumulated to be worth reading" (see that module's own
+  // header). Unblocks checking the GNSS-jamming x market-return
+  // correlation hypothesis's (open_questions.md, 2026-09-22 FUSION entry)
+  // real accumulated day count live instead of guessing from the
+  // calendar. DELIBERATELY TAKES NO QUERY PARAMETERS, mirroring
+  // insider_cusum_gate2 above: the read target is the whole (single,
+  // fixed) archive file, not a caller-selectable window — there is
+  // nothing to tune. Returns only the already-aggregate band x origin
+  // cell counts (n_total/n_zero/distinct_airframes) the writer already
+  // produces for the two gate-2-validated CANDIDATE_BBOX/CONTROL_BBOX
+  // regions, keyed by day, plus day_count/earliest_day/latest_day for a
+  // quick depth check — no per-row lat/lon/tail data, same reduced-
+  // exposure posture as the "gnss_integrity" probe above.
+  "gnss_integrity_daily",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

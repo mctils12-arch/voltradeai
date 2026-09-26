@@ -520,6 +520,28 @@ test("insider_cusum_gate2 probe (2026-09-21): wired, runs the pre-registered pro
     "run_probe() must never return the raw per-filer records list, only the aggregate verdict");
 });
 
+test("gnss_integrity_daily probe (2026-09-26): wired, reads the permanent daily archive, takes NO query params, no per-row exposure", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("gnss_integrity_daily"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./gnssIntegrityDaily"') && bot.includes("loadGnssIntegrityDailyArchive"),
+    "gnss_integrity_daily probe must reuse the shared reader, not re-derive the archive read inline");
+  const start = bot.indexOf('case "gnss_integrity_daily"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "gnss_integrity_daily probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("loadGnssIntegrityDailyArchive()"), "must actually call the shared reader");
+  assert.ok(!/req\.query/.test(block),
+    "this probe must never read req.query — the read target is the one fixed archive file, nothing to select");
+  assert.ok(block.includes("sanitizeDiag"), "gnss_integrity_daily probe must pass the sanitizer like every other probe");
+  assert.ok(block.includes("day_count") && block.includes("earliest_day") && block.includes("latest_day"),
+    "must report a depth summary so a future session can check accumulated days without guessing from the calendar");
+  const mod = fs.readFileSync(path.join(here, "gnssIntegrityDaily.ts"), "utf8");
+  assert.ok(mod.includes("export function loadGnssIntegrityDailyArchive"),
+    "the reused reader must be the module's real exported function");
+  assert.ok(mod.includes("export interface GnssDailyEntry") && mod.includes("candidate") && mod.includes("control"),
+    "the reused shape must already be aggregate-only (band x origin cells for the two gate-2-validated bboxes, no per-row lat/lon/tail)");
+});
+
 test("KNOWN BROKEN #44 (2026-09-22): the shared /api/diag/:probe catch block explains a scripts/-only ModuleNotFoundError instead of returning a raw traceback", () => {
   // ROOT CAUSE: Dockerfile (FROZEN PATH) only COPYs *.py / strategies/ /
   // alphadesk/ into the runtime image — scripts/ ships in neither stage

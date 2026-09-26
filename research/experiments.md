@@ -102496,3 +102496,189 @@ single pass/fail read) against a known-flaky gate before drawing a
 conclusion.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-25/26 (scheduled-routine session) [PRODUCT] — T-DATACORE (server/diag.ts, server/bot.ts diag-probe switch, server/gnssIntegrityDaily.ts, server/diag.test.ts) — `gnss_integrity_daily` diag probe ships the read path the 2026-09-22 archive-writer session deliberately deferred (v1.0.984)
+
+TASK PRIOR (stated before building, REASONING STANDARD #10): this session's
+own brief is a [PRODUCT] session — advance a datacore/ pipeline through its
+next ladder gate, build /data UI/UX, spec a new feature, or improve
+datacore's API boundary/tests toward spinout-readiness. Expected KNOWN
+BROKEN #42/#43 (the 2026-09-10 latched liveness alarm) to still be open,
+already-notified, and non-actionable by a product session; expected the
+primary action to come from an explicitly-named, already-queued NEXT step
+rather than a fresh survey. Both confirmed.
+
+SYSTEM HEALTH CHECKED FIRST (live, `python3 scripts/session_health_check.py`,
+`DIAG_TOKEN` present): `deploy_gate` ok, `deploy_freshness` ok
+(`server_version:1.0.983` matched this checkout's pre-bump `package.json`
+exactly). `liveness: ALARM` — "trading loop dark for 65.0 market hours
+(380.9h wall-clock) since 2026-09-10T03:12:26.354Z" — KNOWN BROKEN #42/#43,
+unchanged; `liveness_notify` computed "already notified at 276.9h — no new
+notify threshold crossed, do not repeat" — NOT re-notified, matching the
+compiled check's own call. Every other subsystem (server/db/alpaca/python/
+scanner/process_faults/daemon_memory/tier2_daemon_timeouts/ml_feedback/
+deploy_freshness/outage_duration) read OK. `python3 scripts/
+research_state_check.py`: `audits_register: none overdue (3 audits
+tracked)` (STALENESS last ran 2026-09-22, due ~2026-10-22; CONSTITUTIONAL
+last ran 2026-09-20, due ~2026-10-20) — no audit action needed this
+session. `thrash_ratio` 0/10 [REPAIR] in the last 10 tagged entries, no
+meta-problem; `starvation_signal` 0/10 STARVED.
+
+Given the scale of this repo's own log (open_questions.md 22k+ lines,
+experiments.md 100k+ lines), this session delegated the "what's the single
+highest-value unclaimed product action" survey to a subagent (grepping
+open_questions.md/wishlist.md/platform_program.md/grid_vision_products.md
+for recent unclaimed NEXT items, checking datacore/signal_ladder.json for
+gate-ready roots, and confirming nothing it found had already shipped in
+the last several experiments.md entries) rather than re-reading the whole
+log inline — a context-budget call, not a delegation of judgment: this
+session independently verified the subagent's top finding by reading the
+actual source files before writing a single line (READ BEFORE WRITE), the
+same discipline as if this session had found it directly.
+
+PRIMARY ACTION: `server/gnssIntegrityDaily.ts`'s own header (written
+2026-09-22, the session that fixed the ~30-day archive-depth ceiling for
+`gnss_integrity_adsb` by folding `ni`/`pt`/`al` fields into a permanent
+daily summary before `rollupOldDaysAsync` deletes the raw hour files) says
+verbatim: "WHAT IS NOT DONE HERE (deliberately, one logical change per
+PR): this module only WRITES the permanent archive. It does not expose a
+reader for it outside this process ... A follow-up session adds the read
+path ... once enough days have actually accumulated to be worth reading."
+Confirmed via `grep -n "gnss" server/diag.ts` that no probe existed for
+this archive before this session (only the pre-existing, unrelated
+rolling-window `gnss_integrity` probe). This unblocks checking the real
+accumulated day count for the GNSS-jamming x market-return correlation
+hypothesis (open_questions.md, 2026-09-22 FUSION HYPOTHESES entry) live,
+instead of guessing depth from the calendar — the correlation probe itself
+needs >=15 de-strided days and the archive only started folding on
+2026-09-22, so this session does NOT attempt that probe (would be
+underpowered by construction); it only ships the instrument that lets a
+future session check readiness honestly.
+
+WHAT SHIPPED: a new `"gnss_integrity_daily"` entry in `server/diag.ts`'s
+`DIAG_PROBES` whitelist, and the matching `case "gnss_integrity_daily"` in
+`server/bot.ts`'s `/api/diag/:probe` switch (placed after
+`insider_cusum_gate2`, mirroring that probe's "no query parameters" shape
+since the read target is one fixed archive file, not a caller-selectable
+window). The handler is a pure passthrough of the already-exported
+`loadGnssIntegrityDailyArchive()` (server/gnssIntegrityDaily.ts:224,
+unchanged) plus a `day_count`/`earliest_day`/`latest_day` depth summary —
+no per-row lat/lon/tail data leaves the endpoint, same reduced-exposure
+posture as the sibling `gnss_integrity` probe and every other probe here
+(the returned cells were already aggregate band x origin counts by
+construction, from `aggregateGnssIntegrity` in gnssIntegrityQuery.ts, gate-
+2-validated for the same CANDIDATE_BBOX/CONTROL_BBOX this root already
+uses live). `gnssIntegrityDaily.ts`'s own header and the `loadGnssIntegrity
+DailyArchive` docstring comment were corrected in the same PR (STALENESS
+discipline, not a separate PR — a one-line comment fix riding the change
+that makes it stale is not a bundled logical change) to stop claiming the
+reader is unexposed now that it is.
+
+VERIFIED, not claimed: `npm ci` (this sandbox had no `node_modules` at
+session start). `npx tsx --test server/diag.test.ts server/
+gnssIntegrityDaily.test.ts`: 35/35 (29 diag + 6 gnssIntegrityDaily,
+including the new `gnss_integrity_daily probe` wiring test — pattern-
+matched against the `insider_cusum_gate2`/`spaceweather_storm` precedent
+tests: confirms the probe is whitelisted, calls the real shared reader (not
+a re-derived inline read), never reads `req.query`, passes through
+`sanitizeDiag`, and reports the depth-summary fields). `npx tsx --test
+server/*.test.ts`: full suite 1922/1922 (1921 baseline + 1 net new test
+file addition — zero regressions). `bash scripts/tsc_ratchet.sh`: 11/11,
+TS2304=0, byte-identical to the pinned baseline (only comment/logic
+additions, no new `any`/type-error surface). `bash scripts/
+counter_ratchet.sh`: first run showed `assertions` IMPROVED 15454 ->
+15463 (this session's own 9 new test assertions, its direct, sole effect —
+not bundled with unrelated drift); re-pinned in this same PR per this
+file's own standing discipline (Q23/#1170 precedent). Second run: 25/25
+OK. `npm run build` clean (client + server bundles, dist/index.cjs
+17.0mb, unchanged warning class already present pre-diff). `node
+scripts/deploy_gate_smoke.mjs`: PASS — `/api/health` answered 200 in
+4.5s under latched-kill-switch + stale-liveness fixtures (unaffected by
+this diff, run as the standing required gate). `python3 -m pytest -q` NOT
+run — zero Python files touched by this diff (no pytest available in this
+sandbox either; confirmed the omission is legitimate via `git status
+--short`, all 5 changed files are `.ts`/`ci/counter_baseline.txt`).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): not applicable — zero `client/`
+files touched, this is a server-side diagnostics-endpoint PR with no
+user-facing surface.
+
+GATES: no runtime trading code touched (T-BOT untouched — bot_engine.py,
+ml_model_v2.py, system_config.py, strategies/, risk_kill_switch.py, every
+order-path file all unmodified). `server/bot.ts` gained one new `switch`
+case and one new import; the existing tier-scheduling/order-submission
+code above and below it is byte-unchanged (confirmed via the full-suite
+1922/1922 pass covering that file's own extensive existing test coverage).
+This is a pure read-only addition to the pre-existing, human-approved
+(2026-07-04) `/api/diag/:probe` mechanism — no new write path, no change
+to any trading decision, sizing, or order logic.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, or
+threshold change; this is a read-only diagnostics endpoint over an
+already-shipped, already-gate-2-passed signal's archive.
+
+MEASUREMENT INTEGRITY: this diff does not touch the backtest engine,
+slippage/fill model, P&L computation, or counterfactual logger. It DOES
+expose (read-only) the ground truth this signal's own gate 2 validation
+was built on, which is the opposite direction of risk MEASUREMENT
+INTEGRITY guards against (a change that makes a metric LOOK better without
+independent justification) — this change only makes an existing, already-
+validated aggregate more inspectable, computing nothing new.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, or paid-feature gating. Not re-run (condition not
+met).
+
+WORKSTREAM PARTITION NOTE: `server/bot.ts` is nominally listed under
+T-BOT's file territory, but every prior diag-probe addition this session
+mirrored (`spaceweather_storm`, `github_activity_poll_health`,
+`insider_cusum_gate2`, `account`/`equity_curve`, `gnss_integrity` itself)
+was ALSO a [PRODUCT]-tagged scheduled-routine session touching this exact
+file for this exact reason (the shared `/api/diag/:probe` switch lives
+there) — established, repeated precedent for PRODUCT sessions to touch
+this one switch block without it being a T-BOT trading-logic change. No
+concurrent session's work was visible in `git status`/`git log` at the
+start of this session, so no cross-territory collision risk applied in
+practice either.
+
+DEPLOY-COUPLING NOTE: session ran ~20:16 ET (`TZ=America/New_York date` at
+commit time) — AFTER the 16:00 ET market close, so no market-hours-hold
+applies. Zero trading-path files touched regardless (read-only diagnostics
+endpoint), so this PR is safe to merge/auto-merge on either count.
+
+VERSION: read-and-increment (`git fetch origin main` confirmed this
+branch's parent, `9f508f3`, was behind `origin/main`'s real HEAD `2497f57`
+— re-based reasoning: this branch was created fresh from `main` at session
+start and `git merge-base --is-ancestor origin/main HEAD` confirmed HEAD
+already contains `2497f57`), `1.0.983` -> `1.0.984` (`package.json` +
+`package-lock.json`'s two matching version fields).
+
+NEXT: (1) once the GNSS daily archive has accumulated >=15 de-strided days
+(checkable live via this session's own new `/api/diag/gnss_integrity_daily`
+probe's `day_count` field — the archive started folding 2026-09-22, so
+this is calendar-trackable but should be confirmed live, not assumed, per
+this signal's own writer-session's "unrecoverable gap" caveat for any day
+already rolled up before 2026-09-22), a future session runs the pre-
+registered GNSS-jamming x market-return correlation probe
+(open_questions.md's 2026-09-22 FUSION HYPOTHESES entry names the exact
+spec — this session did not build or run that probe itself, only the
+instrument that lets readiness be checked honestly). (2) `sec_8k_earnings_
+language` gate-2 re-run is ~6 days from its 90-day threshold as of this
+session (`scripts/ladder_readiness_check.py`, live) — the natural next
+PRODUCT pick once it clears. (3) KNOWN BROKEN #42/#43's standing LIVENESS
+ALARM (65.0 market hours / 380.9h wall-clock dark as of this session)
+remains a human-decision item, unchanged, not re-notified this session per
+the compiled re-notify judgment.
+
+STARVED: no — this session's primary action closed an explicitly-named,
+self-documented deferred NEXT step from a specific prior session (not a
+vague backlog item), delegated only the context-heavy "what's unclaimed"
+survey to a subagent while independently verifying the finding via READ
+BEFORE WRITE before writing any code, shipped with a new wiring test
+mirroring the repo's own established pattern, ran the full local gate
+suite (typecheck ratchet, counter ratchet with an honest re-pin, full
+1922-test suite, build, deploy-gate smoke) clean, and left two concretely
+actionable NEXT items (one calendar-trackable, one a live-checkable
+threshold) rather than ending with an empty queue.
+
+NOT A SPEND REQUEST.
