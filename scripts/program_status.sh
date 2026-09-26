@@ -820,6 +820,37 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9m. D13 — hardcoded_palette_hex: a DESIGN.md canonical theme-token hex value
+# (`--accent #4d9fff`, etc.) restated as a literal string in client/src
+# instead of referenced via `var(--accent)`.
+#
+# The seed PROGRAM_STATE.md's DETECTORS table has carried unbuilt since
+# D11/D12 were seeded (2026-08-14): "theme-token literals hardcoded instead
+# of referenced ... the off-palette-hex half is not yet built."
+# design_token_drift (D12) only checks DESIGN.md's table against index.css's
+# :root block — it says nothing about whether a component actually uses the
+# CSS var at its call site. dup_precise_literal (D11) doesn't cover this
+# either: it targets >=7-significant-digit numeric constants, and a 6-hex-digit
+# color never crosses that threshold.
+#
+# Extracted to scripts/hardcoded_palette_hex.py (not inlined) so the detector
+# has its own direct unit coverage from day one (the design_token_drift.py
+# precedent — a detector that only ever runs embedded in this script has zero
+# coverage of its own behavior).
+#
+# Comments are blanked but STRING LITERALS ARE NOT, the deliberate inverse of
+# ts_code_only.blank_source: a color hex value lives INSIDE a string at its
+# call site (`fill: "#4d9fff"`), so blanking strings the way empty_ts_catch/
+# ts_any do would blank out every real match. See the module's own docstring.
+#
+# Baseline is NOT 0, same precedent as D3 boundary_any (233): this counts
+# EXISTING debt (402 call sites live 2026-09-26), non-increasing from here —
+# new hardcoded palette hex is what the counter blocks, not a demand every
+# pre-existing site gets refactored in the PR that adds the detector.
+# ---------------------------------------------------------------------------
+hardcoded_palette_hex=$(python3 scripts/hardcoded_palette_hex.py)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -897,6 +928,7 @@ if [ "$JSON" = 1 ]; then
   "baseline_divergence": $baseline_divergence,
   "dup_precise_literal": $dup_precise_literal,
   "orphaned_set_interval": $orphaned_set_interval,
+  "hardcoded_palette_hex": $hardcoded_palette_hex,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -961,6 +993,7 @@ printf '%-24s %-14s %-12s %s\n' harness_rules_checked "$harness_rules_checked" "
 printf '%-24s %-14s %-12s %s\n' baseline_divergence "$baseline_divergence" "${PIN[baseline_divergence]:-n/a}" "must reach 0"
 printf '%-24s %-14s %-12s %s\n' dup_precise_literal "$dup_precise_literal" "${PIN[dup_precise_literal]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' orphaned_set_interval "$orphaned_set_interval" "${PIN[orphaned_set_interval]:-n/a}" "must stay 0"
+printf '%-24s %-14s %-12s %s\n' hardcoded_palette_hex "$hardcoded_palette_hex" "${PIN[hardcoded_palette_hex]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' detectors_registered "$detectors_registered" "${PIN[detectors_registered]:-n/a}" "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "${PIN[quarantine_size]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"

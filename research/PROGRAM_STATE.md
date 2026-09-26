@@ -654,6 +654,7 @@ the duty. `detectors_registered` reads this table.
 | D10 | `baseline_divergence` — this script's PRINTED baseline column disagreeing with the pin CI actually enforces in `ci/counter_baseline.txt` | 2026-08-14 | 5 | live in `program_status.sh`; found `ts_any` 1252-vs-1251 while re-pinning Q13, then 4 more. Down to **2** in the same PR. The last two (`dead_workflow_env`, `uncapped_surface`) are left DELIBERATELY: hand-patching them would zero the counter while the mechanism that lets a second copy drift survives — Q23 removes the copy |
 | D11 | `dup_precise_literal` — a high-precision numeric literal (≥7 significant digits, trailing zeros not counted) restated in 2+ modules; counts the redundant COPIES so it falls when one is deleted | 2026-08-14 | 5 | live in `program_status.sh`; the mechanism BEHIND D5 — `6371008.8` was written longhand in 3 modules before anything collided. Found `40075016.686` also in `cameraRig.ts` and `6378.137` in `propagate.ts`, neither of which D5 can see (not exported names). 5 → **4**, then **3** this session (Q24 fixed the `propagate.ts` copy it found) |
 | D12 | `orphaned_set_interval` — a `client/src` file calling `setInterval()` with no `clearInterval()` anywhere in it (whole-file, not per-call-site pairing — real scope analysis would need an AST, not a grep) | 2026-08-15 | 0 | live in `program_status.sh`; A/B-verified live (0→1 on an induced probe file, reverted). Baseline 0: every current caller already pairs the two. Seeded by F13 (PROGRAM_STATE.md above) — a `setInterval` with no visible off-switch is the same "mechanism with no visible off-switch" shape D7/D8 exist for |
+| D13 | `hardcoded_palette_hex` — a DESIGN.md canonical theme-token hex value (`--accent #4d9fff`, etc.) restated as a literal string in `client/src` instead of referenced via `var(--token)` | 2026-09-26 | 402 | live in `scripts/hardcoded_palette_hex.py` (extracted, directly unit-tested from day one — `test_hardcoded_palette_hex.py`, 10 tests); closes the exact "off-palette-hex half not yet built" seed below, unclaimed since D11/D12 were seeded 2026-08-14. Comments blanked, STRING LITERALS KEPT (the deliberate inverse of `ts_code_only.blank_source` — a hex value lives inside the string at its call site) |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
@@ -666,8 +667,6 @@ the duty. `detectors_registered` reads this table.
   238 layers. Needs real semantic mapping, not a grep — left for a session
   with time to build that mapping properly rather than ship a noisy detector
 - `any` at a module boundary (params and return types only)
-- theme-token literals hardcoded instead of referenced (D11) — *partly covered
-  by `design_token_drift`; the off-palette-hex half is not yet built*
 - functions taking a parameter that shadows an outer binding of the same name
   (the inverse of D1 — would catch the `focusSat` extraction *before* the
   binding is lost)
@@ -675,6 +674,99 @@ the duty. `detectors_registered` reads this table.
 ---
 
 ## SESSION LOG
+
+### 2026-09-26 — scheduled-routine session. Territory: SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md) + one new standalone module (scripts/hardcoded_palette_hex.py, test_hardcoded_palette_hex.py) — v1.0.987
+
+`detectors_registered` had sat at 12 (D12, 2026-08-15) through every session
+since — roughly six weeks / dozens of scheduled-routine sessions, none of
+which added a new detector despite §0.7's "MUST INCREASE EACH SESSION ... a
+session that adds no detector has not discharged the duty." This session's
+own automated-backlog survey (`ladder_readiness_check.py`,
+`data_stream_registry_check.py`, `ladder_registry_coverage_check.py`, all run
+first per SESSION BUDGET) came back fully exhausted — no ladder root ready,
+no unbuilt candidate un-blocked, full ladder/registry coverage — so, per
+SESSION BUDGET's own fall-through order, this stale duty was the next
+well-specified, unclaimed item, found by reading this file's own DETECTORS
+table rather than starting a fresh angle-hunt.
+
+**Detector added: D13, `hardcoded_palette_hex`.** Took the one seed in "Seeds
+not yet taken" that was already fully specified and unambiguous: "theme-token
+literals hardcoded instead of referenced (D11) — partly covered by
+design_token_drift; the off-palette-hex half is not yet built." Confirmed
+`design_token_drift` (D12) only checks DESIGN.md's table against
+`index.css`'s `:root` block, never whether a component call site actually
+uses `var(--accent)` vs. restating `"#4d9fff"` as a string; confirmed
+`dup_precise_literal` (D11) can't see this either — its >=7-significant-digit
+threshold never fires on a 6-hex-digit color.
+
+Built as a standalone, directly-unit-tested module
+(`scripts/hardcoded_palette_hex.py`, 10 tests in
+`test_hardcoded_palette_hex.py`) rather than inlined, following the
+`design_token_drift.py` precedent named in this file's own D12 entry (a
+detector that only ever runs embedded in `program_status.sh` has zero
+coverage of its own behavior). Deliberately the INVERSE of
+`ts_code_only.blank_source`'s comment/string blanking: a color hex value
+lives INSIDE the string literal at its call site (`fill: "#4d9fff"`), so this
+detector blanks only comment text and leaves string/template-literal content
+intact — the opposite of what `empty_ts_catch`/`ts_any`/`dup_precise_literal`
+need, and confirmed by a failing synthetic test before the fix (see the test
+file's `test_hex_inside_string_literal_counts`).
+
+Live count: **402** hardcoded occurrences of one of DESIGN.md's 11 hex-valued
+canonical tokens, across ~40 `client/src` files — real, substantial existing
+debt, not retroactively fixed here (that would be its own large, risky,
+multi-file PR, not "one logical change"). Seeded non-increasing at 402, same
+precedent as D3 `boundary_any` (seeded 233) and D4 `commented_empty_catch`
+(seeded 112): the counter exists to block NEW hardcoded palette hex from
+here forward; shrinking the existing 402 is a candidate for a future
+session with spare capacity (same shape as D11's 5→4→3 history), not a
+demand of this one.
+
+`detectors_registered` 12 → **13** (PROGRAM_STATE.md's own DETECTORS table
+row count, re-pinned in `ci/counter_baseline.txt`). Removed the now-taken
+seed from "Seeds not yet taken".
+
+GATES (full, not partial — `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` both ran clean this session, no sandbox-dependency gap
+this time): `bash scripts/tsc_ratchet.sh` — 11, TS2304 0, unchanged (zero
+`.ts`/`.tsx` files touched by this diff). `bash scripts/counter_ratchet.sh`
+— 26 counters (25 + the new one), all OK; `hardcoded_palette_hex` live 402 =
+pin 402, `detectors_registered` live 13 = pin 13. `bash scripts/
+gated_tests.sh` — **GATE PASSED**: server 200 files, client 102 files,
+python 2182 passed/1 skipped, deploy-gate smoke PASS (build + boot +
+`/api/health` 200 in 2.4s). `python3 -m unittest discover -p "test_*.py"`:
+10/10 new tests pass; A/B via `git stash` confirmed the 154 pre-existing
+failures/errors (missing `pytest`/`numpy` in a fresh interpreter shelled out
+by two unrelated tests) are byte-identical before and after this diff — not
+caused by it. No visual harness run: zero `client/`, `server/`, or any
+rendering-adjacent file touched (PROMOTION RULE 6 doesn't apply). No
+backtest: no trading strategy, sizing, or threshold touched (PROMOTION RULE
+3 N/A). VERSION: read-and-increment, confirmed `origin/main` HEAD (08bcf18,
+v1.0.986) already contained in this branch before bumping — 1.0.986 →
+1.0.987.
+
+SYSTEM HEALTH CHECKED FIRST (live, `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — "trading
+loop dark for 65.0 market hours (396.8h wall-clock) since
+2026-09-10T03:12:26.354Z", `drawdownPct:"-5.8"`. This is the standing KNOWN
+BROKEN #41/#42/#43 LIVENESS ALARM (research/open_questions.md), already
+flagged and push-notified many times across the 16 days it has run; NOT
+re-notified this session (no new development — same reading direction as
+recent prior sessions, resuming is a human decision per RULE REVIEW, no
+kill-switch threshold may be loosened on inference alone). KNOWN BROKEN #44
+(`insider_cusum_gate2` Dockerfile FROZEN PATH proposal) also unchanged,
+still awaiting human merge. Loop-health ratio: last 10 tagged
+`experiments.md` entries = 7x PRODUCT, 2x PIPELINE, 1x REPAIR — well under
+the 7+ REPAIR thrash trigger. `TZ=America/New_York date` at commit time:
+Saturday 2026-09-26, markets closed all day (weekend) — the run's own
+market-hours-hold instruction doesn't apply regardless, and this diff
+touches no trading-path file either way.
+
+**STARVED: no** — this session's own automated-backlog survey came back
+exhausted, so it fell through to this file's own long-neglected §0.7 DETECT
+duty per SESSION BUDGET's fall-through order, and shipped a fully-specified,
+tested, gated detector rather than leaving the duty queued a further
+session.
 
 ### 2026-08-15 — scheduled-routine session. Territory: T-CLIENT (client/src/lib/orbital/**, satDerived.ts) + shared (scripts/program_status.sh, ci/counter_baseline.txt, package.json, research/*), last and minimal
 
