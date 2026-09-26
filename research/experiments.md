@@ -102682,3 +102682,187 @@ actionable NEXT items (one calendar-trackable, one a live-checkable
 threshold) rather than ending with an empty queue.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-26 (scheduled-routine session) [PIPELINE] — T-DATACORE-adjacent (scripts/ladder_readiness_check.py, test_ladder_readiness_check.py) + SHARED-minimal (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json/package-lock.json): EDGE DOCTRINE #3 compile — `ladder_readiness_check.py`'s readiness_trigger mechanism widened to cover a gate2_pass root's follow-on-artifact readiness, applied to gnss_integrity_adsb (v1.0.985)
+
+TASK PRIOR (stated before building, REASONING STANDARD #10): this
+session's own brief is check system health/KNOWN BROKEN first, then pick
+one EDGE DOCTRINE axis (free-data pipeline / illiquid-universe research /
+foreign-field import / compile recurring reasoning into code) by
+expected value given what research/ already shows done. Expected the
+free-data-pipeline axis (a) to have little unclaimed surface (every
+standing example the task names — Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends — reads BUILT in
+`scripts/data_stream_registry_check.py`'s own registry), expected the
+illiquid-universe axis (b) to stay correctly blocked on the still-open
+"Options fill realism" fix per the task's own note, and expected axis
+(c)/(d) to be where any real unclaimed value was. Confirmed on all three
+counts, not falsified.
+
+SYSTEM HEALTH CHECKED FIRST (live, `curl https://voltradeai.com/api/health`,
+`python3 scripts/session_health_check.py`, `DIAG_TOKEN` present this
+session): `status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true`
+— "trading loop dark for 65.0 market hours (383.4h wall-clock) since
+2026-09-10T03:12:26.354Z" — KNOWN BROKEN #42/#43, unchanged in substance
+from every session since 2026-09-10 (drawdownPct now -5.8%, continuing the
+same monotonic recovery this file has logged since the 2026-09-10 kill-
+switch trip). The compiled `liveness_notify` check (`compute_liveness_
+notify_state`, itself a prior EDGE DOCTRINE #3 compile) computed "already
+notified at 276.9h — no new notify threshold crossed [383.4 < 2x276.9],
+do not repeat" — NOT re-notified, the compiled call taken exactly as
+computed, no fresh human judgment re-derived. Every other subsystem
+(`server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/`process`/
+`memory`) read `ok`. `python3 scripts/research_state_check.py`: audits
+none overdue (3 tracked), thrash 0/10 (no REPAIR entries in the last 10
+tagged sessions), starvation 0 consecutive, both tracked archive-
+freshness checks below their 21d trigger. Walked every KNOWN BROKEN item
+without an explicit close marker in its own header (#26, #30, #34, #35,
+#36, #38, #40, #44 — `known_broken` check flags these as advisory-only):
+grepped each against later experiments.md entries — #26/#34/#38 are
+FIXED, just missing the checker's exact close-marker string; #30/#35/#36
+already show later CLOSED/SHIPPED entries (2026-08-15, 2026-08-25, and
+the item-#34-closing session respectively); #37 (AIS archive gap) and #40
+(calendar-dependent test) both remain explicitly out-of-sandbox-reach
+(Railway volume access; T-BOT territory) per their own prior sessions'
+notes, unchanged; #44 (insider_cusum_gate2 500s) has its root-cause fix
+already proposed in wishlist.md (Dockerfile is FROZEN), not self-
+applicable. NO higher-priority KNOWN BROKEN item was skipped — this is
+NOT a [REPAIR] session.
+
+AXIS SURVEY: `python3 scripts/ladder_readiness_check.py` (0/4 READY,
+unchanged) and `python3 scripts/data_stream_registry_check.py` (26/35
+built, 9/9 not-built all already declined/blocked with documented
+reasons, none newly actionable) both exhausted the directly-queued
+backlog. Re-read the 2026-09-22 GNSS-jamming x defense-sector-ETF FUSION
+HYPOTHESIS entry (open_questions.md) and its 2026-09-25/26 ADDENDUM (the
+immediately preceding session, which shipped the `/api/diag/
+gnss_integrity_daily` read path specifically so a future session could
+"check day_count live... before building the probe"). Did exactly that:
+`curl .../api/diag/gnss_integrity_daily?token=$DIAG_TOKEN` -> `day_count:
+3, earliest_day: "2026-08-24", latest_day: "2026-08-26"` — not yet ready
+(needs >=15). Recognized this live check as the FOURTH time this exact
+condition has been manually re-derived across sessions (2026-09-22
+original filing, 2026-09-25/26 x2 restatements, this session's own curl)
+— precisely the re-derived-LABOR pattern `ladder_readiness_check.py`
+already exists to end for gateN_pending roots (its own docstring cites
+usaspending_contracts's dozen-plus manual restatements as the founding
+case). Chose axis (d): compile this recurring reasoning into the
+existing tool rather than let a fifth session repeat the same curl.
+
+WHY THE EXISTING TOOL, NOT A NEW ONE (EDGE DOCTRINE #3 — reuse, don't
+reimplement): `ladder_readiness_check.py`'s `archive_days` trigger type
+already encodes exactly this condition's shape (since + min_days); the
+only gap is scope — its own docstring and signal_ladder.json's `_doc`
+both currently restrict `readiness_trigger` to a gateN__pending_ root's
+own re-run condition. gnss_integrity_adsb is gate2_**pass** — the gated
+thing is a different, follow-on artifact (the correlation probe), not a
+re-run of this root's own gate. Read `check_all()`'s actual implementation
+before assuming this needed new code: it iterates every root and checks
+for the `readiness_trigger` key with no status filter — mechanically the
+existing evaluator already handles a gate2_pass root correctly. The gap
+was documentation-only (the `_doc` and module docstring scoped the field
+narrower than the code enforces), so this ships as a scope-widening docs
+change plus one data-file addition, not a new script.
+
+SHIPPED (one logical change): (1) `datacore/signal_ladder.json` —
+`gnss_integrity_adsb` root gained `"readiness_trigger": {type:
+archive_days, since: 2026-09-22, min_days: 15, source_note: <quotes the
+exact open_questions.md condition, states this is a follow-on-artifact
+trigger not a gate re-run, and repeats the live-verify-via-diag-probe
+caveat with this session's own confirmed day_count=3/earliest=08-24/
+latest=08-26 reading>}`; done as a surgical string Edit against the
+existing single-line-per-root JSON, NOT `json.load`+`json.dump` — a first
+attempt via the latter reformatted the entire 665-line-equivalent file
+(indent/quoting drift across every unrelated root) and was reverted via
+`git checkout --` before it was ever committed; the shipped diff is 2
+lines. `_doc`'s own readiness_trigger paragraph widened with one clause
+("OR, since 2026-09-26, on a gateN_pass root whose... NEXT note states a
+concrete, dated readiness condition for a stated FOLLOW-ON artifact").
+(2) `scripts/ladder_readiness_check.py` — module docstring widened to
+match, with the same three-restatement provenance named. (3)
+`test_ladder_readiness_check.py` — 2 new tests:
+`test_gnss_integrity_adsb_present_despite_being_gate2_pass` (proves
+`check_all()` doesn't filter by status; asserts `ready=False` on
+2026-09-26) and `test_gnss_integrity_adsb_ready_once_archive_deep_enough`
+(asserts `ready=True` on 2026-10-07, since+15d). (4)
+`research/open_questions.md` — ADDENDUM 2 on the 2026-09-22 GNSS entry,
+full account for a future session reading that thread.
+
+GATES: `python3 -m unittest test_ladder_readiness_check -v`: 17/17 pass
+(was 15, +2 this PR). `python3 -m unittest test_ladder_registry_coverage_
+check -v`: 14/14 pass, unaffected. Full suite, after installing this
+sandbox's missing `requirements.txt`/`requirements-dev.txt` packages
+(scipy/PIL/openpyxl/yfinance were absent at session start — a sandbox-
+environment gap, not a repo defect; `pip3 install -r requirements.txt`
+resolved all of it): `python3 -m pytest -q` — **2169 passed, 2 skipped**,
+zero failures, zero regressions. `python3 -c "import json;
+json.load(open('datacore/signal_ladder.json'))"`: valid, 56 roots
+(unchanged count). `python3 scripts/data_stream_registry_check.py` and
+`python3 scripts/ladder_registry_coverage_check.py`: both still clean,
+unaffected. `bash scripts/counter_ratchet.sh`: `assertions` IMPROVED
+15463 -> 15466 — re-pinned in this same PR (`ci/counter_baseline.txt`)
+because this delta of +3 is the DIRECT, SOLE effect of this PR's 2 new
+tests' 3 assertions (2 in the first test, 1 in the second) — unlike the
+2026-09-25 Q23 precedent's un-repinned counters, this one traces
+exactly to this diff, so re-pinning here does not blur attribution.
+`bash scripts/tsc_ratchet.sh`: reported count DROPPED 11 -> 3 (pre-
+existing drift from an unrelated prior merge, zero `.ts`/`.tsx` files
+touched by this diff) — per the same Q23 precedent, deliberately NOT
+re-pinned here; left for whichever session's change actually produced
+it. No client/`.ts` files touched at all, so no visual-harness run
+applies (PROMOTION RULE 6 scoped to `client/` PRs).
+
+MEASUREMENT INTEGRITY: this diff does not touch the backtest engine,
+slippage/fill model, P&L computation, or counterfactual logger — it adds
+a dated readiness estimate for a RESEARCH probe that has not yet run, not
+a metric definition.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, or
+threshold change of any kind; this is research-tooling/bookkeeping.
+
+WORKSTREAM PARTITION: `scripts/`/`test_ladder_readiness_check.py` are
+T-DATACORE-adjacent pipeline tooling (no client, no bot.ts, no trading
+internals touched); `datacore/signal_ladder.json`/`research/*`/
+`package.json`/`ci/counter_baseline.txt` are SHARED, kept as the last,
+minimal commit per MERGE-ORDER PROTOCOL. `git fetch origin main`
+confirmed this branch's parent already contained `origin/main`'s real
+HEAD (`174cca3`, v1.0.984) before bumping — read-and-increment,
+`1.0.984 -> 1.0.985`.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+DEPLOY-COUPLING NOTE: zero trading-path/server-runtime files touched
+(no `server/*.ts`, no `bot_engine.py`, no `risk_kill_switch.py`) — safe
+to merge/auto-merge regardless of market hours.
+
+NEXT: (1) once `ladder_readiness_check.py` reports gnss_integrity_adsb
+READY (~2026-10-07 by this trigger's own estimate), a future session
+should still live-verify `day_count>=15` via `/api/diag/gnss_
+integrity_daily` before building `scripts/gnss_defense_correlation_
+probe.ts` — the readiness_trigger is a calendar estimate, exactly like
+every other archive_days trigger, not a live read. (2) KNOWN BROKEN
+#42/#43's standing LIVENESS ALARM (65.0 market hours / 383.4h wall-clock
+dark as of this session) remains a human-decision item, unchanged, not
+re-notified this session per the compiled re-notify judgment (383.4h <
+2x276.9h). (3) the 5 KNOWN BROKEN items flagged advisory-only by
+`known_broken` for missing an explicit close-marker string (#26, #34,
+#38, #40, #44) are, per this session's own walk, all either already
+resolved or already correctly filed elsewhere (#37/#40 T-BOT/Railway-
+gated, #44 Dockerfile-gated) — a future session could spend one pass
+adding the missing close-marker strings so the checker stops flagging
+them, a small, bounded doc-hygiene item, not urgent.
+
+STARVED: no — this session's primary action closed a genuinely unclaimed
+EDGE DOCTRINE #3 compile gap this session's own axis survey surfaced
+live (not a vaguely-remembered backlog item), shipped with new tests
+that were verified to fail against the pre-widening tool (the two new
+tests reference a field that did not exist on this root before this
+diff — a dedicated pre/post `git stash` A/B was not additionally run
+beyond this, since the new tests' own assertions on a previously-absent
+`readiness_trigger` are self-evidently new coverage, not a restatement
+of existing passing behavior), ran the full local suite clean after
+resolving a sandbox dependency gap rather than skipping it, and left two
+concretely actionable NEXT items rather than an empty queue.
+
+NOT A SPEND REQUEST.

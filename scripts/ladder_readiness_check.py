@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 ladder_readiness_check.py — EDGE DOCTRINE #3 compiled-knowledge check for
-gateN_pending ROOT VALIDATION LADDER roots (CLAUDE.md).
+gateN_pending ROOT VALIDATION LADDER roots (CLAUDE.md), and (2026-09-26,
+widened per the same doctrine) for a gateN_pass root's stated FOLLOW-ON
+artifact whose own readiness depends on that root's archive depth.
 
 WHY THIS EXISTS: several datacore/signal_ladder.json roots are stuck at
 gate2_pending not because nobody scoped the next test, but because a prior
@@ -14,7 +16,14 @@ and re-stated in research/experiments.md over a dozen separate times across
 sessions spanning 2026-07-26 through 2026-08-12 — each restatement is pure
 LABOR (re-grepping prose, redoing date arithmetic), not JUDGMENT, exactly
 the cost EDGE DOCTRINE #3 says should be compiled into code once, not paid
-again every session.
+again every session. The same shape recurred 2026-09-22 -> 2026-09-26 for
+gnss_integrity_adsb (already gate2_pass): three consecutive sessions each
+manually curled /api/diag/gnss_integrity_daily (once it existed) or
+recomputed the same ">=15 de-strided days since the 2026-09-22 permanent-
+archive fix" condition from prose to decide whether the pre-registered
+GNSS-jamming x defense-ETF correlation probe could be built yet — the same
+re-derived-LABOR pattern this tool exists to end, just on a root's
+follow-on artifact instead of its own next gate.
 
 This script reads datacore/signal_ladder.json's `readiness_trigger` field
 (schema documented in that file's own _doc) and reports which gated roots

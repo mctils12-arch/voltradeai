@@ -22235,3 +22235,39 @@ readiness bar this entry pre-registered cannot yet be cleared; a future
 session should check `day_count` live via the new probe before building
 `scripts/gnss_defense_correlation_probe.ts`, not assume readiness from
 the calendar.
+
+ADDENDUM 2 (2026-09-26, scheduled-routine session, later the same UTC
+day, EDGE DOCTRINE #3 — compile recurring reasoning into code): the
+"check day_count live before building the probe" step named in the
+addendum directly above was, itself, exactly the re-derived-LABOR
+pattern `scripts/ladder_readiness_check.py` exists to end (see that
+script's own module docstring, updated this session) — this session
+found three consecutive prior sessions (2026-09-22, 2026-09-25/26 x2)
+each manually re-stating the same ">=15 de-strided days since the
+2026-09-22 archive fix" condition in prose, and this session's own first
+check (`curl /api/diag/gnss_integrity_daily`) would have been a fourth
+manual re-derivation had it not been compiled instead. FIX SHIPPED:
+`datacore/signal_ladder.json`'s `gnss_integrity_adsb` root gained a
+`readiness_trigger` ({type: archive_days, since: 2026-09-22, min_days:
+15}) so `scripts/ladder_readiness_check.py` now reports this condition
+automatically (WAITING, 11d remaining as of 2026-09-26) instead of a
+session re-grepping this file's own prose each time. This WIDENS the
+tool's scope (documented in both signal_ladder.json's `_doc` and the
+script's own docstring): the mechanism was previously used only for a
+gateN_pending root's own re-run condition (usaspending_contracts/
+cftc_cot_positioning/sec_8k_earnings_language); this is the first use on
+a gateN_pass root's stated FOLLOW-ON artifact instead. HONESTY CAVEAT
+carried into the trigger's own source_note, matching every other
+archive_days trigger's caveat: this is a calendar-day ESTIMATE, not a
+live day_count read — the archive drains its 30-day raw-retention window
+roughly one day at a time rather than filling instantly (live-confirmed
+this session: day_count=3, earliest_day=2026-08-24, latest_day=
+2026-08-26, consistent with ~1 new record/day since the fix, 4 calendar
+days after 2026-09-22) — so a future session should still live-verify
+`day_count` via the diag probe before trusting "ready" as true readiness,
+exactly as this tool's own weekly_reports type already requires for its
+own estimate. Gate status of gnss_integrity_adsb itself is UNCHANGED
+(still gate2_pass/2) — this is pure research-tooling compilation, not a
+new statistical result, a gate re-run, or any trading-path change. Full
+account, tests, and gates in research/experiments.md's matching dated
+entry.
