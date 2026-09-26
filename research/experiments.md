@@ -102866,3 +102866,161 @@ resolving a sandbox dependency gap rather than skipping it, and left two
 concretely actionable NEXT items rather than an empty queue.
 
 NOT A SPEND REQUEST.
+
+---
+
+## 2026-09-26 — [REPAIR] session (scheduled-routine): close-marker doc-hygiene for KNOWN BROKEN #26/#34/#38 (queued from the prior session's own NEXT(3)); liveness alarm + system health surveyed, no re-notify or new action warranted
+
+READ ORDER followed: CLAUDE.md in full, then `research/experiments.md`
+(tail), `research/open_questions.md` (KNOWN BROKEN section head-to-tail),
+`research/wishlist.md` (head, constitutional-audit findings still
+unaddressed after 5 weeks — human review item, not this session's to
+act on).
+
+LOOP HEALTH: last 10 tagged sessions read 6x [PRODUCT] / 4x [REPAIR] by
+hand-grep; `scripts/research_state_check.py`'s own `thrash_ratio` check
+reads 0/10 (its tag-extraction window differs slightly from a raw tail
+grep, not investigated further since both readings are far under the 7+
+trigger either way). No thrash. `starvation_signal`: 0/10. `audits_register`:
+none overdue (3 tracked). Archive freshness: sentinel2_tank_fill 4d,
+port_dwell_weekly 8d, both well under the 21d trigger. Clean bill of
+health on every compiled check except `known_broken` (see below).
+
+LIVE HEALTH CHECK (first action): `curl https://voltradeai-production.up.
+railway.app/api/health` — `status: "degraded"` (expected, standing): `bot.
+status: "killed"`, `liveness.dark: true`, `marketHours: 65`, `wallHours:
+392` (up from the last-logged 383.4h) since 2026-09-10T03:12:26Z. Per
+CLAUDE.md Amendment 1 this is the standing TOP-OF-REPORT alarm — logged
+here at the top as required, not buried. NOT independently re-notified via
+PushNotification this session: `research/liveness_notify_state.json`
+(`last_notified_wall_hours: 276.9`, set 2026-09-21T16:06:26Z) plus
+`scripts/session_health_check.py`'s `compute_liveness_notify_state`
+doubling rule (`should_notify` iff `wall_hours >= 2 * last_notified_hours`)
+computes 392.0h < 553.8h (2×276.9) — not yet a fresh notify-worthy
+checkpoint, consistent with every session since 2026-09-21 reading the
+same non-doubled state. Independently, `/api/diag/audit` (live, this
+session) shows the system's OWN standing email mechanism already fired
+today (`EMAIL: "Alert sent: Trading Loop Still Dark — Resume Decision
+Needed"`, 2026-09-26T03:15:03Z) — the human has a same-day channel
+already carrying this, so a duplicate push notification would be pure
+noise per the notification tool's own guidance, not missing coverage.
+Next doubling checkpoint: ~553.8h wall-clock (~2026-10-02), or immediately
+on any material change (resume, a new failure mode, `equity`/`equityPeak`
+numbers moving). All other `/api/health` checks green (server/database/
+alpaca/python/scanner/feeds/licensing all `ok`; memory pressure `ok`,
+1874MB cgroup usage of a 22.9GB limit). `/api/diag/audit?limit=80`: no new
+bug signature beyond the standing liveness incident and the already-
+tracked recurring `TIER3-DIAG` "Low win rate: 25.8% over 31 trades"
+MEDIUM advisory (consistent with the halted loop producing no fresh
+trade_feedback records to move that stat — not a new finding).
+
+SESSION BUDGET primary-action survey: no new bug in the audit log beyond
+already-tracked/human-decision items; no matured experiment ready to
+judge (the one calendar-gated item, `gnss_integrity_adsb`'s readiness
+trigger, is ~2026-10-07 per its own estimate — not yet); no queued
+open_questions.md item was actionable today without either a frozen-path
+change (#44, still correctly awaiting human approval on the Dockerfile
+`COPY scripts/` line in wishlist.md — unchanged, `Dockerfile` confirmed
+this session still has no such line) or crossing into T-BOT territory on
+a non-urgent, self-resolving item (#40, the pre-long-weekend calendar
+test-determinism recurrence — still correctly NOT PATCHED, no session
+this cycle owns T-BOT primarily). Fell through to the prior session's
+own filed NEXT(3): "the 5 KNOWN BROKEN items flagged advisory-only ...
+a future session could spend one pass adding the missing close-marker
+strings so the checker stops flagging them, a small, bounded doc-hygiene
+item."
+
+VERIFIED EACH OF THE 5 BEFORE TOUCHING ANY (READ BEFORE WRITE — a
+checker flag is not itself proof an item is resolvable, per its own
+docstring caveat): read #26, #34, #38, #40, #44 in full.
+- #26 (options_scanner high_iv_candidates alphabetical-not-magnitude
+  sort bug): genuinely FIXED 2026-07-30 v1.0.551, with an A/B-verified
+  regression test — only missing the literal marker string
+  (`_CLOSED_MARKERS` requires "RESOLVED"/"CLOSED"/"ROOT CAUSE FOUND +
+  FIXED"/"FOUND + FIXED" as an exact phrase; the item's own prose says
+  "FIXED 2026-07-30" with no adjacent "FOUND +", so it never matched).
+- #34 (POS-KILL stale-order tracking gap): genuinely FIXED 2026-08-24
+  v1.0.776, A/B-verified test, same false-negative marker-phrase gap.
+- #38 (DEPLOY_TIMESTAMP resetting every redeploy, corrupting the
+  post-deploy win-rate window): genuinely FIXED same-day 2026-08-28,
+  A/B-verified test, same gap ("FOUND AND FIXED" in its header, not the
+  literal "FOUND + FIXED").
+- #40 (market_calendar-dependent test failures recurring in a different
+  test class, KNOWN BROKEN #18-adjacent): confirmed still genuinely
+  OPEN — its own text says "NOT PATCHED (deliberately, scope discipline)
+  ... T-BOT territory per WORKSTREAM PARTITION." Left untouched.
+- #44 (insider_cusum_gate2 500s in production — scripts/ never copied
+  into the Docker runtime image): confirmed still genuinely OPEN — root
+  cause needs a FROZEN PATH edit (`Dockerfile`), proposal already filed
+  in `research/wishlist.md` 2026-09-22, unmerged. Verified this session
+  via `grep "COPY " Dockerfile`: still no `COPY scripts/ ./scripts/`
+  line. Left untouched — adding a close marker here would be false.
+
+WHAT SHIPPED (own PR, `research/open_questions.md` only, SHARED-file,
+kept minimal per MERGE-ORDER PROTOCOL): appended a short, honest
+`**ITEM #N CLOSED.**` sentence (precedent: item #30 already uses this
+exact convention, per `classify_known_broken`'s own docstring) to the
+end of items #26, #34, and #38's blocks — zero characters of existing
+substance changed, only a closing marker added where the underlying fact
+(already fixed, already tested, already shipped weeks ago) was already
+true. #38's marker sentence is explicit that its own filed NEXT
+(monitoring the post-fix weight-shift cadence) stays open as a follow-up
+observation, not a reason to keep the item flagged.
+
+GATES: `python3 scripts/research_state_check.py`: `known_broken` now
+reads "45 items total, 2 without an explicit close marker (#40, #44)"
+(down from 5; #40/#44 correctly still flagged, as they should be).
+`python3 -m pytest -q test_research_state_check.py`: 57/57 pass,
+unaffected (no fixture hardcoded the old count of 5). Full suite,
+after installing this sandbox's `requirements.txt`/`requirements-dev.txt`
+(missing at session start, same recurring sandbox-environment gap noted
+in the prior several session logs — not a repo defect): `python3 -m
+pytest -q` — **2172 passed, 1 skipped**, zero failures, zero
+regressions.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed; this is pure research-bookkeeping prose.
+
+VERSION: not bumped — matches this repo's own established convention for
+docs-only `research/*` commits (e.g. #1176, "docs: log PR #1175's
+market-hours-hold auto-merge occurrence," also unbumped), since
+`code_version` attribution exists to separate trading-relevant code
+changes, and nothing trading-relevant changed here.
+
+WORKSTREAM PARTITION: `research/open_questions.md` and
+`research/experiments.md` are both SHARED — kept to the minimal single
+commit this PR needed, no other territory's files touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+DEPLOY-COUPLING NOTE: zero trading-path/server-runtime files touched (no
+`server/*.ts`, no `bot_engine.py`, no Python trading modules) — safe to
+merge/auto-merge regardless of market hours.
+
+NEXT: (1) the standing LIVENESS ALARM (#41/#42/#43's underlying halt,
+392.0h wall-clock dark as of this session) remains a human-decision item
+— the system's own daily email channel is already carrying it, and the
+next session-side re-notify checkpoint is ~553.8h wall-clock
+(~2026-10-02) absent a material change before then. (2) once a human
+approves the Dockerfile `COPY scripts/` line from `research/wishlist.md`
+(2026-09-22 entry, still open), re-run `curl .../api/diag/
+insider_cusum_gate2` and close out KNOWN BROKEN #44 for real. (3) #40
+is a fast, well-scoped fix (mirror `TestFix7`'s 2026-07-05 pattern) for
+whichever session next legitimately owns T-BOT territory. (4) once
+`gnss_integrity_adsb`'s readiness_trigger estimate (~2026-10-07) arrives,
+live-verify `day_count>=15` before building the correlation probe (per
+the 2026-09-25 session's own NEXT).
+
+STARVED: no — primary-action survey found no unclaimed higher-value item
+this session could execute today (the two genuinely-open KNOWN BROKEN
+items are correctly gated on a human decision and a different
+territory's ownership, not on this session's effort), so the queued,
+previously-filed fall-through item was executed in full rather than
+left for a future session, and the full local suite was run clean rather
+than assumed.
+
+NOT A SPEND REQUEST.
