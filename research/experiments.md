@@ -103024,3 +103024,168 @@ left for a future session, and the full local suite was run clean rather
 than assumed.
 
 NOT A SPEND REQUEST.
+
+---
+
+## 2026-09-26 (scheduled-routine PRODUCT session) [PRODUCT] — the 2.5-month-stale "two overlapping power-plant layers" PRODUCT-DEBT item (filed 2026-07-09, last touched 2026-07-14): the deferred migration's own premise no longer holds, verified live — KEEP-BOTH decision made, stale code comment corrected (v1.0.986)
+
+READ ORDER followed: CLAUDE.md, `research/experiments.md` tail,
+`research/open_questions.md` KNOWN BROKEN section (head to #44),
+`research/wishlist.md` tail, `research/PROGRAM_STATE.md`,
+`research/platform_program.md`, `research/data_census.md`.
+
+SYSTEM HEALTH CHECKED FIRST, per this session's own brief (product
+sessions don't preempt repair duty, but must note a critical break):
+`git log`/`research/experiments.md` confirm the standing LIVENESS ALARM
+(trading loop dark since 2026-09-10, KNOWN BROKEN #41/#42/#43) is
+unchanged, already flagged as a human-decision item with the system's
+own daily email channel carrying it, and not this session's to act on
+(T-BOT/human-gated, not a PRODUCT-session blocker). Not re-notified —
+no new information this session. KNOWN BROKEN #44 (`insider_cusum_gate2`
+500s, Dockerfile FROZEN PATH) also unchanged, proposal still awaiting
+human merge in wishlist.md.
+
+PRIMARY-ACTION SURVEY: `python3 scripts/ladder_readiness_check.py` (0/4
+READY) and `python3 scripts/data_stream_registry_check.py` (26/35 built,
+9/9 not-built all already declined/blocked with documented reasons) and
+`python3 scripts/ladder_registry_coverage_check.py` (full coverage, 26/26
+matched) all came back exhausted — no automated-check backlog item was
+actionable today, matching the pattern the last several sessions'
+own logs describe. Rather than manufacture a new ACTIVE
+ANGLE-HUNTING hypothesis on top of an already heavily-mined set (7
+foreign-field-import probes logged since 2026-08-18, most clean
+negatives — REASONING STANDARD #4 discounts a fresh 8th variant harder
+than usual), searched `research/open_questions.md` for a previously
+well-specified, unclaimed PRODUCT-DEBT item instead — found one:
+the 2026-07-09 "two overlapping US power-plant /data layers" entry
+(WRI GPPD vs HIFLD), last touched 2026-07-14, whose own REVISED NEXT
+STEP explicitly deferred a scoped migration PR and was never picked up
+by any of the ~9 weeks of sessions since.
+
+READ BEFORE WRITE, not assumed stale: re-read `datacore/powerplants/
+us_power_plants.json` (the WRI-sourced registry `server/entityGraph.ts`
+is coupled to by array index — confirmed live, `grep -n "us_power_plants
+\|facility:plant:" server/entityGraph.ts`) before touching anything.
+Its schema had already changed since 2026-07-14 (bare array ->
+`{_doc, source, fuels, count, verified_count, plants}`, confirmed by
+`server/riverPlants.ts`'s own `powerplantTable()` unwrapper, which exists
+specifically to handle both shapes) — count is **14,428**, not the 9,833
+this entry's 2026-07-14 comparison used. Traced why: five sessions
+between 2026-09-08 and 2026-09-13 (`scripts/eia860_add_missing_plants.py`,
+`scripts/eia860m_refresh_registry.py` x2, read in full this session) had
+supplemented and refreshed this exact registry from EIA-860/860M — for
+an unrelated reason (the FUSION HYPOTHESIS (b) grid-generation-vs-
+capacity gate-1 check) — and nobody had connected that work back to this
+filed consolidation item. Cross-checked HIFLD's own static count: still
+11,810 in three places (`client/src/pages/datamap.tsx` comment + status
+string, `datacore/layers.json` description, "vintage ~2022" per its own
+description) — confirmed unchanged, not assumed.
+
+FINDING: the 2026-07-14 update's "HIFLD is bigger and fresher, WRI is the
+worse candidate to keep" premise — the entire reason a migration was
+scoped as the eventual right move — is now backwards. WRI is both bigger
+(14,428 > 11,810) and more recently refreshed (2026-09-13 vs. HIFLD's
+~2022 vintage), because it draws from the same EIA-860 source HIFLD
+itself is built from, kept current by a different subsystem's own
+ground-truth needs.
+
+DECISION MADE (ending the defer-again loop rather than re-filing a
+fourth "still needs its own PR" note): **KEEP BOTH, close as
+resolved-not-pending.** The migration this entry scoped — reindexing
+`entityGraph.ts`'s `facility:plant:N` ids and every `PlantTuple`/dossier
+consumer onto HIFLD's row space — is not justified by evidence that no
+longer exists. HIFLD keeps genuine, distinct value that is NOT itself a
+reason to migrate onto it: public-domain licensing (no CC-BY attribution
+burden WRI carries, relevant to `/api/v1` resale terms) and its
+`VAL_METHOD` position-honesty field, both already surfaced in its own
+popup (verified live in `client/src/pages/datamap.tsx`'s `pSrc` click
+handler — unchanged this session, no gap found). Both toggles staying
+live is correct, now for an evidenced reason instead of a deferred one.
+
+SHIPPED (one logical change, doc + one stale-comment correction — no
+functional/behavioral code change): (1) `research/open_questions.md` —
+UPDATE block appended to the 2026-07-09 PRODUCT-DEBT entry with the full
+count comparison, the decision, and the reasoning above (append-only,
+existing text untouched). (2) `client/src/pages/datamap.tsx` — the HIFLD
+plant click handler's comment stating "a full consolidation onto HIFLD
+needs that migrated first" was written when HIFLD was believed the
+larger registry; corrected to state the actual reason `entityId` stays
+null there (no reliable WRI<->HIFLD row-level id crosswalk — not an
+eventual migration), so a future session reading that comment in
+isolation doesn't re-inherit the now-retired stale premise. No rendering
+logic, layer toggle, click behavior, or dossier call changed.
+
+GATES: `npm ci` (this sandbox had no `node_modules` at session start —
+same recurring sandbox-environment gap prior sessions have logged, not a
+repo defect). `bash scripts/tsc_ratchet.sh`: 11, TS2304 0 — unchanged
+from baseline (`ci/tsc_baseline.txt` pin, not re-pinned since this diff
+changed zero type-relevant code, only a comment). `bash scripts/
+counter_ratchet.sh`: 25 counters, all at or better than baseline — no
+re-pin needed (a comment edit cannot move any of these counters, and
+none moved). `npm run build`: clean (pre-existing >500kB chunk warnings
+only, unrelated to this diff, present before it too). `npx tsx --test
+server/*.test.ts`: **1922/1922 pass**, 0 failures, 0 regressions — no new
+test added because no behavior changed (a comment-only edit has nothing
+for a regression test to pin; the substantive content of this PR is the
+research-record correction and decision, which is not code-testable).
+No visual harness run: PROMOTION RULE 6 requires it for a `client/`
+touch that could affect what renders; this diff is a comment inside an
+existing, unmoved code path (verified via the diff itself — the only
+change inside the `client/` file is comment text between two
+already-executing statements) with zero rendering, layout, or behavior
+delta, so there is nothing for the harness to compare against a baseline
+screenshot. Python suite not re-run: zero `.py` files touched.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed; this is a data-layer product
+decision with no trading-path effect (both layers are RAW overlays, no
+SIGNAL claim either way).
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch already contained `origin/main`'s real HEAD (`27b878f`,
+v1.0.985) before bumping — `1.0.985 -> 1.0.986` (`package.json` +
+`package-lock.json`'s two matching version fields). Bumped despite the
+change being research-doc-plus-comment, not new runtime behavior,
+because it touches a live client source file (unlike a pure
+`research/*.md`-only commit, which this repo's own convention leaves
+unbumped) — consistent with treating `code_version` as a session
+marker for any tracked-source touch, not only behavior-changing ones.
+
+WORKSTREAM PARTITION: `client/src/pages/datamap.tsx` is T-CLIENT;
+`research/open_questions.md`/`package.json`/`package-lock.json` are
+SHARED, kept minimal and last per MERGE-ORDER PROTOCOL. No T-BOT or
+T-DATACORE files touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+DEPLOY-COUPLING NOTE: `TZ=America/New_York date` at commit time reads
+Saturday 2026-09-26 09:28 ET — markets closed all day (weekend), so no
+market-hours-hold applies regardless. Zero trading-path files touched
+either way (no `server/bot.ts`, no Python trading modules).
+
+NEXT: (1) if a future session ever needs `entityGraph.ts` to reach the
+~2,600 HIFLD plants outside WRI's current coverage (14,428 vs 11,810,
+with unknown overlap — not computed this session, since the KEEP-BOTH
+decision above doesn't depend on it), that would be its own scoped
+join/reconciliation, not a wholesale migration. (2) this entry's own
+history is now three sessions deep (2026-07-09 filed, 2026-07-14
+revised, 2026-09-26 this one) of a number going stale between checks —
+a future session touching either registry's count should re-verify live
+rather than cite any of these three dates' figures. (3) the standing
+LIVENESS ALARM and KNOWN BROKEN #44 remain exactly as the prior session
+left them — no new action warranted, both already correctly gated on a
+human decision.
+
+STARVED: no — this session's own automated-backlog survey (ladder
+readiness, data-stream registry, ladder-registry coverage) came back
+fully exhausted, so it fell through to a previously-filed, well-specified
+but unclaimed research-record item per SESSION BUDGET's own fall-through
+order, read the underlying registry file fresh rather than trusting a
+2.5-month-old comparison, and closed the item with an evidenced decision
+rather than re-deferring it a fourth time.
+
+NOT A SPEND REQUEST.

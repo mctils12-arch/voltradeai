@@ -13826,6 +13826,60 @@ call should actually be filed, and is NOT attempted this session (scope
 discipline — one logical change per PR). Until then, both toggles
 staying live is the CORRECT state, not unresolved debt.
 
+UPDATE 2026-09-26 (scheduled-routine PRODUCT session) — the REVISED NEXT
+STEP's own premise no longer holds, checked live rather than assumed
+stale. This item sat unclaimed for 2.5 months; re-read `us_power_plants.
+json` before proposing to build anything, per READ BEFORE WRITE.
+`datacore/powerplants/us_power_plants.json` — the WRI-sourced registry
+`entityGraph.ts` is coupled to — is **14,428 plants** today, not the
+9,833 this entry's numbers were computed against: five sessions between
+2026-09-08 and 2026-09-13 (`scripts/eia860_add_missing_plants.py`,
+`scripts/eia860m_refresh_registry.py` x2, both grepped and read this
+session) supplemented it with EIA-860/860M plants GPPD never carried and
+refreshed matched-plant solar/wind capacity — the SAME upstream source
+(EIA-860) the HIFLD PMTiles layer (still a static ~2022 vintage, 11,810
+plants — confirmed unchanged this session via `grep -rn "11,810"
+client/src/pages/datamap.tsx datacore/layers.json`) is itself built from.
+The 2026-07-14 update's "11,810 rows vs. 9,833" comparison, and its
+implicit "HIFLD is bigger and fresher" premise for migrating
+`entityGraph.ts` onto it, is now backwards: WRI is both bigger (14,428 >
+11,810) and more recently refreshed (2026-09-13 vs HIFLD's ~2022
+vintage) — not because anyone worked this consolidation, but because five
+unrelated FUSION HYPOTHESIS (b) sessions kept the registry current for a
+different reason (the grid-generation-vs-capacity gate-1 check) and
+nobody had connected that work back to this filed item until now.
+
+DECISION (made this session, ending the 2.5-month defer-again loop
+rather than re-filing a fourth "still needs its own PR" note): **KEEP
+BOTH, close this as resolved-not-pending.** The migration this entry
+scoped (reindex `entityGraph.ts`'s `facility:plant:N` ids and every
+`PlantTuple`/dossier consumer onto HIFLD's row space) is not justified
+by evidence that no longer exists — HIFLD is neither the bigger nor the
+fresher dataset today. HIFLD keeps real, distinct value that is NOT a
+reason to migrate onto it: public-domain licensing (no CC-BY attribution
+burden WRI carries, relevant for `/api/v1` resale) and its `VAL_METHOD`
+position-honesty field, both already surfaced in its own popup (`client/
+src/pages/datamap.tsx`'s `pSrc` click handler, unchanged this session).
+Both toggles staying live remains correct, now for an evidenced reason
+instead of a deferred one: they are two genuinely different tiers (WRI:
+larger, live-refreshed, entity-graph-linked; HIFLD: public-domain,
+government-surveyed, its own honesty fields), not a redundant duplicate
+pair waiting on a migration that would need to reindex a live entity
+graph to chase a size/freshness edge WRI no longer concedes. NEXT: if a
+future session ever needs `entityGraph.ts` to reach the ~2,600 HIFLD
+plants outside WRI's current dossier coverage, re-run the count
+comparison live first (this entry's own history is now three sessions
+deep of restating stale numbers) — do not assume either registry's size
+without checking on the day.
+
+Companion fix (same PR): `client/src/pages/datamap.tsx`'s HIFLD-plant
+click handler carried a comment stating "a full consolidation onto
+HIFLD needs that migrated first" — written when HIFLD was believed the
+larger registry. Corrected to state the current reason `entityId` stays
+null there (no reliable WRI<->HIFLD row-level id crosswalk, not an
+eventual migration), so a future session reading that comment in
+isolation doesn't re-inherit the stale premise this update just retired.
+
 ---
 
 ## [GRID-VISION · filed 2026-07-12 · ANSWERED SAME DAY — see experiments.md survey entry: 1/24 collects, hit fails geometry checks, lane CLOSED] Do ANY 3DEP collects carry wire/tower classes or intact aerial returns?
