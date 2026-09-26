@@ -125,6 +125,24 @@ class TestCheckAllAgainstLiveLadder(unittest.TestCase):
         row = next(r for r in results if r["id"] == "cftc_cot_positioning")
         self.assertTrue(row["ready"])
 
+    def test_gnss_integrity_adsb_present_despite_being_gate2_pass(self):
+        # 2026-09-26 WIDENING: readiness_trigger now also covers a gateN_pass
+        # root's stated FOLLOW-ON artifact (here, the GNSS-jamming x defense-ETF
+        # correlation probe gated on this root's own daily-archive depth) — not
+        # just a gateN_pending root's own re-run condition. This root's status
+        # is gate2_pass, so its presence here proves check_all() doesn't filter
+        # by status.
+        results = readiness.check_all(today=date(2026, 9, 26))
+        row = next(r for r in results if r["id"] == "gnss_integrity_adsb")
+        self.assertEqual(row["status"], "gate2_pass")
+        self.assertFalse(row["ready"])
+
+    def test_gnss_integrity_adsb_ready_once_archive_deep_enough(self):
+        # since=2026-09-22, min_days=15 -> ready 2026-10-07
+        results = readiness.check_all(today=date(2026, 10, 7))
+        row = next(r for r in results if r["id"] == "gnss_integrity_adsb")
+        self.assertTrue(row["ready"])
+
     def test_roots_without_trigger_are_omitted(self):
         results = readiness.check_all(today=date(2026, 8, 13))
         ids = {r["id"] for r in results}
