@@ -22221,3 +22221,17 @@ against insufficient data, rather than either forcing a premature/
 underpowered result or leaving the finding as unrecorded browsing.
 
 NOT A SPEND REQUEST.
+
+ADDENDUM (2026-09-26, scheduled-routine PRODUCT session): this entry's own
+NEXT (1) — "ship the diag-probe read path for the permanent daily
+archive" — is DONE. `/api/diag/gnss_integrity_daily` (server/diag.ts +
+server/bot.ts, v1.0.984) is a read-only, token-gated, no-query-params
+passthrough of `loadGnssIntegrityDailyArchive()`, returning every
+accumulated day's band x origin cells plus `day_count`/`earliest_day`/
+`latest_day`. Full account in research/experiments.md's matching dated
+entry. NOT run this session: the correlation probe itself (NEXT (2)) —
+the archive only started folding 2026-09-22, so the >=15 de-strided-pair
+readiness bar this entry pre-registered cannot yet be cleared; a future
+session should check `day_count` live via the new probe before building
+`scripts/gnss_defense_correlation_probe.ts`, not assume readiness from
+the calendar.

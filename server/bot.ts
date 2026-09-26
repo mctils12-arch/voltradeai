@@ -13,6 +13,7 @@ import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, 
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
+import { loadGnssIntegrityDailyArchive } from "./gnssIntegrityDaily";
 import { computePortDwellAsync, computePortDwellAsyncTimed, portsFromSites } from "./portDwell";
 import { captureIfDue as captureNextPortDwellWeekIfDue, loadCapturedSnapshots } from "./portDwellCapture";
 import { scanStormHistory } from "./spaceWeather";
@@ -2985,6 +2986,27 @@ import insider_cusum_probe
 print(json.dumps(insider_cusum_probe.run_probe()))
 "`, { timeout: 60000 });
           return res.json(sanitizeDiag({ probe: "insider_cusum_gate2", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
+        case "gnss_integrity_daily": {
+          // ADDED 2026-09-26 (scheduled-routine PRODUCT session): see the
+          // "gnss_integrity_daily" entry in diag.ts's DIAG_PROBES for why —
+          // read-only passthrough of gnssIntegrityDaily.ts's own permanent
+          // daily archive (loadGnssIntegrityDailyArchive), which that
+          // module's own 2026-09-22 header explicitly deferred to this
+          // follow-up session. No query parameters (the read target is the
+          // one fixed archive file, nothing to select) — always returns
+          // every accumulated day's already-aggregate band x origin cells,
+          // plus a depth summary so a future correlation-probe session can
+          // check real accumulated days without guessing from the calendar.
+          const days = loadGnssIntegrityDailyArchive();
+          const dayKeys = Object.keys(days).sort();
+          return res.json(sanitizeDiag({
+            probe: "gnss_integrity_daily",
+            day_count: dayKeys.length,
+            earliest_day: dayKeys[0] || null,
+            latest_day: dayKeys[dayKeys.length - 1] || null,
+            days,
+          }));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

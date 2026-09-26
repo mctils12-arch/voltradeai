@@ -46,15 +46,16 @@
  * verify the accumulated day count live before trusting it, not assume the
  * calendar date alone implies depth.
  *
- * WHAT IS NOT DONE HERE (deliberately, one logical change per PR): this
- * module only WRITES the permanent archive. It does not expose a reader
- * for it outside this process (no new diag probe, no change to
+ * WHAT WAS NOT DONE HERE (deliberately, one logical change per PR): this
+ * module only WRITES the permanent archive — it does not change
  * computeGnssIntegritySignal's live rolling-window computation, which stays
- * byte-for-byte behaviorally unchanged — MEASUREMENT INTEGRITY: a metric
+ * byte-for-byte behaviorally unchanged (MEASUREMENT INTEGRITY: a metric
  * definition and its data-availability fix should not ship in the same
- * diff). A follow-up session adds the read path (mirroring gnss_integrity's
- * own precedent of shipping Phase 1/2/3 as separate sessions) once enough
- * days have actually accumulated to be worth reading.
+ * diff). The read path outside this process was deferred to a follow-up
+ * session and has since shipped: see the "gnss_integrity_daily" diag probe
+ * (server/diag.ts's DIAG_PROBES, the matching case in server/bot.ts,
+ * 2026-09-26) — a read-only, token-gated, no-query-params passthrough of
+ * loadGnssIntegrityDailyArchive() below.
  */
 import fs from "fs";
 import path from "path";
@@ -218,9 +219,8 @@ export async function preserveGnssIntegrityDailyBeforeRollup(
   return { filesFolded, daysTouched: days.length };
 }
 
-/** Read-back for tests and any future in-process consumer — NOT exposed as
- *  a diag probe yet (see this module's header: the reader is deliberately
- *  deferred to a follow-up PR). */
+/** Read-back for tests and any in-process consumer — exposed outside this
+ *  process via the "gnss_integrity_daily" diag probe (server/bot.ts). */
 export function loadGnssIntegrityDailyArchive(base = archiveBaseDir()): Record<string, GnssDailyEntry> {
   return loadArchive(base).days;
 }
