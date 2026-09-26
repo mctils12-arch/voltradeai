@@ -103372,4 +103372,33 @@ exhausted, so it fell through to PROGRAM_STATE.md's own long-neglected
 fully-specified, tested, gated detector end-to-end rather than leaving the
 duty queued a further session.
 
+ADDENDUM (same session, after PR #1182's first push): CI's `test` job
+FAILED — `silent_py_handlers: 254 -> 255` (non-increasing). Root cause:
+`compute()`'s per-file loop had `except OSError: continue`, which matches
+`counter_ratchet.sh`'s own "except whose entire body is pass/continue"
+predicate — the exact class CLAUDE.md rates worse than an outage. This
+didn't show up in this session's own pre-push local runs because
+`hardcoded_palette_hex.py` was still untracked (`git ls-files`-backed
+`py_files()` only sees tracked/staged content) when `counter_ratchet.sh`
+was run locally; staging it for the commit, then CI running against the
+pushed tree, is what surfaced it — the same "worked locally, staged state
+differs" gap a prior session already hit on this exact counter (PR #1056,
+`load_eia860_ba_directory`, logged earlier in this file). FIXED by reusing
+`ts_code_only.read_text()` (imported, not reimplemented — the module's own
+docstring exists specifically because an earlier draft of IT hit this same
+counter) instead of a bare local try/except: an unreadable tracked file
+now prints a stderr warning and is skipped, rather than silently
+continuing. Behavior on every currently-readable file is unchanged (all
+230 tracked `client/src` `.ts`/`.tsx` files read fine; count still exactly
+402). Second push: `bash scripts/counter_ratchet.sh` — `silent_py_handlers`
+regression gone; `tests_run_in_ci`/`tests_gating_merge` 471->472 and
+`assertions` 15466->15479 IMPROVED and re-pinned in the same push (this
+session's own 10 new tests, not unrelated drift — PROMOTION RULE 5).
+`bash scripts/gated_tests.sh` — GATE PASSED again in full (server 200,
+client 102, python 2182 passed/1 skipped/54 subtests, deploy-gate smoke
+PASS). `bash scripts/tsc_ratchet.sh` unchanged, 11/0. No re-notification
+needed per the PR-babysitting protocol's own rule — this comment plus the
+pushed fix is the required response to a CI-red wake on a PR this session
+opened.
+
 NOT A SPEND REQUEST.

@@ -41,9 +41,13 @@ call sites get refactored in the same PR that adds the detector.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ts_code_only import read_text
 
 MD_PATH = "DESIGN.md"
 CLIENT_SRC = "client/src"
@@ -121,10 +125,8 @@ def compute(md_path: str = MD_PATH) -> dict:
     total = 0
     by_file: dict[str, list[tuple[int, str]]] = {}
     for f in _tracked_client_files():
-        try:
-            with open(f, encoding="utf-8") as fh:
-                src = fh.read()
-        except OSError:
+        src = read_text(f)
+        if src is None:
             continue
         hits = find_hardcoded_hex(src, palette)
         if hits:
