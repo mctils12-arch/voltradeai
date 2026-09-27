@@ -3,6 +3,165 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27 (scheduled-routine PRODUCT session) [RESEARCH] — SHARED-only (research/wishlist.md, research/open_questions.md): BUILD-FIRST research resolves 6 sessions of "still genuinely blocked" restatement on the last GEM-suite item (`oil_ngl_pipelines`/`gas_pipelines`) into one concrete, free, human-actionable ask (docs-only, v-unbumped)
+
+TASK PRIOR (stated before researching, REASONING STANDARD #10): expected
+the standing LIVENESS ALARM (KNOWN BROKEN #41/#42/#43) to still be open
+and non-actionable, and expected the automated backlog surveys to come
+back exhausted again (matching the pattern of the two 2026-09-26 sessions
+immediately prior) — both confirmed, not falsified.
+
+SYSTEM HEALTH CHECKED FIRST (live, `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — "trading
+loop dark for 65.0 market hours (404.9h wall-clock) since
+2026-09-10T03:12:26.354Z". Same standing KNOWN BROKEN #41/#42/#43
+LIVENESS ALARM, already flagged and push-notified extensively across 17
+days; resuming the loop is a human decision per RULE REVIEW (no
+kill-switch threshold may be loosened on inference alone). NOT
+re-notified this session — no new development, matching every session's
+own established dedup logic since the trip. This is a PRODUCT session
+per its own brief ("note but proceed with product work unless the break
+blocks you") — it does not, and does not touch any T-BOT file. Loop-health
+ratio: last 10 tagged entries prior to this one = well under the 7+
+[REPAIR] thrash trigger (see the 2026-09-26 sessions' own tallies,
+unchanged since).
+
+PRIMARY-ACTION SURVEY: `python3 scripts/ladder_readiness_check.py` (0/4
+READY, all WAITING on time conditions already tracked in
+`datacore/signal_ladder.json`'s own `readiness_trigger` fields),
+`python3 scripts/data_stream_registry_check.py` (26/35 built, 9/9
+not-built all already declined/blocked with documented reasons), and
+`python3 scripts/ladder_registry_coverage_check.py` (26/26 full coverage)
+all came back exhausted, matching the pattern the immediately-prior two
+sessions logged. `research/platform_program.md`'s queue is clear except
+P5 (HUMAN-GATED billing activation). `research/data_census.md`'s own
+CENSUS MASTER RANKING states "nothing... remains unbuilt or undeclined"
+— spot-checked its one seemingly-stale line (`ats-summary` "remains the
+one part... with neither a mirror" under the FINRA cluster) against
+`server/apiProduct.ts`/`server/routes.ts` directly: FALSE, `/api/v1/
+data/ats-summary` has existed since commit `042badf` — the census line
+is stale prose, not a real gap (not fixed this session — a one-line doc
+correction competes with, and lost to, the larger finding below on
+value; noted here so a future session doesn't re-discover it as new).
+Both AUDITS & DEBT register rows (staleness: last run 2026-09-22, next
+due 2026-10-22; constitutional: last run 2026-09-20, next due
+2026-10-20) are current, not overdue.
+
+FOUND: `research/open_questions.md`'s GEM-suite thread (2026-09-22 entry
++ 6 dated UPDATEs, ending 2026-09-25) had shipped every other layer in
+the family and left exactly one item, restated identically by name in
+every one of those six sessions as "still genuinely blocked on a
+geocoding/source decision" — with no session ever actually doing the
+research to say what that decision was or what it would take to resolve
+it. Treated this as the session's primary action: a well-specified,
+repeatedly-deferred, genuinely product-relevant gap (the last unbuilt
+piece of an otherwise-complete data-product family), matching SESSION
+BUDGET's research-tier fall-through ("a new open_questions.md entry with
+its ladder path, a wishlist.md entry with build-first analysis... never
+unrecorded browsing").
+
+READ BEFORE WRITE: read `datacore/gem/gas_pipelines.json` and
+`datacore/gem/oil_ngl_pipelines.json` in full this session (not assumed
+from six sessions' worth of prior summaries) — confirmed
+`gas_pipelines.json`'s own `provenance.geometry_note` states no route
+coordinates exist in this release variant and names a "separate geometry
+product"; confirmed `oil_ngl_pipelines.json` carries the identical shape
+(`StartLocation`/`EndLocation` free text, `RouteAccuracy`/`RouteType`
+columns present but empty of coordinates, no lat/lon field anywhere).
+
+BUILD-FIRST LADDER RUN (CLAUDE.md order — the step six prior "still
+blocked" restatements had all skipped): (1) raw material partially held
+(attributes yes, geometry no); (2) accumulation N/A (static registry,
+not a time series); (3) inference substitute CONSIDERED AND REJECTED —
+a geocoded straight-line between `StartLocation`/`EndLocation` text
+fails on two independent grounds: most segments are intra-country/
+intra-state (the sampled Double E Pipeline row runs New Mexico -> Texas)
+so even full global admin-1 centroid coverage would mostly collapse to
+near-zero-length lines, and more fundamentally a straight "as the crow
+flies" line rendered under a "pipeline route" label would misrepresent
+real right-of-way geometry regardless of caption — the PREMIUM
+EXPERIENCE STANDARD's correctness-over-polish clause and the BUILD-FIRST
+HONESTY CLAUSE both bar this, distinguishing it from an honestly-labeled
+prediction (this is not a case where inference substitutes for ground
+truth — the real geometry is genuinely needed); (4) checked live via
+WebSearch + WebFetch (not assumed from training) whether the missing
+geometry is genuinely gated: Global Energy Monitor's own project pages
+for the Global Gas Infrastructure Tracker and Global Oil Infrastructure
+Tracker each carry a "Download data" control and an FAQ entry titled
+"Do you provide routes or terminal locations in GIS format?", confirming
+a separate GIS release (GeoJSON/GeoPackage/shapefile per public
+secondary sources) exists beyond the attribute-only xlsx already held.
+WebFetch could not extract the FAQ's actual answer text or the exact
+access mechanism (JS-rendered/collapsed content did not come through) —
+stated as an honest open fact, not glossed over.
+
+SHIPPED (docs-only, one logical change): `research/wishlist.md` — new
+dated `BLOCKED-FOR-MIKE` entry with the full BUILD-FIRST writeup and the
+concrete ask (visit both GEM project pages' "Download data" controls and
+select the GIS/geometry format; if gated behind a form, it is the same
+free 2-minute class as the original 2026-07-07 GEM census unlock; GEM's
+public project-manager contact is named as the fallback). `research/
+open_questions.md` — UPDATE appended to the existing GEM-suite thread
+closing the "still blocked, unspecified" loop with a pointer to the
+concrete ask, so a seventh session doesn't restate the same one-line
+NEXT bullet again. No code, config, or trading-path file touched.
+
+GATES: no runtime code touched — `server/`, `client/`, `bot_engine.py`,
+`system_config.py`, `strategies/`, `risk_kill_switch.py`, every
+order-path file, and every `scripts/*` module are all untouched. Nothing
+to typecheck, test, or build. No visual harness run — PROMOTION RULE 6
+does not apply (zero `client/` files touched). No Python suite run —
+zero `.py` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed; this is a data-acquisition research
+finding with no trading-path effect.
+
+MEASUREMENT INTEGRITY: N/A — no metric, backtest engine, slippage/fill
+model, or counterfactual-logger code touched.
+
+MONETIZATION TRIPWIRE: not re-run — this session touches neither
+billing, pricing, subscriptions, ads, nor paid-feature gating; the ask
+filed is a free data delivery, explicitly marked NOT A SPEND REQUEST in
+both files.
+
+VERSION: not bumped — docs-only research/wishlist entries follow this
+repo's own established convention of leaving `package.json` unbumped
+when zero tracked source files change (same precedent as the 2026-07-26
+"docs: close-marker doc-hygiene" commit).
+
+WORKSTREAM PARTITION: both touched files (`research/wishlist.md`,
+`research/open_questions.md`) are SHARED; no T-BOT/T-CLIENT/T-DATACORE
+file touched or claimed.
+
+DEPLOY-COUPLING NOTE: `TZ=America/New_York date` at commit time —
+research-only diff, zero trading-path or deploy-relevant file touched
+either way, so the market-hours-hold instruction is moot regardless of
+what time this lands.
+
+NEXT: (1) once a human delivers GEM's GIS geometry release for either
+tracker (per the exact ask in `research/wishlist.md`'s 2026-09-27
+entry), a future session joins it onto the existing attribute registry
+by `ProjectID`/`PipelineName` and ships the real route-geometry map
+layer — the same join-then-ship pattern `steel_units.json` ->
+`iron_steel_plants.json` already established. (2) the stale
+`data_census.md` `ats-summary` mirror line (found false this session,
+not fixed) is a trivial one-line doc-hygiene fix for whichever future
+session next touches that file. (3) the standing LIVENESS ALARM and
+KNOWN BROKEN #44 remain exactly as documented in the immediately-prior
+sessions — both already correctly gated on a human decision, no new
+action warranted from this session.
+
+STARVED: no — this session's own automated-backlog survey (ladder
+readiness, data-stream registry, ladder-registry coverage, platform
+program, data census) came back exhausted, so it fell through to
+research-tier work per SESSION BUDGET's own fall-through order, and
+that research terminated in two filed, cross-referenced artifacts
+(a wishlist.md ask with full BUILD-FIRST analysis, an open_questions.md
+thread closure) rather than unrecorded browsing.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-25 (scheduled-routine session, second session this UTC day) [PRODUCT] — SHARED-minimal (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, package.json/package-lock.json) — `steel_raw_materials` gets its `/api/v1/data/steel-raw-materials` keyed mirror, closing the last item on the GEM-suite "/api/v1 mirror" backlog (v1.0.980)
 
 TASK PRIOR (stated before building, REASONING STANDARD #10): this session's

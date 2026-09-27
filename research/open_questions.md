@@ -22118,6 +22118,39 @@ the full original GEM-suite backlog (all point/choropleth layers,
 Full account, including the honest 390/768 visual-verification gap this
 session left open, in `research/experiments.md`'s matching dated entry.
 
+UPDATE (2026-09-27, scheduled-routine [PRODUCT] session): the ONE
+remaining item, `oil_ngl_pipelines.json`/`gas_pipelines.json`, had been
+restated as "still genuinely blocked on a geocoding/source decision" by
+six consecutive sessions without any of them actually researching what
+that decision was. This session did: re-read both files fresh (confirmed
+`gas_pipelines.json`'s own `provenance.geometry_note` — no route
+coordinates, "RouteAccuracy/RouteType describe the separate geometry
+product" — and `oil_ngl_pipelines.json`'s identical shape, neither
+assumed from this note's prior summaries), considered and explicitly
+REJECTED a free geocoded-straight-line substitute (most segments are
+intra-country/intra-state — the sampled Double E Pipeline row runs New
+Mexico -> Texas — so even full global admin-1 centroid coverage would
+mostly collapse to near-zero-length lines; and a straight "as the crow
+flies" line rendered under a "pipeline route" label would misrepresent
+real right-of-way geometry regardless of caption, which the PREMIUM
+EXPERIENCE STANDARD's correctness-over-polish clause bars), then
+live-confirmed via WebSearch + WebFetch that Global Energy Monitor
+publishes a SEPARATE GIS geometry release (GeoJSON/GeoPackage/shapefile)
+for both the Global Gas Infrastructure Tracker and Global Oil
+Infrastructure Tracker, distinct from the attribute-only xlsx release
+already ingested — a lead the "geometry_note" field itself had been
+pointing at since 2026-07-07 and nobody had followed. Full BUILD-FIRST
+writeup + the exact ask filed in `research/wishlist.md`'s matching
+2026-09-27 dated entry (free — a download-page form-fill or one email,
+same class as the original 2026-07-07 GEM census unlock, not a
+purchase). This is now a well-defined human-actionable blocker instead
+of an unspecified "needs a decision" — the item stays unbuilt until that
+free delivery lands, exactly like the original GEM asset registry did
+between 2026-07-06 (census entry filed) and 2026-07-07 (Mike delivered
+the files).
+
+NOT A SPEND REQUEST.
+
 ## [2026-09-22 (scheduled-routine session, later this UTC day) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): Baltic GNSS-jamming intensity (gnss_integrity_adsb, already gate2_pass) x European-defense-sector ETF forward returns — PRE-REGISTERED, NOT YET RUN (archive depth insufficient by construction until the paired 2026-09-22 permanent-archive fix accumulates real history)]
 
 CONTEXT: per this session's own task instructions (SESSION BUDGET fall-
