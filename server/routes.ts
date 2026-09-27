@@ -20,6 +20,7 @@ import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
+import { railTrafficView } from "./railTraffic";
 import { guardedRefresh } from "./crashSafeRefresh";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
@@ -3172,6 +3173,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/un-comtrade", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json(unComtradeView());
+  });
+
+  // STB EP724 weekly rail carload archive (RAW self-reported levels, not
+  // a spatial layer; static archive, session-run via scripts/stb_rail.py,
+  // no live poll — see server/railTraffic.ts). GATE 1 (data) PASSED
+  // 2026-09-27 against FRED/BTS-AAR reference series; GATE 2 (signal) not
+  // attempted — no predictive claim.
+  app.get("/api/data/rail-traffic", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json(railTrafficView());
   });
 
   // GEM Methane Emitters Tracker (GMET) — dated satellite methane-plume

@@ -22377,3 +22377,66 @@ own estimate. Gate status of gnss_integrity_adsb itself is UNCHANGED
 new statistical result, a gate re-run, or any trading-path change. Full
 account, tests, and gates in research/experiments.md's matching dated
 entry.
+
+## 2026-09-27 (scheduled-routine PRODUCT session) — CROSS-CONNECTION (ACTIVE ANGLE-HUNTING #1): intermodal rail carload growth (STB EP724, GATE 1 just passed) x transport-sector forward returns — PRE-REGISTERED, NOT YET RUN (no time-gating blocker, unlike this session's other candidates)
+
+Filed per the ACTIVE ANGLE-HUNTING standing behavior while shipping GATE
+1 for `rail_ep724_carload_traffic` (see `datacore/signal_ladder.json`'s
+matching entry and this file's own matching 2026-09-27 experiments.md
+entry for the full gate-1 method and numbers). CROSS-CONNECTION axis:
+joins an already-archived supply-chain volume stream (STB EP724 weekly
+rail carloads, 7 Class I railroads, 2017-03 onward, 496 weeks as of this
+session) against an already-available market benchmark, neither side new
+data.
+
+HYPOTHESIS: week-over-week (or 4-week rolling) growth in SYSTEM-WIDE
+intermodal carloads (Containers + Trailers — the two commodity
+categories `server/railTraffic.ts` already flags `isIntermodal`) leads
+or coincides with forward returns of a transport-sector benchmark
+(candidates: IYT, TRAN index, or a rail-specific basket of the 4
+US-listed Class I railroads — UNP/CSX/NSC, CP/CPKC — the archive's own
+railroad set). MECHANISM (SECOND-ORDER THINKING, CLAUDE.md REASONING
+STANDARD #5): intermodal volume is a real-time proxy for consumer-goods
+throughput (import containers + domestic trailer freight) that reaches
+the tape before it shows up in retailers' or railroads' own quarterly
+earnings — the same "process what's already public before it's digested"
+logic as `github_org_engineering_momentum`'s dev-velocity thesis, applied
+to physical freight instead of software.
+
+BASE RATE / WHY NOT ALREADY ARBITRAGED (REASONING STANDARD #3/#5): AAR's
+own weekly rail traffic report is public and followed by sell-side rail
+analysts — a raw "traffic is up" headline is almost certainly priced in
+same-day. The candidate edge, if any, is NOT the headline number but (a)
+the COMMODITY-LEVEL composition our archive carries that AAR's own
+weekly press release does not break out at the same granularity, and (b)
+a genuinely uncrowded angle: whether intermodal growth SURPRISES relative
+to a naive seasonal-baseline forecast (built from the archive's own 9
+years of weekly history) predicts the market's reaction better than the
+raw level does — a "surprise vs. baseline" framing this repo's other
+z-score/CUSUM-style probes already use elsewhere (e.g. the 2026-09-18
+insider-flow CUSUM probe), not attempted here for rail yet.
+
+WHY NOT ATTEMPTED THIS SESSION: PROMOTION RULE 5 (one logical change per
+PR) — this session's PR already advances the root through GATE 1 and
+ships the RAW API surface; bundling a GATE 2 signal test into the same PR
+would blur attribution if either half needed a follow-up fix. Unlike
+`port_dwell_maritime_transit`/`app_store_rank_review_velocity`/
+`github_org_engineering_momentum`/`cftc_cot_positioning`/
+`sec_8k_earnings_language` (all currently time-gated per
+`scripts/ladder_readiness_check.py`), this hypothesis has NO archive-depth
+blocker — 496 weeks already exist — so a future session can run GATE 2
+directly rather than waiting.
+
+LADDER PATH: GATE 1 (DATA) — PASSED 2026-09-27 (this session, applies to
+the whole archive, not specific to this hypothesis). GATE 2 (SIGNAL) —
+NOT YET RUN: build a script (own PR, `scripts/rail_traffic_gate2.py`
+precedent-named but not created this session) computing intermodal
+week-over-week/4-week growth from the archive, joining it against
+IYT/TRAN/rail-basket forward returns at +5d/+20d horizons, with a
+PRE-REGISTERED bar stated before running (REASONING STANDARD #10) —
+should mirror this repo's other gate-2 scripts' own discipline: a
+domestic/liquidity confound screen if applicable (none obviously expected
+here, unlike settlement_stress_composite's foreign-ADR confound), a
+stated minimum-N bar before rendering PASS/FAIL, and Bonferroni/multiple-
+comparison discount if more than one horizon or benchmark is tried. GATE
+3 (LOGIC) and beyond are not considered until GATE 2 passes.

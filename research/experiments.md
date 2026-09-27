@@ -3,6 +3,235 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27 (scheduled-routine PRODUCT session) [PRODUCT] — T-DATACORE (datacore/rail/ep724_carloads.json, datacore/manifests/railep724.json, datacore/signal_ladder.json, scripts/stb_rail.py refresh, scripts/rail_traffic_gate1.py, test_rail_traffic_gate1.py, server/railTraffic.ts, server/railTraffic.test.ts, server/routes.ts): STB EP724 rail carload archive refreshed after going stale + GATE 1 (DATA) PASSED against two independent FRED/BTS-AAR series + RAW /data view shipped (v1.0.990)
+
+TASK: scheduled PRODUCT session — build the datacore/ pipelines and the
+/data user-facing section into a full product. Instructed to check
+system health/KNOWN BROKEN first, then execute the single highest-value
+product action among: (a) advance a pipeline through its next ladder
+gate, (b) build /data map/chart UI, (c) propose+spec a new hypothesis,
+(d) improve the API boundary/docs/tests toward spinout-readiness. This
+session did (a) + (d) together on one root (advancing its gate AND
+exposing the now-validated archive through the API boundary is the same
+logical unit of work for a root whose archive already existed and had
+never been read by anything).
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai-production.up.railway.app/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — "trading
+loop dark for 65.0 market hours (423.0h wall-clock) since
+2026-09-10T03:12:26.354Z". This is the standing KNOWN BROKEN #41/#42/#43
+LIVENESS ALARM, already flagged and push-notified extensively across 17+
+days per this file's own immediately-preceding 2026-09-27 entry — noted,
+not re-notified (this file's own most-recent-prior entry already
+confirms the human has been actively pinged about this exact standing
+condition; a duplicate notification from a PRODUCT session would add
+noise, not information). Per this session's own brief ("product sessions
+do not preempt the DAILY routines' repair duty"), this did not block or
+redirect product work: all other health checks (server/database/alpaca/
+python/scanner/feeds/licensing) read `ok`.
+
+PRIMARY-ACTION SEARCH (stated before picking, so the choice is
+falsifiable): ran the two automated backlog surveys per SESSION BUDGET —
+`python3 scripts/data_stream_registry_check.py` (26/35 candidates BUILT,
+9/9 remaining NOT-BUILT items are `declined_dead_source`/`blocked_free_key`/
+`blocked_registration`, i.e. human-gated, not session-actionable) and
+`python3 scripts/ladder_readiness_check.py` (0/4 tracked gated roots
+READY — all 4 WAITING on elapsed time, 5-36 days remaining each). Also
+read `research/data_census.md` directly: its own CENSUS MASTER RANKING
+closing line already states "nothing in the CENSUS MASTER RANKING remains
+unbuilt or undeclined." Also read `research/platform_program.md`: its own
+queue is "P5 only (HUMAN-GATED)". All FOUR standard queues genuinely
+exhausted — matches `research/PROGRAM_STATE.md`'s own immediately-prior
+session's finding ("this session's own automated-backlog survey came back
+exhausted a second consecutive session"), independently re-confirmed here
+rather than assumed from that file's claim.
+
+Given the automated surveys were exhausted, went one level deeper: read
+`datacore/signal_ladder.json` directly (56 roots at the time) and
+hand-checked every `gate1_pass`/`gate2_pending`/`gate2_pass` root NOT
+covered by `ladder_readiness_check.py`'s 4 tracked triggers, to confirm
+each was genuinely time-gated rather than merely unclaimed —
+`port_dwell_maritime_transit` (weekly-snapshot accumulator, 4 of ~15-20
+weeks so far), `settlement_stress_composite` ("recheck no more often than
+monthly", gated on SEC FTD half-month files not yet published),
+`app_store_rank_review_velocity`/`github_org_engineering_momentum` (both
+explicitly need more elapsed archive time than has passed) — all
+genuinely time-gated, confirmed by reading each root's own note in full,
+not by trusting a one-line summary. ONE exception found:
+`railep724`/rail_ep724_carload_traffic was NOT in `signal_ladder.json` at
+all (a 56-root file with no rail entry), had NO server route, NO
+consumer, and its own manifest (`datacore/manifests/railep724.json`)
+still said "hypothesis ... stays gate-locked — archive only" — filed
+2026-07-05 (BUILD ORDER 2 #6, the census's own final EDGE-DOCTRINE
+axis-(a) item) and never touched again in ~12 weeks. This is the
+session's chosen PRIMARY ACTION: a genuinely unclaimed backlog item, not
+a time-gated one, found by checking the ladder file itself rather than
+trusting the automated surveys' summary framing.
+
+FRESHNESS FIX (found before any gate work, EDGE DOCTRINE #3 "don't
+re-derive, notice and fix"): `datacore/rail/ep724_carloads.json` was
+frozen at 484 weeks / latest week `2026-07-01` — the exact state its
+2026-07-05 first build produced. `scripts/stb_rail.py`'s own module
+header says "session-run ~weekly", but no session had re-run it since
+build day, so the archive had been silently ~12 weeks stale the entire
+time it sat in the repo. `pip install openpyxl` (the script's own
+documented dependency, not in requirements.txt by design — never a
+runtime dep) + `python3 scripts/stb_rail.py` re-ran live against STB's
+own site: 496 weeks, latest `2026-09-23`, `test_stb_rail.py`'s existing 5
+tests still pass unchanged against the refreshed file.
+
+GATE 1 (DATA) — `scripts/rail_traffic_gate1.py` (new, 13 unit tests in
+`test_rail_traffic_gate1.py`, all pure-function/no-network except the one
+live FRED fetch exercised by running the script itself, same convention
+as `test_un_comtrade_gate1.py`). METHOD: our archive sums each of the 7
+Class I railroads' (BNSF/CN/CP-CPKC/CSX/KCS/NS/UP) OWN reported "Weekly
+Carloads By 22 Commodity Categories" — a per-railroad on-line activity
+measure, not a once-counted national total. Compared against TWO
+INDEPENDENT FRED/BTS-AAR series, chosen and confirmed disjoint by reading
+each series' own FRED page live this session (`WebFetch`): `RAILFRTCARLOADS`
+("Carloads, Not Seasonally Adjusted" — intermodal explicitly excluded per
+BTS/AAR's own page text) covers the 20 non-intermodal commodities;
+`RAILFRTINTERMODAL` ("Containers and Trailers") covers the Containers+
+Trailers pair. Our own sum is split the identical way before either
+comparison so the two universes are never mixed (verified both FRED
+series IDs are real and keyless via a direct `curl` before writing any
+code, same discipline `un_comtrade_gate1.py` used for its own FRED IDs).
+
+PRE-REGISTERED PRIOR (REASONING STANDARD #10, stated before the live
+ratio numbers were computed with the final script): our multi-railroad
+sum should run MODERATELY ABOVE the once-counted FRED total (a shipment
+interchanged between two Class I railroads is plausibly reported by
+BOTH the originating and the line-hauling carrier's own EP724 filing —
+this is a REPORTING-CONVENTION explanation, not a data error), and the
+excess should be a STABLE fraction over time (a data-integrity problem —
+mis-summed commodity, misparsed railroad column — would show up as a
+noisy ratio, same "stable=real, noisy=artifact" reasoning
+`un_comtrade_gate1.py`/port-dwell gate-1 work already use). Bar: mean
+ratio in [1.0, 2.5], coefficient of variation < 0.20 (cv chosen over
+`un_comtrade_gate1.py`'s raw-stdev band because this ratio's magnitude
+here, ~1.3-1.9x, is much larger than that script's near-1.0 CIF/customs
+offset, where a scale-free measure is the fairer stability test).
+
+LIVE RESULT, run against production FRED data this session — BOTH PASS:
+`non_intermodal` mean ratio **1.5811**, cv **0.1039**, n=111 overlapping
+full calendar months (2017-04 through 2026-06, FRED's own publication
+lag); `intermodal` mean ratio **1.2583**, cv **0.1060**, n=111. Both
+comfortably inside the pre-registered band, and — the part that actually
+matters for calling this a PASS rather than a coincidence — stable at
+cv~0.10-0.11 across 9+ years, consistent with a real structural
+interchange effect rather than a data-quality problem. Monthly
+aggregation is a stated approximation, not hidden: our archive is
+weekly, so weeks are summed into the calendar month of their week-ending
+date; FRED's own stated method (read live from its series page this
+session) day-weights instead ("dividing the weekly sum by 7 ... and then
+summing for the number of days in the month") — this is a real,
+acknowledged source of some of the observed ratio noise, separate from
+the interchange effect.
+
+OPERATIONAL FINDING (curl/proxy, same class as `un_comtrade_gate1.py`'s
+own documented FRED-fetch quirk, found and fixed before trusting any
+number): a `-H "User-Agent: voltradeai-datacore/1.0"` header on the FRED
+fetch — the exact header string `un_comtrade_gate1.py` itself sends —
+made this specific host/proxy combination hang to a full 15s timeout
+with 0 bytes received (`curl` exit 28, http_code 000), reproduced
+deterministically 3/3 trials by alternating with-header/without-header
+calls back to back; curl's own default User-Agent succeeded 200 3/3
+trials in the same alternating sequence. Fixed by simply not sending a
+custom header (not a longer timeout or more retries — retrying a
+deterministic failure burns the retry budget for nothing), and the
+script's own docstring now states this live-verified finding so a future
+session does not re-add a UA header and silently re-break this fetch for
+a different root.
+
+SHIPPED (RAW /data surface, API only this PR — no client page yet, same
+incremental sequencing as `un_comtrade`/plant-operations): `server/
+railTraffic.ts` (`railTrafficView()`, `kind:"raw"`, `predictive:false`,
+10 unit tests in `server/railTraffic.test.ts` — synthetic-fixture style
+mirroring `unComtrade.test.ts`, covering the latest/prior-week split, the
+intermodal/non-intermodal partition, the "skip absentees, never
+zero-fill" convention, and a real-archive coherence check) +
+`GET /api/data/rail-traffic` (`server/routes.ts`, `Cache-Control:
+public, max-age=86400`, matching the un-comtrade route's own cadence).
+
+GATE 2 (SIGNAL) NOT attempted this session, deliberately — one logical
+change per PR (PROMOTION RULE 5): advancing gate 1 + exposing the
+now-validated archive via the API boundary is one unit of work; a signal
+test is a separate one. The manifest's own original filed hypothesis
+("carload deltas by commodity lead rail earnings + industrial regime")
+stays gate-locked. Filed as a fresh, dated cross-connection candidate in
+`research/open_questions.md` (ACTIVE ANGLE-HUNTING) rather than left only
+in this file: intermodal (Containers+Trailers) week-over-week growth vs.
+forward returns of a transport-sector benchmark (IYT/TRAN) — unlike most
+of this session's other candidates, this one has NO time-gating blocker
+(496 weeks of real history already sitting in the archive), so a future
+session can attempt GATE 2 directly rather than waiting on elapsed time.
+
+GATES (full): `python3 -m pytest -q` — 2208 passed, 1 skipped, 54
+subtests (baseline + 13 new `test_rail_traffic_gate1.py` tests, zero
+regressions; `pip install -r requirements.txt -r requirements-dev.txt`
++ `pip install openpyxl` both needed a fresh install this session).
+`npx tsx --test server/*.test.ts` — 1932 passed, 0 failed (baseline + 10
+new `railTraffic.test.ts` tests). `bash scripts/tsc_ratchet.sh` — 11,
+TS2304 0, byte-identical to `ci/tsc_baseline.txt`'s pin (zero pre-existing
+`.ts` file's types touched by this diff; the 11 residual errors are the
+same ones `tsc_baseline.md` already itemizes, none in `railTraffic.ts`).
+`bash scripts/gated_tests.sh` run in full before opening the PR — GATE
+PASSED (server 200 files/client 102 files/python all green, deploy-gate
+smoke PASS). `bash scripts/counter_ratchet.sh` — run BEFORE `git add`
+(no improvement visible: `assertions`/`tests_run_in_ci`/
+`tests_gating_merge` are computed via `git ls-files`, so untracked new
+files are invisible to the counter) and again AFTER staging (same gotcha
+the D13 session's own ADDENDUM hit) — post-stage run correctly showed
+`tests_run_in_ci`/`tests_gating_merge` 473->475 and `assertions`
+15501->15549, all three this session's own direct effect (2 new test
+files, 48 new assert statements) per PROMOTION RULE 5, re-pinned in
+`ci/counter_baseline.txt` in this same PR; ratchet clean after. `npm run
+visual`: NOT run — zero `client/` file touched by this diff, PROMOTION
+RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A — no existing metric/backtest/slippage/
+counterfactual-logger code touched; this is a new data-pipeline gate
+script over a source the trading system does not read from yet.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed; this is a RAW `/data` surface, no
+predictive claim.
+
+VERSION: read-and-increment. `1.0.989 -> 1.0.990` (`package.json` +
+`package-lock.json`).
+
+WORKSTREAM PARTITION: T-DATACORE primary (`datacore/rail/**`,
+`datacore/manifests/railep724.json`, `scripts/stb_rail.py` re-run output,
+`scripts/rail_traffic_gate1.py`, `test_rail_traffic_gate1.py`,
+`server/railTraffic.ts`, `server/railTraffic.test.ts`). SHARED touched
+last-and-minimal per the merge-order protocol: `server/routes.ts` (one
+import + one route registration, no other route touched),
+`datacore/signal_ladder.json`, `package.json`/`package-lock.json`,
+`research/experiments.md`, `research/open_questions.md`. No T-BOT/
+T-CLIENT file touched, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating, and adds no `/api/v1`
+mirror (deliberately deferred, see NEXT).
+
+NEXT: (1) GATE 2 (SIGNAL) — intermodal carload growth vs. transport-
+sector forward returns, per the open_questions.md entry filed this
+session; no time-gating blocker, ready whenever a future session picks
+it up. (2) An `/api/v1/data/rail-traffic` keyed mirror + `LICENSE_MARKS`/
+`agentToolSpec` wiring (this root's own equivalent of the OpenAPI/agent-
+tools follow-up other RAW roots already have) — deliberately deferred
+this session to keep the PR to one logical change; `apiProduct.test.ts`'s
+path-membership list does not require it, so nothing broke by deferring
+it. (3) A dedicated `/data/rail-traffic` client page — same documented
+"archive+API first, client page a later follow-up" sequencing as
+`un_comtrade`/plant-operations/port-dwell before it.
+
+STARVED: no — the primary-action search above found and shipped a real,
+previously-unclaimed backlog item end-to-end (freshness fix + gate 1 +
+API surface) rather than falling through to a lower tier.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-27 (scheduled-routine session) [REPAIR] — T-CLIENT (client/src/lib/celestial/spaceFrame.ts, client/src/lib/celestial/spaceFrame.test.ts) + SHARED-minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): STALE PR #817 re-queue item 3 — Moon patch mosaic gives margin back before dropping a WAC zoom level, closing a standing 1-3-level rendering-quality regression (v1.0.989)
 
 TERRITORY: T-CLIENT primary (`client/src/lib/celestial/spaceFrame.ts` +
