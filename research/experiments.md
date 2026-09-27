@@ -103561,3 +103561,220 @@ pushed fix is the required response to a CI-red wake on a PR this session
 opened.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-27 (scheduled-routine session) [PIPELINE] — SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md) + one new standalone module (scripts/param_shadows_outer_binding.py, test_param_shadows_outer_binding.py): MASTER PROGRAM §0.7 DETECT duty — D14 `param_shadows_outer_binding` ships, baseline 0 (v1.0.988)
+
+READ ORDER followed: CLAUDE.md (full re-read this session), `research/
+experiments.md` tail, `research/open_questions.md` KNOWN BROKEN section,
+`research/wishlist.md` tail, `research/PROGRAM_STATE.md` (this session's
+own primary-action source — see below).
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`,
+2026-09-27T02:57:13Z): `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true` — "LIVENESS ALARM: trading loop dark for 65.0 market
+hours (407.7h wall-clock) since 2026-09-10T03:12:26.354Z", `drawdownPct
+"-5.8"`. This is the standing KNOWN BROKEN #41/#42/#43 LIVENESS ALARM,
+unchanged in kind from every prior scheduled-routine session's framing
+(only the elapsed-hours counters have grown, as expected) — resuming the
+loop is a human decision per RULE REVIEW (no kill-switch threshold may be
+loosened on inference alone); NOT re-notified this session, no new
+development. KNOWN BROKEN #44 (`insider_cusum_gate2`, Dockerfile FROZEN
+PATH proposal) likewise unchanged, still awaiting human merge in
+`research/wishlist.md`. Neither actioned — both explicitly gated on a
+human decision, not a session's to resolve.
+
+PRIMARY-ACTION SURVEY: `python3 scripts/ladder_readiness_check.py` (0/4
+READY, all WAITING on time/report-count conditions already tracked),
+`python3 scripts/data_stream_registry_check.py`, and `python3
+scripts/ladder_registry_coverage_check.py` all came back exhausted — same
+pattern the prior two sessions already logged. Read `research/
+PROGRAM_STATE.md`'s own DETECTORS table (the previous session's own NEXT
+item (2) named this explicitly): `detectors_registered` had sat at 13
+(D13, shipped the immediately preceding session) for exactly one session —
+still discharging the §0.7 duty on a per-session cadence rather than
+letting it go stale again, this being the two sessions in a row it has
+now been picked up promptly.
+
+TOOK THE SEED: "functions taking a parameter that shadows an outer binding
+of the same name (the inverse of D1 — would catch the `focusSat`
+extraction *before* the binding is lost)." D1 (`tsc_2304`) catches an
+identifier used but never DECLARED; this seed is the shape the compiler is
+silent on — a parameter that shadows an outer binding compiles cleanly,
+and a later reference inside the function body silently means the
+parameter, not the outer binding it looks like. Verified this repo has
+zero ESLint config anywhere (`find . -iname '.eslintrc*' -o -iname
+'eslint.config.*'` — no results outside node_modules), so nothing else in
+the toolchain covers `no-shadow`'s class.
+
+ALSO CHECKED (per this session's own brief, minor documentation hygiene
+riding the same PROGRAM_STATE.md edit, not a second logical change): the
+other unclaimed seed, "`any` at a module boundary (params and return types
+only)". Read D3 `boundary_any`'s actual implementation in
+`scripts/program_status.sh` directly (not assumed from its one-line table
+description) and confirmed it is EXACTLY this rule already — `: any` in a
+function's parameter list or return annotation, live 238. Removed the
+redundant seed line from PROGRAM_STATE.md's "Seeds not yet taken" with a
+one-line note rather than build a duplicate counter.
+
+SCOPING (the substantive design work this session, done BEFORE trusting
+any count, per D13's own precedent): a full lexical-scope shadow detector
+needs a real AST/scope resolver, which this codebase's existing detectors
+deliberately avoid (D12's own docstring: "real scope analysis would need
+an AST, not a grep"). Followed the same discipline — scoped to
+MODULE-TOP-LEVEL bindings and MODULE-TOP-LEVEL functions only (the same
+"top-level" concept D5 `conflicting_const` and D11 `dup_precise_literal`
+already use), never a nested closure chain. This is narrower than the
+`focusSat` incident itself (that helper was nested one level inside
+`datamap.tsx`'s giant component, not module-top-level) — a real, named
+tradeoff, not an oversight: reaching nested scopes correctly needs a real
+scope resolver to avoid false positives across React's extremely common
+nested-callback style, which is exactly the risk this session's brief
+warned against ("a `.map((e) => ...)` callback parameter named `e`
+shadowing some far-away unrelated `e` would be extremely common and
+mostly noise").
+
+Before committing to this scope, live-computed the live-tree count TWO
+independent ways: (1) module-top-level functions only vs. module-top-level
+bindings (the shipped rule), and (2) as a cross-check, every function/
+arrow at ANY nesting depth in a file vs. module-top-level bindings only
+(a strictly broader scan). BOTH returned **0** — confirming the clean
+baseline is real, not an artifact of the narrower first scan missing
+something the broader one would have caught. Also live-checked this
+repo's actual top-level binding names before trusting that 0 (D13's own
+"sanity-check the count before trusting it" precedent): found short,
+purely conventional physics/orbital constants — `PI`, `MU`, `J2`/`J3`/
+`J4`/`J8` in `client/src/lib/orbital/propagate.ts` and
+`client/src/lib/celestial/rotation.ts`, plus `S`/`CH`/`CW`/`km`/`v3`
+elsewhere — that a 1-2 character name match would flag against any
+unrelated same-named parameter anywhere in the same file, which is noise,
+not signal. Added `MIN_NAME_LEN = 3` to exclude that class before it
+could ever fire, per this session's own brief's explicit suggestion for
+exactly this failure mode.
+
+BUILT: `scripts/param_shadows_outer_binding.py` — a standalone, importable
+module (`hardcoded_palette_hex.py`/`design_token_drift.py` precedent, not
+inlined in `program_status.sh`, direct unit coverage from day one).
+`top_level_binding_names()` collects column-0-anchored `const`/`let`/
+`function` names; `top_level_functions()` finds column-0-anchored named
+`function` declarations and `const NAME = (...) => { ... }` arrow
+assignments (single-expression arrows with no `{ }` body are skipped —
+lower risk, and harder to bound reliably with a regex), extracting each
+one's raw parameter-list text and full body text via paren/brace
+depth-counting (same bracket-matching technique D2 `long_try_empty_catch`
+already uses). `find_shadowing_params()` splits the parameter list on
+top-level commas (respecting nested `()[]{}<>`), and counts a parameter
+only when its name (a) matches another top-level binding, (b) is
+`>= MIN_NAME_LEN` characters, and (c) is referenced inside the function's
+own body (checked against `ts_code_only.blank_source`'s comment/string-
+blanked body text, so a reference inside a comment or string doesn't
+count as usage).
+
+Wrote synthetic fixture tests BEFORE trusting the live count, mirroring
+D13's `test_hex_inside_string_literal_counts` / `test_hex_inside_line_
+comment_does_not_count` pair: a used shadowing param counts (both
+`function` and arrow shapes); an unrelated param name does not; a
+declared-but-UNUSED shadowing param does not; a too-short name is
+excluded; an indented/nested declaration and its indented/nested shadowing
+function are never treated as "top-level" (locks in the scope boundary
+explicitly, as its own named test); and multiple hits in one file all
+count. 13 tests total in `test_param_shadows_outer_binding.py`.
+
+LIVE COUNT: **0**. Unlike D3/D4/D13 (which seeded real pre-existing debt
+as a non-increasing pin), this is the first counter in the DETECTORS table
+with a clean baseline verified directly rather than debt discovered and
+parked — same shape as D12 `orphaned_set_interval` (also baseline 0). No
+existing shadowing parameter anywhere in `client/src` reuses a
+module-top-level binding's name and is referenced in its own body — a
+real, positive finding about this codebase's naming discipline at module
+scope, not an absence of effort to find one (two independent scans, both
+0, per SCOPING above). Not demonstrated against a committed induced probe
+file in `client/src` (D12's session did this and reverted it) — the risk
+of a stray probe file surviving into the PR outweighed the benefit here,
+given the synthetic unit tests already pin the identical case permanently
+and deterministically.
+
+SHIPPED: `scripts/param_shadows_outer_binding.py` (new, 232 lines);
+`test_param_shadows_outer_binding.py` (new, root, 13 tests — synthetic
+shadow/no-shadow/unused/too-short/nested-scope semantics plus a live-repo
+count pinned to 0); `scripts/program_status.sh` (new
+`param_shadows_outer_binding=$(python3 scripts/
+param_shadows_outer_binding.py)` block with full docstring-style comment,
+wired into both the `--json` output and the printf summary table, placed
+as "9n. D14" after "9m. D13" `hardcoded_palette_hex`); `ci/
+counter_baseline.txt` (`param_shadows_outer_binding 0 non-increasing` new
+row; `detectors_registered 13 -> 14`); `research/PROGRAM_STATE.md` (new
+D14 row in the DETECTORS table with full rationale; removed the
+now-taken seed and the redundant `any`-at-a-boundary seed from "Seeds not
+yet taken"; new dated SESSION LOG entry at the top per this file's own
+newest-first convention).
+
+GATES (full — `npm ci` and `pip install -r requirements.txt -r
+requirements-dev.txt` both needed a fresh install this session, this
+sandbox did not already have `node_modules`/`pytest` present; both ran
+clean): `bash scripts/tsc_ratchet.sh` — 11, TS2304 0, byte-identical to
+baseline (zero `.ts`/`.tsx` files touched by this diff). NOTE: a run of
+this same script BEFORE `npm ci` misleadingly reported only 3 tsc errors
+(tsc running without an installed `node_modules` under-reports); re-ran
+after `npm ci` and got 11, matching the pin exactly — confirmed via `git
+stash` that this was purely an environment artifact of the missing
+dependency, not real drift, so `ci/tsc_baseline.txt` is untouched (no
+lowering needed or warranted). `bash scripts/counter_ratchet.sh` — 27
+counters (26 + the new one); `param_shadows_outer_binding` live 0 = pin 0,
+`detectors_registered` live 14 = pin 14; three counters IMPROVED from this
+session's own new test file and were re-pinned in the same session
+(`tests_run_in_ci`/`tests_gating_merge` 472 -> 473, `assertions` 15479 ->
+15493 — this session's own 13 new tests, not unrelated drift, per
+PROMOTION RULE 5). `bash scripts/gated_tests.sh` — **GATE PASSED** (run
+twice: once before `git add`, once after staging the new files, to rule
+out the "worked locally, staged state differs" gap the D13 session's own
+ADDENDUM hit — both runs agreed): server 200 files, client 102 files,
+python 2195 passed/1 skipped/54 subtests (2182 + this session's 13 new
+tests, confirmed by direct arithmetic), deploy-gate smoke PASS (build +
+boot + `/api/health` 200). `python3 -m unittest
+test_param_shadows_outer_binding`: 13/13 pass standalone. `npm run
+visual`: NOT run — zero `client/`, `server/`, or rendering-adjacent file
+touched by this diff, PROMOTION RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; this is a new static-analysis counter over source
+text, not a change to any existing measurement.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`8cfe5f1`, v1.0.987) already matched `origin/main`'s real
+HEAD, re-checked a second time immediately before the bump (no other
+session had merged in between) — `1.0.987 -> 1.0.988` (`package.json` +
+`package-lock.json`'s two matching version fields).
+
+WORKSTREAM PARTITION: every touched file (`scripts/program_status.sh`,
+`ci/counter_baseline.txt`, `package.json`/`package-lock.json`, `research/
+PROGRAM_STATE.md`, `research/experiments.md`) is SHARED; the two new
+files (`scripts/param_shadows_outer_binding.py`, root `test_param_
+shadows_outer_binding.py`) are new standalone tooling, not owned by any
+territory. No T-BOT/T-CLIENT/T-DATACORE file touched or claimed.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+NEXT: (1) the "Seeds not yet taken" list in PROGRAM_STATE.md now has only
+two entries left, and neither is a live build target: `useEffect`
+dependency-array ref omission (explicitly SKIPPED by this session's own
+brief as low-value — refs are conventionally and correctly omitted from
+dependency arrays) and the `layers.json` registry-id seed (already marked
+"investigated 2026-08-15, correctly NOT built" in a prior session) — a
+future session owing the §0.7 duty needs a fresh ACTIVE-ANGLE-HUNTING pass
+to find the next seed rather than pulling from this list. (2) the
+402-count hardcoded-palette-
+hex debt (D13) remains a legitimate future paydown target, unrelated to
+this session's work. (3) the standing LIVENESS ALARM and KNOWN BROKEN #44
+remain exactly as documented above — both already correctly gated on a
+human decision, no new action warranted.
+
+STARVED: no — this session's own automated-backlog survey came back
+exhausted a second consecutive session, so it fell through to
+PROGRAM_STATE.md's own §0.7 DETECT duty per SESSION BUDGET's fall-through
+order, and shipped a fully-specified, tested, gated detector end-to-end.
+
+NOT A SPEND REQUEST.
