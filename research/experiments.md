@@ -3,6 +3,115 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27 (scheduled-routine session, fifth session this UTC day) [REPAIR] — SHARED-minimal (research/open_questions.md only, no code touched): closes a 23-day-stale duplicate KNOWN BROKEN #40 record — the bug was already fixed same-day 2026-09-04, this entry's own "NOT PATCHED" text just never got updated (v-unbumped, docs-only)
+
+TASK: scheduled routine — read CLAUDE.md, experiments.md, open_questions.md,
+wishlist.md; check loop-health ratio; check system health via /api/health and
+the audit log; execute the single highest-value SESSION BUDGET action; open
+one PR; log the session.
+
+SYSTEM HEALTH CHECKED FIRST (live `curl .../api/health`): `status:"degraded"`,
+`bot.status:"killed"`, liveness dark 65.0 market hours / 425.1h wall-clock
+since 2026-09-10T03:12:26Z — the standing KNOWN BROKEN #41/#42/#43 LIVENESS
+ALARM. `scripts/session_health_check.py`'s own compiled dedupe logic
+(doubling-threshold notify policy) says NOT to re-notify: last notified at
+276.9h wall-clock, doubling threshold is 553.8h, current 425.1h is below it —
+`[OK] liveness_notify: ... no new notify threshold crossed, do not repeat`.
+No PushNotification sent for this reason (compiled policy, not ad hoc
+judgment). All other subsystem checks `ok`. `thrash_ratio` 2/10 REPAIR in the
+last 10 tagged sessions (below the 7+ trigger — this entry's own [REPAIR] tag
+does not change that count materially). `starvation_signal` 0 consecutive.
+`audits_register` none overdue. Both `archive_freshness` trackers below their
+21d trigger.
+
+PRIMARY-ACTION SEARCH (stated before picking, so the choice is falsifiable):
+this is the fifth scheduled session on 2026-09-27 (after a [PRODUCT] rail
+session v1.0.990, a [REPAIR] moon-patch session v1.0.989, a [RESEARCH]
+build-first session, and a MASTER-PROGRAM [detector] session v1.0.988 —
+all read from this file's own immediately-preceding entries). Checked, in
+SESSION BUDGET order:
+1. Automated backlog surveys — `python3 scripts/data_stream_registry_check.py`
+   (all NOT-BUILT items are human-gated: `declined_dead_source`/
+   `blocked_free_key`/`blocked_registration`) and
+   `python3 scripts/ladder_readiness_check.py` (0/4 gated roots READY, all
+   time-gated, 5-36 days remaining) — both exhausted, matching the
+   RESEARCH session's own finding earlier today, independently re-run
+   rather than trusted secondhand.
+2. `research/PROGRAM_STATE.md`'s QUEUE table (Q0-Q26): every row DONE or
+   REFRAMED; "Seeds not yet taken" has exactly one candidate (`useEffect`
+   dep-array omitting a read ref) and the file's own D14 entry (this
+   session's date, v1.0.988) already discharged today's one-detector-per-
+   session duty — no unclaimed MASTER PROGRAM work today.
+3. `research/open_questions.md` KNOWN BROKEN section, read item-by-item
+   (not trusting the health check's one-line summary): item #44 is
+   genuinely blocked on a FROZEN PATH (Dockerfile) fix already proposed in
+   wishlist.md, correctly not self-applied — nothing session-actionable
+   there. Item #40 (there are TWO entries both numbered "40" — a
+   duplicate-number collision from concurrent same-day sessions, per
+   MERGE-ORDER PROTOCOL's keep-both-sides research/* rule) is where this
+   session found real, fixable staleness: the FIRST "40." entry
+   (2026-09-04) says "ROOT-CAUSED AND FIXED SAME DAY ... CLOSED" (v1.0.842)
+   for `test_options_v134_fixes.py`'s calendar-mock defect; the SECOND
+   "40." entry (also 2026-09-04, filed by a different session the same
+   day) still said "NOT PATCHED" with a NEXT pointing a future T-BOT
+   session at the exact fix the first entry already shipped — a stale
+   record that could cost a future session a wasted re-diagnosis.
+
+VERIFIED, not assumed: `git log --oneline --follow -- test_options_v134_fixes.py`
+shows the calendar-mock fix present on current `main`; read the actual test
+file (`test_options_v134_fixes.py:119-198`) and confirmed both tests named in
+the second "40." entry (`test_get_options_trades_filters_low_edge`,
+`test_short_straddle_blocked_for_high_iv`) already
+`patch("market_calendar.should_skip_new_options", return_value=(False, ""))`
+around their `get_options_trades()` call — the identical fix shape
+`TestFix7`'s 2026-07-05 precedent established, which is exactly what the
+stale entry's own NEXT asked a future session to do. `python3 -m pytest -q
+test_options_v134_fixes.py` — 50 passed, 0 failed, run today (2026-09-27, not
+a pre-long-weekend date) confirming the mock makes the tests date-independent
+rather than merely coincidentally passing.
+
+FIX: appended a `**CLOSED 2026-09-27 ...**` paragraph to the second "40."
+entry (append-only, per MEMORY PROTOCOL — no existing text rewritten),
+explaining the duplicate-number collision, pointing at the first "40." entry
+as the operative record per the MERGE-ORDER PROTOCOL supersession precedent
+("first-merged wins, the duplicate salvages its unique delta" — the first
+entry's scope is a strict superset, covering `TestFix3_AllocationCaps` and a
+`TestFix7` vacuous-pass case this entry never mentioned, so there was no
+unique delta to salvage), and stating explicitly that no code was touched.
+Did NOT renumber either "40." entry — matching this repo's own established
+precedent for duplicate-number collisions (KNOWN BROKEN #36's own account of
+two same-day "session #18" headers being left in place, annotated rather than
+renumbered) and avoiding any risk to cross-references elsewhere in the file
+that cite "#40".
+
+VERIFICATION THE FIX REGISTERS MECHANICALLY, not just by eye:
+`python3 scripts/research_state_check.py`'s `known_broken` check read
+"45 items total, 2 without an explicit close marker (#40, #44)" before this
+edit and "45 items total, 1 without an explicit close marker (#44)" after —
+the `CLOSED` marker in the new paragraph is picked up by
+`classify_known_broken()`'s existing regex without any script change.
+`python3 -m pytest -q test_research_state_check.py`: 57 passed, unchanged
+(no code path touched, only the markdown file the parser reads).
+
+GATES: docs-only change to `research/open_questions.md` — no code, no test
+file, no version bump (PROMOTION RULE 4 bump is for behavior changes;
+nothing here changes runtime behavior). `python3 -m pytest -q
+test_options_v134_fixes.py` and `test_research_state_check.py` both green,
+confirming the change didn't silently touch anything load-bearing.
+
+HYPOTHESIS: none — this is a MEMORY PROTOCOL correction, not an experiment.
+Expected effect: a future session searching KNOWN BROKEN for calendar-mock
+test flakiness sees one coherent, correctly-closed record instead of one
+closed and one stale-contradictory "NOT PATCHED" record, and does not spend
+time re-fixing an already-fixed bug.
+
+NEXT: none filed by this session specifically — SESSION BUDGET's automated
+surveys and the MASTER PROGRAM queue are both exhausted as of this session;
+the next scheduled session should re-run both before assuming otherwise, and
+should re-check the LIVENESS ALARM's doubling-notify threshold (553.8h
+wall-clock from the 2026-09-21 notification) in case it has been crossed by
+then.
+
 ## 2026-09-27 (scheduled-routine PRODUCT session) [PRODUCT] — T-DATACORE (datacore/rail/ep724_carloads.json, datacore/manifests/railep724.json, datacore/signal_ladder.json, scripts/stb_rail.py refresh, scripts/rail_traffic_gate1.py, test_rail_traffic_gate1.py, server/railTraffic.ts, server/railTraffic.test.ts, server/routes.ts): STB EP724 rail carload archive refreshed after going stale + GATE 1 (DATA) PASSED against two independent FRED/BTS-AAR series + RAW /data view shipped (v1.0.990)
 
 TASK: scheduled PRODUCT session — build the datacore/ pipelines and the
