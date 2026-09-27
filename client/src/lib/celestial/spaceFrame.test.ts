@@ -69,7 +69,11 @@ import {
   type Vec3,
   surfaceRelativeStep,
   skyLagOffsetPx,
+  wacCoverHalfSpanDeg,
+  MOON_PATCH_COVER_MARGIN,
+  MOON_PATCH_MIN_HALFSPAN_DEG,
 } from "./spaceFrame.js";
+import { MOON_TREK, fitHalfSpanDeg } from "./lroc.js";
 import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
 import { projectStarScreen } from "./starCatalog.js";
 import { subsolarPoint } from "./ephemeris.js";
@@ -1172,4 +1176,61 @@ test("anchorSightlineBlocked: nearer body on the sightline hides the anchor; bes
   assert.equal(anchorSightlineBlocked(cam, earth, [grazing]), false, "grazing miss stays visible");
   // degenerate: zero-length sightline never blocks
   assert.equal(anchorSightlineBlocked(cam, cam, [moonAhead]), false, "zero-length sightline is a no-op");
+});
+
+// ── WAC patch cover half-span — give the margin back before the zoom (STALE
+// PR #817 re-queue item 3, 2026-08-28, closed 2026-09-27): a close/wide
+// viewport used to feed MOON_PATCH_COVER_MARGIN's ~7.8x-area-inflated span
+// straight into planMoonTarget's tile budget, so the WHOLE mosaic backed off
+// a coarser zoom level to fit the margin, not the visible patch. ─────────────
+test("wacCoverHalfSpanDeg keeps the full margin-inflated span when it already fits the tile budget", () => {
+  // zoomed out enough (coarse pxPerSurfDeg -> low z) that even the
+  // margin-inflated span is small in absolute degrees and fits comfortably.
+  const pxPerSurfDeg = 20;
+  const wanted = Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, ((300 / pxPerSurfDeg) / 2) * MOON_PATCH_COVER_MARGIN);
+  const got = wacCoverHalfSpanDeg(wanted, pxPerSurfDeg, MOON_TREK, 2);
+  assert.equal(got, wanted, "no shrink needed when the margin already fits");
+});
+
+test("wacCoverHalfSpanDeg reproduces and fixes the reported bug: a close/wide viewport no longer forces a coarser WAC level", () => {
+  // Reconstructs the exact drawBodyPatch shape: a 1440px-wide viewport deep
+  // in the native WAC level (pxPerSurfDeg near the z=8 ceiling, ~364 px/deg).
+  const pxPerSurfDeg = 364;
+  const bboxLongPx = 1440;
+  const rawHalfSpan = (bboxLongPx / pxPerSurfDeg) / 2; // the un-padded patch, ~1.978 deg
+  const wanted = Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, rawHalfSpan * MOON_PATCH_COVER_MARGIN); // ~5.538 deg
+  const fit = fitHalfSpanDeg(pxPerSurfDeg, MOON_TREK, 2, 2048); // what actually fits at z=8
+
+  // the bug: the margin-inflated span the OLD code fed planMoonTarget
+  // directly overshoots what z=8 (the finest, screen-deserved level) can
+  // afford, and even overshoots what a full level coarser (z=7) can afford —
+  // planMoonTarget's own back-off loop would have had to drop to z=6 to fit
+  // the full margin, two levels under what the screen deserves.
+  assert.ok(wanted > fit, "the margin-inflated span exceeds what z=8 can afford (this IS the bug)");
+  const degPerTileZ7 = 180 / 2 ** 7;
+  const fitAtZ7 = (Math.floor(2048 / MOON_TREK.tilePx) - 2) * degPerTileZ7 / 2;
+  assert.ok(wanted > fitAtZ7, "the margin-inflated span even exceeds what z=7 can afford (a 1-level drop is not enough)");
+
+  // the fix: wacCoverHalfSpanDeg clamps the REQUEST itself down to what z=8
+  // affords, so planMoonTarget never has to back off at all.
+  const got = wacCoverHalfSpanDeg(wanted, pxPerSurfDeg, MOON_TREK, 2);
+  assert.equal(got, fit, "clamps to exactly what the finest level affords, not less");
+  assert.ok(got < wanted, "margin was given back (shrunk)");
+  assert.ok(got > MOON_PATCH_MIN_HALFSPAN_DEG, "did not fall all the way to the last-resort floor");
+});
+
+test("wacCoverHalfSpanDeg floors at MOON_PATCH_MIN_HALFSPAN_DEG only as the genuine last resort", () => {
+  // an absurdly tight mosaic-px budget: even the un-padded minimum half-span
+  // cannot fit at the finest level, so the floor (not a further shrink) wins
+  // — this is the one case where planMoonTarget still has to drop a level.
+  const pxPerSurfDeg = 364;
+  const got = wacCoverHalfSpanDeg(10, pxPerSurfDeg, MOON_TREK, 2, /* maxPx */ 256);
+  assert.equal(got, MOON_PATCH_MIN_HALFSPAN_DEG);
+});
+
+test("wacCoverHalfSpanDeg never returns more than what was wanted", () => {
+  const pxPerSurfDeg = 5; // very coarse -> huge fit() headroom
+  const wanted = MOON_PATCH_MIN_HALFSPAN_DEG; // deliberately smaller than any headroom
+  const got = wacCoverHalfSpanDeg(wanted, pxPerSurfDeg, MOON_TREK, 2);
+  assert.equal(got, wanted, "never widens a request past what was actually wanted");
 });

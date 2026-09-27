@@ -7396,17 +7396,32 @@ item, so a future session can pick ONE without re-deriving the other three.
    restoring it passes. RAW OVERLAY, no ladder gating (map layer, not a
    signal) — no backtest applicable.
 
-3. **Moon patch fuzz — `MOON_PATCH_COVER_MARGIN` still 2.8 (STILL PRESENT
-   on main, re-verified 2026-08-28).** `spaceFrame.ts:642` still defines
-   `MOON_PATCH_COVER_MARGIN = 2.8`, inflating the requested tile span ~7.8×
-   in area against a fixed 2048px cap, so the planner still drops zoom
-   levels to fit — PR #817 measured this as the Moon rendering 1-3 levels
-   under what the screen deserves, worse on bigger displays. Fix direction
-   per #817: invert the sacrifice order (give back margin first, drop a
-   level only as a last resort). Re-derive and re-measure fresh (the
-   original 10-case before/after matrix is 16 days old) rather than porting
-   the number blind — `MOON_PATCH_COVER_MARGIN`'s current callers may have
-   shifted.
+3. **[FIXED 2026-09-27, scheduled-routine session, v1.0.989]** ~~Moon patch
+   fuzz — `MOON_PATCH_COVER_MARGIN` still 2.8 (STILL PRESENT on main,
+   re-verified 2026-08-28).~~ Re-verified live this session (unchanged since
+   08-28): `MOON_PATCH_COVER_MARGIN = 2.8` inflates the requested WAC tile
+   span ~7.8× in area, and that inflated span was fed straight into
+   `planMoonTarget`'s tile-budget back-off loop — so a close/wide viewport
+   made the loop drop 1-3 WAC zoom levels to fit the MARGIN, not the visible
+   patch, exactly as PR #817 measured. FIX (re-derived fresh against current
+   `spaceFrame.ts`, not ported from the 16-day-old PR body, per this item's
+   own instruction): new pure `wacCoverHalfSpanDeg()` in `spaceFrame.ts`
+   clamps the margin-inflated request down to what the mosaic pixel budget
+   actually affords at the finest level `pxPerSurfDeg` would pick — reusing
+   `fitHalfSpanDeg()`, the identical plan-fit clamp the NAC tier already
+   applied a level below it (line ~2493) but the WAC tier never did. Margin
+   is given back first; `planMoonTarget` only backs off a level in the
+   genuine last-resort case (even `MOON_PATCH_MIN_HALFSPAN_DEG`, the
+   un-padded floor, doesn't fit at the finest level). Quantified regression
+   test in `spaceFrame.test.ts` reproduces the exact bug shape at a
+   realistic 1440px viewport near the WAC z8 ceiling (~364 px/deg): the OLD
+   margin-inflated span (~5.54°) exceeded not just z8's own budget (~2.11°)
+   but z7's too (~4.22°) — a genuine 2-level drop — while the NEW clamp
+   holds it at exactly what z8 affords. Full trace in experiments.md's
+   2026-09-27 entry. Items #1 (polar camera-crossing) and #4 (own-tile Moon
+   bake pipeline / Law II.8) from the same 2026-08-28 STALE PR #817 re-queue
+   remain open, re-verified still present this session — see below,
+   unchanged.
 
 4. **Our-own-tile Moon pyramid (Law II.8) — NOT built on main
    (`scripts/moon_bake.py` absent, re-verified 2026-08-28).** PR #817

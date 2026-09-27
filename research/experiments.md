@@ -3,6 +3,218 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27 (scheduled-routine session) [REPAIR] — T-CLIENT (client/src/lib/celestial/spaceFrame.ts, client/src/lib/celestial/spaceFrame.test.ts) + SHARED-minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): STALE PR #817 re-queue item 3 — Moon patch mosaic gives margin back before dropping a WAC zoom level, closing a standing 1-3-level rendering-quality regression (v1.0.989)
+
+TERRITORY: T-CLIENT primary (`client/src/lib/celestial/spaceFrame.ts` +
+its own test file). SHARED-minimal bookkeeping only (`ci/counter_baseline.txt`,
+`package.json`/`package-lock.json`, `research/open_questions.md`,
+`research/experiments.md`). No T-BOT/T-DATACORE file touched, no FROZEN
+path touched.
+
+READ ORDER followed: CLAUDE.md (full re-read, including the RENDERING &
+MOTION LAW section this PR falls under), `research/experiments.md` (top +
+the D14/GEM sessions immediately preceding this one), `research/
+open_questions.md` KNOWN BROKEN section, `research/wishlist.md` tail.
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`,
+2026-09-27T11:12Z): `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true` — "LIVENESS ALARM: trading loop dark for 65.0 market
+hours (416.0h wall-clock) since 2026-09-10T03:12:26.354Z". Same standing
+KNOWN BROKEN #41/#42/#43 every session since 09-10 has already logged and
+extensively push-notified; NOT re-notified this session (no new
+development — unchanged in kind from the immediately-prior sessions' own
+framing, only the elapsed-hours counters grew as expected); resuming the
+loop is a human decision per RULE REVIEW. KNOWN BROKEN #44
+(`insider_cusum_gate2`, Dockerfile FROZEN PATH proposal) likewise
+unchanged, still awaiting human merge in `research/wishlist.md`. Neither
+actioned — both explicitly gated on a human decision, not a session's to
+resolve. This is a T-CLIENT REPAIR session — it does not touch the
+trading loop and is unaffected by the alarm.
+
+LOOP-HEALTH RATIO CHECKED: `python3 scripts/research_state_check.py` —
+`thrash_ratio: 1/10 REPAIR in the last 10 tagged sessions` (well under the
+7+ Priority-1 thrash trigger, per the compiled date-sorted checker item
+#36 shipped, immune to the file's own physical-position drift);
+`audits_register: none overdue`; `known_broken: 45 items total, 2 without
+an explicit close marker (#40, #44) — advisory only`; `starvation_signal:
+0 consecutive STARVED`. No meta-problem override; normal session.
+
+PRIMARY-ACTION SELECTION: the immediately-prior 3 scheduled sessions today
+(D13, RESEARCH/GEM, D14) all independently reported the automated-backlog
+surveys (`ladder_readiness_check.py` 0/4 READY, `data_stream_registry_check.py`
+26/35 built with all 9 unbuilt declined/blocked, `ladder_registry_coverage_check.py`
+26/26) exhausted, and PROGRAM_STATE.md's §0.7 DETECT seed list is down to
+2 non-buildable seeds. Re-verified this session rather than trusting that
+report blind (READ BEFORE WRITE): confirmed unchanged. Fell through to
+`research/open_questions.md`'s own explicitly-flagged queue: the
+"STALE PR #817 RE-QUEUE" section (filed 2026-08-28, re-confirmed present
+2026-08-31/2026-08-28 sessions) lists 4 independently-buildable rendering
+fixes, explicitly instructed not to bundle. Item #2 (Asia grid-master
+switch) was already closed 2026-08-31. Checked all 3 remaining items LIVE
+against current `main` (not assumed from the month-old filing — the entry
+itself warns "16 days of celestial work may have addressed it a different
+way", now 30 days):
+- Item #1 (camera cannot cross a pole, `polarClampDots`/`spaceFrame.ts:380`)
+  — STILL PRESENT, confirmed via `grep`.
+- Item #3 (Moon patch fuzz, `MOON_PATCH_COVER_MARGIN=2.8`,
+  `spaceFrame.ts:642`) — STILL PRESENT, confirmed via `grep`.
+- Item #4 (own-tile Moon bake pipeline / Law II.8, `scripts/moon_bake.py`)
+  — STILL ABSENT; `lroc.ts` still reads NASA Trek's WMTS directly from the
+  browser at runtime (read the file's own header comment, confirms
+  `https://trek.nasa.gov/tiles/...` is the live fetch source, no CDN
+  relay) — a genuine standing Law II.8 violation, but the largest and most
+  expensive of the three (a 5.55 GiB bake), left open for a future
+  dedicated RunPod-budgeted session per the original filing's own note.
+
+Picked item #3: smallest, most self-contained of the two tractable items
+(a numeric/priority-order fix confined to one function, vs. item #1's
+camera-basis parallel-transport math + a 400-step pole-crossing sweep,
+which is a legitimately larger single-session undertaking better left to
+its own dedicated PR per the filing's explicit "do not bundle" instruction).
+
+READ BEFORE WRITE: read `drawBodyPatch()` in `spaceFrame.ts` in full (not
+assumed from the filing's month-old description) to find where
+`MOON_PATCH_COVER_MARGIN` actually feeds the tile planner. Read
+`planMoonTarget()` in `moonTiles.ts` in full: it starts at the finest
+native WAC level meeting the requested `pxPerDeg` and backs OFF one level
+at a time until the FULL requested bbox (margin included) fits within
+`MOON_MOSAIC_MAX_PX`/`MOON_MAX_TILES` — confirming the exact mechanism the
+filing described ("the planner still drops zoom levels to fit"). Read
+`fitHalfSpanDeg()` in `lroc.ts` in full and found it is ALREADY the exact
+tool needed: a pure function computing the largest half-span that fits the
+mosaic pixel budget at the finest level a given `pxPerDeg` would pick — and
+it is ALREADY applied to the NAC (Apollo-site) tier's own request
+(`spaceFrame.ts` line ~2493, `Math.min(coverHalfDeg, fitHalfSpanDeg(...))`)
+but was NEVER applied to the WAC (main-body) tier's request one code block
+above it. This is the root cause stated precisely: not a missing algorithm,
+a missing application of an algorithm this codebase already built and
+already trusts elsewhere in the same function.
+
+FIX: new pure `wacCoverHalfSpanDeg(wantedHalfSpanDeg, pxPerSurfDeg, scheme,
+minZ, maxPx?)` in `spaceFrame.ts`, immediately after
+`MOON_PATCH_MIN_HALFSPAN_DEG`'s declaration — clamps the margin-inflated
+"wanted" span down to `fitHalfSpanDeg()`'s own budget-fit value, floored at
+`MOON_PATCH_MIN_HALFSPAN_DEG`. `drawBodyPatch()`'s `coverHalfDeg`
+computation now runs the existing margin formula into a `coverHalfDegWanted`
+local, then clamps it through `wacCoverHalfSpanDeg()` before calling
+`mgr.request(...)`. REASONING STANDARD #1 (trace the downstream chain):
+verified algebraically that this changes NOTHING when the margin already
+fits (min() picks the wanted value, byte-identical to before) — the only
+behavior change is in the previously-broken case where margin exceeded the
+finest level's budget, which now shrinks the margin (keeping the finer
+zoom, less prefetch headroom) instead of dropping a whole zoom level
+(keeping the margin, losing detail). The one further downstream effect
+traced: `MOON_PATCH_COVER_MARGIN`'s own doc comment states a second
+purpose (a prefetch ring for panning) — this fix only shrinks margin in
+the specific close/wide-viewport case where the full margin didn't fit
+anyway, so the prefetch ring is unaffected in every other case (zoomed out,
+or budget already sufficient) exactly as before.
+
+QUANTIFIED REGRESSION TEST (`spaceFrame.test.ts`, 4 new tests): the
+central one reconstructs the exact `drawBodyPatch` shape at a realistic
+1440px-wide viewport near the WAC z8 ceiling (`pxPerSurfDeg=364`,
+`bboxLongPx=1440`) — the OLD margin-inflated span (~5.54°) is shown
+algebraically to exceed not just z8's own fit budget (~2.11°) but z7's too
+(~4.22°), i.e. the OLD code would have forced a genuine 2-level drop,
+matching the filing's own "1-3 levels under what the screen deserves"
+measurement; the NEW `wacCoverHalfSpanDeg()` clamps to exactly z8's
+budget. Two more tests pin the two boundary cases (full margin honored
+when it already fits; floors at `MOON_PATCH_MIN_HALFSPAN_DEG`, never
+below, when even the un-padded minimum doesn't fit an artificially tiny
+budget — the genuine last-resort case) and one pins "never returns MORE
+than requested". A/B-verified via `git stash`: the pre-fix tree has no
+`wacCoverHalfSpanDeg` export at all (58 tests total vs. 62 post-fix) —
+the 4 new tests exist only because this fix does.
+
+GATES (full — fresh sandbox needed `npm ci`, `pip install -r
+requirements.txt -r requirements-dev.txt`): `npx tsx --test client/src/lib/
+celestial/spaceFrame.test.ts` — 62/62 pass (58 pre-existing + 4 new).
+`bash scripts/tsc_ratchet.sh` — 11/11, TS2304 0, unchanged (no type
+surface touched beyond one new pure function + one new type-only import).
+`bash scripts/counter_ratchet.sh` — `assertions` IMPROVED 15493 -> 15501
+(this session's own new test assertions, not unrelated drift, re-pinned
+in the same PR per PROMOTION RULE 5); all 27 counters at or better than
+baseline. `bash scripts/gated_tests.sh` — **GATE PASSED**: server (unaffected,
+0 `.ts` server files touched), client 102 files OK, python 2195
+passed/1 skipped/54 subtests (unaffected, 0 `.py` files touched, run per
+PROMOTION RULE 1), deploy-gate smoke PASS (build + boot + `/api/health`
+200, `status:"degraded"` under the scripted latched-kill-switch fixture as
+expected). VISUAL VERIFICATION (CLAUDE.md PROMOTION RULE 6, required —
+`client/` touched): `npm run visual` run in full at 390/768/1440 —
+**0 hard failures across all 161 page/viewport combinations**
+(`.visual/results.json`). No screenshot directly frames the Moon patch
+itself (the harness's scripted navigation does not drive the camera into
+a focused-close Moon approach, same exemption the 2026-08-28 Day/Night PR
+logged for an analogous body-view-gated control) — correctness here rests
+on the quantified unit tests above (construct-level, algebraically
+verified against the real WAC z7/z8 tile-budget math) plus the fact that
+zero other page's rendering changed (0 hard failures, all pre-existing
+touch-target/clipped-control warnings unrelated to this diff).
+
+MEASUREMENT INTEGRITY: N/A — no metric, backtest engine, slippage/fill
+model, or counterfactual-logger code touched; this is client-side render
+tile-planning code.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed; this is a rendering-quality fix with zero
+trading-path effect.
+
+MONETIZATION TRIPWIRE: not re-run — this session touches neither billing,
+pricing, subscriptions, ads, nor paid-feature gating.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a rendering-quality fix to an
+existing data path (LROC WAC tiles -> Moon surface patch); no new stream,
+join, or entity-graph tie.
+
+VERSION: read-and-increment. `git fetch origin main` immediately before
+the bump confirmed this branch's base (`7c66ba6`, v1.0.988, #1184) still
+matched `origin/main`'s real HEAD exactly — no concurrent session had
+merged ahead of this one. `1.0.988 -> 1.0.989` (`package.json` +
+`package-lock.json`'s two matching version fields).
+
+RENDERING & MOTION LAW "Definition of done" checklist (this PR touches a
+layer under the Law): no visual state updates in a map-event handler (this
+fix touches only the tile-request SPAN computed per settled frame inside
+the existing per-frame patch-draw path — no new event listener added,
+none removed); raster parent-hold/crossfade behavior unchanged (untouched
+code); no new network requests added (same `mgr.request(...)` call site,
+same abort/retry machinery in `moonTiles.ts`, fully untouched); no new
+teardown surface (no new resource acquired — a pure numeric clamp holds no
+state); feature/VRAM cap unchanged (`MOON_MOSAIC_MAX_PX` read, not
+changed); data-age/freshness UI unchanged (untouched code). This PR is a
+strict subset of the existing WAC-tier code path with the NAC tier's own
+already-compliant pattern applied to it — no new compliance surface
+introduced.
+
+WHAT'S STILL OPEN (from the same 2026-08-28 STALE PR #817 re-queue, NOT
+touched this session, each independently buildable per the filing's own
+"do not bundle" instruction — updated close-marker in
+`research/open_questions.md`):
+(1) item #1, camera cannot cross a pole — needs `camBasis`/`setDir`
+up-vector parallel-transport math plus a 400-step pole-crossing sweep +
+orthonormality check; a legitimately larger single-session undertaking.
+(2) item #4, own-tile Moon bake pipeline (Law II.8) — confirmed this
+session that `lroc.ts` still reads NASA Trek's upstream WMTS directly at
+runtime; the largest and most expensive of the four original findings (a
+5.55 GiB source bake), needs a dedicated RunPod-budgeted session
+(`python3 scripts/runpod_reap.py` dry-run first per KNOWN STATE's standing
+reap-before-launch caveat).
+
+NEXT: (1) pick up item #1 or item #4 above as its own dedicated PR,
+whichever a future T-CLIENT session has capacity for — #1 is pure-math/
+client-only and cheaper; #4 needs the RunPod cost-cap gate and a bake
+pipeline script from scratch. (2) the standing LIVENESS ALARM and KNOWN
+BROKEN #44 remain exactly as documented above, both already correctly
+gated on a human decision, no new action warranted.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+T-CLIENT REPAIR action (a real, month-old, re-verified-live rendering-
+quality bug with a well-specified fix direction already on file), used in
+full including the quantified regression test, the full gate suite, and
+the visual harness, per PROMOTION RULE 6.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-27 (scheduled-routine PRODUCT session) [RESEARCH] — SHARED-only (research/wishlist.md, research/open_questions.md): BUILD-FIRST research resolves 6 sessions of "still genuinely blocked" restatement on the last GEM-suite item (`oil_ngl_pipelines`/`gas_pipelines`) into one concrete, free, human-actionable ask (docs-only, v-unbumped)
 
 TASK PRIOR (stated before researching, REASONING STANDARD #10): expected
