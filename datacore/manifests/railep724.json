@@ -20,5 +20,5 @@
  "sentiment": null,
  "started": "2026-07-05 (history to 2017-03-29 captured in the first build)",
  "cadence": "source updates weekly (Wednesdays); session-run refresh ~weekly",
- "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #6 (final item); hypothesis (carload deltas by commodity lead rail earnings + industrial regime) stays gate-locked — archive only."
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 2 #6 (final item). GATE 1 (DATA) PASSED 2026-09-27 (scheduled-routine PRODUCT session, scripts/rail_traffic_gate1.py) — the 7-railroad system sum reconciles against FRED/BTS-AAR's independent RAILFRTCARLOADS/RAILFRTINTERMODAL national series within a stable multiplicative offset; see datacore/signal_ladder.json's rail_ep724_carload_traffic entry for the full method and numbers. RAW view shipped the same session: server/railTraffic.ts, /api/data/rail-traffic. Archive also refreshed 484->496 weeks (had gone stale at 2026-07-01 since the writer had never been re-run). GATE 2 hypothesis (carload deltas by commodity lead rail earnings + industrial regime) stays gate-locked — not attempted this session."
 }
