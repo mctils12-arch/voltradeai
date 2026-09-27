@@ -4483,3 +4483,124 @@ open_questions.md` KNOWN BROKEN #44.
 **NOT A SPEND REQUEST** — a one-line Dockerfile change, no cost; needs
 human approval only because Dockerfile is a FROZEN PATH, not because of
 price.
+
+## 2026-09-27 — BLOCKED-FOR-MIKE: GEM pipeline route geometry (`oil_ngl_pipelines`/`gas_pipelines`) — free GIS download, resolves the last genuinely-blocked item in the GEM-suite backlog (BUILD-FIRST analysis attached)
+
+CONTEXT: `research/open_questions.md`'s GEM-suite registry thread
+(2026-09-22 entry + 6 dated UPDATEs through 2026-09-25) shipped every
+other point/choropleth layer in the November-2025 GEM release family
+(`chemicals`, `iron_steel_plants` + its `steel_units` furnace enrichment,
+`iron_ore_mines`, `coal_terminals`, `lng_carriers` as an aggregated
+shipyard layer, `steel_raw_materials` as a country choropleth) and left
+exactly one item unresolved across all six sessions:
+`oil_ngl_pipelines.json`/`gas_pipelines.json`, each restated as "still
+genuinely blocked on a geocoding/source decision" without any session
+actually researching what that decision is. This entry is that research,
+run as this session's PRIMARY ACTION after `scripts/ladder_readiness_check.py`
+(0/4 ready), `data_stream_registry_check.py` (26/35 built, remaining 9/9
+already declined/blocked with documented reasons) and
+`ladder_registry_coverage_check.py` (26/26 full coverage) all came back
+exhausted, per SESSION BUDGET fall-through order.
+
+READ BEFORE WRITE: read both files fresh this session, not assumed from
+the thread's summaries. `datacore/gem/gas_pipelines.json` — 4,246
+segments, 53 fields, `provenance.geometry_note`: *"this release variant
+carries NO route coordinates — registry fields only (RouteAccuracy/
+RouteType describe the separate geometry product)"*. `datacore/gem/
+oil_ngl_pipelines.json` — 1,926 segments, same shape (`StartLocation`/
+`EndLocation` free-text place names, no lat/lon anywhere, `RouteAccuracy`/
+`RouteType` columns present but empty of coordinates). Both confirm the
+thread's own repeated diagnosis: this specific xlsx release genuinely
+has no geometry, and the provenance note explicitly says a *separate*
+geometry product exists — a lead none of the six prior sessions
+followed up on.
+
+BUILD-FIRST LADDER (CLAUDE.md order), the step this item's own "still
+blocked" restatements skipped every time:
+
+1. **Do we already receive the raw material?** Partially — we have the
+   attribute registry (owner/status/capacity/fuel/length/start-end place
+   names) but not the geometry, which is the one field a map "route"
+   layer cannot honestly do without.
+2. **Can accumulation substitute for purchase?** N/A — this is a static
+   asset registry, not a time series; there is nothing to accumulate
+   toward.
+3. **Can inference substitute for ground truth?** CONSIDERED AND
+   REJECTED this session, not skipped. The obvious free substitute is
+   geocoding `StartLocation`/`EndLocation` text (state/province and
+   country fields are both present) and drawing a straight line between
+   the two points. Rejected for two independent reasons, either alone
+   sufficient: (a) most segments are intra-country or even intra-state
+   (the sampled `Double E Pipeline Project` row runs New Mexico ->
+   Texas, same country; this is the typical case, not an exception) —
+   country-level or even state-level centroids would either collapse to
+   a near-zero-length line or require full global admin-1 (state/
+   province) centroid coverage across every `CountriesOrAreas` value in
+   the registry, itself a nontrivial new geocoding dependency with its
+   own accuracy risk; (b) more fundamentally, a straight "as the crow
+   flies" line rendered on a map under a "pipeline route" label
+   misrepresents what a pipeline actually is — real pipelines follow
+   negotiated rights-of-way, terrain, and existing infrastructure
+   corridors, never a straight line over any meaningful distance. This
+   is not the same class as an honest labeled estimate (predicted
+   flight destination, tank-shadow inventory) — a viewer of a "route"
+   layer expects the line to trace the real path, so even a clearly
+   captioned straight-line substitute would visually mislead in exactly
+   the way the PREMIUM EXPERIENCE STANDARD's "correctness wins over
+   polish" clause and the BUILD-FIRST HONESTY CLAUSE both bar. Verdict:
+   this raw material is NOT one where inference substitutes for ground
+   truth — the real geometry is genuinely needed, not merely harder to
+   build around.
+4. **Genuinely paid/gated?** Checked live this session (WebSearch +
+   WebFetch against globalenergymonitor.org, not assumed from training):
+   Global Energy Monitor's own project pages for the **Global Gas
+   Infrastructure Tracker** (globalenergymonitor.org/projects/
+   global-gas-infrastructure-tracker) and the **Global Oil Infrastructure
+   Tracker** (globalenergymonitor.org/projects/global-oil-infrastructure-
+   tracker) each carry a "Download data" section and an FAQ entry
+   literally titled "Do you provide routes or terminal locations in GIS
+   format?" — confirming a GIS release (GeoJSON/GeoPackage/shapefile,
+   per public secondary sources describing GEM's GIS download packaging)
+   exists **separately** from the attribute-only November-2025 xlsx
+   release already ingested. WebFetch could not extract the FAQ's answer
+   text or confirm the exact access mechanism (the page's FAQ answers are
+   JS-rendered/collapsed and did not come through in the fetched
+   markdown) — so the honest, unresolved fact is: this is very likely a
+   free download (GEM's whole stated mission is open-access energy data,
+   and every other GEM release we hold, including the one lacking
+   geometry, is CC BY 4.0), but whether it requires an account/name-email
+   form (the same mechanism Mike already used once for the original
+   2026-07-07 GEM asset-registry delivery) or is a direct anonymous
+   download is NOT confirmed from this sandbox.
+
+**THE ASK (free, not a payment)**: visit globalenergymonitor.org's
+project pages for the Global Gas Infrastructure Tracker and Global Oil
+Infrastructure Tracker, use each "Download data" control, and select the
+GIS/geometry format (GeoJSON/GeoPackage/shapefile) rather than the
+attribute xlsx we already hold. If that requires a login/form (as GEM's
+original asset-registry delivery did), it is the same 2-minute form-fill
+class as the original GEM unlock (wishlist 9b, 2026-07-07) — a name/
+email, not a payment. If the download page or FAQ turns out to gate this
+behind a specific request, GEM's public project-manager contact
+(baird.langenbrunner@globalenergymonitor.org, found via this session's
+WebFetch of the project page) is the fallback: ask for the GIS/shapefile
+release of the Gas Pipelines and Oil & NGL Pipelines trackers. Deliver
+the resulting file(s) the same container-ephemeral-upload way as the
+original three GEM files (`gem_ingest.py`'s own precedent) and a future
+session can join it onto the existing attribute registry by `ProjectID`/
+`PipelineName` (both already present in the attribute file) exactly the
+way `steel_units.json` was joined onto `iron_steel_plants.json` by "GEM
+plant ID" in the 2026-09-25 session.
+
+WHY THIS BELONGS HERE INSTEAD OF BEING BUILT NOW: no code was written
+this session — the honest output of this research is "here is the
+specific free thing to ask for and where," not a shipped layer. Shipping
+a degraded substitute (declined above) or guessing at the download
+mechanism and building against an un-verified API would risk exactly the
+kind of unverified assumption CLAUDE.md's READ BEFORE WRITE rule and
+MEASUREMENT INTEGRITY exist to prevent.
+
+**NOT A SPEND REQUEST** — GEM's own stated mission is open-access data
+and every release we already hold from them is CC BY 4.0 free; the ask
+is a human visiting a download page (and possibly filling a free form or
+sending one email), not a purchase.
