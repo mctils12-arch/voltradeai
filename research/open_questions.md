@@ -6064,6 +6064,35 @@
     every Tuesday after a long weekend) — filed so the root cause is on
     record instead of re-diagnosed by the next session that happens to
     run full pytest on one of these dates.
+    **CLOSED 2026-09-27 (scheduled-routine session, DUPLICATE finding, no
+    code change) — this is the same defect as the OTHER "40." entry
+    directly above this one, which was root-caused and fixed the SAME DAY
+    (v1.0.842, PR merged 2026-09-04) before this entry's own text was ever
+    updated to say so.** Two sessions independently found the identical
+    `should_skip_new_options()`-not-mocked defect on 2026-09-04 and each
+    filed it under the next available KNOWN BROKEN number — both landed on
+    "40" — and MERGE-ORDER PROTOCOL's research/* rule ("keep-both-sides,
+    append-only spirit") preserved both blocks verbatim instead of
+    reconciling them, leaving this block's "NOT PATCHED"/"NEXT" language
+    stale for 23 days. Verified live this session rather than assumed:
+    `git log --oneline --follow -- test_options_v134_fixes.py` shows the
+    fix already present on current `main`; both tests named in this entry
+    (`test_get_options_trades_filters_low_edge`,
+    `test_short_straddle_blocked_for_high_iv`) already
+    `patch("market_calendar.should_skip_new_options", return_value=(False,
+    ""))` around their `get_options_trades()` call — the exact fix this
+    entry's own NEXT asked for, mirroring `TestFix7`'s 2026-07-05
+    precedent; `python3 -m pytest -q test_options_v134_fixes.py` — 50
+    passed, 0 failed, independent of today's real calendar date. Per the
+    WORKSTREAM PARTITION supersession precedent ("first-merged wins, the
+    duplicate salvages its unique delta"): the other "40." entry above is
+    the operative record (it additionally covers
+    `TestFix3_AllocationCaps::test_sizing_never_exceeds_eight_pct` and a
+    `TestFix7` vacuous-pass case this entry never mentions); this entry
+    contributes no delta beyond it, so it is closed as a pure duplicate
+    rather than repatched. No code touched by this session — this is a
+    MEMORY PROTOCOL correction only, filed so a future session does not
+    re-diagnose an already-fixed bug from this block's stale language.
 
 41. **[FOUND AND MITIGATED 2026-09-08, scheduled-routine session, LIVE
     PRODUCTION INCIDENT] Production OOM-crash-looped every ~90-130s during
