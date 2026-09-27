@@ -7375,6 +7375,104 @@ item, so a future session can pick ONE without re-deriving the other three.
    pole-crossing sweep the original PR used (up-vector must never jump
    >0.05) plus orthonormality at `(0,0,±1)` exactly.
 
+   **UPDATE 2026-09-27 (scheduled-routine session, [RESEARCH], no code
+   shipped) — RE-DIAGNOSED, the item was mis-scoped by every prior
+   filing; corrected spec below before any future session attempts an
+   implementation.** Picked this up as the next RE-QUEUE item after #3
+   shipped (v1.0.989, this same UTC day, prior scheduled session). Before
+   writing any code, read `applyOrbit()`, `camBasis()`, `polarClampDots()`
+   and every call site in full (READ BEFORE WRITE) plus the LIVE user-
+   facing copy at `client/src/pages/datamap.tsx:14989-14993` (the "Lock
+   horizon" toggle row) — not assumed from this file's own prior summary.
+   Two corrections to the standing framing:
+
+   (a) **The locked-state south-pole exclusion is NOT a bug.** The
+   shipped UI literally states the contract: "Lock horizon: on — view
+   never swings under the ecliptic" / "off — full polar range (roll
+   still impossible)". `LOCK_POLAR_MAX = π/2+0.42` (65.94° short of the
+   south ecliptic pole) is exactly what "never swings under the
+   ecliptic" promises, and `spaceFrame.test.ts`'s
+   `"polarClampDots: lock forbids under-ecliptic, unlock only widens"`
+   test correctly pins that promise. PR #817's "delete the clamp"
+   framing, ported blindly, would have silently broken a documented,
+   tested, shipped feature contract — exactly the kind of unverified-
+   assumption patch READ BEFORE WRITE exists to prevent. The genuine gap
+   is narrower: the UNLOCKED state promises "full polar range" but only
+   delivers to within `UNLOCK_POLAR_MIN/MAX` = 2.86° of either pole — a
+   real, but much smaller, contract shortfall than "66° short."
+
+   (b) **Why a real fix still needs stateful parallel transport, not a
+   constant tweak (derived this session, not assumed from PR #817's own
+   write-up, which is gone with the orphaned branch).** `camBasis(dir,
+   upRef)` builds `r = norm3(cross(f, upRef))` fresh from `dir` and a
+   FIXED external reference every call — this is fine away from the
+   poles, but consider `dir` sweeping through a fixed great circle
+   containing the reference axis (a pure orbit-drag pitch sweep, fixed
+   yaw): parametrize `dir = axis·cos(φ) + m·sin(φ)` for fixed unit `m`
+   ⊥ axis. Then (unnormalized) `r(φ) = cross(f, axis) = -sin(φ)·
+   cross(m, axis)` — a smooth, continuous function of φ that passes
+   through the zero vector exactly at the pole (φ=0) and re-grows
+   POINTING THE OPPOSITE WAY past it. That's smooth and fine
+   *before* normalization, but the code normalizes it
+   (`r = norm3(r)`): a unit vector built from a continuous-but-sign-
+   flipping-through-zero source is itself DISCONTINUOUS at the zero
+   crossing — `r_normalized` jumps ~180° at the exact moment `dir`
+   passes through the reference axis. This is the real, reproducible
+   geometric defect "camera glitches crossing a pole" describes — not a
+   hand-wavy "degenerates," a specific, derivable sign-flip-on-
+   normalization defect. It is currently NEVER TRIGGERED in production
+   because both clamp states keep `dir` at least `UNLOCK_POLAR_MIN`
+   (2.86°) from the reference axis at all times — the clamp is not an
+   arbitrary UX choice at its narrow (unlocked) end, it is the guard
+   that prevents this exact discontinuity from ever being reached. This
+   also means the currently-uncrossable pole is not a "camera glitches"
+   report living on `main` today — it is a hard *wall* (drag stops
+   dead at 2.86° out, no crash, no visible jump) that only trades the
+   discontinuity for a dead zone.
+
+   CORRECTED SCOPE for a future implementation session: to deliver on
+   the UNLOCKED state's own "full polar range" promise (actually letting
+   the camera fly over a pole, the way the reference OrbitControls /
+   Google-Earth-style camera does), the ORBIT interactive path needs a
+   second piece of PERSISTENT state — `orbitUp: Vec3`, seeded once from
+   `camBasis(dir, CAMERA_UP_ECL).u` — that `applyOrbit()` parallel-
+   transports through the SAME two rotations already applied to `dir`
+   (`rotateAbout(_, axis, yawDeg)` then `rotateAbout(_, b.r, pitchDeg)`),
+   followed by a Gram-Schmidt re-orthonormalization against the new
+   `dir` each step to kill numerical drift. The render/basis calls that
+   consume the LIVE orbit `dir` (`applyOrbit` itself, and `panOffsetBy`'s
+   `camBasis(dir, CAMERA_UP_ECL)` at `spaceFrame.ts:3999`) would need to
+   switch to `camBasis(dir, orbitUp)`; the ONE-SHOT `camBasis(x,
+   CAMERA_UP_ECL)` calls used for transient flight/arrival vectors
+   (`away` at line ~2957, `viewDir` at ~3084, the anchor-roll `dir` at
+   ~3887) are freshly computed each use, not iteratively dragged through
+   a pole in the same session, and do not need the same treatment unless
+   a future session finds a specific flight path that also crosses near
+   the axis (not observed/claimed by any filing so far). The LOCKED
+   state's clamp is UNCHANGED by this scope — it keeps its documented
+   65.94°/6.88° asymmetric bounds exactly as shipped; only the UNLOCKED
+   clamp would shrink toward true 0°/180° (a small residual epsilon,
+   not the current 2.86°, kept only as a literal divide-by-zero guard
+   now that the basis itself is continuous through the crossing).
+
+   WHY NOT IMPLEMENTED THIS SESSION: identifying and updating every
+   consuming call site correctly, without a way to interactively verify
+   drag-through-a-pole "feel" (the visual harness's scripted navigation
+   does not drive a mouse-drag pole crossing, matching the exemption
+   logged for item #3 and the 2026-08-28 Day/Night PR), is real
+   architectural surgery on a Law-I-governed, heavily shared core
+   (`camBasis`/`applyOrbit` back every celestial view: Earth, Moon,
+   satellites, aircraft). Two prior sessions (2026-08-26, 2026-08-28)
+   already independently declined to attempt this in one sitting citing
+   size/coupling; this session's contribution is turning that vague
+   caution into a precise, derivable, testable spec (above) so the next
+   session that picks this up implements the right thing on the first
+   try instead of re-deriving the math again or, worse, shipping the
+   "just delete the clamp" reading that would have broken the documented
+   Lock Horizon contract. Item #4 (own-tile Moon bake pipeline) remains
+   the other open item from this RE-QUEUE, unchanged, still gated on a
+   dedicated RunPod-budgeted session.
+
 2. **[FIXED 2026-08-31, scheduled-routine session, v1.0.822]** ~~"All power
    grids" master switch still omits Asia/Africa/Oceania~~ — Africa/Oceania
    have no registry entries at all yet (grep of `datacore/layers.json`

@@ -3,6 +3,147 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27 (scheduled-routine session, second session this UTC day) [RESEARCH] — SHARED-only (research/open_questions.md, research/experiments.md), no code touched: re-diagnosed STALE PR #817 RE-QUEUE item 1 (camera cannot cross a pole) — corrected a mis-scoped bug filing into a precise, derivable engineering spec
+
+TERRITORY: SHARED (research/* only, per WORKSTREAM PARTITION — no
+T-DATACORE/T-CLIENT/T-BOT file touched, no FROZEN path touched).
+
+READ ORDER followed: CLAUDE.md (full re-read), research/experiments.md
+(top entry — the immediately-prior scheduled session this same UTC day,
+which shipped item 3 of this same RE-QUEUE list), research/
+open_questions.md KNOWN BROKEN section (items #40-#44, all previously
+diagnosed/gated on human action, none newly actionable), research/
+wishlist.md tail (the two most recent entries — Dockerfile FROZEN-PATH
+proposal for `insider_cusum_gate2` and the GEM pipeline-geometry free
+ask — both awaiting human action, neither self-actionable this session).
+
+SYSTEM HEALTH CHECKED FIRST (`curl https://voltradeai.com/api/health`,
+2026-09-27T16:02Z, plus `python3 scripts/session_health_check.py`):
+`status:"degraded"`, `bot.status:"killed"`, liveness alarm unchanged in
+kind (65.0 market hours / 420.8h wall-clock dark since 2026-09-10,
+KNOWN BROKEN #42/#43) — `session_health_check.py`'s own
+`liveness_notify` line explicitly returned "already notified at 276.9h
+— no new notify threshold crossed, do not repeat", so NOT re-notified
+this session per that tool's own doubling-threshold policy (correctly
+distinct from a session choosing not to notify from prose judgment
+alone). `insider_cusum_gate2` (#44) unchanged, still awaiting human
+Dockerfile approval in wishlist.md. Deploy gate: 2xx, `server_version:
+1.0.989` matches this checkout. Neither KNOWN BROKEN item is this
+session's to resolve — both explicitly human-gated.
+
+LOOP-HEALTH RATIO CHECKED: `python3 scripts/research_state_check.py` —
+`thrash_ratio: 2/10 REPAIR in the last 10 tagged sessions` (well under
+the 7+ trigger), `audits_register: none overdue`, `known_broken: 45
+items, 2 without an explicit close marker (#40, #44) — advisory only,
+both already read this session`, `starvation_signal: 0 consecutive
+STARVED`. No meta-problem override; normal session.
+
+PRIMARY-ACTION SELECTION: re-ran, not assumed, the same three automated
+backlog surveys the immediately-prior 3 sessions today reported
+exhausted — `ladder_readiness_check.py` (still 0/4 READY: cftc_cot
+28d-waiting/11d-remaining-est, sec_8k_earnings 5d remaining, fleet_util
+36d remaining, gnss_integrity_adsb 10d remaining), `data_stream_
+registry_check.py` (still 26/35 built, remaining 9/9 declined/blocked
+on human registration or a dead upstream), `ladder_registry_coverage_
+check.py` (still 26/26 full coverage) — all confirmed still exhausted,
+not stale-trusted. Fell through to `research/open_questions.md`'s
+STALE PR #817 RE-QUEUE section: item 2 closed 2026-08-31, item 3 closed
+this same UTC day by the immediately-prior session (v1.0.989), item 4
+(own-tile Moon bake, 5.55 GiB) explicitly deferred to a future
+RunPod-budgeted session by that same filing. Item 1 (camera cannot
+cross a pole) was therefore the one remaining candidate that fit the
+"next queued item" slot.
+
+READ BEFORE WRITE, in full, before writing anything: `applyOrbit()`,
+`camBasis()`, `polarClampDots()`, `LOCK_POLAR_MIN/MAX`, `UNLOCK_POLAR_
+MIN/MAX`, every call site of `camBasis` (`spaceFrame.ts` lines ~2957,
+~3084, ~3887, ~3984, ~3999), and — critically, not done by any prior
+filing of this item — the LIVE user-facing "Lock horizon" toggle copy
+at `client/src/pages/datamap.tsx:14989-14993`. That copy states the
+locked state's contract explicitly: "on — view never swings under the
+ecliptic" / "off — full polar range (roll still impossible)". This
+directly falsifies the standing filing's framing that the locked
+state's ~66°-short-of-south-pole clamp is itself the defect: it is
+documented, tested (`spaceFrame.test.ts`'s own `"polarClampDots: lock
+forbids under-ecliptic, unlock only widens"` test), shipped behavior,
+not a bug. Blindly porting PR #817's "delete the clamp" framing — the
+exact risk this file's own prior note flagged but did not itself
+check — would have silently broken a documented feature contract.
+
+REASONING STANDARD #1 (trace the downstream chain) applied to find the
+REAL remaining defect rather than stopping at "not a bug, close it":
+derived algebraically (full derivation in open_questions.md's dated
+update to this item) that `camBasis`'s `r = norm3(cross(f, upRef))`,
+built fresh from `dir` and a FIXED external reference every call, is a
+CONTINUOUS but SIGN-FLIPPING function of the polar angle as `dir`
+sweeps through the reference axis — normalizing a continuous
+zero-crossing vector produces a genuine ~180° DISCONTINUITY exactly at
+the crossing. This is real and reproducible, not a hand-wave: it is
+also currently UNREACHABLE in production, because both clamp states
+keep `dir` at least `UNLOCK_POLAR_MIN` (2.86°) from the reference axis
+— the narrow (unlocked) end of the clamp is not an arbitrary UX choice,
+it is the guard preventing this exact discontinuity. The genuine,
+narrower, real contract shortfall: the UNLOCKED state's own UI copy
+promises "full polar range" but delivers only to within 2.86° of
+either pole — a hard wall, not a crash, but not what "full" claims.
+
+CORRECTED SCOPE FILED (open_questions.md, dated update to RE-QUEUE item
+1, append-only): a real fix needs a second piece of PERSISTENT camera
+state (`orbitUp`, parallel-transported through the same yaw/pitch
+rotations already applied to `dir` each `applyOrbit()` step, re-
+orthonormalized against the new `dir` via Gram-Schmidt each step) so
+the basis stays continuous through an actual pole crossing — a
+stateful architecture change to the ORBIT interactive path specifically
+(`applyOrbit`, `panOffsetBy`), not a constant tweak. The transient
+one-shot `camBasis(x, CAMERA_UP_ECL)` calls used for flight/arrival
+vectors do not need the same treatment absent a specific flight path
+shown to cross near the axis (none filed). The LOCKED state's clamp is
+explicitly OUT OF SCOPE for this fix — it stays exactly as documented.
+
+WHY NOT IMPLEMENTED THIS SESSION (a genuine judgment call, stated
+plainly rather than silently deferred again): this is real surgery on
+`camBasis`/`applyOrbit`, the shared basis behind every celestial view
+(Earth, Moon, satellites, aircraft), governed by the RENDERING & MOTION
+LAW's Law I (continuity). Correctly identifying and updating every
+consuming call site, with no way to interactively verify mouse-drag
+pole-crossing "feel" in this sandbox (the visual harness's scripted
+navigation does not drive a manual pole-crossing drag — the same
+exemption logged for item 3 and the 2026-08-28 Day/Night PR), is higher
+risk than this automated session should take blind. Two prior sessions
+(2026-08-26, 2026-08-28) already independently declined this exact item
+for size/coupling reasons without deriving why; this session's value is
+replacing that vague caution with a precise, testable, falsifiable spec
+(the 400-step pole-crossing-sweep methodology this file already
+specified remains the correct verification test for whoever implements
+it) — and, just as importantly, heading off a plausible WRONG fix (the
+"just delete the clamp" reading) that would have shipped a regression
+against documented product behavior with a clean diff and passing
+tests, the kind of failure REASONING STANDARD #1 and READ BEFORE WRITE
+exist to catch before code ships, not after.
+
+GATES: none run — no code, config, test, or client/ file was touched;
+`research/*` markdown only. No backtest applicable (pure rendering
+research finding, no trading-path or measurement-code change). No
+version bump (PROMOTION RULE 4 ties version bumps to shipped behavior
+change; none shipped).
+
+STARVED: no — this session's own re-verification of the automated
+backlog (all three surveys re-run, not trusted from a stale report) plus
+a from-scratch mathematical re-diagnosis of a previously-vague filing is
+itself the RESEARCH-tier artifact SESSION BUDGET's fall-through
+explicitly allows when no code action safely fits, per REASONING
+STANDARD #4/#8 (better to file the correct scope than force a risky
+implementation to avoid looking idle).
+
+MARKET-HOURS NOTE: this run's PR touches research/*.md only (no
+trading-path, no client/, no deploy-affecting file) — the scheduled
+task's standing market-hours merge-hold instruction is included in the
+PR description for consistency, though 2026-09-27 is a Sunday (no
+market session in progress) and this change carries no live-break risk
+either way.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-27 (scheduled-routine session) [REPAIR] — T-CLIENT (client/src/lib/celestial/spaceFrame.ts, client/src/lib/celestial/spaceFrame.test.ts) + SHARED-minimal (ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): STALE PR #817 re-queue item 3 — Moon patch mosaic gives margin back before dropping a WAC zoom level, closing a standing 1-3-level rendering-quality regression (v1.0.989)
 
 TERRITORY: T-CLIENT primary (`client/src/lib/celestial/spaceFrame.ts` +
