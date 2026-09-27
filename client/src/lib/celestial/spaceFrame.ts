@@ -257,7 +257,7 @@ import {
 // the screen demands more than WAC's deepest level, a per-site LROC NAC
 // mosaic (~0.5 m/px — the descent stages, rover tracks and foot trails are
 // REAL pixels there) streams as a finer detail tier over the WAC mosaic.
-import { trekBody, nacSiteFor, fitHalfSpanDeg, NAC_ACTIVATE_PX_PER_DEG, NAC_MIN_Z, type NacSite } from "./lroc.js";
+import { trekBody, nacSiteFor, fitHalfSpanDeg, NAC_ACTIVATE_PX_PER_DEG, NAC_MIN_Z, type NacSite, type TrekScheme } from "./lroc.js";
 import {
   normalFromLonLat,
   renderMoonSurfaceRows,
@@ -645,6 +645,28 @@ export const MOON_PATCH_COVER_MARGIN = 2.8;
  *  couple of degrees (avoids a degenerate one-texel fetch and gives the near
  *  edges of the patch real coverage). */
 export const MOON_PATCH_MIN_HALFSPAN_DEG = 2;
+
+/** Clamp a MOON_PATCH_COVER_MARGIN-inflated cover half-span down to what the
+ *  mosaic pixel budget actually allows at the finest level `pxPerSurfDeg`
+ *  would pick, BEFORE planMoonTarget ever gets a chance to back off a whole
+ *  zoom level to fit it (STALE PR #817 re-queue item 3, 2026-08-28: the
+ *  margin's ~7.8x area inflation was feeding the tile budget directly, so a
+ *  close/wide viewport backed the WAC level off 1-3 zooms to fit the margin
+ *  rather than the visible patch, even though the un-padded patch alone fits
+ *  fine at the finer level). Reuses fitHalfSpanDeg — the exact plan-fit clamp
+ *  the NAC tier already applies below — so margin is given back first; a
+ *  level drop only happens if even MOON_PATCH_MIN_HALFSPAN_DEG doesn't fit at
+ *  the finest level, which is the genuine last-resort case. */
+export function wacCoverHalfSpanDeg(
+  wantedHalfSpanDeg: number,
+  pxPerSurfDeg: number,
+  scheme: TrekScheme,
+  minZ: number,
+  maxPx = MOON_MOSAIC_MAX_PX,
+): number {
+  const fit = fitHalfSpanDeg(pxPerSurfDeg, scheme, minZ, maxPx);
+  return Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, Math.min(wantedHalfSpanDeg, fit));
+}
 
 /** A textured body's dot-label glyph renders while its disc is under this
  *  size (the reference's .lbl dot: a 9px annotation ring ON the body). */
@@ -2465,10 +2487,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // px-per-surface-degree; the mosaic-px budget bounds the fetch.
     const pxPerSurfDeg = (k * R * DEG) / Math.max(1, distC - R);
     const bboxLongPx = Math.max(bw, bh);
-    const coverHalfDeg = Math.min(
+    const coverHalfDegWanted = Math.min(
       horizonDeg,
       Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, ((bboxLongPx / pxPerSurfDeg) / 2) * MOON_PATCH_COVER_MARGIN),
     );
+    // give the margin back before dropping a WAC zoom level — see
+    // wacCoverHalfSpanDeg's own doc comment. minZ=2 matches planMoonTarget's
+    // own default floor (moonTiles.ts) for the WAC (non-NAC) tier.
+    const coverHalfDeg = wacCoverHalfSpanDeg(coverHalfDegWanted, pxPerSurfDeg, trekBody(bodyId)!.scheme, 2);
     mgr.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
     const mos = mgr.current();
     const wacOv: DetailOverlay | null = mos
