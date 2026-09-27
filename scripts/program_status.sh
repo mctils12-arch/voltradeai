@@ -851,6 +851,44 @@ PYEOF
 hardcoded_palette_hex=$(python3 scripts/hardcoded_palette_hex.py)
 
 # ---------------------------------------------------------------------------
+# 9n. D14 — param_shadows_outer_binding: a module-top-level function's
+# parameter shadowing another module-top-level binding of the same name,
+# where the parameter is referenced inside that function's own body.
+#
+# The seed PROGRAM_STATE.md's DETECTORS table has carried unbuilt since
+# D11/D12 were seeded (2026-08-14): "functions taking a parameter that
+# shadows an outer binding of the same name (the inverse of D1 — would catch
+# the focusSat extraction before the binding is lost)." D1 (tsc_2304) catches
+# an identifier USED but never DECLARED; this catches the shape the compiler
+# is silent on — a parameter that shadows an outer binding compiles cleanly
+# and just silently changes what a later reference inside the function body
+# means. This repo has zero ESLint config (no `.eslintrc*`/`eslint.config.*`
+# anywhere), so nothing else in the toolchain covers `no-shadow`'s class.
+#
+# Extracted to scripts/param_shadows_outer_binding.py (not inlined), same
+# design_token_drift/hardcoded_palette_hex precedent — direct unit coverage
+# from day one, not just embedded-in-this-script coverage.
+#
+# MODULE SCOPE ONLY, same "top-level" concept D5 conflicting_const and D11
+# dup_precise_literal already use: real closure-chain scope resolution needs
+# an AST, not a grep (D12's own docstring makes the same call). Shadowed
+# names under 3 characters are excluded — live-checking this repo's own
+# top-level bindings before shipping the rule found short, purely
+# conventional physics constants (PI, MU, J2/J3/J4/J8, S, CH, CW, km, v3)
+# that a 1-2 character match would flag against any unrelated same-named
+# parameter, which is noise, not signal. See the module's own docstring for
+# the full rationale.
+#
+# BASELINE 0 — verified two ways (module-top-level functions only, and, as a
+# second independent pass, every function/arrow at any nesting depth in the
+# file) before MIN_NAME_LEN was even applied: no current top-level function
+# in client/src reuses another top-level binding's name as a used parameter.
+# Same precedent as D12 orphaned_set_interval (baseline 0): the counter's job
+# is to be a tripwire against a NEW shadow, not to work down existing debt.
+# ---------------------------------------------------------------------------
+param_shadows_outer_binding=$(python3 scripts/param_shadows_outer_binding.py)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -929,6 +967,7 @@ if [ "$JSON" = 1 ]; then
   "dup_precise_literal": $dup_precise_literal,
   "orphaned_set_interval": $orphaned_set_interval,
   "hardcoded_palette_hex": $hardcoded_palette_hex,
+  "param_shadows_outer_binding": $param_shadows_outer_binding,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -994,6 +1033,7 @@ printf '%-24s %-14s %-12s %s\n' baseline_divergence "$baseline_divergence" "${PI
 printf '%-24s %-14s %-12s %s\n' dup_precise_literal "$dup_precise_literal" "${PIN[dup_precise_literal]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' orphaned_set_interval "$orphaned_set_interval" "${PIN[orphaned_set_interval]:-n/a}" "must stay 0"
 printf '%-24s %-14s %-12s %s\n' hardcoded_palette_hex "$hardcoded_palette_hex" "${PIN[hardcoded_palette_hex]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' param_shadows_outer_binding "$param_shadows_outer_binding" "${PIN[param_shadows_outer_binding]:-n/a}" "must stay 0"
 printf '%-24s %-14s %-12s %s\n' detectors_registered "$detectors_registered" "${PIN[detectors_registered]:-n/a}" "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "${PIN[quarantine_size]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"
