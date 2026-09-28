@@ -9005,7 +9005,7 @@ export default function DataMapPage() {
             { label: "ICAO24", value: String(p.icao24 || "—") },
           ],
           sourceTag: "ADS-B",
-          body: `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
+          body: `Planned route (gray curtain ahead of the plane): FILED when the FAA SWIM flight plan is available, otherwise PREDICTED from this flight's last recorded trip or the community route database — labeled on the Planned route row; ` +
                 `trail is our own archived feed history — the 3D altitude line + translucent curtain climb at the RECORDED altitude, colored low-teal → cruise-blue → high-violet across this track's altitude range, with the ground trace draped on the terrain (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence. ` +
                 `GND SPD is the live broadcast; VERT SPD (and replay speeds) are derived from consecutive recorded fixes — the feed carries no vertical rate.`,
