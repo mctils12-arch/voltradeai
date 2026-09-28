@@ -89,6 +89,7 @@ ALIASES = {
     "cboe_vix_term_structure": ["cboe_vix_term_structure"],
     "dtcc_sbsdr": ["dtcc_sbsdr_equity_swaps"],
     "un_comtrade": ["un_comtrade_bilateral_trade"],
+    "fmcsa_oos_orders": ["fmcsa_oos_orders"],
 }
 
 

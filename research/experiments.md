@@ -3,6 +3,200 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — T-DATACORE (server/fmcsaOutOfService.ts new, server/fmcsaOutOfService.test.ts new, datacore/manifests/fmcsaoos.json new, scripts/data_stream_registry_check.py) + SHARED-minimal (server/routes.ts, ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): EDGE DOCTRINE axis (a) — a genuinely new free data root, FMCSA Out-of-Service orders, built end-to-end (v1.0.994)
+
+TASK: scheduled-routine session — read CLAUDE.md, research/experiments.md,
+open_questions.md, wishlist.md; check loop-health ratio; check system
+health/audit log; execute the single highest-value action per SESSION
+BUDGET; open one PR; append a tagged session log.
+
+LOOP-HEALTH RATIO CHECKED FIRST: last 10 tagged entries at session start
+were 1x PIPELINE (this UTC day), 2x PRODUCT (this UTC day), 1x REPAIR,
+1x PRODUCT, 1x REPAIR, 1x RESEARCH, 1x PRODUCT, 1x PIPELINE, 1x PRODUCT —
+2/10 REPAIR, well under the 7+ thrash trigger. Not a repair-thrash
+session.
+
+SYSTEM HEALTH CHECKED (live `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — the
+standing KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in substance
+(65.0 market hours / 440h wall-clock dark since 2026-09-10T03:12:26Z,
+`drawdownPct:"-6.4"`, continuing the same monotonic recovery trend).
+`research/liveness_notify_state.json` shows the last PushNotification for
+this condition went out 2026-09-28T02:38:05Z — same UTC day, ~8.5h before
+this session — so per the established "don't re-notify same day"
+discipline, NOT re-notified this session (no new fact, no further week
+elapsed). `server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/
+`licensing` all `ok`. No other KNOWN BROKEN item is both critical and
+code-actionable from this sandbox — this is NOT a REPAIR session.
+
+PRIMARY-ACTION SEARCH (SESSION BUDGET order: fix a bug > judge a matured
+experiment > start a new experiment > research new ideas): no audit-log
+bug found; `python3 scripts/ladder_readiness_check.py` reported 0/4 gated
+roots READY (all WAITING on time/archive-depth conditions, live-verified,
+not estimated); the immediately preceding 2026-09-28 PRODUCT session had
+already run and REJECTED the one ready-now GATE 2 candidate (rail-carload
+intermodal-growth-surprise, a clean 16-comparison null); the immediately
+preceding 2026-09-28 PIPELINE session had already discharged PROGRAM_
+STATE.md's §0.7 DETECT duty (D15) and left its own "Seeds not yet taken"
+list down to one explicitly-low-value entry. Audits register (research/
+experiments.md's own register) showed nothing overdue (STALENESS next due
+2026-10-16, CONSTITUTIONAL next due 2026-10-20, CALENDAR next due
+2026-12-01). Fell through to SESSION BUDGET fall-through tier: axis (a)
+real web research for a genuinely new free data root, explicitly flagged
+as the one open, unclaimed item in the immediately preceding PIPELINE
+session's own NEXT(3) ("axis (a) remains open to a session with time for
+real web research into a genuinely new free data root").
+
+METHOD: full account of the search, the rejected AuthHist sibling dataset,
+and the live probes that confirmed `p2mt-9ige` (FMCSA Out-of-Service
+orders) is genuinely live (not a frozen extract) is in this session's
+matching `research/open_questions.md` entry and in
+`datacore/manifests/fmcsaoos.json`'s own `source`/`confidence_model`
+fields — not repeated in full here. Summary: web-searched candidate new
+physical-economy free data roots beyond the 35 already tracked in
+`scripts/data_stream_registry_check.py`; USACE Lock Performance
+Monitoring System (inland-waterway barge tonnage) was investigated first
+but its actual data host (`corpslocks.usace.army.mil`) is policy-denied
+by this sandbox's proxy (`gateway answered 502 to CONNECT`) — the same
+"relay-gated" shape ORBITAL's CelesTrak/Railway precedent already
+documents — so it could not be live-probed with confidence and was set
+aside, not built on an unverified assumption. Pivoted to FMCSA's
+data.transportation.gov Socrata catalog: found and REJECTED
+`AuthHist - All With History` (9mw4-x3tu) as a frozen legacy extract
+(own description: "will no longer be updated," `max(orig_served_date)`/
+`max(disp_decided_date)` both capped 12/31/2025 despite a fresh-looking
+catalog timestamp — the identical shape `research/data_census.md`
+declined `cboe_daily_stats` for), then found and CONFIRMED LIVE
+`p2mt-9ige` ("OUT OF SERVICE ORDERS": trailing-30-day count 2532,
+~536/week, `max(oos_date)` within 2 days of the probe, status distinct
+ACTIVE/INACTIVE/PENDING, dominant recent reason "New Entrant Revoked -
+Refusal of Audit/No Contact").
+
+READ BEFORE WRITE before building: read `server/cbpBorderWait.ts` end to
+end as the template (fetch/parse -> change-only-dedup JSONL archive with
+gzip-after-2-days -> cold-cache-no-disk-backfill via the shared
+`resolveCacheItems` helper from `server/cacheBackfill.ts` -> cache + 
+eager-boot poll), its matching `server/cbpBorderWait.test.ts`, its
+`server/routes.ts` wiring (`bootBorderWaitPoll()` + `/api/data/
+border-waits`), and `datacore/manifests/cbpborderwait.json`'s envelope —
+mirrored the same shape rather than inventing a new one (EDGE DOCTRINE
+#3, reuse don't reimplement).
+
+SHIPPED: `server/fmcsaOutOfService.ts` (new — fetch/parse/archive/cache/
+poll for the trailing 45-day window, 6h poll cadence matching the
+dataset's real daily-ish refresh rate); `server/fmcsaOutOfService.test.ts`
+(new, 9 tests — parse/malformed-row/rescission-update/change-only-dedup/
+transport-error/backfill-identity/backfill-window/cold-cache-throw/
+cold-cache-empty/warm-cache-not-blanked, mirroring cbpBorderWait.test.ts's
+own battery shape); `datacore/manifests/fmcsaoos.json` (new, full
+universal envelope); `server/routes.ts` (`bootOosPoll()` +
+`/api/data/fmcsa-oos`, RAW OVERLAY per CLAUDE.md's RAW OVERLAYS vs
+SIGNALS rule — an enforcement-action log, no ladder gating claimed);
+`scripts/data_stream_registry_check.py` (new `fmcsa_oos_orders` candidate
+row, 26/35 -> 27/36 tracked-built); `research/open_questions.md` (new
+dated entry: full build account, classification, and a PRE-REGISTERED,
+NOT YET RUN GATE 2 cross-connection hypothesis — aggregate OOS volume vs.
+small-cap trucking forward returns — explicitly discounted per REASONING
+STANDARD #4 as the same family the 2026-09-28 rail-carload GATE 2 test
+just rejected, not attempted this PR per PROMOTION RULE 5);
+`datacore/signal_ladder.json` (new `fmcsa_oos_orders` root, `raw_only`/
+gate 0, discovered only when `bash scripts/gated_tests.sh` caught
+`test_ladder_registry_coverage_check.py`'s own FORWARD-ENFORCEMENT pair
+failing on a "built" registry candidate with no ladder-alias entry — the
+same enforcement shape `server/manifests.test.ts` already applies to
+archive directories, applied here to the ladder registry instead);
+`scripts/ladder_registry_coverage_check.py` (`fmcsa_oos_orders` added to
+`ALIASES`, mapping the new registry candidate to its own new ladder root
+id).
+
+TYPING DISCIPLINE (MEASUREMENT INTEGRITY-adjacent honesty, not a metric
+change): the first draft copied cbpBorderWait.ts's own `type FetchFn =
+(url: string, init?: any) => ...` and `catch (e: any)` idioms verbatim,
+which are already baked into the current `ts_any`/`boundary_any`/
+`empty_ts_catch` baselines from THEIR existing occurrences — but those
+counters are non-increasing, so a NEW file repeating the same idiom still
+regresses them (`empty_ts_catch` 497->499, `ts_any` 1249->1254,
+`boundary_any` 238->240, caught live by `scripts/counter_ratchet.sh`
+before commit). Fixed by narrowing `FetchFn`'s `init` to a concrete
+`{ headers?: Record<string,string>; signal?: AbortSignal }` shape
+(mirroring `server/dtccSwaps.ts`'s already-established narrower
+convention), retyping all three `catch (e: any)` to the already-
+established `catch (e: unknown)` idiom (`server/fdicBanks.ts`/
+`server/gridGeneration.ts`/`server/bot.ts` precedent) with
+`e instanceof Error ? e.message : e`, retyping `parseOosOrders`'s and
+`str`'s parameters from `any` to `unknown` (with an explicit
+`as Record<string, unknown> | null` cast at the one point structure is
+actually assumed), and replacing both truly-empty `catch {}` blocks with
+either a real conditional (`key = null` on a JSON-parse failure, only
+added to the map if non-null) or removing the try/catch entirely in favor
+of an explicit `fs.existsSync` guard (the directory-not-yet-created case
+in `gzipOldOosDays` no longer needs to swallow an exception at all).
+Verified: all three counters returned to baseline-or-better after the
+fix, confirmed by re-running `scripts/counter_ratchet.sh` clean.
+
+GATES (full — this sandbox needed a fresh `npm ci` and `pip install -r
+requirements.txt -r requirements-dev.txt`, neither was already present):
+`npx tsx --test server/fmcsaOutOfService.test.ts` — 9/9 pass standalone.
+`bash scripts/tsc_ratchet.sh` — 11, TS2304 0, unchanged. `bash scripts/
+counter_ratchet.sh` — 28 counters at or better than baseline; 3 IMPROVED
+by this session's own new test file and re-pinned in the same PR
+(`tests_run_in_ci`/`tests_gating_merge` 477->478, `assertions`
+15609->15638 — this session's own 9 new tests' assertions, not unrelated
+drift, per PROMOTION RULE 5). `bash scripts/gated_tests.sh` — **GATE
+PASSED** (server 201 files / client 102 files / python 2253 passed+1
+skipped all green, deploy-gate smoke PASS: build + boot + `/api/health`
+200 under latched-kill-switch + stale-liveness state). `python3
+scripts/data_stream_registry_check.py` — 27/36 built, new row confirmed
+`[OK]`.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; a new RAW data-archival module and its manifest, not
+a change to any existing measurement. The counter-ratchet fixes above are
+typing-discipline fixes to NEW code, not edits to any existing measured
+quantity.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed. This is a RAW overlay per CLAUDE.md
+(no ladder gating, no predictive claim); the filed GATE 2 hypothesis is
+explicitly NOT attempted this PR.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`c6162f3`) already matched `origin/main`'s real HEAD
+(package.json already at 1.0.993 there) — bumped `1.0.993 -> 1.0.994`
+(`package.json` + `package-lock.json`).
+
+WORKSTREAM PARTITION: `server/fmcsaOutOfService.ts`/`.test.ts`,
+`datacore/manifests/fmcsaoos.json`, and `scripts/data_stream_registry_
+check.py` are T-DATACORE (a new datacore-pattern source module, same
+class as `cbpBorderWait.ts`/`droughtMonitor.ts`); `server/routes.ts`,
+`ci/counter_baseline.txt`, `package.json`/`package-lock.json`, and
+`research/open_questions.md`/`research/experiments.md` are SHARED,
+touched minimally (one import + one route block in routes.ts; three
+counter re-pins; one version bump; one dated entry each in the two
+research files). No T-BOT/T-CLIENT file touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+NEXT: (1) let the new archive accumulate — GATE 2 cannot be run
+meaningfully until real calendar weeks of data exist, no historical
+backfill shipped this session; (2) a `/data` client page for
+`/api/data/fmcsa-oos` is queued, not this session (API + archive only
+this PR, matching the un_comtrade/dtcc_sbsdr precedent); (3) the USACE
+LPMS lock-tonnage lead set aside this session (relay-gated, policy-denied
+by this sandbox's proxy) should be re-checked by a future session with
+different network access, or from Railway directly, before being
+declined outright — it was set aside, not rejected; (4) full details and
+the pre-registered GATE 2 design are in research/open_questions.md's
+matching 2026-09-28 entry.
+
+STARVED: no — this session's primary action (finding, live-probing, and
+shipping a genuinely new EDGE DOCTRINE #1 free data root end-to-end with
+tests, a manifest, and honest gate/typing-discipline fixes) is exactly
+what axis (a)'s own open NEXT item asked for.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-28 (scheduled-routine EDGE session, third session this UTC day) [PIPELINE] — SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md, research/liveness_notify_state.json) + one new standalone module (scripts/duplicate_route_registration.py, test_duplicate_route_registration.py): EDGE DOCTRINE #3 compile — D15 `duplicate_route_registration` ships, baseline 0 (v1.0.993)
 
 TASK: scheduled EDGE DOCTRINE session. Instructed to check system

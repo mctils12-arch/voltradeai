@@ -113,6 +113,7 @@ import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHis
 import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
+import { bootOosPoll, latestOosOrders } from "./fmcsaOutOfService";
 import { fleetSeriesCached, preserveWeeklyBeforeRollup } from "./fleetUtilization";
 import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
@@ -3954,6 +3955,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.obs.length,
       note: "hourly snapshot flattened per lane class (commercial standard/FAST + passenger standard); status strings as published (localized by CBP's serving region) — join on port_number; null delay = not published, never zero",
       waits: hit.obs,
+    });
+  });
+
+  // FMCSA Out-of-Service orders (RAW — EDGE DOCTRINE #1, keyless,
+  // probed live 2026-09-28). Small-carrier enforcement-action log;
+  // no predictive claim, no ladder gating (RAW OVERLAYS vs SIGNALS).
+  bootOosPoll();
+  app.get("/api/data/fmcsa-oos", (_req, res) => {
+    const hit = latestOosOrders();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "FMCSA Out-of-Service Orders", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "FMCSA Out-of-Service Orders (data.transportation.gov, public domain)",
+      attribution: "FMCSA Out-of-Service Orders",
+      time: hit.at,
+      count: hit.obs.length,
+      note: "trailing-45-day window of motor-carrier out-of-service orders, polled every 6h; status ACTIVE/INACTIVE/PENDING and rescind_date as published — an order whose rescind_date is added after it ages out of the window will not be re-observed (known v1 limitation)",
+      orders: hit.obs,
     });
   });
 
