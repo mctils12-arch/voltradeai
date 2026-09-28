@@ -6,7 +6,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveAircraftAt, type AircraftPoint } from "./datacoreArchive";
 import {
-  readWindow, lodStepSec, lonInBBox, hourName, WINDOW_DEFAULT_CAPS,
+  readWindow, lodStepSec, lonInBBox, hourName, WINDOW_DEFAULT_CAPS, WINDOW_GAP_SEC,
 } from "./aircraftWindow";
 
 const T0 = Math.floor(Date.parse("2026-08-10T12:00:00Z") / 1000);
@@ -319,4 +319,107 @@ test("default caps are the charter's stated bounds", () => {
   assert.equal(WINDOW_DEFAULT_CAPS.maxPointsPerHex, 600);
   assert.equal(WINDOW_DEFAULT_CAPS.maxTotalPoints, 60_000);
   assert.equal(WINDOW_DEFAULT_CAPS.maxFiles, 192);
+});
+
+// ── FLIGHT PROGRAM replay (2026-09-28): close approaches + honest gaps ───────
+
+test("closeApproaches: computed on UN-decimated fixes, present even at a coarse step", async () => {
+  const base = tmpBase();
+  const fixes: Array<AircraftPoint & { tSec: number }> = [];
+  // two aircraft 2 nm apart laterally, 500 ft vertically, 30 s fixes for 20 min
+  for (let k = 0; k < 40; k++) {
+    fixes.push(fix("aaaaaa", T0 + k * 30, 40.0, -100 + k * 0.05, 10668, { callsign: "AAL1" } as any));
+    fixes.push(fix("bbbbbb", T0 + k * 30, 40.0 + 2 / 60, -100 + k * 0.05, 10820, { callsign: "UAL2" } as any));
+    fixes.push(fix("cccccc", T0 + k * 30, 44.0, -95 + k * 0.05, 10668)); // far away
+  }
+  archiveAircraftAt(fixes, base);
+  // step 3600: the returned points are ≥ 1 h apart — a scan on those would
+  // find nothing under the ±90 s rule; the scan must use the raw fixes
+  const r = await readWindow({
+    bbox: { w: -110, s: 35, e: -90, n: 45 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 3, stepSecOverride: 3600, baseDir: base,
+  });
+  assert.ok(r.hexes.every((h) => h.points.length <= 2));
+  assert.ok(Array.isArray(r.closeApproaches));
+  assert.equal(r.closeApproaches!.length, 1);
+  const ca = r.closeApproaches![0];
+  assert.equal(ca.a, "aaaaaa");
+  assert.equal(ca.b, "bbbbbb");
+  assert.equal(ca.ca, "AAL1");
+  assert.ok(Math.abs(ca.horizNm - 2) < 0.05, `horiz ${ca.horizNm}`);
+  assert.ok(Math.abs(ca.vertFt - 499) < 5, `vert ${ca.vertFt}`);
+  assert.match(ca.basis, /per our recorded ADS-B data — not an official loss-of-separation report/);
+  assert.ok(["high", "medium", "low"].includes(ca.confidence));
+  assert.equal(r.closeApproachesMeta!.evaluated_hexes, 3);
+  assert.equal(r.closeApproachesMeta!.found, 1);
+  assert.equal(r.closeApproachesMeta!.capped, false);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("closeApproaches: checked over ALL hexes seen, not only the returned (capped) ones", async () => {
+  const base = tmpBase();
+  const fixes: Array<AircraftPoint & { tSec: number }> = [];
+  // a busy hex that wins the hex cap, plus a quiet close pair that does not
+  for (let k = 0; k < 100; k++) fixes.push(fix("aaaaaa", T0 + k * 30, 36.0, -105 + k * 0.01, 9000));
+  for (let k = 0; k < 10; k++) {
+    fixes.push(fix("dddddd", T0 + k * 30, 41.0, -100 + k * 0.05, 11000));
+    fixes.push(fix("eeeeee", T0 + k * 30, 41.0 + 1 / 60, -100 + k * 0.05, 11000));
+  }
+  archiveAircraftAt(fixes, base);
+  const r = await readWindow({
+    bbox: { w: -110, s: 35, e: -90, n: 45 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 10, baseDir: base, caps: { maxHexes: 1 },
+  });
+  assert.equal(r.hexes.length, 1);
+  assert.equal(r.hexes[0].i, "aaaaaa");
+  assert.equal(r.closeApproaches!.length, 1, "the capped-out pair is still reported");
+  assert.equal(r.closeApproaches![0].a, "dddddd");
+  assert.equal(r.closeApproachesMeta!.evaluated_hexes, 3);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("closeApproaches: vessels never carry them; closeApproaches:false disables", async () => {
+  const base = tmpBase();
+  writeVesselHour(base, T0, [
+    { mmsi: "111111111", tSec: T0 + 10, lat: 40, lon: -70 },
+    { mmsi: "222222222", tSec: T0 + 10, lat: 40.001, lon: -70 },
+  ]);
+  const v = await readWindow({ kind: "vessels", bbox: { w: -80, s: 30, e: -60, n: 50 }, fromSec: T0, toSec: T0 + 3600, zoom: 8, baseDir: base });
+  assert.equal(v.closeApproaches, undefined);
+  archiveAircraftAt([fix("aaaaaa", T0 + 10, 40, -100, 10000)], base);
+  const off = await readWindow({ bbox: { w: -110, s: 35, e: -90, n: 45 }, fromSec: T0, toSec: T0 + 3600, zoom: 8, baseDir: base, closeApproaches: false });
+  assert.equal(off.closeApproaches, undefined);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("gaps: a REAL raw hole > 10 min is marked; decimation spacing is not", async () => {
+  const base = tmpBase();
+  const fixes: Array<AircraftPoint & { tSec: number }> = [];
+  // 30 s fixes for 20 min, a 25-min signal loss, then 30 s fixes for 10 min
+  for (let k = 0; k < 40; k++) fixes.push(fix("aaaaaa", T0 + k * 30, 40 + k * 0.01, -100, 10000));
+  const resume = T0 + 39 * 30 + 25 * 60;
+  for (let k = 0; k < 20; k++) fixes.push(fix("aaaaaa", resume + k * 30, 41 + k * 0.01, -100, 10000));
+  archiveAircraftAt(fixes, base);
+  for (const stepSecOverride of [0, 60, 900]) {
+    const r = await readWindow({
+      bbox: { w: -110, s: 35, e: -90, n: 45 }, fromSec: T0, toSec: T0 + 7200, zoom: 10,
+      stepSecOverride, baseDir: base,
+    });
+    const h = r.hexes[0];
+    assert.ok(Array.isArray(h.gaps) && h.gaps.length === 1, `step ${stepSecOverride}: one gap (${JSON.stringify(h.gaps)})`);
+    const idx = h.points.findIndex((p) => p[0] === h.gaps![0]);
+    assert.ok(idx > 0, "gap marks a returned point");
+    assert.ok(h.points[idx][0] >= resume, "the marked point is on the far side of the hole");
+    assert.ok(h.points[idx - 1][0] <= T0 + 39 * 30, "…and its predecessor on the near side");
+  }
+  // continuous 30 s track decimated to 15-min steps: no gap claimed
+  const base2 = tmpBase();
+  const cont: Array<AircraftPoint & { tSec: number }> = [];
+  for (let k = 0; k < 120; k++) cont.push(fix("bbbbbb", T0 + k * 30, 40 + k * 0.01, -100, 10000));
+  archiveAircraftAt(cont, base2);
+  const r2 = await readWindow({ bbox: { w: -110, s: 35, e: -90, n: 45 }, fromSec: T0, toSec: T0 + 7200, zoom: 3, stepSecOverride: 900, baseDir: base2 });
+  assert.equal(r2.hexes[0].gaps, undefined);
+  assert.equal(WINDOW_GAP_SEC, 600);
+  fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(base2, { recursive: true, force: true });
 });

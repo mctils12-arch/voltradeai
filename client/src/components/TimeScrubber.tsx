@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Play, Pause, X, Clock } from "lucide-react";
+import { Play, Pause, X, Clock, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import type maplibregl from "maplibre-gl";
 // EARTH TWIN E1: this panel IS the global time axis's UI — every committed
 // scrub publishes the instant so dated layers (GIBS imagery) follow the same
 // moment the archive replay shows. Closing the panel returns the world to
 // LIVE. (lib/timeAxis; datamap subscribes.)
 import { setTimeAxis } from "@/lib/timeAxis";
+import { subscribeUnits } from "@/lib/units";
+import {
+  FleetReplayController, type ReplayState, type ReplayKind,
+} from "@/lib/air/fleetReplayController";
+import {
+  fmtSeparation, fmtUtcTime, sideLabel, approachKey, confidenceText,
+  type CloseApproachEntry,
+} from "@/lib/air/closeApproachView";
 
 /**
  * TimeScrubber — ANALYST CONSOLE W3: "pick a window, scrub, watch the world
@@ -14,20 +22,20 @@ import { setTimeAxis } from "@/lib/timeAxis";
  * no code and issues no requests.
  *
  * Two modes, chosen by the selected layer:
- * - AIRCRAFT / VESSELS (TIME MACHINE v2 T-2 + T-4, earth_twin_program.md,
- *   human directive 2026-08-11): fetches one hex-multiplexed WINDOW
- *   (GET /api/data/aircraft/window?kind=aircraft|vessels,
- *   server/aircraftWindow.ts T-1, shipped v1.0.672; kind param wired T-4)
- *   covering the selected window length (1h/6h/24h/7d/30d) at the selected
- *   decimation step (1min/5min/15min/1h — the human's "mins or hours
- *   different thing to choose from"), then scrubs a CURSOR through the
- *   already-loaded per-hex tracks locally — no network round-trip per drag
- *   tick, unlike the old per-instant fetch model. Each hex draws at its
- *   last known position at-or-before the cursor. Vessels have no altitude
- *   (paths, not curtains — same as aircraft look today). T-3 (a batched
- *   MultiTrackLayer curtain fleet) is the next slice, not this one — this
- *   panel still paints flat points, matching the pre-T-2 visual for every
- *   other layer.
+ * - AIRCRAFT / VESSELS (TIME MACHINE v2 T-2/T-3/T-4 + FLIGHT PROGRAM replay,
+ *   earth_twin_program.md; human directive 2026-09-28 "rewind and see ALL
+ *   planes in my field of view with tracks and curtains at any pan/tilt/
+ *   zoom; if two planes came close you can see it"): a FleetReplayController
+ *   (lib/air/fleetReplayController.ts) owns the replay — the window read
+ *   FOLLOWS THE CAMERA TARGET (pitched/horizon-clamped footprint + margin,
+ *   re-read only when the view leaves what was fetched, abortable, old data
+ *   drawn until new lands), every plane's curtain/line/head is drawn by ONE
+ *   batched GL layer with device-tier LOD + hysteresis, and the playhead is
+ *   a lerped target driven by the frameCore loop (no per-tick fetch, no
+ *   per-tick jump). Aircraft windows also list CLOSE APPROACHES (server/
+ *   closeApproach.ts: < 5 nm / 1,000 ft per our recorded ADS-B data — never
+ *   an official report); clicking one frames the pair and highlights them.
+ *   Vessels have no altitude (paths + heads, no curtains, no approaches).
  * - EVERYTHING ELSE (trains/fires/alerts/gauges): unchanged single-instant
  *   snapshot model (GET /api/data/snapshot, server/queryEngine.ts's
  *   querySnapshot) — these layers have no window-read backend yet.
@@ -36,9 +44,8 @@ import { setTimeAxis } from "@/lib/timeAxis";
  * historical replay so neither is mistaken for a live layer.
  *
  * The map instance is owned by the PARENT (datamap.tsx); this component only
- * adds/updates/removes its OWN geojson source+layer ("time-scrubber-*") on
- * that instance, mirroring the existing trail-line pattern — never touches
- * any live layer's state.
+ * adds/removes its OWN sources/layers ("time-scrubber-*", "fleet-replay-3d")
+ * on that instance — never touches any live layer's state.
  */
 
 const SNAPSHOT_SOURCE = "time-scrubber-snapshot";
@@ -46,6 +53,11 @@ const SNAPSHOT_LAYER = "time-scrubber-points";
 const PLAY_INTERVAL_MS = 900;
 const DEFAULT_HOURS_BACK = 24;
 const FALLBACK_MAX_HOURS = 7 * 24; // reconciled with the server's stated window once known
+/** the global time axis follows the replay at this granularity (dated
+ *  imagery is day-granular; per-frame publishes would thrash followers) */
+const AXIS_PUBLISH_SEC = 60;
+/** …and at most this often in wall-clock time while the playhead moves */
+const AXIS_PUBLISH_MIN_MS = 1000;
 
 const LAYERS: Array<{ value: string; label: string }> = [
   { value: "aircraft", label: "Aircraft" },
@@ -56,10 +68,8 @@ const LAYERS: Array<{ value: string; label: string }> = [
   { value: "gauges", label: "River gauges" },
 ];
 
-// TIME MACHINE v2 T-2/T-4: layers with a window-read backend. Both share the
-// same server route (kind= query param) and client rendering path — vessels
-// draw as flat points same as aircraft (no altitude, so no curtain either
-// way until T-3 ships).
+// TIME MACHINE v2 T-2/T-4: layers with a window-read backend (same server
+// route, kind= query param). Both replay through the fleet controller.
 const WINDOW_KINDS = new Set(["aircraft", "vessels"]);
 
 const WINDOW_OPTIONS_SEC: Array<{ value: number; label: string }> = [
@@ -87,38 +97,17 @@ interface SnapshotEnvelope {
   note: string; error?: string;
 }
 
-interface WindowHex {
-  i: string; rg?: string; c?: string; ty?: string;
-  points: Array<[number, number, number, number | null]>;
-  raw_count: number; truncated: boolean;
-}
-interface WindowResult {
-  kind: string; from: number; to: number; zoom: number; step_sec: number;
-  hexes: WindowHex[]; hexes_seen: number; total_points: number;
-  coverage: { requested_from: number; scanned_from: number; complete: boolean; files_scanned: number };
-  note?: string; error?: string;
-}
-
 function fmtUtc(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
 }
 
-/** Reconstruct each hex's position at-or-before `cursorSec` — a local
- *  "snapshot at time T" over an already-loaded window, no network call. */
-function positionsAtCursor(w: WindowResult, cursorSec: number): SnapshotPoint[] {
-  const out: SnapshotPoint[] = [];
-  for (const h of w.hexes) {
-    let best: [number, number, number, number | null] | null = null;
-    for (const p of h.points) {
-      if (p[0] > cursorSec) break; // points are time-ascending
-      best = p;
-    }
-    if (!best) continue;
-    out.push({ id: h.i, lat: best[1], lon: best[2], label: h.c || h.rg || h.i, severity: null, value: best[3] });
-  }
-  return out;
+/** Law V: how old the drawn window read is */
+function ageText(fetchedAtMs: number | null, nowMs: number): string {
+  if (fetchedAtMs == null) return "";
+  const s = Math.max(0, Math.round((nowMs - fetchedAtMs) / 1000));
+  return s < 5 ? "read just now" : s < 120 ? `read ${s}s ago` : `read ${Math.round(s / 60)} min ago`;
 }
 
 export default function TimeScrubber({ map, onClose }: {
@@ -128,17 +117,23 @@ export default function TimeScrubber({ map, onClose }: {
   const [layer, setLayer] = useState("aircraft");
   const isWindowMode = WINDOW_KINDS.has(layer);
 
-  // Snapshot-mode state (vessels/trains/fires/alerts/gauges) — unchanged.
+  // Snapshot-mode state (trains/fires/alerts/gauges) — unchanged.
   const [hoursBack, setHoursBack] = useState(DEFAULT_HOURS_BACK);
   const [maxHours, setMaxHours] = useState(FALLBACK_MAX_HOURS);
   const [snap, setSnap] = useState<SnapshotEnvelope | null>(null);
 
-  // Window-mode state (aircraft, T-2) — a preloaded window scrubbed locally.
+  // Window-mode state — owned by the fleet replay controller.
   const [windowSec, setWindowSec] = useState(DEFAULT_WINDOW_SEC);
   const [stepSec, setStepSec] = useState(DEFAULT_STEP_SEC);
-  const [windowData, setWindowData] = useState<WindowResult | null>(null);
-  const [cursorSec, setCursorSec] = useState<number | null>(null); // display-only until committed
-  const [windowError, setWindowError] = useState<string | null>(null);
+  const [replay, setReplay] = useState<ReplayState | null>(null);
+  const [playhead, setPlayhead] = useState<{ value: number; target: number; playing: boolean } | null>(null);
+  const ctrlRef = useRef<FleetReplayController | null>(null);
+  const axisRef = useRef<number | null>(null);
+  const axisPubAtRef = useRef(0);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [, setUnitsTick] = useState(0);
+  const [caOpen, setCaOpen] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -213,46 +208,66 @@ export default function TimeScrubber({ map, onClose }: {
     }
   };
 
-  // T-2: fetch one window (bbox + zoom taken at fetch time, not tracked
-  // live — no map-event subscription here, matching the snapshot mode's
-  // existing pattern and the Rendering & Motion Law's "no visual state from
-  // moveend/zoomend" rule). Cursor starts at the window's end (live/"now").
-  const fetchWindow = async () => {
-    if (!map || inFlight.current) return;
-    inFlight.current = true;
-    setLoading(true);
-    setWindowError(null);
-    try {
-      const to = Math.floor(nowRef.current / 1000);
-      const from = to - windowSec;
-      const b = map.getBounds();
-      const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
-      const zoom = map.getZoom();
-      // T-4: layer IS the kind for both window-mode layers today (aircraft,
-      // vessels) — no separate mapping needed unless a third window kind
-      // (trains?) ever joins with a different layer id.
-      const r = await fetch(`/api/data/aircraft/window?bbox=${encodeURIComponent(bbox)}&from=${from}&to=${to}&zoom=${zoom}&step=${stepSec}&kind=${encodeURIComponent(layer)}`);
-      const d: WindowResult = await r.json();
-      if (!r.ok) { setWindowError(d.error || `request failed (${r.status})`); setWindowData(null); paint([]); return; }
-      setWindowData(d);
-      setCursorSec(d.to);
-      setTimeAxis({ mode: "live" });
-      paint(positionsAtCursor(d, d.to));
-    } catch (e: any) {
-      setWindowError(e?.message || "network error");
-      setWindowData(null);
-    } finally {
-      setLoading(false);
-      inFlight.current = false;
-    }
-  };
+  // ── window mode: the fleet replay controller's lifetime ─────────────────
+  useEffect(() => {
+    if (!map || !isWindowMode) return;
+    const ctrl = new FleetReplayController({
+      map,
+      getObstruction: () => panelRef.current?.getBoundingClientRect() ?? null,
+      onState: (s) => setReplay(s),
+      onPlayhead: (value, target, isPlaying) => {
+        setPlayhead({ value, target, playing: isPlaying });
+        // the world clock follows the replay: at most once a second while
+        // the playhead moves (every axis change re-renders the map page's
+        // HISTORICAL badge + dated-layer dates), and once more where it
+        // settles — the old per-commit/per-tick cadence, never per frame
+        const last = axisRef.current;
+        const settled = !isPlaying && Math.abs(value - target) < 0.5;
+        const wall = Date.now();
+        const due = wall - axisPubAtRef.current >= AXIS_PUBLISH_MIN_MS && (last == null || Math.abs(value - last) >= AXIS_PUBLISH_SEC);
+        if (last == null || due || (settled && last !== value)) {
+          axisRef.current = value;
+          axisPubAtRef.current = wall;
+          const toSec = Math.floor(nowRef.current / 1000);
+          setTimeAxis(value >= toSec - 1 ? { mode: "live" } : { mode: "historical", atMs: Math.round(value * 1000) });
+        }
+      },
+    });
+    ctrlRef.current = ctrl;
+    return () => {
+      ctrl.dispose();
+      if (ctrlRef.current === ctrl) ctrlRef.current = null;
+      setReplay(null);
+      setPlayhead(null);
+    };
+  }, [map, isWindowMode]);
 
-  // Initial fetch on open + whenever the layer, window, or step changes.
+  // window/step/kind → the controller's query (it re-reads from the CURRENT
+  // camera target; the cursor starts at the window's end, i.e. "now")
+  useEffect(() => {
+    if (!isWindowMode) return;
+    const to = Math.floor(nowRef.current / 1000);
+    ctrlRef.current?.setQuery({ kind: layer as ReplayKind, fromSec: to - windowSec, toSec: to, stepSec });
+    setTimeAxis({ mode: "live" });
+    axisRef.current = null;
+  }, [layer, isWindowMode, windowSec, stepSec, map]);
+
+  // units preference re-renders the separation readouts
+  useEffect(() => subscribeUnits(() => setUnitsTick((v) => v + 1)), []);
+  // Law V age readout refresh
+  useEffect(() => {
+    if (!isWindowMode) return;
+    const iv = setInterval(() => setNowTick(Date.now()), 5000);
+    return () => clearInterval(iv);
+  }, [isWindowMode]);
+
+  // Snapshot mode: initial fetch on open + whenever the layer changes.
   useEffect(() => {
     setPlaying(false);
-    if (isWindowMode) fetchWindow(); else fetchSnapshot(hoursBack, layer);
+    if (!isWindowMode) fetchSnapshot(hoursBack, layer);
+    else clearMapLayer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layer, isWindowMode ? windowSec : null, isWindowMode ? stepSec : null]);
+  }, [layer, isWindowMode]);
 
   // Snapshot-mode playback: step toward "now" (hoursBack -> 0), one fetch
   // per tick, never overlapping a fetch still in flight.
@@ -271,26 +286,6 @@ export default function TimeScrubber({ map, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, isWindowMode, layer]);
 
-  // Window-mode playback: advance the cursor through the ALREADY-LOADED
-  // window locally — no fetch per tick. Tick size scales with the window so
-  // a full sweep takes ~60 ticks regardless of window length, floored at
-  // the selected step (never advances finer than the data was decimated).
-  useEffect(() => {
-    if (!playing || !isWindowMode || !windowData) return;
-    const tick = Math.max(stepSec, Math.round(windowSec / 60));
-    const iv = setInterval(() => {
-      setCursorSec((prev) => {
-        const cur = prev ?? windowData.from;
-        const next = Math.min(windowData.to, cur + tick);
-        paint(positionsAtCursor(windowData, next));
-        setTimeAxis(next >= windowData.to ? { mode: "live" } : { mode: "historical", atMs: next * 1000 });
-        if (next >= windowData.to) setPlaying(false);
-        return next;
-      });
-    }, PLAY_INTERVAL_MS);
-    return () => clearInterval(iv);
-  }, [playing, isWindowMode, windowData, stepSec, windowSec]);
-
   // Cleanup the map layer when the panel closes (unmounts) — and return the
   // global time axis to LIVE: the panel is the axis's only UI, so a closed
   // panel must never leave the world silently stuck in the past.
@@ -302,25 +297,34 @@ export default function TimeScrubber({ map, onClose }: {
     fetchSnapshot(hb, layer);
   };
 
-  const onCursorCommit = (cur: number) => {
-    setCursorSec(cur);
-    setPlaying(false);
-    if (!windowData) return;
-    paint(positionsAtCursor(windowData, cur));
-    setTimeAxis(cur >= windowData.to ? { mode: "live" } : { mode: "historical", atMs: cur * 1000 });
+  const onCursor = (cur: number) => {
+    const c = ctrlRef.current;
+    if (!c) return;
+    if (c.isPlaying()) c.setPlaying(false);
+    c.setPlayheadTarget(cur);
   };
 
+  const data = replay?.data ?? null;
+  const toSec = Math.floor(nowRef.current / 1000);
+  const fromSec = toSec - windowSec;
+  const winPlaying = !!playhead?.playing;
   const atIso = new Date(nowRef.current - hoursBack * 3600_000).toISOString();
-  const cursorIso = cursorSec != null ? new Date(cursorSec * 1000).toISOString() : null;
-  const atLive = isWindowMode
-    ? (windowData != null && cursorSec != null && cursorSec >= windowData.to)
-    : hoursBack === 0;
+  const cursorValue = playhead?.value ?? toSec;
+  const cursorIso = new Date(cursorValue * 1000).toISOString();
+  const atLive = isWindowMode ? cursorValue >= toSec - 1 && !winPlaying : hoursBack === 0;
+  const approaches: CloseApproachEntry[] = (layer === "aircraft" && data?.closeApproaches) || [];
+  const caMeta = layer === "aircraft" ? data?.closeApproachesMeta : undefined;
+  const focusKey = replay?.focusKey ?? null;
+  const lod = replay?.lod;
+  // collapsed by default (the panel shares the left edge with the Legend
+  // card); a focused approach keeps it open
+  const caExpanded = caOpen || !!focusKey;
 
   return (
-    <div className="vt-timescrub-panel" data-vt-timescrub-panel role="dialog" aria-label="Time scrubber">
+    <div className="vt-timescrub-panel" data-vt-timescrub-panel role="dialog" aria-label="Time scrubber" ref={panelRef}>
       <div className="vt-timescrub-header">
         <span className="vt-timescrub-title"><Clock size={15} /> Time Machine</span>
-        <button aria-label="Close time machine" onClick={() => { setPlaying(false); clearMapLayer(); onClose(); }}>
+        <button aria-label="Close time machine" onClick={() => { setPlaying(false); ctrlRef.current?.setPlaying(false); clearMapLayer(); onClose(); }}>
           <X size={16} />
         </button>
       </div>
@@ -346,27 +350,28 @@ export default function TimeScrubber({ map, onClose }: {
       )}
 
       <div className="vt-timescrub-date">
-        {atLive ? "Now" : isWindowMode ? (cursorIso ? fmtUtc(cursorIso) : "…") : fmtUtc(atIso)}
+        {atLive ? "Now" : isWindowMode ? fmtUtc(cursorIso) : fmtUtc(atIso)}
       </div>
 
       <div className="vt-timescrub-controls">
         <button className="vt-timescrub-play" data-vt-timescrub-play
-                aria-label={playing ? "Pause playback" : "Play playback"}
-                aria-pressed={playing}
-                disabled={atLive && !playing}
-                onClick={() => setPlaying((v) => !v)}>
-          {playing ? <Pause size={16} /> : <Play size={16} />}
+                aria-label={(isWindowMode ? winPlaying : playing) ? "Pause playback" : "Play playback"}
+                aria-pressed={isWindowMode ? winPlaying : playing}
+                disabled={isWindowMode ? !data : (hoursBack === 0 && !playing)}
+                title={isWindowMode && atLive ? "Play the loaded window from its start" : undefined}
+                onClick={() => {
+                  if (isWindowMode) ctrlRef.current?.setPlaying(!winPlaying);
+                  else setPlaying((v) => !v);
+                }}>
+          {(isWindowMode ? winPlaying : playing) ? <Pause size={16} /> : <Play size={16} />}
         </button>
         {isWindowMode ? (
           <input type="range" data-vt-timescrub-slider
-                 min={windowData?.from ?? 0} max={windowData?.to ?? 1} step={1}
-                 value={cursorSec ?? windowData?.to ?? 0}
-                 disabled={!windowData}
-                 aria-label="Cursor position within the loaded window"
-                 onChange={(e) => setCursorSec(Number(e.target.value))}
-                 onMouseUp={(e) => onCursorCommit(Number((e.target as HTMLInputElement).value))}
-                 onTouchEnd={(e) => onCursorCommit(Number((e.target as HTMLInputElement).value))}
-                 onKeyUp={(e) => onCursorCommit(Number((e.target as HTMLInputElement).value))} />
+                 min={fromSec} max={toSec} step={1}
+                 value={Math.round(playhead?.target ?? toSec)}
+                 disabled={!data}
+                 aria-label="Replay time within the loaded window"
+                 onChange={(e) => onCursor(Number(e.target.value))} />
         ) : (
           <input type="range" data-vt-timescrub-slider
                  min={0} max={maxHours} step={1}
@@ -380,15 +385,18 @@ export default function TimeScrubber({ map, onClose }: {
       </div>
 
       <div className="vt-timescrub-status" role="status" aria-live="polite">
-        {loading && "Loading…"}
-        {!loading && isWindowMode && windowError && <span className="vt-timescrub-error">{windowError}</span>}
-        {!loading && isWindowMode && !windowError && windowData && (
+        {isWindowMode && replay?.loading && !data && "Loading…"}
+        {isWindowMode && replay?.error && <span className="vt-timescrub-error">{replay.error}{data ? " — showing the previous read" : ""}</span>}
+        {isWindowMode && !replay?.error && data && (
           <>
-            {windowData.hexes.length} {windowData.kind === "vessels" ? "vessels" : "aircraft"}{windowData.hexes_seen > windowData.hexes.length && ` (of ${windowData.hexes_seen})`}
-            {" · "}{windowData.step_sec === 0 ? "full fidelity" : `${windowData.step_sec / 60}min step`}
-            {windowData.note && ` · ${windowData.note}`}
+            {data.hexes.length} {data.kind === "vessels" ? "vessels" : "aircraft"}{data.hexes_seen > data.hexes.length && ` (of ${data.hexes_seen})`} in view
+            {" · "}{data.step_sec === 0 ? "full fidelity" : `${data.step_sec / 60}min step`}
+            {lod && lod.tracks > 0 && ` · ${lod.full} curtains, ${lod.thin} lines, ${lod.headOnly} heads-only`}
+            {" · "}{ageText(replay?.fetchedAtMs ?? null, nowTick)}{replay?.loading && " · updating view…"}
+            {data.note && ` · ${data.note}`}
           </>
         )}
+        {!isWindowMode && loading && "Loading…"}
         {!loading && !isWindowMode && error && <span className="vt-timescrub-error">{error}</span>}
         {!loading && !isWindowMode && !error && snap && (
           <>
@@ -399,9 +407,67 @@ export default function TimeScrubber({ map, onClose }: {
           </>
         )}
       </div>
+
+      {isWindowMode && layer === "aircraft" && data && (
+        <div className="vt-timescrub-ca" data-vt-timescrub-ca>
+          <button className="vt-timescrub-ca-head" data-vt-timescrub-ca-toggle
+                  aria-expanded={caExpanded}
+                  onClick={() => setCaOpen((v) => !v)}>
+            <span><AlertTriangle size={13} /> Close approaches</span>
+            <span className="vt-timescrub-ca-count">
+              {caMeta ? `${caMeta.found}${caMeta.capped ? ` (top ${caMeta.returned})` : ""}` : approaches.length}
+              {caExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </span>
+          </button>
+          {!caExpanded ? null : approaches.length === 0 ? (
+            <div className="vt-timescrub-ca-empty">
+              {caMeta
+                ? `None below 5 nm / 1,000 ft among ${caMeta.evaluated_hexes} aircraft in this window and view${caMeta.partial_scan ? " (partial scan — see note)" : ""}.`
+                : "Close-approach scan unavailable for this read."}
+            </div>
+          ) : (
+            <ul className="vt-timescrub-ca-list" data-vt-timescrub-ca-list>
+              {approaches.map((ca) => {
+                const k = approachKey(ca);
+                const on = focusKey === k;
+                return (
+                  <li key={k}>
+                    <button className="vt-timescrub-ca-row" aria-pressed={on}
+                            title={`${confidenceText(ca.confidence)}. ${ca.basis}`}
+                            onClick={() => ctrlRef.current?.focusApproach(on ? null : ca)}>
+                      <span className="vt-ca-time">{fmtUtcTime(ca.t)}</span>
+                      <span className="vt-ca-pair">{sideLabel(ca.a, ca.ca)} ↔ {sideLabel(ca.b, ca.cb)}</span>
+                      <span className="vt-ca-sep">{fmtSeparation(ca.horizNm, ca.vertFt)}</span>
+                      <span className={`vt-ca-conf vt-ca-conf-${ca.confidence}`}>{ca.confidence}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {caExpanded && focusKey && (
+            <div className="vt-timescrub-ca-focus">
+              <span>
+                {replay?.focusFullRes === "loading" && "Loading the pair's full-fidelity archived tracks…"}
+                {replay?.focusFullRes === "ok" && "Pair shown at full archived fidelity; other aircraft dimmed."}
+                {replay?.focusFullRes === "failed" && "Full-fidelity tracks unavailable — showing the window's decimated tracks."}
+              </span>
+              <button onClick={() => ctrlRef.current?.focusApproach(null)}>Show all</button>
+            </div>
+          )}
+          {caExpanded && (
+            <div className="vt-timescrub-ca-basis">
+              Separation below 5 nm / 1,000 ft per our recorded ADS-B data — not an official loss-of-separation report.
+              En-route minima; terminal, parallel-approach, formation and same-airport traffic is routinely closer by design.
+              Map readouts marked ≈ are live interpolations; the listed value is the minimum on archived fixes.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="vt-timescrub-note">
         {isWindowMode
-          ? "Historical replay from our own archive — not live. Drag scrubs a preloaded window locally (no per-drag network call); the window and step selectors control how much history loads and at what resolution. Dated imagery layers (night lights, NDVI, soil moisture…) follow this clock to their nearest available day."
+          ? "Historical replay from our own archive — not live. The replay follows your view (pan, tilt, zoom) and re-reads only when you leave the loaded area; heads move linearly between real recorded fixes and never across a gap. Dated imagery layers (night lights, NDVI, soil moisture…) follow this clock to their nearest available day."
           : <>Historical replay from our own archive — not live. Window: last {Math.round(maxHours / 24)} days.
              Dated imagery layers (night lights, NDVI, soil moisture…) follow this clock to their nearest available day.</>}
       </div>
