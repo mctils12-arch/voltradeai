@@ -30,6 +30,10 @@
 import fs from "fs";
 import path from "path";
 import { archiveBaseDir, streamJsonlLines } from "./datacoreArchive";
+import {
+  findCloseApproachesAsync, CA_DEFAULTS,
+  type CloseApproach, type CloseApproachOptions, type CloseApproachTrack,
+} from "./closeApproach";
 
 export interface WindowBBox { w: number; s: number; e: number; n: number }
 
@@ -84,6 +88,30 @@ export interface WindowHex {
   /** points in-window∩bbox for this hex BEFORE decimation/caps. */
   raw_count: number;
   truncated: boolean;
+  /** FLIGHT PROGRAM replay (2026-09-28): t (sec) of every returned point
+   *  that follows a REAL archive hole > WINDOW_GAP_SEC — measured on the
+   *  raw fixes, not the decimated ones, so a 15-min step never reads as a
+   *  gap and a real signal loss is never bridged by the client's per-frame
+   *  interpolation. Omitted when there are none. */
+  gaps?: number[];
+}
+
+/** honest-gap threshold for replay interpolation/curtains (client never
+ *  draws or interpolates across a raw hole longer than this). */
+export const WINDOW_GAP_SEC = 600;
+
+/** FLIGHT PROGRAM replay: the close-approach scan's honesty metadata. */
+export interface WindowCloseApproachMeta {
+  method: string;
+  thresholds: { horiz_nm: number; vert_ft: number; fix_window_sec: number; low_alt_ft: number };
+  /** hexes evaluated — ALL hexes seen in window∩bbox, not only the returned (capped) ones */
+  evaluated_hexes: number;
+  excluded_non_icao: number;
+  found: number;
+  returned: number;
+  capped: boolean;
+  /** true when the window scan itself was partial (coverage.complete=false) */
+  partial_scan: boolean;
 }
 
 export interface WindowResult {
@@ -108,6 +136,12 @@ export interface WindowResult {
     files_scanned: number;
   };
   note?: string;
+  /** FLIGHT PROGRAM replay (aircraft only): pairs whose recorded positions
+   *  came within 5 nm / 1,000 ft (server/closeApproach.ts), computed on the
+   *  UN-decimated archived fixes of every hex seen, sorted by minimum
+   *  separation, capped at 200. Per our recorded data — never official. */
+  closeApproaches?: CloseApproach[];
+  closeApproachesMeta?: WindowCloseApproachMeta;
 }
 
 /** lon inside [w,e] with antimeridian support (w > e = the seam window). */
@@ -169,6 +203,10 @@ export async function readWindow(opts: {
   fromSec: number;
   toSec: number;
   zoom: number;
+  /** FLIGHT PROGRAM replay: close-approach scan (aircraft only). Default on
+   *  with no airport lookup (low-level exclusion against sea level); the
+   *  route passes the OurAirports field-elevation lookup; false disables. */
+  closeApproaches?: false | Pick<CloseApproachOptions, "airportNear" | "cap">;
   /** T-2: explicit decimation step (seconds), overriding lodStepSec(zoom)
    *  when provided. Must be one of WINDOW_STEP_OPTIONS_SEC — the route
    *  validates; this function just trusts a finite non-negative value. */
@@ -281,6 +319,10 @@ export async function readWindow(opts: {
   // rule) → LOD decimation (last point always kept so the track reaches its
   // end) → per-hex cap (newest kept).
   const hexes: WindowHex[] = [];
+  // FLIGHT PROGRAM replay: every hex's UN-decimated fixes feed the close-
+  // approach scan (decimated points would break its ±90 s real-fix rule).
+  const caTracks: CloseApproachTrack[] = [];
+  const wantCA = kind === "aircraft" && opts.closeApproaches !== false;
   for (const [i, a] of Array.from(acc.entries())) {
     a.pts.sort((p, q) => p[0] - q[0]);
     const dedup: Array<[number, number, number, number | null]> = [];
@@ -292,16 +334,28 @@ export async function readWindow(opts: {
       }
       dedup.push(p);
     }
+    if (wantCA) caTracks.push({ i, c: a.c, points: dedup });
     let kept = dedup;
+    // replay honest gaps: t of each kept point preceded by a RAW hole
+    // > WINDOW_GAP_SEC (largest raw fix-to-fix hole since the last kept point)
+    const gapTs: number[] = [];
     if (step > 0 && dedup.length > 2) {
       kept = [];
       let lastT = -Infinity;
+      let hole = 0;
       for (let k = 0; k < dedup.length; k++) {
+        if (k > 0) hole = Math.max(hole, dedup[k][0] - dedup[k - 1][0]);
         const isLast = k === dedup.length - 1;
         if (isLast || dedup[k][0] - lastT >= step) {
+          if (kept.length > 0 && hole > WINDOW_GAP_SEC) gapTs.push(dedup[k][0]);
           kept.push(dedup[k]);
           lastT = dedup[k][0];
+          hole = 0;
         }
+      }
+    } else {
+      for (let k = 1; k < dedup.length; k++) {
+        if (dedup[k][0] - dedup[k - 1][0] > WINDOW_GAP_SEC) gapTs.push(dedup[k][0]);
       }
     }
     let truncated = false;
@@ -309,9 +363,12 @@ export async function readWindow(opts: {
       kept = kept.slice(-caps.maxPointsPerHex);
       truncated = true;
     }
+    const firstT = kept.length ? kept[0][0] : Infinity;
+    const gaps = gapTs.filter((t) => t > firstT);
     hexes.push({
       i, rg: a.rg, c: a.c, ty: a.ty,
       points: kept, raw_count: dedup.length, truncated,
+      ...(gaps.length ? { gaps } : {}),
     });
   }
 
@@ -344,6 +401,33 @@ export async function readWindow(opts: {
     notes.push(`scan budget hit: window scanned back to ${new Date(scannedFrom * 1000).toISOString()} (newest-first), not the full requested range`);
   }
 
+  // FLIGHT PROGRAM replay: close approaches over EVERY hex seen (the hex cap
+  // above narrows what is drawn, never what is checked). Event-loop-yielding
+  // driver — this process also runs the trading loop.
+  let closeApproaches: CloseApproach[] | undefined;
+  let closeApproachesMeta: WindowCloseApproachMeta | undefined;
+  if (wantCA) {
+    const caOpts = opts.closeApproaches || {};
+    const ca = await findCloseApproachesAsync(caTracks, {
+      airportNear: caOpts.airportNear,
+      cap: caOpts.cap ?? CA_DEFAULTS.CAP,
+    });
+    closeApproaches = ca.approaches;
+    closeApproachesMeta = {
+      method: "linear interpolation between consecutive real archived fixes ≤ 180 s apart (every evaluated instant has a real fix within ±90 s), exact minimum over each shared interval; en-route minima 5 nm / 1,000 ft; pairs both below 2,000 ft above the nearest airport (else sea level) excluded; non-ICAO (~) addresses excluded",
+      thresholds: {
+        horiz_nm: CA_DEFAULTS.HORIZ_NM, vert_ft: CA_DEFAULTS.VERT_FT,
+        fix_window_sec: CA_DEFAULTS.FIX_WINDOW_SEC, low_alt_ft: CA_DEFAULTS.LOW_ALT_FT,
+      },
+      evaluated_hexes: ca.evaluated_hexes,
+      excluded_non_icao: ca.excluded_non_icao,
+      found: ca.found,
+      returned: ca.approaches.length,
+      capped: ca.capped,
+      partial_scan: !complete,
+    };
+  }
+
   return {
     kind, from, to, zoom: opts.zoom, step_sec: step,
     hexes: returned,
@@ -357,5 +441,6 @@ export async function readWindow(opts: {
       files_scanned: filesScanned,
     },
     note: notes.length ? notes.join("; ") : undefined,
+    ...(closeApproaches ? { closeApproaches, closeApproachesMeta } : {}),
   };
 }

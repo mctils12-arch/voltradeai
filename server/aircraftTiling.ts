@@ -27,6 +27,17 @@
 //
 // The module is pure/injectable (fetch, sleep, backoff hooks) so tests
 // never touch the real APIs — same pattern as liveDelta.ts / viewport.ts.
+//
+// FLIGHT PROGRAM B1 (2026-09-28), two ADDITIVE hooks — neither can delay,
+// deny or fail a viewport request:
+//   - every adsb.lol request/outcome is RECORDED on the shared governor
+//     (adsbGovernor.ts), so the background global sweep yields to viewers
+//     and pauses when a viewport disc sees adsb.lol struggle;
+//   - every successful disc is PUBLISHED on the fix bus (aircraftFixBus.ts),
+//     so the global snapshot reuses viewport results instead of refetching.
+
+import { adsbLolGovernor, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
+import { publishFixes } from "./aircraftFixBus";
 
 /** adsb.lol / airplanes.live / adsb.fi point-query hard radius cap (nm). */
 export const DISC_RADIUS_MAX_NM = 250;
@@ -275,6 +286,9 @@ export interface TiledFetchDeps {
   spacingMs?: number;
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** shared adsb.lol governor (records only — never blocks this chain);
+   *  null disables accounting (tests). Default: the process singleton. */
+  governor?: UpstreamGovernor | null;
 }
 
 export interface TiledFetchResult {
@@ -308,6 +322,7 @@ export async function fetchDiscs(plan: DiscPlan, deps: TiledFetchDeps): Promise<
     spacingMs = DISC_SPACING_MS,
     timeoutMs = 12000,
     sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+    governor = adsbLolGovernor,
   } = deps;
   const errs: string[] = [];
   const sources = new Set<string>();
@@ -315,16 +330,33 @@ export async function fetchDiscs(plan: DiscPlan, deps: TiledFetchDeps): Promise<
   async function oneDisc(c: DiscCenter): Promise<any[] | null> {
     for (const p of providers) {
       if (backoffActive(p.key)) { errs.push(`${p.key} in backoff`); continue; }
+      const gov = p.key === GOVERNED_PROVIDER_KEY ? governor : null;
+      let statusNoted = false;
       try {
+        gov?.noteRequest("fg", Date.now());
         const r = await fetchImpl(p.url(c.lat, c.lon, plan.radiusNm), {
           headers, signal: AbortSignal.timeout(timeoutMs),
         });
-        if (!r.ok) throw new Error(`${p.key} ${r.status}`);
+        if (!r.ok) {
+          statusNoted = true;
+          gov?.noteResult("fg", r.status, Date.now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));
+          throw new Error(`${p.key} ${r.status}`);
+        }
         const raw: any = await r.json();
+        statusNoted = true;
+        gov?.noteResult("fg", 200, Date.now());
         backoffClear(p.key);
         sources.add(p.label);
-        return mapPointAircraft(raw, p.arr, p.key);
+        const mapped = mapPointAircraft(raw, p.arr, p.key);
+        // fix bus: the global snapshot reuses this disc (never refetches it)
+        publishFixes({
+          provider: p.key, origin: "viewport", aircraft: mapped, fetchedAt: Date.now(),
+          upstreamNowMs: numOrNull(raw?.now),
+          disc: { lat: c.lat, lon: c.lon, radiusNm: plan.radiusNm },
+        });
+        return mapped;
       } catch (e: any) {
+        if (!statusNoted) gov?.noteResult("fg", 0, Date.now()); // network error / timeout
         backoffBump(p.key);
         const cause = e?.cause?.code || e?.cause?.message || "";
         errs.push(`${p.key}: ${e?.message}${cause ? ` (${cause})` : ""}`);

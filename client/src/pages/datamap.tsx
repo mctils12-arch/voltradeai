@@ -116,6 +116,7 @@ import {
   CURTAIN_BELOW_TERRAIN_M, decimateForCap, remapIndices, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
+import { usePlannedRoute } from "@/components/PlannedRoute";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
@@ -144,6 +145,7 @@ import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircr
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
 import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec, tailGlideDtSec } from "@/lib/air/airGlide";
+import { createAircraftFeed, STALE_ALT_COLOR, STALE_BAND_COLORS } from "@/lib/air/globalFeed";
 // SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
 // card is open, each live poll appends its REAL fix so the 3D trail +
 // altitude curtain reach the plane's CURRENT position instead of ending at
@@ -1508,6 +1510,7 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
                     <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
                     <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
+                    <span className="vt-legend-chip"><i style={{ background: STALE_BAND_COLORS.cruise }} /> Dimmed: position &gt;2 min old (zoomed-out worldwide feed)</span>
                     {/* flight-track ramp chips (legend rule: color-only
                         encodings get chips) — track colors are RELATIVE to
                         the selected flight's own altitude range */}
@@ -4181,6 +4184,38 @@ export default function DataMapPage() {
   const lastLiveHeadingRef = useRef<number | null>(null);
   const flightTagRef = useRef<HTMLDivElement | null>(null);
   const flightGridRef = useRef<HTMLDivElement | null>(null);
+
+  // ── PLANNED ROUTE (FLIGHT PROGRAM 2026-09-28): the GRAY curtain from the
+  // selected plane forward to its destination. Fetch, geometry, the seam,
+  // teardown and the card row all live in components/PlannedRoute.tsx +
+  // lib/air/planRouteController.ts — this block only hands over the page's
+  // refs. The seam is the live curtain's DRAWN end (the moving tail's end,
+  // else the track's last sample), so gray and colored meet exactly.
+  const selectedHexLc = () => String(detailRef.current?.trailId || "").toLowerCase();
+  const plannedRoute = usePlannedRoute({
+    mapRef, mapReady,
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    suppressed: tripReplay != null, // an archived trip owns the curtain
+    registry: customLayerRegistryRef.current,
+    getLive: () => {
+      const lv = airFollowLiveRef.current;
+      if (!lv || String(lv.id).toLowerCase() !== selectedHexLc()) return null;
+      const row = (airPayloadRef.current || []).find((x) => x?.icao24 === lv.id);
+      return {
+        lon: lv.fix.lo, lat: lv.fix.la, altM: lv.fix.al,
+        trkDeg: lastLiveHeadingRef.current ?? row?.heading ?? null,
+        callsign: String(row?.callsign || "").trim() || null,
+      };
+    },
+    getSeam: () => {
+      const e = flightTrackRef.current?.getTailEnd();
+      if (e) return { mercX: e.mercX, mercY: e.mercY, altM: e.altZ, groundZ: e.groundZ };
+      const st = trackSamplesRef.current;
+      const li = st ? st.samples.length - 1 : -1;
+      if (!st || li < 0 || String(st.id).toLowerCase() !== selectedHexLc()) return null;
+      return { mercX: st.merc[li * 2], mercY: st.merc[li * 2 + 1], altM: st.altDisp[li], groundZ: st.groundZ[li] };
+    },
+  });
 
   /** Ground elevation in the DISPLAY datum (queryTerrainElevation output —
    *  already exaggeration-scaled; 0 with terrain off), memoized in
@@ -8413,6 +8448,10 @@ export default function DataMapPage() {
     // unchanged/stale body must never decide a fresh mount).
     delete sinceRef.current[id];
     let firstFetch = true;
+    // FLIGHT PROGRAM B1: aircraft views wider than 8 coverage discs read the
+    // worldwide snapshot (/api/data/aircraft/global), adapted to this feed's
+    // row shape — lib/air/globalFeed.ts (abortable; disposed on teardown)
+    const airFeed = id === "aircraft" ? createAircraftFeed() : null;
 
     // Named handlers so teardown can map.off() them — listeners are keyed
     // by layerId string and SURVIVE layer removal; without off(), each
@@ -8505,10 +8544,17 @@ export default function DataMapPage() {
         const since = sinceRef.current[id] || "";
         const fresh = opts.fastWhen?.() === true ? "&fresh=1" : "";
         const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}${fresh}`;
-        const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
-        firstFetch = false;
-        if (!r.ok) throw new Error(String(r.status));
-        const d = await r.json();
+        const bnd = { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+        let d;
+        if (airFeed?.shouldUseGlobal(bnd, map.getZoom())) {
+          d = await airFeed.fetchGlobal(bnd, firstFetch); // B1 worldwide snapshot
+          if (!("unchanged" in d)) firstFetch = false;
+        } else {
+          const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
+          firstFetch = false;
+          if (!r.ok) throw new Error(String(r.status));
+          d = await r.json();
+        }
         if (stop) return;
         if (d.enabled === false) { setStatus(id, "awaiting_key"); return; }
         if (d.unchanged) {
@@ -8597,7 +8643,7 @@ export default function DataMapPage() {
       pollTimer = window.setTimeout(async () => {
         await load();
         if (!stop) schedulePoll();
-      }, fast ? (opts.fastIntervalMs ?? opts.intervalMs) : opts.intervalMs);
+      }, fast ? (opts.fastIntervalMs ?? opts.intervalMs) : (airFeed?.pollMs() ?? opts.intervalMs));
     };
     schedulePoll();
     // re-arm hook (repair 2026-08-05): fastWhen is only consulted when a
@@ -8712,6 +8758,7 @@ export default function DataMapPage() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       teardown();
+      airFeed?.dispose(); // abort any in-flight global fetch
       window.clearTimeout(pollTimer);
       if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
@@ -8782,14 +8829,19 @@ export default function DataMapPage() {
         // tiles for the low fleet prefetch async; until they land the
         // datum falls back to raw MSL and the next poll corrects — honest.
         const rowsIn = (d.aircraft || []) as any[];
+        // B1: a worldwide (d.global) payload only ever renders as 2D icons —
+        // the 3D layer draws at z8+, where the viewport feed is the source —
+        // so it skips the per-row DEM datum (thousands of z9 tile fetches
+        // worldwide per poll otherwise); legacy datum: ground 0, else MSL
+        const worldwide = d.global === true;
         try {
-          if (!map.getTerrain()) {
+          if (!map.getTerrain() && !worldwide) {
             prefetchElevation(rowsIn.filter((a) => a && (a.on_ground || (a.altitude_m ?? 1e9) < 9000))
               .map((a) => ({ lon: a.lon, lat: a.lat })));
           }
         } catch {}
         const rebuild = (rowsNow: any[]) => {
-          const built = buildAircraftInstances(rowsNow, {
+          const built = buildAircraftInstances(rowsNow, worldwide ? undefined : {
             displayAlt: (altM, lon, lat, onGround) => displayAltReal(map, altM, lon, lat, onGround),
           });
           airRows = built.rows;
@@ -8813,7 +8865,9 @@ export default function DataMapPage() {
           const fid = airCrumbsRef.current.id;
           if (fid) {
             const live = (d.aircraft || []).find((x: any) => x.icao24 === fid);
-            if (live && live.lat != null && live.lon != null) {
+            // B1: worldwide rows carry per-row ages (up to 10 min), not one
+            // snapshot time — never stamp them as crumbs (tail resumes zoomed in)
+            if (live && live.lat != null && live.lon != null && !worldwide) {
               const t = Number.isFinite(d.time) ? Number(d.time) : Date.now() / 1000;
               const fix: Crumb = {
                 lo: live.lon, la: live.lat,
@@ -8865,6 +8919,7 @@ export default function DataMapPage() {
             reg: a.registration, type: a.type || "",
             alt: a.altitude_m, ground: !!a.on_ground,
             kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
+            stale: !!a.stale, // B1 global feed: fix older than 2 min -> dimmed
           },
         };
       }),
@@ -8887,7 +8942,7 @@ export default function DataMapPage() {
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
-      iconPaint: { "icon-color": ALT_COLOR, "icon-opacity": 0.95 },
+      iconPaint: { "icon-color": ["case", ["==", ["get", "stale"], true], STALE_ALT_COLOR, ALT_COLOR], "icon-opacity": 0.95 },
       onClick: (p: any, lngLat: any) => { void onAircraftClickProps(p, lngLat); },
     });
     // one card handler for BOTH renderers (2D symbol clicks + 3D picks)
@@ -8950,7 +9005,7 @@ export default function DataMapPage() {
             { label: "ICAO24", value: String(p.icao24 || "—") },
           ],
           sourceTag: "ADS-B",
-          body: `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
+          body: `Planned route (gray curtain ahead of the plane): FILED when the FAA SWIM flight plan is available, otherwise PREDICTED from this flight's last recorded trip or the community route database — labeled on the Planned route row; ` +
                 `trail is our own archived feed history — the 3D altitude line + translucent curtain climb at the RECORDED altitude, colored low-teal → cruise-blue → high-violet across this track's altitude range, with the ground trace draped on the terrain (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence. ` +
                 `GND SPD is the live broadcast; VERT SPD (and replay speeds) are derived from consecutive recorded fixes — the feed carries no vertical rate.`,
@@ -15683,6 +15738,9 @@ export default function DataMapPage() {
               Follow aircraft
             </button>
           )}
+          {/* planned-route toggle + provenance (FILED/PREDICTED, route,
+              deviation, plan age) — components/PlannedRoute.tsx */}
+          {detail.kind === "aircraft" && plannedRoute.row}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}

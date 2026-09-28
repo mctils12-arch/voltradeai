@@ -3429,6 +3429,71 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-timescrub-note {
   font-size: 10px; color: var(--text-tertiary); line-height: 1.4;
 }
+/* FLIGHT PROGRAM replay (2026-09-28): the panel now carries a close-approach
+   list — cap it to its container and scroll INSIDE (SELF-SEE: the bottom must
+   never leave the viewport, whatever the list length). */
+.vt-timescrub-panel { max-height: calc(100% - 172px); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 639px) {
+  .vt-timescrub-panel { max-height: 58%; }
+}
+.vt-timescrub-ca {
+  display: flex; flex-direction: column; gap: 6px;
+  border-top: 1px solid rgba(77, 159, 255, 0.14); padding-top: 8px;
+}
+.vt-timescrub-ca-head {
+  width: 100%; min-height: 36px; padding: 4px 2px; cursor: pointer; background: none; border: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.vt-timescrub-ca-head:hover { color: var(--text-primary); }
+.vt-timescrub-ca-head > span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-red); }
+.vt-timescrub-ca-count {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono); color: var(--text-tertiary); letter-spacing: 0;
+}
+.vt-timescrub-ca-list {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 168px; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.vt-timescrub-ca-row {
+  width: 100%; min-height: 44px; padding: 7px 9px; border-radius: 8px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "time pair conf" "sep sep sep"; gap: 2px 8px; align-items: center;
+  text-align: left; cursor: pointer; font-size: 12px; color: var(--text-primary);
+  background: var(--bg-card); border: 1px solid rgba(255, 90, 110, 0.18);
+}
+.vt-timescrub-ca-row:hover { background: var(--bg-card-hover); }
+.vt-timescrub-ca-row:active { transform: scale(0.99); }
+.vt-timescrub-ca-row[aria-pressed="true"] { border-color: var(--accent-red); background: rgba(255, 90, 110, 0.12); }
+.vt-ca-time { grid-area: time; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.vt-ca-pair { grid-area: pair; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-ca-sep { grid-area: sep; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.vt-ca-conf {
+  grid-area: conf; padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor;
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+}
+.vt-ca-conf-high { color: var(--accent-green); }
+.vt-ca-conf-medium { color: var(--accent-orange); }
+.vt-ca-conf-low { color: var(--text-tertiary); }
+.vt-timescrub-ca-empty, .vt-timescrub-ca-basis { font-size: 10.5px; color: var(--text-tertiary); line-height: 1.4; }
+.vt-timescrub-ca-focus {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.vt-timescrub-ca-focus button {
+  min-height: 32px; padding: 4px 10px; border-radius: 8px; cursor: pointer; flex: none;
+  color: var(--accent-bright); background: rgba(77, 159, 255, 0.12); border: 1px solid rgba(77, 159, 255, 0.35);
+}
+.vt-timescrub-ca-focus button:hover { background: rgba(77, 159, 255, 0.22); }
+/* live separation readouts over the map (fleetReplayController.placeLabels) */
+.vt-fleet-ca-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.vt-fleet-ca-label {
+  position: absolute; left: 0; top: 0; padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  background: rgba(8, 16, 30, 0.9); border: 1px solid var(--accent-red); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 11px; will-change: transform;
+}
 
 /* ── 8-K earnings-language full view (#/data/earnings) ─────────────────── */
 .vt-earnings-search {

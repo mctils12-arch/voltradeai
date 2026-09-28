@@ -16,6 +16,7 @@
 import fs from "fs";
 import { archiveAircraft, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
+import { publishFixes } from "./aircraftFixBus";
 
 export const GLOBAL_SCOPES = ["mil", "ladd", "pia"] as const;
 export type GlobalScope = (typeof GLOBAL_SCOPES)[number];
@@ -89,6 +90,11 @@ export async function pollGlobalScopesOnce(
   }
   if (!status.skipped_low_disk && all.length) {
     status.archived = archiveAircraft(all, sites, baseDir);
+  }
+  // FLIGHT PROGRAM B1: the global live snapshot reuses these fixes (fix
+  // bus; archiving above stays this path's own job — never written twice)
+  if (all.length) {
+    publishFixes({ provider: "adsblol", origin: "scopes", aircraft: all, fetchedAt: Date.now() });
   }
   return status;
 }

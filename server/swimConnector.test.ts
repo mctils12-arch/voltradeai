@@ -204,3 +204,54 @@ test("payloadToString: JMS TextMessage SDT header before the XML is stripped", (
   assert.equal(payloadToString({ getBinaryAttachment: () => "<x/>" }), "<x/>");
   assert.equal(payloadToString({}), null);
 });
+
+// ── regression: live 2026-09-28, 39,472 SFDPS messages received, 0 processed ──
+// The FAA SCDS brokers deliver JMS TextMessages in the XML content section
+// (the Solace JMS "XML payload" option). The reader only looked at the SDT
+// container and binary attachment, found nothing, and acked every message
+// uncounted. These pin the section order and the never-silent rule.
+
+test("payloadToString: XML content section (FAA SCDS JMS TextMessage) is read first", () => {
+  assert.equal(payloadToString({ getXmlContentDecoded: () => "<ns5:MessageCollection>é</ns5:MessageCollection>" }),
+    "<ns5:MessageCollection>é</ns5:MessageCollection>");
+  // older API shape: latin1 binary string holding UTF-8 bytes
+  const latin1 = Buffer.from("<a>é</a>", "utf8").toString("latin1");
+  assert.equal(payloadToString({ getXmlContent: () => latin1 }), "<a>é</a>");
+  // empty XML section falls through to the other sections
+  assert.equal(payloadToString({ getXmlContentDecoded: () => "", getBinaryAttachment: () => "<b/>" }), "<b/>");
+});
+
+test("payloadToString: a real solclientjs message carrying only XML content is readable", async () => {
+  const mod = (await import("solclientjs")) as unknown as { default?: Record<string, unknown> };
+  const sol = (mod.default ?? mod) as unknown as {
+    SolclientFactory: { init(p: unknown): void; createMessage(): { setXmlContent(s: string): void } };
+    SolclientFactoryProperties: new () => { profile?: unknown };
+    SolclientFactoryProfiles: { version10: unknown };
+  };
+  const props = new sol.SolclientFactoryProperties();
+  props.profile = sol.SolclientFactoryProfiles.version10;
+  sol.SolclientFactory.init(props);
+  const m = sol.SolclientFactory.createMessage();
+  m.setXmlContent("<flight>é</flight>");
+  assert.equal(payloadToString(m), "<flight>é</flight>");
+});
+
+test("consumer: a message with no readable section is counted + described, never silently dropped", async () => {
+  _resetSwimConnectorForTests();
+  const f = fakeSolace();
+  const scheduled: Array<() => void> = [];
+  let acked = 0;
+  const h = await startSwimProduct({
+    product: "SFDPS", envPrefix: "SWIM_SFDPS", env: SFDPS_ENV,
+    onPayload: () => {}, importer: async () => ({ default: f.mod }), setTimer: () => 0, log: () => {},
+    schedule: (fn) => { scheduled.push(fn); },
+  });
+  f.ch.MSG({ getType: () => 0, getSdtContainer: () => null, getBinaryAttachment: () => undefined, acknowledge: () => { acked++; } });
+  while (scheduled.length) scheduled.shift()!();
+  const s = h.status();
+  assert.equal(s.messagesReceived, 1);
+  assert.equal(s.messagesProcessed, 0);
+  assert.equal(s.unreadablePayloads, 1);
+  assert.equal(acked, 1);
+  assert.match(s.lastUnreadableShape ?? "", /type=number xmlDecoded=absent xml=absent sdt=null bin=undefined/);
+});

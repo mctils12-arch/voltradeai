@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   billingActive, aircraftProviderCompliance, complianceAuditTick,
   setComplianceAuditWriter, NON_COMMERCIAL_AIRCRAFT_PROVIDERS,
+  activeNonCommercialAircraftProviders, CREDENTIAL_GATED_NON_COMMERCIAL_PROVIDERS,
 } from "./providerCompliance";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -62,4 +63,35 @@ test("guard is wired: /api/health surfaces licensing, aircraft path ticks", () =
   const routesSrc = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
   assert.ok(routesSrc.includes("complianceAuditTick"), "aircraft path does not tick the compliance guard");
   assert.ok(routesSrc.includes("setComplianceAuditWriter"), "audit writer not injected — violations would never reach the audit log");
+});
+
+// ── FLIGHT PROGRAM B1 (2026-09-28): credential-gated OpenSky registration ──
+
+test("OpenSky counts as a non-commercial provider ONLY while both credentials are configured", () => {
+  assert.ok(!activeNonCommercialAircraftProviders({} as NodeJS.ProcessEnv).includes("opensky"));
+  assert.ok(!activeNonCommercialAircraftProviders({ OPENSKY_CLIENT_ID: "x" } as NodeJS.ProcessEnv).includes("opensky"));
+  const creds = { OPENSKY_CLIENT_ID: "x", OPENSKY_CLIENT_SECRET: "y" } as NodeJS.ProcessEnv;
+  const active = activeNonCommercialAircraftProviders(creds);
+  assert.ok(active.includes("opensky"));
+  for (const k of NON_COMMERCIAL_AIRCRAFT_PROVIDERS) assert.ok(active.includes(k), "static list always included");
+});
+
+test("billing + OpenSky credentials -> violation names opensky (airplanes.live pattern)", () => {
+  const env = { BILLING_ENABLED: "true", OPENSKY_CLIENT_ID: "x", OPENSKY_CLIENT_SECRET: "y" } as NodeJS.ProcessEnv;
+  const c = aircraftProviderCompliance(env);
+  assert.equal(c.status, "violation");
+  assert.ok(c.detail!.includes("opensky"));
+  assert.ok(c.detail!.includes("MONETIZATION TRIPWIRE"));
+  // without credentials OpenSky is not named (it is not in the data path)
+  assert.ok(!aircraftProviderCompliance({ BILLING_ENABLED: "true" } as NodeJS.ProcessEnv).detail!.includes("opensky"));
+});
+
+test("credential-gated registry matches the real OpenSky module (key + env names) and its route ticks the guard", () => {
+  const os = fs.readFileSync(path.join(here, "openskyGlobal.ts"), "utf8");
+  const entry = CREDENTIAL_GATED_NON_COMMERCIAL_PROVIDERS.find((p) => p.key === "opensky")!;
+  assert.ok(entry, "opensky must be registered");
+  assert.ok(os.includes(`OPENSKY_PROVIDER_KEY = "${entry.key}"`), "provider key drifted from openskyGlobal.ts");
+  for (const k of entry.envAll) assert.ok(os.includes(`env.${k}`), `${k} not read by openskyGlobal.ts`);
+  const glob = fs.readFileSync(path.join(here, "globalAircraft.ts"), "utf8");
+  assert.ok(glob.includes("complianceAuditTick()"), "global aircraft route must tick the compliance guard");
 });

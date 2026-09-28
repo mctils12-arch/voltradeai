@@ -185,11 +185,18 @@ export interface AirShapeGroup { shape: number; start: number; count: number }
 /**
  * Law IV feature cap, hoisted above its use in buildAircraftInstances and
  * re-exported at the bottom as `maxFeatures` (the name the contract
- * assertion checks). 12,000 x AIR_INST_STRIDE(8) x 4B = 384 KB, and ~3.4x
- * the busiest render actually observed (3,507 at 1440px), so it is a
- * runaway guard rather than a working limit.
+ * assertion checks). 12,000 -> 25,000 (FLIGHT PROGRAM B1, 2026-09-28): the
+ * zoomed-out worldwide feed (/api/data/aircraft/global) can deliver up to
+ * the server snapshot's hard cap (SNAPSHOT_CAP = 25,000; ~8-15k observed
+ * worldwide) in ONE payload, and onData builds instances from every row —
+ * at 12k the cap would silently shed a third of the world each poll.
+ * Budget math: 25,000 x AIR_INST_STRIDE(8) x 4B = 800 KB instance buffer,
+ * inside the declared 4 MB vramBudget (the static silhouette meshes are a
+ * few KB). Still a runaway guard: the 3D silhouettes draw only at
+ * z >= AIR_3D_MIN_ZOOM, where the precise viewport feed (a few thousand
+ * rows at most) is the source.
  */
-export const AIR_MAX_FEATURES = 12000;
+export const AIR_MAX_FEATURES = 25000;
 
 /**
  * Pure: aircraft payload rows → packed instance buffer + the index-aligned
