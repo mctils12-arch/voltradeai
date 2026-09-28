@@ -3,6 +3,192 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine session) [PRODUCT] — T-DATACORE (primary) — github_org_engineering_momentum's FIRST GATE 2 (SIGNAL) ATTEMPT: WAITING at n=8, not PASS/FAIL, plus a real bug found and fixed in shared gate-2 tooling (v1.0.999)
+
+TASK: scheduled `[PRODUCT]` session — read CLAUDE.md in full, then all of
+research/; check system health and KNOWN BROKEN first; execute the single
+highest-value product action from: (a) advance a datacore/ pipeline
+through its next ladder gate, (b) build /data UI, (c) propose a new data
+root/hypothesis, (d) improve datacore/'s API boundary/docs/tests.
+
+READ ORDER followed: CLAUDE.md (full), research/ directory listing,
+research/experiments.md tail, research/open_questions.md KNOWN BROKEN
+section (items 40-44), research/wishlist.md head, research/data_census.md
+(CENSUS MASTER RANKING — fully built out, no unbuilt axis-(a) candidates
+left), `python3 scripts/data_stream_registry_check.py --unbuilt` (9/36
+not built, every one blocked on a human free-key/registration ask or a
+confirmed-dead source — no new-root candidate available this session).
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`
++ `python3 scripts/session_health_check.py`, 2026-09-28T18:03Z): standing
+LIVENESS ALARM unchanged in kind (`bot.status:"killed"`, loop dark 65.0
+market hours / 447.2h wall-clock since 2026-09-10T03:12:26Z,
+`drawdownPct:"-6.2"`) — KNOWN BROKEN #43, a human decision, not touched
+this session. The mechanical `liveness_notify` policy confirms no new
+notify threshold crossed (already notified at 431.4h) — nothing to
+escalate. Everything else `OK` (deploy_gate, subsystems, process_faults,
+daemon_memory, tier2_daemon_timeouts, ml_feedback, outage_duration). Per
+this session's own instructions, this is not a break that blocks
+[PRODUCT] work, so it is noted and the session proceeded.
+
+CHOSEN ACTION: option (a), advance a datacore/ pipeline through its next
+ladder gate — `python3 scripts/data_stream_registry_check.py --unbuilt`
+and `research/data_census.md` both confirmed axis-(a) is exhausted for
+new roots, so the highest-value lever left is GATE 2 on an
+already-gate1-passed root. `datacore/signal_ladder.json` has exactly 3
+`gate1_pending`/`gate2_pending` entries (cftc_cot_positioning,
+sec_8k_earnings_language, space_weather_swpc) and each already carries a
+`readiness_trigger` from a prior session that is NOT yet met (cftc needs
+~15 weekly reports since 2026-07-08, live-estimated ~11 elapsed; sec_8k
+needs 90 archive days since 2026-07-04, 86 elapsed; space_weather is
+gated on a 2027-02 annual DOE data release) — none of the three were
+ripe to re-attempt today. Scanning the 14 `gate1_pass` roots for one
+whose own NEXT note flagged a live, unresolved blocker turned up
+`github_org_engineering_momentum`: its 2026-09-08 entry recorded the
+weekly archiver going dark for 8 straight days with GATE 2 explicitly
+"unstarted" pending a root-cause. LIVE-CHECKED (not assumed): curl'd
+`https://voltradeai.com/api/diag/github_activity_poll_health` (in-memory
+state, reset by the recent redeploy, uninformative) and, more
+conclusively, `/api/data/github-activity/history` for the full
+watchlist-wide trend — the archive in fact holds 10 CONSECUTIVE clean
+weeks (2026-07-20..2026-09-27, all 15 orgs reporting every week, zero
+gaps). The 2026-09-08 stall did not reproduce and has not recurred in the
+3 weeks since. This is the first point in this root's life a real, if
+thin, GATE 2 attempt is possible at all.
+
+BUILT: `scripts/github_activity_gate2.ts` (+ `github_activity_gate2.test.ts`,
+11 unit tests, all pure functions — no network in the test file).
+PRE-REGISTERED DESIGN (stated in the script's own header before any price
+data was fetched, Reasoning Standard #10): signal = week-over-week PERCENT
+change in mergedPRs+commits per ticker against its OWN prior week (never a
+raw-count delta — the 15-org panel spans a >20x scale range, so ranking by
+raw count would just re-derive "biggest org" every week, not "accelerating
+org"); cross-sectional TOP/MID/BOTTOM terciles of the panel per week
+(5/5/5 split, mirrors occ_volume_gate2.ts's own bucket convention, MID as
+the base-rate control per Reasoning Standard #3); entry = latest Yahoo
+trading day on/before that week's weekEnd; forward return at +5 (gating)
+and +20 (informational only, too few weeks ever clear it) trading days,
+no lookahead (Reasoning Standard #7). CLUSTER = the WEEK, not the
+(week,ticker) row — reused `statsUtils.ts`'s `clusterMeanTTest` /
+`survivesAtCrit005` (the exact df-correct critical value, not a flat
+|t|>2 heuristic), the same fix class the occ_options_volume 2026-08-03
+gate-2 kill was built to prevent (every ticker in one week's bucket
+shares that week's market-wide move — the raw row is not an independent
+observation). PRE-REGISTERED READINESS BAR: `MIN_CLUSTERS=15` usable
+(+5d-realized) weeks, matching this repo's other cluster-mean gate-2
+scripts' own ~15-30-cluster floor for a test to have any real power —
+chosen by that precedent before this session read a single number.
+
+FOUND AND FIXED ALONG THE WAY (bundled — same logical change, same
+convention the treasury_dts_gate2.ts session used for its own betacf
+bug): `occ_volume_gate2.ts`'s shared `fetchYahooDaily()` 400s on a
+non-integer `period1`/`period2` — every existing caller (this repo's
+other gate-2 scripts) happened to derive its timestamps from
+`Date.parse("...T00:00:00Z")/1000`, always a whole number; this script's
+`endSec` derived from `Date.now()/1000` was not, and Yahoo's chart API
+silently rejects the fractional query param with a bare HTTP 400. A/B
+reproduced live this session (confirmed identical integer inputs succeed,
+identical float inputs fail) before fixing — `fetchYahooDaily` now
+`Math.floor()`s both params defensively, a no-op for every existing
+caller, closing the footgun for any future one.
+
+LIVE RESULT (2026-09-28, `npx tsx scripts/github_activity_gate2.ts`
+against production): panel 15/15 tickers fetched, 9 candidate weeks, 8
+clear `MIN_PANEL_FOR_WEEK=12` and have a realized +5d return (the
+archive's 9th delta-week, ending 2026-09-27, has not yet cleared +5
+trading days as of this session). 8 < `MIN_CLUSTERS=15` →
+**verdict WAITING, not PASS/FAIL** (Reasoning Standard #4 — 8 clusters is
+not evidence in either direction, rendering a verdict here would be
+exactly the low-power false-confidence this bar exists to prevent).
+Reported anyway, non-gating, for tracking: pooled TOP mean +5d = +4.06%,
+MID = +1.97%, BOTTOM = +4.92% (ordering does NOT hold — actual order is
+BOTTOM > TOP > MID, not the hypothesized TOP > MID > BOTTOM);
+cluster-mean t-test on the 8 weekly TOP-BOTTOM spreads: t=-0.498, df=7,
+does not survive `tCrit005(7)=2.365`. If anything a mild, non-significant
+NEGATIVE reading so far — consistent with this root's own sober prior
+(server/githubOrgActivity.ts's header: "expect real structure for maybe a
+third of this panel... and noise for the rest") that a POOLED 15-org test
+would show weak/no structure; a per-ticker breakdown was deliberately NOT
+run this session (would be multiple-hypothesis fishing at n=8, Reasoning
+Standard #4).
+
+LADDER UPDATE: `datacore/signal_ladder.json`'s `github_org_engineering_
+momentum` entry appended (not replaced — full prior history intact),
+`last_update_date` -> 2026-09-28, `current_gate`/`status` UNCHANGED at
+1/`gate1_pass` (this is gate-2 infrastructure + a first honest data
+point, not a gate result). New `readiness_trigger`
+({type: weekly_reports, since: 2026-07-20, min_count: 15, cadence_days:
+7}) so `scripts/ladder_readiness_check.py` tracks this root's re-run
+condition machine-readably going forward — confirmed live:
+`ladder_readiness_check.py` now reports it `[waiting 35d]` alongside the
+other 4 gated roots.
+
+GATES (full, this sandbox needed `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt` fresh — neither was pre-installed):
+`bash scripts/tsc_ratchet.sh` — 11, TS2304 0, exact match to
+`ci/tsc_baseline.txt` (a pre-`npm ci` run misleadingly showed 3, the same
+missing-`node_modules` under-report a 2026-09-28 [PIPELINE] session
+earlier today also hit and diagnosed — confirmed environment artifact via
+re-run after `npm ci`, not real drift). `bash scripts/counter_ratchet.sh`
+— 3 counters IMPROVED from this session's own new test file, re-pinned in
+the same PR per PROMOTION RULE 5 (`tests_run_in_ci`/`tests_gating_merge`
+479->480, `assertions` 15666->15701); re-ran clean after re-pinning.
+`bash scripts/gated_tests.sh` — GATE PASSED: python 2278 passed/1
+skipped/54 subtests, server+client suites green, deploy-gate smoke PASS
+(build + boot + `/api/health` 200). `npx tsx --test
+scripts/github_activity_gate2.test.ts` — 11/11 pass standalone. `npm run
+visual`: NOT run — zero `client/` file touched by this diff, PROMOTION
+RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A for the gate-2 script itself (new research
+tooling, not a change to `backtest_v2.py`/P&L/slippage/counterfactual
+code) — the `fetchYahooDaily` fix IS a change to code multiple gate-2
+"ruler" scripts share, so stated explicitly: BEFORE this fix, any caller
+passing a `Date.now()`-derived timestamp got a hard HTTP 400 (a fetch
+failure, not a wrong number) on every existing script that could
+construct one — checked, none of this repo's other gate-2 scripts
+actually do (all use whole-second timestamps already), so this fix
+changes zero previously-produced results in either direction; it only
+unblocks a call shape nothing exercised before today.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed; this is SIGNAL-layer (gate 2)
+research on a RAW-only archived root, no trading claim.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`ce35908`, v1.0.998) matched `origin/main`'s real HEAD,
+re-checked immediately before the bump — `1.0.998 -> 1.0.999`
+(`package.json` + `package-lock.json`'s two matching version fields).
+
+WORKSTREAM PARTITION: `scripts/github_activity_gate2.ts` +
+`.test.ts` are new standalone T-DATACORE tooling (no T-CLIENT/T-BOT file
+touched). `scripts/occ_volume_gate2.ts` (shared gate-2 utility, bugfix
+only) and `datacore/signal_ladder.json` are also T-DATACORE. SHARED files
+touched last-and-minimal per protocol: `ci/counter_baseline.txt`,
+`package.json`/`package-lock.json`, `research/experiments.md`.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+NEXT: (1) re-run `npx tsx scripts/github_activity_gate2.ts` once the
+archive holds ~15+ usable weeks (readiness_trigger above estimates
+~2026-11 by elapsed time) — the script needs no changes, it will just
+find more usable weeks as time passes; (2) if a future session wants to
+test the "real structure for a third of the panel" sub-hypothesis
+specifically, that needs its own pre-registered per-ticker design (which
+tickers count as "genuine develop-in-public" decided BEFORE looking at
+their individual results) to avoid the multiple-hypothesis fishing this
+session explicitly declined to do at n=8; (3) the standing LIVENESS ALARM
+(KNOWN BROKEN #43) remains exactly as documented above, a human decision,
+no new action warranted.
+
+STARVED: no — a real product action was found and shipped end-to-end
+(script + tests + a genuine bug fix + ladder update + this log entry)
+within the session's normal SESSION BUDGET, no queued higher-value item
+was left untouched.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC), MOMENTUM-VS-REVERSAL SPEC: a second, freshly pre-registered attempt to find a tradeable directional rule — NOT PASSED, sign-unstable across two independent live draws, same signature that closed the first spec (v1.0.998)
 
 TASK: scheduled routine `voltrade-daily-midday` — read CLAUDE.md in full,

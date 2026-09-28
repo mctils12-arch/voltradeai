@@ -143,8 +143,13 @@ export function bucketDay(day: string, stats: UnderlyingStat[]): DayBuckets {
 // ── Yahoo daily adjusted close, one range fetch per ticker ─────────────────
 
 export async function fetchYahooDaily(symbol: string, startSec: number, endSec: number): Promise<Map<string, number>> {
+  // Yahoo's chart endpoint 400s on a non-integer period1/period2 (found
+  // 2026-09-28, github_activity_gate2.ts's own first live run: a caller
+  // deriving endSec from Date.now()/1000 passes fractional seconds, every
+  // existing caller here happened to pass whole seconds already — floor
+  // defensively so this footgun can't bite a future caller either).
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
-    `?period1=${startSec}&period2=${endSec}&interval=1d&events=div%2Csplit`;
+    `?period1=${Math.floor(startSec)}&period2=${Math.floor(endSec)}&interval=1d&events=div%2Csplit`;
   let lastErr: any;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
