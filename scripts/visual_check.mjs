@@ -298,6 +298,39 @@ const FIXTURES = {
       { id: "iron_ore_mines", name: "Iron ore mines (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron Ore Mines Tracker (CC BY 4.0)", description: "949 iron ore mines worldwide, colour by lifecycle status." },
       { id: "iron_steel_plants", name: "Iron & steel plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Iron and Steel Tracker (CC BY 4.0)", description: "1,293 iron and steel plants worldwide, colour by primary production technology; furnace-unit detail in the popup." },
       { id: "chemicals", name: "Chemical plants (GEM)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Global Energy Monitor — Global Chemicals Inventory (CC BY 4.0)", description: "868 chemical plants worldwide, colour by primary feedstock family." },
+      // [REPAIR 2026-09-27] Same class of gap as the R15 (2026-07-07),
+      // 2026-07-25, 2026-09-24, and 2026-09-25 fixes above: comparing every
+      // `id` in datacore/layers.json (256) against every `id:` in this file
+      // (116) found 140 missing — ~118 were per-state/country
+      // `powergrid_<region>` variants of the single already-fixtured
+      // `powergrid` tile layer (legitimately excluded, same reasoning as
+      // the powergrid note above: one generic tile layer represents its
+      // data-partitioned variants, not each one separately). The remaining
+      // 22 were genuinely distinct layers shipped end-to-end (client toggle
+      // + server route) but never added here. Of those 22, these 12 have a
+      // real `/api/data/*` (or `/api/v1/data/*`) JSON route the client
+      // fetches and toggle on — the standard fixture-driven pattern — so
+      // they get a row here (4 of the 8 needing a NEW data fixture below;
+      // ats_summary/contracts/plant_operations/midas already had one,
+      // shipped for their own dedicated `#/data/*` full-page views before
+      // this fix, but were never added to THIS array, so the self-see/
+      // toggle-consistency/legend-parity batteries never exercised them
+      // either). The other 10 (celestial_paths, daynight, orbital_sats,
+      // floodzones, firetemp, so2, places, seafloor_confidence,
+      // submarine_cables, timezones) do NOT fit this pattern — see the
+      // dedicated comment after this array for why each is excluded.
+      { id: "ats_summary", name: "ATS / OTC venue volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Query API — weeklySummary/monthlySummary/blocksSummary (no API key required)", description: "FINRA-precomputed ATS-vs-OTC per-symbol volume leaderboards (weekly) and OTC per-symbol volume (monthly), plus per-venue block-trading ranks." },
+      { id: "boundaries_admin1", name: "State / province borders", kind: "raw", status: "live", group: "base", costTier: "light", source: "Natural Earth 1:50m admin-1 (public domain) — compiled into datacore", description: "State and province boundary lines (first-level subdivisions, worldwide) as a thin reference overlay." },
+      { id: "contracts", name: "Federal contract awards (USAspending)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "USAspending.gov, U.S. Department of the Treasury (US government work, public domain, keyless, no API key required)", description: "Contracts A-D with |transaction amount| >= $25K, ticker-matched where a recipient resolves via exact-name or FPDS parent lookup." },
+      { id: "grid_generation", name: "Electric grid generation by fuel type (EIA-930)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "EIA-930 Hourly Electric Grid Monitor (public domain, EIA_API_KEY-gated)", description: "Hourly net generation (MWh) by fuel source per balancing authority, ~1-2h publication lag." },
+      { id: "meteors", name: "Large meteors (NASA)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "NASA/JPL CNEOS fireball API (US Government sensors) — public domain, self-archived", description: "Big meteors that exploded in the atmosphere (bolides), detected by US Government sensors and published by NASA/JPL CNEOS after the fact." },
+      { id: "midas", name: "Market microstructure (SEC MIDAS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC MIDAS individual-security market-structure metrics, quarterly files (public domain, no API key required)", description: "SEC-published per-(date, ticker) lit/hidden/odd-lot/cancel-to-trade metrics; rank scale differs by kind." },
+      { id: "military_installations", name: "Military installations", kind: "raw", status: "live", group: "facilities", costTier: "heavy", source: "US DoD open data, OpenStreetMap contributors (© OpenStreetMap contributors, ODbL), and cited government publications", description: "Officially published installation locations (~3,024 named installations); static reference geography, never joined to live tracking layers." },
+      { id: "plant_operations", name: "EPA CAMD plant operations (ground truth, TX pilot)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "U.S. EPA Clean Air Markets Division (CAMD) Continuous Emissions Monitoring, unit-level daily (public domain, 40 CFR Part 75)", description: "Direct plant-utilization ground truth from EPA's own unit-level Continuous Emissions Monitoring reporting; v1 pilot scope Texas only, quarterly cadence." },
+      { id: "quakehistory", name: "Earthquakes 1900–now (time machine)", kind: "raw", status: "live", group: "hazards", costTier: "moderate", source: "USGS ANSS Comprehensive Catalog (ComCat), public domain", description: "Every catalogued M6.0+ earthquake since 1900, shares the history time bar with the nuclear-tests layer." },
+      { id: "shadowstats", name: "Dark-ship statistics", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Derived from our own AIS archive (terrestrial coverage)", description: "Event COUNTS from our own vessel archive: AIS gap events, identity-change candidates, loitering in known STS/transshipment zones." },
+      { id: "superfund", name: "Superfund sites (EPA NPL)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "U.S. EPA Superfund National Priorities List (NPL), SEMS — public domain", description: "EPA National Priorities List Superfund sites (~1,840): the nation's most contaminated cleanup sites, colored by NPL status." },
+      { id: "waterviolators", name: "Water violators (EPA CWA)", kind: "raw", status: "live", group: "hazards", costTier: "moderate", source: "U.S. EPA ECHO — Clean Water Act compliance records (public domain)", description: "Active facilities with more than 8 of the last 12 quarters in Clean Water Act noncompliance (~25k)." },
       // freshness (Phase 5, three of the five fixture health states so the
       // visual harness actually exercises the chip's color/label variants):
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed.", freshness: { stream: "filings", health: "live", age_hours: 0.4, health_note: "newest file 0.4h old" } },
@@ -337,6 +370,38 @@ const FIXTURES = {
       { id: "tank_fill", name: "Tank-fill % (Sentinel-2)", kind: "signal", status: "planned", group: "signals", costTier: "light", source: "Copernicus", description: "Gate-2 locked." },
     ],
   },
+  // [REPAIR 2026-09-27, continued] The 2026-09-27 fixture-coverage sweep
+  // (see the comment above the 12 rows just added) also checked these 10
+  // remaining registry ids and found each one is toggled/rendered by a
+  // GENUINELY DIFFERENT mechanism than "client fetches /api/data/<id> and
+  // the harness mocks that route" — so no fixture is added for any of
+  // them, per this file's own rule that a fake fixture is never forced
+  // just to fill a row:
+  //   - celestial_paths, daynight: pure client-side computed ephemeris
+  //     (astronomy-engine / Meeus series). No fetch of any kind — nothing
+  //     for this harness to mock.
+  //   - orbital_sats: client-fetches CelesTrak directly in the browser
+  //     (ORBITAL program's DATA-PATH SPLIT, CLAUDE.md KNOWN STATE) — an
+  //     external domain, which this harness's `page.route("**/*", ...)`
+  //     aborts outright (only 127.0.0.1 continues). No local route exists
+  //     to fixture.
+  //   - floodzones (FEMA hazards.fema.gov), firetemp/so2 (NASA GIBS
+  //     WMTS): the client adds a MapLibre raster *tile* source pointing
+  //     straight at the provider's own public tile service — never a
+  //     fetch() to one of our /api/data/* JSON routes. Also aborted by
+  //     the same external-domain rule; no JSON shape to fixture.
+  //   - places, submarine_cables, timezones, seafloor_confidence: served
+  //     from REAL static assets committed to the repo (client/public/
+  //     tiles/places.pmtiles, client/public/cables/submarine_cables.json,
+  //     client/public/tz/timezone_lines.json, client/public/tiles/
+  //     seafloor_*_mariana.pmtiles) via non-/api paths. This harness's own
+  //     local server (below) serves any non-"/api/" path from the real
+  //     built DIST, not a fixture — so these already exercise genuine,
+  //     correct data with zero mocking needed, but they are not the
+  //     "/api/data/*route + fixture" pattern this array's precedent
+  //     comments (powergrid etc.) describe, so they are left out of this
+  //     specific fixture-coverage sweep rather than added on a different
+  //     rationale than the other 12.
   // W3 TIME SCRUBBER (server/queryEngine.ts querySnapshot) — a small,
   // deterministic replay payload so the panel's status line + rendered
   // points are real content, not the generic "{}" fallback.
@@ -469,6 +534,21 @@ const FIXTURES = {
     features: [
       { type: "Feature", properties: { name: "United States of America", iso3: "USA" },
         geometry: { type: "LineString", coordinates: [[-125, 49], [-66, 49], [-66, 25], [-125, 25], [-125, 49]] } },
+    ],
+  },
+  // [REPAIR 2026-09-27] boundaries_admin1 fixture — see the note above the
+  // fixture-coverage sweep's 12 new `layers` rows. Response shape is
+  // `{kind, source, ...(the compiled FeatureCollection)}` per server/
+  // routes.ts's `/api/data/boundaries_admin1` handler, same
+  // spread-a-static-GeoJSON pattern as /api/data/boundaries just above.
+  "/api/data/boundaries_admin1": {
+    kind: "raw", source: "Natural Earth 1:50m admin-1 (public domain, fixture)",
+    type: "FeatureCollection",
+    features: [
+      { type: "Feature", properties: { adm0: "United States of America", iso3: "USA", min_zoom: 3 },
+        geometry: { type: "LineString", coordinates: [[-104, 49], [-104, 41], [-96, 41]] } },
+      { type: "Feature", properties: { adm0: "Canada", iso3: "CAN", min_zoom: 3 },
+        geometry: { type: "LineString", coordinates: [[-110, 60], [-110, 49], [-102, 49]] } },
     ],
   },
   "/api/data/weather/global/status": { status: "ok", note: "fixture: key active" },
@@ -1768,6 +1848,102 @@ const FIXTURES = {
       ],
       smallcap_max_rank: 3000, min_trades_for_hidden: 100, top_cap: 500,
     },
+  },
+  // [REPAIR 2026-09-27] 8 new fixtures for the fixture-coverage sweep above
+  // (ats-summary/contracts/plant-operations/microstructure already existed
+  // for their own dedicated #/data/* pages — only these 8 were missing a
+  // data fixture entirely, so their toggle would have fallen through to
+  // the generic 200 "{}" default). Shapes copied from each route handler
+  // in server/routes.ts (and, for grid-generation, the RespondentGeneration
+  // Stat shape in server/gridGeneration.ts) — field names verified against
+  // the client's own strict checks (Array.isArray(...) gates, property
+  // reads in the popup/detail builders), not guessed.
+  "/api/data/grid-generation": {
+    kind: "raw", predictive: false,
+    source: "EIA-930 Hourly Electric Grid Monitor (public domain) (fixture)",
+    attribution: "EIA-930 Hourly Electric Grid Monitor",
+    time: 1, count: 2,
+    note: "Fixture: hourly net generation (MWh) by fuel type; storage fuel types legitimately read negative while charging.",
+    respondents: [
+      { respondent: "ERCO", latest_period: "2026-09-27T11", total_mwh: 58400.2, hours_in_window: 24,
+        fuel_mix: [{ fueltype: "WND", latest_mwh: 21400.5 }, { fueltype: "NG", latest_mwh: 18200.0 }, { fueltype: "SUN", latest_mwh: 9800.7 }] },
+      { respondent: "US48", latest_period: "2026-09-27T11", total_mwh: 412300.9, hours_in_window: 24,
+        fuel_mix: [{ fueltype: "NG", latest_mwh: 168400.0 }, { fueltype: "NUC", latest_mwh: 78200.3 }, { fueltype: "BAT", latest_mwh: -1200.4 }] },
+    ],
+  },
+  "/api/data/meteors": {
+    kind: "raw", source: "NASA/JPL CNEOS fireball data (US Government sensors) — public domain (fixture)",
+    attribution: "NASA/JPL CNEOS", fetched_at: "2026-09-27T00:00:00.000Z", last_error: null,
+    count: 2, with_direction: 1,
+    note: "Fixture: bolides — large meteors that exploded in the atmosphere, published after the fact.",
+    events: [
+      { t: 1758931200, date: "2026-09-27", la: 41.2, lo: -95.9, e: 8.4, imp: 8.4, alt: 34.1, vel: 18.6, hdg: 245 },
+      { t: 1758585600, date: "2026-09-23", la: -12.4, lo: 132.1, e: 1.2, imp: 1.2, alt: null, vel: null, hdg: null },
+    ],
+  },
+  "/api/data/military_installations": {
+    kind: "raw", predictive: false,
+    source: "US DoD open data, OpenStreetMap contributors (ODbL), and cited government publications (fixture)",
+    attribution: "© OpenStreetMap contributors (ODbL); US DoD open data (public domain); cited government publications",
+    banner: "Officially published installation locations. Reference geography only — not operational information (fixture text).",
+    no_cross_ties: true, count: 2,
+    installations: [
+      { name: "Fixture Fort Alpha", operator_nation: "United States of America", branch: "Army", type: "base", status: "active",
+        geometry: { type: "Point", coordinates: [-97.6, 38.4] }, centroid: [-97.6, 38.4] },
+      { name: "Fixture Naval Station Beta", operator_nation: "United States of America", branch: "Navy", type: "base", status: "active",
+        geometry: { type: "Point", coordinates: [-76.3, 36.9] }, centroid: [-76.3, 36.9] },
+    ],
+  },
+  "/api/data/quakehistory": {
+    kind: "raw", predictive: false, source: "USGS ANSS Comprehensive Catalog (ComCat), public domain (fixture)",
+    attribution: "USGS ANSS ComCat", count: 2, min_year: 1960, max_year: 2026,
+    quakes: [
+      { lon: -73.05, lat: -38.29, m: 9.5, y: 1960, dep: 33, pl: "Valdivia, Chile", d: "1960-05-22" },
+      { lon: 143.05, lat: 38.3, m: 9.1, y: 2011, dep: 29, pl: "Near the east coast of Honshu, Japan", d: "2011-03-11" },
+    ],
+  },
+  // Shape verified against server/shadowFleet.ts's `ShadowStats` interface
+  // and server/routes.ts's refreshShadowStats() (not guessed): the client's
+  // own l.id === "shadowstats" render block (client/src/pages/datamap.tsx)
+  // does an unguarded `Object.entries(shadowStats.loiter_by_zone)` whenever
+  // loiter_events > 0 — the field this fixture originally omitted, which
+  // crashed the whole app (uncaught TypeError inside the layers-panel
+  // render, caught only by the top-level ErrorBoundary) the instant the
+  // panel was opened with this layer's fixture wired in. Found live via a
+  // VT_DEBUG_CONSOLE=1 run of this harness, not assumed.
+  "/api/data/shadowstats": {
+    kind: "raw", source: "Derived from our own AIS position archive (terrestrial coverage; began 2026-07-03) (fixture)",
+    zones: [{ id: "fixture_sts_zone", name: "Fixture STS Zone" }],
+    generated_at: "2026-09-27T00:00:00.000Z",
+    window_hours: 72, vessels_seen: 1204, points_read: 48200,
+    gap_events: 18, gap_examples: [
+      { mmsi: "412345678", name: "FIXTURE VESSEL", darkAt: 1758900000, reappearAt: 1758921600,
+        gapHours: 6, distanceKm: 42.3, from: [53.9, 12.1], to: [54.1, 12.6] },
+    ],
+    identity_candidates: 3, loiter_events: 41,
+    loiter_by_zone: { fixture_sts_zone: 41 },
+    caveat: "RAW statistics from our own terrestrial-AIS archive. A gap can be innocent (out of receiver range) or evasive (deliberate AIS shutoff) — this count does not distinguish them (fixture).",
+  },
+  "/api/data/superfund": {
+    kind: "raw", predictive: false,
+    source: "EPA Superfund National Priorities List (NPL) — SEMS, U.S. EPA (public domain) (fixture)",
+    attribution: "U.S. EPA Superfund (SEMS/NPL)",
+    note: "Fixture: factual site records — location/status/HRS score as EPA publishes them, not a risk claim.",
+    time: 1, health: { source: "EPA Superfund NPL (SEMS), public domain", clean: 2, suspect: 0, freshness: "live", source_date: "2026-09-27" },
+    sites: [
+      { name: "Fixture Solvent Recovery Site", epa_id: "FXD980000001", hrs_score: 52.3, status: "NPL Site", state: "NJ", city: "Fixtureville", county: "Fixture County", lat: 40.7, lon: -74.2, listed: "1986-06-10" },
+      { name: "Fixture Former Smelter", epa_id: "FXD980000002", hrs_score: null, status: "Deleted NPL Site", state: "PA", city: "Sample City", county: null, lat: 40.0, lon: -76.5, listed: "1998-09-29" },
+    ],
+  },
+  "/api/data/waterviolators": {
+    kind: "raw", predictive: false,
+    source: "EPA ECHO — Clean Water Act compliance records (public domain) (fixture)",
+    attribution: "U.S. EPA ECHO / NPDES",
+    time: 1, health: { source: "EPA ECHO Clean Water Act compliance (public domain)", clean: 2, suspect: 0, freshness: "live", source_date: "2026-09-27" },
+    violators: [
+      { name: "Fixture Chemical Plant", id: "FX0012345", city: "Fixtureville", state: "TX", lat: 29.8, lon: -95.3, permit: "Individual", snc: "Effluent violation", qtrs: 10, actions: 2 },
+      { name: "Fixture Paper Mill", id: "FX0067890", city: "Sample Town", state: "GA", lat: 33.0, lon: -83.5, permit: "General", snc: "Report violation", qtrs: 9, actions: null },
+    ],
   },
   "/api/data/dtcc-swaps": {
     kind: "raw", source: "DTCC SBSDR equity total-return-swap dissemination (fixture)",
