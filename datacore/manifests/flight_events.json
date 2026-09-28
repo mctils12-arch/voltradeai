@@ -1,0 +1,30 @@
+{
+ "stream": "flight_events",
+ "storage": "append-only JSONL day-files <archive>/flight_events/YYYY-MM-DD.jsonl (UTC day of the event)",
+ "written_by": "server/flightPlans.ts appendFlightEvent (DeviationTracker events for aircraft whose plan was requested via GET /api/data/aircraft/plan/:hex; SWIM amendments for tracked callsigns)",
+ "source": "derived: our ADS-B position archive (adsb.lol primary) evaluated against the flight's plan — FAA SWIM SFDPS filed plan when configured, else the adsb.lol route DB (Virtual Radar Server standing data, CC0) or the callsign's last recorded trip in our own archive",
+ "license": "derived work over ODbL 1.0 positions (adsb.lol) + CC0 route data + US-government FAA SWIM data; attribution 'adsb.lol' carried",
+ "attribution": "adsb.lol; Virtual Radar Server standing data (CC0); FAA SWIM SFDPS",
+ "schema_version": 1,
+ "field_map": {
+  "t": "event time, ms epoch (the fix time that triggered it)",
+  "hex": "icao24 hex (entity key)",
+  "cs": "callsign",
+  "type": "DEVIATION_START | DEVIATION_END | REPLANNED | PLAN_AMENDED",
+  "detail": "one-line human-readable reason (thresholds, rejoin point, amendment diff)",
+  "src": "plan source the event was judged against: FILED_FAA | HISTORY_PREDICTED | ROUTE_DB_PREDICTED",
+  "xt": "cross-track distance to the plan in nm at the event (null when unknown)",
+  "la": "latitude of the triggering fix (null for amendments)",
+  "lo": "longitude of the triggering fix (null for amendments)"
+ },
+ "confidence_model": "RAW-derived operational events, NOT incidents. A deviation is > 8 nm cross-track for 3 consecutive en-route fixes (terminal areas within 40 nm of either end excluded; fix spacing 30s-5min makes tighter thresholds noise), ending when < 4 nm. When the plan is PREDICTED (route DB great circle or last trip's path) a 'deviation' may be the prediction's error, not the aircraft's — the src field says which. Only aircraft whose plan was requested are evaluated, so absence of an event is not evidence of on-plan flight.",
+ "geo_fields": [
+  "la",
+  "lo"
+ ],
+ "entity_key": "hex + t",
+ "sentiment": null,
+ "started": "2026-09-28",
+ "cadence": "event-driven (on plan requests; no poller)",
+ "_note": "Universal archive envelope (approved 2026-07-04). FLIGHT PROGRAM playback support: the real flown path stays the aircraft archive (truth); this stream records when an aircraft left and rejoined its plan so a replay can show it."
+}

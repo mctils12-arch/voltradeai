@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadAirports, nearestAirport, haversineKm, _resetAirports } from "./airportsIndex";
+import { loadAirports, nearestAirport, haversineKm, _resetAirports, airportByIdent } from "./airportsIndex";
 import { splitTrips, endpointAgreesWithField, type ArchivedFix, type NearestAirportFn } from "./aircraftTrips";
 
 // ── the real dataset (bundled, 72k fields) ──────────────────────────────────
@@ -76,4 +76,15 @@ test("splitTrips: taxi logs are is_flight=false — 'that's not a flight'", () =
   const trips = splitTrips(fixes);
   assert.equal(trips[0].is_flight, false);
   assert.equal(trips[0].verified, false);
+});
+
+// FLIGHT PROGRAM 2026-09-28: SWIM flight plans name aerodromes by ICAO ident
+test("airportByIdent: exact ident lookup (case/whitespace-insensitive), unknown -> null", () => {
+  _resetAirports();
+  const sfo = airportByIdent(" ksfo ");
+  assert.ok(sfo, "KSFO must resolve");
+  assert.equal(sfo!.id, "KSFO");
+  assert.ok(Math.abs(sfo!.la - 37.62) < 0.05 && Math.abs(sfo!.lo + 122.38) < 0.05);
+  assert.equal(airportByIdent("ZZZZNOPE"), null);
+  assert.equal(airportByIdent(""), null);
 });

@@ -283,6 +283,10 @@ class RPCDispatcher:
             "get_peak_equity": ("risk_kill_switch", "get_peak_equity"),
             "check_position_risk": ("risk_kill_switch", "check_position_risk"),
             "check_correlation_pre_trade": ("risk_kill_switch", "check_correlation_pre_trade"),
+            # Paper-account drawdown-kill AUTO-RESUME, Python half (2026-09-28,
+            # human-directed; server/killSwitchAutoResume.ts). Re-baselines the
+            # Python DD halts through their EXISTING functions only.
+            "paper_resume_sync": ("paper_resume_sync", "rebaseline_python_halts"),
 
             # Regime / macro
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),

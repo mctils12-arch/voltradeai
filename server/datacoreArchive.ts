@@ -576,6 +576,45 @@ export async function rollupOldDaysAsync(baseDir?: string, nowMs?: number): Prom
   }
 }
 
+/**
+ * COLD TIER (2026-09-28, server/archiveOffload.ts): write ONE day's
+ * `<kind>_tracks/<day>.jsonl.gz` summary from its raw hour files WITHOUT
+ * deleting them — the exact summary rollupOldDaysAsync would write for that
+ * day (same shared accumulate/emit helpers), produced early because the R2
+ * hot-tier eviction removes a verified-offloaded day's local raw files
+ * before RAW_RETENTION_DAYS, and the permanent per-day rollup must not lose
+ * that day. Returns the basenames it read (every one streamed cleanly), or
+ * null when any file failed — the caller MUST NOT delete on null (same
+ * never-discard-unrolled rule as rollupOldDaysAsync). Additive: nothing
+ * else calls this; rollupOldDaysAsync is unchanged.
+ */
+export async function rollupDayAsync(kind: ArchiveKind, day: string, baseDir?: string): Promise<string[] | null> {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, kind);
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { return null; }
+  const files = names.filter((f) => {
+    const m = f.match(/^(\d{4}-\d{2}-\d{2})-\d{2}\.jsonl(\.gz)?$/);
+    return !!m && m[1] === day;
+  }).sort();
+  if (!files.length) return [];
+  const tracks: RollupTracks = {};
+  for (const f of files) {
+    const ok = await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => accumulateTrackLine(tracks, line));
+    if (!ok) return null;
+  }
+  const out = emitDaySummary(tracks, day);
+  try {
+    const tdir = path.join(base, kind + "_tracks");
+    fs.mkdirSync(tdir, { recursive: true });
+    fs.writeFileSync(path.join(tdir, `${day}.jsonl.gz`), zlib.gzipSync(out.join("\n") + "\n"));
+  } catch (e: unknown) {
+    console.error("[archive] rollupDay write:", e instanceof Error ? e.message : e);
+    return null;
+  }
+  return files;
+}
+
 /** Earliest raw hour file currently on disk for a kind (ms epoch of that
  *  hour's start), or null if the kind has no raw files at all.
  *
