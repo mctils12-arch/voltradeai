@@ -105936,13 +105936,14 @@ No client change needed (renders the number as given).
 STARVED: no.
 
 
-## 2026-09-28 [PIPELINE] — T-DATACORE — FLIGHT PROGRAM B2: R2 COLD TIER + ROLLING REPLAY WINDOW (shipped in #1205; attributed v1.0.1003)
+## 2026-09-28 [PIPELINE] — T-DATACORE — FLIGHT PROGRAM B2: R2 COLD TIER + ROLLING REPLAY WINDOW (shipped in #1205; attributed v1.0.1004)
 
 Session: human-directed FLIGHT PROGRAM (global live aircraft, FAA filed-plan
 curtains, 30-day replay + close approaches, bot auto-resume), built by
 parallel worktree agents and integrated in the parent session. #1205 was
 squash-merged by the human mid-build WITHOUT a version bump; this entry and
-v1.0.1003 (the follow-up commit) restore attribution.
+v1.0.1004 (the follow-up PR; v1.0.1003 was taken by #1206) restore
+attribution.
 CHANGE: server/r2Client.ts (hand-rolled SigV4, no deps; verified against 5
 AWS published signature vectors), server/archiveOffload.ts (30-min offload
 of completed hour files >2d old to a PRIVATE R2 bucket, size-verified,
@@ -105971,7 +105972,7 @@ tryRemove -> noteError, unknown+errText); no baseline edits.
 STARVED: no.
 
 
-## 2026-09-28 [REPAIR] — T-BOT — PAPER DRAWDOWN-KILL AUTO-RESUME, HUMAN-DIRECTED (shipped in #1205; attributed v1.0.1003)
+## 2026-09-28 [REPAIR] — T-BOT — PAPER DRAWDOWN-KILL AUTO-RESUME, HUMAN-DIRECTED (shipped in #1205; attributed v1.0.1004)
 
 HUMAN DIRECTIVE (sovereignty override of "only the owner toggle clears the
 latch"): "there was no drop — implement it in a way that automatically turns
@@ -106002,7 +106003,7 @@ MUTABLE rule); holidays count as market days in marketHoursBetween.
 STARVED: no.
 
 
-## 2026-09-28 [PRODUCT] — T-DATACORE — FLIGHT PROGRAM C: FLIGHT PLANS + FAA SWIM SFDPS (shipped in #1205; attributed v1.0.1003)
+## 2026-09-28 [PRODUCT] — T-DATACORE — FLIGHT PROGRAM C: FLIGHT PLANS + FAA SWIM SFDPS (shipped in #1205; attributed v1.0.1004)
 
 CHANGE: GET /api/data/aircraft/plan/:hex (+ /plan-status): FILED_FAA (SWIM
 SFDPS, reusable server/swimConnector.ts on solclientjs 10.18.3, tcps) >
@@ -106111,4 +106112,20 @@ full-tier clients may pull up to ~200k points per read.
 ROLLBACK TRIGGER: event-loop lag p95 > 250 ms correlated with window
 reads; a flagged pair contradicted by its own archived fixes (honesty
 metric). Integration fix: closeApproach imports EARTH_RADIUS_NM (D11).
+## 2026-09-28 [REPAIR] — ETF builder — FINNHUB DIVIDEND YIELD UNITS (v1.0.1003)
+
+Second instance of the unit-guessing bug class found with AAPL's 32%
+dividend yield (fixed in #1203; my duplicate #1204 was closed as
+superseded). etf_data_sources.fetch_metrics_finnhub read Finnhub's
+dividendYieldIndicatedAnnual — documented in PERCENT — and divided by 100
+only when the value was > 0.2. Any yield under 0.2% (value 0.15) was left
+as-is and read as a DECIMAL by the holding card's fmtPct (x100) -> "15.00%".
+
+FIX: finnhub_pct_to_decimal() always divides by 100. Finnhub is the only
+source of the field (Polygon reference data carries no yield); the only
+consumer is the ETF builder holding card (ETFBuilderView.tsx, decimal).
+Cache: /tmp per container, 6h TTL — no stale wrong values survive a deploy.
+
+RATCHET: test_etf_finnhub_div_yield.py (3 tests; all fail on the old code).
+Full pytest 2,288 passed; counter ratchet OK.
 STARVED: no.
