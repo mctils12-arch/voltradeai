@@ -1466,13 +1466,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         stepSecOverride = stepRaw;
       }
+      // FLIGHT PROGRAM replay (2026-09-28): optional `max` hex cap so a
+      // capable device can replay "all planes in view" (client asks by its
+      // device tier). Bounded 50..2000; the total-point cap scales with it
+      // (>= the default 60k) and the "returned N of M" note stays honest.
+      let caps: { maxHexes: number; maxTotalPoints: number } | undefined;
+      if (req.query.max !== undefined) {
+        const mx = parseInt(String(req.query.max), 10);
+        if (!Number.isFinite(mx) || mx < 50 || mx > 2000) {
+          return res.status(400).json({ error: "max must be an integer 50..2000 (hexes)" });
+        }
+        caps = { maxHexes: mx, maxTotalPoints: Math.max(60_000, mx * 100) };
+      }
       const [w, s, e, n] = parts;
       const key = [kind, w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
                    Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom),
-                   stepSecOverride ?? "auto"].join("|");
+                   stepSecOverride ?? "auto", caps?.maxHexes ?? "dflt"].join("|");
       const hit = windowCache.get(key);
       if (hit && Date.now() - hit.at < 30_000) return res.json(hit.data);
-      const data = await readWindow({ kind, bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride });
+      const data = await readWindow({
+        kind, bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride, caps,
+        // close approaches' low-level exclusion uses the nearest open
+        // fixed-wing airport's field elevation (OurAirports, meters -> ft)
+        closeApproaches: {
+          airportNear: (la, lo, rNm) => {
+            const ap = nearestAirport(la, lo, rNm * 1.852, ["L", "M", "S", "W"]);
+            return ap ? { elevFt: ap.el == null ? null : ap.el * 3.28084 } : null;
+          },
+        },
+      });
       windowCache.set(key, { at: Date.now(), data });
       if (windowCache.size > 32) {
         const oldest = windowCache.keys().next().value;
