@@ -39,6 +39,7 @@ import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
+import { registerArchiveOffloadRoutes } from "./archiveOffload";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1519,6 +1520,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/archive/stats", (_req, res) => {
     try { res.json({ ...archiveStats(), generated_at: new Date().toISOString() }); } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
+  registerArchiveOffloadRoutes(app); // R2 cold tier: offload + rolling replay window + /api/data/archive/offload-status
 
   // Fires × facilities cross-tie (worldview-globe Pillar 6, backend inference).
   // Joins live NASA active-fire detections to our strategic-facility archive:

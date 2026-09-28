@@ -95,6 +95,10 @@ export interface WindowResult {
   hexes: WindowHex[];
   hexes_seen: number;
   total_points: number;
+  /** COLD TIER honesty (2026-09-28): hours not on local disk — pulled from
+   *  R2, refused as older than the replay window, or on neither tier.
+   *  Absent only on the trivially-empty early returns. */
+  coldTier?: ColdTierCounts;
   /** scan honesty: which part of the request was actually streamed. */
   coverage: {
     requested_from: number;
@@ -114,6 +118,39 @@ export function lonInBBox(lo: number, w: number, e: number): boolean {
 /** UTC hour-file basename ("YYYY-MM-DD-HH") for an epoch-seconds hour. */
 export function hourName(hourStartSec: number): string {
   return new Date(hourStartSec * 1000).toISOString().slice(0, 13).replace("T", "-");
+}
+
+// ── COLD TIER hour loader (FLIGHT PROGRAM B2, 2026-09-28) ──────────────────
+// Hour files load LOCAL DISK FIRST (unchanged); an hour absent locally may
+// come from the R2 cold tier (server/archiveOffload.ts implements this and
+// registers itself at boot). The source only says where an hour lives and
+// fetches it into a local cache file — the SAME streamJsonlLines parse path
+// reads it, so a cold hour is indistinguishable from a local one downstream.
+export interface ColdHourSource {
+  /** "available" = offloaded + verified in R2; "expired" = older than the
+   *  rolling replay window (refused, never fetched); "absent" = neither. */
+  locate(kind: "aircraft" | "vessels", hourStartSec: number): "available" | "expired" | "absent";
+  /** fetch the hour into a local (cached) file; null on failure. */
+  fetch(kind: "aircraft" | "vessels", hourStartSec: number, signal?: AbortSignal): Promise<{ fp: string; gz: boolean } | null>;
+  /** most cold hours ONE request may pull (the rest are deferred, honestly). */
+  maxHoursPerRequest: number;
+}
+
+export interface ColdTierCounts {
+  hoursFromR2: number;
+  /** past hours in the window on NEITHER tier (no traffic recorded, an
+   *  outage, or a failed cold fetch) — a gap stays a gap */
+  hoursMissing: number;
+  /** hours older than the rolling replay window: refused, not fetched */
+  hoursExpired: number;
+  /** R2-available hours not pulled because the per-request cap was hit */
+  hoursDeferred: number;
+}
+
+let defaultColdSource: ColdHourSource | null = null;
+/** Boot wiring (archiveOffload.registerArchiveOffloadRoutes). null = local only. */
+export function setColdHourSource(src: ColdHourSource | null): void {
+  defaultColdSource = src;
 }
 
 interface Accum {
@@ -138,6 +175,10 @@ export async function readWindow(opts: {
   stepSecOverride?: number;
   baseDir?: string;
   caps?: Partial<WindowCaps>;
+  /** cold-tier override (tests); undefined = the boot-registered source */
+  coldSource?: ColdHourSource | null;
+  /** aborts the scan (and any in-flight cold fetch) — e.g. client gone */
+  signal?: AbortSignal;
 }): Promise<WindowResult> {
   const kind = opts.kind ?? "aircraft";
   const caps: WindowCaps = { ...WINDOW_DEFAULT_CAPS, ...(opts.caps || {}) };
@@ -156,23 +197,35 @@ export async function readWindow(opts: {
     coverage: { requested_from: from, scanned_from: from, complete: true, files_scanned: 0 },
     note,
   });
+  const cold = opts.coldSource === undefined ? defaultColdSource : opts.coldSource;
   if (!(to > from)) return empty("empty window (to must be after from)");
-  if (!fs.existsSync(dir)) return empty("no archive yet for this kind");
+  if (!fs.existsSync(dir) && !cold) return empty("no archive yet for this kind");
 
   // candidate hour files inside the window, NEWEST first, budget-capped.
   // Names are derived from the window (not readdir) so the scan order is
   // exact; a missing hour (nothing archived / not yet written) just isn't
-  // on disk in either flavor.
+  // on disk in either flavor. Local disk first; an hour absent locally is
+  // offered to the cold tier (R2), which answers available/expired/absent.
   const firstHour = Math.floor(from / 3600) * 3600;
   const lastHour = Math.floor((to - 1) / 3600) * 3600;
-  const files: Array<{ fp: string; gz: boolean; hourSec: number }> = [];
+  const files: Array<{ fp: string; gz: boolean; hourSec: number; cold?: boolean }> = [];
+  const coldTier: ColdTierCounts = { hoursFromR2: 0, hoursMissing: 0, hoursExpired: 0, hoursDeferred: 0 };
+  const nowSec = Date.now() / 1000;
   for (let h = lastHour; h >= firstHour; h -= 3600) {
     const nm = hourName(h);
     const plain = path.join(dir, `${nm}.jsonl`);
     const gzp = path.join(dir, `${nm}.jsonl.gz`);
     if (fs.existsSync(plain)) files.push({ fp: plain, gz: false, hourSec: h });
     else if (fs.existsSync(gzp)) files.push({ fp: gzp, gz: true, hourSec: h });
+    else if (h > nowSec) continue; // a future hour cannot exist yet — not a gap
+    else {
+      const where = cold ? cold.locate(kind, h) : "absent";
+      if (where === "available") files.push({ fp: "", gz: true, hourSec: h, cold: true });
+      else if (where === "expired") coldTier.hoursExpired++;
+      else coldTier.hoursMissing++;
+    }
   }
+  let coldPulled = 0;
 
   const acc = new Map<string, Accum>();
   let rawMatched = 0;
@@ -180,14 +233,30 @@ export async function readWindow(opts: {
   let scannedFrom = to; // narrows downward as hours stream
   let stoppedEarly = false;
 
-  for (const f of files) {
-    if (filesScanned >= caps.maxFiles || rawMatched >= caps.maxTotalPoints * 4) {
+  for (let fi = 0; fi < files.length; fi++) {
+    const f = files[fi];
+    if (filesScanned >= caps.maxFiles || rawMatched >= caps.maxTotalPoints * 4 || opts.signal?.aborted) {
       stoppedEarly = true;
       break;
     }
+    let fp = f.fp;
+    if (f.cold && cold) {
+      if (coldPulled >= cold.maxHoursPerRequest) {
+        // per-request cold cap: everything older stays unscanned (newest-
+        // first), so coverage below reports the honest partial window
+        coldTier.hoursDeferred = files.slice(fi).filter((x) => x.cold).length;
+        stoppedEarly = true;
+        break;
+      }
+      coldPulled++;
+      const got = await cold.fetch(kind, f.hourSec, opts.signal).catch(() => null);
+      if (!got) { coldTier.hoursMissing++; continue; }
+      fp = got.fp;
+      coldTier.hoursFromR2++;
+    }
     filesScanned++;
     scannedFrom = Math.max(from, f.hourSec);
-    await streamJsonlLines(f.fp, f.gz, (line) => {
+    await streamJsonlLines(fp, f.gz, (line) => {
       let r: any;
       try { r = JSON.parse(line); } catch { return; }
       if (typeof r?.i !== "string" || !Number.isFinite(r.t)) return;
@@ -264,6 +333,9 @@ export async function readWindow(opts: {
 
   const complete = !stoppedEarly && scannedFrom <= Math.max(from, firstHour);
   const notes: string[] = [];
+  if (coldTier.hoursExpired > 0) {
+    notes.push(`${coldTier.hoursExpired} hour(s) of this window are older than the rolling replay window — raw logs roll off and are not served`);
+  }
   const noun = kind === "vessels" ? "vessels" : "aircraft";
   if (hexesSeen > returned.length) {
     notes.push(`returned ${returned.length} of ${hexesSeen} ${noun} in this window — zoom in or narrow the time range`);
@@ -277,6 +349,7 @@ export async function readWindow(opts: {
     hexes: returned,
     hexes_seen: hexesSeen,
     total_points: returned.reduce((s, h) => s + h.points.length, 0),
+    coldTier,
     coverage: {
       requested_from: from,
       scanned_from: scannedFrom,
