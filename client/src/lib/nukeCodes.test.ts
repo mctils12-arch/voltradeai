@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, NUKE_TYPE, NUKE_PURPOSE } from "./nukeCodes.ts";
+import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, NUKE_TYPE, NUKE_PURPOSE } from "./nukeCodes.ts";
 import { classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL } from "./mapIcons.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -78,4 +78,24 @@ test("testing agency resolves by country and era", () => {
   assert.match(testingAgency("USSR", 1961), /Medium Machine Building/);
   assert.match(testingAgency("FRANCE", 1968), /CEA/);
   assert.equal(testingAgency("NOWHERE", 1970), "");
+});
+
+test("site codes decode to plain English, keeping the code checkable", () => {
+  assert.equal(decodeSite("NTS"), "Nevada Test Site, USA (catalog code NTS)");
+  assert.match(decodeSite("MUEUEOA"), /^Mururoa Atoll/, "catalog typo variants still decode");
+  assert.equal(decodeSite("MTR RUSS"), "MTR RUSS", "ambiguous codes are shown raw, never guessed");
+  assert.equal(decodeSite(null), "");
+});
+
+test("re-plotted records explain their map position; normal records say nothing", () => {
+  const km = (v: number) => `${Math.round(v)} km`;
+  const tests = catalog.tests as Array<Parameters<typeof siteLocationNote>[0] & { n?: string }>;
+  const egmont = tests.find((t) => t.n === "EGMONT")!;
+  assert.equal(egmont.loc, "site", "EGMONT must be re-plotted by the site gate");
+  const note = siteLocationNote(egmont, km);
+  assert.match(note, /Nevada Test Site/);
+  assert.match(note, /36\.0°N, 112\.0°W/, "names the catalog's own (wrong) coordinates");
+  assert.match(note, /exact shot point is unknown/);
+  const normal = tests.find((t) => t.r === "NTS" && t.loc !== "site")!;
+  assert.equal(siteLocationNote(normal, km), "");
 });
