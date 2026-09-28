@@ -889,6 +889,42 @@ hardcoded_palette_hex=$(python3 scripts/hardcoded_palette_hex.py)
 param_shadows_outer_binding=$(python3 scripts/param_shadows_outer_binding.py)
 
 # ---------------------------------------------------------------------------
+# 9o. D15 — duplicate_route_registration: two (or more) `app.<method>(path)`
+# calls across every tracked, non-test server/*.ts file registering the same
+# HTTP method + PATH (after normalizing `:paramName` segments to `:param`).
+#
+# The "Seeds not yet taken" list was down to two non-viable entries this
+# session (useEffect ref-omission — explicitly SKIPPED as low-value;
+# layers.json registry-id — already marked "investigated, correctly NOT
+# built") — this is a freshly-hunted seed, same as D13/D14's own sessions
+# each had to find one once the prior list ran dry.
+#
+# Express resolves routes in REGISTRATION ORDER: the first app.get()/
+# app.post()/etc. for a given method+path wins every request, permanently.
+# A second registration for the identical method+path pattern is silently
+# unreachable dead code — no crash, no log line, same "mechanism with no
+# visible off-switch" shape as D7 (dead_workflow_env) and D12
+# (orphaned_set_interval). Every route-registration module in this repo
+# (registerAdminStats/registerAuthRoutes/registerBillingRoutes/
+# registerNewsletterRoutes/registerRobots/registerTerms, plus routes.ts/
+# bot.ts) shares the SAME top-level `app: Express` instance and calls
+# `app.<method>` directly on it (verified by reading every signature) —
+# `router.<method>(` does not occur outside *.test.ts anywhere in this tree
+# — so a cross-file duplicate is a REAL collision, not a router-mount false
+# positive. See the module's own docstring for the full rationale.
+#
+# Extracted to scripts/duplicate_route_registration.py (not inlined), same
+# hardcoded_palette_hex/param_shadows_outer_binding precedent — direct unit
+# coverage from day one.
+#
+# BASELINE 0 — verified two ways (server/routes.ts alone: 210 registrations,
+# 0 collisions; every tracked non-test server/*.ts file combined: 265
+# registrations, 0 collisions), both on raw paths and after :param
+# normalization, before trusting the clean baseline.
+# ---------------------------------------------------------------------------
+duplicate_route_registration=$(python3 scripts/duplicate_route_registration.py)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -968,6 +1004,7 @@ if [ "$JSON" = 1 ]; then
   "orphaned_set_interval": $orphaned_set_interval,
   "hardcoded_palette_hex": $hardcoded_palette_hex,
   "param_shadows_outer_binding": $param_shadows_outer_binding,
+  "duplicate_route_registration": $duplicate_route_registration,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -1034,6 +1071,7 @@ printf '%-24s %-14s %-12s %s\n' dup_precise_literal "$dup_precise_literal" "${PI
 printf '%-24s %-14s %-12s %s\n' orphaned_set_interval "$orphaned_set_interval" "${PIN[orphaned_set_interval]:-n/a}" "must stay 0"
 printf '%-24s %-14s %-12s %s\n' hardcoded_palette_hex "$hardcoded_palette_hex" "${PIN[hardcoded_palette_hex]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' param_shadows_outer_binding "$param_shadows_outer_binding" "${PIN[param_shadows_outer_binding]:-n/a}" "must stay 0"
+printf '%-24s %-14s %-12s %s\n' duplicate_route_registration "$duplicate_route_registration" "${PIN[duplicate_route_registration]:-n/a}" "must stay 0"
 printf '%-24s %-14s %-12s %s\n' detectors_registered "$detectors_registered" "${PIN[detectors_registered]:-n/a}" "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "${PIN[quarantine_size]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"

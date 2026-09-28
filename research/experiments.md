@@ -3,6 +3,214 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine EDGE session, third session this UTC day) [PIPELINE] — SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md, research/liveness_notify_state.json) + one new standalone module (scripts/duplicate_route_registration.py, test_duplicate_route_registration.py): EDGE DOCTRINE #3 compile — D15 `duplicate_route_registration` ships, baseline 0 (v1.0.993)
+
+TASK: scheduled EDGE DOCTRINE session. Instructed to check system
+health/KNOWN BROKEN first, then pick the single highest-EV doctrine axis
+among (a) build a free data pipeline end-to-end, (b) capacity-constrained/
+illiquid-universe research, (c) import one foreign-field idea as a testable
+hypothesis, or (d) compile recurring reasoning into reusable code. State the
+prior before building.
+
+PRIOR (stated before running anything, REASONING STANDARD #10): given
+`research/data_census.md`'s own note that axis (a)'s CLAUDE.md-named
+examples were already largely built, and given the 2026-09-18/09-20
+sessions' own filed conclusion that axis (b) is gated and axis (c) is
+exhausted after 7 foreign fields, my prior going in was that axis (d) —
+PROGRAM_STATE.md's §0.7 DETECT duty — was most likely to be both
+unclaimed and immediately actionable this session, pending live
+re-verification of (a)/(b)/(c) rather than trusting that prior blind.
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — the
+standing KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in substance:
+"trading loop dark for 65.0 market hours (431.4h wall-clock) since
+2026-09-10T03:12:26.354Z", `drawdownPct:"-6.2"` (continuing the same
+monotonic recovery every session since 2026-09-10 has logged: -18.0 → …
+→ -5.6 → -6.2 noise-band). This is an explicit human-resume decision per
+RULE REVIEW (no kill-switch threshold may be loosened on inference alone).
+Per `research/liveness_notify_state.json`, the LAST notification for this
+condition went out 2026-09-21T16:06:26Z — a full 7 days before this
+session, with the halt still unresolved and no new fact volunteered since.
+The established "unchanged in substance, don't re-notify same day/next day"
+discipline recent sessions used does not extend indefinitely to a still-open
+18-day halt going silent for a full week — so this session DID send a fresh
+PushNotification (18+ days dark, drawdown recovered to -6.2% from -18.0% at
+the trip, still awaiting a human resume decision) and updated
+`research/liveness_notify_state.json`'s `last_notified_utc`/
+`last_notified_wall_hours` to match, so the next session's own "how long
+since we last said something" check has the right baseline.
+`server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/`licensing` all
+`ok`. KNOWN BROKEN #44 (`insider_cusum_gate2` 500s on every call — root
+cause is a Dockerfile `scripts/` COPY gap, fix proposed in wishlist.md,
+FROZEN PATH, not self-applicable, zero live trading impact — read-only
+diag probe never wired into any order path) and KNOWN BROKEN #37 (AIS
+archive retention gap, needs Railway volume access this sandbox lacks) are
+both unchanged, human-decision/access-gated, not code-actionable from this
+session. No other KNOWN BROKEN item is both critical and code-actionable —
+this is NOT a REPAIR session.
+
+AXIS SURVEY (live, not cached from a prior session's reading):
+`python3 scripts/data_stream_registry_check.py` — 26/35 tracked candidates
+BUILT, the remaining 9 all `declined_dead_source`/`declined_gate1_fail`/
+`blocked_free_key`/`blocked_registration` (human action required for every
+one). Every EDGE DOCTRINE standing example CLAUDE.md names by name
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends — the last replaced by `wikimedia_pageviews` after
+`pytrends`'s own gate-1 failure) is already built. Axis (a) confirmed
+exhausted, matching the standing finding every session back through
+2026-09-18/09-20 already filed — a genuinely NEW free-data-root discovery
+(EDGE DOCTRINE #1's "add more as found") remains open for a future session
+with time to do real web-research legwork, not attempted this session
+given axis (d)'s own ready, unblocked action below.
+
+Axis (b): `research/open_questions.md`'s "Options fill realism" gate
+(KNOWN BROKEN #12(c)) remains open — multiple prior sessions (most
+recently 2026-09-20) each independently judged the remaining re-trace (a
+quote-based options pricing design decision touching `ml_model_v2.
+track_fill`'s live measurement path) not safely attemptable at their own
+session depth. Did not attempt it this session either: MEASUREMENT
+INTEGRITY treats a rushed change to a live P&L attribution path as
+suspect by default, and a wrong fix here would poison exactly the
+counterfactual-logging evidence RULE REVIEW depends on — worse than
+leaving the gate closed one more session.
+
+Axis (c): 7 foreign fields already imported and GATE 2-tested (ecology,
+epidemiology, reliability engineering, seismology, information theory,
+hydrology, statistical process control/Page CUSUM) — 6 killed outright, the
+7th (`insider_cusum_gate2`) blocked cold by KNOWN BROKEN #44's Dockerfile
+bug before it could even run against real data. REASONING STANDARD #4
+applied: an 8th same-shape price-or-filing-derived variant without a
+genuinely different mechanism is fishing the same 496-week-class archives
+again, not research — the 2026-09-18/09-20 sessions' own filed
+recommendation against exactly this still holds, and this session did not
+relitigate it without new evidence.
+
+CHOSE AXIS (d), per the stated prior. PROGRAM_STATE.md's §0.7 DETECT duty
+("MUST increase each session") had not been discharged yet this UTC day
+(D14 shipped 2026-09-27, the prior day); unlike (a)/(b)/(c) above, it had
+no external or human blocker.
+
+METHOD: full rationale lives in `scripts/duplicate_route_registration.py`'s
+own module docstring (this repo's established convention for detector
+modules), not repeated in full here. Summary: the "Seeds not yet taken"
+list in `research/PROGRAM_STATE.md` was down to two non-viable entries
+(`useEffect` ref-omission — explicitly SKIPPED as low-value by a prior
+session's brief; `layers.json` registry-id mapping — already marked
+"investigated, correctly NOT built"), so a fresh ACTIVE-ANGLE-HUNTING pass
+was required, same as D13/D14's own sessions. Landed on: two
+`app.<method>("path", ...)` registrations across every tracked, non-test
+`server/*.ts` file sharing the same HTTP method + PATH, after collapsing
+each `:paramName` route-param segment to a canonical `:param` (so
+`/api/foo/:id` and `/api/foo/:ticker` count as the same route SHAPE).
+Express resolves routes in registration order — the first registration for
+a given method+path wins every request, permanently, so a second
+registration is silently unreachable dead code with no crash and no log
+line, the same "mechanism with no visible off-switch" shape as D7
+(`dead_workflow_env`) and D12 (`orphaned_set_interval`).
+
+READ BEFORE WRITE before trusting the cross-file scope was safe: grepped
+every `registerX(app)`-shaped export across `server/*.ts` and read each
+signature — `routes.ts`, `bot.ts`, `adminStats.ts`, `auth.ts`, `billing.ts`,
+`newsletter.ts`, `robots.ts`, `terms.ts` all receive and register directly
+on the SAME shared top-level `app: Express` instance (no sub-router
+prefixing) — and confirmed `router.<method>(` does not occur anywhere in
+this tree outside `*.test.ts` files, so a cross-file duplicate is a REAL
+collision, not a router-mount false positive. Also found live, while
+building the extractor, that `server/billing.ts`'s webhook route opens
+`app.post(` on one line and states the path string on the next — the
+detector matches over the whole comment-blanked file (not line-by-line) so
+this multi-line shape is still caught, pinned as its own synthetic test.
+
+LIVE COUNT: **0**, verified two independent ways before trusting it, same
+discipline D14 used — `server/routes.ts` alone (210 registrations, 0
+collisions) and every tracked non-test `server/*.ts` file combined (265
+registrations, 0 collisions), both on raw path strings and after `:param`
+normalization. A real, positive finding about this codebase's route
+hygiene, not an absence of effort to find a collision.
+
+SHIPPED: `scripts/duplicate_route_registration.py` (new, standalone,
+directly unit-tested from day one); `test_duplicate_route_registration.py`
+(new, root, 15 tests — synthetic duplicate/non-duplicate/different-method/
+commented-out/block-commented/multi-line-call/router-vs-app-scope/
+three-way-duplicate cases, plus the live-repo count pinned to 0);
+`scripts/program_status.sh` (new `duplicate_route_registration=$(python3
+scripts/duplicate_route_registration.py)` block with full rationale
+comment, wired into both `--json` output and the printf summary table,
+placed as "9o. D15" after "9n. D14"); `ci/counter_baseline.txt`
+(`duplicate_route_registration 0 non-increasing` new row;
+`detectors_registered 14 -> 15`); `research/PROGRAM_STATE.md` (new D15 row
+in the DETECTORS table with full rationale; the "Seeds not yet taken" list
+marks this seed built and removed; new dated SESSION LOG entry at the top).
+No induced-probe-file A/B this session, same call D14 made: the synthetic
+unit tests already pin the identical duplicate/multi-line/commented cases
+permanently, and a stray probe file surviving into the PR is a real risk
+for no extra evidence over what the unit tests already establish.
+
+GATES (full — this sandbox needed a fresh `npm ci` and `pip install -r
+requirements.txt -r requirements-dev.txt`, neither was already present):
+`python3 -m pytest -q` — 2253 passed, 1 skipped, 54 subtests (2238 baseline
++ 15 new tests, zero regressions). `bash scripts/tsc_ratchet.sh` — 11,
+TS2304 0, unchanged (zero `.ts`/`.tsx` file touched by this diff). `bash
+scripts/counter_ratchet.sh` — run before `git add` (no improvement visible,
+new untracked files invisible to `git ls-files`-based counters — the same
+gotcha prior sessions' own ADDENDUMs document) and again after staging: 28
+counters (27 + the new one) at or better than baseline;
+`duplicate_route_registration` live 0 = pin 0, `detectors_registered` live
+15 = pin 15; three counters IMPROVED from this session's own new test file
+and were re-pinned in the same PR (`tests_run_in_ci`/`tests_gating_merge`
+476 -> 477, `assertions` 15593 -> 15609 — this session's own 15 new tests,
+not unrelated drift, per PROMOTION RULE 5). `bash scripts/gated_tests.sh` —
+**GATE PASSED** (server/client/python all green, deploy-gate smoke PASS:
+build + boot + `/api/health` 200 under latched-kill-switch + stale-liveness
+state). `python3 -m unittest test_duplicate_route_registration`: 15/15 pass
+standalone. `npm run visual`: NOT run — zero `client/` file touched by this
+diff, PROMOTION RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; a new static-analysis counter over server-side route
+registrations, not a change to any existing measurement.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`268b902`) already matched `origin/main`'s real HEAD
+(package.json already at 1.0.992 there, per the same-day rail-traffic
+session's own re-bump after its concurrent-merge conflict) — bumped
+`1.0.992 -> 1.0.993` (`package.json` + `package-lock.json`).
+
+WORKSTREAM PARTITION: every touched file (`scripts/program_status.sh`,
+`ci/counter_baseline.txt`, `package.json`/`package-lock.json`, `research/
+PROGRAM_STATE.md`, `research/liveness_notify_state.json`, `research/
+experiments.md`) is SHARED; the two new files
+(`scripts/duplicate_route_registration.py`,
+`test_duplicate_route_registration.py`) are new standalone tooling, not
+owned by any territory. No T-BOT/T-CLIENT/T-DATACORE file touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+NEXT: (1) the "Seeds not yet taken" list is empty again — a future
+session owing the §0.7 duty needs a fresh ACTIVE-ANGLE-HUNTING pass, same
+as this session had to do. (2) axis (b)'s options-fill-realism gate and
+axis (c)'s KNOWN BROKEN #44 Dockerfile block remain the two standing
+openings that would unblock genuinely new axis-(b)/(c) work, both outside
+a single session's safe scope without a human decision or a frozen-path
+change. (3) axis (a) remains open to a session with time for real web
+research into a genuinely NEW free data root, per EDGE DOCTRINE #1's "add
+more as found" — not attempted this session given (d)'s own ready,
+unblocked action. (4) the standing LIVENESS ALARM was re-notified this
+session after a full week's silence; a future session should not re-notify
+again absent either a new fact (resumed, or a materially changed drawdown
+reading worth reporting) or another full week's gap.
+
+STARVED: no — axes (a)/(b)/(c) were each checked live and confirmed
+exhausted or gated before falling through to (d), which shipped a fully
+specified, tested, gated detector end-to-end.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-28 (scheduled-routine PRODUCT session) [PRODUCT] — T-DATACORE-adjacent (scripts/rail_traffic_gate2.py new, test_rail_traffic_gate2.py new) + SHARED-minimal (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json/package-lock.json): rail_ep724_carload_traffic GATE 2 (SIGNAL) attempted and REJECTED — a clean 16-comparison null, no cherry-pickable near-miss
 
 TASK: scheduled PRODUCT session — build the datacore/ pipelines and the

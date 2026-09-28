@@ -656,6 +656,7 @@ the duty. `detectors_registered` reads this table.
 | D12 | `orphaned_set_interval` — a `client/src` file calling `setInterval()` with no `clearInterval()` anywhere in it (whole-file, not per-call-site pairing — real scope analysis would need an AST, not a grep) | 2026-08-15 | 0 | live in `program_status.sh`; A/B-verified live (0→1 on an induced probe file, reverted). Baseline 0: every current caller already pairs the two. Seeded by F13 (PROGRAM_STATE.md above) — a `setInterval` with no visible off-switch is the same "mechanism with no visible off-switch" shape D7/D8 exist for |
 | D13 | `hardcoded_palette_hex` — a DESIGN.md canonical theme-token hex value (`--accent #4d9fff`, etc.) restated as a literal string in `client/src` instead of referenced via `var(--token)` | 2026-09-26 | 402 | live in `scripts/hardcoded_palette_hex.py` (extracted, directly unit-tested from day one — `test_hardcoded_palette_hex.py`, 10 tests); closes the exact "off-palette-hex half not yet built" seed below, unclaimed since D11/D12 were seeded 2026-08-14. Comments blanked, STRING LITERALS KEPT (the deliberate inverse of `ts_code_only.blank_source` — a hex value lives inside the string at its call site) |
 | D14 | `param_shadows_outer_binding` — a module-top-level function/arrow parameter that shadows another module-top-level `const`/`let`/`function` binding of the same (>=3-char) name, where the parameter is referenced inside that function's own body | 2026-09-27 | 0 | live in `scripts/param_shadows_outer_binding.py` (extracted, directly unit-tested from day one — `test_param_shadows_outer_binding.py`, 13 tests); closes the "inverse of D1" seed below, unclaimed since D11/D12 were seeded 2026-08-14. Module scope only (same "top-level" concept D5/D11 use — real closure-chain scope resolution needs an AST, not a grep, same call D12's own docstring makes); this repo has zero ESLint config, so nothing else here covers `no-shadow`'s class. MIN_NAME_LEN=3 excludes conventional short physics constants found live in the tree (`PI`, `MU`, `J2`/`J3`/`J4`/`J8`, `S`, `CH`, `CW`, `km`, `v3`) that would otherwise collide with unrelated same-named parameters as noise. Baseline 0, verified two independent ways (module-top-level-only, and every function/arrow at any nesting depth) before the length filter was even applied — no existing debt to seed, a clean tripwire from day one like D12 |
+| D15 | `duplicate_route_registration` — two (or more) `app.<method>("path", ...)` registrations across every tracked, non-test `server/*.ts` file sharing the same HTTP method + PATH, after collapsing each `:paramName` route-param segment to a canonical `:param` | 2026-09-28 | 0 | live in `scripts/duplicate_route_registration.py` (extracted, directly unit-tested from day one — `test_duplicate_route_registration.py`, 15 tests); a freshly-hunted seed (the "Seeds not yet taken" list below was down to two non-viable entries). Express resolves routes in registration order, so a duplicate method+path makes the second registration permanently, silently unreachable — same "mechanism with no visible off-switch" shape as D7/D12. Scans every `registerX(app: Express)`-style module (`routes.ts`, `bot.ts`, `adminStats.ts`, `authRoutes`, `billingRoutes`, `newsletterRoutes`, `robots`, `terms`), all confirmed to share one top-level `app` instance (verified by reading every signature) rather than `router.`-mounted sub-prefixes (which do not occur outside `*.test.ts` anywhere in this tree) — documented as a re-scope trigger if that ever changes. Matches whole-file (not per-line), so a call spanning lines (found live: `server/billing.ts`'s webhook route) is still caught. Baseline 0, verified two ways (`routes.ts` alone: 210 regs/0 collisions; all non-test `server/*.ts`: 265 regs/0 collisions), both raw and post-normalization — clean tripwire from day one, like D12/D14 |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
@@ -671,10 +672,134 @@ the duty. `detectors_registered` reads this table.
   **checked 2026-09-27, already covered**: this is exactly what D3
   `boundary_any` counts (`: any` in a function's parameter list or return
   annotation, live 238 in `program_status.sh`). Not a distinct seed; removed.
+- ~~cross-file duplicate Express route registration (method+path,
+  `:param`-normalized)~~ — **built 2026-09-28 as D15.** Not a distinct seed;
+  removed.
 
 ---
 
 ## SESSION LOG
+
+### 2026-09-28 (EDGE session, third session this UTC day) — scheduled-routine session. Territory: SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md) + one new standalone module (scripts/duplicate_route_registration.py, test_duplicate_route_registration.py) — v1.0.992
+
+TASK: scheduled EDGE DOCTRINE session — check system health/KNOWN BROKEN
+first, then pick the single highest-EV doctrine axis among (a) build a free
+data pipeline end-to-end, (b) capacity-constrained/illiquid-universe
+research, (c) import one foreign-field idea as a testable hypothesis, or
+(d) compile recurring reasoning into reusable code.
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, `liveness.dark:true` — the
+standing KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in substance
+(65.0 market hours / 431.4h wall-clock dark since 2026-09-10T03:12:26Z,
+`drawdownPct:"-6.2"`, continuing the same monotonic recovery every session
+since 2026-09-10 has logged), an explicit human-resume decision per RULE
+REVIEW (no kill-switch threshold may be loosened on inference alone). Per
+`research/liveness_notify_state.json`, the last PushNotification for this
+condition went out 2026-09-21 — a full week earlier, with the halt still
+unresolved 7 days later and no new fact volunteered to the human since —
+so this session DID re-notify (the "only on change" discipline recent
+sessions used is for same-day/next-day re-checks; a full week of silence
+on a still-open 18-day halt is not the same case), and updated
+`liveness_notify_state.json`'s `last_notified_utc`/`last_notified_wall_hours`
+to match. `server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/
+`licensing` all `ok`. KNOWN BROKEN #44 (`insider_cusum_gate2` 500s —
+Dockerfile fix proposed in wishlist.md, not self-applicable, zero live
+trading impact) and #37 (AIS archive gap, needs Railway volume access this
+sandbox lacks) are unchanged, human/access-gated, not code-actionable here.
+No other KNOWN BROKEN item is both critical and code-actionable — NOT a
+REPAIR session.
+
+AXIS SURVEY (re-checked live, not assumed from a prior session's cache):
+`python3 scripts/data_stream_registry_check.py` — 26/35 built, 9/9
+remaining candidates declined/dead-source/blocked-on-human-registration;
+axis (a)'s named EDGE DOCTRINE examples (Sentinel-2 tank shadows, EDGAR
+Form 4, USAspending, CFTC COT, FDA calendar, Google Trends→wikiattention
+replacement) are ALL already built — confirmed exhausted, matching every
+session back through 2026-09-18/09-20's own same finding. Axis (b) —
+`research/open_questions.md`'s "Options fill realism" KNOWN BROKEN #12(c)
+gate — remains explicitly gated on a deep re-trace multiple prior sessions
+have each independently judged not safely attemptable at their own depth;
+this session made the same call rather than risk a shallow, wrong
+conclusion on a live-risk-adjacent measurement path (MEASUREMENT INTEGRITY:
+a rushed fill-realism "fix" that quietly biases pnl_pct is worse than no
+fix). Axis (c) — foreign-field imports — sits at 7 fields tried
+(ecology/epidemiology/reliability-engineering/seismology/information-theory/
+hydrology/statistical-process-control), 6 GATE 2 killed outright and the
+7th (`insider_cusum_gate2`, Page CUSUM) blocked cold by KNOWN BROKEN #44's
+Dockerfile bug before it could even run — not re-attempted this session
+(REASONING STANDARD #4: an 8th same-shape price-or-filing-derived variant
+without a genuinely new mechanism is fishing, not research; the
+2026-09-18/09-20 sessions' own filed recommendation against exactly this
+still holds).
+
+CHOSE AXIS (d). PROGRAM_STATE.md's §0.7 DETECT duty ("MUST increase each
+session") had not been discharged yet this UTC day (D14 shipped
+2026-09-27), and unlike axes (a)/(b)/(c) above, it had no external
+blocker — a bounded, well-precedented, currently-tractable action per
+SESSION BUDGET's own fall-through order once (a)/(b)/(c) were confirmed
+exhausted or gated.
+
+**Detector added: D15, `duplicate_route_registration`.** The "Seeds not
+yet taken" list (this file) was down to two non-viable entries — required
+a fresh ACTIVE-ANGLE-HUNTING pass, same as D13/D14's own sessions. Landed
+on: two `app.<method>("path", ...)` registrations across every tracked,
+non-test `server/*.ts` file sharing the same HTTP method + PATH (after
+collapsing `:paramName` segments to a canonical `:param`) — Express
+resolves routes in registration order, so the second registration for an
+identical method+path is silently unreachable dead code forever, the same
+"mechanism with no visible off-switch" shape as D7/D12. Read every
+`registerX(app: Express)`-style module's signature before trusting the
+cross-file scope was safe (`routes.ts`, `bot.ts`, `adminStats.ts`,
+`authRoutes`, `billingRoutes`, `newsletterRoutes`, `robots`, `terms` — all
+share one top-level `app` instance; `router.<method>(` does not occur
+outside `*.test.ts` anywhere in this tree, so no router-mount false
+positives are possible today). Full rationale, including the documented
+re-scope trigger if `router.`-mounting is ever introduced, lives in the
+module's own docstring — not repeated here.
+
+BASELINE 0, verified two ways before trusting it: `server/routes.ts` alone
+(210 registrations, 0 collisions) and every tracked non-test `server/*.ts`
+file combined (265 registrations, 0 collisions), both on raw path strings
+and after `:param` normalization — same two-independent-passes discipline
+D14 used. 15 new tests in `test_duplicate_route_registration.py` (synthetic
+duplicate/non-duplicate/commented-out/multi-line-call/router-vs-app-scope
+cases, plus the live-tree pin) — no induced-probe-file A/B this session,
+same call D14 made (the synthetic unit tests already pin the identical
+case permanently; a stray probe file surviving into the PR is a real risk
+for no extra evidence).
+
+GATES: `python3 -m unittest test_duplicate_route_registration` — 15/15
+pass standalone. `bash scripts/tsc_ratchet.sh` — unchanged from baseline
+(zero `.ts`/`.tsx` file touched). `bash scripts/counter_ratchet.sh` — new
+`duplicate_route_registration` pin (0) added to `ci/counter_baseline.txt`;
+`detectors_registered` 14 → 15 (re-pinned in the same PR, this session's
+own direct effect). `bash scripts/gated_tests.sh` — full suite, including
+the 15 new tests, run before opening the PR.
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; a new static-analysis counter over server-side route
+registrations, not a change to any existing measurement.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed.
+
+NEXT: (1) the "Seeds not yet taken" list is empty again — a future
+session owing the §0.7 duty needs a fresh ACTIVE-ANGLE-HUNTING pass, same
+as this session. (2) axis (b)'s options-fill-realism gate and axis (c)'s
+KNOWN BROKEN #44 Dockerfile block remain the two standing openings that
+would unblock real new axis-(b)/(c) work, both outside a single session's
+safe scope without a human decision or a frozen-path change. (3) the
+standing LIVENESS ALARM was re-notified this session after a full week's
+silence — a future session should not re-notify again absent either a new
+fact (resumed, or a further-changed drawdown reading worth reporting) or
+another full week's gap.
+
+STARVED: no — axes (a)/(b)/(c) were each checked live and confirmed
+exhausted or gated before falling through to (d), which shipped a fully
+specified, tested, gated detector end-to-end.
+
+NOT A SPEND REQUEST.
 
 ### 2026-09-27 — scheduled-routine session. Territory: SHARED-only (scripts/program_status.sh, ci/counter_baseline.txt, package.json/package-lock.json, research/PROGRAM_STATE.md) + one new standalone module (scripts/param_shadows_outer_binding.py, test_param_shadows_outer_binding.py) — v1.0.988
 
