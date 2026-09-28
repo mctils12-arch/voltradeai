@@ -30,6 +30,7 @@ const DataWorldMap = lazy(() =>
 );
 import InsightsView from "./InsightsView";
 import ETFBuilderView from "./ETFBuilderView";
+import { spreadsEmptyMessage } from "@/lib/spreadsEmpty";
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
   Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
@@ -2541,6 +2542,23 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                 </div>
               </div>
             )}
+            {/* Empty result: say why instead of silently dropping the section */}
+            {(!data.top_spreads || data.top_spreads.length === 0) && (() => {
+              const m = spreadsEmptyMessage(data.ticker, !!(data.vol_surface && data.vol_surface.length > 0));
+              return (
+                <div data-testid="spreads-empty">
+                  <div className="section-heading">
+                    <TrendingUp size={15} />
+                    Top Ranked Spreads
+                    <span className="section-count">0 of {data.spread_count ?? 0} scanned</span>
+                  </div>
+                  <div className="panel">
+                    <p className="text-sm text-white font-semibold mb-1">{m.title}</p>
+                    <p className="text-xs text-slate-300 leading-relaxed">{m.body}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Footer */}
             <p className="disclaimer">

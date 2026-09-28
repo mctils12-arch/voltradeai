@@ -105883,3 +105883,32 @@ pass with and without shapely), incl. the 0.0-km-is-falsy regression.
 NOT YET RUN across layers — the sweep (all layers + website + trading
 data) is the next step, awaiting the human's go-ahead (multi-agent run).
 STARVED: no.
+
+
+## 2026-09-28 [PRODUCT] — T-CLIENT — ANALYZE: HONEST EMPTY STATE FOR "TOP RANKED SPREADS" (v1.0.1001)
+
+Queued from the 2026-09-24 mobile/feature audit. analyze.py builds spreads
+only from contracts with a live two-sided quote (bid > 0 and ask > 0), so
+outside market hours or on thin/option-less names top_spreads is empty —
+and the section silently vanished (read as "broken"). Now it renders the
+heading ("0 of N scanned") plus a plain explanation, split into two honest
+cases via lib/spreadsEmpty.ts: no live quotes at all (market hours / thin
+options) vs. live quotes but no buildable spread. Wording states spreads
+are never ranked from stale or one-sided prices.
+
+Verified: live AAPL still renders 6 spread cards; AAPL response forced
+empty (route interception) renders the empty state at 390/768/1440, no
+horizontal scroll, no page errors. The visual harness has no Analyze page,
+so this probe is the visual check. Tests: lib/spreadsEmpty.test.ts (3,
+incl. a source regression that the empty branch exists). Client suite
+1,109/1,109.
+
+FOUND, NOT FIXED HERE (each its own PR, feeds the geo/data-consistency
+sweep):
+- AAPL fundamentals card shows "Div. Yield 32.00%" with "Div. Rate $1.08"
+  on a ~$340 stock (true ≈ 0.32%): a percent value multiplied by 100
+  twice. Wrong number displayed as fact.
+- analyze.py falls back to atm_iv = rv20 * 1.1 when no option chain
+  yields an ATM IV — an estimate that may be displayed as observed IV.
+  Needs a check of how the page labels it.
+STARVED: no.
