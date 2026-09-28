@@ -105934,3 +105934,99 @@ tests, includes the AAPL case). Existing analyze tests pass (9/9).
 STILL OPEN: atm_iv = rv20*1.1 fallback labeling (see prior entry).
 No client change needed (renders the number as given).
 STARVED: no.
+
+
+## 2026-09-28 [PIPELINE] — T-DATACORE — FLIGHT PROGRAM B2: R2 COLD TIER + ROLLING REPLAY WINDOW (shipped in #1205; attributed v1.0.1003)
+
+Session: human-directed FLIGHT PROGRAM (global live aircraft, FAA filed-plan
+curtains, 30-day replay + close approaches, bot auto-resume), built by
+parallel worktree agents and integrated in the parent session. #1205 was
+squash-merged by the human mid-build WITHOUT a version bump; this entry and
+v1.0.1003 (the follow-up commit) restore attribution.
+CHANGE: server/r2Client.ts (hand-rolled SigV4, no deps; verified against 5
+AWS published signature vectors), server/archiveOffload.ts (30-min offload
+of completed hour files >2d old to a PRIVATE R2 bucket, size-verified,
+manifest ledger; daily R2 expiry; local early-eviction only after verified
+upload), aircraftWindow cold-source fallback (<=24 R2 hours/request, gz LRU
+cache 512MiB), datacoreArchive.rollupDayAsync. Human directive: flight logs
+are a ROLLING window — REPLAY_RETENTION_DAYS (default 30, clamp 22..400);
+permanent tiny rollups (_tracks, fleet weekly, gnss daily) kept (human
+confirmation requested). Inert until R2_ACCOUNT_ID + R2_ARCHIVE_BUCKET set.
+PRIOR: behavior-neutral for local readers at defaults; R2 plateaus ~2.1GB
+(31d x ~68MB/day measured live), $0 inside the 10GB free tier.
+DOWNSTREAM: (1) under volume pressure (<2GiB free; live 1.24GiB) local days
+22-30 evict after verified upload -> ~0.6GB freed, keeps the 1GiB archive
+guard from pausing recording; (2) local-only readers (trips, per-plane
+track) see 22 days instead of 30; the 22-day floor protects the gate-2
+GNSS-integrity signal's 21-day local window.
+ROLLBACK TRIGGER: a missing aircraft_tracks/fleet-weekly day for an evicted
+date; persistent offload-status lastError; GNSS days_missing>0 inside 21d.
+Rollback = unset R2_ACCOUNT_ID (exact old behavior).
+FOUND, NOT FIXED (queued): compressOldHoursAsync can overwrite an existing
+.gz when a backfill writes a plain .jsonl for the same hour (data loss);
+/api/data/track still says "raw fixes retained 7 days" (it is 30).
+CI: first run failed counter_ratchet (empty_ts_catch/ts_any/boundary_any
++9/+23/+3) — fixed in code with real handlers (counted releaseBody,
+tryRemove -> noteError, unknown+errText); no baseline edits.
+STARVED: no.
+
+
+## 2026-09-28 [REPAIR] — T-BOT — PAPER DRAWDOWN-KILL AUTO-RESUME, HUMAN-DIRECTED (shipped in #1205; attributed v1.0.1003)
+
+HUMAN DIRECTIVE (sovereignty override of "only the owner toggle clears the
+latch"): "there was no drop — implement it in a way that automatically turns
+the bot back on, it's only paper trading anyways, with logic"; re-affirmed
+"try again full permission" after the first agent launch was held.
+CHANGE: server/killSwitchAutoResume.ts (pure) + bot.ts wiring +
+paper_resume_sync.py (daemon method + subprocess fallback). Eligible only
+when every Alpaca base URL is paper-api.alpaca.markets AND the latch reason
+is drawdown-kill (owner/unknown latches never clear). Resume after >=30 min
+latched, market open, valid reads, 3 consecutive evaluations, on RECOVERED
+(dd > -8%, peak kept) | DATA_ANOMALY (<25% of the drop explained by
+unrealized+realized P&L -> peak re-baselined) | PAPER_REBASE (>=2 market
+days latched). Anti-flap: no DATA_ANOMALY shortcut within 24h of a prior
+auto-resume. Kill trip, -10% threshold, order cancel, -25% mercy rule and
+risk_kill_switch.py are UNCHANGED. Off switch: VOLTRADE_KILL_AUTO_RESUME=off.
+PRIOR: the 2026-09-10 latch (KNOWN BROKEN #42/#43) clears at the first
+market-open evaluations after deploy (~09:32 ET Tue 2026-09-29) via
+DATA_ANOMALY or PAPER_REBASE; equityPeak 110727.04 -> ~101.1K (logged).
+DOWNSTREAM: (1) loop active, bot_engine 18% DD halt cleared, scans resume,
+ML feedback resumes after 18 dark days; (2) kill trip point moves ~$99.7K
+-> ~$91K; shared tiered peak (voltrade_peak_equity.json) stays stale (only
+raise-only writers exist) so the T2 leverage gate stays off until recovery.
+ROLLBACK TRIGGER: re-trip within 5 market days of an auto-resume; a
+DATA_ANOMALY call contradicted by the Alpaca dashboard; any resume on an
+invalid read -> set VOLTRADE_KILL_AUTO_RESUME=off, revert.
+OPEN: no client/ UI for autoResume status yet (T-CLIENT follow-up per the
+MUTABLE rule); holidays count as market days in marketHoursBetween.
+STARVED: no.
+
+
+## 2026-09-28 [PRODUCT] — T-DATACORE — FLIGHT PROGRAM C: FLIGHT PLANS + FAA SWIM SFDPS (shipped in #1205; attributed v1.0.1003)
+
+CHANGE: GET /api/data/aircraft/plan/:hex (+ /plan-status): FILED_FAA (SWIM
+SFDPS, reusable server/swimConnector.ts on solclientjs 10.18.3, tcps) >
+HISTORY_PREDICTED (last completed same-callsign trip, own archive, 48h) >
+ROUTE_DB_PREDICTED (VRS standing data via adsb.lol, CC0; position-checked
+max(150nm, 15% leg), great circle) > NONE. shared/flightPlanGeometry.ts.
+Deviation state machine: OFF_PLAN >8nm x3 en-route fixes, ON_PLAN <4nm,
+re-plan from real position, events appended to <archive>/flight_events/.
+Human subscribed SCDS: STDDS, SFDPS, TFMS, NOTAM, ITWS (all approved
+instantly; banner: "pre-approved for public release by the NDRB", "NOT for
+operational use"); only SFDPS consumes in this build; others report
+configured-only. Env: SWIM_<PRODUCT>_{URL,VPN,QUEUE} + SWIM_USER/PASSWORD.
+PRIOR: route DB plausible for ~80% of US airline callsigns; OFF_PLAN fires
+mostly on PREDICTED plans (prediction error, not pilot deviation).
+DOWNSTREAM: (1) the gray-curtain client (agent D, pending) renders
+points/originalPoints — plausibility bound too tight = missing curtains, too
+loose = wrong curtains; (2) each plan request may run a 48h archive scan
+(<=2 concurrent, cached 30 min).
+ROLLBACK TRIGGER: plan-status lastHistoryScanMs routinely >3000ms or
+event-loop lag citing flight plans; ROUTE_DB routes off the flown path >10%.
+UNVERIFIED OFFLINE: exact SFDPS FIXM element names (FIXM 3.0 + NAS ext
+assumed, 4.x tolerated) — verify against first live messages. OPEN: LADD/PIA
+filtering obligation for public display of FAA plans (asked the human).
+SECURITY NOTE: the SWIFT connection password appeared in a human screenshot
+in-session; rotation recommended to the human.
+STARVED: yes — agents B1 (global sweep), D (gray curtain), E (replay +
+close approaches) still building; they ship in the next PR.
