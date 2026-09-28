@@ -342,6 +342,15 @@ def fetch_ticker_details_polygon(symbol: str) -> dict | None:
 
 # ─── FINNHUB: per-ticker valuation metrics ──────────────────────────────────
 
+def finnhub_pct_to_decimal(v):
+    """Finnhub's dividendYieldIndicatedAnnual is documented in PERCENT (1.5 =
+    1.5%); the holding card formats a DECIMAL (x100). Always divide — the old
+    "only when > 0.2" rule guessed units from magnitude, so any yield under
+    0.2% (value 0.15) was left as a decimal and shown as 15% (2026-09-28,
+    same bug class as AAPL's 32% dividend yield on the Analyze page)."""
+    return None if v is None else v / 100.0
+
+
 def fetch_metrics_finnhub(symbol: str) -> dict | None:
     """P/E, beta, dividend yield, 52w high/low etc. for a stock.
 
@@ -382,9 +391,7 @@ def fetch_metrics_finnhub(symbol: str) -> dict | None:
             "52w_low": _safe_float(m.get("52WeekLow")),
             "market_cap": _safe_int(m.get("marketCapitalization") * 1_000_000 if m.get("marketCapitalization") else None),
         }
-        # Dividend yield from Finnhub is in % (e.g. 1.5 = 1.5%) — normalize to decimal
-        if out["dividend_yield"] is not None and out["dividend_yield"] > 0.2:
-            out["dividend_yield"] = out["dividend_yield"] / 100.0
+        out["dividend_yield"] = finnhub_pct_to_decimal(out["dividend_yield"])
         _cache_set(cache_key, out)
         return out
     except Exception:
