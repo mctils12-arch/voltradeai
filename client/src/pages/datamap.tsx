@@ -22,7 +22,7 @@ import {
   CHEMICAL_FEEDSTOCK_LABEL, chemicalFeedstockColor,
   LNG_SHIPYARD_COUNTRY_LABEL, lngShipyardCountryTier, LNG_SHIPYARD_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
-import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote } from "@/lib/nukeCodes";
+import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
@@ -10247,18 +10247,24 @@ export default function DataMapPage() {
         detach = attachLayerInteractions(map, "nuke-pts", (e: any) => {
           const f = e.features?.[0]; if (!f) return; const t = f.properties;
           const CTRY: Record<string, string> = { USA: "United States", USSR: "Soviet Union", UK: "United Kingdom", FRANCE: "France", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" };
+          const CTRY_SHORT: Record<string, string> = { USA: "USA", USSR: "USSR", UK: "UK", FRANCE: "France", CHINA: "China", INDIA: "India", PAKIST: "Pakistan" };
           const rkm = blastRadiusKm(t.kt, t.t);
+          // who fired it vs WHERE: a UK test in Nevada reads "United Kingdom
+          // test · in USA" (human, 2026-09-28: "It's in the usa")
+          const host = siteHostCountry(t.r);
+          const away = host && !testedAtHome(t.c, host);
           setDetail({
             kind: "nuketest",
             title: t.n && t.n !== "NA" ? t.n : "Nuclear test",
-            subtitle: `${CTRY[t.c] || t.c} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
+            subtitle: `${CTRY[t.c] || t.c} test${away ? ` · in ${host}` : ""} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
             // §5 chip row — catalogued fields (yield in kt, catalog convention)
             stats: [
               { label: "Yield kt", value: t.kt ? Number(t.kt).toLocaleString() : "n/a" },
               // who FIRED it — not where: every UK test from 1962 on was a
               // joint shot at the US Nevada Test Site (see "Site" in the body)
-              { label: "Tested by", value: CTRY[t.c] || t.c || "—" },
-              { label: "Date", value: t.d || "—" },
+              { label: "Tested by", value: CTRY_SHORT[t.c] || t.c || "—" },
+              // date stays in the subtitle; this chip answers "where"
+              { label: "Tested in", value: host ? host.split(" (")[0] : "—" },
             ],
             sourceTag: "FOA/SIPRI",
             body: `${t.r ? `Site: ${decodeSite(t.r)}\n` : ""}` +
