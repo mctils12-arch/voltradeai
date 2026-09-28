@@ -36,6 +36,7 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
+import { registerGlobalAircraftRoutes } from "./globalAircraft";
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
@@ -1393,6 +1394,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_low_disk true = archiving paused to protect bot state writes",
     });
   });
+  registerGlobalAircraftRoutes(app); // FLIGHT PROGRAM B1: GET /api/data/aircraft/global (sweep + snapshot, server/globalAircraft.ts)
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —
