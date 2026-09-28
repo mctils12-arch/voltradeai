@@ -608,8 +608,8 @@ export async function rollupDayAsync(kind: ArchiveKind, day: string, baseDir?: s
     const tdir = path.join(base, kind + "_tracks");
     fs.mkdirSync(tdir, { recursive: true });
     fs.writeFileSync(path.join(tdir, `${day}.jsonl.gz`), zlib.gzipSync(out.join("\n") + "\n"));
-  } catch (e: any) {
-    console.error("[archive] rollupDay write:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("[archive] rollupDay write:", e instanceof Error ? e.message : e);
     return null;
   }
   return files;

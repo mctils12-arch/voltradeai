@@ -94,7 +94,7 @@ test("config: active only when all four env vars exist; shape-checked account id
   assert.ok(r2ConfigFromEnv(FULL_ENV as any));
   assert.equal(r2ConfigFromEnv(FULL_ENV as any)!.host, "0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com");
   for (const k of Object.keys(FULL_ENV)) {
-    const env: any = { ...FULL_ENV };
+    const env: Record<string, string | undefined> = { ...FULL_ENV };
     delete env[k];
     assert.equal(r2ConfigFromEnv(env), null, `missing ${k} => not configured`);
   }
@@ -124,10 +124,10 @@ test("not configured: every call is a clean no-op that never touches the network
 interface Captured { url: string; method: string; headers: Record<string, string>; body?: Buffer }
 
 function fakeFetch(responder: (req: Captured) => Response | Promise<Response>, log: Captured[]) {
-  return (async (url: any, init: any = {}) => {
+  return (async (url: string | URL | Request, init: RequestInit = {}) => {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(init.headers || {})) headers[k.toLowerCase()] = String(v);
-    const req: Captured = { url: String(url), method: init.method || "GET", headers, body: init.body ? Buffer.from(init.body) : undefined };
+    const req: Captured = { url: String(url), method: init.method || "GET", headers, body: init.body ? Buffer.from(init.body as Uint8Array) : undefined };
     log.push(req);
     if (init.signal?.aborted) throw new Error("aborted");
     return responder(req);
@@ -213,8 +213,8 @@ test("retries are limited: persistent network errors give up after maxRetries+1 
 
 test("timeout: a hung request is aborted by the per-attempt timeout", async () => {
   const c = createR2Client(CFG, {
-    fetchImpl: ((_u: any, init: any) => new Promise((_res, rej) => {
-      init.signal.addEventListener("abort", () => rej(new Error("The operation was aborted")));
+    fetchImpl: ((_u: string | URL | Request, init: RequestInit = {}) => new Promise<Response>((_res, rej) => {
+      init.signal?.addEventListener("abort", () => rej(new Error("The operation was aborted")));
     })) as any,
     sleep: async () => {}, maxRetries: 0, timeoutMs: 30,
   });

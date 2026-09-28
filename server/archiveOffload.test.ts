@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import zlib from "zlib";
+import type { Express } from "express";
 import {
   createArchiveOffloadService, registerArchiveOffloadRoutes, createColdHourSource,
   retentionConfig, effectiveRetentionDays, ageDays, isDateExpired, oldestReplayableDate,
@@ -59,7 +60,7 @@ function fakeR2() {
   const store = new Map<string, Buffer>();
   const log: Array<{ method: string; key: string }> = [];
   const ctl = { failPutKeys: new Set<string>(), truncatePut: new Set<string>(), down: false };
-  const fetchImpl = (async (url: any, init: any = {}) => {
+  const fetchImpl = (async (url: string | URL | Request, init: RequestInit = {}) => {
     const u = new URL(String(url));
     const parts = u.pathname.split("/").slice(2); // ["", bucket, ...key]
     const key = decodeURIComponent(parts.join("/"));
@@ -68,7 +69,7 @@ function fakeR2() {
     if (ctl.down) throw new Error("ECONNREFUSED");
     if (method === "PUT") {
       if (ctl.failPutKeys.has(key)) return new Response("<Error><Code>InternalError</Code></Error>", { status: 400 });
-      const b = Buffer.from(init.body);
+      const b = Buffer.from(init.body as Uint8Array);
       store.set(key, ctl.truncatePut.has(key) ? b.subarray(0, 3) : b);
       return new Response(null, { status: 200, headers: { etag: '"e"' } });
     }
@@ -89,7 +90,7 @@ function fakeR2() {
       return new Response(xml, { status: 200 });
     }
     if (method === "POST" && u.search === "?delete") {
-      const body = Buffer.from(init.body).toString();
+      const body = Buffer.from(init.body as Uint8Array).toString();
       for (const m of Array.from(body.matchAll(/<Key>([^<]*)<\/Key>/g))) store.delete(m[1]);
       return new Response("<DeleteResult></DeleteResult>", { status: 200 });
     }
@@ -550,8 +551,9 @@ test("GET /api/data/archive/offload-status: tiers, retention, estimates — and 
   const base = tmp();
   const r2 = fakeR2();
   for (let n = 3; n <= 7; n++) for (let h = 0; h < 2; h++) writeHour(base, "aircraft", dateAgo(n), h, rows(dateAgo(n), h));
-  const handlers: Record<string, (req: any, res: any) => any> = {};
-  const app: any = { get: (p: string, h: any) => { handlers[p] = h; } };
+  type Handler = (req: unknown, res: { json(j: unknown): void; status(n: number): { json(j: unknown): void } }) => unknown;
+  const handlers: Record<string, Handler> = {};
+  const app = { get: (p: string, h: Handler) => { handlers[p] = h; } } as unknown as Express;
   const svc = registerArchiveOffloadRoutes(app, {
     startTimers: false, base, client: r2.client, env: ENV as any, nowMs: () => NOW,
     freeBytes: () => 5 * 1024 ** 3, log: () => {}, logError: () => {}, cacheDir: tmp("vt-cache-"),
@@ -560,8 +562,9 @@ test("GET /api/data/archive/offload-status: tiers, retention, estimates — and 
   try {
     await svc.runTick();
     svc._resetStatusCache();
-    let body: any = null;
-    await handlers["/api/data/archive/offload-status"]({}, { json: (j: any) => { body = j; }, status: () => ({ json: () => {} }) });
+    let captured: unknown = null;
+    await handlers["/api/data/archive/offload-status"]({}, { json: (j: unknown) => { captured = j; }, status: () => ({ json: () => undefined }) });
+    const body = captured as Record<string, any>;
     assert.equal(body.configured, true);
     assert.equal(body.retentionDays, 30);
     assert.equal(body.oldestReplayableDate, dateAgo(30));

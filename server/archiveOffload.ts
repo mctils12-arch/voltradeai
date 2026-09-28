@@ -49,12 +49,23 @@ import type { Express } from "express";
 import { archiveBaseDir, RAW_RETENTION_DAYS, rollupDayAsync, type ArchiveKind } from "./datacoreArchive";
 import { MIN_FREE_BYTES, readFreeBytes, volumeAllowsWrite } from "./globalScopes";
 import { hourName, setColdHourSource, type ColdHourSource } from "./aircraftWindow";
-import { createR2Client, r2ConfigFromEnv, type R2Client } from "./r2Client";
+import { createR2Client, errText, r2ConfigFromEnv, type R2Client } from "./r2Client";
 import { preserveWeeklyBeforeRollup } from "./fleetUtilization";
 import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
 
 // ── constants ───────────────────────────────────────────────────────────────
 const DAY_MS = 86_400_000;
+/** Remove a file/dir, reporting instead of throwing. `force` makes an
+ *  already-missing path a success. Returns the error text, or null. */
+function tryRemove(fp: string, recursive = false): string | null {
+  try {
+    fs.rmSync(fp, { force: true, recursive });
+    return null;
+  } catch (e: unknown) {
+    return errText(e);
+  }
+}
+
 export const OFFLOAD_HOUR_KINDS = ["aircraft", "vessels"] as const;
 export type OffloadHourKind = (typeof OFFLOAD_HOUR_KINDS)[number];
 /** agent C's daily flight-event JSONL directory under the archive base */
@@ -290,7 +301,7 @@ export function gzBodyFor(fp: string, flavor: "gz" | "plain"): Promise<{ body: B
     const hash = crypto.createHash("sha256");
     const chunks: Buffer[] = [];
     let settled = false;
-    const fail = (e: any) => { if (!settled) { settled = true; src.destroy(); reject(e); } };
+    const fail = (e: unknown) => { if (!settled) { settled = true; src.destroy(); reject(e); } };
     src.on("error", fail);
     stream.on("error", fail);
     stream.on("data", (c: Buffer) => { hash.update(c); chunks.push(c); });
@@ -310,7 +321,7 @@ export interface ColdSourceOpts {
   maxObjectBytes?: number;
 }
 
-export interface ColdSourceStats { files: number; bytes: number; maxBytes: number; fetches: number; hits: number; errors: number; lastError: string | null }
+export interface ColdSourceStats { files: number; bytes: number; maxBytes: number; fetches: number; hits: number; errors: number; removeErrors: number; lastError: string | null }
 
 export function createColdHourSource(o: ColdSourceOpts): ColdHourSource & { stats(): ColdSourceStats; clear(): void } {
   const now = o.nowMs ?? (() => Date.now());
@@ -318,12 +329,13 @@ export function createColdHourSource(o: ColdSourceOpts): ColdHourSource & { stat
   const maxBytes = o.cacheMaxBytes ?? (intEnv(process.env.R2_COLD_CACHE_MAX_BYTES) ?? COLD_CACHE_DEFAULT_MAX_BYTES);
   // the cache dir is ours alone: start clean (a previous container's files
   // are unindexed and would silently eat the byte cap)
-  try { fs.rmSync(cacheDir, { recursive: true, force: true }); } catch {}
+  const wipeErr = tryRemove(cacheDir, true);
+  if (wipeErr) console.warn(`[archive-offload] could not clear cold cache dir ${cacheDir}: ${wipeErr} — stale files may count against the cap until the next boot`);
   const cache = new Map<string, { fp: string; bytes: number; used: number }>();
   const inflight = new Map<string, Promise<{ fp: string; gz: boolean } | null>>();
   let clock = 0;
   let total = 0;
-  const st = { fetches: 0, hits: 0, errors: 0, lastError: null as string | null };
+  const st = { fetches: 0, hits: 0, errors: 0, removeErrors: 0, lastError: null as string | null };
 
   const evict = (keep: string) => {
     while (total > maxBytes && cache.size > 1) {
@@ -374,7 +386,9 @@ export function createColdHourSource(o: ColdSourceOpts): ColdHourSource & { stat
     },
     stats: () => ({ files: cache.size, bytes: total, maxBytes, ...st }),
     clear: () => {
-      cache.forEach((v) => { try { fs.unlinkSync(v.fp); } catch {} });
+      // a cache file that won't delete is harmless (the dir is wiped at boot);
+      // count it so a systematically unwritable /tmp is visible in stats
+      cache.forEach((v) => { if (tryRemove(v.fp)) st.removeErrors++; });
       cache.clear();
       total = 0;
     },
@@ -538,9 +552,9 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
         s.bytesUploaded += body.length;
         s.pending--;
         consecutiveFails = 0;
-      } catch (e: any) {
+      } catch (e: unknown) {
         s.uploadFailed++;
-        noteError(s, e?.message || String(e));
+        noteError(s, errText(e));
         if (++consecutiveFails >= CONSECUTIVE_FAILURE_ABORT) {
           noteError(s, `offload paused this tick after ${consecutiveFails} consecutive failures`);
           break;
@@ -612,9 +626,9 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
       }
       let removed = 0;
       for (const f of rolled) {
-        try { fs.unlinkSync(path.join(base, c.kind, f)); removed++; } catch (e: any) {
-          noteError(s, `evict unlink ${c.kind}/${f}: ${e?.message || e}`);
-        }
+        const rmErr = tryRemove(path.join(base, c.kind, f));
+        if (rmErr) noteError(s, `evict unlink ${c.kind}/${f}: ${rmErr}`);
+        else removed++;
       }
       s.evicted.push({ kind: c.kind, date: c.date, files: removed, reason: c.reason });
       log(`evicted local ${c.kind}/${c.date} (${removed} hour files, reason=${c.reason}; R2 copy ${c.reason === "expired" ? "not needed — past replay window" : "verified"})`);
@@ -628,7 +642,9 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
     for (const u of listLocalEventUnits(base)) {
       if (!isDateExpired(u.date, t, days)) continue;
       for (const f of u.names) {
-        try { fs.unlinkSync(path.join(base, EVENTS_DIR, f)); s.localEventsExpired++; } catch {}
+        const rmErr = tryRemove(path.join(base, EVENTS_DIR, f));
+        if (rmErr) noteError(s, `expire ${EVENTS_DIR}/${f}: ${rmErr}`);
+        else s.localEventsExpired++;
       }
     }
     if (s.localEventsExpired) log(`expired ${s.localEventsExpired} local ${EVENTS_DIR} file(s) past the ${days}-day replay window`);
@@ -705,14 +721,18 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
         await offloadPhase(s);
         const dailyDue = opts.forceDaily || manifest.lastDailyRunAt == null || now() - manifest.lastDailyRunAt >= DAILY_JOB_INTERVAL_MS;
         if (dailyDue) await dailyPhase(s);
-        try { saveManifest(base, manifest); } catch (e: any) { noteError(s, `manifest save: ${e?.message || e}`); }
+        try { saveManifest(base, manifest); } catch (e: unknown) { noteError(s, `manifest save: ${errText(e)}`); }
         await evictPhase(s);
       }
       expireLocalEvents(s);
-    } catch (e: any) {
-      noteError(s, `tick: ${e?.message || e}`);
+    } catch (e: unknown) {
+      noteError(s, `tick: ${errText(e)}`);
     } finally {
-      try { if (client.configured) saveManifest(base, manifest); } catch {}
+      try {
+        if (client.configured) saveManifest(base, manifest);
+      } catch (e: unknown) {
+        noteError(s, `manifest save (final): ${errText(e)}`);
+      }
       state.lastRun = s.at;
       state.lastSummary = s;
       inFlight = false;
@@ -721,7 +741,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
   }
 
   // ── status (the /api/data/archive/offload-status payload) ─────────────────
-  let statusCache: { at: number; data: any } | null = null;
+  let statusCache: { at: number; data: unknown } | null = null;
 
   async function localTierStats(): Promise<Record<string, { files: number; bytes: number; oldestDate: string | null; newestDate: string | null }>> {
     const out: Record<string, { files: number; bytes: number; oldestDate: string | null; newestDate: string | null }> = {};
@@ -741,7 +761,9 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
           const d = f.slice(0, 10);
           if (!oldest || d < oldest) oldest = d;
           if (!newest || d > newest) newest = d;
-        } catch {}
+        } catch {
+          continue; // file rotated/evicted between readdir and stat — not part of the tier any more
+        }
       }
       out[kind] = { files, bytes, oldestDate: oldest, newestDate: newest };
     }
@@ -880,7 +902,7 @@ export function registerArchiveOffloadRoutes(app: Express, deps: OffloadDeps & {
   setColdHourSource(svc.coldSource);
   if (deps.startTimers !== false) svc.start();
   app.get("/api/data/archive/offload-status", async (_req, res) => {
-    try { res.json(await svc.status()); } catch (e: any) { res.status(500).json({ error: e?.message || "offload status failed" }); }
+    try { res.json(await svc.status()); } catch (e: unknown) { res.status(500).json({ error: errText(e) || "offload status failed" }); }
   });
   return svc;
 }

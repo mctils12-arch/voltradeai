@@ -253,6 +253,28 @@ function errFromXml(status: number, text: string): string {
   return `HTTP ${status}${code ? ` ${code}` : ""}${msg ? `: ${msg}` : ""}`;
 }
 
+/** Error text from an unknown throw (fetch/stream errors are Error, but a
+ *  rejected non-Error must still produce a readable reason). */
+export function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Best-effort release of a response body we are abandoning (retry, too-large,
+ *  non-2xx). A failed cancel only means the socket closes when the stream is
+ *  collected instead of now — it can never change a result, so it is counted
+ *  (visible in r2BodyReleaseFailures) rather than thrown. */
+let bodyReleaseFailures = 0;
+export function r2BodyReleaseFailures(): number { return bodyReleaseFailures; }
+async function releaseBody(stream: { cancel(): Promise<void> } | null | undefined): Promise<void> {
+  if (!stream) return;
+  try {
+    await stream.cancel();
+  } catch (e: unknown) {
+    bodyReleaseFailures++;
+    if (bodyReleaseFailures === 1) console.warn(`[r2] response body release failed (further failures counted silently): ${errText(e)}`);
+  }
+}
+
 function anySignal(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
   const list = signals.filter((s): s is AbortSignal => !!s);
   if (list.length <= 1) return list[0];
@@ -325,13 +347,13 @@ export function createR2Client(cfg: R2Config | null, deps: R2ClientDeps = {}): R
         });
         if (RETRYABLE.has(res.status) && attempt < maxRetries) {
           lastErr = `HTTP ${res.status}`;
-          try { await res.body?.cancel(); } catch {}
+          await releaseBody(res.body);
         } else {
           return await onRes(res, attempt + 1);
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (req.signal?.aborted) return onErr("aborted", attempt + 1);
-        lastErr = timedOut ? `timeout after ${timeoutMs}ms` : (e?.message || String(e));
+        lastErr = timedOut ? `timeout after ${timeoutMs}ms` : errText(e);
         if (attempt >= maxRetries) return onErr(lastErr, attempt + 1);
       } finally {
         clearTimeout(timer);
@@ -345,7 +367,7 @@ export function createR2Client(cfg: R2Config | null, deps: R2ClientDeps = {}): R
       Promise<{ ok: true; chunks: Buffer[]; bytes: number } | { ok: false; error: string }> {
     const declared = Number(res.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > maxBytes) {
-      try { await res.body?.cancel(); } catch {}
+      await releaseBody(res.body);
       return { ok: false, error: `object too large (${declared} > ${maxBytes} bytes)` };
     }
     const chunks: Buffer[] = [];
@@ -359,18 +381,18 @@ export function createR2Client(cfg: R2Config | null, deps: R2ClientDeps = {}): R
         const b = Buffer.from(value);
         bytes += b.length;
         if (bytes > maxBytes) {
-          try { await reader.cancel(); } catch {}
+          await releaseBody(reader);
           return { ok: false, error: `object exceeded ${maxBytes} bytes` };
         }
         if (sink) await sink(b); else chunks.push(b);
       }
-    } catch (e: any) {
-      return { ok: false, error: e?.message || "body read failed" };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) || "body read failed" };
     }
     return { ok: true, chunks, bytes };
   }
 
-  const drain = async (res: Response) => { try { await res.body?.cancel(); } catch {} };
+  const drain = async (res: Response) => { await releaseBody(res.body); };
   const failText = async (res: Response) => errFromXml(res.status, await res.text().catch(() => ""));
 
   return {
