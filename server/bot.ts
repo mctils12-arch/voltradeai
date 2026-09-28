@@ -7,6 +7,10 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
+import {
+  AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, evaluateAutoResume, fillsWindowStartMs,
+  parseKillSwitchRecord, summarizePythonSync, type AutoResumeDecision, type AutoResumeNumbers,
+} from "./killSwitchAutoResume";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
@@ -610,12 +614,23 @@ state.equityPeak = loadEquityPeak();
 const KILL_SWITCH_PATH = "/data/voltrade/voltrade_kill_switch.json";
 const KILL_SWITCH_FALLBACK = "/tmp/voltrade_kill_switch.json";
 
+// AUTO-RESUME (2026-09-28, human-directed — see server/killSwitchAutoResume.ts)
+// needs WHY and WHEN the latch was set, not just whether: the reason/savedAt
+// this file has always carried are now read back too, plus lastAutoResumeAt
+// (anti-flap). Old files ({killSwitch} or {killSwitch, reason, savedAt}) still
+// parse — the extra field is optional in both directions.
+let killSwitchMeta: { reason: string | null; savedAtMs: number | null; lastAutoResumeAtMs: number | null } =
+  { reason: null, savedAtMs: null, lastAutoResumeAtMs: null };
+
 function loadKillSwitch(): boolean {
   for (const p of [KILL_SWITCH_PATH, KILL_SWITCH_FALLBACK]) {
     try {
       if (fs.existsSync(p)) {
-        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
-        if (typeof parsed?.killSwitch === "boolean") return parsed.killSwitch;
+        const rec = parseKillSwitchRecord(JSON.parse(fs.readFileSync(p, "utf8")));
+        if (rec) {
+          killSwitchMeta = { reason: rec.reason, savedAtMs: rec.savedAtMs, lastAutoResumeAtMs: rec.lastAutoResumeAtMs };
+          return rec.killSwitch;
+        }
       }
     } catch (e: any) {
       console.error(`[kill-switch] could not load ${p}:`, e?.message || e);
@@ -624,12 +639,20 @@ function loadKillSwitch(): boolean {
   return false;
 }
 
-function saveKillSwitch(reason: string) {
+function saveKillSwitch(reason: string, opts: { autoResume?: boolean } = {}) {
+  const nowMs = Date.now();
+  killSwitchMeta = {
+    reason,
+    savedAtMs: nowMs,
+    lastAutoResumeAtMs: opts.autoResume ? nowMs : killSwitchMeta.lastAutoResumeAtMs,
+  };
+  const lastAutoResumeAt = killSwitchMeta.lastAutoResumeAtMs !== null
+    ? new Date(killSwitchMeta.lastAutoResumeAtMs).toISOString() : undefined;
   for (const p of [KILL_SWITCH_PATH, KILL_SWITCH_FALLBACK]) {
     try {
       const dir = p.substring(0, p.lastIndexOf("/"));
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-      fs.writeFileSync(p, JSON.stringify({ killSwitch: state.killSwitch, reason, savedAt: new Date().toISOString() }));
+      fs.writeFileSync(p, JSON.stringify({ killSwitch: state.killSwitch, reason, savedAt: new Date(nowMs).toISOString(), lastAutoResumeAt }));
       return;
     } catch (e: any) {
       console.error(`[kill-switch] could not save to ${p}:`, e?.message || e);
@@ -639,8 +662,31 @@ function saveKillSwitch(reason: string) {
 
 state.killSwitch = loadKillSwitch();
 if (state.killSwitch) {
-  console.log("[kill-switch] restored ON from disk — bot boots halted; only the owner /api/bot/kill toggle clears it");
+  console.log(`[kill-switch] restored ON from disk (reason: ${JSON.stringify(killSwitchMeta.reason)}) — bot boots halted; the owner /api/bot/kill toggle clears it, and a drawdown-kill latch on the PAPER account may auto-resume (server/killSwitchAutoResume.ts)`);
 }
+
+// Live auto-resume status, surfaced on /api/bot/status and /api/health
+// (payload only — never the health HTTP code, see server/healthGate.ts).
+interface AutoResumeStatus {
+  eligible: boolean;
+  latchReason: string | null;
+  outcome: string;
+  classification: string | null;
+  basis: string | null;
+  reason: string;
+  consecutiveOk: number;
+  required: number;
+  lastEvaluation: string | null;
+  nextCheck: string | null;
+  numbers: AutoResumeNumbers | null;
+  lastResume: { at: string; basis: string; priorPeak: number; newPeak: number } | null;
+}
+const autoResumeStatus: AutoResumeStatus = {
+  eligible: false, latchReason: null, outcome: "NOT_EVALUATED", classification: null, basis: null,
+  reason: "not evaluated yet (evaluates on tier-1 cycles while latched)", consecutiveOk: 0,
+  required: AUTO_RESUME.CONSECUTIVE_OK_REQUIRED, lastEvaluation: null, nextCheck: null, numbers: null,
+  lastResume: null,
+};
 
 // ─── LIVENESS ALARM (Amendment 2 runtime half, human-approved 2026-07-04) ──
 // The loop paused/halted >2 market hours (or 24h wall-clock) degrades
@@ -1433,6 +1479,25 @@ print(json.dumps(data))
       liveness: lv.dark
         ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
         : { dark: false },
+      // Paper drawdown-kill auto-resume (server/killSwitchAutoResume.ts).
+      // Informational ONLY: it never flips `status` and never reaches the
+      // HTTP code (healthGate.ts SERVING_CHECKS stay server + database).
+      // Public endpoint -> no dollar figures here; the owner-gated
+      // /api/bot/status carries `numbers`.
+      autoResume: {
+        eligible: autoResumeStatus.eligible,
+        outcome: autoResumeStatus.outcome,
+        classification: autoResumeStatus.classification,
+        basis: autoResumeStatus.basis,
+        reason: autoResumeStatus.reason,
+        consecutiveOk: autoResumeStatus.consecutiveOk,
+        required: autoResumeStatus.required,
+        lastEvaluation: autoResumeStatus.lastEvaluation,
+        nextCheck: autoResumeStatus.nextCheck,
+        lastResume: autoResumeStatus.lastResume
+          ? { at: autoResumeStatus.lastResume.at, basis: autoResumeStatus.lastResume.basis }
+          : null,
+      },
     };
     if (lv.dark) checks.status = "degraded";
 
@@ -2213,6 +2278,8 @@ print(json.dumps(result, default=str))
       mode: "paper",
       equityPeak: state.equityPeak,
       maxDrawdownPct: state.maxDrawdownPct,
+      // Paper-account drawdown-kill auto-resume (server/killSwitchAutoResume.ts)
+      autoResume: autoResumeStatus,
       unreadNotifications: notifications.filter(n => !n.read).length,
       // Circuit breaker status
       circuitBreakerActive: state.circuitBreakerUntil > Date.now(),
@@ -2225,19 +2292,36 @@ print(json.dumps(result, default=str))
     });
   });
 
-  // Start bot
-  app.post("/api/bot/start", requireOwner, (_req, res) => {
-    if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON. Disable it first." });
+  // The ONE activation path — the owner /api/bot/start route and the
+  // paper-account kill auto-resume both go through it, so the auto-resume can
+  // never skip a start precondition the owner path enforces. `source` only
+  // labels the audit line ("" = the owner route, whose text is unchanged).
+  // An explicit owner STOP is respected: auto-resume clears its own latch but
+  // never re-activates a bot the owner stopped (ownerStopped is in-memory,
+  // like state.active itself — a deploy boots active by design).
+  let ownerStopped = false;
+  function startBotActivity(source: string): { ok: true } | { ok: false; error: string } {
+    if (state.killSwitch) return { ok: false, error: "Kill switch is ON. Disable it first." };
+    if (source && ownerStopped) return { ok: false, error: "Bot was stopped by the owner (/api/bot/stop) — not re-activated automatically." };
     state.active = true;
-    audit("START", "Bot activated");
+    audit("START", source ? `Bot activated (${source})` : "Bot activated");
     notify("system", "Bot activated — scanning for opportunities");
     // Start real-time streaming feed
     setTimeout(() => startStreaming(), 2000);
+    return { ok: true };
+  }
+
+  // Start bot
+  app.post("/api/bot/start", requireOwner, (_req, res) => {
+    const started = startBotActivity("");
+    if (!started.ok) return res.status(400).json({ error: started.error });
+    ownerStopped = false;
     res.json({ ok: true, active: true });
   });
 
   // Stop bot
   app.post("/api/bot/stop", requireOwner, (_req, res) => {
+    ownerStopped = true;
     state.active = false;
     stopStreaming();
     audit("STOP", "Bot deactivated");
@@ -7165,8 +7249,196 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   let tier2DisabledLogged = false;
   let tier3DisabledLogged = false;
 
+  // ── KILL-SWITCH AUTO-RESUME (PAPER account only) ─────────────────────────
+  // Human-directed 2026-09-28 (KNOWN BROKEN #42/#43 — the 2026-09-10 latch on
+  // a ~-18% reading positions/fills could not explain; human sovereignty over
+  // R16's "only the owner toggle clears it"). While the drawdown kill is
+  // latched, each tier-1 tick evaluates server/killSwitchAutoResume.ts INSTEAD
+  // of tier1Reflex (which never runs while killed). UNCHANGED: the trip
+  // (evaluateDrawdown, -10%), the order cancel, the -25% liquidate-on-kill
+  // mercy rule, the owner toggle. An owner-set (or unknown-reason) latch is
+  // never auto-cleared; a non-paper process never auto-resumes.
+  let autoResumeRunning = false;
+  let autoResumeLatchKey = "";
+  let autoResumeFirstObservedAtMs = 0;
+  let autoResumeLastAuditKey = "";
+
+  async function readOrNull<T>(label: string, fn: () => Promise<T>): Promise<T | null> {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`[auto-resume] ${label} read failed:`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  // Bounded, paged FILL-activity read for the reconciliation window. null =
+  // a page was not an array (garbage read, never "no fills"); truncated =
+  // the page cap was hit, which makes the reconciliation incomplete.
+  async function fetchFillsWindow(afterMs: number): Promise<{ rows: unknown[]; truncated: boolean } | null> {
+    const afterIso = new Date(afterMs).toISOString();
+    const rows: unknown[] = [];
+    let pageToken = "";
+    for (let page = 0; page < AUTO_RESUME.FILLS_MAX_PAGES; page++) {
+      const qs = `after=${encodeURIComponent(afterIso)}&direction=asc&page_size=${AUTO_RESUME.FILLS_PAGE_SIZE}`
+        + (pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : "");
+      const batch: unknown = await alpaca(`/v2/account/activities/FILL?${qs}`);
+      if (!Array.isArray(batch)) return null;
+      rows.push(...batch);
+      if (batch.length < AUTO_RESUME.FILLS_PAGE_SIZE) return { rows, truncated: false };
+      const last: unknown = batch[batch.length - 1];
+      const lastId = last && typeof last === "object" ? (last as { id?: unknown }).id : undefined;
+      pageToken = typeof lastId === "string" ? lastId : "";
+      if (!pageToken) return { rows, truncated: true };
+    }
+    return { rows, truncated: true };
+  }
+
+  function recordAutoResume(d: AutoResumeDecision, nowMs: number, nextCheck: string | null) {
+    autoResumeStatus.eligible = d.eligible;
+    autoResumeStatus.latchReason = killSwitchMeta.reason;
+    autoResumeStatus.outcome = d.outcome;
+    autoResumeStatus.classification = d.classification;
+    autoResumeStatus.basis = d.basis;
+    autoResumeStatus.reason = d.reason;
+    autoResumeStatus.consecutiveOk = d.consecutiveOk;
+    autoResumeStatus.lastEvaluation = new Date(nowMs).toISOString();
+    autoResumeStatus.nextCheck = nextCheck;
+    autoResumeStatus.numbers = d.numbers;
+    // Audit on CHANGE only (a 45s cadence must not flood the audit log).
+    const key = `${d.outcome}|${d.eligible}|${d.classification}|${d.basis}|${d.conditionOk}`;
+    if (key !== autoResumeLastAuditKey) {
+      autoResumeLastAuditKey = key;
+      audit("KILL-AUTO-RESUME-EVAL", `${d.outcome}${d.classification ? ` ${d.classification}` : ""}${d.basis ? ` basis=${d.basis}` : ""} (${d.consecutiveOk}/${AUTO_RESUME.CONSECUTIVE_OK_REQUIRED}): ${d.reason}`);
+    }
+  }
+
+  async function killSwitchAutoResumeTick(): Promise<void> {
+    if (autoResumeRunning) return;
+    autoResumeRunning = true;
+    try {
+      const nowMs = Date.now();
+      // The streak and the first-seen anchor belong to ONE latch: a new trip
+      // (new reason/savedAt) starts from zero.
+      const latchKey = `${killSwitchMeta.reason}|${killSwitchMeta.savedAtMs}`;
+      if (latchKey !== autoResumeLatchKey) {
+        autoResumeLatchKey = latchKey;
+        autoResumeFirstObservedAtMs = nowMs;
+        autoResumeStatus.consecutiveOk = 0;
+      }
+      const common = {
+        nowMs,
+        enabled: autoResumeEnabled(process.env), // VOLTRADE_KILL_AUTO_RESUME=off -> owner-only clear
+        // every EFFECTIVE base URL: this file's (hardcoded) and the env one
+        // bot_engine.py / routes.ts trade through (their default is paper)
+        paper: allPaperAlpacaUrls([ALPACA_BASE, process.env.ALPACA_BASE_URL || ALPACA_BASE]),
+        killSwitch: state.killSwitch,
+        latchReason: killSwitchMeta.reason,
+        latchedAtMs: killSwitchMeta.savedAtMs,
+        firstObservedAtMs: autoResumeFirstObservedAtMs,
+        lastAutoResumeAtMs: killSwitchMeta.lastAutoResumeAtMs,
+        equityPeak: state.equityPeak,
+        maxDrawdownPct: state.maxDrawdownPct,
+      };
+      const prev = { consecutiveOk: autoResumeStatus.consecutiveOk };
+      const noReads = { account: null, positions: null, fills: null };
+      if (!autoResumeEligibility(common).eligible) {
+        // owner/unknown latch or non-paper: no broker reads at all
+        recordAutoResume(evaluateAutoResume({ ...common, marketOpen: null, ...noReads }, prev), nowMs, null);
+        return;
+      }
+      const clock: unknown = await readOrNull("clock", () => alpaca("/v2/clock"));
+      const clk = (clock && typeof clock === "object" ? clock : {}) as { is_open?: unknown; next_open?: unknown };
+      const marketOpen = typeof clk.is_open === "boolean" ? clk.is_open : null;
+      if (marketOpen !== true) {
+        const nextOpen = marketOpen === false && typeof clk.next_open === "string" ? clk.next_open : new Date(nowMs + 45_000).toISOString();
+        recordAutoResume(evaluateAutoResume({ ...common, marketOpen, ...noReads }, prev), nowMs, nextOpen);
+        return;
+      }
+      const latchedAtMs = killSwitchMeta.savedAtMs ?? autoResumeFirstObservedAtMs;
+      const account: unknown = await readOrNull("account", () => alpaca("/v2/account"));
+      const positions: unknown = await readOrNull("positions", () => alpaca("/v2/positions"));
+      const fills = await readOrNull("fills", () => fetchFillsWindow(fillsWindowStartMs(latchedAtMs)));
+      const d = evaluateAutoResume({ ...common, marketOpen: true, account, positions, fills }, prev);
+      recordAutoResume(d, nowMs, new Date(nowMs + 45_000).toISOString());
+      if (d.resume) await performKillSwitchAutoResume(d);
+    } catch (err) {
+      console.error("[auto-resume]", err instanceof Error ? err.message : err);
+    } finally {
+      autoResumeRunning = false;
+    }
+  }
+
+  async function performKillSwitchAutoResume(d: AutoResumeDecision): Promise<void> {
+    const n = d.numbers;
+    const basis = d.basis;
+    if (!n || !basis) return;
+    const latchReason = killSwitchMeta.reason;
+    const latchedAtIso = killSwitchMeta.savedAtMs !== null ? new Date(killSwitchMeta.savedAtMs).toISOString() : "unknown";
+    const stillEligible = () => autoResumeEligibility({
+      enabled: autoResumeEnabled(process.env),
+      paper: allPaperAlpacaUrls([ALPACA_BASE, process.env.ALPACA_BASE_URL || ALPACA_BASE]),
+      killSwitch: state.killSwitch, latchReason: killSwitchMeta.reason,
+    }).eligible && killSwitchMeta.reason === latchReason;
+    if (!stillEligible()) return; // the owner acted mid-tick — their action wins
+
+    // Python-side halts FIRST, so the loop never restarts into a stale
+    // bot_engine DD halt / risk_kill_switch kill (existing functions only —
+    // see paper_resume_sync.py). Report-only on RECOVERED (the peak is real).
+    const pyEquity = (d.rebaselinePeakTo ?? n.equity).toFixed(2);
+    const pyApply = d.rebaselinePeakTo !== null;
+    const py = await pythonCall(
+      "paper_resume_sync",
+      { equity: Number(pyEquity), basis, apply: pyApply },
+      `python3 -c "import json; from paper_resume_sync import rebaseline_python_halts; print(json.dumps(rebaseline_python_halts(equity=${pyEquity}, basis='${basis}', apply=${pyApply ? "True" : "False"})))"`,
+      { timeout: 60000 },
+    );
+    const pyResult: unknown = py.result;
+    const pyLine = summarizePythonSync(py.success, pyResult, py.via);
+    if (!stillEligible()) return;
+
+    const priorPeak = state.equityPeak;
+    let peakLine: string;
+    if (d.rebaselinePeakTo !== null) {
+      state.equityPeak = d.rebaselinePeakTo; saveEquityPeak();
+      peakLine = `equityPeak RE-BASELINED $${priorPeak.toFixed(2)} -> $${state.equityPeak.toFixed(2)} (prior peak logged here; the -10% kill stays armed from the new baseline)`;
+    } else {
+      peakLine = `equityPeak kept at $${priorPeak.toFixed(2)} (real peak — account is back above the resume line)`;
+    }
+    state.killSwitch = false;
+    saveKillSwitch(`auto-resume: ${basis}`, { autoResume: true });
+
+    const label = basis === "PAPER_REBASE" ? "paper re-baseline after real loss"
+      : basis === "DATA_ANOMALY" ? "data anomaly: drop not explained by positions/fills"
+      : "recovered above the kill threshold";
+    const ratio = n.explainedRatio === null ? "n/a" : `${(n.explainedRatio * 100).toFixed(1)}%`;
+    const msg =
+      `KILL SWITCH AUTO-RESUME [paper account] (${label}): latch ${JSON.stringify(latchReason)} set ${latchedAtIso} ` +
+      `cleared after ${d.consecutiveOk} consecutive tier-1 evaluations. equity $${n.equity.toFixed(2)}, ` +
+      `drawdown ${n.drawdownPct.toFixed(2)}% vs peak $${n.peak.toFixed(2)} (resume line ${n.resumeAbovePct}%), ` +
+      `reported drop $${n.reportedDrop.toFixed(2)}, explained $${n.explainedLoss.toFixed(2)} ` +
+      `(unrealized $${n.unrealizedPl.toFixed(2)} + realized $${n.realizedPl.toFixed(2)}; ${ratio} of the drop), ` +
+      `latched ${n.latchedMinutes} min / ${n.marketHoursSinceLatch} market h. ${peakLine}. ${pyLine}. Why: ${d.reason}`;
+    audit("KILL SWITCH AUTO-RESUME", msg);
+    notify("alert", msg);
+    sendEmailAlert(`Kill Switch Auto-Resumed (paper) — ${label}`, msg);
+
+    autoResumeStatus.lastResume = { at: new Date().toISOString(), basis, priorPeak, newPeak: state.equityPeak };
+    autoResumeStatus.outcome = "RESUMED";
+    autoResumeStatus.consecutiveOk = 0;
+    autoResumeStatus.nextCheck = null;
+    autoResumeStatus.reason = `resumed (${label})`;
+
+    // Same activation path as the owner /api/bot/start route.
+    const started = startBotActivity("kill-switch auto-resume");
+    if (!started.ok) audit("KILL SWITCH AUTO-RESUME", `latch cleared but the bot was NOT re-activated: ${started.error}`);
+  }
+
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
+    // While the kill is latched this tick evaluates the paper auto-resume
+    // instead (tier1Reflex never runs while killed — unchanged below).
+    if (state.killSwitch) { await killSwitchAutoResumeTick(); return; }
     if (!state.active || state.killSwitch) return;
     if (state.circuitBreakerUntil > Date.now()) return;
 
