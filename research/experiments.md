@@ -220,6 +220,24 @@ was left untouched.
 
 NOT A SPEND REQUEST.
 
+ADDENDUM (2026-09-28, ~18:42 UTC / ~14:42 ET, ~15 minutes after this PR's
+CI-fix push): PR #1200 merged automatically (`3636a39`) despite this
+entry's own MERGE TIMING note asking to hold until after 4:00pm ET —
+confirmed via the `pull_request.closed`/`outcome:"merged"` subscription
+event this session received, and via `pull_request_read` showing
+`merged_by: "github-actions[bot]"` at `2026-09-28T18:42:41Z`. Another
+confirmed occurrence of the already-tracked "`automerge` has no
+time-of-day gate" gap (`.github/workflows/ci.yml`, FROZEN PATH — see PR
+#1198's 2026-09-28 addendum above and the running tally it references
+for PR #1193/#1175/#1164/#1165; not re-tallied here per that tally's own
+convention that the full count belongs to a dedicated RULE-REVIEW
+session). Not a live break: this PR's diff is a standalone research
+script + a signal-ladder note update + a CI-fix follow-up commit, zero
+server/trading-path code touched, so the market-hours risk the hold
+convention exists to guard against does not apply in substance here —
+same reasoning the prior occurrences' own addenda already drew. No
+action taken beyond this log entry.
+
 ## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC), MOMENTUM-VS-REVERSAL SPEC: a second, freshly pre-registered attempt to find a tradeable directional rule — NOT PASSED, sign-unstable across two independent live draws, same signature that closed the first spec (v1.0.998)
 
 TASK: scheduled routine `voltrade-daily-midday` — read CLAUDE.md in full,
