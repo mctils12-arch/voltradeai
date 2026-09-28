@@ -59,6 +59,8 @@
 // `useGrid: false` runs the same exact test over every time-overlapping
 // piece pair — the brute-force reference the test pins the grid against.
 
+import { EARTH_RADIUS_NM } from "../shared/flightPlanGeometry";
+
 export type Fix = [number, number, number, number | null]; // [t sec, lat, lon, alt METERS | null]
 
 export interface CloseApproachTrack {
@@ -136,7 +138,8 @@ const MAX_AIRPORT_ELEV_FT = 15_000;
 
 const M_TO_FT = 3.28084;
 const NM_PER_DEG_LAT = 60;
-const R_EARTH_NM = 3440.065;
+// one source of truth for the Earth radius in nm (D11 dup_precise_literal)
+const R_EARTH_NM = EARTH_RADIUS_NM;
 const D2R = Math.PI / 180;
 
 export interface CloseApproachOptions {

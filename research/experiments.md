@@ -106030,3 +106030,85 @@ SECURITY NOTE: the SWIFT connection password appeared in a human screenshot
 in-session; rotation recommended to the human.
 STARVED: yes — agents B1 (global sweep), D (gray curtain), E (replay +
 close approaches) still building; they ship in the next PR.
+
+
+## 2026-09-28 [REPAIR] — T-DATACORE — SWIM READER MISSED THE XML CONTENT SECTION (v1.0.1004)
+
+First live deploy of #1205: plan-status showed SFDPS connected, 39,472
+messages received, 0 processed. Cause: the FAA SCDS brokers put JMS
+TextMessage bodies in the Solace XML content section; payloadToString read
+only SDT + binary, so every message returned null and was acked UNCOUNTED.
+FIX: read getXmlContentDecoded()/getXmlContent() first; unreadable messages
+now counted (unreadablePayloads) with a content-free shape string. 3
+regression tests fail on the old code, pass now (one uses a real
+solclientjs message). VERIFY LIVE: messagesProcessed climbing,
+byService.FLIGHT > 0, planStoreSize > 0; if parseErrors dominate, the FIXM
+element-name assumptions (flight C entry) are the next suspect.
+STARVED: no.
+
+
+## 2026-09-28 [PIPELINE] — T-DATACORE+T-CLIENT — FLIGHT PROGRAM B1: WORLDWIDE LIVE AIRCRAFT (v1.0.1004)
+
+CHANGE: adsb.lol /v2/type/{A,B,...} answers WORLDWIDE with comma lists
+(probed: 50 types -> 8,117 aircraft, one request). server/globalSweep.ts
+(type lane every 60s + 782-disc gap lane), shared adsbGovernor (sweep 0.4
+req/s, total ceiling 1.0, viewers never delayed, 429/5xx back the sweep
+off), aircraftFixBus (viewport results reused), globalSnapshot (freshest
+fix per hex, provider-tagged, 10-min eviction, 25k cap),
+GET /api/data/aircraft/global; optional OpenSky (off: Railway egress was
+refused 2026-07-03 and its terms need a written agreement). Record-on-change
+archive rule (>5 deg track / >500 ft / ground flip). Client: views needing
+>8 discs read the snapshot, >2-min-old rows dimmed; AIR_MAX_FEATURES
+12000 -> 25000 (800KB instances, inside the declared 4MB).
+PRIOR: 9-11k aircraft at peak without OpenSky; typed aircraft refreshed
+~60-75s. DOWNSTREAM: (1) +~0.23 req/s and ~1.7 GB/day to adsb.lol; (2)
+sweep archiving ~250 MB/day gz -> starts PAUSED behind a fail-closed 2 GiB
+free-space gate (live 1.24 GiB), viewport/tracked archiving keeps priority.
+ROLLBACK TRIGGER: adsb.lol 429/failover rate up vs pre-merge
+(GLOBAL_SWEEP_ENABLED=0); free space toward 2 GiB (GLOBAL_SWEEP_ARCHIVE=0);
+zoomed-out frame-time regression on S24-class devices.
+Integration fix: globalDiscPlan now imports EARTH_RADIUS_NM (D11).
+STARVED: no.
+
+
+## 2026-09-28 [PRODUCT] — T-CLIENT — FLIGHT PROGRAM D: GRAY PLANNED-ROUTE CURTAIN (v1.0.1004)
+
+CHANGE: planCurtainLayer + planRouteController + PlannedRoute card row: a
+gray curtain (DESIGN.md tokens) from the plane's live tail end
+(FlightTrackLayer.getTailEnd, additive) to the destination along the
+server plan; estimated altitudes fainter with a dashed top; OFF_PLAN keeps
+the original plan as a faint line; FILED/PREDICTED badge, deviation, plan
+age; 250ms crossfade on re-plan; per-frame seam only (frameCore), geometry
+uploaded once per plan. Card text no longer says filed plans are paid.
+PRIOR: near-zero cost unless a plane is selected (<=2.7MB worst case).
+DOWNSTREAM: (1) one plan request per selection + 1/min + off-plan
+refreshes (<=1/15s); (2) elevation reads share the 40-tile cache, limited
+to 90 km of the plane. ROLLBACK TRIGGER: frame p95 regression selected vs
+unselected on S24; seam gaps/overlap reported. Visual harness: layout and
+self-see checks pass; hard failures were TTI/frame-time gates under
+parallel-agent CPU load (fixture ids are not ICAO24, so the feature is off
+there).
+STARVED: no.
+
+
+## 2026-09-28 [PRODUCT] — T-DATACORE+T-CLIENT — FLIGHT PROGRAM E: FIELD-OF-VIEW REPLAY + CLOSE APPROACHES (v1.0.1004)
+
+CHANGE: server/closeApproach.ts — pairs < 5 nm AND < 1,000 ft, linear
+only between real fixes <=180 s apart, missing altitude not evaluated,
+O(n) time-bucketed grid (pinned equal to brute force on 500 tracks),
+exclusion when both < 2,000 ft above an airport within 5 nm; confidence
+from nearest-fix distance; basis text "per our recorded ADS-B data — not
+an official loss-of-separation report". Added to the window read
+(closeApproaches, per-hex gaps). Client: replay follows the camera TARGET
+(pitched views clamped at the horizon), batched curtain fleet with
+device-tier LOD + hysteresis (4 draws total), close-approach list in the
+Time Machine (click -> t-60s, frames the pair, highlights both curtains).
+PRIOR: close approaches rare at cruise, dominated by formation/terminal
+traffic; mostly "medium" confidence at the 75 s cruise cadence.
+DOWNSTREAM: (1) each window read runs an async O(n) scan (~0.7 s CPU per
+160k fixes, 30 s cache) -> watch event-loop lag vs the trading loop; (2)
+full-tier clients may pull up to ~200k points per read.
+ROLLBACK TRIGGER: event-loop lag p95 > 250 ms correlated with window
+reads; a flagged pair contradicted by its own archived fixes (honesty
+metric). Integration fix: closeApproach imports EARTH_RADIUS_NM (D11).
+STARVED: no.
