@@ -210,6 +210,41 @@ function shouldWrite(key: string, intervalMs: number, now: number): boolean {
   return true;
 }
 
+// ── record-on-change (FLIGHT PROGRAM B1, 2026-09-28) ─────────────────────────
+// The cadence thinning above keeps ONE fix per interval (75s at cruise). The
+// viewport chain delivers a fresh fix every ~30s, so inside a turn or a
+// climb the thinning DROPPED the fixes that carry the maneuver — a replayed
+// 3D curtain cut every corner (a standard-rate turn is ~225° in 75s). The
+// refinement: a fix is also kept, even inside the thinning interval, when
+// it differs from the LAST KEPT fix of that entity by more than
+// TURN_KEEP_DEG of track or ALT_KEEP_M (500 ft) of altitude, or flips
+// on-ground state (takeoff/landing moment) — floored at CHANGE_MIN_GAP_MS
+// so overlapping discs delivering the same instant can't double-write.
+// Measurement-neutral: every kept line is a real broadcast fix, only which
+// fixes survive changes; straight-and-level cruise volume is unchanged.
+export const TURN_KEEP_DEG = 5;
+export const ALT_KEEP_M = 152.4; // 500 ft
+export const CHANGE_MIN_GAP_MS = 5_000;
+
+export interface KeptFixState { h: number | null; al: number | null; g: boolean }
+
+/** Pure: does fix p differ materially from the last KEPT fix? (no prior
+ *  state → false: the cadence rule alone decides the first write). */
+export function aircraftChangedSinceKept(prev: KeptFixState | undefined, p: AircraftPoint): boolean {
+  if (!prev) return false;
+  if (prev.g !== !!p.on_ground) return true;
+  if (prev.h != null && p.heading != null && Number.isFinite(p.heading)) {
+    let d = Math.abs(p.heading - prev.h) % 360;
+    if (d > 180) d = 360 - d;
+    if (d > TURN_KEEP_DEG) return true;
+  }
+  if (prev.al != null && p.altitude_m != null && Number.isFinite(p.altitude_m)
+      && Math.abs(p.altitude_m - prev.al) > ALT_KEEP_M) return true;
+  return false;
+}
+
+const lastKeptAircraft: Map<string, KeptFixState> = new Map();
+
 // ── append ───────────────────────────────────────────────────────────────────
 function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date) {
   if (!lines.length) return;
@@ -275,7 +310,18 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
   const lines: string[] = [];
   for (const p of points) {
     if (p.lat == null || p.lon == null || !p.icao24) continue;
-    if (!shouldWrite(`a:${p.icao24}`, intervalMsOverride ?? aircraftIntervalMs(p, sites), now)) continue;
+    const key = `a:${p.icao24}`;
+    const cadence = intervalMsOverride ?? aircraftIntervalMs(p, sites);
+    // record-on-change: a real turn/climb/ground-flip shortens the interval
+    // to the CHANGE_MIN_GAP_MS floor (see aircraftChangedSinceKept)
+    const changed = aircraftChangedSinceKept(lastKeptAircraft.get(key), p);
+    if (!shouldWrite(key, changed ? Math.min(cadence, CHANGE_MIN_GAP_MS) : cadence, now)) continue;
+    lastKeptAircraft.set(key, {
+      h: p.heading != null && Number.isFinite(p.heading) ? p.heading : null,
+      al: p.altitude_m != null && Number.isFinite(p.altitude_m) ? p.altitude_m : null,
+      g: !!p.on_ground,
+    });
+    if (lastKeptAircraft.size > 100_000) lastKeptAircraft.clear(); // bound memory (same rule as lastWrite)
     lines.push(JSON.stringify({
       t, i: p.icao24, c: p.callsign || undefined,
       la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
