@@ -3,6 +3,182 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine PRODUCT session) [PRODUCT] — T-DATACORE-adjacent (scripts/rail_traffic_gate2.py new, test_rail_traffic_gate2.py new) + SHARED-minimal (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json/package-lock.json): rail_ep724_carload_traffic GATE 2 (SIGNAL) attempted and REJECTED — a clean 16-comparison null, no cherry-pickable near-miss
+
+TASK: scheduled PRODUCT session — build the datacore/ pipelines and the
+/data user-facing section into a full product. Instructed to check system
+health/KNOWN BROKEN first, then execute the single highest-value product
+action among (a) advance a pipeline through its next ladder gate, (b)
+build /data UI, (c) propose+spec a new hypothesis, (d) improve the API
+boundary/docs/tests toward spinout-readiness. This session did (a).
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai-production.up.railway.app/api/health`):
+`status:"degraded"`, `bot.status:"killed"`, liveness dark — the standing
+KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, already flagged and push-notified
+extensively across 18+ days per the immediately-preceding 2026-09-27
+entries. Noted, not re-notified (a duplicate notification from a PRODUCT
+session adds noise, not information — same reasoning the immediately
+prior PRODUCT session used). Per this session's own brief ("product
+sessions do not preempt the DAILY routines' repair duty"), this did not
+block or redirect product work: server/database/alpaca/python/scanner/
+feeds/licensing all read `ok`.
+
+PRIMARY-ACTION SEARCH: the immediately-preceding 2026-09-27 PRODUCT
+session (STB EP724 GATE 1 pass) left an exact, ready-now, no-time-gating-
+blocker NEXT item — GATE 2 (SIGNAL) for the same root, filed in both its
+own experiments.md NEXT(1) and in `research/open_questions.md`'s
+2026-09-27 CROSS-CONNECTION #1 entry (intermodal carload growth vs.
+transport-sector forward returns, `scripts/rail_traffic_gate2.py`
+precedent-named but not yet built). Per SESSION BUDGET's own priority
+order ("judge a matured experiment" ranks above starting new research),
+and since this item carries no time-gating blocker unlike this session's
+other queued candidates (re-confirmed live: `python3
+scripts/ladder_readiness_check.py` still reports 0/4 tracked gated roots
+READY), this was the session's chosen primary action — option (a),
+advancing a pipeline through its next ladder gate, is explicitly listed
+as in-scope PRODUCT work in this session's own brief.
+
+METHOD (full pre-registered design in the new script's own module
+docstring, not repeated in full here): built `scripts/rail_traffic_gate2.py`
+(gate2_stats.find_entry_index / newey_west_diff_test reused unchanged,
+EDGE DOCTRINE #3 — no HAC math re-derived a fourth time). System-wide
+weekly intermodal (Containers+Trailers) carloads summed from the archive
+(same null-skip convention as rail_traffic_gate1.py's monthly_totals);
+a 4-week rolling log-growth measure (PRIMARY, smooths single-week
+reporting noise) and a plain week-over-week log-growth measure
+(secondary robustness check) each converted into a Larry-Williams-style
+0-100 trailing-104-week percentile "surprise" index — the SAME formula
+cftc_cot.py's `_cot_index` already uses for COT positioning, independently
+reimplemented rather than importing a private cross-module helper (a
+shared gate2_stats.py extraction is a valid future MEASUREMENT INTEGRITY
+follow-up, not bundled here). WHY SURPRISE NOT RAW LEVEL: the
+open_questions.md entry's own base-rate reasoning — AAR's weekly rail
+traffic report already makes the raw headline level public same-day, so
+any edge left has to come from a framing (surprise vs. own 9-year
+seasonal history) the headline itself doesn't carry.
+
+PRE-REGISTERED PRIMARY (stated in the script's docstring before any real
+number was computed, REASONING STANDARD #10): extreme_high bucket
+(index>=80) vs. complement, benchmark IYT (iShares Transportation Average
+ETF, chosen ex ante as the single most representative liquid instrument),
+horizon 5 trading days, Newey-West HAC test (lag=1, matching the weekly
+sampling cadence exactly like cot_gate2_test.py's own convention). Bar:
+n_bucket>=20 (MIN_BUCKET_N), p<0.05, positive sign (matches the
+mechanism: better-than-usual intermodal growth -> better-than-usual
+transport-sector forward return). KILL RULE stated up front: "no
+separation, or the wrong sign, at the pre-registered N and horizon."
+NO LOOKAHEAD (REASONING STANDARD #7): PUBLISH_LAG_DAYS=5 calendar days
+from each week-ending date is a deliberately CONSERVATIVE assumption
+(STB/AAR's exact publish calendar is not confirmed against a stated
+source this session, unlike cot_gate2_test.py's verified Tuesday-as-of/
+Friday-publish rule) — stated honestly as an assumption, not presented as
+verified; extra timing slack only adds noise, never manufactures a
+lookahead edge. CONFOUND SCREEN: none built, per the open_questions.md
+entry's own prior assessment that no domestic/liquidity confound is
+obviously expected here (both sides purely domestic).
+
+LIVE RESULT, run against real Yahoo-fetched IYT/UNP/CSX/NSC/CP price data
+and the real 496-week archive: PRIMARY TEST — n_bucket=30 (adequately
+powered, clears the 20-week floor easily), mean_diff_pct=**-0.521%**,
+p=**0.4322**. WRONG SIGN and nowhere near significance — not a borderline
+call. Ran the FULL pre-specified 16-comparison grid (2 growth measures x
+2 benchmarks [IYT, a synthetic equal-weighted UNP/CSX/NSC/CP rail basket]
+x 2 horizons [5d,20d] x 2 buckets, Bonferroni alpha=0.05/15=0.0033 for
+everything beyond the single primary): every comparison failed to clear
+its bar. Best secondary p-value across all 15: 0.0907 (wow-growth/IYT/
+h5/extreme_high) — itself wrong-signed (mean_diff_pct=-0.629%). No
+near-miss anywhere in the grid worth a follow-up re-cut.
+
+VERDICT: REJECTED, per the pre-registered kill rule. `datacore/
+signal_ladder.json`'s `rail_ep724_carload_traffic` entry updated
+status `gate1_pass` -> `gate2_fail` (current_gate 1 -> 2, matching this
+repo's own established convention for a root whose RAW view stays valid
+while a specific SIGNAL hypothesis is rejected — see `usaspending_
+contracts`/`sec_midas`/`cftc_tff_positioning` entries for the identical
+pattern). The archive, GATE 1 pass, and the RAW `/api/data/rail-traffic`
+view are completely unaffected — this kills only the specific
+intermodal-growth-surprise-vs-transport-benchmark framing, not the root's
+RAW data value or its GATE 1 status. Full write-up in `research/
+open_questions.md`'s 2026-09-27 CROSS-CONNECTION #1 entry (UPDATE
+2026-09-28 appended) and in the signal_ladder.json note itself.
+
+REASONING STANDARD #4 applied deliberately: this session did NOT try a
+second lag assumption, a different percentile lookback, or a different
+bucketing threshold after seeing the null — a negative result across a
+fully pre-specified 16-comparison grid is real evidence a real edge is
+unlikely in this exact framing, not a invitation to keep re-cutting the
+same 496 weeks of data until something clears p<0.05 by chance.
+
+GATES (full): `python3 -m pytest -q` — 2238 passed, 1 skipped, 54
+subtests (baseline 2208 + 30 new `test_rail_traffic_gate2.py` tests, zero
+regressions; fresh `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` both needed this session). `bash
+scripts/tsc_ratchet.sh` — 11, TS2304 0, byte-identical to
+`ci/tsc_baseline.txt`'s pin (zero `.ts`/`.tsx` file touched by this
+diff). `bash scripts/counter_ratchet.sh` — run before `git add` (no
+improvement visible, new untracked files invisible to `git ls-files`-based
+counters — the same gotcha prior sessions' own ADDENDUMs document) and
+again after staging: `tests_run_in_ci`/`tests_gating_merge` 475->476,
+`assertions` 15549->15593, both this session's own direct effect (1 new
+test file, 44 new assert statements) per PROMOTION RULE 5, re-pinned in
+`ci/counter_baseline.txt` in this same PR; ratchet clean after (27
+counters at or better than baseline). `bash scripts/gated_tests.sh` — run
+in full before opening the PR (server/client/python + deploy-gate smoke).
+`npm run visual`: NOT run — zero `client/` file touched by this diff,
+PROMOTION RULE 6 does not apply.
+
+MEASUREMENT INTEGRITY: N/A for `gate2_stats.py` — read-only reuse of
+`find_entry_index`/`newey_west_diff_test`, neither function's code
+touched. The new percentile-index helper lives entirely inside the new
+`scripts/rail_traffic_gate2.py` module, not in any shared measurement
+file, so no existing metric definition changed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing,
+scoring, or threshold value changed; this is a pure statistical SIGNAL
+screen, no trading involved, and the result is a REJECTION (nothing is
+promoted toward LOGIC gate 3 or wired into any trading path).
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`6d76a67`, v1.0.990) matched `origin/main`'s real HEAD at
+the time, bumped to `1.0.991` — a CONCURRENT session's PR (#1189, the
+visual-verification fixture-gap fix immediately below this entry) merged
+the identical `1.0.990 -> 1.0.991` bump first. Caught on re-fetch before
+push (`origin/main` had moved to `8935ed5`/v1.0.991): merged main into
+this branch (one real conflict, in this file's own newest-entry
+prepend point, resolved keep-both-sides per the WORKSTREAM PARTITION
+merge-order protocol — this entry kept on top, #1189's entry follows
+immediately below), then re-bumped to the now-correct `1.0.991 ->
+1.0.992` (`package.json` + `package-lock.json`).
+
+WORKSTREAM PARTITION: the two new files (`scripts/rail_traffic_gate2.py`,
+`test_rail_traffic_gate2.py`) are T-DATACORE-adjacent standalone tooling,
+no T-BOT/T-CLIENT file touched, no FROZEN path touched. SHARED touched
+last-and-minimal per the merge-order protocol: `datacore/signal_
+ladder.json`, `ci/counter_baseline.txt`, `package.json`/
+`package-lock.json`, `research/experiments.md`, `research/
+open_questions.md`.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+NEXT: (1) this exact framing (4-week/week-over-week growth-surprise vs.
+IYT/rail-basket at 5d/20d) is CLOSED per REASONING STANDARD #4 — a future
+session should not re-test minor variants of the same null without new
+evidence or a genuinely different mechanism. (2) the manifest's original
+per-commodity hypothesis ("carload deltas by COMMODITY lead rail earnings
++ industrial regime" — as opposed to this session's system-wide
+intermodal-only test) remains untested and is a genuinely different,
+un-pre-registered candidate for a future session, not ruled out by this
+result. (3) the standing LIVENESS ALARM and KNOWN BROKEN #44 remain
+exactly as documented in the immediately preceding sessions — both
+already correctly gated on a human decision, no new action warranted.
+
+STARVED: no — the primary-action search found and executed exactly the
+ready-now, no-time-gating-blocker item the immediately preceding session
+filed, end to end (script + tests + live run + ladder update).
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-27/28 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (scripts/visual_check.mjs) — closes a real PROMOTION RULE 6 coverage gap: 12 of 22 shipped `/data` layers (EPA plant operations, SEC MIDAS, submarine-adjacent facilities, military installations, and others) were never added to the visual harness's fixture, so the self-see/toggle-consistency/legend-parity batteries never actually exercised them; found and fixed a real crash the sweep's own new fixture introduced along the way (v1.0.991)
 
 TERRITORY: T-CLIENT (scripts/visual_check.mjs — the visual-tooling file this

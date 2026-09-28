@@ -22469,3 +22469,36 @@ here, unlike settlement_stress_composite's foreign-ADR confound), a
 stated minimum-N bar before rendering PASS/FAIL, and Bonferroni/multiple-
 comparison discount if more than one horizon or benchmark is tried. GATE
 3 (LOGIC) and beyond are not considered until GATE 2 passes.
+
+UPDATE 2026-09-28 (scheduled-routine PRODUCT session) — GATE 2 RUN,
+REJECTED. `scripts/rail_traffic_gate2.py` (30 unit tests,
+`test_rail_traffic_gate2.py`) built and run live against the real archive
+and real IYT/rail-basket (UNP/CSX/NSC/CP equal-weighted synthetic)
+benchmarks, exactly as specified above. Implemented the "surprise" framing
+this entry itself called for (a Larry-Williams-style 0-100 trailing-
+104-week percentile index of 4-week rolling intermodal growth — the same
+formula `cftc_cot.py`'s COT index already uses, independently
+reimplemented) rather than testing the raw growth level, since the raw
+AAR weekly headline is already public same-day (base rate argument
+above). PRE-REGISTERED PRIMARY: extreme_high bucket (index >=80) vs.
+complement, benchmark IYT, horizon 5d, Newey-West HAC test, bar =
+n_bucket>=20, p<0.05, positive sign. LIVE RESULT: n_bucket=30 (adequately
+powered), mean_diff_pct=-0.521%, p=0.4322 — wrong sign, nowhere near
+significant. Ran the full pre-specified 16-comparison grid (2 growth
+measures [4-week rolling, plain week-over-week] x 2 benchmarks [IYT,
+rail basket] x 2 horizons [5d, 20d] x 2 buckets [extreme_high,
+extreme_low]) at a Bonferroni bar of 0.05/15=0.0033 for everything beyond
+the one primary test — every single comparison failed to clear its bar
+(best secondary p-value 0.09, itself wrong-signed). VERDICT: REJECTED per
+the pre-registered kill rule stated when this entry was filed ("no
+separation, or the wrong sign, at the pre-registered N and horizon") —
+a clean, unambiguous null across the whole grid, not a borderline case
+inviting a re-cut of the same data (REASONING STANDARD #4). Full numbers
+in `datacore/signal_ladder.json`'s `rail_ep724_carload_traffic` entry and
+`research/experiments.md`'s 2026-09-28 entry. The archive, GATE 1 pass,
+and the RAW `/api/data/rail-traffic` view are completely unaffected — this
+kills only the specific intermodal-growth-surprise-vs-transport-benchmark
+hypothesis, not the root's RAW data value. NOT re-attempted with a
+different lag/bucketing/benchmark this session; a future session should
+treat this exact framing as closed rather than re-testing minor variants
+of the same null.
