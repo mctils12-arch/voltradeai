@@ -102,6 +102,10 @@ export interface SwimProductStatus {
   droppedOverflow: number;
   /** ack / dispose / payload-read failures inside the client library */
   clientErrors: number;
+  /** messages with no readable body in any section (acked, never silent) */
+  unreadablePayloads: number;
+  /** structural description (never content) of the latest unreadable message */
+  lastUnreadableShape: string | null;
   queueDepth: number;
   reconnects: number;
   lastMessageAt: number | null;
@@ -129,6 +133,13 @@ export interface SolaceModule {
   MessageConsumerAcknowledgeMode?: Record<string, unknown>;
 }
 interface SolaceMessage {
+  getType?(): unknown;
+  /** XML content section, UTF-8 decoded — where Solace JMS puts a TextMessage
+   *  body when the connection factory's "XML payload" option is on (the FAA
+   *  SCDS brokers: live 2026-09-28, 39k SFDPS messages had ONLY this section) */
+  getXmlContentDecoded?(): unknown;
+  /** the same section as a latin1 "binary string" (older API shape) */
+  getXmlContent?(): unknown;
   getSdtContainer?(): { getValue?(): unknown } | null | undefined;
   getBinaryAttachment?(): unknown;
   acknowledge?(): void;
@@ -153,8 +164,23 @@ function freshStatus(product: string, envPrefix: string): SwimProductStatus {
   return {
     product, envPrefix, configured: false, solclientAvailable: null, connected: false,
     messagesReceived: 0, messagesProcessed: 0, processErrors: 0, droppedOverflow: 0, clientErrors: 0,
+    unreadablePayloads: 0, lastUnreadableShape: null,
     queueDepth: 0, reconnects: 0, lastMessageAt: null, lastError: null,
   };
+}
+
+/** Structural description of a message for diagnostics — which body
+ *  sections exist and their sizes, never any content. */
+export function messageShape(message: unknown): string {
+  const m = asSolaceMessage(message);
+  const size = (v: unknown): string =>
+    v == null ? String(v) : typeof v === "string" ? `str${v.length}` : v instanceof Uint8Array ? `bytes${v.length}` : typeof v;
+  const read = (fn?: () => unknown): string => {
+    if (!fn) return "absent";
+    try { return size(fn.call(m)); } catch (e) { return `threw:${errText(e).slice(0, 40)}`; }
+  };
+  return `type=${read(m.getType)} xmlDecoded=${read(m.getXmlContentDecoded)} xml=${read(m.getXmlContent)} ` +
+    `sdt=${read(m.getSdtContainer)} bin=${read(m.getBinaryAttachment)}`;
 }
 
 /** status snapshot for a product (an unconfigured default when never started) */
@@ -166,11 +192,17 @@ function asSolaceMessage(m: unknown): SolaceMessage {
   return (m && typeof m === "object" ? m : {}) as SolaceMessage;
 }
 
-/** Solace payloads arrive as a text (SDT string) container or a binary
- *  attachment (latin1 "binary string", Uint8Array or Buffer), possibly
- *  gzipped. Returns null when the message has no readable body. */
+/** Solace payloads arrive in the XML content section (JMS TextMessage with
+ *  the XML-payload option — the FAA SCDS case), as a text (SDT string)
+ *  container, or as a binary attachment (latin1 "binary string", Uint8Array
+ *  or Buffer), possibly gzipped. Returns null when no section is readable. */
 export function payloadToString(message: unknown): string | null {
   const m = asSolaceMessage(message);
+  let xml: unknown = null;
+  try { xml = m.getXmlContentDecoded?.(); } catch { xml = null; }
+  if (typeof xml === "string" && xml) return xml;
+  try { xml = m.getXmlContent?.(); } catch { xml = null; }
+  if (typeof xml === "string" && xml) return Buffer.from(xml, "latin1").toString("utf8");
   let text: unknown = null;
   try { text = m.getSdtContainer?.()?.getValue?.(); } catch { text = null; }
   if (typeof text === "string" && text) return text;
@@ -293,6 +325,11 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
           status.processErrors++;
           status.lastError = redactSecrets(`process: ${errText(e)}`, secrets).slice(0, 200);
         }
+      } else {
+        // acked either way (an unread message would block the queue), but
+        // counted and described so a reader gap is never silent again
+        status.unreadablePayloads++;
+        try { status.lastUnreadableShape = messageShape(msg); } catch (e) { clientError("shape", e); }
       }
       ack(msg);
     }
