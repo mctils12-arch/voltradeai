@@ -105912,3 +105912,32 @@ sweep):
   yields an ATM IV — an estimate that may be displayed as observed IV.
   Needs a check of how the page labels it.
 STARVED: no.
+
+
+## 2026-09-28 [REPAIR] — Analyze page — DIVIDEND YIELD SHOWN 100x TOO HIGH (v1.0.1002)
+
+Found while verifying #1202: AAPL's fundamentals card read "Div. Yield
+32.00%" beside "Div. Rate $1.08" on a ~$341 stock (true ≈ 0.32%). Same
+class as EGMONT — a wrong number displayed as fact.
+
+ROOT CAUSE: Yahoo's info['dividendYield'] changed units from a decimal
+fraction (0.0032) to a percent (0.32). analyze.py guessed units from
+magnitude ("< 1 means decimal, x100"), which is ambiguous for EVERY yield
+under 1% — so every sub-1% payer showed 100x its yield. Confirmed live:
+prod /api/analyze/AAPL returned div_yield 32 while raw yfinance returned
+dividendYield 0.32, trailingAnnualDividendYield 0.0031.
+
+FIX: normalize_div_yield() never guesses from magnitude. Rate / price is an
+independent measure; the reading of the raw value (as-is or x100) within 3x
+of it wins, else rate/price itself. Fallbacks: trailingAnnualDividendYield
+(documented decimal), then the raw value as a percent.
+
+SCOPE: display only — the trading bot does not read div_yield (grepped).
+SECOND CASE, NOT FIXED HERE (own PR): etf_data_sources.py divides Finnhub's
+dividendYieldIndicatedAnnual by 100 only when > 0.2 — the same
+magnitude-guessing pattern, on a different source.
+
+RATCHET: test_div_yield_units.py (6 tests; all 6 fail on the old code).
+Full pytest 2,288 passed; counter ratchet OK; end-to-end analyze_ticker
+('AAPL') -> div_yield 0.32.
+STARVED: no.

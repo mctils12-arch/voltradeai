@@ -1897,6 +1897,43 @@ def compute_relative_strength(hist, spy_hist=None):
 
 # ── Main analysis ──────────────────────────────────────────────────────────────
 
+def normalize_div_yield(dy_raw, div_rate, price, trailing_decimal=None):
+    """Dividend yield in PERCENT (0.32 means 0.32%), or None.
+
+    Yahoo's `dividendYield` changed units: it used to be a decimal fraction
+    (0.0032) and is now already a percent (0.32). The old rule — "below 1
+    means decimal, multiply by 100" — is ambiguous for EVERY yield under 1%
+    and turned AAPL's 0.32% into 32% on the live site (2026-09-28). Never
+    guess units from magnitude: the dividend rate over the price gives the
+    yield independently, so pick whichever reading of the raw value agrees
+    with it. Without a rate/price, fall back to trailingAnnualDividendYield
+    (documented decimal), then to the raw value as a percent (current
+    upstream convention).
+    """
+    def _f(v):
+        try:
+            f = float(v)
+            return f if math.isfinite(f) and f >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    dy, rate, px, trail = _f(dy_raw), _f(div_rate), _f(price), _f(trailing_decimal)
+    implied = rate / px * 100 if (rate and px) else None
+    if dy is not None and implied is not None:
+        # the reading within a factor of 3 of rate/price wins; neither -> trust rate/price
+        for cand in (dy, dy * 100):
+            if implied / 3 <= cand <= implied * 3:
+                return round(cand, 2)
+        return round(implied, 2)
+    if implied is not None:
+        return round(implied, 2)
+    if trail is not None:
+        return round(trail * 100, 2)
+    if dy is not None:
+        return round(dy, 2)
+    return None
+
+
 def analyze_ticker(ticker_symbol):
     import yfinance as yf
     import time
@@ -2172,17 +2209,10 @@ def analyze_ticker(ticker_symbol):
     trailing_eps = _safe(info.get('trailingEps'), digits=2)
     forward_eps  = _safe(info.get('forwardEps'), digits=2)
 
-    # Dividend
-    # Yahoo Finance returns dividendYield as a decimal (e.g. 0.0041 for 0.41%)
-    # but sometimes already as a percentage — clamp to reasonable range
-    _dy_raw = info.get('dividendYield')
-    div_yield = None
-    if _dy_raw is not None:
-        _dy = float(_dy_raw)
-        # If > 1 it's already in percent form (e.g. 1.5 = 1.5%)
-        # If < 1 it's in decimal form (e.g. 0.015 = 1.5%)
-        div_yield = round(_dy * 100 if _dy < 1 else _dy, 2)
+    # Dividend — see normalize_div_yield (units are ambiguous upstream)
     div_rate     = _safe(info.get('dividendRate'), digits=2)
+    div_yield    = normalize_div_yield(info.get('dividendYield'), info.get('dividendRate'), spot,
+                                       info.get('trailingAnnualDividendYield'))
 
     # Analyst estimates
     target_mean  = _safe(info.get('targetMeanPrice'))
