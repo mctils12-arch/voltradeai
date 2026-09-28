@@ -3,6 +3,191 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine [PRODUCT] session) [PRODUCT] — T-CLIENT (client/src/pages/fmcsaOutOfService.tsx new, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-minimal (research/open_questions.md, package.json/package-lock.json): `fmcsa_oos` gets its `/data` client view at `#/data/fmcsa-oos`, closing the same-UTC-day archive session's own filed NEXT(3) (v1.0.995)
+
+TASK: scheduled routine `voltrade-product-am` — read CLAUDE.md in full,
+then all of `research/`; check system health and KNOWN BROKEN first;
+execute the single highest-value PRODUCT action among (a) advance a
+datacore/ pipeline through its next ladder gate, (b) build /data map/chart
+UI, (c) propose+spec a new product feature, (d) improve datacore's API
+boundary/docs/tests toward spinout-readiness.
+
+READ ORDER followed: CLAUDE.md (full), `research/experiments.md` tail (this
+file's own newest-first top, several entries), `research/open_questions.md`
+tail (KNOWN BROKEN section + the newest filed entries), `research/
+wishlist.md` head (CONSTITUTIONAL AUDIT findings, still pending human
+approval — not actioned, not this session's to resolve), `research/
+PROGRAM_STATE.md` tail (DETECTORS table + SESSION LOG, for loop-health
+context).
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`,
+2026-09-28T13:20:04Z): `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true` — "trading loop dark for 65.0 market hours (442.1h
+wall-clock) since 2026-09-10T03:12:26.354Z", `drawdownPct:"-6.1"`. This is
+the standing KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in kind
+from every prior scheduled-routine session's framing (only the elapsed-
+hours counters have grown, as expected) — resuming the loop is a human
+decision per RULE REVIEW (no kill-switch threshold may be loosened on
+inference alone). Per this task's own instruction ("note it but proceed
+with product work unless the break blocks you"), this is noted and NOT
+re-notified this session (no new development since the last notify; a
+[PRODUCT] session does not own the DAILY routines' re-notify cadence).
+`server`/`database`/`alpaca`/`python`/`scanner`/`feeds`/`licensing` all
+`ok`. KNOWN BROKEN #44 (`insider_cusum_gate2`, Dockerfile FROZEN PATH
+proposal) unchanged, still awaiting human merge. Neither blocks product
+work.
+
+LOOP-HEALTH RATIO CHECKED: last 10 tagged entries prior to this one =
+2x PIPELINE (this UTC day), 2x PRODUCT, 1x REPAIR, 1x PRODUCT, 1x REPAIR,
+1x RESEARCH, 1x PRODUCT, 1x PIPELINE — 2/10 REPAIR, well under the 7+
+thrash trigger. Not a repair-thrash session.
+
+PRIMARY-ACTION SURVEY: `python3 scripts/ladder_readiness_check.py` — 0/4
+gated roots ready (all WAITING on time conditions: cftc_cot_positioning,
+sec_8k_earnings_language, fleet_utilization_aircraft, gnss_integrity_adsb
+— none actionable this session). `python3 scripts/
+data_stream_registry_check.py` — 27/36 built, 9/9 remaining candidates
+declined/dead-source/blocked-on-human-registration (unchanged from the
+immediately-prior PIPELINE session's own same finding). Axis (a) [ladder
+gate advance] and axis (c) [new-root proposal] both confirmed exhausted or
+gated live, not assumed from a prior session's cache.
+
+CHOSE AXIS (b) — /data UI. Read the immediately-preceding same-UTC-day
+PIPELINE session's own filed NEXT list (research/experiments.md's
+2026-09-28 fourth-session entry, and its matching research/
+open_questions.md entry): `server/fmcsaOutOfService.ts` shipped
+`/api/data/fmcsa-oos` (RAW, EDGE DOCTRINE #1, small/non-public
+motor-carrier enforcement log) with archive + tests but explicitly
+deferred the client view — "(3) a `/data` client page for
+`/api/data/fmcsa-oos` is queued, not this session ... matching the
+un_comtrade/dtcc_sbsdr precedent of shipping the API before the UI." A
+well-specified, unclaimed, low-risk product item, exactly matching this
+session's own brief's item (b).
+
+READ BEFORE WRITE: read `server/fmcsaOutOfService.ts` in full this session
+before building anything against it — confirmed `OosOrderObs` carries
+`dot_number`/`legal_name`/`oos_date`/`oos_reason`/`status`/`rescind_date`/
+`rt` and NO latitude/longitude field (the upstream Socrata dataset,
+`p2mt-9ige`, does not publish a carrier address). This determined the UI
+shape before writing any component: not a spatial map layer, the same
+"page-wide dashboard, not a spatial layer" pattern already established for
+`dtcc-swaps`/`un-comtrade`/`jodi-oil-stocks` (read `client/src/pages/
+dtccSwaps.tsx` and its `datamap.tsx` wiring block as the concrete template
+— import, hash-route `useState`, hash listener, render block, streams-panel
+launcher button — before writing the new page, rather than inventing a new
+shell).
+
+BUILT: `client/src/pages/fmcsaOutOfService.tsx` (new) — reuses the generic
+`.vt-filings-*`/`.vt-shortvol-*` CSS every other RAW table view already
+uses (no new CSS). Defaults to an ACTIVE-only status filter (the
+decision-relevant subset — a currently-grounded carrier — read `status`'s
+three live values ACTIVE/INACTIVE/PENDING from the server module's own
+doc comment before choosing this default) with a toggle to show all
+statuses, a carrier-name/DOT# search box, sorts most-recent-`oos_date`
+first (the API itself returns `oos_date ASC` for its own window-cutoff
+logic, not for display — sorted client-side, not assumed pre-sorted for
+display), and a 50-row default cap with a "show all N matching" toggle:
+unlike `dtcc-swaps`'s server-side-capped `top_rows`, this API returns the
+*entire* uncapped 45-day window (confirmed by reading the route handler —
+`orders: hit.obs`, no slice), so an uncapped client table would render
+~2500+ rows on a cold render; reused `client/src/pages/portImports.tsx`'s
+`DEFAULT_LIMIT` precedent rather than inventing a new capping convention.
+Honesty footer states plainly this is "an enforcement-action event, not a
+trading signal," pointing at the separate, unattempted GATE 2 hypothesis
+already filed in open_questions.md — no predictive claim anywhere on the
+page, matching the RAW classification the server module already
+established.
+
+WIRED into `client/src/pages/datamap.tsx`: `Truck` icon import
+(lucide-react), `FmcsaOosView` import, `fmcsaOosOpen` hash-route
+`useState`, the hash-change listener's matching `setFmcsaOosOpen` line,
+the conditional render block, and a launcher button in the streams panel
+top (icon + label + one-line sub-caption, same shape as every sibling
+button in that list). Also added to `scripts/visual_check.mjs`: a `PAGES`
+entry (`fmcsaoos: { route: "/app#/data/fmcsa-oos", map: false }`) and a
+2-row `/api/data/fmcsa-oos` fixture. `server/visualPagesWiring.test.ts`'s
+own RATCHET (added 2026-09-10 specifically to make "a hash-route ships
+with no visual-harness PAGES entry" unrepresentable) requires both halves
+together in the same PR — confirmed passing, not just added and hoped.
+
+GATES: `bash scripts/tsc_ratchet.sh` — 11, TS2304 0, unchanged (zero new
+TS errors from this diff; `npm ci` run fresh this session, sandbox had no
+`node_modules`). `npx tsx --test server/visualPagesWiring.test.ts
+server/fmcsaOutOfService.test.ts` — 10/10 pass (the wiring ratchet plus
+the pre-existing archive-module battery, unaffected by this UI-only
+diff — confirmed together, not just the new ratchet in isolation).
+`bash scripts/gated_tests.sh` — **GATE PASSED**: python 2253 passed/1
+skipped/54 subtests, deploy-gate smoke PASS (build + boot + `/api/health`
+200 in 2.5s) — the full `npm run build` also confirms `datamap.tsx`'s new
+import/JSX compiles cleanly in the production bundle, not just under tsc.
+`bash scripts/counter_ratchet.sh` — 28 counters, all OK, none regressed
+(no new hardcoded palette hex, no shadow params, no duplicate routes
+introduced by this diff). `npm run visual -- --page fmcsaoos` — **PASS at
+all three canonical widths** (390/768/1440), 0 hard failures; screenshots
+reviewed directly (not just the "0 hard failures" summary trusted blind):
+390px stacks correctly into the existing `data-l`-labelled card layout
+used site-wide for narrow tables, 1440px renders the full table with
+working filter/search controls and the honesty footer, no clipped text or
+overlapping elements introduced by this page. The pre-existing global
+touch-target/clipped-control warnings shown in the harness output belong
+to unrelated nav/sidebar chrome present on every `/data` route, not to
+anything this diff added (verified by comparing against another already-
+shipped page's own warning list — same set).
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; this is a read-only display of an existing RAW
+archive, no new computation.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed.
+
+VERSION: read-and-increment. `git fetch origin main` confirmed this
+branch's HEAD (`c97132b`, v1.0.994) already matched `origin/main`'s real
+HEAD before bumping — `1.0.994 -> 1.0.995` (`package.json` +
+`package-lock.json`'s two matching version fields).
+
+WORKSTREAM PARTITION: `client/src/pages/fmcsaOutOfService.tsx` (new) and
+`client/src/pages/datamap.tsx` are T-CLIENT; `scripts/visual_check.mjs` is
+T-CLIENT per its own established convention (visual tooling); `research/
+open_questions.md` and `package.json`/`package-lock.json` are SHARED,
+touched minimally as this session's own last commit.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+DEPLOY-COUPLING NOTE: `TZ=America/New_York date` at commit time reads
+~09:30 ET on a trading day (confirmed live) — right at/inside the
+9:30-16:00 ET market session. Per this task's own instruction, this PR is
+left for a human/later session to merge after the close, or at their
+discretion given this diff touches ZERO trading-path/server-runtime code
+(client-only UI + visual-harness tooling; the `/api/data/fmcsa-oos` route
+itself and its archive/poller were already live before this PR, shipped
+by the immediately-prior same-UTC-day session — this PR adds no new
+server code, no new poll, no new write path). Same "zero trading-code
+risk either way" reasoning the 2026-09-24/25 mid-market PRs already
+logged, given this repo's known (already-tracked, FROZEN-PATH-blocked)
+`automerge` gap has no time-of-day gate.
+
+NEXT: (1) `research/open_questions.md`'s `fmcsa_oos` entry's own NEXT(2)
+(a one-time wide-date-range historical backfill via the same Socrata
+endpoint, to shortcut the multi-week accumulation wait before GATE 2 can
+run) remains open, filed as an option not a commitment — a future session
+with time for that specific build can pick it up. (2) the GATE 2
+hypothesis itself (aggregate/surprise OOS-order volume vs. small-cap
+trucking-basket forward returns) still needs the archive to accumulate
+before it can run meaningfully, per that entry's own READINESS note — not
+actionable yet regardless of who picks it up. (3) the standing LIVENESS
+ALARM and KNOWN BROKEN #44 remain exactly as documented above, both
+already correctly gated on a human decision.
+
+STARVED: no — this session's own primary-action survey confirmed axes (a)
+and (c) exhausted/gated live before choosing axis (b), which closed a
+same-UTC-day, explicitly-filed, well-specified product gap end-to-end
+(component + wiring + visual-harness coverage + gated tests), rather than
+inventing new scope.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-28 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — T-DATACORE (server/fmcsaOutOfService.ts new, server/fmcsaOutOfService.test.ts new, datacore/manifests/fmcsaoos.json new, scripts/data_stream_registry_check.py) + SHARED-minimal (server/routes.ts, ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): EDGE DOCTRINE axis (a) — a genuinely new free data root, FMCSA Out-of-Service orders, built end-to-end (v1.0.994)
 
 TASK: scheduled-routine session — read CLAUDE.md, research/experiments.md,

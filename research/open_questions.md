@@ -22604,4 +22604,24 @@ STARVED: no — this session's primary action (finding, live-probing, and
 shipping a genuinely new EDGE DOCTRINE #1 root end-to-end with tests and
 a manifest) is exactly what axis (a)'s own open NEXT item asked for.
 
+UPDATE 2026-09-28 (scheduled-routine [PRODUCT] session, same UTC day) —
+NEXT(3) closed: `client/src/pages/fmcsaOutOfService.tsx` ships the client
+view at `#/data/fmcsa-oos` (dtcc-swaps/un-comtrade "page-wide dashboard,
+not a spatial layer" precedent — this dataset carries no lat/lon in the
+upstream Socrata schema, only dot_number/legal_name/dates/reason/status,
+confirmed against the live parser's own field list in
+`server/fmcsaOutOfService.ts` before assuming a table view over a map
+layer was the right call). ACTIVE-only status filter defaults on (the
+decision-relevant subset — a currently-grounded carrier), carrier-name/
+DOT# search, and a 50-row default cap with a "show all" toggle (same
+precedent as `client/src/pages/portImports.tsx`'s `DEFAULT_LIMIT`, since
+the API itself returns the full 45-day window uncapped, unlike
+dtcc-swaps's server-side `top_rows`). Wired into `datamap.tsx` (launcher
+button in the streams panel top, hash-route state, hash listener, render
+block) and `scripts/visual_check.mjs` (PAGES entry + a 2-row
+`/api/data/fmcsa-oos` fixture) — `server/visualPagesWiring.test.ts`'s
+RATCHET requires both together, confirmed passing. NOT a signal or a map
+layer: this PR carries no ladder-gate claim, matching the RAW
+classification `fmcsaOutOfService.ts` already established.
+
 NOT A SPEND REQUEST.
