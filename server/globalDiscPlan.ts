@@ -36,6 +36,8 @@
 // guarantee is VERIFIED, not assumed: globalDiscPlan.test.ts samples every
 // box on a dense grid plus ~60 major airports with haversine distance.
 
+import { EARTH_RADIUS_NM } from "../shared/flightPlanGeometry";
+
 export const PLAN_RADIUS_NM = 250;
 /** Shrink factor on the cell height + corner radius (numeric margin; the
  *  cover itself is exact by construction and test-verified). */
@@ -44,7 +46,8 @@ export const LATTICE_SAFETY = 0.98;
 export const PLAN_LAT_MIN = -56;
 export const PLAN_LAT_MAX = 72;
 
-const R_EARTH_NM = 3440.065;
+// one source of truth for the Earth radius in nm (D11 dup_precise_literal)
+const R_EARTH_NM = EARTH_RADIUS_NM;
 const NM_PER_DEG = 60;
 const toRad = (d: number) => (d * Math.PI) / 180;
 
