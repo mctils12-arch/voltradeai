@@ -206,6 +206,11 @@ const PAGES = {
   atssummary: { route: "/app#/data/ats-summary", map: false },
   midas: { route: "/app#/data/midas", map: false },
   dtccswaps: { route: "/app#/data/dtcc-swaps", map: false },
+  // FMCSA Out-of-Service orders — motor-carrier enforcement log
+  // (2026-09-28) — same Phase 5 ratchet rule as dtccswaps/uncomtrade above;
+  // closes the "shipped-data-no-client-page" gap the same-day archive
+  // session left open (research/open_questions.md's own filed NEXT(3)).
+  fmcsaoos: { route: "/app#/data/fmcsa-oos", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -1962,6 +1967,15 @@ const FIXTURES = {
         notional_amount: null, notional_currency: "USD", underlier_id: "037833100", underlier_id_source: "CUSIP",
         underlier_name: "Fixture Mid-Cap Holdings",
       },
+    ],
+  },
+  "/api/data/fmcsa-oos": {
+    kind: "raw", source: "FMCSA Out-of-Service Orders (data.transportation.gov, public domain) (fixture)",
+    attribution: "FMCSA Out-of-Service Orders", time: 1, count: 2,
+    note: "Fixture: trailing-45-day window of motor-carrier out-of-service orders (see server/fmcsaOutOfService.ts).",
+    orders: [
+      { dot_number: "4539029", legal_name: "FIXTURE TRUCKING & REPAIR LLC", oos_date: "2026-09-26", oos_reason: "New Entrant Revoked - Refusal of Audit/No Contact", status: "ACTIVE", rescind_date: null },
+      { dot_number: "1234567", legal_name: "FIXTURE FREIGHT CO", oos_date: "2026-09-01", oos_reason: "Imminent Hazard", status: "INACTIVE", rescind_date: "2026-09-10" },
     ],
   },
 };

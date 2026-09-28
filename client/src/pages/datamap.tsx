@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight, Gem } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight, Gem, Truck } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -52,6 +52,7 @@ import VixTermStructureView from "./vixTermStructure";
 import JodiOilStocksView from "./jodiOilStocks";
 import UnComtradeView from "./unComtrade";
 import DtccSwapsView from "./dtccSwaps";
+import FmcsaOosView from "./fmcsaOutOfService";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
@@ -2905,6 +2906,10 @@ export default function DataMapPage() {
   // pattern (RAW per-event reading, not a spatial layer; gate1_pass since
   // 2026-08-22, no client view until now).
   const [dtccSwapsOpen, setDtccSwapsOpen] = useState(() => window.location.hash === "#/data/dtcc-swaps");
+  // FMCSA Out-of-Service orders (#/data/fmcsa-oos) — same overlay pattern
+  // (RAW per-order enforcement reading, no lat/lon in the upstream dataset
+  // so not a spatial layer; built 2026-09-28, no client view until now).
+  const [fmcsaOosOpen, setFmcsaOosOpen] = useState(() => window.location.hash === "#/data/fmcsa-oos");
   // European macro cluster view (#/data/eu-macro) — same overlay pattern
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-07, no client view until now).
@@ -3359,6 +3364,7 @@ export default function DataMapPage() {
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
       setJodiOilOpen(window.location.hash === "#/data/jodi-oil-stocks");
       setDtccSwapsOpen(window.location.hash === "#/data/dtcc-swaps");
+      setFmcsaOosOpen(window.location.hash === "#/data/fmcsa-oos");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
@@ -14162,6 +14168,9 @@ export default function DataMapPage() {
       {dtccSwapsOpen && (
         <DtccSwapsView onBack={() => { window.location.hash = "#/data"; setDtccSwapsOpen(false); }} />
       )}
+      {fmcsaOosOpen && (
+        <FmcsaOosView onBack={() => { window.location.hash = "#/data"; setFmcsaOosOpen(false); }} />
+      )}
       {euMacroOpen && (
         <EuMacroView onBack={() => { window.location.hash = "#/data"; setEuMacroOpen(false); }} />
       )}
@@ -14767,6 +14776,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/dtcc-swaps"; setDtccSwapsOpen(true); }}>
               <Repeat size={13} /> Equity swap dissemination
               <span className="vt-streams-launch-sub">DTCC SBSDR largest notionals, US underliers · RAW</span>
+            </button>
+            {/* FMCSA Out-of-Service orders launcher (2026-09-28): per-order
+                enforcement reading with no lat/lon in the upstream dataset,
+                not a spatial layer, so it launches from the panel top like
+                the other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-fmcsaoos-launch
+                    onClick={() => { window.location.hash = "#/data/fmcsa-oos"; setFmcsaOosOpen(true); }}>
+              <Truck size={13} /> Out-of-service orders (FMCSA)
+              <span className="vt-streams-launch-sub">motor-carrier enforcement actions, trailing 45 days · RAW</span>
             </button>
             {/* European macro cluster launcher (2026-08-08): ECB/Eurostat/
                 Bundesbank regime-input reading, not a spatial layer, so it
