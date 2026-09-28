@@ -22,7 +22,7 @@ import {
   CHEMICAL_FEEDSTOCK_LABEL, chemicalFeedstockColor,
   LNG_SHIPYARD_COUNTRY_LABEL, lngShipyardCountryTier, LNG_SHIPYARD_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
-import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
+import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
@@ -10255,18 +10255,21 @@ export default function DataMapPage() {
             // §5 chip row — catalogued fields (yield in kt, catalog convention)
             stats: [
               { label: "Yield kt", value: t.kt ? Number(t.kt).toLocaleString() : "n/a" },
-              { label: "Country", value: CTRY[t.c] || t.c || "—" },
+              // who FIRED it — not where: every UK test from 1962 on was a
+              // joint shot at the US Nevada Test Site (see "Site" in the body)
+              { label: "Tested by", value: CTRY[t.c] || t.c || "—" },
               { label: "Date", value: t.d || "—" },
             ],
             sourceTag: "FOA/SIPRI",
-            body: `${t.r ? `Site: ${t.r}\n` : ""}` +
+            body: `${t.r ? `Site: ${decodeSite(t.r)}\n` : ""}` +
+                  `${t.loc === "site" ? `${siteLocationNote(t, (km) => fmtKm(km, 0))}\n` : ""}` +
                   `Conducted by: ${testingAgency(t.c, t.y)}\n\n` +
                   `How it was fired: ${decodeType(t.t)}.\n` +
                   `Why (catalog purpose): ${decodePurpose(t.p)}.\n\n` +
                   `Yield: ${yieldContext(t.kt)}\n` +
                   `${rkm ? `Ring on map: ~${fmtKm(rkm, 1)} severe-blast (5 psi) radius ESTIMATE — Glasstone & Dolan cube-root scaling from the catalogued yield. An estimate of blast reach, not fallout: fallout depends on weather and burst height the catalog doesn't record.\n` :
                           `No ring on map: ${Number(t.kt) > 0 ? "buried shot — blast contained underground" : "yield not catalogued, so no radius is estimated"}.\n`}` +
-                  `\nSource: the "Nuclear Explosions 1945–1998" catalog (Bergkvist & Ferm, Swedish Defence Research Establishment FOA / SIPRI) — the standard open historical record of all known tests: who, when, where, yield, emplacement and stated purpose. Locations and yields as catalogued (yields are the catalog's upper estimates).`,
+                  `\nSource: the "Nuclear Explosions 1945–1998" catalog (Bergkvist & Ferm, Swedish Defence Research Establishment FOA / SIPRI) — the standard open historical record of all known tests: who, when, where, yield, emplacement and stated purpose. Locations${t.loc === "site" ? " (except this test's — see Map position above)" : ""} and yields as catalogued (yields are the catalog's upper estimates).`,
           });
         });
         setStatus("nucleartests", "active", d.count,

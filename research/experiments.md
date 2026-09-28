@@ -105276,3 +105276,70 @@ PROGRAM_STATE.md's own §0.7 DETECT duty per SESSION BUDGET's fall-through
 order, and shipped a fully-specified, tested, gated detector end-to-end.
 
 NOT A SPEND REQUEST.
+
+
+## 2026-09-28 [REPAIR] — T-DATACORE (primary) — NUCLEAR TESTS: SITE-CONSISTENCY GATE (v1.0.996)
+
+TRIGGER: the human opened EGMONT (UK, 1984-12-09, 150 kt) on /data and
+asked "How is the United Kingdom" — a UK dot sitting in the desert, off
+the Nevada Test Site cluster, with a card saying "Country: United Kingdom".
+
+FINDINGS (two separate things):
+1. "United Kingdom" is CORRECT as the testing country. After the 1958
+   US–UK Mutual Defence Agreement every UK test (24 of the catalog's 45,
+   1962–1991) was a joint shot at the US Nevada Test Site. The card's
+   "Country" chip was the confusing part — it means WHO fired it.
+2. EGMONT's DOT was WRONG. The upstream catalog mirror gives 36.0,-112.0
+   (by the Grand Canyon, ~374 km from NTS) while its own site field says
+   NTS. The 2026-07-11 import gate only rejected IMPOSSIBLE coordinates
+   (out of range / null island); a valid coordinate contradicting the
+   record's OWN site passed. A dataset-wide sweep found 5:
+   MADISON (USA 1962, NTS -> plotted at Novaya Zemlya, 7,609 km off),
+   TELKEM-2 (USSR 1968, SEMI KAZAKH), ACHILLE (France 1975, FANGATAUFA),
+   LEDA (France 1980, MURUROA), EGMONT (UK 1984, NTS).
+
+RULE (calibrated on the data, stated before applying): a site is a
+COMPACT range when its records' median distance from the site median is
+<= 40 km (>= 5 records). Regional labels (Soviet peaceful-explosion
+programs: KRASNO RUSS, TYUMEN RUSS, ...) spread over hundreds of km and
+are never judged. On a compact site, a record > max(300 km, 10 x site
+p90) from the site median contradicts its site.
+
+FIX (nothing invented): contradicted records are re-plotted at their
+recorded site's median point, marked loc="site", and keep the catalog's
+coordinates in src_lat/src_lon. The map card now (a) labels the chip
+"Tested by" instead of "Country", (b) decodes the site code to plain
+English with the code kept visible ("Nevada Test Site, USA (catalog code
+NTS)"; ambiguous codes like MTR RUSS stay raw), and (c) on re-plotted
+records states where the dot is, the catalog's own coordinates, their
+distance, and that the exact shot point is unknown. The JSON rewrite is
+compact/byte-identical for every untouched record; a `_site_gate` block
+records rule, action, script, and the 5 names.
+
+SECOND-ORDER: server/dossier.ts's nearby-hazards query reads the same
+lat/lon — EGMONT no longer shows up near the Grand Canyon, MADISON no
+longer near Novaya Zemlya. Blast rings are unaffected: all 5 are buried
+shots (SHAFT, SHAFT/GR, TUNNEL), which get no 5-psi ring by design.
+
+KNOWN LIMIT (filed, not fixed): catalog typo site codes (MUEUEOA,
+HURUROA, ...) form their own groups of < 5 records, so the gate cannot
+judge them. The decode map reads them as Mururoa for display; merging
+typo groups for JUDGING would be a separate, reviewable change.
+
+RATCHET: test_nuclear_tests_site_check.py (5 tests — fails on the
+pre-fix dataset) + 2 new node:test cases in client/src/lib/
+nukeCodes.test.ts (site decode; location note present for EGMONT,
+absent for normal records). Tooling: scripts/nuclear_tests_site_check.py
+(report by default, --apply to rewrite).
+
+TERRITORY: the dataset + gate script are T-DATACORE (primary); the card
+wording in client/src/pages/datamap.tsx + lib/nukeCodes.ts is the same
+logical change's display half (MERGE-ORDER rule 5 — never split one
+change across sessions). Visual harness: --page data, see PR.
+
+MONETIZATION TRIPWIRE: not re-run — no billing/pricing/gating touched.
+
+STANDING: the LIVENESS ALARM (trading loop killed since 2026-09-10,
+KNOWN BROKEN #43) remains a human decision; not touched here.
+
+STARVED: no.

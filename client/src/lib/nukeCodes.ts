@@ -136,3 +136,96 @@ export function blastRadiusKm(kt?: number | null, emplacement?: string | null): 
   if (BURIED.has(String(emplacement || "").toUpperCase().trim())) return null;
   return 0.47 * Math.cbrt(y);
 }
+
+/** Site codes -> plain English. The catalog's site field records WHERE a
+ *  test was fired; the country field records WHO fired it (UK tests from
+ *  1962 were fired at the US Nevada Test Site). Includes the unambiguous
+ *  typo variants present in the source mirror (MUEUEOA/MURUHOA/HURUROA for
+ *  Mururoa, MELLIS for Nellis, N2 RUSS for NZ RUSS). Codes that are
+ *  ambiguous or unknown (e.g. MTR RUSS, HTR RUSS, KZ RUSS) are NOT decoded
+ *  — the card shows the raw code rather than a guess. */
+const NUKE_SITE: Record<string, string> = {
+  "NTS": "Nevada Test Site, USA",
+  "NELLIS NV": "Nellis Air Force Range, Nevada, USA",
+  "MELLIS NV": "Nellis Air Force Range, Nevada, USA",
+  "C. NEVADA": "Central Nevada, USA",
+  "FALLON NV": "near Fallon, Nevada, USA",
+  "AMCHITKA AK": "Amchitka Island, Alaska, USA",
+  "ALAMOGORDO": "Alamogordo (Trinity site), New Mexico, USA",
+  "CARLSBAD NM": "near Carlsbad, New Mexico, USA",
+  "FARMINGT NM": "near Farmington, New Mexico, USA",
+  "HATTIESB MS": "near Hattiesburg, Mississippi, USA",
+  "HATTIESE MS": "near Hattiesburg, Mississippi, USA",
+  "GRAND V CO": "Grand Valley, Colorado, USA",
+  "RIFLE CO": "near Rifle, Colorado, USA",
+  "ENEWETAK": "Enewetak Atoll, Marshall Islands (US Pacific Proving Grounds)",
+  "BIKINI": "Bikini Atoll, Marshall Islands (US Pacific Proving Grounds)",
+  "JOHNSTON IS": "Johnston Island, Pacific Ocean",
+  "CHRISTMAS IS": "Christmas Island (Kiritimati), Pacific Ocean",
+  "MALDEN IS": "Malden Island, Pacific Ocean",
+  "PACIFIC": "Pacific Ocean",
+  "OFFUSWCOAST": "Pacific Ocean, off the US west coast",
+  "S.ATLANTIC": "South Atlantic Ocean",
+  "S. ATLANTIC": "South Atlantic Ocean",
+  "HIROSHIMA": "Hiroshima, Japan",
+  "NAGASAKI": "Nagasaki, Japan",
+  "SEMI KAZAKH": "Semipalatinsk Test Site, Kazakhstan (USSR)",
+  "NZ RUSS": "Novaya Zemlya, Russia (USSR)",
+  "N2 RUSS": "Novaya Zemlya, Russia (USSR)",
+  "AZGIR KAZAKH": "Azgir, Kazakhstan (USSR)",
+  "AZGIE KAZAKH": "Azgir, Kazakhstan (USSR)",
+  "AZGIR": "Azgir, Kazakhstan (USSR)",
+  "MURUROA": "Mururoa Atoll, French Polynesia",
+  "MUEUEOA": "Mururoa Atoll, French Polynesia",
+  "MURUHOA": "Mururoa Atoll, French Polynesia",
+  "MURUEOA": "Mururoa Atoll, French Polynesia",
+  "HURUROA": "Mururoa Atoll, French Polynesia",
+  "W MURUROA": "west of Mururoa Atoll, French Polynesia",
+  "WSW MURUROA": "west-southwest of Mururoa Atoll, French Polynesia",
+  "FANGATAUFA": "Fangataufa Atoll, French Polynesia",
+  "FANGATAUFAA": "Fangataufa Atoll, French Polynesia",
+  "REGGANE ALG": "Reggane, Algeria (Sahara)",
+  "IN ECKER ALG": "In Ekker, Algeria (Sahara)",
+  "MARALI AUSTR": "Maralinga, South Australia",
+  "EMU AUSTR": "Emu Field, South Australia",
+  "MONTEB AUSTR": "Montebello Islands, Western Australia",
+  "LOP NOR": "Lop Nur, Xinjiang, China",
+  "POKHRAN": "Pokhran, Rajasthan, India",
+  "CHAGAI": "Chagai Hills, Balochistan, Pakistan",
+  "KHARAN": "Kharan Desert, Balochistan, Pakistan",
+};
+
+/** Plain-English site for a catalog site code, keeping the code visible so
+ *  the decode is checkable. Unknown/ambiguous codes are returned raw. */
+export function decodeSite(code?: string | null): string {
+  const c = String(code || "").trim();
+  if (!c) return "";
+  const name = NUKE_SITE[c.toUpperCase()];
+  return name ? `${name} (catalog code ${c})` : c;
+}
+
+function _hav(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const r = Math.PI / 180;
+  const h = Math.sin(((lat2 - lat1) * r) / 2) ** 2
+    + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
+
+const _deg = (v: number, pos: string, neg: string) => `${Math.abs(v).toFixed(1)}°${v >= 0 ? pos : neg}`;
+
+/** For records the site-consistency gate re-plotted (loc === "site", see
+ *  scripts/nuclear_tests_site_check.py): says where the dot is, what the
+ *  catalog's own coordinates were, and that the exact point is unknown.
+ *  Returns "" for normally-located records. `fmtDist` renders km in the
+ *  user's unit system (pass lib/units fmtKm). */
+export function siteLocationNote(
+  t: { loc?: string | null; r?: string | null; lat?: number; lon?: number; src_lat?: number; src_lon?: number },
+  fmtDist: (km: number) => string,
+): string {
+  if (t.loc !== "site" || t.src_lat == null || t.src_lon == null || t.lat == null || t.lon == null) return "";
+  const site = NUKE_SITE[String(t.r || "").toUpperCase()] || t.r || "its recorded site";
+  const off = _hav(Number(t.src_lat), Number(t.src_lon), Number(t.lat), Number(t.lon));
+  return `Map position: plotted at the center of ${site}. The source catalog's own coordinates for `
+    + `this test (${_deg(Number(t.src_lat), "N", "S")}, ${_deg(Number(t.src_lon), "E", "W")}) lie `
+    + `~${fmtDist(off)} away and contradict its recorded site, so the exact shot point is unknown.`;
+}
