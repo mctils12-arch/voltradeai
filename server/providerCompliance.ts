@@ -20,6 +20,26 @@
 // provider from the chain or upgrading to a commercial arrangement.
 export const NON_COMMERCIAL_AIRCRAFT_PROVIDERS = ["airplaneslive", "adsbfi"];
 
+// CREDENTIAL-GATED non-commercial providers (FLIGHT PROGRAM B1,
+// 2026-09-28): in the aircraft data path ONLY while their credentials are
+// configured, so they count toward the tripwire exactly then. OpenSky
+// (server/openskyGlobal.ts — global states/all snapshot feeding
+// /api/data/aircraft/global) is licensed for non-profit research/education
+// only, and operational REST use needs a written agreement. The env names
+// are duplicated here (not imported) to keep this module dependency-free;
+// providerCompliance.test.ts pins them to openskyGlobal.ts.
+export const CREDENTIAL_GATED_NON_COMMERCIAL_PROVIDERS: { key: string; envAll: string[] }[] = [
+  { key: "opensky", envAll: ["OPENSKY_CLIENT_ID", "OPENSKY_CLIENT_SECRET"] },
+];
+
+/** Every non-commercial provider actually in the data path under `env`. */
+export function activeNonCommercialAircraftProviders(env: NodeJS.ProcessEnv = process.env): string[] {
+  const gated = CREDENTIAL_GATED_NON_COMMERCIAL_PROVIDERS
+    .filter((p) => p.envAll.every((k) => !!(env[k] && String(env[k]).trim())))
+    .map((p) => p.key);
+  return [...NON_COMMERCIAL_AIRCRAFT_PROVIDERS, ...gated];
+}
+
 // Billing counts as active when the operator flips BILLING_ENABLED
 // explicitly, or when Stripe is configured at all — server/billing.ts
 // (frozen) activates /api/billing/* on STRIPE_SECRET_KEY presence, so key
@@ -32,12 +52,13 @@ export function aircraftProviderCompliance(env: NodeJS.ProcessEnv = process.env)
   status: "ok" | "violation";
   detail?: string;
 } {
-  if (billingActive(env) && NON_COMMERCIAL_AIRCRAFT_PROVIDERS.length > 0) {
+  const active = activeNonCommercialAircraftProviders(env);
+  if (billingActive(env) && active.length > 0) {
     return {
       status: "violation",
       detail:
         `billing is active but non-commercial-licensed aircraft provider(s) remain in the chain: ` +
-        `${NON_COMMERCIAL_AIRCRAFT_PROVIDERS.join(", ")} — drop or upgrade them before charging anyone ` +
+        `${active.join(", ")} — drop or upgrade them before charging anyone ` +
         `(see research/wishlist.md MONETIZATION TRIPWIRE)`,
     };
   }

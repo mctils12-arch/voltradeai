@@ -41,7 +41,9 @@ test("over the cap, the buffer is capped and the drop is reported", () => {
     assert.equal(inst.length, AIR_MAX_FEATURES * AIR_INST_STRIDE, "the cap runs BEFORE packing — no wasted buffer");
     assert.equal(getGauge("aircraft.dropped"), 500);
     assert.equal(lines.length, 1, "a cap that bites must say so");
-    assert.match(lines[0], /12000 of 12500/);
+    // exact counts, derived from the cap (was the literal /12000 of 12500/
+    // until FLIGHT PROGRAM B1 raised AIR_MAX_FEATURES to 25000 — same check)
+    assert.match(lines[0], new RegExp(`${AIR_MAX_FEATURES} of ${AIR_MAX_FEATURES + 500}\\b`));
   } finally {
     console.warn = warn;
     resetMetrics();
