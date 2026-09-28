@@ -545,6 +545,17 @@ def find_atm_row(df, spot):
     return df.nsmallest(1, '_dist').iloc[0]
 
 
+def derive_div_yield(rate, price):
+    """Dividend yield in percent from annual $ rate / price; None if unknowable."""
+    try:
+        r, p = float(rate), float(price)
+    except (TypeError, ValueError):
+        return None
+    if r <= 0 or p <= 0:
+        return None
+    return round(r / p * 100, 2)
+
+
 def plausible_atm_iv(iv_pct, rv20):
     """Reject ATM IV readings that are almost certainly bad option prints.
 
@@ -2172,16 +2183,11 @@ def analyze_ticker(ticker_symbol):
     trailing_eps = _safe(info.get('trailingEps'), digits=2)
     forward_eps  = _safe(info.get('forwardEps'), digits=2)
 
-    # Dividend
-    # Yahoo Finance returns dividendYield as a decimal (e.g. 0.0041 for 0.41%)
-    # but sometimes already as a percentage — clamp to reasonable range
-    _dy_raw = info.get('dividendYield')
-    div_yield = None
-    if _dy_raw is not None:
-        _dy = float(_dy_raw)
-        # If > 1 it's already in percent form (e.g. 1.5 = 1.5%)
-        # If < 1 it's in decimal form (e.g. 0.015 = 1.5%)
-        div_yield = round(_dy * 100 if _dy < 1 else _dy, 2)
+    # Dividend — yield derived from rate/price (2026-09-28: Yahoo's dividendYield
+    # switched from decimal to percent form; the old `<1 -> *100` guess turned
+    # AAPL's 0.32 into 32.00%). Rate/price is the ground truth; never guess units.
+    div_yield = derive_div_yield(info.get('dividendRate'),
+                                 info.get('regularMarketPrice') or info.get('currentPrice') or spot)
     div_rate     = _safe(info.get('dividendRate'), digits=2)
 
     # Analyst estimates

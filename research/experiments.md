@@ -105912,3 +105912,25 @@ sweep):
   yields an ATM IV — an estimate that may be displayed as observed IV.
   Needs a check of how the page labels it.
 STARVED: no.
+
+
+## 2026-09-28 [REPAIR] — T-BOT/analyze — DIV. YIELD 32% DISPLAY BUG (v1.0.1002)
+
+Queued from the 2026-09-28 Analyze empty-state session. Health check first:
+/api/health serving OK; the standing LIVENESS ALARM (loop killed since
+2026-09-10, 65 market hours, KNOWN BROKEN #43) is unchanged and already
+notified (last 2026-09-28T02:38Z) — human decision, not touched.
+Loop-health ratio: last 10 tags are PRODUCT/PIPELINE-dominated, 1-2 REPAIR
+— no thrash.
+
+BUG: AAPL fundamentals showed "Div. Yield 32.00%" (rate $1.08, price ~$340).
+analyze.py guessed units from magnitude (`<1 -> *100`); Yahoo's
+dividendYield is now percent-form (0.32), so it was multiplied twice.
+Wrong number displayed as fact.
+FIX: yield = dividendRate / price * 100 (derive_div_yield) — ground truth
+from two fields, no unit guessing; None when either is missing/zero.
+Prior stated: AAPL -> 0.32%. Regression: test_analyze_div_yield.py (3
+tests, includes the AAPL case). Existing analyze tests pass (9/9).
+STILL OPEN: atm_iv = rv20*1.1 fallback labeling (see prior entry).
+No client change needed (renders the number as given).
+STARVED: no.
