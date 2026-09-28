@@ -83,7 +83,7 @@
  * goes in research/experiments.md + datacore/signal_ladder.json.
  */
 import { pathToFileURL } from "url";
-import { WATCHLIST } from "../server/githubOrgActivity";
+import { WATCHLIST, type GithubActivityRecord } from "../server/githubOrgActivity";
 import { fetchYahooDaily, toSeries, fwdReturn, type Series } from "./occ_volume_gate2";
 import { clusterMeanTTest, survivesAtCrit005 } from "./statsUtils";
 
@@ -182,10 +182,10 @@ async function fetchTickerHistory(ticker: string): Promise<OrgWeek[]> {
   const url = `${BASE}/api/data/github-activity/history?ticker=${encodeURIComponent(ticker)}&weeks=90`;
   const r = await fetch(url, { signal: AbortSignal.timeout(20000) as unknown as AbortSignal });
   if (!r.ok) throw new Error(`${ticker}: HTTP ${r.status}`);
-  const body = await r.json();
+  const body = (await r.json()) as { series?: GithubActivityRecord[] };
   const series = Array.isArray(body?.series) ? body.series : [];
   return series
-    .map((rec: any) => ({ ...toWeeklyTotal(rec), ticker }))
+    .map((rec) => ({ ...toWeeklyTotal(rec), ticker }))
     .sort((a: OrgWeek, b: OrgWeek) => a.weekStart.localeCompare(b.weekStart));
 }
 
@@ -199,8 +199,8 @@ async function main() {
   for (const org of WATCHLIST) {
     try {
       seriesByTicker.set(org.ticker, await fetchTickerHistory(org.ticker));
-    } catch (e: any) {
-      console.log(`  ${org.ticker}: history fetch failed (${e?.message || e}), excluded from panel`);
+    } catch (e) {
+      console.log(`  ${org.ticker}: history fetch failed (${e instanceof Error ? e.message : String(e)}), excluded from panel`);
     }
     await new Promise((res) => setTimeout(res, 150));
   }
@@ -221,8 +221,8 @@ async function main() {
     if (!seriesByTicker.has(org.ticker)) continue;
     try {
       priceSeries.set(org.ticker, toSeries(await fetchYahooDaily(org.ticker, startSec, endSec)));
-    } catch (e: any) {
-      console.log(`  ${org.ticker}: Yahoo price fetch failed (${e?.message || e}), excluded from pricing`);
+    } catch (e) {
+      console.log(`  ${org.ticker}: Yahoo price fetch failed (${e instanceof Error ? e.message : String(e)}), excluded from pricing`);
     }
     await new Promise((res) => setTimeout(res, 200));
   }

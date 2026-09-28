@@ -130,15 +130,46 @@ requirements.txt -r requirements-dev.txt` fresh — neither was pre-installed):
 missing-`node_modules` under-report a 2026-09-28 [PIPELINE] session
 earlier today also hit and diagnosed — confirmed environment artifact via
 re-run after `npm ci`, not real drift). `bash scripts/counter_ratchet.sh`
-— 3 counters IMPROVED from this session's own new test file, re-pinned in
-the same PR per PROMOTION RULE 5 (`tests_run_in_ci`/`tests_gating_merge`
-479->480, `assertions` 15666->15701); re-ran clean after re-pinning.
-`bash scripts/gated_tests.sh` — GATE PASSED: python 2278 passed/1
-skipped/54 subtests, server+client suites green, deploy-gate smoke PASS
-(build + boot + `/api/health` 200). `npx tsx --test
+— run BEFORE `git add`, so `git ls-files`-based counters (both
+`tests_run_in_ci`/`tests_gating_merge` and `assertions`) silently could
+not see the two brand-new untracked files at all; the `+35` assertions
+delta that local run reported (15666->15701) was actually PRE-EXISTING
+drift from unrelated merges since that pin was last set, not this
+session's own doing — re-pinned anyway at the time, incorrectly
+attributed. Caught by CI (see CI FAILURE below), corrected. `bash
+scripts/gated_tests.sh` — GATE PASSED: python 2278 passed/1 skipped/54
+subtests, server+client suites green, deploy-gate smoke PASS (build +
+boot + `/api/health` 200). `npx tsx --test
 scripts/github_activity_gate2.test.ts` — 11/11 pass standalone. `npm run
 visual`: NOT run — zero `client/` file touched by this diff, PROMOTION
 RULE 6 does not apply.
+
+CI FAILURE + FIX (found after the first push, PR #1200): the `test`
+GitHub Actions job failed `counter_ratchet.sh` on the real committed
+tree with `ts_any: 1249 -> 1252`. The 3 new `: any` annotations
+(`.map((rec: any) => ...)` and two `catch (e: any)`) were invisible to
+this session's own local pre-push run for the identical reason the
+assertions miscount above happened — the counter script's `git
+ls-files`-based file discovery only sees tracked files, and this
+session ran it before `git add`. Fixed by typing the fetch response
+properly (`GithubActivityRecord[]`, imported as a type from
+`server/githubOrgActivity.ts`) and dropping the `: any` catch-clause
+annotations in favor of `catch (e)` + `e instanceof Error ? e.message :
+String(e)` — TypeScript's default `unknown` catch type, zero behavior
+change. `ts_any` back to 1249 (baseline, confirmed via the same regex
+the counter script uses). `assertions` corrected to its true, now
+fully-tracked value: 15723 (15701 + this session's own file's actual 22
+`assert.*(` calls) — re-pinned to that number, the honest one, not the
+initially-misattributed 15701. Both `bash scripts/counter_ratchet.sh`
+and `bash scripts/tsc_ratchet.sh` re-run clean after the fix; live
+`npx tsx scripts/github_activity_gate2.ts` re-run against production
+produced byte-identical output to the pre-fix run (confirms the type
+changes were purely cosmetic). LESSON (logged so a future session
+doesn't re-derive it): `counter_ratchet.sh`/`program_status.sh` must be
+run AFTER `git add` (or on a committed tree) for any session adding new
+files — the same "run before npm ci" class of local-vs-CI environment
+mismatch this file's tsc note above already knows about, now with a
+second instance for `git ls-files`-based counters specifically.
 
 MEASUREMENT INTEGRITY: N/A for the gate-2 script itself (new research
 tooling, not a change to `backtest_v2.py`/P&L/slippage/counterfactual
