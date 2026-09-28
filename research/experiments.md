@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-27/28 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (scripts/visual_check.mjs) — closes a real PROMOTION RULE 6 coverage gap: 12 of 22 shipped `/data` layers (EPA plant operations, SEC MIDAS, submarine-adjacent facilities, military installations, and others) were never added to the visual harness's fixture, so the self-see/toggle-consistency/legend-parity batteries never actually exercised them; found and fixed a real crash the sweep's own new fixture introduced along the way (v1.0.991)
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs — the visual-tooling file this
+territory owns per WORKSTREAM PARTITION). SHARED-minimal (package.json/
+package-lock.json version bump, this research/experiments.md entry). No
+T-DATACORE/T-BOT file touched.
+
+SESSION-START HEALTH CHECK: read CLAUDE.md in full, then research/
+open_questions.md's KNOWN BROKEN section and the last several
+research/experiments.md entries. KNOWN BROKEN #42/#43's standing LIVENESS
+ALARM (trading loop `killSwitch:true`/dark since 2026-09-10T03:12:26Z) is
+unchanged in substance from every prior session's own reading — already
+repeatedly notified, human-decision-gated (`can_auto_resume:false`), not
+re-notified here (no new fact this session found). This is a T-CLIENT
+PRODUCT session — it does not touch the trading path and is unaffected by
+the alarm, per this session's own task instructions ("product sessions do
+not preempt the DAILY routines' repair duty").
+
+PRIMARY ACTION: compared every layer `id` in `datacore/layers.json` (256
+total) against every `id:` present in `scripts/visual_check.mjs`'s
+`FIXTURES["/api/data/layers"].layers` fixture array (116 present) and found
+140 missing. ~118 of those are `powergrid_<state|country>` per-region
+variants of the single already-fixtured generic `powergrid` tile layer —
+legitimately excluded (same data-partitioned-variant reasoning the existing
+`powergrid` comment in this file already states: one generic tile layer
+represents its region variants, not each one separately). The remaining 22
+are genuinely distinct layers shipped end-to-end (client toggle + server
+route, or a different real mechanism) but never added to this fixture, so
+the self-see/toggle-consistency/legend-parity batteries this array drives
+have never exercised them — the exact same gap class the R15 (2026-07-07),
+2026-07-25, 2026-09-24, and 2026-09-25 sessions already closed for other
+layer batches.
+
+Of the 22: 12 have a real `/api/data/*` JSON route the client fetches and
+toggles on — the standard fixture-driven pattern — so each gets a `layers`
+row (`ats_summary, boundaries_admin1, contracts, grid_generation, meteors,
+midas, military_installations, plant_operations, quakehistory, shadowstats,
+superfund, waterviolators`). 4 of those (ats-summary/contracts/
+plant-operations/midas) already had a `/api/data/*` fixture (built earlier
+for their own dedicated `#/data/*` full-page views) but had never been
+added to the `layers` array itself; 8 needed a brand-new data fixture
+(`grid-generation`, `meteors`, `military_installations`, `quakehistory`,
+`shadowstats`, `superfund`, `waterviolators`, plus `boundaries_admin1`),
+shaped by reading the real route handlers in `server/routes.ts` (and
+`server/gridGeneration.ts`'s `RespondentGenerationStat` for grid-generation)
+and the client's own strict-check code in `datamap.tsx` — not guessed.
+
+The other 10 (`celestial_paths, daynight, orbital_sats, floodzones,
+firetemp, so2, places, submarine_cables, timezones, seafloor_confidence`)
+are documented and deliberately excluded in a dedicated comment, each with
+its own reason: `celestial_paths`/`daynight` are pure client-computed
+ephemeris with no fetch of any kind; `orbital_sats` client-fetches CelesTrak
+directly per the ORBITAL program's DATA-PATH SPLIT (an external domain this
+harness's `page.route` aborts, not our own `/api/*`); `floodzones`/
+`firetemp`/`so2` add a MapLibre raster *tile* source pointing straight at
+FEMA/NASA GIBS (also external-domain, no JSON fetch to fixture); `places`/
+`submarine_cables`/`timezones`/`seafloor_confidence` are served from real
+static assets already committed to the repo (`client/public/{tiles,cables,
+tz}/...`) via non-`/api/` paths this harness's local server already serves
+for real from the built DIST — correct today, but not the
+`/api/data/*route + fixture` pattern this sweep targets, so left out on a
+different rationale than the other 10 rather than forced into a fake shape.
+
+A REAL BUG FOUND AND FIXED ALONG THE WAY (not a fixture-authoring slip
+caught in review — found live by running the harness and reading the
+failure): the first version of the new `/api/data/shadowstats` fixture
+omitted `loiter_by_zone` (a required field of `server/shadowFleet.ts`'s
+`ShadowStats` interface). `datamap.tsx`'s own `l.id === "shadowstats"`
+render block does an UNGUARDED `Object.entries(shadowStats.loiter_by_zone)`
+whenever `loiter_events > 0` (my fixture set `loiter_events: 41`) — with the
+field missing, this threw `TypeError: Cannot convert undefined or null to
+object` the instant the layers panel was opened with this new fixture
+wired in. Because this happens inside a React render (not an event-handler
+callback), it propagated to `App.tsx`'s top-level `ErrorBoundary`, which
+caught it silently (no `pageerror`/`window.onerror` event, no console
+`error` visible through the harness's own `pageerror` listener — only
+found by adding a temporary `page.on("console", ...)` listener, run once,
+then removed, not shipped) and rendered the whole app's "Something went
+wrong" fallback. This is why EVERY self-see/legend-parity/toggle-
+consistency/cost-budget check failed uniformly across all three widths
+(21 hard failures) the moment `shadowstats` was added to the fixture — the
+whole app, not just that one layer, had crashed. Root-caused by comparing a
+harness run against unmodified `main` (0 failures, confirming the harness
+itself was not hung/broken) against the same run with the diff applied (21
+failures, isolating the cause to this PR's own fixture), then adding
+targeted console capture to get the real stack trace rather than guessing
+from the generic "panel not rendered" symptom. FIX: the fixture now carries
+the full real `ShadowStats` shape (`window_hours, vessels_seen,
+points_read, gap_events, gap_examples, identity_candidates, loiter_events,
+loiter_by_zone, caveat`), verified field-by-field against the interface and
+`refreshShadowStats()`'s actual response construction in `server/routes.ts`,
+not just patched to stop the crash.
+
+VERIFIED, not claimed:
+- `node scripts/visual_check.mjs --page data`: **0 hard failure(s)** across
+  all three canonical widths (390/768/1440), post-fix — re-confirmed
+  against the pre-fix 21-failure run on the identical diff modulo the one
+  fixture correction, isolating the fix as the cause of the change.
+- `npm run visual` (full run, every page, all three widths): **0 hard
+  failure(s)**.
+- `npx tsx --test client/src/lib/*.test.ts`: 283/283 pass.
+- `bash scripts/tsc_ratchet.sh`: 11/11, TS2304 = 0, unchanged.
+- `bash scripts/counter_ratchet.sh`: 27/27 counters at or better than
+  baseline — no counter moved (pure fixture-data addition, no new `any`/
+  empty-catch/assertion introduced by this file).
+- `bash scripts/gated_tests.sh`: **GATE PASSED** — server tests unaffected
+  (0 server/ files touched), client 1103/1103, python suite green (fresh
+  worktree needed `pip install -r requirements.txt -r requirements-dev.txt`
+  first — not a regression, this sandbox simply never had it installed),
+  deploy-gate smoke PASSED (`/api/health` 200 in 2.3s under the scripted
+  latched-kill-switch + stale-liveness fixture, as expected).
+- Version bumped 1.0.990 -> 1.0.991: read-and-increment at commit time —
+  `git fetch origin main` immediately before found `main` had advanced one
+  commit past this branch's original base (#1188, a docs-only KNOWN
+  BROKEN cleanup touching only this file) since this session started;
+  rebased onto the fresh tip (`6d76a67`, v1.0.990) before bumping, avoiding
+  a version collision with that PR.
+
+GATES: no runtime trading code touched. No server/ or datacore/ file
+touched — this PR is `scripts/visual_check.mjs` (+ `package.json`/
+`package-lock.json` version bump + this entry) only.
+
+BACKTEST: N/A per PROMOTION RULE 3 — test-harness fixture data, not a
+trading strategy, sizing, or threshold change.
+
+MEASUREMENT INTEGRITY: not touched — no metric definition, backtest
+engine, slippage/fill model, or counterfactual logger in this diff. The
+visual-harness fixtures are UI-rendering test data, outside this rule's
+scope.
+
+MONETIZATION TRIPWIRE: this PR does not touch billing, pricing,
+subscriptions, ads, paid-feature gating, or the aircraft-provider
+compliance chain. Not re-run (condition not met).
+
+DEPLOY-COUPLING NOTE: today is Sunday 2026-09-27/28 — markets closed all
+day, so no merge-timing restriction applies regardless of hour. This is
+also a test-tooling-only change with zero runtime/trading-path risk.
+
+NEXT: (1) the same fixture-completeness gap this PR closed for 12 layers
+still exists for the 10 documented-and-excluded ids above IF their own
+mechanism ever changes to add a real `/api/data/*` JSON route (none do
+today, so nothing is actionable there now). (2) KNOWN BROKEN #42/#43
+remain standing human-decision items, unchanged, not re-notified. (3) the
+uncaught-render-error-swallowed-by-the-top-level-ErrorBoundary-with-no-
+pageerror-signal behavior found while debugging this (App.tsx's
+`ErrorBoundary`) is a real gap in this harness's own crash-detection
+reach — a future session could consider whether the harness should assert
+on the ErrorBoundary's own DOM fallback text ("Something went wrong")
+appearing, as a second independent crash detector alongside the existing
+`pageerror` listener, since this session found a real crash that neither
+`pageerror` nor any existing assertion caught (only self-see's downstream
+symptom did). Not built here — out of scope for this PR's one logical
+change.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+T-CLIENT PRODUCT action (a real, verified PROMOTION RULE 6 coverage gap
+with a well-specified fix), used in full including a real bug found and
+fixed along the way, the full gate suite, and the visual harness at all
+three widths per PROMOTION RULE 6.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-27 (scheduled-routine session, fifth session this UTC day) [REPAIR] — SHARED-minimal (research/open_questions.md only, no code touched): closes a 23-day-stale duplicate KNOWN BROKEN #40 record — the bug was already fixed same-day 2026-09-04, this entry's own "NOT PATCHED" text just never got updated (v-unbumped, docs-only)
 
 TASK: scheduled routine — read CLAUDE.md, experiments.md, open_questions.md,
