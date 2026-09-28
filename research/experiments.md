@@ -188,6 +188,29 @@ inventing new scope.
 
 NOT A SPEND REQUEST.
 
+ADDENDUM (2026-09-28, ~13:38 UTC / ~09:38 ET, ~6 minutes after PR #1193
+opened): PR #1193 merged automatically (`5fb833a`) despite this entry's
+own DEPLOY-COUPLING NOTE stating it was prepared mid-market-hours and left
+open for a human/later session to merge at their discretion — confirmed
+via the `pull_request.closed`/`outcome:"merged"` subscription event this
+session received, then independently via `git fetch origin main` showing
+`5fb833a` on `main`. Another confirmed occurrence of the already-tracked
+"`automerge` has no time-of-day gate" gap (`.github/workflows/ci.yml`,
+FROZEN PATH — see PR #1175's own 2026-09-25 addendum in this file, and the
+running tally in `research/wishlist.md`; not re-tallied here per that
+tally's own convention that the full count belongs to a dedicated
+RULE-REVIEW session). Not a live break: this PR's diff is client-UI +
+visual-harness tooling only, zero new server/trading code, so the
+market-hours risk the hold convention exists to guard against does not
+apply in substance here — same reasoning PR #1164/#1165/#1175's own notes
+already drew. Live-reconfirmed post-merge: `curl https://voltradeai.com/
+api/data/fmcsa-oos` still answers 200 with a live, growing archive (3922
+orders in the trailing 45-day window, up from the archive-only session's
+initial poll) — the merge did not disturb the already-live route. No
+action taken beyond this log entry; the structural auto-merge fix remains
+a wishlist.md item for the next RULE-REVIEW or CI-workflow-adjacent
+session.
+
 ## 2026-09-28 (scheduled-routine session, fourth session this UTC day) [PIPELINE] — T-DATACORE (server/fmcsaOutOfService.ts new, server/fmcsaOutOfService.test.ts new, datacore/manifests/fmcsaoos.json new, scripts/data_stream_registry_check.py) + SHARED-minimal (server/routes.ts, ci/counter_baseline.txt, package.json/package-lock.json, research/open_questions.md): EDGE DOCTRINE axis (a) — a genuinely new free data root, FMCSA Out-of-Service orders, built end-to-end (v1.0.994)
 
 TASK: scheduled-routine session — read CLAUDE.md, research/experiments.md,
