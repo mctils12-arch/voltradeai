@@ -22502,3 +22502,106 @@ hypothesis, not the root's RAW data value. NOT re-attempted with a
 different lag/bucketing/benchmark this session; a future session should
 treat this exact framing as closed rather than re-testing minor variants
 of the same null.
+
+## 2026-09-28 (scheduled-routine session) — EDGE DOCTRINE axis (a): a genuinely new free data root, FMCSA Out-of-Service orders — BUILT (RAW, GATE 1 not attempted, N/A per RAW OVERLAYS), GATE 2 hypothesis PRE-REGISTERED, NOT YET RUN
+
+Filed while shipping `server/fmcsaOutOfService.ts` / `/api/data/fmcsa-oos`
+(see `research/experiments.md`'s matching dated entry and
+`datacore/manifests/fmcsaoos.json` for the full build account). This
+session's own live web research found the immediately preceding
+2026-09-28 PIPELINE session's axis-(a) NEXT item ("axis (a) remains open
+to a session with time for real web research into a genuinely new free
+data root") still open, and `scripts/data_stream_registry_check.py`'s own
+35 tracked candidates confirmed exhausted (26 built, 9 human-action-
+gated) before starting the search — same live-verification discipline
+prior sessions used before falling through to a new axis.
+
+SOURCE FOUND + PROBED LIVE: data.transportation.gov Socrata dataset
+`p2mt-9ige` ("OUT OF SERVICE ORDERS") — keyless, US government work,
+public domain. A sibling dataset on the same host, `AuthHist - All With
+History` (`9mw4-x3tu`), was probed FIRST and REJECTED: its own
+description states "last refreshed on 05/14/2026 and will no longer be
+updated," confirmed live via `$select=max(orig_served_date)`/
+`max(disp_decided_date)` both capping at 12/31/2025 despite a catalog
+`data_updated_at` reading days-fresh — the identical "fake-fresh catalog
+timestamp over frozen content" shape `research/data_census.md` already
+declined `cboe_daily_stats` for. `p2mt-9ige` was independently confirmed
+live: trailing-30-day `count(*)` = 2532 (~536/week), `max(oos_date)`
+within 2 days of the probe, `status` distinct ACTIVE/INACTIVE/PENDING.
+
+WHY THIS ROOT (EDGE DOCTRINE #2, fish where whales can't): OOS orders hit
+almost exclusively small, non-public motor carriers — the dominant
+recent reason code live-probed this session, "New Entrant Revoked -
+Refusal of Audit/No Contact," specifically captures brand-new operating
+authorities failing their first safety audit, i.e. small-carrier
+formation/failure churn no equity-research desk tracks name-by-name.
+BUILD-FIRST RULE step 1 applies cleanly: the raw material (FMCSA's own
+enforcement log) is already free and government-produced; this session
+built the archival/processing layer, not a paid substitute.
+
+CLASSIFICATION: RAW OVERLAY per CLAUDE.md's RAW OVERLAYS vs SIGNALS rule
+— an enforcement-action log displayed as-is with source attribution, no
+predictive claim, no ROOT VALIDATION LADDER gating required to surface
+it. `datacore/manifests/fmcsaoos.json` and `/api/data/fmcsa-oos` both
+carry this classification explicitly.
+
+GATE 2 HYPOTHESIS (SEPARATE from the RAW build, NOT attempted this PR —
+PROMOTION RULE 5, one logical change): does AGGREGATE weekly OOS order
+volume (or its week-over-week surprise vs. a trailing seasonal baseline,
+mirroring the Larry-Williams-style percentile-index framing the
+2026-09-28 rail-carload GATE 2 script used) lead forward returns of a
+trucking-sector benchmark (candidates: IYT, or a small-cap trucking
+basket — WERN/SAII/ULH/HTLD/MRTN — chosen over large integrated carriers
+since the underlying churn is concentrated in small non-public entities,
+so a small-cap trucking-adjacent basket is the more mechanism-consistent
+target than a diversified transport ETF)?
+
+PRIOR (stated before any run, REASONING STANDARD #10): WEAK-TO-MODERATE,
+discounted DOWN from a plain first attempt per REASONING STANDARD #4 —
+this is the SAME "aggregate physical-economy volume vs. transport-sector
+forward returns" shape the 2026-09-28 rail-carload (`rail_ep724_
+carload_traffic`) GATE 2 test just rejected cleanly (16/16 comparisons
+failed, wrong sign on the primary). The underlying MECHANISM here is
+different (small-carrier exit/failure churn, not system-wide freight
+throughput), so this is not a re-test of the same null — but it is the
+second attempt in the same family this UTC day, and REASONING STANDARD
+#4's fishing discount applies to the family, not just identical reruns.
+
+BASE RATE / WHY NOT ALREADY ARBITRAGED (REASONING STANDARD #3/#5): FMCSA
+publishes OOS orders in real time on a public government site; no
+paywall, no lag. The candidate edge, if any, is NOT the existence of the
+data but whether anyone aggregates it into a time series at all — unlike
+AAR's own weekly rail-traffic press release (which the rail-carload entry
+above notes IS already followed by sell-side analysts), FMCSA does not
+publish or advertise an aggregate OOS-order-volume series; this would be
+a genuinely uncrowded DERIVED series, not a repackaged public headline.
+
+LADDER PATH: GATE 1 (DATA) does not apply (RAW overlay exemption, not
+a signal). GATE 2 (SIGNAL): build `scripts/fmcsa_oos_gate2.py` reusing
+`gate2_stats.find_entry_index`/`newey_west_diff_test` (EDGE DOCTRINE #3
+— the same HAC-test helpers `rail_traffic_gate2.py` reused, not
+re-derived a third time), joining weekly OOS order counts against the
+chosen benchmark(s) at +5d/+20d horizons, with a PRE-REGISTERED minimum-N
+bar and Bonferroni discount across every measure/benchmark/horizon/bucket
+combination tried, mirroring the rail-carload script's own discipline.
+READINESS: the archive only started accumulating 2026-09-28 — a future
+session must check the live accumulated week count via a diag probe
+(pattern: `/api/diag/fmcsa_oos`, not yet built) before running GATE 2,
+not assume readiness from the calendar (same discipline the
+`gnss_integrity_adsb` cross-connection entry above already established).
+
+NEXT (in order, for whoever picks this back up): (1) let the archive
+accumulate — this is a NEW root with zero historical backfill, unlike
+rail's 496-week archive, so GATE 2 cannot be run meaningfully for weeks;
+(2) consider a historical backfill via the same Socrata endpoint without
+the 45-day live-poll window restriction (a one-time wide date-range pull)
+to shortcut the accumulation wait, filed as an option not a commitment;
+(3) a `/data` client page for `/api/data/fmcsa-oos` is queued, not this
+session (API + archive only this PR, matching the un_comtrade/dtcc_sbsdr
+precedent of shipping the API before the UI).
+
+STARVED: no — this session's primary action (finding, live-probing, and
+shipping a genuinely new EDGE DOCTRINE #1 root end-to-end with tests and
+a manifest) is exactly what axis (a)'s own open NEXT item asked for.
+
+NOT A SPEND REQUEST.

@@ -208,6 +208,22 @@ CANDIDATES = [
              "(this was the sole remaining candidate_unbuilt entry in this table). GATE 2 (signal) not "
              "attempted — too lagged (1-6mo) for direct alpha per the census's own prior, structural-"
              "thesis RAW archive only. No /data client page yet (API only this PR)."},
+    {"id": "fmcsa_oos_orders", "name": "FMCSA Out-of-Service orders (motor-carrier enforcement)",
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["fmcsaoos"], "layer_ids": [],
+     "note": "server/fmcsaOutOfService.ts, /api/data/fmcsa-oos — a genuinely new axis (a) free data root "
+             "found via live web research 2026-09-28, after this table's own 35 tracked candidates were "
+             "confirmed exhausted. data.transportation.gov Socrata p2mt-9ige, keyless, live-probed "
+             "(~536 new orders/week, max(oos_date) within 2 days of the probe). A sibling dataset on the "
+             "same host (AuthHist - All With History) was probed first and REJECTED as a frozen legacy "
+             "extract (own description: 'will no longer be updated', max date capped 12/31/2025) — same "
+             "fake-fresh-catalog-timestamp shape cboe_daily_stats was declined for. RAW OVERLAY (an "
+             "enforcement-action log, no ladder gating per RAW OVERLAYS vs SIGNALS) — small-carrier "
+             "formation/failure churn, EDGE DOCTRINE #2 (fish where whales can't). GATE 2 hypothesis "
+             "(aggregate OOS volume vs. trucking-sector forward returns) filed in open_questions.md, not "
+             "attempted this PR and discounted up front per REASONING STANDARD #4 (same aggregate-volume-"
+             "vs-transport-returns shape the 2026-09-28 rail-carload GATE 2 test just rejected). No /data "
+             "client page yet (API only this PR)."},
 ]
 
 
