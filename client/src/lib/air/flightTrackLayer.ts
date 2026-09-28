@@ -476,6 +476,8 @@ export class FlightTrackLayer implements CustomLayerInterface {
   private indices: Uint32Array | null = null;
   private tailVerts: Float32Array | null = null;
   private tailIndices: Uint32Array | null = null;
+  /** the last tail input (getTailEnd — the planned-route seam source). */
+  private tail: TrackTail | null = null;
   private marker: TrackMarker | null = null;
   private altScale = 1;
   private dirty = false;
@@ -565,6 +567,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
 
   /** Update the live moving tail only (cheap per-glide-tick path). */
   setTail(tail: TrackTail | null): void {
+    this.tail = tail;
     this.tailVerts = tail ? buildTailVertices(tail, this.altScale) : null;
     this.tailIndices = this.tailVerts && this.tailVerts.length
       ? buildQuadIndices(this.tailVerts.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG)
@@ -581,6 +584,20 @@ export class FlightTrackLayer implements CustomLayerInterface {
 
   getMarker(): TrackMarker | null {
     return this.marker;
+  }
+
+  /**
+   * Where the moving live tail currently ENDS, exactly as last drawn
+   * (display datum: mercator x/y, altitude × altScale, ground as passed) —
+   * null when no tail is drawn (the curtain then ends at the track's last
+   * sample). The planned-route curtain (planCurtainLayer.ts) starts its seam
+   * here every frame, so the gray and the colored curtain meet with no gap
+   * and no overlap by construction.
+   */
+  getTailEnd(): { mercX: number; mercY: number; altZ: number; groundZ: number } | null {
+    const t = this.tail;
+    if (!t || !this.tailVerts || this.tailVerts.length === 0) return null;
+    return { mercX: t.toMercX, mercY: t.toMercY, altZ: t.toAltM * this.altScale, groundZ: t.toGroundZ };
   }
 
   /** Rendered geometry vertex count (harness/test seam, arcLayer parity). */

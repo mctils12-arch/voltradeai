@@ -28,6 +28,7 @@ import * as arcLayer from "../lib/orbital/arcLayer.ts";
 import * as modelLayer from "../lib/orbital/modelLayer.ts";
 import * as airLayer from "../lib/air/airLayer.ts";
 import * as flightTrackLayer from "../lib/air/flightTrackLayer.ts";
+import * as planCurtainLayer from "../lib/air/planCurtainLayer.ts";
 
 // ── contract verification ───────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ const REAL_LAYERS: [string, Record<string, unknown>][] = [
   ["modelLayer", modelLayer as unknown as Record<string, unknown>],
   ["airLayer", airLayer as unknown as Record<string, unknown>],
   ["flightTrackLayer", flightTrackLayer as unknown as Record<string, unknown>],
+  ["planCurtainLayer", planCurtainLayer as unknown as Record<string, unknown>],
 ];
 
 test("every real layer module declares maxFeatures and vramBudget", () => {
@@ -198,6 +200,7 @@ test("every real layer CLASS implements dispose()", () => {
     ["ModelLayer", modelLayer as unknown as Record<string, unknown>],
     ["AirLayer", airLayer as unknown as Record<string, unknown>],
     ["FlightTrackLayer", flightTrackLayer as unknown as Record<string, unknown>],
+    ["PlanCurtainLayer", planCurtainLayer as unknown as Record<string, unknown>],
   ];
   for (const [name, mod] of classes) {
     const ctor = Object.values(mod).find(
@@ -222,6 +225,15 @@ test("each declared vramBudget actually covers that layer's own stride arithmeti
       // a quad strip: verts-per-segment x floats-per-vert
       strideFloats: flightTrackLayer.FT_VERT_STRIDE * 4,
       budgetMB: flightTrackLayer.vramBudget,
+    },
+    {
+      name: "planCurtainLayer",
+      features: planCurtainLayer.maxFeatures,
+      // per densified plan vertex, worst case: 2 crossfading plan slots x 3
+      // quads (trace + curtain + edge) + 1 original-plan quad = 7 quads of
+      // 4 verts x PC_VERT_STRIDE floats
+      strideFloats: planCurtainLayer.PC_VERT_STRIDE * 4 * 7,
+      budgetMB: planCurtainLayer.vramBudget,
     },
     {
       name: "arcLayer",
