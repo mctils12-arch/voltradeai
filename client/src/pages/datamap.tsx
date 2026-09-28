@@ -116,6 +116,7 @@ import {
   CURTAIN_BELOW_TERRAIN_M, decimateForCap, remapIndices, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
+import { usePlannedRoute } from "@/components/PlannedRoute";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
@@ -4183,6 +4184,38 @@ export default function DataMapPage() {
   const lastLiveHeadingRef = useRef<number | null>(null);
   const flightTagRef = useRef<HTMLDivElement | null>(null);
   const flightGridRef = useRef<HTMLDivElement | null>(null);
+
+  // ── PLANNED ROUTE (FLIGHT PROGRAM 2026-09-28): the GRAY curtain from the
+  // selected plane forward to its destination. Fetch, geometry, the seam,
+  // teardown and the card row all live in components/PlannedRoute.tsx +
+  // lib/air/planRouteController.ts — this block only hands over the page's
+  // refs. The seam is the live curtain's DRAWN end (the moving tail's end,
+  // else the track's last sample), so gray and colored meet exactly.
+  const selectedHexLc = () => String(detailRef.current?.trailId || "").toLowerCase();
+  const plannedRoute = usePlannedRoute({
+    mapRef, mapReady,
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    suppressed: tripReplay != null, // an archived trip owns the curtain
+    registry: customLayerRegistryRef.current,
+    getLive: () => {
+      const lv = airFollowLiveRef.current;
+      if (!lv || String(lv.id).toLowerCase() !== selectedHexLc()) return null;
+      const row = (airPayloadRef.current || []).find((x) => x?.icao24 === lv.id);
+      return {
+        lon: lv.fix.lo, lat: lv.fix.la, altM: lv.fix.al,
+        trkDeg: lastLiveHeadingRef.current ?? row?.heading ?? null,
+        callsign: String(row?.callsign || "").trim() || null,
+      };
+    },
+    getSeam: () => {
+      const e = flightTrackRef.current?.getTailEnd();
+      if (e) return { mercX: e.mercX, mercY: e.mercY, altM: e.altZ, groundZ: e.groundZ };
+      const st = trackSamplesRef.current;
+      const li = st ? st.samples.length - 1 : -1;
+      if (!st || li < 0 || String(st.id).toLowerCase() !== selectedHexLc()) return null;
+      return { mercX: st.merc[li * 2], mercY: st.merc[li * 2 + 1], altM: st.altDisp[li], groundZ: st.groundZ[li] };
+    },
+  });
 
   /** Ground elevation in the DISPLAY datum (queryTerrainElevation output —
    *  already exaggeration-scaled; 0 with terrain off), memoized in
@@ -15705,6 +15738,9 @@ export default function DataMapPage() {
               Follow aircraft
             </button>
           )}
+          {/* planned-route toggle + provenance (FILED/PREDICTED, route,
+              deviation, plan age) — components/PlannedRoute.tsx */}
+          {detail.kind === "aircraft" && plannedRoute.row}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}
