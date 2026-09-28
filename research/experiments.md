@@ -238,7 +238,7 @@ convention exists to guard against does not apply in substance here —
 same reasoning the prior occurrences' own addenda already drew. No
 action taken beyond this log entry.
 
-## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC), MOMENTUM-VS-REVERSAL SPEC: a second, freshly pre-registered attempt to find a tradeable directional rule — NOT PASSED, sign-unstable across two independent live draws, same signature that closed the first spec (v1.0.998)
+## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC), MOMENTUM-VS-REVERSAL SPEC: a second, freshly pre-registered attempt to find a tradeable directional rule — NOT PASSED, sign-unstable across two independent live draws, same signature that closed the first spec (v1.0.1000)
 
 TASK: scheduled routine `voltrade-daily-midday` — read CLAUDE.md in full,
 then experiments.md/open_questions.md/wishlist.md; check loop-health ratio
@@ -105856,4 +105856,30 @@ MONETIZATION TRIPWIRE: not re-run — no billing/pricing/gating touched.
 STANDING: the LIVENESS ALARM (trading loop killed since 2026-09-10,
 KNOWN BROKEN #43) remains a human decision; not touched here.
 
+STARVED: no.
+
+
+## 2026-09-28 [PIPELINE] — tooling — GEO-CONSISTENCY CHECKER (v1.0.1000)
+
+Follow-up to the EGMONT repair (#1195/#1196). The human asked whether the
+same kind of data issue (a record's point contradicting its OWN place
+fields) exists on other /data layers, across the site, and in trading.
+Before any sweep, compiled the check into a reusable tool (EDGE DOCTRINE
+3 — never reason the same thing twice): scripts/geo_consistency.py.
+
+- check_country / check_admin1: point vs claimed country / state, against
+  Natural Earth 1:10m (public domain; fetched once into ~/.cache, not
+  committed). Coastal tolerance (default 25 km country / 15 km state) so
+  ports/platforms/buoys aren't flagged. Every contradiction is DIAGNOSED:
+  swapped_latlon, lon/lat/both sign flipped, out_of_range, or mismatch.
+- site_outliers: the nuclear-tests gate generalized to any "named site"
+  field; reproduces exactly the 5 records #1195 fixed on the pre-fix data.
+- Optional shapely acceleration; pure-Python fallback (edge distance, not
+  vertex distance — a bug caught by the fallback test before shipping).
+
+RATCHET: test_geo_consistency.py (7 tests, offline synthetic boundaries,
+pass with and without shapely), incl. the 0.0-km-is-falsy regression.
+
+NOT YET RUN across layers — the sweep (all layers + website + trading
+data) is the next step, awaiting the human's go-ahead (multi-agent run).
 STARVED: no.
