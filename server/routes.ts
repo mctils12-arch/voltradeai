@@ -40,6 +40,7 @@ import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { registerArchiveOffloadRoutes } from "./archiveOffload";
+import { registerFlightPlanRoutes } from "./flightPlans";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1515,6 +1516,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ error: e?.message || "trips read failed" });
     }
   });
+
+  registerFlightPlanRoutes(app); // FLIGHT PROGRAM: GET /api/data/aircraft/plan/:hex + /plan-status (server/flightPlans.ts)
 
   // Archive growth observability (volume watch — see wishlist).
   app.get("/api/data/archive/stats", (_req, res) => {

@@ -23,6 +23,7 @@ export interface AirportMatch extends Airport { dist_km: number }
 const GRID_DEG = 0.5;
 
 let grid: Map<string, Airport[]> | null = null;
+let byIdent: Map<string, Airport> | null = null;
 let loadedCount = 0;
 
 function cellKey(la: number, lo: number): string {
@@ -37,16 +38,19 @@ export function loadAirports(jsonPath?: string): number {
   try {
     const d = JSON.parse(fs.readFileSync(p, "utf-8"));
     grid = new Map();
+    byIdent = new Map();
     for (const a of d.airports || []) {
       const k = cellKey(a.la, a.lo);
       const arr = grid.get(k) || [];
       arr.push(a);
       grid.set(k, arr);
+      if (a.id) byIdent.set(String(a.id).toUpperCase(), a);
     }
     loadedCount = (d.airports || []).length;
   } catch (e: any) {
     console.error("[airports] load:", e?.message || e);
     grid = new Map(); // degrade to no-matches, never throw at call sites
+    byIdent = new Map();
     loadedCount = 0;
   }
   return loadedCount;
@@ -88,5 +92,14 @@ export function nearestAirport(
   return best;
 }
 
+/** Exact lookup by OurAirports ident (ICAO code where one is assigned, e.g.
+ *  "KSFO"; FAA LID for small US fields). FLIGHT PROGRAM 2026-09-28: resolves
+ *  the departure/arrival aerodromes named in FAA SWIM flight plans. */
+export function airportByIdent(id: string): Airport | null {
+  if (!grid) loadAirports();
+  if (!byIdent || !id) return null;
+  return byIdent.get(id.trim().toUpperCase()) || null;
+}
+
 /** test hook */
-export function _resetAirports(): void { grid = null; loadedCount = 0; }
+export function _resetAirports(): void { grid = null; byIdent = null; loadedCount = 0; }
