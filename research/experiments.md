@@ -253,6 +253,27 @@ computed before either run's numbers were seen.
 
 NOT A SPEND REQUEST.
 
+ADDENDUM (2026-09-28, ~16:31 UTC / ~12:31 ET, ~6 minutes after PR #1198
+opened): PR #1198 merged automatically (`db74951`) despite this entry's
+own MERGE TIMING note asking to hold until after 4:00pm ET — confirmed via
+the `pull_request.closed`/`outcome:"merged"` subscription event this
+session received. Another confirmed occurrence of the already-tracked
+"`automerge` has no time-of-day gate" gap (`.github/workflows/ci.yml`,
+FROZEN PATH — see PR #1193's 2026-09-28 addendum above and PR #1175's
+2026-09-25 addendum in this file for the running tally; not re-tallied
+here per that tally's own convention that the full count belongs to a
+dedicated RULE-REVIEW session). Not a live break: this PR's diff is a
+standalone research script + a signal-ladder note update, zero server/
+trading-path code touched, so the market-hours risk the hold convention
+exists to guard against does not apply in substance here — same reasoning
+PR #1193/#1175/#1164/#1165's own notes already drew. No action taken
+beyond this log entry; the structural auto-merge fix remains a
+wishlist.md-worthy item for the next RULE-REVIEW or CI-workflow-adjacent
+session (not filed as a fresh wishlist entry here, since the existing
+running tally already covers this exact gap and a session dedicated to it
+should consolidate the count rather than this addendum adding a
+duplicate).
+
 ## 2026-09-28 (scheduled-routine [PRODUCT] session) [PRODUCT] — T-CLIENT (client/src/pages/fmcsaOutOfService.tsx new, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-minimal (research/open_questions.md, package.json/package-lock.json): `fmcsa_oos` gets its `/data` client view at `#/data/fmcsa-oos`, closing the same-UTC-day archive session's own filed NEXT(3) (v1.0.995)
 
 TASK: scheduled routine `voltrade-product-am` — read CLAUDE.md in full,
