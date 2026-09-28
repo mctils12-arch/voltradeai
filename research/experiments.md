@@ -3,6 +3,256 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) [RESEARCH] — WIKIMEDIA PAGEVIEWS GATE 3 (LOGIC), MOMENTUM-VS-REVERSAL SPEC: a second, freshly pre-registered attempt to find a tradeable directional rule — NOT PASSED, sign-unstable across two independent live draws, same signature that closed the first spec (v1.0.998)
+
+TASK: scheduled routine `voltrade-daily-midday` — read CLAUDE.md in full,
+then experiments.md/open_questions.md/wishlist.md; check loop-health ratio
+and system health; execute the single highest-value SESSION BUDGET action;
+open one PR from a claude/ branch; note that merge should wait until after
+4:00pm ET (market hours) unless the change fixes a critical live break (it
+does not — this is a pure research/no-trading-impact change, safe either
+way, but flagged per the task's own instruction).
+
+READ ORDER followed: CLAUDE.md (full), research/experiments.md tail,
+research/open_questions.md KNOWN BROKEN section + newest entries,
+research/wishlist.md head + tail.
+
+SYSTEM HEALTH CHECKED FIRST (live `curl https://voltradeai.com/api/health`,
+2026-09-28T16:03:37Z): `status:"degraded"`, `bot.status:"killed"`,
+`liveness.dark:true` — "trading loop dark for 65.0 market hours (444.9h
+wall-clock) since 2026-09-10T03:12:26.354Z", `drawdownPct:"-6.5"`. Standing
+KNOWN BROKEN #41/#42/#43 LIVENESS ALARM, unchanged in kind from every prior
+session. `python3 scripts/session_health_check.py` confirms the session-
+level notify policy: `liveness_notify: loop dark 444.9h wall-clock, already
+notified at 431.4h — no new notify threshold crossed, do not repeat` — the
+doubling-threshold policy (v1.0.979) says not to re-notify this session, so
+not re-escalated (this is what the tooling is FOR: a mechanical answer
+instead of session judgment on whether "unchanged" still warrants a ping).
+KNOWN BROKEN #44 (`insider_cusum_gate2`, Dockerfile FROZEN PATH proposal)
+unchanged, still awaiting human merge. Neither blocks this session's work.
+
+LOOP-HEALTH RATIO: last 10 tagged entries before this one = 2x PRODUCT,
+1x PIPELINE, 1x PRODUCT, 1x PIPELINE, 1x REPAIR, 1x PRODUCT, 1x PIPELINE,
+1x PIPELINE, 1x REPAIR — 2/10 REPAIR, well under the 7+ thrash trigger.
+AUDITS & DEBT register (experiments.md's own register block): STALENESS
+next due 2026-10-16, CONSTITUTIONAL next due 2026-10-20, CALENDAR next due
+2026-12-01 — nothing overdue, not the research-tier action this session.
+
+PRIMARY-ACTION SURVEY (SESSION BUDGET order — fix a bug > judge a matured
+experiment > start a new experiment > research): `python3 scripts/
+ladder_readiness_check.py` — 0/4 gated roots ready (cftc_cot_positioning,
+sec_8k_earnings_language, fleet_utilization_aircraft, gnss_integrity_adsb
+all time-gated, none newly actionable). `python3 scripts/
+data_stream_registry_check.py` — 27/36 built, all 9 remaining candidates
+human-action-gated (registration/free-key/dead-source), unchanged. `python3
+scripts/ladder_registry_coverage_check.py` — full coverage, no gap. Checked
+today's own two prior queued items explicitly before assuming either was
+free: the 2026-09-27 intermodal-rail-carload cross-connection was ALREADY
+run and REJECTED earlier today (16/16 comparisons null, see that entry);
+the 2026-09-28 FMCSA OOS gate-2 hypothesis is explicitly NOT ready ("the
+archive only started accumulating 2026-09-28 ... GATE 2 cannot be run
+meaningfully for weeks", per its own filed NEXT). Live audit log
+(`/api/diag/audit?limit=60`) showed nothing new — the periodic
+EVENTLOOP-LAG entries seen (920-2030ms) are ordinary GC/scheduling noise
+well under the ~96s-stall defect item #18/#12 already closed in 2026-07-13,
+not a recurrence. Surveyed `datacore/signal_ladder.json`'s 14 gate1_pass
+and 2 gate2_pass roots for any GATE 2/3 advance not blocked by archive
+depth: EDGAR 13F (time-gated to ~Oct-Nov 2026), NRC reactor status/DTCC
+SBSDR (both explicitly "needs a quarter/more archive depth"), settlement-
+stress composite (WAITING, n=1 domestic episode vs MIN_DOMESTIC_EPISODES
+=20), space_weather_swpc (blocked on the EAGLE-I 2027-02 annual release,
+per the 2026-09-20 BUILD-FIRST writeup) — all genuinely blocked, not just
+unclaimed.
+
+CHOSE: `wikimedia_pageviews_attention`'s own ladder note (gate2_pass) ends
+with an unambiguous, concretely-scoped, never-attempted NEXT item from the
+2026-09-05 session that closed its first GATE 3 spec: "a future session
+could pre-register a genuinely DIFFERENT rule — the momentum-vs-reversal
+question this session's own docstring named but deliberately did not test
+(REASONING STANDARD #4, one diagnostic design per pass): does the spike
+day's OWN same-day return predict continuation or reversal over the next
+1-5 days, independent of the (now-closed) unconditional long-only
+question?" This is the ladder's own next real step for an already-advanced
+root (SESSION BUDGET fall-through #1: take the next queued item), needs no
+new data source or accumulation wait (unlike every other candidate
+surveyed above), and is a genuinely different, separately-pre-registered
+hypothesis, not a variant chase of the already-closed long-only spec
+(RECURRENCE ESCALATES-style discipline: re-testing a killed spec would be
+p-hacking by attrition, not repair).
+
+PRE-REGISTRATION (written into scripts/wikiattention_gate3_momentum.py's
+own module docstring BEFORE any live statistic was computed — REASONING
+STANDARD #10): CONDITIONING VARIABLE = the news-free spike day's own
+same-day close-to-close return (known at the entry timestamp, no
+lookahead). BUCKETS: UP (same-day return > 0) vs DOWN (< 0). METRIC:
+forward_return(closes, i, h) for h in {1,3,5} — the IDENTICAL function and
+entry convention the closed long-only spec (wikiattention_gate3.py) already
+uses, reused by import (EDGE DOCTRINE #3), not re-derived. PRIMARY TEST:
+Welch two-sample test of UP-bucket vs DOWN-bucket forward return, PRIMARY
+HORIZON PRE-DECLARED AS h=5 (the multi-day horizon Barber & Odean's
+retail-attention reversal literature operates over — chosen before running
+anything, specifically to avoid a look-elsewhere bias across the 3
+horizons), Bonferroni/3 for the two secondary horizons (alpha/3~=0.0167).
+MIN N PER BUCKET = 15 (stricter than welch_vs_baseline's own hard n>=5
+floor, which only gates whether the test computes at all — a separate,
+stated bar for trusting the RESULT, matching this codebase's rail/
+settlement-stress precedent of a stated minimum-N before rendering
+PASS/FAIL). CLASSIFICATION: MOMENTUM if mean(UP) > mean(DOWN) at the
+primary horizon, REVERSAL if reversed. TRADEABLE-RULE CHECK: the implied
+rule is a PAIR position (long the higher-mean bucket, short the lower-mean
+bucket), each leg charged its own full round-trip SLIPPAGE_ILLIQUID cost
+from system_config.py (read, not invented — READ BEFORE WRITE #3) — PASS
+requires BOTH the primary Welch test significant at the Bonferroni bar AND
+the combined pair net-of-cost return positive. PRIOR stated before
+running: LOW-TO-MODERATE (~20-25%), discounted from the closed spec's own
+15-20% for REASONING STANDARD #4 (this is the SECOND diagnostic design
+tried on this root's price-direction question, a family-wise view should
+discount any marginal finding) and because Barber & Odean's own finding is
+about retail flow pressure broadly, not specifically conditioned on the
+spike day's own realized-return sign (an extrapolation, not a direct
+citation).
+
+BUILT: scripts/wikiattention_gate3_momentum.py (same_day_return/
+evaluate_ticker_momentum/pool_buckets/apply_momentum_verdict pure
+functions + run_momentum_gate3 network orchestration, all reusing
+wikiattention_gate2.py's zscore/spike-detection/welch_vs_baseline and
+wikiattention_gate2_newsfree.py's news-free filter and
+wikiattention_gate3.py's forward_return/_slippage_costs by import, per
+EDGE DOCTRINE #3 — nothing re-derived); test_wikiattention_gate3_momentum.py
+(20 synthetic-data unit tests, no network, mirroring
+test_wikiattention_gate3.py's own structure/coverage: same_day_return edge
+cases, up/down bucket assignment, news-contamination exclusion, pooling,
+and the full verdict-rule truth table including the min-N floor, momentum
+vs reversal classification, cost-eats-the-edge, and the primary-horizon
+selection itself).
+
+LIVE RUN 1 (19 small/mid seed tickers, 1.5s Wikimedia spacing): 10/19
+succeeded (PLTR/GME/AMC/SOFI/HOOD/RIVN/RDDT/SMCI/CVNA/ACHR), 9 hit
+Wikimedia's own documented rolling rate limit (429s — the identical,
+already-filed 2026-09-05 finding, not a new defect: COIN/LCID/IONQ/RKLB/
+ASTS/UPST/MARA/OKLO/JOBY). POOLED (n_up=90, n_down=59): h=1 p=0.311,
+h=3 p=0.225, **h=5 (primary) p=0.303** — classification REVERSAL at every
+horizon (mean_down > mean_up throughout), none significant.
+
+COVERAGE HONESTY CHECK (same discipline the 2026-09-05 session
+established for this exact rate-limit problem): before trusting a 53%
+draw, ran a SECOND independent live attempt targeting the 9 tickers that
+failed in draw 1, at wider (3.0s) spacing. LIVE RUN 2: 7/9 succeeded
+(IONQ/RKLB/ASTS/UPST/MARA/OKLO/JOBY — a different random subset than draw
+1, zero overlap, confirming the rolling/shared-limit theory again), 2
+still 429'd (COIN/LCID). POOLED (n_up=52-54, n_down=32): h=1 p=0.0056
+(CLEARS the alpha/3=0.0167 Bonferroni bar), h=3 p=0.0663, **h=5 (primary)
+p=0.469** — classification MOMENTUM at every horizon this time (mean_up >
+mean_down throughout).
+
+VERDICT PER THE PRE-REGISTERED RULE: GATE 3 NOT PASSED. The pre-declared
+PRIMARY horizon (h=5, chosen before either run to avoid picking whichever
+horizon looked best after the fact) is non-significant in BOTH independent
+draws (p=0.303, p=0.469) — draw 2's h=1 clearing its bar is exactly the
+kind of secondary-horizon, look-elsewhere result the primary-horizon
+pre-registration exists to guard against, not a pass. More importantly:
+the CLASSIFICATION ITSELF FLIPS SIGN between two independent,
+non-overlapping ticker draws (REVERSAL in draw 1, MOMENTUM in draw 2) —
+the identical sign-instability signature that closed the long-only spec
+in 2026-09-05 (REASONING STANDARD #4: a real effect, even a noisy one,
+tends to hold its sign across overlapping partial samples of the same
+population; a sign that flips with ticker composition is the signature of
+noise around a true zero). NOT run a third time chasing a draw where the
+primary horizon clears the bar — per this file's own RECURRENCE ESCALATES
+discipline applied to research (not just repair): once two independent
+attempts already show the diagnostic pattern of noise, a third attempt is
+p-hacking by attrition, not confirmation, exactly the practice REASONING
+STANDARD #4 exists to prevent.
+
+FAULT LOCALIZATION (ROOT VALIDATION LADDER): this is the SECOND closed
+LOGIC-layer (gate 3) spec for this root — DATA (gate 1) and SIGNAL
+(gate 2, the volume effect) remain independently verified and unaffected;
+`current_gate`/`status` stay 2/gate2_pass. wikimedia_pageviews_attention's
+own price-direction question is now settled negative on two independent,
+non-variant-chased attempts (unconditional long-only, and same-day-return-
+conditioned momentum/reversal) — a future session should not propose a
+third variant of the same underlying question without genuinely new
+evidence (e.g. a different conditioning variable entirely, not a
+parameter tweak on either closed spec).
+
+SHIPPED: scripts/wikiattention_gate3_momentum.py (new, 232 lines);
+test_wikiattention_gate3_momentum.py (new, root, 20 tests); datacore/
+signal_ladder.json (wikimedia_pageviews_attention's `note` gained this
+UPDATE paragraph, `last_update_date` 2026-09-05 -> 2026-09-28,
+`source_ref` extended — `status`/`current_gate` unchanged); package.json
++ package-lock.json (version bump, package-lock.json's own version field
+corrected from a stale 1.0.995 to match package.json's 1.0.997 at read
+time, then both bumped together to 1.0.998 — MERGE-ORDER PROTOCOL
+read-and-increment at commit time); ci/counter_baseline.txt
+(`tests_run_in_ci`/`tests_gating_merge` 478->479, `assertions`
+15638->15666, this session's own 20 new tests' assertions, re-pinned per
+PROMOTION RULE 5 after confirming via `npm ci` — a fresh install was
+needed, see GATES below — that the counters actually improved and were
+not an environment artifact).
+
+MEASUREMENT INTEGRITY: N/A — no metric/backtest/slippage/counterfactual-
+logger code touched; this reads existing cost constants and applies an
+existing statistical test function, it does not change how anything is
+measured.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no trading strategy, sizing, scoring,
+or threshold value changed; this is a closed research finding (GATE 3 NOT
+PASSED), nothing ships to live trading logic.
+
+GATES (full, after a fresh `npm ci` this sandbox needed — see NOTE below):
+`python3 -m pytest -q` — 2278 passed, 1 skipped, 54 subtests (2258 + this
+session's 20 new tests, confirmed by direct arithmetic; zero regressions).
+`bash scripts/tsc_ratchet.sh` — 11/11, TS2304 0, exact match to
+`ci/tsc_baseline.txt`'s pin. NOTE (same environment artifact the
+2026-09-27 session's own entry already documented for this exact script):
+a run BEFORE `npm ci` misleadingly reported only 3 errors (tsc
+under-reports without an installed `node_modules`); re-ran after `npm ci`
+and got 11, matching the pin exactly — confirmed this was the known
+environment artifact, not real drift, so no lowering was applied.
+`bash scripts/counter_ratchet.sh` — 28 counters at or better than baseline
+after the three counters above were re-pinned (see SHIPPED). `bash
+scripts/gated_tests.sh` — **GATE PASSED**: python 2278 passed/1 skipped/54
+subtests, server/client suites green, quarantine 0/1 none overdue,
+deploy-gate smoke PASS (build + boot + `/api/health` 200 in 5.1s). `npm
+run visual`: NOT run — zero `client/`/rendering-adjacent file touched by
+this diff, PROMOTION RULE 6 does not apply.
+
+WORKSTREAM PARTITION: `scripts/wikiattention_gate3_momentum.py` and
+`test_wikiattention_gate3_momentum.py` are new standalone research
+tooling, not owned by any territory; `datacore/signal_ladder.json`,
+`package.json`/`package-lock.json`, `ci/counter_baseline.txt`, and
+`research/experiments.md` are all SHARED, touched as the last, minimal
+commit per MERGE-ORDER PROTOCOL. No T-BOT/T-CLIENT/T-DATACORE-pipeline
+file touched.
+
+MONETIZATION TRIPWIRE: not re-run — this PR does not touch billing,
+pricing, subscriptions, ads, or paid-feature gating.
+
+MERGE TIMING (per this task's own instruction — session runs during
+market hours): this change has NO live-trading blast radius whatsoever
+(pure research script + a signal-ladder note update; nothing in
+server/bot.ts, bot_engine.py, or any execution path is touched) — it is
+safe to merge at any time, but per the task's instruction the PR itself
+states merge should wait until after 4:00pm ET unless it fixes a critical
+live break (it does not).
+
+STANDING: the LIVENESS ALARM (trading loop killed since 2026-09-10, KNOWN
+BROKEN #41/#42/#43) remains a human decision, correctly not re-notified
+this session per session_health_check.py's own doubling-threshold policy
+(see SYSTEM HEALTH above). KNOWN BROKEN #44 unchanged, still awaiting
+human Dockerfile approval.
+
+STARVED: no — this session's primary-action survey found every ladder-
+gated root, every unbuilt data-stream candidate, and both of today's
+own two prior-session queued cross-connection items genuinely exhausted or
+blocked, then correctly fell through to SESSION BUDGET's fall-through #1
+(the next queued item, explicitly named by a prior session's own NEXT),
+executed it with two independent live verification draws rather than
+trusting one partial-coverage run, and rendered a pre-registered verdict
+computed before either run's numbers were seen.
+
+NOT A SPEND REQUEST.
+
 ## 2026-09-28 (scheduled-routine [PRODUCT] session) [PRODUCT] — T-CLIENT (client/src/pages/fmcsaOutOfService.tsx new, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-minimal (research/open_questions.md, package.json/package-lock.json): `fmcsa_oos` gets its `/data` client view at `#/data/fmcsa-oos`, closing the same-UTC-day archive session's own filed NEXT(3) (v1.0.995)
 
 TASK: scheduled routine `voltrade-product-am` — read CLAUDE.md in full,

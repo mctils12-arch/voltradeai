@@ -22625,3 +22625,55 @@ layer: this PR carries no ladder-gate claim, matching the RAW
 classification `fmcsaOutOfService.ts` already established.
 
 NOT A SPEND REQUEST.
+
+## 2026-09-28 (scheduled-routine session, voltrade-daily-midday) — WIKIMEDIA PAGEVIEWS GATE 3, MOMENTUM-VS-REVERSAL SPEC: the 2026-09-05 session's own named-but-untested question, run against real data twice — NOT PASSED, sign-unstable across both independent draws (v1.0.998)
+
+Closes the NEXT item the 2026-09-05 WIKIMEDIA PAGEVIEWS GATE 3 entry
+(above, this file) explicitly left open: "a future session could
+pre-register a genuinely different rule — does the spike day's OWN
+same-day return predict continuation or reversal over the next 1-5 days?"
+`scripts/wikiattention_gate3_momentum.py` (20 unit tests) built and run
+live TWICE. PRE-REGISTERED PRIMARY: Welch test of UP-bucket (same-day
+return > 0) vs DOWN-bucket forward return at h=5 (pre-declared primary
+horizon, the multi-day Barber & Odean reversal window), Bonferroni/3
+across h={1,3,5}, min n=15/bucket, cost-checked pair trade (long the
+higher-mean bucket, short the lower-mean bucket, each leg's own round-trip
+SLIPPAGE_ILLIQUID).
+
+RESULT: draw 1 (10 tickers, n_up=90/n_down=59) — classification REVERSAL
+at every horizon, primary h=5 p=0.303 (not significant). Draw 2 (7
+DIFFERENT tickers than draw 1, zero overlap — the same Wikimedia rolling
+rate-limit this root's 2026-09-05 session already documented meant one
+call could not cover the seed set — n_up=52-54/n_down=32) — classification
+MOMENTUM at every horizon, h=1 alone clears the Bonferroni bar (p=0.0056)
+but the PRE-REGISTERED PRIMARY h=5 does not (p=0.469).
+
+VERDICT: GATE 3 NOT PASSED. The primary horizon is non-significant in both
+draws, and the classification itself flips sign (reversal -> momentum)
+between two independent, non-overlapping ticker samples — the identical
+sign-instability signature that closed the long-only spec in 2026-09-05
+(REASONING STANDARD #4: a real effect holds its sign across resamples; one
+that flips is the signature of noise around a true zero). NOT re-run a
+third time chasing a draw where the primary horizon clears the bar — that
+would be p-hacking by attrition, not confirmation. `current_gate`/`status`
+unchanged (2/gate2_pass) — DATA and SIGNAL stay independently verified;
+this is a second closed LOGIC-layer spec, not a reopening of either.
+
+Full pre-registration, both draws' numbers, and gates: `research/
+experiments.md`'s 2026-09-28 entry; `datacore/signal_ladder.json`'s
+`wikimedia_pageviews_attention` entry carries the same account.
+
+NEXT: both the unconditional long-only spec (2026-09-05) and this
+same-day-return-conditioned momentum/reversal spec are now closed for this
+root without new evidence. A future session should treat
+`wikimedia_pageviews_attention`'s price-direction question as settled
+negative — the VOLUME signal remains real and gate2_pass; no tradeable
+directional rule has been found on two independent, non-variant-chased
+attempts — rather than proposing a third variant of the same underlying
+question. A genuinely different conditioning variable (not a parameter
+tweak on either closed spec) would be a fresh, separately-pre-registerable
+hypothesis if one is ever found.
+
+STARVED: no.
+
+NOT A SPEND REQUEST.
