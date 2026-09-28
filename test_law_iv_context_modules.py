@@ -97,6 +97,7 @@ class TestLawIVContextAcquiringModules(unittest.TestCase):
                 "airLayer.ts",
                 "arcLayer.ts",
                 "celestialSky.ts",
+                "fleetReplayLayer.ts",
                 "flightTrackLayer.ts",
                 "modelLayer.ts",
                 "planCurtainLayer.ts",
