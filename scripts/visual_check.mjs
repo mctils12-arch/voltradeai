@@ -2050,12 +2050,36 @@ function startServer() {
           }
           hexes.push({ i: "fx" + i.toString(16), rg: "N" + i + "FX", c: "TST" + i, ty: "B738", points, raw_count: points.length, truncated: false });
         }
+        // FLIGHT PROGRAM replay (2026-09-28): the server's close-approach
+        // list (server/closeApproach.ts shape) so the panel's list renders,
+        // and fx0/fx1 re-shaped into REAL converging 60 s tracks around the
+        // listed instant so a focused approach draws actual curtains.
+        const basis = "separation below 5 nm / 1,000 ft per our recorded ADS-B data — not an official loss-of-separation report";
+        const tA = from + Math.floor((to - from) * 0.4);
+        const conv = (dir, altFt) => {
+          const pts = [];
+          for (let s = -1800; s <= 1800; s += 60) {
+            const nm = (450 / 3600) * s; // 450 kt through the crossing
+            pts.push(dir === "east"
+              ? [tA + s, 38.2, -104.1 + nm / (60 * Math.cos(38.2 * Math.PI / 180)), Math.round(altFt * 0.3048)]
+              : [tA + s, 38.2 - 1.8 / 60 + nm / 60, -104.1, Math.round(altFt * 0.3048)]);
+          }
+          return pts;
+        };
+        hexes[0].points = conv("east", 34000); hexes[0].raw_count = hexes[0].points.length;
+        hexes[1].points = conv("north", 34400); hexes[1].raw_count = hexes[1].points.length;
+        const closeApproaches = [
+          { a: "fx0", b: "fx1", ca: "TST0", cb: "TST1", t: tA * 1000, horizNm: 1.8, vertFt: 400, confidence: "high", basis, lat: 38.2, lon: -104.1, altAFt: 34000, altBFt: 34400 },
+          { a: "fx2", b: "fx3", ca: "TST2", cb: "TST3", t: (from + Math.floor((to - from) * 0.7)) * 1000, horizNm: 4.3, vertFt: 900, confidence: "medium", basis, lat: 41.5, lon: -95.3, altAFt: 28000, altBFt: 28900 },
+        ];
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({
           kind: "aircraft", from, to, zoom: 5, step_sec: step,
           hexes, hexes_seen: hexes.length,
           total_points: hexes.reduce((s, h) => s + h.points.length, 0),
           coverage: { requested_from: from, scanned_from: from, complete: true, files_scanned: 1 },
+          closeApproaches,
+          closeApproachesMeta: { method: "fixture", thresholds: { horiz_nm: 5, vert_ft: 1000, fix_window_sec: 90, low_alt_ft: 2000 }, evaluated_hexes: hexes.length, excluded_non_icao: 0, found: closeApproaches.length, returned: closeApproaches.length, capped: false, partial_scan: false },
         }));
       }
       // STATEFUL track fixture (trail-refresh ratchet, [REPAIR 2026-07-05]):
@@ -2712,6 +2736,13 @@ async function main() {
         } else {
           if (!tsSlider) checks.failures.push("timescrub: slider never appeared (lazy chunk failed to load?)");
           await page.waitForTimeout(600); // entry animation + the initial snapshot fetch to land
+          // FLIGHT PROGRAM replay: the close-approach list is a collapsed
+          // disclosure by default — open it through its own control (DOM
+          // click: the check below is about the list, not the toggle's
+          // hit-test, which the Legend card can overlap at desktop widths)
+          await page.$eval("[data-vt-timescrub-ca-toggle]", (el) => el.click())
+            .catch(() => checks.failures.push("timescrub: close-approach toggle missing for an aircraft window"));
+          await page.waitForTimeout(250);
           const tsChecks = await page.evaluate(() => {
             const fails = [];
             const p = document.querySelector("[data-vt-timescrub-panel]");
@@ -2720,6 +2751,18 @@ async function main() {
             if (r.bottom > innerHeight + 1) fails.push(`timescrub: panel bottom ${Math.round(r.bottom)} past viewport ${innerHeight} — SELF-SEE`);
             if (r.top < -1 || r.left < -1 || r.right > innerWidth + 1) {
               fails.push(`timescrub: panel outside viewport (l=${Math.round(r.left)} t=${Math.round(r.top)} r=${Math.round(r.right)})`);
+            }
+            // FLIGHT PROGRAM replay: the fixture window carries close
+            // approaches — the list must render with reachable rows (the
+            // panel scrolls internally; a row may sit below the fold only
+            // while the panel itself is scrollable)
+            const caRows = p.querySelectorAll(".vt-timescrub-ca-row");
+            if (!p.querySelector("[data-vt-timescrub-ca]")) fails.push("timescrub: close-approach section missing for an aircraft window");
+            else if (caRows.length < 1) fails.push("timescrub: close-approach list rendered no rows for a fixture with 2");
+            else {
+              const rr = caRows[0].getBoundingClientRect();
+              if (rr.width < 4 || rr.height < 30) fails.push("timescrub: close-approach row has no usable size");
+              if (rr.bottom > r.bottom + 1 && p.scrollHeight <= p.clientHeight + 2) fails.push("timescrub: close-approach row below the panel with no internal scroll");
             }
             for (const [label, sel] of [["layer select", "[data-vt-timescrub-layer]"], ["slider", "[data-vt-timescrub-slider]"], ["play", "[data-vt-timescrub-play]"]]) {
               const el = document.querySelector(sel);
@@ -2747,6 +2790,40 @@ async function main() {
           });
           checks.failures.push(...tsChecks);
           await page.screenshot({ path: path.join(OUT, `${name}-timescrub-${vp.w}.png`), animations: "disabled" });
+          // FLIGHT PROGRAM replay: the fleet GL layer must have compiled and
+          // drawn under SwiftShader (unit tests only see the GLSL as strings),
+          // and focusing an approach must fly to the pair and draw its
+          // curtains (fixture fx0/fx1 = real converging 60 s tracks).
+          const fleet0 = await page.evaluate(() => {
+            const d = window.__vtFleetReplay;
+            return d ? { failed: d.failed(), counts: d.counts(), draws: d.draws() } : null;
+          });
+          if (!fleet0) checks.failures.push("timescrub: fleet replay diagnostics hook (window.__vtFleetReplay) missing");
+          else if (fleet0.failed || fleet0.draws.failStreak > 0) checks.failures.push(`timescrub: fleet replay GL layer failing (shader compile/link or draw error) ${JSON.stringify(fleet0.draws)}`);
+          else if (fleet0.counts.heads < 1) checks.failures.push(`timescrub: fleet replay drew no heads at the window end (${JSON.stringify(fleet0.counts)})`);
+          else if (fleet0.draws.drawnFrames < 1) checks.failures.push("timescrub: fleet replay has heads but completed no draw");
+          const cam0 = await page.evaluate(() => {
+            const m = window.__vtMap;
+            if (!m) return null;
+            const c = m.getCenter();
+            return { center: [c.lng, c.lat], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() };
+          });
+          await page.$eval(".vt-timescrub-ca-row", (el) => el.click())
+            .catch(() => checks.failures.push("timescrub: no close-approach row to focus"));
+          await page.waitForTimeout(2600); // camera flight (1.4 s) + LOD tick + batched rebuild
+          const fleet1 = await page.evaluate(() => {
+            const d = window.__vtFleetReplay;
+            return d ? { failed: d.failed(), counts: d.counts(), draws: d.draws(), lod: d.lod() } : null;
+          });
+          if (fleet1 && (fleet1.failed || fleet1.draws.failStreak > 0)) {
+            checks.failures.push(`timescrub: fleet replay GL layer failing after focusing an approach ${JSON.stringify(fleet1.draws)}`);
+          } else if (fleet1 && fleet1.counts.full < 1) {
+            checks.failures.push(`timescrub: focused close approach drew no curtain geometry (${JSON.stringify(fleet1)})`);
+          }
+          await page.screenshot({ path: path.join(OUT, `${name}-timescrub-focus-${vp.w}.png`), animations: "disabled" });
+          // restore the camera so the checks after this block see the page
+          // exactly as before the focus flight
+          if (cam0) await page.evaluate((c) => window.__vtMap?.jumpTo(c), cam0).catch(() => {});
           await page.click('[data-vt-timescrub-panel] [aria-label="Close time machine"]', { timeout: 2000 })
             .catch(() => checks.failures.push("timescrub: close control unclickable"));
           await page.waitForTimeout(250);
