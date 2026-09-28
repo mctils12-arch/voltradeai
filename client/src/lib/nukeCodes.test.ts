@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, NUKE_TYPE, NUKE_PURPOSE } from "./nukeCodes.ts";
+import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome, NUKE_TYPE, NUKE_PURPOSE } from "./nukeCodes.ts";
 import { classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL } from "./mapIcons.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -98,4 +98,17 @@ test("re-plotted records explain their map position; normal records say nothing"
   assert.match(note, /exact shot point is unknown/);
   const normal = tests.find((t) => t.r === "NTS" && t.loc !== "site")!;
   assert.equal(siteLocationNote(normal, km), "");
+});
+
+test("every site in the shipped catalog has a host country (who fired it != where)", () => {
+  const sites = new Set<string>(catalog.tests.map((t: { r?: string }) => String(t.r || "")).filter(Boolean));
+  for (const s of sites) assert.ok(siteHostCountry(s), `site code "${s}" has no host country — add it to NUKE_SITE_HOST`);
+  assert.equal(siteHostCountry("NTS"), "USA");
+  assert.equal(siteHostCountry("KRASNO RUSS"), "Russia (then USSR)");
+  assert.equal(siteHostCountry("MANGY KAZAKH"), "Kazakhstan (then USSR)");
+  assert.equal(siteHostCountry("NOWHERE"), "");
+  assert.equal(testedAtHome("UK", siteHostCountry("NTS")), false, "a UK shot in Nevada is NOT at home");
+  assert.equal(testedAtHome("USA", siteHostCountry("NTS")), true);
+  assert.equal(testedAtHome("USSR", siteHostCountry("SEMI KAZAKH")), true);
+  assert.equal(testedAtHome("FRANCE", siteHostCountry("MURUROA")), false);
 });

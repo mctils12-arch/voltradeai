@@ -105326,6 +105326,14 @@ HURUROA, ...) form their own groups of < 5 records, so the gate cannot
 judge them. The decode map reads them as Mururoa for display; merging
 typo groups for JUDGING would be a separate, reviewable change.
 
+WHO vs WHERE (human follow-up same day: "It's in the usa"; shipped as
+its own follow-up PR, v1.0.997, after #1195 merged first): the card
+now separates the two — subtitle "United Kingdom test · in USA", chips
+"Tested by: UK" / "Tested in: USA". Host country comes from
+siteHostCountry(): explicit per-site entries, Soviet regional labels by
+their catalog republic suffix (RUSS / KAZAKH); a node test fails if any
+site code in the shipped catalog has no host country.
+
 RATCHET: test_nuclear_tests_site_check.py (5 tests — fails on the
 pre-fix dataset) + 2 new node:test cases in client/src/lib/
 nukeCodes.test.ts (site decode; location note present for EGMONT,

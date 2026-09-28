@@ -229,3 +229,52 @@ export function siteLocationNote(
     + `this test (${_deg(Number(t.src_lat), "N", "S")}, ${_deg(Number(t.src_lon), "E", "W")}) lie `
     + `~${fmtDist(off)} away and contradict its recorded site, so the exact shot point is unknown.`;
 }
+
+// WHERE a test happened, as a present-day host country — distinct from who
+// fired it (human, 2026-09-28, on a UK test card: "It's in the usa").
+// Explicit per-site entries; Soviet regional labels resolve by their
+// catalog republic suffix (RUSS / KAZAKH), which the catalog states — the
+// region part may be ambiguous but the republic is not. Unknown -> "".
+const NUKE_SITE_HOST: Record<string, string> = {
+  "NTS": "USA", "NELLIS NV": "USA", "MELLIS NV": "USA", "FALLON NV": "USA", "C. NEVADA": "USA",
+  "ALAMOGORDO": "USA", "CARLSBAD NM": "USA", "FARMINGT NM": "USA", "HATTIESB MS": "USA",
+  "HATTIESE MS": "USA", "GRAND V CO": "USA", "RIFLE CO": "USA", "AMCHITKA AK": "USA (Alaska)",
+  "JOHNSTON IS": "Johnston Atoll (US territory)",
+  "ENEWETAK": "Marshall Islands (then US-administered)", "BIKINI": "Marshall Islands (then US-administered)",
+  "CHRISTMAS IS": "Kiribati (then a British colony)", "MALDEN IS": "Kiribati (then a British colony)",
+  "PACIFIC": "Pacific Ocean", "OFFUSWCOAST": "Pacific Ocean, off the US west coast",
+  "S.ATLANTIC": "South Atlantic Ocean", "S. ATLANTIC": "South Atlantic Ocean",
+  "HIROSHIMA": "Japan", "NAGASAKI": "Japan",
+  "MURUROA": "French Polynesia", "MUEUEOA": "French Polynesia", "MURUHOA": "French Polynesia",
+  "MURUEOA": "French Polynesia", "HURUROA": "French Polynesia", "W MURUROA": "French Polynesia",
+  "WSW MURUROA": "French Polynesia", "FANGATAUFA": "French Polynesia", "FANGATAUFAA": "French Polynesia",
+  "REGGANE ALG": "Algeria", "IN ECKER ALG": "Algeria",
+  "MARALI AUSTR": "Australia", "EMU AUSTR": "Australia", "MONTEB AUSTR": "Australia",
+  "LOP NOR": "China", "POKHRAN": "India", "CHAGAI": "Pakistan", "KHARAN": "Pakistan",
+  "UZBEK": "Uzbekistan (then USSR)", "MARY TURKMEN": "Turkmenistan (then USSR)",
+  "AZGIR": "Kazakhstan (then USSR)", "KAZAKHSTAN": "Kazakhstan (then USSR)",
+};
+
+/** Present-day host country of a catalog site code ("" when unknown). */
+export function siteHostCountry(code?: string | null): string {
+  const c = String(code || "").trim().toUpperCase();
+  if (!c) return "";
+  if (NUKE_SITE_HOST[c]) return NUKE_SITE_HOST[c];
+  if (/\bRUS[SE]$/.test(c)) return "Russia (then USSR)";   // incl. catalog typo "JAKUTS RUSE"
+  if (/\bKAZAKH$/.test(c)) return "Kazakhstan (then USSR)";
+  return "";
+}
+
+/** True when the tester fired on its own soil — the card then doesn't
+ *  repeat the country as "in …". */
+export function testedAtHome(testerCode?: string | null, host?: string): boolean {
+  const h = String(host || "");
+  switch (String(testerCode || "").toUpperCase()) {
+    case "USA": return h.startsWith("USA");
+    case "USSR": return h.includes("then USSR");
+    case "CHINA": return h === "China";
+    case "INDIA": return h === "India";
+    case "PAKIST": return h === "Pakistan";
+    default: return false;
+  }
+}
