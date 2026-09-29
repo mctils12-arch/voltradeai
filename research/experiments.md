@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-29 (scheduled-routine PRODUCT session, ~13:20Z) [REPAIR] — T-DATACORE (server/flightPlans.ts) — FILED plans with no parsed route fixes no longer report OFF_PLAN (v1.0.1005)
+
+HEALTH: standing LIVENESS ALARM unchanged (bot killed, 65 market h, dd -6.1%); auto-resume armed, market opens 13:30Z. Not a blocker for product work.
+
+GATE-1 CHECK (claimed-vs-ground-truth, live, 60 US airline aircraft, 2026-09-29): SWIM repair from #1207 confirmed (385k messages processed, parseErrors 0, planStore 3,885; FILED_FAA resolved 59/60). BUT 59/59 filed plans were `pathEstimated:true` — zero route fixes parsed, path = origin->destination great circle — and cross-track vs that path had median 60.7 nm (max 194 nm); 44/59 reported OFF_PLAN. Real flights follow airways, so those flags are false: the product claimed "filed route + deviation" against a path that is not the filed route.
+FIX: deviation tracking (archive replay + observe) is skipped when source is FILED_FAA and pathEstimated; state stays UNKNOWN, crossTrackNm null, no events, honesty text says deviation is not assessed. ROUTE_DB/HISTORY predictions unchanged (their honesty text already labels them predictions).
+RATCHET: new contract test fails on old code (verified), passes now; flightPlans.test.ts 29/29.
+PRIOR/DOWNSTREAM: gray-curtain client only draws originalPoints/OFF_PLAN re-plan when OFF_PLAN, so the false re-plans + DEVIATION events in <archive>/flight_events/ stop; the filed curtain (great-circle, labelled estimated) still draws.
+ROLLBACK TRIGGER: none needed (removes a false claim); revisit when route fixes parse.
+NEXT (queued, open_questions): root-cause why routePoints are empty on live SFDPS messages (expandedRoute/routePoint shape differs from the FIXM assumption in swimSfdps.ts) — needs a captured live message body sample; then deviation can be re-enabled honestly. Existing DEVIATION events already archived on the volume from #1207 are contaminated for FILED_FAA and should be excluded from any analysis.
+MERGE: prepared mid-market; merge after 16:00 ET close per the run instruction.
+STARVED: no.
+
 ## 2026-09-29 (scheduled-routine session, ~11:10Z) [NO-ACTION] — health re-checked, unchanged since the 02:37Z entry; nothing new to do
 
 TERRITORY: none (docs-only). Live /api/health 2026-09-29T11:11Z: serving ok (server, database), no failing gates; standing LIVENESS ALARM unchanged (bot killed, 65 market h / 464h wall, drawdown -6.1%); auto-resume armed, market still closed (opens 13:30Z) — the open is the test, verify `autoResume.lastResume` after it. Feeds/scanner/python/alpaca OK. Queue unchanged from the 02:37Z entry (next: 2026-10-02 sec_8k gate 2; human: Dockerfile COPY scripts/ for #44). STARVED: no.
