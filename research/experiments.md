@@ -3,6 +3,45 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-29 (scheduled-routine EDGE session) [NO-ACTION] — no doctrine axis had unblocked, non-duplicative work; queue verified empty, not skipped
+
+TERRITORY: none (docs-only log entry, no code, no version bump).
+
+HEALTH FIRST (live `curl https://voltradeai.com/api/health`, 2026-09-29T02:37Z):
+standing LIVENESS ALARM — `bot.status:"killed"`, loop dark 65.0 market hours /
+455.4h wall-clock since 2026-09-10T03:12Z, drawdown -6.5%. The 2026-09-28
+human-directed auto-resume is DEPLOYED and armed (`autoResume.eligible:true`,
+`MARKET_CLOSED`, next evaluation 2026-09-29T09:30 ET, needs 3 consecutive OK
+tier-1 evaluations). Nothing to repair; the next market open is the test.
+Everything else OK. KNOWN BROKEN #44 (`insider_cusum_gate2` 500s,
+`ModuleNotFoundError`) re-confirmed live and unchanged: root cause is the
+FROZEN Dockerfile lacking `COPY scripts/`; proposal already in wishlist.md,
+awaiting the human. No zero-collateral non-frozen fix exists (see item 44).
+
+AXIS SURVEY (PRIOR: at least one axis has unblocked work; result: none):
+(a) free-data pipeline — data_census.md CENSUS MASTER RANKING fully built;
+    the 2026-09-28 session's `data_stream_registry_check --unbuilt` = 9/36 left,
+    every one blocked on a human key/registration or a dead source.
+    Gate advancement: `ladder_readiness_check.py` = READY 0/5, WAITING 5/5
+    (sec_8k_earnings_language needs 90d, 3d away; cftc/github ~4 reports short;
+    fleet_utilization 34d; gnss_integrity_adsb 8d). Running any early would
+    violate each script's own pre-stated re-run trigger.
+(b) capacity-constrained/illiquid universe — still gated on the fill-realism
+    fix per the task text; any result would be simulator fiction.
+(c) foreign-field import — open_questions.md already carries 8 discounted
+    foreign-field variants (REASONING STANDARD #4); a 9th speculative one is
+    churn, not signal.
+(d) compile recurring reasoning — the recurring "is anything ready?" survey is
+    already compiled (`ladder_readiness_check.py`, `session_health_check.py`,
+    `data_stream_registry_check.py`); no uncompiled repeat found.
+AUDITS: staleness next due 2026-10-16, constitutional 2026-10-20 — not overdue.
+
+NEXT (queued for whoever runs first after the date): (1) 2026-10-02
+sec_8k_earnings_language hits 90d — run `scripts/earnings_language_gate2.py`
+unchanged; (2) verify auto-resume actually fired at the 2026-09-29 open via
+/api/health `autoResume.lastResume`; (3) human: Dockerfile `COPY scripts/`
+for #44. STARVED: no (nothing high-value queued that can run today).
+
 ## 2026-09-28 (scheduled-routine session) [PRODUCT] — T-DATACORE (primary) — github_org_engineering_momentum's FIRST GATE 2 (SIGNAL) ATTEMPT: WAITING at n=8, not PASS/FAIL, plus a real bug found and fixed in shared gate-2 tooling (v1.0.999)
 
 TASK: scheduled `[PRODUCT]` session — read CLAUDE.md in full, then all of
