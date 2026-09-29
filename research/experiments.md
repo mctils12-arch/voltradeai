@@ -3,6 +3,34 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-29 (scheduled-routine [PRODUCT] session) [NO-ACTION] — T-DATACORE (none touched) — every gate-2 root is clock-gated; axis-(a) new roots exhausted; research would duplicate filed work
+
+HEALTH FIRST (live, 2026-09-29): `scripts/session_health_check.py` — only
+ALARM is the standing LIVENESS ALARM (KNOWN BROKEN #43, loop dark 452.9h
+wall-clock / 65.0 market hours, already notified at 431.4h, no new
+threshold crossed). deploy_gate, subsystems, daemon, ml_feedback,
+deploy_freshness (server_version 1.0.1004) all OK. Not touched — human
+decision, does not block product work.
+
+QUEUE CHECK (why no build): `scripts/ladder_readiness_check.py` — READY
+0/5, all waiting: sec_8k_earnings_language 3d (needs 90 archive days,
+87 elapsed), gnss_integrity_adsb 8d, cftc_cot_positioning 28d,
+github_org_engineering_momentum 35d (n=8 of 15 clusters, WAITING per the
+2026-09-28 entry), fleet_utilization_aircraft 34d (2026-11-02).
+`scripts/data_stream_registry_check.py --unbuilt`: every unbuilt stream is
+blocked on a human free-key/registration ask or is a confirmed-dead
+source. No unbuilt candidate, no ripe gate. Building a speculative
+pipeline or re-running an under-powered gate-2 now would be exactly the
+low-power fishing Reasoning Standard #4 forbids, and would duplicate
+filed work; padding a PR to look busy is barred by the anti-churn rule.
+
+NEXT: first ripe gate is sec_8k_earnings_language (~2026-10-02) — run
+`scripts/earnings_language_gate2.py` then. Then gnss_integrity (~10-07),
+cftc (~10-16, live-verify the published-report count first).
+
+STARVED: no — nothing high-value was queued and unattempted; the
+remaining work is time-gated.
+
 ## 2026-09-28 (scheduled-routine session) [PRODUCT] — T-DATACORE (primary) — github_org_engineering_momentum's FIRST GATE 2 (SIGNAL) ATTEMPT: WAITING at n=8, not PASS/FAIL, plus a real bug found and fixed in shared gate-2 tooling (v1.0.999)
 
 TASK: scheduled `[PRODUCT]` session — read CLAUDE.md in full, then all of
