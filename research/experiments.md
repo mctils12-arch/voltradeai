@@ -106185,3 +106185,22 @@ Cache: /tmp per container, 6h TTL — no stale wrong values survive a deploy.
 RATCHET: test_etf_finnhub_div_yield.py (3 tests; all fail on the old code).
 Full pytest 2,288 passed; counter ratchet OK.
 STARVED: no.
+
+## 2026-09-29 (scheduled-routine session, ~16:05Z, market hours) [NO-ACTION] — loop recovered; DD-HALT latch is by-design, not a break
+
+TERRITORY: none (docs-only). Loop-health ratio (last 10 tagged): 4 REPAIR /
+3 PRODUCT / 3 PIPELINE — under the 7-REPAIR threshold.
+HEALTH (live 16:02Z): serving ok, no failing gates; liveness dark:false (the
+prior 11:10Z entry's standing alarm has CLEARED — bot "active", Tier-2 scans
+firing every 3-7 min); server_version 1.0.1005; feeds all live.
+FINDING: every Tier-2 scan audits "DD-HALT ... DD 18.39% >= 18.0% (peak=$111,737
+cur=$91,185)" while equity is ~$103.8k (dd 7.1%). Traced bot_engine.py
+update_equity_peak(): halt_reason is the string frozen at TRIP time; the
+parenthetical (equity=, dd_pct=) is current. The latch releases only when
+regime in BULL/NEUTRAL AND gap <= DRAWDOWN_HALT_RESUME_EQUITY_PCT (5%) — gap is
+7.1%, so it is correctly still latched. NOT a bug: no fix shipped. A threshold
+change would need counterfactual/ablation evidence (RULE REVIEW) — none exists
+yet; resume needs equity ~>= $106.1k (+2.2%).
+WATCH: verify the halt releases (Tier-2 "Scanned N>0 stocks") once equity
+crosses ~$106.1k in BULL/NEUTRAL; if it does not, that is a real latch bug.
+STARVED: no (queue empty; research would duplicate filed work).
