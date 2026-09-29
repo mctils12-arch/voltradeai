@@ -106216,3 +106216,18 @@ yet; resume needs equity ~>= $106.1k (+2.2%).
 WATCH: verify the halt releases (Tier-2 "Scanned N>0 stocks") once equity
 crosses ~$106.1k in BULL/NEUTRAL; if it does not, that is a real latch bug.
 STARVED: no (queue empty; research would duplicate filed work).
+
+## 2026-09-29 (scheduled-routine session, ~20:16Z) [NO-ACTION] — health green, queue empty, DD latch still by design
+
+TERRITORY: none (docs-only). Loop-health ratio (last 10 tagged): 4 REPAIR / 3 PRODUCT /
+3 PIPELINE (+1 NO-ACTION since) — under the 7-REPAIR threshold.
+HEALTH (live 20:16Z, both domains): status ok, serving.failing [], liveness dark:false,
+alpaca ACTIVE, scanner 0 failures, feeds live (silent 0.28h), no process faults,
+RSS 1.5GB / cgroup headroom 20GB. Only merge since the 16:05Z entry: #1212 (SFDPS
+route-shape sampler, v1.0.1006) — no regression signal.
+WATCH (carried): bot equity drawdown now -6.2% vs peak $110.7k (was 7.1% at 16:05Z);
+DD-HALT release needs gap <= 5% in BULL/NEUTRAL. Still latched by design; autoResume
+"NOT_EVALUATED" is expected while the tier-1 cycle hasn't run since deploy uptime 2h.
+If the gap reaches <=5% and the latch does not release, that is a real latch bug.
+No queued item fits; research would duplicate filed work.
+STARVED: no.
