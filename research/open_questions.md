@@ -22681,3 +22681,5 @@ NOT A SPEND REQUEST.
 
 ## [PRODUCT · filed 2026-09-29] SFDPS routePoints empty on live messages — filed-route deviation is unmeasurable until fixed
 Live 2026-09-29: 59/59 FILED_FAA plans `pathEstimated:true` (route text only), although 385k messages parse with 0 errors. Hypothesis (prior: 70%): live FIXM messages carry the expanded route under an element/attribute shape other than `expandedRoute > routePoint > (fix, position)` assumed in server/swimSfdps.ts `extractFlight`. Testable form: capture one raw FH/HZ message body (behind a bounded diag probe, content-shape only, no PII) and diff against the parser's walk. Ladder: gate 1 = filed-route polyline vs the aircraft's recorded ADS-B track cross-track distribution should be a few nm median (not 61 nm); only then re-enable OFF_PLAN for FILED plans. Standalone-product potential: filed-vs-flown deviation is a clean data product (sourced from public SWIM, licensing note re LADD/PIA still open).
+
+**STATUS 2026-09-29 18:00Z (v1.0.1006):** route-shape sampler shipped (PR pending merge) — read `planStatus().swim.routeShape` after deploy; parser fix + fixture from the observed shape is the next step.

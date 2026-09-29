@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-29 (scheduled-routine PRODUCT session, ~18:00Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts status) — SFDPS ROUTE-SHAPE SAMPLER: gate-1 instrument for the empty-routePoints bug (v1.0.1006)
+
+HEALTH: /api/health 18:01Z status ok, bot active (dark:false, dd -6.3%) — the liveness alarm has cleared; nothing blocks product work.
+PRIOR (before building): 70% that live FIXM routePoints carry positions in a shape `positionIn` (pos text | lat/lon attrs) does not match (e.g. DMS strings or fix-name-only points). Guessing a parser fix without a message sample would be fishing; there is no way to read a live SWIM body from a session (creds live on Railway), so the honest step is an instrument.
+CHANGE: for every parsed flight with zero placed route points, record the STRUCTURE of the route subtree — element names, attribute names, value SHAPES only (digits->9, letters->A, runs collapsed; no real fixes, callsigns or coordinates) — up to 6 distinct shapes with counts, plus counters {placed, expandedNoPoints, noExpanded}. Surfaced at planStatus().swim.routeShape (existing flight-plan status route). Zero parsing behaviour change; bounded memory (6 samples x 2.4k chars).
+RATCHET: 3 new tests in swimSfdps.test.ts (shape recorded + no value leak + dedupe; placed/noExpanded labelling; sample and depth bounds). swimSfdps+flightPlans 53/53; tsc ratchet 11<=11.
+DOWNSTREAM: none on trading; no client change (diagnostic field only).
+NEXT (after deploy, post-close merge): read routeShape from the status endpoint, fix `extractFlight`/`positionIn` against the observed shape with a fixture copied from it, re-run the filed-route vs ADS-B cross-track gate-1 check (target: few-nm median, not 60.7 nm), then re-enable OFF_PLAN for FILED plans.
+ROLLBACK TRIGGER: none (additive diagnostics).
+MERGE: prepared mid-market (14:00 ET); merge after 16:00 ET close.
+STARVED: no.
+
 ## 2026-09-29 (scheduled-routine PRODUCT session, ~13:20Z) [REPAIR] — T-DATACORE (server/flightPlans.ts) — FILED plans with no parsed route fixes no longer report OFF_PLAN (v1.0.1005)
 
 HEALTH: standing LIVENESS ALARM unchanged (bot killed, 65 market h, dd -6.1%); auto-resume armed, market opens 13:30Z. Not a blocker for product work.
