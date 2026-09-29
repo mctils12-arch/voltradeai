@@ -1133,6 +1133,7 @@ export function planStatus(ctx: PlanContext) {
       byService: s.counters.byService, flightByType: s.counters.flightByType,
       fullParses: s.counters.fullParses, lightParses: s.counters.lightParses, parseErrors: s.counters.parseErrors,
       planStoreSize: s.storeSize,
+      routeShape: s.routeShape,
       envVars: swimEnvVarNames(SFDPS_ENV_PREFIX),
     },
     // env readiness of every SCDS product (names only, never values). Only

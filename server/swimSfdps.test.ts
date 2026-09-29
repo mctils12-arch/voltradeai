@@ -4,7 +4,7 @@ import {
   parseXmlLite, attr, findAll, parseSfdpsMessages, altitudeFeet, SwimPlanStore, planDiff,
   rootElementName, classifySfdpsPayload, flightChunks, needsFullParse, lightFlight,
   handleSfdpsPayload, sfdpsCounters, sfdpsStatus, startSfdps, routePointsOf, packRoute,
-  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, type StoredSwimPlan,
+  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, routeShapeSamples, xmlShape, type StoredSwimPlan,
 } from "./swimSfdps";
 import { _resetSwimConnectorForTests } from "./swimConnector";
 
@@ -378,4 +378,47 @@ test("startSfdps: zero cost without env; routes consumer payloads through the SF
   assert.equal(imported, 0);
   assert.equal(h.status().configured, false);
   assert.equal(sfdpsStatus().configured, false);
+});
+
+// ── route-shape sampler: gate-1 instrument for the empty-routePoints bug ────
+const UNPLACED = (id: string) => `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-29T12:00:00Z">
+  <flightIdentification aircraftIdentification="${id}"/>
+  <agreed><route nasRouteText="KBOS..HTO..KATL"><expandedRoute>
+    <routePoint><nasFix fixName="HTO" lat="40N" lon="073W"/></routePoint>
+    <routePoint><nasFix fixName="OOD"/></routePoint>
+  </expandedRoute></route></agreed></flight></message></m:MessageCollection>`;
+
+test("route-shape sampler: unplaced route is recorded as SHAPE only (no real values), deduped with a count", () => {
+  _resetSfdpsCountersForTests();
+  parseSfdpsMessages(UNPLACED("DAL123"));
+  parseSfdpsMessages(UNPLACED("UAL456"));
+  const r = routeShapeSamples();
+  assert.equal(r.counters.expandedNoPoints, 2);
+  assert.equal(r.counters.placed, 0);
+  assert.equal(r.samples.length, 1, "identical shapes dedupe");
+  assert.equal(r.samples[0].count, 2);
+  assert.equal(r.samples[0].where, "expandedRoute");
+  assert.match(r.samples[0].shape, /routePoint\(nasFix\[fixName=AA\+,lat=99A,lon=99\+A\]/);
+  assert.doesNotMatch(r.samples[0].shape, /HTO|OOD|KBOS|40N|073W|DAL123/, "no real values leak");
+});
+
+test("route-shape sampler: placed routes only bump the counter; missing expandedRoute is labelled", () => {
+  _resetSfdpsCountersForTests();
+  const placed = `<message><flight source="FH"><flightIdentification aircraftIdentification="DAL1"/>
+    <agreed><route><expandedRoute><routePoint><pos>40.1 -70.2</pos></routePoint></expandedRoute></route></agreed></flight></message>`;
+  parseSfdpsMessages(placed);
+  parseSfdpsMessages(`<message><flight source="FH"><flightIdentification aircraftIdentification="DAL2"/><agreed><route nasRouteText="A B"/></agreed></flight></message>`);
+  const r = routeShapeSamples();
+  assert.equal(r.counters.placed, 1);
+  assert.equal(r.counters.noExpanded, 1);
+  assert.equal(r.samples.length, 1);
+  assert.equal(r.samples[0].where, "route(no expandedRoute)");
+});
+
+test("route-shape sampler: bounded samples and depth", () => {
+  _resetSfdpsCountersForTests();
+  for (let i = 0; i < 20; i++) parseSfdpsMessages(`<message><flight source="FH"><flightIdentification aircraftIdentification="AAL${i}"/><agreed><route><expandedRoute><p${i}/></expandedRoute></route></agreed></flight></message>`);
+  assert.ok(routeShapeSamples().samples.length <= 6);
+  const deep = parseXmlLite("<a><b><c><d><e><f><g><h><i><j><k>x</k></j></i></h></g></f></e></d></c></b></a>")!;
+  assert.ok(!xmlShape(deep).includes("k{"), "depth-capped");
 });
