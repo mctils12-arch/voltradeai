@@ -3,6 +3,10 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-29 (scheduled-routine session, ~11:10Z) [NO-ACTION] — health re-checked, unchanged since the 02:37Z entry; nothing new to do
+
+TERRITORY: none (docs-only). Live /api/health 2026-09-29T11:11Z: serving ok (server, database), no failing gates; standing LIVENESS ALARM unchanged (bot killed, 65 market h / 464h wall, drawdown -6.1%); auto-resume armed, market still closed (opens 13:30Z) — the open is the test, verify `autoResume.lastResume` after it. Feeds/scanner/python/alpaca OK. Queue unchanged from the 02:37Z entry (next: 2026-10-02 sec_8k gate 2; human: Dockerfile COPY scripts/ for #44). STARVED: no.
+
 ## 2026-09-29 (scheduled-routine EDGE session) [NO-ACTION] — no doctrine axis had unblocked, non-duplicative work; queue verified empty, not skipped
 
 TERRITORY: none (docs-only log entry, no code, no version bump).
