@@ -106366,3 +106366,37 @@ client/src/lib/air/planSeam.test.ts. NOT visually verified (harness not
 run); next check is a real vectored arrival after deploy.
 ROLLBACK TRIGGER: seam gaps/hairpins reported on live arrivals.
 STARVED: yes — chart base views and plate-on-map are building in parallel.
+
+
+## 2026-09-30 [PRODUCT] — T-CLIENT + server/aeroCharts — FAA AERONAUTICAL CHART BASE VIEWS ON /data (v1.0.1014)
+
+Human request (mockup approved: claude.ai/artifact/TGN2AAjNhSVVvLU5eEgm6C):
+ForeFlight-style chart views over the map. CHANGE: /data base-style popout
+gains Satellite | VFR Sectional | VFR Terminal (TAC) | IFR Low (Enroute +
+Area) | IFR High, with an opacity slider (10-100%) to fade the chart over
+satellite; chart raster inserted directly above imagery so aircraft and
+every other layer draw on top. Tiles are served from OUR origin at
+/tiles/aero/:chart/:z/:x/:y (chart id whitelist, integer z/x/y, out-of-
+range zoom returns empty without an upstream call, <=6 concurrent upstream
+fetches, deduped), cached per chart EDITION in R2 when configured (daily
+write cap AERO_R2_MAX_PUTS_PER_DAY, default 25k) else a byte-capped
+os.tmpdir() LRU (never the nearly-full /data volume). With R2 configured a
+background job pre-bakes CONUS z<=9 once per 56-day edition. Law II.8
+compromise: first request per tile per edition reads through to the FAA
+ArcGIS service (documented in the module header). FRESHNESS FINDING: on
+2026-09-30 the FAA tile service itself still carried the 07-09 cycle
+(05-14 for IFR High) although the FAA's current cycle began 09-03 — the
+on-map card says so in orange; "Not for navigation" always shown.
+Also: r2ConfigDiagnostics names missing/malformed R2 vars (never values)
+in /api/data/archive/offload-status and /api/data/aero/status — the live
+site has reported R2 "not configured" despite the human setting vars.
+PRIOR: zero cost with Satellite selected (no layer, no fetch).
+DOWNSTREAM: (1) each chart view pan adds tile reads through our server
+(Railway egress) and, uncached, the FAA service; (2) with R2 on, R2 Class
+A writes bounded by the daily cap.
+VERIFY: 20 server + client tests, 470 related tests, both ratchets pass;
+visual harness 390/768 pass, 1440 missed timing gates only on a loaded
+host with Satellite selected (chart layer not yet perf-gated in the
+harness — follow-up). ROLLBACK TRIGGER: frame-time regression with a chart
+selected on S24-class devices; FAA upstream error rate high.
+STARVED: yes — procedures/plate-on-map still building.
