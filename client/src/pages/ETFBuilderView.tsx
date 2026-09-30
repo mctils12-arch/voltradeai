@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import {
   PieChart, AlertTriangle, TrendingUp, TrendingDown,
   Calendar, Layers, Info, Calculator,
@@ -1102,7 +1102,8 @@ export default function ETFBuilderView({ ticker }: ETFBuilderViewProps = {}) {
       return r.json();
     },
     enabled: !!ticker,
-    retry: false,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
     staleTime: 5 * 60 * 1000, // 5 min — backend already caches 15 min
   });
 

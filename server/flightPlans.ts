@@ -788,7 +788,48 @@ export interface PlanRequest {
   fixT: number | null;
 }
 
+/** One live fix for an aircraft, from the worldwide snapshot. */
+export interface LiveAircraftFix {
+  callsign: string | null;
+  lat: number;
+  lon: number;
+  altFt: number | null;
+  trk: number | null;
+  seenAt: number;
+}
+export type LiveAircraftLookup = (hex: string) => LiveAircraftFix | null;
+
+/** A live position older than this is not used to fill a request. */
+export const LIVE_FILL_MAX_AGE_MS = 5 * 60_000;
+
+let bootLiveLookup: LiveAircraftLookup | null = null;
+/** Registered once at boot by server/globalAircraft.ts (the snapshot owner). */
+export function setPlanLiveLookup(fn: LiveAircraftLookup | null): void {
+  bootLiveLookup = fn;
+}
+
+/** Pure: fill a plan request's MISSING callsign/position from the live
+ *  snapshot (field bug 2026-09-30: a watched plane opened while off-viewport
+ *  sent no callsign, so a FILED FAA plan came back as NONE). Only empty
+ *  fields are filled; the client's own values always win. */
+export function fillFromLive(q: PlanRequest, lookup: LiveAircraftLookup | null, now: number): PlanRequest {
+  if (!lookup || (q.callsign && q.lat != null && q.lon != null)) return q;
+  const fix = lookup(q.hex);
+  if (!fix) return q;
+  const out: PlanRequest = { ...q };
+  if (!out.callsign) out.callsign = sanitizeCallsign(fix.callsign);
+  if ((out.lat == null || out.lon == null) && now - fix.seenAt <= LIVE_FILL_MAX_AGE_MS) {
+    out.lat = fix.lat; out.lon = fix.lon;
+    if (out.altFt == null) out.altFt = fix.altFt;
+    if (out.trkDeg == null) out.trkDeg = fix.trk;
+    if (out.fixT == null) out.fixT = fix.seenAt;
+  }
+  return out;
+}
+
 export interface PlanContext {
+  /** hex -> live fix; defaults to the boot-registered snapshot lookup */
+  liveLookup?: LiveAircraftLookup | null;
   routeDb: RouteDbClient;
   history: HistoryIndex;
   swim: SwimPlanStore;
@@ -950,8 +991,9 @@ function noneResponse(q: PlanRequest, reason: string, now: number): FlightPlanRe
 
 /** Build the plan response. Never throws for upstream failures: a provider
  *  hiccup yields the last cached answer (with its age) or source NONE. */
-export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promise<FlightPlanResponse> {
+export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Promise<FlightPlanResponse> {
   const now = ctx.now();
+  const q = fillFromLive(qIn, ctx.liveLookup === undefined ? bootLiveLookup : ctx.liveLookup, now);
   const cs = q.callsign;
   if (!cs) return noneResponse(q, "the aircraft broadcasts no callsign, so there is no route to look up", now);
   const pos: LatLon | null = q.lat != null && q.lon != null ? { lat: q.lat, lon: q.lon } : null;

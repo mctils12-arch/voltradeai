@@ -54,6 +54,11 @@ export interface SnapRow {
   via: string;
   /** fix time, unix ms */
   seenAt: number;
+  /** SERVER clock when this row last changed in the snapshot (set by
+   *  ingest; never on the wire). The exact delta cursor for `changed=`:
+   *  seenAt lags ingest by the provider's latency (live p50 ~16 s), so a
+   *  seenAt cursor silently skips rows that land late. */
+  ingestAt?: number;
 }
 
 /** Wire order of GET /api/data/aircraft/global rows. */
@@ -141,6 +146,7 @@ export class GlobalSnapshot {
           if (r.callsign == null) r.callsign = prev.callsign;
         }
       }
+      r.ingestAt = now;
       this.rowsByHex.set(r.hex, r);
       changed++;
     }
@@ -172,11 +178,14 @@ export class GlobalSnapshot {
     return n;
   }
 
-  rows(opt: { bbox?: BBox | null; lawfulOnly?: boolean; sinceMs?: number | null } = {}): SnapRow[] {
+  rows(opt: { bbox?: BBox | null; lawfulOnly?: boolean; sinceMs?: number | null; changedSinceMs?: number | null } = {}): SnapRow[] {
     const out: SnapRow[] = [];
-    for (const r of Array.from(this.rowsByHex.values())) {
+    for (const r of this.rowsByHex.values()) {
       if (opt.lawfulOnly && r.src !== LAWFUL_PROVIDER) continue;
       if (opt.sinceMs != null && !(r.seenAt > opt.sinceMs)) continue;
+      // >= (not >): a row ingested in the same ms the previous response was
+      // built is re-sent rather than skipped — duplicates merge by hex
+      if (opt.changedSinceMs != null && !((r.ingestAt ?? 0) >= opt.changedSinceMs)) continue;
       if (opt.bbox && !rowInBBox(r, opt.bbox)) continue;
       out.push(r);
     }

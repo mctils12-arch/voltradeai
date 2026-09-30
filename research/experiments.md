@@ -106446,3 +106446,44 @@ three-width visual harness run for the card. First request ~7 s (9 MB CIFP
 ROLLBACK TRIGGER: a georeferenced plate visibly misaligned with its own
 path/fixes; memory spikes on the index parse.
 STARVED: no.
+
+
+## 2026-09-30 [REPAIR] — T-CLIENT + server — /data SELECTED-AIRCRAFT CONTINUITY, FAST LANE, TERRAIN-FOLLOWING; LAG + HEAP LEAK; STOCK-TAB RETRY (v1.0.1017)
+
+Human field reports (N843S / ab8c8e): watched plane "not currently
+broadcasting" while live; FILED plan (KDET->KAPF) shown as NONE; track + gray
+plan vanishing by zoom and on fullscreen; "whole system very laggy"; server
+heap climbing; stock tabs "Something went wrong".
+FIXES: (1) plan requests with no callsign filled from the live snapshot
+(fillFromLive) + client refetch once a callsign appears; (2) watched lookup
+via new GET /api/data/aircraft/live/:hex (no false "not broadcasting");
+(3) ROOT CAUSE of zoom loss: with terrain OFF both layers depth-tested
+against the raster base's constant depth and failed as the camera receded
+— selectedTrackDepthTest() now false on both paths (terrain-on was already
+off per the 2026-07-20 probe finding); the one assertion pinning the old
+terrain-off state was rewritten with evidence (human-directed session;
+equally strict); 1.5 CSS-px minimum ribbon; (4) frame-loop layer keeper
+re-adds dropped custom layers (fullscreen/context restore); (5) selected-
+aircraft FAST LANE (viewer-lane governed, coalesced, 2 s cache, <=20
+hexes/min, <=1 rps; client 2.5/3/4 s by device tier) — "last position"
+~minute-scale -> 0-6 s in probe; (6) terrain-following with 3D terrain ON:
+ground-bend-refined vertex budget, tail/seam subdivided onto the rendered
+ground, far plan re-read as mesh tiles load; device-tier budgets
+(NOT verified with real terrain — headless blocks terrain tiles).
+PERF: MapLibre fadeDuration 0 forced full symbol placement every frame
+(74-112 ms/frame, ~9 fps cap) -> 150 ms (A/B 75 -> 34 ms/frame); world
+aircraft feed 20 s full (823 KB) -> 8 s deltas on server-clock cursor
+changed= (4-93 KB); hidden tab 3 -> 0 requests/90 s; trains archive no
+longer viewer-dependent. HEAP LEAK: SwimPlanStore held whole SFDPS payloads
+via string slices (11.6 MB -> <1 MB per 120 plans) — fixed with
+detachString. STOCK TABS: queries retry only transient failures
+(502/503/504/network) 4x over ~45 s; real errors surface at once.
+OPEN: trips endpoint cold scan 113.8 s live (needs per-hex index);
+power-plant placement granularity (human decision); ~600 MB boot heap
+unattributed; d-TPP metafile string retention; aircraft updateData.
+VERIFY: full client 1249/1249, python 2311 pass, deploy smoke PASS, both
+ratchets OK (counters lowered: empty_ts_catch 493, ts_any 1247); 390 px
+perf gate 67 ms median on branch and c3db398 back to back.
+ROLLBACK TRIGGERS: curtain showing through 3D models on real GPUs; symbol
+fade read as lag (-> 50-100 ms, never 0); event-loop lag from fast lane.
+STARVED: yes — trips indexing, rate-limit plan (awaiting human go).

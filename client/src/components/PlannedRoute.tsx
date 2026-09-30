@@ -48,6 +48,8 @@ export interface UsePlannedRouteOpts {
   suppressed?: boolean;
   /** the plane's latest real fix (query params, DEM radius centre). */
   getLive: () => PlanLive | null;
+  /** last known real callsign of the selected plane (no live fix). */
+  getCallsign?: () => string | null;
   /** where the live curtain currently ends — the seam. */
   getSeam: () => PlanSeam | null;
   /** datamap's context-restore registry (re-added after a GL restore). */
@@ -79,6 +81,7 @@ export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element |
       hex,
       store,
       getLive: () => optsRef.current.getLive(),
+      getCallsign: () => optsRef.current.getCallsign?.() ?? null,
       getSeam: () => optsRef.current.getSeam(),
       doc: typeof document !== "undefined" ? document : null,
       registry: optsRef.current.registry ?? null,

@@ -46,6 +46,8 @@ import {
   fmtAgeShort,
   planGeometryKey,
   shouldDeviationRefetch,
+  shouldCallsignRefetch,
+  PLAN_CALLSIGN_REFETCH_MIN_GAP_MS,
   PLAN_DEVIATION_REFETCH_M,
   PLAN_REFRESH_MS,
   type FlightPlan,
@@ -752,4 +754,76 @@ test('plan geometry key: identical plans match, any moved point differs', () => 
   assert.notEqual(planGeometryKey(plan(filedWire)),
     planGeometryKey(plan({ ...filedWire, points: [...filedWire.points.slice(0, 3), { ...filedWire.points[3], lat: 34 }] })));
   assert.equal(planGeometryKey(plan(noneWire)), 'none');
+});
+
+test('shouldCallsignRefetch: NONE/error + a callsign the last request lacked (null -> value counts), rate-limited', () => {
+  const base = { status: 'none', queried: null, current: 'N843S', lastFetchStartMs: 0, nowMs: 6_000, inFlight: false };
+  assert.equal(PLAN_CALLSIGN_REFETCH_MIN_GAP_MS, 5_000);
+  assert.equal(shouldCallsignRefetch(base), true, 'the N843S case: NONE sent without callsign, callsign now known');
+  assert.equal(shouldCallsignRefetch({ ...base, status: 'error' }), true);
+  assert.equal(shouldCallsignRefetch({ ...base, queried: 'n843s ' }), false, 'same callsign (normalized) -> no refetch');
+  assert.equal(shouldCallsignRefetch({ ...base, queried: 'DAL1' }), true, 'a different callsign counts');
+  assert.equal(shouldCallsignRefetch({ ...base, status: 'ok' }), false, 'a drawn plan is never churned');
+  assert.equal(shouldCallsignRefetch({ ...base, status: 'loading' }), false);
+  assert.equal(shouldCallsignRefetch({ ...base, current: null }), false);
+  assert.equal(shouldCallsignRefetch({ ...base, current: '  ' }), false);
+  assert.equal(shouldCallsignRefetch({ ...base, inFlight: true }), false);
+  assert.equal(shouldCallsignRefetch({ ...base, queried: undefined }), false, 'nothing sent yet: the select fetch carries it');
+  assert.equal(shouldCallsignRefetch({ ...base, nowMs: 4_999 }), false, 'rate limit');
+});
+
+test('controller: NONE without a callsign re-asks immediately once the callsign appears (then stops)', async () => {
+  const map = fakeMap();
+  const store = createPlanRouteStore();
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    const body = url.includes('callsign=N843S') ? { ...filedWire, hex: 'ab8c8e', callsign: 'N843S' } : { ...noneWire, hex: 'ab8c8e' };
+    return { ok: true, status: 200, json: async () => body } as Response;
+  }) as unknown as typeof fetch;
+  const loop = manualLoop();
+  let clock = 0;
+  let live: { lon: number; lat: number; altM: number | null; trkDeg: number | null; callsign: string | null } | null = null;
+  let known: string | null = null;
+  const h = startPlanRoute({
+    map, hex: 'ab8c8e', store, fetchImpl, loop, now: () => clock,
+    getLive: () => live, getCallsign: () => known, getSeam: () => null,
+    setInterval: (() => 1) as any, clearInterval: (() => {}) as any,
+  });
+  await flush();
+  assert.equal(urls.length, 1);
+  assert.doesNotMatch(urls[0], /callsign=/, 'the card opened before any callsign existed');
+  assert.equal(store.get().status, 'none');
+  loop.tick(16);
+  assert.equal(urls.length, 1, 'no callsign yet -> no churn');
+  // the live row arrives (callsign from the feed); still inside the 5 s gap
+  live = { lon: -83.9, lat: 36.1, altM: 13000, trkDeg: 190, callsign: 'N843S' };
+  clock = 3_000;
+  loop.tick(16);
+  assert.equal(urls.length, 1, 'rate-limited');
+  clock = 5_000;
+  loop.tick(16);
+  assert.equal(urls.length, 2, 'refetched from the frame loop once the gap passed');
+  assert.match(urls[1], /callsign=N843S/);
+  await flush();
+  assert.equal(store.get().status, 'ok', 'the FILED plan replaces NONE');
+  clock = 60_000;
+  loop.tick(16);
+  assert.equal(urls.length, 2, 'a drawn plan never re-asks on this rule');
+  h.stop();
+});
+
+test('controller: no live fix but a known callsign (off-viewport watched plane) -> the query still carries it', async () => {
+  const map = fakeMap();
+  const store = createPlanRouteStore();
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => { urls.push(url); return { ok: true, status: 200, json: async () => noneWire } as Response; }) as unknown as typeof fetch;
+  const h = startPlanRoute({
+    map, hex: 'ab8c8e', store, fetchImpl, loop: manualLoop(),
+    getLive: () => null, getCallsign: () => 'n843s', getSeam: () => null,
+    setInterval: (() => 1) as any, clearInterval: (() => {}) as any,
+  });
+  await flush();
+  assert.equal(urls[0], '/api/data/aircraft/plan/ab8c8e?callsign=N843S');
+  h.stop();
 });

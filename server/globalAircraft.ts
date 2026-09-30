@@ -30,6 +30,9 @@
 // Optional query: lamin/lamax/lomin/lomax (all four) filters rows to a
 // bbox AND tells the sweep where viewers are looking (interest boost);
 // since=<ms> returns only rows with seenAt > since (full:false);
+// changed=<ms> (the previous response's `at`) returns only rows that
+// changed in the snapshot at/after that SERVER time (full:false) — the
+// viewers' delta cursor (browser-side traffic only; upstream unaffected);
 // lawful=1 returns only adsb.lol (ODbL) rows. Short shared cache
 // (max-age=10) + Express's weak ETag; gzip via the global compression
 // middleware (server/index.ts).
@@ -38,12 +41,14 @@ import type { Express } from "express";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { archiveAircraft, archiveBaseDir, type SitePoint } from "./datacoreArchive";
 import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
-import { subscribeFixes, type FixBatch } from "./aircraftFixBus";
-import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox } from "./globalSnapshot";
+import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
+import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
+import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
+import { setPlanLiveLookup } from "./flightPlans";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -112,6 +117,12 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     ?? ((datacoreSites as { sites?: SitePoint[] }).sites || []).map((s) => ({ lat: s.lat, lon: s.lon }));
   const archiveOn = String(env.GLOBAL_SWEEP_ARCHIVE ?? "1").trim() !== "0";
   const snapshot = new GlobalSnapshot();
+  // flight plans fill a request that arrived without the aircraft's
+  // callsign/position (a watched plane opened off-viewport) from this snapshot
+  setPlanLiveLookup((hex) => {
+    const r = snapshot.get(hex);
+    return r ? { callsign: r.callsign, lat: r.lat, lon: r.lon, altFt: r.altFt, trk: r.trk, seenAt: r.seenAt } : null;
+  });
 
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
@@ -182,8 +193,14 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const lawfulOnly = String(q.lawful ?? "") === "1";
     const sinceN = parseFloat(String(q.since ?? ""));
     const sinceMs = Number.isFinite(sinceN) ? sinceN : null;
+    // changed=<server ms>: rows that CHANGED in the snapshot since then (the
+    // previous response's `at`) — the client delta cursor (server clock,
+    // exact; see SnapRow.ingestAt). A delta never includes evictions: the
+    // client applies the same evict_after_s rule and resyncs fully.
+    const changedN = parseFloat(String(q.changed ?? ""));
+    const changedSinceMs = Number.isFinite(changedN) ? changedN : null;
     if (bbox) { try { sweep.scheduler.noteInterest(bbox, t); } catch (e) { noteError("interest", e); } }
-    const key = `${snapshot.version}|${bbox ? `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}` : "world"}|${lawfulOnly ? 1 : 0}|${sinceMs ?? ""}`;
+    const key = `${snapshot.version}|${bbox ? `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}` : "world"}|${lawfulOnly ? 1 : 0}|${sinceMs ?? ""}|${changedSinceMs ?? ""}`;
     res.set("Cache-Control", "public, max-age=10");
     const hit = bodyCache.get(key);
     if (hit && t - hit.at <= GLOBAL_RESPONSE_CACHE_MS) {
@@ -191,7 +208,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       return res.send(hit.body);
     }
     snapshot.evict(t);
-    const rows = snapshot.rows({ bbox, lawfulOnly, sinceMs });
+    const rows = snapshot.rows({ bbox, lawfulOnly, sinceMs, changedSinceMs });
     const sweepStatus = sweep.status();
     const osStatus = opensky.status();
     const summary = snapshot.summary(t);
@@ -206,7 +223,8 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const payload = {
       at: t,
       count: rows.length,
-      full: sinceMs == null,
+      full: sinceMs == null && changedSinceMs == null,
+      ...(changedSinceMs != null ? { changed_since: changedSinceMs } : {}),
       scope: bbox ? "bbox" : "world",
       fields: ROW_FIELDS,
       rows: rows.map(encodeRow),
@@ -251,6 +269,53 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     }
     res.type("application/json");
     res.send(body);
+  });
+
+  // ONE aircraft's live row — the SELECTED/WATCHED aircraft's lookup + fast
+  // lane (field bugs 2026-09-30: a watched plane opened off-viewport got a
+  // false "not currently broadcasting" card; a selected plane zoomed out
+  // read "last position 89s ago"). The snapshot row is served when it is
+  // < FAST_FRESH_MS old; otherwise aircraftFastLane asks adsb.lol for this
+  // one hex (viewer-lane governed, coalesced, 2 s cache, bounded) and the
+  // fix lands in this snapshot for everyone. Same positional wire shape as
+  // /global (+ baroRate, the broadcast vertical rate of THIS fix when
+  // upstream sent one) so the client decodes it with the same adapter;
+  // rows is empty when nothing holds the hex. AIRCRAFT_FAST_LANE=0 → the
+  // snapshot only (no upstream requests).
+  const fastOn = String(env.AIRCRAFT_FAST_LANE ?? "1").trim() !== "0";
+  const fastLane = createFastLane({
+    snapshotGet: (hex) => snapshot.get(hex),
+    publish: (b) => publishFixes(b),
+    fetchImpl: deps.fetchImpl,
+    now,
+  });
+  app.get("/api/data/aircraft/live/:hex", async (req, res) => {
+    const hex = String(req.params.hex || "").toLowerCase();
+    if (!ICAO_HEX_LC_RE.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    let r: SnapRow | null | undefined;
+    let baroRate: number | null = null;
+    let source: string = "snapshot";
+    if (fastOn) {
+      try {
+        const fr = await fastLane.lookup(hex);
+        r = fr.row; baroRate = fr.baroRateFpm; source = fr.source;
+      } catch (e) {
+        noteError("fast-lane", e);
+        r = snapshot.get(hex);
+      }
+    } else {
+      r = snapshot.get(hex);
+    }
+    const t = now();
+    const fresh = r && r.seenAt >= t - snapshot.evictMs ? r : null;
+    res.set("Cache-Control", "no-store");
+    res.json({
+      at: t, hex, source,
+      fields: [...ROW_FIELDS, "baroRate"],
+      rows: fresh ? [[...encodeRow(fresh), baroRate]] : [],
+      fast_lane: fastOn ? fastLane.stats() : null,
+      honesty: GLOBAL_HONESTY,
+    });
   });
 
   return {

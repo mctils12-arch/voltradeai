@@ -2648,7 +2648,24 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    chips + notes). Let its LIST scroll inside the card while the watch button
    above it stays put; the cap is viewport-relative so it shrinks on short
    screens instead of pushing the always-visible chrome out of the 60vh box. */
-.vt-card-trips { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* OVERLAP FIX (2026-09-30, 1920px screenshot: "trip history unavailable
+   right now" painted ON TOP of the Follow aircraft button). The block used to
+   be shrinkable (min-height 0) in every state; when the card hit its max
+   height the flex algorithm shrank it below its own content and the note
+   overflowed onto the next row. Now only the LIST variant may shrink — its
+   list scrolls inside and the block clips — while the watch button + a
+   one-line note are rigid and always take their own line. */
+.vt-card-trips { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
+.vt-card-trips.vt-card-trips-list { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+.vt-card-trips-note {
+  display: block; padding: 0 14px; font-size: 9.5px; line-height: 1.35; color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+.vt-card-trips-retry {
+  margin-left: 6px; padding: 0 8px; min-height: 24px;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-secondary); font-size: 9.5px; cursor: pointer;
+}
 .vt-trips-list {
   display: flex; flex-direction: column; gap: 4px;
   max-height: 24vh; overflow-y: auto; overscroll-behavior: contain;
@@ -4486,4 +4503,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   textarea {
     font-size: 16px !important;
   }
+}
+@media (pointer: coarse) {
+  .vt-card-trips-retry { min-height: 44px; min-width: 44px; }
 }

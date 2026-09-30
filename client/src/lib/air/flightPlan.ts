@@ -346,6 +346,42 @@ export function shouldDeviationRefetch(
   return nowMs - lastFetchStartMs >= PLAN_DEVIATION_MIN_GAP_MS;
 }
 
+/** A NONE/error plan is re-asked this soon (at most) once a callsign the
+ *  last request did not carry becomes known. */
+export const PLAN_CALLSIGN_REFETCH_MIN_GAP_MS = 5_000;
+
+/** Normalized callsign for comparisons (the query's own normalization). */
+export function normCallsign(cs: string | null | undefined): string | null {
+  const v = typeof cs === "string" ? cs.trim().toUpperCase() : "";
+  return v || null;
+}
+
+/**
+ * Should the plan be re-requested because a callsign is now known that the
+ * last request did not carry? (Field bug 2026-09-30, N843S: the card opened
+ * before the live row existed, the select fetch went out with NO callsign,
+ * the server answered NONE and the card kept "NONE — no filed or predicted
+ * route" although SWIM held the FILED plan.) Only while the shown result is
+ * NONE or an error (a drawn plan is never churned), only when the callsign
+ * differs from the last one sent (null → value counts), nothing in flight,
+ * and at most every PLAN_CALLSIGN_REFETCH_MIN_GAP_MS.
+ */
+export function shouldCallsignRefetch(o: {
+  status: string;
+  /** callsign the last request carried; undefined = nothing sent yet */
+  queried: string | null | undefined;
+  current: string | null | undefined;
+  lastFetchStartMs: number;
+  nowMs: number;
+  inFlight: boolean;
+}): boolean {
+  if (o.inFlight || o.queried === undefined) return false;
+  if (o.status !== "none" && o.status !== "error") return false;
+  const cur = normCallsign(o.current);
+  if (!cur || cur === normCallsign(o.queried)) return false;
+  return o.nowMs - o.lastFetchStartMs >= PLAN_CALLSIGN_REFETCH_MIN_GAP_MS;
+}
+
 /**
  * Geometry identity of a plan: two responses with the same key draw the
  * same curtain, so the 60s refresh does NOT rebuild (or crossfade) when

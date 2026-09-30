@@ -12,6 +12,7 @@ import {
   resolveFlightPlan, parsePlanQuery, registerFlightPlanRoutes, sanitizeCallsign,
   DEVIATION_OFF_NM, type PlanContext, type RouteDbRoute, type FlightEventRecord, type HistoryTrip,
   type FlightPlanResponse,
+  fillFromLive, LIVE_FILL_MAX_AGE_MS,
 } from "./flightPlans";
 import { SwimPlanStore, parseSfdpsMessages } from "./swimSfdps";
 import { densifyPlan, haversineNm, type PlanPoint } from "../shared/flightPlanGeometry";
@@ -604,4 +605,32 @@ test("contract: a filed plan whose only placed points are the airport endpoints 
   const r = await resolveFlightPlan(q({ callsign: "SKW5001", lat: "36.2", lon: "-120.1" }), ctxWith({ routes: {}, swim }));
   assert.equal(r.source, "FILED_FAA");
   assert.equal(r.pathEstimated, true);
+});
+
+// ── field bug 2026-09-30: watched plane opened off-viewport sent no callsign,
+// so a FILED FAA plan (N843S KDET→KAPF) came back NONE ─────────────────────
+test("fillFromLive: a request with no callsign/position is filled from the live snapshot", () => {
+  const now = 1_790_800_000_000;
+  const lookup = (hex: string) => (hex === "ab8c8e"
+    ? { callsign: "N843S  ", lat: 37.1, lon: -83.9, altFt: 43000, trk: 179, seenAt: now - 20_000 }
+    : null);
+  const q = { hex: "ab8c8e", callsign: null, lat: null, lon: null, altFt: null, trkDeg: null, fixT: null };
+  const out = fillFromLive(q, lookup, now);
+  assert.equal(out.callsign, "N843S");
+  assert.equal(out.lat, 37.1);
+  assert.equal(out.lon, -83.9);
+  assert.equal(out.altFt, 43000);
+  assert.equal(out.trkDeg, 179);
+  // the client's own values always win
+  const mine = fillFromLive({ ...q, callsign: "OTHER1", lat: 1, lon: 2 }, lookup, now);
+  assert.equal(mine.callsign, "OTHER1");
+  assert.equal(mine.lat, 1);
+  // a stale live position fills the callsign but never the position
+  const stale = fillFromLive(q, () => ({ callsign: "N843S", lat: 1, lon: 1, altFt: 1, trk: 1, seenAt: now - LIVE_FILL_MAX_AGE_MS - 1 }), now);
+  assert.equal(stale.callsign, "N843S");
+  assert.equal(stale.lat, null);
+  // unknown hex / no lookup: unchanged
+  assert.deepEqual(fillFromLive(q, lookup, now).hex, "ab8c8e");
+  assert.equal(fillFromLive({ ...q, hex: "000000" }, lookup, now).callsign, null);
+  assert.equal(fillFromLive(q, null, now).callsign, null);
 });

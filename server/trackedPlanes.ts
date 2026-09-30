@@ -18,6 +18,7 @@ import fs from "fs";
 import path from "path";
 import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
+import { publishFixes } from "./aircraftFixBus";
 
 // ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
 // turn on we have the data all over the world not just the 250nm") ─────────
@@ -213,6 +214,14 @@ export function startTrackedPoller(deps: {
       const now = Date.now();
       const out = await pollTrackedOnce(registry, deps.fetchImpl, deps.headers, now);
       registry = out.registry;
+      // WATCHED-PLANE LOOKUP (2026-09-30): tracked fixes also feed the
+      // worldwide snapshot, so GET /api/data/aircraft/live/:hex (and the
+      // plan's missing-callsign fill) always hold a watched plane's newest
+      // fix even where no sweep disc or viewer covered it. Origin "tracked"
+      // is not in the global archiver's origins — these archive below.
+      if (out.points.length) {
+        publishFixes({ provider: "adsblol", origin: "tracked", aircraft: out.points, fetchedAt: now });
+      }
       const archived = out.points.length
         ? archiveAircraft(out.points, deps.sites, deps.baseDir, now, TRACKED_ARCHIVE_INTERVAL_MS)
         : 0;

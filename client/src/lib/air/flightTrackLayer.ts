@@ -77,6 +77,53 @@ export const FT_VERT_STRIDE = 13;
 export const FT_VERTS_PER_SEG = 4;
 export const FT_INDICES_PER_SEG = 6;
 
+/**
+ * SELECTED-AIRCRAFT VISIBILITY AT EVERY ZOOM (human 2026-09-30: "regardless
+ * of zoom when on a plane I want to see the route in gray and what has been
+ * flown — it disappears at different distances").
+ *
+ * Minimum on-screen width of every ribbon (ground trace, altitude line, the
+ * plan's top edge/trace) in CSS px. Ribbon widths are authored in drawing-
+ * buffer px, so on a DPR-3 phone the 1.5 px plan trace was 0.5 CSS px — at
+ * far zoom, over a busy satellite base, that reads as nothing. The shader
+ * clamps every ribbon to at least this many CSS px (× devicePixelRatio);
+ * walls (side 0) are world-space and unaffected.
+ */
+export const TRACK_MIN_LINE_CSS_PX = 1.5;
+
+/** Pure: the drawing-buffer px floor for ribbon width at this DPR. */
+export function ribbonMinWidthPx(dpr: number): number {
+  const d = Number.isFinite(dpr) && dpr > 0 ? Math.min(dpr, 4) : 1;
+  return TRACK_MIN_LINE_CSS_PX * d;
+}
+
+/** Pure: the ribbon width the shader draws (mirrors FT_VERT_SRC). */
+export function effectiveRibbonWidthPx(authoredPx: number, dpr: number): number {
+  return Math.max(Math.abs(authoredPx), ribbonMinWidthPx(dpr));
+}
+
+/**
+ * Pure: should the selected-aircraft layers depth-test? NEVER (2026-09-30).
+ * Terrain ON already skipped it (MapLibre leaves '2d' custom layers no
+ * usable depth there). Terrain OFF it was enabled with LEQUAL against a
+ * depth buffer the OPAQUE raster base writes at a constant sublayer depth
+ * (painter.getDepthModeForSublayer: 1 − (layer+1)·14/65536 ≈ 0.99…): our
+ * real projected depth approaches 1 as the camera recedes (far zoom, globe,
+ * high pitch toward the horizon), so past some distance every fragment
+ * FAILED the test — the track and the gray plan vanished at "different
+ * distances". Nothing on a terrain-off map legitimately occludes the
+ * selected track; the far side of the globe is culled in the vertex shader.
+ */
+export function selectedTrackDepthTest(_terrainOn: boolean): boolean {
+  return false;
+}
+
+/** Pure: device pixel ratio actually in effect for the canvas. */
+export function canvasDpr(drawingBufferWidth: number, cssWidth: number | null | undefined): number {
+  if (!cssWidth || !Number.isFinite(cssWidth) || cssWidth <= 0 || !Number.isFinite(drawingBufferWidth)) return 1;
+  return drawingBufferWidth / cssWidth;
+}
+
 /** marker drop-line color #bfe0ff @ 65% (handoff §4). */
 export const MARKER_LINE_RGBA: [number, number, number, number] =
   [0xbf / 255, 0xe0 / 255, 0xff / 255, 0.65];
@@ -151,11 +198,16 @@ const wrapOk = (x0: number, x1: number): boolean => Math.abs(x0 - x1) <= 0.5;
  */
 /**
  * Law IV feature cap for the trail, in TRAIL POINTS (this layer draws one
- * selected aircraft's history, not a population).
- *   512 x FT_VERT_STRIDE(13) x FT_VERTS_PER_SEG(4) x 4B = 106 KB.
+ * selected aircraft's history, not a population). Raised 512 → 2048
+ * (2026-09-30, terrain-following): the cap is now the FULL-tier ceiling;
+ * the per-device budget (terrainFollow.trackBudget: 2048 / 1024 / 512 by
+ * tier) is what paintTrack actually decimates to, spending the extra
+ * vertices where the terrain bends (refineForGround).
+ *   2047 segs x 3 quads x 4 verts x FT_VERT_STRIDE(13) x 4B ≈ 1.28 MB
+ *   + indices ≈ 0.15 MB — inside the declared 2 MB vramBudget.
  * Hoisted above its use; re-exported at the bottom as `maxFeatures`.
  */
-export const FT_MAX_FEATURES = 512;
+export const FT_MAX_FEATURES = 2048;
 
 let lastReportedOverCap = 0;
 
@@ -290,13 +342,25 @@ export interface TrackTail {
   toMercX: number; toMercY: number; toAltM: number; toGroundZ: number;
   altMin: number; altMax: number;
   drapeBelowM?: number;
+  /** TERRAIN-FOLLOWING (2026-09-30): interior points between from and to,
+   *  each with the RENDERED ground under it, so a long tail's trace and
+   *  curtain bottom follow ridges instead of one straight quad. */
+  inner?: ReadonlyArray<{ mercX: number; mercY: number; altM: number; groundZ: number }>;
 }
 
-/** Pure: tail → the same packed layout as buildTrackVertices (≤3 quads). */
+/** Pure: tail → the same packed layout as buildTrackVertices (≤3 quads per
+ *  piece; 1 piece + one per inner point). */
 export function buildTailVertices(tail: TrackTail, altScale: number): Float32Array {
-  const merc = new Float32Array([tail.fromMercX, tail.fromMercY, tail.toMercX, tail.toMercY]);
-  const altM = new Float32Array([tail.fromAltM, tail.toAltM]);
-  const groundZ = new Float32Array([tail.fromGroundZ, tail.toGroundZ]);
+  const inner = tail.inner ?? [];
+  const n = inner.length + 2;
+  const merc = new Float32Array(n * 2);
+  const altM = new Float32Array(n);
+  const groundZ = new Float32Array(n);
+  merc[0] = tail.fromMercX; merc[1] = tail.fromMercY; altM[0] = tail.fromAltM; groundZ[0] = tail.fromGroundZ;
+  inner.forEach((p, k) => {
+    merc[(k + 1) * 2] = p.mercX; merc[(k + 1) * 2 + 1] = p.mercY; altM[k + 1] = p.altM; groundZ[k + 1] = p.groundZ;
+  });
+  merc[(n - 1) * 2] = tail.toMercX; merc[(n - 1) * 2 + 1] = tail.toMercY; altM[n - 1] = tail.toAltM; groundZ[n - 1] = tail.toGroundZ;
   return buildTrackVertices(
     { merc, altM, groundZ, altMin: tail.altMin, altMax: tail.altMax, drapeBelowM: tail.drapeBelowM },
     altScale,
@@ -314,6 +378,7 @@ in vec3 a_other;
 in vec3 a_ext;    // x: side (-1|0|+1; 0 = world-space wall vertex), y: dirSign, z: widthPx
 in vec4 a_color;
 uniform vec2 u_viewport;
+uniform float u_minWidthPx; // ribbon floor, drawing-buffer px (TRACK_MIN_LINE_CSS_PX × DPR)
 out vec4 v_color;
 out float v_cull;
 out float v_edge;
@@ -344,7 +409,8 @@ void main() {
   float len = length(dirPx);
   dirPx = len < 1e-6 ? vec2(1.0, 0.0) : dirPx / len;
   vec2 normalPx = vec2(-dirPx.y, dirPx.x) * a_ext.x;
-  vec2 offs = normalPx * (a_ext.z * 0.5) * 2.0 / u_viewport;
+  float widthPx = max(a_ext.z, u_minWidthPx);
+  vec2 offs = normalPx * (widthPx * 0.5) * 2.0 / u_viewport;
   gl_Position = self + vec4(offs * self.w, 0.0, 0.0);
   v_color = a_color;
   v_edge = a_ext.x;
@@ -460,6 +526,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
   private tailIndexBuffer: WebGLBuffer | null = null;
   private aPos = -1; private aOther = -1; private aExt = -1; private aColor = -1;
   private uViewport: WebGLUniformLocation | null = null;
+  private uMinWidth: WebGLUniformLocation | null = null;
   private geomProj: Record<string, WebGLUniformLocation | null> = {};
   // marker program
   private mProgram: WebGLProgram | null = null;
@@ -694,8 +761,11 @@ export class FlightTrackLayer implements CustomLayerInterface {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     const terrainOn = !!(this.map && (this.map as unknown as { getTerrain?: () => unknown }).getTerrain?.());
-    if (terrainOn) gl.disable(gl.DEPTH_TEST);
-    else gl.enable(gl.DEPTH_TEST);
+    // 2026-09-30: never depth-tested (selectedTrackDepthTest has the why —
+    // the terrain-OFF LEQUAL test against the raster base's constant
+    // sublayer depth failed every fragment once the camera was far enough)
+    if (selectedTrackDepthTest(terrainOn)) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
     gl.depthRange(0, 1);
@@ -707,6 +777,10 @@ export class FlightTrackLayer implements CustomLayerInterface {
       this.bindProjection(gl, args, this.geomProj);
       if (this.uViewport) {
         gl.uniform2f(this.uViewport, gl.drawingBufferWidth || 1, gl.drawingBufferHeight || 1);
+      }
+      if (this.uMinWidth) {
+        const cssW = (this.map as unknown as { getCanvas?: () => { clientWidth?: number } } | null)?.getCanvas?.()?.clientWidth;
+        gl.uniform1f(this.uMinWidth, ribbonMinWidthPx(canvasDpr(gl.drawingBufferWidth || 1, cssW)));
       }
       if (hasGeom) {
         if (!this.buffer) this.buffer = gl.createBuffer();
@@ -890,6 +964,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.aExt = gl.getAttribLocation(gp, 'a_ext');
     this.aColor = gl.getAttribLocation(gp, 'a_color');
     this.uViewport = gl.getUniformLocation(gp, 'u_viewport');
+    this.uMinWidth = gl.getUniformLocation(gp, 'u_minWidthPx');
     this.geomProj = proj(gp);
 
     const mp = link(FT_MARKER_VERT_SRC(prelude, define), FT_MARKER_FRAG_SRC);
@@ -912,9 +987,9 @@ export class FlightTrackLayer implements CustomLayerInterface {
 
 // ── Law IV budget declaration ───────────────────────────────────────────────
 // The trail is a quad strip: FT_VERT_STRIDE(13) floats x FT_VERTS_PER_SEG(4)
-// per segment.
-//   512 x 4 x 13 x 4B = 106 KB, plus the tail strip and index buffers.
-// 512 is the work order's TRAIL.MAX_POINTS. maxFeatures counts TRAIL POINTS,
+// per segment, 3 quads (trace, curtain, line) per segment.
+//   2047 x 3 x 4 x 13 x 4B ≈ 1.28 MB + indices ≈ 0.15 MB + the tail strip
+// (≤ 25 pieces). 2048 is the full-tier ceiling (terrainFollow.trackBudget). maxFeatures counts TRAIL POINTS,
 // not aircraft — this layer draws one selected aircraft's history.
 export const maxFeatures = FT_MAX_FEATURES;
 export const vramBudget = 2; // MB

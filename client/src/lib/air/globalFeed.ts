@@ -31,10 +31,26 @@ export const GLOBAL_EXIT_DISCS = 6;
 /** below this zoom the view is global regardless of bounds (globe views
  *  report unreliable bounds) */
 export const GLOBAL_FORCE_BELOW_ZOOM = 3;
-/** global poll cadence (the snapshot's type lane refreshes ~60s) */
-export const GLOBAL_FEED_POLL_MS = 20_000;
+/** global poll cadence. 20 s -> 8 s (2026-09-30, human: "faster refresh on
+ *  every plane without bogging the system down"): polls after the first are
+ *  DELTAS (`changed=<previous at>`, rows that changed in the server snapshot
+ *  since the last answer) merged into the held set, so a faster cadence
+ *  costs a fraction of the old full 1.2 MB snapshot. Browser<->our-server
+ *  traffic only — the snapshot is fed by the server sweep either way. */
+export const GLOBAL_FEED_POLL_MS = 8_000;
 /** same-bbox dedupe: a camera settle right after a poll reuses it */
-export const GLOBAL_FEED_MIN_SPACING_MS = 10_000;
+export const GLOBAL_FEED_MIN_SPACING_MS = 4_000;
+/** a full (non-delta) resync at least this often: reconciles rows the
+ *  server dropped at its cap and any merge drift */
+export const GLOBAL_RESYNC_MS = 90_000;
+/** mirrors server SNAPSHOT_EVICT_MS: the server drops a row whose fix is
+ *  older than this, and a delta cannot say so — the client applies the same
+ *  rule to its held set */
+export const GLOBAL_EVICT_MS = 10 * 60_000;
+/** re-query (instead of reusing the held bbox) once the held query area is
+ *  this many times the view's own padded query — zooming in shrinks the
+ *  payload rather than dragging a continent along */
+export const HELD_BBOX_MAX_AREA_RATIO = 4;
 /** rows older than this render dimmer (stale position, not live) */
 export const STALE_ROW_MS = 120_000;
 /** bbox padding for the server-side filter (pans inside it need no refetch) */
@@ -95,11 +111,87 @@ export function globalQueryBBox(b: Bounds): { lamin: number; lamax: number; lomi
   return { lamin, lamax, lomin: wrap(w), lomax: e === 180 ? 180 : wrap(e) };
 }
 
-export function globalFeedUrl(b: Bounds): string {
-  const q = globalQueryBBox(b);
+export type QueryBBox = { lamin: number; lamax: number; lomin: number; lomax: number };
+
+export function queryUrl(q: QueryBBox | null): string {
   return q
     ? `/api/data/aircraft/global?lamin=${q.lamin}&lamax=${q.lamax}&lomin=${q.lomin}&lomax=${q.lomax}`
     : "/api/data/aircraft/global";
+}
+
+export function globalFeedUrl(b: Bounds): string {
+  return queryUrl(globalQueryBBox(b));
+}
+
+const qArea = (q: QueryBBox) => (q.lamax - q.lamin) * (q.lomin <= q.lomax ? q.lomax - q.lomin : 360 - q.lomin + q.lomax);
+
+/**
+ * May a view keep polling the HELD query bbox (so the next poll can be a
+ * delta) instead of a fresh full query? Yes when the view's own padded query
+ * lies inside the held one (a pan inside the padding) and the held area is
+ * not wildly larger (a deep zoom-in re-queries to shrink the payload).
+ * Antimeridian-crossing boxes simply re-query (rare, always correct).
+ */
+export function heldQueryCovers(held: QueryBBox | null, next: QueryBBox | null): boolean {
+  if (held === null) return next === null; // world covers only a world view (a smaller view re-queries smaller)
+  if (next === null) return false;
+  if (held.lomin > held.lomax || next.lomin > next.lomax) return false;
+  if (next.lamin < held.lamin || next.lamax > held.lamax || next.lomin < held.lomin || next.lomax > held.lomax) return false;
+  return qArea(held) <= HELD_BBOX_MAX_AREA_RATIO * Math.max(1, qArea(next));
+}
+
+/** Held rows of the global feed, keyed by hex, merged from full + delta
+ *  answers (pure; the feed wraps it). */
+export interface HeldSet {
+  q: QueryBBox | null;
+  /** server `at` of the last answer (the next delta cursor) */
+  at: number;
+  lastFullAt: number;
+  fields: string[];
+  rows: Map<string, unknown[]>;
+  /** earliest server time at which a held fresh row turns stale (dimming
+   *  must update even when no row changed) */
+  nextStaleFlipAt: number;
+}
+
+/**
+ * Merge a /global answer into the held set. A full answer replaces it; a
+ * delta (full:false) upserts by hex. Either way rows whose fix is older than
+ * the server's own evict rule are dropped (a delta cannot carry evictions).
+ * `changed` = anything a renderer would draw differently (incl. a row
+ * crossing the 2-min stale line, so dimming stays honest with no new data).
+ */
+export function mergeGlobalAnswer(held: HeldSet | null, raw: unknown, q: QueryBBox | null, localNow: number): { held: HeldSet; changed: boolean } {
+  const d = (raw && typeof raw === "object" ? raw : {}) as { at?: unknown; fields?: unknown; rows?: unknown; full?: unknown };
+  const fields: string[] = Array.isArray(d.fields) ? d.fields.map(String) : (held?.fields ?? []);
+  const iHex = fields.indexOf("hex"), iSeen = fields.indexOf("seenAt");
+  const at = asNum(d.at) ?? localNow;
+  const isDelta = d.full === false && held !== null && held.fields.join(",") === fields.join(",");
+  const rows = isDelta ? held!.rows : new Map<string, unknown[]>();
+  let changed = !isDelta;
+  for (const row of Array.isArray(d.rows) ? d.rows : []) {
+    if (!Array.isArray(row)) continue;
+    const hex = iHex >= 0 ? asStr(row[iHex]) : null;
+    if (!hex) continue;
+    rows.set(hex, row);
+    changed = true;
+  }
+  let nextFlip = Infinity;
+  if (iSeen >= 0) {
+    const cut = at - GLOBAL_EVICT_MS;
+    for (const [hex, row] of Array.from(rows)) {
+      const seen = asNum(row[iSeen]);
+      if (seen == null) continue;
+      if (seen < cut) { rows.delete(hex); changed = true; continue; }
+      const flip = seen + STALE_ROW_MS;
+      if (flip > at && flip < nextFlip) nextFlip = flip;
+    }
+  }
+  if (isDelta && !changed && at >= held!.nextStaleFlipAt) changed = true;
+  return {
+    held: { q, at, lastFullAt: isDelta ? held!.lastFullAt : localNow, fields, rows, nextStaleFlipAt: nextFlip },
+    changed,
+  };
 }
 
 const KT_TO_MS = 0.5144; // the pipeline's own factor (server mapPointAircraft)
@@ -230,30 +322,42 @@ export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () =>
   let lastUrl = "";
   let lastAt = 0;
   let disposed = false;
+  let held: HeldSet | null = null;
   return {
     shouldUseGlobal(b, zoom) {
       global = wantsGlobalFeed(global, b, zoom);
-      if (!global) { inflight?.abort(); inflight = null; lastUrl = ""; }
+      if (!global) { inflight?.abort(); inflight = null; lastUrl = ""; held = null; }
       return global;
     },
     pollMs() { return global ? GLOBAL_FEED_POLL_MS : null; },
     isGlobal() { return global; },
     async fetchGlobal(b, bypassCache = false) {
       if (disposed) return UNCHANGED;
-      const url = globalFeedUrl(b);
       const t = now();
+      const want = globalQueryBBox(b);
+      // keep the held query while the view stays inside it -> delta polls
+      const keep = held !== null && heldQueryCovers(held.q, want);
+      const q = keep ? held!.q : want;
+      const url = queryUrl(q);
       if (url === lastUrl && t - lastAt < GLOBAL_FEED_MIN_SPACING_MS) return UNCHANGED;
+      const delta = keep && !bypassCache && t - held!.lastFullAt < GLOBAL_RESYNC_MS;
+      const reqUrl = delta ? `${url}${url.includes("?") ? "&" : "?"}changed=${held!.at}` : url;
       inflight?.abort(); // a newer request supersedes the older one
       const ac = new AbortController();
       inflight = ac;
       try {
-        const r = await fetchImpl(url, { signal: ac.signal, ...(bypassCache ? { cache: "reload" as RequestCache } : {}) });
+        const r = await fetchImpl(reqUrl, { signal: ac.signal, ...(bypassCache ? { cache: "reload" as RequestCache } : {}) });
         if (!r.ok) throw new Error(String(r.status));
         const d: unknown = await r.json();
         if (ac.signal.aborted) return UNCHANGED;
         lastUrl = url;
         lastAt = t;
-        return adaptGlobalPayload(d);
+        const m = mergeGlobalAnswer(delta ? held : null, d, q, t);
+        held = m.held;
+        // nothing on screen changed -> the caller skips the whole rebuild
+        // (features, setData, 3D instances): the cheapest poll is no work
+        if (!m.changed) return UNCHANGED;
+        return adaptGlobalPayload({ ...(d as Record<string, unknown>), fields: held.fields, rows: Array.from(held.rows.values()) });
       } catch (e) {
         // superseded/disposed requests are not errors — the newer one delivers
         if (ac.signal.aborted || (e as { name?: unknown } | null)?.name === "AbortError") return UNCHANGED;
@@ -266,6 +370,30 @@ export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () =>
       disposed = true;
       inflight?.abort();
       inflight = null;
+      held = null;
     },
   };
+}
+
+/**
+ * The REAL fix time (epoch seconds) of the selected plane's row in a feed
+ * payload, or null when it must not be stamped as a live breadcrumb.
+ * Viewport payloads: the snapshot's own `time` (seconds). Worldwide
+ * payloads (2026-09-30, "the selected plane's track must survive the
+ * zoomed-out feed"): each row carries its own age, so the fix time is the
+ * server's `at` minus that age — and only rows fresher than STALE_ROW_MS
+ * count (an older row is already dimmed as not-live on the map).
+ */
+export function feedFixTimeSec(
+  payload: { global?: unknown; time?: unknown; at?: unknown },
+  row: { seen_pos?: number | null; stale?: boolean },
+  nowMs: number,
+): number | null {
+  if (payload.global === true) {
+    if (row.stale === true || row.seen_pos == null || !Number.isFinite(row.seen_pos)) return null;
+    if (row.seen_pos * 1000 > STALE_ROW_MS) return null;
+    const at = typeof payload.at === 'number' && Number.isFinite(payload.at) ? payload.at : nowMs;
+    return (at - row.seen_pos * 1000) / 1000;
+  }
+  return typeof payload.time === 'number' && Number.isFinite(payload.time) ? payload.time : nowMs / 1000;
 }

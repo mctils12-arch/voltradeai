@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, retryTransient, transientRetryDelay, isTransientError } from "@/lib/queryClient";
 
 /**
  * Lazy-loaded DataWorldMap with chunk-error recovery.
@@ -1880,7 +1880,8 @@ function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void
       if (!data || !data.results || data.results.length === 0) return 15000;
       return false;
     },
-    retry: false,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
   });
 
   const results = data?.results ?? [];
@@ -2082,7 +2083,8 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
     // ETF Builder section — that section uses /api/etf, not /api/analyze,
     // and the result view is rendered inside ETFBuilderView.
     enabled: !!ticker && subTab !== "etf-builder",
-    retry: false,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
     staleTime: 30000,
   });
 
@@ -2252,7 +2254,9 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
         {(isError || data?.error) && !isLoading && (
           <div className="error-card" data-testid="text-error">
             <span className="text-rose-400 font-semibold">
-              {data?.error || "Something went wrong. Please try again."}
+              {data?.error || (isTransientError(error)
+                ? "The server is restarting or unreachable — retried for about 45 seconds. Please try again in a minute."
+                : "Something went wrong. Please try again.")}
             </span>
             {(data as any)?.no_options && (
               <div className="mt-3">

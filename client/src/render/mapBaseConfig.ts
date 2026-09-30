@@ -49,12 +49,24 @@ export const RASTER_FADE_MS = 300;
 /**
  * Label/symbol fade, ms. A DIFFERENT knob from `raster-fade-duration`
  * despite the similar name — this one is the Map constructor's
- * `fadeDuration` and governs symbol collision fading. Zero is correct
- * here: labels have no parent to crossfade from, so their fade is pure
- * latency, and a label fading in during a pan is the flicker Law I
- * complains about.
+ * `fadeDuration` and governs symbol collision fading.
+ *
+ * It was 0 ("labels have no parent to crossfade from"). MEASURED COST of
+ * that choice (2026-09-30, "the whole system is very laggy"): MapLibre
+ * 5.x `style._updatePlacement` does `forceFullPlacement ||= fadeDuration
+ * === 0`, i.e. zero means a FULL, NON-PAUSEABLE symbol placement over
+ * every symbol on the map on EVERY rendered frame. With the default
+ * layers (14.4k power-plant icons under collision + ~3.7k aircraft +
+ * labels) that was 74-112 ms of main-thread placement per frame on the
+ * live site — a hard ~9 fps ceiling while the camera moves, whatever the
+ * GPU. Any non-zero value lets MapLibre re-place at most once per fade
+ * window and time-slice the pass (2 ms budget per frame). 150 ms sits at
+ * the bottom of Law II's crossfade band: a collision-culled symbol now
+ * resolves with a short fade instead of popping in/out frame to frame.
+ * (Before the map's first idle MapLibre still places fully, so the first
+ * paint is complete.)
  */
-export const SYMBOL_FADE_MS = 0;
+export const SYMBOL_FADE_MS = 150;
 
 /**
  * Hard ceiling on cached tiles.

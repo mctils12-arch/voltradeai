@@ -532,6 +532,27 @@ export function lightFlight(chunk: string, messageTag: string | null): SwimFligh
 }
 
 // ── 3. compact, bounded store ───────────────────────────────────────────────
+
+/**
+ * Copy a string into its own flat allocation, detached from whatever larger
+ * string it was cut from.
+ *
+ * MEMORY-LEAK REPAIR (2026-09-30, live heap climbing ~450 MB in 16 min):
+ * every field the parsers hand the store (gufi, routeText, …) is a regex
+ * capture / slice of the SFDPS payload, and V8 represents a substring of
+ * ≥13 chars as a SlicedString that KEEPS THE WHOLE PARENT ALIVE. The store
+ * held one plan per flight for up to 6 h (20k cap), so each plan pinned its
+ * latest ~7-flight SFDPS payload — at ~90 payloads/s the retained set grew
+ * with the store (probe: 200 plans from 200 KB payloads retained 38 MB;
+ * after this copy, ~0). A Buffer round-trip is the one copy V8 cannot turn
+ * back into a slice; its cost (a few dozen bytes per field, only on fields
+ * that changed) is noise next to the parse.
+ */
+export function detachString<T extends string | null>(s: T): T {
+  if (typeof s !== "string" || s.length === 0) return s;
+  return Buffer.from(s, "utf8").toString("utf8") as T;
+}
+
 export const SWIM_PLAN_TTL_MS = 6 * 3600_000;
 export const SWIM_STORE_MAX = 20_000;
 export const SWIM_ROUTE_MAX_POINTS = 250;
@@ -606,6 +627,12 @@ export function planDiff(prev: StoredSwimPlan, next: StoredSwimPlan): string | n
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const EMPTY_ROUTE = new Float32Array(0);
 
+/** new value (detached) unless it equals the stored one; else the stored one */
+const keep = (next: string | null | undefined, prev: string | null | undefined): string | null => {
+  if (next == null) return prev ?? null;
+  return next === prev ? prev : detachString(next);
+};
+
 export class SwimPlanStore {
   private byKey = new Map<string, StoredSwimPlan>(); // insertion order = last-message (LRU) order
   private keysByCallsign = new Map<string, Set<string>>();
@@ -630,9 +657,12 @@ export class SwimPlanStore {
 
   /** merge one message; returns the amendment detail when the plan changed */
   upsert(m: SwimFlightMessage, now = Date.now()): { key: string | null; amended: string | null } {
-    const key = this.keyFor(m, now);
-    if (!key) return { key: null, amended: null };
-    const prev = this.byKey.get(key);
+    const rawKey = this.keyFor(m, now);
+    if (!rawKey) return { key: null, amended: null };
+    const prev = this.byKey.get(rawKey);
+    // the key is built from the payload too: reuse the stored (already
+    // detached) key, detach a new one (see detachString)
+    const key = prev ? prev.key : detachString(rawKey);
     if (m.isCancellation || m.isCompleted) {
       if (prev) this.remove(key);
       return { key, amended: null };
@@ -642,16 +672,18 @@ export class SwimPlanStore {
     const packed = m.routePoints.length ? packRoute(m.routePoints) : null;
     const merged: StoredSwimPlan = {
       key,
-      gufi: m.gufi ?? prev?.gufi ?? null,
-      callsign: m.callsign ?? prev?.callsign ?? null,
-      departure: m.departure ?? prev?.departure ?? null,
-      arrival: m.arrival ?? prev?.arrival ?? null,
+      // every string taken from the message is detached from its payload;
+      // an unchanged value keeps the stored copy (no per-message churn)
+      gufi: keep(m.gufi, prev?.gufi),
+      callsign: keep(m.callsign, prev?.callsign),
+      departure: keep(m.departure, prev?.departure),
+      arrival: keep(m.arrival, prev?.arrival),
       cruiseAltFt: m.cruiseAltFt ?? prev?.cruiseAltFt ?? null,
-      routeText: m.routeText ? m.routeText.slice(0, SWIM_ROUTE_TEXT_MAX) : (prev?.routeText ?? null),
+      routeText: m.routeText ? keep(m.routeText.slice(0, SWIM_ROUTE_TEXT_MAX), prev?.routeText) : (prev?.routeText ?? null),
       route: packed ? packed.route : (prev?.route ?? EMPTY_ROUTE),
-      routeNames: packed ? packed.routeNames : (prev?.routeNames ?? ""),
-      messageType: m.messageType ?? prev?.messageType ?? null,
-      flightStatus: m.flightStatus ?? prev?.flightStatus ?? null,
+      routeNames: packed ? detachString(packed.routeNames) : (prev?.routeNames ?? ""),
+      messageType: keep(m.messageType, prev?.messageType),
+      flightStatus: keep(m.flightStatus, prev?.flightStatus),
       timestamp: m.timestamp ?? prev?.timestamp ?? null,
       departureTime: m.departureTime ?? prev?.departureTime ?? null,
       firstSeen: prev?.firstSeen ?? now,
@@ -712,7 +744,11 @@ export class SwimPlanStore {
   evict(now = Date.now()): void {
     const ttl = this.opts.ttlMs ?? SWIM_PLAN_TTL_MS;
     const max = this.opts.max ?? SWIM_STORE_MAX;
-    for (const [k, p] of Array.from(this.byKey.entries())) {
+    // iterate the Map itself (deleting the visited entry is safe): the
+    // previous Array.from(entries()) copied the WHOLE store (up to 20k
+    // entries) on every upsert — ~90 SFDPS payloads/s × ~7 flights each made
+    // that the server's largest steady allocation stream (GC churn)
+    for (const [k, p] of this.byKey) {
       if (now - p.updatedAt > ttl) this.remove(k);
       else break; // LRU order: the rest are newer
     }
