@@ -71,6 +71,7 @@ async function buildAll() {
   await cp("datacore/sentinel2/readings.jsonl", "dist/datacore/sentinel2/readings.jsonl");
   // QC-2 (2026-08-11): airportsIndex reads the OurAirports catalog at runtime
   await cp("datacore/aircraft/airports_min.json", "dist/datacore/aircraft/airports_min.json");
+  await cp("datacore/aircraft/nasr_fixes.json", "dist/datacore/aircraft/nasr_fixes.json");
   await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
   await cp("datacore/gem/methane_emitters.json.gz", "dist/datacore/gem/methane_emitters.json.gz");
   // [REPAIR 2026-07-20] gemMethaneAssets.ts (server/gemMethaneAssets.ts,

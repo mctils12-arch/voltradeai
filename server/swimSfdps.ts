@@ -34,6 +34,7 @@
 // (namespace-prefix agnostic, attribute or element forms, FIXM 4.x shapes)
 // and every field degrades to null rather than guessing.
 
+import { lookupFix } from "./navFixes";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -331,9 +332,14 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   const routePoints: SwimRoutePoint[] = [];
   if (expanded) {
     for (const rp of findAll(expanded, "routePoint")) {
-      const p = positionIn(rp);
-      if (!p) continue; // a fix name without a position is not placed — never guessed
       const name = deepAttr(rp, ["fix", "nasFixName", "designator", "fixName", "name", "point"]) ?? undefined;
+      // explicit coordinates win; else resolve the fix NAME against the FAA NASR
+      // gazetteer (live SFDPS carries names only). A place-bearing-distance point
+      // (distance/radial children) is an OFFSET from the fix, not the fix — not
+      // placed. An unknown name stays unplaced, never guessed.
+      const offset = findFirst(rp, "distance") || findFirst(rp, "radial");
+      const p = positionIn(rp) ?? (offset ? null : lookupFix(name));
+      if (!p) continue;
       const altFt = altitudeFeet(findFirst(rp, "altitude") ?? findFirst(rp, "level"));
       routePoints.push({ ...p, ...(name ? { name } : {}), ...(altFt != null ? { altFt } : {}) });
     }
