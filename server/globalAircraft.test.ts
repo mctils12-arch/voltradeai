@@ -215,3 +215,24 @@ test("routes.ts wiring: exactly one registration line + import", () => {
   // the OpenSky removal pins on routes.ts stay true (OpenSky lives in its own gated module)
   assert.ok(!src.includes("OPENSKY_CLIENT_ID"));
 });
+
+test("GET /api/data/aircraft/live/:hex — one snapshot row in the /global wire shape; empty when absent; tracked fixes feed it", async () => {
+  await withApp(async (base) => {
+    const now = Date.now();
+    publishFixes({ provider: "adsblol", origin: "tracked", aircraft: [ac("ab8c8e", 36.1, -83.9, { callsign: "N843S", type: "FA7X" })], fetchedAt: now, upstreamNowMs: now });
+    const r = await fetch(`${base}/api/data/aircraft/live/AB8C8E`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+    const d = await r.json() as { at: number; hex: string; fields: string[]; rows: Row[] };
+    assert.equal(d.hex, "ab8c8e");
+    assert.deepEqual(d.fields, [...ROW_FIELDS, "baroRate"], "the /global fields + the fix's broadcast vertical rate");
+    assert.equal(d.rows.length, 1);
+    const row = d.rows[0];
+    assert.equal(row[d.fields.indexOf("hex")], "ab8c8e");
+    assert.equal(row[d.fields.indexOf("callsign")], "N843S");
+    assert.ok(Math.abs(Number(row[d.fields.indexOf("seenAt")]) - now) < 5_000, "fix time carried for the client's freshness gate");
+    const miss = await (await fetch(`${base}/api/data/aircraft/live/abcdef`)).json() as { rows: Row[] };
+    assert.deepEqual(miss.rows, [], "absent hex -> empty rows, not an error");
+    assert.equal((await fetch(`${base}/api/data/aircraft/live/zz`)).status, 400);
+  }, { env: { AIRCRAFT_FAST_LANE: "0" } });
+});

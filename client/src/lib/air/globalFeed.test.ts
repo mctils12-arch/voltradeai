@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  discsNeeded, wantsGlobalFeed, globalQueryBBox, globalFeedUrl, adaptGlobalPayload, createAircraftFeed,
+  discsNeeded, wantsGlobalFeed, globalQueryBBox, globalFeedUrl, adaptGlobalPayload, createAircraftFeed, feedFixTimeSec,
   mergeGlobalAnswer, heldQueryCovers, GLOBAL_EVICT_MS, GLOBAL_RESYNC_MS,
   MAX_DISCS_PER_REFRESH, DISC_RADIUS_MAX_NM, GLOBAL_EXIT_DISCS, STALE_ROW_MS, GLOBAL_FEED_POLL_MS,
   STALE_BAND_COLORS, type Bounds,
@@ -212,4 +212,14 @@ test('createAircraftFeed: second poll is a changed=<at> delta on the held bbox; 
   const r4 = await feed.fetchGlobal(view);
   assert.ok(!urls[3].includes('changed='), 'periodic full resync');
   assert.ok('aircraft' in r4 && r4.count === 1, 'full answer replaces the held set');
+});
+
+test('feedFixTimeSec: viewport = snapshot time; worldwide = server at minus the row age, fresh rows only', () => {
+  const NOW = 1_790_799_400_000;
+  assert.equal(feedFixTimeSec({ time: 1_790_799_390 }, {}, NOW), 1_790_799_390);
+  assert.equal(feedFixTimeSec({ time: 'g1' }, {}, NOW), NOW / 1000, 'non-numeric time -> receipt time (legacy rule)');
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: 12, stale: false }, NOW), NOW / 1000 - 12);
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: 200, stale: true }, NOW), null, 'dimmed rows are not live');
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: STALE_ROW_MS / 1000 + 1 }, NOW), null);
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: null }, NOW), null, 'unknown age is never stamped');
 });

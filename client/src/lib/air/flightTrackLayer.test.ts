@@ -20,6 +20,11 @@ import {
   FT_INDICES_PER_SEG,
   MARKER_LINE_RGBA,
   MARKER_GLYPH_RGBA,
+  TRACK_MIN_LINE_CSS_PX,
+  canvasDpr,
+  effectiveRibbonWidthPx,
+  ribbonMinWidthPx,
+  selectedTrackDepthTest,
   type TrackGeomInput,
 } from './flightTrackLayer.js';
 import {
@@ -200,11 +205,11 @@ test('cull runs through the WHOLE globe↔mercator transition; disabled only at 
   }
 });
 
-test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cull OFF, full depth range', () => {
+test('render sets THE CRITICAL FIX GL state: depth-test OFF (2026-09-30), depth-write OFF, cull OFF, full depth range', () => {
   const layer = new FlightTrackLayer();
   layer.setTrack(input2(), 1);
   const calls: string[] = [];
-  const flags = { depthMask: null as boolean | null, cullDisabled: false, depthTestEnabled: false, depthRange: null as [number, number] | null };
+  const flags = { depthMask: null as boolean | null, cullDisabled: false, depthTestEnabled: false, depthTestDisabled: false, depthRange: null as [number, number] | null };
   const GL = {
     BLEND: 1, SRC_ALPHA: 2, ONE_MINUS_SRC_ALPHA: 3, DEPTH_TEST: 4, LEQUAL: 5, CULL_FACE: 6,
     ARRAY_BUFFER: 7, ELEMENT_ARRAY_BUFFER: 8, STATIC_DRAW: 9, TRIANGLES: 10, UNSIGNED_INT: 11,
@@ -214,7 +219,10 @@ test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cul
     ...GL,
     drawingBufferWidth: 800, drawingBufferHeight: 600,
     enable: (c: number) => { if (c === GL.DEPTH_TEST) flags.depthTestEnabled = true; calls.push(`enable${c}`); },
-    disable: (c: number) => { if (c === GL.CULL_FACE) flags.cullDisabled = true; },
+    disable: (c: number) => {
+      if (c === GL.CULL_FACE) flags.cullDisabled = true;
+      if (c === GL.DEPTH_TEST) flags.depthTestDisabled = true;
+    },
     depthMask: (v: boolean) => { flags.depthMask = v; },
     depthFunc: () => {},
     depthRange: (a: number, b: number) => { flags.depthRange = [a, b]; },
@@ -241,7 +249,16 @@ test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cul
     },
   };
   (layer as any).renderInner(gl, args, true, false);
-  assert.equal(flags.depthTestEnabled, true, 'depth TEST enabled (terrain occludes the curtain correctly)');
+  // CONTRACT CHANGE 2026-09-30 (was: 'depth TEST enabled (terrain occludes the
+  // curtain correctly)' on the terrain-OFF path). Headless probe, same build
+  // with only this switch flipped: at globe z0.8-2.5 the selected track drew
+  // ~3-4x fewer pixels with the test on (none visible at z1.5) — the LEQUAL
+  // test ran against the opaque raster base's constant sublayer depth and
+  // failed as the camera receded ("the route disappears at different
+  // distances"). Terrain ON never tested (no usable depth there). So the
+  // pinned state is now: depth test explicitly DISABLED on every path.
+  assert.equal(flags.depthTestEnabled, false, 'depth TEST never enabled (selectedTrackDepthTest — far-zoom disappearance fix)');
+  assert.equal(flags.depthTestDisabled, true, 'depth TEST explicitly disabled (MapLibre may leave it on from the previous layer)');
   assert.equal(flags.depthMask, false, 'depth WRITE off (translucent geometry never z-fights)');
   assert.equal(flags.cullDisabled, true, 'CULL_FACE disabled (double-sided — survives any tilt)');
   assert.deepEqual(flags.depthRange, [0, 1], 'full depth range (the 2d-sublayer pinning undone)');
@@ -307,4 +324,24 @@ test('true-altitude datum (round 16): display-space inputs with altScale 1 — c
   const bottom = Math.min(...zs);
   assert.ok(Math.abs(top - 1981) < 1e-3, `curtain/line top at TRUE altitude (got ${top}) — never × exaggeration`);
   assert.ok(Math.abs(bottom - (1500 - 120)) < 1e-3, `curtain base seals the DISPLAY mesh (got ${bottom})`);
+});
+
+test('selected track at EVERY zoom: no depth test on either path; ribbons never collapse below the CSS-px floor', () => {
+  assert.equal(selectedTrackDepthTest(false), false, 'terrain off: no depth test (far-camera LEQUAL failure)');
+  assert.equal(selectedTrackDepthTest(true), false, 'terrain on: no depth test (MapLibre leaves no usable depth)');
+  assert.equal(TRACK_MIN_LINE_CSS_PX, 1.5);
+  assert.equal(ribbonMinWidthPx(1), 1.5);
+  assert.equal(ribbonMinWidthPx(3), 4.5, 'DPR-3 phone: a 1.5 px authored trace becomes 1.5 CSS px, not 0.5');
+  assert.equal(ribbonMinWidthPx(Number.NaN), 1.5, 'unknown DPR -> 1');
+  assert.equal(ribbonMinWidthPx(10), 6, 'absurd DPR clamped at 4');
+  assert.equal(effectiveRibbonWidthPx(TRACE_WIDTH_PX, 1), TRACE_WIDTH_PX, 'authored widths above the floor are unchanged at DPR 1');
+  assert.equal(effectiveRibbonWidthPx(1.5, 3), 4.5);
+  assert.equal(effectiveRibbonWidthPx(-2.5, 1), 2.5, 'dashed (negative) widths floor on magnitude');
+  assert.equal(canvasDpr(1600, 800), 2);
+  assert.equal(canvasDpr(800, 0), 1);
+  assert.equal(canvasDpr(800, undefined), 1);
+  // the shader applies the floor to every screen-extruded ribbon
+  const vs = FT_VERT_SRC('', '');
+  assert.match(vs, /uniform float u_minWidthPx;/);
+  assert.match(vs, /float widthPx = max\(a_ext\.z, u_minWidthPx\);/);
 });

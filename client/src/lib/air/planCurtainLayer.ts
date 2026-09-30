@@ -54,7 +54,9 @@ import type {
   CustomRenderMethodInput,
   Map as MapLibreMap,
 } from 'maplibre-gl';
-import { buildQuadIndices, FT_VERTS_PER_SEG, FT_INDICES_PER_SEG } from './flightTrackLayer.js';
+import {
+  buildQuadIndices, canvasDpr, FT_VERTS_PER_SEG, FT_INDICES_PER_SEG, ribbonMinWidthPx, selectedTrackDepthTest,
+} from './flightTrackLayer.js';
 import { TRACE_ABOVE_TERRAIN_M, distMeters } from './trackModel.js';
 import { lonLatToMercator, mercatorToLonLat } from '../orbital/satBuffer.js';
 import {
@@ -106,7 +108,16 @@ export const PLAN_MIN_SPACING_M = 1500;
 const AM_RESERVE = 16;
 /** seam piece capacity: trace + curtain + edge, ×2 if it crosses the
  *  antimeridian. */
-export const SEAM_MAX_QUADS = 6;
+export const SEAM_MAX_QUADS_PER_PIECE_SET = 6;
+/** TERRAIN-FOLLOWING (2026-09-30): each connector piece may be split into at
+ *  most this many sub-segments so its trace + curtain bottom follow the
+ *  rendered terrain (full tier; the device budget may ask for fewer). */
+export const SEAM_MAX_SUBDIV = 16;
+export const SEAM_MAX_QUADS = SEAM_MAX_QUADS_PER_PIECE_SET * SEAM_MAX_SUBDIV;
+
+/** Rendered ground (display datum) at a mercator point; null = unknown
+ *  (the straight interpolation is kept there). */
+export type PlanGroundAt = (mercX: number, mercY: number) => number | null;
 
 /** new plan / first appearance crossfade (brief: 250 ms). */
 export const PLAN_CROSSFADE_MS = 250;
@@ -641,7 +652,10 @@ export function locateOnPlan(dense: DensePlan, lon: number, lat: number, hint = 
  * meridian). A VECTORING connector has no curtain and a faint dashed
  * trace + edge. Empty when the plane is past the end.
  */
-export function buildSeamVertices(seam: PlanSeam, geom: PlanGeometry, loc: PlanLocation): Float32Array {
+export function buildSeamVertices(
+  seam: PlanSeam, geom: PlanGeometry, loc: PlanLocation,
+  terrain?: { groundAt: PlanGroundAt; stepM: number; maxSubdiv: number } | null,
+): Float32Array {
   const d = geom.dense;
   const j = loc.join ?? loc.ahead;
   const vector = !!loc.vectoring;
@@ -666,7 +680,38 @@ export function buildSeamVertices(seam: PlanSeam, geom: PlanGeometry, loc: PlanL
     });
     pieces.push([S, mid(edge)], [mid(1 - edge), B]);
   }
-  const pk = new Packer(SEAM_MAX_QUADS);
+  // TERRAIN-FOLLOWING: with terrain on, a long connector (ATC vectoring in
+  // the terminal area, a far seam) is split so every interior vertex sits
+  // on the RENDERED ground — one quad drew a straight chord through ridges.
+  if (terrain && terrain.maxSubdiv > 1 && terrain.stepM > 0) {
+    const split: [typeof S, typeof S][] = [];
+    const k = Math.max(1, Math.min(SEAM_MAX_SUBDIV, Math.floor(terrain.maxSubdiv)));
+    for (const [a, b] of pieces) {
+      const la = mercatorToLonLat(a.x, a.y), lb = mercatorToLonLat(b.x, b.y);
+      const dist = distMeters(la.latDeg, la.lonDeg, lb.latDeg, lb.lonDeg);
+      const n = Math.max(1, Math.min(k, Math.ceil(dist / terrain.stepM)));
+      let prev = a;
+      for (let i = 1; i <= n; i++) {
+        const u = i / n;
+        let next: typeof S;
+        if (i === n) next = b;
+        else {
+          const x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u;
+          const g = terrain.groundAt(x, y);
+          next = {
+            x, y, alt: a.alt + (b.alt - a.alt) * u,
+            g: g != null && Number.isFinite(g) ? g : a.g + (b.g - a.g) * u,
+            along: a.along + (b.along - a.along) * u,
+          };
+        }
+        split.push([prev, next]);
+        prev = next;
+      }
+    }
+    pieces.length = 0;
+    pieces.push(...split);
+  }
+  const pk = new Packer(Math.max(SEAM_MAX_QUADS_PER_PIECE_SET, pieces.length * 3));
   const drop = geom.drapeBelowM;
   for (const [a, b] of pieces) {
     pk.ribbon(a.x, a.y, a.g + TRACE_ABOVE_TERRAIN_M, b.x, b.y, b.g + TRACE_ABOVE_TERRAIN_M,
@@ -729,6 +774,7 @@ in vec3 a_ext;    // x: side (-1|0|+1; 0 = world-space wall vertex), y: dirSign,
 in vec4 a_color;
 in float a_along; // great-circle meters from the plan start
 uniform vec2 u_viewport;
+uniform float u_minWidthPx; // ribbon floor, drawing-buffer px (flightTrackLayer TRACK_MIN_LINE_CSS_PX × DPR)
 uniform float u_alpha;     // crossfade multiplier
 uniform float u_alongRef;  // the plane's along-route meters (keeps the dash phase small)
 out vec4 v_color;
@@ -758,7 +804,7 @@ void main() {
   float len = length(dirPx);
   dirPx = len < 1e-6 ? vec2(1.0, 0.0) : dirPx / len;
   vec2 normalPx = vec2(-dirPx.y, dirPx.x) * a_ext.x;
-  float widthPx = abs(a_ext.z);
+  float widthPx = max(abs(a_ext.z), u_minWidthPx);
   vec2 offs = normalPx * (widthPx * 0.5) * 2.0 / u_viewport;
   gl_Position = self + vec4(offs * self.w, 0.0, 0.0);
   v_color = vec4(a_color.rgb, a_color.a * u_alpha);
@@ -885,6 +931,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
 
   private seamSource: (() => PlanSeam | null) | null = null;
   private trackSource: (() => number | null) | null = null;
+  private seamTerrain: { groundAt: PlanGroundAt; stepM: number; maxSubdiv: number } | null = null;
   private vectoringAllowed = true;
   private fixes: PlanFixLabels | null = null;
   private lastSeam: PlanSeam | null = null;
@@ -939,6 +986,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.fixes = null;
     this.fixKeys = [];
     this.trackSource = null;
+    this.seamTerrain = null; // Law IV: drop the ground reader closure
     this.cur = this.prev = null;
     this.orig = null;
     this.seamVerts = null;
@@ -999,6 +1047,13 @@ export class PlanCurtainLayer implements CustomLayerInterface {
    *  each seam update (the forward-join heading gate). */
   setTrackSource(fn: (() => number | null) | null): void {
     this.trackSource = fn;
+    this.seamStale = true;
+  }
+
+  /** Terrain ON: the rendered-ground reader + device-budget subdivision for
+   *  the seam/vectoring connector (null = terrain off, one straight piece). */
+  setSeamTerrain(t: { groundAt: PlanGroundAt; stepM: number; maxSubdiv: number } | null): void {
+    this.seamTerrain = t;
     this.seamStale = true;
   }
 
@@ -1156,7 +1211,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     // the fixed plan is drawn from the FORWARD join: the stretch between the
     // plane's perpendicular foot and the join is the corner it cuts
     cur.ahead = loc.join ?? loc.ahead;
-    const v = buildSeamVertices(s, cur.geom, loc);
+    const v = buildSeamVertices(s, cur.geom, loc, this.seamTerrain);
     this.seamVerts = v.length ? v : null;
     this.seamDirty = this.seamVerts != null;
   }
@@ -1199,8 +1254,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     const terrainOn = !!(this.map && (this.map as unknown as { getTerrain?: () => unknown }).getTerrain?.());
-    if (terrainOn) gl.disable(gl.DEPTH_TEST);
-    else gl.enable(gl.DEPTH_TEST);
+    // never depth-tested — the live curtain's rule (selectedTrackDepthTest:
+    // the terrain-off test failed every fragment at far camera distances)
+    if (selectedTrackDepthTest(terrainOn)) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
     gl.depthRange(0, 1);
@@ -1209,6 +1266,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     gl.useProgram(this.program);
     this.bindProjection(gl, args);
     if (this.u.viewport) gl.uniform2f(this.u.viewport, gl.drawingBufferWidth || 1, gl.drawingBufferHeight || 1);
+    if (this.u.minWidth) {
+      const cssW = (this.map as unknown as { getCanvas?: () => { clientWidth?: number } } | null)?.getCanvas?.()?.clientWidth;
+      gl.uniform1f(this.u.minWidth, ribbonMinWidthPx(canvasDpr(gl.drawingBufferWidth || 1, cssW)));
+    }
     if (this.u.dashM) gl.uniform1f(this.u.dashM, this.dashPeriodM());
     if (this.u.alongRef) gl.uniform1f(this.u.alongRef, this.lastLoc?.projAlongM ?? 0);
 
@@ -1477,6 +1538,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.aAlong = gl.getAttribLocation(p, 'a_along');
     this.u = {
       viewport: gl.getUniformLocation(p, 'u_viewport'),
+      minWidth: gl.getUniformLocation(p, 'u_minWidthPx'),
       alpha: gl.getUniformLocation(p, 'u_alpha'),
       alongRef: gl.getUniformLocation(p, 'u_alongRef'),
       dashM: gl.getUniformLocation(p, 'u_dashM'),

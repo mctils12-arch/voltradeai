@@ -113,7 +113,7 @@ import { FlightTrackLayer, FT_MAX_FEATURES, type TrackGeomInput } from "@/lib/ai
 import { holdGroundZ, resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
-  CURTAIN_BELOW_TERRAIN_M, decimateForCap, remapIndices, type TrackSample,
+  CURTAIN_BELOW_TERRAIN_M, decimateForCap, distMeters, remapIndices, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
@@ -146,7 +146,7 @@ import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircr
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
 import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec, tailGlideDtSec } from "@/lib/air/airGlide";
-import { createAircraftFeed, STALE_ALT_COLOR, STALE_BAND_COLORS } from "@/lib/air/globalFeed";
+import { createAircraftFeed, feedFixTimeSec, STALE_ALT_COLOR, STALE_BAND_COLORS } from "@/lib/air/globalFeed";
 // SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
 // card is open, each live poll appends its REAL fix so the 3D trail +
 // altitude curtain reach the plane's CURRENT position instead of ending at
@@ -165,7 +165,12 @@ import {
 } from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
 import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, meteorCoverageVerdict, siteLocalTime, fmtBlastAlt, fmtEntrySpeed } from "@/lib/meteors";
+import { startLayerKeeper, type KeeperMapLike } from "@/lib/layerKeeper";
+import { PLAN_LAYER_ID } from "@/lib/air/planRouteController";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
+import { startSelectedFastLane } from "@/lib/air/selectedFastLane";
+import { cumulativeAlongM, currentDeviceTier, GROUND_TOL_M, lerpPoints, refineForGround, subdivisionCount, trackBudget } from "@/lib/air/terrainFollow";
+import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -515,6 +520,12 @@ interface Detail {
    *  chip so trail gaps (coverage/sampling) are distinguishable from a
    *  stale feed ([REPAIR 2026-07-05]: trails were a static snapshot). */
   trailLastT?: number;
+  /** ARCHIVE aircraft card (watched plane with no fresh fix): the subtitle's
+   *  freshness clause is DERIVED at render from max(trailLastT, this seed) —
+   *  "broadcasting now" / "last seen 7m ago" — never a click-time constant
+   *  (2026-09-30: it kept saying "not currently broadcasting" while live
+   *  values filled the card). Epoch seconds; 0 = never seen. */
+  freshSeedSec?: number;
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
@@ -3909,6 +3920,14 @@ export default function DataMapPage() {
   // rate + the receipt anchor — lets the curtain tail meet the plane where
   // it is DRAWN between polls (the same glide the plane renders with).
   const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+  // A live fix the watched-plane lookup found OUTSIDE the viewport feed
+  // (worldwide snapshot / tracked registry — 2026-09-30 N843S): the curtain
+  // seed below uses it when the clicked row is not in airPayloadRef yet.
+  const watchedSeedRef = useRef<{ id: string; callsign: string | null; fix: Crumb; vel: { dLon: number; dLat: number } | null } | null>(null);
+  // The selected plane's last REAL callsign seen in any feed row this
+  // selection — the plan query keeps sending it after the row leaves the
+  // viewport feed (a NONE plan was the symptom of sending none).
+  const selectedCallsignRef = useRef<{ id: string; callsign: string } | null>(null);
   // wireLivePoints' poll-loop re-arm (repair 2026-08-05): lets a freshly
   // opened plane card cancel the pending SLOW timer and adopt the 2s fast
   // cadence immediately instead of waiting out up to a full slow period.
@@ -3945,6 +3964,9 @@ export default function DataMapPage() {
   useEffect(() => subscribeWatchlist(() => setWlTick((t) => t + 1)), []);
   const [cardTrips, setCardTrips] = useState<{ hex: string; trips: any[]; coverageNote: string; error?: boolean } | null>(null);
   const [tripReplay, setTripReplay] = useState<number | null>(null); // start_t of the replayed trip
+  // "retry" on the unavailable note bumps this (the uncached 30-day archive
+  // scan measured ~114 s live on 2026-09-30 — a first read can fail/time out)
+  const [tripsRetry, setTripsRetry] = useState(0);
   useEffect(() => {
     // trips arrive async after an aircraft card opens; hex change resets
     const hex = detail?.kind === "aircraft" ? String(detail.trailId || "") : "";
@@ -3964,7 +3986,7 @@ export default function DataMapPage() {
     })();
     return () => { gone = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.kind === "aircraft" ? detail?.trailId : null]);
+  }, [detail?.kind === "aircraft" ? detail?.trailId : null, tripsRetry]);
   const [flightProfile, setFlightProfile] = useState<{
     samples: TrackSample[]; groundM: Float32Array; altMin: number; altMax: number;
     tzMarks: { t: number; label: string }[];
@@ -4024,29 +4046,26 @@ export default function DataMapPage() {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    let retryTimer: number | null = null;
-    const onRestore = () => {
-      // the restore event fires while the re-applied style is still LOADING
-      // (probe-caught 2026-07-20: addLayer throws "not done loading" there)
-      // — retry until every registered layer is back or ~10s passes.
-      let tries = 0;
-      const attempt = () => {
-        retryTimer = null;
-        tries++;
-        let missing = false;
-        for (const [id, impl] of customLayerRegistryRef.current) {
-          try {
-            if (!map.getLayer(id)) map.addLayer(impl);
-            if (!map.getLayer(id)) missing = true;
-          } catch { missing = true; }
-        }
-        try { repaintTrail3d(); } catch {}
-        try { map.triggerRepaint(); } catch {}
-        if (missing && tries < 40) retryTimer = window.setTimeout(attempt, 250);
-      };
-      attempt();
-    };
-    try { map.on("webglcontextrestored" as any, onRestore); } catch {}
+    // ONE re-add path for every registered custom layer (lib/layerKeeper,
+    // 2026-09-30 "the curtain disappeared after fullscreen until I clicked
+    // the plane again"): a frameCore poll — never a map-event handler (Law
+    // I) — re-adds whatever a context restore / style rebuild dropped, the
+    // gray plan just under the live curtain. The restore EVENT now only
+    // repaints; the keeper notices the missing layers on its next check
+    // (the restore fires while the re-applied style is still loading — the
+    // keeper simply waits for isStyleLoaded, no retry timers).
+    const stopKeeper = startLayerKeeper({
+      map: map as unknown as KeeperMapLike,
+      registry: customLayerRegistryRef.current,
+      beforeOf: (id) => (id === PLAN_LAYER_ID ? "flight-track-3d" : undefined),
+      onRestored: (ids) => {
+        bmark("layers-restored", { ids: ids.join(",") });
+        // the datum may have changed with the context (terrain re-created)
+        if (ids.includes("flight-track-3d")) repaintTrail3d();
+      },
+    });
+    const onRestore = () => { map.triggerRepaint(); };
+    map.on("webglcontextrestored" as any, onRestore);
     // dead-context detector: lost with no restore within 8s = the GPU is
     // not giving the context back (browser only fires restore if it can) —
     // surface the honest reload banner instead of a silent blank canvas
@@ -4112,7 +4131,7 @@ export default function DataMapPage() {
     startFrameRecorder();
     return () => {
       stopFrameRecorder();
-      if (retryTimer != null) window.clearTimeout(retryTimer);
+      stopKeeper();
       if (lostTimer != null) window.clearTimeout(lostTimer);
       canvas?.removeEventListener("webglcontextlost", onCtxLost);
       canvas?.removeEventListener("webglcontextrestored", onCtxBack);
@@ -4279,6 +4298,9 @@ export default function DataMapPage() {
   // live card prefers them over derivation; replay derives from fixes)
   const lastLiveKtsRef = useRef<number | null>(null);
   const lastLiveHeadingRef = useRef<number | null>(null);
+  // the selected plane's BROADCAST vertical rate from the fast lane, keyed to
+  // its fix time (epoch s) — the card prefers it over derivation while fresh
+  const lastLiveVsRef = useRef<{ t: number; fpm: number } | null>(null);
   const flightTagRef = useRef<HTMLDivElement | null>(null);
   const flightGridRef = useRef<HTMLDivElement | null>(null);
 
@@ -4289,6 +4311,10 @@ export default function DataMapPage() {
   // refs. The seam is the live curtain's DRAWN end (the moving tail's end,
   // else the track's last sample), so gray and colored meet exactly.
   const selectedHexLc = () => String(detailRef.current?.trailId || "").toLowerCase();
+  const selectedCallsignOf = (hexLc: string): string | null => {
+    const sc = selectedCallsignRef.current;
+    return sc && hexLc && sc.id === hexLc ? sc.callsign : null;
+  };
   const plannedRoute = usePlannedRoute({
     mapRef, mapReady,
     hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
@@ -4301,9 +4327,10 @@ export default function DataMapPage() {
       return {
         lon: lv.fix.lo, lat: lv.fix.la, altM: lv.fix.al,
         trkDeg: lastLiveHeadingRef.current ?? row?.heading ?? null,
-        callsign: String(row?.callsign || "").trim() || null,
+        callsign: String(row?.callsign || "").trim() || selectedCallsignOf(selectedHexLc()),
       };
     },
+    getCallsign: () => selectedCallsignOf(selectedHexLc()),
     getSeam: () => {
       const e = flightTrackRef.current?.getTailEnd();
       if (e) return { mercX: e.mercX, mercY: e.mercY, altM: e.altZ, groundZ: e.groundZ };
@@ -4325,7 +4352,7 @@ export default function DataMapPage() {
     getCallsign: () => {
       const id = selectedHexLc();
       const row = (airPayloadRef.current || []).find((x) => String(x?.icao24 || "").toLowerCase() === id);
-      return String(row?.callsign || "").trim() || null;
+      return String(row?.callsign || "").trim() || selectedCallsignOf(id);
     },
   });
 
@@ -4589,6 +4616,10 @@ export default function DataMapPage() {
           flightTrackRef.current = layer;
         }
         if (!map.getLayer("flight-track-3d")) map.addLayer(layer);
+        // registered for the layer keeper: a context restore / style rebuild
+        // re-adds it from the frame loop (it was never in the registry — the
+        // 2026-09-30 fullscreen report). Zero cost while empty.
+        customLayerRegistryRef.current.set("flight-track-3d", layer);
         // DISPLAY datum for the 3D geometry (same rule as displayAltReal —
         // groundM is already the REAL ground in both branches): terrain ON
         // clamps to the mesh (landing tracks rendered under ridges on
@@ -4621,7 +4652,19 @@ export default function DataMapPage() {
         // merc/altDisp/groundZ (the flight tail and profile chart index
         // them by samples.length, which must stay untouched); only the
         // geometry actually handed to the 3D layer is thinned.
-        const geomIdx = decimateForCap(samples, FT_MAX_FEATURES);
+        // TERRAIN-FOLLOWING + DEVICE BUDGET (2026-09-30): the cap is the
+        // device tier's (terrainFollow.trackBudget, ≤ FT_MAX_FEATURES). With
+        // terrain ON, 60% goes to the uniform pass and the rest is spent
+        // where the rendered ground bends away from the straight bottom
+        // edge (refineForGround) — a uniformly thinned track drew every
+        // quad's base as one straight line over ridges ("it follows the flat
+        // curve of the earth"). Terrain OFF: uniform, as before.
+        const tb = trackBudget(currentDeviceTier());
+        const cap = Math.min(FT_MAX_FEATURES, tb.trackMaxPoints);
+        const geomIdx = terrainOn && n > cap
+          ? refineForGround(decimateForCap(samples, Math.max(2, Math.floor(cap * 0.6))),
+              cumulativeAlongM(samples), groundZ, cap, GROUND_TOL_M * (altScale > 0 ? altScale : 1))
+          : decimateForCap(samples, cap);
         let gMerc = merc, gAltDisp = altDisp, gGroundZ = groundZ;
         let gTzMarkIdx = tzX.length ? tzX.map((c) => c.idx) : undefined;
         if (geomIdx.length !== n) {
@@ -4694,6 +4737,68 @@ export default function DataMapPage() {
    *  same MAX_AIR_GLIDE_SEC cap; altitude held at the last broadcast value —
    *  vertical rate isn't in the feed, never invented). Rebuilt per glide
    *  tick as a ≤3-quad buffer — the full track geometry is untouched. */
+  /** ONE live path for the selected plane's newest REAL fix — fed by the
+   *  viewport/worldwide poll AND the selected-aircraft fast lane (2026-09-30:
+   *  "optimize for the plane you have clicked on"). Newest fix wins: an
+   *  older fix never moves the tail backwards. `ageMs` anchors the glide at
+   *  the fix's own age (0 for the poll path — the drawn icon glides from the
+   *  same instant); `glide` false = no dead-reckoning (worldwide icons are
+   *  drawn at their raw position). Returns true when the fix was taken. */
+  const ingestSelectedLiveFix = (
+    fid: string,
+    fix: Crumb,
+    row: { lat: number; heading: number | null; velocity_ms: number | null; on_ground: boolean },
+    opts: { glide: boolean; ageMs: number; vsFpm?: number | null },
+  ): boolean => {
+    const cur = airFollowLiveRef.current;
+    if (cur && cur.id === fid && fix.t < cur.fix.t - 0.5) return false;
+    airFollowLiveRef.current = {
+      id: fid, fix, anchorMs: performance.now() - Math.max(0, opts.ageMs),
+      vel: opts.glide ? glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground) : null,
+    };
+    // flight-card readouts: the BROADCAST rates (real feed values; the card
+    // prefers them over derivation while live)
+    lastLiveKtsRef.current = row.velocity_ms == null ? null : row.velocity_ms * 1.94384;
+    lastLiveHeadingRef.current = row.heading ?? null;
+    if (opts.vsFpm != null) lastLiveVsRef.current = { t: fix.t, fpm: opts.vsFpm };
+    const before = airCrumbsRef.current.crumbs;
+    const after = pushCrumb(before, fix);
+    // "last position Xs ago" follows EVERY newer real fix (the breadcrumb
+    // buffer keeps its own ≥5 s spacing; the card's age must not)
+    if (fix.t > (detailRef.current?.trailId === fid ? (detailRef.current.trailLastT ?? 0) : 0) + 0.5) {
+      setDetail(prev => prev && prev.trailId === fid && (prev.trailLastT ?? 0) < fix.t ? { ...prev, trailLastT: fix.t } : prev);
+    }
+    if (after !== before) {
+      airCrumbsRef.current.crumbs = after;
+      paintFollowedTrail(); // NEW real fix — rebuild the track geometry
+    } else {
+      updateFlightTail(); // same fixes — only re-anchor the glide tail
+    }
+    return true;
+  };
+
+  /** TERRAIN-FOLLOWING TAIL (2026-09-30): the bridge from the last recorded
+   *  fix to the plane can be many km (archive cadence, a gap); as ONE quad
+   *  its trace + curtain bottom were a straight chord through the terrain.
+   *  Split it (device-tier bounded) with every interior point on the
+   *  rendered ground; undefined when the tail is short enough already. */
+  const tailInnerOnGround = (
+    map: maplibregl.Map,
+    st: { samples: TrackSample[]; groundZ: Float32Array },
+    li: number, lo: number, la: number, fromAlt: number, toAlt: number,
+  ): { mercX: number; mercY: number; altM: number; groundZ: number }[] | undefined => {
+    const last = st.samples[li];
+    const tb = trackBudget(currentDeviceTier());
+    const k = subdivisionCount(distMeters(last.lat, last.lon, la, lo), tb.groundStepM, tb.tailMaxSubdiv);
+    if (k <= 1) return undefined;
+    let prevG = st.groundZ[li];
+    return lerpPoints(last.lon, last.lat, lo, la, k).map(([plo, pla, u]) => {
+      const pm = lonLatToMercator(plo, pla);
+      prevG = groundZAt(map, plo, pla, prevG);
+      return { mercX: pm.x, mercY: pm.y, altM: fromAlt + (toAlt - fromAlt) * u, groundZ: prevG };
+    });
+  };
+
   const updateFlightTail = () => {
     const map = mapRef.current;
     const layer = flightTrackRef.current;
@@ -4718,7 +4823,11 @@ export default function DataMapPage() {
       const li = st.samples.length - 1;
       const m = lonLatToMercator(lo, la);
       const terrainOn = !!map.getTerrain();
+      const fromAlt = st.altDisp[li];
+      const toAlt = lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la);
+      const inner = terrainOn ? tailInnerOnGround(map, st, li, lo, la, fromAlt, toAlt) : undefined;
       layer.setTail({
+        inner,
         fromMercX: st.merc[li * 2], fromMercY: st.merc[li * 2 + 1],
         // DISPLAY datum, same as the curtain's last vertex — a raw-MSL
         // tail visibly stepped at the seam on the flat map (AGL datum)
@@ -4730,7 +4839,7 @@ export default function DataMapPage() {
         // always applied to the glide; the merged track's own hold feeds
         // that vertex, so the wall stays continuous). Still NaN — an honest
         // gap — when the track has no altitude anywhere to hold.
-        toAltM: lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la),
+        toAltM: toAlt,
         toGroundZ: terrainOn ? groundZAt(map, lo, la, st.groundZ[li]) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
@@ -4773,7 +4882,10 @@ export default function DataMapPage() {
           alt = lv.fix.al == null ? NaN : lv.fix.al;
           headingDeg = lastLiveHeadingRef.current;
           gsKt = lastLiveKtsRef.current; // broadcast (real feed value)
-          vsFpm = end.gap ? null : end.vsFpm; // derived from recorded fixes
+          // broadcast rate (fast lane) while it belongs to the current fix,
+          // else derived from recorded fixes
+          const bv = lastLiveVsRef.current;
+          vsFpm = bv && Math.abs(bv.t - lv.fix.t) < 1 ? bv.fpm : (end.gap ? null : end.vsFpm);
         } else {
           lon = end.lon; lat = end.lat; alt = end.altM;
           headingDeg = trackHeadingAt(st.samples, end.t);
@@ -5016,39 +5128,85 @@ export default function DataMapPage() {
     }, { lng: hit.lon, lat: hit.lat });
     return null;
   }, []);
-  const openWatchedCb = useCallback((p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => {
-    const rows: any[] = airPayloadRef.current || [];
-    const live = rows.find((a) => String(a.icao24 || "").toLowerCase() === p.hex);
-    if (live) {
-      try { mapRef.current?.easeTo({ center: [live.lon, live.lat], zoom: Math.max(mapRef.current.getZoom(), 8.5), duration: 900 }); } catch {}
-      void airClickRef.current?.({
-        cls: classifyAircraft(live.type, live.category),
-        callsign: live.callsign || live.icao24, icao24: live.icao24,
-        reg: live.registration, type: live.type || "",
-        alt: live.altitude_m, ground: !!live.on_ground, heading: live.heading ?? 0,
-        kts: live.velocity_ms == null ? null : Math.round(live.velocity_ms * 1.944),
-        category: live.category ?? null,
-      }, { lng: live.lon, lat: live.lat });
-      return;
+  /** Open the NORMAL live card for a feed row (viewport, worldwide snapshot
+   *  or tracked-registry fix) exactly like a map click: fly there (a user
+   *  action — never a map-event handler, Law I) and hand the row to the
+   *  plane-click path. Seeds the live anchor so the curtain tail + the plan
+   *  query have the fix even before the viewport poll lists the plane. */
+  const openLiveAircraftRow = (row: WatchedRow) => {
+    try {
+      mapRef.current?.easeTo({ center: [row.lon, row.lat], zoom: Math.max(mapRef.current.getZoom(), 8.5), duration: 900 });
+    } catch (e) {
+      bmark("watched-ease-failed", { err: String(e).slice(0, 80) });
     }
-    // off-snapshot: an archive-backed card — trips + trail still work
-    const label = p.reg || p.callsign || p.hex;
-    setDetail({
-      kind: "aircraft",
-      title: `✈ ${label}`,
-      subtitle: `${p.type || "aircraft"} · not currently broadcasting`,
-      facts: [
-        { label: "Reg", value: p.reg || "—" },
-        { label: "Country (ICAO alloc)", value: countryFromIcao24(p.hex) ?? countryFromRegistration(p.reg) ?? "—" },
-        { label: "ICAO24", value: p.hex },
-      ],
-      sourceTag: "ARCHIVE",
-      body: "This watched plane is not in the current live snapshot (outside the viewport feed area, on the ground without ADS-B, or out of coverage). Trips and the trail come from our own archive.",
-      trailId: p.hex, trailKind: "aircraft",
-      links: [{ label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${p.hex.toUpperCase()}` }],
-    } as Detail);
-    void showTrailRef.current("aircraft", p.hex);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const hex = String(row.icao24 || "").toLowerCase();
+    if (hex) {
+      watchedSeedRef.current = {
+        id: hex, callsign: String(row.callsign || "").trim() || null,
+        fix: { lo: row.lon, la: row.lat, al: row.on_ground ? 0 : (row.altitude_m ?? null), t: Date.now() / 1000 - (row.seen_pos ?? 0) },
+        vel: glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground),
+      };
+    }
+    void airClickRef.current?.({
+      cls: classifyAircraft(row.type, row.category),
+      callsign: row.callsign || row.registration || row.icao24, icao24: hex || row.icao24,
+      reg: row.registration, type: row.type || "",
+      alt: row.altitude_m, ground: !!row.on_ground, heading: row.heading ?? 0,
+      kts: row.velocity_ms == null ? null : Math.round(row.velocity_ms * 1.944),
+      category: row.category ?? null,
+    }, { lng: row.lon, lat: row.lat });
+  };
+  const openLiveAircraftRowRef = useRef(openLiveAircraftRow);
+  openLiveAircraftRowRef.current = openLiveAircraftRow;
+  const watchedAbortRef = useRef<AbortController | null>(null);
+  const openWatchedCb = useCallback((p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => {
+    const hex = String(p.hex || "").toLowerCase();
+    const rows: WatchedRow[] = airPayloadRef.current || [];
+    const local = rows.find((a) => String(a.icao24 || "").toLowerCase() === hex) ?? null;
+    const fast = decideWatchedOpen({ hex, local, snapshot: null, tracked: null, nowMs: Date.now() });
+    if (fast.kind === "live") { openLiveAircraftRowRef.current(fast.row); return; }
+    // OFF-VIEWPORT (2026-09-30, N843S): the viewport rows are not the world —
+    // ask the server's worldwide snapshot + the 24/7 tracked registry before
+    // ever calling the plane dark. A superseding click aborts this one.
+    watchedAbortRef.current?.abort();
+    const ac = new AbortController();
+    watchedAbortRef.current = ac;
+    void fetchWatchedSources(hex, { signal: ac.signal }).then(({ snapshot, tracked, failed }) => {
+      if (ac.signal.aborted) return;
+      const d = decideWatchedOpen({ hex, local, snapshot, tracked, nowMs: Date.now() });
+      if (d.kind === "live") {
+        // registry fixes carry no callsign/reg — the watch entry's own are real data
+        const row: WatchedRow = { ...d.row };
+        if (!row.callsign && p.callsign) row.callsign = String(p.callsign);
+        if (!row.registration && p.reg) row.registration = String(p.reg);
+        openLiveAircraftRowRef.current(row);
+        return;
+      }
+      // no fix in the last 2 min anywhere we can see: an archive-backed card
+      // (trips + trail still work), worded from the real last-seen time
+      const label = p.reg || p.callsign || hex;
+      const lastSeen = d.lastSeenMs;
+      setDetail({
+        kind: "aircraft",
+        title: `✈ ${label}`,
+        subtitle: `${p.type || "aircraft"}`,
+        freshSeedSec: lastSeen != null ? lastSeen / 1000 : 0,
+        facts: [
+          { label: "Reg", value: p.reg || "—" },
+          { label: "Country (ICAO alloc)", value: countryFromIcao24(hex) ?? countryFromRegistration(p.reg) ?? "—" },
+          { label: "ICAO24", value: hex },
+        ],
+        sourceTag: "ARCHIVE",
+        body: (lastSeen != null
+          ? `No position from this watched plane in the last 2 minutes — last seen ${fmtAgeShort(Date.now() - lastSeen)} ago (worldwide snapshot / 24-7 tracked poll). `
+          : "No position from this watched plane in our worldwide snapshot or the 24-7 tracked poll. ")
+          + (failed ? "One of the live lookups could not be reached just now, so this may be out of date. " : "")
+          + "Usually on the ground without ADS-B, or out of receiver coverage. Trips and the trail come from our own archive; the card switches to live values the moment a fix arrives.",
+        trailId: hex, trailKind: "aircraft",
+        links: [{ label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${hex.toUpperCase()}` }],
+      } as Detail);
+      void showTrailRef.current("aircraft", hex);
+    });
   }, []);
 
   const fetchDossier = async (
@@ -5098,9 +5256,21 @@ export default function DataMapPage() {
             vel: glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground),
             anchorMs: performance.now(),
           };
+        } else if (watchedSeedRef.current && watchedSeedRef.current.id === String(detailTrailId).toLowerCase()) {
+          // opened from the watch/tracked list while outside the viewport
+          // feed — the lookup's fresh snapshot/registry fix seeds the tail
+          const ws = watchedSeedRef.current;
+          // anchored at the fix's own age: the glide covers the real elapsed
+          // time (still capped by MAX_AIR_GLIDE_SEC), never restarts it
+          const ageMs = Math.max(0, Date.now() - ws.fix.t * 1000);
+          airFollowLiveRef.current = { id: detailTrailId, fix: ws.fix, vel: ws.vel, anchorMs: performance.now() - ageMs };
         } else {
           airFollowLiveRef.current = null;
         }
+        const cs = String(row?.callsign || "").trim()
+          || (watchedSeedRef.current?.id === String(detailTrailId).toLowerCase() ? watchedSeedRef.current.callsign : null);
+        selectedCallsignRef.current = cs ? { id: String(detailTrailId).toLowerCase(), callsign: cs } : null;
+        watchedSeedRef.current = null; // one-shot: consumed by this selection
         // fast-poll re-arm: the 15s slow timer already armed keeps a fresh
         // card waiting; kick the poll loop over to the 2s cadence NOW.
         try { airPollRearmRef.current?.(); } catch {}
@@ -5109,6 +5279,34 @@ export default function DataMapPage() {
       airCrumbsRef.current = { id: null, crumbs: [] };
       airFollowLiveRef.current = null;
     }
+  }, [detailTrailId, detailTrailKind]);
+  // SELECTED-AIRCRAFT FAST LANE (human 2026-09-30: "optimize for the plane
+  // you have clicked on … I don't want it to lag if there is data"): while
+  // a plane card is open, poll its one-hex live endpoint every ~2.5 s
+  // (server: fresh snapshot, else adsb.lol for that hex) and feed each NEWER
+  // fix into the same live path as the feed poll — tail, breadcrumbs, card
+  // readouts, "last position" age, plan seam. Stops on deselect/close
+  // (abort), pauses while the tab is hidden. Watched-list chips stay on the
+  // 30 s tracked poller — only the selected plane gets this lane.
+  useEffect(() => {
+    if (detailTrailKind !== "aircraft" || !detailTrailId) return;
+    const fid = detailTrailId;
+    lastLiveVsRef.current = null;
+    const lane = startSelectedFastLane({
+      hex: fid,
+      // device-aware (terrainFollow.trackBudget): 2.5 s full · 3 s reduced · 4 s minimal
+      pollMs: trackBudget(currentDeviceTier()).fastPollMs,
+      onFix: (f) => {
+        if (airCrumbsRef.current.id !== fid) return;
+        const r = f.row;
+        const cs = String(r.callsign || "").trim();
+        if (cs) selectedCallsignRef.current = { id: String(fid).toLowerCase(), callsign: cs };
+        const fix: Crumb = { lo: r.lon, la: r.lat, al: r.on_ground ? 0 : (r.altitude_m ?? null), t: f.fixMs / 1000 };
+        ingestSelectedLiveFix(fid, fix, r, { glide: true, ageMs: Math.max(0, Date.now() - f.fixMs), vsFpm: f.baroRateFpm });
+      },
+    });
+    return () => lane.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
@@ -5119,7 +5317,8 @@ export default function DataMapPage() {
       const { note, lastT } = await showTrail(detailTrailKind, detailTrailId,
         activeTrailRangeRef.current ?? undefined);
       setDetail((prev) => prev && prev.trailId === detailTrailId
-        ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
+        ? { ...prev, trailNote: note || prev.trailNote, // never older than a live fix the fast lane already stamped
+          trailLastT: Math.max(lastT ?? 0, prev.trailLastT ?? 0) || undefined }
         : prev);
     };
     const iv = setInterval(refresh, 30_000);
@@ -8893,6 +9092,7 @@ export default function DataMapPage() {
         if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
         if (map.getLayer("aircraft-sym-lo")) map.removeLayer("aircraft-sym-lo");
         if (map.getLayer("aircraft-veclines")) map.removeLayer("aircraft-veclines");
+        customLayerRegistryRef.current.delete("aircraft-3d"); // intentional — the layer keeper must not resurrect it
         if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d");
         if (map.getSource("aircraft")) map.removeSource("aircraft");
         if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
@@ -8977,33 +9177,25 @@ export default function DataMapPage() {
           const fid = airCrumbsRef.current.id;
           if (fid) {
             const live = (d.aircraft || []).find((x: any) => x.icao24 === fid);
+            const liveCs = String(live?.callsign || "").trim();
+            if (liveCs) selectedCallsignRef.current = { id: String(fid).toLowerCase(), callsign: liveCs };
             // B1: worldwide rows carry per-row ages (up to 10 min), not one
-            // snapshot time — never stamp them as crumbs (tail resumes zoomed in)
-            if (live && live.lat != null && live.lon != null && !worldwide) {
-              const t = Number.isFinite(d.time) ? Number(d.time) : Date.now() / 1000;
+            // snapshot time. 2026-09-30 ("the track disappears at different
+            // distances"): a FRESH worldwide row (< 2 min, not dimmed) is
+            // stamped at its OWN fix time (server at − row age) so the
+            // selected plane keeps its live tail + breadcrumbs zoomed out;
+            // stale rows are still never stamped (feedFixTimeSec → null).
+            const t = live && live.lat != null && live.lon != null ? feedFixTimeSec(d, live, Date.now()) : null;
+            if (live && t != null) {
               const fix: Crumb = {
                 lo: live.lon, la: live.lat,
                 al: live.on_ground ? 0 : (live.altitude_m ?? null), t,
               };
               // tail anchor: the same fresh-fix instant the plane's own
-              // glide anchors at (setTickTime above)
-              airFollowLiveRef.current = {
-                id: fid, fix, anchorMs: performance.now(),
-                vel: glideDegPerSec(live.lat, live.heading, live.velocity_ms, live.on_ground),
-              };
-              // flight-card readouts: the BROADCAST rates (real feed values;
-              // the card prefers them over derivation while live)
-              lastLiveKtsRef.current = live.velocity_ms == null ? null : live.velocity_ms * 1.94384;
-              lastLiveHeadingRef.current = live.heading ?? null;
-              const before = airCrumbsRef.current.crumbs;
-              const after = pushCrumb(before, fix);
-              if (after !== before) {
-                airCrumbsRef.current.crumbs = after;
-                setDetail(prev => prev && prev.trailId === fid ? { ...prev, trailLastT: t } : prev);
-                paintFollowedTrail(); // NEW real fix — rebuild the track geometry
-              } else {
-                updateFlightTail(); // same fixes — only re-anchor the glide tail
-              }
+              // glide anchors at (setTickTime above). Worldwide icons are
+              // drawn at their raw position (no 2D glide at that zoom), so
+              // the tail must not glide past its own plane: no glide.
+              ingestSelectedLiveFix(fid, fix, live, { glide: !worldwide, ageMs: 0 });
             }
           }
         } catch { /* trail continuity must never break the tick */ }
@@ -9120,7 +9312,7 @@ export default function DataMapPage() {
           body: `Planned route (gray curtain ahead of the plane): FILED when the FAA SWIM flight plan is available, otherwise PREDICTED from this flight's last recorded trip or the community route database — labeled on the Planned route row; ` +
                 `trail is our own archived feed history — the 3D altitude line + translucent curtain climb at the RECORDED altitude, colored low-teal → cruise-blue → high-violet across this track's altitude range, with the ground trace draped on the terrain (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence. ` +
-                `GND SPD is the live broadcast; VERT SPD (and replay speeds) are derived from consecutive recorded fixes — the feed carries no vertical rate.`,
+                `GND SPD is the live broadcast; VERT SPD is the broadcast vertical rate when the selected-plane fast lane has one for the current fix, otherwise (and for replay speeds) derived from consecutive recorded fixes.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -9145,7 +9337,7 @@ export default function DataMapPage() {
         // nearest strategic sites.
         fetchDossier(dossierKey, null, lngLat?.lat, lngLat?.lng);
         const { note, lastT } = await showTrail("aircraft", p.icao24);
-        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
+        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: Math.max(lastT ?? 0, prev.trailLastT ?? 0) || undefined } : prev);
     };
     airClickRef.current = onAircraftClickProps; // arm the search/watchlist bridge (T3)
     const stopWire = wire();
@@ -15762,7 +15954,15 @@ export default function DataMapPage() {
                   );
                 })()}
               </div>
-              <div className="vt-site-card-cat">{detail.subtitle}</div>
+              <div className="vt-site-card-cat">
+                {detail.freshSeedSec != null ? (() => {
+                  // ARCHIVE aircraft card: freshness DERIVED per render (the
+                  // 10 s freshTick + every live fix) — never frozen at click
+                  void freshTick;
+                  const newest = Math.max(detail.trailLastT ?? 0, detail.freshSeedSec ?? 0);
+                  return `${detail.subtitle} · ${aircraftFreshnessClause(newest || null, Date.now())}`;
+                })() : detail.subtitle}
+              </div>
             </div>
             <div className="vt-card-head-actions">
             <button className="vt-icon-btn" data-vt-scale-down aria-label="Shrink card"
@@ -15819,7 +16019,8 @@ export default function DataMapPage() {
             const hex = String(detail.trailId);
             const watched = isWatched(getWatchlist(), hex);
             return (
-              <div className="vt-card-trips" data-testid="plane-watch-trips">
+              <div className={`vt-card-trips${cardTrips && cardTrips.hex === hex.toLowerCase() && !cardTrips.error && cardTrips.trips.length > 0 ? " vt-card-trips-list" : ""}`}
+                   data-testid="plane-watch-trips">
                 <button
                   className={`vt-satfinder-chip${watched ? " vt-satfinder-chip-on" : ""}`}
                   onClick={() => {
@@ -15828,11 +16029,17 @@ export default function DataMapPage() {
                   }}>
                   {watched ? "★ Watched — tap to remove" : "☆ Watch this plane"}
                 </button>
+                {!cardTrips && /^[0-9a-f]{6}$/i.test(hex) && (
+                  <span className="vt-card-trips-note" data-testid="trips-loading">loading trip history — the first read scans 30 days of our archive and can take a minute</span>
+                )}
                 {cardTrips && cardTrips.hex === hex.toLowerCase() && (
                   cardTrips.error ? (
-                    <span className="vt-legend-note">trip history unavailable right now</span>
+                    <span className="vt-card-trips-note" data-testid="trips-unavailable">
+                      trip history unavailable right now (the 30-day archive scan failed or timed out)
+                      <button className="vt-card-trips-retry" onClick={() => setTripsRetry((n) => n + 1)}>retry</button>
+                    </span>
                   ) : cardTrips.trips.length === 0 ? (
-                    <span className="vt-legend-note">no archived flights in the last 30 days (raw-fix retention window)</span>
+                    <span className="vt-card-trips-note">no archived flights in the last 30 days (raw-fix retention window)</span>
                   ) : (
                     <div className="vt-trips-list">
                       {/* QC-2 (2026-08-11): FLIGHTS only — "a plane could get
