@@ -199,7 +199,8 @@ export function useFlightProcedures(opts: UseFlightProceduresOpts): { row: JSX.E
     <div data-vt-procedures-panel className="om-sb"
          style={{ marginTop: 6, maxHeight: "38vh", overflowY: "auto", fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.45, color: "var(--flight-ink-dim)" }}>
       <div style={line} title="FAA CIFP / d-TPP data cycle — the procedure data's age">
-        {cycleBadge(data?.cycle)}{data?.dtppCycle ? ` · d-TPP ${data.dtppCycle.ident}` : ""} · <span style={{ color: "var(--accent-orange)", fontWeight: 700 }}>NOT FOR NAVIGATION</span>
+        {/* the warning leads, so a narrow card ellipsizes the cycle, never it */}
+        <span style={{ color: "var(--accent-orange)", fontWeight: 700 }}>NOT FOR NAVIGATION</span> · {cycleBadge(data?.cycle)}{data?.dtppCycle ? ` · d-TPP ${data.dtppCycle.ident}` : ""}
       </div>
       {!data && !loadErr && <div aria-live="polite">loading procedures…</div>}
       {loadErr && <div style={{ color: "var(--accent-orange)" }}>procedures unavailable: {loadErr}</div>}
