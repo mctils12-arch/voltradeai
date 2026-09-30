@@ -1,0 +1,66 @@
+HDR01FAACIFP18      001P013203968112609  12-AUG-202618:29:21  U.S.A. DOT FAA                                                FBB95AD8
+HDR02                                 FEDERAL AVIATION ADMINISTRATION                                                               
+SUSAD        ACT   K4011530VTHW N31394403W097160845    N31394403W097160845E0090005072     NARWACO                          249392002
+SUSAD        AGJ   K4011250VTHW N31110782W098083069    N31110782W098083069E0050011912     NARGOOCH SPRINGS                 249471605
+SUSAD        CWK   K4011280VTHW N30224278W097314745    N30224278W097314745E0060005932     NARCENTEX                        251241605
+SUSAD        JCT   K4011600VTHW N30355288W099490293    N30355288W099490293E0080022822     NARJUNCTION                      254441605
+SUSAD        SAT   K4011680VTHW N29383851W098274074    N29383851W098274074E0080011592     NARSAN ANTONIO                   257962014
+SUSAD        STV   K4011380VTHW N30122433W098422072    N30122433W098422072E0080015302     NARSTONEWALL                     258522609
+SUSAEAENRT   AMUSE K40    C   L N30272321W098173908                       E0034     NAR           AMUSE                    277682605
+SUSAEAENRT   BETTI K40    C   L N29575497W098032398                       E0033     NAR           BETTI                    289072605
+SUSAEAENRT   BLEWE K40    C     N31122765W097123247                       E0028     NAR           BLEWE                    291732605
+SUSAEAENRT   GARDS K40    C   L N30030752W097564771                       E0032     NAR           GARDS                    359242605
+SUSAEAENRT   HOOKK K40    C   L N30213600W097121088                       E0028     NAR           HOOKK                    380792605
+SUSAEAENRT   SEWZY K40    C     N30484777W097214451                       E0029     NAR           SEWZY                    492892605
+SUSAEAENRT   WINDU K40    C     N31314993W097045706                       E0027     NAR           WINDU                    537302605
+SUSAP KAUSK4AAUS     0     122YHN30114030W097401155E004000542         1800018000C    MNAR    AUSTIN-BERGSTROM INTL         273021802
+SUSAP KAUSK4CDDTOO K40    C     N30153164W097393359                       E0031     NAR           DDTOO                    273442403
+SUSAP KAUSK4CDOFFS K40    C     N30270959W097395186                       E0031     NAR           DOFFS                    273462504
+SUSAP KAUSK4CHOUKM K40    W     N30254435W097450898                       E0031     NAR           HOUKM                    273582605
+SUSAP KAUSK4CJASMO K40    R     N30434188W097473687                       E0031     NAR           JASMO                    273612605
+SUSAP KAUSK4CJEDYE K40    W     N30225752W097382419                       E0030     NAR           JEDYE                    273622605
+SUSAP KAUSK4CRRTOO K40    C     N30183439W097393836                       E0031     NAR           RRTOO                    273912403
+SUSAP KAUSK4CSCALI K40    C     N30230909W097394555                       E0031     NAR           SCALI                    273932504
+SUSAP KAUSK4DAUS7  2ALL   010CWK  K4D 0VE      IF                                             18000       CWK   K4D        274242409
+SUSAP KAUSK4DAUS7  3AGJ   010CWK  K4D 0V       IF                                             18000                        274252409
+SUSAP KAUSK4DAUS7  3AGJ   020JASMOK4PC0E       TF                                                                          274262409
+SUSAP KAUSK4DAUS7  3AGJ   030AGJ  K4D 0VE      TF                                                                          274272409
+SUSAP KAUSK4DAUS7  3JCT   010CWK  K4D 0V       IF                                             18000                        274282409
+SUSAP KAUSK4DAUS7  3JCT   020AMUSEK4EA0E       TF                                                                          274292409
+SUSAP KAUSK4DAUS7  3JCT   030JCT  K4D 0VE      TF                                                                          274302409
+SUSAP KAUSK4DAUS7  3SAT   010CWK  K4D 0V       IF                                             18000                        274312409
+SUSAP KAUSK4DAUS7  3SAT   020GARDSK4EA0E       TF                                                                          274322409
+SUSAP KAUSK4DAUS7  3SAT   030BETTIK4EA0E       TF                                                                          274332409
+SUSAP KAUSK4DAUS7  3SAT   040SAT  K4D 0VE      TF                                                                          274342409
+SUSAP KAUSK4DAUS7  3STV   010CWK  K4D 0V       IF                                             18000                        274352409
+SUSAP KAUSK4DAUS7  3STV   020AMUSEK4EA0E       TF                                                                          274362409
+SUSAP KAUSK4DAUS7  3STV   030STV  K4D 0VE      TF                                                                          274372409
+SUSAP KAUSK4EBLEWE51ACT   010ACT  K4D 0V       IF                                             18000                        274872302
+SUSAP KAUSK4EBLEWE51ACT   020BLEWEK4EA0EE      TF                                                                          274882302
+SUSAP KAUSK4EBLEWE51WINDU 010WINDUK4EA0E       IF                                             18000                        274892302
+SUSAP KAUSK4EBLEWE51WINDU 020BLEWEK4EA0EE      TF                                                                          274902302
+SUSAP KAUSK4EBLEWE52ALL   010BLEWEK4EA0E       IF                                             18000                        274912302
+SUSAP KAUSK4EBLEWE52ALL   020SEWZYK4EA0E       TF                                                                          274922302
+SUSAP KAUSK4EBLEWE52ALL   030CWK  K4D 0VE      TF                                                                          274932302
+SUSAP KAUSK4FI18L  ADOFFS 010DOFFSK4PC0E  A    IF                                 + 05000     18000                 0 DS   277612104
+SUSAP KAUSK4FI18L  ADOFFS 020SCALIK4PC0E       TF                                 + 04000                           0 DS   277622409
+SUSAP KAUSK4FI18L  ADOFFS 030RRTOOK4PC0EE B    CF IVNKK4      3547008017470046PI  + 02500                           0 DS   277632104
+SUSAP KAUSK4FI18L  AHOUKM 010HOUKMK4PC0E  A    IF                                   05000     18000210              0-PS   277642104
+SUSAP KAUSK4FI18L  AHOUKM 020RRTOOK4PC0EE B 010TF IVNKK4      35470080        PI  + 02500                           0 PS   277652207
+SUSAP KAUSK4FI18L  AJEDYE 010JEDYEK4PC0E  A    IF                                   04000     18000210              0-PS   277662104
+SUSAP KAUSK4FI18L  AJEDYE 020RRTOOK4PC0EE B 010TF IVNKK4      35470080        PI  + 02500                           0 PS   277672207
+SUSAP KAUSK4FI18L  I      010RRTOOK4PC0E  I    IF IVNKK4      35470080        PI  J 025000160018000                 0 DS   277682104
+SUSAP KAUSK4FI18L  I      020DDTOOK4PC0E  F    CF IVNKK4      3547005017500030PI  H 0160001600            CWK   K4D 0 DS   277692104
+SUSAP KAUSK4FI18L  I      030RW18LK4PG0GY M    CF IVNKK4      3547001717500033PI    00552             -300          0 DS   277702104
+SUSAP KAUSK4FI18L  I      040         0  M     CA                     1747        + 01000                           0 DS   277712104
+SUSAP KAUSK4FI18L  I      050         0    L   VIY                    0400                                          0 DS   277722104
+SUSAP KAUSK4FI18L  I      060HOOKKK4EA0EY      CF CWK K4      0877017008770110D   + 03000                           0 DS   277732104
+SUSAP KAUSK4FI18L  I      070HOOKKK4EA0EE  R   HM                     2677T010    + 03000                           0 DS   277742104
+SUSAP KAUSK4GRW18L   0090001750 N30121379W097392841         +0123800492000061150IIVNK3                                     279092104
+SUSAP KAUSK4GRW18R   0122501750 N30124902W097404571         +0139000541000059150IIGFQ1                                     279102104
+SUSAP KAUSK4GRW36L   0122503550 N30104780W097404251         +0122500487000054150IIBSM1                                     279112104
+SUSAP KAUSK4GRW36R   0090003550 N30104473W097392608         +0118300474000052150IIHCE2                                     279122510
+SUSAP KAUSK4IIBSM1   011095RW36LN30130076W0974046033547N30105854W0974047351187 10950300300E00405400484                     279132104
+SUSAP KAUSK4IIGFQ1   011095RW18RN30103609W0974042201747N30123606W0974050041182 13000300300E00405900527                     279142104
+SUSAP KAUSK4IIHCE2   011050RW36RN30122440W0973928693547N30105432W0973921771073 09610398300E00405200470                     279152409
+SUSAP KAUSK4IIVNK3   011050RW18LN30103411W0973925801747N30120199W0973923541073 12010398300E00406100484                     279162104

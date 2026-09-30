@@ -29,6 +29,7 @@ import * as modelLayer from "../lib/orbital/modelLayer.ts";
 import * as airLayer from "../lib/air/airLayer.ts";
 import * as flightTrackLayer from "../lib/air/flightTrackLayer.ts";
 import * as planCurtainLayer from "../lib/air/planCurtainLayer.ts";
+import * as procedureLayer from "../lib/air/procedureLayer.ts";
 
 // ── contract verification ───────────────────────────────────────────────────
 
@@ -180,6 +181,7 @@ const REAL_LAYERS: [string, Record<string, unknown>][] = [
   ["airLayer", airLayer as unknown as Record<string, unknown>],
   ["flightTrackLayer", flightTrackLayer as unknown as Record<string, unknown>],
   ["planCurtainLayer", planCurtainLayer as unknown as Record<string, unknown>],
+  ["procedureLayer", procedureLayer as unknown as Record<string, unknown>],
 ];
 
 test("every real layer module declares maxFeatures and vramBudget", () => {
@@ -201,6 +203,7 @@ test("every real layer CLASS implements dispose()", () => {
     ["AirLayer", airLayer as unknown as Record<string, unknown>],
     ["FlightTrackLayer", flightTrackLayer as unknown as Record<string, unknown>],
     ["PlanCurtainLayer", planCurtainLayer as unknown as Record<string, unknown>],
+    ["ProcedureLayer", procedureLayer as unknown as Record<string, unknown>],
   ];
   for (const [name, mod] of classes) {
     const ctor = Object.values(mod).find(

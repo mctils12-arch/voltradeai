@@ -101,6 +101,10 @@ class TestLawIVContextAcquiringModules(unittest.TestCase):
                 "flightTrackLayer.ts",
                 "modelLayer.ts",
                 "planCurtainLayer.ts",
+                # 2026-09-30: instrument-procedure path + georeferenced plate
+                # raster (lib/air/procedureLayer.ts) — declares maxFeatures /
+                # vramBudget, dispose() frees sources/layers/blob URL/frame hook
+                "procedureLayer.ts",
                 "satLayer.ts",
                 "spaceFrame.ts",
             ],
