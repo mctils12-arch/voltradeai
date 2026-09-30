@@ -38,8 +38,9 @@ import type { Express } from "express";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { archiveAircraft, archiveBaseDir, type SitePoint } from "./datacoreArchive";
 import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
-import { subscribeFixes, type FixBatch } from "./aircraftFixBus";
-import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox } from "./globalSnapshot";
+import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
+import { createFastLane, HEX_RE } from "./aircraftFastLane";
+import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
@@ -260,21 +261,51 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     res.send(body);
   });
 
-  // ONE aircraft's row from the worldwide snapshot (field bug 2026-09-30:
-  // a watched plane opened from the list while outside the viewport feed
-  // got an "not currently broadcasting" archive card although this snapshot
-  // held a fix seconds old). Same positional wire shape as /global so the
-  // client decodes it with the same adapter; rows is empty when the hex is
-  // not in the snapshot (evicted after SNAPSHOT_EVICT_MS). Cheap: one Map
-  // lookup, no body cache needed.
-  app.get("/api/data/aircraft/live/:hex", (req, res) => {
+  // ONE aircraft's live row — the SELECTED/WATCHED aircraft's lookup + fast
+  // lane (field bugs 2026-09-30: a watched plane opened off-viewport got a
+  // false "not currently broadcasting" card; a selected plane zoomed out
+  // read "last position 89s ago"). The snapshot row is served when it is
+  // < FAST_FRESH_MS old; otherwise aircraftFastLane asks adsb.lol for this
+  // one hex (viewer-lane governed, coalesced, 2 s cache, bounded) and the
+  // fix lands in this snapshot for everyone. Same positional wire shape as
+  // /global (+ baroRate, the broadcast vertical rate of THIS fix when
+  // upstream sent one) so the client decodes it with the same adapter;
+  // rows is empty when nothing holds the hex. AIRCRAFT_FAST_LANE=0 → the
+  // snapshot only (no upstream requests).
+  const fastOn = String(env.AIRCRAFT_FAST_LANE ?? "1").trim() !== "0";
+  const fastLane = createFastLane({
+    snapshotGet: (hex) => snapshot.get(hex),
+    publish: (b) => publishFixes(b),
+    fetchImpl: deps.fetchImpl,
+    now,
+  });
+  app.get("/api/data/aircraft/live/:hex", async (req, res) => {
     const hex = String(req.params.hex || "").toLowerCase();
-    if (!/^[0-9a-f]{6}$/.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    if (!HEX_RE.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    let r: SnapRow | null | undefined;
+    let baroRate: number | null = null;
+    let source: string = "snapshot";
+    if (fastOn) {
+      try {
+        const fr = await fastLane.lookup(hex);
+        r = fr.row; baroRate = fr.baroRateFpm; source = fr.source;
+      } catch (e) {
+        noteError("fast-lane", e);
+        r = snapshot.get(hex);
+      }
+    } else {
+      r = snapshot.get(hex);
+    }
     const t = now();
-    const r = snapshot.get(hex);
     const fresh = r && r.seenAt >= t - snapshot.evictMs ? r : null;
     res.set("Cache-Control", "no-store");
-    res.json({ at: t, hex, fields: ROW_FIELDS, rows: fresh ? [encodeRow(fresh)] : [], honesty: GLOBAL_HONESTY });
+    res.json({
+      at: t, hex, source,
+      fields: [...ROW_FIELDS, "baroRate"],
+      rows: fresh ? [[...encodeRow(fresh), baroRate]] : [],
+      fast_lane: fastOn ? fastLane.stats() : null,
+      honesty: GLOBAL_HONESTY,
+    });
   });
 
   return {

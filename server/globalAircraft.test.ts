@@ -203,7 +203,7 @@ test("GET /api/data/aircraft/live/:hex — one snapshot row in the /global wire 
     assert.equal(r.headers.get("cache-control"), "no-store");
     const d = await r.json() as { at: number; hex: string; fields: string[]; rows: Row[] };
     assert.equal(d.hex, "ab8c8e");
-    assert.deepEqual(d.fields, [...ROW_FIELDS]);
+    assert.deepEqual(d.fields, [...ROW_FIELDS, "baroRate"], "the /global fields + the fix's broadcast vertical rate");
     assert.equal(d.rows.length, 1);
     const row = d.rows[0];
     assert.equal(row[d.fields.indexOf("hex")], "ab8c8e");
@@ -212,5 +212,5 @@ test("GET /api/data/aircraft/live/:hex — one snapshot row in the /global wire 
     const miss = await (await fetch(`${base}/api/data/aircraft/live/abcdef`)).json() as { rows: Row[] };
     assert.deepEqual(miss.rows, [], "absent hex -> empty rows, not an error");
     assert.equal((await fetch(`${base}/api/data/aircraft/live/zz`)).status, 400);
-  });
+  }, { env: { AIRCRAFT_FAST_LANE: "0" } });
 });
