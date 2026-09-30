@@ -41,7 +41,8 @@ import { SwimPlanStore, startSfdps, sfdpsStatus, routePointsOf, SFDPS_ENV_PREFIX
 import { swimEnvVarNames, swimProductsEnvStatus } from "./swimConnector";
 import {
   crossTrackNm, densifyPlan, estimateVerticalProfile, haversineNm, initialBearingDeg, angleDiffDeg,
-  polylineLengthNm, replanFromPosition, splitPlanAt, typicalCruiseFt, cumulativeNm, FT_PER_M,
+  polylineLengthNm, replanFromPosition, typicalCruiseFt, cumulativeNm, FT_PER_M,
+  forwardJoinOnPlan, isTerminalVectoring, PRESENT_POSITION_ON_PLAN_NAME, TERMINAL_AREA_NM, VECTORING_MIN_XT_NM,
   type LatLon, type PlanPoint, type ReplanResult,
 } from "../shared/flightPlanGeometry";
 
@@ -78,6 +79,11 @@ export interface FlightPlanResponse {
   /** additive: true when the lateral path itself is an estimate (great circle
    *  or last-flight path), false only for filed expanded-route geometry */
   pathEstimated: boolean;
+  /** additive (2026-09-30): the aircraft is inside the destination's terminal
+   *  area (DEVIATION_TERMINAL_NM) and > VECTORING_MIN_XT_NM off the route — the
+   *  connector from it to the route (points flagged `vectors`) is ATC
+   *  vectoring, not part of the filed/predicted route */
+  terminalVectoring: boolean;
 }
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -113,7 +119,7 @@ export const HISTORY_PATH_MAX_POINTS = 300;
 export const DEVIATION_OFF_NM = 8;
 export const DEVIATION_ON_NM = 4;
 export const DEVIATION_CONSECUTIVE = 3;
-export const DEVIATION_TERMINAL_NM = 40;
+export const DEVIATION_TERMINAL_NM = TERMINAL_AREA_NM; // shared: the client's vectoring display uses the same radius
 export const DEVIATION_MIN_FIX_SPACING_SEC = 30;
 export const TRACK_IDLE_MS = 2 * 3600_000;
 export const TRACK_MAX = 500;
@@ -921,7 +927,7 @@ function planKeyOf(c: Candidate): string {
 
 function capPoints(points: PlanPoint[]): PlanPoint[] {
   if (points.length <= MAX_PLAN_POINTS) return points;
-  const named = points.filter((p, i) => p.name || i === 0 || i === points.length - 1);
+  const named = points.filter((p, i) => p.name || p.vectors || i === 0 || i === points.length - 1);
   if (named.length >= MAX_PLAN_POINTS) return thinPath(points, MAX_PLAN_POINTS);
   const thinned = thinPath(points, MAX_PLAN_POINTS - named.length);
   const keep = new Set<PlanPoint>([...named, ...thinned]);
@@ -938,6 +944,7 @@ function noneResponse(q: PlanRequest, reason: string, now: number): FlightPlanRe
     events: [], fetchedAt: now, ageSec: 0,
     honesty: `No route is drawn: ${reason}. Nothing is shown rather than a guess; the real flown path is always the recorded ADS-B track.`,
     pathEstimated: false,
+    terminalVectoring: false,
   };
 }
 
@@ -1011,20 +1018,39 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
   }
   if (pos && deviationMeasurable) ctx.tracker.observe(track, { t: q.fixT ?? now, lat: pos.lat, lon: pos.lon, altM: obsAltM, trk: q.trkDeg });
 
+  // TERMINAL VECTORING (2026-09-30): inside the destination's no-judge radius
+  // (where the tracker never calls OFF_PLAN, so nothing re-plans) and
+  // measurably off the route, the connector from the aircraft to the route
+  // is ATC vectors — flagged, never drawn as if it were filed
+  const destPt = base[base.length - 1];
+  const xtNow = pos && base.length ? crossTrackNm(pos, base) : null;
+  const terminalVectoring = !!(pos && deviationMeasurable && xtNow && destPt &&
+    isTerminalVectoring(haversineNm(pos, destPt), xtNow.nm));
+
   let points = base;
   let originalPoints: PlanPoint[] | null = null;
   if (track.state === "OFF_PLAN" && track.replan && track.replan.points.length) {
     const startAlt = track.replan.points[0].altM;
     points = estimateVerticalProfile(track.replan.points, startAlt ?? obsAltM, destElev, cruiseFt);
     originalPoints = base;
+    if (terminalVectoring) {
+      const ri = track.replan.rejoinIndex;
+      points = markVectorsUntil(points, 0, ri != null ? track.plan[ri] : destPt);
+    }
   } else if (pos && obsAltM != null && cand.points.length >= 2) {
-    // re-anchor the estimated profile on the aircraft's OBSERVED altitude at
-    // its projection onto the plan, so the gray curtain starts where it is
-    const { behind, ahead } = splitPlanAt(cand.points, pos);
-    const here: PlanPoint = { ...ahead[0], altM: Math.round(obsAltM), altEstimated: false, name: "present position (on plan)" };
-    const b = estimateVerticalProfile([...behind.slice(0, -1), here], originElev, obsAltM, cruiseFt);
-    const a = estimateVerticalProfile([here, ...ahead.slice(1)], obsAltM, destElev, cruiseFt);
-    points = [...b.slice(0, -1), ...a];
+    // re-anchor the estimated profile on the aircraft's OBSERVED altitude AT
+    // the aircraft, followed by the FORWARD join vertex (never the
+    // perpendicular foot: that drew a sideways connector next to the plane)
+    const fj = forwardJoinOnPlan(cand.points, pos, q.trkDeg);
+    if (fj) {
+      const here: PlanPoint = {
+        lat: pos.lat, lon: pos.lon, altM: Math.round(obsAltM), altEstimated: false, name: PRESENT_POSITION_ON_PLAN_NAME,
+      };
+      const b = estimateVerticalProfile([...cand.points.slice(0, fj.firstAhead), here], originElev, obsAltM, cruiseFt);
+      const a = estimateVerticalProfile([here, ...cand.points.slice(fj.join.index)], obsAltM, destElev, cruiseFt);
+      points = [...b.slice(0, -1), ...a];
+      if (terminalVectoring) points = markVectorsUntil(points, b.length - 1, cand.points[fj.join.index]);
+    }
   }
 
   let honesty = cand.honesty;
@@ -1037,6 +1063,11 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
   }
   if (!deviationMeasurable) {
     honesty += " Deviation from the filed route is not assessed: only the route text was received, so there is no filed path to measure against.";
+  }
+  if (terminalVectoring && xtNow) {
+    honesty += ` ${vectoringNote(cand.source)}: within ${DEVIATION_TERMINAL_NM} nm of the destination and ` +
+      `${xtNow.nm.toFixed(1)} nm off the route (> ${VECTORING_MIN_XT_NM} nm), so the aircraft is being vectored; ` +
+      "the dotted connector from it to the route is not a planned path.";
   }
   honesty += " The real flown path is always the recorded ADS-B track.";
 
@@ -1053,7 +1084,28 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
     ageSec: Math.max(0, Math.round((now - cand.fetchedAt) / 1000)),
     honesty,
     pathEstimated: cand.pathEstimated,
+    terminalVectoring,
   };
+}
+
+/** "ATC vectors — not part of the filed route" (FILED) / "…predicted route" */
+export function vectoringNote(source: PlanSource): string {
+  return `ATC vectors — not part of the ${source === "FILED_FAA" ? "filed" : "predicted"} route`;
+}
+
+/** Copies of `points` with `vectors: true` on every point from `from` up to
+ *  (not including) the first later point AT `target` (the join) — the whole
+ *  connector, including any profile vertex (TOD) inserted inside it. When
+ *  the target is not found only `from` is flagged. */
+export function markVectorsUntil(points: PlanPoint[], from: number, target: LatLon | undefined): PlanPoint[] {
+  if (!(from >= 0 && from < points.length)) return points;
+  let end = from + 1;
+  if (target) {
+    let j = from + 1;
+    while (j < points.length && !(points[j].lat === target.lat && points[j].lon === target.lon)) j++;
+    if (j < points.length) end = j;
+  }
+  return points.map((p, i) => (i >= from && i < end ? { ...p, vectors: true } : p));
 }
 
 // ── request parsing ─────────────────────────────────────────────────────────

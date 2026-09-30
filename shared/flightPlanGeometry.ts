@@ -27,6 +27,10 @@ export interface PlanPoint extends LatLon {
   /** true for any altitude that is not FILED (plan) or OBSERVED (live fix) */
   altEstimated: boolean;
   name?: string;
+  /** additive (2026-09-30): the segment FROM this point to the next one is a
+   *  connector the aircraft is being flown along by ATC (terminal-area
+   *  vectors), NOT part of the filed/predicted route — drawn faint + dotted */
+  vectors?: boolean;
 }
 
 // ── vector helpers ──────────────────────────────────────────────────────────
@@ -365,7 +369,7 @@ export function replanFromPosition(
 ): ReplanResult {
   const here: PlanPoint = {
     lat: pos.lat, lon: normLon(pos.lon),
-    altM: pos.altM ?? null, altEstimated: pos.altM == null, name: "present position",
+    altM: pos.altM ?? null, altEstimated: pos.altM == null, name: PRESENT_POSITION_NAME,
   };
   if (!plan.length) return { points: [here], mode: "EMPTY", rejoinIndex: null };
   const connect = (to: PlanPoint): PlanPoint[] =>
@@ -381,4 +385,143 @@ export function replanFromPosition(
   const dest = plan[plan.length - 1];
   if (haversineNm(here, dest) <= SAME_POINT_NM) return { points: [here], mode: "DIRECT", rejoinIndex: null };
   return { points: [here, ...connect(dest), { ...dest }], mode: "DIRECT", rejoinIndex: null };
+}
+
+// ── forward-only seam: where the plane joins the plan ───────────────────────
+// (2026-09-30, live bug AAL892R into KAUS: the connector from a plane being
+// vectored 5 nm beside its filed arrival ran SIDEWAYS to the perpendicular
+// foot on the route, then turned 90° onto it.) The connector must join the
+// plan AHEAD of the plane in its direction of travel — the client seam and
+// the server's "present position" vertex both use chooseForwardJoin below.
+
+/** synthesized point names (never a filed/published fix — never labeled) */
+export const PRESENT_POSITION_NAME = "present position";
+export const PRESENT_POSITION_ON_PLAN_NAME = "present position (on plan)";
+
+/** radius (nm) around the plan's ends inside which radar vectors, SIDs and
+ *  STARs are normal: the deviation tracker does not judge OFF_PLAN there,
+ *  and an off-route connector near the destination is "ATC vectors" */
+export const TERMINAL_AREA_NM = 40;
+/** cross-track (nm) beyond which a plane inside the destination's terminal
+ *  area is drawn as being vectored rather than flying the route */
+export const VECTORING_MIN_XT_NM = 2;
+/** a plane closer than this to the plan is ON it: the seam joins the very
+ *  next vertex ahead (the long-standing behaviour — 185 m is sub-pixel at
+ *  any zoom where the curtain reads as a route) */
+export const SEAM_ON_ROUTE_NM = 0.1;
+/** the join point is at least max(SEAM_MIN_LEAD_NM, SEAM_LEAD_XT_FACTOR ×
+ *  cross-track) from the plane — keeps the connector shallow */
+export const SEAM_MIN_LEAD_NM = 3;
+export const SEAM_LEAD_XT_FACTOR = 2;
+/** candidates are searched this far (nm) past the lead distance, then the
+ *  fallback applies (bounded work per seam update on a 1.5k-vertex plan) */
+export const SEAM_SEARCH_NM = 120;
+/** max turn (deg) between the plane's track and the connector, and between
+ *  the connector and the plan's next leg (the re-plan's own heading gate) */
+export const SEAM_MAX_TURN_DEG = REPLAN_MAX_TURN_DEG;
+
+export function seamLeadNm(crossTrack: number): number {
+  return Math.max(SEAM_MIN_LEAD_NM, SEAM_LEAD_XT_FACTOR * (Number.isFinite(crossTrack) ? crossTrack : 0));
+}
+
+/** "present position…", "TOC (est.)", "TOD (est.)", "peak (est.)" — points
+ *  WE inserted, never a named fix of the plan */
+export function isSynthesizedFixName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+  return n.startsWith(PRESENT_POSITION_NAME) || n.endsWith("(est.)");
+}
+
+/** inside the destination's terminal area AND measurably off the route */
+export function isTerminalVectoring(distToDestNm: number | null | undefined, crossTrack: number | null | undefined): boolean {
+  if (distToDestNm == null || crossTrack == null) return false;
+  if (!Number.isFinite(distToDestNm) || !Number.isFinite(crossTrack)) return false;
+  return distToDestNm <= TERMINAL_AREA_NM && crossTrack > VECTORING_MIN_XT_NM;
+}
+
+/** read-only view of a polyline (plain arrays or the client's typed arrays) */
+export interface PathView {
+  n: number;
+  lat(i: number): number;
+  lon(i: number): number;
+  /** along-route nm at vertex i */
+  alongNm(i: number): number;
+}
+
+export type ForwardJoinRule = "ON_ROUTE" | "FORWARD" | "FALLBACK_DEST" | "FALLBACK_NEXT";
+
+export interface ForwardJoin {
+  /** plan vertex the connector from the plane goes to */
+  index: number;
+  rule: ForwardJoinRule;
+}
+
+/**
+ * Where the connector from the plane joins the plan. `firstAhead` is the
+ * first vertex strictly AHEAD (along-track) of the plane's projection,
+ * `projAlongNm` that projection's along-route distance, `crossTrack` the
+ * plane's distance from the plan (nm).
+ *
+ *   ON_ROUTE (xt < SEAM_ON_ROUTE_NM): the next vertex ahead — unchanged.
+ *   FORWARD: the first vertex ahead that is (b) within ±SEAM_MAX_TURN_DEG of
+ *     the track as seen from the plane (skipped when the track is unknown),
+ *     (c) at least seamLeadNm(xt) away, and (d) not a hairpin: the turn from
+ *     the connector onto the plan's next leg is ≤ SEAM_MAX_TURN_DEG.
+ *   FALLBACK_DEST: none qualifies → the destination, when it lies forward of
+ *     the track (or the track is unknown);
+ *   FALLBACK_NEXT: otherwise the next vertex ahead.
+ * Never a vertex behind the projection. null = nothing ahead (past the end).
+ */
+export function chooseForwardJoin(
+  path: PathView, firstAhead: number, projAlongNm: number, crossTrack: number,
+  pos: LatLon, trkDeg: number | null | undefined,
+): ForwardJoin | null {
+  const n = path.n;
+  if (!(firstAhead >= 0 && firstAhead < n)) return null;
+  if (!(crossTrack >= SEAM_ON_ROUTE_NM)) return { index: firstAhead, rule: "ON_ROUTE" };
+  const useTrk = trkDeg != null && Number.isFinite(trkDeg);
+  const lead = seamLeadNm(crossTrack);
+  const at = (i: number): LatLon => ({ lat: path.lat(i), lon: path.lon(i) });
+  for (let i = firstAhead; i < n; i++) {
+    const ahead = path.alongNm(i) - projAlongNm;
+    if (ahead > lead + crossTrack + SEAM_SEARCH_NM) break;
+    if (crossTrack + ahead < lead) continue; // cannot be `lead` away yet (triangle bound)
+    const p = at(i);
+    if (haversineNm(pos, p) < lead) continue;
+    const brg = initialBearingDeg(pos, p);
+    if (useTrk && angleDiffDeg(brg, trkDeg as number) > SEAM_MAX_TURN_DEG) continue;
+    if (i + 1 < n) {
+      const q = at(i + 1);
+      if (haversineNm(p, q) > SAME_POINT_NM && angleDiffDeg(brg, initialBearingDeg(p, q)) > SEAM_MAX_TURN_DEG) continue;
+    }
+    return { index: i, rule: "FORWARD" };
+  }
+  const last = n - 1;
+  const dest = at(last);
+  if (!useTrk || haversineNm(pos, dest) <= SAME_POINT_NM ||
+      angleDiffDeg(initialBearingDeg(pos, dest), trkDeg as number) <= 90) {
+    return { index: last, rule: "FALLBACK_DEST" };
+  }
+  return { index: firstAhead, rule: "FALLBACK_NEXT" };
+}
+
+/** chooseForwardJoin on a plain LatLon polyline (the server's plan): locates
+ *  the projection itself. null for < 2 points or nothing ahead. */
+export function forwardJoinOnPlan(points: LatLon[], pos: LatLon, trkDeg: number | null | undefined): {
+  join: ForwardJoin; xt: CrossTrackResult; firstAhead: number;
+} | null {
+  if (points.length < 2) return null;
+  const xt = crossTrackNm(pos, points);
+  if (!xt) return null;
+  const cum = cumulativeNm(points);
+  let firstAhead: number;
+  if (xt.segIndex === 0 && xt.segFraction === 0 && haversineNm(pos, points[0]) > SAME_POINT_NM) {
+    firstAhead = 0; // nearest spot is the plan's first vertex: all of it lies ahead
+  } else {
+    firstAhead = xt.segIndex + 1;
+    while (firstAhead < points.length && cum[firstAhead] <= xt.alongNm + SAME_POINT_NM) firstAhead++;
+  }
+  const view: PathView = { n: points.length, lat: (i) => points[i].lat, lon: (i) => points[i].lon, alongNm: (i) => cum[i] };
+  const join = chooseForwardJoin(view, firstAhead, xt.alongNm, xt.nm, pos, trkDeg);
+  return join ? { join, xt, firstAhead } : null;
 }
