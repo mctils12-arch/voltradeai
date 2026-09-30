@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import { repoDataPath } from "./repoFiles";
 import { lookupFix } from "./navFixes";
+import { EARTH_RADIUS_NM } from "../shared/flightPlanGeometry";
 
 let table: Map<string, string[][]> | null = null;
 let cycle: string | null = null;
@@ -79,7 +80,7 @@ function legNm(a: { lat: number; lon: number }, b: { lat: number; lon: number })
   const r = Math.PI / 180;
   const h = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 +
     Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2;
-  return 2 * 3440.065 * Math.asin(Math.min(1, Math.sqrt(h)));
+  return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 /** Place a PURE direct-fix filed route (`SID..FIX..FIX..FIX..STAR`, no airway
