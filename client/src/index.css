@@ -824,6 +824,11 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border-color: rgba(255,159,10,0.2);
   color: #fcd34d;
 }
+.vrp-banner.unknown {
+  background: rgba(148,163,184,0.07);
+  border-color: rgba(148,163,184,0.2);
+  color: #cbd5e1;
+}
 
 /* ── Two-col ── */
 .two-col {
@@ -2784,6 +2789,12 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   .vt-card-closed .vt-card-actions,
   .vt-card-closed .vt-card-details-toggle { display: none; }
   .vt-card-closed .vt-card-stats { padding-bottom: 16px; }
+  /* Standing UI Law — no popup covers another element (2026-09-30): the
+     floating Legend (z 18) and the north-lock FAB sat ON TOP of the bottom
+     sheet (z 11), covering its chip row and body. While a sheet is up they
+     step aside; closing or minimizing the card brings them back. */
+  .vt-map-page:has(.vt-site-card:not(.vt-site-card-min)) .vt-legend-float,
+  .vt-map-page:has(.vt-site-card:not(.vt-site-card-min)) .vt-nav-fab { display: none; }
 }
 
 /* SPACE VIEW body card (2026-07-18, reference #bodycard): right-anchored
