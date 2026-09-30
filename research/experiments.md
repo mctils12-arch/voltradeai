@@ -106270,3 +106270,23 @@ quick_scan already returns None in that case (honest). Fix needs the page's
 .toFixed() calls and get_recommendation / earnings / iv_crush to accept a
 missing IV.
 STARVED: no.
+
+
+## 2026-09-30 [REPAIR] — T-CLIENT tooling — VISUAL HARNESS: GLOBAL AIRCRAFT FIXTURE (v1.0.1009)
+
+While verifying #1215 the data-page harness reported 5 hard failures, all
+aircraft (fields-on / data-richness 0 < 9500 / trail: "no aircraft
+rendered") — identical on pristine main, so pre-existing. Cause: #1207
+(FLIGHT PROGRAM B1) switched ZOOMED-OUT views to /api/data/aircraft/global;
+the harness starts zoomed out and had no fixture for that endpoint (its
+generic handler answered {} -> zero rows). Prod is fine: the live endpoint
+served 5,483 rows. The harness is not a required CI check, which is how
+#1207 merged with it red — noted, not changed (CI definitions are frozen).
+
+FIX: FIXTURES["/api/data/aircraft/global"] re-encodes the same 10k
+synthetic aircraft into the global fields+rows shape (fixed `at`, fresh
+seenAt), so both feeds show identical planes and the 9,500-feature
+richness floor still bites. Result: data page 0 hard failures at
+390/768/1440; rendered 1,607 / 3,034 / 3,507 aircraft — identical to the
+pre-#1207 runs.
+STARVED: no.

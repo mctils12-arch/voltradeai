@@ -1980,6 +1980,28 @@ const FIXTURES = {
   },
 };
 
+// FLIGHT PROGRAM B1 (#1207, 2026-09-28) moved ZOOMED-OUT views of the live
+// aircraft layer to /api/data/aircraft/global (compact fields+rows payload,
+// client/src/lib/air/globalFeed.ts adaptGlobalPayload). The harness starts
+// zoomed out and had no fixture for it, so every aircraft check (fields-on,
+// data-richness, trail) went red on main with "no aircraft rendered" —
+// a fixture gap, not a product bug (prod serves thousands of rows). The
+// global fixture re-encodes the SAME 10k synthetic aircraft, so both feeds
+// show identical planes and the 9,500-feature richness floor still bites.
+// `at` is fixed and every seenAt equals it: fresh rows, deterministic runs.
+FIXTURES["/api/data/aircraft/global"] = (() => {
+  const at = 1790000000000;
+  const fields = ["hex", "lon", "lat", "altFt", "gsKt", "trk", "callsign", "type", "seenAt", "cat", "gnd", "reg", "src"];
+  const rows = FIXTURES["/api/data/aircraft"].aircraft.map((a) => [
+    a.icao24, a.lon, a.lat,
+    a.altitude_m == null ? null : Math.round(a.altitude_m / 0.3048),
+    a.velocity_ms == null ? null : Math.round(a.velocity_ms / 0.5144),
+    a.heading, a.callsign, a.type, at, a.category, a.on_ground ? 1 : 0, "", "adsblol",
+  ]);
+  return { at, count: rows.length, full: true, scope: "world", fields, rows,
+           coverage: { opensky: { enabled: false } }, honesty: "fixture worldwide snapshot for the visual harness" };
+})();
+
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon" };
 
 // Deterministic weather tile standing in for the proxy's OUTPUT (alpha-
