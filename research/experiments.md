@@ -106270,3 +106270,27 @@ quick_scan already returns None in that case (honest). Fix needs the page's
 .toFixed() calls and get_recommendation / earnings / iv_crush to accept a
 missing IV.
 STARVED: no.
+
+
+## 2026-09-30 [REPAIR] — T-CLIENT (primary) + shared/server contract — PLANNED-ROUTE FORWARD-ONLY SEAM, TERMINAL VECTORING, FIX LABELS (v1.0.1009)
+
+Live bug (human screenshot): AAL892R, vectored ~5 nm beside its FILED_FAA
+arrival 25 nm from KAUS, drew a gray connector sideways to the
+perpendicular foot on the route, then a ~90° corner. Cause: the client seam
+and the server's "present position (on plan)" vertex both used the
+perpendicular projection, and the deviation tracker does not judge within
+40 nm of either end, so nothing re-planned.
+FIX: shared chooseForwardJoin (ahead along-track, ±70° of track, lead >=
+max(3 nm, 2x cross-track), no hairpin onto the next leg; fallback
+destination if forward, else next vertex ahead). Server present-position
+vertex = real position then the join. Additive terminalVectoring +
+point.vectors: inside 40 nm (shared TERMINAL_AREA_NM) and > 2 nm off, the
+connector draws faint/dashed with no curtain and the card says "ATC vectors
+— not part of the filed route". Named SFDPS fixes ahead labelled (<=12,
+decluttered, CPU-projected per frame).
+PRIOR: the corner disappears; on-route planes unchanged (pinned by a
+byte-identical seam test). Regression tests: server/flightPlanSeam.test.ts,
+client/src/lib/air/planSeam.test.ts. NOT visually verified (harness not
+run); next check is a real vectored arrival after deploy.
+ROLLBACK TRIGGER: seam gaps/hairpins reported on live arrivals.
+STARVED: yes — chart base views and plate-on-map are building in parallel.
