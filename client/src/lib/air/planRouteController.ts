@@ -25,11 +25,14 @@
 import {
   PLAN_REFRESH_MS,
   fetchFlightPlan,
+  labelableFixIndices,
   planDestLabel,
+  planVectoringAllowed,
   planDrawable,
   planGeometryKey,
   shouldDeviationRefetch,
   type FlightPlan,
+  type PlanPoint,
   type PlanQuery,
 } from './flightPlan.js';
 import {
@@ -38,7 +41,10 @@ import {
   buildOriginalLineVertices,
   buildPlanGeometry,
   densifyPlan,
+  PLAN_FIX_LABEL_MAX,
   type DensePlan,
+  type PlanFix,
+  type PlanFixSlot,
   type PlanLocation,
   type PlanSeam,
 } from './planCurtainLayer.js';
@@ -276,6 +282,41 @@ export function createPlanLabelEl(doc: Document): HTMLElement {
   return el;
 }
 
+/** One pooled waypoint label: a tiny tick at the fix vertex + the fix name
+ *  (DESIGN.md tokens, no palette hex). pointer-events none: it annotates the
+ *  map, it never covers a control. */
+export function createPlanFixLabelEl(doc: Document): { el: HTMLElement; slot: PlanFixSlot } {
+  const el = doc.createElement('div');
+  el.setAttribute('data-vt-plan-fix', '');
+  el.setAttribute('aria-hidden', 'true');
+  el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;'
+    + 'z-index:2;display:none;will-change:transform;';
+  const tick = doc.createElement('span');
+  tick.style.cssText = 'position:absolute;left:-1px;top:-3px;width:2px;height:6px;border-radius:1px;'
+    + 'background:var(--text-secondary);';
+  const text = doc.createElement('span');
+  text.setAttribute('data-vt-plan-fix-text', '');
+  text.style.cssText = 'position:absolute;left:4px;bottom:3px;white-space:nowrap;'
+    + 'font:500 9.5px/1.2 var(--font-mono);letter-spacing:.05em;color:var(--text-secondary);'
+    + 'text-shadow:0 0 3px var(--bg-primary),0 0 1px var(--bg-primary);';
+  el.appendChild(tick);
+  el.appendChild(text);
+  return { el, slot: { el, text } };
+}
+
+/** Pure: the plan's labelable named fixes (flightPlan.labelableFixIndices)
+ *  mapped onto the DENSE vertices that carry them, route order. */
+export function planFixesOnDense(points: readonly PlanPoint[], dense: DensePlan): PlanFix[] {
+  const want = new Set(labelableFixIndices(points));
+  const out: PlanFix[] = [];
+  if (!want.size) return out;
+  for (let k = 0; k < dense.n; k++) {
+    const i = dense.src[k];
+    if (i >= 0 && want.has(i)) out.push({ k, name: points[i].name as string });
+  }
+  return out;
+}
+
 export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   const { map, hex, store } = deps;
   const now = deps.now ?? (() => Date.now());
@@ -299,6 +340,17 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   const labelEl = doc ? createPlanLabelEl(doc) : null;
   if (labelEl) {
     try { map.getContainer?.().appendChild(labelEl); } catch (e) { reportPlanError('label-mount', e); }
+  }
+  // waypoint label pool (Law IV: a fixed PLAN_FIX_LABEL_MAX elements, reused)
+  const fixEls: HTMLElement[] = [];
+  const fixSlots: PlanFixSlot[] = [];
+  if (doc) {
+    for (let i = 0; i < PLAN_FIX_LABEL_MAX; i++) {
+      const { el, slot } = createPlanFixLabelEl(doc);
+      try { map.getContainer?.().appendChild(el); } catch (e) { reportPlanError('fix-label-mount', e); break; }
+      fixEls.push(el);
+      fixSlots.push(slot);
+    }
   }
 
   const readDatumKey = (): string => {
@@ -344,6 +396,7 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
       layer.setPlan(null);
       layer.setOriginal(null);
       layer.setLabel(null);
+      layer.setFixLabels(null);
       shownAlt = shownGround = null;
       return;
     }
@@ -371,6 +424,7 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     const dense = densifyPlan(p.points);
     const d = computePlanDatum(dense, readers, plane, airports);
     ensureLayer();
+    layer.setVectoringAllowed(planVectoringAllowed(p));
     const unchanged = reason === 'dem' && sameArrays(shownAlt, d.altDisp) && sameArrays(shownGround, d.groundZ);
     if (!unchanged) {
       layer.setPlan(
@@ -399,6 +453,8 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     } else {
       layer.setLabel(null);
     }
+    const fixes = fixSlots.length ? planFixesOnDense(p.points, dense) : [];
+    layer.setFixLabels(fixes.length ? { fixes, slots: fixSlots } : null);
     // DEM tiles near the plane still in flight → bounded refinement
     if (pending > 0 && demRetries < PLAN_DEM_RETRIES) {
       demRetries++;
@@ -450,6 +506,8 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   };
 
   layer.setSeamSource(deps.getSeam);
+  // the forward-join heading gate reads the plane's live track
+  layer.setTrackSource(() => deps.getLive()?.trkDeg ?? null);
   layer.setOnFrame(() => {
     if (stopped || !plan) return;
     // terrain toggled / exaggeration moved: re-datum the SAME plan (the live
@@ -485,6 +543,9 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
       try { if (map.getLayer(PLAN_LAYER_ID)) map.removeLayer(PLAN_LAYER_ID); } catch (e) { reportPlanError('remove-layer', e); }
       layer.dispose();
       try { labelEl?.remove(); } catch (e) { reportPlanError('label-remove', e); }
+      for (const el of fixEls) { try { el.remove(); } catch (e) { reportPlanError('fix-label-remove', e); } }
+      fixEls.length = 0;
+      fixSlots.length = 0;
       store.reset();
     },
   };

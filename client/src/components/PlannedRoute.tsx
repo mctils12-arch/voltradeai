@@ -25,6 +25,7 @@ import {
   planAgeSec,
   planKind,
   planRouteText,
+  planVectoringText,
   wasReplanned,
 } from "@/lib/air/flightPlan";
 import {
@@ -141,7 +142,11 @@ function PlannedRouteRow({ store, on, suppressed, onToggle }: {
     const age = planAgeSec(plan, st.receivedAtMs, Date.now());
     const estAlt = plan.cruiseAltEstimated || plan.points.some((p) => p.altEstimated);
     const off = plan.deviation.state === "OFF_PLAN";
-    tip = [plan.label, plan.honesty, estAlt ? "Dashed top edge = estimated altitude." : ""]
+    // terminal-area vectoring: the connector from the plane is ATC vectors,
+    // not the plan — said on the row, not only drawn dotted
+    const vectors = planVectoringText(plan);
+    tip = [plan.label, plan.honesty, estAlt ? "Dashed top edge = estimated altitude." : "",
+      vectors ? "Faint dotted connector = ATC vectors, not the planned route." : ""]
       .filter(Boolean).join(" — ");
     lines = [
       <div key="k" style={line}>
@@ -152,8 +157,9 @@ function PlannedRouteRow({ store, on, suppressed, onToggle }: {
         {route && <span style={{ color: "var(--flight-ink)", fontWeight: 600 }}>{route}</span>}
       </div>,
       <div key="d" style={line}>
-        <span style={{ color: off ? "var(--accent-orange)" : "var(--flight-ink)" }}>
-          {deviationText(plan.deviation, (km, d) => fmtKm(km, d))}
+        <span data-vt-plan-vectoring={vectors ? "" : undefined}
+              style={{ color: off || vectors ? "var(--accent-orange)" : "var(--flight-ink)" }}>
+          {vectors ?? deviationText(plan.deviation, (km, d) => fmtKm(km, d))}
         </span>
         {wasReplanned(plan) && " · re-planned"}
         {" · "}{fmtAgeShort(age)} old{st.refreshFailed && " · refresh failed"}
