@@ -92,6 +92,18 @@ test("filters: bbox (incl. antimeridian), lawful-only, since", () => {
   assert.equal(rowInBBox({ lat: 0, lon: 0 }, { lamin: -1, lamax: 1, lomin: -1, lomax: 1 }), true);
 });
 
+test("changedSinceMs: rows by SERVER ingest time (>=), not fix time; never on the wire", () => {
+  const s = new GlobalSnapshot();
+  s.ingest(batch("adsblol", [ac("a")], T), T);
+  s.ingest(batch("adsblol", [ac("b", { seen_pos: 50 })], T + 10_000), T + 10_000);
+  assert.deepEqual(s.rows({ changedSinceMs: T + 10_000 }).map((r) => r.hex), ["b"], ">= keeps same-ms ingests");
+  assert.deepEqual(s.rows({ changedSinceMs: T + 1 }).map((r) => r.hex), ["b"]);
+  // an older fix that loses the freshest-wins merge does not count as a change
+  s.ingest(batch("adsblol", [ac("a")], T - 60_000), T + 20_000);
+  assert.deepEqual(s.rows({ changedSinceMs: T + 20_000 }).map((r) => r.hex), []);
+  assert.equal(encodeRow(s.get("a")!).length, ROW_FIELDS.length, "ingestAt is internal");
+});
+
 test("encodeRow follows ROW_FIELDS exactly (the wire contract)", () => {
   const r = toSnapRow(ac("e1"), batch("adsblol", [], T))!;
   const enc = encodeRow(r);

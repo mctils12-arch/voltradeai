@@ -30,6 +30,9 @@
 // Optional query: lamin/lamax/lomin/lomax (all four) filters rows to a
 // bbox AND tells the sweep where viewers are looking (interest boost);
 // since=<ms> returns only rows with seenAt > since (full:false);
+// changed=<ms> (the previous response's `at`) returns only rows that
+// changed in the snapshot at/after that SERVER time (full:false) — the
+// viewers' delta cursor (browser-side traffic only; upstream unaffected);
 // lawful=1 returns only adsb.lol (ODbL) rows. Short shared cache
 // (max-age=10) + Express's weak ETag; gzip via the global compression
 // middleware (server/index.ts).
@@ -189,8 +192,14 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const lawfulOnly = String(q.lawful ?? "") === "1";
     const sinceN = parseFloat(String(q.since ?? ""));
     const sinceMs = Number.isFinite(sinceN) ? sinceN : null;
+    // changed=<server ms>: rows that CHANGED in the snapshot since then (the
+    // previous response's `at`) — the client delta cursor (server clock,
+    // exact; see SnapRow.ingestAt). A delta never includes evictions: the
+    // client applies the same evict_after_s rule and resyncs fully.
+    const changedN = parseFloat(String(q.changed ?? ""));
+    const changedSinceMs = Number.isFinite(changedN) ? changedN : null;
     if (bbox) { try { sweep.scheduler.noteInterest(bbox, t); } catch (e) { noteError("interest", e); } }
-    const key = `${snapshot.version}|${bbox ? `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}` : "world"}|${lawfulOnly ? 1 : 0}|${sinceMs ?? ""}`;
+    const key = `${snapshot.version}|${bbox ? `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}` : "world"}|${lawfulOnly ? 1 : 0}|${sinceMs ?? ""}|${changedSinceMs ?? ""}`;
     res.set("Cache-Control", "public, max-age=10");
     const hit = bodyCache.get(key);
     if (hit && t - hit.at <= GLOBAL_RESPONSE_CACHE_MS) {
@@ -198,7 +207,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       return res.send(hit.body);
     }
     snapshot.evict(t);
-    const rows = snapshot.rows({ bbox, lawfulOnly, sinceMs });
+    const rows = snapshot.rows({ bbox, lawfulOnly, sinceMs, changedSinceMs });
     const sweepStatus = sweep.status();
     const osStatus = opensky.status();
     const summary = snapshot.summary(t);
@@ -213,7 +222,8 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const payload = {
       at: t,
       count: rows.length,
-      full: sinceMs == null,
+      full: sinceMs == null && changedSinceMs == null,
+      ...(changedSinceMs != null ? { changed_since: changedSinceMs } : {}),
       scope: bbox ? "bbox" : "world",
       fields: ROW_FIELDS,
       rows: rows.map(encodeRow),
