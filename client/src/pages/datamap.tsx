@@ -165,6 +165,8 @@ import {
 } from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
 import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, meteorCoverageVerdict, siteLocalTime, fmtBlastAlt, fmtEntrySpeed } from "@/lib/meteors";
+import { startLayerKeeper, type KeeperMapLike } from "@/lib/layerKeeper";
+import { PLAN_LAYER_ID } from "@/lib/air/planRouteController";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
@@ -4038,29 +4040,26 @@ export default function DataMapPage() {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    let retryTimer: number | null = null;
-    const onRestore = () => {
-      // the restore event fires while the re-applied style is still LOADING
-      // (probe-caught 2026-07-20: addLayer throws "not done loading" there)
-      // — retry until every registered layer is back or ~10s passes.
-      let tries = 0;
-      const attempt = () => {
-        retryTimer = null;
-        tries++;
-        let missing = false;
-        for (const [id, impl] of customLayerRegistryRef.current) {
-          try {
-            if (!map.getLayer(id)) map.addLayer(impl);
-            if (!map.getLayer(id)) missing = true;
-          } catch { missing = true; }
-        }
-        try { repaintTrail3d(); } catch {}
-        try { map.triggerRepaint(); } catch {}
-        if (missing && tries < 40) retryTimer = window.setTimeout(attempt, 250);
-      };
-      attempt();
-    };
-    try { map.on("webglcontextrestored" as any, onRestore); } catch {}
+    // ONE re-add path for every registered custom layer (lib/layerKeeper,
+    // 2026-09-30 "the curtain disappeared after fullscreen until I clicked
+    // the plane again"): a frameCore poll — never a map-event handler (Law
+    // I) — re-adds whatever a context restore / style rebuild dropped, the
+    // gray plan just under the live curtain. The restore EVENT now only
+    // repaints; the keeper notices the missing layers on its next check
+    // (the restore fires while the re-applied style is still loading — the
+    // keeper simply waits for isStyleLoaded, no retry timers).
+    const stopKeeper = startLayerKeeper({
+      map: map as unknown as KeeperMapLike,
+      registry: customLayerRegistryRef.current,
+      beforeOf: (id) => (id === PLAN_LAYER_ID ? "flight-track-3d" : undefined),
+      onRestored: (ids) => {
+        bmark("layers-restored", { ids: ids.join(",") });
+        // the datum may have changed with the context (terrain re-created)
+        if (ids.includes("flight-track-3d")) repaintTrail3d();
+      },
+    });
+    const onRestore = () => { map.triggerRepaint(); };
+    map.on("webglcontextrestored" as any, onRestore);
     // dead-context detector: lost with no restore within 8s = the GPU is
     // not giving the context back (browser only fires restore if it can) —
     // surface the honest reload banner instead of a silent blank canvas
@@ -4126,7 +4125,7 @@ export default function DataMapPage() {
     startFrameRecorder();
     return () => {
       stopFrameRecorder();
-      if (retryTimer != null) window.clearTimeout(retryTimer);
+      stopKeeper();
       if (lostTimer != null) window.clearTimeout(lostTimer);
       canvas?.removeEventListener("webglcontextlost", onCtxLost);
       canvas?.removeEventListener("webglcontextrestored", onCtxBack);
@@ -4608,6 +4607,10 @@ export default function DataMapPage() {
           flightTrackRef.current = layer;
         }
         if (!map.getLayer("flight-track-3d")) map.addLayer(layer);
+        // registered for the layer keeper: a context restore / style rebuild
+        // re-adds it from the frame loop (it was never in the registry — the
+        // 2026-09-30 fullscreen report). Zero cost while empty.
+        customLayerRegistryRef.current.set("flight-track-3d", layer);
         // DISPLAY datum for the 3D geometry (same rule as displayAltReal —
         // groundM is already the REAL ground in both branches): terrain ON
         // clamps to the mesh (landing tracks rendered under ridges on
@@ -8970,6 +8973,7 @@ export default function DataMapPage() {
         if (map.getLayer("aircraft-sym")) map.removeLayer("aircraft-sym");
         if (map.getLayer("aircraft-sym-lo")) map.removeLayer("aircraft-sym-lo");
         if (map.getLayer("aircraft-veclines")) map.removeLayer("aircraft-veclines");
+        customLayerRegistryRef.current.delete("aircraft-3d"); // intentional — the layer keeper must not resurrect it
         if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d");
         if (map.getSource("aircraft")) map.removeSource("aircraft");
         if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
