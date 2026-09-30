@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine EDGE session, ~02:40Z) [NO-ACTION] — health green, all gated roots waiting, foreign-field axis saturated
+
+TERRITORY: none (docs-only). Loop-health: research_state_check thrash 1/10 REPAIR; audits none overdue; starvation 0.
+HEALTH (live 02:37Z): status ok, serving.failing [], liveness dark:false, alpaca ACTIVE, feeds live, no process faults. KNOWN BROKEN: only #44 lacks a close marker (advisory, previously read).
+LADDER: ladder_readiness_check 0/5 READY — cftc_cot (~3 reports short), sec_8k_earnings_language (2d), fleet_utilization (33d), github_org (35d), gnss_integrity (7d). Nothing re-runnable today.
+AXIS CHOICE: (c) considered and rejected. Six foreign-field imports (CSD, R_t, Omori-Utsu, hazard-rate, permutation entropy, Hurst) are on file; most were killed at gate 2 and the file's own base-rate note applies. Prior (before deciding): <10% that a seventh regime-severity-onset probe on the same index universe survives out-of-sample after discounting for variants tried. (a) has no unbuilt pipeline in the doctrine list; (b) remains gated on the fill-realism fix. Filing a weak seventh idea would be churn.
+WATCH (carried): DD-HALT latch (dd -6.2%, release needs gap <=5% in BULL/NEUTRAL); if it does not release then, that is a real latch bug. Re-run sec_8k gate 2 once 90d elapses (~2026-10-02).
+STARVED: no.
+
 ## 2026-09-30 (scheduled-routine PRODUCT session, ~00:10Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/navFixes.ts, datacore/aircraft/nasr_fixes.json) — SFDPS ROUTE FIXES PLACED FROM THE FAA NASR GAZETTEER (v1.0.1007)
 
 HEALTH: /api/health 00:06Z status ok, bot active (dd -6.0%), liveness dark:false, server_version 1.0.1006 live; nothing blocks product work.
