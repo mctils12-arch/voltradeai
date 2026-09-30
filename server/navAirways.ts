@@ -73,5 +73,33 @@ export function expandRouteText(routeText: string | null | undefined): { lat: nu
   return out;
 }
 
+const DIRECT_MAX_LEG_NM = 1200; // a longer leg between two "fixes" means an ident collision, not a route
+
+function legNm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const r = Math.PI / 180;
+  const h = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 +
+    Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lon - a.lon) * r) / 2) ** 2;
+  return 2 * 3440.065 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Place a PURE direct-fix filed route (`SID..FIX..FIX..FIX..STAR`, no airway
+ *  anywhere). >=3 resolved fixes required, consecutive legs must be plausible,
+ *  and any airway token refuses the whole route (skipping it would draw a
+ *  straight line across a segment we could not expand). */
+export function placeDirectFixes(routeText: string | null | undefined): { lat: number; lon: number; name: string }[] {
+  if (!routeText) return [];
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  if (toks.some((t) => AIRWAY_RE.test(t) && table!.has(t))) return [];
+  const out: { lat: number; lon: number; name: string }[] = [];
+  for (const t of toks) {
+    const p = lookupFix(t);
+    if (p && out[out.length - 1]?.name !== t) out.push({ ...p, name: t });
+  }
+  if (out.length < 3) return [];
+  for (let i = 1; i < out.length; i++) if (legNm(out[i - 1], out[i]) > DIRECT_MAX_LEG_NM) return [];
+  return out;
+}
+
 export const navAirwaysCycle = (): string | null => cycle;
 export function resetNavAirways(): void { table = null; cycle = null; }
