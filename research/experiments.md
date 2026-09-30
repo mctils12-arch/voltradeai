@@ -106328,3 +106328,19 @@ tsc: no errors in analyze.tsx (pre-existing errors elsewhere). No visual harness
 OPEN: instrument_selector.py:404 still falls back to hv20 when trade_data lacks atm_iv
 (separate path; needs its own look).
 STARVED: no.
+
+## 2026-09-30 (scheduled-routine session, ~16:05Z, market hours) [REPAIR] — T-BOT — instrument_selector: NO FABRICATED IV-CRUSH INPUT (v1.0.1012)
+
+HEALTH (live 16:02Z): status ok, serving.failing [], liveness dark:false, feeds live,
+scanner 0 failures; DD latch still by design (dd -5.9%, release needs <=5% in
+BULL/NEUTRAL). Loop-health ratio (last 10 tagged): 5 REPAIR / 2 PRODUCT / 1 PIPELINE /
+2 NO-ACTION — under the 7 threshold. Took the OPEN item from the 09-30 /analyze entry.
+BREAK: get_instrument_intelligence() fed compute_iv_crush_score an "ATM IV" of
+hv20/100 (or 25%) when trade_data had no atm_iv — realized vol / a constant posing as
+implied vol, same class as the /analyze fix (#1217). FIX: near earnings with no observed
+atm_iv -> crush score/pct/rec None, logged in fns_skipped; observed IV path unchanged.
+Downstream: iv_crush_* None was already a valid state (non-earnings names), so no caller
+change. RATCHET: test_instrument_selector_no_fabricated_iv.py (fails on old code).
+Related suites 132 pass. MERGE NOTE: prepared during market hours — merge after 4:00 PM
+ET (not a critical live break).
+STARVED: no.
