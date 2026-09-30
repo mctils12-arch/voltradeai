@@ -4,7 +4,7 @@ import {
   parseXmlLite, attr, findAll, parseSfdpsMessages, altitudeFeet, SwimPlanStore, planDiff,
   rootElementName, classifySfdpsPayload, flightChunks, needsFullParse, lightFlight,
   handleSfdpsPayload, sfdpsCounters, sfdpsStatus, startSfdps, routePointsOf, packRoute,
-  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, routeShapeSamples, xmlShape, type StoredSwimPlan,
+  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, routeShapeSamples, xmlShape, detachString, type StoredSwimPlan,
 } from "./swimSfdps";
 import { _resetSwimConnectorForTests } from "./swimConnector";
 
@@ -443,4 +443,42 @@ test("fix-name-only routePoints are placed from the FAA NASR gazetteer; unknown 
 test("explicit coordinates win over the gazetteer", () => {
   const [f] = parseSfdpsMessages(NAME_ONLY(`<routePoint><point fix="HTO" lat="1.5" lon="2.5"/></routePoint>`));
   assert.deepEqual({ lat: f.routePoints[0].lat, lon: f.routePoints[0].lon }, { lat: 1.5, lon: 2.5 });
+});
+
+// ── memory-leak repair 2026-09-30: stored plans must not pin their payloads ──
+// V8 keeps a whole parent string alive behind any ≥13-char slice of it; the
+// store used to hold regex-captured gufi/routeText/key strings, so every live
+// plan pinned its latest SFDPS payload (live heap climbed with the store).
+test("detachString: same value, and null/empty pass through", () => {
+  const big = "x".repeat(1000) + "5a8c6a52-2f2b-4d1e-9a4f-0f0b8b2f1c11";
+  assert.equal(detachString(big.slice(1000)), "5a8c6a52-2f2b-4d1e-9a4f-0f0b8b2f1c11");
+  assert.equal(detachString(null), null);
+  assert.equal(detachString(""), "");
+});
+
+test("SwimPlanStore does not retain the SFDPS payloads its plans were parsed from", async () => {
+  const v8 = await import("node:v8");
+  const vm = await import("node:vm");
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc") as () => void;
+  _resetSfdpsCountersForTests();
+  const store = new SwimPlanStore();
+  const at = Date.parse("2026-09-28T14:45:00Z");
+  const N = 120, PAD = 200_000; // 120 payloads × ~200 KB ≈ 23 MB if pinned
+  const payloadFor = (i: number, src: string) => `<ns5:MessageCollection ${NS}><!-- ${"x".repeat(PAD)}${i}${src} -->` +
+    `<message><flight source="${src}" timestamp="2026-09-28T14:45:00Z">` +
+    `<flightIdentification aircraftIdentification="DAL${i}"/><gufi>5a8c6a52-2f2b-4d1e-9a4f-${String(i).padStart(12, "0")}</gufi>` +
+    `<departure departurePoint="KBOS"/><arrival arrivalPoint="KATL"/>` +
+    (src === "FH" ? `<agreed><route nasRouteText="KBOS.SSOXS5.SSOXS..SEY..HTO.J150.OOD..BROSS..KATL"/></agreed>` : "") +
+    `</flight></message></ns5:MessageCollection>`;
+  gc();
+  const before = process.memoryUsage().heapUsed;
+  // light path (TH track message) AND full path (FH plan with route text)
+  for (let i = 0; i < N; i++) handleSfdpsPayload(payloadFor(i, i % 2 ? "TH" : "FH"), store, at);
+  gc();
+  const grownMB = (process.memoryUsage().heapUsed - before) / 1048576;
+  assert.equal(store.size, N);
+  assert.ok(store.lookup("DAL0", at)?.routeText?.startsWith("KBOS.SSOXS5"), "plan content intact");
+  // pinned payloads would be ~23 MB; the plans themselves are a few KB
+  assert.ok(grownMB < 6, `store retained ${grownMB.toFixed(1)} MB for ${N} plans — payload strings are being pinned`);
 });
