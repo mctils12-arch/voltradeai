@@ -41,6 +41,7 @@ import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { registerArchiveOffloadRoutes } from "./archiveOffload";
+import { attachAeroChartEditions, registerAeroChartRoutes } from "./aeroCharts";
 import { registerFlightPlanRoutes } from "./flightPlans";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -864,7 +865,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // LAYER_TO_STREAM). Absent entirely — never a fabricated `freshness` —
     // for layers backed by static reference data, derived joins, or ones
     // not yet mapped.
-    const freshLayers = attachLayerFreshness(layers, getStreamsInventoryCached()?.streams || []);
+    const freshLayers = attachAeroChartEditions(attachLayerFreshness(layers, getStreamsInventoryCached()?.streams || []));
     // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
     // long-lived tab that remounts the /data page re-fetches this registry
     // (new layer rows) while still running an old bundle (no effects for
@@ -1548,6 +1549,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json({ ...archiveStats(), generated_at: new Date().toISOString() }); } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
   registerArchiveOffloadRoutes(app); // R2 cold tier: offload + rolling replay window + /api/data/archive/offload-status
+  registerAeroChartRoutes(app); // FAA chart base views: /tiles/aero/:chart/:z/:x/:y read-through cache + /api/data/aero/status (server/aeroCharts.ts)
 
   // Fires × facilities cross-tie (worldview-globe Pillar 6, backend inference).
   // Joins live NASA active-fire detections to our strategic-facility archive:
