@@ -17,8 +17,8 @@ export function loadNavFixes(jsonPath?: string): number {
     const d = JSON.parse(fs.readFileSync(p, "utf-8"));
     table = new Map(Object.entries(d.fixes || {}) as [string, [number, number]][]);
     cycle = d.cycle ?? null;
-  } catch (e: any) {
-    console.error("[navFixes] load:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("[navFixes] load:", e instanceof Error ? e.message : e);
     table = new Map(); // degrade to no-matches, never throw at call sites
   }
   return table.size;
