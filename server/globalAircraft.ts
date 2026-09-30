@@ -39,7 +39,7 @@ import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { archiveAircraft, archiveBaseDir, type SitePoint } from "./datacoreArchive";
 import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
 import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
-import { createFastLane, HEX_RE } from "./aircraftFastLane";
+import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
 import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
@@ -281,7 +281,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   });
   app.get("/api/data/aircraft/live/:hex", async (req, res) => {
     const hex = String(req.params.hex || "").toLowerCase();
-    if (!HEX_RE.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    if (!ICAO_HEX_LC_RE.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
     let r: SnapRow | null | undefined;
     let baroRate: number | null = null;
     let source: string = "snapshot";

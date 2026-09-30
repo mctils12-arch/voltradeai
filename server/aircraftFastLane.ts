@@ -37,7 +37,7 @@ export const FAST_BURST = 2;
 export const FAST_TIMEOUT_MS = 6_000;
 export const FAST_UA = "voltradeai-datacore/1.0 (+https://voltradeai.com)";
 
-export const HEX_RE = /^[0-9a-f]{6}$/;
+export const ICAO_HEX_LC_RE = /^[0-9a-f]{6}$/;
 export const fastLaneUrl = (hex: string): string => `https://api.adsb.lol/v2/hex/${hex}`;
 
 export type FastSource = "snapshot" | "cache" | "upstream" | "limited" | "error" | "absent";
@@ -144,7 +144,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
   return {
     async lookup(hexIn: string): Promise<FastResult> {
       const hex = String(hexIn || "").toLowerCase();
-      if (!HEX_RE.test(hex)) throw new Error("icao24 hex required");
+      if (!ICAO_HEX_LC_RE.test(hex)) throw new Error("icao24 hex required");
       const t = now();
       pruneHexes(t);
       const snap = deps.snapshotGet(hex);
