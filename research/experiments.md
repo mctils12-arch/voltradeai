@@ -106344,3 +106344,92 @@ change. RATCHET: test_instrument_selector_no_fabricated_iv.py (fails on old code
 Related suites 132 pass. MERGE NOTE: prepared during market hours — merge after 4:00 PM
 ET (not a critical live break).
 STARVED: no.
+## 2026-09-30 [REPAIR] — T-CLIENT (primary) + shared/server contract — PLANNED-ROUTE FORWARD-ONLY SEAM, TERMINAL VECTORING, FIX LABELS (v1.0.1013)
+
+Live bug (human screenshot): AAL892R, vectored ~5 nm beside its FILED_FAA
+arrival 25 nm from KAUS, drew a gray connector sideways to the
+perpendicular foot on the route, then a ~90° corner. Cause: the client seam
+and the server's "present position (on plan)" vertex both used the
+perpendicular projection, and the deviation tracker does not judge within
+40 nm of either end, so nothing re-planned.
+FIX: shared chooseForwardJoin (ahead along-track, ±70° of track, lead >=
+max(3 nm, 2x cross-track), no hairpin onto the next leg; fallback
+destination if forward, else next vertex ahead). Server present-position
+vertex = real position then the join. Additive terminalVectoring +
+point.vectors: inside 40 nm (shared TERMINAL_AREA_NM) and > 2 nm off, the
+connector draws faint/dashed with no curtain and the card says "ATC vectors
+— not part of the filed route". Named SFDPS fixes ahead labelled (<=12,
+decluttered, CPU-projected per frame).
+PRIOR: the corner disappears; on-route planes unchanged (pinned by a
+byte-identical seam test). Regression tests: server/flightPlanSeam.test.ts,
+client/src/lib/air/planSeam.test.ts. NOT visually verified (harness not
+run); next check is a real vectored arrival after deploy.
+ROLLBACK TRIGGER: seam gaps/hairpins reported on live arrivals.
+STARVED: yes — chart base views and plate-on-map are building in parallel.
+
+
+## 2026-09-30 [PRODUCT] — T-CLIENT + server/aeroCharts — FAA AERONAUTICAL CHART BASE VIEWS ON /data (v1.0.1014)
+
+Human request (mockup approved: claude.ai/artifact/TGN2AAjNhSVVvLU5eEgm6C):
+ForeFlight-style chart views over the map. CHANGE: /data base-style popout
+gains Satellite | VFR Sectional | VFR Terminal (TAC) | IFR Low (Enroute +
+Area) | IFR High, with an opacity slider (10-100%) to fade the chart over
+satellite; chart raster inserted directly above imagery so aircraft and
+every other layer draw on top. Tiles are served from OUR origin at
+/tiles/aero/:chart/:z/:x/:y (chart id whitelist, integer z/x/y, out-of-
+range zoom returns empty without an upstream call, <=6 concurrent upstream
+fetches, deduped), cached per chart EDITION in R2 when configured (daily
+write cap AERO_R2_MAX_PUTS_PER_DAY, default 25k) else a byte-capped
+os.tmpdir() LRU (never the nearly-full /data volume). With R2 configured a
+background job pre-bakes CONUS z<=9 once per 56-day edition. Law II.8
+compromise: first request per tile per edition reads through to the FAA
+ArcGIS service (documented in the module header). FRESHNESS FINDING: on
+2026-09-30 the FAA tile service itself still carried the 07-09 cycle
+(05-14 for IFR High) although the FAA's current cycle began 09-03 — the
+on-map card says so in orange; "Not for navigation" always shown.
+Also: r2ConfigDiagnostics names missing/malformed R2 vars (never values)
+in /api/data/archive/offload-status and /api/data/aero/status — the live
+site has reported R2 "not configured" despite the human setting vars.
+PRIOR: zero cost with Satellite selected (no layer, no fetch).
+DOWNSTREAM: (1) each chart view pan adds tile reads through our server
+(Railway egress) and, uncached, the FAA service; (2) with R2 on, R2 Class
+A writes bounded by the daily cap.
+VERIFY: 20 server + client tests, 470 related tests, both ratchets pass;
+visual harness 390/768 pass, 1440 missed timing gates only on a loaded
+host with Satellite selected (chart layer not yet perf-gated in the
+harness — follow-up). ROLLBACK TRIGGER: frame-time regression with a chart
+selected on S24-class devices; FAA upstream error rate high.
+STARVED: yes — procedures/plate-on-map still building.
+
+
+## 2026-09-30 [PRODUCT] — T-DATACORE + T-CLIENT — INSTRUMENT PROCEDURES + GEOREFERENCED PLATE ON THE MAP (v1.0.1015)
+
+Human request: ForeFlight-style — pull up the procedure plate for the
+selected flight and show it on the map with its path. CHANGE: FAA CIFP
+(ARINC 424) parser + leg geometry (server/cifp.ts; exact for IF/TF/CF/DF/
+RF/AF/FC, altitude/intercept/vector legs, holds and procedure turns drawn
+as flagged approximations; missed approach split out; NASR gazetteer
+cross-check), d-TPP chart index + plate PDF cache (server/dtpp.ts; R2 or
+bounded /tmp, only PDFs the index lists for that airport), symbol-based
+plate georeference with outlier rejection cross-checked against the PDF's
+embedded georeference (server/plateGeoref.ts; >=3 points with embedded
+georef, >=4 without; RMS < 0.5 nm required), 6 endpoints
+(server/procedures.ts). Client: "Procedures" row in the aircraft card (off
+by default) — filed DP/STAR auto-selected from SWIM route text; approaches
+only SUGGESTED (ATC assigns), ranked by METAR headwind; purple path with
+dashed approximations/missed approach, plate as a map canvas source with
+opacity, pdf.js 3.11.174 from cdnjs (SRI-pinned, lazy; allowed by the app
+CSP script-src + blob: workers). "NOT FOR NAVIGATION" leads the header.
+RESULT (live FAA data, cycle 2609): KAUS ILS or LOC RWY 18L georeferenced,
+3 fixes, RMS 0.028 nm (embedded-georef agreement 0.33 nm — the honest
+accuracy figure); RNAV (GPS) Y 18L 0.14 nm (6 fixes); RNAV (RNP) Z 36R
+0.09 nm (15); ILS 36L, BLEWE5, AUSTIN SEVEN correctly refused (side viewer
+with reason). FINDING: blind 3-point matches can coincide < 0.5 nm (a dev
+run matched a profile label 22 nm off) -> 4 fixes required without an
+embedded georef.
+UNVERIFIED: FAA / aviationweather.gov / cdnjs reachability from Railway;
+three-width visual harness run for the card. First request ~7 s (9 MB CIFP
++ 16 MB index download, then cached).
+ROLLBACK TRIGGER: a georeferenced plate visibly misaligned with its own
+path/fixes; memory spikes on the index parse.
+STARVED: no.

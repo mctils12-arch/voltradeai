@@ -26,9 +26,15 @@
 // endpoint the live curtain's moving tail was last drawn to (datamap passes
 // FlightTrackLayer.getTailEnd(), or the track's last sample when no tail is
 // up). When it moved, the layer locates it on the plan (nearest segment,
-// progress-monotonic), draws the fixed geometry only from the first plan
-// vertex AHEAD of it (a sub-range drawElements — no rebuild), and rebuilds
-// the tiny seam piece seam → that vertex (≤6 quads, bufferSubData). The part
+// progress-monotonic), picks the JOIN vertex with the shared FORWARD-ONLY
+// rule (locateSeam → shared/flightPlanGeometry chooseForwardJoin: ahead of
+// the plane in its direction of travel, never the perpendicular foot — the
+// 2026-09-30 AAL892R sideways-corner fix), draws the fixed geometry only
+// from that vertex (a sub-range drawElements — no rebuild), and rebuilds
+// the tiny seam piece seam → that vertex (≤6 quads, bufferSubData). Inside
+// the destination's terminal area and off the route the connector is ATC
+// VECTORS: no curtain, faint dashed edge + trace. Named fixes ahead get
+// small CPU-projected labels (≤ PLAN_FIX_LABEL_MAX, decluttered). The part
 // the plane has passed therefore disappears from the gray curtain exactly
 // where the colored curtain grows: no gap, no overlap, by construction.
 //
@@ -61,6 +67,7 @@ import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 import { metersPerPixel } from '../lod.js';
 import { bump, setGauge } from '../../render/perfMetrics.js';
 import { frameCore, PRIORITY, type FrameLoop } from '../../render/frameCore.js';
+import { chooseForwardJoin, isTerminalVectoring, type PathView } from '../../../../shared/flightPlanGeometry.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -127,6 +134,11 @@ export const PLAN_TRACE_ALPHA = 0.7;
 /** original (pre-replan) plan line. */
 export const PLAN_ORIG_WIDTH_PX = 1.25;
 export const PLAN_ORIG_ALPHA = 0.38;
+/** ATC-vectoring connector (terminal area, off the route — NOT part of the
+ *  filed/predicted route): no curtain, a thinner fainter DASHED top edge and
+ *  a dashed ground trace, so it can never read as the plan itself. */
+export const PLAN_VECTOR_EDGE_WIDTH_PX = 1.5;
+export const PLAN_VECTOR_EDGE_ALPHA = 0.45;
 /** dash period on screen (CSS px at the view center) and its "on" share. */
 export const PLAN_DASH_PX = 12;
 export const PLAN_DASH_ON = 0.6;
@@ -144,6 +156,8 @@ export interface PlanPointLike {
   lat: number;
   altM: number | null;
   altEstimated?: boolean;
+  /** the segment FROM this point is ATC vectoring (server-flagged). */
+  vectors?: boolean;
 }
 
 /** The plan densified along great circles — one entry per render vertex. */
@@ -158,6 +172,12 @@ export interface DensePlan {
   est: Uint8Array;
   /** cumulative great-circle meters from the first vertex. */
   alongM: Float64Array;
+  /** 1 = the segment STARTING at this vertex is an ATC-vectoring connector
+   *  (drawn faint + dashed, no curtain — not part of the route). */
+  vec: Uint8Array;
+  /** index into the INPUT points array of the point this vertex is, or −1
+   *  for an inserted (great-circle / antimeridian) vertex. */
+  src: Int32Array;
   /** valid input points (finite, in-range positions). */
   inputCount: number;
   /** input points dropped to fit PLAN_MAX_POINTS (0 in practice; reported). */
@@ -187,22 +207,34 @@ export function densifyPlan(
   maxPoints: number = PLAN_MAX_POINTS,
   minSpacingM: number = PLAN_MIN_SPACING_M,
 ): DensePlan {
-  let pts = points.filter(valid);
+  let srcOf: number[] = [];
+  let pts: PlanPointLike[] = [];
+  points.forEach((p, i) => { if (valid(p)) { pts.push(p); srcOf.push(i); } });
   const inputCount = pts.length;
   const cap = Math.max(2, maxPoints - AM_RESERVE);
   let decimated = 0;
   if (pts.length > cap) {
     // Law IV: keep first/last + evenly spaced waypoints, and SAY so
     const keep: PlanPointLike[] = [];
-    for (let i = 0; i < cap; i++) keep.push(pts[Math.round((i * (pts.length - 1)) / (cap - 1))]);
+    const keepSrc: number[] = [];
+    for (let i = 0; i < cap; i++) {
+      const k = Math.round((i * (pts.length - 1)) / (cap - 1));
+      keep.push(pts[k]);
+      keepSrc.push(srcOf[k]);
+    }
     decimated = pts.length - cap;
     pts = keep;
+    srcOf = keepSrc;
   }
   setGauge('planCurtain.decimated', decimated);
 
   const oLon: number[] = [], oLat: number[] = [], oAlt: number[] = [], oEst: number[] = [];
-  const pushRaw = (lon: number, lat: number, alt: number, est: boolean) => {
+  const oVec: number[] = [], oSrc: number[] = [];
+  // per-push extras: the segment-from-here flag and the input index
+  let curVec = 0, curSrc = -1;
+  const pushRaw = (lon: number, lat: number, alt: number, est: boolean, src = -1) => {
     oLon.push(lon); oLat.push(lat); oAlt.push(alt); oEst.push(est ? 1 : 0);
+    oVec.push(curVec); oSrc.push(src);
   };
   const push = (lon: number, lat: number, alt: number, est: boolean) => {
     const k = oLon.length;
@@ -222,12 +254,25 @@ export function densifyPlan(
         pushRaw(-edge, cLat, cAlt, cEst);
       }
     }
-    if (oLon.length < maxPoints) pushRaw(lon, lat, alt, est);
+    if (oLon.length < maxPoints) pushRaw(lon, lat, alt, est, curSrc);
+  };
+  /** push an INPUT point: its own segment flag, its input index */
+  const pushPoint = (k: number, alt: number, est: boolean) => {
+    const p = pts[k];
+    const prevVec = curVec;
+    curVec = p.vectors ? 1 : 0;
+    curSrc = srcOf[k];
+    // an antimeridian split pair before this point belongs to the segment
+    // ARRIVING here: it carries the previous point's flag
+    const k0 = oLon.length;
+    push(p.lon, p.lat, alt, est);
+    for (let q = k0; q < oLon.length - 1; q++) { oVec[q] = prevVec; oSrc[q] = -1; }
+    curSrc = -1;
   };
 
   if (pts.length >= 1) {
     const a0 = pts[0];
-    push(a0.lon, a0.lat, a0.altM == null ? NaN : a0.altM, !!a0.altEstimated && a0.altM != null);
+    pushPoint(0, a0.altM == null ? NaN : a0.altM, !!a0.altEstimated && a0.altM != null);
   }
   if (pts.length >= 2) {
     let total = 0;
@@ -268,7 +313,7 @@ export function densifyPlan(
           push(lon, lat, alt, est && !Number.isNaN(alt));
         }
       }
-      push(b.lon, b.lat, bAlt, !!b.altEstimated && b.altM != null);
+      pushPoint(i + 1, bAlt, !!b.altEstimated && b.altM != null);
     }
   }
 
@@ -286,6 +331,8 @@ export function densifyPlan(
     altM: Float32Array.from(oAlt),
     est: Uint8Array.from(oEst),
     alongM: along,
+    vec: Uint8Array.from(oVec),
+    src: Int32Array.from(oSrc),
     inputCount,
     decimated,
   };
@@ -377,6 +424,11 @@ const TRACE_RGBA_PLAN: RGBA = [PLAN_GRAY_DIM[0], PLAN_GRAY_DIM[1], PLAN_GRAY_DIM
 const edgeRgba = (est: boolean): RGBA =>
   [PLAN_GRAY[0], PLAN_GRAY[1], PLAN_GRAY[2], est ? PLAN_EDGE_ALPHA_EST : PLAN_EDGE_ALPHA];
 const edgeWidth = (est: boolean): number => (est ? -PLAN_EDGE_WIDTH_PX : PLAN_EDGE_WIDTH_PX);
+const VECTOR_EDGE_RGBA: RGBA = [PLAN_GRAY[0], PLAN_GRAY[1], PLAN_GRAY[2], PLAN_VECTOR_EDGE_ALPHA];
+/** a vectoring connector's trace is DASHED (negative width). */
+const traceWidth = (vector: boolean): number => (vector ? -PLAN_TRACE_WIDTH_PX : PLAN_TRACE_WIDTH_PX);
+/** the segment starting at dense vertex i is an ATC-vectoring connector. */
+const segVec = (d: DensePlan, i: number): boolean => d.vec[i] === 1;
 
 /** a segment is "estimated" when either end's altitude is. */
 const segEst = (d: DensePlan, i: number, j: number): boolean => d.est[i] === 1 || d.est[j] === 1;
@@ -413,13 +465,14 @@ export function buildPlanGeometry(input: PlanGeomInput): PlanGeometry {
     const ax = merc[s * 2], ay = merc[s * 2 + 1], bx = merc[s * 2 + 2], by = merc[s * 2 + 3];
     if (!wrapOk(ax, bx)) continue;
     pk.ribbon(ax, ay, groundZ[s] + lift, bx, by, groundZ[s + 1] + lift,
-      PLAN_TRACE_WIDTH_PX, TRACE_RGBA_PLAN, A[s], A[s + 1]);
+      traceWidth(segVec(dense, s)), TRACE_RGBA_PLAN, A[s], A[s + 1]);
   }
   segQuad[PG_TRACE][nSeg] = groupEnd[PG_TRACE] = pk.quads;
   // 2) curtain
   for (let s = 0; s < nSeg; s++) {
     segQuad[PG_CURTAIN][s] = pk.quads;
     if (Number.isNaN(altDisp[s]) || Number.isNaN(altDisp[s + 1])) continue; // honest gap
+    if (segVec(dense, s)) continue; // ATC vectors: no curtain — it is not a planned path
     const ax = merc[s * 2], ay = merc[s * 2 + 1], bx = merc[s * 2 + 2], by = merc[s * 2 + 3];
     if (!wrapOk(ax, bx)) continue;
     pk.wall(ax, ay, altDisp[s], groundZ[s] - drop, bx, by, altDisp[s + 1], groundZ[s + 1] - drop,
@@ -432,6 +485,10 @@ export function buildPlanGeometry(input: PlanGeomInput): PlanGeometry {
     if (Number.isNaN(altDisp[s]) || Number.isNaN(altDisp[s + 1])) continue;
     const ax = merc[s * 2], ay = merc[s * 2 + 1], bx = merc[s * 2 + 2], by = merc[s * 2 + 3];
     if (!wrapOk(ax, bx)) continue;
+    if (segVec(dense, s)) {
+      pk.ribbon(ax, ay, altDisp[s], bx, by, altDisp[s + 1], -PLAN_VECTOR_EDGE_WIDTH_PX, VECTOR_EDGE_RGBA, A[s], A[s + 1]);
+      continue;
+    }
     const est = segEst(dense, s, s + 1);
     pk.ribbon(ax, ay, altDisp[s], bx, by, altDisp[s + 1], edgeWidth(est), edgeRgba(est), A[s], A[s + 1]);
   }
@@ -489,6 +546,49 @@ export interface PlanLocation {
   projAlongM: number;
   /** the nearest segment. */
   seg: number;
+  /** FORWARD-ONLY SEAM (locateSeam): the dense vertex the connector from the
+   *  plane joins — ahead of the plane in its direction of travel, never the
+   *  perpendicular foot (absent = `ahead`, the on-route rule). */
+  join?: number;
+  /** the connector is ATC vectoring (terminal area, off the route): drawn
+   *  faint + dashed with no curtain. */
+  vectoring?: boolean;
+}
+
+const NM_M = 1852;
+
+/**
+ * Pure: locateOnPlan + the shared forward-join rule (shared/
+ * flightPlanGeometry chooseForwardJoin — the same rule the server uses for
+ * its "present position" vertex) + the terminal-vectoring test. `trkDeg`
+ * is the aircraft's track (null = unknown → "next vertex ahead, never
+ * behind"); `vectoringAllowed` false suppresses the live vectoring test
+ * (a FILED plan whose path is only a great-circle stand-in). The connector
+ * is also vectoring when it runs along a server-flagged vectoring segment.
+ */
+export function locateSeam(
+  dense: DensePlan, lon: number, lat: number, hint = -1,
+  trkDeg: number | null = null, vectoringAllowed = true,
+): PlanLocation | null {
+  const loc = locateOnPlan(dense, lon, lat, hint);
+  if (!loc) return null;
+  const n = dense.n;
+  if (loc.ahead >= n) return { ...loc, join: loc.ahead, vectoring: false };
+  const view: PathView = {
+    n,
+    lat: (i) => dense.lat[i],
+    lon: (i) => dense.lon[i],
+    alongNm: (i) => dense.alongM[i] / NM_M,
+  };
+  const pos = { lat, lon };
+  const xtNm = loc.crossTrackM / NM_M;
+  const j = chooseForwardJoin(view, loc.ahead, loc.projAlongM / NM_M, xtNm, pos, trkDeg);
+  const join = j ? j.index : loc.ahead;
+  const last = n - 1;
+  const live = vectoringAllowed &&
+    isTerminalVectoring(distMeters(lat, lon, dense.lat[last], dense.lon[last]) / NM_M, xtNm);
+  const flagged = join > 0 && dense.vec[join - 1] === 1;
+  return { ...loc, join, vectoring: live || flagged };
 }
 
 /**
@@ -535,13 +635,16 @@ export function locateOnPlan(dense: DensePlan, lon: number, lat: number, hint = 
 }
 
 /**
- * Pure: the seam piece — live curtain end → the first plan vertex ahead,
- * trace + curtain + edge (≤3 quads; ≤6 when it crosses the antimeridian,
- * split exactly at the meridian). Empty when the plane is past the end.
+ * Pure: the seam piece — live curtain end → the JOIN vertex (locateSeam's
+ * forward-only choice; `ahead` when absent), trace + curtain + edge (≤3
+ * quads; ≤6 when it crosses the antimeridian, split exactly at the
+ * meridian). A VECTORING connector has no curtain and a faint dashed
+ * trace + edge. Empty when the plane is past the end.
  */
 export function buildSeamVertices(seam: PlanSeam, geom: PlanGeometry, loc: PlanLocation): Float32Array {
   const d = geom.dense;
-  const j = loc.ahead;
+  const j = loc.join ?? loc.ahead;
+  const vector = !!loc.vectoring;
   const n = Math.min(d.n, geom.altDisp.length);
   if (!(j >= 0 && j < n)) return new Float32Array(0);
   const est = j > 0 ? segEst(d, j - 1, j) : d.est[0] === 1;
@@ -567,15 +670,18 @@ export function buildSeamVertices(seam: PlanSeam, geom: PlanGeometry, loc: PlanL
   const drop = geom.drapeBelowM;
   for (const [a, b] of pieces) {
     pk.ribbon(a.x, a.y, a.g + TRACE_ABOVE_TERRAIN_M, b.x, b.y, b.g + TRACE_ABOVE_TERRAIN_M,
-      PLAN_TRACE_WIDTH_PX, TRACE_RGBA_PLAN, a.along, b.along);
+      traceWidth(vector), TRACE_RGBA_PLAN, a.along, b.along);
+  }
+  if (!vector) {
+    for (const [a, b] of pieces) {
+      if (Number.isNaN(a.alt) || Number.isNaN(b.alt)) continue;
+      pk.wall(a.x, a.y, a.alt, a.g - drop, b.x, b.y, b.alt, b.g - drop, est, a.along, b.along);
+    }
   }
   for (const [a, b] of pieces) {
     if (Number.isNaN(a.alt) || Number.isNaN(b.alt)) continue;
-    pk.wall(a.x, a.y, a.alt, a.g - drop, b.x, b.y, b.alt, b.g - drop, est, a.along, b.along);
-  }
-  for (const [a, b] of pieces) {
-    if (Number.isNaN(a.alt) || Number.isNaN(b.alt)) continue;
-    pk.ribbon(a.x, a.y, a.alt, b.x, b.y, b.alt, edgeWidth(est), edgeRgba(est), a.along, b.along);
+    if (vector) pk.ribbon(a.x, a.y, a.alt, b.x, b.y, b.alt, -PLAN_VECTOR_EDGE_WIDTH_PX, VECTOR_EDGE_RGBA, a.along, b.along);
+    else pk.ribbon(a.x, a.y, a.alt, b.x, b.y, b.alt, edgeWidth(est), edgeRgba(est), a.along, b.along);
   }
   return pk.done();
 }
@@ -699,6 +805,56 @@ export interface PlanLabelAnchor {
   z: number;
 }
 
+// ── waypoint labels (pure helpers + the DOM slot contract) ─────────────────
+
+/** at most this many named-fix labels (the nearest ahead of the plane). */
+export const PLAN_FIX_LABEL_MAX = 12;
+/** declutter: a label's text is shown only this many CSS px from every
+ *  nearer-ahead label already shown (its tick stays). */
+export const PLAN_FIX_LABEL_MIN_PX = 30;
+
+/** One pooled DOM label: the anchor (tick) + its text. */
+export interface PlanFixSlot {
+  el: { style: { transform: string; display: string } };
+  text: { textContent: string | null; style: { display: string } };
+}
+
+export interface PlanFix {
+  /** dense vertex index of the fix. */
+  k: number;
+  name: string;
+}
+
+export interface PlanFixLabels {
+  /** labelable fixes in route order (dense index ascending). */
+  fixes: PlanFix[];
+  slots: PlanFixSlot[];
+}
+
+/** Pure: the first `max` fixes at or AHEAD of dense vertex `from` (the
+ *  seam's join — a fix in a cut corner is no longer on the drawn path). */
+export function fixesAhead(fixes: readonly PlanFix[], from: number, max: number): PlanFix[] {
+  const out: PlanFix[] = [];
+  for (const f of fixes) {
+    if (f.k < from) continue;
+    out.push(f);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Pure: declutter in priority order (nearest ahead first) — true = show the
+ *  text; a hidden point (null) never blocks another. */
+export function declutterLabels(pts: readonly ({ x: number; y: number } | null)[], minPx: number): boolean[] {
+  const shown: { x: number; y: number }[] = [];
+  return pts.map((p) => {
+    if (!p) return false;
+    for (const q of shown) if (Math.hypot(p.x - q.x, p.y - q.y) < minPx) return false;
+    shown.push(p);
+    return true;
+  });
+}
+
 const seamEq = (a: PlanSeam | null, b: PlanSeam | null): boolean => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -728,6 +884,9 @@ export class PlanCurtainLayer implements CustomLayerInterface {
   private orig: { verts: Float32Array; indices: Uint32Array; buf: WebGLBuffer | null; ibuf: WebGLBuffer | null; dirty: boolean } | null = null;
 
   private seamSource: (() => PlanSeam | null) | null = null;
+  private trackSource: (() => number | null) | null = null;
+  private vectoringAllowed = true;
+  private fixes: PlanFixLabels | null = null;
   private lastSeam: PlanSeam | null = null;
   private seamStale = true;
   private seamVerts: Float32Array | null = null;
@@ -742,6 +901,8 @@ export class PlanCurtainLayer implements CustomLayerInterface {
   private garbage: WebGLBuffer[] = [];
   private label: PlanLabelAnchor | null = null;
   private labelXY = '';
+  /** per fix slot: the last written state ('' = never, 'hidden'). */
+  private fixKeys: string[] = [];
 
   private failStreak = 0;
   private static readonly MAX_FAIL_STREAK = 5;
@@ -774,6 +935,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.glRef = null;
     if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
     this.hideLabel();
+    this.hideFixLabels();
+    this.fixes = null;
+    this.fixKeys = [];
+    this.trackSource = null;
     this.cur = this.prev = null;
     this.orig = null;
     this.seamVerts = null;
@@ -828,6 +993,21 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.seamSource = fn;
     this.seamStale = true;
     if (fn) this.ensureFrame();
+  }
+
+  /** The aircraft's current track, degrees true (null = unknown) — read on
+   *  each seam update (the forward-join heading gate). */
+  setTrackSource(fn: (() => number | null) | null): void {
+    this.trackSource = fn;
+    this.seamStale = true;
+  }
+
+  /** false = never draw a live-computed vectoring connector (a FILED plan
+   *  whose path is only a great-circle stand-in). */
+  setVectoringAllowed(on: boolean): void {
+    if (this.vectoringAllowed === on) return;
+    this.vectoringAllowed = on;
+    this.seamStale = true;
   }
 
   /** Called whenever the plane is re-located on the plan (null = not
@@ -899,6 +1079,15 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  /** Waypoint labels (named fixes of the plan, dense indices of the CURRENT
+   *  geometry) + their pooled DOM slots — positioned every drawn frame. */
+  setFixLabels(labels: PlanFixLabels | null): void {
+    this.hideFixLabels();
+    this.fixes = labels && labels.slots.length ? labels : null;
+    this.fixKeys = [];
+    this.map?.triggerRepaint();
+  }
+
   private retire(s: Slot | null): void {
     if (!s) return;
     if (s.buf) this.garbage.push(s.buf);
@@ -951,7 +1140,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     let loc: PlanLocation | null = null;
     if (s && Number.isFinite(s.mercX) && Number.isFinite(s.mercY)) {
       const ll = mercatorToLonLat(s.mercX, s.mercY);
-      loc = locateOnPlan(cur.geom.dense, ll.lonDeg, ll.latDeg, this.hint);
+      let trk: number | null = null;
+      try { trk = this.trackSource?.() ?? null; } catch (e) { reportPlanError('track-source', e); }
+      loc = locateSeam(cur.geom.dense, ll.lonDeg, ll.latDeg, this.hint,
+        trk != null && Number.isFinite(trk) ? trk : null, this.vectoringAllowed);
     }
     this.lastLoc = loc;
     try { this.onLocate?.(loc); } catch (e) { reportPlanError('locate-hook', e); }
@@ -960,8 +1152,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
       this.seamVerts = null;
       return;
     }
-    this.hint = loc.ahead;
-    cur.ahead = loc.ahead;
+    this.hint = loc.ahead; // progress-monotonic locate keys on the projection
+    // the fixed plan is drawn from the FORWARD join: the stretch between the
+    // plane's perpendicular foot and the join is the corner it cuts
+    cur.ahead = loc.join ?? loc.ahead;
     const v = buildSeamVertices(s, cur.geom, loc);
     this.seamVerts = v.length ? v : null;
     this.seamDirty = this.seamVerts != null;
@@ -972,7 +1166,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
     if (this.failStreak >= PlanCurtainLayer.MAX_FAIL_STREAK) return;
     const curOn = !!this.cur && this.cur.ahead >= 0;
-    if (!curOn && !this.prev && this.garbage.length === 0) { this.hideLabel(); return; }
+    if (!curOn && !this.prev && this.garbage.length === 0) { this.hideLabel(); this.hideFixLabels(); return; }
     try {
       this.renderInner(gl as WebGL2RenderingContext, args, curOn);
       this.failStreak = 0;
@@ -991,7 +1185,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
       for (const b of this.garbage) gl.deleteBuffer(b);
       this.garbage = [];
     }
-    if (!curOn && !this.prev) { this.hideLabel(); return; }
+    if (!curOn && !this.prev) { this.hideLabel(); this.hideFixLabels(); return; }
     const sd = args.shaderData;
     if (this.program == null || this.cachedVariant !== sd.variantName) {
       this.compile(gl, sd.vertexShaderPrelude, sd.define, sd.variantName);
@@ -1039,6 +1233,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     if (this.aAlong >= 0) gl.disableVertexAttribArray(this.aAlong);
 
     this.positionLabel(args, curOn);
+    this.positionFixLabels(args, curOn);
   }
 
   private dashPeriodM(): number {
@@ -1151,13 +1346,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
       const cam = cameraFromClippingPlane(pd.clippingPlane as ArrayLike<number>);
       if (cam && earthOccludes(cam, mercatorToSphere(L.mercX, L.mercY, L.z))) { this.hideLabel(); return; }
     }
-    let w = 0, h = 0;
-    try {
-      const c = (this.map as unknown as { getCanvas: () => { clientWidth: number; clientHeight: number } }).getCanvas();
-      w = c.clientWidth; h = c.clientHeight;
-    } catch (e) {
-      reportPlanError('label-canvas', e); // no canvas → the label hides below
-    }
+    const { w, h } = this.canvasSize();
     const p = w > 0 && h > 0
       ? projectMercToScreen(pd.mainMatrix as ArrayLike<number>, t, L.mercX, L.mercY, L.z, w, h)
       : null;
@@ -1167,6 +1356,71 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.labelXY = key;
     L.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
     L.el.style.display = '';
+  }
+
+  /** CSS size of the map canvas (0×0 when unavailable → labels hide). */
+  private canvasSize(): { w: number; h: number } {
+    try {
+      const c = (this.map as unknown as { getCanvas: () => { clientWidth: number; clientHeight: number } }).getCanvas();
+      return { w: c.clientWidth, h: c.clientHeight };
+    } catch (e) {
+      reportPlanError('label-canvas', e); // no canvas → the labels hide
+      return { w: 0, h: 0 };
+    }
+  }
+
+  // ── waypoint labels ──────────────────────────────────────────────────────
+
+  private hideFixSlot(i: number): void {
+    const F = this.fixes;
+    if (!F || this.fixKeys[i] === 'hidden') return;
+    F.slots[i].el.style.display = 'none';
+    this.fixKeys[i] = 'hidden';
+  }
+
+  private hideFixLabels(): void {
+    const F = this.fixes;
+    if (!F) return;
+    for (let i = 0; i < F.slots.length; i++) this.hideFixSlot(i);
+  }
+
+  /** The named fixes AHEAD of the plane (from the seam's join), nearest
+   *  first, capped at PLAN_FIX_LABEL_MAX, projected with THIS frame's matrix
+   *  (CPU, like the destination label — never a map event), far side of the
+   *  globe / off screen hidden, text decluttered by PLAN_FIX_LABEL_MIN_PX
+   *  (the tick stays). DOM is written only when a slot's state changed. */
+  private positionFixLabels(args: CustomRenderMethodInput, visible: boolean): void {
+    const F = this.fixes;
+    const cur = this.cur;
+    if (!F) return;
+    if (!visible || !this.map || !cur || cur.ahead < 0) { this.hideFixLabels(); return; }
+    const g = cur.geom;
+    const pd = args.defaultProjectionData;
+    const t = pd.projectionTransition;
+    const cam = t > 0 ? cameraFromClippingPlane(pd.clippingPlane as ArrayLike<number>) : null;
+    const { w, h } = this.canvasSize();
+    const list = fixesAhead(F.fixes, cur.ahead, Math.min(F.slots.length, PLAN_FIX_LABEL_MAX));
+    const pts = list.map((f) => {
+      if (!(w > 0 && h > 0) || f.k >= g.dense.n) return null;
+      const mx = g.merc[f.k * 2], my = g.merc[f.k * 2 + 1];
+      const z = Number.isNaN(g.altDisp[f.k]) ? g.groundZ[f.k] + TRACE_ABOVE_TERRAIN_M : g.altDisp[f.k];
+      if (cam && earthOccludes(cam, mercatorToSphere(mx, my, z))) return null;
+      return projectMercToScreen(pd.mainMatrix as ArrayLike<number>, t, mx, my, z, w, h);
+    });
+    const showText = declutterLabels(pts, PLAN_FIX_LABEL_MIN_PX);
+    for (let i = 0; i < F.slots.length; i++) {
+      const p = i < list.length ? pts[i] : null;
+      if (!p) { this.hideFixSlot(i); continue; }
+      const name = list[i].name;
+      const key = `${name}|${showText[i] ? 1 : 0}|${Math.round(p.x * 2) / 2},${Math.round(p.y * 2) / 2}`;
+      if (key === this.fixKeys[i]) continue;
+      this.fixKeys[i] = key;
+      const S = F.slots[i];
+      if (S.text.textContent !== name) S.text.textContent = name;
+      S.text.style.display = showText[i] ? '' : 'none';
+      S.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+      S.el.style.display = '';
+    }
   }
 
   // ── GL plumbing ──────────────────────────────────────────────────────────

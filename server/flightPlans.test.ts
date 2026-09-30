@@ -380,7 +380,7 @@ function ctxWith(opts: {
 
 const CONTRACT_KEYS = [
   "ageSec", "callsign", "cruiseAltEstimated", "cruiseAltFt", "destination", "deviation", "events", "fetchedAt",
-  "hex", "honesty", "label", "origin", "originalPoints", "pathEstimated", "points", "source",
+  "hex", "honesty", "label", "origin", "originalPoints", "pathEstimated", "points", "source", "terminalVectoring",
 ].sort();
 
 function assertContract(r: FlightPlanResponse) {

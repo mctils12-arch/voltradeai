@@ -49,7 +49,7 @@ import type { Express } from "express";
 import { archiveBaseDir, RAW_RETENTION_DAYS, rollupDayAsync, type ArchiveKind } from "./datacoreArchive";
 import { MIN_FREE_BYTES, readFreeBytes, volumeAllowsWrite } from "./globalScopes";
 import { hourName, setColdHourSource, type ColdHourSource } from "./aircraftWindow";
-import { createR2Client, errText, r2ConfigFromEnv, type R2Client } from "./r2Client";
+import { createR2Client, errText, r2ConfigDiagnostics, r2ConfigFromEnv, type R2Client } from "./r2Client";
 import { preserveWeeklyBeforeRollup } from "./fleetUtilization";
 import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
 
@@ -822,6 +822,10 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
     const classB = unitsPerDay * 30 + 30 * 24 * 20;  // HEAD verifies + ~20 cold replay requests/day x 24 hours
     const data = {
       configured: client.configured,
+      // names + reasons only, never values: why `configured` is false when
+      // the vars "are set" (a pasted URL for the account id, a capitalized
+      // bucket) — r2ConfigFromEnv itself stays silent by design.
+      r2Config: r2ConfigDiagnostics(env),
       retentionDays: days,
       retentionSource: client.configured ? "REPLAY_RETENTION_DAYS (both tiers)" : "RAW_RETENTION_DAYS (local only — R2 not configured)",
       replayRetentionDays: cfg.replayDays,

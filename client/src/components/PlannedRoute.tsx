@@ -25,6 +25,7 @@ import {
   planAgeSec,
   planKind,
   planRouteText,
+  planVectoringText,
   wasReplanned,
 } from "@/lib/air/flightPlan";
 import {
@@ -53,7 +54,7 @@ export interface UsePlannedRouteOpts {
   registry?: Map<string, unknown> | null;
 }
 
-export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element | null } {
+export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element | null; store: PlanRouteStore } {
   const hex = opts.hex && HEX_RE.test(opts.hex) ? opts.hex.toLowerCase() : null;
   // default ON per selection: the user's OFF applies to that plane only
   const [offFor, setOffFor] = useState<string | null>(null);
@@ -94,7 +95,9 @@ export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element |
       onToggle={() => setOffFor(on ? hex : null)}
     />
   ) : null;
-  return { row };
+  // the store rides out too (read-only use: FlightProcedures reads the
+  // plan's airports from it — one plan fetch, never a second one)
+  return { row, store };
 }
 
 const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 639px)").matches;
@@ -141,7 +144,11 @@ function PlannedRouteRow({ store, on, suppressed, onToggle }: {
     const age = planAgeSec(plan, st.receivedAtMs, Date.now());
     const estAlt = plan.cruiseAltEstimated || plan.points.some((p) => p.altEstimated);
     const off = plan.deviation.state === "OFF_PLAN";
-    tip = [plan.label, plan.honesty, estAlt ? "Dashed top edge = estimated altitude." : ""]
+    // terminal-area vectoring: the connector from the plane is ATC vectors,
+    // not the plan — said on the row, not only drawn dotted
+    const vectors = planVectoringText(plan);
+    tip = [plan.label, plan.honesty, estAlt ? "Dashed top edge = estimated altitude." : "",
+      vectors ? "Faint dotted connector = ATC vectors, not the planned route." : ""]
       .filter(Boolean).join(" — ");
     lines = [
       <div key="k" style={line}>
@@ -152,8 +159,9 @@ function PlannedRouteRow({ store, on, suppressed, onToggle }: {
         {route && <span style={{ color: "var(--flight-ink)", fontWeight: 600 }}>{route}</span>}
       </div>,
       <div key="d" style={line}>
-        <span style={{ color: off ? "var(--accent-orange)" : "var(--flight-ink)" }}>
-          {deviationText(plan.deviation, (km, d) => fmtKm(km, d))}
+        <span data-vt-plan-vectoring={vectors ? "" : undefined}
+              style={{ color: off || vectors ? "var(--accent-orange)" : "var(--flight-ink)" }}>
+          {vectors ?? deviationText(plan.deviation, (km, d) => fmtKm(km, d))}
         </span>
         {wasReplanned(plan) && " · re-planned"}
         {" · "}{fmtAgeShort(age)} old{st.refreshFailed && " · refresh failed"}

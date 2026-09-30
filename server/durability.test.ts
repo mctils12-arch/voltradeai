@@ -18,6 +18,7 @@ const SERVER = path.dirname(fileURLToPath(import.meta.url));
 const TMP_BY_DESIGN: Record<string, string> = {
   "routes.ts": "CBOE universe cache at /tmp (regenerable); all archive writes route through archiveBaseDir()/DATA_DIR",
   "bot.ts": "/tmp scratch JSON handed to spawned python and removed immediately (IPC); state writes use /data/voltrade with /tmp local fallback",
+  "aeroCharts.ts": "FAA chart tile read-through cache: byte-capped LRU under os.tmpdir(), wiped at boot and refilled from the FAA service on demand (regenerable); deliberately NOT the nearly-full /data volume — the durable tier is R2 when configured",
 };
 
 // Known stray, wishlisted for the human (frozen file — see wishlist billing

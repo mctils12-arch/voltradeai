@@ -158,6 +158,42 @@ export function r2ConfigFromEnv(env: NodeJS.ProcessEnv = process.env): R2Config 
   return { accountId, accessKeyId, secretAccessKey, bucket, host: `${accountId}.r2.cloudflarestorage.com` };
 }
 
+/** Why r2ConfigFromEnv returned null (or didn't), WITHOUT ever echoing a
+ *  value. r2ConfigFromEnv is deliberately silent — a missing var and a
+ *  malformed one both produce `null` — which made "R2 is set in Railway but
+ *  the status says not configured" undiagnosable from the outside. This
+ *  names the variables and the rule each broke; it never returns, logs or
+ *  hashes a value (the secret key's shape is not even inspected). */
+export interface R2ConfigDiagnostics {
+  configured: boolean;
+  missing: string[];
+  /** one human-readable reason per malformed variable, each starting with
+   *  the variable's NAME (never its value) */
+  malformed: string[];
+}
+
+export const R2_ENV_VARS = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ARCHIVE_BUCKET"] as const;
+
+export function r2ConfigDiagnostics(env: NodeJS.ProcessEnv = process.env): R2ConfigDiagnostics {
+  const missing: string[] = [];
+  const malformed: string[] = [];
+  const val = (k: string) => (env[k] || "").trim();
+  for (const k of R2_ENV_VARS) if (!val(k)) missing.push(k);
+  const accountId = val("R2_ACCOUNT_ID");
+  if (accountId && !/^[a-zA-Z0-9]{8,64}$/.test(accountId)) {
+    malformed.push(/^https?:|\.|\//.test(accountId)
+      ? "R2_ACCOUNT_ID must be the bare 32-char account id, not a URL or hostname"
+      : "R2_ACCOUNT_ID must be 8-64 letters/digits only (the Cloudflare account id)");
+  }
+  const bucket = val("R2_ARCHIVE_BUCKET");
+  if (bucket && !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) {
+    malformed.push(/[A-Z]/.test(bucket)
+      ? "R2_ARCHIVE_BUCKET must be lowercase (R2 bucket names are lowercase letters, digits, hyphens)"
+      : "R2_ARCHIVE_BUCKET must be 3-63 chars of lowercase letters, digits and hyphens, not starting/ending with a hyphen");
+  }
+  return { configured: missing.length === 0 && malformed.length === 0, missing, malformed };
+}
+
 // ── client ───────────────────────────────────────────────────────────────
 
 export interface R2Base {

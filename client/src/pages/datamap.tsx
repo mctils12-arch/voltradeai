@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight, Gem, Truck } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
@@ -117,6 +117,7 @@ import {
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
+import { useFlightProcedures } from "@/components/FlightProcedures";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
@@ -263,6 +264,10 @@ import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
 import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { installDrapeOrderGuard } from "@/lib/drapeOrder";
+import {
+  AERO_LAYER_ID, AERO_NOT_FOR_NAV, AERO_OPACITY_MIN, AERO_SOURCE_ID, aeroBadge, aeroPaint, aeroSourceSpec, aeroViewReducer, beforeIdAbove,
+  mergeAeroMeta, readAeroViewPref, writeAeroViewPref, type AeroViewId,
+} from "@/lib/aeroCharts";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
@@ -471,6 +476,9 @@ interface LayerMeta {
     age_hours: number | null;
     health_note: string;
   };
+  // FAA chart base views (server/aeroCharts.ts): present on the imagery row
+  // only — per-chart edition/effective/expiry for the freshness badge.
+  aeroCharts?: unknown;
 }
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
@@ -1438,6 +1446,9 @@ function LegendIcon({ icon, color, label }: { icon: string; color: string; label
 // stable useCallback/useState-setter identities, or stable ref objects, so
 // memo's default shallow comparison is correct without a custom comparator.
 interface LegendPanelProps {
+  /** FAA chart base view in use (null = satellite) — primitives, memo-safe */
+  aeroLegendTitle: string | null;
+  aeroLegendEdition: string | null;
   legendOpen: boolean;
   setLegendOpen: React.Dispatch<React.SetStateAction<boolean>>;
   enabled: Record<string, boolean>;
@@ -1476,6 +1487,7 @@ interface LegendPanelProps {
 }
 
 const LegendPanel = memo(function LegendPanel({
+  aeroLegendTitle, aeroLegendEdition,
   legendOpen, setLegendOpen, enabled, airFilter, setAirFilter,
   nightlightsDate, aerosolDate, vegetationDate, soilmoistureDate, no2Date,
   so2Date,
@@ -1497,6 +1509,18 @@ const LegendPanel = memo(function LegendPanel({
       </button>
       {legendOpen && (
         <div className="vt-legend-body">
+          {aeroLegendTitle && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Base chart</div>
+              <div className="vt-legend-items">
+                <span className="vt-legend-chip">FAA {aeroLegendTitle}</span>
+                {/* a raster chart carries its OWN symbology — re-drawing the
+                    FAA's key from memory here would be a fabricated legend;
+                    the authoritative key is the FAA Chart User's Guide */}
+                <span className="vt-legend-note">symbols, airspace tints and airways are the FAA's own chart symbology — key: FAA Aeronautical Chart User's Guide · {aeroLegendEdition} · not for navigation</span>
+              </div>
+            </div>
+          )}
           {(enabled.aircraft || enabled.vessels || enabled.trains) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Live Tracking</div>
@@ -3155,6 +3179,75 @@ export default function DataMapPage() {
     } catch { /* base swap failed — data layers unaffected, map stays alive */ }
   }, [mapPreset, mapReady]);
 
+  // FAA AERONAUTICAL CHART BASE VIEWS (lib/aeroCharts + server/aeroCharts):
+  // Satellite | VFR Sectional | VFR Terminal | IFR Low | IFR High, with a
+  // chart-opacity fade over the satellite. Persisted per viewer. The chart
+  // is a MapLibre raster from OUR origin inserted directly above the base
+  // imagery, so aircraft, curtains and every overlay draw above it, and the
+  // satellite shows through outside coverage. Zero cost while "Satellite":
+  // no source, no status fetch, no tiles.
+  const [aeroView, dispatchAero] = useReducer(aeroViewReducer, undefined, () => readAeroViewPref());
+  const [aeroStatusRows, setAeroStatusRows] = useState<unknown>(null);
+  const aeroFetchedRef = useRef(false);
+  const aeroAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => { writeAeroViewPref(aeroView); }, [aeroView]);
+  // one status fetch per page life (first chart pick), aborted only on
+  // unmount — switching charts mid-flight must not cancel the one answer
+  useEffect(() => () => aeroAbortRef.current?.abort(), []);
+  useEffect(() => {
+    if (aeroView.view === "satellite" || aeroFetchedRef.current) return;
+    aeroFetchedRef.current = true;
+    const ac = new AbortController();
+    aeroAbortRef.current = ac;
+    fetch("/api/data/aero/status", { signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && Array.isArray(d.charts)) setAeroStatusRows(d.charts); })
+      .catch((e: unknown) => {
+        // registry editions (or "unverified") stay on the badge; retry on next pick
+        aeroFetchedRef.current = false;
+        if (!(e instanceof DOMException && e.name === "AbortError")) console.warn("[aero] status fetch failed", e);
+      });
+  }, [aeroView.view]);
+  const aeroMeta = useMemo(
+    () => mergeAeroMeta(aeroStatusRows ?? layers.find((l) => l.id === "imagery")?.aeroCharts),
+    [aeroStatusRows, layers],
+  );
+  const aeroActive = aeroView.view === "satellite" ? null : aeroMeta[aeroView.view];
+  // rebuild key: a new edition is a new tile URL; a new LOD band re-sources
+  const aeroSourceKey = aeroActive ? `${aeroActive.tiles}|${aeroActive.minzoom}|${aeroActive.maxzoom}` : null;
+  const aeroOpacityRef = useRef(aeroView.opacity);
+  aeroOpacityRef.current = aeroView.opacity;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const teardown = () => {
+      if (map.getLayer(AERO_LAYER_ID)) map.removeLayer(AERO_LAYER_ID);
+      if (map.getSource(AERO_SOURCE_ID)) map.removeSource(AERO_SOURCE_ID);
+    };
+    try {
+      teardown();
+      if (!aeroActive) return;
+      map.addSource(AERO_SOURCE_ID, aeroSourceSpec(aeroActive) as any);
+      const ids = (map.getStyle()?.layers || []).map((l: { id: string }) => l.id);
+      map.addLayer({ id: AERO_LAYER_ID, type: "raster", source: AERO_SOURCE_ID,
+        paint: aeroPaint(aeroOpacityRef.current) } as any, beforeIdAbove(ids, "imagery"));
+    } catch (e: unknown) {
+      console.warn("[aero] chart layer mount failed — satellite base unaffected", e);
+    }
+    return () => {
+      try { teardown(); } catch (e: unknown) { console.warn("[aero] chart teardown failed", e); }
+    };
+    // aeroSourceKey (not the meta object, whose identity changes on every
+    // registry refresh) keys the rebuild; opacity is applied in place below.
+  }, [aeroView.view, aeroSourceKey, mapReady]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getLayer(AERO_LAYER_ID)) return;
+    try { map.setPaintProperty(AERO_LAYER_ID, "raster-opacity", aeroView.opacity / 100); }
+    catch (e: unknown) { console.warn("[aero] opacity update failed", e); }
+  }, [aeroView.opacity, mapReady]);
+  const aeroBadgeInfo = aeroActive ? aeroBadge(aeroActive) : null;
+
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
   // worldview_globe.md G2a: night-lights time-scrubber state. Defaults to
   // the charter's "yesterday" — GIBS daily layers never carry today's data.
@@ -4214,6 +4307,21 @@ export default function DataMapPage() {
       const li = st ? st.samples.length - 1 : -1;
       if (!st || li < 0 || String(st.id).toLowerCase() !== selectedHexLc()) return null;
       return { mercX: st.merc[li * 2], mercY: st.merc[li * 2 + 1], altM: st.altDisp[li], groundZ: st.groundZ[li] };
+    },
+  });
+  // ── INSTRUMENT PROCEDURES (2026-09-30): filed DP/STAR + suggested
+  // approaches for the selected flight, the FAA CIFP path on the map and the
+  // georeferenced FAA plate under it — components/FlightProcedures.tsx.
+  // The plan's airports come from the planned-route store (no second fetch).
+  const flightProcedures = useFlightProcedures({
+    mapRef, mapReady,
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    suppressed: tripReplay != null,
+    planStore: plannedRoute.store,
+    getCallsign: () => {
+      const id = selectedHexLc();
+      const row = (airPayloadRef.current || []).find((x) => String(x?.icao24 || "").toLowerCase() === id);
+      return String(row?.callsign || "").trim() || null;
     },
   });
 
@@ -14448,6 +14556,7 @@ export default function DataMapPage() {
           <Mountain size={18} aria-hidden />
         </button>
         {presetOpen && (
+          <div className="vt-preset-pop">
           <div className="vt-preset-pills">
             {([
               ["natural", "Natural"],
@@ -14464,8 +14573,58 @@ export default function DataMapPage() {
               </button>
             ))}
           </div>
+          {/* FAA chart base views (lib/aeroCharts): picking one keeps the
+              popout open so the opacity slider (in the on-map chart card)
+              is the next thing in reach; Satellite = chart off. */}
+          <div className="vt-preset-pills vt-aero-pills" role="group" aria-label="Aeronautical chart view">
+            {([
+              ["satellite", "Satellite"],
+              ["sectional", "VFR Sectional"],
+              ["tac", "VFR Terminal"],
+              ["ifrlow", "IFR Low"],
+              ["ifrhigh", "IFR High"],
+            ] as ReadonlyArray<readonly [AeroViewId, string]>).map(([id, label]) => (
+              <button
+                key={id}
+                className={`vt-preset-pill${aeroView.view === id ? " vt-preset-pill-on" : ""}`}
+                aria-pressed={aeroView.view === id}
+                title={id === "satellite" ? "No chart — satellite imagery only" : `${aeroMeta[id].label} (FAA) — not for navigation`}
+                onClick={() => dispatchAero({ type: "setView", view: id })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          </div>
         )}
       </div>
+      )}
+
+      {/* FAA chart freshness card (Law V: every layer says how old it is):
+          chart name + edition effective–expiry (flagged when the FAA's
+          newer cycle has not reached its tile service), coverage, opacity
+          fade, and the not-for-navigation note. Top-centre (the left
+          column, floating legend and bottom status bar own the other
+          edges); drops below the time-axis badge when that is showing. */}
+      {aeroActive && aeroBadgeInfo && !spaceActive && (
+        <div className={`vt-aero-card vt-aero-${aeroBadgeInfo.tone}${historicalAtMs !== null ? " vt-aero-card-below-axis" : ""}`} role="region" aria-label="Aeronautical chart view" data-vt-aero-card>
+          <div className="vt-aero-card-head">
+            <span className="vt-aero-card-title">{aeroBadgeInfo.title}</span>
+            <button className="vt-aero-card-x" aria-label="Back to satellite view" title="Back to satellite"
+                    onClick={() => dispatchAero({ type: "setView", view: "satellite" })}>
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+          <div className="vt-aero-card-ed">{aeroBadgeInfo.edition}</div>
+          <label className="vt-aero-card-op">
+            <span>Chart</span>
+            <input type="range" min={AERO_OPACITY_MIN} max={100} step={1} value={aeroView.opacity}
+                   aria-label="Chart opacity over satellite"
+                   onChange={(e) => dispatchAero({ type: "setOpacity", opacity: Number(e.target.value) })} />
+            <span className="vt-aero-card-pct">{aeroView.opacity}%</span>
+          </label>
+          <div className="vt-aero-card-note"><span className="vt-aero-card-cov">{aeroBadgeInfo.coverage} · </span><strong>{AERO_NOT_FOR_NAV}</strong> · FAA AIS (public domain)</div>
+        </div>
       )}
 
       <div ref={mapContainer} className="vt-map-canvas" />
@@ -15292,6 +15451,7 @@ export default function DataMapPage() {
             <span className="vt-legend-float-dots">⠿</span>
           </div>
           <LegendPanel
+            aeroLegendTitle={aeroBadgeInfo?.title ?? null} aeroLegendEdition={aeroBadgeInfo?.edition ?? null}
             legendOpen={legendOpen} setLegendOpen={setLegendOpenPersist}
             enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
             nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
@@ -15741,6 +15901,9 @@ export default function DataMapPage() {
           {/* planned-route toggle + provenance (FILED/PREDICTED, route,
               deviation, plan age) — components/PlannedRoute.tsx */}
           {detail.kind === "aircraft" && plannedRoute.row}
+          {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
+              path + georeferenced plate — components/FlightProcedures.tsx */}
+          {detail.kind === "aircraft" && flightProcedures.row}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}
