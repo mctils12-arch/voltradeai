@@ -28,6 +28,7 @@ import {
 import { DtppStore, PlateCache, chartsForProcedure, type DtppAirport, type DtppChart, type DtppIndex } from "./dtpp";
 import { georeferencePlate, type GeorefResult } from "./plateGeoref";
 import { getFlightPlanContext } from "./flightPlans";
+import { lookupFix } from "./navFixes";
 
 export const NOT_FOR_NAVIGATION = "NOT FOR NAVIGATION — FAA CIFP/d-TPP data drawn for situational awareness only.";
 export const APPROACH_HONESTY =
@@ -242,7 +243,9 @@ export function registerProcedureRoutes(app: Express, ctxIn?: Partial<Procedures
   const ctx = (): ProceduresContext => {
     if (lazy) return lazy;
     lazy = {
-      cifp: ctxIn?.cifp ?? new CifpStore(),
+      // NASR fix/navaid gazetteer (server/navFixes.ts, #1214): fallback for
+      // an unresolved CIFP reference + an independent cross-check of each fix
+      cifp: ctxIn?.cifp ?? new CifpStore({ external: (id) => lookupFix(id) }),
       dtpp: ctxIn?.dtpp ?? new DtppStore(),
       plates: ctxIn?.plates ?? new PlateCache(),
       filedPlan: ctxIn?.filedPlan ?? defaultFiledPlan,

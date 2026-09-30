@@ -293,7 +293,9 @@ export interface NavaidInfo { ll: LL; name: string }
 export class CifpIndex {
   readonly waypoints = new Map<string, LL>();        // EA  ident|region
   readonly navaids = new Map<string, NavaidInfo>();  // D / DB / PN  ident|region
-  readonly byIdent = new Map<string, LL>();          // first-seen ident (fallback)
+  /** independent gazetteer (FAA NASR FIX/NAV, server/navFixes.ts): fallback
+   *  when a CIFP reference does not resolve, and a cross-check when it does */
+  external: ((ident: string) => LL | null) | null = null;
   private blocks = new Map<string, [number, number]>();
   private cache = new Map<string, AirportData | null>();
   static readonly AIRPORT_LRU = 48;
@@ -329,14 +331,11 @@ export class CifpIndex {
       const region = line.slice(19, 21);
       if (sec === "E" && sub5 === "A") {
         const ll = llAt(line, 32);
-        if (ll) { idx.waypoints.set(`${ident}|${region}`, ll); if (!idx.byIdent.has(ident)) idx.byIdent.set(ident, ll); }
+        if (ll) idx.waypoints.set(`${ident}|${region}`, ll);
       } else if (sec === "D" || (sec === "P" && sub5 === "N")) {
         const nid = line.slice(13, 17).trim();
         const ll = llAt(line, 32) ?? llAt(line, 55);
-        if (ll) {
-          idx.navaids.set(`${nid}|${region}`, { ll, name: line.slice(93, 123).trim() });
-          if (!idx.byIdent.has(nid)) idx.byIdent.set(nid, ll);
-        }
+        if (ll) idx.navaids.set(`${nid}|${region}`, { ll, name: line.slice(93, 123).trim() });
       }
     }
     closeAp(buf.length);
@@ -365,7 +364,9 @@ export class CifpIndex {
     return null;
   }
 
-  resolve(f: FixRef | null, ap: AirportData): LL | null {
+  /** Position of a coded reference from CIFP itself (section/subsection
+   *  decide the table; ident+region is the key). */
+  resolvePrimary(f: FixRef | null, ap: AirportData): LL | null {
     if (!f) return null;
     const key = `${f.ident}|${f.region}`;
     if (f.section === "P" && f.sub === "C") return ap.terminalFixes.get(f.ident) ?? this.waypoints.get(key) ?? null;
@@ -374,6 +375,15 @@ export class CifpIndex {
     if (f.section === "E" && f.sub === "A") return this.waypoints.get(key) ?? null;
     if (f.section === "D" || (f.section === "P" && f.sub === "N")) return this.navaids.get(key)?.ll ?? null;
     return ap.terminalFixes.get(f.ident) ?? this.waypoints.get(key) ?? this.navaids.get(key)?.ll ?? null;
+  }
+
+  /** CIFP first; the NASR gazetteer only for fixes/navaids CIFP did not
+   *  resolve (never for runways or localizers, which NASR FIX/NAV lacks). */
+  resolve(f: FixRef | null, ap: AirportData): LL | null {
+    const p = this.resolvePrimary(f, ap);
+    if (p || !f || !this.external) return p;
+    if (f.section === "P" && (f.sub === "G" || f.sub === "I")) return null;
+    return this.external(f.ident);
   }
 }
 
@@ -635,6 +645,7 @@ export interface ProcedurePath {
     selectedTransition: string | null;
     legs: number; approxLegs: number; unresolvedLegs: number; truncated: boolean;
     bbox: [number, number, number, number] | null;
+    nasrCrossCheck: { checked: number; maxDiffNm: number; disagreeing: string[]; placedFromNasr: string[] } | null;
   };
 }
 
@@ -650,6 +661,9 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
   const features: PathFeature[] = [];
   const fixSeen = new Map<string, PathFeature>();
   let legsN = 0, approxN = 0, unresolved = 0;
+  let xChecked = 0, xMax = 0;
+  const xDisagree: string[] = [];
+  const fromNasr: string[] = [];
   const trs = proc.transitions.map((t) => ({ t, role: segmentRole(proc.kind, t.routeType) }));
   const isCore = (role: string) => role === "common" || role === "final";
   const drawn = trs.filter(({ t, role }) => !transition || isCore(role) || t.id === transition);
@@ -685,7 +699,8 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
           });
         }
       }
-      const fll = idx.resolve(g.leg.fix, ap);
+      const primary = idx.resolvePrimary(g.leg.fix, ap);
+      const fll = primary ?? idx.resolve(g.leg.fix, ap);
       if (g.leg.fix && fll) {
         const key = g.leg.fix.ident;
         const altText = g.leg.alt?.text ?? null;
@@ -694,11 +709,18 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
         const role2 = d[3] === "A" ? "IAF" : d[3] === "B" ? "IF" : d[3] === "F" ? "FAF" : d[3] === "M" ? "MAP" : d[3] === "I" ? "FACF" : null;
         if (!prev) {
           grow(fll);
+          // independent cross-check against the NASR gazetteer (same FAA
+          // source family, different product): a disagreement is surfaced
+          const ext = primary && idx.external && !(g.leg.fix.section === "P" && (g.leg.fix.sub === "G" || g.leg.fix.sub === "I")) ? idx.external(key) : null;
+          const diff = ext && primary ? distNm(ext, primary) : null;
+          if (diff != null) { xChecked++; xMax = Math.max(xMax, diff); if (diff > NASR_AGREE_NM) xDisagree.push(key); }
+          if (!primary) fromNasr.push(key);
           const f: PathFeature = {
             type: "Feature", geometry: { type: "Point", coordinates: lonlat(fll) },
             properties: {
               kind: "fix", ident: key, alt: altText, speedKt: g.leg.speedKt, role: role2, missed,
               flyover: d[1] === "Y", label: [key, altText, g.leg.speedKt ? `${g.leg.speedKt}K` : null].filter(Boolean).join(" "),
+              source: primary ? "CIFP" : "NASR", nasrDiffNm: diff != null ? Math.round(diff * 1000) / 1000 : null,
             },
           };
           fixSeen.set(key, f);
@@ -721,9 +743,16 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
       legs: legsN, approxLegs: approxN, unresolvedLegs: unresolved,
       truncated: features.length >= PATH_MAX_FEATURES,
       bbox: Number.isFinite(minLon) ? [r6(minLon), r6(minLat), r6(maxLon), r6(maxLat)] : null,
+      nasrCrossCheck: idx.external
+        ? { checked: xChecked, maxDiffNm: Math.round(xMax * 1000) / 1000, disagreeing: xDisagree, placedFromNasr: fromNasr }
+        : null,
     },
   };
 }
+
+/** CIFP vs NASR positions for the same fix further apart than this are
+ *  reported (both are FAA products; they should agree to survey precision) */
+export const NASR_AGREE_NM = 0.1;
 
 /** Fixes a procedure references (idents -> position), for plate georeference. */
 export function procedureFixes(idx: CifpIndex, ap: AirportData, proc: CifpProcedure): Map<string, LL> {
@@ -750,6 +779,8 @@ export interface CifpStoreDeps {
   now?: () => number;
   dir?: string;
   timeoutMs?: number;
+  /** independent fix gazetteer (NASR) attached to every built index */
+  external?: ((ident: string) => LL | null) | null;
 }
 export const CIFP_FAILURE_BACKOFF_MS = 10 * 60_000;
 
@@ -762,12 +793,14 @@ export class CifpStore {
   private readonly now: () => number;
   readonly dir: string;
   private readonly timeoutMs: number;
+  private readonly external: ((ident: string) => LL | null) | null;
 
   constructor(deps: CifpStoreDeps = {}) {
     this.fetchImpl = deps.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
     this.now = deps.now ?? (() => Date.now());
     this.dir = deps.dir ?? path.join(os.tmpdir(), "voltrade_cifp");
     this.timeoutMs = deps.timeoutMs ?? 120_000;
+    this.external = deps.external ?? null;
   }
 
   status() {
@@ -803,7 +836,11 @@ export class CifpStore {
         if (!fs.existsSync(file)) await this.download(c, file);
         const text = await fs.promises.readFile(file);
         const idx = CifpIndex.build(text, (s, e) => readRange(file, s, e), c.ident);
-        this.idx = idx; this.idxCycle = c; this.lastError = null;
+        idx.external = this.external;
+        this.idx = idx; this.idxCycle = c;
+        // serving the PREVIOUS cycle: keep the current cycle's failure so the
+        // backoff stops every request from re-hammering the FAA
+        this.lastError = errors.length ? { at: this.now(), message: `serving ${c.ident}; ${errors.join("; ")}` } : null;
         this.pruneOld(c.ident);
         return idx;
       } catch (e: unknown) {

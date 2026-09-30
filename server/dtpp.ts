@@ -220,7 +220,10 @@ export class DtppStore {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const idx = parseDtppMetafile(await r.text());
         if (!idx.airports.size) throw new Error("metafile parsed to zero airports");
-        this.idx = idx; this.idxCycle = c; this.lastError = null;
+        this.idx = idx; this.idxCycle = c;
+        // serving the PREVIOUS cycle: keep the current cycle's failure so the
+        // backoff stops every request from re-hammering the FAA
+        this.lastError = errors.length ? { at: this.now(), message: `serving ${c.ident}; ${errors.join("; ")}` } : null;
         return idx;
       } catch (e: unknown) {
         errors.push(`${c.ident}: ${e instanceof Error ? e.message : String(e)}`);
