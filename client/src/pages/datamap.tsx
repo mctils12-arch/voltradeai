@@ -168,6 +168,7 @@ import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCover
 import { startLayerKeeper, type KeeperMapLike } from "@/lib/layerKeeper";
 import { PLAN_LAYER_ID } from "@/lib/air/planRouteController";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
+import { startSelectedFastLane } from "@/lib/air/selectedFastLane";
 import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -4292,6 +4293,9 @@ export default function DataMapPage() {
   // live card prefers them over derivation; replay derives from fixes)
   const lastLiveKtsRef = useRef<number | null>(null);
   const lastLiveHeadingRef = useRef<number | null>(null);
+  // the selected plane's BROADCAST vertical rate from the fast lane, keyed to
+  // its fix time (epoch s) — the card prefers it over derivation while fresh
+  const lastLiveVsRef = useRef<{ t: number; fpm: number } | null>(null);
   const flightTagRef = useRef<HTMLDivElement | null>(null);
   const flightGridRef = useRef<HTMLDivElement | null>(null);
 
@@ -4716,6 +4720,46 @@ export default function DataMapPage() {
    *  same MAX_AIR_GLIDE_SEC cap; altitude held at the last broadcast value —
    *  vertical rate isn't in the feed, never invented). Rebuilt per glide
    *  tick as a ≤3-quad buffer — the full track geometry is untouched. */
+  /** ONE live path for the selected plane's newest REAL fix — fed by the
+   *  viewport/worldwide poll AND the selected-aircraft fast lane (2026-09-30:
+   *  "optimize for the plane you have clicked on"). Newest fix wins: an
+   *  older fix never moves the tail backwards. `ageMs` anchors the glide at
+   *  the fix's own age (0 for the poll path — the drawn icon glides from the
+   *  same instant); `glide` false = no dead-reckoning (worldwide icons are
+   *  drawn at their raw position). Returns true when the fix was taken. */
+  const ingestSelectedLiveFix = (
+    fid: string,
+    fix: Crumb,
+    row: { lat: number; heading: number | null; velocity_ms: number | null; on_ground: boolean },
+    opts: { glide: boolean; ageMs: number; vsFpm?: number | null },
+  ): boolean => {
+    const cur = airFollowLiveRef.current;
+    if (cur && cur.id === fid && fix.t < cur.fix.t - 0.5) return false;
+    airFollowLiveRef.current = {
+      id: fid, fix, anchorMs: performance.now() - Math.max(0, opts.ageMs),
+      vel: opts.glide ? glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground) : null,
+    };
+    // flight-card readouts: the BROADCAST rates (real feed values; the card
+    // prefers them over derivation while live)
+    lastLiveKtsRef.current = row.velocity_ms == null ? null : row.velocity_ms * 1.94384;
+    lastLiveHeadingRef.current = row.heading ?? null;
+    if (opts.vsFpm != null) lastLiveVsRef.current = { t: fix.t, fpm: opts.vsFpm };
+    const before = airCrumbsRef.current.crumbs;
+    const after = pushCrumb(before, fix);
+    // "last position Xs ago" follows EVERY newer real fix (the breadcrumb
+    // buffer keeps its own ≥5 s spacing; the card's age must not)
+    if (fix.t > (detailRef.current?.trailId === fid ? (detailRef.current.trailLastT ?? 0) : 0) + 0.5) {
+      setDetail(prev => prev && prev.trailId === fid && (prev.trailLastT ?? 0) < fix.t ? { ...prev, trailLastT: fix.t } : prev);
+    }
+    if (after !== before) {
+      airCrumbsRef.current.crumbs = after;
+      paintFollowedTrail(); // NEW real fix — rebuild the track geometry
+    } else {
+      updateFlightTail(); // same fixes — only re-anchor the glide tail
+    }
+    return true;
+  };
+
   const updateFlightTail = () => {
     const map = mapRef.current;
     const layer = flightTrackRef.current;
@@ -4795,7 +4839,10 @@ export default function DataMapPage() {
           alt = lv.fix.al == null ? NaN : lv.fix.al;
           headingDeg = lastLiveHeadingRef.current;
           gsKt = lastLiveKtsRef.current; // broadcast (real feed value)
-          vsFpm = end.gap ? null : end.vsFpm; // derived from recorded fixes
+          // broadcast rate (fast lane) while it belongs to the current fix,
+          // else derived from recorded fixes
+          const bv = lastLiveVsRef.current;
+          vsFpm = bv && Math.abs(bv.t - lv.fix.t) < 1 ? bv.fpm : (end.gap ? null : end.vsFpm);
         } else {
           lon = end.lon; lat = end.lat; alt = end.altM;
           headingDeg = trackHeadingAt(st.samples, end.t);
@@ -5190,6 +5237,32 @@ export default function DataMapPage() {
       airFollowLiveRef.current = null;
     }
   }, [detailTrailId, detailTrailKind]);
+  // SELECTED-AIRCRAFT FAST LANE (human 2026-09-30: "optimize for the plane
+  // you have clicked on … I don't want it to lag if there is data"): while
+  // a plane card is open, poll its one-hex live endpoint every ~2.5 s
+  // (server: fresh snapshot, else adsb.lol for that hex) and feed each NEWER
+  // fix into the same live path as the feed poll — tail, breadcrumbs, card
+  // readouts, "last position" age, plan seam. Stops on deselect/close
+  // (abort), pauses while the tab is hidden. Watched-list chips stay on the
+  // 30 s tracked poller — only the selected plane gets this lane.
+  useEffect(() => {
+    if (detailTrailKind !== "aircraft" || !detailTrailId) return;
+    const fid = detailTrailId;
+    lastLiveVsRef.current = null;
+    const lane = startSelectedFastLane({
+      hex: fid,
+      onFix: (f) => {
+        if (airCrumbsRef.current.id !== fid) return;
+        const r = f.row;
+        const cs = String(r.callsign || "").trim();
+        if (cs) selectedCallsignRef.current = { id: String(fid).toLowerCase(), callsign: cs };
+        const fix: Crumb = { lo: r.lon, la: r.lat, al: r.on_ground ? 0 : (r.altitude_m ?? null), t: f.fixMs / 1000 };
+        ingestSelectedLiveFix(fid, fix, r, { glide: true, ageMs: Math.max(0, Date.now() - f.fixMs), vsFpm: f.baroRateFpm });
+      },
+    });
+    return () => lane.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
     const refresh = async () => {
@@ -5199,7 +5272,8 @@ export default function DataMapPage() {
       const { note, lastT } = await showTrail(detailTrailKind, detailTrailId,
         activeTrailRangeRef.current ?? undefined);
       setDetail((prev) => prev && prev.trailId === detailTrailId
-        ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
+        ? { ...prev, trailNote: note || prev.trailNote, // never older than a live fix the fast lane already stamped
+          trailLastT: Math.max(lastT ?? 0, prev.trailLastT ?? 0) || undefined }
         : prev);
     };
     const iv = setInterval(refresh, 30_000);
@@ -9075,24 +9149,8 @@ export default function DataMapPage() {
               // tail anchor: the same fresh-fix instant the plane's own
               // glide anchors at (setTickTime above). Worldwide icons are
               // drawn at their raw position (no 2D glide at that zoom), so
-              // the tail must not glide past its own plane: vel null.
-              airFollowLiveRef.current = {
-                id: fid, fix, anchorMs: performance.now(),
-                vel: worldwide ? null : glideDegPerSec(live.lat, live.heading, live.velocity_ms, live.on_ground),
-              };
-              // flight-card readouts: the BROADCAST rates (real feed values;
-              // the card prefers them over derivation while live)
-              lastLiveKtsRef.current = live.velocity_ms == null ? null : live.velocity_ms * 1.94384;
-              lastLiveHeadingRef.current = live.heading ?? null;
-              const before = airCrumbsRef.current.crumbs;
-              const after = pushCrumb(before, fix);
-              if (after !== before) {
-                airCrumbsRef.current.crumbs = after;
-                setDetail(prev => prev && prev.trailId === fid ? { ...prev, trailLastT: t } : prev);
-                paintFollowedTrail(); // NEW real fix — rebuild the track geometry
-              } else {
-                updateFlightTail(); // same fixes — only re-anchor the glide tail
-              }
+              // the tail must not glide past its own plane: no glide.
+              ingestSelectedLiveFix(fid, fix, live, { glide: !worldwide, ageMs: 0 });
             }
           }
         } catch { /* trail continuity must never break the tick */ }
@@ -9209,7 +9267,7 @@ export default function DataMapPage() {
           body: `Planned route (gray curtain ahead of the plane): FILED when the FAA SWIM flight plan is available, otherwise PREDICTED from this flight's last recorded trip or the community route database — labeled on the Planned route row; ` +
                 `trail is our own archived feed history — the 3D altitude line + translucent curtain climb at the RECORDED altitude, colored low-teal → cruise-blue → high-violet across this track's altitude range, with the ground trace draped on the terrain (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence. ` +
-                `GND SPD is the live broadcast; VERT SPD (and replay speeds) are derived from consecutive recorded fixes — the feed carries no vertical rate.`,
+                `GND SPD is the live broadcast; VERT SPD is the broadcast vertical rate when the selected-plane fast lane has one for the current fix, otherwise (and for replay speeds) derived from consecutive recorded fixes.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -9234,7 +9292,7 @@ export default function DataMapPage() {
         // nearest strategic sites.
         fetchDossier(dossierKey, null, lngLat?.lat, lngLat?.lng);
         const { note, lastT } = await showTrail("aircraft", p.icao24);
-        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
+        setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: Math.max(lastT ?? 0, prev.trailLastT ?? 0) || undefined } : prev);
     };
     airClickRef.current = onAircraftClickProps; // arm the search/watchlist bridge (T3)
     const stopWire = wire();
