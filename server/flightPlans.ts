@@ -824,7 +824,12 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
   let raw: PlanPoint[];
   let pathEstimated: boolean;
   const routePoints = routePointsOf(p);
-  if (routePoints.length >= 1) {
+  // SFDPS expandedRoute often carries only the two endpoint fixes (resolved via
+  // the NASR gazetteer they sit AT the airports); placed alone they are a
+  // great-circle, not a filed path — so require >=1 point that is not an
+  // airport endpoint, else stay labelled estimated.
+  const interior = routePoints.filter((r) => !(origin && haversineNm(origin, r) <= 2) && !(destination && haversineNm(destination, r) <= 2));
+  if (interior.length >= 1) {
     raw = routePoints.map((r) => ({
       lat: r.lat, lon: r.lon, altM: r.altFt != null ? Math.round(r.altFt / FT_PER_M) : null,
       altEstimated: r.altFt == null, ...(r.name ? { name: r.name } : {}),

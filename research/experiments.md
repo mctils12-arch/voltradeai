@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine PRODUCT session, ~00:10Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/navFixes.ts, datacore/aircraft/nasr_fixes.json) — SFDPS ROUTE FIXES PLACED FROM THE FAA NASR GAZETTEER (v1.0.1007)
+
+HEALTH: /api/health 00:06Z status ok, bot active (dd -6.0%), liveness dark:false, server_version 1.0.1006 live; nothing blocks product work.
+GATE-1 READ (the #1212 sampler, live): planStatus().swim.routeShape counters placed 4,138 / expandedNoPoints 129,965 / noExpanded 141,933. ROOT CAUSE CONFIRMED (my 70% prior was on the right family but wrong shape): live expandedRoute points are `routePoint(point[fix=NAME])` — fix NAMES ONLY, no coordinates anywhere (some add distance+radial = place-bearing-distance offsets). Not a parser-shape bug; the message simply has no positions. The other ~52% (noExpanded) carry only `nasRouteText` (airways like J75), which needs airway expansion — separate step.
+CHANGE: built a gazetteer from FAA NASR FIX_BASE+NAV_BASE (US-gov public domain; 71,627 idents, 2 MB, cycle 2026-09-03; scripts/build_nasr_fixes.py, deterministic) + server/navFixes.ts lookup. extractFlight now resolves fix names through it (explicit coordinates still win; offset/PBD points and unknown names stay unplaced, never guessed). Build-first rule: free raw material, no paid source.
+HONESTY GUARD (flightPlans.filedCandidate): expandedRoute is often just the 2 endpoint fixes; once resolved they sit AT the airports and would re-create the false "filed route" claim fixed in #1210. pathEstimated is now false only when >=1 placed point is not an airport endpoint (>2 nm from both).
+RATCHET: 3 new tests (gazetteer placement incl. unknown/offset/case-insensitive; explicit coords win; endpoints-only plan stays estimated — fails on old rule). Existing swimSfdps fixtures used the real fix BUZRD/HTO/OOD as "unplaced" examples; renamed to fictitious idents (QZQZQ...) — same assertions, the fixtures' premise ("not in any gazetteer") was what changed. swimSfdps+flightPlans 56/56; tsc 11<=11.
+PRIOR/DOWNSTREAM: expect a minority of plans to gain a real interior fix (endpoint-only plans stay estimated); the gray curtain then draws the polyline through them and OFF_PLAN can be assessed only for those. Deviation stays disabled for pathEstimated plans (unchanged). NASR is 28-day cycle data; fixes rarely move, stale-by-weeks is acceptable and labelled by cycle.
+NEXT: (1) after deploy (post-close), read routeShape counters: placed should rise; re-run filed-route vs ADS-B cross-track gate-1 on plans with pathEstimated=false — target few-nm median; only then re-enable OFF_PLAN for filed plans. (2) airway expansion of nasRouteText (NASR AWY_SEG) for the noExpanded majority — open_questions.
+ROLLBACK TRIGGER: cross-track median for pathEstimated=false filed plans > 15 nm on the gate-1 check -> revert to >=full-route requirement.
+MERGE: prepared just after midnight ET (market closed) — mergeable immediately.
+STARVED: no.
+
 ## 2026-09-29 (scheduled-routine PRODUCT session, ~18:00Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts status) — SFDPS ROUTE-SHAPE SAMPLER: gate-1 instrument for the empty-routePoints bug (v1.0.1006)
 
 HEALTH: /api/health 18:01Z status ok, bot active (dark:false, dd -6.3%) — the liveness alarm has cleared; nothing blocks product work.
