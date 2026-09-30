@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   signV4, sha256Hex, EMPTY_SHA256, encodeS3Path, encodeRfc3986, canonicalQueryString, amzDateOf,
-  r2ConfigFromEnv, createR2Client, parseListObjectsV2, deleteObjectsXml, R2_NOT_CONFIGURED,
+  r2ConfigFromEnv, r2ConfigDiagnostics, createR2Client, parseListObjectsV2, deleteObjectsXml, R2_NOT_CONFIGURED,
   type R2Config,
 } from "./r2Client";
 
@@ -102,6 +102,35 @@ test("config: active only when all four env vars exist; shape-checked account id
   assert.equal(r2ConfigFromEnv({ R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_PUBLIC_URL: "https://pub-x.r2.dev" } as any), null);
   assert.equal(r2ConfigFromEnv({ ...FULL_ENV, R2_ACCOUNT_ID: "evil.com/x" } as any), null, "host injection rejected");
   assert.equal(r2ConfigFromEnv({ ...FULL_ENV, R2_ARCHIVE_BUCKET: "Bad_Bucket" } as any), null);
+});
+
+test("diagnostics: agree with r2ConfigFromEnv on every case, and name vars without echoing values", () => {
+  const cases: Array<Record<string, string | undefined>> = [
+    { ...FULL_ENV },
+    {},
+    { ...FULL_ENV, R2_SECRET_ACCESS_KEY: "  " },
+    { ...FULL_ENV, R2_ACCOUNT_ID: "https://0123456789abcdef.r2.cloudflarestorage.com" },
+    { ...FULL_ENV, R2_ACCOUNT_ID: "abc" },
+    { ...FULL_ENV, R2_ARCHIVE_BUCKET: "Voltrade-Archive" },
+    { ...FULL_ENV, R2_ARCHIVE_BUCKET: "-bad-" },
+  ];
+  for (const env of cases) {
+    const d = r2ConfigDiagnostics(env as any);
+    assert.equal(d.configured, r2ConfigFromEnv(env as any) !== null, JSON.stringify(Object.keys(env)));
+    // never a value in the payload — not even the non-secret ones
+    const blob = JSON.stringify(d);
+    for (const v of Object.values(env)) if (v && v.trim().length > 3) assert.ok(!blob.includes(v.trim()), `value leaked: ${v}`);
+  }
+  assert.deepEqual(r2ConfigDiagnostics(FULL_ENV as any), { configured: true, missing: [], malformed: [] });
+  assert.deepEqual(r2ConfigDiagnostics({} as any).missing,
+    ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ARCHIVE_BUCKET"]);
+  assert.deepEqual(r2ConfigDiagnostics({ ...FULL_ENV, R2_SECRET_ACCESS_KEY: " " } as any).missing, ["R2_SECRET_ACCESS_KEY"]);
+  const url = r2ConfigDiagnostics({ ...FULL_ENV, R2_ACCOUNT_ID: "https://0123456789abcdef.r2.cloudflarestorage.com" } as any);
+  assert.equal(url.malformed.length, 1);
+  assert.match(url.malformed[0], /^R2_ACCOUNT_ID .*not a URL/);
+  const upper = r2ConfigDiagnostics({ ...FULL_ENV, R2_ARCHIVE_BUCKET: "Voltrade-Archive" } as any);
+  assert.match(upper.malformed[0], /^R2_ARCHIVE_BUCKET must be lowercase/);
+  assert.match(r2ConfigDiagnostics({ ...FULL_ENV, R2_ARCHIVE_BUCKET: "-bad-" } as any).malformed[0], /^R2_ARCHIVE_BUCKET must be 3-63/);
 });
 
 test("not configured: every call is a clean no-op that never touches the network", async () => {
