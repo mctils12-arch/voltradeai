@@ -153,6 +153,9 @@ test("ILS 18L path: exact fixed legs, approx-flagged CA/VI/HM, missed approach t
   assert.equal(fx("DOFFS").role, "IAF");
   assert.equal(fx("DOFFS").label, "DOFFS 5000A");
   assert.equal(fx("HOOKK").missed, true);
+  assert.equal(fx("HOOKK").fixKind, "waypoint");
+  assert.equal(fx("RW18L").fixKind, "runway");
+  assert.equal(procedurePath(idx, kaus, proc("BLEWE5")).features.find((f) => f.properties.ident === "CWK")!.properties.fixKind, "navaid");
   // the final CF from DDTOO to the runway follows the localizer course (~178.7 true)
   const toRw = byTerm("CF").find((f) => f.properties.fix === "RW18L")!;
   const [a, b] = (toRw.geometry.coordinates as Array<[number, number]>);
