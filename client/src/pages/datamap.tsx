@@ -117,6 +117,7 @@ import {
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
+import { useFlightProcedures } from "@/components/FlightProcedures";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
@@ -4214,6 +4215,21 @@ export default function DataMapPage() {
       const li = st ? st.samples.length - 1 : -1;
       if (!st || li < 0 || String(st.id).toLowerCase() !== selectedHexLc()) return null;
       return { mercX: st.merc[li * 2], mercY: st.merc[li * 2 + 1], altM: st.altDisp[li], groundZ: st.groundZ[li] };
+    },
+  });
+  // ── INSTRUMENT PROCEDURES (2026-09-30): filed DP/STAR + suggested
+  // approaches for the selected flight, the FAA CIFP path on the map and the
+  // georeferenced FAA plate under it — components/FlightProcedures.tsx.
+  // The plan's airports come from the planned-route store (no second fetch).
+  const flightProcedures = useFlightProcedures({
+    mapRef, mapReady,
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    suppressed: tripReplay != null,
+    planStore: plannedRoute.store,
+    getCallsign: () => {
+      const id = selectedHexLc();
+      const row = (airPayloadRef.current || []).find((x) => String(x?.icao24 || "").toLowerCase() === id);
+      return String(row?.callsign || "").trim() || null;
     },
   });
 
@@ -15741,6 +15757,9 @@ export default function DataMapPage() {
           {/* planned-route toggle + provenance (FILED/PREDICTED, route,
               deviation, plan age) — components/PlannedRoute.tsx */}
           {detail.kind === "aircraft" && plannedRoute.row}
+          {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
+              path + georeferenced plate — components/FlightProcedures.tsx */}
+          {detail.kind === "aircraft" && flightProcedures.row}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}

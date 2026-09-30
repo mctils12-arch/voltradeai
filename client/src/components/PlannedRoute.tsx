@@ -53,7 +53,7 @@ export interface UsePlannedRouteOpts {
   registry?: Map<string, unknown> | null;
 }
 
-export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element | null } {
+export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element | null; store: PlanRouteStore } {
   const hex = opts.hex && HEX_RE.test(opts.hex) ? opts.hex.toLowerCase() : null;
   // default ON per selection: the user's OFF applies to that plane only
   const [offFor, setOffFor] = useState<string | null>(null);
@@ -94,7 +94,9 @@ export function usePlannedRoute(opts: UsePlannedRouteOpts): { row: JSX.Element |
       onToggle={() => setOffFor(on ? hex : null)}
     />
   ) : null;
-  return { row };
+  // the store rides out too (read-only use: FlightProcedures reads the
+  // plan's airports from it — one plan fetch, never a second one)
+  return { row, store };
 }
 
 const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 639px)").matches;

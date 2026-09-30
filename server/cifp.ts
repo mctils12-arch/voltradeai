@@ -721,6 +721,7 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
               kind: "fix", ident: key, alt: altText, speedKt: g.leg.speedKt, role: role2, missed,
               flyover: d[1] === "Y", label: [key, altText, g.leg.speedKt ? `${g.leg.speedKt}K` : null].filter(Boolean).join(" "),
               source: primary ? "CIFP" : "NASR", nasrDiffNm: diff != null ? Math.round(diff * 1000) / 1000 : null,
+              fixKind: fixKindOf(g.leg.fix),
             },
           };
           fixSeen.set(key, f);
@@ -748,6 +749,15 @@ export function procedurePath(idx: CifpIndex, ap: AirportData, proc: CifpProcedu
         : null,
     },
   };
+}
+
+/** What a coded reference IS (drives the map symbol): VHF/NDB navaids,
+ *  runway thresholds, localizers, everything else a waypoint/intersection. */
+export function fixKindOf(f: FixRef): "navaid" | "runway" | "localizer" | "waypoint" {
+  if (f.section === "D" || (f.section === "P" && f.sub === "N")) return "navaid";
+  if (f.section === "P" && f.sub === "G") return "runway";
+  if (f.section === "P" && f.sub === "I") return "localizer";
+  return "waypoint";
 }
 
 /** CIFP vs NASR positions for the same fix further apart than this are

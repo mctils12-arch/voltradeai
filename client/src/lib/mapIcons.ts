@@ -893,6 +893,40 @@ const shapes: Record<string, () => ImageData> = {
     ctx.lineTo(m + 6, s - 5); ctx.lineTo(m - 6, s - 5);
     ctx.closePath(); ctx.fill();
   }),
+  // ── instrument-procedure fixes (FAA chart symbology, components/
+  //    FlightProcedures.tsx): the KIND of fix is the shape ──
+  // RNAV waypoint / intersection: the four-point star of FAA plates
+  "vt-fix-wpt": () => draw(S, (ctx, s) => {
+    const m = s / 2, r = 12, w = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(m, m - r); ctx.lineTo(m + w, m - w); ctx.lineTo(m + r, m); ctx.lineTo(m + w, m + w);
+    ctx.lineTo(m, m + r); ctx.lineTo(m - w, m + w); ctx.lineTo(m - r, m); ctx.lineTo(m - w, m - w);
+    ctx.closePath(); ctx.fill();
+  }),
+  // VHF/NDB navaid: VOR hexagon with its centre dot
+  "vt-fix-nav": () => draw(S, (ctx, s) => {
+    const m = s / 2, r = 11;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = Math.PI / 3 * k;
+      const x = m + r * Math.cos(a), y = m + r * Math.sin(a);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(m, m, 2.6, 0, Math.PI * 2); ctx.fill();
+  }),
+  // final approach fix: the Maltese cross of the FAA profile view
+  "vt-fix-faf": () => draw(S, (ctx, s) => {
+    const m = s / 2, r = 12, n = 3.5;
+    ctx.beginPath();
+    for (let k = 0; k < 4; k++) {
+      ctx.save(); ctx.translate(m, m); ctx.rotate(Math.PI / 2 * k);
+      ctx.moveTo(0, 0); ctx.lineTo(-n * 1.6, -r); ctx.lineTo(n * 1.6, -r); ctx.closePath();
+      ctx.restore();
+    }
+    ctx.fill();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
