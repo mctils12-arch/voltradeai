@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine PRODUCT session, ~13:20Z) [PIPELINE] — T-DATACORE (server/navAirways.ts, server/swimSfdps.ts, datacore/aircraft/nasr_airways.json) — AIRWAY EXPANSION OF FILED ROUTE TEXT (v1.0.1011)
+
+HEALTH: /api/health 13:19Z status ok, serving.failing [], liveness dark:false, feeds live; nothing blocks product work.
+PRIOR: the ~52% of live plans with only nasRouteText (noExpanded 141,933) mostly read FIX AIRWAY FIX; expanding via NASR AWY_BASE should place a real interior for a large share of them. Unknowns: how many text routes hold a bounded FIX-AIRWAY-FIX (vs SID/STAR-only or lat/lon forms).
+CHANGE: scripts/build_nasr_airways.py -> datacore/aircraft/nasr_airways.json (1,504 airway ids, 160 KB, cycle 2026-09-03, FAA public domain, AWY_BASE AIRWAY_STRING; ids that exist in several regions keep every variant). server/navAirways.ts expands ONLY `FIX AIRWAY FIX` when both fixes lie on the airway (ambiguous variants -> refuse); extractFlight falls back to it when expandedRoute placed nothing. Bare-fix-only text is NOT placed (separate untested step); emitted only when an airway actually expanded. New counter routeShape.airwayExpanded on the status endpoint.
+OFFLINE GATE-1 SANITY (static data, not the ADS-B gate): 19,372/19,372 airway idents resolve in the fix gazetteer; consecutive-fix legs median 19.5 nm, p99 349 nm, max 929 nm (oceanic/Alaska). Good geometry; says nothing yet about how filed plans compare to flown tracks.
+RATCHET: server/navAirways.test.ts (4 tests: segment both directions, refusal cases, expansion incl. bad-airway-doesn't-poison, end-to-end parse with route text only + counter). swimSfdps+flightPlans+navAirways 60/60; tsc 11<=11; existing assertions untouched.
+DOWNSTREAM: pathEstimated flips false only via the existing honesty guard (a placed point >2 nm off both airport endpoints) -> more plans draw the gray curtain through real airway fixes; deviation/OFF_PLAN stays disabled for estimated plans (unchanged).
+NEXT (after deploy, post-close): read routeShape.airwayExpanded vs noExpanded; run the filed-route vs ADS-B cross-track gate-1 on N>=200 pathEstimated=false plans split by airway type before re-enabling OFF_PLAN. Remaining unplaced: SID/STAR-only, lat/lon tokens, airway-to-airway joins, PBD offsets.
+ROLLBACK TRIGGER: cross-track median for airway-expanded plans > 15 nm on gate-1 -> drop the fallback in extractFlight.
+MERGE: prepared ~09:25 ET, before the open — merge after the 16:00 ET close.
+STARVED: no.
+
 ## 2026-09-30 (scheduled-routine PRODUCT session, ~00:10Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/navFixes.ts, datacore/aircraft/nasr_fixes.json) — SFDPS ROUTE FIXES PLACED FROM THE FAA NASR GAZETTEER (v1.0.1007)
 
 HEALTH: /api/health 00:06Z status ok, bot active (dd -6.0%), liveness dark:false, server_version 1.0.1006 live; nothing blocks product work.
