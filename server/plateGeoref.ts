@@ -162,7 +162,8 @@ export function firstPage(objs: Map<number, PdfObject>): PdfPage | null {
   const mb = nums(takeValue(dictValue(page.dict, "MediaBox", objs) ?? "[0 0 612 792]"));
   const mediaBox: [number, number, number, number] = mb.length >= 4 ? [mb[0], mb[1], mb[2], mb[3]] : [0, 0, 612, 792];
   const rotate = Number(/\/Rotate\s+(-?\d+)/.exec(page.dict)?.[1] ?? 0);
-  const cRaw = takeValue(page.dict.slice(page.dict.search(/\/Contents/) + 9));
+  // /Contents is either one indirect stream or an array of them
+  const cRaw = /\/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)/.exec(page.dict)?.[1] ?? "";
   const contents: Buffer[] = [];
   for (const r of refsIn(cRaw)) {
     const o = objs.get(r);
@@ -364,7 +365,7 @@ export function interpretContent(streams: Buffer[]): PageContent {
             { x1: x + w, y1: y + h, x2: x, y2: y + h }, { x1: x, y1: y + h, x2: x, y2: y });
           cx = sx = x; cy = sy = y;
           if (sub.length) subs.push(sub);
-          sub = [apply(ctm, x, y), apply(ctm, x + w, y + h)];
+          sub = [apply(ctm, x, y), apply(ctm, x + w, y), apply(ctm, x + w, y + h), apply(ctm, x, y + h)];
           break;
         }
         case "S": case "s": case "B": case "B*": case "b": case "b*": case "f": case "F": case "f*": {
