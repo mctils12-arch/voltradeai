@@ -1359,8 +1359,12 @@ function TrackedPlanesPanel({ onOpen }: {
   };
   useEffect(() => {
     void load();
-    const t = window.setInterval(() => { void load(); }, 30_000);
-    return () => window.clearInterval(t);
+    // hidden-tab gate (2026-09-30 page-aware audit: the ONLY /data request
+    // still firing in a background tab) — skip while hidden, refresh on return
+    const t = window.setInterval(() => { if (!document.hidden) void load(); }, 30_000);
+    const onVis = () => { if (!document.hidden) void load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { window.clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
   const add = async () => {
     const q = reg.trim();
