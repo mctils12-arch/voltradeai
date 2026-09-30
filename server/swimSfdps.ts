@@ -34,6 +34,7 @@
 // (namespace-prefix agnostic, attribute or element forms, FIXM 4.x shapes)
 // and every field degrades to null rather than guessing.
 
+import { lookupFix } from "./navFixes";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -250,6 +251,54 @@ function aerodrome(n: XNode | null, pointAttr: string): string | null {
   return cleanId(deepAttr(n, ["locationIndicator", "code", "aerodromeIdentifier"]));
 }
 
+// ── 1c. route-shape sampler (gate-1 instrument, content-shape only) ─────────
+// Live 2026-09-29: 59/59 FILED plans arrived with route TEXT but zero placed
+// route points, so the parser's `expandedRoute > routePoint > pos|lat/lon`
+// walk does not match the real FIXM shape. This records the STRUCTURE of the
+// route subtree (element names, attribute names, value SHAPES with digits->9
+// and letters->A) for the first few distinct shapes seen — no real values, no
+// identifiers — so the parser can be fixed against evidence, not a guess.
+export const ROUTE_SHAPE_MAX_SAMPLES = 6;
+const ROUTE_SHAPE_MAX_CHARS = 2400;
+const ROUTE_SHAPE_MAX_DEPTH = 8;
+const shapeOfValue = (v: string): string =>
+  v.trim().slice(0, 24).replace(/[0-9]/g, "9").replace(/[A-Za-z]/g, "A").replace(/(.)\1{2,}/g, "$1$1+");
+
+export function xmlShape(n: XNode, depth = 0): string {
+  const attrs = Object.entries(n.attrs).slice(0, 12).map(([k, v]) => `${k}=${shapeOfValue(v)}`);
+  const txt = n.text.trim();
+  const out = n.name + (attrs.length ? `[${attrs.join(",")}]` : "") + (txt ? `{${shapeOfValue(txt)}}` : "");
+  if (depth >= ROUTE_SHAPE_MAX_DEPTH || !n.children.length) return out;
+  const kids: string[] = [];
+  for (let i = 0; i < n.children.length;) {
+    let j = i + 1;
+    while (j < n.children.length && n.children[j].name === n.children[i].name) j++;
+    kids.push(xmlShape(n.children[i], depth + 1) + (j - i > 1 ? `×${j - i}` : ""));
+    i = j;
+  }
+  return `${out}(${kids.join(" ")})`;
+}
+
+export interface RouteShapeSample { where: string; shape: string; count: number; firstSeenAt: number }
+const routeShapes = new Map<string, RouteShapeSample>();
+export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0 };
+
+function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number): void {
+  if (placed > 0) { routeShapeCounters.placed++; return; }
+  if (expanded) routeShapeCounters.expandedNoPoints++; else routeShapeCounters.noExpanded++;
+  const target = expanded ?? findFirst(agreed, "route") ?? findFirst(flight, "route");
+  const where = expanded ? "expandedRoute" : target ? "route(no expandedRoute)" : "flight(no route)";
+  let shape = target ? xmlShape(target) : `flight(${flight.children.map((c) => c.name).join(" ")})`;
+  if (shape.length > ROUTE_SHAPE_MAX_CHARS) shape = shape.slice(0, ROUTE_SHAPE_MAX_CHARS) + "…";
+  const key = where + "|" + shape;
+  const hit = routeShapes.get(key);
+  if (hit) { hit.count++; return; }
+  if (routeShapes.size < ROUTE_SHAPE_MAX_SAMPLES) routeShapes.set(key, { where, shape, count: 1, firstSeenAt: Date.now() });
+}
+export function routeShapeSamples(): { counters: typeof routeShapeCounters; samples: RouteShapeSample[] } {
+  return { counters: { ...routeShapeCounters }, samples: [...routeShapes.values()] };
+}
+
 function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage {
   const fid = findFirst(flight, "flightIdentification");
   const callsign = cleanId(attr(fid, "aircraftIdentification"))
@@ -283,13 +332,20 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   const routePoints: SwimRoutePoint[] = [];
   if (expanded) {
     for (const rp of findAll(expanded, "routePoint")) {
-      const p = positionIn(rp);
-      if (!p) continue; // a fix name without a position is not placed — never guessed
       const name = deepAttr(rp, ["fix", "nasFixName", "designator", "fixName", "name", "point"]) ?? undefined;
+      // explicit coordinates win; else resolve the fix NAME against the FAA NASR
+      // gazetteer (live SFDPS carries names only). A place-bearing-distance point
+      // (distance/radial children) is an OFFSET from the fix, not the fix — not
+      // placed. An unknown name stays unplaced, never guessed.
+      const offset = findFirst(rp, "distance") || findFirst(rp, "radial");
+      const p = positionIn(rp) ?? (offset ? null : lookupFix(name));
+      if (!p) continue;
       const altFt = altitudeFeet(findFirst(rp, "altitude") ?? findFirst(rp, "level"));
       routePoints.push({ ...p, ...(name ? { name } : {}), ...(altFt != null ? { altFt } : {}) });
     }
   }
+
+  recordRouteShape(flight, agreed, expanded, routePoints.length);
 
   const source = attr(flight, "source") ?? attr(message, "source");
   const messageType = source ? source.trim().toUpperCase() : null;
@@ -727,11 +783,12 @@ export function startSfdps(
 }
 
 export function sfdpsStatus(store?: SwimPlanStore) {
-  return { ...swimProductStatus("SFDPS", SFDPS_ENV_PREFIX), counters: sfdpsCounters(), storeSize: store?.size ?? 0 };
+  return { ...swimProductStatus("SFDPS", SFDPS_ENV_PREFIX), counters: sfdpsCounters(), storeSize: store?.size ?? 0, routeShape: routeShapeSamples() };
 }
 
 /** test seam */
 export function _resetSfdpsCountersForTests(): void {
   counters.byService = { FLIGHT: 0, AIRSPACE_AIXM: 0, GENERAL_MESSAGE: 0, STATUS: 0, UNKNOWN: 0 };
   counters.flightByType = {}; counters.fullParses = 0; counters.lightParses = 0; counters.parseErrors = 0;
+  routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0;
 }

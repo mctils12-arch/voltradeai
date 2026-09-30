@@ -3,6 +3,87 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine PRODUCT session, ~00:10Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/navFixes.ts, datacore/aircraft/nasr_fixes.json) — SFDPS ROUTE FIXES PLACED FROM THE FAA NASR GAZETTEER (v1.0.1007)
+
+HEALTH: /api/health 00:06Z status ok, bot active (dd -6.0%), liveness dark:false, server_version 1.0.1006 live; nothing blocks product work.
+GATE-1 READ (the #1212 sampler, live): planStatus().swim.routeShape counters placed 4,138 / expandedNoPoints 129,965 / noExpanded 141,933. ROOT CAUSE CONFIRMED (my 70% prior was on the right family but wrong shape): live expandedRoute points are `routePoint(point[fix=NAME])` — fix NAMES ONLY, no coordinates anywhere (some add distance+radial = place-bearing-distance offsets). Not a parser-shape bug; the message simply has no positions. The other ~52% (noExpanded) carry only `nasRouteText` (airways like J75), which needs airway expansion — separate step.
+CHANGE: built a gazetteer from FAA NASR FIX_BASE+NAV_BASE (US-gov public domain; 71,627 idents, 2 MB, cycle 2026-09-03; scripts/build_nasr_fixes.py, deterministic) + server/navFixes.ts lookup. extractFlight now resolves fix names through it (explicit coordinates still win; offset/PBD points and unknown names stay unplaced, never guessed). Build-first rule: free raw material, no paid source.
+HONESTY GUARD (flightPlans.filedCandidate): expandedRoute is often just the 2 endpoint fixes; once resolved they sit AT the airports and would re-create the false "filed route" claim fixed in #1210. pathEstimated is now false only when >=1 placed point is not an airport endpoint (>2 nm from both).
+RATCHET: 3 new tests (gazetteer placement incl. unknown/offset/case-insensitive; explicit coords win; endpoints-only plan stays estimated — fails on old rule). Existing swimSfdps fixtures used the real fix BUZRD/HTO/OOD as "unplaced" examples; renamed to fictitious idents (QZQZQ...) — same assertions, the fixtures' premise ("not in any gazetteer") was what changed. swimSfdps+flightPlans 56/56; tsc 11<=11.
+PRIOR/DOWNSTREAM: expect a minority of plans to gain a real interior fix (endpoint-only plans stay estimated); the gray curtain then draws the polyline through them and OFF_PLAN can be assessed only for those. Deviation stays disabled for pathEstimated plans (unchanged). NASR is 28-day cycle data; fixes rarely move, stale-by-weeks is acceptable and labelled by cycle.
+NEXT: (1) after deploy (post-close), read routeShape counters: placed should rise; re-run filed-route vs ADS-B cross-track gate-1 on plans with pathEstimated=false — target few-nm median; only then re-enable OFF_PLAN for filed plans. (2) airway expansion of nasRouteText (NASR AWY_SEG) for the noExpanded majority — open_questions.
+ROLLBACK TRIGGER: cross-track median for pathEstimated=false filed plans > 15 nm on the gate-1 check -> revert to >=full-route requirement.
+MERGE: prepared just after midnight ET (market closed) — mergeable immediately.
+STARVED: no.
+
+## 2026-09-29 (scheduled-routine PRODUCT session, ~18:00Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts status) — SFDPS ROUTE-SHAPE SAMPLER: gate-1 instrument for the empty-routePoints bug (v1.0.1006)
+
+HEALTH: /api/health 18:01Z status ok, bot active (dark:false, dd -6.3%) — the liveness alarm has cleared; nothing blocks product work.
+PRIOR (before building): 70% that live FIXM routePoints carry positions in a shape `positionIn` (pos text | lat/lon attrs) does not match (e.g. DMS strings or fix-name-only points). Guessing a parser fix without a message sample would be fishing; there is no way to read a live SWIM body from a session (creds live on Railway), so the honest step is an instrument.
+CHANGE: for every parsed flight with zero placed route points, record the STRUCTURE of the route subtree — element names, attribute names, value SHAPES only (digits->9, letters->A, runs collapsed; no real fixes, callsigns or coordinates) — up to 6 distinct shapes with counts, plus counters {placed, expandedNoPoints, noExpanded}. Surfaced at planStatus().swim.routeShape (existing flight-plan status route). Zero parsing behaviour change; bounded memory (6 samples x 2.4k chars).
+RATCHET: 3 new tests in swimSfdps.test.ts (shape recorded + no value leak + dedupe; placed/noExpanded labelling; sample and depth bounds). swimSfdps+flightPlans 53/53; tsc ratchet 11<=11.
+DOWNSTREAM: none on trading; no client change (diagnostic field only).
+NEXT (after deploy, post-close merge): read routeShape from the status endpoint, fix `extractFlight`/`positionIn` against the observed shape with a fixture copied from it, re-run the filed-route vs ADS-B cross-track gate-1 check (target: few-nm median, not 60.7 nm), then re-enable OFF_PLAN for FILED plans.
+ROLLBACK TRIGGER: none (additive diagnostics).
+MERGE: prepared mid-market (14:00 ET); merge after 16:00 ET close.
+STARVED: no.
+
+## 2026-09-29 (scheduled-routine PRODUCT session, ~13:20Z) [REPAIR] — T-DATACORE (server/flightPlans.ts) — FILED plans with no parsed route fixes no longer report OFF_PLAN (v1.0.1005)
+
+HEALTH: standing LIVENESS ALARM unchanged (bot killed, 65 market h, dd -6.1%); auto-resume armed, market opens 13:30Z. Not a blocker for product work.
+
+GATE-1 CHECK (claimed-vs-ground-truth, live, 60 US airline aircraft, 2026-09-29): SWIM repair from #1207 confirmed (385k messages processed, parseErrors 0, planStore 3,885; FILED_FAA resolved 59/60). BUT 59/59 filed plans were `pathEstimated:true` — zero route fixes parsed, path = origin->destination great circle — and cross-track vs that path had median 60.7 nm (max 194 nm); 44/59 reported OFF_PLAN. Real flights follow airways, so those flags are false: the product claimed "filed route + deviation" against a path that is not the filed route.
+FIX: deviation tracking (archive replay + observe) is skipped when source is FILED_FAA and pathEstimated; state stays UNKNOWN, crossTrackNm null, no events, honesty text says deviation is not assessed. ROUTE_DB/HISTORY predictions unchanged (their honesty text already labels them predictions).
+RATCHET: new contract test fails on old code (verified), passes now; flightPlans.test.ts 29/29.
+PRIOR/DOWNSTREAM: gray-curtain client only draws originalPoints/OFF_PLAN re-plan when OFF_PLAN, so the false re-plans + DEVIATION events in <archive>/flight_events/ stop; the filed curtain (great-circle, labelled estimated) still draws.
+ROLLBACK TRIGGER: none needed (removes a false claim); revisit when route fixes parse.
+NEXT (queued, open_questions): root-cause why routePoints are empty on live SFDPS messages (expandedRoute/routePoint shape differs from the FIXM assumption in swimSfdps.ts) — needs a captured live message body sample; then deviation can be re-enabled honestly. Existing DEVIATION events already archived on the volume from #1207 are contaminated for FILED_FAA and should be excluded from any analysis.
+MERGE: prepared mid-market; merge after 16:00 ET close per the run instruction.
+STARVED: no.
+
+## 2026-09-29 (scheduled-routine session, ~11:10Z) [NO-ACTION] — health re-checked, unchanged since the 02:37Z entry; nothing new to do
+
+TERRITORY: none (docs-only). Live /api/health 2026-09-29T11:11Z: serving ok (server, database), no failing gates; standing LIVENESS ALARM unchanged (bot killed, 65 market h / 464h wall, drawdown -6.1%); auto-resume armed, market still closed (opens 13:30Z) — the open is the test, verify `autoResume.lastResume` after it. Feeds/scanner/python/alpaca OK. Queue unchanged from the 02:37Z entry (next: 2026-10-02 sec_8k gate 2; human: Dockerfile COPY scripts/ for #44). STARVED: no.
+
+## 2026-09-29 (scheduled-routine EDGE session) [NO-ACTION] — no doctrine axis had unblocked, non-duplicative work; queue verified empty, not skipped
+
+TERRITORY: none (docs-only log entry, no code, no version bump).
+
+HEALTH FIRST (live `curl https://voltradeai.com/api/health`, 2026-09-29T02:37Z):
+standing LIVENESS ALARM — `bot.status:"killed"`, loop dark 65.0 market hours /
+455.4h wall-clock since 2026-09-10T03:12Z, drawdown -6.5%. The 2026-09-28
+human-directed auto-resume is DEPLOYED and armed (`autoResume.eligible:true`,
+`MARKET_CLOSED`, next evaluation 2026-09-29T09:30 ET, needs 3 consecutive OK
+tier-1 evaluations). Nothing to repair; the next market open is the test.
+Everything else OK. KNOWN BROKEN #44 (`insider_cusum_gate2` 500s,
+`ModuleNotFoundError`) re-confirmed live and unchanged: root cause is the
+FROZEN Dockerfile lacking `COPY scripts/`; proposal already in wishlist.md,
+awaiting the human. No zero-collateral non-frozen fix exists (see item 44).
+
+AXIS SURVEY (PRIOR: at least one axis has unblocked work; result: none):
+(a) free-data pipeline — data_census.md CENSUS MASTER RANKING fully built;
+    the 2026-09-28 session's `data_stream_registry_check --unbuilt` = 9/36 left,
+    every one blocked on a human key/registration or a dead source.
+    Gate advancement: `ladder_readiness_check.py` = READY 0/5, WAITING 5/5
+    (sec_8k_earnings_language needs 90d, 3d away; cftc/github ~4 reports short;
+    fleet_utilization 34d; gnss_integrity_adsb 8d). Running any early would
+    violate each script's own pre-stated re-run trigger.
+(b) capacity-constrained/illiquid universe — still gated on the fill-realism
+    fix per the task text; any result would be simulator fiction.
+(c) foreign-field import — open_questions.md already carries 8 discounted
+    foreign-field variants (REASONING STANDARD #4); a 9th speculative one is
+    churn, not signal.
+(d) compile recurring reasoning — the recurring "is anything ready?" survey is
+    already compiled (`ladder_readiness_check.py`, `session_health_check.py`,
+    `data_stream_registry_check.py`); no uncompiled repeat found.
+AUDITS: staleness next due 2026-10-16, constitutional 2026-10-20 — not overdue.
+
+NEXT (queued for whoever runs first after the date): (1) 2026-10-02
+sec_8k_earnings_language hits 90d — run `scripts/earnings_language_gate2.py`
+unchanged; (2) verify auto-resume actually fired at the 2026-09-29 open via
+/api/health `autoResume.lastResume`; (3) human: Dockerfile `COPY scripts/`
+for #44. STARVED: no (nothing high-value queued that can run today).
+
 ## 2026-09-28 (scheduled-routine session) [PRODUCT] — T-DATACORE (primary) — github_org_engineering_momentum's FIRST GATE 2 (SIGNAL) ATTEMPT: WAITING at n=8, not PASS/FAIL, plus a real bug found and fixed in shared gate-2 tooling (v1.0.999)
 
 TASK: scheduled `[PRODUCT]` session — read CLAUDE.md in full, then all of
@@ -106128,4 +106209,64 @@ Cache: /tmp per container, 6h TTL — no stale wrong values survive a deploy.
 
 RATCHET: test_etf_finnhub_div_yield.py (3 tests; all fail on the old code).
 Full pytest 2,288 passed; counter ratchet OK.
+STARVED: no.
+
+## 2026-09-29 (scheduled-routine session, ~16:05Z, market hours) [NO-ACTION] — loop recovered; DD-HALT latch is by-design, not a break
+
+TERRITORY: none (docs-only). Loop-health ratio (last 10 tagged): 4 REPAIR /
+3 PRODUCT / 3 PIPELINE — under the 7-REPAIR threshold.
+HEALTH (live 16:02Z): serving ok, no failing gates; liveness dark:false (the
+prior 11:10Z entry's standing alarm has CLEARED — bot "active", Tier-2 scans
+firing every 3-7 min); server_version 1.0.1005; feeds all live.
+FINDING: every Tier-2 scan audits "DD-HALT ... DD 18.39% >= 18.0% (peak=$111,737
+cur=$91,185)" while equity is ~$103.8k (dd 7.1%). Traced bot_engine.py
+update_equity_peak(): halt_reason is the string frozen at TRIP time; the
+parenthetical (equity=, dd_pct=) is current. The latch releases only when
+regime in BULL/NEUTRAL AND gap <= DRAWDOWN_HALT_RESUME_EQUITY_PCT (5%) — gap is
+7.1%, so it is correctly still latched. NOT a bug: no fix shipped. A threshold
+change would need counterfactual/ablation evidence (RULE REVIEW) — none exists
+yet; resume needs equity ~>= $106.1k (+2.2%).
+WATCH: verify the halt releases (Tier-2 "Scanned N>0 stocks") once equity
+crosses ~$106.1k in BULL/NEUTRAL; if it does not, that is a real latch bug.
+STARVED: no (queue empty; research would duplicate filed work).
+
+## 2026-09-29 (scheduled-routine session, ~20:16Z) [NO-ACTION] — health green, queue empty, DD latch still by design
+
+TERRITORY: none (docs-only). Loop-health ratio (last 10 tagged): 4 REPAIR / 3 PRODUCT /
+3 PIPELINE (+1 NO-ACTION since) — under the 7-REPAIR threshold.
+HEALTH (live 20:16Z, both domains): status ok, serving.failing [], liveness dark:false,
+alpaca ACTIVE, scanner 0 failures, feeds live (silent 0.28h), no process faults,
+RSS 1.5GB / cgroup headroom 20GB. Only merge since the 16:05Z entry: #1212 (SFDPS
+route-shape sampler, v1.0.1006) — no regression signal.
+WATCH (carried): bot equity drawdown now -6.2% vs peak $110.7k (was 7.1% at 16:05Z);
+DD-HALT release needs gap <= 5% in BULL/NEUTRAL. Still latched by design; autoResume
+"NOT_EVALUATED" is expected while the tier-1 cycle hasn't run since deploy uptime 2h.
+If the gap reaches <=5% and the latch does not release, that is a real latch bug.
+No queued item fits; research would duplicate filed work.
+STARVED: no.
+
+
+## 2026-09-30 [REPAIR] — T-CLIENT — /data PHONE: LEGEND + COMPASS NO LONGER COVER THE DETAIL SHEET (v1.0.1008)
+
+Found 2026-09-28 while verifying the EGMONT card at 390px: the floating
+Legend (z 18) and the north-lock FAB sat ON TOP of the detail bottom sheet
+(z 11), covering its chip row and body — a Standing UI Law violation (no
+popup covers another element). Fix (CSS only, phone media block): while a
+non-minimized .vt-site-card is up, .vt-legend-float and .vt-nav-fab step
+aside (display none); closing/minimizing the card brings them back.
+
+Verified with a probe (local build, APIs forwarded to prod, EGMONT card):
+390px legend+FAB visible -> hidden (collapsed AND expanded sheet) ->
+visible after close; 768/1440 unaffected, measured 0px card/legend and
+card/nav-cluster overlap collapsed and expanded. Test:
+client/src/pages/datamap.sheetOverlap.test.ts (fails without the rule).
+Client suite 1,186/1,186.
+
+QUEUED NEXT (own PR): analyze_ticker() fabricates atm_iv = rv20 * 1.1 when
+no option chain yields an ATM IV; VRP then = 0.1 x rv20, which for rv20 >
+50 prints "Sell vol — implied vol is overpriced": a signal made from
+nothing, also fed to the recommendation + IV-crush score. The bot's
+quick_scan already returns None in that case (honest). Fix needs the page's
+.toFixed() calls and get_recommendation / earnings / iv_crush to accept a
+missing IV.
 STARVED: no.

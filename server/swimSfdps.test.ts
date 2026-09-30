@@ -4,7 +4,7 @@ import {
   parseXmlLite, attr, findAll, parseSfdpsMessages, altitudeFeet, SwimPlanStore, planDiff,
   rootElementName, classifySfdpsPayload, flightChunks, needsFullParse, lightFlight,
   handleSfdpsPayload, sfdpsCounters, sfdpsStatus, startSfdps, routePointsOf, packRoute,
-  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, type StoredSwimPlan,
+  _resetSfdpsCountersForTests, SWIM_ROUTE_MAX_POINTS, routeShapeSamples, xmlShape, type StoredSwimPlan,
 } from "./swimSfdps";
 import { _resetSwimConnectorForTests } from "./swimConnector";
 
@@ -32,7 +32,7 @@ const FH = `<?xml version="1.0" encoding="UTF-8"?>
       <gufi codeSpace="urn:uuid">5a8c6a52-2f2b-4d1e-9a4f-0f0b8b2f1c11</gufi>
       <requestedAltitude><ns5:simple uom="FEET">35000.0</ns5:simple></requestedAltitude>
       <agreed>
-        <route nasRouteText="KBOS.SSOXS5.SSOXS..BUZRD..SEY..HTO.J150.OOD..BROSS..KATL &amp; notes" initialFlightRules="IFR">
+        <route nasRouteText="KBOS.SSOXS5.SSOXS..QZQZQ..SEY..HTO.J150.OOD..BROSS..KATL &amp; notes" initialFlightRules="IFR">
           <ns5:expandedRoute>
             <ns5:routePoint>
               <ns2:point xsi:type="ns2:FixPointType" fix="KBOS">
@@ -44,7 +44,7 @@ const FH = `<?xml version="1.0" encoding="UTF-8"?>
             </ns5:routePoint>
             <ns5:routePoint>
               <!-- a fix with no position: must be skipped, never guessed -->
-              <ns2:point fix="BUZRD"/>
+              <ns2:point fix="QZQZQ"/>
             </ns5:routePoint>
             <ns5:routePoint>
               <ns2:point designator="HTO"><ns2:position latitude="40.9195" longitude="-72.3166"/></ns2:point>
@@ -137,13 +137,13 @@ test("parseSfdpsMessages: FH flight plan — identity, aerodromes, filed cruise,
   assert.equal(f.departure, "KBOS");
   assert.equal(f.arrival, "KATL");
   assert.equal(f.cruiseAltFt, 35000);
-  assert.equal(f.routeText, "KBOS.SSOXS5.SSOXS..BUZRD..SEY..HTO.J150.OOD..BROSS..KATL & notes");
+  assert.equal(f.routeText, "KBOS.SSOXS5.SSOXS..QZQZQ..SEY..HTO.J150.OOD..BROSS..KATL & notes");
   assert.equal(f.messageType, "FH");
   assert.equal(f.isAmendment, false);
   assert.equal(f.isCancellation, false);
   assert.equal(f.timestamp, Date.parse("2026-09-28T14:02:11.123Z"));
   assert.equal(f.departureTime, Date.parse("2026-09-28T14:30:00Z"));
-  // 6 route points, BUZRD has no position -> 5 placed, in order
+  // 6 route points, QZQZQ (a fictitious ident: not in the NASR gazetteer) has no position -> 5 placed, in order
   assert.deepEqual(f.routePoints.map((p) => p.name), ["KBOS", "SSOXS", "HTO", "OOD", "KATL"]);
   assert.deepEqual({ lat: f.routePoints[0].lat, lon: f.routePoints[0].lon }, { lat: 42.363, lon: -71.0064 });
   assert.equal(f.routePoints[2].lat, 40.9195, "latitude/longitude attribute form accepted");
@@ -378,4 +378,69 @@ test("startSfdps: zero cost without env; routes consumer payloads through the SF
   assert.equal(imported, 0);
   assert.equal(h.status().configured, false);
   assert.equal(sfdpsStatus().configured, false);
+});
+
+// ── route-shape sampler: gate-1 instrument for the empty-routePoints bug ────
+const UNPLACED = (id: string) => `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-29T12:00:00Z">
+  <flightIdentification aircraftIdentification="${id}"/>
+  <agreed><route nasRouteText="KBOS..HTO..KATL"><expandedRoute>
+    <routePoint><nasFix fixName="QZQZR" lat="40N" lon="073W"/></routePoint>
+    <routePoint><nasFix fixName="QZQZS"/></routePoint>
+  </expandedRoute></route></agreed></flight></message></m:MessageCollection>`;
+
+test("route-shape sampler: unplaced route is recorded as SHAPE only (no real values), deduped with a count", () => {
+  _resetSfdpsCountersForTests();
+  parseSfdpsMessages(UNPLACED("DAL123"));
+  parseSfdpsMessages(UNPLACED("UAL456"));
+  const r = routeShapeSamples();
+  assert.equal(r.counters.expandedNoPoints, 2);
+  assert.equal(r.counters.placed, 0);
+  assert.equal(r.samples.length, 1, "identical shapes dedupe");
+  assert.equal(r.samples[0].count, 2);
+  assert.equal(r.samples[0].where, "expandedRoute");
+  assert.match(r.samples[0].shape, /routePoint\(nasFix\[fixName=AA\+,lat=99A,lon=99\+A\]/);
+  assert.doesNotMatch(r.samples[0].shape, /QZQZR|QZQZS|KBOS|40N|073W|DAL123/, "no real values leak");
+});
+
+test("route-shape sampler: placed routes only bump the counter; missing expandedRoute is labelled", () => {
+  _resetSfdpsCountersForTests();
+  const placed = `<message><flight source="FH"><flightIdentification aircraftIdentification="DAL1"/>
+    <agreed><route><expandedRoute><routePoint><pos>40.1 -70.2</pos></routePoint></expandedRoute></route></agreed></flight></message>`;
+  parseSfdpsMessages(placed);
+  parseSfdpsMessages(`<message><flight source="FH"><flightIdentification aircraftIdentification="DAL2"/><agreed><route nasRouteText="A B"/></agreed></flight></message>`);
+  const r = routeShapeSamples();
+  assert.equal(r.counters.placed, 1);
+  assert.equal(r.counters.noExpanded, 1);
+  assert.equal(r.samples.length, 1);
+  assert.equal(r.samples[0].where, "route(no expandedRoute)");
+});
+
+test("route-shape sampler: bounded samples and depth", () => {
+  _resetSfdpsCountersForTests();
+  for (let i = 0; i < 20; i++) parseSfdpsMessages(`<message><flight source="FH"><flightIdentification aircraftIdentification="AAL${i}"/><agreed><route><expandedRoute><p${i}/></expandedRoute></route></agreed></flight></message>`);
+  assert.ok(routeShapeSamples().samples.length <= 6);
+  const deep = parseXmlLite("<a><b><c><d><e><f><g><h><i><j><k>x</k></j></i></h></g></f></e></d></c></b></a>")!;
+  assert.ok(!xmlShape(deep).includes("k{"), "depth-capped");
+});
+
+// ── NASR gazetteer: fix NAMES resolve to positions (live SFDPS carries no coords) ──
+const NAME_ONLY = (pts: string) => `<message><flight source="FH"><flightIdentification aircraftIdentification="DAL9"/>
+  <agreed><route nasRouteText="X"><expandedRoute>${pts}</expandedRoute></route></agreed></flight></message>`;
+
+test("fix-name-only routePoints are placed from the FAA NASR gazetteer; unknown names and offset points are not", () => {
+  _resetSfdpsCountersForTests();
+  const [f] = parseSfdpsMessages(NAME_ONLY(`
+    <routePoint><point fix="HTO"/></routePoint>
+    <routePoint><point fix="QZQZQ"/></routePoint>
+    <routePoint><point fix="OOD"><distance uom="NM">12.5</distance><radial uom="DEG">270.0</radial></point></routePoint>
+    <routePoint><point fix="bos"/></routePoint>`));
+  assert.deepEqual(f.routePoints.map((p) => p.name), ["HTO", "bos"], "unknown + place-bearing-distance offset are not placed");
+  assert.deepEqual({ lat: f.routePoints[0].lat, lon: f.routePoints[0].lon }, { lat: 40.919, lon: -72.3167 });
+  assert.ok(Math.abs(f.routePoints[1].lat - 42.357) < 0.01, "navaid ident resolves, case-insensitive");
+  assert.equal(routeShapeSamples().counters.placed, 1);
+});
+
+test("explicit coordinates win over the gazetteer", () => {
+  const [f] = parseSfdpsMessages(NAME_ONLY(`<routePoint><point fix="HTO" lat="1.5" lon="2.5"/></routePoint>`));
+  assert.deepEqual({ lat: f.routePoints[0].lat, lon: f.routePoints[0].lon }, { lat: 1.5, lon: 2.5 });
 });

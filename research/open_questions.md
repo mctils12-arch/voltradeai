@@ -7325,6 +7325,9 @@
     not close this item until the Dockerfile line actually ships and the
     probe has been confirmed live.
 
+## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
+~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -22677,3 +22680,9 @@ hypothesis if one is ever found.
 STARVED: no.
 
 NOT A SPEND REQUEST.
+
+
+## [PRODUCT · filed 2026-09-29] SFDPS routePoints empty on live messages — filed-route deviation is unmeasurable until fixed
+Live 2026-09-29: 59/59 FILED_FAA plans `pathEstimated:true` (route text only), although 385k messages parse with 0 errors. Hypothesis (prior: 70%): live FIXM messages carry the expanded route under an element/attribute shape other than `expandedRoute > routePoint > (fix, position)` assumed in server/swimSfdps.ts `extractFlight`. Testable form: capture one raw FH/HZ message body (behind a bounded diag probe, content-shape only, no PII) and diff against the parser's walk. Ladder: gate 1 = filed-route polyline vs the aircraft's recorded ADS-B track cross-track distribution should be a few nm median (not 61 nm); only then re-enable OFF_PLAN for FILED plans. Standalone-product potential: filed-vs-flown deviation is a clean data product (sourced from public SWIM, licensing note re LADD/PIA still open).
+
+**STATUS 2026-09-29 18:00Z (v1.0.1006):** route-shape sampler shipped (PR pending merge) — read `planStatus().swim.routeShape` after deploy; parser fix + fixture from the observed shape is the next step.

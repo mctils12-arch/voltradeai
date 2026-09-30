@@ -824,7 +824,12 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
   let raw: PlanPoint[];
   let pathEstimated: boolean;
   const routePoints = routePointsOf(p);
-  if (routePoints.length >= 1) {
+  // SFDPS expandedRoute often carries only the two endpoint fixes (resolved via
+  // the NASR gazetteer they sit AT the airports); placed alone they are a
+  // great-circle, not a filed path — so require >=1 point that is not an
+  // airport endpoint, else stay labelled estimated.
+  const interior = routePoints.filter((r) => !(origin && haversineNm(origin, r) <= 2) && !(destination && haversineNm(destination, r) <= 2));
+  if (interior.length >= 1) {
     raw = routePoints.map((r) => ({
       lat: r.lat, lon: r.lon, altM: r.altFt != null ? Math.round(r.altFt / FT_PER_M) : null,
       altEstimated: r.altFt == null, ...(r.name ? { name: r.name } : {}),
@@ -984,7 +989,13 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
 
   // ── deviation tracking (plan requested = tracked) ──
   const track = ctx.tracker.touch(q.hex, cs, cand.source, planKeyOf(cand), base, now);
-  if (now - track.archiveCheckedAt > ARCHIVE_RECHECK_MS) {
+  // A FILED plan whose message carried route TEXT only has a great-circle
+  // stand-in for its path (no parsed route fixes). Real flights follow
+  // airways, not the great circle (live 2026-09-29: median 61 nm cross-track,
+  // 44/59 false OFF_PLAN) — so deviation is not measurable against it and
+  // stays UNKNOWN rather than claiming the aircraft left a route we never had.
+  const deviationMeasurable = !(cand.source === "FILED_FAA" && cand.pathEstimated);
+  if (deviationMeasurable && now - track.archiveCheckedAt > ARCHIVE_RECHECK_MS) {
     track.archiveCheckedAt = now;
     let fixes: Array<{ t: number; la: number; lo: number; al?: number | null }> = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -998,7 +1009,7 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
       if (f.t * 1000 > track.lastFixT) ctx.tracker.observe(track, { t: f.t * 1000, lat: f.la, lon: f.lo, altM: f.al ?? null, trk: null });
     }
   }
-  if (pos) ctx.tracker.observe(track, { t: q.fixT ?? now, lat: pos.lat, lon: pos.lon, altM: obsAltM, trk: q.trkDeg });
+  if (pos && deviationMeasurable) ctx.tracker.observe(track, { t: q.fixT ?? now, lat: pos.lat, lon: pos.lon, altM: obsAltM, trk: q.trkDeg });
 
   let points = base;
   let originalPoints: PlanPoint[] | null = null;
@@ -1023,6 +1034,9 @@ export async function resolveFlightPlan(q: PlanRequest, ctx: PlanContext): Promi
     if (cand.source !== "FILED_FAA") {
       honesty += " Against a PREDICTED plan, 'off plan' can mean the prediction was wrong rather than the aircraft.";
     }
+  }
+  if (!deviationMeasurable) {
+    honesty += " Deviation from the filed route is not assessed: only the route text was received, so there is no filed path to measure against.";
   }
   honesty += " The real flown path is always the recorded ADS-B track.";
 
@@ -1124,6 +1138,7 @@ export function planStatus(ctx: PlanContext) {
       byService: s.counters.byService, flightByType: s.counters.flightByType,
       fullParses: s.counters.fullParses, lightParses: s.counters.lightParses, parseErrors: s.counters.parseErrors,
       planStoreSize: s.storeSize,
+      routeShape: s.routeShape,
       envVars: swimEnvVarNames(SFDPS_ENV_PREFIX),
     },
     // env readiness of every SCDS product (names only, never values). Only

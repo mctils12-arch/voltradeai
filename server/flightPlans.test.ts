@@ -520,6 +520,31 @@ test("contract: archive fixes seed the state machine on the first request", asyn
   assert.equal(r.deviation.state, "OFF_PLAN", "already off plan before anyone clicked");
 });
 
+test("contract: FILED text-only plan (great-circle stand-in) never reports OFF_PLAN — deviation stays UNKNOWN", async () => {
+  const swim = new SwimPlanStore();
+  const FH = `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
+    <flightIdentification aircraftIdentification="SKW5000"/><gufi>g-2</gufi>
+    <departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>
+    <requestedAltitude><simple uom="FEET">24000</simple></requestedAltitude>
+    <agreed><route nasRouteText="KSFO..SNS..KLAX"/></agreed></flight></message></m:MessageCollection>`;
+  for (const f of parseSfdpsMessages(FH)) swim.upsert(f, NOW - 60_000);
+  let now = NOW;
+  const ctx = ctxWith({ swim, now: () => now });
+  let r: FlightPlanResponse | null = null;
+  for (const [lat, lon] of [[36.4, -121.4], [36.2, -121.2], [36.0, -121.0], [35.9, -120.9]]) {
+    now += 60_000;
+    r = await resolveFlightPlan(q({ callsign: "SKW5000", lat: String(lat), lon: String(lon), alt: "20000", trk: "140" }), ctx);
+  }
+  if (!r) throw new Error("no response");
+  assert.equal(r.source, "FILED_FAA");
+  assert.equal(r.pathEstimated, true);
+  assert.equal(r.deviation.state, "UNKNOWN");
+  assert.equal(r.deviation.crossTrackNm, null);
+  assert.equal(r.originalPoints, null);
+  assert.deepEqual(r.events, []);
+  assert.match(r.honesty, /Deviation from the filed route is not assessed/);
+});
+
 test("parsePlanQuery: validation", () => {
   assert.deepEqual(parsePlanQuery("XYZ", {}), { error: "icao24 hex required (6 hex characters)" });
   assert.ok("error" in parsePlanQuery("a1b2c3", { lat: "91", lon: "0" }));
@@ -564,4 +589,19 @@ test("routes: /plan/:hex and /plan-status wired; bad hex is a 400; status expose
 test("history trips type sanity (compile-time contract for agent D consumers)", () => {
   const h: HistoryTrip | null = null;
   assert.equal(h, null);
+});
+
+test("contract: a filed plan whose only placed points are the airport endpoints stays estimated (no false filed-route claim)", async () => {
+  const swim = new SwimPlanStore();
+  const FH = `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
+    <flightIdentification aircraftIdentification="SKW5001"/><gufi>g-2</gufi>
+    <departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>
+    <agreed><route nasRouteText="KSFO..SNS..KLAX"><expandedRoute>
+      <routePoint><point><location><pos>37.619 -122.375</pos></location></point></routePoint>
+      <routePoint><point><location><pos>33.9425 -118.4081</pos></location></point></routePoint>
+    </expandedRoute></route></agreed></flight></message></m:MessageCollection>`;
+  for (const f of parseSfdpsMessages(FH)) swim.upsert(f, NOW - 60_000);
+  const r = await resolveFlightPlan(q({ callsign: "SKW5001", lat: "36.2", lon: "-120.1" }), ctxWith({ routes: {}, swim }));
+  assert.equal(r.source, "FILED_FAA");
+  assert.equal(r.pathEstimated, true);
 });
