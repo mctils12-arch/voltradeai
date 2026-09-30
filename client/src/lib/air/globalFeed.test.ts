@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   discsNeeded, wantsGlobalFeed, globalQueryBBox, globalFeedUrl, adaptGlobalPayload, createAircraftFeed,
+  mergeGlobalAnswer, heldQueryCovers, GLOBAL_EVICT_MS, GLOBAL_RESYNC_MS,
   MAX_DISCS_PER_REFRESH, DISC_RADIUS_MAX_NM, GLOBAL_EXIT_DISCS, STALE_ROW_MS, GLOBAL_FEED_POLL_MS,
   STALE_BAND_COLORS, type Bounds,
 } from './globalFeed.js';
@@ -19,7 +20,8 @@ test('constants mirror the server tiling module', () => {
   assert.equal(MAX_DISCS_PER_REFRESH, SERVER_MAX_DISCS);
   assert.equal(DISC_RADIUS_MAX_NM, SERVER_RADIUS);
   assert.ok(GLOBAL_EXIT_DISCS < MAX_DISCS_PER_REFRESH, 'hysteresis band exists');
-  assert.equal(GLOBAL_FEED_POLL_MS, 20_000);
+  // 20 s -> 8 s (2026-09-30): later polls are changed= deltas, not full snapshots
+  assert.equal(GLOBAL_FEED_POLL_MS, 8_000);
   assert.equal(STALE_ROW_MS, 120_000);
 });
 
@@ -139,4 +141,75 @@ test('createAircraftFeed: dedupes same-bbox refetches, aborts superseded request
   assert.equal(signals[2].aborted, true, 'dispose aborts the in-flight request');
   resolvers[2]();
   assert.deepEqual(await p3, { unchanged: true });
+});
+
+// ── delta polling (2026-09-30: faster refresh without bogging down) ─────────
+const F = ['hex', 'lon', 'lat', 'altFt', 'gsKt', 'trk', 'callsign', 'type', 'seenAt', 'cat', 'gnd', 'reg', 'src'];
+const row = (hex: string, lon: number, seenAt: number) => [hex, lon, 40, 30000, 400, 90, 'X' + hex, 'B738', seenAt, 'A3', 0, 'N1', 'adsblol'];
+
+test('mergeGlobalAnswer: full replaces, delta upserts by hex, server evict rule applied, no-op delta = unchanged', () => {
+  const T = 1_800_000_000_000;
+  const full = mergeGlobalAnswer(null, { at: T, full: true, fields: F, rows: [row('a', 1, T - 1000), row('b', 2, T - 1000)] }, null, 5);
+  assert.equal(full.changed, true);
+  assert.deepEqual([...full.held.rows.keys()].sort(), ['a', 'b']);
+  assert.equal(full.held.at, T);
+  // delta: a moves, c appears, b untouched but kept
+  const d1 = mergeGlobalAnswer(full.held, { at: T + 8000, full: false, fields: F, rows: [row('a', 9, T + 7000), row('c', 3, T + 7000)] }, null, 6);
+  assert.equal(d1.changed, true);
+  assert.deepEqual([...d1.held.rows.keys()].sort(), ['a', 'b', 'c']);
+  assert.equal(d1.held.rows.get('a')![1], 9, 'delta row replaces the held one');
+  assert.equal(d1.held.lastFullAt, 5, 'a delta does not reset the resync clock');
+  // empty delta, nobody crosses the stale line -> nothing to redraw
+  const d2 = mergeGlobalAnswer(d1.held, { at: T + 16000, full: false, fields: F, rows: [] }, null, 7);
+  assert.equal(d2.changed, false);
+  // empty delta, but a held row crossed the 2-min stale line -> redraw (dimming stays honest)
+  const d3 = mergeGlobalAnswer(d2.held, { at: T - 1000 + STALE_ROW_MS + 1, full: false, fields: F, rows: [] }, null, 8);
+  assert.equal(d3.changed, true);
+  // rows past the server's evict age vanish from the held set too
+  const d4 = mergeGlobalAnswer(d3.held, { at: T + 7000 + GLOBAL_EVICT_MS + 1, full: false, fields: F, rows: [] }, null, 9);
+  assert.equal(d4.held.rows.size, 0);
+  assert.equal(d4.changed, true);
+});
+
+test('heldQueryCovers: pans inside the held padding keep it; zoom-in / leaving / world changes re-query', () => {
+  const held = { lamin: 20, lamax: 50, lomin: -100, lomax: -60 };
+  assert.equal(heldQueryCovers(held, { lamin: 25, lamax: 45, lomin: -95, lomax: -65 }), true);
+  assert.equal(heldQueryCovers(held, { lamin: 25, lamax: 55, lomin: -95, lomax: -65 }), false, 'left the held box');
+  assert.equal(heldQueryCovers(held, { lamin: 30, lamax: 33, lomin: -80, lomax: -76 }), false, 'deep zoom-in re-queries smaller');
+  assert.equal(heldQueryCovers(null, null), true);
+  assert.equal(heldQueryCovers(null, held), false);
+  assert.equal(heldQueryCovers(held, null), false);
+});
+
+test('createAircraftFeed: second poll is a changed=<at> delta on the held bbox; resync after GLOBAL_RESYNC_MS', async () => {
+  let t = 2_000_000;
+  const urls: string[] = [];
+  const answers: unknown[] = [
+    { at: 111, full: true, fields: F, rows: [row('a', -75, 100)] },
+    { at: 222, full: false, fields: F, rows: [row('b', -74, 200)] },
+    { at: 333, full: false, fields: F, rows: [] },
+    { at: 444, full: true, fields: F, rows: [row('a', -75, 400)] },
+  ];
+  const fetchImpl = ((url: string) => {
+    urls.push(url);
+    const body = answers.shift();
+    return Promise.resolve({ ok: true, status: 200, json: async () => body } as unknown as Response);
+  }) as unknown as typeof fetch;
+  const feed = createAircraftFeed({ fetchImpl, now: () => t });
+  const view = B(30, 45, -85, -65);
+  feed.shouldUseGlobal(view, 3.5);
+  const r1 = await feed.fetchGlobal(view);
+  assert.ok('aircraft' in r1 && r1.count === 1);
+  assert.ok(!urls[0].includes('changed='), 'first poll is full');
+  t += 8_000;
+  const r2 = await feed.fetchGlobal(B(31, 44, -84, -66)); // small pan inside the padding
+  assert.equal(urls[1], urls[0] + '&changed=111', 'same held bbox + server cursor');
+  assert.ok('aircraft' in r2 && r2.count === 2, 'delta merged into the held rows');
+  t += 8_000;
+  assert.deepEqual(await feed.fetchGlobal(view), { unchanged: true }, 'empty delta -> no rebuild');
+  assert.ok(urls[2].endsWith('changed=222'));
+  t += GLOBAL_RESYNC_MS;
+  const r4 = await feed.fetchGlobal(view);
+  assert.ok(!urls[3].includes('changed='), 'periodic full resync');
+  assert.ok('aircraft' in r4 && r4.count === 1, 'full answer replaces the held set');
 });

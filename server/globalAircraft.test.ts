@@ -126,6 +126,28 @@ test("filters: bbox (also registers viewer interest), lawful=1 (ODbL subset), si
   });
 });
 
+test("changed=<previous at>: exact server-clock delta — late-landing fixes are never skipped", async () => {
+  await withApp(async (base) => {
+    const now = Date.now();
+    publishFixes({ provider: "adsblol", origin: "viewport", aircraft: [ac("ee0001", 40, -75)], fetchedAt: now });
+    const full = await getJson(`${base}/api/data/aircraft/global`);
+    assert.equal(full.full, true);
+    const cursor = full.at;
+    await new Promise((r) => setTimeout(r, 5));
+    // a fix that lands AFTER the cursor but whose seenAt is 40 s old (provider
+    // latency): a seenAt cursor (since=) would skip it; changed= must not
+    publishFixes({ provider: "adsblol", origin: "viewport", aircraft: [ac("ee0002", 41, -74, { seen_pos: 40 })], fetchedAt: Date.now() });
+    const delta = await getJson(`${base}/api/data/aircraft/global?changed=${cursor}`);
+    assert.equal(delta.full, false);
+    assert.equal(delta.changed_since, cursor);
+    assert.deepEqual(hexes(delta), ["ee0002"], "only the row that changed after the cursor");
+    const bySeen = await getJson(`${base}/api/data/aircraft/global?since=${cursor}`);
+    assert.deepEqual(hexes(bySeen), [], "the seenAt cursor misses the late fix — why changed= exists");
+    const none = await getJson(`${base}/api/data/aircraft/global?changed=${delta.at + 1}`);
+    assert.deepEqual(hexes(none), []);
+  });
+});
+
 test("recording: sweep/OpenSky fixes archived (with provenance); viewport/scope fixes are NOT re-archived here", async () => {
   await withApp(async (_base, h, dir) => {
     const now = Date.now();
