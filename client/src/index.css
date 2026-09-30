@@ -3090,6 +3090,58 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-preset-pills { padding: 2px; }
   .vt-preset-pill { padding: 6px 10px; font-size: 0.72rem; }
 }
+/* FAA chart base views (lib/aeroCharts) — the preset popout becomes two
+   stacked pill rows (base style, then chart view). Wraps instead of running
+   off-screen at 390px. */
+.vt-preset-pop {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  max-width: calc(100vw - 80px);
+}
+.vt-preset-pop .vt-preset-pills { flex-wrap: wrap; }
+@media (max-width: 480px) {
+  .vt-aero-pills .vt-preset-pill { min-height: 44px; }
+}
+/* chart freshness card: top-centre, clear of the left control column and
+   the top-right layers button; honesty tone on the left rule */
+.vt-aero-card {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 11;
+  width: min(380px, calc(100vw - 136px));
+  display: flex; flex-direction: column; gap: 4px;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.2); border-left: 3px solid var(--accent-green);
+  border-radius: 10px; padding: 6px 8px 7px 10px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1.4;
+}
+.vt-aero-card.vt-aero-warn { border-left-color: var(--accent-orange); }
+.vt-aero-card.vt-aero-unknown { border-left-color: var(--text-tertiary); }
+.vt-aero-card-below-axis { top: 52px; }
+.vt-aero-card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.vt-aero-card-title {
+  font-family: var(--font-body); font-size: 12.5px; font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vt-aero-card-x {
+  appearance: none; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--text-tertiary); border: 0; cursor: pointer;
+}
+.vt-aero-card-x:hover { color: var(--accent-bright); background: rgba(77, 159, 255, 0.08); }
+.vt-aero-card-x:active { transform: scale(0.94); }
+.vt-aero-card-ed { color: var(--text-secondary); }
+.vt-aero-warn .vt-aero-card-ed { color: var(--accent-orange); }
+.vt-aero-card-op { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); }
+.vt-aero-card-op input { flex: 1 1 auto; min-width: 60px; accent-color: var(--accent); }
+.vt-aero-card-pct { min-width: 3.2em; text-align: right; color: var(--text-secondary); }
+.vt-aero-card-note { color: var(--text-tertiary); font-size: 9.5px; }
+.vt-aero-card-note strong { color: var(--text-secondary); font-weight: 600; }
+@media (max-width: 480px) {
+  .vt-aero-card { font-size: 9.5px; padding: 4px 6px 5px 8px; }
+  .vt-aero-card-x { width: 44px; height: 44px; margin: -8px -6px -8px 0; }
+  .vt-aero-card-op { min-height: 32px; }
+  .vt-aero-card-cov { display: none; }
+}
 /* Units toggle in the layers panel — reuses the .vt-preset-pill visuals but
    its own container (decoupled 2026-07-22 when the map preset switch became
    a top-left icon button): a static boxed inline row, never positioned. */
