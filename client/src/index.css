@@ -824,6 +824,11 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border-color: rgba(255,159,10,0.2);
   color: #fcd34d;
 }
+.vrp-banner.unknown {
+  background: rgba(148,163,184,0.07);
+  border-color: rgba(148,163,184,0.2);
+  color: #cbd5e1;
+}
 
 /* ── Two-col ── */
 .two-col {

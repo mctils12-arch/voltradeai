@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine PRODUCT session, ~13:20Z) [PIPELINE] — T-DATACORE (server/navAirways.ts, server/swimSfdps.ts, datacore/aircraft/nasr_airways.json) — AIRWAY EXPANSION OF FILED ROUTE TEXT (v1.0.1011)
+
+HEALTH: /api/health 13:19Z status ok, serving.failing [], liveness dark:false, feeds live; nothing blocks product work.
+PRIOR: the ~52% of live plans with only nasRouteText (noExpanded 141,933) mostly read FIX AIRWAY FIX; expanding via NASR AWY_BASE should place a real interior for a large share of them. Unknowns: how many text routes hold a bounded FIX-AIRWAY-FIX (vs SID/STAR-only or lat/lon forms).
+CHANGE: scripts/build_nasr_airways.py -> datacore/aircraft/nasr_airways.json (1,504 airway ids, 160 KB, cycle 2026-09-03, FAA public domain, AWY_BASE AIRWAY_STRING; ids that exist in several regions keep every variant). server/navAirways.ts expands ONLY `FIX AIRWAY FIX` when both fixes lie on the airway (ambiguous variants -> refuse); extractFlight falls back to it when expandedRoute placed nothing. Bare-fix-only text is NOT placed (separate untested step); emitted only when an airway actually expanded. New counter routeShape.airwayExpanded on the status endpoint.
+OFFLINE GATE-1 SANITY (static data, not the ADS-B gate): 19,372/19,372 airway idents resolve in the fix gazetteer; consecutive-fix legs median 19.5 nm, p99 349 nm, max 929 nm (oceanic/Alaska). Good geometry; says nothing yet about how filed plans compare to flown tracks.
+RATCHET: server/navAirways.test.ts (4 tests: segment both directions, refusal cases, expansion incl. bad-airway-doesn't-poison, end-to-end parse with route text only + counter). swimSfdps+flightPlans+navAirways 60/60; tsc 11<=11; existing assertions untouched.
+DOWNSTREAM: pathEstimated flips false only via the existing honesty guard (a placed point >2 nm off both airport endpoints) -> more plans draw the gray curtain through real airway fixes; deviation/OFF_PLAN stays disabled for estimated plans (unchanged).
+NEXT (after deploy, post-close): read routeShape.airwayExpanded vs noExpanded; run the filed-route vs ADS-B cross-track gate-1 on N>=200 pathEstimated=false plans split by airway type before re-enabling OFF_PLAN. Remaining unplaced: SID/STAR-only, lat/lon tokens, airway-to-airway joins, PBD offsets.
+ROLLBACK TRIGGER: cross-track median for airway-expanded plans > 15 nm on gate-1 -> drop the fallback in extractFlight.
+MERGE: prepared ~09:25 ET, before the open — merge after the 16:00 ET close.
+STARVED: no.
+
 ## 2026-09-30 (scheduled-routine PRODUCT session, ~00:10Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/navFixes.ts, datacore/aircraft/nasr_fixes.json) — SFDPS ROUTE FIXES PLACED FROM THE FAA NASR GAZETTEER (v1.0.1007)
 
 HEALTH: /api/health 00:06Z status ok, bot active (dd -6.0%), liveness dark:false, server_version 1.0.1006 live; nothing blocks product work.
@@ -106272,7 +106285,66 @@ missing IV.
 STARVED: no.
 
 
-## 2026-09-30 [REPAIR] — T-CLIENT (primary) + shared/server contract — PLANNED-ROUTE FORWARD-ONLY SEAM, TERMINAL VECTORING, FIX LABELS (v1.0.1009)
+## 2026-09-30 [REPAIR] — T-CLIENT tooling — VISUAL HARNESS: GLOBAL AIRCRAFT FIXTURE (v1.0.1009)
+
+While verifying #1215 the data-page harness reported 5 hard failures, all
+aircraft (fields-on / data-richness 0 < 9500 / trail: "no aircraft
+rendered") — identical on pristine main, so pre-existing. Cause: #1207
+(FLIGHT PROGRAM B1) switched ZOOMED-OUT views to /api/data/aircraft/global;
+the harness starts zoomed out and had no fixture for that endpoint (its
+generic handler answered {} -> zero rows). Prod is fine: the live endpoint
+served 5,483 rows. The harness is not a required CI check, which is how
+#1207 merged with it red — noted, not changed (CI definitions are frozen).
+
+FIX: FIXTURES["/api/data/aircraft/global"] re-encodes the same 10k
+synthetic aircraft into the global fields+rows shape (fixed `at`, fresh
+seenAt), so both feeds show identical planes and the 9,500-feature
+richness floor still bites. Result: data page 0 hard failures at
+390/768/1440; rendered 1,607 / 3,034 / 3,507 aircraft — identical to the
+pre-#1207 runs.
+STARVED: no.
+
+## 2026-09-30 (scheduled-routine session) [REPAIR] — T-BOT/T-CLIENT — /analyze: NO FABRICATED IMPLIED VOL (v1.0.1010)
+
+HEALTH (live 11:11Z): status ok, serving.failing [], liveness dark:false, feeds live;
+DD latch still by design (dd -6.3%, release needs <=5% in BULL/NEUTRAL). Loop-health
+ratio (last 10 tagged): 4 REPAIR — under threshold. Took the item QUEUED by the
+previous [REPAIR] entry.
+
+BREAK: analyze_ticker() set atm_iv = rv20 * 1.1 when no option chain gave a plausible
+ATM IV, so VRP = 0.1 * rv20 — for rv20 > 50 that printed "Sell vol — implied vol is
+overpriced", fed get_recommendation (SELL PREMIUM paths) with no IV observed. A signal
+made from nothing (honesty metric, priority 2).
+FIX: new compute_vrp(atm_iv, rv20); missing IV -> vrp None, regime "unknown", signal
+"Unavailable". get_recommendation treats vrp None as neither cheap nor expensive.
+Earnings IV-vs-move and iv_crush already skip a None atm_iv. analyze.tsx: atm_iv/vrp
+nullable, renders "—" + "No usable option chain", hides the regime advice blocks and
+the IV bar; .vrp-banner.unknown style. Bot path untouched (quick_scan already returned
+None; bot.ts reads analysis.vrp || 0).
+RATCHET: test_analyze_vrp_no_fabrication.py (3 tests; old code had no None path).
+Full pytest 2,286 passed; 1 fail + 3 errors are local-env only (PIL/openpyxl absent).
+tsc: no errors in analyze.tsx (pre-existing errors elsewhere). No visual harness run
+(sandbox lacks the stack); change only affects the IV-missing branch.
+OPEN: instrument_selector.py:404 still falls back to hv20 when trade_data lacks atm_iv
+(separate path; needs its own look).
+STARVED: no.
+
+## 2026-09-30 (scheduled-routine session, ~16:05Z, market hours) [REPAIR] — T-BOT — instrument_selector: NO FABRICATED IV-CRUSH INPUT (v1.0.1012)
+
+HEALTH (live 16:02Z): status ok, serving.failing [], liveness dark:false, feeds live,
+scanner 0 failures; DD latch still by design (dd -5.9%, release needs <=5% in
+BULL/NEUTRAL). Loop-health ratio (last 10 tagged): 5 REPAIR / 2 PRODUCT / 1 PIPELINE /
+2 NO-ACTION — under the 7 threshold. Took the OPEN item from the 09-30 /analyze entry.
+BREAK: get_instrument_intelligence() fed compute_iv_crush_score an "ATM IV" of
+hv20/100 (or 25%) when trade_data had no atm_iv — realized vol / a constant posing as
+implied vol, same class as the /analyze fix (#1217). FIX: near earnings with no observed
+atm_iv -> crush score/pct/rec None, logged in fns_skipped; observed IV path unchanged.
+Downstream: iv_crush_* None was already a valid state (non-earnings names), so no caller
+change. RATCHET: test_instrument_selector_no_fabricated_iv.py (fails on old code).
+Related suites 132 pass. MERGE NOTE: prepared during market hours — merge after 4:00 PM
+ET (not a critical live break).
+STARVED: no.
+## 2026-09-30 [REPAIR] — T-CLIENT (primary) + shared/server contract — PLANNED-ROUTE FORWARD-ONLY SEAM, TERMINAL VECTORING, FIX LABELS (v1.0.1013)
 
 Live bug (human screenshot): AAL892R, vectored ~5 nm beside its FILED_FAA
 arrival 25 nm from KAUS, drew a gray connector sideways to the

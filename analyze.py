@@ -556,6 +556,23 @@ def derive_div_yield(rate, price):
     return round(r / p * 100, 2)
 
 
+def compute_vrp(atm_iv, rv20):
+    """Volatility risk premium triple (vrp, regime, signal).
+
+    2026-09-30: no IV is fabricated. The old fallback (atm_iv = rv20*1.1) made
+    VRP = 0.1*rv20, which printed "Sell vol" for any rv20 > 50 — a signal made
+    from nothing. Missing IV now yields vrp=None / regime "unknown".
+    """
+    if atm_iv is None:
+        return None, "unknown", "Unavailable — no option chain with a usable implied vol"
+    vrp = round(atm_iv - rv20, 1)
+    if vrp > 5:
+        return vrp, "high", "Sell vol — implied vol is overpriced vs realized"
+    if vrp < -2:
+        return vrp, "low", "Buy vol — implied vol is underpriced vs realized"
+    return vrp, "neutral", "Neutral — implied vol is near fair value"
+
+
 def plausible_atm_iv(iv_pct, rv20):
     """Reject ATM IV readings that are almost certainly bad option prints.
 
@@ -1350,8 +1367,10 @@ def get_recommendation(ticker, spot, atm_iv, vrp, valuation, sentiment, earnings
         earnings_within_7d   = (earnings_intel or {}).get('days_to_earnings', 999) is not None \
                                and (earnings_intel or {}).get('days_to_earnings', 999) <= 7
         squeeze_setup        = (sentiment or {}).get('contrarian_flag') == 'Squeeze Watch'
-        iv_cheap             = vrp < -2
-        iv_expensive         = vrp > 5
+        # vrp is None when no option chain yielded a plausible ATM IV —
+        # then neither "cheap" nor "expensive" can be claimed.
+        iv_cheap             = vrp is not None and vrp < -2
+        iv_expensive         = vrp is not None and vrp > 5
         val_score            = (valuation or {}).get('score', 50) if valuation else 50
         fundamentals_strong  = valuation is not None and val_score >= 60
         fundamentals_weak    = valuation is not None and val_score <= 35
@@ -2060,19 +2079,7 @@ def analyze_ticker(ticker_symbol):
             break
 
     # ── VRP regime ────────────────────────────────────────────────────────────
-    if atm_iv is None:
-        atm_iv = rv20 * 1.1
-
-    vrp = round(atm_iv - rv20, 1)
-    if vrp > 5:
-        vrp_regime = "high"
-        vrp_signal = "Sell vol — implied vol is overpriced vs realized"
-    elif vrp < -2:
-        vrp_regime = "low"
-        vrp_signal = "Buy vol — implied vol is underpriced vs realized"
-    else:
-        vrp_regime = "neutral"
-        vrp_signal = "Neutral — implied vol is near fair value"
+    vrp, vrp_regime, vrp_signal = compute_vrp(atm_iv, rv20)
 
     # ── 52-week range ──────────────────────────────────────────────────────────
     high_52 = round(float(hist['High'].max()), 2) if not hist.empty else None

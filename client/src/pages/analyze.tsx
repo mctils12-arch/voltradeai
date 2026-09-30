@@ -177,8 +177,8 @@ interface Fundamentals {
 interface AnalysisResult {
   ticker: string; company_name: string;
   spot: number; price_change: number; price_change_pct: number;
-  atm_iv: number; rv10: number; rv20: number; rv30: number;
-  vrp: number; vrp_regime: string; vrp_signal: string;
+  atm_iv: number | null; rv10: number; rv20: number; rv30: number;
+  vrp: number | null; vrp_regime: string; vrp_signal: string;
   high_52: number | null; low_52: number | null;
   vol_surface: VolSurface[]; top_spreads: Spread[]; spread_count: number;
   vol_metrics?: VolMetrics;
@@ -900,7 +900,7 @@ function ValuationPanel({ valuation }: { valuation: Valuation }) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
-  metrics: VolMetrics; skew?: number | null; atm_iv: number; rv20: number;
+  metrics: VolMetrics; skew?: number | null; atm_iv: number | null; rv20: number;
 }) {
   const volRatio = metrics.volume_ratio_5d;
   const volRatioColor = volRatio && volRatio > 2 ? "text-amber-400"
@@ -983,8 +983,8 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
             { label: "HV 30d", val: metrics.hv30 },
             { label: "HV 60d", val: metrics.hv60 },
             { label: "ATM IV", val: atm_iv, isIV: true },
-          ].filter(x => x.val !== undefined).map(({ label, val, isIV }) => {
-            const maxVal = Math.max(metrics.hv10 ?? 0, metrics.hv20 ?? 0, metrics.hv30 ?? 0, metrics.hv60 ?? 0, atm_iv, 1);
+          ].filter(x => x.val !== undefined && x.val !== null).map(({ label, val, isIV }) => {
+            const maxVal = Math.max(metrics.hv10 ?? 0, metrics.hv20 ?? 0, metrics.hv30 ?? 0, metrics.hv60 ?? 0, atm_iv ?? 0, 1);
             const pct = ((val as number) / maxVal) * 100;
             return (
               <div key={label} className="cone-row">
@@ -2331,11 +2331,11 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
 
             {/* Key metrics */}
             <div className="metrics-grid">
-              <MetricCard label="ATM Implied Vol" value={`${data.atm_iv.toFixed(1)}%`} sub="30-day options IV" />
+              <MetricCard label="ATM Implied Vol" value={data.atm_iv != null ? `${data.atm_iv.toFixed(1)}%` : "—"} sub={data.atm_iv != null ? "30-day options IV" : "No usable option chain"} />
               <MetricCard label="Realized Vol (20d)" value={`${data.rv20.toFixed(1)}%`} sub="Historical volatility" />
               <MetricCard
                 label="Vol Risk Premium"
-                value={`${data.vrp > 0 ? "+" : ""}${data.vrp.toFixed(1)}%`}
+                value={data.vrp != null ? `${data.vrp > 0 ? "+" : ""}${data.vrp.toFixed(1)}%` : "—"}
                 sub={data.vrp_regime === "high" ? "Sell options ↑ (IV expensive)" : data.vrp_regime === "low" ? "Buy options ↓ (IV cheap)" : "Neutral →"}
                 highlight={data.vrp_regime === "high" ? "up" : data.vrp_regime === "low" ? "down" : "neutral"}
               />
@@ -2353,13 +2353,13 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                 <span className="font-semibold">Volatility Signal: </span>
                 {data.vrp_signal}
                 <span className="text-xs ml-2 opacity-60">
-                  — IV vs RV spread: {data.vrp > 0 ? "+" : ""}{data.vrp.toFixed(1)}%
+                  {data.vrp != null && <>— IV vs RV spread: {data.vrp > 0 ? "+" : ""}{data.vrp.toFixed(1)}%</>}
                   {data.skew !== null && data.skew !== undefined && (
                     <> · Skew: {data.skew > 0 ? '+' : ''}{data.skew.toFixed(1)}%</>
                   )}
                 </span>
                 <div className="text-xs mt-1 opacity-70">
-                  {data.vrp_regime === "high" && (
+                  {data.vrp != null && data.vrp_regime === "high" && (
                     <span>
                       💡 <strong>Sell options</strong> — IV is inflated {data.vrp.toFixed(1)}% above realized moves.
                       Historical win rate for selling when VRP is this high: <strong style={{color:'#30d158'}}>~65-75%</strong>.
@@ -2373,7 +2373,7 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                       • <strong>Covered Call</strong> (own shares) — ~75% probability of keeping premium
                     </span>
                   )}
-                  {data.vrp_regime === "low" && (
+                  {data.vrp != null && data.vrp_regime === "low" && (
                     <span>
                       💡 <strong>Buy options</strong> — IV is {Math.abs(data.vrp).toFixed(1)}% below realized moves. Options are underpriced.
                       Historical win rate for buying when VRP is negative: <strong style={{color:'#30d158'}}>~55-65%</strong> (with proper timing).
@@ -2387,7 +2387,7 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                       Key: cheap IV means you pay less for big upside potential.
                     </span>
                   )}
-                  {data.vrp_regime === "neutral" && (
+                  {data.vrp != null && data.vrp_regime === "neutral" && (
                     <span>
                       💡 Options are fairly priced — no strong vol edge (VRP ~0%).
                       Win rate is close to 50/50 for both buying and selling.
@@ -2422,9 +2422,9 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                     { label: "20-day RV", val: data.rv20 },
                     { label: "30-day RV", val: data.rv30 },
                     { label: "ATM IV",    val: data.atm_iv },
-                  ].map(({ label, val }) => {
-                    const maxVal = Math.max(data.rv10, data.rv20, data.rv30, data.atm_iv, 1);
-                    const pct = (val / maxVal) * 100;
+                  ].filter(x => x.val != null).map(({ label, val }) => {
+                    const maxVal = Math.max(data.rv10, data.rv20, data.rv30, data.atm_iv ?? 0, 1);
+                    const pct = ((val as number) / maxVal) * 100;
                     const isIV = label === "ATM IV";
                     return (
                       <div key={label} className="cone-row">
@@ -2432,7 +2432,7 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                         <div className="cone-bar-track">
                           <div className={`cone-bar ${isIV ? "cone-bar-iv" : "cone-bar-rv"}`} style={{ width: `${pct}%` }} />
                         </div>
-                        <span className="cone-value">{val.toFixed(1)}%</span>
+                        <span className="cone-value">{(val as number).toFixed(1)}%</span>
                       </div>
                     );
                   })}

@@ -400,8 +400,16 @@ def get_instrument_intelligence(ticker: str, price: float, trade_data: dict) -> 
     # ── Conditional: near earnings → IV crush score ────────────────────────
     days_to_earnings = earnings_intel.get("days_to_earnings")
     near_earnings    = days_to_earnings is not None and 0 <= days_to_earnings <= 21
-    if near_earnings:
-        atm_iv = trade_data.get("atm_iv") or (vol_metrics.get("hv20") or 25) / 100
+    # 2026-09-30: no observed ATM IV -> skip the crush score. It used to fall back
+    # to hv20 (or 25%), i.e. an "implied vol" made from realized vol / a constant.
+    atm_iv = trade_data.get("atm_iv") if near_earnings else None
+    if near_earnings and not atm_iv:
+        intel["fns_skipped"].append("compute_iv_crush_score (no observed ATM IV)")
+        intel["iv_crush_score"]   = None
+        intel["iv_crush_pct"]     = None
+        intel["iv_crush_rec"]     = None
+        intel["days_to_earnings"] = days_to_earnings
+    elif near_earnings:
         crush = _safe_call(compute_iv_crush_score, atm_iv, earnings_intel,
                            default=(None, None, "Could not compute"), label="compute_iv_crush_score")
         iv_crush_score, crush_pct, crush_rec = crush
