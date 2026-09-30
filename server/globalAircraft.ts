@@ -44,6 +44,7 @@ import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
+import { setPlanLiveLookup } from "./flightPlans";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -112,6 +113,12 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     ?? ((datacoreSites as { sites?: SitePoint[] }).sites || []).map((s) => ({ lat: s.lat, lon: s.lon }));
   const archiveOn = String(env.GLOBAL_SWEEP_ARCHIVE ?? "1").trim() !== "0";
   const snapshot = new GlobalSnapshot();
+  // flight plans fill a request that arrived without the aircraft's
+  // callsign/position (a watched plane opened off-viewport) from this snapshot
+  setPlanLiveLookup((hex) => {
+    const r = snapshot.get(hex);
+    return r ? { callsign: r.callsign, lat: r.lat, lon: r.lon, altFt: r.altFt, trk: r.trk, seenAt: r.seenAt } : null;
+  });
 
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
