@@ -26,15 +26,24 @@ test("the raster crossfade sits inside Law II's 150-300ms band, and is never 0",
 
 test("symbol fade and raster fade are DIFFERENT knobs and may legitimately differ", () => {
   // The classic mix-up: `fadeDuration` (symbol collision fade) vs
-  // `raster-fade-duration` (tile crossfade). Zero is right for one and
-  // wrong for the other.
-  assert.equal(SYMBOL_FADE_MS, 0);
+  // `raster-fade-duration` (tile crossfade).
+  // 2026-09-30: pinned value moved 0 -> 150 (named bug: MapLibre forces a
+  // full non-pauseable placement EVERY frame when fadeDuration === 0;
+  // measured 74-112 ms/frame on the live default layers — see the constant).
+  assert.equal(SYMBOL_FADE_MS, 150);
   assert.notEqual(RASTER_FADE_MS, SYMBOL_FADE_MS);
+});
+
+test("symbol fade is never 0 — zero forces a full symbol placement on every frame", () => {
+  // maplibre-gl style.ts: `forceFullPlacement ||= ... || fadeDuration === 0`
+  // A regression to 0 silently brings back the per-frame placement stall.
+  assert.ok(SYMBOL_FADE_MS > 0, "fadeDuration 0 = full synchronous placement per frame");
+  assert.ok(SYMBOL_FADE_MS <= 300, `${SYMBOL_FADE_MS}ms symbol fade reads as lag`);
 });
 
 test("baseMapMotionOptions carries exactly the constructor knobs this module owns", () => {
   assert.deepEqual(baseMapMotionOptions(), {
-    fadeDuration: 0,
+    fadeDuration: 150,
     maxTileCacheSize: MAX_TILE_CACHE_TILES,
     refreshExpiredTiles: REFRESH_EXPIRED_TILES,
   });
