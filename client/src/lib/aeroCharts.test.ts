@@ -3,6 +3,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   AERO_CHART_DEFAULTS, AERO_OPACITY_MIN, AERO_VIEW_DEFAULT, AERO_VIEW_PREF_KEY, aeroBadge, aeroPaint,
@@ -71,6 +74,18 @@ test("layer order: the chart sits directly above the imagery, under every data l
   assert.equal(beforeIdAbove(["bg", "blackmarble", "imagery", "hillshade", "aircraft"], "imagery"), "hillshade");
   assert.equal(beforeIdAbove(["bg", "imagery"], "imagery"), undefined);
   assert.equal(beforeIdAbove(["bg"], "imagery"), undefined);
+});
+
+test("Standing UI Law: the chart card steps aside for the layers panel and the left-anchored panels", () => {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "index.css"), "utf8");
+  assert.match(css, /\.vt-aero-card \{[^}]*z-index: 11/);
+  // open layers panel: shifted left of it at tablet widths, hidden on phones
+  assert.match(css, /\[data-vt-panel-open="true"\] \.vt-aero-card \{\s*left: 68px/);
+  assert.match(css, /max-width: 639px\) \{\s*\.vt-map-page\[data-vt-panel-open="true"\] \.vt-aero-card \{ display: none; \}/);
+  // detail card / analyst / time scrubber share the top-left slot below 1244px
+  assert.match(css, /:has\(\.vt-site-card:not\(\.vt-site-card-min\), \.vt-analyst-panel, \.vt-timescrub-panel\) \.vt-aero-card \{ display: none; \}/);
+  // the phone card keeps its not-for-navigation line (only the coverage text drops)
+  assert.doesNotMatch(css, /\.vt-aero-card-note \{ display: none/);
 });
 
 test("badge: current, superseded/expired, and unverified editions are each stated honestly", () => {

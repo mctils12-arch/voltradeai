@@ -3147,6 +3147,23 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-aero-card-pct { min-width: 3.2em; text-align: right; color: var(--text-secondary); }
 .vt-aero-card-note { color: var(--text-tertiary); font-size: 9.5px; }
 .vt-aero-card-note strong { color: var(--text-secondary); font-weight: 600; }
+/* Standing UI Law — the chart card never covers another element. Geometry:
+   top-centre at 380px clears the left-anchored panels (site card / analyst
+   / time scrubber, x 64..432) only from 1244px, and the open layers panel
+   (right 320px column) only from 1036px. Below those it steps aside (the
+   2026-09-30 legend/sheet precedent); the edition stays readable in the
+   Legend's "Base chart" section meanwhile. */
+@media (max-width: 1035px) {
+  .vt-map-page[data-vt-panel-open="true"] .vt-aero-card {
+    left: 68px; transform: none; width: min(380px, calc(100vw - 400px));
+  }
+}
+@media (max-width: 639px) {
+  .vt-map-page[data-vt-panel-open="true"] .vt-aero-card { display: none; }
+}
+@media (max-width: 1243px) {
+  .vt-map-page:has(.vt-site-card:not(.vt-site-card-min), .vt-analyst-panel, .vt-timescrub-panel) .vt-aero-card { display: none; }
+}
 @media (max-width: 480px) {
   .vt-aero-card { font-size: 9.5px; padding: 4px 6px 5px 8px; }
   .vt-aero-card-x { width: 44px; height: 44px; margin: -8px -6px -8px 0; }

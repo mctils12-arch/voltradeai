@@ -66,13 +66,14 @@ export function isAeroViewId(s: unknown): s is AeroViewId {
 export function mergeAeroMeta(rows: unknown): Record<AeroChartViewId, AeroChartMeta> {
   const out: Record<AeroChartViewId, AeroChartMeta> = { ...AERO_CHART_DEFAULTS };
   if (!Array.isArray(rows)) return out;
-  for (const r of rows as Array<Partial<AeroChartMeta> & { id?: unknown }>) {
-    if (!r || !isAeroViewId(r.id) || r.id === "satellite") continue;
-    const base = AERO_CHART_DEFAULTS[r.id];
-    const tiles = typeof r.tiles === "string" && r.tiles.startsWith(`/tiles/aero/${r.id}/`) ? r.tiles : base.tiles;
+  for (const r of rows as Array<Record<string, unknown> | null>) {
+    const id: unknown = r?.id;
+    if (!r || !isAeroViewId(id) || id === "satellite") continue;
+    const base = AERO_CHART_DEFAULTS[id];
+    const tiles = typeof r.tiles === "string" && r.tiles.startsWith(`/tiles/aero/${id}/`) ? r.tiles : base.tiles;
     const num = (v: unknown, d: number) => (typeof v === "number" && Number.isInteger(v) ? v : d);
     const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-    out[r.id] = {
+    out[id] = {
       ...base,
       minzoom: num(r.minzoom, base.minzoom), maxzoom: num(r.maxzoom, base.maxzoom),
       edition: str(r.edition), effective: str(r.effective), expires: str(r.expires),
