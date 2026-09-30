@@ -260,6 +260,23 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     res.send(body);
   });
 
+  // ONE aircraft's row from the worldwide snapshot (field bug 2026-09-30:
+  // a watched plane opened from the list while outside the viewport feed
+  // got an "not currently broadcasting" archive card although this snapshot
+  // held a fix seconds old). Same positional wire shape as /global so the
+  // client decodes it with the same adapter; rows is empty when the hex is
+  // not in the snapshot (evicted after SNAPSHOT_EVICT_MS). Cheap: one Map
+  // lookup, no body cache needed.
+  app.get("/api/data/aircraft/live/:hex", (req, res) => {
+    const hex = String(req.params.hex || "").toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    const t = now();
+    const r = snapshot.get(hex);
+    const fresh = r && r.seenAt >= t - snapshot.evictMs ? r : null;
+    res.set("Cache-Control", "no-store");
+    res.json({ at: t, hex, fields: ROW_FIELDS, rows: fresh ? [encodeRow(fresh)] : [], honesty: GLOBAL_HONESTY });
+  });
+
   return {
     snapshot, sweep, opensky, onBatch,
     stop: () => {
