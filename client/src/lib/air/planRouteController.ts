@@ -29,7 +29,9 @@ import {
   planDestLabel,
   planVectoringAllowed,
   planDrawable,
+  normCallsign,
   planGeometryKey,
+  shouldCallsignRefetch,
   shouldDeviationRefetch,
   type FlightPlan,
   type PlanPoint,
@@ -234,6 +236,10 @@ export interface PlanRouteDeps {
   store: PlanRouteStore;
   /** the plane's latest real fix (query params + DEM radius centre). */
   getLive: () => PlanLive | null;
+  /** the selected plane's last known REAL callsign when there is no live
+   *  fix (it left the viewport feed, or the card opened from the watch
+   *  list) — getLive()'s own callsign wins when present. */
+  getCallsign?: () => string | null;
   /** where the live curtain currently ends (the seam). */
   getSeam: () => PlanSeam | null;
   fetchImpl?: typeof fetch;
@@ -334,6 +340,13 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   let datumKey = '';
   let inFlight: AbortController | null = null;
   let lastFetchStart = -Infinity;
+  /** the callsign the last request carried (undefined = none sent yet) */
+  let lastQueriedCallsign: string | null | undefined = undefined;
+  const currentCallsign = (): string | null => {
+    let cs: string | null = null;
+    try { cs = normCallsign(deps.getLive()?.callsign) ?? normCallsign(deps.getCallsign?.()); } catch (e) { reportPlanError('callsign-read', e); }
+    return cs;
+  };
   let demRetries = 0;
   let demTimer: unknown = null;
 
@@ -485,9 +498,11 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     lastFetchStart = now();
     if (!plan) store.set({ status: 'loading' });
     const live = deps.getLive();
+    const cs = currentCallsign();
+    lastQueriedCallsign = cs;
     const q: PlanQuery = live
-      ? { callsign: live.callsign, lat: live.lat, lon: live.lon, altM: live.altM, trkDeg: live.trkDeg }
-      : {};
+      ? { callsign: cs, lat: live.lat, lon: live.lon, altM: live.altM, trkDeg: live.trkDeg }
+      : { callsign: cs };
     fetchFlightPlan(hex, q, ac.signal, deps.fetchImpl).then(
       (p) => {
         if (stopped || ac.signal.aborted) return;
@@ -509,7 +524,14 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   // the forward-join heading gate reads the plane's live track
   layer.setTrackSource(() => deps.getLive()?.trkDeg ?? null);
   layer.setOnFrame(() => {
-    if (stopped || !plan) return;
+    if (stopped) return;
+    // a callsign the last request lacked is now known while the card shows
+    // NONE / error → ask again right away (rate-limited), not in 60 s
+    if (shouldCallsignRefetch({
+      status: store.get().status, queried: lastQueriedCallsign, current: currentCallsign(),
+      lastFetchStartMs: lastFetchStart, nowMs: now(), inFlight: inFlight != null,
+    })) doFetch('callsign');
+    if (!plan) return;
     // terrain toggled / exaggeration moved: re-datum the SAME plan (the live
     // curtain's repaintTrail3d counterpart), detected in the frame loop
     if (readDatumKey() !== datumKey) { demRetries = 0; rebuild('datum'); }

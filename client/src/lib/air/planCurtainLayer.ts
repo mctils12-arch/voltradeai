@@ -54,7 +54,9 @@ import type {
   CustomRenderMethodInput,
   Map as MapLibreMap,
 } from 'maplibre-gl';
-import { buildQuadIndices, FT_VERTS_PER_SEG, FT_INDICES_PER_SEG } from './flightTrackLayer.js';
+import {
+  buildQuadIndices, canvasDpr, FT_VERTS_PER_SEG, FT_INDICES_PER_SEG, ribbonMinWidthPx, selectedTrackDepthTest,
+} from './flightTrackLayer.js';
 import { TRACE_ABOVE_TERRAIN_M, distMeters } from './trackModel.js';
 import { lonLatToMercator, mercatorToLonLat } from '../orbital/satBuffer.js';
 import {
@@ -729,6 +731,7 @@ in vec3 a_ext;    // x: side (-1|0|+1; 0 = world-space wall vertex), y: dirSign,
 in vec4 a_color;
 in float a_along; // great-circle meters from the plan start
 uniform vec2 u_viewport;
+uniform float u_minWidthPx; // ribbon floor, drawing-buffer px (flightTrackLayer TRACK_MIN_LINE_CSS_PX × DPR)
 uniform float u_alpha;     // crossfade multiplier
 uniform float u_alongRef;  // the plane's along-route meters (keeps the dash phase small)
 out vec4 v_color;
@@ -758,7 +761,7 @@ void main() {
   float len = length(dirPx);
   dirPx = len < 1e-6 ? vec2(1.0, 0.0) : dirPx / len;
   vec2 normalPx = vec2(-dirPx.y, dirPx.x) * a_ext.x;
-  float widthPx = abs(a_ext.z);
+  float widthPx = max(abs(a_ext.z), u_minWidthPx);
   vec2 offs = normalPx * (widthPx * 0.5) * 2.0 / u_viewport;
   gl_Position = self + vec4(offs * self.w, 0.0, 0.0);
   v_color = vec4(a_color.rgb, a_color.a * u_alpha);
@@ -1199,8 +1202,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     const terrainOn = !!(this.map && (this.map as unknown as { getTerrain?: () => unknown }).getTerrain?.());
-    if (terrainOn) gl.disable(gl.DEPTH_TEST);
-    else gl.enable(gl.DEPTH_TEST);
+    // never depth-tested — the live curtain's rule (selectedTrackDepthTest:
+    // the terrain-off test failed every fragment at far camera distances)
+    if (selectedTrackDepthTest(terrainOn)) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
     gl.depthRange(0, 1);
@@ -1209,6 +1214,10 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     gl.useProgram(this.program);
     this.bindProjection(gl, args);
     if (this.u.viewport) gl.uniform2f(this.u.viewport, gl.drawingBufferWidth || 1, gl.drawingBufferHeight || 1);
+    if (this.u.minWidth) {
+      const cssW = (this.map as unknown as { getCanvas?: () => { clientWidth?: number } } | null)?.getCanvas?.()?.clientWidth;
+      gl.uniform1f(this.u.minWidth, ribbonMinWidthPx(canvasDpr(gl.drawingBufferWidth || 1, cssW)));
+    }
     if (this.u.dashM) gl.uniform1f(this.u.dashM, this.dashPeriodM());
     if (this.u.alongRef) gl.uniform1f(this.u.alongRef, this.lastLoc?.projAlongM ?? 0);
 
@@ -1477,6 +1486,7 @@ export class PlanCurtainLayer implements CustomLayerInterface {
     this.aAlong = gl.getAttribLocation(p, 'a_along');
     this.u = {
       viewport: gl.getUniformLocation(p, 'u_viewport'),
+      minWidth: gl.getUniformLocation(p, 'u_minWidthPx'),
       alpha: gl.getUniformLocation(p, 'u_alpha'),
       alongRef: gl.getUniformLocation(p, 'u_alongRef'),
       dashM: gl.getUniformLocation(p, 'u_dashM'),

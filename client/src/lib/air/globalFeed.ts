@@ -269,3 +269,26 @@ export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () =>
     },
   };
 }
+
+/**
+ * The REAL fix time (epoch seconds) of the selected plane's row in a feed
+ * payload, or null when it must not be stamped as a live breadcrumb.
+ * Viewport payloads: the snapshot's own `time` (seconds). Worldwide
+ * payloads (2026-09-30, "the selected plane's track must survive the
+ * zoomed-out feed"): each row carries its own age, so the fix time is the
+ * server's `at` minus that age — and only rows fresher than STALE_ROW_MS
+ * count (an older row is already dimmed as not-live on the map).
+ */
+export function feedFixTimeSec(
+  payload: { global?: unknown; time?: unknown; at?: unknown },
+  row: { seen_pos?: number | null; stale?: boolean },
+  nowMs: number,
+): number | null {
+  if (payload.global === true) {
+    if (row.stale === true || row.seen_pos == null || !Number.isFinite(row.seen_pos)) return null;
+    if (row.seen_pos * 1000 > STALE_ROW_MS) return null;
+    const at = typeof payload.at === 'number' && Number.isFinite(payload.at) ? payload.at : nowMs;
+    return (at - row.seen_pos * 1000) / 1000;
+  }
+  return typeof payload.time === 'number' && Number.isFinite(payload.time) ? payload.time : nowMs / 1000;
+}

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  discsNeeded, wantsGlobalFeed, globalQueryBBox, globalFeedUrl, adaptGlobalPayload, createAircraftFeed,
+  discsNeeded, wantsGlobalFeed, globalQueryBBox, globalFeedUrl, adaptGlobalPayload, createAircraftFeed, feedFixTimeSec,
   MAX_DISCS_PER_REFRESH, DISC_RADIUS_MAX_NM, GLOBAL_EXIT_DISCS, STALE_ROW_MS, GLOBAL_FEED_POLL_MS,
   STALE_BAND_COLORS, type Bounds,
 } from './globalFeed.js';
@@ -139,4 +139,14 @@ test('createAircraftFeed: dedupes same-bbox refetches, aborts superseded request
   assert.equal(signals[2].aborted, true, 'dispose aborts the in-flight request');
   resolvers[2]();
   assert.deepEqual(await p3, { unchanged: true });
+});
+
+test('feedFixTimeSec: viewport = snapshot time; worldwide = server at minus the row age, fresh rows only', () => {
+  const NOW = 1_790_799_400_000;
+  assert.equal(feedFixTimeSec({ time: 1_790_799_390 }, {}, NOW), 1_790_799_390);
+  assert.equal(feedFixTimeSec({ time: 'g1' }, {}, NOW), NOW / 1000, 'non-numeric time -> receipt time (legacy rule)');
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: 12, stale: false }, NOW), NOW / 1000 - 12);
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: 200, stale: true }, NOW), null, 'dimmed rows are not live');
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: STALE_ROW_MS / 1000 + 1 }, NOW), null);
+  assert.equal(feedFixTimeSec({ global: true, at: NOW }, { seen_pos: null }, NOW), null, 'unknown age is never stamped');
 });
