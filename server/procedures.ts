@@ -70,7 +70,9 @@ export function summarize(ap: AirportData, p: CifpProcedure, dap: DtppAirport | 
   const runways = trs.filter((t) => t.role === "runway transition" && /^RW/.test(t.id)).map((t) => t.id.slice(2));
   return {
     id: p.id, kind: p.kind,
-    name: p.kind === "IAP" ? (charts[0]?.name ?? approachName(p.id)) : (charts[0]?.name.replace(/,\s*CONT\.\s*\d+/, "") ?? p.id),
+    // approaches keep the CIFP-coded name (ILS and LOC are separate coded
+    // procedures that share one "ILS OR LOC" chart); routes take the chart's
+    name: p.kind === "IAP" ? approachName(p.id) : (charts[0]?.name.replace(/,\s*CONT\.\s*\d+/, "") ?? p.id),
     runway: a?.runway ?? null, typeName: a?.typeName ?? null,
     transitions: trs.filter((t) => t.id),
     runways,
@@ -166,7 +168,11 @@ export function suggestApproaches(ap: AirportData, wind: Wind | null, summaries:
   const rw = new Map(runwayWinds(ap, wind).map((r) => [r.runway, r]));
   const windUsable = !!wind && wind.dirDeg != null && wind.speedKt >= LIGHT_WIND_KT;
   const out: SuggestedApproach[] = [];
-  for (const s of summaries.filter((x) => x.kind === "IAP")) {
+  const iaps = summaries.filter((x) => x.kind === "IAP");
+  const ilsRunways = new Set(iaps.filter((x) => parseApproachIdent(x.id).typeCode === "I").map((x) => x.runway));
+  for (const s of iaps) {
+    // the LOC-only procedure is the ILS's own fallback: listed, not re-suggested
+    if (parseApproachIdent(s.id).typeCode === "L" && ilsRunways.has(s.runway)) continue;
     const w = s.runway ? rw.get(s.runway.replace(/B$/, "")) : null;
     let reason: string;
     let rank = TYPE_RANK[parseApproachIdent(s.id).typeCode] ?? 7;
