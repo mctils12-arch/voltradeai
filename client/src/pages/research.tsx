@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
 
 // ── Types (mirror alphadesk JSON contract) ──────────────────────────────────
@@ -170,7 +170,8 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
     },
     enabled: !!ticker,
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
   });
 
   const submit = (e?: React.FormEvent) => {

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import {
   TrendingUp, TrendingDown, Minus, AlertTriangle, Eye,
   Users, Building2, Layers, Target, Activity, Lock,
@@ -675,7 +675,8 @@ export default function InsightsView({ ticker, filter = "all" }: InsightsViewPro
       return res.json();
     },
     enabled: !!ticker,
-    retry: false,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
     staleTime: 60_000,  // Cache 1 min — insights data isn't real-time
   });
 
