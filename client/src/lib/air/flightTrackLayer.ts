@@ -198,11 +198,16 @@ const wrapOk = (x0: number, x1: number): boolean => Math.abs(x0 - x1) <= 0.5;
  */
 /**
  * Law IV feature cap for the trail, in TRAIL POINTS (this layer draws one
- * selected aircraft's history, not a population).
- *   512 x FT_VERT_STRIDE(13) x FT_VERTS_PER_SEG(4) x 4B = 106 KB.
+ * selected aircraft's history, not a population). Raised 512 → 2048
+ * (2026-09-30, terrain-following): the cap is now the FULL-tier ceiling;
+ * the per-device budget (terrainFollow.trackBudget: 2048 / 1024 / 512 by
+ * tier) is what paintTrack actually decimates to, spending the extra
+ * vertices where the terrain bends (refineForGround).
+ *   2047 segs x 3 quads x 4 verts x FT_VERT_STRIDE(13) x 4B ≈ 1.28 MB
+ *   + indices ≈ 0.15 MB — inside the declared 2 MB vramBudget.
  * Hoisted above its use; re-exported at the bottom as `maxFeatures`.
  */
-export const FT_MAX_FEATURES = 512;
+export const FT_MAX_FEATURES = 2048;
 
 let lastReportedOverCap = 0;
 
@@ -337,13 +342,25 @@ export interface TrackTail {
   toMercX: number; toMercY: number; toAltM: number; toGroundZ: number;
   altMin: number; altMax: number;
   drapeBelowM?: number;
+  /** TERRAIN-FOLLOWING (2026-09-30): interior points between from and to,
+   *  each with the RENDERED ground under it, so a long tail's trace and
+   *  curtain bottom follow ridges instead of one straight quad. */
+  inner?: ReadonlyArray<{ mercX: number; mercY: number; altM: number; groundZ: number }>;
 }
 
-/** Pure: tail → the same packed layout as buildTrackVertices (≤3 quads). */
+/** Pure: tail → the same packed layout as buildTrackVertices (≤3 quads per
+ *  piece; 1 piece + one per inner point). */
 export function buildTailVertices(tail: TrackTail, altScale: number): Float32Array {
-  const merc = new Float32Array([tail.fromMercX, tail.fromMercY, tail.toMercX, tail.toMercY]);
-  const altM = new Float32Array([tail.fromAltM, tail.toAltM]);
-  const groundZ = new Float32Array([tail.fromGroundZ, tail.toGroundZ]);
+  const inner = tail.inner ?? [];
+  const n = inner.length + 2;
+  const merc = new Float32Array(n * 2);
+  const altM = new Float32Array(n);
+  const groundZ = new Float32Array(n);
+  merc[0] = tail.fromMercX; merc[1] = tail.fromMercY; altM[0] = tail.fromAltM; groundZ[0] = tail.fromGroundZ;
+  inner.forEach((p, k) => {
+    merc[(k + 1) * 2] = p.mercX; merc[(k + 1) * 2 + 1] = p.mercY; altM[k + 1] = p.altM; groundZ[k + 1] = p.groundZ;
+  });
+  merc[(n - 1) * 2] = tail.toMercX; merc[(n - 1) * 2 + 1] = tail.toMercY; altM[n - 1] = tail.toAltM; groundZ[n - 1] = tail.toGroundZ;
   return buildTrackVertices(
     { merc, altM, groundZ, altMin: tail.altMin, altMax: tail.altMax, drapeBelowM: tail.drapeBelowM },
     altScale,
@@ -970,9 +987,9 @@ export class FlightTrackLayer implements CustomLayerInterface {
 
 // ── Law IV budget declaration ───────────────────────────────────────────────
 // The trail is a quad strip: FT_VERT_STRIDE(13) floats x FT_VERTS_PER_SEG(4)
-// per segment.
-//   512 x 4 x 13 x 4B = 106 KB, plus the tail strip and index buffers.
-// 512 is the work order's TRAIL.MAX_POINTS. maxFeatures counts TRAIL POINTS,
+// per segment, 3 quads (trace, curtain, line) per segment.
+//   2047 x 3 x 4 x 13 x 4B ≈ 1.28 MB + indices ≈ 0.15 MB + the tail strip
+// (≤ 25 pieces). 2048 is the full-tier ceiling (terrainFollow.trackBudget). maxFeatures counts TRAIL POINTS,
 // not aircraft — this layer draws one selected aircraft's history.
 export const maxFeatures = FT_MAX_FEATURES;
 export const vramBudget = 2; // MB

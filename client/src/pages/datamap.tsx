@@ -113,7 +113,7 @@ import { FlightTrackLayer, FT_MAX_FEATURES, type TrackGeomInput } from "@/lib/ai
 import { holdGroundZ, resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
-  CURTAIN_BELOW_TERRAIN_M, decimateForCap, remapIndices, type TrackSample,
+  CURTAIN_BELOW_TERRAIN_M, decimateForCap, distMeters, remapIndices, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
@@ -169,6 +169,7 @@ import { startLayerKeeper, type KeeperMapLike } from "@/lib/layerKeeper";
 import { PLAN_LAYER_ID } from "@/lib/air/planRouteController";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import { startSelectedFastLane } from "@/lib/air/selectedFastLane";
+import { cumulativeAlongM, currentDeviceTier, GROUND_TOL_M, lerpPoints, refineForGround, subdivisionCount, trackBudget } from "@/lib/air/terrainFollow";
 import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -4647,7 +4648,19 @@ export default function DataMapPage() {
         // merc/altDisp/groundZ (the flight tail and profile chart index
         // them by samples.length, which must stay untouched); only the
         // geometry actually handed to the 3D layer is thinned.
-        const geomIdx = decimateForCap(samples, FT_MAX_FEATURES);
+        // TERRAIN-FOLLOWING + DEVICE BUDGET (2026-09-30): the cap is the
+        // device tier's (terrainFollow.trackBudget, ≤ FT_MAX_FEATURES). With
+        // terrain ON, 60% goes to the uniform pass and the rest is spent
+        // where the rendered ground bends away from the straight bottom
+        // edge (refineForGround) — a uniformly thinned track drew every
+        // quad's base as one straight line over ridges ("it follows the flat
+        // curve of the earth"). Terrain OFF: uniform, as before.
+        const tb = trackBudget(currentDeviceTier());
+        const cap = Math.min(FT_MAX_FEATURES, tb.trackMaxPoints);
+        const geomIdx = terrainOn && n > cap
+          ? refineForGround(decimateForCap(samples, Math.max(2, Math.floor(cap * 0.6))),
+              cumulativeAlongM(samples), groundZ, cap, GROUND_TOL_M * (altScale > 0 ? altScale : 1))
+          : decimateForCap(samples, cap);
         let gMerc = merc, gAltDisp = altDisp, gGroundZ = groundZ;
         let gTzMarkIdx = tzX.length ? tzX.map((c) => c.idx) : undefined;
         if (geomIdx.length !== n) {
@@ -4760,6 +4773,28 @@ export default function DataMapPage() {
     return true;
   };
 
+  /** TERRAIN-FOLLOWING TAIL (2026-09-30): the bridge from the last recorded
+   *  fix to the plane can be many km (archive cadence, a gap); as ONE quad
+   *  its trace + curtain bottom were a straight chord through the terrain.
+   *  Split it (device-tier bounded) with every interior point on the
+   *  rendered ground; undefined when the tail is short enough already. */
+  const tailInnerOnGround = (
+    map: maplibregl.Map,
+    st: { samples: TrackSample[]; groundZ: Float32Array },
+    li: number, lo: number, la: number, fromAlt: number, toAlt: number,
+  ): { mercX: number; mercY: number; altM: number; groundZ: number }[] | undefined => {
+    const last = st.samples[li];
+    const tb = trackBudget(currentDeviceTier());
+    const k = subdivisionCount(distMeters(last.lat, last.lon, la, lo), tb.groundStepM, tb.tailMaxSubdiv);
+    if (k <= 1) return undefined;
+    let prevG = st.groundZ[li];
+    return lerpPoints(last.lon, last.lat, lo, la, k).map(([plo, pla, u]) => {
+      const pm = lonLatToMercator(plo, pla);
+      prevG = groundZAt(map, plo, pla, prevG);
+      return { mercX: pm.x, mercY: pm.y, altM: fromAlt + (toAlt - fromAlt) * u, groundZ: prevG };
+    });
+  };
+
   const updateFlightTail = () => {
     const map = mapRef.current;
     const layer = flightTrackRef.current;
@@ -4784,7 +4819,11 @@ export default function DataMapPage() {
       const li = st.samples.length - 1;
       const m = lonLatToMercator(lo, la);
       const terrainOn = !!map.getTerrain();
+      const fromAlt = st.altDisp[li];
+      const toAlt = lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la);
+      const inner = terrainOn ? tailInnerOnGround(map, st, li, lo, la, fromAlt, toAlt) : undefined;
       layer.setTail({
+        inner,
         fromMercX: st.merc[li * 2], fromMercY: st.merc[li * 2 + 1],
         // DISPLAY datum, same as the curtain's last vertex — a raw-MSL
         // tail visibly stepped at the seam on the flat map (AGL datum)
@@ -4796,7 +4835,7 @@ export default function DataMapPage() {
         // always applied to the glide; the merged track's own hold feeds
         // that vertex, so the wall stays continuous). Still NaN — an honest
         // gap — when the track has no altitude anywhere to hold.
-        toAltM: lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la),
+        toAltM: toAlt,
         toGroundZ: terrainOn ? groundZAt(map, lo, la, st.groundZ[li]) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
@@ -5251,6 +5290,8 @@ export default function DataMapPage() {
     lastLiveVsRef.current = null;
     const lane = startSelectedFastLane({
       hex: fid,
+      // device-aware (terrainFollow.trackBudget): 2.5 s full · 3 s reduced · 4 s minimal
+      pollMs: trackBudget(currentDeviceTier()).fastPollMs,
       onFix: (f) => {
         if (airCrumbsRef.current.id !== fid) return;
         const r = f.row;

@@ -54,6 +54,7 @@ import { resolveGroundDisplayZ } from './groundDatum.js';
 import { CURTAIN_BELOW_TERRAIN_M, distMeters } from './trackModel.js';
 import { lonLatToMercator, mercatorToLonLat } from '../orbital/satBuffer.js';
 import type { FrameLoop } from '../../render/frameCore.js';
+import { currentDeviceTier, trackBudget, type TrackBudget } from './terrainFollow.js';
 
 export const PLAN_LAYER_ID = 'flight-plan-curtain';
 /** the live curtain's layer id — the plan draws just beneath it. */
@@ -119,6 +120,10 @@ export interface PlanDatum {
   drapeBelowM: number;
   /** DEM reads near the plane that are still in flight (retry trigger). */
   pending: number;
+  /** terrain ON: vertices whose RENDERED mesh had no tile yet (0) — the
+   *  ground there is the along-route interpolation until the mesh loads;
+   *  the controller re-reads them from the frame loop (bounded). */
+  meshMissing: number;
 }
 
 /**
@@ -165,11 +170,14 @@ export function computePlanDatum(
   }
   // pass 2: fill unknown ground along the route (continuous — no steps)
   const est = fillAlongRoute(known, dense.alongM);
+  let meshMissing = 0;
   for (let i = 0; i < n; i++) {
     const alt = dense.altM[i];
     const gEst = est[i];
     if (r.terrainOn) {
-      const g = resolveGroundDisplayZ(r.meshGround(dense.lon[i], dense.lat[i]), gEst, exag).g;
+      const mesh = r.meshGround(dense.lon[i], dense.lat[i]);
+      if (!mesh) meshMissing++;
+      const g = resolveGroundDisplayZ(mesh, gEst, exag).g;
       groundZ[i] = g;
       altDisp[i] = Number.isNaN(alt) ? NaN : Math.max(alt, g);
     } else {
@@ -178,9 +186,23 @@ export function computePlanDatum(
     }
   }
   return {
-    altDisp, groundZ, pending,
+    altDisp, groundZ, pending, meshMissing,
     drapeBelowM: r.terrainOn ? CURTAIN_BELOW_TERRAIN_M * exag : 0,
   };
+}
+
+/**
+ * Pure: should the frame loop re-read the rendered terrain mesh for the plan
+ * now? Only with terrain on, only while some vertices still had no mesh
+ * tile, at most every `everyMs` and `maxTimes` per plan/datum (tiles that
+ * never load — off-screen, far side — must not cost a rebuild forever).
+ */
+export function shouldMeshRefresh(o: {
+  terrainOn: boolean; meshMissing: number; lastMs: number; nowMs: number;
+  done: number; everyMs: number; maxTimes: number;
+}): boolean {
+  if (!o.terrainOn || o.meshMissing <= 0 || o.done >= o.maxTimes) return false;
+  return o.nowMs - o.lastMs >= o.everyMs;
 }
 
 /** Pure: NaN gaps in `v` filled by linear interpolation over `along`
@@ -249,6 +271,8 @@ export interface PlanRouteDeps {
   /** context-restore registry (datamap's customLayerRegistryRef). */
   registry?: Map<string, unknown> | null;
   demGround?: (lon: number, lat: number) => number | null;
+  /** device budget (default: the classified tier's terrainFollow budget) */
+  budget?: TrackBudget;
   now?: () => number;
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (h: unknown) => void;
@@ -349,6 +373,12 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
   };
   let demRetries = 0;
   let demTimer: unknown = null;
+  // rendered-mesh refinement (terrain ON): vertices still off-mesh at the
+  // last build, when it was last re-read, and how often (bounded)
+  let meshMissing = 0;
+  let meshLastMs = 0;
+  let meshDone = 0;
+  const budget = deps.budget ?? trackBudget(currentDeviceTier());
 
   const labelEl = doc ? createPlanLabelEl(doc) : null;
   if (labelEl) {
@@ -434,8 +464,24 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
       }
     }
     const airports = [p.origin, p.destination].filter((a): a is NonNullable<typeof a> => !!a);
-    const dense = densifyPlan(p.points);
+    // device-aware density (terrainFollow.trackBudget, ≤ PLAN_MAX_POINTS)
+    const dense = densifyPlan(p.points, budget.planMaxPoints, budget.planMinSpacingM);
     const d = computePlanDatum(dense, readers, plane, airports);
+    meshMissing = d.meshMissing;
+    meshLastMs = now();
+    // the seam/vectoring connector follows the rendered ground too
+    layer.setSeamTerrain(t ? {
+      groundAt: (mx, my) => {
+        const ll = mercatorToLonLat(mx, my);
+        let mesh = 0;
+        try { mesh = map.queryTerrainElevation?.([ll.lonDeg, ll.latDeg]) ?? 0; } catch (e) { reportPlanError('mesh-query', e); }
+        const dem = demGround(ll.lonDeg, ll.latDeg);
+        if (!mesh && dem == null) return null;
+        return resolveGroundDisplayZ(mesh, dem ?? 0, readers.exag > 0 ? readers.exag : 1).g;
+      },
+      stepM: budget.groundStepM,
+      maxSubdiv: budget.seamMaxSubdiv,
+    } : null);
     ensureLayer();
     layer.setVectoringAllowed(planVectoringAllowed(p));
     const unchanged = reason === 'dem' && sameArrays(shownAlt, d.altDisp) && sameArrays(shownGround, d.groundZ);
@@ -449,7 +495,7 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     }
     let pending = d.pending;
     if (p.originalPoints) {
-      const od = densifyPlan(p.originalPoints);
+      const od = densifyPlan(p.originalPoints, budget.planMaxPoints, budget.planMinSpacingM);
       const odat = computePlanDatum(od, readers, plane, airports);
       pending += odat.pending;
       layer.setOriginal(buildOriginalLineVertices(od, odat.altDisp, odat.groundZ));
@@ -487,6 +533,7 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     if (k === geomKey) return; // unchanged plan: no rebuild, no crossfade
     geomKey = k;
     demRetries = 0;
+    meshDone = 0;
     rebuild('plan');
   };
 
@@ -534,7 +581,13 @@ export function startPlanRoute(deps: PlanRouteDeps): PlanRouteHandle {
     if (!plan) return;
     // terrain toggled / exaggeration moved: re-datum the SAME plan (the live
     // curtain's repaintTrail3d counterpart), detected in the frame loop
-    if (readDatumKey() !== datumKey) { demRetries = 0; rebuild('datum'); }
+    if (readDatumKey() !== datumKey) { demRetries = 0; meshDone = 0; rebuild('datum'); }
+    // terrain ON, mesh tiles still loading along the plan: re-read them
+    // (frame loop, bounded) — an unchanged result never touches the GPU
+    else if (shouldMeshRefresh({
+      terrainOn: datumKey !== 'off', meshMissing, lastMs: meshLastMs, nowMs: now(),
+      done: meshDone, everyMs: budget.meshRefreshMs, maxTimes: budget.meshRefreshMax,
+    })) { meshDone++; rebuild('dem'); }
     // >10 nm off the DRAWN plan → re-fetch now (rate-limited; evaluated
     // every frame so a plane frozen at the glide cap still triggers it)
     const loc: PlanLocation | null = layer.getLocation();
