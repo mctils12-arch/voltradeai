@@ -106244,3 +106244,29 @@ DD-HALT release needs gap <= 5% in BULL/NEUTRAL. Still latched by design; autoRe
 If the gap reaches <=5% and the latch does not release, that is a real latch bug.
 No queued item fits; research would duplicate filed work.
 STARVED: no.
+
+
+## 2026-09-30 [REPAIR] — T-CLIENT — /data PHONE: LEGEND + COMPASS NO LONGER COVER THE DETAIL SHEET (v1.0.1008)
+
+Found 2026-09-28 while verifying the EGMONT card at 390px: the floating
+Legend (z 18) and the north-lock FAB sat ON TOP of the detail bottom sheet
+(z 11), covering its chip row and body — a Standing UI Law violation (no
+popup covers another element). Fix (CSS only, phone media block): while a
+non-minimized .vt-site-card is up, .vt-legend-float and .vt-nav-fab step
+aside (display none); closing/minimizing the card brings them back.
+
+Verified with a probe (local build, APIs forwarded to prod, EGMONT card):
+390px legend+FAB visible -> hidden (collapsed AND expanded sheet) ->
+visible after close; 768/1440 unaffected, measured 0px card/legend and
+card/nav-cluster overlap collapsed and expanded. Test:
+client/src/pages/datamap.sheetOverlap.test.ts (fails without the rule).
+Client suite 1,186/1,186.
+
+QUEUED NEXT (own PR): analyze_ticker() fabricates atm_iv = rv20 * 1.1 when
+no option chain yields an ATM IV; VRP then = 0.1 x rv20, which for rv20 >
+50 prints "Sell vol — implied vol is overpriced": a signal made from
+nothing, also fed to the recommendation + IV-crush score. The bot's
+quick_scan already returns None in that case (honest). Fix needs the page's
+.toFixed() calls and get_recommendation / earnings / iv_crush to accept a
+missing IV.
+STARVED: no.
