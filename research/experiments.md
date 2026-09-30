@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-09-30 (scheduled-routine session, ~20:20Z) [PIPELINE] — T-DATACORE (server/navAirways.ts, server/swimSfdps.ts) — DIRECT-FIX FILED ROUTES PLACED; airway expansion read live = 0 (v1.0.1016)
+
+HEALTH: /api/health 20:16Z status ok, serving.failing [], liveness dark:false, feeds live, v1.0.1015 live. Loop-health ratio: last 10 tags are PIPELINE/PRODUCT/REPAIR/NO-ACTION mix, no thrash.
+GATE-1 READ (the NEXT from the 13:20Z entry): live /api/data/aircraft/plan-status routeShape counters placed 7,205 / expandedNoPoints 750 / noExpanded 8,394 / airwayExpanded 0 (server up ~10 min, ~59k SFDPS msgs). Airway expansion is NOT broken: the table matches NASR AWY_BASE exactly (J75 and J121 genuinely absent from cycle 2026-09-03; J74/J80/V16 expand in a local probe). The masked live shapes show the dominant text-only form is `SID..FIX..FIX..FIX` — direct-fix legs with no airway — which my 13:20Z change deliberately did not place.
+PRIOR: most of the 8,394 text-only plans are pure direct-fix routes; placing their named fixes (already in the NASR gazetteer) should move a large share of noExpanded into placed. Unknown: the collision rate of short idents.
+CHANGE: navAirways.placeDirectFixes — second fallback after airway expansion, only for routes with NO airway token (an airway token refuses the route: skipping it would chord across an unexpanded segment), >=3 resolved fixes, every consecutive leg <=1200 nm (longer = ident collision, route refused). New counter routeShape.directFixPlaced. The flightPlans honesty guard is untouched: endpoint-only plans stay pathEstimated; OFF_PLAN stays off for estimated plans.
+RATCHET: 2 new tests in navAirways.test.ts (pure/short/airway/long-leg cases; end-to-end parse with counter). navAirways+swimSfdps+flightPlans 62/62; tsc 11<=11; existing assertions untouched.
+DOWNSTREAM: more plans draw the gray curtain through real filed fixes; nothing predictive claimed (raw overlay of a filing, not a signal).
+NEXT (post-deploy): read directFixPlaced vs noExpanded; run the filed-route vs ADS-B cross-track gate-1 on N>=200 placed plans (airway vs direct split) before re-enabling OFF_PLAN.
+ROLLBACK TRIGGER: cross-track median for direct-fix-placed plans > 15 nm on gate-1 -> remove the placeDirectFixes fallback.
+MERGE: prepared ~16:20 ET (after the close) — mergeable now.
+STARVED: no.
+
 ## 2026-09-30 (scheduled-routine PRODUCT session, ~13:20Z) [PIPELINE] — T-DATACORE (server/navAirways.ts, server/swimSfdps.ts, datacore/aircraft/nasr_airways.json) — AIRWAY EXPANSION OF FILED ROUTE TEXT (v1.0.1011)
 
 HEALTH: /api/health 13:19Z status ok, serving.failing [], liveness dark:false, feeds live; nothing blocks product work.
