@@ -1,0 +1,39 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { airwaySegment, expandRouteText } from "./navAirways";
+import { parseSfdpsMessages, routeShapeCounters, _resetSfdpsCountersForTests } from "./swimSfdps";
+
+// J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
+test("airwaySegment returns the fixes between two idents in travel order, either direction", () => {
+  assert.deepEqual(airwaySegment("J80", "ILC", "JNC"), ["ILC", "MLF", "SAKES", "JNC"]);
+  assert.deepEqual(airwaySegment("J80", "JNC", "ILC"), ["JNC", "SAKES", "MLF", "ILC"]);
+});
+
+test("airwaySegment refuses unknown airways, off-airway fixes and identical ends", () => {
+  assert.equal(airwaySegment("J99999", "ILC", "JNC"), null);
+  assert.equal(airwaySegment("J80", "ILC", "QZQZQ"), null);
+  assert.equal(airwaySegment("J80", "ILC", "ILC"), null);
+});
+
+test("expandRouteText places FIX AIRWAY FIX interiors and drops what it cannot bound", () => {
+  const pts = expandRouteText("KBOS..ILC.J80.JNC..KATL");
+  assert.deepEqual(pts.map((p) => p.name), ["ILC", "MLF", "SAKES", "JNC"]);
+  assert.ok(pts.every((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)));
+  // unknown airway (J99999) or unbounded fix: nothing is expanded, so nothing is invented
+  assert.deepEqual(expandRouteText("ILC.J99999.JNC"), []);
+  assert.deepEqual(expandRouteText("ILC.J80.QZQZQ"), []);
+  // but a bad airway elsewhere in the route does not poison a good expansion
+  assert.deepEqual(expandRouteText("ILC.J80.JNC..QZQZQ.J99999.WHITE").map((p) => p.name), ["ILC", "MLF", "SAKES", "JNC", "WHITE"]);
+  assert.deepEqual(expandRouteText(null), []);
+  assert.deepEqual(expandRouteText("KBOS..KATL"), []);
+});
+
+test("a message with route text only (no expandedRoute) gets airway-expanded route points", () => {
+  _resetSfdpsCountersForTests();
+  const xml = `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z">
+    <flightIdentification aircraftIdentification="DAL1"/>
+    <route nasRouteText="KBOS..ILC.J80.JNC..KATL"/></flight></message></MessageCollection>`;
+  const [f] = parseSfdpsMessages(xml);
+  assert.deepEqual(f.routePoints.map((p) => p.name), ["ILC", "MLF", "SAKES", "JNC"]);
+  assert.equal(routeShapeCounters.airwayExpanded, 1);
+});
