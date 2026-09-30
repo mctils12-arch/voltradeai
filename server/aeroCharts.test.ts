@@ -223,7 +223,7 @@ test("R2 path: miss -> upstream -> PUT under the edition key; next request is an
   const log: FakeFetchLog = { urls: [] };
   const r2 = fakeR2();
   const svc = createAeroChartService({
-    now: () => NOW, env: {}, r2,
+    now: () => NOW, env: {}, r2, tmpDir: tmpDir(),
     fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026") : { status: 200, body: PNG }), log),
   });
   const a = await svc.getTile("tac", 10, 234, 421);
@@ -236,13 +236,56 @@ test("R2 path: miss -> upstream -> PUT under the edition key; next request is an
   assert.equal((await svc.status()).cache.mode, "r2");
 });
 
+test("R2 write budget: past the daily cap tiles still serve (tmp overflow); deep 'no tile' markers never PUT", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const r2 = fakeR2();
+  let t = NOW;
+  const svc = createAeroChartService({
+    now: () => t, env: { AERO_R2_MAX_PUTS_PER_DAY: "2" }, r2, tmpDir: tmpDir(),
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026")
+      : u.includes("/tile/12/") ? { status: 404 } : { status: 200, body: JPEG }), log),
+  });
+  await svc.getTile("sectional", 9, 1, 1);
+  await svc.getTile("sectional", 9, 2, 2);
+  await svc.getTile("sectional", 9, 3, 3); // over budget -> tmp
+  await flush();
+  assert.equal(r2.puts, 2);
+  const again = await svc.getTile("sectional", 9, 3, 3);
+  assert.equal(again.outcome.kind === "tile" && again.outcome.from, "tmp", "overflow tile served from tmp, not refetched");
+  // a z12 404 marker is kept locally only, even with budget left tomorrow
+  t = NOW + 24 * 3600_000;
+  await svc.getTile("sectional", 12, 5, 5);
+  await flush();
+  assert.equal(r2.puts, 2);
+  assert.deepEqual((await svc.getTile("sectional", 12, 5, 5)).outcome, { kind: "empty", from: "tmp" });
+  const st = await svc.status();
+  assert.equal(st.cache.r2PutBudgetPerDay, 2);
+  assert.equal(st.cache.r2PutsToday, 0, "the day rolled over");
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 4, "every tile fetched upstream exactly once");
+});
+
+test("prefetch pauses instead of fetching tiles it could not persist", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const r2 = fakeR2();
+  const svc = createAeroChartService({
+    now: () => NOW, env: { AERO_R2_MAX_PUTS_PER_DAY: "3" }, r2, tmpDir: tmpDir(), sleep: async () => {},
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json")
+      ? (u.includes("IFR_High") ? META("on 05-14-2026", 5, 5) : META("on 07-09-2026", 13, 14))
+      : { status: 200, body: JPEG }), log),
+  });
+  await svc.runPrefetch();
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 3);
+  assert.match((await svc.status()).prefetch.note, /daily R2 write budget \(3\) reached/);
+  assert.ok(!r2.store.has("aero/ifrhigh/2026-05-14/_prefetch_done"), "an unfinished bake is never marked done");
+});
+
 test("edition keying: a new service edition reads a fresh key space (old tiles never served for the new cycle)", async () => {
   const log: FakeFetchLog = { urls: [] };
   const r2 = fakeR2();
   let t = NOW;
   let subject = "on 07-09-2026";
   const svc = createAeroChartService({
-    now: () => t, env: {}, r2,
+    now: () => t, env: {}, r2, tmpDir: tmpDir(),
     fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META(subject) : { status: 200, body: JPEG }), log),
   });
   await svc.getTile("sectional", 8, 58, 98);
@@ -291,7 +334,7 @@ test("prefetch: R2 only; bakes CONUS tiles for the edition, writes a done-marker
   const log: FakeFetchLog = { urls: [] };
   const r2 = fakeR2();
   const svc = createAeroChartService({
-    now: () => NOW, env: {}, r2, sleep: async () => {},
+    now: () => NOW, env: {}, r2, tmpDir: tmpDir(), sleep: async () => {},
     fetchImpl: fakeFetch((u) => (u.includes("?f=json")
       ? (u.includes("IFR_High") ? META("on 05-14-2026", 5, 5) : META("on 07-09-2026", 13, 14))
       : { status: 200, body: JPEG }), log),

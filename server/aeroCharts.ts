@@ -27,7 +27,10 @@
 // full). With R2 configured a background prefetch bakes CONUS z<=9 for each
 // new edition at a bounded request rate, so the common views are warm
 // before anyone asks. One upstream request per tile per edition, shared by
-// every visitor (in-flight dedup) — never per-visitor fan-out.
+// every visitor (in-flight dedup) — never per-visitor fan-out. R2 writes are
+// capped per UTC day (AERO_R2_MAX_PUTS_PER_DAY) so a crawler cannot turn the
+// pyramid into millions of Class-A ops; past the cap tiles still serve and
+// overflow to the tmp LRU.
 //
 // EDITION AWARENESS: the service metadata's documentInfo.subject carries
 // "Updated with the latest charts on MM-DD-YYYY" — that date is the chart
@@ -350,6 +353,10 @@ export const AERO_METADATA_RETRY_MS = 5 * 60_000;
 export const AERO_UPSTREAM_TIMEOUT_MS = 10_000;
 export const AERO_MAX_UPSTREAM_INFLIGHT = 6;
 export const AERO_PREFETCH_DEFAULT_RPS = 2;
+/** Class-A (PUT) ops per UTC day. One edition's CONUS z<=9 bake is ~16k
+ *  tiles across the charts, so a bake day still leaves organic headroom;
+ *  25k/day saturated every day would be ~750k/month, inside R2's 1M free. */
+export const AERO_R2_DEFAULT_MAX_PUTS_PER_DAY = 25_000;
 const USER_AGENT = "VolTradeAI-datamap/1.0 (+aero chart cache; one fetch per tile per edition)";
 
 export function createAeroChartService(deps: AeroDeps = {}) {
@@ -463,10 +470,25 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     }
   }
 
-  function storeOutcome(key: string, o: TileOutcome): void {
+  // R2 WRITE BUDGET: a crawler enumerating the pyramid must not turn into
+  // millions of Class-A PUTs (or a multi-GB z12 mirror). Past the daily cap
+  // tiles are still served — they just land in the bounded tmp LRU instead.
+  // "No tile here" markers only persist to R2 inside the prefetch band.
+  const r2PutBudget = Number(env.AERO_R2_MAX_PUTS_PER_DAY) > 0
+    ? Math.floor(Number(env.AERO_R2_MAX_PUTS_PER_DAY)) : AERO_R2_DEFAULT_MAX_PUTS_PER_DAY;
+  const budget = { day: "", used: 0 };
+  function r2BudgetLeft(): number {
+    const day = new Date(now()).toISOString().slice(0, 10);
+    if (budget.day !== day) { budget.day = day; budget.used = 0; }
+    return r2PutBudget - budget.used;
+  }
+
+  function storeOutcome(key: string, z: number, o: TileOutcome): void {
     if (o.kind !== "tile" && !(o.kind === "empty" && o.from === "upstream")) return;
     const body = o.kind === "tile" ? o.body : Buffer.alloc(0);
-    if (r2.configured) {
+    const persistEmpty = o.kind === "tile" || z <= AERO_PREFETCH_MAX_ZOOM;
+    if (r2.configured && persistEmpty && r2BudgetLeft() > 0) {
+      budget.used++;
       void r2.putObject(key, body, o.kind === "tile" ? o.contentType : "application/octet-stream").then((r) => {
         if (r.ok) counters.r2Puts++;
         else counters.r2PutErrors++;
@@ -504,16 +526,17 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         } else if (got.status !== 404) {
           counters.r2Errors++;
         }
-      } else {
-        const b = tmpCache().get(key);
-        if (b) {
-          const o = fromCachedBytes(b, "tmp");
-          if (o.kind !== "error") { counters.tmpHits++; st.hits++; return o; }
-        }
+      }
+      // the tmp LRU is the whole cache without R2, and the overflow tier with
+      // it (write budget spent / deep "no tile" markers)
+      const b = tmpCache().get(key);
+      if (b) {
+        const o = fromCachedBytes(b, "tmp");
+        if (o.kind !== "error") { counters.tmpHits++; st.hits++; return o; }
       }
       st.misses++;
       const o = await fetchUpstream(chart, z, x, y);
-      storeOutcome(key, o);
+      storeOutcome(key, z, o);
       return o;
     })().finally(() => inflight.delete(key));
     inflight.set(key, p);
@@ -548,9 +571,14 @@ export function createAeroChartService(deps: AeroDeps = {}) {
           const key = aeroCacheKey(chart, ed.edition, t.z, t.x, t.y);
           const h = await r2.headObject(key);
           if (h.ok && h.exists) { prefetch.skipped++; prefetch.done++; continue; }
+          if (r2BudgetLeft() <= 0) {
+            // no upstream fetch whose result could not be persisted anyway
+            prefetch.note = `paused at ${chart} ${prefetch.done}/${tiles.length}: daily R2 write budget (${r2PutBudget}) reached — resumes next run`;
+            return;
+          }
           const o = await fetchUpstream(chart, t.z, t.x, t.y);
           if (o.kind === "error") { prefetch.errors++; failures++; }
-          else { storeOutcome(key, o); prefetch.fetched++; }
+          else { storeOutcome(key, t.z, o); prefetch.fetched++; }
           prefetch.done++;
           await sleep(1000 / rps);
         }
@@ -588,10 +616,13 @@ export function createAeroChartService(deps: AeroDeps = {}) {
       charts: rows,
       cache: {
         mode: r2.configured ? "r2" : "tmp-lru",
-        tmp: r2.configured ? null : tmpCache().stats(),
+        // with R2 the tmp LRU is the overflow tier; stats only once it exists
+        tmp: r2.configured && !tmp ? null : tmpCache().stats(),
         ...counters,
         lastUpstreamErrorAt: counters.lastUpstreamErrorAt ? new Date(counters.lastUpstreamErrorAt).toISOString() : null,
         upstreamInflight: upstreamActive,
+        r2PutBudgetPerDay: r2.configured ? r2PutBudget : null,
+        r2PutsToday: r2.configured ? r2PutBudget - r2BudgetLeft() : null,
       },
       prefetch: { ...prefetch, lastRunAt: prefetch.lastRunAt ? new Date(prefetch.lastRunAt).toISOString() : null },
       r2Config: r2ConfigDiagnostics(env),
@@ -648,7 +679,6 @@ export async function handleAeroTile(svc: AeroChartService, req: Request, res: R
   const requested = typeof req.query.e === "string" ? req.query.e : undefined;
   const { outcome, edition } = await svc.getTile(chart, z, x, y);
   res.setHeader("x-aero-edition", edition.edition);
-  res.setHeader("access-control-allow-origin", "*");
   if (outcome.kind === "error") {
     // no-store: a transient upstream failure must not be cached as "empty"
     res.setHeader("cache-control", "no-store");
