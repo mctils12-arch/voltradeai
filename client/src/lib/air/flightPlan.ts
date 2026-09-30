@@ -12,7 +12,9 @@
 // a finite position is dropped (never guessed), an unknown `source` is
 // treated as NONE (never promoted to FILED).
 
-export type PlanSource = "FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
+import { isSynthesizedFixName } from "../../../../shared/flightPlanGeometry.js";
+
+export type PlanSource ="FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
 
 export interface PlanAirport {
   icao: string | null;
@@ -33,6 +35,10 @@ export interface PlanPoint {
    *  profile, not a filed value. */
   altEstimated: boolean;
   name: string | null;
+  /** additive (2026-09-30): the segment FROM this point to the next is ATC
+   *  vectoring (a connector the aircraft is being flown along near the
+   *  destination), NOT part of the filed/predicted route. */
+  vectors?: boolean;
 }
 
 export type DeviationState = "ON_PLAN" | "OFF_PLAN" | "UNKNOWN";
@@ -73,6 +79,12 @@ export interface FlightPlan {
   /** server-reported age of the plan data at response time, seconds. */
   ageSec: number | null;
   honesty: string;
+  /** true when the lateral path itself is an estimate (great circle / last
+   *  flight); absent on the wire = treated as estimated (never promoted). */
+  pathEstimated: boolean;
+  /** additive (2026-09-30): the aircraft is inside the destination's terminal
+   *  area and off the route — the connector to the route is ATC vectors. */
+  terminalVectoring: boolean;
 }
 
 /** Periodic re-fetch while a plane is selected. */
@@ -108,7 +120,7 @@ function normPoints(v: unknown): PlanPoint[] {
     const lat = num(o.lat), lon = num(o.lon);
     if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue; // never guessed
     const altM = num(o.altM);
-    out.push({ lon, lat, altM, altEstimated: o.altEstimated === true, name: str(o.name) });
+    out.push({ lon, lat, altM, altEstimated: o.altEstimated === true, name: str(o.name), ...(o.vectors === true ? { vectors: true } : {}) });
   }
   return out;
 }
@@ -152,6 +164,8 @@ export function normalizePlan(raw: unknown): FlightPlan | null {
     fetchedAt: num(o.fetchedAt),
     ageSec: num(o.ageSec),
     honesty: str(o.honesty) ?? "",
+    pathEstimated: o.pathEstimated !== false,
+    terminalVectoring: source !== "NONE" && o.terminalVectoring === true,
   };
 }
 
@@ -283,6 +297,34 @@ export function fmtAgeShort(sec: number | null): string {
   return `${h} h ${m % 60} min`;
 }
 
+/** "ATC vectors — not part of the filed route" (FILED) / "…predicted route"
+ *  when the server flagged terminal-area vectoring; null otherwise. Same
+ *  wording as the server's honesty sentence (server/flightPlans.ts
+ *  vectoringNote). */
+export function planVectoringText(plan: FlightPlan | null | undefined): string | null {
+  if (!planDrawable(plan) || !plan.terminalVectoring) return null;
+  return `ATC vectors — not part of the ${plan.source === "FILED_FAA" ? "filed" : "predicted"} route`;
+}
+
+/** May the client draw a live-computed "vectoring" connector for this plan?
+ *  Not against a FILED plan whose path is a great-circle stand-in (route
+ *  text only): being off a line we never had is not evidence of vectors. */
+export function planVectoringAllowed(plan: FlightPlan | null | undefined): boolean {
+  return planDrawable(plan) && !(plan.source === "FILED_FAA" && plan.pathEstimated);
+}
+
+/** Indices of the plan's labelable NAMED FIXES: a name that is not one the
+ *  server synthesized ("present position…", "TOC/TOD/peak (est.)"), and not
+ *  the last point (the destination carries its own label). */
+export function labelableFixIndices(points: readonly PlanPoint[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const nm = points[i].name;
+    if (nm && !isSynthesizedFixName(nm)) out.push(i);
+  }
+  return out;
+}
+
 /** True when the plan was just re-planned (the card says so). */
 export function wasReplanned(plan: FlightPlan): boolean {
   return plan.events.some((e) => e.type === "REPLANNED");
@@ -312,6 +354,6 @@ export function shouldDeviationRefetch(
 export function planGeometryKey(plan: FlightPlan | null): string {
   if (!planDrawable(plan)) return "none";
   const pk = (pts: PlanPoint[] | null) =>
-    (pts ?? []).map((p) => `${p.lon.toFixed(5)},${p.lat.toFixed(5)},${p.altM == null ? "-" : Math.round(p.altM)}${p.altEstimated ? "e" : ""}`).join(";");
+    (pts ?? []).map((p) => `${p.lon.toFixed(5)},${p.lat.toFixed(5)},${p.altM == null ? "-" : Math.round(p.altM)}${p.altEstimated ? "e" : ""}${p.vectors ? "v" : ""}`).join(";");
   return `${plan.source}|${pk(plan.points)}|${pk(plan.originalPoints)}`;
 }
