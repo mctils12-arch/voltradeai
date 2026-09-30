@@ -54,7 +54,7 @@ import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerSta
 import { mapDigitrafficAis, freshAisFixes, DIGITRAFFIC_AIS_ATTRIBUTION, DIGITRAFFIC_AIS_LOCATIONS_URL, DIGITRAFFIC_AIS_VESSELS_URL } from "./aisFeed";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
-import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
+import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY, trainsBackgroundDue, TRAINS_BG_TICK_MS } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
@@ -1958,6 +1958,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(503).json({ error: e?.message || "trains fetch failed", trains: [], count: 0 });
     }
   });
+  // Viewer-independent capture (server/trainsFeed.ts trainsBackgroundDue):
+  // fetchTrains archives every snapshot, but only viewers called it — with
+  // nobody on /data the rail archive went silent. Skips whenever a viewer
+  // refreshed the cache within the tick, so upstream load is unchanged.
+  setInterval(() => {
+    // an expired (stuck) slot does not block capture — same rule as the route
+    if (!trainsBackgroundDue(trainsCache?.at ?? null, !slotExpired(trainsInflight, Date.now()), Date.now())) return;
+    const slot = makeSlot(fetchTrains, Date.now(), (self) => {
+      if (trainsInflight === self) trainsInflight = null;
+    });
+    trainsInflight = slot;
+    slot.p.then((data: any) => { trainsCache = { at: Date.now(), data }; })
+      .catch((e: any) => console.error("[trains] background capture:", e?.message || e));
+  }, TRAINS_BG_TICK_MS).unref?.();
 
   // SEC EDGAR Form 4 (insider transactions) — RAW as-filed display (EDGE
   // DOCTRINE #1 "build data, don't buy it"; ROOT VALIDATION LADDER gate 1

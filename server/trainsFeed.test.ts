@@ -79,3 +79,17 @@ test("wiring: route, layer registry with honest coverage, panel source labels", 
   assert.ok(tr.description.includes("proprietary"), "US-freight-proprietary fact must be stated where users read it");
   assert.equal(TRAIN_SOURCES.length, 2);
 });
+
+test("background capture tick: runs only when no viewer refreshed the cache recently", async () => {
+  const { trainsBackgroundDue, TRAINS_BG_TICK_MS } = await import("./trainsFeed");
+  const now = 1_800_000_000_000;
+  assert.equal(trainsBackgroundDue(null, false, now), true, "cold cache (no viewer since boot) -> capture");
+  assert.equal(trainsBackgroundDue(now - 10_000, false, now), false, "a viewer just refreshed -> no extra upstream call");
+  assert.equal(trainsBackgroundDue(now - TRAINS_BG_TICK_MS, false, now), true);
+  assert.equal(trainsBackgroundDue(null, true, now), false, "never stacks on an in-flight fetch");
+});
+
+test("routes.ts wires the trains background capture tick at boot", () => {
+  const src = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.match(src, /trainsBackgroundDue\(/, "the tick must exist so capture never depends on a viewer");
+});

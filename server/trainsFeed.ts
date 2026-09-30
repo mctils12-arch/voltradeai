@@ -75,3 +75,16 @@ export function mapEntur(raw: any): UnifiedTrain[] {
 
 export const ENTUR_VEHICLES_QUERY =
   "{vehicles(mode:RAIL){vehicleId lastUpdated line{lineRef} location{latitude longitude} speed bearing}}";
+
+/** VIEWER-INDEPENDENT CAPTURE (2026-09-30, human: "when on the bot page
+ *  don't run the data page, but still capture the data"). The trains
+ *  archive was fed ONLY by /api/data/trains requests — with nobody on the
+ *  map, rail capture (and the feed's dead-air liveness) stopped. A boot-
+ *  started background tick now refreshes the shared cache when no viewer
+ *  has in the last TRAINS_BG_TICK_MS, so upstream load never exceeds what
+ *  one viewer already caused (the route's 30 s cache). */
+export const TRAINS_BG_TICK_MS = 60_000;
+export function trainsBackgroundDue(cacheAt: number | null, inflight: boolean, now: number): boolean {
+  if (inflight) return false;
+  return cacheAt == null || now - cacheAt >= TRAINS_BG_TICK_MS;
+}
