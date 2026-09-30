@@ -106290,3 +106290,28 @@ richness floor still bites. Result: data page 0 hard failures at
 390/768/1440; rendered 1,607 / 3,034 / 3,507 aircraft — identical to the
 pre-#1207 runs.
 STARVED: no.
+
+## 2026-09-30 (scheduled-routine session) [REPAIR] — T-BOT/T-CLIENT — /analyze: NO FABRICATED IMPLIED VOL (v1.0.1010)
+
+HEALTH (live 11:11Z): status ok, serving.failing [], liveness dark:false, feeds live;
+DD latch still by design (dd -6.3%, release needs <=5% in BULL/NEUTRAL). Loop-health
+ratio (last 10 tagged): 4 REPAIR — under threshold. Took the item QUEUED by the
+previous [REPAIR] entry.
+
+BREAK: analyze_ticker() set atm_iv = rv20 * 1.1 when no option chain gave a plausible
+ATM IV, so VRP = 0.1 * rv20 — for rv20 > 50 that printed "Sell vol — implied vol is
+overpriced", fed get_recommendation (SELL PREMIUM paths) with no IV observed. A signal
+made from nothing (honesty metric, priority 2).
+FIX: new compute_vrp(atm_iv, rv20); missing IV -> vrp None, regime "unknown", signal
+"Unavailable". get_recommendation treats vrp None as neither cheap nor expensive.
+Earnings IV-vs-move and iv_crush already skip a None atm_iv. analyze.tsx: atm_iv/vrp
+nullable, renders "—" + "No usable option chain", hides the regime advice blocks and
+the IV bar; .vrp-banner.unknown style. Bot path untouched (quick_scan already returned
+None; bot.ts reads analysis.vrp || 0).
+RATCHET: test_analyze_vrp_no_fabrication.py (3 tests; old code had no None path).
+Full pytest 2,286 passed; 1 fail + 3 errors are local-env only (PIL/openpyxl absent).
+tsc: no errors in analyze.tsx (pre-existing errors elsewhere). No visual harness run
+(sandbox lacks the stack); change only affects the IV-missing branch.
+OPEN: instrument_selector.py:404 still falls back to hv20 when trade_data lacks atm_iv
+(separate path; needs its own look).
+STARVED: no.
