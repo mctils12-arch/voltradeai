@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText } from "./navAirways";
+import { expandRouteText, placeDirectFixes } from "./navAirways";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ export function xmlShape(n: XNode, depth = 0): string {
 
 export interface RouteShapeSample { where: string; shape: string; count: number; firstSeenAt: number }
 const routeShapes = new Map<string, RouteShapeSample>();
-export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0 };
+export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0 };
 
 function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number): void {
   if (placed > 0) { routeShapeCounters.placed++; return; }
@@ -353,6 +353,10 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   if (routePoints.length === 0 && routeText) {
     const fromText = expandRouteText(routeText);
     if (fromText.length) { routePoints.push(...fromText); routeShapeCounters.airwayExpanded++; }
+    else {
+      const direct = placeDirectFixes(routeText);
+      if (direct.length) { routePoints.push(...direct); routeShapeCounters.directFixPlaced++; }
+    }
   }
 
   recordRouteShape(flight, agreed, expanded, routePoints.length);
@@ -800,5 +804,5 @@ export function sfdpsStatus(store?: SwimPlanStore) {
 export function _resetSfdpsCountersForTests(): void {
   counters.byService = { FLIGHT: 0, AIRSPACE_AIXM: 0, GENERAL_MESSAGE: 0, STATUS: 0, UNKNOWN: 0 };
   counters.flightByType = {}; counters.fullParses = 0; counters.lightParses = 0; counters.parseErrors = 0;
-  routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0;
+  routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0;
 }

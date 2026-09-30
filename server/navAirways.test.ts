@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText } from "./navAirways";
+import { airwaySegment, expandRouteText, placeDirectFixes } from "./navAirways";
 import { parseSfdpsMessages, routeShapeCounters, _resetSfdpsCountersForTests } from "./swimSfdps";
 
 // J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
@@ -36,4 +36,24 @@ test("a message with route text only (no expandedRoute) gets airway-expanded rou
   const [f] = parseSfdpsMessages(xml);
   assert.deepEqual(f.routePoints.map((p) => p.name), ["ILC", "MLF", "SAKES", "JNC"]);
   assert.equal(routeShapeCounters.airwayExpanded, 1);
+});
+
+test("placeDirectFixes places pure direct-fix routes only, never across an airway or an implausible leg", () => {
+  // real NASR fixes ILC, MLF, SAKES (on J80) used as direct-to fixes
+  assert.deepEqual(placeDirectFixes("KBOS..ILC..MLF..SAKES..KATL").map((p) => p.name), ["ILC", "MLF", "SAKES"]);
+  assert.deepEqual(placeDirectFixes("ILC..MLF"), []); // <3 fixes
+  assert.deepEqual(placeDirectFixes("ILC..MLF..SAKES.J80.JNC"), []); // airway present: refuse, no chord across it
+  assert.deepEqual(placeDirectFixes("ILC..MLF..BOS..SAKES"), []); // MLF..BOS >1200nm: ident collision guard
+  assert.deepEqual(placeDirectFixes(null), []);
+});
+
+test("route-text-only message with direct fixes counts directFixPlaced", () => {
+  _resetSfdpsCountersForTests();
+  const xml = `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z">
+    <flightIdentification aircraftIdentification="DAL2"/>
+    <route nasRouteText="KBOS..ILC..MLF..SAKES..KATL"/></flight></message></MessageCollection>`;
+  const [f] = parseSfdpsMessages(xml);
+  assert.deepEqual(f.routePoints.map((p) => p.name), ["ILC", "MLF", "SAKES"]);
+  assert.equal(routeShapeCounters.directFixPlaced, 1);
+  assert.equal(routeShapeCounters.airwayExpanded, 0);
 });
