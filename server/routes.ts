@@ -1969,8 +1969,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (trainsInflight === self) trainsInflight = null;
     });
     trainsInflight = slot;
-    slot.p.then((data: any) => { trainsCache = { at: Date.now(), data }; })
-      .catch((e: any) => console.error("[trains] background capture:", e?.message || e));
+    slot.p.then((data) => { trainsCache = { at: Date.now(), data }; })
+      .catch((e: unknown) => console.error("[trains] background capture:", e instanceof Error ? e.message : e));
   }, TRAINS_BG_TICK_MS).unref?.();
 
   // SEC EDGAR Form 4 (insider transactions) — RAW as-filed display (EDGE
