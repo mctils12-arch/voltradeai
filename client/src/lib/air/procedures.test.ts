@@ -126,8 +126,10 @@ function fakeMap() {
 
 test("ProcedureLayer: layers added transparent then eased to targets; symbols per kind; dispose frees everything", () => {
   const m = fakeMap();
-  const revoked: string[] = [];
-  const layer = new ProcedureLayer(m, { color: (t) => `token(${t})`, revoke: (u) => revoked.push(u) });
+  const released: string[] = [];
+  const c1 = { width: 1536, height: 1085, id: "c1" };
+  const c2 = { width: 1536, height: 1085, id: "c2" };
+  const layer = new ProcedureLayer(m, { color: (t) => `token(${t})`, release: (c) => released.push((c as typeof c1).id) });
   layer.setPath(PATH);
   for (const id of [LYR_CASING, LYR_LEGS, LYR_FIXES]) assert.ok(m.layers.get(id), id);
   const legsPaint = m.layers.get(LYR_LEGS)!.spec.paint as Record<string, unknown>;
@@ -138,21 +140,25 @@ test("ProcedureLayer: layers added transparent then eased to targets; symbols pe
   const fixes = m.sources.get("vt-proc-fixes")!.data as { features: Array<{ properties: { icon: string } }> };
   assert.deepEqual(fixes.features.map((f) => f.properties.icon), ["vt-fix-wpt", "vt-fix-nav", "vt-fix-faf"]);
   // plate: added under the path, faded from 0 to the user's opacity
-  layer.setPlate({ url: "blob:plate-1", corners: GEO.corners! });
+  layer.setPlate({ canvas: c1, corners: GEO.corners! });
   const plateL = m.layers.get(LYR_PLATE)!;
   assert.equal(plateL.before, LYR_CASING);
   assert.equal((plateL.spec.paint as Record<string, unknown>)["raster-opacity"], 0);
   assert.deepEqual(m.paints.at(-1), [LYR_PLATE, "raster-opacity", 0.7]);
-  assert.deepEqual((m.sources.get(SRC_PLATE)!.spec as { coordinates: unknown }).coordinates, GEO.corners);
+  const plateSrc = m.sources.get(SRC_PLATE)!.spec as { type: string; canvas: unknown; coordinates: unknown; animate: boolean };
+  assert.deepEqual(plateSrc.coordinates, GEO.corners);
+  assert.equal(plateSrc.type, "canvas", "canvas source: no blob:/data: URL, one upload");
+  assert.equal(plateSrc.canvas, c1);
+  assert.equal(plateSrc.animate, false);
   layer.setOpacity(0.3);
   assert.deepEqual(m.paints.at(-1), [LYR_PLATE, "raster-opacity", 0.3]);
-  // replacing the plate revokes the old bitmap
-  layer.setPlate({ url: "blob:plate-2", corners: GEO.corners! });
-  assert.deepEqual(revoked, ["blob:plate-1"]);
+  // replacing the plate releases the old canvas
+  layer.setPlate({ canvas: c2, corners: GEO.corners! });
+  assert.deepEqual(released, ["c1"]);
   layer.dispose();
   assert.equal(m.layers.size, 0);
   assert.equal(m.sources.size, 0);
-  assert.deepEqual(revoked, ["blob:plate-1", "blob:plate-2"]);
+  assert.deepEqual(released, ["c1", "c2"]);
   layer.setPath(PATH); // no-op after dispose
   assert.equal(m.layers.size, 0);
   assert.equal(layer.isDisposed(), true);

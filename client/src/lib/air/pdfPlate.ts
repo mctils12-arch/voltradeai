@@ -112,21 +112,3 @@ export async function renderPlate(url: string, o: RenderOpts): Promise<HTMLCanva
     o.signal?.removeEventListener("abort", onAbort);
   }
 }
-
-/** Canvas -> decoded blob: URL (the Law II ready-gate: the image is fully
- *  decoded before any map source references it). */
-export async function canvasToDecodedUrl(canvas: HTMLCanvasElement, signal?: AbortSignal): Promise<string> {
-  const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png"));
-  aborted(signal);
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    aborted(signal);
-    return url;
-  } catch (e: unknown) {
-    URL.revokeObjectURL(url);
-    throw e;
-  }
-}

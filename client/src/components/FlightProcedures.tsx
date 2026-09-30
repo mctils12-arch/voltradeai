@@ -28,7 +28,7 @@ import {
   type ChartRef, type FlightProcedures as FlightProceduresData, type PlateGeoref,
 } from "@/lib/air/procedures";
 import { PLATE_MAX_PX, ProcedureLayer, type ProcMapLike } from "@/lib/air/procedureLayer";
-import { canvasToDecodedUrl, renderPlate } from "@/lib/air/pdfPlate";
+import { renderPlate } from "@/lib/air/pdfPlate";
 
 const NM_TO_KM = 1.852;
 const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 639px)").matches;
@@ -153,10 +153,10 @@ export function useFlightProcedures(opts: UseFlightProceduresOpts): { row: JSX.E
     fetchPlateGeoref(plateGeorefUrl(chart, sel.id), ac.signal).then(async (g) => {
       if (ac.signal.aborted) return;
       if (!plateCornersUsable(g)) { setPlate({ s: "viewer", g, reason: g.reason }); return; }
+      // fully rendered before the map ever references it (ready-gate)
       const canvas = await renderPlate(chart.url, { crop: g.planView, maxPx: PLATE_MAX_PX, signal: ac.signal });
-      const decoded = await canvasToDecodedUrl(canvas, ac.signal);
-      if (ac.signal.aborted || layer.isDisposed()) { URL.revokeObjectURL(decoded); return; }
-      layer.setPlate({ url: decoded, corners: g.corners });
+      if (ac.signal.aborted || layer.isDisposed()) { canvas.width = 0; canvas.height = 0; return; }
+      layer.setPlate({ canvas, corners: g.corners });
       setPlate({ s: "overlay", g });
     }).catch((e: unknown) => {
       if (ac.signal.aborted) return;

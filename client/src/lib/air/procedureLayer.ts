@@ -14,7 +14,10 @@
 // sources, so a cheap frame-loop check re-installs whatever is current.
 // Law IV: maxFeatures caps the drawn path (legs + fixes); the plate raster is
 // capped at PLATE_MAX_PX on its longest side; dispose() removes every
-// source/layer, revokes the plate's blob URL and unregisters the frame check.
+// source/layer, releases the plate canvas' backing store and unregisters the
+// frame check. The plate is a MapLibre CANVAS source (animate: false — one
+// texture upload): no blob:/data: URL, so nothing needs a CSP connect-src
+// exception and there is no PNG encode/decode round trip.
 
 import type { FrameLoop } from "../../render/frameCore.js";
 import { PRIORITY } from "../../render/frameCore.js";
@@ -50,9 +53,12 @@ export interface ProcMapLike {
   hasImage?(id: string): boolean;
 }
 
+/** the drawable the plate is uploaded from (an HTMLCanvasElement in the app) */
+export interface PlateCanvas { width: number; height: number }
 export interface PlateOverlay {
-  /** object/blob URL of the decoded plan-view crop */
-  url: string;
+  /** the fully rendered plan-view crop (the Law II ready-gate: it is drawn
+   *  completely before any source references it) */
+  canvas: PlateCanvas;
   /** [lon, lat] TL, TR, BR, BL */
   corners: Array<[number, number]>;
 }
@@ -61,8 +67,8 @@ export interface ProcedureLayerOpts {
   loop?: FrameLoop | null;
   /** resolves a theme token (CSS custom property) to a colour */
   color?: (token: string) => string;
-  /** revoke a plate URL we own (tests inject a spy) */
-  revoke?: (url: string) => void;
+  /** free a plate canvas we no longer show (default: zero its size) */
+  release?: (c: PlateCanvas) => void;
   /** registers the SDF fix symbols if the style lost them */
   ensureIcons?: () => void;
   onError?: (where: string, e: unknown) => void;
@@ -105,10 +111,10 @@ export class ProcedureLayer {
    *  must point at an already-decoded bitmap (ready-gate is the caller's
    *  decode; this layer then fades it in from 0). */
   setPlate(plate: PlateOverlay | null): void {
-    if (this.disposed) { if (plate) this.revoke(plate.url); return; }
+    if (this.disposed) { if (plate) this.release(plate.canvas); return; }
     const prev = this.plate;
     this.removePlate();
-    if (prev && prev.url !== plate?.url) this.revoke(prev.url);
+    if (prev && prev.canvas !== plate?.canvas) this.release(prev.canvas);
     this.plate = plate;
     if (plate) this.installPlate();
   }
@@ -129,7 +135,7 @@ export class ProcedureLayer {
     this.unregister = null;
     for (const id of ALL_LAYERS) this.safe("remove-layer", () => { if (this.map.getLayer(id)) this.map.removeLayer(id); });
     for (const id of [SRC_FIXES, SRC_LEGS, SRC_PLATE]) this.safe("remove-source", () => { if (this.map.getSource(id)) this.map.removeSource(id); });
-    if (this.plate) this.revoke(this.plate.url);
+    if (this.plate) this.release(this.plate.canvas);
     this.plate = null;
     this.path = null;
   }
@@ -148,7 +154,9 @@ export class ProcedureLayer {
     this.paint(LYR_FIXES, "text-opacity", on ? 1 : 0);
   }
 
-  private revoke(url: string) { try { (this.opts.revoke ?? ((u: string) => URL.revokeObjectURL(u)))(url); } catch (e: unknown) { this.err("revoke", e); } }
+  private release(c: PlateCanvas) {
+    try { (this.opts.release ?? ((x: PlateCanvas) => { x.width = 0; x.height = 0; }))(c); } catch (e: unknown) { this.err("release", e); }
+  }
 
   private safe(where: string, fn: () => void) { try { fn(); } catch (e: unknown) { this.err(where, e); } }
 
@@ -233,7 +241,7 @@ export class ProcedureLayer {
     const p = this.plate;
     if (!p) return;
     this.safe("plate", () => {
-      if (!this.map.getSource(SRC_PLATE)) this.map.addSource(SRC_PLATE, { type: "image", url: p.url, coordinates: p.corners });
+      if (!this.map.getSource(SRC_PLATE)) this.map.addSource(SRC_PLATE, { type: "canvas", canvas: p.canvas, coordinates: p.corners, animate: false });
       if (!this.map.getLayer(LYR_PLATE)) {
         this.map.addLayer({
           id: LYR_PLATE, type: "raster", source: SRC_PLATE,
