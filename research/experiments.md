@@ -106400,3 +106400,36 @@ host with Satellite selected (chart layer not yet perf-gated in the
 harness — follow-up). ROLLBACK TRIGGER: frame-time regression with a chart
 selected on S24-class devices; FAA upstream error rate high.
 STARVED: yes — procedures/plate-on-map still building.
+
+
+## 2026-09-30 [PRODUCT] — T-DATACORE + T-CLIENT — INSTRUMENT PROCEDURES + GEOREFERENCED PLATE ON THE MAP (v1.0.1015)
+
+Human request: ForeFlight-style — pull up the procedure plate for the
+selected flight and show it on the map with its path. CHANGE: FAA CIFP
+(ARINC 424) parser + leg geometry (server/cifp.ts; exact for IF/TF/CF/DF/
+RF/AF/FC, altitude/intercept/vector legs, holds and procedure turns drawn
+as flagged approximations; missed approach split out; NASR gazetteer
+cross-check), d-TPP chart index + plate PDF cache (server/dtpp.ts; R2 or
+bounded /tmp, only PDFs the index lists for that airport), symbol-based
+plate georeference with outlier rejection cross-checked against the PDF's
+embedded georeference (server/plateGeoref.ts; >=3 points with embedded
+georef, >=4 without; RMS < 0.5 nm required), 6 endpoints
+(server/procedures.ts). Client: "Procedures" row in the aircraft card (off
+by default) — filed DP/STAR auto-selected from SWIM route text; approaches
+only SUGGESTED (ATC assigns), ranked by METAR headwind; purple path with
+dashed approximations/missed approach, plate as a map canvas source with
+opacity, pdf.js 3.11.174 from cdnjs (SRI-pinned, lazy; allowed by the app
+CSP script-src + blob: workers). "NOT FOR NAVIGATION" leads the header.
+RESULT (live FAA data, cycle 2609): KAUS ILS or LOC RWY 18L georeferenced,
+3 fixes, RMS 0.028 nm (embedded-georef agreement 0.33 nm — the honest
+accuracy figure); RNAV (GPS) Y 18L 0.14 nm (6 fixes); RNAV (RNP) Z 36R
+0.09 nm (15); ILS 36L, BLEWE5, AUSTIN SEVEN correctly refused (side viewer
+with reason). FINDING: blind 3-point matches can coincide < 0.5 nm (a dev
+run matched a profile label 22 nm off) -> 4 fixes required without an
+embedded georef.
+UNVERIFIED: FAA / aviationweather.gov / cdnjs reachability from Railway;
+three-width visual harness run for the card. First request ~7 s (9 MB CIFP
++ 16 MB index download, then cached).
+ROLLBACK TRIGGER: a georeferenced plate visibly misaligned with its own
+path/fixes; memory spikes on the index parse.
+STARVED: no.
