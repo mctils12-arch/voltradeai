@@ -106550,3 +106550,12 @@ Caveat: single sample, archive size unknown, so the 114 s -> 17 s gap is not
 cleanly attributable to the Bloom alone. No change shipped.
 Remaining queue = power-plant placement (human decision) and non-blocking
 polish; research would duplicate filed work. STARVED: no.
+
+## 2026-10-01 (scheduled-routine PRODUCT session, ~18:00Z, market hours) [PIPELINE] — T-DATACORE (docs only) — FILED-ROUTE GATE-1 SPLIT BY KIND: direct-fix PASS
+
+HEALTH: /api/health 18:01Z status ok, liveness dark:false, v1.0.1019 live. No critical trading-loop item blocking product work.
+PRIOR (09-30/10-01 entries): direct-fix placement is the riskiest kind (short-ident collisions); expected its p90 worse than airway's; rollback trigger median > 15 nm.
+RESULT (live, `python3 scripts/flightplan_gate1.py`, routeKind now on the wire): n=291 placed FILED_FAA mid-route aircraft, ALL kind=direct (airway expansion remains 0 live — J75/J121 absent from NASR cycle 2026-09-03, see 09-30 entry). Direct: median 0.1 nm, p75 5.1, p90 18.0, p95 28.4; 82% <= 10 nm, 89% <= 15 nm. Rollback trigger NOT hit; `placeDirectFixes` stays.
+LIMITS: no airway/expanded comparison group exists live, so "direct is worse than airway" is untestable now; single snapshot; p90+ tail plausibly ATC direct-to clearances (unverified). Raw-overlay measurement, no predictive claim.
+DECISION: gate-1 for placed filed routes is passed for the only kind that occurs. OFF_PLAN for placed direct-fix plans may be considered next, but only with a time-series (multiple snapshots) so the tail is not judged from one sample. No code change, no version bump.
+STARVED: no. MERGE: docs-only, safe any time.
