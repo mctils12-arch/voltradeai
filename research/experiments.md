@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-01 (scheduled-routine session, ~00:40Z) [NO-ACTION] — health green, no matured gate, no unfiled research
+
+TERRITORY: none (docs-only). Loop-health: research_state_check thrash 5/10 REPAIR (< 7), starvation 0, audits none overdue, archive freshness OK.
+HEALTH (session_health_check, live): deploy_gate 2xx, liveness alive, subsystems ok, v1.0.1017 matches checkout. One WARN: alt_data_enrichment wikipedia/gdelt/fred down across all 50 DIAGNOSTIC entries = KNOWN BROKEN #21's documented signature, not new. KNOWN BROKEN #44 (insider_cusum_gate2 ModuleNotFoundError) is blocked on a FROZEN PATH (Dockerfile), proposal already in wishlist.md; not a loop-liveness item.
+DOCTRINE AXIS SURVEY: ladder_readiness_check shows 0/5 gated roots ready (COT ~12/15 weekly reports; sec_8k_earnings_language 89/90d — ready tomorrow; github_org ~10/15; gnss 9/15d; fleet_utilization not before 2026-11-02). Running any gate-2 early would be peeking at a pre-registered threshold, so none was run. Axis (a) free-root discovery was last exhausted against the 35-candidate registry; (b) is still blocked on the fill-realism fix; (c)/(d) have no unfiled candidate that is not a duplicate.
+NEXT: the 8-K earnings-language gate-2 (scripts/earnings_language_gate2.py) becomes eligible 2026-10-02; the next session should run it first.
+STARVED: no.
+
 ## 2026-10-01 (scheduled-routine session, ~00:10Z) [PIPELINE] — T-DATACORE (scripts/) — FILED-ROUTE vs ADS-B CROSS-TRACK GATE-1: PASS (no code_version change)
 
 HEALTH: /api/health 00:06Z status ok, serving.failing [], liveness dark:false, feeds live. KNOWN BROKEN: no critical trading-loop item blocking product work.
