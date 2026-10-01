@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-01 (scheduled-routine PRODUCT session, ~13:20Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts, scripts/flightplan_gate1.py) — routeKind EXPOSED ON THE PLAN RESPONSE (v1.0.1019)
+
+HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1018 live); only the known #21 alt_data WARN. ladder_readiness_check 0/5 ready (8-K gate-2 eligible 2026-10-02 — not run early, no peeking).
+PRIOR: the 00:10Z gate-1 pass (median 0.1 nm) pooled airway + direct-fix + expandedRoute plans; direct-fix placement is the riskiest (short-ident collisions), so I expect its tail (p90) to be worse than airway's. Unmeasurable until the kind is on the wire.
+CHANGE: additive `routeKind` ("expanded"|"airway"|"direct"|null) carried parse -> SwimPlanStore (kept across track messages that carry no route) -> FlightPlanResponse; set only for FILED_FAA non-estimated plans, null for estimated/predicted/NONE. scripts/flightplan_gate1.py now prints by_kind summaries (kind 'unknown' against a pre-1019 server). No behaviour change to placement, deviation or OFF_PLAN.
+RATCHET: contract test key set extended (+routeKind), new test for airway/direct/estimated/predicted kinds, expanded assertion on the filed-outranks test, gate1 kind_of test. swimSfdps+flightPlans+navAirways+flightPlanSeam 74/74; tsc 11<=11; no existing assertion weakened.
+NEXT (post-deploy): run `python3 scripts/flightplan_gate1.py` and read by_kind; direct median > 15 nm -> remove placeDirectFixes (rollback trigger from 09-30 stands).
+STARVED: no. MERGE: prepared ~09:25 ET, before the open — merge after the 16:00 ET close.
+
 ## 2026-10-01 (scheduled-routine session, ~00:40Z) [NO-ACTION] — health green, no matured gate, no unfiled research
 
 TERRITORY: none (docs-only). Loop-health: research_state_check thrash 5/10 REPAIR (< 7), starvation 0, audits none overdue, archive freshness OK.

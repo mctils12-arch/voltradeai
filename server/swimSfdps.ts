@@ -142,6 +142,8 @@ function deepAttr(n: XNode | null | undefined, names: string[]): string | null {
 }
 
 // ── 1b. FIXM / SFDPS extraction ─────────────────────────────────────────────
+export type SwimRouteKind = "expanded" | "airway" | "direct";
+
 export interface SwimRoutePoint {
   lat: number; lon: number;
   name?: string;
@@ -160,6 +162,10 @@ export interface SwimFlightMessage {
   routeText: string | null;
   /** expanded route point positions, in route order (may be empty) */
   routePoints: SwimRoutePoint[];
+  /** how routePoints were obtained: "expanded" (SFDPS expandedRoute fix names via
+   *  the gazetteer / explicit coords), "airway" (text FIX AIRWAY FIX expansion),
+   *  "direct" (text direct-fix legs); absent when nothing was placed */
+  routeKind?: SwimRouteKind;
   /** SFDPS message source code as carried (e.g. FH flight plan, AH amendment,
    *  HZ track, HX cancellation — SFDPS 'source' attribute) */
   messageType: string | null;
@@ -331,6 +337,7 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   const agreed = findFirst(flight, "agreed");
   const expanded = findFirst(agreed, "expandedRoute") ?? findFirst(flight, "expandedRoute");
   const routePoints: SwimRoutePoint[] = [];
+  let routeKind: SwimRouteKind | undefined;
   if (expanded) {
     for (const rp of findAll(expanded, "routePoint")) {
       const name = deepAttr(rp, ["fix", "nasFixName", "designator", "fixName", "name", "point"]) ?? undefined;
@@ -350,12 +357,13 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   // airways expanded between bounding fixes from NASR (navAirways.ts). Unplaceable
   // pieces stay unplaced; the flightPlans honesty guard still demands a placed
   // point off the airport endpoints before calling the path "filed".
-  if (routePoints.length === 0 && routeText) {
+  if (routePoints.length > 0) routeKind = "expanded";
+  else if (routeText) {
     const fromText = expandRouteText(routeText);
-    if (fromText.length) { routePoints.push(...fromText); routeShapeCounters.airwayExpanded++; }
+    if (fromText.length) { routePoints.push(...fromText); routeKind = "airway"; routeShapeCounters.airwayExpanded++; }
     else {
       const direct = placeDirectFixes(routeText);
-      if (direct.length) { routePoints.push(...direct); routeShapeCounters.directFixPlaced++; }
+      if (direct.length) { routePoints.push(...direct); routeKind = "direct"; routeShapeCounters.directFixPlaced++; }
     }
   }
 
@@ -390,7 +398,7 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
 
   return {
     gufi: gufi ? gufi.trim() : null, callsign, departure, arrival, cruiseAltFt,
-    routeText: routeText ? routeText.trim() : null, routePoints, messageType,
+    routeText: routeText ? routeText.trim() : null, routePoints, ...(routeKind ? { routeKind } : {}), messageType,
     isAmendment, isCancellation, isCompleted, timestamp, departureTime, position,
     flightStatus: flightStatus || null,
   };
@@ -570,6 +578,8 @@ export interface StoredSwimPlan {
   route: Float32Array;
   /** route point names joined by "|" ("" = unnamed) */
   routeNames: string;
+  /** how `route` was obtained (see SwimFlightMessage.routeKind); kept with the route */
+  routeKind?: SwimRouteKind;
   messageType: string | null;
   flightStatus: string | null;
   timestamp: number | null;
@@ -682,6 +692,7 @@ export class SwimPlanStore {
       routeText: m.routeText ? keep(m.routeText.slice(0, SWIM_ROUTE_TEXT_MAX), prev?.routeText) : (prev?.routeText ?? null),
       route: packed ? packed.route : (prev?.route ?? EMPTY_ROUTE),
       routeNames: packed ? detachString(packed.routeNames) : (prev?.routeNames ?? ""),
+      ...((packed ? m.routeKind : prev?.routeKind) ? { routeKind: (packed ? m.routeKind : prev?.routeKind) as SwimRouteKind } : {}),
       messageType: keep(m.messageType, prev?.messageType),
       flightStatus: keep(m.flightStatus, prev?.flightStatus),
       timestamp: m.timestamp ?? prev?.timestamp ?? null,

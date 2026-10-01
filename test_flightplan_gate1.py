@@ -22,3 +22,7 @@ def test_eligible_and_summarize():
     assert g1.eligible(ROW) and not g1.eligible(ROW[:3] + [5000] + ROW[4:])
     s = g1.summarize([1, 2, 3, 20])
     assert s["n"] == 4 and s["le10"] == 0.75
+
+def test_kind_of_defaults_to_unknown_for_older_servers():
+    assert g1.kind_of(plan(routeKind="direct")) == "direct"
+    assert g1.kind_of(plan()) == "unknown" and g1.kind_of(None) == "unknown"
