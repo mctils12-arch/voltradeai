@@ -152,3 +152,42 @@ test("splitTrips carries quality + basis on every trip", () => {
   assert.equal(trips[0].quality, "complete");
   assert.ok(trips[0].quality_basis.length > 0);
 });
+
+// ── per-hour-file id bloom (2026-10-01) ─────────────────────────────────────
+test("fullTrackAsync bloom: second scan skips files lacking the id, results identical", async () => {
+  const { _resetBloomCache, bloomCacheSize, bloomAdd, bloomMayHave } = await import("./aircraftTrips");
+  _resetBloomCache();
+  const base = mkdtempSync(path.join(tmpdir(), "bloom-"));
+  const dir = path.join(base, "aircraft");
+  mkdirSync(dir, { recursive: true });
+  const t0 = Math.floor(Date.parse("2026-08-05T10:00:00Z") / 1000);
+  const wr = (h: string, rows: object[]) =>
+    writeFileSync(path.join(dir, `2026-08-05-${h}.jsonl`), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  wr("10", [{ t: t0, i: "abe872", la: 1, lo: 1, al: 100 }, { t: t0 + 5, i: "111111", la: 2, lo: 2 }]);
+  wr("11", [{ t: t0 + 3600, i: "222222", la: 3, lo: 3 }]);
+  const a = await fullTrackAsync("aircraft", "abe872", base);
+  assert.equal(bloomCacheSize(), 2, "both closed hour files got a filter");
+  const b = await fullTrackAsync("aircraft", "abe872", base);
+  assert.deepEqual(b, a, "identical result with the filters in play");
+  assert.equal((await fullTrackAsync("aircraft", "222222", base)).length, 1, "other id still found via filter");
+  assert.equal((await fullTrackAsync("aircraft", "999999", base)).length, 0);
+  const bl = new Uint8Array(1 << 15);
+  bloomAdd(bl, "abc123");
+  assert.ok(bloomMayHave(bl, "abc123"));
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("fullTrackAsync bloom: a rewritten file is re-read (size/mtime key), never stale-skipped", async () => {
+  const { _resetBloomCache } = await import("./aircraftTrips");
+  _resetBloomCache();
+  const base = mkdtempSync(path.join(tmpdir(), "bloom2-"));
+  const dir = path.join(base, "aircraft");
+  mkdirSync(dir, { recursive: true });
+  const fp = path.join(dir, "2026-08-05-10.jsonl");
+  const t0 = Math.floor(Date.parse("2026-08-05T10:00:00Z") / 1000);
+  writeFileSync(fp, JSON.stringify({ t: t0, i: "aaaaaa", la: 1, lo: 1 }) + "\n");
+  assert.equal((await fullTrackAsync("aircraft", "bbbbbb", base)).length, 0);
+  writeFileSync(fp, JSON.stringify({ t: t0, i: "aaaaaa", la: 1, lo: 1 }) + "\n" + JSON.stringify({ t: t0 + 9, i: "bbbbbb", la: 2, lo: 2 }) + "\n");
+  assert.equal((await fullTrackAsync("aircraft", "bbbbbb", base)).length, 1);
+  rmSync(base, { recursive: true, force: true });
+});
