@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-01 (scheduled-routine session, ~00:10Z) [PIPELINE] — T-DATACORE (scripts/) — FILED-ROUTE vs ADS-B CROSS-TRACK GATE-1: PASS (no code_version change)
+
+HEALTH: /api/health 00:06Z status ok, serving.failing [], liveness dark:false, feeds live. KNOWN BROKEN: no critical trading-loop item blocking product work.
+PRIOR: placed filed routes (airway + direct-fix) fly within ~10 nm of the filed path for most mid-route traffic (median <= 5 nm); rollback trigger from the 20:20Z entry is median > 15 nm.
+RESULT (live, 275 airborne US airline-callsign aircraft, FILED_FAA, pathEstimated=false, >60 nm from destination, >12,000 ft): server deviation.crossTrackNm median 0.1 nm, p75 5.3, p90 16.7, p95 25.9; 82% <= 10 nm, 88% <= 15 nm. Rollback trigger NOT hit. Server counters same window: directFixPlaced 37,493 of placed 105,468.
+METHOD NOTE: cross-track MUST use the server's deviation.crossTrackNm; recomputing against returned `points` gives 0.0 by construction (forward-only seam anchors the polyline at the aircraft; v1.0.1013) — my first pass made exactly this error and was discarded.
+LIMITS: airway-vs-direct split NOT measured (route kind is not exposed in the plan response); one snapshot, not a time series; long tail (p90+) is plausibly ATC reroutes/direct-to clearances, unverified. No predictive claim — raw overlay of a filing.
+CHANGE: scripts/flightplan_gate1.py (compiled the measurement, reproducible read-only) + test_flightplan_gate1.py (3 tests).
+NEXT: expose route kind (airway|direct|text-only) on the plan response, then split this gate by kind before re-enabling OFF_PLAN for placed direct-fix plans.
+ROLLBACK TRIGGER: unchanged — median > 15 nm for direct-fix plans on the split run -> remove placeDirectFixes.
+STARVED: no. MERGE: after-hours (prepared ~00:15Z = 20:15 ET).
+
 ## 2026-09-30 (scheduled-routine session, ~20:20Z) [PIPELINE] — T-DATACORE (server/navAirways.ts, server/swimSfdps.ts) — DIRECT-FIX FILED ROUTES PLACED; airway expansion read live = 0 (v1.0.1016)
 
 HEALTH: /api/health 20:16Z status ok, serving.failing [], liveness dark:false, feeds live, v1.0.1015 live. Loop-health ratio: last 10 tags are PIPELINE/PRODUCT/REPAIR/NO-ACTION mix, no thrash.
