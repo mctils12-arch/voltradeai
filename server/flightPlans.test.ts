@@ -381,7 +381,7 @@ function ctxWith(opts: {
 
 const CONTRACT_KEYS = [
   "ageSec", "callsign", "cruiseAltEstimated", "cruiseAltFt", "destination", "deviation", "events", "fetchedAt",
-  "hex", "honesty", "label", "origin", "originalPoints", "pathEstimated", "points", "source", "terminalVectoring",
+  "hex", "honesty", "label", "origin", "originalPoints", "pathEstimated", "points", "routeKind", "source", "terminalVectoring",
 ].sort();
 
 function assertContract(r: FlightPlanResponse) {
@@ -471,6 +471,23 @@ test("contract: FILED_FAA outranks every prediction", async () => {
   assert.equal(r.origin!.icao, "KSFO", "filed aerodrome resolved through the OurAirports ident index");
   assert.ok(r.points.some((p) => p.name === "SNS"), "filed route point kept");
   assert.equal(r.ageSec, 60);
+  assert.equal(r.routeKind, "expanded");
+});
+
+test("contract: routeKind distinguishes airway / direct text expansion and is null for estimated + predicted plans", async () => {
+  const mk = (cs: string, text: string) => `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
+    <flightIdentification aircraftIdentification="${cs}"/><gufi>g-${cs}</gufi>
+    <departure departurePoint="KBOS"/><arrival arrivalPoint="KATL"/>
+    <route nasRouteText="${text}"/></flight></message></m:MessageCollection>`;
+  const swim = new SwimPlanStore();
+  for (const [cs, t] of [["AWY1", "KBOS..ILC.J80.JNC..KATL"], ["DIR1", "KBOS..ILC..MLF..SAKES..KATL"], ["TXT1", "KBOS..KATL"]])
+    for (const f of parseSfdpsMessages(mk(cs, t))) swim.upsert(f, NOW - 60_000);
+  const kind = async (cs: string) => (await resolveFlightPlan(q({ callsign: cs, lat: "40", lon: "-80" }), ctxWith({ swim }))).routeKind;
+  assert.equal(await kind("AWY1"), "airway");
+  assert.equal(await kind("DIR1"), "direct");
+  assert.equal(await kind("TXT1"), null, "endpoint-only filed plan is estimated -> no routeKind");
+  const r = await resolveFlightPlan(q({ callsign: "SKW5000", lat: "36.2", lon: "-120.1" }), ctxWith({ routes: { SKW5000: KSFO_KLAX } }));
+  assert.equal(r.routeKind, null, "predicted plans carry no filed routeKind");
 });
 
 test("contract: implausible route -> NONE with the honest reason, nothing drawn", async () => {

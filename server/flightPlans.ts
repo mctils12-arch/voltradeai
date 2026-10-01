@@ -79,6 +79,12 @@ export interface FlightPlanResponse {
   /** additive: true when the lateral path itself is an estimate (great circle
    *  or last-flight path), false only for filed expanded-route geometry */
   pathEstimated: boolean;
+  /** additive (2026-10-01): for FILED_FAA plans with a placed (non-estimated)
+   *  path, how the filed geometry was obtained — "expanded" (SFDPS expandedRoute
+   *  fix names), "airway" (route text FIX AIRWAY FIX, NASR expansion) or
+   *  "direct" (route text direct-fix legs). null otherwise. Lets the filed-vs-
+   *  flown gate-1 (scripts/flightplan_gate1.py) split deviation by kind. */
+  routeKind: "expanded" | "airway" | "direct" | null;
   /** additive (2026-09-30): the aircraft is inside the destination's terminal
    *  area (DEVIATION_TERMINAL_NM) and > VECTORING_MIN_XT_NM off the route — the
    *  connector from it to the route (points flagged `vectors`) is ATC
@@ -850,6 +856,7 @@ interface Candidate {
   points: PlanPoint[];
   fetchedAt: number;
   pathEstimated: boolean;
+  routeKind?: "expanded" | "airway" | "direct";
   honesty: string;
 }
 
@@ -904,6 +911,7 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     points: densifyPlan(raw, stepFor(len)),
     fetchedAt: p.updatedAt,
     pathEstimated,
+    ...(!pathEstimated && p.routeKind ? { routeKind: p.routeKind } : {}),
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
       "; altitudes flagged altEstimated are a typical-jet profile estimate, not filed.",
@@ -985,6 +993,7 @@ function noneResponse(q: PlanRequest, reason: string, now: number): FlightPlanRe
     events: [], fetchedAt: now, ageSec: 0,
     honesty: `No route is drawn: ${reason}. Nothing is shown rather than a guess; the real flown path is always the recorded ADS-B track.`,
     pathEstimated: false,
+    routeKind: null,
     terminalVectoring: false,
   };
 }
@@ -1126,6 +1135,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     ageSec: Math.max(0, Math.round((now - cand.fetchedAt) / 1000)),
     honesty,
     pathEstimated: cand.pathEstimated,
+    routeKind: cand.source === "FILED_FAA" && !cand.pathEstimated ? (cand.routeKind ?? null) : null,
     terminalVectoring,
   };
 }

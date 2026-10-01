@@ -48,6 +48,12 @@ def measure(plan, row):
     return xt
 
 
+def kind_of(plan):
+    """filed-geometry kind (expanded|airway|direct) from the plan response
+    (added v1.0.1019); 'unknown' against an older server."""
+    return (plan or {}).get("routeKind") or "unknown"
+
+
 def _get(url):
     with urllib.request.urlopen(url, timeout=30) as r:
         return json.load(r)
@@ -60,12 +66,18 @@ def main():
 
     def one(r):
         try:
-            return measure(_get(f"{base}/api/data/aircraft/plan/{r[0]}?callsign={r[6]}&lat={r[2]}&lon={r[1]}&alt={r[3]}&trk={r[5]}"), r)
+            pl = _get(f"{base}/api/data/aircraft/plan/{r[0]}?callsign={r[6]}&lat={r[2]}&lon={r[1]}&alt={r[3]}&trk={r[5]}")
+            return kind_of(pl), measure(pl, r)
         except Exception:
             return None
     with cf.ThreadPoolExecutor(6) as ex:
-        vals = [x for x in ex.map(one, rows) if x is not None]
-    print(json.dumps(summarize(vals)))
+        res = [x for x in ex.map(one, rows) if x is not None and x[1] is not None]
+    by_kind = {}
+    for k, v in res:
+        by_kind.setdefault(k, []).append(v)
+    out = summarize([v for _, v in res])
+    out["by_kind"] = {k: summarize(v) for k, v in sorted(by_kind.items())}
+    print(json.dumps(out))
 
 
 if __name__ == "__main__":
