@@ -152,6 +152,40 @@ export function splitTrips(
   return trips.sort((a, b) => b.start_t - a.start_t); // newest first
 }
 
+// ── PER-HOUR-FILE ID BLOOM (2026-10-01) ─────────────────────────────────────
+// A cold trips scan streamed + gunzipped every retained hour file (113.8 s
+// live, 2026-09-30). The first scan of a CLOSED hour file now also records
+// which ids it holds in a small in-memory Bloom filter; later scans (any
+// hex) skip files whose filter says "definitely absent". A Bloom filter has
+// no false negatives, so results are identical — only the work shrinks.
+// Keyed by name+size+mtime so a rewritten file is re-read, built only from a
+// stream that completed cleanly, never for the still-growing current hour.
+const BLOOM_BITS = 1 << 18; // 32 KB per file
+const BLOOM_MAX_FILES = 2000; // ~64 MB hard cap; oldest evicted first
+const bloomCache = new Map<string, Uint8Array>();
+
+function bloomHashes(id: string): [number, number, number] {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < id.length; i++) {
+    const c = id.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = (Math.imul(h2, 31) + c) >>> 0;
+  }
+  h2 |= 1;
+  const m = BLOOM_BITS - 1;
+  return [h1 & m, (h1 + h2) & m, (h1 + 2 * h2) & m];
+}
+export function bloomAdd(b: Uint8Array, id: string): void {
+  for (const k of bloomHashes(id)) b[k >> 3] |= 1 << (k & 7);
+}
+export function bloomMayHave(b: Uint8Array, id: string): boolean {
+  for (const k of bloomHashes(id)) if (!(b[k >> 3] & (1 << (k & 7)))) return false;
+  return true;
+}
+export function bloomCacheSize(): number { return bloomCache.size; }
+export function _resetBloomCache(): void { bloomCache.clear(); }
+const ID_RE = /"i":"([^"]+)"/;
+
 /** Stream a hex's fixes across the WHOLE raw window (all retained days,
  *  not recentTrackAsync's 48h), optionally time-bounded. Keeps callsign,
  *  altitude and ground flag — the trip splitter needs them. */
@@ -175,7 +209,23 @@ export async function fullTrackAsync(
         if (opts.fromSec && h1 < opts.fromSec) continue;
       }
     }
-    await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => {
+    const fp = path.join(dir, f);
+    let key = "";
+    let bloom: Uint8Array | undefined;
+    let building: Uint8Array | null = null;
+    try {
+      const st = fs.statSync(fp);
+      key = `${kind}/${f}:${st.size}:${Math.floor(st.mtimeMs)}`;
+      bloom = bloomCache.get(key);
+      if (!bloom) {
+        const hourMs = Date.parse(f.slice(0, 13).replace(/-(\d{2})$/, "T$1:00:00Z"));
+        // closed hours only: the current/previous hour may still be written
+        if (Number.isFinite(hourMs) && hourMs + 2 * 3600_000 <= Date.now()) building = new Uint8Array(BLOOM_BITS >> 3);
+      }
+    } catch { continue; }
+    if (bloom && !bloomMayHave(bloom, id)) continue;
+    const ok = await streamJsonlLines(fp, f.endsWith(".gz"), (line) => {
+      if (building) { const m = ID_RE.exec(line); if (m) bloomAdd(building, m[1]); }
       if (!line.includes(id)) return; // substring prefilter, then verify
       try {
         const r = JSON.parse(line);
@@ -185,6 +235,13 @@ export async function fullTrackAsync(
         pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al ?? null, c: r.c ?? null, g: !!r.g });
       } catch {}
     });
+    if (building && ok) {
+      if (bloomCache.size >= BLOOM_MAX_FILES) {
+        const first = bloomCache.keys().next().value;
+        if (first !== undefined) bloomCache.delete(first);
+      }
+      bloomCache.set(key, building);
+    }
   }
   pts.sort((a, b) => a.t - b.t);
   // t-dedupe (backfill 2026-08-08): the 30s poller and the day-trace

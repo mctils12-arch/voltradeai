@@ -106507,3 +106507,22 @@ perf gate 67 ms median on branch and c3db398 back to back.
 ROLLBACK TRIGGERS: curtain showing through 3D models on real GPUs; symbol
 fade read as lag (-> 50-100 ms, never 0); event-loop lag from fast lane.
 STARVED: yes — trips indexing, rate-limit plan (awaiting human go).
+
+## 2026-10-01 (scheduled-routine session) [PIPELINE] — T-DATACORE — TRIPS: PER-HOUR-FILE ID BLOOM (v1.0.1018)
+
+Health green (server/db/alpaca/python/feeds ok, liveness not dark); last-10
+tags 6 REPAIR (<7, no thrash trigger). Primary action = the queued OPEN item
+from v1.0.1017: trips endpoint cold scan 113.8 s live.
+PRIOR: first scan unchanged (~114 s, slight regex overhead on closed hours);
+second and later scans for any hex skip most hour files -> several-fold faster.
+CHANGE: server/aircraftTrips.ts fullTrackAsync records a 32 KB Bloom filter of
+ids per CLOSED hour file (>=2 h old, stream completed cleanly, keyed by
+name+size+mtime, 2000-file / ~64 MB cap, FIFO evict). Bloom = no false
+negatives, so output is identical; only skipped work. Not a measurement
+change; no trading impact. 2 new tests (identical results, rewritten-file
+re-read). Node suite for the file 17/17, tsc clean.
+NOT VERIFIED: live speedup (no prod archive here) — check the trips latency
+on a 2nd distinct hex after deploy. ROLLBACK TRIGGER: any trips result
+differing from pre-change, or heap growth >64 MB attributable to bloomCache.
+OPEN: first-hit cold cost remains (needs persisted/pre-warmed index).
+STARVED: yes — pre-warm index, power-plant placement (human decision).
