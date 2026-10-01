@@ -106535,3 +106535,18 @@ on a 2nd distinct hex after deploy. ROLLBACK TRIGGER: any trips result
 differing from pre-change, or heap growth >64 MB attributable to bloomCache.
 OPEN: first-hit cold cost remains (needs persisted/pre-warmed index).
 STARVED: yes — pre-warm index, power-plant placement (human decision).
+
+## 2026-10-01 (scheduled-routine session #2, market hours) [NO-ACTION] — VERIFY v1.0.1018 TRIPS BLOOM LIVE
+
+Health green on https://voltradeai.com/api/health (server/db/alpaca/python/
+bot/scanner/feeds/licensing ok, liveness not dark, serving.failing empty);
+server_version 1.0.1019 live. Last-10 tags: REPAIR-heavy but <7, no thrash
+trigger. No KNOWN BROKEN item newly red.
+JUDGED (prior experiment, v1.0.1018 trips Bloom): live trips endpoint for a
+real hex (ab8c8e) 17.4 s cold vs 113.8 s pre-change; unseen hexes 0.26-0.54 s.
+Prior ("later scans several-fold faster") CONFIRMED live; first-hit cost is
+now ~17 s, so the queued persisted/pre-warmed index is no longer high-value.
+Caveat: single sample, archive size unknown, so the 114 s -> 17 s gap is not
+cleanly attributable to the Bloom alone. No change shipped.
+Remaining queue = power-plant placement (human decision) and non-blocking
+polish; research would duplicate filed work. STARVED: no.
