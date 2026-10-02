@@ -122,13 +122,12 @@
    "category": "other",
    "status": "gate2_pending",
    "current_gate": 2,
-   "last_update_date": "2026-07-12",
-   "note": "Gate 1 (DATA) shipped 2026-07-04. First gate-2 pilot (2026-07-12) found a preliminary 1-day tone-vs-forward-alpha association but explicitly flagged N as far too thin to trust; QoQ language-delta feature not yet testable (needs a second quarterly filing per company).",
+   "last_update_date": "2026-10-02",
+   "note": "Gate 1 (DATA) shipped 2026-07-04. Gate-2 90-day re-run 2026-10-02 (N~450/horizon, Aug+Sep 2026 filings): pre-registered mechanical verdict PASS at 1/3/5d, but robustness (Spearman ~0.06-0.11, date-demeaned ~0.04-0.07, Aug-only ~0 vs Sep-only ~0.2) = FRAGILE, so NOT promoted: stays gate2_pending, not tradeable or sellable as a signal. Tone LEVEL only; QoQ language-delta feature untested (needs a second quarterly filing per company, ~Oct-Nov 2026).",
    "readiness_trigger": {
-    "type": "archive_days",
-    "since": "2026-07-04",
-    "min_days": 90,
-    "source_note": "re-run scripts/earnings_language_gate2.py once >=90 days of archive exist (5-day horizon N>=30), OR a second filing quarter per company unlocks the QoQ delta feature (~Oct-Nov 2026) (open_questions.md item 1 NEXT note)"
+    "type": "date",
+    "not_before": "2026-11-15",
+    "source_note": "90-day condition was met and run 2026-10-02 (FRAGILE). Remaining condition = second filing quarter per company unlocks the QoQ language-delta feature (~Oct-Nov 2026, open_questions.md item 1 NEXT note); 2026-11-15 is the late edge of that stated window, a different script (paired-filing join) is needed"
    },
    "source_ref": "experiments.md:10230-10260; open_questions.md:4842-4873"
   },
