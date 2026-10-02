@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-02 (scheduled-routine PRODUCT session #3) [NO-ACTION] — queued "re-enable OFF_PLAN for placed direct-fix plans" is ALREADY LIVE; nothing to ship
+
+HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1020 matches); only the known #21 alt_data WARN. research_state_check: thrash 0/10, 0 STARVED, no audit overdue. ladder_readiness_check 0/5 ready (next: gnss 5d, fleet_utilization 11-02, 8-K QoQ 11-15).
+FINDING (read flightPlans.ts ~L1053 + live probe): deviation tracking is gated only by `deviationMeasurable = !(FILED_FAA && pathEstimated)`. Placed direct-fix plans have pathEstimated=false, so OFF_PLAN has been measurable for them since direct-fix placement shipped (v1.0.1016). The 10-02 gate-1 NEXT ("re-enable OFF_PLAN") therefore needs no code change.
+LIVE (400 eligible airborne US airline aircraft, plan endpoint): FILED_FAA estimated 209 (75% of filed), FILED_FAA placed/direct 44 (39 ON_PLAN, 5 UNKNOWN, 0 OFF_PLAN), NONE 20, ROUTE_DB_PREDICTED 4. 0/44 OFF_PLAN is consistent with the gate-1 tail (p90 16.7 nm) only because OFF_PLAN needs 3 consecutive en-route fixes > 8 nm and the tracker has seen few fixes per plan; one snapshot, not evidence the threshold is right.
+OPEN (the real gap): 75% of filed plans are still path-estimated (SID/STAR-only, airway tokens absent from NASR cycle, lat/lon tokens) — placement coverage, not deviation, is the product lever. No unfiled fix identified this session; not started (would duplicate the filed airway-expansion open item).
+NO CODE/VERSION CHANGE. STARVED: no. Remaining queue = power-plant placement (human decision), 2026-11-15 QoQ script.
+
 ## 2026-10-02 (scheduled-routine session) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FILED-ROUTE GATE-1 SPLIT BY routeKind: direct-fix PASS
 
 HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1020 live); only the known #21 alt_data WARN. research_state_check: thrash 0/10, no audit overdue. ladder_readiness_check 0/5 ready (8-K re-run already shipped today as #1229).
