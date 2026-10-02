@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-02 (scheduled-routine session) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FILED-ROUTE GATE-1 SPLIT BY routeKind: direct-fix PASS
+
+HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1020 live); only the known #21 alt_data WARN. research_state_check: thrash 0/10, no audit overdue. ladder_readiness_check 0/5 ready (8-K re-run already shipped today as #1229).
+PRIOR: direct-fix tail (p90) worse than airway's; median < 15 nm.
+RESULT (live, `scripts/flightplan_gate1.py`, n=264 FILED_FAA non-estimated plans): ALL 264 are routeKind=direct — zero airway/expanded kinds, consistent with routeShape.airwayExpanded=0. crossTrackNm median 0.1 nm, p75 4.2, p90 16.7, p95 30.7; 83.7% <= 10 nm, 89.4% <= 15 nm. Matches the 10-01 pooled run (0.1/5.3/16.7/25.9).
+ROLLBACK TRIGGER (direct median > 15 nm -> remove placeDirectFixes): NOT hit.
+LIMITS: the airway-vs-direct comparison the prior needed is UNMEASURABLE — no airway plans reach the placed set (J75/J121 absent from NASR cycle; airway expansion yields nothing live). One snapshot. Long tail plausibly ATC reroutes, unverified. Raw overlay of a filing, no predictive claim.
+NEXT: re-enable OFF_PLAN for placed direct-fix plans is now gate-1 supported; separate PR. Airway expansion zero-yield stays an open item.
+STARVED: no.
+
 ## 2026-10-01 (scheduled-routine PRODUCT session, ~13:20Z) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts, scripts/flightplan_gate1.py) — routeKind EXPOSED ON THE PLAN RESPONSE (v1.0.1019)
 
 HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1018 live); only the known #21 alt_data WARN. ladder_readiness_check 0/5 ready (8-K gate-2 eligible 2026-10-02 — not run early, no peeking).
