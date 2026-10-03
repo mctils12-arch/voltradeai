@@ -84,6 +84,13 @@ test("RATCHET: script/build.ts stages the runtime datacore files into dist/", ()
     if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
     const body = fs.readFileSync(path.join(serverDir, f), "utf8");
     for (const m of body.matchAll(/repoDataPath\(\s*["']([^"']+)["']/g)) repoDataPathCalls.add(m[1]);
+    // [REPAIR 2026-10-03] the join form `repoDataPath(path.join("datacore", "a", "b.json"))`
+    // (navFixes/navAirways/airportsIndex) was invisible to the literal-only regex above,
+    // which is how nasr_airways.json went unstaged. Normalize it to the slash form.
+    for (const m of body.matchAll(/repoDataPath\(\s*path\.join\(\s*((?:["'][^"']+["']\s*,?\s*)+)\)/g)) {
+      const parts = [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]);
+      repoDataPathCalls.add(parts.join("/"));
+    }
   }
   assert.ok(repoDataPathCalls.size > 0, "sanity: the scan itself must find at least one repoDataPath() call site");
   for (const rel of repoDataPathCalls) {
