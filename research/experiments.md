@@ -7,6 +7,7 @@ Each entry: date · change · version tag · backtest result · hypothesis · (l
 
 HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1021 matches checkout); only the known #21 alt_data WARN. research_state_check: thrash 1/10 REPAIR, 0 STARVED, no audit overdue.
 JUDGED (prior stated in the #3 [REPAIR] entry: "airwayExpanded becomes >0 after deploy"): live /api/data/aircraft/plan-status swim.routeShape.counters since container boot (~2.7 h): airwayExpanded 31670 (was 0 on v1.0.1020), directFixPlaced 21887, placed 138565, expandedNoPoints 11508, noExpanded 47808. Airway expansion is alive on prod. CONFIRMED.
+UPDATE (same session, gate-1 finished): scripts/flightplan_gate1.py live n=354 FILED_FAA placed plans: airway n=222 crossTrack median 0.0 nm, p90 9.5, p95 19.4, 93.2% <=15 nm; direct n=132 median 0.0, p90 11.0, p95 20.5. Rollback trigger (airway median > 15 nm) NOT hit; the prior session's UNMEASURABLE airway-vs-direct split is now measurable and airway is no worse than direct. One snapshot; tails (p95 ~20 nm) remain.
 CAVEATS: counters are per-message, not per-plan; single snapshot; gate-1 split by routeKind (scripts/flightplan_gate1.py, ~2+ min) not yet re-run on airway-kind plans, so the 15 nm cross-track rollback trigger is still UNMEASURED, not passed.
 NEXT: re-run scripts/flightplan_gate1.py by_kind once airway plans accumulate (next session); NASR cycle 2026-10-01 refresh still pending.
 NO CODE/VERSION CHANGE. STARVED: no. MERGE: docs-only, safe after the 16:00 ET close (market-hours routine; not a live-break fix).
