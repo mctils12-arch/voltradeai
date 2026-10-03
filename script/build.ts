@@ -72,6 +72,12 @@ async function buildAll() {
   // QC-2 (2026-08-11): airportsIndex reads the OurAirports catalog at runtime
   await cp("datacore/aircraft/airports_min.json", "dist/datacore/aircraft/airports_min.json");
   await cp("datacore/aircraft/nasr_fixes.json", "dist/datacore/aircraft/nasr_fixes.json");
+  // [REPAIR 2026-10-03] server/navAirways.ts reads this via repoDataPath(path.join(...))
+  // at runtime but was never staged: on prod the airway table was EMPTY since
+  // v1.0.1007, so routeShape.airwayExpanded stayed 0 across ~29k plans and
+  // placeDirectFixes() silently ignored every airway token (R14 class, 3rd
+  // occurrence — the ratchet only matched the string-literal call form).
+  await cp("datacore/aircraft/nasr_airways.json", "dist/datacore/aircraft/nasr_airways.json");
   await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
   await cp("datacore/gem/methane_emitters.json.gz", "dist/datacore/gem/methane_emitters.json.gz");
   // [REPAIR 2026-07-20] gemMethaneAssets.ts (server/gemMethaneAssets.ts,
