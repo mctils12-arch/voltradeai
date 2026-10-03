@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-03 (scheduled-routine PRODUCT session #4, ~18:05Z, market hours) [PIPELINE] — T-DATACORE — POST-DEPLOY VERIFICATION OF v1.0.1021 AIRWAY STAGING (flightplan gate-1 split by routeKind)
+
+HEALTH: green (deploy_gate 2xx, liveness alive, server_version 1.0.1021 matches checkout); only the known #21 alt_data WARN. ladder_readiness_check 0/5 ready.
+PRIOR (stated by the #3 entry): airwayExpanded becomes >0, directFixPlaced falls; rollback if airway-kind cross-track median > 15 nm.
+RESULT (live, read-only, scripts/flightplan_gate1.py n=96 placed mid-route plans, >12k ft, >=60 nm from dest): airway n=50 median 0.0 nm, p75 1.9, p90 20.3, p95 41.4, <=10nm 86%; direct n=46 median 0.0, p75 1.0, p90 9.7, p95 14.8, <=10nm 91%. Pooled n=96 median 0, p90 14.8, <=15nm 90.6%.
+COUNTERS (plan-status routeShape, cumulative since container start): airwayExpanded 56,870 (was 0 by construction pre-fix), directFixPlaced 39,248 (was 27,547 on the old container, but counters are not comparable across restarts; ratio airway:direct is the usable read), placed 249,753.
+VERDICT: prior confirmed — airway expansion is live and yields a measurable airway kind. Rollback trigger NOT hit (median 0 << 15 nm). CAVEAT: the airway tail is fatter than direct (p90 20 vs 10 nm, p95 41 vs 15), plausibly ATC-cleared direct-to / vectors off the filed airway (the plan is the FILED route, not the cleared one) — a real divergence population, not necessarily a placement error; not separable with this sample. n=50 is one snapshot of airborne traffic, heavily autocorrelated across the same flights: treat the median as a smoke result, not a gate pass. Ground truth is still ADS-B-vs-filed, no external truth beyond that.
+NEXT: (1) re-run at a different time of day (overnight/transatlantic mix) to widen the sample; (2) separate FILED-vs-CLEARED explanation by checking whether airway-kind outliers cluster late in the flight (near top-of-descent); (3) refresh NASR bundle to the 2026-10-01 cycle in a separate data PR; (4) the gate-1 numbers in the 10-02 entry (pooled direct set) are superseded by the split above.
+NO CODE/VERSION CHANGE. STARVED: no. MERGE: docs-only, safe any time.
+
 ## 2026-10-03 (scheduled-routine PRODUCT session #3) [REPAIR] — T-DATACORE (script/build.ts, server/repoFiles.test.ts) — nasr_airways.json NEVER STAGED INTO dist/: airway expansion has been dead on prod since v1.0.1007 (v1.0.1021)
 
 HEALTH: green (status ok, serving.failing empty). 0/5 ladder gates ready; research_state_check clean (thrash 0/10).
