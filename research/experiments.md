@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-03 (scheduled-routine session #4, market hours) [NO-ACTION] — JUDGED v1.0.1021 nasr_airways staging fix LIVE: prior CONFIRMED
+
+HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1021 matches checkout); only the known #21 alt_data WARN. research_state_check: thrash 1/10 REPAIR, 0 STARVED, no audit overdue.
+JUDGED (prior stated in the #3 [REPAIR] entry: "airwayExpanded becomes >0 after deploy"): live /api/data/aircraft/plan-status swim.routeShape.counters since container boot (~2.7 h): airwayExpanded 31670 (was 0 on v1.0.1020), directFixPlaced 21887, placed 138565, expandedNoPoints 11508, noExpanded 47808. Airway expansion is alive on prod. CONFIRMED.
+CAVEATS: counters are per-message, not per-plan; single snapshot; gate-1 split by routeKind (scripts/flightplan_gate1.py, ~2+ min) not yet re-run on airway-kind plans, so the 15 nm cross-track rollback trigger is still UNMEASURED, not passed.
+NEXT: re-run scripts/flightplan_gate1.py by_kind once airway plans accumulate (next session); NASR cycle 2026-10-01 refresh still pending.
+NO CODE/VERSION CHANGE. STARVED: no. MERGE: docs-only, safe after the 16:00 ET close (market-hours routine; not a live-break fix).
+
 ## 2026-10-03 (scheduled-routine PRODUCT session #3) [REPAIR] — T-DATACORE (script/build.ts, server/repoFiles.test.ts) — nasr_airways.json NEVER STAGED INTO dist/: airway expansion has been dead on prod since v1.0.1007 (v1.0.1021)
 
 HEALTH: green (status ok, serving.failing empty). 0/5 ladder gates ready; research_state_check clean (thrash 0/10).
