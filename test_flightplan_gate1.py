@@ -26,3 +26,9 @@ def test_eligible_and_summarize():
 def test_kind_of_defaults_to_unknown_for_older_servers():
     assert g1.kind_of(plan(routeKind="direct")) == "direct"
     assert g1.kind_of(plan()) == "unknown" and g1.kind_of(None) == "unknown"
+
+def test_dist_band_splits_terminal_enroute_and_long_haul():
+    far = lambda lon: plan(points=[{"lat": 40, "lon": -100}, {"lat": 40, "lon": lon}])
+    assert g1.dist_band(far(-97), ROW) == "60-150"   # ~138 nm
+    assert g1.dist_band(far(-95), ROW) == "150-400"  # ~230 nm
+    assert g1.dist_band(far(-90), ROW) == ">400"     # ~460 nm
