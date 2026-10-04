@@ -483,6 +483,22 @@ def check_archive_freshness(name, newest_date, today, warn_days, refresh_hint):
                     f"{age_days}d since newest record ({newest_date}) — below the {warn_days}d trigger")
 
 
+def check_nasr_cycle(committed, current, grace_days=7, today=None):
+    """Pure: WARN when the committed NASR fix cycle is behind the current FAA
+    28-day cycle by more than grace_days (FAA publishes a few days early/late).
+    Cycle math lives in scripts/refresh_nasr.py; this only judges the ages."""
+    today = today or date.today()
+    if committed >= current:
+        return finding(OK, "nasr_cycle", f"fix bundle current (cycle {committed})")
+    behind = (today - current).days
+    if behind <= grace_days:
+        return finding(OK, "nasr_cycle",
+                        f"cycle {current} began {behind}d ago, within {grace_days}d grace (committed {committed})")
+    return finding(WARN, "nasr_cycle",
+                    f"fix bundle {committed} is behind FAA cycle {current} by {behind}d — "
+                    f"refresh via: python3 scripts/refresh_nasr.py")
+
+
 def check_known_broken(items):
     if not items:
         return finding(WARN, "known_broken", "no numbered KNOWN BROKEN items found — parser or file may have drifted")
@@ -555,6 +571,15 @@ def main():
 
     register, tags, items, starved_flags, archive_freshness = gather(os.path.abspath(args.repo_root))
     findings = run_all_checks(register, tags, items, date.today(), starved_flags, archive_freshness)
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("refresh_nasr", os.path.join(here, "refresh_nasr.py"))
+        rn = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rn)
+        findings.append(check_nasr_cycle(rn.committed_cycle(), rn.current_cycle(date.today())))
+    except Exception as e:  # advisory probe must never break the state check
+        findings.append(finding(WARN, "nasr_cycle", f"could not evaluate: {e}"))
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))

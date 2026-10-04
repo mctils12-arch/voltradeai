@@ -641,3 +641,11 @@ def test_check_starvation_signal_empty_flags_is_ok():
     f = rsc.check_starvation_signal([])
     assert f["severity"] == rsc.OK
     assert "0 consecutive" in f["detail"]
+
+
+def test_nasr_cycle_check_grace_and_stale():
+    c, n = date(2026, 10, 1), date(2026, 10, 29)
+    assert rsc.check_nasr_cycle(c, c, today=date(2026, 10, 10))["severity"] == rsc.OK
+    assert rsc.check_nasr_cycle(c, n, today=date(2026, 11, 2))["severity"] == rsc.OK  # within grace
+    f = rsc.check_nasr_cycle(c, n, today=date(2026, 11, 20))
+    assert f["severity"] == rsc.WARN and "refresh_nasr.py" in f["detail"]
