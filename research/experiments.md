@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-04 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — NASR FIX/NAV BUNDLE REFRESH 2026-09-03 -> 2026-10-01 CYCLE (v1.0.1022)
+
+HEALTH: green (status ok, bot active, liveness not dark, feeds/licensing ok). research_state_check clean (thrash 1/10); ladder_readiness 0/5 ready (gnss_integrity_adsb re-run unblocks in ~3d). Nothing gate-ready, so took the concrete queued item from the 10-03 #4 entry (NEXT 3): refresh the NASR bundle.
+CHANGE: rebuilt datacore/aircraft/nasr_fixes.json from the FAA 01_Oct_2026_CSV bundle with scripts/build_nasr_fixes.py (public domain). Diff vs. 09-03 cycle: 71,627 -> 71,667 idents; +51 added, -11 removed, 27 moved >1e-4 deg. nasr_airways.json NOT changed: the 10-01 bundle's AWY_BASE.csv still carries EFF_DATE 2026/09/03 on every row (1,553 rows), i.e. FAA did not republish airways this cycle, so its "cycle" stays 2026-09-03 and the rebuild is byte-identical. (FIX_BASE rows are all 2026/10/01.) Bundle URL pattern that works: nfdc.faa.gov/webContent/28DaySub/extra/01_Oct_2026_CSV.zip (the YYYY-MM-DD_CSV_Data.zip form 404s).
+PRIOR: tiny placement effect (0.1% of idents changed); no change to airway kind counts; navAirways/flightPlans/flightPlanSeam/repoFiles/repoDataPath suites stay green (verified 52/52). No backtest relevance (no trading logic touched). No ladder-gate claim.
+DOWNSTREAM: placeDirectFixes/expandRouteText read the new idents on next deploy; removed idents (e.g. BEAGL, CESUN) can no longer place, new ones (e.g. AUTTA, BAARY) can. Routes with a removed fix fall to unplaced rather than a stale position — correct behavior.
+ROLLBACK: git revert; no state migration. NEXT: next cycle 2026-10-29 (+28d cadence); a scheduled refresh script is still unwritten — candidate for next PIPELINE session. STARVED: no. MERGE: data-only, after-hours merge fine.
+
 ## 2026-10-03 (scheduled-routine session #5, ~evening) [NO-ACTION] — health green, state check clean, queue unchanged
 
 Health green on voltradeai.com/api/health (server/db/alpaca/python/scanner/feeds/licensing ok; bot active; serving.failing empty). research_state_check.py: no audit overdue, thrash 1/10 REPAIR, 0 STARVED, archives fresh. Only open KNOWN BROKEN without close marker is #44 (needs FROZEN Dockerfile; proposal already in wishlist.md, human decision). v1.0.1021 airway staging already verified post-deploy by session #4 today. Remaining queue = power-plant placement (human decision) and the 2026-11-15 paired-filing QoQ script (not yet unblocked). Research would duplicate filed work; nothing shipped (anti-churn). STARVED: no.
