@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-04 (scheduled-routine PRODUCT session #4, Sunday ~13:30Z) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: SPLIT CROSS-TRACK BY DISTANCE-TO-DESTINATION BAND (v1.0.1025)
+
+HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean; ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks in 3d). Took NEXT (2) from the 10-03 #4 verification entry.
+PRIOR (stated before running): if the fatter airway tail (p90 20 / p95 41 nm) is ATC-cleared direct-to / terminal vectoring off the FILED plan, outliers cluster in the nearest band (60-150 nm from destination); if they are enroute, it is a geometry/airway-data problem or mid-route direct-to.
+CHANGE: scripts/flightplan_gate1.py gained dist_band() and a `by_kind_band` output (kind|band summaries); test added (5 pass, --noconftest).
+RESULT (live, voltradeai.com, n=72 placed mid-route plans, Sunday morning): airway >400nm n=29 median 0, p90 4.6, p95 30.7, le15 93%; airway 150-400 n=8 p95 3.7; airway 60-150 n=1; direct >400 n=21 p90 11.1, p95 29.5; direct 150-400 n=11 p95 0.6; direct 60-150 n=2.
+VERDICT: terminal-vectoring explanation NOT supported — the tails sit in the >400 nm band for BOTH kinds, not near the destination; the 60-150 band is nearly empty (n=3) because the destination-proximity filter already removes terminal traffic. Airway vs direct tails are now similar in the shared band (p95 ~30 nm), so the earlier "airway fatter" read was largely a sample-mix artefact. Rollback trigger (airway median > 15 nm) NOT hit. Small n (29/21): no claim beyond this; remaining hypothesis is mid-route ATC direct-to, untestable without cleared-route data.
+NEXT: re-run at a different time of day (weekday daytime / transatlantic overnight) to grow n per cell; pool runs before drawing conclusions. STARVED: no. MERGE: tooling-only, any time.
+
 ## 2026-10-04 (scheduled-routine session #3) [PIPELINE] — T-DATACORE (scripts/) — WIRE NASR CYCLE PROBE INTO research_state_check (v1.0.1024)
 
 HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean, thrash 1/10. Took the NEXT item named by the earlier refresh_nasr entry.
