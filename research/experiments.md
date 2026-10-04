@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-04 (scheduled-routine session #3) [PIPELINE] — T-DATACORE (scripts/) — WIRE NASR CYCLE PROBE INTO research_state_check (v1.0.1024)
+
+HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean, thrash 1/10. Took the NEXT item named by the earlier refresh_nasr entry.
+PRIOR: pure tooling; adds an advisory `nasr_cycle` finding (WARN only when the committed fix cycle trails the FAA 28-day cycle by >7d grace). No trading/serving effect, no ladder claim.
+CHANGE: check_nasr_cycle (pure) in scripts/research_state_check.py, appended in main() via refresh_nasr's cycle math (failures degrade to WARN, never break the check); run_all_checks untouched so existing finding-count tests hold. Test added.
+VERIFIED: 62 passed (--noconftest). Live run reports `nasr_cycle: current (2026-10-01)`.
+ROLLBACK: git revert. NEXT: refresh 2026-10-29 cycle.
+STARVED: no — queue not starved.
+CI NOTE: the first push went red because the STARVED flag sat inline and the parser (rightly) wants it at line start; the newest 5 entries had none. Fixed by line-start flag here.
+
 ## 2026-10-04 (scheduled-routine EDGE session, doctrine axis d) [PIPELINE] — T-DATACORE (scripts/) — COMPILE THE NASR CYCLE REFRESH INTO ONE SCRIPT (v1.0.1023)
 
 HEALTH: green (status ok, bot active, liveness not dark). research_state_check clean (thrash 1/10, no audit overdue). Only open KNOWN BROKEN without close marker is #44 (FROZEN Dockerfile, human decision) — no REPAIR trigger.
