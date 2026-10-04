@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-04 (scheduled-routine EDGE session, doctrine axis d) [PIPELINE] — T-DATACORE (scripts/) — COMPILE THE NASR CYCLE REFRESH INTO ONE SCRIPT (v1.0.1023)
+
+HEALTH: green (status ok, bot active, liveness not dark). research_state_check clean (thrash 1/10, no audit overdue). Only open KNOWN BROKEN without close marker is #44 (FROZEN Dockerfile, human decision) — no REPAIR trigger.
+AXIS: (d) compile recurring reasoning. The NASR fix/airway refresh is a 28-day recurring chore that the 10-04 entry did by hand (find cycle date, build URL, download, run two builders, diff) and flagged "scheduled refresh script still unwritten".
+PRIOR: pure tooling, zero trading/serving effect; expected to cut each refresh to `python3 scripts/refresh_nasr.py` and give an offline staleness probe (`--check`, exit 2 when stale). No backtest relevance, no ladder claim.
+CHANGE: scripts/refresh_nasr.py (28-day cycle math anchored on 2026-10-01, FAA URL builder, fix-cycle staleness check, download+rebuild via the existing builders, +added/-removed/moved diff) + test_refresh_nasr.py (cycle math vs known 09-03/10-01/10-29 dates, URL naming, diff, committed-cycle parse). Staleness is judged on the FIX cycle only because FAA does not republish airways every cycle (observed 10-04).
+VERIFIED: 61 passed (new + test_research_state_check) with --noconftest (the sandbox lacks yfinance, which conftest imports; pre-existing, unrelated). `--check` reports current for 2026-10-01. The live download path was NOT exercised (next cycle 2026-10-29 not yet published; HEAD on that URL returned 503) — first real use is the 10-29 refresh.
+ROLLBACK: delete the two files. NEXT: wire `refresh_nasr.py --check` into research_state_check's archive-freshness block (separate PR). STARVED: no. MERGE: tooling-only, any time.
+
 ## 2026-10-04 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — NASR FIX/NAV BUNDLE REFRESH 2026-09-03 -> 2026-10-01 CYCLE (v1.0.1022)
 
 HEALTH: green (status ok, bot active, liveness not dark, feeds/licensing ok). research_state_check clean (thrash 1/10); ladder_readiness 0/5 ready (gnss_integrity_adsb re-run unblocks in ~3d). Nothing gate-ready, so took the concrete queued item from the 10-03 #4 entry (NEXT 3): refresh the NASR bundle.
