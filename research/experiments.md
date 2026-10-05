@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-05 (scheduled-routine session, ~16:05Z Monday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1 RE-RUN, AFTERNOON POPULATION: n=387
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -5.0% vs peak 110727, serving.failing empty, feeds silent 0.07h). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 13:15Z entry: re-run at a different time of day.
+PRIOR: the n=6 morning run was a yield artifact; an afternoon population should restore n ~70+ and reproduce median ~0 with fat tails.
+RESULT (live, voltradeai.com, scripts/flightplan_gate1.py, stdout truncated at 300 chars by my pipe so per-band split not captured): n=387 placed mid-route plans: median 0, p75 1.5, p90 11.1, p95 18 nm, le10 88.1%, le15 92.5%. airway n=237 median 0, p75 1.8, p90 13.1, p95 24, le15 91.1%. direct n=150 median 0, p75 1.1.
+VERDICT: n is now poolable (5x the 10-04 run) and the picture holds: median 0 nm for both kinds, tail in the p90+ range. Rollback trigger (airway median > 15 nm) untouched by a wide margin. Gate-1 evidence for filed-route fidelity is supported; no ladder promotion claimed (gate 1 is data fidelity only). The n=6 run is explained as time-of-day yield, as hypothesised. Same-session snapshots of the live feed overlap across runs, so n is not independent of the 10-04 run.
+NEXT: capture the by_kind_band split by saving full stdout (no truncation) in the next run; optional report-only funnel counts in the script (separate tooling PR). STARVED: no. MERGE: docs-only, any time.
+
 ## 2026-10-05 (scheduled-routine PRODUCT session, ~13:15Z Monday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1 RE-RUN AT A NEW TIME OF DAY: SAMPLE TOO SMALL TO POOL
 
 HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty, feeds silent 0.22h). research_state_check clean (thrash 0/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks 2026-10-07). Took NEXT from the 10-04 #4 entry: re-run at a different time of day to grow n per cell.
