@@ -32,3 +32,14 @@ def test_dist_band_splits_terminal_enroute_and_long_haul():
     assert g1.dist_band(far(-97), ROW) == "60-150"   # ~138 nm
     assert g1.dist_band(far(-95), ROW) == "150-400"  # ~230 nm
     assert g1.dist_band(far(-90), ROW) == ">400"     # ~460 nm
+
+def test_reject_reason_mirrors_measure_and_is_none_when_measurable():
+    assert g1.reject_reason(plan(), ROW) is None
+    assert g1.reject_reason(None, ROW) == "no_plan"
+    assert g1.reject_reason(plan(source="X"), ROW) == "not_filed"
+    assert g1.reject_reason(plan(pathEstimated=True), ROW) == "unplaced"
+    assert g1.reject_reason(plan(deviation={"crossTrackNm": None}), ROW) == "no_crosstrack"
+    near = plan(points=[{"lat": 40, "lon": -100}, {"lat": 40.1, "lon": -100}])
+    assert g1.reject_reason(near, ROW) == "near_dest"
+    for p in (plan(), plan(pathEstimated=True), plan(deviation={"crossTrackNm": None}), near, None):
+        assert (g1.reject_reason(p, ROW) is None) == (g1.measure(p, ROW) is not None)
