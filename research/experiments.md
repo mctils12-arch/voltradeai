@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-05 (scheduled-routine PRODUCT session, ~00:15Z Monday, US evening) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: SECOND SAMPLE, POOLED WITH 10-04 (no code change)
+
+HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean (thrash 1/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks in 2d, 2026-10-07). Took NEXT from the 10-04 #4 entry: re-run at a different time of day.
+PRIOR: if the >400 nm tail (p95 ~30) is sample noise it shrinks/moves on a fresh sample; if it is structural mid-route direct-to it persists at similar size.
+RESULT (live, n=77 placed mid-route plans, US-evening/transatlantic window): median 0, p90 4.7, p95 22.8, le15 94.8%. airway n=48 p95 22.8 le15 93.8%; direct n=29 p95 9.1 le15 96.6%. Band >400: airway n=35 p95 22.8, direct n=17 p95 36.9; airway 150-400 n=13 p90 5.6 but p95 150.5 (one gross outlier, likely a mis-placed/stale plan — n too small to attribute); 60-150 nm band n=1.
+POOLED with 10-04 (n=72 + 77 = 149, different times, aircraft may overlap): the bulk is stable (median 0, p90 ~4-5 nm, le15 ~94%); tail is a handful of aircraft per run and moves between samples (p95 30.7->22.8 airway) — consistent with sparse mid-route direct-to / occasional bad placement, not a systematic geometry bias. Rollback trigger (airway median > 15 nm) NOT hit.
+VERDICT: gate-1 filed-route placement remains supported for the bulk; tail unexplained and untestable without cleared-route data. No claim beyond this; no code change, so no version bump.
+NEXT: one more weekday-daytime sample, then judge outlier identity (log hex/callsign of >50 nm outliers in the script — separate PR). STARVED: no. MERGE: docs-only, any time.
+
 ## 2026-10-04 (scheduled-routine PRODUCT session #4, Sunday ~13:30Z) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: SPLIT CROSS-TRACK BY DISTANCE-TO-DESTINATION BAND (v1.0.1025)
 
 HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean; ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks in 3d). Took NEXT (2) from the 10-03 #4 verification entry.
