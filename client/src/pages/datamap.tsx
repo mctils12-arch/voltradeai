@@ -270,7 +270,8 @@ import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, 
 import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { installDrapeOrderGuard } from "@/lib/drapeOrder";
 import {
-  AERO_LAYER_ID, AERO_NOT_FOR_NAV, AERO_OPACITY_MIN, AERO_SOURCE_ID, aeroBadge, aeroPaint, aeroSourceSpec, aeroViewReducer, beforeIdAbove,
+  AERO_LAYER_ID, AERO_NOT_FOR_NAV, AERO_OPACITY_MIN, AERO_SOURCE_ID, AERO_UNDER_LAYER_ID, AERO_UNDER_SOURCE_ID, aeroBadge, aeroPaint,
+  aeroSourceSpec, aeroUnderlayFor, aeroViewReducer, beforeIdAbove,
   mergeAeroMeta, readAeroViewPref, writeAeroViewPref, type AeroViewId,
 } from "@/lib/aeroCharts";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
@@ -3228,24 +3229,37 @@ export default function DataMapPage() {
     [aeroStatusRows, layers],
   );
   const aeroActive = aeroView.view === "satellite" ? null : aeroMeta[aeroView.view];
+  // one continuous map: TAC draws over a sectional underlay (2026-10-05)
+  const aeroUnderId = aeroUnderlayFor(aeroView.view);
+  const aeroUnder = aeroUnderId ? aeroMeta[aeroUnderId] : null;
   // rebuild key: a new edition is a new tile URL; a new LOD band re-sources
-  const aeroSourceKey = aeroActive ? `${aeroActive.tiles}|${aeroActive.minzoom}|${aeroActive.maxzoom}` : null;
+  const aeroSourceKey = aeroActive
+    ? [aeroActive, aeroUnder].map((m) => (m ? `${m.tiles}|${m.servedMinzoom}|${m.maxzoom}` : "-")).join("||")
+    : null;
   const aeroOpacityRef = useRef(aeroView.opacity);
   aeroOpacityRef.current = aeroView.opacity;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const teardown = () => {
-      if (map.getLayer(AERO_LAYER_ID)) map.removeLayer(AERO_LAYER_ID);
-      if (map.getSource(AERO_SOURCE_ID)) map.removeSource(AERO_SOURCE_ID);
+      for (const [lid, sid] of [[AERO_LAYER_ID, AERO_SOURCE_ID], [AERO_UNDER_LAYER_ID, AERO_UNDER_SOURCE_ID]]) {
+        if (map.getLayer(lid)) map.removeLayer(lid);
+        if (map.getSource(sid)) map.removeSource(sid);
+      }
     };
     try {
       teardown();
       if (!aeroActive) return;
-      map.addSource(AERO_SOURCE_ID, aeroSourceSpec(aeroActive) as any);
       const ids = (map.getStyle()?.layers || []).map((l: { id: string }) => l.id);
+      const above = beforeIdAbove(ids, "imagery");
+      if (aeroUnder) {
+        map.addSource(AERO_UNDER_SOURCE_ID, aeroSourceSpec(aeroUnder) as any);
+        map.addLayer({ id: AERO_UNDER_LAYER_ID, type: "raster", source: AERO_UNDER_SOURCE_ID,
+          paint: aeroPaint(aeroOpacityRef.current) } as any, above);
+      }
+      map.addSource(AERO_SOURCE_ID, aeroSourceSpec(aeroActive) as any);
       map.addLayer({ id: AERO_LAYER_ID, type: "raster", source: AERO_SOURCE_ID,
-        paint: aeroPaint(aeroOpacityRef.current) } as any, beforeIdAbove(ids, "imagery"));
+        paint: aeroPaint(aeroOpacityRef.current) } as any, above);
     } catch (e: unknown) {
       console.warn("[aero] chart layer mount failed — satellite base unaffected", e);
     }
@@ -3258,8 +3272,11 @@ export default function DataMapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !map.getLayer(AERO_LAYER_ID)) return;
-    try { map.setPaintProperty(AERO_LAYER_ID, "raster-opacity", aeroView.opacity / 100); }
-    catch (e: unknown) { console.warn("[aero] opacity update failed", e); }
+    try {
+      for (const lid of [AERO_UNDER_LAYER_ID, AERO_LAYER_ID]) {
+        if (map.getLayer(lid)) map.setPaintProperty(lid, "raster-opacity", aeroView.opacity / 100);
+      }
+    } catch (e: unknown) { console.warn("[aero] opacity update failed", e); }
   }, [aeroView.opacity, mapReady]);
   const aeroBadgeInfo = aeroActive ? aeroBadge(aeroActive) : null;
 

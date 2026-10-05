@@ -11,9 +11,11 @@ import path from "path";
 import {
   AERO_CHARTS, AERO_EMPTY_PNG, AERO_TMP_ENTRY_FLOOR_BYTES, aeroCacheControl, aeroCacheKey, aeroClientTileTemplate,
   aeroUpstreamTileUrl, addDays, createAeroChartService, createTmpLru, editionInfo, faaCycleStart,
-  isAeroChartId, parseEditionFromSubject, prefetchTiles, sniffImageType, validTile, handleAeroTile,
+  isAeroChartId, parseEditionFromSubject, prefetchTiles, sniffImageType, validTile, handleAeroTile, overviewTiles,
 } from "./aeroCharts";
 import type { R2Client } from "./r2Client";
+import sharp from "sharp";
+import { AERO_OVERVIEW_MIN_ZOOM, aeroServedMinZoom } from "./aeroCharts";
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);
@@ -330,7 +332,7 @@ test("metadata unreachable: edition is 'unverified', never a claimed effective d
   assert.equal((await svc.edition("ifrlow")).edition, "2026-07-09");
 });
 
-test("prefetch: R2 only; bakes CONUS tiles for the edition, writes a done-marker, skips on the next run", async () => {
+test("prefetch: R2 only; bakes CONUS tiles + the zoomed-out overview levels for the edition, writes done-markers, skips on the next run", async () => {
   const log: FakeFetchLog = { urls: [] };
   const r2 = fakeR2();
   const svc = createAeroChartService({
@@ -341,9 +343,19 @@ test("prefetch: R2 only; bakes CONUS tiles for the edition, writes a done-marker
   });
   await svc.runPrefetch();
   await flush();
-  const expected = prefetchTiles({ minzoom: 5, maxzoom: 5 }).length;
+  // every z5 tile fetched exactly once: the FAA band bake (CONUS) plus every
+  // z5 tile beneath an overview tile (z4..z2 over CONUS/AK/HI/PR)
+  const need = new Set(prefetchTiles({ minzoom: 5, maxzoom: 5 }).map((t) => `${t.x}/${t.y}`));
+  for (const t of overviewTiles(5)) {
+    const s = 2 ** (5 - t.z);
+    for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) need.add(`${t.x * s + dx}/${t.y * s + dy}`);
+  }
+  const expected = need.size;
   assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, expected);
   assert.ok(r2.store.has("aero/ifrhigh/2026-05-14/_prefetch_done"));
+  assert.ok(r2.store.has("aero/ifrhigh/2026-05-14/_overview_done"), "the overview stage completed and was marked");
+  const ov = overviewTiles(5).find((t) => t.z === 2)!;
+  assert.ok(r2.store.has(`aero/ifrhigh/2026-05-14/2/${ov.y}/${ov.x}`), "a whole-country (z2) overview tile was baked");
   const before = log.urls.filter((u) => u.includes("/tile/")).length;
   await svc.runPrefetch();
   assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, before, "done-marker short-circuits");
@@ -386,4 +398,152 @@ test("HTTP handler: empty -> 200 transparent PNG; error -> 502 no-store; tile ->
   assert.equal(bad.headers["cache-control"], "no-store");
   assert.equal((await call({ chart: "nope", z: "9", x: "1", y: "1" })).code, 404);
   assert.equal((await call({ chart: "sectional", z: "9", x: "9999", y: "1" })).code, 400);
+});
+
+// ── one map at every zoom: overview levels, parent fill (2026-10-05) ────────
+
+
+async function realJpeg(r: number, g: number, b: number): Promise<Buffer> {
+  return sharp({ create: { width: 256, height: 256, channels: 3, background: { r, g, b } } }).jpeg().toBuffer();
+}
+
+test("zoomed out below the FAA band: an overview tile is built from the 4 FAA tiles beneath, then cached", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const tile = await realJpeg(120, 160, 120);
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 8, 12) : { status: 200, body: tile }), log),
+  });
+  const a = await svc.getTile("sectional", 7, 29, 52);
+  assert.equal(a.outcome.kind, "tile");
+  assert.equal(a.outcome.kind === "tile" && a.outcome.from, "overview");
+  assert.equal(a.outcome.kind === "tile" && a.outcome.contentType, "image/jpeg");
+  const fetched = log.urls.filter((u) => u.includes("/tile/"));
+  assert.deepEqual(fetched.map((u) => u.split("/tile/")[1]).sort(), ["8/104/58", "8/104/59", "8/105/58", "8/105/59"]);
+  const b = await svc.getTile("sectional", 7, 29, 52);
+  assert.equal(b.outcome.kind === "tile" && b.outcome.from, "tmp");
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 4, "the overview is cached; no new upstream reads");
+});
+
+test("on-demand overview depth is capped: 2 levels build from upstream, deeper answers 'pending' until baked", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const tile = await realJpeg(90, 90, 200);
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 8, 12) : { status: 200, body: tile }), log),
+  });
+  const z6 = await svc.getTile("sectional", 6, 14, 26);
+  assert.equal(z6.outcome.kind === "tile" && z6.outcome.from, "overview");
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 16, "z6 = 4 z7 overviews = 16 FAA z8 tiles");
+  const z5other = await svc.getTile("sectional", 5, 2, 2); // nothing beneath is cached
+  assert.deepEqual(z5other.outcome, { kind: "empty", from: "pending" });
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 16, "a too-deep request never fans out upstream");
+  // once its four z6 children exist (one built above, three now), z5 builds from cache
+  for (const [x, y] of [[15, 26], [14, 27], [15, 27]]) await svc.getTile("sectional", 6, x, y);
+  const z5 = await svc.getTile("sectional", 5, 7, 13);
+  assert.equal(z5.outcome.kind === "tile" && z5.outcome.from, "overview");
+});
+
+test("pending overview tiles are served transparent with no-store (never cached by the browser)", async () => {
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 8, 12) : { status: 200, body: JPEG }), { urls: [] }),
+  });
+  const headers: Record<string, string> = {};
+  let status = 0; let sent: Buffer | null = null;
+  const res = {
+    headersSent: false,
+    setHeader(k: string, v: string) { headers[k.toLowerCase()] = v; },
+    status(c: number) { status = c; return res; },
+    end(b: Buffer) { sent = b; },
+    json() { return res; },
+  };
+  await handleAeroTile(svc, { params: { chart: "sectional", z: "3", x: "1", y: "2" }, query: {} } as never, res as never);
+  assert.equal(status, 200);
+  assert.equal(headers["x-aero-cache"], "pending");
+  assert.equal(headers["cache-control"], "no-store");
+  assert.deepEqual(sent, AERO_EMPTY_PNG);
+});
+
+test("TAC has no overview (it exists only around ~30 airports): below z10 is out of range, no upstream", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 10, 12) : { status: 200, body: JPEG }), log),
+  });
+  assert.deepEqual((await svc.getTile("tac", 9, 117, 210)).outcome, { kind: "empty", from: "out-of-range" });
+  assert.deepEqual((await svc.getTile("sectional", 1, 0, 0)).outcome, { kind: "empty", from: "out-of-range" }, `nothing below z${AERO_OVERVIEW_MIN_ZOOM}`);
+  assert.equal(log.urls.filter((u) => u.includes("/tile/")).length, 0);
+  assert.equal(aeroServedMinZoom("tac", 10), 10);
+  assert.equal(aeroServedMinZoom("sectional", 8), AERO_OVERVIEW_MIN_ZOOM);
+});
+
+test("IFR Low hole at z12 (outside Area charts) is filled from z11 enlarged; a sectional hole stays a hole", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const z11 = await realJpeg(30, 60, 90);
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 7, 12)
+      : u.includes("/tile/12/") ? { status: 404 } : { status: 200, body: z11 }), log),
+  });
+  const r = await svc.getTile("ifrlow", 12, 940, 1640);
+  assert.equal(r.outcome.kind === "tile" && r.outcome.from, "fill");
+  assert.ok(log.urls.some((u) => u.includes("/tile/11/820/470")), "the parent z11 tile was read");
+  const again = await svc.getTile("ifrlow", 12, 940, 1640);
+  assert.equal(again.outcome.kind === "tile" && again.outcome.from, "tmp", "the fill is cached in place of the hole");
+  assert.deepEqual((await svc.getTile("sectional", 12, 940, 1640)).outcome, { kind: "empty", from: "upstream" });
+  assert.equal((await svc.status()).cache.fills, 1);
+});
+
+test("status and registry keep minzoom = the FAA band and add servedMinzoom = what the client should request", async () => {
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", u.includes("VFR_Terminal") ? 10 : 8, 12) : { status: 404 }), { urls: [] }),
+  });
+  const rows = (await svc.status()).charts;
+  const sec = rows.find((c) => c.id === "sectional")!;
+  assert.deepEqual([sec.servedMinzoom, sec.minzoom, sec.maxzoom, sec.overview], [2, 8, 12, true]);
+  const tac = rows.find((c) => c.id === "tac")!;
+  assert.deepEqual([tac.servedMinzoom, tac.minzoom, tac.overview], [10, 10, false]);
+  const reg = svc.registryEntries().find((c) => c.id === "sectional")!;
+  assert.deepEqual([reg.servedMinzoom, reg.minzoom], [2, 8]);
+  const low = rows.find((c) => c.id === "ifrlow")!;
+  assert.deepEqual([low.servedMinzoom, low.minzoom], [2, 8], "IFR Low's FAA-drawn content starts at z8, not the service's blank z7");
+});
+
+test("IFR Low z12 served by the FAA as a TRANSPARENT PNG (its real 'nothing here') is filled from z11; an opaque z12 is left untouched", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const z11 = await realJpeg(30, 60, 90);
+  const clear = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const opaque = await realJpeg(200, 200, 200);
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 7, 12)
+      : u.includes("/tile/12/1571/926") ? { status: 200, body: clear }
+      : u.includes("/tile/12/") ? { status: 200, body: opaque } : { status: 200, body: z11 }), log),
+  });
+  const hole = await svc.getTile("ifrlow", 12, 926, 1571);
+  assert.equal(hole.outcome.kind === "tile" && hole.outcome.from, "fill");
+  const px = await sharp(hole.outcome.kind === "tile" ? hole.outcome.body : Buffer.alloc(0)).ensureAlpha().raw().toBuffer();
+  assert.equal(px[3], 255, "the hole now shows the enroute chart from z11");
+  const area = await svc.getTile("ifrlow", 12, 940, 1640);
+  assert.equal(area.outcome.kind === "tile" && area.outcome.from, "upstream", "an Area-chart tile is served as the FAA drew it");
+  const before = log.urls.length;
+  const again = await svc.getTile("ifrlow", 12, 940, 1640);
+  assert.equal(again.outcome.kind === "tile" && again.outcome.from, "tmp");
+  assert.equal(log.urls.length, before, "the 'already complete' decision is cached — no second parent read");
+});
+
+test("IFR Low: the service claims z7 but z7 is blank over CONUS — z7 and below are built from the z8 chart, never read from FAA z7", async () => {
+  const log: FakeFetchLog = { urls: [] };
+  const z8 = await realJpeg(40, 80, 120);
+  const svc = createAeroChartService({
+    now: () => NOW, env: {}, tmpDir: tmpDir(), r2: { ...fakeR2(), configured: false },
+    fetchImpl: fakeFetch((u) => (u.includes("?f=json") ? META("on 07-09-2026", 7, 12) : { status: 200, body: z8 }), log),
+  });
+  const r = await svc.getTile("ifrlow", 7, 28, 49);
+  assert.equal(r.outcome.kind === "tile" && r.outcome.from, "overview");
+  const tiles = log.urls.filter((u) => u.includes("/tile/")).map((u) => u.split("/tile/")[1]);
+  assert.ok(tiles.every((t) => t.startsWith("8/")), `only z8 FAA tiles read, got ${tiles.join(",")}`);
+  assert.equal(tiles.length, 4);
 });

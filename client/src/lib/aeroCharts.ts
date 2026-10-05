@@ -16,6 +16,13 @@
 // satellite shows through — never a black hole. Law II.8: every tile URL is
 // OUR origin (/tiles/aero/...), never the FAA/ArcGIS service.
 //
+// ONE MAP AT EVERY ZOOM (human 2026-10-05, "do what ForeFlight does, it lets
+// you zoom way out"): the source requests from `servedMinzoom` (zoom 2 for
+// charts with server-built overview levels) instead of the FAA's lowest
+// level, and still overzooms past `maxzoom`. The VFR Terminal view draws
+// over a VFR Sectional underlay, so outside the ~30 TAC areas (and zoomed
+// out) it is one continuous sectional, never chart-patch-on-satellite.
+//
 // Law I: nothing here listens to a map event. Switching view / opacity is a
 // user action that sets style state once; MapLibre's own frame loop draws.
 
@@ -32,8 +39,13 @@ export interface AeroChartMeta {
   id: AeroChartViewId;
   label: string;
   short: string;
+  /** the FAA's own band: FAA-drawn tiles exist from minzoom to maxzoom */
   minzoom: number;
   maxzoom: number;
+  /** lowest zoom the map requests (server-built overview levels below minzoom) */
+  servedMinzoom: number;
+  /** true when zoomed-out levels are built from the FAA tiles */
+  overview: boolean;
   edition: string | null;
   effective: string | null;
   expires: string | null;
@@ -42,17 +54,24 @@ export interface AeroChartMeta {
   tiles: string;
 }
 
+/** Matches server AERO_OVERVIEW_MIN_ZOOM: the whole-country view and out. */
+export const AERO_OVERVIEW_MIN_ZOOM = 2;
+
 export const AERO_CHART_DEFAULTS: Record<AeroChartViewId, AeroChartMeta> = {
   sectional: { id: "sectional", label: "VFR Sectional", short: "Sectional", minzoom: 8, maxzoom: 12,
+    servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
     tiles: "/tiles/aero/sectional/{z}/{x}/{y}" },
   tac: { id: "tac", label: "VFR Terminal Area (TAC)", short: "Terminal", minzoom: 10, maxzoom: 12,
+    servedMinzoom: 10, overview: false,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
     tiles: "/tiles/aero/tac/{z}/{x}/{y}" },
   ifrlow: { id: "ifrlow", label: "IFR Low (Enroute + Area)", short: "IFR Low", minzoom: 7, maxzoom: 12,
+    servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
     tiles: "/tiles/aero/ifrlow/{z}/{x}/{y}" },
   ifrhigh: { id: "ifrhigh", label: "IFR Enroute High", short: "IFR High", minzoom: 5, maxzoom: 9,
+    servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
     tiles: "/tiles/aero/ifrhigh/{z}/{x}/{y}" },
 };
@@ -73,9 +92,15 @@ export function mergeAeroMeta(rows: unknown): Record<AeroChartViewId, AeroChartM
     const tiles = typeof r.tiles === "string" && r.tiles.startsWith(`/tiles/aero/${id}/`) ? r.tiles : base.tiles;
     const num = (v: unknown, d: number) => (typeof v === "number" && Number.isInteger(v) ? v : d);
     const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+    const minzoom = num(r.minzoom, base.minzoom);
+    const overview = typeof r.overview === "boolean" ? r.overview : base.overview;
+    // an older server (no servedMinzoom) answers overview zooms with empty
+    // tiles — harmless; never request below the whole-country floor
+    const served = num(r.servedMinzoom, overview ? Math.min(AERO_OVERVIEW_MIN_ZOOM, minzoom) : minzoom);
     out[id] = {
       ...base,
-      minzoom: num(r.minzoom, base.minzoom), maxzoom: num(r.maxzoom, base.maxzoom),
+      minzoom, maxzoom: num(r.maxzoom, base.maxzoom),
+      overview, servedMinzoom: Math.max(AERO_OVERVIEW_MIN_ZOOM, Math.min(served, minzoom)),
       edition: str(r.edition), effective: str(r.effective), expires: str(r.expires),
       expired: r.expired === true, behindCurrentCycle: r.behindCurrentCycle === true,
       tiles,
@@ -163,6 +188,15 @@ export function writeAeroViewPref(s: AeroViewState, store: StorageLike | null = 
 
 export const AERO_SOURCE_ID = "aero-chart";
 export const AERO_LAYER_ID = "aero-chart";
+/** The underlay that turns a patchy chart into one continuous map. */
+export const AERO_UNDER_SOURCE_ID = "aero-chart-under";
+export const AERO_UNDER_LAYER_ID = "aero-chart-under";
+
+/** TACs exist only around ~30 airports — draw them over the sectional so the
+ *  view is one chart everywhere and at every zoom. */
+export function aeroUnderlayFor(view: AeroViewId): AeroChartViewId | null {
+  return view === "tac" ? "sectional" : null;
+}
 export const AERO_ATTRIBUTION = "FAA Aeronautical Information Services charts (public domain) · NOT FOR NAVIGATION";
 
 export function aeroSourceSpec(meta: AeroChartMeta): {
@@ -170,7 +204,7 @@ export function aeroSourceSpec(meta: AeroChartMeta): {
 } {
   return {
     type: "raster", tiles: [meta.tiles], tileSize: 256,
-    minzoom: meta.minzoom, maxzoom: meta.maxzoom, attribution: AERO_ATTRIBUTION,
+    minzoom: meta.servedMinzoom, maxzoom: meta.maxzoom, attribution: AERO_ATTRIBUTION,
   };
 }
 
@@ -205,7 +239,9 @@ export interface AeroBadge {
 }
 
 export function aeroBadge(meta: AeroChartMeta, nowMs: number = Date.now()): AeroBadge {
-  const coverage = `shown at zoom ${meta.minzoom}–${meta.maxzoom} where FAA publishes this chart; satellite elsewhere`;
+  const coverage = meta.overview
+    ? `FAA-drawn at zoom ${meta.minzoom}–${meta.maxzoom}; zoomed out = the same chart shrunk (text not legible); zoomed in past ${meta.maxzoom} = enlarged`
+    : `FAA-drawn at zoom ${meta.minzoom}–${meta.maxzoom} around terminal areas, over the VFR Sectional everywhere else; enlarged past ${meta.maxzoom}`;
   if (!meta.edition || !meta.effective || !meta.expires) {
     return { title: meta.label, edition: "edition unverified — FAA service metadata unreachable", tone: "unknown", coverage };
   }

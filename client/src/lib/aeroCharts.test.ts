@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   AERO_CHART_DEFAULTS, AERO_OPACITY_MIN, AERO_VIEW_DEFAULT, AERO_VIEW_PREF_KEY, aeroBadge, aeroPaint,
   aeroSourceSpec, aeroViewReducer, beforeIdAbove, clampOpacity, mergeAeroMeta, readAeroViewPref, writeAeroViewPref,
+  AERO_OVERVIEW_MIN_ZOOM, AERO_UNDER_LAYER_ID, AERO_UNDER_SOURCE_ID, AERO_LAYER_ID, AERO_SOURCE_ID, aeroUnderlayFor,
 } from "./aeroCharts.ts";
 import { RASTER_FADE_MS, rasterFadeViolations } from "../render/mapBaseConfig.ts";
 
@@ -104,4 +105,46 @@ test("badge: current, superseded/expired, and unverified editions are each state
   assert.equal(unk.tone, "unknown");
   assert.match(unk.edition, /unverified/);
   assert.match(unk.coverage, /zoom 7–12/);
+});
+
+// ── one map at every zoom (2026-10-05) ──────────────────────────────────────
+
+test("zoom range: charts with overview levels are requested from zoom 2; TAC from its FAA level; all overzoom past max", () => {
+  for (const id of ["sectional", "ifrlow", "ifrhigh"] as const) {
+    const src = aeroSourceSpec(AERO_CHART_DEFAULTS[id]);
+    assert.equal(src.minzoom, AERO_OVERVIEW_MIN_ZOOM, `${id} must be visible zoomed way out`);
+    assert.equal(src.maxzoom, AERO_CHART_DEFAULTS[id].maxzoom, "maxzoom stays the FAA top level so MapLibre enlarges it");
+  }
+  assert.equal(aeroSourceSpec(AERO_CHART_DEFAULTS.tac).minzoom, 10);
+});
+
+test("registry merge: servedMinzoom from the server, clamped to [zoom 2, FAA min]; old servers degrade safely", () => {
+  const m = mergeAeroMeta([
+    { id: "sectional", minzoom: 8, maxzoom: 12, servedMinzoom: 2, overview: true, tiles: "/tiles/aero/sectional/{z}/{x}/{y}" },
+    { id: "ifrhigh", minzoom: 5, maxzoom: 9, servedMinzoom: 0, overview: true, tiles: "/tiles/aero/ifrhigh/{z}/{x}/{y}" },
+    { id: "ifrlow", minzoom: 7, maxzoom: 12, servedMinzoom: 9, overview: true, tiles: "/tiles/aero/ifrlow/{z}/{x}/{y}" },
+    { id: "tac", minzoom: 10, maxzoom: 12, tiles: "/tiles/aero/tac/{z}/{x}/{y}" }, // an older server: no new fields
+  ]);
+  assert.equal(m.sectional.servedMinzoom, 2);
+  assert.equal(m.ifrhigh.servedMinzoom, AERO_OVERVIEW_MIN_ZOOM, "never below the whole-country floor");
+  assert.equal(m.ifrlow.servedMinzoom, 7, "never above the FAA's own lowest level");
+  assert.equal(m.tac.servedMinzoom, 10);
+  assert.equal(m.tac.overview, false);
+});
+
+test("one continuous map: Terminal draws over a Sectional underlay; other views need none", () => {
+  assert.equal(aeroUnderlayFor("tac"), "sectional");
+  for (const v of ["satellite", "sectional", "ifrlow", "ifrhigh"] as const) assert.equal(aeroUnderlayFor(v), null);
+  assert.notEqual(AERO_UNDER_SOURCE_ID, AERO_SOURCE_ID);
+  assert.notEqual(AERO_UNDER_LAYER_ID, AERO_LAYER_ID);
+});
+
+test("card text says honestly what is FAA-drawn, what is shrunk, what is enlarged", () => {
+  const now = Date.parse("2026-09-30T12:00:00Z");
+  const sec = aeroBadge(AERO_CHART_DEFAULTS.sectional, now).coverage;
+  assert.match(sec, /FAA-drawn at zoom 8–12/);
+  assert.match(sec, /shrunk \(text not legible\)/);
+  assert.match(sec, /enlarged/);
+  assert.doesNotMatch(sec, /satellite elsewhere/);
+  assert.match(aeroBadge(AERO_CHART_DEFAULTS.tac, now).coverage, /over the VFR Sectional everywhere else/);
 });
