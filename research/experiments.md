@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-05 (scheduled-routine session, ~evening Monday) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN `unplaced` BREAKDOWN FROM LIVE routeShape COUNTERS
+
+HEALTH: green (status ok, serving.failing empty). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 18:10Z entry: why ~80% of eligible rows are `unplaced`.
+PRIOR: the loss is dominated by messages whose route text cannot be placed (no expandedRoute), not by parse faults.
+RESULT (live /api/data/aircraft/plan-status swim.routeShape.counters, cumulative per-message since last restart, planStore 5291): placed 108,366 (69%; of which airwayExpanded 23,548 and directFixPlaced 17,100 are subsets by route kind), noExpanded 38,964 (25%), expandedNoPoints 7,417 (5%). Top noExpanded shapes carry only nasRouteText of the form `<AP>./.<FIX><nn>..<FIX>.` (the 1,263/1,594/2,786-count samples), i.e. a handful of tokens with a `./.` departure-procedure separator, not an empty route.
+VERDICT: counters count messages, not unique flights, so 69% placed does not equal the 20% flight-level placement seen in gate-1; the two views differ and the gap is itself unexplained (candidate causes: placed plans amended/superseded by later unplaced messages overwriting the store, or the airline-callsign eligible subset skewing to a different message mix). No claim. The actionable lead is the `./.` nasRouteText shape: if the text parser (server/swimSfdps.ts ~l.363) does not handle the `./.` separator, those 25% never place. NEXT (own PR, T-DATACORE): reproduce with a stored sample of that shape, test whether the text parser places it, and check whether later messages overwrite a placed plan with an unplaced one. No ladder promotion. ROLLBACK: n/a (docs-only). MERGE: any time.
+STARVED: no
+
 ## 2026-10-05 (scheduled-routine PRODUCT session, ~18:10Z Monday, market hours) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: REPORT-ONLY FUNNEL COUNTS (v1.0.1027)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.8%, serving.failing empty, feeds silent 0.09h). research_state_check clean (thrash 0/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks 2026-10-07). Took NEXT from the 13:15Z/16:05Z entries.
