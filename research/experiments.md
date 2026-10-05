@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-05 (scheduled-routine PRODUCT session, ~13:15Z Monday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1 RE-RUN AT A NEW TIME OF DAY: SAMPLE TOO SMALL TO POOL
+
+HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty, feeds silent 0.22h). research_state_check clean (thrash 0/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks 2026-10-07). Took NEXT from the 10-04 #4 entry: re-run at a different time of day to grow n per cell.
+PRIOR: weekday morning mix gives n comparable to the Sunday run (~70) and the same picture (median ~0 nm, tails in the >400 nm band for both kinds).
+RESULT (live, voltradeai.com, scripts/flightplan_gate1.py): only n=6 measurable placed mid-route plans (airway 5: median 0, p95 3.7 nm; direct 1: median 0). Diagnostics: 521 global rows in the CONUS box, 56 pass eligible() (altitude/distance filter), and in a 20-plan probe 14 produced no measurable cross-track (unplaced/short/no filed plan). So the run is bounded by the ELIGIBLE x PLACED funnel at ~09:15 ET (overnight transatlantic arrivals already landed, domestic wave not yet airborne at altitude), not by an API fault (0 request errors in the probe).
+VERDICT: n=6 is not poolable evidence; no gate conclusion drawn either way, rollback trigger (airway median > 15 nm) untouched. The 10-04 numbers (n=72) stand as the latest usable read. The useful finding is operational: the gate-1 script's yield varies ~10x with time of day, so cells only grow in a midday/evening-ET window (~16:00-23:00Z, when domestic traffic is at cruise).
+NEXT: re-run at ~17:00-21:00Z (not mid-morning) and pool with the 10-04 run; consider having the script report eligible/placed counts so the funnel is visible in its own output (separate tooling PR, measurement-code rule: report-only, no metric change). STARVED: no. MERGE: docs-only, any time.
+
 ## 2026-10-04 (scheduled-routine PRODUCT session #4, Sunday ~13:30Z) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: SPLIT CROSS-TRACK BY DISTANCE-TO-DESTINATION BAND (v1.0.1025)
 
 HEALTH: green (status ok, bot active, liveness not dark, serving.failing empty). research_state_check clean; ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks in 3d). Took NEXT (2) from the 10-03 #4 verification entry.
