@@ -42,12 +42,30 @@
 // 07-09 while the FAA cycle began 09-03) the status and the on-map badge say
 // "behind current FAA cycle" rather than implying currency. NOT FOR
 // NAVIGATION — surfaced on every response that reaches a person.
+//
+// ONE MAP AT EVERY ZOOM (human 2026-10-05: "make it one map that isn't a
+// patch ... do what ForeFlight does, it lets you zoom way out"):
+//   - BELOW the FAA's lowest level (Sectional < z8, IFR Low < z7, IFR High
+//     < z5) we build OVERVIEW tiles down to z2 by shrinking each 2x2 block
+//     of the level beneath (server/aeroOverview.ts) — the same edition, the
+//     same cache key space. The background prefetch bakes them bottom-up
+//     after the FAA band; an on-demand request builds at most
+//     AERO_OVERVIEW_ONDEMAND_LEVELS levels below the band (16 upstream tiles
+//     worst case) and answers "pending" (transparent, no-store) deeper.
+//   - ABOVE the FAA's top level the client overzooms the last real tile
+//     (MapLibre raster maxzoom) — it softens, it never vanishes.
+//   - INSIDE the band, a chart with holes at its deepest level (IFR Low z12
+//     exists only inside Area-chart footprints) FILLS a missing tile from
+//     its parent's quarter, enlarged — one continuous chart.
+//   - TAC is the exception: it has no overview (TACs exist only around ~30
+//     airports); the client draws it over a Sectional underlay instead.
 
 import fs from "fs";
 import os from "os";
 import path from "path";
 import type { Express, Request, Response } from "express";
 import { createR2Client, errText, r2ConfigDiagnostics, r2ConfigFromEnv, type R2Client } from "./r2Client";
+import { childTiles, composeOverview, fillUnder } from "./aeroOverview";
 
 // ── chart catalogue ─────────────────────────────────────────────────────────
 
@@ -63,6 +81,15 @@ export interface AeroChartDef {
   minzoom: number;
   maxzoom: number;
   coverage: string;
+  /** build overview tiles below the FAA band, down to AERO_OVERVIEW_MIN_ZOOM */
+  overview: boolean;
+  /** inside the band, fill an upstream-missing tile from its parent's quarter */
+  parentFill: boolean;
+  /** build overviews from this level even though the FAA service claims a
+   *  lower one (IFR Low: the service reports minLOD 7, but z7 is a blank
+   *  transparent PNG over most of CONUS — verified 2026-10-05 over Kansas,
+   *  873-byte empty PNG at z7 vs a 20 KB chart at z8) */
+  overviewFromZoom?: number;
 }
 
 export const AERO_CHART_IDS = ["sectional", "tac", "ifrlow", "ifrhigh"] as const;
@@ -73,21 +100,25 @@ export const AERO_CHARTS: Record<AeroChartId, AeroChartDef> = {
     id: "sectional", service: "VFR_Sectional", label: "VFR Sectional", short: "Sectional",
     minzoom: 8, maxzoom: 12,
     coverage: "US sectional series (CONUS, Alaska, Hawaii, Puerto Rico); zoom 8-12",
+    overview: true, parentFill: false,
   },
   tac: {
     id: "tac", service: "VFR_Terminal", label: "VFR Terminal Area (TAC)", short: "Terminal",
     minzoom: 10, maxzoom: 12,
     coverage: "only around TAC-charted Class B/C terminal areas; zoom 10-12",
+    overview: false, parentFill: false,
   },
   ifrlow: {
     id: "ifrlow", service: "IFR_AreaLow", label: "IFR Low (Enroute + Area)", short: "IFR Low",
     minzoom: 7, maxzoom: 12,
     coverage: "IFR Enroute Low series (Victor airways, MOAs) to zoom 11, plus Area charts to zoom 12 where published",
+    overview: true, parentFill: true, overviewFromZoom: 8,
   },
   ifrhigh: {
     id: "ifrhigh", service: "IFR_High", label: "IFR Enroute High", short: "IFR High",
     minzoom: 5, maxzoom: 9,
     coverage: "IFR Enroute High series (jet routes, Q-routes, FL180+); zoom 5-9",
+    overview: true, parentFill: false,
   },
 };
 
@@ -112,6 +143,16 @@ export function aeroMetadataUrl(chart: AeroChartId): string {
 export function aeroCacheKey(chart: AeroChartId, edition: string, z: number, x: number, y: number): string {
   return `aero/${chart}/${edition}/${z}/${y}/${x}`;
 }
+
+/** Key for a parent-filled tile (IFR Low holes). Kept apart from the raw
+ *  FAA tile so a fill is computed once and the raw tile stays authentic. */
+export function aeroFillKey(chart: AeroChartId, edition: string, z: number, x: number, y: number): string {
+  return `aero/${chart}/${edition}/fill/${z}/${y}/${x}`;
+}
+
+/** Stored under the fill key when the FAA tile needs no fill (already opaque,
+ *  or nothing above it either): "serve the raw tile as is". */
+export const AERO_FILL_RAW_MARKER = Buffer.from([1]);
 
 /** Our origin's tile URL template for the client (edition-pinned so the
  *  browser may cache it immutably). */
@@ -224,6 +265,22 @@ export function aeroCacheControl(requestedEdition: string | undefined, currentEd
 export const AERO_CONUS_BBOX = { west: -125, south: 24, east: -66, north: 50 } as const;
 export const AERO_PREFETCH_MAX_ZOOM = 9;
 
+/** Lowest zoom served for charts with an overview (whole-country view and
+ *  out). Below this the satellite base shows. */
+export const AERO_OVERVIEW_MIN_ZOOM = 2;
+/** How many levels below the FAA band an on-demand request may build from
+ *  upstream (2 levels = at most 16 upstream tiles); deeper levels are served
+ *  only once the background bake has made them. */
+export const AERO_OVERVIEW_ONDEMAND_LEVELS = 2;
+/** Overview bake regions: everything the sectional/IFR series cover, so the
+ *  zoomed-out map is one chart, not CONUS plus satellite holes. */
+export const AERO_OVERVIEW_BBOXES = [
+  AERO_CONUS_BBOX,
+  { west: -170, south: 51, east: -129, north: 72 }, // Alaska
+  { west: -161, south: 18, east: -154, north: 23 }, // Hawaii
+  { west: -68, south: 17, east: -64, north: 19 },   // Puerto Rico / USVI
+] as const;
+
 export function lonToTileX(lon: number, z: number): number {
   return Math.floor(((lon + 180) / 360) * 2 ** z);
 }
@@ -245,6 +302,39 @@ export function prefetchTiles(def: Pick<AeroChartDef, "minzoom" | "maxzoom">, bb
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push({ z, x, y });
   }
   return out;
+}
+
+/** Overview tiles to bake for a chart whose FAA band starts at `minzoom`:
+ *  every tile from minzoom-1 down to AERO_OVERVIEW_MIN_ZOOM touching any
+ *  overview bbox, FINEST level first (each level is built from the one
+ *  beneath it). Empty when the band starts too deep to bake from. */
+export function overviewTiles(minzoom: number, bboxes: ReadonlyArray<{ west: number; south: number; east: number; north: number }> = AERO_OVERVIEW_BBOXES): TileXYZ[] {
+  if (minzoom - 1 > AERO_PREFETCH_MAX_ZOOM) return [];
+  const out: TileXYZ[] = [];
+  for (let z = minzoom - 1; z >= AERO_OVERVIEW_MIN_ZOOM; z--) {
+    const seen = new Set<string>();
+    for (const b of bboxes) {
+      const x0 = lonToTileX(b.west, z), x1 = lonToTileX(b.east, z);
+      const y0 = latToTileY(b.north, z), y1 = latToTileY(b.south, z);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const k = `${x}/${y}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ z, x, y });
+      }
+    }
+  }
+  return out;
+}
+
+/** Lowest level built from FAA tiles (everything below is an overview). */
+export function aeroBandMin(chart: AeroChartId, faaMinzoom: number): number {
+  return Math.max(faaMinzoom, AERO_CHARTS[chart].overviewFromZoom ?? faaMinzoom);
+}
+
+/** Lowest zoom the client should request for a chart. */
+export function aeroServedMinZoom(chart: AeroChartId, faaMinzoom: number): number {
+  return AERO_CHARTS[chart].overview ? Math.min(AERO_OVERVIEW_MIN_ZOOM, faaMinzoom) : faaMinzoom;
 }
 
 // ── bounded tmp LRU (the no-R2 cache) ───────────────────────────────────────
@@ -344,8 +434,10 @@ interface ChartState {
 }
 
 export type TileOutcome =
-  | { kind: "tile"; body: Buffer; contentType: "image/jpeg" | "image/png"; from: "r2" | "tmp" | "upstream" }
-  | { kind: "empty"; from: "r2" | "tmp" | "upstream" | "out-of-range" | "negative" }
+  | { kind: "tile"; body: Buffer; contentType: "image/jpeg" | "image/png"; from: "r2" | "tmp" | "upstream" | "overview" | "fill" }
+  /** "pending" = an overview level deeper than on-demand builds allow and not
+   *  baked yet — served transparent and NEVER cached */
+  | { kind: "empty"; from: "r2" | "tmp" | "upstream" | "out-of-range" | "negative" | "overview" | "pending" }
   | { kind: "error"; error: string };
 
 export const AERO_METADATA_TTL_MS = 6 * 3600_000;
@@ -379,6 +471,7 @@ export function createAeroChartService(deps: AeroDeps = {}) {
   const counters = {
     r2Hits: 0, tmpHits: 0, upstreamFetches: 0, upstream404: 0, upstreamErrors: 0,
     r2Errors: 0, r2Puts: 0, r2PutErrors: 0, dedupJoins: 0,
+    overviewBuilt: 0, overviewEmpty: 0, overviewPending: 0, overviewErrors: 0, fills: 0,
     lastUpstreamError: null as string | null, lastUpstreamErrorAt: null as number | null,
   };
   const inflight = new Map<string, Promise<TileOutcome>>();
@@ -483,13 +576,10 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     return r2PutBudget - budget.used;
   }
 
-  function storeOutcome(key: string, z: number, o: TileOutcome): void {
-    if (o.kind !== "tile" && !(o.kind === "empty" && o.from === "upstream")) return;
-    const body = o.kind === "tile" ? o.body : Buffer.alloc(0);
-    const persistEmpty = o.kind === "tile" || z <= AERO_PREFETCH_MAX_ZOOM;
-    if (r2.configured && persistEmpty && r2BudgetLeft() > 0) {
+  function storeRaw(key: string, persist: boolean, body: Buffer, contentType: string): void {
+    if (r2.configured && persist && r2BudgetLeft() > 0) {
       budget.used++;
-      void r2.putObject(key, body, o.kind === "tile" ? o.contentType : "application/octet-stream").then((r) => {
+      void r2.putObject(key, body, contentType).then((r) => {
         if (r.ok) counters.r2Puts++;
         else counters.r2PutErrors++;
       });
@@ -498,55 +588,144 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     }
   }
 
+  function storeOutcome(key: string, z: number, o: TileOutcome): void {
+    if (o.kind !== "tile" && !(o.kind === "empty" && (o.from === "upstream" || o.from === "overview"))) return;
+    const body = o.kind === "tile" ? o.body : Buffer.alloc(0);
+    const persistEmpty = o.kind === "tile" || z <= AERO_PREFETCH_MAX_ZOOM;
+    storeRaw(key, persistEmpty, body, o.kind === "tile" ? o.contentType : "application/octet-stream");
+  }
+
   function fromCachedBytes(b: Buffer, from: "r2" | "tmp"): TileOutcome {
     if (b.length === 0) return { kind: "empty", from };
     const type = sniffImageType(b);
     return type ? { kind: "tile", body: b, contentType: type, from } : { kind: "error", error: "cached object is not an image" };
   }
 
-  /** Read-through: cache -> upstream -> cache. Deduped per key. */
-  async function getTile(chart: AeroChartId, z: number, x: number, y: number): Promise<{ outcome: TileOutcome; edition: EditionInfo }> {
-    const ed = await edition(chart);
-    const st = charts[chart];
-    if (!validTile(z, x, y) || z < st.minzoom || z > st.maxzoom) {
-      return { outcome: { kind: "empty", from: "out-of-range" }, edition: ed };
+  /** Raw cached bytes (R2, then the tmp tier). Null on a miss. */
+  async function cachedBytes(key: string): Promise<{ body: Buffer; from: "r2" | "tmp" } | null> {
+    if (r2.configured) {
+      const got = await r2.getObject(key, { maxBytes: 2 * 1024 * 1024 });
+      if (got.ok && got.body) return { body: got.body, from: "r2" };
+      if (got.status !== 404) counters.r2Errors++;
     }
-    const key = aeroCacheKey(chart, ed.edition, z, x, y);
+    // the tmp LRU is the whole cache without R2, and the overflow tier with
+    // it (write budget spent / deep "no tile" markers)
+    const b = tmpCache().get(key);
+    return b ? { body: b, from: "tmp" } : null;
+  }
+
+  /** Cache lookup as a tile outcome. Null on a miss. */
+  async function cachedOutcome(key: string, st: ChartState): Promise<TileOutcome | null> {
+    const c = await cachedBytes(key);
+    if (!c) return null;
+    const o = fromCachedBytes(c.body, c.from);
+    if (o.kind === "error") return null;
+    if (c.from === "r2") counters.r2Hits++; else counters.tmpHits++;
+    st.hits++;
+    return o;
+  }
+
+  /** One in-flight producer per cache key, shared by every caller. */
+  function dedup(key: string, produce: () => Promise<TileOutcome>): Promise<TileOutcome> {
     const existing = inflight.get(key);
-    if (existing) {
-      counters.dedupJoins++;
-      return { outcome: await existing, edition: ed };
-    }
-    const p = (async (): Promise<TileOutcome> => {
-      if (r2.configured) {
-        const got = await r2.getObject(key, { maxBytes: 2 * 1024 * 1024 });
-        if (got.ok && got.body) {
-          const o = fromCachedBytes(got.body, "r2");
-          if (o.kind !== "error") { counters.r2Hits++; st.hits++; return o; }
-        } else if (got.status !== 404) {
-          counters.r2Errors++;
-        }
+    if (existing) { counters.dedupJoins++; return existing; }
+    const p = produce().finally(() => inflight.delete(key));
+    inflight.set(key, p);
+    return p;
+  }
+
+  type Mode = "request" | "bake";
+
+  /** Overview tile below the FAA band: shrink its four children. */
+  async function buildOverview(chart: AeroChartId, ed: EditionInfo, z: number, x: number, y: number, mode: Mode): Promise<TileOutcome> {
+    const st = charts[chart];
+    const bandMin = aeroBandMin(chart, st.minzoom);
+    const kids = await Promise.all(childTiles(z, x, y).map(async (c): Promise<TileOutcome> => {
+      if (c.z >= bandMin || mode === "bake" || bandMin - c.z <= AERO_OVERVIEW_ONDEMAND_LEVELS - 1) {
+        return resolveTile(chart, ed, c.z, c.x, c.y, mode);
       }
-      // the tmp LRU is the whole cache without R2, and the overflow tier with
-      // it (write budget spent / deep "no tile" markers)
-      const b = tmpCache().get(key);
-      if (b) {
-        const o = fromCachedBytes(b, "tmp");
-        if (o.kind !== "error") { counters.tmpHits++; st.hits++; return o; }
+      // too deep to build on a page request: only an already-baked child counts
+      return (await cachedOutcome(aeroCacheKey(chart, ed.edition, c.z, c.x, c.y), st)) ?? { kind: "empty", from: "pending" };
+    }));
+    const err = kids.find((k) => k.kind === "error");
+    if (err) { counters.overviewErrors++; return err; }
+    if (kids.some((k) => k.kind === "empty" && k.from === "pending")) { counters.overviewPending++; return { kind: "empty", from: "pending" }; }
+    const enc = await composeOverview(kids.map((k) => (k.kind === "tile" ? k.body : null)));
+    if (!enc) { counters.overviewEmpty++; return { kind: "empty", from: "overview" }; }
+    counters.overviewBuilt++;
+    return { kind: "tile", body: enc.body, contentType: enc.contentType, from: "overview" };
+  }
+
+  /** Every tile the client may ask for: overview (below the band), FAA
+   *  read-through (inside it), parent fill (holes inside it). */
+  async function resolveTile(chart: AeroChartId, ed: EditionInfo, z: number, x: number, y: number, mode: Mode): Promise<TileOutcome> {
+    const st = charts[chart];
+    const def = AERO_CHARTS[chart];
+    if (!validTile(z, x, y) || z > st.maxzoom) return { kind: "empty", from: "out-of-range" };
+    if (z < st.minzoom && (!def.overview || z < AERO_OVERVIEW_MIN_ZOOM)) return { kind: "empty", from: "out-of-range" };
+    const bandMin = aeroBandMin(chart, st.minzoom);
+    if (z >= bandMin && def.parentFill && z > bandMin) return resolveFilled(chart, ed, z, x, y, mode);
+    return resolvePlain(chart, ed, z, x, y, mode);
+  }
+
+  /** Overview build (below the band) or the FAA read-through (inside it). */
+  function resolvePlain(chart: AeroChartId, ed: EditionInfo, z: number, x: number, y: number, mode: Mode): Promise<TileOutcome> {
+    const st = charts[chart];
+    const key = aeroCacheKey(chart, ed.edition, z, x, y);
+    return dedup(key, async () => {
+      const cached = await cachedOutcome(key, st);
+      if (cached) return cached;
+      let o: TileOutcome;
+      if (z < aeroBandMin(chart, st.minzoom)) {
+        o = await buildOverview(chart, ed, z, x, y, mode);
+      } else {
+        st.misses++;
+        o = await fetchUpstream(chart, z, x, y);
       }
-      st.misses++;
-      const o = await fetchUpstream(chart, z, x, y);
       storeOutcome(key, z, o);
       return o;
-    })().finally(() => inflight.delete(key));
-    inflight.set(key, p);
-    return { outcome: await p, edition: ed };
+    });
+  }
+
+  /** Inside the band, for charts whose deepest level only exists in places:
+   *  the FAA tile with its transparent pixels filled from the parent's
+   *  quarter, enlarged. Computed once per edition (fill key), raw kept. */
+  function resolveFilled(chart: AeroChartId, ed: EditionInfo, z: number, x: number, y: number, mode: Mode): Promise<TileOutcome> {
+    const fkey = aeroFillKey(chart, ed.edition, z, x, y);
+    return dedup(fkey, async () => {
+      const prior = await cachedBytes(fkey);
+      const rawFinal = !!prior && prior.body.length === 1 && prior.body[0] === AERO_FILL_RAW_MARKER[0];
+      if (prior && !rawFinal) {
+        const o = fromCachedBytes(prior.body, prior.from);
+        if (o.kind !== "error") return o;
+      }
+      const raw = await resolvePlain(chart, ed, z, x, y, mode);
+      if (raw.kind === "error" || rawFinal) return raw;
+      const parent = await resolveTile(chart, ed, z - 1, x >> 1, y >> 1, mode);
+      if (parent.kind === "error") return raw; // retry the fill next time
+      const filled = parent.kind === "tile"
+        ? await fillUnder(raw.kind === "tile" ? raw.body : null, parent.body, (x & 1) as 0 | 1, (y & 1) as 0 | 1)
+        : null;
+      if (filled) {
+        counters.fills++;
+        storeRaw(fkey, true, filled.body, filled.contentType);
+        return { kind: "tile", body: filled.body, contentType: filled.contentType, from: "fill" };
+      }
+      storeRaw(fkey, z <= AERO_PREFETCH_MAX_ZOOM, AERO_FILL_RAW_MARKER, "application/octet-stream");
+      return raw;
+    });
+  }
+
+  /** Read-through: cache -> (overview | upstream | parent fill) -> cache. */
+  async function getTile(chart: AeroChartId, z: number, x: number, y: number): Promise<{ outcome: TileOutcome; edition: EditionInfo }> {
+    const ed = await edition(chart);
+    return { outcome: await resolveTile(chart, ed, z, x, y, "request"), edition: ed };
   }
 
   // ── background prefetch (R2 only) ──────────────────────────────────────────
   const prefetch = {
-    running: false, chart: null as AeroChartId | null, edition: null as string | null,
-    done: 0, total: 0, fetched: 0, skipped: 0, errors: 0,
+    running: false, chart: null as AeroChartId | null, edition: null as string | null, stage: null as "faa" | "overview" | null,
+    done: 0, total: 0, fetched: 0, skipped: 0, errors: 0, overviewBuilt: 0,
     lastRunAt: null as number | null, lastCompleted: [] as string[], note: "" as string,
   };
   let stopRequested = false;
@@ -562,36 +741,74 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         if (ed.source !== "service-metadata") { prefetch.note = `skipped ${chart}: edition unverified`; continue; }
         const marker = `aero/${chart}/${ed.edition}/_prefetch_done`;
         const head = await r2.headObject(marker);
-        if (head.ok && head.exists) { prefetch.lastCompleted.push(`${chart}@${ed.edition}`); continue; }
-        const tiles = prefetchTiles(charts[chart]);
-        Object.assign(prefetch, { chart, edition: ed.edition, done: 0, total: tiles.length });
-        let failures = 0;
-        for (const t of tiles) {
+        if (head.ok && head.exists) {
+          prefetch.lastCompleted.push(`${chart}@${ed.edition}`);
+        } else {
+          const tiles = prefetchTiles({ minzoom: aeroBandMin(chart, charts[chart].minzoom), maxzoom: charts[chart].maxzoom });
+          Object.assign(prefetch, { chart, edition: ed.edition, stage: "faa", done: 0, total: tiles.length });
+          let failures = 0;
+          for (const t of tiles) {
+            if (stopRequested) return;
+            const key = aeroCacheKey(chart, ed.edition, t.z, t.x, t.y);
+            const h = await r2.headObject(key);
+            if (h.ok && h.exists) { prefetch.skipped++; prefetch.done++; continue; }
+            if (r2BudgetLeft() <= 0) {
+              // no upstream fetch whose result could not be persisted anyway
+              prefetch.note = `paused at ${chart} ${prefetch.done}/${tiles.length}: daily R2 write budget (${r2PutBudget}) reached — resumes next run`;
+              return;
+            }
+            const o = await fetchUpstream(chart, t.z, t.x, t.y);
+            if (o.kind === "error") { prefetch.errors++; failures++; }
+            else { storeOutcome(key, t.z, o); prefetch.fetched++; }
+            prefetch.done++;
+            await sleep(1000 / rps);
+          }
+          if (failures === 0) {
+            const put = await r2.putObject(marker, Buffer.from(new Date(now()).toISOString()), "text/plain");
+            if (put.ok) prefetch.lastCompleted.push(`${chart}@${ed.edition}`);
+          } else {
+            prefetch.note = `${chart}: ${failures} tile fetches failed — next run retries them`;
+            continue; // overviews are built from a complete band only
+          }
+        }
+        // OVERVIEW stage: the zoomed-out levels, finest first, each built from
+        // the level beneath (cached). Upstream reads (children outside the
+        // pre-baked band, e.g. Alaska) are paced at the same request rate.
+        if (!AERO_CHARTS[chart].overview) continue;
+        const ovMarker = `aero/${chart}/${ed.edition}/_overview_done`;
+        const ovHead = await r2.headObject(ovMarker);
+        if (ovHead.ok && ovHead.exists) continue;
+        const ovTiles = overviewTiles(aeroBandMin(chart, charts[chart].minzoom));
+        Object.assign(prefetch, { chart, edition: ed.edition, stage: "overview", done: 0, total: ovTiles.length });
+        let ovFailures = 0;
+        for (const t of ovTiles) {
           if (stopRequested) return;
           const key = aeroCacheKey(chart, ed.edition, t.z, t.x, t.y);
           const h = await r2.headObject(key);
           if (h.ok && h.exists) { prefetch.skipped++; prefetch.done++; continue; }
           if (r2BudgetLeft() <= 0) {
-            // no upstream fetch whose result could not be persisted anyway
-            prefetch.note = `paused at ${chart} ${prefetch.done}/${tiles.length}: daily R2 write budget (${r2PutBudget}) reached — resumes next run`;
+            prefetch.note = `paused at ${chart} overview ${prefetch.done}/${ovTiles.length}: daily R2 write budget (${r2PutBudget}) reached — resumes next run`;
             return;
           }
-          const o = await fetchUpstream(chart, t.z, t.x, t.y);
-          if (o.kind === "error") { prefetch.errors++; failures++; }
-          else { storeOutcome(key, t.z, o); prefetch.fetched++; }
+          const before = counters.upstreamFetches;
+          const o = await resolveTile(chart, ed, t.z, t.x, t.y, "bake");
+          if (o.kind === "error" || (o.kind === "empty" && o.from === "pending")) { prefetch.errors++; ovFailures++; }
+          else if (o.from === "overview") prefetch.overviewBuilt++;
           prefetch.done++;
-          await sleep(1000 / rps);
+          const fetched = counters.upstreamFetches - before;
+          prefetch.fetched += fetched;
+          await sleep(fetched > 0 ? (1000 * fetched) / rps : 0);
         }
-        if (failures === 0) {
-          const put = await r2.putObject(marker, Buffer.from(new Date(now()).toISOString()), "text/plain");
-          if (put.ok) prefetch.lastCompleted.push(`${chart}@${ed.edition}`);
+        if (ovFailures === 0) {
+          await r2.putObject(ovMarker, Buffer.from(new Date(now()).toISOString()), "text/plain");
         } else {
-          prefetch.note = `${chart}: ${failures} tile fetches failed — next run retries them`;
+          prefetch.note = `${chart} overview: ${ovFailures} tiles failed — next run retries them`;
         }
       }
     } finally {
       prefetch.running = false;
       prefetch.chart = null;
+      prefetch.stage = null;
       prefetch.lastCompleted = prefetch.lastCompleted.slice(-8);
     }
   }
@@ -606,7 +823,12 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         id, label: AERO_CHARTS[id].label, short: AERO_CHARTS[id].short, service: AERO_CHARTS[id].service,
         edition: ed.edition, editionSource: ed.source, effective: ed.effective, expires: ed.expires,
         expired: ed.expired, currentFaaCycle: ed.currentFaaCycle, behindCurrentCycle: ed.behindCurrentCycle,
-        minzoom: st.minzoom, maxzoom: st.maxzoom, coverage: AERO_CHARTS[id].coverage,
+        // minzoom/maxzoom = where FAA-drawn chart content exists (IFR Low: 8,
+        // its z7 is blank over CONUS); servedMinzoom = the
+        // lowest zoom the client should request (overview levels included)
+        minzoom: aeroBandMin(id, st.minzoom), maxzoom: st.maxzoom,
+        servedMinzoom: aeroServedMinZoom(id, st.minzoom), overview: AERO_CHARTS[id].overview,
+        coverage: AERO_CHARTS[id].coverage,
         tiles: aeroClientTileTemplate(id, ed.source === "service-metadata" ? ed.edition : null),
         metadataFetchedAt: st.metadataFetchedAt ? new Date(st.metadataFetchedAt).toISOString() : null,
         metadataError: st.metadataError, hits: st.hits, misses: st.misses,
@@ -628,7 +850,8 @@ export function createAeroChartService(deps: AeroDeps = {}) {
       r2Config: r2ConfigDiagnostics(env),
       source: "FAA Aeronautical Information Services chart tile caches (public domain), re-served from this origin",
       cycleNote: `effective/expires follow the FAA ${FAA_CYCLE_DAYS}-day chart cycle from the service-reported edition; behindCurrentCycle = the FAA's published cycle is newer than what the tile service carries`,
-      lawNote: "Law II.8 compromise: lazy bake — first request per tile per edition reads through to the FAA service, then serves from our cache; with R2 configured a background job pre-bakes CONUS zoom<=9",
+      lawNote: "Law II.8 compromise: lazy bake — first request per tile per edition reads through to the FAA service, then serves from our cache; with R2 configured a background job pre-bakes CONUS zoom<=9, then the zoomed-out overview levels (to zoom 2) for CONUS, Alaska, Hawaii and Puerto Rico",
+      overviewNote: `below the FAA's lowest level, tiles are built by shrinking the FAA's own tiles (2x2 -> 1) down to zoom ${AERO_OVERVIEW_MIN_ZOOM}; text is not legible at those scales. Above the FAA's top level the map enlarges the last FAA tile. IFR Low fills its zoom-12 gaps (outside Area charts) from zoom 11.`,
       notForNavigation: true,
       generated_at: new Date(t).toISOString(),
     };
@@ -646,7 +869,8 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         id, label: AERO_CHARTS[id].label, short: AERO_CHARTS[id].short,
         edition: ed.source === "service-metadata" ? ed.edition : null,
         effective: ed.effective, expires: ed.expires, expired: ed.expired, behindCurrentCycle: ed.behindCurrentCycle,
-        minzoom: st.minzoom, maxzoom: st.maxzoom,
+        minzoom: aeroBandMin(id, st.minzoom), maxzoom: st.maxzoom,
+        servedMinzoom: aeroServedMinZoom(id, st.minzoom), overview: AERO_CHARTS[id].overview,
         tiles: aeroClientTileTemplate(id, ed.source === "service-metadata" ? ed.edition : null),
       };
     });
@@ -687,6 +911,10 @@ export async function handleAeroTile(svc: AeroChartService, req: Request, res: R
   }
   res.setHeader("cache-control", aeroCacheControl(requested, edition.edition));
   res.setHeader("x-aero-cache", outcome.from);
+  if (outcome.kind === "empty" && outcome.from === "pending") {
+    // a deep overview level not baked yet — transparent now, never cached
+    res.setHeader("cache-control", "no-store");
+  }
   if (outcome.kind === "empty") {
     res.setHeader("content-type", "image/png");
     res.status(200).end(AERO_EMPTY_PNG);
