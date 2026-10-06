@@ -206,8 +206,16 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
         return {**out, "status": "current"}
 
     work = os.path.join(args.work, fam.id)
-    shutil.rmtree(work, ignore_errors=True)
-    specs = download_family(fam, edition, os.path.join(work, "src"))
+    src_dir = os.path.join(work, "src")
+    marker = os.path.join(src_dir, f"_complete_{ed}")
+    if args.keep_src and os.path.exists(marker):
+        with open(marker) as f:
+            specs = [tuple(x) for x in json.load(f)]
+    else:
+        shutil.rmtree(work, ignore_errors=True)
+        specs = download_family(fam, edition, src_dir)
+        with open(marker, "w") as f:
+            json.dump(specs, f)
     charts = [ChartSource.open(n, p) for n, p in specs]
 
     edges_json, origin = load_edges(fam.id)
@@ -223,11 +231,14 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
     edges_path = os.path.join(args.work, f"{fam.id}-edges.json")
     with open(edges_path, "w") as f:
         json.dump(edges_json, f)  # kept locally too: the seed for datacore/faa_charts/edges/
+    if args.measure_only:
+        return {**out, "status": "measured", "edges_path": edges_path}
     pm = os.path.join(args.work, f"{fam.id}-{ed}.pmtiles")
     rep = bake.bake_family(fam, specs, edges_json, pm, os.path.join(work, "tiles"), ed, log=log)
     for c in charts:
         c.ds.close()
-    shutil.rmtree(os.path.join(work, "src"), ignore_errors=True)
+    if not args.keep_src:
+        shutil.rmtree(src_dir, ignore_errors=True)
     out["bake"] = rep
     gate = verify.verify_pmtiles(fam, pm, os.path.join(args.work, "faacache"), VERIFY_ZOOM[fam.id])
     out["verify"] = gate
@@ -267,6 +278,8 @@ def main(argv=None) -> int:
     ap.add_argument("--no-upload", action="store_true")
     ap.add_argument("--force", action="store_true", help="re-bake even if the manifest is current")
     ap.add_argument("--remeasure", action="store_true", help="re-measure edges even if fingerprints match")
+    ap.add_argument("--measure-only", action="store_true", help="stop after the edges (written to --work)")
+    ap.add_argument("--keep-src", action="store_true", help="keep the downloaded GeoTIFFs (re-runs skip the download)")
     args = ap.parse_args(argv)
     today = dt.datetime.now(dt.timezone.utc).date()
     manifest = public_get_json(MANIFEST_KEY) or {"version": 1, "families": {}}
@@ -292,7 +305,7 @@ def main(argv=None) -> int:
                 except Exception as e:
                     log(f"[{fid}] could not delete {old}: {e}")
     print(json.dumps({"results": results}, indent=1, default=str))
-    return 0 if all(r["status"] in ("current", "published", "baked") for r in results) else 1
+    return 0 if all(r["status"] in ("current", "published", "baked", "measured") for r in results) else 1
 
 
 if __name__ == "__main__":
