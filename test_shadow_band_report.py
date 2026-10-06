@@ -41,3 +41,21 @@ def test_no_ticker_price_or_time_leaves_the_report():
     recs = [_rec("taken", 18.0, 80, -4.0, 0, ticker="SECRETCO") for _ in range(25)]
     blob = json.dumps(sp.shadow_band_report(recs))
     assert "SECRETCO" not in blob and "12.34" not in blob and "2026-09-01" not in blob
+
+
+def test_log_candidate_records_the_action_the_bot_would_take(tmp_path, monkeypatch):
+    monkeypatch.setattr(sp, "SHADOW_LOG_PATH", str(tmp_path / "shadow.json"))
+    monkeypatch.setattr(sp, "SHADOW_LOCK_PATH", str(tmp_path / "shadow.json.lock"))
+    sp.log_candidate("abc", {"change_pct_today": 15.0}, 80.0, "taken",
+                     side="sell", action_label="SELL OPTIONS", trade_type="options")
+    rec = sp._load_shadow_log()[-1]
+    assert (rec["side"], rec["action_label"], rec["trade_type"]) == ("sell", "SELL OPTIONS", "options")
+
+
+def test_band_report_splits_by_action_and_marks_legacy_unrecorded():
+    legacy = [_rec("taken", 15.0, 80, -4.0, 0) for _ in range(20)]
+    buys = [dict(_rec("taken", 15.0, 80, 2.0, 1), action_label="BUY") for _ in range(20)]
+    r = sp.shadow_band_report(legacy + buys, min_n=20)
+    assert r["decision_x_action"]["taken|BUY"]["+5d"]["win_rate"] == 100.0
+    assert r["decision_x_action"]["taken|unrecorded"]["+5d"]["win_rate"] == 0.0
+    assert r["action_x_band"]["BUY|10..20"]["+5d"]["n"] == 20

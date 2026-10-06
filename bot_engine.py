@@ -1836,6 +1836,9 @@ except Exception as e:
             entry_price=quick_result.get("price", 0),
             vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
             regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+            side=side,
+            action_label=action_label,
+            trade_type=trade_type,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
