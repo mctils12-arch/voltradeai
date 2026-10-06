@@ -106762,3 +106762,66 @@ NOT DONE HERE (own PR, filed): editions still come from the FAA ArcGIS tile serv
 TESTS: server/aeroOverview.test.ts (10), server/aeroCharts.test.ts +8 (overview build, depth cap/pending, no-store, TAC none, IFR Low 404 + transparent-PNG fill, opaque untouched + cached decision, IFR Low z7-from-z8, status fields); the prefetch test's exact upstream-count assertion now covers both stages (FAA band ∪ z5 descendants of every overview tile) plus the overview marker and a baked z2 tile. client aeroCharts.test.ts +4.
 ROLLBACK TRIGGER: revert if /api/data/aero/status shows overviewErrors climbing or R2 puts hitting the daily budget on non-bake days.
 STARVED: no — PR2 (own GeoTIFF bake for current editions) is the next queued slice.
+
+
+## 2026-10-06 [REPAIR] — T-BOT — DD-HALT: CONFIRM THE TRIP, IGNORE INVALID READINGS; RELEASE THE 2026-09-09 BAD-DATA HALT (v1.0.1030)
+
+HUMAN-DIRECTED (2026-10-06, verbatim: "reset the halt and fix the issues")
+after asking why the bot seemed flat. Human sovereignty: this is the human's
+call on a risk mechanism; the mechanism is kept, only its trip is confirmed.
+
+FINDINGS (live, DIAG_TOKEN probes, 15:40Z):
+- Bot healthy (alpaca ACTIVE, scanner 0 failures, liveness not dark, JS
+  killSwitch false) but every Tier-2 scan since 2026-09-09 returns "Scanned
+  0 stocks" with "DD-HALT ... DD 18.39% >= 18.0% (peak=$111,737
+  cur=$91,185)". Last order fill: 2026-09-14 (a hedge put); no entries since.
+- The trip reading ($91,185) is the 2026-09-09 equity-curve point (-$12,059.74
+  in a day whose fills lost ~$415; 2026-09-10 read $101,529) already
+  diagnosed as an Alpaca paper-account DATA ANOMALY. Real low ~$100.8k
+  (~9.8% below peak), never 18%.
+- Release needs regime BULL/NEUTRAL AND gap <= 5% of the Python peak
+  $111,736.69 (the JS-side peak is $110,727 — two peaks): equity $105,947
+  was 5.18% below, ~$200 short.
+- Account 2026-09-08 -> 10-06: $102,808 -> $105,995 (+3.1%) vs SPY 764.06
+  -> 781.45 (+2.3%) — from HOLDINGS only (5 stocks + 1 option, ~67%
+  invested). Not flat; just not trading.
+- When it did trade: LEARN audit "win rate 0% (13 post-deploy trades)",
+  TIER3-DIAG "25.8% over 31 trades"; the 15 round trips reconstructable from
+  the last 100 orders (2026-09-04..14) netted -$23.47 and were tiny (single
+  option contracts, a few $ each). Strategy/sizing is the real money
+  question — queued as its own [RESEARCH] item, not part of this repair.
+
+FIX (bot_engine.update_equity_peak; risk_kill_switch.py untouched):
+1. Equity <= 0 / None (a failed account read) is not a reading: state is
+   left unchanged, never trips, never moves the peak. (Before: computed a
+   100% drawdown and tripped.)
+2. Trips still halt INSTANTLY (fail-safe) but are unconfirmed; the first
+   reading >= DRAWDOWN_HALT_CONFIRM_MIN_SECONDS (60) later confirms when dd
+   >= DRAWDOWN_HALT_CONFIRM_FRACTION (0.5) x DRAWDOWN_HALT_PCT (= 9%), after
+   which the one-way ratchet applies exactly as before; a re-read below that
+   releases the trip as bad data, recorded in the state file
+   (last_anomaly_release) and surfaced as a DD-HALT "RELEASED as bad-data
+   trip" audit line via scan_market -> bot.ts.
+3. Pre-existing halts carry no confirmation fields and are treated as
+   unconfirmed: the live 2026-09-09 halt re-reads at 5.18% (< 9%) on the
+   first Tier-2 scan after deploy and is released — the requested reset.
+NEW CONFIG KEYS (no prior values): DRAWDOWN_HALT_CONFIRM_MIN_SECONDS=60,
+DRAWDOWN_HALT_CONFIRM_FRACTION=0.5. DRAWDOWN_HALT_PCT (18) and the resume
+rule (BULL/NEUTRAL + 5%) are unchanged.
+
+BACKTEST: backtest_v2.py does not model the portfolio DD halt (grepped: no
+DRAWDOWN_HALT / update_equity_peak references), so backtest Sharpe and
+max-DD are identical by construction; the evidence for this change is the
+live incident above, not an ablation.
+
+ROLLBACK TRIGGER: revert this change if (a) any "RELEASED as bad-data trip"
+audit line is followed within 5 trading days by a CONFIRMED >= 18%
+drawdown, or (b) the account's realized drawdown from peak exceeds 20%
+while the halt reads not-halted. Watch the first post-deploy Tier-2 scans
+for the RELEASED line and "Scanned N>0 stocks".
+
+RATCHET: test_dd_halt_confirmation.py (8 tests incl. the exact live legacy
+state; all 8 fail on the old code). test_risk_controls.py unchanged and
+passing. Full pytest 2,334 passed; counter ratchet OK.
+STARVED: no — next: [RESEARCH] why live trades lose (25.8% win rate) and
+why they are so small relative to a $106k account.
