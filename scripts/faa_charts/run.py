@@ -214,11 +214,15 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
     ok, reasons = edges_reusable(edges_json, charts)
     if not ok or args.remeasure:
         log(f"[{fam.id}] measuring chart edges ({'; '.join(reasons[:6]) or 'forced'})")
-        res = edges.measure_family(fam, charts, os.path.join(args.work, "faacache"), log)
+        res = edges.measure_family(fam, charts, os.path.join(args.work, "faacache"), log,
+                                   coarse_cache=os.path.join(args.work, f"{fam.id}-coarse.pkl"))
         edges_json = edges.to_json(fam.id, ed, res, {c.name: c for c in charts})
         edges_json["excluded"] = sorted(c.name for c in charts if c.name not in edges_json["charts"])
         origin = "measured"
     out["edges"] = origin
+    edges_path = os.path.join(args.work, f"{fam.id}-edges.json")
+    with open(edges_path, "w") as f:
+        json.dump(edges_json, f)  # kept locally too: the seed for datacore/faa_charts/edges/
     pm = os.path.join(args.work, f"{fam.id}-{ed}.pmtiles")
     rep = bake.bake_family(fam, specs, edges_json, pm, os.path.join(work, "tiles"), ed, log=log)
     for c in charts:
@@ -238,9 +242,6 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
     log(f"[{fam.id}] uploading {os.path.getsize(pm) / 1e9:.2f} GB -> {key}")
     r2_put_file(pm, key, "application/vnd.pmtiles")
     if origin == "measured":
-        edges_path = os.path.join(args.work, f"{fam.id}-edges.json")
-        with open(edges_path, "w") as f:
-            json.dump(edges_json, f)
         r2_put_file(edges_path, f"{R2_PREFIX}/edges/{fam.id}.json", "application/json")
     entry = {
         "edition": ed, "key": key, "bytes": os.path.getsize(pm),

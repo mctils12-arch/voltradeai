@@ -51,6 +51,8 @@ BLOCK = 16
 COARSE_THRESHOLD = 100.0
 REFINE_THRESHOLD = 30.0
 MIN_PIECE_BLOCKS = 40
+SMOOTH_RADIUS = 3  # majority window: 7x7 blocks
+DP_TOLERANCE_BLOCKS = 4.0  # coarse outline simplification before refinement
 
 
 # ── pure geometry ───────────────────────────────────────────────────────────
@@ -252,9 +254,22 @@ def chart_masks(own: Dict[tuple, Dict[int, np.ndarray]], n_charts: int, z: int):
         # one tile of margin so morphology never touches the array edge
         x0 -= 1; y0 -= 1; x1 += 1; y1 += 1
         m = np.zeros(((y1 - y0 + 1) * nb, (x1 - x0 + 1) * nb), bool)
+        anyown = np.zeros_like(m)
         for (x, y), v in own.items():
-            if ci in v and x0 <= x <= x1 and y0 <= y <= y1:
-                m[(y - y0) * nb:(y - y0 + 1) * nb, (x - x0) * nb:(x - x0 + 1) * nb] = v[ci]
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                sl = (slice((y - y0) * nb, (y - y0 + 1) * nb), slice((x - x0) * nb, (x - x0 + 1) * nb))
+                for oc, om in v.items():
+                    anyown[sl] |= om
+                if ci in v:
+                    m[sl] = v[ci]
+        # MAJORITY SMOOTHING: where two overlapping charts draw the same plain
+        # terrain, ownership flips block to block (both match about equally);
+        # a block belongs to this chart if it owns most of the owned blocks
+        # around it. Straightens shared edges so they refine as long lines.
+        k = 2 * SMOOTH_RADIUS + 1
+        mine = nd.uniform_filter(m.astype(np.float32), k)
+        owned = nd.uniform_filter(anyown.astype(np.float32), k)
+        m = (mine > 0.5 * owned) & (owned > 0)
         m = nd.binary_closing(m, iterations=3)
         m = nd.binary_fill_holes(m)
         m = nd.binary_opening(m, iterations=2)
@@ -482,7 +497,7 @@ def _refine_chart(args):
         seg_m = math.hypot(ring_m[1][0] - ring_m[0][0], ring_m[1][1] - ring_m[0][1]) or block_m
         seg_px = math.hypot(ring_px[1][0] - ring_px[0][0], ring_px[1][1] - ring_px[0][1]) or 1.0
         block_px = block_m * seg_px / seg_m
-        ring = simplify_ring(ring_px, 2.5 * block_px)
+        ring = simplify_ring(ring_px, DP_TOLERANCE_BLOCKS * block_px)
         rr, nref, res = refine_ring(src, ring, zr, cache, block_m, block_px)
         er.rings_px.append(rr)
         er.refined_edges += nref
@@ -492,14 +507,31 @@ def _refine_chart(args):
     return er
 
 
-def measure_family(fam, charts: Sequence[ChartSource], faa_cache_dir: str, log=print, workers: int = 0) -> List[EdgeResult]:
+def measure_family(fam, charts: Sequence[ChartSource], faa_cache_dir: str, log=print, workers: int = 0,
+                   coarse_cache: Optional[str] = None) -> List[EdgeResult]:
+    """`coarse_cache`: optional pickle of the coarse ownership, keyed by the
+    charts' names + fingerprints (the slow, CPU-bound half; edge refinement
+    can be re-run against it)."""
     import os
+    import pickle
     from multiprocessing import Pool
 
     cache = TileCache(fam.service, faa_cache_dir)
     zc = fam.measure_zoom
-    log(f"[{fam.id}] coarse ownership at z{zc} over {len(charts)} charts")
-    own = coarse_matches(charts, zc, cache, log, workers)
+    key = [(c.name, fingerprint(c)) for c in charts]
+    own = None
+    if coarse_cache and os.path.exists(coarse_cache):
+        with open(coarse_cache, "rb") as f:
+            saved = pickle.load(f)
+        if saved.get("key") == key and saved.get("z") == zc:
+            own = saved["own"]
+            log(f"[{fam.id}] coarse ownership at z{zc}: reused {coarse_cache}")
+    if own is None:
+        log(f"[{fam.id}] coarse ownership at z{zc} over {len(charts)} charts")
+        own = coarse_matches(charts, zc, cache, log, workers)
+        if coarse_cache:
+            with open(coarse_cache, "wb") as f:
+                pickle.dump({"key": key, "z": zc, "own": own}, f)
     masks = chart_masks(own, len(charts), zc)
     jobs = [(charts[ci].name, charts[ci].path, fam.service, faa_cache_dir, mask, origin, zc, fam.refine_zoom)
             for ci, (mask, origin) in sorted(masks.items())]
