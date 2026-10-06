@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine PRODUCT session, ~18:10Z Tuesday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: ENDPOINT-AERODROME COMPLETION REFUTED BY THE HONESTY CONTRACT
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.3%, server_version 1.0.1032 live). Took NEXT from the 13:15Z entry: read the live unresolved-token census.
+PRIOR: top unresolved tokens are SID/STAR names; airport idents are secondary.
+RESULT (live plan-status swim.routeShape, cumulative): unplaced reasons fewFixes 27,033 / noText 7,308 / noFixResolved 6,175 / airwayUnbounded 466 / legTooLong 134. Top unresolved tokens: "/" (22,514, split artifact of "./."), then ~30 airport idents (KORD 1,327, KDFW 1,003, KDEN 807, ...), then SID/STAR names (WYNDE3 293, PARCH4 292, ...); sampled fewFixes texts also carry lat/lon waypoints (4203N/08500W) and fix-radial-distance tokens (SNS285053, PVD083056). Prior refuted in part: airport endpoints are the largest NAMED unresolved group.
+ATTEMPT (v1.0.1033, NOT SHIPPED): let the filed first/last-token aerodromes (OurAirports index) complete a route with <3 NASR fixes. CI killed it twice, correctly: (1) swimSfdps "no invented points" — KTEB..WHITE..J209..KPBI chorded across an airway absent from the NASR table (patched with an AIRWAY_RE refusal); (2) flightPlans "FILED text-only plan ... deviation stays UNKNOWN" (KSFO..SNS..KLAX) — the repo's honesty contract says endpoints, or endpoints plus ONE fix, do not determine a route; >=3 resolved fixes is the bar for calling a path "filed", and endpoints satisfy flightPlans' "point off the endpoints" guard far too cheaply. Weakening those assertions is forbidden and I have no evidence for a lower bar, so the change was reverted (no server code ships).
+VERDICT: hypothesis dead at the LOGIC layer as specified (endpoints as path points). Layer-of-death: placement rule vs honesty contract, not data. The census itself stands as the gate-1 finding: ~27k fewFixes plans are mostly short/SID-STAR-bracketed texts whose unresolved tokens are procedure names, airports, lat/lon and radial-distance waypoints.
+NEXT: (a) report-only counter splitting fewFixes by resolved-fix count (1 vs 2) and whether lat/lon tokens are present, to size what a legitimate lat/lon-waypoint resolver (pure geometry, no source) could recover toward the >=3-fix bar; (b) radial-distance tokens need VOR magnetic variation (NASR NAV_BASE) — build-first check. ROLLBACK: n/a (docs). MERGE: docs-only, any time.
+STARVED: no
+
 ## 2026-10-06 (scheduled-routine PRODUCT session, ~13:15Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: UNRESOLVED-TOKEN CENSUS (v1.0.1029)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.4%). Took NEXT from the 11:05Z entry.
