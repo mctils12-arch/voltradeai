@@ -221,6 +221,9 @@ def log_candidate(
     entry_price: float = 0.0,
     vxx_ratio: float = 1.0,
     regime_label: str = "neutral",
+    side: str = "",
+    action_label: str = "",
+    trade_type: str = "",
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -240,6 +243,13 @@ def log_candidate(
         entry_price:     stock price at scan time (for forward-return math)
         vxx_ratio:       VXX regime context
         regime_label:    regime string from _classify_regime
+        side / action_label / trade_type: what deep_score() would actually DO
+                         with the candidate ("buy"/"BUY"/"stock", "sell"/
+                         "SELL OPTIONS"/"options", "sell"/"SELL"). Added
+                         2026-10-06: "taken" only means score >= MIN_SCORE,
+                         and many high scorers are option SALES or overbought
+                         SELLs, not stock buys — without this, outcome labels
+                         (long-stock returns) mix decisions the bot never made.
 
     Rate cost: ZERO API calls. Pure file I/O.
     """
@@ -256,6 +266,9 @@ def log_candidate(
             "entry_price":     float(entry_price) if entry_price else 0.0,
             "vxx_ratio":       float(vxx_ratio),
             "regime_label":    str(regime_label),
+            "side":            str(side or ""),
+            "action_label":    str(action_label or ""),
+            "trade_type":      str(trade_type or ""),
             "features":        {k: float(v) if isinstance(v, (int, float)) else 0.0
                                 for k, v in features.items()} if features else {},
             "outcomes":        {f"+{h}d": None for h in FORWARD_HORIZONS_DAYS},
@@ -1124,6 +1137,8 @@ def shadow_band_report(records: List[dict], min_n: int = 20) -> dict:
             ("band_all", _band_of(cp)),
             ("score_quintile", quint(float(r.get("score", 0) or 0))),
             ("decision_x_regime", f"{dec}|{r.get('regime_label') or '?'}"),
+            ("decision_x_action", f"{dec}|{r.get('action_label') or 'unrecorded'}"),
+            ("action_x_band", f"{r.get('action_label') or 'unrecorded'}|{_band_of(cp)}"),
             ("all", "all"),
         }
         for h in horizons:
@@ -1144,7 +1159,9 @@ def shadow_band_report(records: List[dict], min_n: int = 20) -> dict:
         "labeling": {"method": "path_dependent_v2", "win_pct": WIN_THRESHOLD_PCT,
                      "stop_pct": LOSS_THRESHOLD_PCT,
                      "note": "return_pct is entry->exit under the labeler's target/stop/timeout rules, "
-                             "not a raw forward return; 'all' is the base rate across every scored candidate"},
+                             "not a raw forward return; 'all' is the base rate across every scored candidate. "
+                             "Labels are LONG-stock outcomes: they mean what they say only for action BUY. "
+                             "Records before 2026-10-06 carry no action ('unrecorded')."},
         "score_quintile_edges": [round(e, 3) for e in edges],
         "change_bands": [b[2] for b in SHADOW_CHANGE_BANDS],
         "min_n": min_n,

@@ -106874,3 +106874,54 @@ NOT ACTIONABLE YET: /api/diag/shadow_bands answers "unknown probe" — server_ve
 NEXT: first session after v1.0.1031 is live reads /api/diag/shadow_bands and judges the reversal prior ([RESEARCH]).
 Merge note: docs-only; no market-hours constraint.
 STARVED: no.
+
+
+## 2026-10-06 [RULE-REVIEW] — T-BOT measurement — SHADOW BAND READ + "TAKEN" IS NOT "BOUGHT": RECORD THE ACTION (v1.0.1032)
+
+JUDGED the prior filed in the shadow_bands entry (v1.0.1031) against the
+live /api/diag/shadow_bands read (16:05Z, 19,876 labeled candidates,
+2026-07-25..09-08, ~90% NEUTRAL_BULL). Path-dependent labels (+2%/-4%/
+timeout), +5d horizon:
+- BASE RATE ("all"): win 49.2%, mean -1.02%. Every cell of the funnel is
+  negative under these exits except rejected_masterkill (n=134, all in the
+  -3..3 band — index/defensive names, not scan picks).
+- SCORE QUINTILE is MONOTONE INVERSE: Q1 -0.60% (56.5% win) -> Q2 -0.99 ->
+  Q3 -0.96 -> Q4 -1.06 -> Q5 -1.46% (42.3%); same order at +10d.
+- WORST CELL: taken|10..20 (same-day gain 10-20%): n=3,704, 35.1% win,
+  -1.79%. taken|<-10 (bought after big drops): 65.0% win, -0.10% — the best
+  "taken" cell. The funnel is ~all |change| >= 10% (3..10 band n=3): the
+  quick-score prescreen (3 x min(|chg|,15) + vol + bonus) admits only
+  extreme movers.
+PRIOR HELD in direction (high score worse; 10-20% gainers worst) — but the
+evidence is CONTAMINATED three ways, so NO scoring change ships on it:
+1. "taken" = combined_score >= MIN_SCORE only. deep_score() then routes
+   high scorers with VRP > 5 to SELL OPTIONS and RSI > 70 to SELL — not
+   stock buys — yet every record is labeled as a LONG stock outcome. Part
+   of "high score does worst" is "the stocks the bot chose NOT to buy fell".
+2. Labeler exits (+2% TP / -4% SL, 5d) do not match live exits (ATR stop
+   1.5x clamped 2-6%, TP = 4x stop, 10-day time stop): magnitudes are not
+   what the live bot would realize. shadow_portfolio's "matches bot's
+   take-profit" comment is stale. Filed for its own measurement PR.
+3. One ticker is logged on every 3-min scan it survives: 20k records are
+   far fewer independent bets (overlapping windows) — significance is
+   overstated by an unknown factor.
+Also confirmed: backtest_v2.py simulates single-ticker strategy modules,
+not the scan/quick-score/deep-score funnel, so a funnel ablation cannot be
+backtested with the existing engine (wishlist-grade gap).
+
+CHANGE (measurement only): log_candidate() now records side /
+action_label / trade_type (deep_score passes the values it already
+computed before logging); shadow_band_report() adds decision_x_action and
+action_x_band cuts; pre-2026-10-06 records read "unrecorded". ML training
+reads only FEATURE_COLS from features — unaffected (checked).
+MEASUREMENT INTEGRITY: no existing metric's value changes on identical
+inputs (new fields + new cuts only).
+
+NEXT (own PRs, in order): (a) after ~5 trading days of action-tagged
+records, re-read decision_x_action / action_x_band for BUY only; (b) align
+the shadow labeler's exits to the live ATR/4x/10d rules (ruler change,
+[RULE-REVIEW], before/after stated); (c) only then a scoring/funnel change
+(candidate: stop admitting 10-20% same-day gainers as BUYs) as an
+exploratory experiment with a kill date, counterfactually logged.
+TESTS: test_shadow_band_report.py now 6. Full pytest 2,340; ratchet OK.
+STARVED: no.
