@@ -364,14 +364,16 @@ def densify(ring: Sequence[Pt], step: float) -> List[Pt]:
     return out
 
 
-def refine_ring(src: ChartSource, ring: List[Pt], zr: int, cache: TileCache, block_m: float,
+def refine_ring(src: ChartSource, ring: List[Pt], zooms, cache: TileCache, block_m: float,
                 block_px: float) -> Tuple[List[Pt], int, List[float]]:
-    """Re-measure each long edge (pixel-space ring) at zoom `zr`."""
+    """Re-measure each long edge (pixel-space ring), at the first of `zooms`
+    where the FAA mosaic gives a conclusive answer (the FAA's top level is
+    missing in places: VFR_Terminal has no z12 over the Alaska TACs)."""
     n = len(ring)
     if n < 3:
         return ring, 0, []
-    px_m = 2 * ORIGIN / (2 ** zr) / TILE
-    half = int(6 * block_m / px_m)  # profile half-length: +/- 6 coarse blocks
+    if isinstance(zooms, int):
+        zooms = (zooms,)
     lines: List[Optional[Tuple[Pt, Pt]]] = []
     resid: List[float] = []
     refined = 0
@@ -404,13 +406,19 @@ def refine_ring(src: ChartSource, ring: List[Pt], zr: int, cache: TileCache, blo
         for (x0, y0), (x1, y1) in zip(cm, cn):
             ll = math.hypot(x1 - x0, y1 - y0) or 1.0
             nrms_m.append(((x1 - x0) / ll, (y1 - y0) / ll))
-        cache.prefetch(_profile_tiles(cm, nrms_m, half, px_m, zr))
-        hits_m = []
-        for c, nm in zip(cm, nrms_m):
-            off = _profile_step(src, c, nm, half, px_m, zr, cache)
-            if off is not None:
-                hits_m.append((c[0] + off * nm[0], c[1] + off * nm[1]))
-        pts = m_to_px(src, hits_m)
+        pts = []
+        for zr in zooms:
+            px_m = 2 * ORIGIN / (2 ** zr) / TILE
+            half = int(6 * block_m / px_m)  # profile half-length: +/- 6 coarse blocks
+            cache.prefetch(_profile_tiles(cm, nrms_m, half, px_m, zr))
+            hits_m = []
+            for c, nm in zip(cm, nrms_m):
+                off = _profile_step(src, c, nm, half, px_m, zr, cache)
+                if off is not None:
+                    hits_m.append((c[0] + off * nm[0], c[1] + off * nm[1]))
+            pts = m_to_px(src, hits_m)
+            if len(pts) >= 5:
+                break
         if len(pts) < 5:
             lines.append(None)
             continue
@@ -512,7 +520,7 @@ def _refine_chart(args):
         seg_px = math.hypot(ring_px[1][0] - ring_px[0][0], ring_px[1][1] - ring_px[0][1]) or 1.0
         block_px = block_m * seg_px / seg_m
         ring = simplify_ring(ring_px, DP_TOLERANCE_BLOCKS * block_px)
-        rr, nref, res = refine_ring(src, ring, zr, cache, block_m, block_px)
+        rr, nref, res = refine_ring(src, ring, (zr, zr - 1), cache, block_m, block_px)
         er.rings_px.append(rr)
         er.refined_edges += nref
         er.total_edges += len(ring)
