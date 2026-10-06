@@ -148,3 +148,31 @@ test("card text says honestly what is FAA-drawn, what is shrunk, what is enlarge
   assert.doesNotMatch(sec, /satellite elsewhere/);
   assert.match(aeroBadge(AERO_CHART_DEFAULTS.tac, now).coverage, /over the VFR Sectional everywhere else/);
 });
+
+// ── own bake of the FAA chart files (2026-10-06) ────────────────────────────
+
+test("registry merge: tileSource is read (own-bake) and anything else defaults to the FAA service", () => {
+  const m = mergeAeroMeta([
+    { id: "sectional", tileSource: "own-bake", edition: "2026-09-03", effective: "2026-09-03", expires: "2026-10-29",
+      minzoom: 8, maxzoom: 11, servedMinzoom: 2, overview: true, tiles: "/tiles/aero/sectional/{z}/{x}/{y}?e=2026-09-03" },
+    { id: "tac", tileSource: "somewhere-else", tiles: "/tiles/aero/tac/{z}/{x}/{y}" },
+  ]);
+  assert.equal(m.sectional.tileSource, "own-bake");
+  assert.equal(m.sectional.maxzoom, 11, "the map enlarges past the bake's native level");
+  assert.equal(m.tac.tileSource, "faa-service");
+  assert.equal(m.ifrlow.tileSource, "faa-service");
+});
+
+test("badge: an own bake says it is built from the FAA's chart files, and a lagging one says it is not baked yet", () => {
+  const now = Date.parse("2026-10-06T12:00:00Z");
+  const own = aeroBadge({ ...AERO_CHART_DEFAULTS.sectional, tileSource: "own-bake", edition: "2026-09-03",
+    effective: "2026-09-03", expires: "2026-10-29" }, now);
+  assert.equal(own.tone, "ok");
+  assert.match(own.edition, /Sep 3, 2026 – Oct 29, 2026 · built from the FAA's chart files/);
+  const lag = aeroBadge({ ...AERO_CHART_DEFAULTS.sectional, tileSource: "own-bake", edition: "2026-09-03",
+    effective: "2026-09-03", expires: "2026-10-29", behindCurrentCycle: true }, Date.parse("2026-10-30T12:00:00Z"));
+  assert.equal(lag.tone, "warn");
+  assert.match(lag.edition, /not baked yet/);
+  const svc = aeroBadge({ ...AERO_CHART_DEFAULTS.sectional, edition: "2026-09-03", effective: "2026-09-03", expires: "2026-10-29" }, now);
+  assert.doesNotMatch(svc.edition, /chart files/);
+});

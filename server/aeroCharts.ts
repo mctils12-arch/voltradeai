@@ -59,6 +59,16 @@
 //     its parent's quarter, enlarged — one continuous chart.
 //   - TAC is the exception: it has no overview (TACs exist only around ~30
 //     airports); the client draws it over a Sectional underlay instead.
+//
+// OUR OWN BAKE (human 2026-10-06: "build it all" — charts that update by
+// themselves when the FAA publishes new ones): the FAA service lags the
+// cycle, so scripts/faa_charts/run.py bakes the FAA's own GeoTIFFs each
+// cycle into one PMTiles per chart (z2..native, borders cut along edges
+// measured against this very service's mosaic, gated against it before
+// publishing) and server/aeroBake.ts serves it. A chart switches to the bake
+// only when the bake's edition is IN EFFECT and NEWER than the service's;
+// otherwise everything above applies unchanged. That bake is also the real
+// Law II.8 answer: those tiles never touch an upstream WMTS at runtime.
 
 import fs from "fs";
 import os from "os";
@@ -66,6 +76,10 @@ import path from "path";
 import type { Express, Request, Response } from "express";
 import { createR2Client, errText, r2ConfigDiagnostics, r2ConfigFromEnv, type R2Client } from "./r2Client";
 import { childTiles, composeOverview, fillUnder } from "./aeroOverview";
+import {
+  AERO_BAKE_MANIFEST_KEY, AERO_BAKE_MANIFEST_RETRY_MS, AERO_BAKE_MANIFEST_TTL_MS, bakePublicBase, chooseBake,
+  createBakeReader, parseBakeManifest, type BakeEntry, type BakeManifest,
+} from "./aeroBake";
 
 // ── chart catalogue ─────────────────────────────────────────────────────────
 
@@ -168,11 +182,14 @@ export function validTile(z: number, x: number, y: number): boolean {
   return x < n && y < n;
 }
 
-export type TileImageType = "image/jpeg" | "image/png" | null;
+export type TileImageType = "image/jpeg" | "image/png" | "image/webp" | null;
 
 export function sniffImageType(b: Uint8Array): TileImageType {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
   if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  // RIFF....WEBP — our own bake (server/aeroBake.ts)
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+    && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
   return null;
 }
 
@@ -225,17 +242,28 @@ export interface EditionInfo {
   edition: string;
   /** "service-metadata" = parsed from the FAA tile service; "unverified" =
    *  metadata unreachable, keyed by the FAA cycle date but NOT claimed as
-   *  the tiles' edition */
-  source: "service-metadata" | "unverified";
+   *  the tiles' edition; "own-bake" = our bake of the FAA GeoTIFFs
+   *  (server/aeroBake.ts), effective and newer than the service's edition */
+  source: "service-metadata" | "unverified" | "own-bake";
   effective: string | null;
   expires: string | null;
   expired: boolean;
   currentFaaCycle: string;
   behindCurrentCycle: boolean;
+  /** the bake being served — present only when source = "own-bake" */
+  bake?: BakeEntry;
 }
 
-export function editionInfo(serviceEdition: string | null, nowMs: number): EditionInfo {
+export function editionInfo(serviceEdition: string | null, nowMs: number, bakes?: readonly BakeEntry[]): EditionInfo {
   const cur = faaCycleStart(nowMs);
+  const bake = chooseBake(bakes, serviceEdition, isoDay(nowMs));
+  if (bake) {
+    const expires = addDays(bake.edition, FAA_CYCLE_DAYS);
+    return {
+      edition: bake.edition, source: "own-bake", effective: bake.edition, expires,
+      expired: isoDay(nowMs) >= expires, currentFaaCycle: cur, behindCurrentCycle: bake.edition < cur, bake,
+    };
+  }
   if (!serviceEdition) {
     return {
       edition: `unverified-${cur}`, source: "unverified", effective: null, expires: null,
@@ -434,10 +462,13 @@ interface ChartState {
 }
 
 export type TileOutcome =
-  | { kind: "tile"; body: Buffer; contentType: "image/jpeg" | "image/png"; from: "r2" | "tmp" | "upstream" | "overview" | "fill" }
+  | { kind: "tile"; body: Buffer; contentType: "image/jpeg" | "image/png" | "image/webp";
+      from: "r2" | "tmp" | "upstream" | "overview" | "fill" | "bake";
+      /** a stand-in served while the bake is unreadable — never cached */
+      noStore?: boolean }
   /** "pending" = an overview level deeper than on-demand builds allow and not
    *  baked yet — served transparent and NEVER cached */
-  | { kind: "empty"; from: "r2" | "tmp" | "upstream" | "out-of-range" | "negative" | "overview" | "pending" }
+  | { kind: "empty"; from: "r2" | "tmp" | "upstream" | "out-of-range" | "negative" | "overview" | "pending" | "bake" }
   | { kind: "error"; error: string };
 
 export const AERO_METADATA_TTL_MS = 6 * 3600_000;
@@ -478,6 +509,42 @@ export function createAeroChartService(deps: AeroDeps = {}) {
   let upstreamActive = 0;
   const upstreamWaiters: Array<() => void> = [];
   const metaInflight = new Map<AeroChartId, Promise<void>>();
+
+  // our own bake (server/aeroBake.ts): the published manifest, refreshed on
+  // its own timer; a missing or unreadable manifest = FAA service as before
+  const bakeBase = bakePublicBase(env);
+  const bakeReader = createBakeReader(bakeBase, fetchImpl);
+  const bakeState = {
+    manifest: {} as BakeManifest, fetchedAt: null as number | null, error: null as string | null,
+    inflight: null as Promise<void> | null,
+  };
+  const bakeCounters = { bakeHits: 0, bakeEmpty: 0, bakeErrors: 0, bakeFallbacks: 0, lastBakeError: null as string | null };
+
+  async function refreshBakeManifest(): Promise<void> {
+    try {
+      const res = await timedFetch(`${bakeBase}/${AERO_BAKE_MANIFEST_KEY}?t=${Math.floor(now() / 60_000)}`);
+      if (res.status === 404) {
+        await res.arrayBuffer().catch(() => undefined);
+        bakeState.manifest = {};
+        bakeState.error = null;
+      } else if (!res.ok) {
+        throw new Error(`manifest HTTP ${res.status}`);
+      } else {
+        bakeState.manifest = parseBakeManifest(await res.json(), AERO_CHART_IDS);
+        bakeState.error = null;
+      }
+    } catch (e: unknown) {
+      bakeState.error = errText(e); // keep the last good manifest
+    }
+    bakeState.fetchedAt = now();
+  }
+
+  function bakeManifestFresh(): Promise<void> | null {
+    const ttl = bakeState.error ? AERO_BAKE_MANIFEST_RETRY_MS : AERO_BAKE_MANIFEST_TTL_MS;
+    if (bakeState.fetchedAt !== null && now() - bakeState.fetchedAt <= ttl) return null;
+    if (!bakeState.inflight) bakeState.inflight = refreshBakeManifest().finally(() => { bakeState.inflight = null; });
+    return bakeState.inflight;
+  }
 
   async function withUpstreamSlot<T>(fn: () => Promise<T>): Promise<T> {
     while (upstreamActive >= AERO_MAX_UPSTREAM_INFLIGHT) await new Promise<void>((r) => upstreamWaiters.push(r));
@@ -538,7 +605,9 @@ export function createAeroChartService(deps: AeroDeps = {}) {
       // of a known edition happens in the background.
       if (st.metadataFetchedAt === null) await p;
     }
-    return editionInfo(st.serviceEdition, now());
+    const bp = bakeManifestFresh();
+    if (bp && bakeState.fetchedAt === null) await bp;
+    return editionInfo(st.serviceEdition, now(), bakeState.manifest[chart]);
   }
 
   async function fetchUpstream(chart: AeroChartId, z: number, x: number, y: number): Promise<TileOutcome> {
@@ -662,10 +731,52 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     const st = charts[chart];
     const def = AERO_CHARTS[chart];
     if (!validTile(z, x, y) || z > st.maxzoom) return { kind: "empty", from: "out-of-range" };
+    if (ed.source === "own-bake" && ed.bake) return resolveBaked(chart, ed, ed.bake, z, x, y, mode);
     if (z < st.minzoom && (!def.overview || z < AERO_OVERVIEW_MIN_ZOOM)) return { kind: "empty", from: "out-of-range" };
     const bandMin = aeroBandMin(chart, st.minzoom);
     if (z >= bandMin && def.parentFill && z > bandMin) return resolveFilled(chart, ed, z, x, y, mode);
     return resolvePlain(chart, ed, z, x, y, mode);
+  }
+
+  /** Our own bake: one range read from the published PMTiles (every level
+   *  z2..native is baked — no overview or fill work here), kept in the tmp
+   *  LRU. If the archive cannot be read, the FAA service tile stands in for
+   *  that request only (never cached), so a bucket hiccup is a momentarily
+   *  older tile, not a hole in the map. */
+  function resolveBaked(chart: AeroChartId, ed: EditionInfo, bake: BakeEntry, z: number, x: number, y: number, mode: Mode): Promise<TileOutcome> {
+    if (z < bake.minZoom || z > bake.maxZoom) return Promise.resolve({ kind: "empty", from: "out-of-range" });
+    const key = aeroCacheKey(chart, `own-${bake.edition}`, z, x, y);
+    return dedup(key, async () => {
+      const hit = tmpCache().get(key);
+      if (hit) {
+        const o = fromCachedBytes(hit, "tmp");
+        if (o.kind !== "error") { counters.tmpHits++; charts[chart].hits++; return o; }
+      }
+      try {
+        const body = await bakeReader.tile(bake.key, z, x, y);
+        if (!body) {
+          bakeCounters.bakeEmpty++;
+          tmpCache().put(key, Buffer.alloc(0));
+          return { kind: "empty", from: "bake" };
+        }
+        const type = sniffImageType(body);
+        if (!type) throw new Error(`bake tile ${z}/${x}/${y} is not an image (${body.length} bytes)`);
+        bakeCounters.bakeHits++;
+        tmpCache().put(key, body);
+        return { kind: "tile", body, contentType: type, from: "bake" };
+      } catch (e: unknown) {
+        bakeCounters.bakeErrors++;
+        bakeCounters.lastBakeError = errText(e);
+        bakeReader.forget(bake.key);
+        const svc = editionInfo(charts[chart].serviceEdition, now());
+        if (svc.source !== "service-metadata" || z < charts[chart].minzoom || z > charts[chart].maxzoom) {
+          return { kind: "error", error: `own bake unreadable: ${errText(e)}` };
+        }
+        bakeCounters.bakeFallbacks++;
+        const o = await resolveTile(chart, svc, z, x, y, mode);
+        return o.kind === "tile" ? { ...o, noStore: true } : o;
+      }
+    });
   }
 
   /** Overview build (below the band) or the FAA read-through (inside it). */
@@ -738,6 +849,7 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     try {
       for (const chart of AERO_CHART_IDS) {
         const ed = await edition(chart);
+        if (ed.source === "own-bake") { prefetch.note = `skipped ${chart}: served from our own bake (${ed.edition})`; continue; }
         if (ed.source !== "service-metadata") { prefetch.note = `skipped ${chart}: edition unverified`; continue; }
         const marker = `aero/${chart}/${ed.edition}/_prefetch_done`;
         const head = await r2.headObject(marker);
@@ -813,6 +925,27 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     }
   }
 
+  /** Zoom band + tile source a client should use for a chart. Own bake:
+   *  every level z2..native is baked (servedMinzoom = its min), maxzoom = the
+   *  native level (the map enlarges past it). FAA service: as before. */
+  function zoomInfo(id: AeroChartId, ed: EditionInfo) {
+    const st = charts[id];
+    if (ed.source === "own-bake" && ed.bake) {
+      return {
+        minzoom: Math.max(ed.bake.faaMinZoom, ed.bake.minZoom), maxzoom: ed.bake.maxZoom,
+        servedMinzoom: ed.bake.minZoom, overview: true, tileSource: "own-bake" as const,
+      };
+    }
+    return {
+      minzoom: aeroBandMin(id, st.minzoom), maxzoom: st.maxzoom,
+      servedMinzoom: aeroServedMinZoom(id, st.minzoom), overview: AERO_CHARTS[id].overview, tileSource: "faa-service" as const,
+    };
+  }
+
+  function pinnedEdition(ed: EditionInfo): string | null {
+    return ed.source === "service-metadata" || ed.source === "own-bake" ? ed.edition : null;
+  }
+
   async function status() {
     const t = now();
     const rows = [];
@@ -823,13 +956,14 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         id, label: AERO_CHARTS[id].label, short: AERO_CHARTS[id].short, service: AERO_CHARTS[id].service,
         edition: ed.edition, editionSource: ed.source, effective: ed.effective, expires: ed.expires,
         expired: ed.expired, currentFaaCycle: ed.currentFaaCycle, behindCurrentCycle: ed.behindCurrentCycle,
+        serviceEdition: st.serviceEdition,
         // minzoom/maxzoom = where FAA-drawn chart content exists (IFR Low: 8,
         // its z7 is blank over CONUS); servedMinzoom = the
         // lowest zoom the client should request (overview levels included)
-        minzoom: aeroBandMin(id, st.minzoom), maxzoom: st.maxzoom,
-        servedMinzoom: aeroServedMinZoom(id, st.minzoom), overview: AERO_CHARTS[id].overview,
+        ...zoomInfo(id, ed),
+        bake: ed.bake ? { edition: ed.bake.edition, bakedAt: ed.bake.bakedAt, charts: ed.bake.charts, verify: ed.bake.verify } : null,
         coverage: AERO_CHARTS[id].coverage,
-        tiles: aeroClientTileTemplate(id, ed.source === "service-metadata" ? ed.edition : null),
+        tiles: aeroClientTileTemplate(id, pinnedEdition(ed)),
         metadataFetchedAt: st.metadataFetchedAt ? new Date(st.metadataFetchedAt).toISOString() : null,
         metadataError: st.metadataError, hits: st.hits, misses: st.misses,
       });
@@ -843,14 +977,22 @@ export function createAeroChartService(deps: AeroDeps = {}) {
         ...counters,
         lastUpstreamErrorAt: counters.lastUpstreamErrorAt ? new Date(counters.lastUpstreamErrorAt).toISOString() : null,
         upstreamInflight: upstreamActive,
+        ...bakeCounters,
         r2PutBudgetPerDay: r2.configured ? r2PutBudget : null,
         r2PutsToday: r2.configured ? r2PutBudget - r2BudgetLeft() : null,
       },
       prefetch: { ...prefetch, lastRunAt: prefetch.lastRunAt ? new Date(prefetch.lastRunAt).toISOString() : null },
       r2Config: r2ConfigDiagnostics(env),
+      ownBake: {
+        manifestUrl: `${bakeBase}/${AERO_BAKE_MANIFEST_KEY}`,
+        manifestFetchedAt: bakeState.fetchedAt ? new Date(bakeState.fetchedAt).toISOString() : null,
+        manifestError: bakeState.error,
+        published: Object.fromEntries(AERO_CHART_IDS.map((id) => [id, (bakeState.manifest[id] ?? []).map((b) => b.edition)])),
+        rule: "a bake replaces the FAA tile service for a chart once its edition is in effect AND newer than the service's edition",
+      },
       source: "FAA Aeronautical Information Services chart tile caches (public domain), re-served from this origin",
       cycleNote: `effective/expires follow the FAA ${FAA_CYCLE_DAYS}-day chart cycle from the service-reported edition; behindCurrentCycle = the FAA's published cycle is newer than what the tile service carries`,
-      lawNote: "Law II.8 compromise: lazy bake — first request per tile per edition reads through to the FAA service, then serves from our cache; with R2 configured a background job pre-bakes CONUS zoom<=9, then the zoomed-out overview levels (to zoom 2) for CONUS, Alaska, Hawaii and Puerto Rico",
+      lawNote: "Law II.8: charts served from our own bake (tileSource own-bake) come from a PMTiles we baked from the FAA's GeoTIFFs — no upstream at runtime. Charts still on the FAA service use the compromise: lazy bake — first request per tile per edition reads through to the FAA service, then serves from our cache; with R2 configured a background job pre-bakes CONUS zoom<=9, then the zoomed-out overview levels (to zoom 2) for CONUS, Alaska, Hawaii and Puerto Rico",
       overviewNote: `below the FAA's lowest level, tiles are built by shrinking the FAA's own tiles (2x2 -> 1) down to zoom ${AERO_OVERVIEW_MIN_ZOOM}; text is not legible at those scales. Above the FAA's top level the map enlarges the last FAA tile. IFR Low fills its zoom-12 gaps (outside Area charts) from zoom 11.`,
       notForNavigation: true,
       generated_at: new Date(t).toISOString(),
@@ -864,14 +1006,13 @@ export function createAeroChartService(deps: AeroDeps = {}) {
     const t = now();
     return AERO_CHART_IDS.map((id) => {
       const st = charts[id];
-      const ed = editionInfo(st.serviceEdition, t);
+      const ed = editionInfo(st.serviceEdition, t, bakeState.manifest[id]);
       return {
         id, label: AERO_CHARTS[id].label, short: AERO_CHARTS[id].short,
-        edition: ed.source === "service-metadata" ? ed.edition : null,
+        edition: pinnedEdition(ed),
         effective: ed.effective, expires: ed.expires, expired: ed.expired, behindCurrentCycle: ed.behindCurrentCycle,
-        minzoom: aeroBandMin(id, st.minzoom), maxzoom: st.maxzoom,
-        servedMinzoom: aeroServedMinZoom(id, st.minzoom), overview: AERO_CHARTS[id].overview,
-        tiles: aeroClientTileTemplate(id, ed.source === "service-metadata" ? ed.edition : null),
+        ...zoomInfo(id, ed),
+        tiles: aeroClientTileTemplate(id, pinnedEdition(ed)),
       };
     });
   }
@@ -911,6 +1052,11 @@ export async function handleAeroTile(svc: AeroChartService, req: Request, res: R
   }
   res.setHeader("cache-control", aeroCacheControl(requested, edition.edition));
   res.setHeader("x-aero-cache", outcome.from);
+  if (outcome.kind === "tile" && outcome.noStore) {
+    // the FAA service standing in for an unreadable bake tile: not the
+    // pinned edition's bytes, so never cache it under that URL
+    res.setHeader("cache-control", "no-store");
+  }
   if (outcome.kind === "empty" && outcome.from === "pending") {
     // a deep overview level not baked yet — transparent now, never cached
     res.setHeader("cache-control", "no-store");
@@ -940,8 +1086,14 @@ export function registerAeroChartRoutes(app: Express, deps: AeroDeps & { startTi
     svc.status().then((s) => res.json(s), (e: unknown) => res.status(500).json({ error: errText(e) }));
   });
   if (deps.startTimers !== false) {
-    // warm the edition metadata so the layers registry can badge freshness
+    // warm the edition metadata (and the own-bake manifest) so the layers
+    // registry can badge freshness and pick the right tile source
     for (const id of AERO_CHART_IDS) void svc.edition(id);
+    // the manifest is otherwise only re-read on demand; keep it current so a
+    // new bake (or the day one takes effect) reaches the registry without a
+    // tile request first
+    const bakeTick = setInterval(() => { for (const id of AERO_CHART_IDS) void svc.edition(id); }, AERO_BAKE_MANIFEST_TTL_MS);
+    bakeTick.unref?.();
     const kick = () => {
       svc.runPrefetch().catch((e: unknown) => console.warn(`[aero] prefetch failed: ${errText(e)}`));
     };

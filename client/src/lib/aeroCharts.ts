@@ -51,6 +51,9 @@ export interface AeroChartMeta {
   expires: string | null;
   expired: boolean;
   behindCurrentCycle: boolean;
+  /** "own-bake" = our bake of the FAA's chart files (current cycle, before
+   *  the FAA's tile service carries it); "faa-service" = the FAA's tiles */
+  tileSource: "own-bake" | "faa-service";
   tiles: string;
 }
 
@@ -61,19 +64,19 @@ export const AERO_CHART_DEFAULTS: Record<AeroChartViewId, AeroChartMeta> = {
   sectional: { id: "sectional", label: "VFR Sectional", short: "Sectional", minzoom: 8, maxzoom: 12,
     servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
-    tiles: "/tiles/aero/sectional/{z}/{x}/{y}" },
+    tileSource: "faa-service", tiles: "/tiles/aero/sectional/{z}/{x}/{y}" },
   tac: { id: "tac", label: "VFR Terminal Area (TAC)", short: "Terminal", minzoom: 10, maxzoom: 12,
     servedMinzoom: 10, overview: false,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
-    tiles: "/tiles/aero/tac/{z}/{x}/{y}" },
+    tileSource: "faa-service", tiles: "/tiles/aero/tac/{z}/{x}/{y}" },
   ifrlow: { id: "ifrlow", label: "IFR Low (Enroute + Area)", short: "IFR Low", minzoom: 7, maxzoom: 12,
     servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
-    tiles: "/tiles/aero/ifrlow/{z}/{x}/{y}" },
+    tileSource: "faa-service", tiles: "/tiles/aero/ifrlow/{z}/{x}/{y}" },
   ifrhigh: { id: "ifrhigh", label: "IFR Enroute High", short: "IFR High", minzoom: 5, maxzoom: 9,
     servedMinzoom: AERO_OVERVIEW_MIN_ZOOM, overview: true,
     edition: null, effective: null, expires: null, expired: false, behindCurrentCycle: false,
-    tiles: "/tiles/aero/ifrhigh/{z}/{x}/{y}" },
+    tileSource: "faa-service", tiles: "/tiles/aero/ifrhigh/{z}/{x}/{y}" },
 };
 
 export function isAeroViewId(s: unknown): s is AeroViewId {
@@ -103,6 +106,7 @@ export function mergeAeroMeta(rows: unknown): Record<AeroChartViewId, AeroChartM
       overview, servedMinzoom: Math.max(AERO_OVERVIEW_MIN_ZOOM, Math.min(served, minzoom)),
       edition: str(r.edition), effective: str(r.effective), expires: str(r.expires),
       expired: r.expired === true, behindCurrentCycle: r.behindCurrentCycle === true,
+      tileSource: r.tileSource === "own-bake" ? "own-bake" : "faa-service",
       tiles,
     };
   }
@@ -248,14 +252,15 @@ export function aeroBadge(meta: AeroChartMeta, nowMs: number = Date.now()): Aero
   const range = `${fmtDay(meta.effective)} – ${fmtDay(meta.expires)}`;
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const expired = meta.expired || today >= meta.expires;
+  const own = meta.tileSource === "own-bake";
   if (expired || meta.behindCurrentCycle) {
     return {
       title: meta.label,
-      edition: `edition ${range} · ${expired ? "expired" : "superseded"} — FAA's newer cycle not yet on its tile service`,
+      edition: `edition ${range} · ${expired ? "expired" : "superseded"} — ${own ? "FAA's newer cycle not baked yet" : "FAA's newer cycle not yet on its tile service"}`,
       tone: "warn", coverage,
     };
   }
-  return { title: meta.label, edition: `edition ${range}`, tone: "ok", coverage };
+  return { title: meta.label, edition: own ? `edition ${range} · built from the FAA's chart files` : `edition ${range}`, tone: "ok", coverage };
 }
 
 export const AERO_NOT_FOR_NAV = "Not for navigation";
