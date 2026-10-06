@@ -106863,3 +106863,14 @@ NEXT: after deploy, read /api/diag/shadow_bands and judge the prior; a
 scoring change ships only with this counterfactual evidence + a backtest
 ablation, as its own PR.
 STARVED: no.
+
+
+## 2026-10-06 (scheduled-routine session, ~16:05Z, market hours) [NO-ACTION] — VERIFIED v1.0.1030 DD-HALT RELEASE LIVE; shadow_bands awaits deploy
+
+Loop-health ratio (last 10 tags): 1 PIPELINE, 6 NO-ACTION, 1 PRODUCT, 1 REPAIR, 1 RESEARCH — no thrash.
+Live (16:04Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -4.3%.
+REPAIR VERIFIED: audit shows "DD-HALT RELEASED as bad-data trip — re-read equity=106013.43 dd_pct=5.122 vs trip DD 18.39% ..." at 16:00:36Z; Tier-2 is acting again (SELL_CSP IEF/TLT, FCEL scale-out + take-profit). The 2026-09-09 halt is cleared; rollback trigger (confirmed >=18% DD within 5 trading days / realized DD >20% while not halted) not tripped.
+NOT ACTIONABLE YET: /api/diag/shadow_bands answers "unknown probe" — server_version still 1.0.1030 (v1.0.1031 deploy lag after #1258). The prior stated in the v1.0.1031 entry cannot be judged until it deploys; the shadow data lives on the Railway volume, so no local substitute.
+NEXT: first session after v1.0.1031 is live reads /api/diag/shadow_bands and judges the reversal prior ([RESEARCH]).
+Merge note: docs-only; no market-hours constraint.
+STARVED: no.
