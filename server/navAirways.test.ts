@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute } from "./navAirways";
-import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, _resetSfdpsCountersForTests } from "./swimSfdps";
+import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens } from "./navAirways";
+import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, routeShapeSamples, _resetSfdpsCountersForTests } from "./swimSfdps";
 
 // J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
 test("airwaySegment returns the fixes between two idents in travel order, either direction", () => {
@@ -74,4 +74,17 @@ test("unplaced routes increment unplacedReasonCounters, placed ones do not", () 
   parseSfdpsMessages(mk("KBOS..ILC..MLF..SAKES..KATL"));
   assert.equal(unplacedReasonCounters.fewFixes, 1);
   assert.equal(Object.values(unplacedReasonCounters).reduce((a, b) => a + b, 0), 1);
+});
+
+test("unresolved-token census covers fewFixes plans only and is report-only", () => {
+  const u = unresolvedRouteTokens("ILC..QZQZQ.NOPE1");
+  assert.ok(u.includes("QZQZQ") && u.includes("NOPE1") && !u.includes("ILC"));
+  _resetSfdpsCountersForTests();
+  const mk = (t: string) => `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`;
+  parseSfdpsMessages(mk("KBOS..ILC..MLF..KATL"));            // fewFixes -> counted
+  parseSfdpsMessages(mk("ILC..MLF..SAKES"));                  // placed -> not counted
+  const r = routeShapeSamples();
+  assert.equal(r.unresolvedTexts.length, 1);
+  assert.equal(r.unresolvedTexts[0].reason, "fewFixes");
+  assert.ok(r.unresolvedTokens.every((x) => x.token !== "ILC" && x.token !== "SAKES"));
 });

@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, type UnplacedReason } from "./navAirways";
+import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, type UnplacedReason } from "./navAirways";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -293,9 +293,27 @@ export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 
 /** Why route TEXT (the fallback path) left a plan unplaced — report-only. */
 export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 0, noFixResolved: 0, fewFixes: 0, airwayUnbounded: 0, legTooLong: 0, other: 0 };
 
+/** Report-only token census for fewFixes/noFixResolved plans: which route tokens fail the NASR
+ *  fix lookup, plus a few raw route texts. Capped so it can never grow (Law IV). */
+export const UNRESOLVED_TOKEN_MAX = 300;
+export const UNRESOLVED_TEXT_MAX = 12;
+const unresolvedTokenCounts = new Map<string, number>();
+const unresolvedTexts: { reason: UnplacedReason; text: string }[] = [];
+function recordUnresolved(reason: UnplacedReason, routeText: string | null): void {
+  if ((reason !== "fewFixes" && reason !== "noFixResolved") || !routeText) return;
+  for (const t of unresolvedRouteTokens(routeText)) {
+    const n = unresolvedTokenCounts.get(t);
+    if (n !== undefined) unresolvedTokenCounts.set(t, n + 1);
+    else if (unresolvedTokenCounts.size < UNRESOLVED_TOKEN_MAX) unresolvedTokenCounts.set(t, 1);
+  }
+  if (unresolvedTexts.length < UNRESOLVED_TEXT_MAX) unresolvedTexts.push({ reason, text: routeText.slice(0, 200) });
+}
+
 function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number, routeText: string | null): void {
   if (placed > 0) { routeShapeCounters.placed++; return; }
-  unplacedReasonCounters[classifyUnplacedRoute(routeText)]++;
+  const reason = classifyUnplacedRoute(routeText);
+  unplacedReasonCounters[reason]++;
+  recordUnresolved(reason, routeText);
   if (expanded) routeShapeCounters.expandedNoPoints++; else routeShapeCounters.noExpanded++;
   const target = expanded ?? findFirst(agreed, "route") ?? findFirst(flight, "route");
   const where = expanded ? "expandedRoute" : target ? "route(no expandedRoute)" : "flight(no route)";
@@ -306,8 +324,9 @@ function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode |
   if (hit) { hit.count++; return; }
   if (routeShapes.size < ROUTE_SHAPE_MAX_SAMPLES) routeShapes.set(key, { where, shape, count: 1, firstSeenAt: Date.now() });
 }
-export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[] } {
-  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()] };
+export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[]; unresolvedTokens: { token: string; count: number }[]; unresolvedTexts: { reason: UnplacedReason; text: string }[] } {
+  const unresolvedTokens = [...unresolvedTokenCounts].map(([token, count]) => ({ token, count })).sort((a, b) => b.count - a.count).slice(0, 50);
+  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()], unresolvedTokens, unresolvedTexts: [...unresolvedTexts] };
 }
 
 function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage {
@@ -857,4 +876,5 @@ export function _resetSfdpsCountersForTests(): void {
   counters.flightByType = {}; counters.fullParses = 0; counters.lightParses = 0; counters.parseErrors = 0;
   routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0;
   for (const k of Object.keys(unplacedReasonCounters) as UnplacedReason[]) unplacedReasonCounters[k] = 0;
+  unresolvedTokenCounts.clear(); unresolvedTexts.length = 0;
 }

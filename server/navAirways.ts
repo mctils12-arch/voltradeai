@@ -123,5 +123,13 @@ export function classifyUnplacedRoute(routeText: string | null | undefined): Unp
   return "other";
 }
 
+/** Report-only: route-text tokens that do NOT resolve in the NASR fix table (SID/STAR names,
+ *  "DCT", airport idents, junk). Feeds the gate-1 unplaced-token diagnostic; never alters placement. */
+export function unresolvedRouteTokens(routeText: string | null | undefined): string[] {
+  if (!routeText) return [];
+  if (!table) loadNavAirways();
+  return routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter((t) => t && !lookupFix(t));
+}
+
 export const navAirwaysCycle = (): string | null => cycle;
 export function resetNavAirways(): void { table = null; cycle = null; }

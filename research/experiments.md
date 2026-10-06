@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine PRODUCT session, ~13:15Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: UNRESOLVED-TOKEN CENSUS (v1.0.1029)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.4%). Took NEXT from the 11:05Z entry.
+PRIOR: the top unresolved tokens in fewFixes/noFixResolved plans are SID/STAR procedure names (e.g. 5-letter-plus-digit idents) and "DCT"/airport idents, not missing NASR fixes; if instead plain 5-letter fix names dominate, the NASR bundle is incomplete and that is the lever.
+CHANGE: report-only `unresolvedRouteTokens()` + capped census (300 distinct tokens, 12 raw texts) exposed under plan-status routeShape.unresolvedTokens/unresolvedTexts, fed only by fewFixes/noFixResolved plans. Placement logic untouched. Test: census counts only fewFixes plans and excludes resolvable fixes (9 pass in navAirways.test.ts).
+NEXT: after deploy read routeShape.unresolvedTokens; classify top tokens as procedure vs fix; decide on SID/STAR source (build-first check). No ladder promotion. ROLLBACK: git revert. MERGE: diagnostic only, any time.
+STARVED: no
+
 ## 2026-10-06 (scheduled-routine session, ~11:05Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: UNPLACED-REASON READOUT (v1.0.1028 live)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.5%, serving.failing empty, feeds silent 0.03h). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 00:15Z entry: read unplacedReasons from plan-status after deploy (server_version confirmed 1.0.1028 via /api/data/layers).
