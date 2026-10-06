@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine EDGE session, ~02:40Z) [NO-ACTION] — health green, no matured gate, axes (a)-(d) unchanged since 10-03
+
+HEALTH: /api/health ok (bot active, liveness not dark, serving.failing empty, feeds silent <1h, drawdown -4.7%). research_state_check clean (thrash 0/10, 0 STARVED, no audit overdue, sentinel2 14d / port_dwell 18d archive freshness OK, NASR current). No critical KNOWN BROKEN item.
+PRIOR: nothing matured to judge; no honest experiment available.
+LADDER: ladder_readiness_check 0/5 ready; gnss_integrity_adsb unblocks in 1d (2026-10-07), fleet_utilization 11-02, 8-K QoQ 11-15, COT / github_org ~3-5 reports short.
+AXES: (a) queued free-data pipelines already built and waiting on time; (b) still needs fill-realism fix; (c) foreign-field probes saturated; (d) no recurring reasoning found. NEXT: gnss_integrity_adsb gate-2 re-run on/after 2026-10-07.
+NO CODE/VERSION CHANGE. STARVED: no. MERGE: docs-only.
+
 ## 2026-10-06 (scheduled-routine PRODUCT session, ~00:15Z Tuesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: WHY ROUTES STAY UNPLACED (v1.0.1028)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.6%). Took NEXT from the 10-05 18:10Z entry (break `unplaced` into reasons).
