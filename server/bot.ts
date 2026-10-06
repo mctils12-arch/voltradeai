@@ -2824,6 +2824,18 @@ print(json.dumps(get_shadow_stats()))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "shadow_bands": {
+          // ADDED 2026-10-06 — see the "shadow_bands" entry in diag.ts's
+          // DIAG_PROBES. Same execPythonSerialized pattern as "shadow";
+          // aggregate-only by construction (shadow_band_report).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from shadow_portfolio import get_shadow_band_report
+print(json.dumps(get_shadow_band_report()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "shadow_bands", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
           // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —
