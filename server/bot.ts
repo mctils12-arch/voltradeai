@@ -4371,6 +4371,13 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       if (result.halted) {
         audit("DD-HALT", `Tier2 scan blocked: ${result.halt_reason || "portfolio drawdown halt active"} (equity=${result.current_equity}, peak=${result.peak_equity}, dd_pct=${result.dd_pct})`);
       }
+      // 2026-10-06: a halt released as a BAD-DATA trip (re-read drawdown far
+      // below the trip — bot_engine.update_equity_peak confirmation check)
+      // must be as visible as the trip itself was.
+      if (result.dd_event && result.dd_event.kind === "anomaly_release") {
+        const e = result.dd_event;
+        audit("DD-HALT", `RELEASED as bad-data trip — re-read equity=${e.confirm_equity} dd_pct=${e.confirm_dd_pct} vs trip "${e.trip_reason}" (trip equity=${e.trip_equity}, peak=${e.peak_equity})`);
+      }
 
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
         ? result.data_source_errors : {};

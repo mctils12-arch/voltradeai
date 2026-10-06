@@ -295,6 +295,15 @@ BASE_CONFIG = {
     "DRAWDOWN_HALT_ENABLED":  True, # Master switch for portfolio-level DD halt
     "DRAWDOWN_HALT_RESUME_REGIMES": ["BULL", "NEUTRAL"], # One-way ratchet: halt resets only in these regimes
     "DRAWDOWN_HALT_RESUME_EQUITY_PCT": 5.0, # AND within 5% of all-time peak equity
+    # 2026-10-06 (human-directed: "reset the halt and fix the issues"): a DD
+    # trip is confirmed by the first reading >= this many seconds later; a
+    # reading below CONFIRM_FRACTION x DRAWDOWN_HALT_PCT (9% at 18%) instead
+    # releases it as a bad-data trip. New keys — no prior values. Expected
+    # effect: a single anomalous equity snapshot (2026-09-09: $91k on a day
+    # that lost ~$415) can no longer latch entries off for weeks; a real
+    # >= 18% drawdown still halts instantly and confirms 3 min later.
+    "DRAWDOWN_HALT_CONFIRM_MIN_SECONDS": 60,
+    "DRAWDOWN_HALT_CONFIRM_FRACTION":    0.5,
     "DRAWDOWN_HEDGE_ESCALATE_PCT": 10.0,  # Bump convexity overlay to stress budget
                                           # whenever portfolio DD ≥ 10%, regardless of regime
     "POSITION_HARD_STOP_PCT": 20.0, # Absolute -20% floor per stock position (gap-down guard).
