@@ -466,27 +466,36 @@ def _sample(img: np.ndarray, fx: float, fy: float, r: int = 2) -> np.ndarray:
 def _profile_step(src: ChartSource, c: Pt, nrm: Pt, half: int, px_m: float, z: int, cache: TileCache) -> Optional[float]:
     """Offset (m, along the outward normal) where the FAA mosaic stops
     showing this chart, or None when the profile is inconclusive."""
-    match = []
+    match, drawn = [], []
     for s in range(-half, half + 1, 2):
         mx, my = wrap_x(c[0] + s * px_m * nrm[0]), c[1] + s * px_m * nrm[1]
         tx, ty = m_to_tile(mx, my, z)
         tb = tile_bounds_m(z, tx, ty)
         fx = (mx - tb[0]) / px_m
         fy = (tb[3] - my) / px_m
+        a = _sample(cache.faa_tile(z, tx, ty)[..., 3], fx, fy)
+        drawn.append(a.size > 0 and float(a.mean()) > 127)
         d, comparable = cache.diff_tile(src, z, tx, ty)
         ok = _sample(comparable, fx, fy)
         if ok.size == 0 or not ok.all():
             match.append(False)
             continue
         match.append(float(_sample(d, fx, fy).mean()) < REFINE_THRESHOLD)
+    n = len(match)
+    q = n // 4
     m = np.asarray(match)
-    n = len(m)
-    inner, outer = m[: n // 4], m[-(n // 4):]
-    # inconclusive unless the inside clearly matches and the outside clearly does not
-    if inner.mean() < 0.7 or outer.mean() > 0.3:
-        return None
-    t = step_location(m)
-    return (-half + 2 * t - 1) * px_m
+    # 1) the mosaic shows this chart inside and not outside (shared or outer edge)
+    if m[:q].mean() >= 0.7 and m[-q:].mean() <= 0.3:
+        return (-half + 2 * step_location(m) - 1) * px_m
+    # 2) OUTER BORDER fallback: the FAA draws chart inside and nothing outside.
+    # Needs no match against our (newer) edition, which can differ enough to
+    # make (1) inconclusive — the Anchorage TAC 2026-09-03 vs the service's
+    # 2026-07-09 left 4 of its 5 edges unrefined and cut a wedge off the map.
+    # Only trusted when this chart is the one drawn just inside (some match).
+    dr = np.asarray(drawn)
+    if dr[:q].mean() >= 0.9 and dr[-q:].mean() <= 0.1 and m[:q].mean() >= 0.3:
+        return (-half + 2 * step_location(dr) - 1) * px_m
+    return None
 
 
 def _refine_chart(args):
