@@ -218,7 +218,11 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
             json.dump(specs, f)
     charts = [ChartSource.open(n, p) for n, p in specs]
 
-    edges_json, origin = load_edges(fam.id)
+    if args.edges:
+        with open(args.edges) as f:
+            edges_json, origin = json.load(f), "file"
+    else:
+        edges_json, origin = load_edges(fam.id)
     ok, reasons = edges_reusable(edges_json, charts)
     if not ok or args.remeasure:
         log(f"[{fam.id}] measuring chart edges ({'; '.join(reasons[:6]) or 'forced'})")
@@ -279,6 +283,7 @@ def main(argv=None) -> int:
     ap.add_argument("--force", action="store_true", help="re-bake even if the manifest is current")
     ap.add_argument("--remeasure", action="store_true", help="re-measure edges even if fingerprints match")
     ap.add_argument("--measure-only", action="store_true", help="stop after the edges (written to --work)")
+    ap.add_argument("--edges", help="use this edges JSON instead of the published/repo one (one family)")
     ap.add_argument("--keep-src", action="store_true", help="keep the downloaded GeoTIFFs (re-runs skip the download)")
     args = ap.parse_args(argv)
     today = dt.datetime.now(dt.timezone.utc).date()
