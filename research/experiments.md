@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine session, ~11:05Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: UNPLACED-REASON READOUT (v1.0.1028 live)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.5%, serving.failing empty, feeds silent 0.03h). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 00:15Z entry: read unplacedReasons from plan-status after deploy (server_version confirmed 1.0.1028 via /api/data/layers).
+PRIOR: fewFixes/noFixResolved dominates (SID/STAR-bracketed route text with <3 resolvable NASR fixes), not airway failures.
+RESULT (live plan-status routeShape, cumulative since boot): unplaced total 83,792 of 288,499 full parses (29%): fewFixes 60,736 (72.5%), noText 10,325 (12.3%), noFixResolved 10,036 (12.0%), airwayUnbounded 1,723 (2.1%), legTooLong 972 (1.2%), other 0. Placed 204,707.
+VERDICT: prior supported. ~85% of unplaced plans are fewFixes + noFixResolved, i.e. route text whose en-route portion is procedure-named (SID/STAR) and so yields <3 NASR fixes. Airway expansion failures are ~2%, so airway logic is not the lever. Caveat: the classifier counts only NASR fix-table hits, so it cannot say whether the missing fixes are procedure waypoints or genuinely absent from the bundle; that needs a sample of fewFixes route texts. Measurement note: counters are report-only, no placement change.
+NEXT: separate PR to sample-log (capped, report-only) fewFixes route texts and check which tokens fail lookupFix; only then decide whether SID/STAR procedure resolution (needs a free CIFP/NASR STARDP source, build-first check) is worth building. No ladder promotion. ROLLBACK: n/a (docs). MERGE: docs-only, any time.
+STARVED: no
+
 ## 2026-10-06 (scheduled-routine PRODUCT session, ~00:15Z Tuesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: WHY ROUTES STAY UNPLACED (v1.0.1028)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.6%). Took NEXT from the 10-05 18:10Z entry (break `unplaced` into reasons).
