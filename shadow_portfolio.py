@@ -1068,3 +1068,89 @@ if __name__ == "__main__":
     else:
         print("Usage: python3 shadow_portfolio.py [backfill [N] | stats | clear]")
         sys.exit(1)
+
+
+# ── Band report (2026-10-06, human-directed "fix the issues") ────────────────
+# Where does the scan lose? get_shadow_stats() showed TAKEN candidates
+# winning LESS than score-REJECTED ones (+5d 47.2% vs 51.0%, +20d 44.5% vs
+# 56.4%) and the taken median |change_pct_today| at 18%. This view cuts the
+# same labeled records by decision x SIGNED same-day move x score quintile x
+# regime, reporting n / win rate / MEAN return_pct (the path-dependent exit
+# return each record already stores) so expectancy, not just hit rate, is
+# visible. Aggregate-only: no ticker, no price, no timestamp leaves here.
+SHADOW_CHANGE_BANDS = [(-1e9, -10.0, "<-10"), (-10.0, -3.0, "-10..-3"), (-3.0, 3.0, "-3..3"),
+                       (3.0, 10.0, "3..10"), (10.0, 20.0, "10..20"), (20.0, 30.0, "20..30"),
+                       (30.0, 1e9, ">=30")]
+
+
+def _band_of(change_pct: float) -> str:
+    for lo, hi, name in SHADOW_CHANGE_BANDS:
+        if lo <= change_pct < hi:
+            return name
+    return ">=30"
+
+
+def _cell_stats(rets: List[float], wins: int, min_n: int) -> dict:
+    n = len(rets)
+    if n < min_n:
+        return {"n": n}
+    srt = sorted(rets)
+    return {"n": n, "win_rate": round(100.0 * wins / n, 1),
+            "mean_return_pct": round(sum(rets) / n, 3),
+            "median_return_pct": round(srt[n // 2], 3)}
+
+
+def shadow_band_report(records: List[dict], min_n: int = 20) -> dict:
+    """Pure aggregation over shadow records (see block comment above)."""
+    horizons = [f"+{h}d" for h in FORWARD_HORIZONS_DAYS]
+    # score quintile edges over every labeled record that has a score
+    scores = sorted(float(r.get("score", 0) or 0) for r in records
+                    if isinstance(r.get("outcomes"), dict))
+    edges = [scores[int(len(scores) * q / 5)] for q in range(1, 5)] if len(scores) >= 5 else []
+
+    def quint(s: float) -> str:
+        return f"Q{1 + sum(1 for e in edges if s >= e)}" if edges else "Q?"
+
+    cells: Dict[Tuple[str, str, str], List[Tuple[float, int]]] = defaultdict(list)
+    for r in records:
+        outs = r.get("outcomes")
+        if not isinstance(outs, dict):
+            continue
+        dec = str(r.get("decision") or "?")
+        cp = float((r.get("features") or {}).get("change_pct_today", 0) or 0)
+        keys = {
+            ("decision", dec),
+            ("decision_x_band", f"{dec}|{_band_of(cp)}"),
+            ("band_all", _band_of(cp)),
+            ("score_quintile", quint(float(r.get("score", 0) or 0))),
+            ("decision_x_regime", f"{dec}|{r.get('regime_label') or '?'}"),
+            ("all", "all"),
+        }
+        for h in horizons:
+            o = outs.get(h)
+            if not isinstance(o, dict) or o.get("label") not in (0, 1):
+                continue
+            ret = o.get("return_pct")
+            if ret is None:
+                continue
+            for dim, k in keys:
+                cells[(dim, k, h)].append((float(ret), int(o["label"])))
+
+    out: Dict[str, dict] = defaultdict(lambda: defaultdict(dict))
+    for (dim, k, h), vals in cells.items():
+        rets = [v[0] for v in vals]
+        out[dim][k][h] = _cell_stats(rets, sum(v[1] for v in vals), min_n)
+    return {
+        "labeling": {"method": "path_dependent_v2", "win_pct": WIN_THRESHOLD_PCT,
+                     "stop_pct": LOSS_THRESHOLD_PCT,
+                     "note": "return_pct is entry->exit under the labeler's target/stop/timeout rules, "
+                             "not a raw forward return; 'all' is the base rate across every scored candidate"},
+        "score_quintile_edges": [round(e, 3) for e in edges],
+        "change_bands": [b[2] for b in SHADOW_CHANGE_BANDS],
+        "min_n": min_n,
+        **{dim: {k: dict(v) for k, v in d.items()} for dim, d in out.items()},
+    }
+
+
+def get_shadow_band_report() -> dict:
+    return shadow_band_report(_load_shadow_log())

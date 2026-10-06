@@ -106825,3 +106825,41 @@ state; all 8 fail on the old code). test_risk_controls.py unchanged and
 passing. Full pytest 2,334 passed; counter ratchet OK.
 STARVED: no — next: [RESEARCH] why live trades lose (25.8% win rate) and
 why they are so small relative to a $106k account.
+
+
+## 2026-10-06 [RESEARCH] — T-BOT measurement view — /api/diag/shadow_bands: WHERE DOES THE SCAN LOSE? (v1.0.1031)
+
+Follow-up to the DD-halt repair (#1257), same human directive ("fix the
+issues"). The halt explains why the bot stopped trading; this targets why
+it LOSES when it trades.
+
+PRIOR (stated before reading the new view): get_shadow_stats() over 20,000
+labeled candidates (2026-07-25..09-08, 90% NEUTRAL_BULL) shows TAKEN
+candidates winning LESS than score-REJECTED ones (+5d 47.2% vs 51.0%, +10d
+46.9% vs 53.2%, +20d 44.5% vs 56.4%), and taken median |change_pct_today|
+= 18% (p95 27%). The quick-score prescreen is 3 x min(|change%|, 15) +
+volume + a +5 bonus above 10%, so the deep-score funnel is dominated by
+stocks that already moved 10-30% today. Hypothesis: short-term reversal —
+long entries after extreme one-day gains have negative forward expectancy,
+and the scorer ranks them highest. Expected in the band view: taken|10..20
+and taken|20..30 show the worst mean return; score quintile Q5 is NOT the
+best quintile. Labels are path-dependent (+2% target / -4% stop / timeout),
+so break-even win rate is ~67% — mean return_pct is the decision metric,
+not win rate. Base rate = the "all" cell.
+
+CHANGE (measurement only — no trading logic touched): shadow_portfolio.
+shadow_band_report() (pure) + get_shadow_band_report(); diag probe
+"shadow_bands" (DIAG_PROBES + bot.ts switch, same execPythonSerialized
+pattern as "shadow"). Cuts: decision, decision x signed same-day band
+(<-10 .. >=30), all-band, score quintile, decision x regime; per horizon
+n / win rate / mean / median return_pct; cells under n=20 report n only.
+Aggregate-only (test pins: no ticker/price/timestamp in output).
+MEASUREMENT INTEGRITY: new view, no existing metric's definition changes;
+get_shadow_stats() untouched.
+
+TESTS: test_shadow_band_report.py (4). diag.test.ts (29, incl. every
+whitelisted probe has a bot.ts case). Full pytest + counter ratchet OK.
+NEXT: after deploy, read /api/diag/shadow_bands and judge the prior; a
+scoring change ships only with this counterfactual evidence + a backtest
+ablation, as its own PR.
+STARVED: no.
