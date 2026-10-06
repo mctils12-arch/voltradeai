@@ -43,8 +43,15 @@ def m_to_lonlat(x: float, y: float) -> Tuple[float, float]:
     return (math.degrees(x / R), math.degrees(2 * math.atan(math.exp(y / R)) - math.pi / 2))
 
 
+def wrap_x(x: float) -> float:
+    """3857 x wrapped into [-ORIGIN, ORIGIN) (across the antimeridian)."""
+    return (x + ORIGIN) % (2 * ORIGIN) - ORIGIN
+
+
 def m_to_tile(x: float, y: float, z: int) -> Tuple[int, int]:
-    """Tile containing the 3857 point, clamped to the world."""
+    """Tile containing the 3857 point (x wrapped across the antimeridian,
+    y clamped to the world)."""
+    x = wrap_x(x)
     n = 2 ** z
     tx = int((x + ORIGIN) / (2 * ORIGIN) * n)
     ty = int((ORIGIN - y) / (2 * ORIGIN) * n)
@@ -59,6 +66,15 @@ def tiles_for_bounds_m(bounds: Tuple[float, float, float, float], z: int):
     for ty in range(y0, y1 + 1):
         for tx in range(x0, x1 + 1):
             yield (tx, ty)
+
+
+def antimeridian_boxes(w: float, s: float, e: float, n: float):
+    """Lon/lat bounds -> 3857 box(es). GDAL reports a chart crossing the
+    antimeridian with west > east; that becomes one box per side."""
+    (_, ys), (_, yn) = lonlat_to_m(0, s), lonlat_to_m(0, n)
+    if w <= e:
+        return [(lonlat_to_m(w, 0)[0], ys, lonlat_to_m(e, 0)[0], yn)]
+    return [(lonlat_to_m(w, 0)[0], ys, ORIGIN, yn), (-ORIGIN, ys, lonlat_to_m(e, 0)[0], yn)]
 
 
 def palette_lut(colormap: dict) -> np.ndarray:
@@ -92,6 +108,12 @@ class ChartSource:
     ds: object  # rasterio dataset
     lut: Optional[np.ndarray]
     bounds_m: Tuple[float, float, float, float]
+    # one box per side of the antimeridian (two for the Western Aleutian
+    # Islands East sectional, which spans 177E..172W); usually one
+    boxes_m: Tuple[Tuple[float, float, float, float], ...] = ()
+
+    def hits(self, b: Tuple[float, float, float, float]) -> bool:
+        return any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3] for a in (self.boxes_m or (self.bounds_m,)))
 
     @staticmethod
     def open(name: str, path: str) -> "ChartSource":
@@ -106,7 +128,11 @@ class ChartSource:
             except ValueError:
                 lut = None  # greyscale single band
         b = transform_bounds(ds.crs, "EPSG:3857", *ds.bounds, densify_pts=64)
-        return ChartSource(name, path, ds, lut, b)
+        w, s_, e, n = transform_bounds(ds.crs, "EPSG:4326", *ds.bounds, densify_pts=64)
+        boxes = antimeridian_boxes(w, s_, e, n)
+        if len(boxes) == 2:
+            b = (-ORIGIN, boxes[0][1], ORIGIN, boxes[0][3])
+        return ChartSource(name, path, ds, lut, b, tuple(boxes))
 
     def render(self, z: int, x: int, y: int, size: int = TILE) -> Tuple[np.ndarray, np.ndarray]:
         """(rgb float32 (size,size,3), valid bool (size,size)) for tile z/x/y.

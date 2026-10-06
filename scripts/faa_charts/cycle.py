@@ -55,6 +55,9 @@ class Family:
     max_bake_zoom: int
     measure_zoom: int  # coarse ownership measurement level
     refine_zoom: int  # edge refinement level (within the FAA band)
+    # GeoTIFF names (file stem) that are not part of this layer even though
+    # they ship in its zips
+    exclude_re: str = r"^$"
 
 
 FAMILIES: Dict[str, Family] = {
@@ -62,7 +65,10 @@ FAMILIES: Dict[str, Family] = {
     # ~37 m/px at 45N) already carries the full native detail.
     "sectional": Family("sectional", "VFR_Sectional", "visual/{d}/sectional-files", r"^[A-Za-z_.\-]+\.zip$", 8, 11, 10, 11),
     # TAC 1:250,000 (~21 m/px): z12.
-    "tac": Family("tac", "VFR_Terminal", "visual/{d}/tac-files", r"^[A-Za-z_.\-]+_TAC\.zip$", 10, 12, 10, 12),
+    # The TAC zips also carry the Flyway planning charts ("<City> FLY"):
+    # same area, different chart, not in the FAA's VFR_Terminal layer.
+    "tac": Family("tac", "VFR_Terminal", "visual/{d}/tac-files", r"^[A-Za-z_.\-]+_TAC\.zip$", 10, 12, 10, 12,
+                  exclude_re=r" FLY$"),
     # IFR enroute low (ENR_L*) + area charts (ENR_A*); Alaska low (ENR_AKL*).
     "ifrlow": Family("ifrlow", "IFR_AreaLow", "enroute/{d}", r"^ENR_(L\d+|A\d+|AKL\d+)\.zip$", 8, 11, 8, 11),
     # IFR enroute high (ENR_H*, ENR_AKH*); the FAA band tops out at z9.

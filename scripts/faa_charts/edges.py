@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from common import (TILE, ChartSource, block_mean, fetch_faa_tile, m_to_lonlat, m_to_tile, tile_bounds_m,
-                    tiles_for_bounds_m, ORIGIN)
+                    tiles_for_bounds_m, wrap_x, ORIGIN)
 
 BLOCK = 16
 # STRUCTURAL difference: per-pixel |RGB| (sum over channels, 0..765) after a
@@ -206,7 +206,7 @@ def _coarse_tile(xy):
     best = np.full((nb, nb), np.inf, np.float32)
     owner = np.full((nb, nb), -1, np.int32)
     for ci, c in enumerate(charts):
-        if not _intersects(c.bounds_m, tb):
+        if not c.hits(tb):
             continue
         rgb, valid = c.render(z, x, y)
         d = block_mean(structural_diff(rgb, fr), BLOCK)
@@ -229,7 +229,8 @@ def coarse_matches(charts: Sequence[ChartSource], z: int, cache: TileCache, log=
 
     tiles = set()
     for c in charts:
-        tiles.update(tiles_for_bounds_m(c.bounds_m, z))
+        for box in c.boxes_m or (c.bounds_m,):
+            tiles.update(tiles_for_bounds_m(box, z))
     tiles = sorted(tiles, key=lambda t: (t[1], t[0]))
     cache.prefetch([(z, x, y) for x, y in tiles])
     out: Dict[tuple, Dict[int, np.ndarray]] = {}
@@ -467,7 +468,7 @@ def _profile_step(src: ChartSource, c: Pt, nrm: Pt, half: int, px_m: float, z: i
     showing this chart, or None when the profile is inconclusive."""
     match = []
     for s in range(-half, half + 1, 2):
-        mx, my = c[0] + s * px_m * nrm[0], c[1] + s * px_m * nrm[1]
+        mx, my = wrap_x(c[0] + s * px_m * nrm[0]), c[1] + s * px_m * nrm[1]
         tx, ty = m_to_tile(mx, my, z)
         tb = tile_bounds_m(z, tx, ty)
         fx = (mx - tb[0]) / px_m

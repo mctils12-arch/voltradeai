@@ -34,6 +34,7 @@ OVERVIEW_MIN_ZOOM = 2  # server/aeroCharts.ts AERO_OVERVIEW_MIN_ZOOM
 # Seam fill reach: 1.5 coarse measurement blocks at z10 (16 px x 153 m), the
 # largest offset an unrefined shared edge can carry (edges.py).
 SEAM_FILL_M = 1.5 * 16 * (2 * 20037508.342789244 / 2 ** 10 / 256)
+ANTIMERIDIAN_SNAP_M = 3 * 16 * (2 * 20037508.342789244 / 2 ** 10 / 256)
 
 Ring = List[Tuple[float, float]]
 
@@ -104,7 +105,7 @@ _W: Dict[str, object] = {}
 
 def _worker_init(chart_specs, polys, z):
     _W["charts"] = [ChartSource.open(n, p) for n, p in chart_specs]
-    _W["polys"] = polys  # chart index -> (bbox, [rings])
+    _W["polys"] = polys  # chart index -> [(bbox, ring)]
     _W["z"] = z
 
 
@@ -134,8 +135,9 @@ def render_tile(xy) -> Tuple[Tuple[int, int], Optional[bytes]]:
     acc = np.zeros((size, size, 4), np.float32)
     rendered: Dict[int, tuple] = {}
     near: Dict[int, np.ndarray] = {}  # chart -> polygon mask over the extended tile
-    for ci, (bbox, rings) in _W["polys"].items():
-        if not _bbox_hit(bbox, ext):
+    for ci, parts in _W["polys"].items():
+        rings = [r for bbox, r in parts if _bbox_hit(bbox, ext)]
+        if not rings:
             continue
         clip_ext = features.rasterize([({"type": "Polygon", "coordinates": [r]}, 1) for r in rings],
                                       out_shape=(big, big), transform=from_bounds(*ext, big, big),
@@ -193,11 +195,38 @@ def encode_or_none(rgba):
 
 # ── the bake ────────────────────────────────────────────────────────────────
 
-def polys_from_edges(edges_json: dict, charts: Sequence[ChartSource]) -> Dict[int, Tuple[tuple, List[Ring]]]:
+def unwrap_ring(ring: Ring) -> List[Ring]:
+    """A 3857 ring that jumps across the antimeridian (x flips sign by ~2x
+    ORIGIN) -> the continuous ring east of it plus a copy shifted one world
+    west, so rasterizing a tile on either side sees the polygon."""
+    from common import ORIGIN
+
+    xs = [p[0] for p in ring]
+    if max(xs) - min(xs) <= ORIGIN:
+        return [ring]
+    east = [(x + 2 * ORIGIN if x < 0 else x, y) for x, y in ring]
+    return [east, [(x - 2 * ORIGIN, y) for x, y in east]]
+
+
+def snap_antimeridian(ring: Ring) -> Ring:
+    """A chart crossing the antimeridian is measured as two pieces cut at
+    +-180 by the tile grid; the coarse mask clean-up (opening) can leave
+    their edges up to ~3 measurement blocks short of the line (5.2 km on the
+    Western Aleutian Islands East sectional, 2026-09-03). Points within
+    ANTIMERIDIAN_SNAP_M of it are put ON it, so the two halves meet exactly."""
+    from common import ORIGIN
+
+    t = ANTIMERIDIAN_SNAP_M
+    return [(ORIGIN if x > ORIGIN - t else -ORIGIN if x < -ORIGIN + t else x, y) for x, y in ring]
+
+
+def polys_from_edges(edges_json: dict, charts: Sequence[ChartSource]) -> Dict[int, List[Tuple[tuple, Ring]]]:
     """Stored edges (rings in each GeoTIFF's pixel space, edges.py) ->
-    {chart index: (3857 bbox, rings in 3857)}. Edges are straight in pixel
-    space, so they are densified every 64 source pixels (~2.7 km on a
-    sectional) before projecting — the bowing between points is < 1 m."""
+    {chart index: [(3857 bbox, ring in 3857), ...]}. Edges are straight in
+    pixel space, so they are densified every 64 source pixels (~2.7 km on a
+    sectional) before projecting — the bowing between points is < 1 m. A
+    ring crossing the antimeridian is kept continuous and duplicated one
+    world west (unwrap_ring)."""
     from edges import densify, px_to_m
 
     out = {}
@@ -205,11 +234,17 @@ def polys_from_edges(edges_json: dict, charts: Sequence[ChartSource]) -> Dict[in
         e = edges_json["charts"].get(c.name)
         if not e:
             continue
-        rings = [px_to_m(c, densify([tuple(p) for p in r], 64)) for r in e["rings_px"]]
-        rings = [r + [r[0]] for r in rings if len(r) >= 3]
-        xs = [p[0] for r in rings for p in r]
-        ys = [p[1] for r in rings for p in r]
-        out[i] = ((min(xs), min(ys), max(xs), max(ys)), rings)
+        parts = []
+        for r in e["rings_px"]:
+            ring = snap_antimeridian(px_to_m(c, densify([tuple(p) for p in r], 64)))
+            if len(ring) < 3:
+                continue
+            for u in unwrap_ring(ring + [ring[0]]):
+                xs = [p[0] for p in u]
+                ys = [p[1] for p in u]
+                parts.append(((min(xs), min(ys), max(xs), max(ys)), u))
+        if parts:
+            out[i] = parts
     return out
 
 
@@ -247,8 +282,13 @@ def bake_family(fam, chart_specs: Sequence[Tuple[str, str]], edges_json: dict, o
         log(f"[{fam.id}] no measured edge (not baked; excluded as in the FAA mosaic): {', '.join(missing)}")
     zmax = max_zoom or fam.max_bake_zoom
     tiles = set()
-    for bbox, _ in polys.values():
-        tiles.update(tiles_for_bounds_m(bbox, zmax))
+    from common import ORIGIN
+
+    for parts in polys.values():
+        for (w, s_, e, n), _ in parts:
+            box = (max(w, -ORIGIN), s_, min(e, ORIGIN), n)
+            if box[0] < box[2]:
+                tiles.update(tiles_for_bounds_m(box, zmax))
     tiles = sorted(tiles, key=lambda t: (t[1], t[0]))
     log(f"[{fam.id}] z{zmax}: {len(tiles)} candidate tiles from {len(polys)} charts")
 
@@ -300,9 +340,9 @@ def bake_family(fam, chart_specs: Sequence[Tuple[str, str]], edges_json: dict, o
     total_bytes = sum(os.path.getsize(p) for _, p in entries)
     from common import m_to_lonlat
 
-    bx = [b for b, _ in polys.values()]
-    w, s = m_to_lonlat(min(b[0] for b in bx), min(b[1] for b in bx))
-    e, n = m_to_lonlat(max(b[2] for b in bx), max(b[3] for b in bx))
+    bx = [b for parts in polys.values() for b, _ in parts]
+    w, s = m_to_lonlat(max(-ORIGIN, min(b[0] for b in bx)), min(b[1] for b in bx))
+    e, n = m_to_lonlat(min(ORIGIN, max(b[2] for b in bx)), max(b[3] for b in bx))
     report = {
         "family": fam.id, "edition": edition, "charts": len(polys), "excluded_charts": missing,
         "min_zoom": OVERVIEW_MIN_ZOOM, "max_zoom": zmax, "faa_min_zoom": fam.min_zoom,

@@ -151,16 +151,22 @@ def download_family(fam, edition: dt.date, work: str) -> list:
 
 
 def georeferenced(fam, specs) -> list:
-    """Drop TIFFs with no georeferencing: some zips carry non-map pages (TAC
-    'Anchorage Graphic', 'New York TAC VFR Planning Charts' on 2026-09-03)
-    — nothing to place on a map."""
+    """Drop TIFFs that are not this layer's charts: the family's exclusions
+    (TAC zips' Flyway charts) and TIFFs with no georeferencing — some zips
+    carry non-map pages (TAC 'Anchorage Graphic', 'New York TAC VFR Planning
+    Charts' on 2026-09-03), nothing to place on a map."""
     import warnings
 
     import rasterio
 
+    import re
+
     placed = []
     for name, path in specs:
         if not os.path.exists(path):
+            continue
+        if re.search(fam.exclude_re, name):
+            log(f"[{fam.id}] skipping {name}: not part of this chart layer")
             continue
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

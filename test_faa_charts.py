@@ -178,3 +178,53 @@ def test_edges_reusable_requires_every_chart_known_and_unmoved(monkeypatch):
     ok, why = run.edges_reusable(stored, [_Chart("Seattle SEC", moved), charts[1], charts[2]])
     assert not ok and "Seattle SEC: georeferencing changed" in why
     assert run.edges_reusable(None, charts) == (False, ["no stored edges"])
+
+
+# ── antimeridian + family exclusions ────────────────────────────────────────
+
+def test_antimeridian_boxes_and_wrapping():
+    from common import ORIGIN, antimeridian_boxes, lonlat_to_m, m_to_tile, wrap_x
+
+    one = antimeridian_boxes(-125, 44.5, -117, 49)
+    assert len(one) == 1 and one[0][0] == pytest.approx(lonlat_to_m(-125, 0)[0])
+    # Western Aleutian Islands East sectional: GDAL reports west > east
+    two = antimeridian_boxes(177.16, 50.75, -172.35, 53.29)
+    assert len(two) == 2
+    assert two[0][2] == ORIGIN and two[1][0] == -ORIGIN
+    assert two[0][0] == pytest.approx(lonlat_to_m(177.16, 0)[0])
+    assert two[1][2] == pytest.approx(lonlat_to_m(-172.35, 0)[0])
+    assert wrap_x(ORIGIN + 10) == pytest.approx(-ORIGIN + 10)
+    assert m_to_tile(ORIGIN + 10, 0, 2) == (0, 2)
+
+
+def test_unwrap_ring_keeps_a_date_line_polygon_continuous_on_both_sides():
+    from common import ORIGIN
+
+    near = 0.99 * ORIGIN
+    ring = [(near, 0), (-near, 0), (-near, 10), (near, 10), (near, 0)]
+    out = bake.unwrap_ring(ring)
+    assert len(out) == 2
+    east, west = out
+    assert max(p[0] for p in east) - min(p[0] for p in east) < 0.1 * ORIGIN
+    assert min(p[0] for p in east) == pytest.approx(near)
+    assert west[0][0] == pytest.approx(near - 2 * ORIGIN)
+    plain = [(0, 0), (10, 0), (10, 10), (0, 0)]
+    assert bake.unwrap_ring(plain) == [plain]
+
+
+def test_tac_layer_excludes_the_flyway_charts_shipped_in_its_zips():
+    import re
+
+    fam = cycle.FAMILIES["tac"]
+    assert re.search(fam.exclude_re, "Los Angeles FLY")
+    assert not re.search(fam.exclude_re, "Los Angeles TAC")
+    assert not re.search(cycle.FAMILIES["sectional"].exclude_re, "Seattle SEC")
+
+
+def test_snap_antimeridian_closes_the_cut_between_a_charts_two_halves():
+    from common import ORIGIN
+
+    ring = [(-ORIGIN + 1000, 0), (-ORIGIN + 5e5, 0), (ORIGIN - 2000, 5)]
+    out = bake.snap_antimeridian(ring)
+    assert out[0][0] == -ORIGIN and out[2][0] == ORIGIN
+    assert out[1] == ring[1]
