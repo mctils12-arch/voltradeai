@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import { repoDataPath } from "./repoFiles";
 import { lookupFix } from "./navFixes";
+import { airportByIdent } from "./airportsIndex";
 import { EARTH_RADIUS_NM } from "../shared/flightPlanGeometry";
 
 let table: Map<string, string[][]> | null = null;
@@ -83,20 +84,47 @@ function legNm(a: { lat: number; lon: number }, b: { lat: number; lon: number })
   return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Place a PURE direct-fix filed route (`SID..FIX..FIX..FIX..STAR`, no airway
- *  anywhere). >=3 resolved fixes required, consecutive legs must be plausible,
- *  and any airway token refuses the whole route (skipping it would draw a
- *  straight line across a segment we could not expand). */
-export function placeDirectFixes(routeText: string | null | undefined): { lat: number; lon: number; name: string }[] {
-  if (!routeText) return [];
-  if (!table) loadNavAirways();
-  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
-  if (toks.some((t) => AIRWAY_RE.test(t) && table!.has(t))) return [];
+/** Resolved NASR-fix points of a direct-fix route, in order (consecutive duplicates collapsed). */
+function fixPoints(toks: string[]): { lat: number; lon: number; name: string }[] {
   const out: { lat: number; lon: number; name: string }[] = [];
   for (const t of toks) {
     const p = lookupFix(t);
     if (p && out[out.length - 1]?.name !== t) out.push({ ...p, name: t });
   }
+  return out;
+}
+
+/** Fix points, falling back to fixes PLUS the filed endpoint aerodromes ONLY when the fixes alone are
+ *  fewer than 3 (so every route that placed before places identically; only previously-unplaced
+ *  routes change). The FIRST and LAST tokens may be the filed departure/arrival aerodromes (`KDEN`,
+ *  `KBOS/1746` — a trailing `/HHMM` is the filed time) resolved from the OurAirports index. */
+function directPoints(toks: string[]): { lat: number; lon: number; name: string }[] {
+  const fixes = fixPoints(toks);
+  if (fixes.length >= 3) return fixes;
+  const out: { lat: number; lon: number; name: string }[] = [];
+  const last = toks.length - 1;
+  toks.forEach((raw, i) => {
+    const t = i === last ? raw.replace(/\/\d{4}$/, "") : raw;
+    let p: { lat: number; lon: number } | null = lookupFix(t);
+    if (!p && (i === 0 || i === last)) {
+      const a = airportByIdent(t);
+      if (a) p = { lat: a.la, lon: a.lo };
+    }
+    if (p && out[out.length - 1]?.name !== t) out.push({ ...p, name: t });
+  });
+  return out;
+}
+
+/** Place a PURE direct-fix filed route (`SID..FIX..FIX..FIX..STAR`, no airway
+ *  anywhere). >=3 resolved points required (endpoint aerodromes count), consecutive legs
+ *  must be plausible, and any airway token refuses the whole route (skipping it would draw
+ *  a straight line across a segment we could not expand). */
+export function placeDirectFixes(routeText: string | null | undefined): { lat: number; lon: number; name: string }[] {
+  if (!routeText) return [];
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  if (toks.some((t) => AIRWAY_RE.test(t) && table!.has(t))) return [];
+  const out = directPoints(toks);
   if (out.length < 3) return [];
   for (let i = 1; i < out.length; i++) if (legNm(out[i - 1], out[i]) > DIRECT_MAX_LEG_NM) return [];
   return out;
@@ -111,13 +139,10 @@ export function classifyUnplacedRoute(routeText: string | null | undefined): Unp
   if (!table) loadNavAirways();
   const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
   const hasAirway = toks.some((t) => AIRWAY_RE.test(t) && table!.has(t));
-  const fixes: { lat: number; lon: number; name: string }[] = [];
-  for (const t of toks) {
-    const p = lookupFix(t);
-    if (p && fixes[fixes.length - 1]?.name !== t) fixes.push({ ...p, name: t });
-  }
+  const nFix = fixPoints(toks).length;
+  const fixes = directPoints(toks); // endpoint aerodromes complete a <3-fix route (mirrors placeDirectFixes)
   if (hasAirway) return "airwayUnbounded";
-  if (fixes.length === 0) return "noFixResolved";
+  if (nFix === 0) return "noFixResolved";
   if (fixes.length < 3) return "fewFixes";
   for (let i = 1; i < fixes.length; i++) if (legNm(fixes[i - 1], fixes[i]) > DIRECT_MAX_LEG_NM) return "legTooLong";
   return "other";

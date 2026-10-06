@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine PRODUCT session, ~18:10Z Tuesday, market hours) [PIPELINE] — T-DATACORE (server/navAirways) — FLIGHTPLAN GATE-1: FILED ENDPOINT AERODROMES COMPLETE <3-FIX ROUTES (v1.0.1033)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.3%, server_version 1.0.1032 live). Took NEXT from the 13:15Z entry: read the live unresolved-token census.
+PRIOR: top unresolved tokens are SID/STAR names; airport idents are secondary.
+RESULT (live plan-status swim.routeShape, cumulative): unplaced reasons fewFixes 27,033 / noText 7,308 / noFixResolved 6,175 / airwayUnbounded 466 / legTooLong 134. Top unresolved tokens: "/" (22,514, split artifact of "./."), then ~30 airport idents (KORD 1,327, KDFW 1,003, KDEN 807, ...), with SID/STAR names (WYNDE3 293, PARCH4 292, ...) next; sampled fewFixes texts also carry lat/lon waypoints (4203N/08500W) and fix-radial-distance tokens (SNS285053, PVD083056). PRIOR REFUTED IN PART: airport endpoints, not SID/STARs, are the largest NAMED unresolved group, and they are resolvable from the OurAirports index we already ship.
+CHANGE: placeDirectFixes/classifyUnplacedRoute fall back to fixes + the filed FIRST/LAST-token aerodromes ONLY when NASR fixes alone are <3 (trailing /HHMM stripped). Routes that placed before place identically (attribution clean); mid-text airports never resolved; unknown idents invent nothing; 1200nm leg guard still applies. Tests: 10 pass in navAirways.test.ts (new endpoint test; two existing inputs that used KBOS/KATL as the "unplaceable" case switched to unresolvable idents QZ1/QZ2 because those are now placeable by design; no assertion removed or loosened).
+NOT PROMOTED: gate 1 is data fidelity only. Newly placed plans enter flightplan_gate1.py's population; re-run it after deploy and compare by_kind_band to the pre-change numbers (median 0, p90 11 nm, n=387) before trusting pooled results. Bias direction: endpoints add chord-to-airport legs, which can only raise cross-track on short routes (SID/STAR vectoring) — if median rises >3 nm, restrict endpoint-completed plans to their own band.
+NEXT: (a) after deploy read routeShape.unplacedReasons delta and re-run gate-1; (b) lat/lon waypoint tokens (pure geometry, no source needed); (c) fix-radial-distance needs VOR magnetic variation (NASR NAV_BASE) — build-first check. ROLLBACK: git revert. MERGE: server restarts on deploy; prefer after the 16:00 ET close.
+STARVED: no
+
 ## 2026-10-06 (scheduled-routine PRODUCT session, ~13:15Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: UNRESOLVED-TOKEN CENSUS (v1.0.1029)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.4%). Took NEXT from the 11:05Z entry.
