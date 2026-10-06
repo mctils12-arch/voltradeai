@@ -106935,3 +106935,12 @@ the shadow labeler's exits to the live ATR/4x/10d rules (ruler change,
 exploratory experiment with a kill date, counterfactually logged.
 TESTS: test_shadow_band_report.py now 6. Full pytest 2,340; ratchet OK.
 STARVED: no.
+
+
+## 2026-10-06 (scheduled-routine session, ~20:15Z, after hours) [NO-ACTION] — health green; queue head is time-gated
+
+Loop-health ratio (last 10 tags): 1 REPAIR, rest PIPELINE/PRODUCT/NO-ACTION/RESEARCH — no thrash (research_state_check: all OK, no audit overdue, starvation 0).
+Live (20:17Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -4.5%, feeds not dead.
+QUEUE: shadow-band chain is ordered (a) re-read decision_x_action after ~5 trading days of action-tagged records (v1.0.1032 deployed today — 0 days elapsed) -> (b) align labeler exits -> (c) scoring change. (b) was inspected: shadow_portfolio's labeler output also feeds ML training labels, so changing exits is not a pure ruler change; it needs a parallel live-exit-aligned column, not an edit — sizeable, and sequenced after (a). Not started to avoid churn/padding.
+NEXT: first session on/after 2026-10-13 runs step (a).
+STARVED: no.
