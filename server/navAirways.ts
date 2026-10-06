@@ -101,6 +101,9 @@ function fixPoints(toks: string[]): { lat: number; lon: number; name: string }[]
 function directPoints(toks: string[]): { lat: number; lon: number; name: string }[] {
   const fixes = fixPoints(toks);
   if (fixes.length >= 3) return fixes;
+  // an airway-shaped token we may not be able to expand (not in the NASR table) means a chord
+  // to the endpoint would cross an unknown segment — never complete such a route
+  if (toks.some((t) => AIRWAY_RE.test(t))) return fixes;
   const out: { lat: number; lon: number; name: string }[] = [];
   const last = toks.length - 1;
   toks.forEach((raw, i) => {

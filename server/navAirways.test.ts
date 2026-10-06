@@ -102,3 +102,9 @@ test("endpoint aerodromes complete a <3-fix route, never alter one that already 
   // unknown endpoint ident: nothing invented
   assert.deepEqual(placeDirectFixes("QZQZ..ILC..MLF"), []);
 });
+
+test("endpoint completion refuses any airway-shaped token, even one missing from the NASR table", () => {
+  // J209 is not in the bundled airway table; KTEB..WHITE..KPBI must NOT be chorded across it
+  assert.deepEqual(placeDirectFixes("KTEB..WHITE..J209..KPBI"), []);
+  assert.equal(classifyUnplacedRoute("KTEB..WHITE..J209..KPBI"), "fewFixes");
+});
