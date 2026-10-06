@@ -61,7 +61,7 @@ test("route-text-only message with direct fixes counts directFixPlaced", () => {
 test("classifyUnplacedRoute names why route text stays unplaced (report-only diagnostic)", () => {
   assert.equal(classifyUnplacedRoute(null), "noText");
   assert.equal(classifyUnplacedRoute("KBOS..QZQZQ..KATL"), "noFixResolved");
-  assert.equal(classifyUnplacedRoute("QZ1..ILC..MLF..QZ2"), "fewFixes");
+  assert.equal(classifyUnplacedRoute("KBOS..ILC..MLF..KATL"), "fewFixes");
   assert.equal(classifyUnplacedRoute("ILC.J80.QZQZQ"), "airwayUnbounded");
   assert.equal(classifyUnplacedRoute("ILC..MLF..BOS..SAKES"), "legTooLong");
   assert.equal(classifyUnplacedRoute("ILC..MLF..SAKES"), "other"); // placeable => classifier says other; callers only ask when unplaced
@@ -70,7 +70,7 @@ test("classifyUnplacedRoute names why route text stays unplaced (report-only dia
 test("unplaced routes increment unplacedReasonCounters, placed ones do not", () => {
   _resetSfdpsCountersForTests();
   const mk = (t: string) => `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`;
-  parseSfdpsMessages(mk("QZ1..ILC..MLF..QZ2"));
+  parseSfdpsMessages(mk("KBOS..ILC..MLF..KATL"));
   parseSfdpsMessages(mk("KBOS..ILC..MLF..SAKES..KATL"));
   assert.equal(unplacedReasonCounters.fewFixes, 1);
   assert.equal(Object.values(unplacedReasonCounters).reduce((a, b) => a + b, 0), 1);
@@ -81,30 +81,10 @@ test("unresolved-token census covers fewFixes plans only and is report-only", ()
   assert.ok(u.includes("QZQZQ") && u.includes("NOPE1") && !u.includes("ILC"));
   _resetSfdpsCountersForTests();
   const mk = (t: string) => `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`;
-  parseSfdpsMessages(mk("QZ1..ILC..MLF..QZ2"));              // fewFixes -> counted
+  parseSfdpsMessages(mk("KBOS..ILC..MLF..KATL"));            // fewFixes -> counted
   parseSfdpsMessages(mk("ILC..MLF..SAKES"));                  // placed -> not counted
   const r = routeShapeSamples();
   assert.equal(r.unresolvedTexts.length, 1);
   assert.equal(r.unresolvedTexts[0].reason, "fewFixes");
   assert.ok(r.unresolvedTokens.every((x) => x.token !== "ILC" && x.token !== "SAKES"));
-});
-
-test("endpoint aerodromes complete a <3-fix route, never alter one that already placed", () => {
-  // 2 NASR fixes alone are unplaceable; the filed KBOS/KATL endpoints (OurAirports) make 4 points
-  const pts = placeDirectFixes("KSLC..ILC..MLF..KLAS/1746");
-  assert.deepEqual(pts.map((p) => p.name), ["KSLC", "ILC", "MLF", "KLAS"]);
-  assert.ok(pts.every((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)));
-  assert.equal(classifyUnplacedRoute("KSLC..ILC..MLF..KLAS"), "other"); // placeable now
-  // aerodromes in the MIDDLE of the text are never resolved (only first/last token)
-  assert.deepEqual(placeDirectFixes("ILC..KSLC..MLF"), []);
-  // >=3 fixes: output is the fixes only, identical to before this change
-  assert.deepEqual(placeDirectFixes("KBOS..ILC..MLF..SAKES..KATL").map((p) => p.name), ["ILC", "MLF", "SAKES"]);
-  // unknown endpoint ident: nothing invented
-  assert.deepEqual(placeDirectFixes("QZQZ..ILC..MLF"), []);
-});
-
-test("endpoint completion refuses any airway-shaped token, even one missing from the NASR table", () => {
-  // J209 is not in the bundled airway table; KTEB..WHITE..KPBI must NOT be chorded across it
-  assert.deepEqual(placeDirectFixes("KTEB..WHITE..J209..KPBI"), []);
-  assert.equal(classifyUnplacedRoute("KTEB..WHITE..J209..KPBI"), "fewFixes");
 });

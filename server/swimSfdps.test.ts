@@ -383,7 +383,7 @@ test("startSfdps: zero cost without env; routes consumer payloads through the SF
 // ── route-shape sampler: gate-1 instrument for the empty-routePoints bug ────
 const UNPLACED = (id: string) => `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-29T12:00:00Z">
   <flightIdentification aircraftIdentification="${id}"/>
-  <agreed><route nasRouteText="QZ1..HTO..QZ2"><expandedRoute>
+  <agreed><route nasRouteText="KBOS..HTO..KATL"><expandedRoute>
     <routePoint><nasFix fixName="QZQZR" lat="40N" lon="073W"/></routePoint>
     <routePoint><nasFix fixName="QZQZS"/></routePoint>
   </expandedRoute></route></agreed></flight></message></m:MessageCollection>`;
