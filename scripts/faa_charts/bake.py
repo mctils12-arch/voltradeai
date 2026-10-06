@@ -31,6 +31,9 @@ from common import TILE, ChartSource, tile_bounds_m, tiles_for_bounds_m
 WEBP_QUALITY = 80
 SUPERSAMPLE = 2
 OVERVIEW_MIN_ZOOM = 2  # server/aeroCharts.ts AERO_OVERVIEW_MIN_ZOOM
+# Seam fill reach: 1.5 coarse measurement blocks at z10 (16 px x 153 m), the
+# largest offset an unrefined shared edge can carry (edges.py).
+SEAM_FILL_M = 1.5 * 16 * (2 * 20037508.342789244 / 2 ** 10 / 256)
 
 Ring = List[Tuple[float, float]]
 
@@ -110,26 +113,70 @@ def _bbox_hit(b, t) -> bool:
 
 
 def render_tile(xy) -> Tuple[Tuple[int, int], Optional[bytes]]:
+    """One max-zoom tile: every chart clipped to its measured map polygon,
+    first chart wins in overlaps; then SEAM FILL — a pixel no polygon covers
+    but that lies within SEAM_FILL_M of TWO OR MORE charts' polygons is a
+    sliver between neighbouring charts (an edge not refined to the exact
+    line), filled from the nearest chart that has map there. A gap next to
+    only one chart is an outer border and stays empty (no collar spill)."""
     from rasterio import features
     from rasterio.transform import from_bounds
+    from scipy import ndimage as nd
 
     x, y = xy
     z = _W["z"]
     tb = tile_bounds_m(z, x, y)
     size = TILE * SUPERSAMPLE
+    px_m = (tb[2] - tb[0]) / size
+    k = int(np.ceil(SEAM_FILL_M / px_m))
+    ext = (tb[0] - k * px_m, tb[1] - k * px_m, tb[2] + k * px_m, tb[3] + k * px_m)
+    big = size + 2 * k
     acc = np.zeros((size, size, 4), np.float32)
-    tr = from_bounds(*tb, size, size)
+    rendered: Dict[int, tuple] = {}
+    near: Dict[int, np.ndarray] = {}  # chart -> polygon mask over the extended tile
     for ci, (bbox, rings) in _W["polys"].items():
-        if not _bbox_hit(bbox, tb):
+        if not _bbox_hit(bbox, ext):
             continue
-        clip = features.rasterize([({"type": "Polygon", "coordinates": [r]}, 1) for r in rings],
-                                  out_shape=(size, size), transform=tr, fill=0, dtype="uint8").astype(bool)
+        clip_ext = features.rasterize([({"type": "Polygon", "coordinates": [r]}, 1) for r in rings],
+                                      out_shape=(big, big), transform=from_bounds(*ext, big, big),
+                                      fill=0, dtype="uint8").astype(bool)
+        if not clip_ext.any():
+            continue
+        near[ci] = clip_ext
+        clip = clip_ext[k:k + size, k:k + size]
         if not clip.any():
             continue
         rgb, valid = _W["charts"][ci].render(z, x, y, size)
+        rendered[ci] = (rgb, valid)
         m = clip & valid & (acc[..., 3] == 0)  # first chart wins inside overlap slivers
         acc[m, :3] = rgb[m]
         acc[m, 3] = 1.0
+    gap = acc[..., 3] == 0
+    if len(near) >= 2 and gap.any():
+        dists = {}
+        for ci, clip_ext in near.items():
+            d = nd.distance_transform_edt(~clip_ext)[k:k + size, k:k + size]
+            if (d[gap] <= k).any():
+                dists[ci] = d
+        if len(dists) >= 2:
+            stack = np.stack([dists[ci] for ci in dists])
+            seam = gap & ((stack <= k).sum(0) >= 2)
+            order = np.argsort(stack, axis=0)  # nearest chart first
+            ids = list(dists)
+            for rank in range(len(ids)):
+                if not seam.any():
+                    break
+                for j, ci in enumerate(ids):
+                    pick = seam & (order[rank] == j) & (stack[j] <= k)
+                    if not pick.any():
+                        continue
+                    if ci not in rendered:
+                        rendered[ci] = _W["charts"][ci].render(z, x, y, size)
+                    rgb, valid = rendered[ci]
+                    m = pick & valid
+                    acc[m, :3] = rgb[m]
+                    acc[m, 3] = 1.0
+                    seam &= ~m
     if acc[..., 3].max() == 0:
         return (x, y), None
     return (x, y), encode(downsample_premultiplied(acc, SUPERSAMPLE))

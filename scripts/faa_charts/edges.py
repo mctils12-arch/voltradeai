@@ -51,8 +51,13 @@ BLOCK = 16
 COARSE_THRESHOLD = 100.0
 REFINE_THRESHOLD = 30.0
 MIN_PIECE_BLOCKS = 40
-SMOOTH_RADIUS = 3  # majority window: 7x7 blocks
-DP_TOLERANCE_BLOCKS = 4.0  # coarse outline simplification before refinement
+# Majority smoothing of ownership + a looser simplification were tried
+# 2026-10-06 (radius 3, DP 4 blocks): straighter outlines, more edges refined,
+# but the full-sectional gate got WORSE on 1500 sampled tiles — coverage
+# 0.99670 vs 0.99814, collar spill 0.00306 vs 0.00038 — because real notches
+# and insets were smoothed away. Kept switchable, off by default.
+SMOOTH_RADIUS = 0  # majority window radius in blocks (0 = off)
+DP_TOLERANCE_BLOCKS = 2.5  # coarse outline simplification before refinement
 
 
 # ── pure geometry ───────────────────────────────────────────────────────────
@@ -262,14 +267,13 @@ def chart_masks(own: Dict[tuple, Dict[int, np.ndarray]], n_charts: int, z: int):
                     anyown[sl] |= om
                 if ci in v:
                     m[sl] = v[ci]
-        # MAJORITY SMOOTHING: where two overlapping charts draw the same plain
-        # terrain, ownership flips block to block (both match about equally);
-        # a block belongs to this chart if it owns most of the owned blocks
-        # around it. Straightens shared edges so they refine as long lines.
-        k = 2 * SMOOTH_RADIUS + 1
-        mine = nd.uniform_filter(m.astype(np.float32), k)
-        owned = nd.uniform_filter(anyown.astype(np.float32), k)
-        m = (mine > 0.5 * owned) & (owned > 0)
+        # optional MAJORITY SMOOTHING (see SMOOTH_RADIUS): a block belongs to
+        # this chart if it owns most of the owned blocks around it
+        if SMOOTH_RADIUS > 0:
+            k = 2 * SMOOTH_RADIUS + 1
+            mine = nd.uniform_filter(m.astype(np.float32), k)
+            owned = nd.uniform_filter(anyown.astype(np.float32), k)
+            m = (mine > 0.5 * owned) & (owned > 0)
         m = nd.binary_closing(m, iterations=3)
         m = nd.binary_fill_holes(m)
         m = nd.binary_opening(m, iterations=2)

@@ -145,8 +145,32 @@ def download_family(fam, edition: dt.date, work: str) -> list:
             finally:
                 if os.path.exists(zp):
                     os.remove(zp)
-    log(f"[{fam.id}] {len(names)} zips -> {len(specs)} GeoTIFFs")
-    return specs
+    placed = georeferenced(fam, specs)
+    log(f"[{fam.id}] {len(names)} zips -> {len(placed)} georeferenced GeoTIFFs")
+    return placed
+
+
+def georeferenced(fam, specs) -> list:
+    """Drop TIFFs with no georeferencing: some zips carry non-map pages (TAC
+    'Anchorage Graphic', 'New York TAC VFR Planning Charts' on 2026-09-03)
+    — nothing to place on a map."""
+    import warnings
+
+    import rasterio
+
+    placed = []
+    for name, path in specs:
+        if not os.path.exists(path):
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with rasterio.open(path) as ds:
+                ok = ds.crs is not None
+        if not ok:
+            log(f"[{fam.id}] skipping {name}: no georeferencing")
+            continue
+        placed.append((name, path))
+    return placed
 
 
 # ── edges ───────────────────────────────────────────────────────────────────
@@ -210,7 +234,7 @@ def run_family(fam, today: dt.date, args, manifest: dict) -> dict:
     marker = os.path.join(src_dir, f"_complete_{ed}")
     if args.keep_src and os.path.exists(marker):
         with open(marker) as f:
-            specs = [tuple(x) for x in json.load(f)]
+            specs = georeferenced(fam, [tuple(x) for x in json.load(f)])
     else:
         shutil.rmtree(work, ignore_errors=True)
         specs = download_family(fam, edition, src_dir)
