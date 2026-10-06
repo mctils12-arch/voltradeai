@@ -2824,6 +2824,18 @@ print(json.dumps(get_shadow_stats()))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "shadow_bands": {
+          // ADDED 2026-10-06 — see the "shadow_bands" entry in diag.ts's
+          // DIAG_PROBES. Same execPythonSerialized pattern as "shadow";
+          // aggregate-only by construction (shadow_band_report).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from shadow_portfolio import get_shadow_band_report
+print(json.dumps(get_shadow_band_report()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "shadow_bands", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
           // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —
@@ -4370,6 +4382,13 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // whether the halt fires or when it resumes.
       if (result.halted) {
         audit("DD-HALT", `Tier2 scan blocked: ${result.halt_reason || "portfolio drawdown halt active"} (equity=${result.current_equity}, peak=${result.peak_equity}, dd_pct=${result.dd_pct})`);
+      }
+      // 2026-10-06: a halt released as a BAD-DATA trip (re-read drawdown far
+      // below the trip — bot_engine.update_equity_peak confirmation check)
+      // must be as visible as the trip itself was.
+      if (result.dd_event && result.dd_event.kind === "anomaly_release") {
+        const e = result.dd_event;
+        audit("DD-HALT", `RELEASED as bad-data trip — re-read equity=${e.confirm_equity} dd_pct=${e.confirm_dd_pct} vs trip "${e.trip_reason}" (trip equity=${e.trip_equity}, peak=${e.peak_equity})`);
       }
 
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")

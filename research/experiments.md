@@ -3,6 +3,51 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine PRODUCT session, ~18:10Z Tuesday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: ENDPOINT-AERODROME COMPLETION REFUTED BY THE HONESTY CONTRACT
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.3%, server_version 1.0.1032 live). Took NEXT from the 13:15Z entry: read the live unresolved-token census.
+PRIOR: top unresolved tokens are SID/STAR names; airport idents are secondary.
+RESULT (live plan-status swim.routeShape, cumulative): unplaced reasons fewFixes 27,033 / noText 7,308 / noFixResolved 6,175 / airwayUnbounded 466 / legTooLong 134. Top unresolved tokens: "/" (22,514, split artifact of "./."), then ~30 airport idents (KORD 1,327, KDFW 1,003, KDEN 807, ...), then SID/STAR names (WYNDE3 293, PARCH4 292, ...); sampled fewFixes texts also carry lat/lon waypoints (4203N/08500W) and fix-radial-distance tokens (SNS285053, PVD083056). Prior refuted in part: airport endpoints are the largest NAMED unresolved group.
+ATTEMPT (v1.0.1033, NOT SHIPPED): let the filed first/last-token aerodromes (OurAirports index) complete a route with <3 NASR fixes. CI killed it twice, correctly: (1) swimSfdps "no invented points" — KTEB..WHITE..J209..KPBI chorded across an airway absent from the NASR table (patched with an AIRWAY_RE refusal); (2) flightPlans "FILED text-only plan ... deviation stays UNKNOWN" (KSFO..SNS..KLAX) — the repo's honesty contract says endpoints, or endpoints plus ONE fix, do not determine a route; >=3 resolved fixes is the bar for calling a path "filed", and endpoints satisfy flightPlans' "point off the endpoints" guard far too cheaply. Weakening those assertions is forbidden and I have no evidence for a lower bar, so the change was reverted (no server code ships).
+VERDICT: hypothesis dead at the LOGIC layer as specified (endpoints as path points). Layer-of-death: placement rule vs honesty contract, not data. The census itself stands as the gate-1 finding: ~27k fewFixes plans are mostly short/SID-STAR-bracketed texts whose unresolved tokens are procedure names, airports, lat/lon and radial-distance waypoints.
+NEXT: (a) report-only counter splitting fewFixes by resolved-fix count (1 vs 2) and whether lat/lon tokens are present, to size what a legitimate lat/lon-waypoint resolver (pure geometry, no source) could recover toward the >=3-fix bar; (b) radial-distance tokens need VOR magnetic variation (NASR NAV_BASE) — build-first check. ROLLBACK: n/a (docs). MERGE: docs-only, any time.
+STARVED: no
+
+## 2026-10-06 (scheduled-routine PRODUCT session, ~13:15Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: UNRESOLVED-TOKEN CENSUS (v1.0.1029)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.4%). Took NEXT from the 11:05Z entry.
+PRIOR: the top unresolved tokens in fewFixes/noFixResolved plans are SID/STAR procedure names (e.g. 5-letter-plus-digit idents) and "DCT"/airport idents, not missing NASR fixes; if instead plain 5-letter fix names dominate, the NASR bundle is incomplete and that is the lever.
+CHANGE: report-only `unresolvedRouteTokens()` + capped census (300 distinct tokens, 12 raw texts) exposed under plan-status routeShape.unresolvedTokens/unresolvedTexts, fed only by fewFixes/noFixResolved plans. Placement logic untouched. Test: census counts only fewFixes plans and excludes resolvable fixes (9 pass in navAirways.test.ts).
+NEXT: after deploy read routeShape.unresolvedTokens; classify top tokens as procedure vs fix; decide on SID/STAR source (build-first check). No ladder promotion. ROLLBACK: git revert. MERGE: diagnostic only, any time.
+STARVED: no
+
+## 2026-10-06 (scheduled-routine session, ~11:05Z Tuesday, pre-market) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: UNPLACED-REASON READOUT (v1.0.1028 live)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.5%, serving.failing empty, feeds silent 0.03h). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 00:15Z entry: read unplacedReasons from plan-status after deploy (server_version confirmed 1.0.1028 via /api/data/layers).
+PRIOR: fewFixes/noFixResolved dominates (SID/STAR-bracketed route text with <3 resolvable NASR fixes), not airway failures.
+RESULT (live plan-status routeShape, cumulative since boot): unplaced total 83,792 of 288,499 full parses (29%): fewFixes 60,736 (72.5%), noText 10,325 (12.3%), noFixResolved 10,036 (12.0%), airwayUnbounded 1,723 (2.1%), legTooLong 972 (1.2%), other 0. Placed 204,707.
+VERDICT: prior supported. ~85% of unplaced plans are fewFixes + noFixResolved, i.e. route text whose en-route portion is procedure-named (SID/STAR) and so yields <3 NASR fixes. Airway expansion failures are ~2%, so airway logic is not the lever. Caveat: the classifier counts only NASR fix-table hits, so it cannot say whether the missing fixes are procedure waypoints or genuinely absent from the bundle; that needs a sample of fewFixes route texts. Measurement note: counters are report-only, no placement change.
+NEXT: separate PR to sample-log (capped, report-only) fewFixes route texts and check which tokens fail lookupFix; only then decide whether SID/STAR procedure resolution (needs a free CIFP/NASR STARDP source, build-first check) is worth building. No ladder promotion. ROLLBACK: n/a (docs). MERGE: docs-only, any time.
+STARVED: no
+
+## 2026-10-06 (scheduled-routine PRODUCT session, ~00:15Z Tuesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: WHY ROUTES STAY UNPLACED (v1.0.1028)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.6%). Took NEXT from the 10-05 18:10Z entry (break `unplaced` into reasons).
+PRIOR: most unplaced route texts are SID/STAR-bracketed (`DEP./.SID..FIX..ARR`) with <3 resolvable NASR fixes, i.e. `fewFixes`/`noFixResolved`, not airway failures.
+CHANGE: report-only `classifyUnplacedRoute()` + `unplacedReasonCounters` (exposed under plan-status routeShape.unplacedReasons). Placement logic untouched; same inputs place identical points. Tests: classifier reasons + counter increments only for unplaced (36 pass; flightPlans.test.ts cannot run in this sandbox, no express installed, pre-existing).
+LIVE BASELINE (pre-deploy, cumulative): placed 323,692; expandedNoPoints 20,703; noExpanded 113,473 (~21% of all plans, ~80% of them with the shape `nasRouteText=DEP./.X99..Y.` and no expandedRoute). Reasons await deploy.
+NEXT: after deploy read unplacedReasons from plan-status; if fewFixes/noFixResolved dominates, the lever is SID/STAR (procedure) resolution, a separate PR. No ladder promotion. ROLLBACK: git revert. MERGE: after-hours fine, diagnostic only.
+STARVED: no
+
+## 2026-10-05 (scheduled-routine PRODUCT session, ~18:10Z Monday, market hours) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: REPORT-ONLY FUNNEL COUNTS (v1.0.1027)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.8%, serving.failing empty, feeds silent 0.09h). research_state_check clean (thrash 0/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks 2026-10-07). Took NEXT from the 13:15Z/16:05Z entries.
+PRIOR: the n=6 vs n=387 swing is an eligible x placed funnel effect; exposing per-reason reject counts will show `unplaced` (pathEstimated) as the dominant loss, not request errors.
+CHANGE: scripts/flightplan_gate1.py gained reject_reason() (mirrors measure()'s predicate order) and a `funnel` output block; measure() and every metric untouched (measurement-code rule: report-only, same inputs give identical n/median/p90). Test asserts reject_reason is None iff measure() returns a value.
+RESULT (live, cap 400 rows, ~18:10Z): funnel eligible_rows 400, request_errors 1, unplaced 318, not_filed 26, near_dest 1, measured 54. Cross-track unchanged in kind: median 0, p90 5.7, p95 8.6, le15 98%; airway n=34, direct n=20; airway|60-150 n=6 median 8.6 nm (small n, nearest band is the loosest, consistent with some terminal drift, no claim).
+VERDICT: ~80% of eligible rows have an ESTIMATED (unplaced) path at this hour, so yield is bounded by placement coverage, not by API faults (1 error in 400). This is the next real gate-1 lever: why do ~4/5 of airborne airline-callsign flights fall to pathEstimated (unparsed route tokens, missing SIDs/STARs, no plan)? NEXT: break `unplaced` into reasons using the server's routeShape counters; separate PR. No ladder promotion. ROLLBACK: git revert. MERGE: tooling-only, any time.
+STARVED: no
+
 ## 2026-10-05 (scheduled-routine session, ~16:05Z Monday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1 RE-RUN, AFTERNOON POPULATION: n=387
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -5.0% vs peak 110727, serving.failing empty, feeds silent 0.07h). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 13:15Z entry: re-run at a different time of day.
@@ -106727,3 +106772,175 @@ NOT DONE HERE (own PR, filed): editions still come from the FAA ArcGIS tile serv
 TESTS: server/aeroOverview.test.ts (10), server/aeroCharts.test.ts +8 (overview build, depth cap/pending, no-store, TAC none, IFR Low 404 + transparent-PNG fill, opaque untouched + cached decision, IFR Low z7-from-z8, status fields); the prefetch test's exact upstream-count assertion now covers both stages (FAA band ∪ z5 descendants of every overview tile) plus the overview marker and a baked z2 tile. client aeroCharts.test.ts +4.
 ROLLBACK TRIGGER: revert if /api/data/aero/status shows overviewErrors climbing or R2 puts hitting the daily budget on non-bake days.
 STARVED: no — PR2 (own GeoTIFF bake for current editions) is the next queued slice.
+
+
+## 2026-10-06 [REPAIR] — T-BOT — DD-HALT: CONFIRM THE TRIP, IGNORE INVALID READINGS; RELEASE THE 2026-09-09 BAD-DATA HALT (v1.0.1030)
+
+HUMAN-DIRECTED (2026-10-06, verbatim: "reset the halt and fix the issues")
+after asking why the bot seemed flat. Human sovereignty: this is the human's
+call on a risk mechanism; the mechanism is kept, only its trip is confirmed.
+
+FINDINGS (live, DIAG_TOKEN probes, 15:40Z):
+- Bot healthy (alpaca ACTIVE, scanner 0 failures, liveness not dark, JS
+  killSwitch false) but every Tier-2 scan since 2026-09-09 returns "Scanned
+  0 stocks" with "DD-HALT ... DD 18.39% >= 18.0% (peak=$111,737
+  cur=$91,185)". Last order fill: 2026-09-14 (a hedge put); no entries since.
+- The trip reading ($91,185) is the 2026-09-09 equity-curve point (-$12,059.74
+  in a day whose fills lost ~$415; 2026-09-10 read $101,529) already
+  diagnosed as an Alpaca paper-account DATA ANOMALY. Real low ~$100.8k
+  (~9.8% below peak), never 18%.
+- Release needs regime BULL/NEUTRAL AND gap <= 5% of the Python peak
+  $111,736.69 (the JS-side peak is $110,727 — two peaks): equity $105,947
+  was 5.18% below, ~$200 short.
+- Account 2026-09-08 -> 10-06: $102,808 -> $105,995 (+3.1%) vs SPY 764.06
+  -> 781.45 (+2.3%) — from HOLDINGS only (5 stocks + 1 option, ~67%
+  invested). Not flat; just not trading.
+- When it did trade: LEARN audit "win rate 0% (13 post-deploy trades)",
+  TIER3-DIAG "25.8% over 31 trades"; the 15 round trips reconstructable from
+  the last 100 orders (2026-09-04..14) netted -$23.47 and were tiny (single
+  option contracts, a few $ each). Strategy/sizing is the real money
+  question — queued as its own [RESEARCH] item, not part of this repair.
+
+FIX (bot_engine.update_equity_peak; risk_kill_switch.py untouched):
+1. Equity <= 0 / None (a failed account read) is not a reading: state is
+   left unchanged, never trips, never moves the peak. (Before: computed a
+   100% drawdown and tripped.)
+2. Trips still halt INSTANTLY (fail-safe) but are unconfirmed; the first
+   reading >= DRAWDOWN_HALT_CONFIRM_MIN_SECONDS (60) later confirms when dd
+   >= DRAWDOWN_HALT_CONFIRM_FRACTION (0.5) x DRAWDOWN_HALT_PCT (= 9%), after
+   which the one-way ratchet applies exactly as before; a re-read below that
+   releases the trip as bad data, recorded in the state file
+   (last_anomaly_release) and surfaced as a DD-HALT "RELEASED as bad-data
+   trip" audit line via scan_market -> bot.ts.
+3. Pre-existing halts carry no confirmation fields and are treated as
+   unconfirmed: the live 2026-09-09 halt re-reads at 5.18% (< 9%) on the
+   first Tier-2 scan after deploy and is released — the requested reset.
+NEW CONFIG KEYS (no prior values): DRAWDOWN_HALT_CONFIRM_MIN_SECONDS=60,
+DRAWDOWN_HALT_CONFIRM_FRACTION=0.5. DRAWDOWN_HALT_PCT (18) and the resume
+rule (BULL/NEUTRAL + 5%) are unchanged.
+
+BACKTEST: backtest_v2.py does not model the portfolio DD halt (grepped: no
+DRAWDOWN_HALT / update_equity_peak references), so backtest Sharpe and
+max-DD are identical by construction; the evidence for this change is the
+live incident above, not an ablation.
+
+ROLLBACK TRIGGER: revert this change if (a) any "RELEASED as bad-data trip"
+audit line is followed within 5 trading days by a CONFIRMED >= 18%
+drawdown, or (b) the account's realized drawdown from peak exceeds 20%
+while the halt reads not-halted. Watch the first post-deploy Tier-2 scans
+for the RELEASED line and "Scanned N>0 stocks".
+
+RATCHET: test_dd_halt_confirmation.py (8 tests incl. the exact live legacy
+state; all 8 fail on the old code). test_risk_controls.py unchanged and
+passing. Full pytest 2,334 passed; counter ratchet OK.
+STARVED: no — next: [RESEARCH] why live trades lose (25.8% win rate) and
+why they are so small relative to a $106k account.
+
+
+## 2026-10-06 [RESEARCH] — T-BOT measurement view — /api/diag/shadow_bands: WHERE DOES THE SCAN LOSE? (v1.0.1031)
+
+Follow-up to the DD-halt repair (#1257), same human directive ("fix the
+issues"). The halt explains why the bot stopped trading; this targets why
+it LOSES when it trades.
+
+PRIOR (stated before reading the new view): get_shadow_stats() over 20,000
+labeled candidates (2026-07-25..09-08, 90% NEUTRAL_BULL) shows TAKEN
+candidates winning LESS than score-REJECTED ones (+5d 47.2% vs 51.0%, +10d
+46.9% vs 53.2%, +20d 44.5% vs 56.4%), and taken median |change_pct_today|
+= 18% (p95 27%). The quick-score prescreen is 3 x min(|change%|, 15) +
+volume + a +5 bonus above 10%, so the deep-score funnel is dominated by
+stocks that already moved 10-30% today. Hypothesis: short-term reversal —
+long entries after extreme one-day gains have negative forward expectancy,
+and the scorer ranks them highest. Expected in the band view: taken|10..20
+and taken|20..30 show the worst mean return; score quintile Q5 is NOT the
+best quintile. Labels are path-dependent (+2% target / -4% stop / timeout),
+so break-even win rate is ~67% — mean return_pct is the decision metric,
+not win rate. Base rate = the "all" cell.
+
+CHANGE (measurement only — no trading logic touched): shadow_portfolio.
+shadow_band_report() (pure) + get_shadow_band_report(); diag probe
+"shadow_bands" (DIAG_PROBES + bot.ts switch, same execPythonSerialized
+pattern as "shadow"). Cuts: decision, decision x signed same-day band
+(<-10 .. >=30), all-band, score quintile, decision x regime; per horizon
+n / win rate / mean / median return_pct; cells under n=20 report n only.
+Aggregate-only (test pins: no ticker/price/timestamp in output).
+MEASUREMENT INTEGRITY: new view, no existing metric's definition changes;
+get_shadow_stats() untouched.
+
+TESTS: test_shadow_band_report.py (4). diag.test.ts (29, incl. every
+whitelisted probe has a bot.ts case). Full pytest + counter ratchet OK.
+NEXT: after deploy, read /api/diag/shadow_bands and judge the prior; a
+scoring change ships only with this counterfactual evidence + a backtest
+ablation, as its own PR.
+STARVED: no.
+
+
+## 2026-10-06 (scheduled-routine session, ~16:05Z, market hours) [NO-ACTION] — VERIFIED v1.0.1030 DD-HALT RELEASE LIVE; shadow_bands awaits deploy
+
+Loop-health ratio (last 10 tags): 1 PIPELINE, 6 NO-ACTION, 1 PRODUCT, 1 REPAIR, 1 RESEARCH — no thrash.
+Live (16:04Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -4.3%.
+REPAIR VERIFIED: audit shows "DD-HALT RELEASED as bad-data trip — re-read equity=106013.43 dd_pct=5.122 vs trip DD 18.39% ..." at 16:00:36Z; Tier-2 is acting again (SELL_CSP IEF/TLT, FCEL scale-out + take-profit). The 2026-09-09 halt is cleared; rollback trigger (confirmed >=18% DD within 5 trading days / realized DD >20% while not halted) not tripped.
+NOT ACTIONABLE YET: /api/diag/shadow_bands answers "unknown probe" — server_version still 1.0.1030 (v1.0.1031 deploy lag after #1258). The prior stated in the v1.0.1031 entry cannot be judged until it deploys; the shadow data lives on the Railway volume, so no local substitute.
+NEXT: first session after v1.0.1031 is live reads /api/diag/shadow_bands and judges the reversal prior ([RESEARCH]).
+Merge note: docs-only; no market-hours constraint.
+STARVED: no.
+
+
+## 2026-10-06 [RULE-REVIEW] — T-BOT measurement — SHADOW BAND READ + "TAKEN" IS NOT "BOUGHT": RECORD THE ACTION (v1.0.1032)
+
+JUDGED the prior filed in the shadow_bands entry (v1.0.1031) against the
+live /api/diag/shadow_bands read (16:05Z, 19,876 labeled candidates,
+2026-07-25..09-08, ~90% NEUTRAL_BULL). Path-dependent labels (+2%/-4%/
+timeout), +5d horizon:
+- BASE RATE ("all"): win 49.2%, mean -1.02%. Every cell of the funnel is
+  negative under these exits except rejected_masterkill (n=134, all in the
+  -3..3 band — index/defensive names, not scan picks).
+- SCORE QUINTILE is MONOTONE INVERSE: Q1 -0.60% (56.5% win) -> Q2 -0.99 ->
+  Q3 -0.96 -> Q4 -1.06 -> Q5 -1.46% (42.3%); same order at +10d.
+- WORST CELL: taken|10..20 (same-day gain 10-20%): n=3,704, 35.1% win,
+  -1.79%. taken|<-10 (bought after big drops): 65.0% win, -0.10% — the best
+  "taken" cell. The funnel is ~all |change| >= 10% (3..10 band n=3): the
+  quick-score prescreen (3 x min(|chg|,15) + vol + bonus) admits only
+  extreme movers.
+PRIOR HELD in direction (high score worse; 10-20% gainers worst) — but the
+evidence is CONTAMINATED three ways, so NO scoring change ships on it:
+1. "taken" = combined_score >= MIN_SCORE only. deep_score() then routes
+   high scorers with VRP > 5 to SELL OPTIONS and RSI > 70 to SELL — not
+   stock buys — yet every record is labeled as a LONG stock outcome. Part
+   of "high score does worst" is "the stocks the bot chose NOT to buy fell".
+2. Labeler exits (+2% TP / -4% SL, 5d) do not match live exits (ATR stop
+   1.5x clamped 2-6%, TP = 4x stop, 10-day time stop): magnitudes are not
+   what the live bot would realize. shadow_portfolio's "matches bot's
+   take-profit" comment is stale. Filed for its own measurement PR.
+3. One ticker is logged on every 3-min scan it survives: 20k records are
+   far fewer independent bets (overlapping windows) — significance is
+   overstated by an unknown factor.
+Also confirmed: backtest_v2.py simulates single-ticker strategy modules,
+not the scan/quick-score/deep-score funnel, so a funnel ablation cannot be
+backtested with the existing engine (wishlist-grade gap).
+
+CHANGE (measurement only): log_candidate() now records side /
+action_label / trade_type (deep_score passes the values it already
+computed before logging); shadow_band_report() adds decision_x_action and
+action_x_band cuts; pre-2026-10-06 records read "unrecorded". ML training
+reads only FEATURE_COLS from features — unaffected (checked).
+MEASUREMENT INTEGRITY: no existing metric's value changes on identical
+inputs (new fields + new cuts only).
+
+NEXT (own PRs, in order): (a) after ~5 trading days of action-tagged
+records, re-read decision_x_action / action_x_band for BUY only; (b) align
+the shadow labeler's exits to the live ATR/4x/10d rules (ruler change,
+[RULE-REVIEW], before/after stated); (c) only then a scoring/funnel change
+(candidate: stop admitting 10-20% same-day gainers as BUYs) as an
+exploratory experiment with a kill date, counterfactually logged.
+TESTS: test_shadow_band_report.py now 6. Full pytest 2,340; ratchet OK.
+STARVED: no.
+
+
+## 2026-10-06 (scheduled-routine session, ~20:15Z, after hours) [NO-ACTION] — health green; queue head is time-gated
+
+Loop-health ratio (last 10 tags): 1 REPAIR, rest PIPELINE/PRODUCT/NO-ACTION/RESEARCH — no thrash (research_state_check: all OK, no audit overdue, starvation 0).
+Live (20:17Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -4.5%, feeds not dead.
+QUEUE: shadow-band chain is ordered (a) re-read decision_x_action after ~5 trading days of action-tagged records (v1.0.1032 deployed today — 0 days elapsed) -> (b) align labeler exits -> (c) scoring change. (b) was inspected: shadow_portfolio's labeler output also feeds ML training labels, so changing exits is not a pure ruler change; it needs a parallel live-exit-aligned column, not an edit — sizeable, and sequenced after (a). Not started to avoid churn/padding.
+NEXT: first session on/after 2026-10-13 runs step (a).
+STARVED: no.

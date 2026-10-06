@@ -272,6 +272,13 @@ export const DIAG_PROBES = [
   // quick depth check — no per-row lat/lon/tail data, same reduced-
   // exposure posture as the "gnss_integrity" probe above.
   "gnss_integrity_daily",
+  // ADDED 2026-10-06 (human-directed "fix the issues", after the DD-halt
+  // reset): shadow_portfolio.get_shadow_band_report() — the same labeled
+  // shadow records as "shadow", cut by decision x signed same-day move x
+  // score quintile x regime with n / win rate / mean return. Answers
+  // "where does the scan lose?" (taken candidates win LESS than rejected
+  // ones). Aggregate-only like "shadow": no ticker, price or timestamp.
+  "shadow_bands",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

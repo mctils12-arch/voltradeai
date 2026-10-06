@@ -561,6 +561,18 @@ def _save_dd_state(state: dict) -> None:
         logging.getLogger("voltrade.dd").debug(f"Failed to save DD state: {e}")
 
 
+# Set by update_equity_peak() when a halt is released as a bad-data trip;
+# scan_market() attaches it to its result so Node writes a DD-HALT audit line
+# (a release must be as visible as the trip was). Cleared once attached.
+_last_dd_event = None
+
+
+def _dd_now() -> float:
+    """Clock seam for the halt-confirmation window (tests patch this)."""
+    import time as _t
+    return _t.time()
+
+
 def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
     """
     Update equity peak and evaluate halt / recovery state.
@@ -574,9 +586,26 @@ def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
     import logging
     _log = logging.getLogger("voltrade.dd")
 
+    global _last_dd_event
     state = _load_dd_state()
     peak = float(state.get("peak_equity", 0.0) or 0.0)
     cur  = float(current_equity or 0.0)
+
+    # ── Invalid reading guard (2026-10-06) ──────────────────────────────────
+    # A failed account read arrives here as equity 0, which computed as a
+    # 100% drawdown and would trip the halt (and a later normal reading could
+    # never "confirm" it away). A non-positive equity is not a reading: keep
+    # the persisted state untouched and report it as-is.
+    if cur <= 0:
+        _log.warning(f"[DD_HALT] ignoring invalid equity reading {current_equity!r} — state unchanged")
+        halted0 = bool(state.get("halted", False))
+        return {
+            "peak_equity": peak, "current_equity": cur, "dd_pct": 0.0,
+            "halted": halted0, "halt_reason": state.get("halt_reason", ""),
+            "halt_started_at": state.get("halt_started_at"),
+            "should_escalate_hedge": False, "regime": regime,
+            "invalid_reading": True,
+        }
 
     # First-run bootstrap: seed peak with current equity
     if peak <= 0 and cur > 0:
@@ -593,21 +622,68 @@ def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
     resume_eq_pct  = float(BASE_CONFIG.get("DRAWDOWN_HALT_RESUME_EQUITY_PCT", 5.0))
     hedge_esc_pct  = float(BASE_CONFIG.get("DRAWDOWN_HEDGE_ESCALATE_PCT", 10.0))
 
+    confirm_min_s  = float(BASE_CONFIG.get("DRAWDOWN_HALT_CONFIRM_MIN_SECONDS", 60))
+    confirm_frac   = float(BASE_CONFIG.get("DRAWDOWN_HALT_CONFIRM_FRACTION", 0.5))
+
     halted = bool(state.get("halted", False))
     halt_reason = state.get("halt_reason", "")
     halt_started_at = state.get("halt_started_at")
+    # Halts persisted before 2026-10-06 carry no confirmation fields — they are
+    # treated as UNCONFIRMED (trip time unknown = long ago), so their first
+    # evaluation is the confirmation check below.
+    halt_confirmed = bool(state.get("halt_confirmed", False))
+    halt_trip_ts = float(state.get("halt_trip_ts", 0.0) or 0.0)
+    halt_trip_equity = state.get("halt_trip_equity")
+    last_anomaly_release = state.get("last_anomaly_release")
 
     # ── Trigger halt: DD breaches threshold ─────────────────────────────────
+    # Halts IMMEDIATELY (fail-safe), but unconfirmed until a later reading.
     if halt_enabled and not halted and dd_pct >= halt_pct:
         halted = True
         halt_reason = f"DD {dd_pct:.2f}% >= {halt_pct:.1f}% (peak=${peak:,.0f} cur=${cur:,.0f})"
         halt_started_at = datetime.now().isoformat()
-        _log.warning(f"[DD_HALT] TRIGGERED: {halt_reason}")
+        halt_confirmed = False
+        halt_trip_ts = _dd_now()
+        halt_trip_equity = cur
+        _log.warning(f"[DD_HALT] TRIGGERED (unconfirmed): {halt_reason}")
+
+    else:
+        # ── Confirmation of an unconfirmed trip (2026-10-06, human-directed) ─
+        # The 2026-09-09 halt tripped on ONE anomalous Alpaca paper-account
+        # equity snapshot ($91k on a day whose fills lost ~$415; the next
+        # day read $101.5k) and then blocked every entry for four weeks.
+        # The first reading at least DRAWDOWN_HALT_CONFIRM_MIN_SECONDS after
+        # the trip decides: a real drawdown still shows at least
+        # DRAWDOWN_HALT_CONFIRM_FRACTION of the halt threshold and is
+        # CONFIRMED (the one-way ratchet below then applies unchanged); a
+        # reading far below that is inconsistent with the trip, which is
+        # released as a bad-data trip and recorded.
+        if halted and not halt_confirmed and (_dd_now() - halt_trip_ts) >= confirm_min_s:
+            if dd_pct >= halt_pct * confirm_frac:
+                halt_confirmed = True
+                _log.warning(f"[DD_HALT] CONFIRMED: dd {dd_pct:.2f}% on re-read ({halt_reason})")
+            else:
+                last_anomaly_release = {
+                    "released_at": datetime.now().isoformat(),
+                    "trip_reason": halt_reason,
+                    "trip_equity": halt_trip_equity,
+                    "confirm_equity": cur,
+                    "confirm_dd_pct": round(dd_pct, 3),
+                    "peak_equity": peak,
+                }
+                _log.warning(f"[DD_HALT] RELEASED as bad-data trip: re-read dd {dd_pct:.2f}% < "
+                             f"{halt_pct * confirm_frac:.1f}% (trip was: {halt_reason})")
+                _last_dd_event = {"kind": "anomaly_release", **last_anomaly_release}
+                halted = False
+                halt_reason = ""
+                halt_started_at = None
+                halt_trip_equity = None
+                halt_trip_ts = 0.0
 
     # ── One-way ratchet resume: regime OK AND equity close to peak ─────────
     # Both conditions must be met. Prevents premature resumption during a
     # bear-rally that temporarily flips the regime.
-    elif halted and regime in resume_regimes:
+    if halted and regime in resume_regimes:
         equity_gap_pct = ((peak - cur) / peak * 100.0) if peak > 0 else 0.0
         if equity_gap_pct <= resume_eq_pct:
             _log.info(f"[DD_HALT] RESUMED: regime={regime} equity_gap={equity_gap_pct:.2f}% ≤ {resume_eq_pct}%")
@@ -624,6 +700,10 @@ def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
         "halted": halted,
         "halt_reason": halt_reason,
         "halt_started_at": halt_started_at,
+        "halt_confirmed": halt_confirmed if halted else False,
+        "halt_trip_ts": halt_trip_ts if halted else 0.0,
+        "halt_trip_equity": halt_trip_equity if halted else None,
+        "last_anomaly_release": last_anomaly_release,
     }
     _save_dd_state(new_state)
 
@@ -631,6 +711,7 @@ def update_equity_peak(current_equity: float, regime: str = "NEUTRAL") -> dict:
         "peak_equity": peak, "current_equity": cur, "dd_pct": dd_pct,
         "halted": halted, "halt_reason": halt_reason,
         "halt_started_at": halt_started_at,
+        "halt_confirmed": halt_confirmed if halted else False,
         "should_escalate_hedge": should_escalate,
         "regime": regime,
     }
@@ -1755,6 +1836,9 @@ except Exception as e:
             entry_price=quick_result.get("price", 0),
             vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
             regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+            side=side,
+            action_label=action_label,
+            trade_type=trade_type,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
@@ -2417,8 +2501,14 @@ def scan_market():
         _old_handler = _sig.signal(_sig.SIGALRM, _scan_timeout_handler)
         _sig.alarm(55)  # 55s hard cap — Node kills at 90s
 
+    global _last_dd_event
     try:
-        return _scan_market_inner()
+        _res = _scan_market_inner()
+        # surface a bad-data halt release to Node's audit trail (DD-HALT line)
+        if _last_dd_event is not None and isinstance(_res, dict):
+            _res["dd_event"] = _last_dd_event
+            _last_dd_event = None
+        return _res
     except TimeoutError as _te:
         import logging
         logging.getLogger("bot_engine").warning(f"Scan timed out: {_te} — returning partial results")

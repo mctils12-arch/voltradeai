@@ -102,5 +102,34 @@ export function placeDirectFixes(routeText: string | null | undefined): { lat: n
   return out;
 }
 
+export type UnplacedReason = "noText" | "noFixResolved" | "fewFixes" | "airwayUnbounded" | "legTooLong" | "other";
+
+/** Report-only: WHY a route text yields no placed points via expandRouteText /
+ *  placeDirectFixes (diagnostic counter for the gate-1 funnel; never alters placement). */
+export function classifyUnplacedRoute(routeText: string | null | undefined): UnplacedReason {
+  if (!routeText || !routeText.trim()) return "noText";
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  const hasAirway = toks.some((t) => AIRWAY_RE.test(t) && table!.has(t));
+  const fixes: { lat: number; lon: number; name: string }[] = [];
+  for (const t of toks) {
+    const p = lookupFix(t);
+    if (p && fixes[fixes.length - 1]?.name !== t) fixes.push({ ...p, name: t });
+  }
+  if (hasAirway) return "airwayUnbounded";
+  if (fixes.length === 0) return "noFixResolved";
+  if (fixes.length < 3) return "fewFixes";
+  for (let i = 1; i < fixes.length; i++) if (legNm(fixes[i - 1], fixes[i]) > DIRECT_MAX_LEG_NM) return "legTooLong";
+  return "other";
+}
+
+/** Report-only: route-text tokens that do NOT resolve in the NASR fix table (SID/STAR names,
+ *  "DCT", airport idents, junk). Feeds the gate-1 unplaced-token diagnostic; never alters placement. */
+export function unresolvedRouteTokens(routeText: string | null | undefined): string[] {
+  if (!routeText) return [];
+  if (!table) loadNavAirways();
+  return routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter((t) => t && !lookupFix(t));
+}
+
 export const navAirwaysCycle = (): string | null => cycle;
 export function resetNavAirways(): void { table = null; cycle = null; }

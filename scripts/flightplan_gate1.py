@@ -48,6 +48,23 @@ def measure(plan, row):
     return xt
 
 
+def reject_reason(plan, row):
+    """REPORT-ONLY funnel label: why measure() returned None (None when it
+    would measure). Mirrors measure()'s predicate order; never feeds a metric.
+    Lets a low-n run be read as 'yield' vs 'API fault' (10-05 n=6 vs n=387)."""
+    if not plan:
+        return "no_plan"
+    if plan.get("source") != "FILED_FAA":
+        return "not_filed"
+    if plan.get("pathEstimated") or not plan.get("points"):
+        return "unplaced"
+    if (plan.get("deviation") or {}).get("crossTrackNm") is None:
+        return "no_crosstrack"
+    if hav_nm(row[2], row[1], plan["points"][-1]["lat"], plan["points"][-1]["lon"]) < 60:
+        return "near_dest"
+    return None
+
+
 def dist_band(plan, row):
     """distance-to-destination band of the aircraft (nm): tests whether
     cross-track outliers cluster near top-of-descent (ATC-cleared direct-to /
@@ -77,16 +94,22 @@ def main():
         try:
             pl = _get(f"{base}/api/data/aircraft/plan/{r[0]}?callsign={r[6]}&lat={r[2]}&lon={r[1]}&alt={r[3]}&trk={r[5]}")
             m = measure(pl, r)
-            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None)
+            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r)
         except Exception:
             return None
     with cf.ThreadPoolExecutor(6) as ex:
-        res = [x for x in ex.map(one, rows) if x is not None and x[1] is not None]
+        raw = list(ex.map(one, rows))
+    res = [x[:3] for x in raw if x is not None and x[1] is not None]
+    funnel = {"eligible_rows": len(rows), "request_errors": sum(x is None for x in raw), "measured": len(res)}
+    for x in raw:
+        if x is not None and x[3]:
+            funnel[x[3]] = funnel.get(x[3], 0) + 1
     by_kind, by_band = {}, {}
     for k, v, b in res:
         by_kind.setdefault(k, []).append(v)
         by_band.setdefault(f"{k}|{b}", []).append(v)
     out = summarize([v for _, v, _ in res])
+    out["funnel"] = funnel
     out["by_kind"] = {k: summarize(v) for k, v in sorted(by_kind.items())}
     out["by_kind_band"] = {k: summarize(v) for k, v in sorted(by_band.items())}
     print(json.dumps(out))
