@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-06 (scheduled-routine PRODUCT session, ~00:15Z Tuesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: WHY ROUTES STAY UNPLACED (v1.0.1028)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.6%). Took NEXT from the 10-05 18:10Z entry (break `unplaced` into reasons).
+PRIOR: most unplaced route texts are SID/STAR-bracketed (`DEP./.SID..FIX..ARR`) with <3 resolvable NASR fixes, i.e. `fewFixes`/`noFixResolved`, not airway failures.
+CHANGE: report-only `classifyUnplacedRoute()` + `unplacedReasonCounters` (exposed under plan-status routeShape.unplacedReasons). Placement logic untouched; same inputs place identical points. Tests: classifier reasons + counter increments only for unplaced (36 pass; flightPlans.test.ts cannot run in this sandbox, no express installed, pre-existing).
+LIVE BASELINE (pre-deploy, cumulative): placed 323,692; expandedNoPoints 20,703; noExpanded 113,473 (~21% of all plans, ~80% of them with the shape `nasRouteText=DEP./.X99..Y.` and no expandedRoute). Reasons await deploy.
+NEXT: after deploy read unplacedReasons from plan-status; if fewFixes/noFixResolved dominates, the lever is SID/STAR (procedure) resolution, a separate PR. No ladder promotion. ROLLBACK: git revert. MERGE: after-hours fine, diagnostic only.
+STARVED: no
+
 ## 2026-10-05 (scheduled-routine PRODUCT session, ~18:10Z Monday, market hours) [PIPELINE] — T-DATACORE (scripts/) — FLIGHTPLAN GATE-1: REPORT-ONLY FUNNEL COUNTS (v1.0.1027)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.8%, serving.failing empty, feeds silent 0.09h). research_state_check clean (thrash 0/10); ladder_readiness 0/5 ready (gnss_integrity_adsb unblocks 2026-10-07). Took NEXT from the 13:15Z/16:05Z entries.

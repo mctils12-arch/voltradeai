@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText, placeDirectFixes } from "./navAirways";
-import { parseSfdpsMessages, routeShapeCounters, _resetSfdpsCountersForTests } from "./swimSfdps";
+import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute } from "./navAirways";
+import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, _resetSfdpsCountersForTests } from "./swimSfdps";
 
 // J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
 test("airwaySegment returns the fixes between two idents in travel order, either direction", () => {
@@ -56,4 +56,22 @@ test("route-text-only message with direct fixes counts directFixPlaced", () => {
   assert.deepEqual(f.routePoints.map((p) => p.name), ["ILC", "MLF", "SAKES"]);
   assert.equal(routeShapeCounters.directFixPlaced, 1);
   assert.equal(routeShapeCounters.airwayExpanded, 0);
+});
+
+test("classifyUnplacedRoute names why route text stays unplaced (report-only diagnostic)", () => {
+  assert.equal(classifyUnplacedRoute(null), "noText");
+  assert.equal(classifyUnplacedRoute("KBOS..QZQZQ..KATL"), "noFixResolved");
+  assert.equal(classifyUnplacedRoute("KBOS..ILC..MLF..KATL"), "fewFixes");
+  assert.equal(classifyUnplacedRoute("ILC.J80.QZQZQ"), "airwayUnbounded");
+  assert.equal(classifyUnplacedRoute("ILC..MLF..BOS..SAKES"), "legTooLong");
+  assert.equal(classifyUnplacedRoute("ILC..MLF..SAKES"), "other"); // placeable => classifier says other; callers only ask when unplaced
+});
+
+test("unplaced routes increment unplacedReasonCounters, placed ones do not", () => {
+  _resetSfdpsCountersForTests();
+  const mk = (t: string) => `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`;
+  parseSfdpsMessages(mk("KBOS..ILC..MLF..KATL"));
+  parseSfdpsMessages(mk("KBOS..ILC..MLF..SAKES..KATL"));
+  assert.equal(unplacedReasonCounters.fewFixes, 1);
+  assert.equal(Object.values(unplacedReasonCounters).reduce((a, b) => a + b, 0), 1);
 });

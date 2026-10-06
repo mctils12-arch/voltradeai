@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText, placeDirectFixes } from "./navAirways";
+import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, type UnplacedReason } from "./navAirways";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -290,8 +290,12 @@ export interface RouteShapeSample { where: string; shape: string; count: number;
 const routeShapes = new Map<string, RouteShapeSample>();
 export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0 };
 
-function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number): void {
+/** Why route TEXT (the fallback path) left a plan unplaced — report-only. */
+export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 0, noFixResolved: 0, fewFixes: 0, airwayUnbounded: 0, legTooLong: 0, other: 0 };
+
+function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number, routeText: string | null): void {
   if (placed > 0) { routeShapeCounters.placed++; return; }
+  unplacedReasonCounters[classifyUnplacedRoute(routeText)]++;
   if (expanded) routeShapeCounters.expandedNoPoints++; else routeShapeCounters.noExpanded++;
   const target = expanded ?? findFirst(agreed, "route") ?? findFirst(flight, "route");
   const where = expanded ? "expandedRoute" : target ? "route(no expandedRoute)" : "flight(no route)";
@@ -302,8 +306,8 @@ function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode |
   if (hit) { hit.count++; return; }
   if (routeShapes.size < ROUTE_SHAPE_MAX_SAMPLES) routeShapes.set(key, { where, shape, count: 1, firstSeenAt: Date.now() });
 }
-export function routeShapeSamples(): { counters: typeof routeShapeCounters; samples: RouteShapeSample[] } {
-  return { counters: { ...routeShapeCounters }, samples: [...routeShapes.values()] };
+export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[] } {
+  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()] };
 }
 
 function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage {
@@ -367,7 +371,7 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
     }
   }
 
-  recordRouteShape(flight, agreed, expanded, routePoints.length);
+  recordRouteShape(flight, agreed, expanded, routePoints.length, routeText);
 
   const source = attr(flight, "source") ?? attr(message, "source");
   const messageType = source ? source.trim().toUpperCase() : null;
@@ -852,4 +856,5 @@ export function _resetSfdpsCountersForTests(): void {
   counters.byService = { FLIGHT: 0, AIRSPACE_AIXM: 0, GENERAL_MESSAGE: 0, STATUS: 0, UNKNOWN: 0 };
   counters.flightByType = {}; counters.fullParses = 0; counters.lightParses = 0; counters.parseErrors = 0;
   routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0;
+  for (const k of Object.keys(unplacedReasonCounters) as UnplacedReason[]) unplacedReasonCounters[k] = 0;
 }
