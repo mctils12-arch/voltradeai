@@ -9,6 +9,7 @@ import { repoDataPath } from "./repoFiles";
 
 let table: Map<string, [number, number]> | null = null;
 let cycle: string | null = null;
+let magVar: Map<string, [number, number]> = new Map();
 
 export function loadNavFixes(jsonPath?: string): number {
   if (table) return table.size;
@@ -17,6 +18,7 @@ export function loadNavFixes(jsonPath?: string): number {
     const d = JSON.parse(fs.readFileSync(p, "utf-8"));
     table = new Map(Object.entries(d.fixes || {}) as [string, [number, number]][]);
     cycle = d.cycle ?? null;
+    magVar = new Map(Object.entries(d.magVar || {}) as [string, [number, number]][]);
   } catch (e: unknown) {
     console.error("[navFixes] load:", e instanceof Error ? e.message : e);
     table = new Map(); // degrade to no-matches, never throw at call sites
@@ -31,6 +33,15 @@ export function lookupFix(ident: string | null | undefined): { lat: number; lon:
   return v ? { lat: v[0], lon: v[1] } : null;
 }
 
+/** Navaid magnetic variation as FILED in NASR (degrees, east positive; survey year). A VOR radial is
+ *  oriented to this epoch value, not a modern WMM. null for non-navaids and navaids without one. */
+export function lookupMagVar(ident: string | null | undefined): { deg: number; year: number } | null {
+  if (!ident) return null;
+  if (!table) loadNavFixes();
+  const v = magVar.get(ident.trim().toUpperCase());
+  return v ? { deg: v[0], year: v[1] } : null;
+}
+
 export const navFixesCycle = (): string | null => cycle;
 /** test hook */
-export function resetNavFixes(): void { table = null; cycle = null; }
+export function resetNavFixes(): void { table = null; cycle = null; magVar = new Map(); }

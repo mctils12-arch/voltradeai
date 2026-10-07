@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
+import { expandRouteText, placeDirectFixes, placeDirectFixesWithRadials, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 
 export const UNRESOLVED_TOKEN_MAX = 300;
 export const UNRESOLVED_TEXT_MAX = 12;
 /** Report-only split of fewFixes plans (counters only, fixed keys — cannot grow). */
-export const fewFixesProfileCounters = { total: 0, resolved0: 0, resolved1: 0, resolved2: 0, withLatLon: 0, withRadial: 0, latlonReaches3: 0, latlonRadialReaches3: 0 };
+export const fewFixesProfileCounters = { total: 0, resolved0: 0, resolved1: 0, resolved2: 0, withLatLon: 0, withRadial: 0, latlonReaches3: 0, latlonRadialReaches3: 0, radialShadowPlaced: 0, radialShadowTokens: 0 };
 const unresolvedTokenCounts = new Map<string, number>();
 const unresolvedTexts: { reason: UnplacedReason; text: string }[] = [];
 function recordUnresolved(reason: UnplacedReason, routeText: string | null): void {
@@ -311,6 +311,9 @@ function recordUnresolved(reason: UnplacedReason, routeText: string | null): voi
     if (f.radial > 0) c.withRadial++;
     if (f.resolved + f.latlon >= 3) c.latlonReaches3++;
     if (f.resolved + f.latlon + f.radial >= 3) c.latlonRadialReaches3++;
+    // shadow: would the real radial resolver (filed magVar, plausible legs) clear the placement bar?
+    const sh = placeDirectFixesWithRadials(routeText);
+    if (sh.points.length) { c.radialShadowPlaced++; c.radialShadowTokens += sh.radial; }
   }
   for (const t of unresolvedRouteTokens(routeText)) {
     const n = unresolvedTokenCounts.get(t);

@@ -87,6 +87,14 @@ export function initialBearingDeg(a: LatLon, b: LatLon): number {
   return ((Math.atan2(y, x) * R2D) + 360) % 360;
 }
 
+/** point reached from `a` travelling `distNm` along true bearing `brgDeg` (great circle) */
+export function destinationPoint(a: LatLon, brgDeg: number, distNm: number): LatLon {
+  const d = distNm / EARTH_RADIUS_NM, b = brgDeg * D2R, la1 = a.lat * D2R, lo1 = a.lon * D2R;
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+  const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return { lat: la2 * R2D, lon: normLon(lo2 * R2D) };
+}
+
 /** point at fraction f (0..1) along the great circle a -> b */
 export function interpolateGC(a: LatLon, b: LatLon, f: number): LatLon {
   const va = toV(a), vb = toV(b);

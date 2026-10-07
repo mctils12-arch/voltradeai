@@ -7,8 +7,8 @@
 import fs from "fs";
 import path from "path";
 import { repoDataPath } from "./repoFiles";
-import { lookupFix } from "./navFixes";
-import { EARTH_RADIUS_NM } from "../shared/flightPlanGeometry";
+import { lookupFix, lookupMagVar } from "./navFixes";
+import { EARTH_RADIUS_NM, destinationPoint } from "../shared/flightPlanGeometry";
 
 let table: Map<string, string[][]> | null = null;
 let cycle: string | null = null;
@@ -150,6 +150,46 @@ export function fewFixesProfile(routeText: string | null | undefined): { resolve
     prev = t;
   }
   return { resolved, latlon, radial };
+}
+
+const RADIAL_PARTS_RE = /^([A-Z]{2,4})(\d{3})(\d{3})$/;
+const RADIAL_MAX_NM = 400; // a fix-radial-distance offset beyond this is a parse collision, not a waypoint
+
+/** Resolve a fix-radial-distance token (`SNS285053` = SNS radial 285 at 53 NM). The radial is MAGNETIC
+ *  from the station, so true bearing = radial + the station's FILED variation (east positive). Only
+ *  navaids carrying a variation resolve; anything else returns null — never guessed. */
+export function resolveRadialToken(token: string): { lat: number; lon: number; name: string; magYear: number } | null {
+  const m = RADIAL_PARTS_RE.exec(token.toUpperCase());
+  if (!m) return null;
+  const radial = Number(m[2]), dist = Number(m[3]);
+  if (radial > 360 || dist < 1 || dist > RADIAL_MAX_NM) return null;
+  const base = lookupFix(m[1]), mv = lookupMagVar(m[1]);
+  if (!base || !mv) return null;
+  const p = destinationPoint(base, (((radial + mv.deg) % 360) + 360) % 360, dist);
+  return { ...p, name: token.toUpperCase(), magYear: mv.year };
+}
+
+/** SHADOW ONLY (gate-1 resolver, not wired into placement): the points placeDirectFixes would give
+ *  if fix-radial-distance tokens were also placed. Same bar as placeDirectFixes (>=3 points, no airway,
+ *  plausible legs). `radial` counts how many of the points came from radial tokens. */
+export function placeDirectFixesWithRadials(routeText: string | null | undefined): { points: { lat: number; lon: number; name: string }[]; radial: number } {
+  const none = { points: [], radial: 0 };
+  if (!routeText) return none;
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  if (toks.some((t) => AIRWAY_RE.test(t) && table!.has(t))) return none;
+  const points: { lat: number; lon: number; name: string }[] = [];
+  let radial = 0;
+  for (const t of toks) {
+    const fix = lookupFix(t);
+    const p = fix ? { ...fix, name: t } : resolveRadialToken(t);
+    if (!p || points[points.length - 1]?.name === p.name) continue;
+    if (!fix) radial++;
+    points.push({ lat: p.lat, lon: p.lon, name: p.name });
+  }
+  if (points.length < 3) return none;
+  for (let i = 1; i < points.length; i++) if (legNm(points[i - 1], points[i]) > DIRECT_MAX_LEG_NM) return none;
+  return { points, radial };
 }
 
 export const navAirwaysCycle = (): string | null => cycle;
