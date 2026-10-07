@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile } from "./navAirways";
+import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, resolveRadialToken, placeDirectFixesWithRadials } from "./navAirways";
+import { lookupFix } from "./navFixes";
+import { haversineNm, initialBearingDeg } from "../shared/flightPlanGeometry";
 import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, routeShapeSamples, _resetSfdpsCountersForTests } from "./swimSfdps";
 
 // J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
@@ -102,4 +104,34 @@ test("fewFixes profile counts resolved fixes, lat/lon and radial tokens and is r
   assert.equal(p.resolved2, 1);
   assert.equal(p.withLatLon, 1);
   assert.equal(p.latlonReaches3, 1);
+});
+
+test("resolveRadialToken: magnetic radial + filed east variation = true bearing, distance exact, no guessing", () => {
+  const base = lookupFix("SNS")!; // SNS filed variation 17E (1965)
+  const p = resolveRadialToken("SNS285053")!;
+  assert.ok(Math.abs(haversineNm(base, p) - 53) < 0.05);
+  assert.ok(Math.abs(initialBearingDeg(base, p) - 302) < 0.2);
+  assert.equal(p.magYear, 1965);
+  const w = resolveRadialToken("PVD090012")!; // 14W: true bearing 76
+  assert.ok(Math.abs(initialBearingDeg(lookupFix("PVD")!, w) - 76) < 0.2);
+  assert.equal(resolveRadialToken("SAKES285053"), null); // fix without a navaid variation
+  assert.equal(resolveRadialToken("SNS400053"), null); // radial > 360
+  assert.equal(resolveRadialToken("SNS285000"), null); // zero distance
+  assert.equal(resolveRadialToken("QZQ285053"), null); // unknown ident
+  assert.equal(resolveRadialToken("SNS28505"), null);
+});
+
+test("radial shadow resolver clears the >=3 bar only with real placed points and never alters placement", () => {
+  const t = "KBOS..ILC..SNS285053..MLF..KATL";
+  const r = placeDirectFixesWithRadials(t);
+  assert.deepEqual(r.points.map((x) => x.name), ["ILC", "SNS285053", "MLF"]);
+  assert.equal(r.radial, 1);
+  assert.deepEqual(placeDirectFixesWithRadials("KBOS..ILC..SNS285053..KATL").points, []); // only 2 points
+  assert.deepEqual(placeDirectFixesWithRadials("ILC.J80.JNC..SNS285053").points, []); // airway refuses
+  _resetSfdpsCountersForTests();
+  const [f] = parseSfdpsMessages(`<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`);
+  assert.deepEqual(f.routePoints, []); // shadow only: placement unchanged
+  const c = routeShapeSamples().fewFixesProfile;
+  assert.equal(c.radialShadowPlaced, 1);
+  assert.equal(c.radialShadowTokens, 1);
 });

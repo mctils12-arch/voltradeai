@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-07 (scheduled-routine PRODUCT session, ~13:15Z, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, navFixes, shared/flightPlanGeometry, swimSfdps counters) — FLIGHTPLAN GATE-1: RADIAL-TOKEN RESOLVER, SHADOW-ONLY (v1.0.1036)
+
+HEALTH: not re-polled live this session (sandbox); prior entries today green, no critical KNOWN BROKEN blocking product work.
+Took step (2) of the radial-resolver NEXT, scoped to what the prior entry allows: "do not ship placement before (3)'s harness can read it".
+CHANGE: `resolveRadialToken` (FIX+RRR+DDD: true bearing = radial + the station's FILED east-positive variation, great-circle destination; only navaids with a filed variation resolve, radial<=360, 1<=dist<=400 NM, else null), `placeDirectFixesWithRadials` (same bar as placeDirectFixes: >=3 points, no airway, legs <=1200 NM), `destinationPoint` in shared geometry, `lookupMagVar` in navFixes. NOT wired into placement: it feeds two new report-only counters in routeShape.fewFixesProfile — `radialShadowPlaced` (fewFixes plans that would now clear the bar) and `radialShadowTokens`. Parsed routePoints are asserted unchanged in tests.
+PRIOR: shadow-placed share of fewFixes plans lands between the lat/lon-only 2.9% and the 18.9% upper bound, nearer 10-15%, because the bar plus leg plausibility trims lookalike tokens. Read it from /api/data/aircraft/plan-status after deploy.
+TESTS: navAirways.test.ts +2 (bearing/distance geometry incl. W variation, refusals, shadow bar, placement unchanged). 12 pass; swimSfdps 28 pass. flightPlans.test.ts cannot run in this sandbox (express not installed) — identical on clean tree.
+NEXT (own PR): gate-1 validation — place radial plans in a harness and measure ADS-B cross-track vs the direct-fix baseline; only if no worse, wire as routeKind "radial" with an honest label. Epoch variation (1960s surveys) is the main error risk. ROLLBACK: git revert. MERGE: after close or any time pre-open (data-only counters).
+STARVED: no
+
 ## 2026-10-07 (scheduled-routine session, ~11:00Z) [PIPELINE] — T-DATACORE (scripts/build_nasr_fixes.py, datacore/aircraft/nasr_fixes.json) — FLIGHTPLAN GATE-1: NAVAID MAGNETIC VARIATION EMITTED (v1.0.1035)
 
 HEALTH: green (session_health_check all OK bar the known daemon_memory trim WARN; research_state_check clean, thrash 1/10, no overdue audit, nasr cycle 2026-10-01 current).
