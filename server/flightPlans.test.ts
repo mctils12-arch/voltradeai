@@ -9,12 +9,12 @@ import {
   parseRouteDbEntry, selectLeg, legPlausibleNm, RouteDbClient, ROUTESET_URL, routeFileUrl,
   scanCallsignFixes, completedTrips, pickHistoryTrip, HistoryIndex, thinPath,
   DeviationTracker, currentFlightFixes, appendFlightEvent, flightEventsDir,
-  resolveFlightPlan, parsePlanQuery, registerFlightPlanRoutes, sanitizeCallsign,
+  filedCandidate, resolveFlightPlan, parsePlanQuery, registerFlightPlanRoutes, sanitizeCallsign,
   DEVIATION_OFF_NM, type PlanContext, type RouteDbRoute, type FlightEventRecord, type HistoryTrip,
   type FlightPlanResponse,
   fillFromLive, LIVE_FILL_MAX_AGE_MS,
 } from "./flightPlans";
-import { SwimPlanStore, parseSfdpsMessages } from "./swimSfdps";
+import { SwimPlanStore, parseSfdpsMessages, type StoredSwimPlan } from "./swimSfdps";
 import { densifyPlan, haversineNm, type PlanPoint } from "../shared/flightPlanGeometry";
 
 // ── fixtures: live adsb.lol route files (captured 2026-09-28) ───────────────
@@ -650,4 +650,22 @@ test("fillFromLive: a request with no callsign/position is filled from the live 
   assert.deepEqual(fillFromLive(q, lookup, now).hex, "ab8c8e");
   assert.equal(fillFromLive({ ...q, hex: "000000" }, lookup, now).callsign, null);
   assert.equal(fillFromLive(q, null, now).callsign, null);
+});
+
+// ── radial-resolver gate-1 shadow (v1.0.1037): report-only, never drawn ────
+test("filedCandidate: radial-resolvable route text adds a REPORT-ONLY shadow, placement and pathEstimated untouched", () => {
+  const ap = (icao: string, lat: number, lon: number) => ({ icao, iata: null, name: icao, lat, lon, elevM: 0 });
+  const refs: Record<string, ReturnType<typeof ap>> = { KBOS: ap("KBOS", 42.36, -71.0), KATL: ap("KATL", 33.64, -84.43) };
+  const mk = (routeText: string): StoredSwimPlan => ({
+    key: "k", gufi: null, callsign: "UAL1", departure: "KBOS", arrival: "KATL", cruiseAltFt: 36000, routeText,
+    route: new Float32Array(0), routeNames: "", messageType: null, flightStatus: null, timestamp: null,
+    departureTime: null, firstSeen: 0, updatedAt: 0, amendments: 0,
+  });
+  const resolve = (id: string | null) => (id ? refs[id] ?? null : null);
+  const c = filedCandidate(mk("KBOS..ILC..SNS285053..MLF..KATL"), resolve)!;
+  assert.equal(c.pathEstimated, true, "the drawn path is still the great-circle estimate");
+  assert.ok(c.radialShadow && c.radialShadow.radialTokens === 1);
+  assert.ok(c.radialShadow!.points.length >= 4, "airports bracket the shadow polyline like the direct baseline");
+  // no radial token => no shadow (pure-direct plans are already placed elsewhere)
+  assert.equal(filedCandidate(mk("KBOS..KATL"), resolve)!.radialShadow, undefined);
 });
