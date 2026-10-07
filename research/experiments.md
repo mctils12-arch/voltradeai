@@ -107018,3 +107018,12 @@ Live (16:05Z): /api/health status ok, serving.failing [], server/database/alpaca
 QUEUE: shadow-band chain step (a) (re-read decision_x_action after ~5 trading days of action-tagged records; v1.0.1032 deployed 2026-10-06, 1 day elapsed) is time-gated to >= 2026-10-13. Steps (b)/(c) are sequenced after (a). Flightplan gate-1 radial resolver (v1.0.1036) shipped this morning and needs live counters to accrue before it can be judged. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; safe to merge any time (touches no trading path). 
 STARVED: no.
+
+## 2026-10-07 (scheduled-routine session, ~20:17Z, after hours) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 1 OF >=2
+
+HEALTH: session_health_check green (v1.0.1037 live, serving ok; known daemon_memory trim WARN only). Loop-health: 0/10 REPAIR. No audit overdue.
+RAN `scripts/flightplan_gate1.py` live at 20:17Z (v1.0.1037). Funnel: eligible 2,787, measured 392, unplaced 2,139, radial_shadow_measured 50.
+RESULT (cross-track nm): radial_shadow n=50 median 0.2 / p90 2.6 / p95 5.1; direct n=128 median 0.1 / p90 11.4 / p95 25.5; airway n=214 median 0 / p90 13.3. By band radial: 150-400 n=28 p90 2.0; >400 n=15 p90 1.4; 60-150 n=7 p90 14.9 (too small to read).
+VS PRIOR (median within ~2x of direct, p90 <= direct p90 + 5): met on this run (2.6 <= 16.4). NOT a decision: criterion needs n>=100 pooled over >=2 runs at different times of day, and radial n=50 is one snapshot where the same aircraft are likely counted once, plus selection caveat (radial-placeable text is likely the cleaner, shorter-route subset). Epoch-variation tail not yet visible at this n.
+NEXT: re-run at a different time of day (e.g. morning-ET Europe/Atlantic traffic) to reach pooled n>=100, then wire as routeKind "radial" with an honest label only if p90 holds. ROLLBACK: n/a (read only). MERGE: docs-only, any time.
+STARVED: no.
