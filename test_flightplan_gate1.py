@@ -43,3 +43,13 @@ def test_reject_reason_mirrors_measure_and_is_none_when_measurable():
     assert g1.reject_reason(near, ROW) == "near_dest"
     for p in (plan(), plan(pathEstimated=True), plan(deviation={"crossTrackNm": None}), near, None):
         assert (g1.reject_reason(p, ROW) is None) == (g1.measure(p, ROW) is not None)
+
+def test_measure_radial_shadow_reads_report_only_field_with_same_filters():
+    sh = {"radialShadow": {"crossTrackNm": 4.5, "radialTokens": 1, "pointCount": 5}}
+    assert g1.measure_radial_shadow(plan(pathEstimated=True, **sh), ROW) == 4.5
+    assert g1.measure_radial_shadow(plan(**{}), ROW) is None                       # no shadow field
+    assert g1.measure_radial_shadow(plan(source="X", **sh), ROW) is None           # not filed
+    assert g1.measure_radial_shadow(plan(radialShadow={"crossTrackNm": None}), ROW) is None
+    near = [{"lat": 40, "lon": -100}, {"lat": 40.1, "lon": -100}]
+    assert g1.measure_radial_shadow(plan(points=near, **sh), ROW) is None          # terminal area
+    assert g1.measure_radial_shadow(None, ROW) is None

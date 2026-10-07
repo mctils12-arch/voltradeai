@@ -48,6 +48,22 @@ def measure(plan, row):
     return xt
 
 
+def measure_radial_shadow(plan, row):
+    """REPORT-ONLY radial-resolver shadow (v1.0.1037): cross-track of the
+    aircraft from the polyline the radial-token resolver WOULD place for a
+    route-text-only filed plan (server field `radialShadow`; never drawn,
+    never drives deviation). Same filters as measure(): FILED, mid-route
+    (>=60 nm from destination). Compared against the direct/airway/expanded
+    baselines in the same run before the resolver may be wired in."""
+    sh = (plan or {}).get("radialShadow")
+    if not sh or sh.get("crossTrackNm") is None or (plan.get("source") != "FILED_FAA"):
+        return None
+    d = plan["points"][-1]
+    if hav_nm(row[2], row[1], d["lat"], d["lon"]) < 60:
+        return None
+    return sh["crossTrackNm"]
+
+
 def reject_reason(plan, row):
     """REPORT-ONLY funnel label: why measure() returned None (None when it
     would measure). Mirrors measure()'s predicate order; never feeds a metric.
@@ -94,6 +110,9 @@ def main():
         try:
             pl = _get(f"{base}/api/data/aircraft/plan/{r[0]}?callsign={r[6]}&lat={r[2]}&lon={r[1]}&alt={r[3]}&trk={r[5]}")
             m = measure(pl, r)
+            rs = measure_radial_shadow(pl, r)
+            if rs is not None:
+                return "radial_shadow", rs, dist_band(pl, r), "radial_shadow_measured"
             return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r)
         except Exception:
             return None

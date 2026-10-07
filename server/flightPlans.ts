@@ -45,6 +45,7 @@ import {
   forwardJoinOnPlan, isTerminalVectoring, PRESENT_POSITION_ON_PLAN_NAME, TERMINAL_AREA_NM, VECTORING_MIN_XT_NM,
   type LatLon, type PlanPoint, type ReplanResult,
 } from "../shared/flightPlanGeometry";
+import { placeDirectFixesWithRadials } from "./navAirways";
 
 // ── contract types ──────────────────────────────────────────────────────────
 export type PlanSource = "FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
@@ -90,6 +91,12 @@ export interface FlightPlanResponse {
    *  connector from it to the route (points flagged `vectors`) is ATC
    *  vectoring, not part of the filed/predicted route */
   terminalVectoring: boolean;
+  /** additive, REPORT-ONLY (2026-10-07, gate-1 of the radial-token resolver): present only for a
+   *  FILED plan whose path is a great-circle estimate but whose route text the radial resolver
+   *  could place. crossTrackNm is the aircraft's distance from THAT shadow polyline (never drawn,
+   *  never drives deviation). scripts/flightplan_gate1.py compares it with the direct-fix baseline
+   *  before the resolver may be wired into placement. */
+  radialShadow?: { crossTrackNm: number | null; radialTokens: number; pointCount: number };
 }
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -857,6 +864,9 @@ interface Candidate {
   fetchedAt: number;
   pathEstimated: boolean;
   routeKind?: "expanded" | "airway" | "direct";
+  /** REPORT-ONLY gate-1 shadow (v1.0.1037): the polyline the radial-token resolver WOULD place for a
+   *  route-text-only plan. Never drawn, never used for deviation state. */
+  radialShadow?: { points: LatLon[]; radialTokens: number };
   honesty: string;
 }
 
@@ -897,6 +907,16 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
   } else {
     return null; // a filed plan we cannot place: fall through to predictions
   }
+  let radialShadow: Candidate["radialShadow"];
+  if (pathEstimated && p.routeText) {
+    const sh = placeDirectFixesWithRadials(p.routeText);
+    if (sh.points.length && sh.radial > 0) {
+      const pts: LatLon[] = sh.points.map((r) => ({ lat: r.lat, lon: r.lon }));
+      if (origin && haversineNm(origin, pts[0]) > 2) pts.unshift({ lat: origin.lat, lon: origin.lon });
+      if (destination && haversineNm(destination, pts[pts.length - 1]) > 2) pts.push({ lat: destination.lat, lon: destination.lon });
+      radialShadow = { points: pts, radialTokens: sh.radial };
+    }
+  }
   if (raw.length < 2) return null;
   const len = polylineLengthNm(raw);
   const pair = `${p.departure || "?"}→${p.arrival || "?"}`;
@@ -912,6 +932,7 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     fetchedAt: p.updatedAt,
     pathEstimated,
     ...(!pathEstimated && p.routeKind ? { routeKind: p.routeKind } : {}),
+    ...(radialShadow ? { radialShadow } : {}),
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
       "; altitudes flagged altEstimated are a typical-jet profile estimate, not filed.",
@@ -1137,7 +1158,18 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     pathEstimated: cand.pathEstimated,
     routeKind: cand.source === "FILED_FAA" && !cand.pathEstimated ? (cand.routeKind ?? null) : null,
     terminalVectoring,
+    ...(cand.radialShadow ? {
+      radialShadow: {
+        crossTrackNm: pos ? radialShadowXt(pos, cand.radialShadow.points) : null,
+        radialTokens: cand.radialShadow.radialTokens, pointCount: cand.radialShadow.points.length,
+      },
+    } : {}),
   };
+}
+
+function radialShadowXt(pos: LatLon, pts: LatLon[]): number | null {
+  const xt = crossTrackNm(pos, pts);
+  return xt ? round1(xt.nm) : null;
 }
 
 /** "ATC vectors — not part of the filed route" (FILED) / "…predicted route" */

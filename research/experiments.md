@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-07 (scheduled-routine PRODUCT session, ~18:10Z, after close) [PIPELINE] — T-DATACORE (server/flightPlans.ts, scripts/flightplan_gate1.py) — FLIGHTPLAN GATE-1: RADIAL SHADOW CROSS-TRACK EMITTED FOR THE HARNESS (v1.0.1037)
+
+HEALTH: live /api/health status ok at 18:05Z, no critical KNOWN BROKEN blocking product work.
+READ of v1.0.1036 counters (live plan-status, cumulative): fewFixes 32,586; radialShadowPlaced 4,770 (14.6%), radialShadowTokens 5,296. PRIOR (10-15%) CONFIRMED, upper end. Placed 117,471 -> the resolver would add ~4% to the placed population at most.
+CHANGE: the plan response gains an additive REPORT-ONLY `radialShadow {crossTrackNm, radialTokens, pointCount}` for FILED plans that are still great-circle-estimated but whose route text the radial resolver could place (>=1 radial token). crossTrackNm = aircraft distance from the shadow polyline (airports bracket it like the direct baseline). Never drawn, never drives deviation state, pathEstimated/points/honesty unchanged. scripts/flightplan_gate1.py reports these as by_kind["radial_shadow"] with the same filters (FILED, >=60 nm from destination, by distance band) so they sit beside direct/airway/expanded in one run.
+PRIOR for the read: radial median cross-track within ~2x of the direct-fix baseline's (median ~0-2 nm); epoch-variation (1960s surveys) fattens the tail, so p90 is the decision number. WIRE only if p90 <= direct baseline p90 + 5 nm at n>=100 radial samples pooled over >=2 runs at different times of day; else the resolver dies at the LOGIC layer and the counters stay report-only.
+TESTS: flightPlans.test.ts +1 (shadow present for radial text, absent without, pathEstimated stays true); test_flightplan_gate1.py +1. 73 node tests pass; tsc 11 (baseline 12).
+NEXT: after deploy, run `python3 scripts/flightplan_gate1.py` at 2+ times of day and read by_kind.radial_shadow vs direct. ROLLBACK: git revert. MERGE: data-only/additive field, safe any time (after close preferred).
+STARVED: no.
+
 ## 2026-10-07 (scheduled-routine PRODUCT session, ~13:15Z, pre-market) [PIPELINE] — T-DATACORE (server/navAirways, navFixes, shared/flightPlanGeometry, swimSfdps counters) — FLIGHTPLAN GATE-1: RADIAL-TOKEN RESOLVER, SHADOW-ONLY (v1.0.1036)
 
 HEALTH: not re-polled live this session (sandbox); prior entries today green, no critical KNOWN BROKEN blocking product work.
