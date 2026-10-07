@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, type UnplacedReason } from "./navAirways";
+import { expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
@@ -297,10 +297,21 @@ export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 
  *  fix lookup, plus a few raw route texts. Capped so it can never grow (Law IV). */
 export const UNRESOLVED_TOKEN_MAX = 300;
 export const UNRESOLVED_TEXT_MAX = 12;
+/** Report-only split of fewFixes plans (counters only, fixed keys — cannot grow). */
+export const fewFixesProfileCounters = { total: 0, resolved0: 0, resolved1: 0, resolved2: 0, withLatLon: 0, withRadial: 0, latlonReaches3: 0, latlonRadialReaches3: 0 };
 const unresolvedTokenCounts = new Map<string, number>();
 const unresolvedTexts: { reason: UnplacedReason; text: string }[] = [];
 function recordUnresolved(reason: UnplacedReason, routeText: string | null): void {
   if ((reason !== "fewFixes" && reason !== "noFixResolved") || !routeText) return;
+  if (reason === "fewFixes") {
+    const f = fewFixesProfile(routeText), c = fewFixesProfileCounters;
+    c.total++;
+    if (f.resolved === 1) c.resolved1++; else if (f.resolved === 2) c.resolved2++; else c.resolved0++;
+    if (f.latlon > 0) c.withLatLon++;
+    if (f.radial > 0) c.withRadial++;
+    if (f.resolved + f.latlon >= 3) c.latlonReaches3++;
+    if (f.resolved + f.latlon + f.radial >= 3) c.latlonRadialReaches3++;
+  }
   for (const t of unresolvedRouteTokens(routeText)) {
     const n = unresolvedTokenCounts.get(t);
     if (n !== undefined) unresolvedTokenCounts.set(t, n + 1);
@@ -324,9 +335,9 @@ function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode |
   if (hit) { hit.count++; return; }
   if (routeShapes.size < ROUTE_SHAPE_MAX_SAMPLES) routeShapes.set(key, { where, shape, count: 1, firstSeenAt: Date.now() });
 }
-export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[]; unresolvedTokens: { token: string; count: number }[]; unresolvedTexts: { reason: UnplacedReason; text: string }[] } {
+export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[]; unresolvedTokens: { token: string; count: number }[]; unresolvedTexts: { reason: UnplacedReason; text: string }[]; fewFixesProfile: typeof fewFixesProfileCounters } {
   const unresolvedTokens = [...unresolvedTokenCounts].map(([token, count]) => ({ token, count })).sort((a, b) => b.count - a.count).slice(0, 50);
-  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()], unresolvedTokens, unresolvedTexts: [...unresolvedTexts] };
+  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()], unresolvedTokens, unresolvedTexts: [...unresolvedTexts], fewFixesProfile: { ...fewFixesProfileCounters } };
 }
 
 function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage {
@@ -877,4 +888,5 @@ export function _resetSfdpsCountersForTests(): void {
   routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0;
   for (const k of Object.keys(unplacedReasonCounters) as UnplacedReason[]) unplacedReasonCounters[k] = 0;
   unresolvedTokenCounts.clear(); unresolvedTexts.length = 0;
+  for (const k of Object.keys(fewFixesProfileCounters) as (keyof typeof fewFixesProfileCounters)[]) fewFixesProfileCounters[k] = 0;
 }

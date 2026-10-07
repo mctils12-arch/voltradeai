@@ -131,5 +131,26 @@ export function unresolvedRouteTokens(routeText: string | null | undefined): str
   return routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter((t) => t && !lookupFix(t));
 }
 
+const LATLON_TOKEN_RE = /^\d{2,4}[NS]\/?\d{3,5}[EW]$/;
+const RADIAL_TOKEN_RE = /^[A-Z]{2,4}\d{6}$/;
+
+/** Report-only: shape of a fewFixes route text — how many distinct NASR fixes resolve, how many
+ *  lat/lon waypoint tokens (pure geometry, no source needed) and fix-radial-distance tokens (need
+ *  VOR magnetic variation) it carries. Sizes what a legitimate resolver could recover toward the
+ *  >=3-fix bar; never alters placement. */
+export function fewFixesProfile(routeText: string | null | undefined): { resolved: number; latlon: number; radial: number } {
+  if (!routeText) return { resolved: 0, latlon: 0, radial: 0 };
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  let resolved = 0, latlon = 0, radial = 0, prev = "";
+  for (const t of toks) {
+    if (lookupFix(t)) { if (prev !== t) resolved++; }
+    else if (LATLON_TOKEN_RE.test(t)) latlon++;
+    else if (RADIAL_TOKEN_RE.test(t)) radial++;
+    prev = t;
+  }
+  return { resolved, latlon, radial };
+}
+
 export const navAirwaysCycle = (): string | null => cycle;
 export function resetNavAirways(): void { table = null; cycle = null; }

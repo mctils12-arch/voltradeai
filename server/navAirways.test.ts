@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens } from "./navAirways";
+import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile } from "./navAirways";
 import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, routeShapeSamples, _resetSfdpsCountersForTests } from "./swimSfdps";
 
 // J80 in NASR cycle 2026-09-03 runs OAL ILC MLF SAKES JNC ... (real data)
@@ -87,4 +87,19 @@ test("unresolved-token census covers fewFixes plans only and is report-only", ()
   assert.equal(r.unresolvedTexts.length, 1);
   assert.equal(r.unresolvedTexts[0].reason, "fewFixes");
   assert.ok(r.unresolvedTokens.every((x) => x.token !== "ILC" && x.token !== "SAKES"));
+});
+
+test("fewFixes profile counts resolved fixes, lat/lon and radial tokens and is report-only", () => {
+  const f = fewFixesProfile("KBOS..ILC..4203N/08500W..SNS285053..MLF..KATL");
+  assert.equal(f.resolved, 2);
+  assert.equal(f.latlon, 1);
+  assert.equal(f.radial, 1);
+  _resetSfdpsCountersForTests();
+  const mk = (t: string) => `<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`;
+  parseSfdpsMessages(mk("KBOS..ILC..4203N/08500W..MLF..KATL"));
+  const p = routeShapeSamples().fewFixesProfile;
+  assert.equal(p.total, 1);
+  assert.equal(p.resolved2, 1);
+  assert.equal(p.withLatLon, 1);
+  assert.equal(p.latlonReaches3, 1);
 });

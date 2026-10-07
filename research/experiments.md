@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-07 (scheduled-routine PRODUCT session, ~00:15Z Wednesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: FEWFIXES PROFILE COUNTERS (v1.0.1034)
+
+HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.5%, serving.failing empty, server_version 1.0.1033 live). research_state_check clean (thrash 1/10, nasr current).
+Took NEXT (a) from the 10-06 18:10Z entry.
+PRIOR: most fewFixes plans carry exactly 1-2 resolved NASR fixes and few lat/lon tokens, so a lat/lon resolver would recover under 10% of them (reaching the >=3-fix bar); if latlonReaches3 is a large share, a pure-geometry resolver is worth building.
+CHANGE: report-only `fewFixesProfile()` + fixed-key counters (total, resolved0/1/2, withLatLon, withRadial, latlonReaches3, latlonRadialReaches3) exposed under plan-status routeShape.fewFixesProfile. Placement untouched. Test added (11 pass in navAirways.test.ts; swimSfdps/flightPlans suites unchanged).
+NEXT: after deploy read routeShape.fewFixesProfile; if latlonReaches3/total is material, spec a lat/lon waypoint resolver (must still honor the >=3-resolved bar and the no-invented-points contract); radial tokens need NASR NAV_BASE magnetic variation (build-first check). No ladder promotion. ROLLBACK: git revert. MERGE: diagnostic only, any time.
+STARVED: no
+
 ## 2026-10-06 (scheduled-routine PRODUCT session, ~18:10Z Tuesday, market hours) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: ENDPOINT-AERODROME COMPLETION REFUTED BY THE HONESTY CONTRACT
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.3%, server_version 1.0.1032 live). Took NEXT from the 13:15Z entry: read the live unresolved-token census.
