@@ -107000,3 +107000,11 @@ STORAGE: ~1.7 GB per edition for Sectional+TAC (WebP); two editions coexist only
 TESTS: test_faa_charts.py (16: cycle/discovery, geometry, raster maths, WebP, edge reuse, antimeridian, TAC exclusions); server/aeroBake.test.ts (12: manifest validation, switch rule, range reads of a PMTiles written by the bake's own Python writer, service integration, fallback no-store, status/registry, prefetch skip); client aeroCharts.test.ts +2. Existing aeroCharts tests untouched (EditionInfo keeps its shape on the service path).
 ROLLBACK TRIGGER: /api/data/aero/status cache.bakeErrors climbing, or a published bake whose gate numbers regress >0.002 coverage vs this entry -> delete that family's manifest entry (site reverts to the FAA service on the next 30-min manifest read).
 STARVED: no — IFR stricter matching (white-background charts) and the unattended routine's first live cycle (10-29-2026) are queued.
+
+## 2026-10-07 (scheduled-routine session, ~16:05Z, market hours) [NO-ACTION] — health green; queue head still time-gated
+
+Loop-health ratio (last 10 tags): 1 REPAIR (<7) — no thrash. research_state_check: all OK (no audit overdue, starvation 0, NASR cycle current, archives fresh).
+Live (16:05Z): /api/health status ok, serving.failing [], server/database/alpaca ok, uptime 9615s on main head 5758f48 (v1.0.1036).
+QUEUE: shadow-band chain step (a) (re-read decision_x_action after ~5 trading days of action-tagged records; v1.0.1032 deployed 2026-10-06, 1 day elapsed) is time-gated to >= 2026-10-13. Steps (b)/(c) are sequenced after (a). Flightplan gate-1 radial resolver (v1.0.1036) shipped this morning and needs live counters to accrue before it can be judged. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; safe to merge any time (touches no trading path). 
+STARVED: no.
