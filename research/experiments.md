@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-07 (scheduled-routine session, ~11:00Z) [PIPELINE] — T-DATACORE (scripts/build_nasr_fixes.py, datacore/aircraft/nasr_fixes.json) — FLIGHTPLAN GATE-1: NAVAID MAGNETIC VARIATION EMITTED (v1.0.1035)
+
+HEALTH: green (session_health_check all OK bar the known daemon_memory trim WARN; research_state_check clean, thrash 1/10, no overdue audit, nasr cycle 2026-10-01 current).
+Took step (1) of the radial-resolver NEXT from the preceding entry.
+PRIOR: NAV_BASE carries MAG_VARN/MAG_VARN_HEMIS/MAG_VARN_YEAR for most navaids. RESULT: confirmed on the 2026-10-01 bundle — 1,324 of 1,538 navaids have it; `fixes` is byte-identical to before (verified), new top-level key `magVar` {ID: [deg east-positive, survey_year]}. Existing consumers read only `fixes`; no placement behavior changed (data-only).
+FINDING that constrains step (2): survey years are OLD — by decade 1960s 328, 70s 81, 80s 244, 90s 216, 2000s 130, 2010s 176, 2020s 146 (e.g. SNS 17E @1965, PVD 14W @1965). A VOR radial is oriented to the station's published (epoch) declination, not today's, so the resolver must use the table value as filed — NOT a modern WMM — and an error is bounded by how well the station's alignment tracks its listed variation. Honest label needed on any radial-placed point; gate-3 cross-track vs ADS-B decides if it is good enough.
+TESTS: test_refresh_nasr.py +2 (sign convention, no-guess/shadow/duplicate-first-wins). 6 pass.
+NEXT (own PR): radial-token resolver inside navAirways under a NEW counter, then ADS-B cross-track validation vs direct-fix baseline. ROLLBACK: git revert. MERGE: any time.
+STARVED: no
+
 ## 2026-10-07 (scheduled-routine EDGE session, doctrine axis a/c) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: fewFixesProfile READ LIVE; LAT/LON RESOLVER NOT WORTH BUILDING, RADIAL RESOLVER IS THE LEVER
 
 HEALTH: green (session_health_check all OK, serving gates server+database ok, loop alive, server_version 1.0.1034 live = this checkout). research_state_check clean (thrash 1/10, no overdue audit, nasr cycle 2026-10-01 current, archives fresh). KNOWN BROKEN: no critical open item, so no [REPAIR].
