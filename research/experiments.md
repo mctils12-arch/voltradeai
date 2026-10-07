@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-07 (scheduled-routine EDGE session, doctrine axis a/c) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: fewFixesProfile READ LIVE; LAT/LON RESOLVER NOT WORTH BUILDING, RADIAL RESOLVER IS THE LEVER
+
+HEALTH: green (session_health_check all OK, serving gates server+database ok, loop alive, server_version 1.0.1034 live = this checkout). research_state_check clean (thrash 1/10, no overdue audit, nasr cycle 2026-10-01 current, archives fresh). KNOWN BROKEN: no critical open item, so no [REPAIR].
+Took NEXT from the 00:15Z entry: read routeShape.fewFixesProfile on the live /api/data/aircraft/plan-status.
+PRIOR (stated before reading): a lat/lon waypoint resolver recovers under 10% of fewFixes plans.
+RESULT (n=23,015 fewFixes plans; 79,857 placed): resolved0=0, resolved1=14,963 (65%), resolved2=8,052 (35%); withLatLon=1,727 (7.5%); latlonReaches3=659 (2.9%); withRadial=14,342 (62%); latlonRadialReaches3=4,340 (18.9%).
+READ: prior CONFIRMED. A pure lat/lon resolver reaches the >=3-resolved-fix bar for only 2.9% of fewFixes plans (~0.7% of all unplaced+placed volume's worth), too small to justify a code change. The radial-distance tokens (fix+bearing+distance, e.g. VOR radial/DME) are the material share: adding them would lift the reachable set to 18.9%, ~6.6x the lat/lon-only gain. This is one sample (a single live snapshot of accumulated counters since last deploy, mixed time of day), so treat 18.9% as an upper bound: tokens that parse as radial may include non-fix lookalikes, and each resolved radial still inherits the >=3-fix bar and no-invented-points contract.
+BUILD-FIRST CHECK for the radial resolver: raw material is already in hand (FAA NASR NAV_BASE, same free public-domain bundle build_nasr_fixes.py reads); no purchase needed. The only missing input is each navaid's magnetic variation (NAV_BASE MAG_VARN / MAG_VARN_HEMIS / MAG_VARN_YEAR columns, to be confirmed on the next cycle download since the bundle currently keeps lat/lon only). Radial = magnetic bearing from the station, so true bearing = radial + station variation; using the wrong sign or a stale year skews the point by degrees x distance. Pure geometry from there (great-circle destination point).
+NEXT (own PR, not bundled): (1) extend build_nasr_fixes.py to also emit navaid magVar (new key, existing consumers untouched); (2) resolver for the radial token inside navAirways placement, counted under a NEW counter so before/after on the same population is attributable; (3) gate-1 validation against ADS-B cross-track exactly as the direct-fix PASS was done (placed-via-radial plans must show cross-track no worse than direct-fix). Do not ship placement before (3)'s harness can read it. ROLLBACK: git revert. MERGE: docs-only now, safe any time.
+STARVED: no
+
 ## 2026-10-07 (scheduled-routine PRODUCT session, ~00:15Z Wednesday, after hours) [PIPELINE] — T-DATACORE (server/navAirways, swimSfdps) — FLIGHTPLAN GATE-1: FEWFIXES PROFILE COUNTERS (v1.0.1034)
 
 HEALTH: green (status ok, bot active, liveness not dark, drawdown -4.5%, serving.failing empty, server_version 1.0.1033 live). research_state_check clean (thrash 1/10, nasr current).
