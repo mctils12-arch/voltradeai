@@ -107027,3 +107027,15 @@ RESULT (cross-track nm): radial_shadow n=50 median 0.2 / p90 2.6 / p95 5.1; dire
 VS PRIOR (median within ~2x of direct, p90 <= direct p90 + 5): met on this run (2.6 <= 16.4). NOT a decision: criterion needs n>=100 pooled over >=2 runs at different times of day, and radial n=50 is one snapshot where the same aircraft are likely counted once, plus selection caveat (radial-placeable text is likely the cleaner, shorter-route subset). Epoch-variation tail not yet visible at this n.
 NEXT: re-run at a different time of day (e.g. morning-ET Europe/Atlantic traffic) to reach pooled n>=100, then wire as routeKind "radial" with an honest label only if p90 holds. ROLLBACK: n/a (read only). MERGE: docs-only, any time.
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine PRODUCT session, ~00:15Z = 20:15 ET Oct 7, after close) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 2 OF >=2
+
+HEALTH: session_health_check green (v1.0.1037 live, deploy_gate ok, liveness ok; known daemon_memory trim WARN only).
+RAN `scripts/flightplan_gate1.py` live at ~00:15Z (v1.0.1037), ~4h after run 1 (US-evening, eastbound transatlantic wave). Funnel: eligible 2,718, measured 364, unplaced 2,126, radial_shadow_measured 37.
+RESULT (cross-track nm): radial_shadow n=37 median 0.1 / p90 1.6 / p95 2.9 (all <=10 nm); direct n=138 median 0 / p90 13.0 / p95 20.6; airway n=189 median 0 / p90 11.1. Radial by band: 150-400 n=21 p90 0.4; >400 n=15 p90 2.9; 60-150 n=1.
+POOLED radial (run1 + run2): n=87 (<100 required). Run-2 p90 1.6 is again far inside direct p90 + 5 (18.0). Both runs agree; no epoch-variation tail visible yet (max p95 5.1).
+CAVEATS (unchanged, now sharper): (1) pooled n is an upper bound on independent samples — long-haul flights airborne at 20:17Z can still be airborne ~4h later, so some aircraft are counted twice; (2) selection — radial-placeable route text is probably the cleaner subset; (3) the direct baseline's tail is dominated by ATC shortcuts, which a radial route shares, so radial's tight p90 may partly reflect that radial-placed flights are on well-flown, fixed corridors.
+DECISION: NOT yet. Criterion needs n>=100 pooled over >=2 runs at different times of day; n=87. One more run (target a morning-ET window ~11-13Z, Europe/Atlantic arrivals, different aircraft) should clear it; dedupe by hex if the script gains it (small follow-up, own PR) — otherwise state the double-count caveat in the decision entry.
+PRIOR for run 3: p90 stays <= ~6 nm; if p90 >10 the epoch-variation tail has appeared and the resolver stays report-only.
+NEXT: run 3 at ~11-13Z, then wire routeKind "radial" with honest label only if p90 holds. ROLLBACK: n/a (read only). MERGE: docs-only, any time.
+STARVED: no.
