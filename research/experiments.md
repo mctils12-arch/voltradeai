@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-08 (scheduled-routine PRODUCT session, ~18:05Z, market hours) [NO-ACTION] — health green; flightplan radial decision still waits on the 20-01Z window
+
+session_health_check all OK (v1.0.1038 live = checkout, deploy_gate/liveness ok, daemon rss 387MB under trim); research_state_check clean, thrash 0/10, starvation 0, no audit overdue.
+QUEUE: radial gate-1 needs hex-deduped unique n>=100; run 3 showed yield concentrates in the US-evening transatlantic window (n 50/37 at 20Z/00Z vs 11 at 11Z). A run at 18Z would add ~10 samples; next useful run is ~20:15Z+, saved to research/flightplan_gate1_runs/ then `--pool`. Shadow-band chain step (a) stays time-gated to >= 2026-10-13. No new product item that is not duplicate of filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only, any time.
+STARVED: no.
+
 ## 2026-10-07 (scheduled-routine PRODUCT session, ~18:10Z, after close) [PIPELINE] — T-DATACORE (server/flightPlans.ts, scripts/flightplan_gate1.py) — FLIGHTPLAN GATE-1: RADIAL SHADOW CROSS-TRACK EMITTED FOR THE HARNESS (v1.0.1037)
 
 HEALTH: live /api/health status ok at 18:05Z, no critical KNOWN BROKEN blocking product work.
