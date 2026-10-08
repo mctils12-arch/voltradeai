@@ -10,6 +10,12 @@ Excludes aircraft <60 nm from the destination (terminal vectoring) and below
 12,000 ft. Read-only; raw overlay measurement, no trading.
 
   python3 scripts/flightplan_gate1.py [base_url] [max_aircraft]
+  python3 scripts/flightplan_gate1.py --pool run1.json run2.json ...
+
+--pool merges the `radial_samples` of saved runs, keeping ONE (the first)
+observation per aircraft hex, so a long-haul flight sampled in two runs is
+not counted twice toward the n>=100 decision bar (double-count caveat in
+experiments.md 2026-10-08).
 """
 import concurrent.futures as cf, json, math, re, sys, urllib.request
 
@@ -96,12 +102,30 @@ def kind_of(plan):
     return (plan or {}).get("routeKind") or "unknown"
 
 
+def pool_unique(runs):
+    """Dedupe radial-shadow samples across saved runs by aircraft hex (first
+    observation wins; runs given oldest-first). Returns (summary, n_raw)."""
+    seen, vals, n_raw = set(), [], 0
+    for run in runs:
+        for hx, xt in run.get("radial_samples", []):
+            n_raw += 1
+            if hx not in seen:
+                seen.add(hx)
+                vals.append(xt)
+    return summarize(vals), n_raw
+
+
 def _get(url):
     with urllib.request.urlopen(url, timeout=30) as r:
         return json.load(r)
 
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--pool":
+        runs = [json.load(open(f)) for f in sys.argv[2:]]
+        summ, n_raw = pool_unique(runs)
+        print(json.dumps({"radial_pooled_unique": summ, "radial_pooled_raw_n": n_raw}))
+        return
     base = sys.argv[1] if len(sys.argv) > 1 else "https://voltradeai-production.up.railway.app"
     cap = int(sys.argv[2]) if len(sys.argv) > 2 else 3000
     rows = [r for r in _get(base + "/api/data/aircraft/global?lamin=24&lamax=50&lomin=-125&lomax=-66")["rows"] if eligible(r)][:cap]
@@ -112,8 +136,8 @@ def main():
             m = measure(pl, r)
             rs = measure_radial_shadow(pl, r)
             if rs is not None:
-                return "radial_shadow", rs, dist_band(pl, r), "radial_shadow_measured"
-            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r)
+                return "radial_shadow", rs, dist_band(pl, r), "radial_shadow_measured", r[0]
+            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r), r[0]
         except Exception:
             return None
     with cf.ThreadPoolExecutor(6) as ex:
@@ -131,6 +155,7 @@ def main():
     out["funnel"] = funnel
     out["by_kind"] = {k: summarize(v) for k, v in sorted(by_kind.items())}
     out["by_kind_band"] = {k: summarize(v) for k, v in sorted(by_band.items())}
+    out["radial_samples"] = [[x[4], x[1]] for x in raw if x is not None and x[0] == "radial_shadow" and x[1] is not None]
     print(json.dumps(out))
 
 
