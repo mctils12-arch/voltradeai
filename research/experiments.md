@@ -107048,3 +107048,13 @@ CHANGE: the harness now emits `radial_samples` [[hex, crossTrackNm]] in each run
 TESTS: test_flightplan_gate1.py +1 (first-observation-wins, empty run). All 8 pass (pytest not installed in sandbox; executed the test functions directly). Live harness run in sandbox timed out on network, so the new key is verified by unit test only.
 NEXT: run 3 at ~11-13Z saving JSON to a file; pool; wire routeKind "radial" only if unique n>=100 and p90 <= direct p90 + 5. ROLLBACK: git revert. MERGE: script-only, any time.
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine session, ~11:05Z) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 3 (FIRST HEX-SAVED RUN)
+
+HEALTH: session_health_check green (v1.0.1038 live, deploy_gate ok, liveness ok; known daemon_memory trim WARN only). Loop-health 0/10 REPAIR, no audit overdue, starvation 0.
+RAN `scripts/flightplan_gate1.py` live at ~11:05Z (v1.0.1038), saved to research/flightplan_gate1_runs/run3_20261008T1105Z.json (carries `radial_samples` hex pairs; poolable with --pool). Funnel: eligible 1,084, measured 150, unplaced 854, radial_shadow_measured 11.
+RESULT (cross-track nm): radial_shadow n=11 median 0.7 / p90 4.4 / p95 15.8 (samples 0..1.1 x9, 4.4, 15.8); direct n=43 p90 9.3; airway n=96 p90 10.4. One radial sample at 15.8 nm = first observed tail point (150-400 nm band), n too small to read.
+FINDING: radial yield is strongly time-of-day dependent — 50 (20:17Z), 37 (00:15Z), 11 (11:05Z) — morning-Europe traffic did NOT clear the n bar as the run-2 prior expected (prior: "one more run should clear it" — WRONG; the US-evening transatlantic waves are the radial-rich windows). Runs 1-2 were saved without hexes, so unique pooled n today is 11 hex-deduped, not 98.
+DECISION: NOT yet. Need hex-deduped unique n>=100: ~4-6 more hex-saved runs at 20-01Z windows (radial-rich), spaced >=6h apart so long-haul flights turn over. Wiring routeKind "radial" stays blocked. Prior for the next 20Z run: radial n~40-50, p90 <=6; a second >10 nm tail point would re-open the epoch-variation concern.
+ROLLBACK: n/a (read only). MERGE: docs + 1.9KB data file, any time.
+STARVED: no.
