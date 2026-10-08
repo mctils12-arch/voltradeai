@@ -53,3 +53,10 @@ def test_measure_radial_shadow_reads_report_only_field_with_same_filters():
     near = [{"lat": 40, "lon": -100}, {"lat": 40.1, "lon": -100}]
     assert g1.measure_radial_shadow(plan(points=near, **sh), ROW) is None          # terminal area
     assert g1.measure_radial_shadow(None, ROW) is None
+
+def test_pool_unique_dedupes_by_hex_first_observation_wins():
+    r1 = {"radial_samples": [["a", 1.0], ["b", 2.0]]}
+    r2 = {"radial_samples": [["b", 9.0], ["c", 3.0]]}   # b re-sampled: 9.0 must be ignored
+    s, n_raw = g1.pool_unique([r1, r2])
+    assert n_raw == 4 and s["n"] == 3 and s["p90"] == 3.0 and s["median"] == 2.0
+    assert g1.pool_unique([{}]) == ({"n": 0}, 0)

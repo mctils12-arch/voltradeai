@@ -107039,3 +107039,12 @@ DECISION: NOT yet. Criterion needs n>=100 pooled over >=2 runs at different time
 PRIOR for run 3: p90 stays <= ~6 nm; if p90 >10 the epoch-variation tail has appeared and the resolver stays report-only.
 NEXT: run 3 at ~11-13Z, then wire routeKind "radial" with honest label only if p90 holds. ROLLBACK: n/a (read only). MERGE: docs-only, any time.
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine EDGE session, ~02:45Z) [PIPELINE] — T-DATACORE (scripts/flightplan_gate1.py) — FLIGHTPLAN GATE-1: HEX-DEDUPED POOLING FOR THE RADIAL DECISION (v1.0.1038)
+
+HEALTH: session_health_check green (v1.0.1037 live, deploy_gate ok, liveness ok); research_state_check clean, thrash 0/10, no audit overdue, no critical KNOWN BROKEN. Axis: (d) compile a recurring manual step into code.
+PRIOR: the pooled radial n=87 (runs 1+2) overstates independent samples because long-haul flights airborne at both snapshots are counted twice; I expect 10-25% of pooled samples to be repeat hexes, so the true unique n is ~65-78 and the n>=100 bar needs run 3 plus probably run 4.
+CHANGE: the harness now emits `radial_samples` [[hex, crossTrackNm]] in each run's JSON, and `--pool run1.json run2.json ...` merges saved runs keeping the first observation per hex, reporting unique summary + raw n. Measurement-side tooling only: no server, trading, or metric-definition change; per-run summaries are byte-identical apart from the added key. Runs 1-2 were not saved with hexes, so they cannot be retro-deduped; from run 3 onward the decision uses the unique count.
+TESTS: test_flightplan_gate1.py +1 (first-observation-wins, empty run). All 8 pass (pytest not installed in sandbox; executed the test functions directly). Live harness run in sandbox timed out on network, so the new key is verified by unit test only.
+NEXT: run 3 at ~11-13Z saving JSON to a file; pool; wire routeKind "radial" only if unique n>=100 and p90 <= direct p90 + 5. ROLLBACK: git revert. MERGE: script-only, any time.
+STARVED: no.
