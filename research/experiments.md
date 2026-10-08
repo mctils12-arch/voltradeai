@@ -107065,3 +107065,13 @@ Loop-health ratio (last 10 tags): 0 REPAIR (<7) — no thrash. research_state_ch
 QUEUE: (1) shadow-band chain step (a) is time-gated to >= 2026-10-13. (2) Flightplan gate-1 radial decision needs hex-deduped unique n>=100, which run 3 showed accrues only in the 20-01Z (US-evening transatlantic) window; it is 16:04Z now, so a run would yield n~10 and add nothing. Next useful run: ~20:15Z+ today, saved to research/flightplan_gate1_runs/ then --pool. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; touches no trading path, safe to merge any time (market-hours caveat not applicable).
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine session, ~20:20Z, after hours) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 4 (SECOND HEX-SAVED RUN)
+
+HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, no process faults); loop-health 0/10 REPAIR.
+PRIOR (stated before run): 20Z window yields radial n~40-50, p90 <=6; a second >10 nm tail point would re-open the epoch-variation concern.
+RAN `scripts/flightplan_gate1.py` live ~20:20Z, saved research/flightplan_gate1_runs/run4_20261008T2020Z.json. Funnel: eligible 2,927, measured 394, radial_shadow_measured 47 (prior met: 47).
+RESULT: radial n=47 median 0.2 / p90 4.7 / p95 9.2 (all <=15 nm); direct n=146 p90 13.9; airway n=201 p90 15.6. Hex-deduped pool runs 3+4: unique n=58 (raw 58, no repeat hexes), p90 4.7, p95 10.6, le10 94.8%. No second >10 nm tail point beyond the run-3 15.8 sample being absorbed (pooled p95 10.6).
+DECISION: still NOT wired. Unique n=58 < 100 bar. Radial accuracy so far holds (p90 4.7 vs direct 13.9). Need ~1-2 more 20-01Z hex-saved runs spaced >=6h (next: ~2026-10-09 00-01Z or 20Z), then pool runs 3..N and wire routeKind "radial" only if unique n>=100 and p90 <= direct p90 + 5.
+ROLLBACK: n/a (read only). MERGE: docs + 2KB data file, any time.
+STARVED: no.
