@@ -107058,3 +107058,10 @@ FINDING: radial yield is strongly time-of-day dependent — 50 (20:17Z), 37 (00:
 DECISION: NOT yet. Need hex-deduped unique n>=100: ~4-6 more hex-saved runs at 20-01Z windows (radial-rich), spaced >=6h apart so long-haul flights turn over. Wiring routeKind "radial" stays blocked. Prior for the next 20Z run: radial n~40-50, p90 <=6; a second >10 nm tail point would re-open the epoch-variation concern.
 ROLLBACK: n/a (read only). MERGE: docs + 1.9KB data file, any time.
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine session, ~16:04Z, market hours) [NO-ACTION] — health green; queue head still time-gated
+
+Loop-health ratio (last 10 tags): 0 REPAIR (<7) — no thrash. research_state_check: all OK (no audit overdue, starvation 0, NASR cycle current, archives fresh). session_health_check: deploy_gate/liveness/subsystems/process_faults ok; v1.0.1038 live matches checkout; known daemon_memory trim WARN only.
+QUEUE: (1) shadow-band chain step (a) is time-gated to >= 2026-10-13. (2) Flightplan gate-1 radial decision needs hex-deduped unique n>=100, which run 3 showed accrues only in the 20-01Z (US-evening transatlantic) window; it is 16:04Z now, so a run would yield n~10 and add nothing. Next useful run: ~20:15Z+ today, saved to research/flightplan_gate1_runs/ then --pool. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; touches no trading path, safe to merge any time (market-hours caveat not applicable).
+STARVED: no.
