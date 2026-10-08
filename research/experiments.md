@@ -107058,3 +107058,10 @@ FINDING: radial yield is strongly time-of-day dependent — 50 (20:17Z), 37 (00:
 DECISION: NOT yet. Need hex-deduped unique n>=100: ~4-6 more hex-saved runs at 20-01Z windows (radial-rich), spaced >=6h apart so long-haul flights turn over. Wiring routeKind "radial" stays blocked. Prior for the next 20Z run: radial n~40-50, p90 <=6; a second >10 nm tail point would re-open the epoch-variation concern.
 ROLLBACK: n/a (read only). MERGE: docs + 1.9KB data file, any time.
 STARVED: no.
+
+## 2026-10-08 (scheduled-routine PRODUCT session, ~13:15Z, pre-market) [NO-ACTION] — T-DATACORE — health green; product queue head is time-gated
+
+HEALTH: session_health_check green (v1.0.1038 live = checkout, deploy_gate ok, liveness ok; known daemon_memory trim WARN only). No critical KNOWN BROKEN blocking product work.
+QUEUE: (1) flightplan gate-1 radial decision needs hex-deduped unique n>=100 from hex-saved runs in the radial-rich 20-01Z windows (run 3 at 11Z yielded n=11; a 13Z run would repeat that and add nothing) -> next valid reads are the ~20:15Z/00:15Z routine sessions, spaced >=6h. (2) FAA charts: first unattended live cycle is 2026-10-29 and bake upload needs R2_ACCOUNT_ID/R2_TILES_BUCKET (human-side); stricter IFR white-background matching is a multi-session build with no data to gate it today. Nothing queued fits a pre-market slot without duplicating filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; safe any time.
+STARVED: no (high-value work is queued, merely time-gated).
