@@ -60,3 +60,10 @@ def test_pool_unique_dedupes_by_hex_first_observation_wins():
     s, n_raw = g1.pool_unique([r1, r2])
     assert n_raw == 4 and s["n"] == 3 and s["p90"] == 3.0 and s["median"] == 2.0
     assert g1.pool_unique([{}]) == ({"n": 0}, 0)
+
+def test_pool_unique_live_field_is_separate_from_shadow_field():
+    r1 = {"radial_samples": [["a", 1.0]], "radial_live_samples": [["x", 4.0], ["y", 6.0]]}
+    r2 = {"radial_live_samples": [["y", 99.0], ["z", 8.0]]}   # y re-sampled: 99.0 ignored
+    s, n_raw = g1.pool_unique([r1, r2], "radial_live_samples")
+    assert n_raw == 4 and s["n"] == 3 and s["median"] == 6.0 and s["p90"] == 8.0
+    assert g1.pool_unique([r1, r2])[0]["n"] == 1

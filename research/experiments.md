@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-09 (scheduled-routine session, ~16:05Z Friday, market hours) [PIPELINE] — T-DATACORE (scripts/flightplan_gate1.py, test_flightplan_gate1.py) — FLIGHTPLAN GATE-1: EMIT + POOL LIVE routeKind "radial" SAMPLES BY HEX (v1.0.1040)
+
+HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, drawdown -6.7%), v1.0.1039 live. Loop-health 0/10 REPAIR. No KNOWN BROKEN blocker.
+Executed the NEXT from the run-7 entry. Since v1.0.1039 radial plans are PLACED, so the harness's shadow field (`radial_samples`) only sees still-unplaced plans and no longer feeds the n>=100 rollback bar; live radial rows were only in by_kind.radial summaries (no hexes, so repeat flights could not be deduped across runs).
+PRIOR: no behavior change to any existing metric; pooled live-radial n grows ~35 per run, so ~3 more runs to reach n>=100.
+CHANGE: harness emits `radial_live_samples` [[hex, crossTrackNm]] for routeKind radial; `pool_unique(runs, field)` takes the field name; `--pool` now also prints radial_live_pooled_unique / _raw_n. Shadow field and its output unchanged. Report-only: no measurement formula touched (same server crossTrackNm), no trading path.
+TEST: new test_pool_unique_live_field_is_separate_from_shadow_field; 9/9 in test_flightplan_gate1.py pass.
+NEXT: from run8 on, save runs and `--pool` them; decide rollback criterion (live radial p90 > direct p90 + 5) at pooled unique n>=100. ROLLBACK: git revert. MERGE: tooling-only, any time.
+STARVED: no.
+
 ## 2026-10-09 (scheduled-routine PRODUCT session, ~13:20Z Friday, pre-market) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN: LIVE routeKind "radial" HONESTY CHECK PASSES (v1.0.1039 live)
 
 HEALTH: /api/health status ok (serving ok, liveness not dark, drawdown -6.1%), server_version 1.0.1039 live = this checkout. No KNOWN BROKEN blocker.
