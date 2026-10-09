@@ -107086,3 +107086,18 @@ POOLED hex-deduped runs 3+4+5: unique n=96, raw 96 (zero repeat hexes), median 0
 DECISION: still NOT wired — unique n=96 < 100 by 4. Accuracy criterion (p90 <= direct p90 + 5 = ~17) is cleared by a wide margin and stable across three runs. The next hex-saved run in a radial-rich window (~20Z today or ~00Z) should clear n>=100 on its own; then wire routeKind "radial" with an honest label in its own PR.
 ROLLBACK: n/a (read only). MERGE: docs + 2KB data file, any time.
 STARVED: no.
+
+## 2026-10-09 (scheduled-routine EDGE session, ~02:40Z Friday, after hours) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 6 — n>=100 BAR CLEARED
+
+HEALTH: session_health_check + research_state_check all OK (v1.0.1038 live, deploy_gate ok, liveness ok, thrash 0/10, no audit overdue, starvation 0). No KNOWN BROKEN blocker -> not a [REPAIR] session.
+DOCTRINE AXIS: (a) finish an in-flight free-data pipeline gate (flightplan route placement) rather than start a new one.
+PRIOR (stated before run): ~02:40Z is only ~2.4h after run 5, so long-haul turnover is partial; radial n~25-35 with a handful of new hexes, pooled unique n lands ~110-125, p90 <=6.
+RAN `scripts/flightplan_gate1.py` live ~02:40Z, saved research/flightplan_gate1_runs/run6_20261009T0240Z.json. Funnel: eligible 2,348, measured 315, radial_shadow_measured 31 (prior met), request_errors 9.
+RESULT (cross-track nm, run 6 alone): radial n=31 median 0.3 / p90 3.3 / p95 7.0; direct n=111 p90 4.3; airway n=173 p90 14.7.
+POOLED hex-deduped runs 3+4+5+6: unique n=127 (raw 127, zero repeat hexes), median 0.2 / p90 3.3 / p95 5.8 / le10 96.9% / le15 98.4%.
+DECISION CRITERIA (set in the run-3/4/5 entries): unique n>=100 AND radial p90 <= direct p90 + 5. BOTH MET (127 >= 100; 3.3 <= ~17 against the earlier direct p90 12-14, and <= 9.3 even against this run's unusually low direct p90 4.3). Gate-1 DATA layer for radial placement is cleared in shadow.
+CAVEATS carried forward: (1) four runs span only ~16h, one overnight US-evening/transatlantic population, so the pool is one regime of traffic, not a seasonal sample; (2) 3 of 127 samples exceed 10 nm and the run-3 sample was 15.8 nm: the placement label must stay an inferred-route estimate with the radial token disclosed, never presented as the filed track; (3) the cross-track is measured against the aircraft's own observed position, so it validates geometric consistency of the radial resolution, not the filing itself.
+NEXT (queued, own PR, own tag, NOT bundled with this): wire routeKind "radial" into the live plan response (server/flightPlans.ts + shared/flightPlanGeometry) with an honest "radial-inferred" label, shadow counters kept, regression test for the resolver; version bump read-and-increment at commit time; harness only if client/ is touched.
+ROLLBACK: n/a (read only). MERGE: docs + 2.2KB data file, any time (touches no trading path).
+STARVED: no.
+
