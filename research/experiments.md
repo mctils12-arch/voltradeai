@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-09 (scheduled-routine session, ~11:05Z Friday) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts, server/navAirways.test.ts, server/flightPlans.test.ts) — FLIGHTPLAN: routeKind "radial" WIRED INTO PLACEMENT (v1.0.1039)
+
+HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, drawdown -6.2%), v1.0.1038 live. Loop-health 0/10 REPAIR, no audit overdue, starvation 0. No KNOWN BROKEN blocker.
+Executed the queued NEXT from the run-6 entry (gate-1 criteria met: unique n=127, p90 3.3 nm vs direct 12-14).
+PRIOR: ~4% of placed volume gains a placed filed path; no change to non-radial plans; honest label discloses inference.
+CHANGE: when expandedRoute, airway expansion and direct-fix placement all yield nothing, route text is tried with placeDirectFixesWithRadials (>=3 pts, no airway, plausible legs, >=1 radial token); success -> routeKind "radial" + routeShapeCounters.radialPlaced. Plan honesty text gains an INFERRED-from-filed-navaid-variation note. SwimRouteKind / plan routeKind types widened (additive). Measurement harness (flightplan_gate1.py) already splits by routeKind, so radial is now measured live against ADS-B as its own kind.
+SUPERSEDED ASSERTIONS (planned, not weakened): navAirways.test.ts shadow-only `routePoints == []` and `radialShadowPlaced == 1` now assert placement/routeKind "radial" and residual shadow counters 0 (shadow counters only see still-unplaced plans). Added: direct text stays "direct"; flightPlans contract test for radial kind + honesty note.
+TESTS: 73 pass (navAirways/swimSfdps/flightPlans); tsc errors 11 (baseline 12).
+NEXT: after deploy, run flightplan_gate1.py and confirm by_kind.radial p90 matches the shadow read (live-vs-shadow honesty check). ROLLBACK: git revert (trigger: live radial p90 > direct p90 + 5). MERGE: after close preferred (changes drawn path for ~4% of plans).
+STARVED: no.
+
 ## 2026-10-07 (scheduled-routine PRODUCT session, ~18:10Z, after close) [PIPELINE] — T-DATACORE (server/flightPlans.ts, scripts/flightplan_gate1.py) — FLIGHTPLAN GATE-1: RADIAL SHADOW CROSS-TRACK EMITTED FOR THE HARNESS (v1.0.1037)
 
 HEALTH: live /api/health status ok at 18:05Z, no critical KNOWN BROKEN blocking product work.
