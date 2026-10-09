@@ -102,12 +102,14 @@ def kind_of(plan):
     return (plan or {}).get("routeKind") or "unknown"
 
 
-def pool_unique(runs):
-    """Dedupe radial-shadow samples across saved runs by aircraft hex (first
-    observation wins; runs given oldest-first). Returns (summary, n_raw)."""
+def pool_unique(runs, field="radial_samples"):
+    """Dedupe samples across saved runs by aircraft hex (first observation
+    wins; runs given oldest-first). `field` is radial_samples (shadow) or
+    radial_live_samples (routeKind radial, live since v1.0.1039).
+    Returns (summary, n_raw)."""
     seen, vals, n_raw = set(), [], 0
     for run in runs:
-        for hx, xt in run.get("radial_samples", []):
+        for hx, xt in run.get(field, []):
             n_raw += 1
             if hx not in seen:
                 seen.add(hx)
@@ -124,7 +126,9 @@ def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--pool":
         runs = [json.load(open(f)) for f in sys.argv[2:]]
         summ, n_raw = pool_unique(runs)
-        print(json.dumps({"radial_pooled_unique": summ, "radial_pooled_raw_n": n_raw}))
+        live, n_live = pool_unique(runs, "radial_live_samples")
+        print(json.dumps({"radial_pooled_unique": summ, "radial_pooled_raw_n": n_raw,
+                          "radial_live_pooled_unique": live, "radial_live_pooled_raw_n": n_live}))
         return
     base = sys.argv[1] if len(sys.argv) > 1 else "https://voltradeai-production.up.railway.app"
     cap = int(sys.argv[2]) if len(sys.argv) > 2 else 3000
@@ -156,6 +160,7 @@ def main():
     out["by_kind"] = {k: summarize(v) for k, v in sorted(by_kind.items())}
     out["by_kind_band"] = {k: summarize(v) for k, v in sorted(by_band.items())}
     out["radial_samples"] = [[x[4], x[1]] for x in raw if x is not None and x[0] == "radial_shadow" and x[1] is not None]
+    out["radial_live_samples"] = [[x[4], x[1]] for x in raw if x is not None and x[0] == "radial" and x[1] is not None]
     print(json.dumps(out))
 
 
