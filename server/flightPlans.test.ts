@@ -485,6 +485,11 @@ test("contract: routeKind distinguishes airway / direct text expansion and is nu
   const kind = async (cs: string) => (await resolveFlightPlan(q({ callsign: cs, lat: "40", lon: "-80" }), ctxWith({ swim }))).routeKind;
   assert.equal(await kind("AWY1"), "airway");
   assert.equal(await kind("DIR1"), "direct");
+  for (const f of parseSfdpsMessages(mk("RAD1", "KBOS..ILC..SNS285053..MLF..KATL"))) swim.upsert(f, NOW - 60_000);
+  assert.equal(await kind("RAD1"), "radial");
+  const rad = await resolveFlightPlan(q({ callsign: "RAD1", lat: "40", lon: "-80" }), ctxWith({ swim }));
+  assert.equal(rad.pathEstimated, false);
+  assert.match(rad.honesty, /INFERRED from fix-radial-distance/);
   assert.equal(await kind("TXT1"), null, "endpoint-only filed plan is estimated -> no routeKind");
   const r = await resolveFlightPlan(q({ callsign: "SKW5000", lat: "36.2", lon: "-120.1" }), ctxWith({ routes: { SKW5000: KSFO_KLAX } }));
   assert.equal(r.routeKind, null, "predicted plans carry no filed routeKind");

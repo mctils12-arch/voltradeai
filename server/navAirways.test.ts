@@ -130,8 +130,17 @@ test("radial shadow resolver clears the >=3 bar only with real placed points and
   assert.deepEqual(placeDirectFixesWithRadials("ILC.J80.JNC..SNS285053").points, []); // airway refuses
   _resetSfdpsCountersForTests();
   const [f] = parseSfdpsMessages(`<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X1"/><route nasRouteText="${t}"/></flight></message></MessageCollection>`);
-  assert.deepEqual(f.routePoints, []); // shadow only: placement unchanged
+  // v1.0.1039 wired the resolver (gate-1 PASS): the former shadow-only assertion (routePoints == [])
+  // is superseded by the planned promotion — radial text now places, labelled routeKind "radial".
+  assert.deepEqual(f.routePoints.map((x) => x.name), ["ILC", "SNS285053", "MLF"]);
+  assert.equal(f.routeKind, "radial");
+  assert.equal(routeShapeCounters.radialPlaced, 1);
+  // plain direct text keeps routeKind "direct" (radial path only when direct yields nothing)
+  const [d] = parseSfdpsMessages(`<MessageCollection><message><flight source="FH" timestamp="2026-09-30T12:00:00Z"><flightIdentification aircraftIdentification="X2"/><route nasRouteText="KBOS..ILC..MLF..SAKES..KATL"/></flight></message></MessageCollection>`);
+  assert.equal(d.routeKind, "direct");
   const c = routeShapeSamples().fewFixesProfile;
-  assert.equal(c.radialShadowPlaced, 1);
-  assert.equal(c.radialShadowTokens, 1);
+  // the shadow counters only see still-UNPLACED (fewFixes) plans; once wired, radial plans are placed
+  // and counted by routeShapeCounters.radialPlaced instead, so the residual shadow stays 0.
+  assert.equal(c.radialShadowPlaced, 0);
+  assert.equal(c.radialShadowTokens, 0);
 });

@@ -85,7 +85,7 @@ export interface FlightPlanResponse {
    *  fix names), "airway" (route text FIX AIRWAY FIX, NASR expansion) or
    *  "direct" (route text direct-fix legs). null otherwise. Lets the filed-vs-
    *  flown gate-1 (scripts/flightplan_gate1.py) split deviation by kind. */
-  routeKind: "expanded" | "airway" | "direct" | null;
+  routeKind: "expanded" | "airway" | "direct" | "radial" | null;
   /** additive (2026-09-30): the aircraft is inside the destination's terminal
    *  area (DEVIATION_TERMINAL_NM) and > VECTORING_MIN_XT_NM off the route — the
    *  connector from it to the route (points flagged `vectors`) is ATC
@@ -863,7 +863,7 @@ interface Candidate {
   points: PlanPoint[];
   fetchedAt: number;
   pathEstimated: boolean;
-  routeKind?: "expanded" | "airway" | "direct";
+  routeKind?: "expanded" | "airway" | "direct" | "radial";
   /** REPORT-ONLY gate-1 shadow (v1.0.1037): the polyline the radial-token resolver WOULD place for a
    *  route-text-only plan. Never drawn, never used for deviation state. */
   radialShadow?: { points: LatLon[]; radialTokens: number };
@@ -935,6 +935,7 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     ...(radialShadow ? { radialShadow } : {}),
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
+      (!pathEstimated && p.routeKind === "radial" ? "; some route points are INFERRED from fix-radial-distance tokens using the navaid's filed magnetic variation (typically within a few NM, not a surveyed fix)" : "") +
       "; altitudes flagged altEstimated are a typical-jet profile estimate, not filed.",
   };
 }

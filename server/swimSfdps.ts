@@ -142,7 +142,7 @@ function deepAttr(n: XNode | null | undefined, names: string[]): string | null {
 }
 
 // ── 1b. FIXM / SFDPS extraction ─────────────────────────────────────────────
-export type SwimRouteKind = "expanded" | "airway" | "direct";
+export type SwimRouteKind = "expanded" | "airway" | "direct" | "radial";
 
 export interface SwimRoutePoint {
   lat: number; lon: number;
@@ -164,7 +164,7 @@ export interface SwimFlightMessage {
   routePoints: SwimRoutePoint[];
   /** how routePoints were obtained: "expanded" (SFDPS expandedRoute fix names via
    *  the gazetteer / explicit coords), "airway" (text FIX AIRWAY FIX expansion),
-   *  "direct" (text direct-fix legs); absent when nothing was placed */
+   *  "direct" (text direct-fix legs), "radial" (direct legs incl. fix-radial-distance tokens); absent when nothing was placed */
   routeKind?: SwimRouteKind;
   /** SFDPS message source code as carried (e.g. FH flight plan, AH amendment,
    *  HZ track, HX cancellation — SFDPS 'source' attribute) */
@@ -288,7 +288,7 @@ export function xmlShape(n: XNode, depth = 0): string {
 
 export interface RouteShapeSample { where: string; shape: string; count: number; firstSeenAt: number }
 const routeShapes = new Map<string, RouteShapeSample>();
-export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0 };
+export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0, radialPlaced: 0 };
 
 /** Why route TEXT (the fallback path) left a plan unplaced — report-only. */
 export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 0, noFixResolved: 0, fewFixes: 0, airwayUnbounded: 0, legTooLong: 0, other: 0 };
@@ -401,6 +401,12 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
     else {
       const direct = placeDirectFixes(routeText);
       if (direct.length) { routePoints.push(...direct); routeKind = "direct"; routeShapeCounters.directFixPlaced++; }
+      else {
+        // 2026-10-09: radial-token placement (FIX+RRR+DDD via filed navaid variation) — gate-1 PASS
+        // (research/flightplan_gate1_runs, unique n=127, p90 3.3 nm). Labelled routeKind "radial".
+        const rad = placeDirectFixesWithRadials(routeText);
+        if (rad.points.length && rad.radial > 0) { routePoints.push(...rad.points); routeKind = "radial"; routeShapeCounters.radialPlaced++; }
+      }
     }
   }
 
@@ -888,7 +894,7 @@ export function sfdpsStatus(store?: SwimPlanStore) {
 export function _resetSfdpsCountersForTests(): void {
   counters.byService = { FLIGHT: 0, AIRSPACE_AIXM: 0, GENERAL_MESSAGE: 0, STATUS: 0, UNKNOWN: 0 };
   counters.flightByType = {}; counters.fullParses = 0; counters.lightParses = 0; counters.parseErrors = 0;
-  routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0;
+  routeShapes.clear(); routeShapeCounters.placed = 0; routeShapeCounters.expandedNoPoints = 0; routeShapeCounters.noExpanded = 0; routeShapeCounters.airwayExpanded = 0; routeShapeCounters.directFixPlaced = 0; routeShapeCounters.radialPlaced = 0;
   for (const k of Object.keys(unplacedReasonCounters) as UnplacedReason[]) unplacedReasonCounters[k] = 0;
   unresolvedTokenCounts.clear(); unresolvedTexts.length = 0;
   for (const k of Object.keys(fewFixesProfileCounters) as (keyof typeof fewFixesProfileCounters)[]) fewFixesProfileCounters[k] = 0;
