@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-09 (scheduled-routine PRODUCT session, ~18:10Z Friday, market hours) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RUN 8, FIRST HEX-POOLED LIVE RADIAL READ (v1.0.1040 live)
+
+HEALTH: /api/health status ok (serving ok, liveness not dark, drawdown -6.5%), server_version 1.0.1040 = this checkout. No KNOWN BROKEN blocker.
+PRIOR: live radial p90 stays <= direct p90 + 5 nm; pooled unique n grows ~35-50 per run.
+RESULT (run8, research/flightplan_gate1_runs/run8_20261009T1806Z.json): radial n=48 unique hexes, median 0.2, p75 1.3, p90 5.6, p95 12.9, le10 94%; direct p90 9.2 (n small this run; run7 direct p90 19.4). Funnel: 2920 eligible, 446 measured, 2195 unplaced, 7 request errors.
+READ: PRIOR CONFIRMED (5.6 <= 9.2+5). Run7 predates radial_live_samples so it cannot be hex-pooled: the n>=100 unique bar is 48/100. Needs ~2 more runs at different times of day.
+NEXT: save run9/run10 and `--pool` all runs with radial_live_samples; decide at unique n>=100. ROLLBACK: n/a (docs-only). MERGE: any time.
+STARVED: no.
+
 ## 2026-10-09 (scheduled-routine session, ~16:05Z Friday, market hours) [PIPELINE] — T-DATACORE (scripts/flightplan_gate1.py, test_flightplan_gate1.py) — FLIGHTPLAN GATE-1: EMIT + POOL LIVE routeKind "radial" SAMPLES BY HEX (v1.0.1040)
 
 HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, drawdown -6.7%), v1.0.1039 live. Loop-health 0/10 REPAIR. No KNOWN BROKEN blocker.
