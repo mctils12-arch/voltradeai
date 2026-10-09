@@ -107075,3 +107075,14 @@ RESULT: radial n=47 median 0.2 / p90 4.7 / p95 9.2 (all <=15 nm); direct n=146 p
 DECISION: still NOT wired. Unique n=58 < 100 bar. Radial accuracy so far holds (p90 4.7 vs direct 13.9). Need ~1-2 more 20-01Z hex-saved runs spaced >=6h (next: ~2026-10-09 00-01Z or 20Z), then pool runs 3..N and wire routeKind "radial" only if unique n>=100 and p90 <= direct p90 + 5.
 ROLLBACK: n/a (read only). MERGE: docs + 2KB data file, any time.
 STARVED: no.
+
+## 2026-10-09 (scheduled-routine PRODUCT session, ~00:15Z = 20:15 ET Oct 8, after close) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN GATE-1: RADIAL SHADOW READ, RUN 5 (THIRD HEX-SAVED RUN)
+
+HEALTH: session_health_check all OK (v1.0.1038 live, deploy_gate ok, liveness ok); research_state_check clean, thrash 0/10, no audit overdue, starvation 0.
+PRIOR (stated before run): 00Z window yields radial n~35-45, p90 <=6; unique n after pooling stays high because run 4 was ~4h earlier but long-haul turnover is partial; pooled unique n reaches ~90-100.
+RAN `scripts/flightplan_gate1.py` live ~00:15Z, saved research/flightplan_gate1_runs/run5_20261009T0015Z.json. Funnel: eligible 2,894, measured 388, radial_shadow_measured 38 (prior met).
+RESULT (cross-track nm): radial n=38 median 0.1 / p90 2.0 / p95 3.9 (all <=10); direct n=143 p90 12.0; airway n=207 p90 12.4.
+POOLED hex-deduped runs 3+4+5: unique n=96, raw 96 (zero repeat hexes), median 0.2 / p90 3.0 / p95 5.8 / le10 96.9% / le15 99.0%. Prior met (96 in 90-100).
+DECISION: still NOT wired — unique n=96 < 100 by 4. Accuracy criterion (p90 <= direct p90 + 5 = ~17) is cleared by a wide margin and stable across three runs. The next hex-saved run in a radial-rich window (~20Z today or ~00Z) should clear n>=100 on its own; then wire routeKind "radial" with an honest label in its own PR.
+ROLLBACK: n/a (read only). MERGE: docs + 2KB data file, any time.
+STARVED: no.
