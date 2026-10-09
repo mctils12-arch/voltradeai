@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-09 (scheduled-routine PRODUCT session, ~13:20Z Friday, pre-market) [RESEARCH] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN: LIVE routeKind "radial" HONESTY CHECK PASSES (v1.0.1039 live)
+
+HEALTH: /api/health status ok (serving ok, liveness not dark, drawdown -6.1%), server_version 1.0.1039 live = this checkout. No KNOWN BROKEN blocker.
+Executed the NEXT from the v1.0.1039 entry: run flightplan_gate1.py against the deployed build and compare by_kind.radial (now PLACED, live) to the shadow read (p90 3.3 nm, n=127 unique).
+PRIOR (stated before running): live radial p90 within ~2 nm of the shadow p90 and <= direct p90 + 5 nm (rollback trigger).
+RESULT (run7, saved research/flightplan_gate1_runs/run7_20261009T1320Z.json): radial n=35, median 0.4, p75 1.1, p90 5.1, p95 11.9, le10 94%; direct n=102 p90 19.4; airway n=207 p90 12.8. By band: radial 150-400 nm p90 1.0 (n=13), >400 nm p90 3.8 (n=15), 60-150 nm p90 11.9 (n=7, thin).
+READ: PRIOR CONFIRMED on the rollback criterion (5.1 <= 19.4+5) with large margin; radial p90 is 1.8 nm above the shadow's 3.3, inside the prior band and consistent with n=35 sampling noise (p90 of 35 points rests on ~3 samples). Live placement matches the shadow estimate; no live-vs-shadow divergence. Caveat kept: direct p90 is unusually high this run (19.4 vs 4.3 in run6) — afternoon/time-of-day variation in the baseline, so the radial-vs-direct margin is not stable evidence of radial superiority, only of non-inferiority. LOGIC-gate verdict: radial stays wired; no change.
+NEXT: accumulate radial live samples across 2+ more runs (hex-dedupe via --pool applies to the shadow field only; live radial rows now come in by_kind.radial — pooling them needs the script to emit radial hexes as it does for shadow, a small harness change if n stays thin). 60-150 nm band remains the weak spot (n=7). ROLLBACK unchanged: git revert (trigger live radial p90 > direct p90 + 5 over a pooled n>=100). MERGE: docs-only, any time.
+STARVED: no.
+
 ## 2026-10-09 (scheduled-routine session, ~11:05Z Friday) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts, server/navAirways.test.ts, server/flightPlans.test.ts) — FLIGHTPLAN: routeKind "radial" WIRED INTO PLACEMENT (v1.0.1039)
 
 HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, drawdown -6.2%), v1.0.1038 live. Loop-health 0/10 REPAIR, no audit overdue, starvation 0. No KNOWN BROKEN blocker.
