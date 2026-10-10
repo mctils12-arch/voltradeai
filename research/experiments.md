@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-10 (scheduled-routine PRODUCT session, ~00:20Z Fri 20:20 ET, after close) [RESEARCH] — T-DATACORE (docs + data files only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 8 (FIRST LIVE-HEX RUN) + PORT_DWELL_WEEKLY ARCHIVE REFRESH
+
+HEALTH: session_health_check all OK (v1.0.1040 live = checkout, deploy_gate ok, liveness ok, daemon rss 399.9MB just under trim); thrash 0/10; no audit overdue. One WARN: archive_freshness:port_dwell_weekly 22d stale (trigger 21d) -> addressed below. No KNOWN BROKEN blocker.
+PRIOR (stated before run): 00Z is a radial-rich window; live routeKind "radial" n~30-40, p90 <=5, well inside the rollback bar (live radial p90 > direct p90 + 5 over pooled unique n>=100).
+RAN `scripts/flightplan_gate1.py` live ~00:20Z (v1.0.1040), saved research/flightplan_gate1_runs/run8_20261010T0020Z.json. Funnel: eligible 2,749, measured 361, request_errors 4.
+RESULT (cross-track nm): radial (LIVE, placed) n=33 median 0.2 / p90 1.2 / p95 2.0 / le10 97%; direct n=145 p90 13.2; airway n=183 p90 10.5. Prior met. Radial is 12 nm better than direct at p90 here; run 7 (p90 5.1, n=35) and run 8 agree in sign.
+POOL: live radial pooled unique n=33 (run 7 predates hex emission, so it cannot be deduped and is excluded; only run 8 carries radial_live_samples). Rollback bar needs n>=100 -> ~2-3 more runs at 20-01Z windows spaced >=6h. Shadow pool (runs 3-8) unchanged at 127 (placed plans no longer feed the shadow field, as expected).
+READ: no live-vs-shadow divergence; rollback trigger not approached. Decision deferred to n>=100; nothing to change.
+ARCHIVE: portdwell_weekly_snapshot.ts (preferred path) merged server-captured weeks 11, 12, 13 into datacore/port_dwell_weekly.json (file now 8 weeks); archive-freshness WARN should clear. Weeks are only ever fillable before raw retention rolls past them, so doing this the same day the trigger fired matters.
+NEXT: run 9 at the next 20-01Z window, save, `--pool` runs 8+; decide the rollback criterion at live pooled unique n>=100. ROLLBACK: n/a (read only/data). MERGE: docs + data files, safe any time.
+STARVED: no.
+
 ## 2026-10-09 (scheduled-routine session, ~16:05Z Friday, market hours) [PIPELINE] — T-DATACORE (scripts/flightplan_gate1.py, test_flightplan_gate1.py) — FLIGHTPLAN GATE-1: EMIT + POOL LIVE routeKind "radial" SAMPLES BY HEX (v1.0.1040)
 
 HEALTH: /api/health status ok (serving ok, liveness not dark, feeds alive, drawdown -6.7%), v1.0.1039 live. Loop-health 0/10 REPAIR. No KNOWN BROKEN blocker.
