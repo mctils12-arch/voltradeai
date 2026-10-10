@@ -138,10 +138,41 @@ class TestCheckAllAgainstLiveLadder(unittest.TestCase):
         self.assertFalse(row["ready"])
 
     def test_gnss_integrity_adsb_ready_once_archive_deep_enough(self):
-        # since=2026-09-22, min_days=15 -> ready 2026-10-07
-        results = readiness.check_all(today=date(2026, 10, 7))
-        row = next(r for r in results if r["id"] == "gnss_integrity_adsb")
+        # CORRECTED 2026-10-10: the old fixture (since=2026-09-22, min_days=15,
+        # "ready 2026-10-07") encoded the bug — 15 daily records is not the
+        # pre-registered bar. since=2026-08-24, min_days=128 -> ready 2026-12-30.
+        early = readiness.check_all(today=date(2026, 10, 10))
+        row = next(r for r in early if r["id"] == "gnss_integrity_adsb")
+        self.assertFalse(row["ready"])
+        late = readiness.check_all(today=date(2026, 12, 30))
+        row = next(r for r in late if r["id"] == "gnss_integrity_adsb")
         self.assertTrue(row["ready"])
+
+    def test_gnss_trigger_covers_preregistered_destrided_bar(self):
+        # Pre-registered design (open_questions.md 2026-09-22): z window 10
+        # trading days, horizon 5, >=15 non-overlapping pairs. Recompute the
+        # trading days needed (weekdays only = a LOWER bound, holidays only
+        # add days) and require the trigger's calendar span to cover it.
+        from datetime import timedelta
+        z_window, horizon, min_pairs = 10, 5, 15
+        needed = z_window + min_pairs * horizon + horizon
+        trig = readiness.load_ladder_roots()["gnss_integrity_adsb"]["readiness_trigger"] \
+            if hasattr(readiness, "load_ladder_roots") else None
+        if trig is None:
+            import json
+            with open(os.path.join(REPO_ROOT, "datacore", "signal_ladder.json")) as f:
+                data = json.load(f)
+            roots = data["roots"] if "roots" in data else data
+            root = roots["gnss_integrity_adsb"] if isinstance(roots, dict) else \
+                next(r for r in roots if r.get("id") == "gnss_integrity_adsb")
+            trig = root["readiness_trigger"]
+        d, n = date.fromisoformat(trig["since"]), 0
+        while n < needed:
+            if d.weekday() < 5:
+                n += 1
+            if n < needed:
+                d += timedelta(days=1)
+        self.assertGreaterEqual(trig["min_days"], (d - date.fromisoformat(trig["since"])).days)
 
     def test_roots_without_trigger_are_omitted(self):
         results = readiness.check_all(today=date(2026, 8, 13))
