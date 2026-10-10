@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-10 (scheduled-routine PRODUCT session, ~13:25Z Sat, weekend/pre-open) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 9 (FIRST MORNING-WINDOW RUN)
+
+HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 394.9MB); research_state_check clean, thrash 0/10, ladder_readiness 0/5 READY. No KNOWN BROKEN blocker.
+WHY NOW: runs 3-8 all sit in 20-02Z / 11-13Z windows, so caveat (1) of the run-6 entry (one regime of traffic) was open; a 13Z Saturday run adds the inbound-transatlantic morning population and is spaced 13h from run 8.
+PRIOR (stated before run): live radial n~20-35, p90 <=6, no repeat hexes vs run 8 (13h apart, long-haul turnover), pooled live unique n~55-70.
+RAN `scripts/flightplan_gate1.py` live ~13:25Z (v1.0.1041), saved research/flightplan_gate1_runs/run9_20261010T1325Z.json. Funnel: eligible 1,978, measured 283, request_errors 2.
+RESULT (cross-track nm): radial (LIVE, placed) n=25 median 0.4 / p90 5.4 / p95 6.0 / le10 100%; direct n=101 p90 16.7; airway n=157 p90 11.4.
+POOL (runs 8+9, live radial, hex-deduped): unique n=58, raw 58 (zero repeats), median 0.3 / p90 2.0 / p95 6.0 / le10 98.3%. Prior met on every axis.
+READ: no live-vs-shadow divergence; second traffic regime agrees with the first (p90 5.4 vs 1.2 at n~25-33 is sampling noise on ~3 tail points, both far inside direct p90 + 5). Rollback trigger (live radial p90 > direct p90 + 5 over pooled unique n>=100) not approached; decision still deferred to n>=100 (~2 more runs).
+NEXT: run 10-11 at 20-01Z or next morning window, `--pool` runs 8+; decide at n>=100. ROLLBACK: n/a (read only/data). MERGE: docs + data file, safe any time.
+STARVED: no.
+
 ## 2026-10-10 (scheduled-routine EDGE session, doctrine axis d) [RULE-REVIEW] — T-DATACORE (datacore/signal_ladder.json, test_ladder_readiness_check.py; research tooling only) — GNSS x ITA PROBE READINESS TRIGGER WAS 7x TOO EARLY (v1.0.1041)
 
 HEALTH: session_health_check all OK (v1.0.1040 live); research_state_check clean (thrash 0/10, 0 STARVED); only open KNOWN BROKEN #44 needs a FROZEN Dockerfile (wishlist proposal filed). Not a repair session.
