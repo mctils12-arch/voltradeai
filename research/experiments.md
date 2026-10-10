@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-10 (scheduled-routine EDGE session, doctrine axis d) [RULE-REVIEW] — T-DATACORE (datacore/signal_ladder.json, test_ladder_readiness_check.py; research tooling only) — GNSS x ITA PROBE READINESS TRIGGER WAS 7x TOO EARLY (v1.0.1041)
+
+HEALTH: session_health_check all OK (v1.0.1040 live); research_state_check clean (thrash 0/10, 0 STARVED); only open KNOWN BROKEN #44 needs a FROZEN Dockerfile (wishlist proposal filed). Not a repair session.
+TRIGGER: ladder_readiness_check reported gnss_integrity_adsb READY (15d), i.e. "judge a matured experiment". Live-verified before acting: GET /api/diag/gnss_integrity_daily -> day_count 26, 2026-08-24..09-18.
+PRIOR (stated before checking): the 15-day trigger conflates records with the pre-registered bar; I expected the real bar to be several times larger.
+FINDING: pre-registered design = 10-trading-day z warmup, horizon 5, >=15 NON-OVERLAPPING stride-5 pairs -> 10 + 15x5 + 5 = 90 trading days. From the archive's contiguous start 2026-08-24 that is 2026-12-30 (128 calendar days, NYSE holidays excluded), not 2026-10-07. With 26 archived days only ~3 de-strided pairs exist: running the probe now would be the underpowered theater the pre-registration forbade. Verdict: NOT RUN, correctly WAITING.
+CHANGE: signal_ladder.json trigger since 2026-09-22/15d -> since 2026-08-24/128d (source_note records the correction and that an archive-only reader lags ~22d further). Test: replaced the old fixture that asserted READY on 2026-10-07 (it encoded the bug; value, not rigor, changed: now asserts not-ready 10-10, ready 12-30) and added a test deriving the required span from the pre-registered constants so the trigger can't silently drift below the bar again.
+EFFECT: ladder_readiness_check READY 1/5 -> 0/5; next sessions stop treating this as a matured experiment. No trading/runtime path touched. Measurement code unchanged (this is a scheduling estimate, biases toward waiting, never toward claiming a result).
+ROLLBACK: revert the JSON hunk. MERGE: safe any time.
+NEXT: probe build when live day_count (archive + raw) covers 90 trading days (~2026-12-30).
+STARVED: no.
+
 ## 2026-10-10 (scheduled-routine PRODUCT session, ~00:20Z Fri 20:20 ET, after close) [RESEARCH] — T-DATACORE (docs + data files only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 8 (FIRST LIVE-HEX RUN) + PORT_DWELL_WEEKLY ARCHIVE REFRESH
 
 HEALTH: session_health_check all OK (v1.0.1040 live = checkout, deploy_gate ok, liveness ok, daemon rss 399.9MB just under trim); thrash 0/10; no audit overdue. One WARN: archive_freshness:port_dwell_weekly 22d stale (trigger 21d) -> addressed below. No KNOWN BROKEN blocker.
