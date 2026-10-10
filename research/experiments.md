@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-10 (scheduled-routine PRODUCT session, ~18:10Z Sat, weekend) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 10 (FIRST AFTERNOON-WINDOW RUN)
+
+HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 386.7MB); thrash 0/10; ladder_readiness 0/5 READY; audits none overdue. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, wishlist proposal already filed).
+WHY NOW: runs 8 (00Z) and 9 (13Z) cover evening and morning traffic; 18Z adds the afternoon regime. Spacing from run 9 is only ~4.7h, but --pool keeps one observation per hex, so repeats cannot inflate n.
+PRIOR (stated before run): live radial n~25-35, p90 <=6, few hex repeats vs run 9, pooled unique n~80-90.
+RAN `scripts/flightplan_gate1.py` live ~18:10Z, saved research/flightplan_gate1_runs/run10_20261010T1810Z.json. Funnel: eligible 2,734, measured 349, request_errors 7.
+RESULT (cross-track nm): radial (LIVE, placed) n=33 median 0.2 / p90 3.7 / p95 11.0 / le10 94%; direct n=127 p90 8.5; airway n=189 p90 21.2. Weakest band again 60-150 nm (radial n=5, p90 24.8, one 24.8 nm point).
+POOL (runs 8+9+10, live radial, hex-deduped): unique n=91, raw 91 (zero repeats), median 0.2 / p90 2.3 / p95 6.0 / le10 96.7%. Prior met on every axis.
+READ: three traffic regimes (evening, morning, afternoon) now agree: radial p90 1.2 / 5.4 / 3.7. Direct p90 moved 13.2 / 16.7 / 8.5 across the same runs, so the baseline is unstable and radial-vs-direct margin remains evidence of non-inferiority only. Rollback trigger (live radial p90 > direct p90 + 5 over pooled unique n>=100) not approached; 9 more unique hexes needed, so the decision is one run away. Caveat kept: the 60-150 nm band (terminal-adjacent) stays thin and is where radial misses.
+NEXT: run 11 at the next 00-02Z or 11-13Z window, `--pool` runs 8+; take the n>=100 decision then. ROLLBACK: n/a (read only/data). MERGE: docs + data file, safe any time.
+STARVED: no.
+
 ## 2026-10-10 (scheduled-routine PRODUCT session, ~13:25Z Sat, weekend/pre-open) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 9 (FIRST MORNING-WINDOW RUN)
 
 HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 394.9MB); research_state_check clean, thrash 0/10, ladder_readiness 0/5 READY. No KNOWN BROKEN blocker.
