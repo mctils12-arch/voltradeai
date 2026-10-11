@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { guardedRefresh } from "./crashSafeRefresh";
+import { guardedRefresh, resolveInflightRefreshes } from "./crashSafeRefresh";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "crashsaferefresh-test-"));
@@ -88,4 +88,26 @@ test("guardedRefresh: separate job names never interfere with each other's marke
   const result = await guardedRefresh("job-b", 3600_000, workingFn, dir, 1000 + 5000);
   assert.equal(result.ran, true);
   assert.equal(calls, 1);
+});
+
+test("resolveInflightRefreshes: a SIGTERM mid-fold resolves the marker so the next boot refolds (no 6h cooldown)", async () => {
+  const dir = tmpDir();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const running = guardedRefresh("deploy-job", 6 * 3600_000, async () => { await gate; }, dir, 5000);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(resolveInflightRefreshes(6000), ["deploy-job"]);
+  let calls = 0;
+  const next = await guardedRefresh("deploy-job", 6 * 3600_000, async () => { calls++; }, dir, 7000);
+  assert.equal(next.ran, true);
+  assert.equal(calls, 1);
+  release(); await running;
+});
+
+test("resolveInflightRefreshes: nothing in flight is a no-op; a hard crash marker (never resolved) still cools down", async () => {
+  assert.deepEqual(resolveInflightRefreshes(), []);
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "voltrade_refresh_attempt_crash-job.json"), JSON.stringify({ startedAt: 1000 }));
+  const r = await guardedRefresh("crash-job", 3600_000, async () => {}, dir, 2000);
+  assert.equal(r.reason, "cooldown");
 });

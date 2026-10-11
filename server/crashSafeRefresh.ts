@@ -76,10 +76,38 @@ export async function guardedRefresh(name: string, cooldownMs: number, fn: () =>
     };
   }
   writeMarker(dir, name, { startedAt: nowMs });
+  const key = `${dir}\0${name}`;
+  inflight.set(key, { dir, name, startedAt: nowMs });
   try {
     await fn();
   } finally {
+    inflight.delete(key);
     writeMarker(dir, name, { startedAt: nowMs, completedAt: Date.now() });
   }
   return { ran: true };
+}
+
+/** Folds currently running, so a CLEAN shutdown can tell them apart from a
+ *  crash. 2026-10-11: every deploy SIGTERMs the container mid-fold; the
+ *  marker stayed unresolved, so the next boot read a deploy as a suspected
+ *  OOM crash and deferred portdwell/shadowstats/dtcc for the full 6h
+ *  cooldown (customers saw warming_up for hours after every deploy). */
+const inflight = new Map<string, { dir: string; name: string; startedAt: number }>();
+
+/** Called from the SIGTERM/SIGINT handler. A signal-delivered stop is an
+ *  orderly interruption, not a crash (an OOM kill is SIGKILL and never runs
+ *  this), so resolve the markers and let the next boot refold immediately.
+ *  Returns the names resolved. Never throws. */
+export function resolveInflightRefreshes(nowMs = Date.now()): string[] {
+  const done: string[] = [];
+  for (const [key, e] of Array.from(inflight.entries())) {
+    try {
+      writeMarker(e.dir, e.name, { startedAt: e.startedAt, completedAt: nowMs });
+      done.push(e.name);
+    } catch (err) {
+      console.error(`[crashSafeRefresh] could not resolve marker for ${e.name} on shutdown:`, String(err));
+    }
+    inflight.delete(key);
+  }
+  return done;
 }
