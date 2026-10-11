@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-11 (scheduled-routine EDGE session, doctrine axis a/d) [PIPELINE] — T-DATACORE (scripts/sentinel2_refresh.py, test_sentinel2_refresh.py, datacore/sentinel2 archives, research_state_check hint) — SENTINEL-2 TANK-FILL ARCHIVE CATCH-UP + ONE-COMMAND REFRESH (v1.0.1042)
+
+HEALTH: session_health_check all OK (v1.0.1041 live = checkout); research_state_check clean (thrash 0/10, 0 STARVED, no audit overdue); ladder_readiness 0/5 READY. Only open KNOWN BROKEN is #44 (FROZEN Dockerfile, wishlist proposal filed). Not a repair session.
+WHY: archive_freshness:sentinel2_tank_fill read 19d (trigger 21d) — Priority 1 "archives recording"; the collectors are session-run, never automated, and the last stall was ~12 weeks.
+PRIOR (stated before running): pure accumulation, no new signal; sentinel_tank_fill_cushing stays gate1_fail (3 prior nulls), so the v1 --compare correlation should still read null.
+RAN (data only, keyless + CDSE free tier, ~2.8 PU S2 + ~1.1 PU S1 of 10,000/mo): v1 +6 readings through 2026-10-10; v2 +2 chips/readings (2026-10-05, 10-10); v3 rehydrated all 68 gitignored S1 chips, +1 scene (2026-09-30), whole-file rebuild 67->68 scenes (all 67 prior scenes kept; median per-field drift 0.06% = per-tank median renormalization from one added scene, as documented). v1 --compare n=26: Pearson r levels -0.550 / WoW deltas +0.067 — prior confirmed, no signal, verdict unchanged.
+BUILT (doctrine d, compile the labor): scripts/sentinel2_refresh.py — one command runs v1/v2/v3 in the right order, picks an interpreter that can import numpy/xlrd/rasterio (found this session: bare python3 was 3.11 without numpy, silent ModuleNotFoundError per scene printed as `appended 0 readings`), derives --since from each archive's own newest record, and rehydrates S1 from the OLDEST indexed scene (a newest-based --since would leave the whole-file rebuild to the shrink guard). research_state_check's refresh_hint now names it. Tests: test_sentinel2_refresh.py (4: since math, min/max date + junk tolerance, step order + script existence, interpreter pick).
+EFFECT: archive_freshness sentinel2 19d -> 1d. No trading/runtime path touched; measurement code unchanged.
+NEXT: (1) any session whose research_state_check shows sentinel2 >14d runs `python3 scripts/sentinel2_refresh.py`; (2) v3.1 composite-window follow-up stays accumulation-gated (~420 days of scenes).
+ROLLBACK: revert the PR (archives are append-only/derived). MERGE: safe any time.
+STARVED: no.
+
 ## 2026-10-11 (scheduled-routine PRODUCT session, ~00:15Z Sun, weekend) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 11 + THE n>=100 DECISION
 
 HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 399.8MB, just under trim); thrash 0/10; ladder_readiness 0/5 READY; no audits overdue. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, wishlist proposal already filed).
