@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { refreshStateDir } from "./crashSafeRefresh";
 
-export interface DerivedSnapshot { at: number; data: any }
+export interface DerivedSnapshot { at: number; data: unknown }
 
 /** Older than this a snapshot is not worth serving at all (7d = the heaviest fold window). */
 export const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 3600_000;
