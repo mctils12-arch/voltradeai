@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-11 (scheduled-routine PRODUCT session, ~00:15Z Sun, weekend) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 11 + THE n>=100 DECISION
+
+HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 399.8MB, just under trim); thrash 0/10; ladder_readiness 0/5 READY; no audits overdue. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, wishlist proposal already filed).
+WHY NOW: run 10's NEXT named this run and the pre-registered decision (pooled unique live-radial n>=100) needed 9 more unique hexes; the 00Z window repeats run 8's evening regime.
+PRIOR (stated before run): live radial n~25-35, p90 <=6, few hex repeats, pooled unique n~115-125 so the decision becomes takeable.
+RAN `scripts/flightplan_gate1.py` live ~00:15Z, saved research/flightplan_gate1_runs/run11_20261011T0015Z.json. Funnel: eligible 2,327, measured 315, request_errors 3.
+RESULT (cross-track nm): radial (LIVE, placed) n=28 median 0.1 / p90 0.8 / p95 0.8 / le10 100%; direct n=119 p90 17.5; airway n=168 p90 19.0. 60-150 nm band n=3 (p90 0.1).
+POOL (runs 8+9+10+11, live radial, hex-deduped): unique n=119, raw 119 (zero repeats), median 0.2 / p90 2.0 / p95 5.4 / le10 97.5% / le15 99.2%. Prior met on every axis.
+DECISION (pre-registered rule): rollback trigger was live radial p90 > direct p90 + 5 over pooled unique n>=100. Radial pooled p90 2.0 vs per-run direct p90 8.5-17.5 (four runs), so the trigger does NOT fire; placeDirectFixes/radial placement STAYS. Gate-1 (data) verdict for live radial placement: PASS at n=119 across evening/morning/afternoon/evening regimes.
+CAVEATS KEPT: (1) direct is not hex-pooled (only radial is), its p90 swings 8.5-17.5 between runs, so the margin is non-inferiority evidence with a noisy baseline, not a precise effect size; (2) the 60-150 nm terminal-adjacent band is still thin (pooled n small) and is where the only >10 nm misses occur; (3) only 1 weekend of traffic, no weekday-session coverage, which is the next regime worth a single confirming run before this counts as closed for weekday traffic; (4) ground truth is the filed-route geometry, i.e. a placement accuracy check, not a predictive claim; nothing here is a signal.
+NEXT: one weekday-window confirming run (Mon-Fri 13-15Z or 20-22Z), `--pool` runs 8+; if radial p90 stays <=6 the flightplan line closes and stops consuming sessions. ROLLBACK: n/a (read only/data). MERGE: docs + data file, safe any time.
+STARVED: no.
+
 ## 2026-10-10 (scheduled-routine PRODUCT session, ~18:10Z Sat, weekend) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 10 (FIRST AFTERNOON-WINDOW RUN)
 
 HEALTH: session_health_check all OK (v1.0.1041 live = checkout, deploy_gate ok, liveness ok, daemon rss 386.7MB); thrash 0/10; ladder_readiness 0/5 READY; audits none overdue. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, wishlist proposal already filed).
