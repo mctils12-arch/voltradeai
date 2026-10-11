@@ -24,12 +24,17 @@ export interface DerivedSnapshot { at: number; data: unknown }
 /** Older than this a snapshot is not worth serving at all (7d = the heaviest fold window). */
 export const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 3600_000;
 
+/** DATA_DIR (the /data/voltrade volume convention) first; refreshStateDir() supplies the /data-or-/tmp fallback. */
+export function snapshotDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.DATA_DIR || refreshStateDir(env);
+}
+
 function snapFile(dir: string, name: string): string {
   return path.join(dir, `voltrade_derived_snapshot_${name}.json`);
 }
 
 /** Atomic write (tmp + rename) so a kill mid-write never leaves a torn file. Never throws. */
-export function saveSnapshot(name: string, snap: DerivedSnapshot, dir = refreshStateDir()): boolean {
+export function saveSnapshot(name: string, snap: DerivedSnapshot, dir = snapshotDir()): boolean {
   try {
     fs.mkdirSync(dir, { recursive: true });
     const f = snapFile(dir, name);
@@ -41,7 +46,7 @@ export function saveSnapshot(name: string, snap: DerivedSnapshot, dir = refreshS
 }
 
 /** Returns the snapshot, or null if absent/corrupt/malformed/too old. Never throws. */
-export function loadSnapshot(name: string, dir = refreshStateDir(), nowMs = Date.now()): DerivedSnapshot | null {
+export function loadSnapshot(name: string, dir = snapshotDir(), nowMs = Date.now()): DerivedSnapshot | null {
   try {
     const raw = JSON.parse(fs.readFileSync(snapFile(dir, name), "utf8"));
     if (typeof raw?.at !== "number" || raw.data == null || typeof raw.data !== "object") return null;
