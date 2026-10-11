@@ -369,7 +369,9 @@ ARCHIVE_MANIFEST = [
         ),
         "date_field": "date",
         "refresh_hint": (
-            "scripts/sentinel2_tankfill.py --since <last_date> --compare (v1, keyless); "
+            "ONE COMMAND: python3 scripts/sentinel2_refresh.py (runs all three below in order, "
+            "picks an interpreter with numpy/xlrd/rasterio, derives --since from the archives). "
+            "Manual form: scripts/sentinel2_tankfill.py --since <last_date> --compare (v1, keyless); "
             "scripts/cdse_chips.py + scripts/tankfill_estimator.py (v2, CDSE creds); "
             "scripts/cdse_s1_chips.py --redownload-missing + scripts/tankfill_s1_estimator.py "
             "(v3 — read both scripts' shrink-guard/rehydration docstrings first, a fresh "
