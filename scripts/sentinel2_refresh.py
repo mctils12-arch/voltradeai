@@ -52,7 +52,8 @@ def newest_date(path, field="date", oldest=False):
         for line in fh:
             try:
                 d = json.loads(line).get(field)
-            except Exception:
+            except (ValueError, AttributeError) as e:
+                print(f"[sentinel2_refresh] malformed line in {path}: {e}", file=sys.stderr)
                 continue
             if d and (best is None or (d < best if oldest else d > best)):
                 best = d
@@ -83,7 +84,7 @@ def interpreter_ok(py):
         r = subprocess.run([py, "-c", "import " + ",".join(REQUIRED_MODULES)],
                            capture_output=True, timeout=60)
         return r.returncode == 0
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
