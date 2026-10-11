@@ -104,7 +104,9 @@ export function resolveInflightRefreshes(nowMs = Date.now()): string[] {
     try {
       writeMarker(e.dir, e.name, { startedAt: e.startedAt, completedAt: nowMs });
       done.push(e.name);
-    } catch { /* best effort during shutdown */ }
+    } catch (err) {
+      console.error(`[crashSafeRefresh] could not resolve marker for ${e.name} on shutdown:`, String(err));
+    }
     inflight.delete(key);
   }
   return done;

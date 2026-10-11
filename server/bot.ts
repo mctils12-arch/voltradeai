@@ -790,7 +790,9 @@ async function gracefulShutdown(signal: string) {
   try {
     const resolved = resolveInflightRefreshes();
     if (resolved.length) audit("SHUTDOWN", `Resolved in-flight refresh markers (clean stop, not a crash): ${resolved.join(", ")}`);
-  } catch { /* never block shutdown */ }
+  } catch (err) {
+    console.error("[shutdown] resolveInflightRefreshes failed:", String(err));
+  }
   audit("SHUTDOWN", `Received ${signal} — cancelling open orders and shutting down...`);
   try {
     await alpaca("/v2/orders", { method: "DELETE" }); // Cancel ALL open orders
