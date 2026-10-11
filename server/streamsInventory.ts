@@ -25,7 +25,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { promisify } from "util";
-import { archiveBaseDir } from "./datacoreArchive";
+import { archiveBaseDir, newestDataFile } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
 
 const gunzip = promisify(zlib.gunzip);
@@ -153,19 +153,23 @@ export async function buildStreamsInventory(
   for (const name of Object.keys(manifests).sort()) {
     const m = manifests[name];
     const dir = path.join(base, name);
-    let files = 0, bytes = 0, newest: string | null = null, newestMtime = 0;
+    let files = 0, bytes = 0, newestMtime = 0;
+    const mtimes = new Map<string, number>();
     try {
       for (const f of (await fs.promises.readdir(dir)).sort()) {
         let st;
         try { st = await fs.promises.stat(path.join(dir, f)); } catch { continue; }
         if (!st.isFile()) continue;
         files++; bytes += st.size;
-        newest = f; // sorted ascending; name order == time order for day/hour files
-        newestMtime = st.mtimeMs;
+        mtimes.set(f, st.mtimeMs);
       }
     } catch {
       // dir missing → no-data row (never hidden)
     }
+    // name order == time order for day/hour files; sentinels (backfill_done
+    // .json, _seen_ids_index…) are skipped so they can't masquerade as newest
+    const newest = newestDataFile(Array.from(mtimes.keys()));
+    if (newest) newestMtime = mtimes.get(newest)!;
     const ageHours = newest ? (now - newestMtime) / 3.6e6 : null;
     const { health, note } = deriveHealth(ageHours, m.cadence || "");
     const { peek, records, note: peekNote } = files > 0

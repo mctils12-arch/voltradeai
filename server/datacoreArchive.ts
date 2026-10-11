@@ -1038,6 +1038,24 @@ export async function archiveFileTimestampRanges(
   return out;
 }
 
+/**
+ * The newest DATA file in an ascending-sorted directory listing. Archive
+ * dirs also hold sentinels that sort AFTER date-named files ("backfill_done
+ * .json", "_seen_ids_index.jsonl.gz", "ueimap.json" — digits sort before
+ * letters/underscore), so a plain "last name" read reported the sentinel's
+ * mtime as the stream's age: finrashortvol/griddemand/occvolume showed
+ * "stale ~2300h" while holding data from two days ago (2026-10-11). Data
+ * files are *.jsonl / *.jsonl.gz not starting with "_"; when a directory
+ * has none (curated JSON-only dirs) the last name is returned unchanged.
+ */
+export function newestDataFile(sortedNames: readonly string[]): string | null {
+  for (let i = sortedNames.length - 1; i >= 0; i--) {
+    const n = sortedNames[i];
+    if (!n.startsWith("_") && /\.jsonl(\.gz)?$/.test(n)) return n;
+  }
+  return sortedNames.length ? sortedNames[sortedNames.length - 1] : null;
+}
+
 export function archiveStats(baseDir?: string): any {
   const base = baseDir || archiveBaseDir();
   const out: any = { base, kinds: {} };
@@ -1058,13 +1076,15 @@ export function archiveStats(baseDir?: string): any {
   for (const kind of Array.from(kinds).sort()) {
     const dir = path.join(base, kind);
     if (!fs.existsSync(dir)) { out.kinds[kind] = { files: 0, bytes: 0 }; continue; }
-    let bytes = 0, files = 0, oldest: string | null = null, newest: string | null = null;
+    let bytes = 0, files = 0, oldest: string | null = null;
+    const fileNames: string[] = [];
     for (const f of fs.readdirSync(dir).sort()) {
       const st = fs.statSync(path.join(dir, f));
       if (!st.isFile()) continue;
       files++; bytes += st.size;
-      oldest = oldest || f; newest = f;
+      oldest = oldest || f; fileNames.push(f);
     }
+    const newest = newestDataFile(fileNames);
     out.kinds[kind] = { files, bytes, oldest, newest };
   }
   out.totalBytes = Object.values(out.kinds).reduce((s: number, k: any) => s + k.bytes, 0);

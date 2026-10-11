@@ -107242,3 +107242,15 @@ Live (11:01Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner
 QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; flightplan radial wired and pooled. Sunday: no market-hours data accrues. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-11 (scheduled-routine PRODUCT session, ~13:30Z, Sunday) [REPAIR] — T-DATACORE (server/datacoreArchive.ts, server/streamsInventory.ts) — FRESHNESS HONESTY: DONE-MARKERS NO LONGER MASQUERADE AS THE NEWEST DATA FILE (v1.0.1043)
+
+HEALTH: session_health_check all OK; research_state_check clean (thrash 0/10). Every ladder gate-2 item is time-gated (COT needs 15 weekly reports since 07-08: 14 so far, 15th on 2026-10-16; 8-K QoQ not before 11-15), so product value went to a defect found auditing /api/data/layers.
+FINDING (live, 13:2xZ): `shortvol` layer chip read health "stale", age 2344h, while /api/data/short-volume serves summary date 2026-10-09. Same false reading on streams `griddemand` (2303h) and `occvolume` (2314h). ROOT CAUSE: streamsInventory (and archiveStats) took the LAST name of the sorted dir listing as "newest"; `backfill_done.json` sorts after date-named files ("b" > "2"), so the marker's mtime (written once at backfill, ~97d ago) became the stream's age. `dtccswaps` (`_seen_ids_index.jsonl.gz`) and `usaspending` (`ueimap.json`) had the same masking in the OTHER direction: a sentinel rewritten each poll could hide a stalled data stream behind a "live" reading.
+FIX: `newestDataFile()` (datacoreArchive.ts) = last `*.jsonl[.gz]` not starting with `_`; falls back to last name when a dir has no such file. Used by both the streams inventory (health/age) and archiveStats (`newest` name). Counts/bytes unchanged.
+BIAS DIRECTION: makes the three false-stale streams read fresh (correct per their data); dtccswaps/usaspending may now read their true (possibly older) data age. Freshness display only; no trading path, no measurement/backtest code.
+TESTS: streamsInventory.test.ts +1 (sentinels of both shapes beside a 1h-old data file -> newest_file/age/health correct, files count unchanged) — A/B verified: FAILS on the old streamsInventory.ts, passes on the fix; datacoreArchive.test.ts +1 (helper cases + archiveStats). 58 + 76 related tests pass.
+VERIFY AFTER DEPLOY: /api/data/layers shortvol.freshness.health -> live/recent; /api/data/streams griddemand/occvolume age_hours small; watch dtccswaps/usaspending for newly-honest ages.
+NOTE: tsc_ratchet reports TOTAL 11 -> 3 (pre-existing drift from earlier merges, not this change); pin left for attribution.
+ROLLBACK: revert the PR. MERGE: touches no trading path; safe any time.
+STARVED: no.
