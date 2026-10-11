@@ -107254,3 +107254,12 @@ VERIFY AFTER DEPLOY: /api/data/layers shortvol.freshness.health -> live/recent; 
 NOTE: tsc_ratchet reports TOTAL 11 -> 3 (pre-existing drift from earlier merges, not this change); pin left for attribution.
 ROLLBACK: revert the PR. MERGE: touches no trading path; safe any time.
 STARVED: no.
+
+## 2026-10-11 (scheduled-routine session, ~16:03Z, Sunday) [NO-ACTION] — health green; v1.0.1043 freshness fix verified live
+
+Loop-health ratio (last 10 tags): 1 REPAIR (<7) — no thrash.
+Live (16:03Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -6.5%, feeds not dead, memory pressure ok, process faults 0.
+VERIFIED (matured item from the 13:30Z [REPAIR]): server_version 1.0.1043; /api/data/layers shortvol.freshness.health = live, age 15.7h (was stale/2344h) — done-marker masking fix works in production.
+QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. Sunday: no market-hours data accrues. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
