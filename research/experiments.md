@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-11 (scheduled-routine PRODUCT session, ~18:05Z Sun, weekend) [REPAIR] — T-DATACORE (server/derivedSnapshot.ts, derivedSnapshot.test.ts, routes.ts 2 caches) — /api/data/portdwell + shadowstats SERVE LAST-KNOWN SNAPSHOT INSTEAD OF warming_up (v1.0.1044)
+
+HEALTH: session_health_check all OK (v1.0.1043 live = checkout; only WARN daemon rss 407MB >= trim 400MB, advisory); thrash 1/10; ladder_readiness 0/5 READY; no audit overdue. Only open KNOWN BROKEN #44 (FROZEN Dockerfile, proposal filed).
+FOUND: sweep of every `preview` path in /api/v1/meta (50 endpoints): 49 x 200; /api/data/fleet-utilization timed out once at 40s (3.4s cold, 0.16s warm on retry = cold-compute spike, not reproduced). /api/data/portdwell and /shadowstats returned `warming_up:true` and stayed so 2h+ after boot (health uptime_s=7366), so /api/v1/stats/portdwell|shadow 503 for customers too.
+CAUSE (read, not live-confirmed — no log access): both refreshes run under crashSafeRefresh.guardedRefresh; a container killed mid-fold (any deploy) leaves an unresolved marker, the next boot defers the fold up to 6h, and the in-memory cache is null the whole time with NO on-disk fallback. Violates Law V (render last-known state immediately).
+PRIOR: structural fix only; cannot change fold duration or crash behavior. Expect no change in computed values.
+BUILT: server/derivedSnapshot.ts (atomic save / validated load; keeps the ORIGINAL `at` so generated_at/v1Envelope show true age, never re-stamped; rejects corrupt/malformed/future/>7d). routes.ts: both caches seed from snapshot at boot and save after each successful fold. Tests: derivedSnapshot.test.ts (3) + crashSafeRefresh.test.ts (6) pass.
+LIMIT (honest): the first deploy after this ships still warms once (no snapshot exists yet); benefit starts from the following deploy. Does not explain WHY a fold is slow/killed — if portdwell still reads warming_up >1h after a boot with a snapshot-less volume, the fold itself is the next suspect (per-fold duration log would be the next slice).
+EFFECT: no trading path touched; measurement code unchanged. ROLLBACK: git revert (snapshot files are inert extras). MERGE: after-hours/now both safe (weekend).
+NEXT: (1) next session verify live: portdwell `generated_at` survives a deploy; (2) other guardedRefresh jobs (dtcc-swaps shows warming_up with top_rows [] right now) are candidates for the same helper.
+STARVED: no.
+
 ## 2026-10-11 (scheduled-routine EDGE session, doctrine axis a/d) [PIPELINE] — T-DATACORE (scripts/sentinel2_refresh.py, test_sentinel2_refresh.py, datacore/sentinel2 archives, research_state_check hint) — SENTINEL-2 TANK-FILL ARCHIVE CATCH-UP + ONE-COMMAND REFRESH (v1.0.1042)
 
 HEALTH: session_health_check all OK (v1.0.1041 live = checkout); research_state_check clean (thrash 0/10, 0 STARVED, no audit overdue); ladder_readiness 0/5 READY. Only open KNOWN BROKEN is #44 (FROZEN Dockerfile, wishlist proposal filed). Not a repair session.

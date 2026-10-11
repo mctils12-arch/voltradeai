@@ -22,6 +22,7 @@ import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
 import { railTrafficView } from "./railTraffic";
 import { guardedRefresh } from "./crashSafeRefresh";
+import { saveSnapshot, loadSnapshot } from "./derivedSnapshot";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -4259,7 +4260,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // guardedRefresh durably records the attempt BEFORE the fold runs so a
   // crash still leaves that fact on disk, breaking the loop.
   const REFRESH_CRASH_COOLDOWN_MS = 6 * 3600_000; // 6h — matches portDwellCapture.ts's own guard
-  let shadowCache: { at: number; data: any } | null = null;
+  // Last-known-good snapshot (server/derivedSnapshot.ts): a deploy that kills
+  // the fold mid-run leaves the crash-guard cooling down for up to 6h — serve
+  // the previous result (true age in generated_at) instead of warming_up.
+  let shadowCache: { at: number; data: any } | null = loadSnapshot("shadowstats");
   let shadowRunning = false;
   const refreshShadowStats = async () => {
     if (shadowRunning) return;
@@ -4274,6 +4278,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           ...(await computeShadowStatsAsync(zones)),
         };
         shadowCache = { at: Date.now(), data };
+        saveSnapshot("shadowstats", shadowCache);
       });
       if (!result.ran) console.warn(`[datacore] shadowstats refresh deferred: ${result.detail}`);
     } catch (e: any) {
@@ -4488,7 +4493,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // CRASH-LOOP GUARD — same rationale and mechanism as refreshShadowStats
   // above (server/crashSafeRefresh.ts); this is the "heavier 168h window"
   // sibling the comment above already flags as the more expensive of the two.
-  let dwellCache: { at: number; data: any } | null = null;
+  let dwellCache: { at: number; data: any } | null = loadSnapshot("portdwell");
   let dwellRunning = false;
   const refreshPortDwell = async () => {
     if (dwellRunning) return;
@@ -4502,6 +4507,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           ...(await computePortDwellAsync(ports)),
         };
         dwellCache = { at: Date.now(), data };
+        saveSnapshot("portdwell", dwellCache);
       });
       if (!result.ran) console.warn(`[datacore] portdwell refresh deferred: ${result.detail}`);
     } catch (e: any) {
