@@ -12,7 +12,7 @@ import {
   archiveAircraft, archiveVessels, compressOldHours, rollupOldDays,
   compressOldHoursAsync, rollupOldDaysAsync,
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
-  archiveStats, aircraftIntervalMs, vesselIntervalMs,
+  archiveStats, newestDataFile, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
   readArchiveDayEvenSample, originOfPosType, oldestRawHour,
   archiveFileTimestampRanges, archiveDayFiles, rowInBbox,
@@ -373,6 +373,20 @@ test("archiveStats discovers new stream directories from disk (no hardcoded kind
   assert.equal(s.kinds.fredmacro.files, 1, "disk-discovered kind must be reported");
   assert.ok(s.kinds.somefuturestream, "never-before-seen dirs appear without a code change");
   assert.equal(s.kinds.aircraft.files, 0, "position kinds stay loud even before first write");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// [REPAIR 2026-10-11] sentinels sort after date-named files; see newestDataFile.
+test("newestDataFile skips done-markers/index sentinels, falls back when no data files", () => {
+  assert.equal(newestDataFile(["2026-10-08.jsonl.gz", "2026-10-09.jsonl.gz", "backfill_done.json"]), "2026-10-09.jsonl.gz");
+  assert.equal(newestDataFile(["2026-08-23.jsonl.gz", "_seen_ids_index.jsonl.gz"]), "2026-08-23.jsonl.gz");
+  assert.equal(newestDataFile(["ueimap.json"]), "ueimap.json", "JSON-only curated dirs keep the old last-name read");
+  assert.equal(newestDataFile([]), null);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-arch-"));
+  fs.mkdirSync(path.join(base, "finrashortvol"), { recursive: true });
+  fs.writeFileSync(path.join(base, "finrashortvol", "2026-10-09.jsonl.gz"), "x");
+  fs.writeFileSync(path.join(base, "finrashortvol", "backfill_done.json"), "{}");
+  assert.equal(archiveStats(base).kinds.finrashortvol.newest, "2026-10-09.jsonl.gz");
   fs.rmSync(base, { recursive: true, force: true });
 });
 

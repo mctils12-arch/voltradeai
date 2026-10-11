@@ -133,3 +133,29 @@ test("INVENTORY-COVERAGE RATCHET: every real manifest appears in the inventory, 
 test("cache starts null (route reports warming) and reset helper clears state", () => {
   assert.equal(getStreamsInventoryCached(), null);
 });
+
+// [REPAIR 2026-10-11] a done-marker / index sentinel sorts AFTER date-named
+// files ("b" > "2"), so the old "last name" read reported its ancient mtime
+// as the stream's age — finrashortvol/griddemand/occvolume read "stale
+// ~2300h" while holding two-day-old data. Pin: sentinels never set age.
+test("sentinel files (backfill_done.json, _index) never masquerade as the newest data file", async () => {
+  const mdir = tmp(); const base = tmp();
+  writeManifest(mdir, "marked", "daily source, 4h poll");
+  const NOW = Date.parse("2026-10-11T12:00:00Z");
+  fs.mkdirSync(path.join(base, "marked"));
+  const data = path.join(base, "marked", "2026-10-09.jsonl");
+  fs.writeFileSync(data, JSON.stringify({ d: "2026-10-09" }) + "\n");
+  fs.utimesSync(data, new Date(NOW - 3.6e6), new Date(NOW - 3.6e6));
+  for (const sentinel of ["backfill_done.json", "_seen_ids_index.jsonl.gz"]) {
+    const fp = path.join(base, "marked", sentinel);
+    fs.writeFileSync(fp, "{}");
+    const old = new Date(NOW - 97 * 24 * 3.6e6);
+    fs.utimesSync(fp, old, old);
+  }
+  const inv = await buildStreamsInventory(base, mdir, NOW);
+  const m = inv.streams.find((x) => x.stream === "marked")!;
+  assert.equal(m.newest_file, "2026-10-09.jsonl");
+  assert.equal(m.age_hours, 1);
+  assert.equal(m.health, "live");
+  assert.equal(m.files, 3, "sentinels still count toward files/bytes");
+});
