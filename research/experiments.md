@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-11 (scheduled-routine session, ~20:20Z Sun, weekend) [REPAIR] — T-DATACORE (server/crashSafeRefresh.ts, bot.ts shutdown hook, crashSafeRefresh.test.ts) — DEPLOY SIGTERM NO LONGER READ AS A CRASH: portdwell/shadowstats/dtcc stop cooling down 6h after every deploy (v1.0.1045)
+
+HEALTH: session_health_check all OK (v1.0.1044 live; WARN daemon rss 410MB advisory); thrash 1/10 before this entry (2/10 after).
+FOUND: v1.0.1044 is live but /api/data/portdwell still `warming_up` at uptime ~100min — expected (no snapshot yet), but it exposed the real generator: a deploy SIGTERMs the container mid-fold, the guardedRefresh marker stays unresolved, and the next boot treats the deploy as a suspected OOM crash and defers the fold for the full 6h cooldown. Every deploy therefore causes ~6h of warming_up (prior session's snapshot only masks it after one clean fold).
+FIX: guardedRefresh tracks in-flight folds; resolveInflightRefreshes() is called first in gracefulShutdown (SIGTERM/SIGINT). OOM kills are SIGKILL and never run it, so genuine crash cooldown is unchanged (test pins that). Regression tests: 2 new (signal mid-fold -> next boot refolds immediately; hard-crash marker still cools down). 11/11 pass. tsc not runnable in this container (no @types).
+PRIOR: portdwell/shadowstats generated_at fresh within one fold duration of a boot, not 6h. Computed values unchanged.
+RISK: if a fold is slow enough to be SIGKILLed after SIGTERM (Railway grace), the marker is already resolved, so a crash-loop fold could repeat each boot; mitigated by the fold only being killed by deploys then, and OOM loops still being SIGKILL-with-no-signal. ROLLBACK: git revert.
+NEXT: verify next session that portdwell serves within minutes after this deploy; dtcc-swaps benefits too.
+STARVED: no.
+
 ## 2026-10-11 (scheduled-routine PRODUCT session, ~18:05Z Sun, weekend) [REPAIR] — T-DATACORE (server/derivedSnapshot.ts, derivedSnapshot.test.ts, routes.ts 2 caches) — /api/data/portdwell + shadowstats SERVE LAST-KNOWN SNAPSHOT INSTEAD OF warming_up (v1.0.1044)
 
 HEALTH: session_health_check all OK (v1.0.1043 live = checkout; only WARN daemon rss 407MB >= trim 400MB, advisory); thrash 1/10; ladder_readiness 0/5 READY; no audit overdue. Only open KNOWN BROKEN #44 (FROZEN Dockerfile, proposal filed).

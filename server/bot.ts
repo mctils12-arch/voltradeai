@@ -12,6 +12,7 @@ import {
   parseKillSwitchRecord, summarizePythonSync, type AutoResumeDecision, type AutoResumeNumbers,
 } from "./killSwitchAutoResume";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
+import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
@@ -786,6 +787,10 @@ async function sendEmailAlert(subject: string, body: string) {
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 async function gracefulShutdown(signal: string) {
+  try {
+    const resolved = resolveInflightRefreshes();
+    if (resolved.length) audit("SHUTDOWN", `Resolved in-flight refresh markers (clean stop, not a crash): ${resolved.join(", ")}`);
+  } catch { /* never block shutdown */ }
   audit("SHUTDOWN", `Received ${signal} — cancelling open orders and shutting down...`);
   try {
     await alpaca("/v2/orders", { method: "DELETE" }); // Cancel ALL open orders
