@@ -107298,3 +107298,15 @@ OPEN: eiaweekly/jodi/cpcdegreedays/railep724 refreshers are "session-run" script
 VERIFY AFTER DEPLOY: /api/data/streams eiaweekly health -> stale with "bundled snapshot built 2026-07-05"; railep724 recent.
 ROLLBACK: revert the PR. MERGE: after-hours now; touches no trading path.
 STARVED: no.
+
+## 2026-10-12 (scheduled-routine EDGE session, ~02:40Z, doctrine axis a/d) [PIPELINE] — T-DATACORE (scripts/snapshot_refresh.py, research_state_check bundled_* entries, 4 datacore snapshots) — BUNDLED SNAPSHOTS REFRESHED + ONE-COMMAND REFRESHER + STALENESS FLAG (v1.0.1047)
+
+HEALTH: session_health_check all OK (v1.0.1046 live = checkout); research_state_check clean (thrash 4/10); only open KNOWN BROKEN #44 (FROZEN Dockerfile, filed). Not a repair session.
+WHY: prior session's streams audit found eiaweekly 99d stale, jodi/aircraftspine similarly, with no mechanical flag — Priority 1 "data flowing". Its NEXT queued the refresh.
+PRIOR (stated before running): pure accumulation; appended rows only, zero revisions to history, no signal/ladder status change.
+RAN (keyless public sources): eia_weekly +14 weekly points/series to 2026-10-02, 0 prior-row changes on all 5 series (verified old-vs-new diff); cpc_degree_days rebuilt (0 failures); stb_rail ep724 latest 2026-10-07; jodi_oil latest period still 2026-07 (source's own latest). Prior confirmed.
+FOUND: bare `python3` (3.11) lacks xlrd/openpyxl -> eia_weekly "every series failed" (guard refused to write; good) — same interpreter trap as sentinel2.
+BUILT (doctrine d): scripts/snapshot_refresh.py (picks capable interpreter, runs the 4 refreshers independently, --only/--dry-run); research_state_check gains `json_object` extractor + per-entry `warn_days` + 4 bundled_* manifest entries (21d; jodi 45d monthly). Tests: test_snapshot_refresh.py (4) + existing state-check/sentinel2 tests 62 pass.
+EFFECT: display-freshness only (streams inventory ages now honest-fresh); no trading path, no measurement code. ROLLBACK: git revert.
+NEXT: aircraftspine/uncomtrade refreshers not covered (different cadence); a nightly CI/cron is frozen-path (.github/workflows) -> stays a session-run command guarded by the new WARN.
+STARVED: no.
