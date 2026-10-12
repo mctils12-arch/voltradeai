@@ -117,7 +117,7 @@ test("peek honesty: oversized file skipped with note; garbage tail flagged, neve
 test("INVENTORY-COVERAGE RATCHET: every real manifest appears in the inventory, even with an empty archive", async () => {
   const emptyBase = tmp();
   const manifestFiles = fs.readdirSync(MANIFEST_DIR_DEFAULT).filter((f) => f.endsWith(".json"));
-  const inv = await buildStreamsInventory(emptyBase, MANIFEST_DIR_DEFAULT, Date.parse("2026-07-06T12:00:00Z"), {}); // {} = no bundled snapshots: this test is about the volume archive alone
+  const inv = await buildStreamsInventory(emptyBase, MANIFEST_DIR_DEFAULT, Date.parse("2026-07-06T12:00:00Z"), {}, {}); // {}, {} = no bundled snapshots, no volume files: this test is about the volume archive alone
   assert.equal(inv.count, manifestFiles.length,
     "inventory must enumerate the manifest dir — a stream missing here is a stream invisible on /data");
   const names = new Set(inv.streams.map((s) => s.stream));
@@ -189,4 +189,29 @@ test("SNAPSHOT_STREAMS stamps are real ISO times for every registered stream", a
     assert.ok(v.built && !Number.isNaN(Date.parse(v.built)), `${k} has no embedded build time`);
     assert.ok(fs.existsSync(path.resolve(process.cwd(), v.artifact)), `${k} artifact path ${v.artifact} missing`);
   }
+});
+
+test("volume-resident keyed file (cot) ages by last successful write, not a no-data row", async () => {
+  const base = tmp();
+  const mdir = path.join(tmp(), "m");
+  fs.mkdirSync(mdir, { recursive: true });
+  for (const n of ["volweekly", "volmissing"]) {
+    fs.writeFileSync(path.join(mdir, `${n}.json`), JSON.stringify({ stream: n, cadence: "weekly", source: "x" }));
+  }
+  const f = path.join(tmp(), "cot_archive.json");
+  fs.writeFileSync(f, '{"ES":[{"report_date":"2026-10-06"}]}');
+  const mt = Date.parse("2026-10-09T12:00:00Z");
+  fs.utimesSync(f, mt / 1000, mt / 1000);
+  const now = Date.parse("2026-10-12T12:00:00Z"); // 72h after the write
+  const inv = await buildStreamsInventory(base, mdir, now, {}, {
+    volweekly: f, volmissing: path.join(base, "does_not_exist.json"),
+  });
+  const by = Object.fromEntries(inv.streams.map((s) => [s.stream, s]));
+  assert.equal(by.volweekly.health, "recent");
+  assert.equal(by.volweekly.age_hours, 72);
+  assert.equal(by.volweekly.files, 1);
+  assert.equal(by.volweekly.newest_file, "cot_archive.json");
+  assert.match(by.volweekly.health_note, /last successful write/);
+  assert.equal(by.volmissing.health, "no-data"); // absent file stays honest
+  assert.equal(by.volmissing.files, 0);
 });
