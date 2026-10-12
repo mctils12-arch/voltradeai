@@ -199,14 +199,13 @@ export async function buildStreamsInventory(
     // Volume-resident single keyed file (no dir, no bundled snapshot).
     let volNote: string | null = null;
     if (!newest && volumeFiles[name]) {
-      try {
-        const st = await fs.promises.stat(volumeFiles[name]);
-        if (st.isFile() && st.size > 2) {
-          newest = path.basename(volumeFiles[name]);
-          ageHours = Math.max(0, (now - st.mtimeMs) / 3.6e6);
-          volNote = "single keyed volume file; age = last successful write";
-        }
-      } catch { /* absent → stays no-data */ }
+      // absent file → st null → row stays honest no-data
+      const st = await fs.promises.stat(volumeFiles[name]).catch(() => null);
+      if (st && st.isFile() && st.size > 2) {
+        newest = path.basename(volumeFiles[name]);
+        ageHours = Math.max(0, (now - st.mtimeMs) / 3.6e6);
+        volNote = "single keyed volume file; age = last successful write";
+      }
     }
     let { health, note } = deriveHealth(ageHours, m.cadence || "");
     if (volNote) note += `; ${volNote}`;
