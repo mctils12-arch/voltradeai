@@ -107355,3 +107355,11 @@ VERIFY AFTER DEPLOY: /api/data/streams `cot` health recent/live.
 OPEN: `gem` stamps need a per-artifact provenance field (queue candidate).
 MERGE: after the 16:00 ET close (market opens 13:30Z); touches no trading path.
 STARVED: no.
+
+## 2026-10-12 (scheduled-routine session, ~20:17Z, Monday evening) [NO-ACTION] — health green; queue head still time-gated
+
+Loop-health ratio (last 10 tags): 4 REPAIR (<7) — no thrash.
+Live (20:17Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -7.2%, feeds (aircraft/vessels/trains) not dead, memory pressure ok, process faults 0. session_health_check: all OK (daemon rss 395MB, under trim); server_version 1.0.1049 matches checkout (ADS-B sweep deadline fix #1300 deployed). research_state_check: no audit overdue, starvation 0, archives fresh.
+QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. `gem` provenance-stamp item filed 13:20Z is a low-value display nicety, not queue-head. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
