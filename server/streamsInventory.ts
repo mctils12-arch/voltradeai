@@ -139,11 +139,24 @@ async function peekNewest(dir: string, newest: string | null): Promise<{ peek: s
   }
 }
 
+/**
+ * Streams whose archive is ONE keyed JSON on the volume, written by Python
+ * outside <archive>/<stream>/ (cot: cftc_cot.py → voltrade_cot_archive.json).
+ * They read "no-data" in the dir scan though data exists (2026-10-12 follow-up).
+ * Age = the file's mtime = last successful pull (NOT the newest report_date,
+ * which is 3-10 days old by CFTC design and would read falsely stale).
+ */
+export function defaultVolumeFiles(): Record<string, string> {
+  const dataDir = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
+  return { cot: path.join(dataDir, "voltrade_cot_archive.json") };
+}
+
 export async function buildStreamsInventory(
   baseDir?: string,
   manifestDir?: string,
   now: number = Date.now(),
   snapshots: Record<string, SnapshotStamp> = SNAPSHOT_STREAMS,
+  volumeFiles: Record<string, string> = defaultVolumeFiles(),
 ): Promise<{ time: number; count: number; manifest_dir_found: boolean; note?: string; streams: StreamInventoryEntry[] }> {
   const base = baseDir || archiveBaseDir();
   const mdir = manifestDir || MANIFEST_DIR_DEFAULT;
@@ -183,7 +196,20 @@ export async function buildStreamsInventory(
       snapFiles = true;
       ageHours = snap.built ? Math.max(0, (now - Date.parse(snap.built)) / 3.6e6) : null;
     }
+    // Volume-resident single keyed file (no dir, no bundled snapshot).
+    let volNote: string | null = null;
+    if (!newest && volumeFiles[name]) {
+      try {
+        const st = await fs.promises.stat(volumeFiles[name]);
+        if (st.isFile() && st.size > 2) {
+          newest = path.basename(volumeFiles[name]);
+          ageHours = Math.max(0, (now - st.mtimeMs) / 3.6e6);
+          volNote = "single keyed volume file; age = last successful write";
+        }
+      } catch { /* absent → stays no-data */ }
+    }
     let { health, note } = deriveHealth(ageHours, m.cadence || "");
+    if (volNote) note += `; ${volNote}`;
     if (snap) {
       note = snap.built
         ? `bundled snapshot built ${snap.built.slice(0, 10)} (${ageHours!.toFixed(1)}h ago); ${note.replace(/^newest file /, "")}`
@@ -192,7 +218,7 @@ export async function buildStreamsInventory(
     }
     const { peek, records, note: peekNote } = files > 0
       ? await peekNewest(dir, newest)
-      : { peek: null, records: null, note: snapFiles ? "whole-file JSON snapshot — no record tail to peek" : "no files" };
+      : { peek: null, records: null, note: snapFiles ? "whole-file JSON snapshot — no record tail to peek" : volNote ? "single keyed JSON — no record tail to peek" : "no files" };
     streams.push({
       stream: name,
       source: String(m.source || "").slice(0, 500),
@@ -203,7 +229,7 @@ export async function buildStreamsInventory(
       hypothesis: String(m.confidence_model || "").slice(0, 500),
       storage: String(m.storage || "").slice(0, 300),
       written_by: String(m.written_by || "").slice(0, 200),
-      files: snapFiles ? 1 : files, bytes,
+      files: snapFiles || volNote ? 1 : files, bytes,
       newest_file: newest,
       age_hours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
       records_newest_file: records,

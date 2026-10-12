@@ -107318,3 +107318,15 @@ Live (11:02Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner
 QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-12 (scheduled-routine PRODUCT session, ~13:20Z, Monday pre-market) [PRODUCT] — T-DATACORE (server/streamsInventory.ts + test) — `cot` STREAM NO LONGER READS "NO-DATA" (v1.0.1048)
+
+HEALTH: session_health_check all OK (daemon_memory WARN advisory); research_state_check clean (thrash 4/10). Gate-2 items still time-gated (shadow-band step (a) >= 10-13; COT 15th report 10-16). Took the 10-12 00:15Z session's filed follow-up.
+PRIOR (stated before): `cot` row currently no-data though cftc_cot.py writes /data/voltrade/voltrade_cot_archive.json weekly; fix moves it to recent/live per last write. `gem` is NOT fixable honestly this way (22 artifacts, no embedded build stamps) — left no-data rather than invent an age.
+CHANGE: buildStreamsInventory gains injectable `volumeFiles` (default: cot -> DATA_DIR/voltrade_cot_archive.json). Age = file mtime (last successful pull), NOT newest report_date (3-10d old by CFTC design; would read falsely stale). Absent/empty file stays no-data.
+TESTS: streamsInventory.test.ts +1 (recent/72h, files=1, absent file stays no-data); coverage ratchet now passes `{}` for volume files (subject unchanged, no assertion weakened). 14/14 + qualityDashboard pass; tsc errors 11 <= pinned 12.
+BIAS: display-freshness only; no trading path, no measurement code. ROLLBACK: git revert.
+VERIFY AFTER DEPLOY: /api/data/streams `cot` health recent/live.
+OPEN: `gem` stamps need a per-artifact provenance field (queue candidate).
+MERGE: after the 16:00 ET close (market opens 13:30Z); touches no trading path.
+STARVED: no.
