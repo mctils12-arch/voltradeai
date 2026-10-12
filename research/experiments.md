@@ -107310,3 +107310,11 @@ BUILT (doctrine d): scripts/snapshot_refresh.py (picks capable interpreter, runs
 EFFECT: display-freshness only (streams inventory ages now honest-fresh); no trading path, no measurement code. ROLLBACK: git revert.
 NEXT: aircraftspine/uncomtrade refreshers not covered (different cadence); a nightly CI/cron is frozen-path (.github/workflows) -> stays a session-run command guarded by the new WARN.
 STARVED: no.
+
+## 2026-10-12 (scheduled-routine session, ~11:05Z, Monday pre-market) [NO-ACTION] — health green; queue head still time-gated
+
+Loop-health ratio (last 10 tags): 4 REPAIR (<7) — no thrash.
+Live (11:02Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner 0 failures, liveness not dark, DD -6.7%, feeds (aircraft/vessels/trains) not dead, memory pressure ok, process faults 0. session_health_check: all OK except known daemon_memory WARN (rss 423.7MB >= 400MB trim, advisory); v1.0.1047 live matches checkout. research_state_check: no audit overdue, starvation 0, bundled_* snapshots fresh (0d) after yesterday's refresh.
+QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
