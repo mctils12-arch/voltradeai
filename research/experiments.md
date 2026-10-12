@@ -107285,3 +107285,16 @@ VERIFIED (matured item from the 13:30Z [REPAIR]): server_version 1.0.1043; /api/
 QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. Sunday: no market-hours data accrues. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-12 (scheduled-routine PRODUCT session, ~00:15Z, Sunday evening ET) [REPAIR] — T-DATACORE (server/streamsInventory.ts, new server/snapshotStreams.ts) — BUNDLED-SNAPSHOT STREAMS NO LONGER READ "NO-DATA / WARMING UP" (v1.0.1046)
+
+HEALTH: session_health_check all OK (daemon_memory WARN advisory); research_state_check clean (thrash 3/10). Gate-2 items remain time-gated (COT 15th report 10-16; shadow-band step (a) >= 10-13), so product value went to auditing /api/data/streams.
+FINDING (live, 00:1xZ): 6 served, bundled datasets — eiaweekly, cpcdegreedays, jodi, railep724, uncomtrade, aircraftspine — read health "no-data", note "key-gated, warming up or first write pending", because the inventory scans only <archive>/<stream>/ volume dirs while these are git-versioned whole-file JSON snapshots statically bundled into the server. The same defect hid a REAL staleness: eiaweekly's embedded build is 2026-07-05 (99d old vs "~weekly" cadence), jodi 2026-07-06 (monthly cadence, >40d), aircraftspine 07-05; nothing surfaced it.
+FIX: snapshotStreams.ts registry (stream -> artifact path + embedded `built`/`built_at`); buildStreamsInventory falls back to it only when no volume files exist; age = dataset's own build time, files=1, health derived by the existing cadence heuristic (no new enum value, so client/qualityDashboard unchanged). Missing/invalid stamp -> still no-data.
+NOT COVERED (follow-up): `cot` (Python-side single JSON on the volume, outside <archive>) and `gem` (many artifacts, mixed stamps) still read no-data; `sentinel1*`/`sentinel2*`/`gridvision`/`apiusage`/`satellites` are genuinely pre-first-write or relay-gated.
+BIAS DIRECTION: six rows move no-data -> recent/stale/live per their true build age; jodi/eiaweekly/aircraftspine will now read STALE — the honest reading. Display only; no trading path, no measurement code.
+TESTS: streamsInventory.test.ts +2 (stale/recent/null-stamp/no-snapshot cases; every registered stamp is a real ISO time with an existing artifact). Existing coverage-ratchet test passes `{}` snapshots (its subject is the empty volume archive; assertion unchanged). 8/8 + qualityDashboard/layerFreshness 11/11.
+OPEN: eiaweekly/jodi/cpcdegreedays/railep724 refreshers are "session-run" scripts that no session has run recently — filed as a queue candidate: run scripts/eia_weekly.py, jodi_oil.py when network allows (own PR each).
+VERIFY AFTER DEPLOY: /api/data/streams eiaweekly health -> stale with "bundled snapshot built 2026-07-05"; railep724 recent.
+ROLLBACK: revert the PR. MERGE: after-hours now; touches no trading path.
+STARVED: no.
