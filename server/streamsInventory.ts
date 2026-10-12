@@ -27,6 +27,7 @@ import zlib from "zlib";
 import { promisify } from "util";
 import { archiveBaseDir, newestDataFile } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
+import { SNAPSHOT_STREAMS, type SnapshotStamp } from "./snapshotStreams";
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -142,6 +143,7 @@ export async function buildStreamsInventory(
   baseDir?: string,
   manifestDir?: string,
   now: number = Date.now(),
+  snapshots: Record<string, SnapshotStamp> = SNAPSHOT_STREAMS,
 ): Promise<{ time: number; count: number; manifest_dir_found: boolean; note?: string; streams: StreamInventoryEntry[] }> {
   const base = baseDir || archiveBaseDir();
   const mdir = manifestDir || MANIFEST_DIR_DEFAULT;
@@ -168,13 +170,29 @@ export async function buildStreamsInventory(
     }
     // name order == time order for day/hour files; sentinels (backfill_done
     // .json, _seen_ids_index…) are skipped so they can't masquerade as newest
-    const newest = newestDataFile(Array.from(mtimes.keys()));
+    let newest = newestDataFile(Array.from(mtimes.keys()));
     if (newest) newestMtime = mtimes.get(newest)!;
-    const ageHours = newest ? (now - newestMtime) / 3.6e6 : null;
-    const { health, note } = deriveHealth(ageHours, m.cadence || "");
+    let ageHours = newest ? (now - newestMtime) / 3.6e6 : null;
+    // Git-versioned bundled snapshot (no volume dir): age = the dataset's
+    // own embedded build time, so a served-but-stale dataset reads "stale",
+    // not "no-data / warming up" (2026-10-12).
+    const snap = !newest ? snapshots[name] : undefined;
+    let snapFiles = false;
+    if (snap) {
+      newest = snap.artifact;
+      snapFiles = true;
+      ageHours = snap.built ? Math.max(0, (now - Date.parse(snap.built)) / 3.6e6) : null;
+    }
+    let { health, note } = deriveHealth(ageHours, m.cadence || "");
+    if (snap) {
+      note = snap.built
+        ? `bundled snapshot built ${snap.built.slice(0, 10)} (${ageHours!.toFixed(1)}h ago); ${note.replace(/^newest file /, "")}`
+        : "bundled snapshot with no embedded build time — age unknown";
+      if (!snap.built) health = "no-data";
+    }
     const { peek, records, note: peekNote } = files > 0
       ? await peekNewest(dir, newest)
-      : { peek: null, records: null, note: "no files" };
+      : { peek: null, records: null, note: snapFiles ? "whole-file JSON snapshot — no record tail to peek" : "no files" };
     streams.push({
       stream: name,
       source: String(m.source || "").slice(0, 500),
@@ -185,7 +203,7 @@ export async function buildStreamsInventory(
       hypothesis: String(m.confidence_model || "").slice(0, 500),
       storage: String(m.storage || "").slice(0, 300),
       written_by: String(m.written_by || "").slice(0, 200),
-      files, bytes,
+      files: snapFiles ? 1 : files, bytes,
       newest_file: newest,
       age_hours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
       records_newest_file: records,

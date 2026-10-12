@@ -117,7 +117,7 @@ test("peek honesty: oversized file skipped with note; garbage tail flagged, neve
 test("INVENTORY-COVERAGE RATCHET: every real manifest appears in the inventory, even with an empty archive", async () => {
   const emptyBase = tmp();
   const manifestFiles = fs.readdirSync(MANIFEST_DIR_DEFAULT).filter((f) => f.endsWith(".json"));
-  const inv = await buildStreamsInventory(emptyBase, MANIFEST_DIR_DEFAULT, Date.parse("2026-07-06T12:00:00Z"));
+  const inv = await buildStreamsInventory(emptyBase, MANIFEST_DIR_DEFAULT, Date.parse("2026-07-06T12:00:00Z"), {}); // {} = no bundled snapshots: this test is about the volume archive alone
   assert.equal(inv.count, manifestFiles.length,
     "inventory must enumerate the manifest dir — a stream missing here is a stream invisible on /data");
   const names = new Set(inv.streams.map((s) => s.stream));
@@ -158,4 +158,35 @@ test("sentinel files (backfill_done.json, _index) never masquerade as the newest
   assert.equal(m.age_hours, 1);
   assert.equal(m.health, "live");
   assert.equal(m.files, 3, "sentinels still count toward files/bytes");
+});
+
+test("bundled git-versioned snapshot streams age from their embedded build time, not 'no-data / warming up' (2026-10-12)", async () => {
+  const mdir = tmp(); const base = tmp();
+  writeManifest(mdir, "snapweekly", "weekly");
+  writeManifest(mdir, "snapfresh", "weekly");
+  writeManifest(mdir, "snapnostamp", "weekly");
+  writeManifest(mdir, "nosnap", "weekly"); // no dir, no snapshot → stays no-data
+  const NOW = Date.parse("2026-10-12T00:00:00Z");
+  const inv = await buildStreamsInventory(base, mdir, NOW, {
+    snapweekly: { artifact: "datacore/x/a.json", built: "2026-07-05T10:00:00Z" },
+    snapfresh: { artifact: "datacore/x/b.json", built: "2026-10-09T00:00:00Z" },
+    snapnostamp: { artifact: "datacore/x/c.json", built: null },
+  });
+  const by = Object.fromEntries(inv.streams.map((s) => [s.stream, s]));
+  assert.equal(by.snapweekly.health, "stale"); // 99d vs weekly threshold: served but stale, said so
+  assert.equal(by.snapweekly.newest_file, "datacore/x/a.json");
+  assert.equal(by.snapweekly.files, 1);
+  assert.match(by.snapweekly.health_note, /bundled snapshot built 2026-07-05/);
+  assert.equal(by.snapfresh.health, "recent"); // 72h within weekly cadence
+  assert.equal(by.snapnostamp.health, "no-data");
+  assert.equal(by.nosnap.health, "no-data");
+  assert.equal(by.nosnap.files, 0);
+});
+
+test("SNAPSHOT_STREAMS stamps are real ISO times for every registered stream", async () => {
+  const { SNAPSHOT_STREAMS } = await import("./snapshotStreams");
+  for (const [k, v] of Object.entries(SNAPSHOT_STREAMS)) {
+    assert.ok(v.built && !Number.isNaN(Date.parse(v.built)), `${k} has no embedded build time`);
+    assert.ok(fs.existsSync(path.resolve(process.cwd(), v.artifact)), `${k} artifact path ${v.artifact} missing`);
+  }
 });
