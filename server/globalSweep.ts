@@ -328,8 +328,24 @@ export async function runSweepJob(job: SweepJob, sched: SweepScheduler, deps: Sw
   const publish = deps.publish ?? publishFixes;
   const url = job.kind === "type" ? typeUrl(job.batch.types) : discUrl(job.state.disc);
   let status = 0;
+  // HARD deadline (2026-10-12): the live sweep wedged at step 400 with one
+  // request acquired-but-never-finished for 39+ min and backoff 0, even
+  // though the fetch carried AbortSignal.timeout(20s) — an abort signal that
+  // is not honoured (stalled body / collected timeout signal) cannot be
+  // allowed to freeze the whole sequential loop. A strongly-held timer
+  // aborts AND rejects a race, so the loop always gets control back.
+  const limitMs = deps.timeoutMs ?? 20_000;
+  const ac = new AbortController();
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      ac.abort();
+      reject(new Error(`sweep request exceeded ${limitMs}ms hard deadline`));
+    }, limitMs);
+  });
+  deadline.catch(() => {}); // never an unhandled rejection if nobody is awaiting
   try {
-    const r = await deps.fetchImpl(url, { headers: UA, signal: AbortSignal.timeout(deps.timeoutMs ?? 20_000) });
+    const r = await Promise.race([deps.fetchImpl(url, { headers: UA, signal: ac.signal }), deadline]);
     status = r.status ?? (r.ok ? 200 : 0);
     if (!r.ok) {
       deps.governor.noteResult("bg", status, now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));
@@ -337,7 +353,7 @@ export async function runSweepJob(job: SweepJob, sched: SweepScheduler, deps: Sw
       else sched.markDisc(job.state, now(), job.state.residual, false);
       return { kind: job.kind, ok: false, status, count: 0, error: `adsblol ${status}` };
     }
-    const raw: unknown = await r.json();
+    const raw: unknown = await Promise.race([r.json(), deadline]);
     deps.governor.noteResult("bg", 200, now());
     const aircraft = mapPointAircraft(raw, "ac", "adsblol") as AircraftPoint[];
     const fetchedAt = now();
@@ -361,6 +377,8 @@ export async function runSweepJob(job: SweepJob, sched: SweepScheduler, deps: Sw
     if (job.kind === "type") sched.markType(job.batch, now(), 0, false);
     else sched.markDisc(job.state, now(), job.state.residual, false);
     return { kind: job.kind, ok: false, status, count: 0, error: errMsg(e) };
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 }
 

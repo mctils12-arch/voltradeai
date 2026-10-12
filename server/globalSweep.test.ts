@@ -142,6 +142,33 @@ test("runSweepJob: a 429 with Retry-After backs the governor off; the job is mar
   assert.equal(s.batches[0].lastAt, T, "not immediately due again");
 });
 
+test("runSweepJob: a fetch that never settles is cut at the hard deadline — the sweep loop gets control back (2026-10-12 wedge)", async () => {
+  const g = govFree();
+  const s = new SweepScheduler([D(0, 40, -95)], { now: T, types: ["B738"] });
+  const job = s.next(T)!;
+  const t0 = Date.now();
+  const r = await runSweepJob(job, s, {
+    governor: g, now: () => T, timeoutMs: 50, publish: () => { throw new Error("must not publish"); },
+    // ignores the abort signal entirely, like the live wedge
+    fetchImpl: (() => new Promise(() => {})) as any,
+  });
+  assert.ok(Date.now() - t0 < 2000, "returned promptly");
+  assert.equal(r.ok, false);
+  assert.match(r.error || "", /hard deadline/);
+  assert.equal(s.batches[0].fails, 1, "marked failed, not stuck in flight");
+  assert.ok(g.backgroundWaitMs(T) > 0, "network-class failure backs the governor off");
+});
+
+test("runSweepJob: a body read that never settles is also cut at the hard deadline", async () => {
+  const s = new SweepScheduler([D(0, 40, -95)], { now: T, types: ["B738"] });
+  const r = await runSweepJob(s.next(T)!, s, {
+    governor: govFree(), now: () => T, timeoutMs: 50, publish: () => { throw new Error("must not publish"); },
+    fetchImpl: (async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) })) as any,
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error || "", /hard deadline/);
+});
+
 test("kill switch + env parsing: GLOBAL_SWEEP_ENABLED=0 makes ZERO upstream calls", async () => {
   assert.equal(sweepEnabled({} as any), true, "default ON (conservative rate)");
   for (const v of ["0", "false", "off", "NO"]) assert.equal(sweepEnabled({ GLOBAL_SWEEP_ENABLED: v } as any), false, v);

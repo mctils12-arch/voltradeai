@@ -1,5 +1,11 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ VOLUME CAPACITY 2026-10-12 — sweep/OpenSky aircraft archiving permanently paused; human decision needed
+
+Live /api/data/archive/offload-status (2026-10-12 ~16:08Z): volume free 1.39 GB, local archive 1.47 GB (21 days; vessels 1.2 GB = 82%), R2 holds 1.67 GB. The sweep archive gate is 2 GiB free, but the 22-day hot-tier floor (required by the GNSS-integrity signal) keeps local near 1.43 GB at ~65 MB/day, so free never exceeds ~1.4 GB: 381,882 sweep fixes skipped, 0 archived since boot. Viewport/tracked archiving has only ~0.3 GB above its 1 GiB floor. An archive gap never refills (Priority 1).
+BUILD-FIRST: (1) vessels dominate bytes: thin or earlier-offload vessel hour files (free, a session can do it, needs a retention/ladder-safe design); (2) lower SWEEP_ARCHIVE_MIN_FREE_BYTES (free, but thin safety margin for the bot's own state); (3) grow the Railway volume (paid, human; the honest fix if sweep fixes are meant to be archived at all).
+Ask: pick (3) or authorize (1)/(2).
+
 ## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-09-20 (third-ever run, prior were 2026-07-03 and 2026-08-16) — 2 new consolidation proposals, human approval needed before either ships; both 2026-08-16 proposals below still unaddressed after 5 weeks, re-flagged for visibility only
 
 Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule ("the audit NEVER changes
