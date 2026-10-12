@@ -19,8 +19,8 @@ export interface SnapshotStamp {
   built: string | null; // ISO build time embedded in the dataset
 }
 
-function stamp(artifact: string, doc: any): SnapshotStamp {
-  const b = doc?.built ?? doc?.built_at;
+function stamp(artifact: string, doc: { built?: unknown; built_at?: unknown }): SnapshotStamp {
+  const b = doc.built ?? doc.built_at;
   return { artifact, built: typeof b === "string" && !Number.isNaN(Date.parse(b)) ? b : null };
 }
 
