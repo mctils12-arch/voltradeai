@@ -398,6 +398,29 @@ ARCHIVE_MANIFEST = [
             "script's own docstring)"
         ),
     },
+    # 2026-10-12: bundled whole-file snapshots whose refreshers were
+    # "session-run" with no mechanical flag (eiaweekly sat 99d stale until a
+    # streams audit surfaced it). One command refreshes all four.
+    {
+        "name": "bundled_eia_weekly", "paths": ("datacore/eia/weekly_series.json",),
+        "date_field": "built", "format": "json_object", "warn_days": 21,
+        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+    },
+    {
+        "name": "bundled_cpc_degree_days", "paths": ("datacore/cpc/degree_days.json",),
+        "date_field": "built", "format": "json_object", "warn_days": 21,
+        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+    },
+    {
+        "name": "bundled_rail_ep724", "paths": ("datacore/rail/ep724_carloads.json",),
+        "date_field": "built", "format": "json_object", "warn_days": 21,
+        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+    },
+    {
+        "name": "bundled_jodi_stocks", "paths": ("datacore/jodi/primary_stocks.json",),
+        "date_field": "built_at", "format": "json_object", "warn_days": 45,  # monthly release
+        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+    },
 ]
 
 
@@ -445,9 +468,26 @@ def _max_json_array_date(path, date_field):
     return best
 
 
+def _max_json_object_date(path, date_field):
+    """Thin I/O sibling for a whole-file snapshot (one JSON object) that
+    carries its own build stamp at top level (datacore/eia/weekly_series.json
+    `built`, jodi `built_at`). Returns the stamp's leading YYYY-MM-DD or None."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[research_state_check] could not parse {path}: {e}", file=sys.stderr)
+        return None
+    d = doc.get(date_field) if isinstance(doc, dict) else None
+    return d[:10] if isinstance(d, str) and d else None
+
+
 _ARCHIVE_DATE_EXTRACTORS = {
     "jsonl": _max_jsonl_date,
     "json_array": _max_json_array_date,
+    "json_object": _max_json_object_date,
 }
 
 
@@ -528,7 +568,8 @@ def run_all_checks(register, tags, known_broken_items, today, starved_flags=None
         for name, newest_date in archive_freshness.items():
             root = by_name[name]
             checks.append(check_archive_freshness(
-                name, newest_date, today, ARCHIVE_FRESHNESS_WARN_DAYS, root["refresh_hint"],
+                name, newest_date, today, root.get("warn_days", ARCHIVE_FRESHNESS_WARN_DAYS),
+                root["refresh_hint"],
             ))
     return checks
 
