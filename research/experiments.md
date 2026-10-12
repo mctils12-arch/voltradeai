@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-12 (scheduled-routine PRODUCT session, ~18:10Z Mon, MARKET HOURS) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 12 (FIRST WEEKDAY-SESSION RUN) AFTER SWEEP RECOVERY
+
+HEALTH: session_health_check all OK (v1.0.1049 live = checkout, deploy_gate ok, liveness ok, daemon rss 381.6MB); thrash 4/10; no audit overdue; archive freshness all green. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, proposal filed).
+WHY NOW: the 16:05Z entry discarded the earlier run 12 (feed fault: sweep wedged, CONUS ~715 rows) and owed the weekday confirming run once CONUS eligible >= ~1,500. Live check first: /api/data/aircraft/global CONUS returned 8,127 rows after the v1.0.1049 deadline fix, so the sweep wedge is recovered (first live evidence for that fix's PRIOR; steps counter not re-read).
+PRIOR (stated before run): live radial n~30-40, p90 <=6 (the closure criterion), pooled unique n~150, rollback trigger not approached.
+RAN `scripts/flightplan_gate1.py` live ~18:10Z Mon (14:10 ET), saved research/flightplan_gate1_runs/run12_20261012T1810Z.json. Funnel: eligible 2,942, measured 410, unplaced 2,262, not_filed 255, request_errors 6.
+RESULT (cross-track nm): radial (LIVE, placed) n=36 median 0.1 / p90 7.5 / p95 19.3 / le10 91.7%; direct n=130 p90 17.8; airway n=244 p90 18.8. By band: radial 150-400 n=16 p90 2.4; >400 n=13 p90 1.3; 60-150 n=7 p90 19.3 (tail: 10.1, 19.3, 63.4 nm).
+POOL (runs 8-12, live radial, hex-deduped): unique n=155, raw 155 (zero repeats), median 0.2 / p90 2.4 / p95 7.5 / le10 96.1% / le15 98.1%.
+READ: prior met on n and pooled stats, MISSED on the closure criterion: the single weekday run's radial p90 is 7.5 > 6. The miss is entirely the same terminal-adjacent 60-150 nm band flagged since run 6 (3 of 7 points >10 nm, incl. one 63 nm outlier); outside that band the weekday run is the tightest yet (p90 <= 2.4). Rollback trigger (radial p90 > direct p90 + 5 over pooled unique n>=100) does not fire: pooled 2.4 vs direct 17.8 this run. Placement STAYS. Gate-1 verdict for live radial placement: PASS, with a standing, localized weakness in the 60-150 nm band.
+DECISION on line closure: NOT closed per the literal pre-registered criterion. Honest alternative filed rather than re-running until it passes (fishing): the weakness is band-specific, n in that band is still ~15 unique pooled, so the next useful work is a targeted look at WHY radial misses 60-150 nm (likely the radial token resolving against a terminal fix whose bearing/distance is sensitive to magnetic variation or to the aircraft already being on vectors/STAR) via the saved run JSONs, NOT more pooled runs. Filed as the next slice; no further confirming runs needed.
+NEXT: diagnose the 60-150 nm radial outliers from the raw plans (route + fix + bearing) before any placement change; if cause is a STAR/vector regime, a distance gate on radial placement near terminals is a candidate (own PR, with this pool as the baseline). ROLLBACK: n/a (read only/data). MERGE: docs + data file, safe any time.
+STARVED: no.
+
 ## 2026-10-12 (scheduled-routine session, ~16:05Z Mon, MARKET HOURS) [REPAIR] — T-DATACORE (server/globalSweep.ts, globalSweep.test.ts) — ADS-B SWEEP LOOP WEDGED ON ONE HUNG REQUEST: HARD DEADLINE (v1.0.1049)
 
 HEALTH: session_health_check all OK (v1.0.1048 live; WARN daemon rss 438MB advisory, creeping 386->438 over 3 days); thrash 4/10 (below 7); ladder_readiness 0/5 READY; no audit overdue; bot active, liveness not dark. Not a trading-path issue.
