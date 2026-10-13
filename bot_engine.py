@@ -4171,6 +4171,41 @@ def ml_attribution_summary() -> dict:
 
 
 # ── Third Leg Engine (v1.0.25) ──────────────────────────────────────────────
+# Third-leg regime-recovery exit list: SVXY (VRP harvest) + legacy Leg-3C
+# sector positions. Filtered through _third_leg_exit_tickers() before use.
+LEG3_LEGACY_EXIT_TICKERS = ("SVXY", "ITA", "GLD", "XOM", "LMT")
+
+
+def _floor_owned_tickers(cfg: dict) -> set:
+    """Tickers owned by an enabled floor allocator (single-owner invariant).
+
+    - _manage_spy_floor(): FLOOR_TICKER (single-ticker mode) and, when
+      FLOOR_BASKET_ENABLED, every non-CASH FLOOR_BASKET member.
+    - _manage_defensive_floor(): DEFENSIVE_FLOOR_TICKER when
+      DEFENSIVE_FLOOR_ENABLED.
+    """
+    cfg = cfg or {}
+    owned = {cfg.get("FLOOR_TICKER", "QQQ")}
+    if cfg.get("FLOOR_BASKET_ENABLED", False):
+        owned |= {t for t in (cfg.get("FLOOR_BASKET") or {}) if t != "CASH"}
+    if cfg.get("DEFENSIVE_FLOOR_ENABLED", False):
+        owned.add(cfg.get("DEFENSIVE_FLOOR_TICKER", "GLD"))
+    owned.discard(None)
+    owned.discard("")
+    return owned
+
+
+def _third_leg_exit_tickers(cfg: dict) -> set:
+    """Tickers _run_third_leg may market-sell on regime recovery.
+
+    OWNERSHIP FIX 2026-10-13: the legacy list included GLD, which the
+    defensive floor holds always-on (DEFENSIVE_FLOOR_BULL/NEUTRAL) — the two
+    allocators fought (live 2026-10-12: 21 GLD bought/sold ~11 times). A
+    ticker owned by an enabled floor allocator is never exited here.
+    """
+    return set(LEG3_LEGACY_EXIT_TICKERS) - _floor_owned_tickers(cfg)
+
+
 def _run_third_leg(macro: dict) -> dict:
     """
     Third leg: VRP harvest + Sector rotation.
@@ -4282,10 +4317,15 @@ def _run_third_leg(macro: dict) -> dict:
         # Convexity overlay runs separately via _run_convexity_overlay()
 
         # ── Exit VRP + legacy sector positions when regime recovers ────
+        # OWNERSHIP FIX 2026-10-13: never sell a ticker an enabled floor
+        # allocator owns (GLD = DEFENSIVE_FLOOR_TICKER, always-on 8% in
+        # BULL/NEUTRAL) — this exit used to market-sell all GLD every
+        # NEUTRAL/BULL cycle and the defensive floor re-bought it.
+        exit_tickers = _third_leg_exit_tickers(BASE_CONFIG)
         if regime in ("NEUTRAL", "BULL"):
             for pos in positions_raw:
                 sym = pos.get("symbol", "")
-                if sym in ("SVXY", "ITA", "GLD", "XOM", "LMT"):  # Exit VRP + any legacy sector positions
+                if sym in exit_tickers:  # Exit VRP + any legacy sector positions not owned by a floor
                     qty = pos.get("qty", "0")
                     try:
                         o = _req.post(f"{base_url}/v2/orders",
