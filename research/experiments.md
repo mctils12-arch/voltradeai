@@ -107475,3 +107475,41 @@ TESTS: 5 new (all fail on the old code, pass on the fix; reviewer
 re-verified in a scratch copy). Built in an isolated worktree, approved by
 an adversarial reviewer, then read and approved by this session.
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — FLOOR REGIME DWELL: BULL<->NEUTRAL FLICKER NO LONGER CHURNS QQQ (v1.0.1055)
+
+PR 2 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry).
+DEFECT: _manage_spy_floor (FLOOR_BASKET branch) and _manage_defensive_floor
+re-derived the regime from get_market_regime every scan and re-targeted
+immediately. vxx_ratio sat on regime_util's BULL boundary (0.95) with no
+hysteresis; SPY_FLOOR_BULL 0.70 vs SPY_FLOOR_NEUTRAL 0.90 x QQQ weight 0.50
+= a 10%-of-equity QQQ step, > FLOOR_BASKET_DRIFT_THRESHOLD 3%, so every
+flip bought/sold ~12 QQQ (live 2026-10-12: 7 round trips) and re-armed the
+defensive floor's GLD regime_changed rebuy. A failed VXX fetch also
+substitutes vxx_ratio=1.0 (=> NEUTRAL) and nothing checked it.
+CHANGE: one debounced "floor regime" (_resolve_floor_regime), resolved once
+per scan and shared by both floors, persisted in voltrade_floor_state.json:
+- a calming / lateral change is acted on only after
+  FLOOR_REGIME_CONFIRM_CYCLES (new key, 3) consecutive DISTINCT macro
+  readings (macro snapshot timestamp — the snapshot is cached 300s, so a
+  reading repeated on later scans counts once; caught in adversarial
+  review: the first draft counted scans, letting one VXX reading confirm);
+- escalations INTO CAUTION/BEAR/PANIC apply on the first reading (de-risking
+  never lags);
+- a fallback macro (no real VXX reading) holds the last confirmed regime.
+UNCHANGED: SPY_FLOOR_* / DEFENSIVE_FLOOR_* percentages, regime_util
+thresholds, drift band, every order POST path. New key has no prior value.
+DOWNSTREAM: floors hold steady through label flicker; a genuine calming
+regime change lands ~10-15 min later than before (3 snapshots); risk-off
+lands immediately as before. Backtest unaffected (backtest_v2 does not
+model the floors) — evidence is the live churn.
+ROLLBACK TRIGGER: a confirmed risk-off regime that the floors act on later
+than the first scan that classifies it, or floor QQQ/GLD round trips
+reappearing in /api/diag/orders.
+TESTS: test_floor_regime_dwell.py (fails on old code; incl. alternating
+BULL/NEUTRAL x6 -> no QQQ orders, repeated cached snapshot does not
+confirm, escalation acts on first call, fallback holds). Worktree-built,
+blocked once by the adversarial reviewer, revised, approved; read and
+approved by this session.
+STARVED: no.

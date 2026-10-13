@@ -158,6 +158,22 @@ BASE_CONFIG = {
     "FLOOR_BASKET_ENABLED": True,  # Set False to revert to single-QQQ
     # Rebalance drift threshold — only rebalance when drift > this pct
     "FLOOR_BASKET_DRIFT_THRESHOLD": 0.03,  # 3% drift triggers rebalance
+    # FLOOR REGIME DWELL 2026-10-13: consecutive DISTINCT macro readings
+    # (macro_data snapshot "timestamp"; the snapshot is cached 300s, so a
+    # reading repeated on later 60-120s scans counts once) a non-risk-off
+    # regime label must be seen before _manage_spy_floor /
+    # _manage_defensive_floor act on it. Reason: vxx_ratio sat on the BULL
+    # boundary (regime_util BULL_VXX_THRESHOLD 0.95) and the label flapped
+    # BULL<->NEUTRAL scan to scan; SPY_FLOOR_BULL 0.70 vs SPY_FLOOR_NEUTRAL
+    # 0.90 x QQQ weight 0.50 is a 10%-of-equity QQQ step (> the 3% drift
+    # threshold above), so every flip bought/sold ~12 QQQ (live 2026-10-12:
+    # 7 round trips). Escalations INTO CAUTION/BEAR/PANIC bypass this and
+    # apply on the first call (de-risking never lags); a fallback macro (no
+    # real VXX reading) holds the last confirmed regime. Expected effect: no
+    # floor round trips from label flicker; a genuine calming regime change
+    # is acted on after 3 distinct snapshots (~10-15 min) at any scan
+    # cadence. 1 = no debounce.
+    "FLOOR_REGIME_CONFIRM_CYCLES": 3,
 
     # ── DEFENSIVE FLOOR: BEAR-REGIME ROTATION (P1-1) ──────────────────
     # User ask: "switch from qqq to something in bear — not hold permanently".
