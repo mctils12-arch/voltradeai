@@ -49,7 +49,8 @@ import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
-import { registerAuthRoutes, db } from "./auth";
+import { registerAuthRoutes, db, requireOwner } from "./auth";
+import { liveSiteReport } from "./siteReport";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, vesselNeverFramed } from "./vesselStream";
 import { mapDigitrafficAis, freshAisFixes, DIGITRAFFIC_AIS_ATTRIBUTION, DIGITRAFFIC_AIS_LOCATIONS_URL, DIGITRAFFIC_AIS_VESSELS_URL } from "./aisFeed";
@@ -4354,6 +4355,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const result = addToWaitlist(String(req.body?.email || ""), String(req.body?.source || "developers"));
     if (result === "invalid") return res.status(400).json({ ok: false, error: "valid email required" });
     res.json({ ok: true, status: result });
+  });
+
+  // Who signed up + visit counters (server/siteReport.ts, page /admin).
+  // Account and waitlist emails are served ONLY here, behind the owner
+  // login; the diag token's "signups" probe gets the counts-only aggregate.
+  app.get("/api/admin/site-report", requireOwner, (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    try { res.json(liveSiteReport(db)); }
+    catch (e) { res.status(500).json({ error: "site report unavailable", detail: e instanceof Error ? e.message : String(e) }); }
   });
 
   // ── Self-serve preview API key accounts (PLATFORM P3,

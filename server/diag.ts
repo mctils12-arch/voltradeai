@@ -279,6 +279,14 @@ export const DIAG_PROBES = [
   // "where does the scan lose?" (taken candidates win LESS than rejected
   // ones). Aggregate-only like "shadow": no ticker, price or timestamp.
   "shadow_bands",
+  // ADDED 2026-10-13 (human-directed: "get back to me on who's visit[ed]
+  // and signed up"): siteReport.ts's aggregateSiteReport() — signup and
+  // waitlist COUNTS by day/tier/source, the API-key-holder count, and
+  // requestLog's anonymous visit counters. No email, id or hash ever
+  // enters the response (the per-person report is owner-login-only at
+  // /api/admin/site-report), so the "no user data" posture above holds.
+  // No query parameters.
+  "signups",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

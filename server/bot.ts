@@ -16,6 +16,7 @@ import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
+import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { loadGnssIntegrityDailyArchive } from "./gnssIntegrityDaily";
@@ -3115,6 +3116,14 @@ print(json.dumps(insider_cusum_probe.run_probe()))
             latest_day: dayKeys[dayKeys.length - 1] || null,
             days,
           }));
+        }
+        case "signups": {
+          // ADDED 2026-10-13 (human-directed: "get back to me on who's
+          // visit[ed] and signed up"): see the "signups" entry in diag.ts's
+          // DIAG_PROBES. Counts only: aggregateSiteReport() drops every
+          // email before this response exists; the per-person report is
+          // owner-login-only (/api/admin/site-report).
+          return res.json(sanitizeDiag({ probe: "signups", ...aggregateSiteReport(liveSiteReport(db)) }));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

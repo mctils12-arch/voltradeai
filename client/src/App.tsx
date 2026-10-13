@@ -13,6 +13,7 @@ import CareersPage from "@/pages/careers";
 import ContactPage from "@/pages/contact";
 import DevelopersPage from "@/pages/developers";
 import ApiKeysPage from "@/pages/apikeys";
+import AdminPage from "@/pages/admin";
 import { Component, ReactNode, useState, useEffect } from "react";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -157,6 +158,7 @@ function AppShell() {
           Every other top-level marketing/account route here is flat for
           the same reason; keep new ones flat too. */}
       <Route path="/apikeys" component={ApiKeysPage} />
+      <Route path="/admin" component={AdminPage} />
       <Route path="/app" component={AppDashboard} />
       <Route path="/app/:rest*" component={AppDashboard} />
       {/* Fallback — anything else returns to landing */}

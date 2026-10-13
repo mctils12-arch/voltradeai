@@ -107397,3 +107397,16 @@ BIAS: no measurement code, no trading path. ROLLBACK: git revert (re-opens the l
 VERIFY AFTER DEPLOY: /api/data/archive/stats carries no waitlist/apiusage keys; /api/diag/archive?stream=waitlist answers 404.
 FOLLOW-UP (not done here, separate change): sanitizeDiag's email pattern is ASCII-only; harden it if any diag payload can carry user-entered text.
 STARVED: no.
+
+## 2026-10-13 (human-directed session, ~03:45Z) [PRODUCT] — owner signup + visit report: server/siteReport.ts (+test), /api/admin/site-report (routes.ts), "signups" diag probe (bot.ts/diag.ts), /admin page (client: pages/admin.tsx, App.tsx route, index.css deltas), harness page+fixture — WHO SIGNED UP / HOW MANY VISIT (v1.0.1051)
+
+TRIGGER: the human asked "who has signed up for the site", then "fix this and get back to me on who's visit[ed] and signed up". Before this there was NO surface for either: the users table, the /developers waitlist and the visit counters were readable only from a Railway shell (the visit counters, in-memory, not at all after a deploy).
+PRIOR (stated before building): the report changes nothing about what is collected — it only surfaces existing data. The diag-token surface gains COUNTS only; every email stays behind the owner login.
+CHANGE: siteReport.ts buildSiteReport (accounts with join date/plan/key use/24h sign-in, waitlist entries, requestLog's visit snapshot + its since-process-start window) and aggregateSiteReport (counts by day/tier/source; per-day maps capped to the newest 90 days because sanitizeDiag keeps an object's FIRST 100 keys). GET /api/admin/site-report behind auth.ts requireOwner (imported, auth.ts untouched) serves the full report; /api/diag/signups serves sanitizeDiag(aggregate). /admin (flat route, per App.tsx's single-segment rule) renders it: 4 stat tiles, accounts + waitlist tables, visitors-by-day bars, top pages; one request decides signed-out (401) / not-owner (403) / error / ready, each a designed state.
+HONESTY: visits are anonymous by design (salted IP hashes), include crawlers, count full page loads only, and reset on every deploy; the report states its window (`visits.since`) and these limits on the page and in `notes`. Visit history before this deploy does not exist anywhere we can read.
+TESTS: siteReport.test.ts 6 (join order/owner flag/key use/24h sign-in/torn waitlist line; missing tables/dirs; owner excluded from counts; aggregate contains NO email/id/per-person key — checked against a non-ASCII-domain email the diag regex would miss; newest-days cap; wiring: requireOwner on the route, probe returns only the sanitized aggregate). diag.test.ts's every-whitelisted-probe-has-a-case check covers "signups".
+VISUAL: npm run visual --page admin PASS at 390/768/1440 (+ apikeys re-run, shared classes untouched); full-page review shots: no page overflow at any width, tables fit at 768/1440 and scroll inside their wrapper at 390, signed-out state reviewed.
+BIAS: no trading path, no measurement-of-performance code; requestLog's counting is unchanged (read-only consumer).
+ROLLBACK: git revert.
+NEXT (separate change): persist requestLog's daily counters across restarts so visit history survives deploys (today it resets several times a day).
+STARVED: no.
