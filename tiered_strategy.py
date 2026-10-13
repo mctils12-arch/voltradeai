@@ -381,6 +381,29 @@ def log_masterkill_csp_shadow(ctx: TierContext, kill_reason: str) -> int:
 #  TIER 1 — CSP Core
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _option_underlying(position: Dict[str, Any]) -> str:
+    """Underlying ticker of an option position dict (upper-cased).
+
+    Prefers Alpaca's ``underlying_symbol`` field when the position carries
+    one; otherwise parses the OCC symbol with options_manager's end-anchored
+    parser (root = everything before the fixed 15-char date+C/P+strike
+    suffix). A symbol that is not parseable OCC is returned as-is, which
+    preserves the pre-fix behaviour for any non-OCC input.
+    """
+    underlying = str(position.get("underlying_symbol") or "").strip().upper()
+    if underlying:
+        return underlying
+    symbol = str(position.get("symbol") or "").strip().upper()
+    if not symbol:
+        return ""
+    try:
+        from options_manager import _parse_occ_symbol
+        parsed = _parse_occ_symbol(symbol)
+    except Exception:
+        parsed = {}
+    return str(parsed.get("ticker") or symbol).upper()
+
+
 def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     """Sell cash-secured puts on Tier 1 universe, regime-scaled."""
     if not TIERS_ENABLED.get(1, False):
@@ -418,8 +441,14 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
         size_scalar *= 0.75
 
     # Current tickers already held (avoid doubling up)
-    held_tickers = {p.get("symbol", "").upper() for p in ctx.positions
+    # BUG FIX 2026-10-13 (f5-t1-occ-dedupe): option positions carry OCC
+    # symbols ("DRAM261120P00045000"), but the loop below tests the plain
+    # underlying ticker ("DRAM") against this set — so the de-dupe never
+    # matched and T1 re-proposed SELL_CSP on underlyings it already held,
+    # every scan. Map each option position to its UNDERLYING first.
+    held_tickers = {_option_underlying(p) for p in ctx.positions
                     if p.get("asset_class") in ("us_option", "option")}
+    held_tickers.discard("")
 
     # Count current options positions to respect MAX_OPTIONS_POSITIONS
     current_position_count = len([p for p in ctx.positions
