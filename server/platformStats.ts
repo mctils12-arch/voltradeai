@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import readline from "readline";
-import { archiveBaseDir } from "./datacoreArchive";
+import { archiveBaseDir, PRIVATE_ARCHIVE_DIRS } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
 
 /** Archive dir -> registry layer id, where the names differ. */
@@ -22,8 +22,10 @@ export const DIR_LAYER_MAP: Record<string, string> = {
   filings: "insider",
   earnings8k: "earnings",
 };
-/** Operational streams — recorded, but not data products; never counted. */
-export const OPERATIONAL_DIRS = new Set(["waitlist", "apiusage"]);
+/** Operational streams — recorded, but not data products; never counted.
+ *  One set with datacoreArchive's PRIVATE_ARCHIVE_DIRS, so the dirs kept
+ *  out of these counters and out of every archive read surface can't drift. */
+export const OPERATIONAL_DIRS: ReadonlySet<string> = PRIVATE_ARCHIVE_DIRS;
 
 /** Distinct ingestion streams = every LIVE registry layer (each live layer
  *  is a live feed/surface: weather fields, radar, port dwell, plants, …)

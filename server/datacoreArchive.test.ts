@@ -16,6 +16,7 @@ import {
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
   readArchiveDayEvenSample, originOfPosType, oldestRawHour,
   archiveFileTimestampRanges, archiveDayFiles, rowInBbox,
+  PRIVATE_ARCHIVE_DIRS, isPrivateArchiveDir,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -480,6 +481,41 @@ test("readArchiveDay: reads gzipped day files transparently", async () => {
   assert.ok(r);
   assert.equal(r!.rows.length, 1);
   assert.equal(r!.rows[0].s, "DGS10");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// [REPAIR 2026-10-13] /api/diag/archive?stream=waitlist served the raw signup
+// rows (emails hidden only by sanitizeDiag's regex, which passes a non-ASCII
+// domain through). User-data dirs must read as a MISSING stream, whatever
+// spelling reaches the reader.
+test("readArchiveDay + readArchiveDayEvenSample refuse user-data dirs (waitlist/apiusage), path variants included", async () => {
+  const base = tmp();
+  fs.mkdirSync(path.join(base, "waitlist"), { recursive: true });
+  fs.writeFileSync(path.join(base, "waitlist", "2026-07-05.jsonl"), '{"t":1751700000,"e":"user@münchen.de","s":"developers"}\n');
+  fs.mkdirSync(path.join(base, "apiusage"), { recursive: true });
+  fs.writeFileSync(path.join(base, "apiusage", "2026-07-05.jsonl"), '{"t":1751700000,"k":"abc123def456","e":"/api/v1/meta","s":200,"ti":"dev"}\n');
+  fs.mkdirSync(path.join(base, "usaspending"), { recursive: true });
+  fs.writeFileSync(path.join(base, "usaspending", "2026-07-05.jsonl"), '{"aid":"a1"}\n');
+  for (const stream of ["waitlist", "apiusage", "./waitlist", "waitlist/", "x/../waitlist", "../" + path.basename(base) + "/apiusage"]) {
+    assert.ok(isPrivateArchiveDir(base, stream), `${stream} must be recognised as private`);
+    assert.equal(await readArchiveDay(stream, "2026-07-05", base), null, `${stream} must read as a missing stream`);
+    assert.equal(await readArchiveDayEvenSample(stream, "2026-07-05", base), null, `${stream} (even-sample) must read as missing`);
+  }
+  assert.equal(isPrivateArchiveDir(base, "usaspending"), false);
+  assert.equal((await readArchiveDay("usaspending", "2026-07-05", base))!.rows.length, 1, "datacore streams in the same base still read");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("archiveStats never lists user-data dirs (it backs the PUBLIC /api/data/archive/stats)", () => {
+  const base = tmp();
+  for (const d of [...PRIVATE_ARCHIVE_DIRS, "fredmacro"]) {
+    fs.mkdirSync(path.join(base, d), { recursive: true });
+    fs.writeFileSync(path.join(base, d, "2026-07-05.jsonl"), '{"x":1}\n');
+  }
+  const s = archiveStats(base);
+  for (const d of PRIVATE_ARCHIVE_DIRS) assert.equal(s.kinds[d], undefined, `${d} must not be listed`);
+  assert.equal(s.kinds.fredmacro.files, 1, "datacore streams are still discovered from disk");
+  assert.equal(s.totalBytes, s.kinds.fredmacro.bytes, "private bytes stay out of the total too");
   fs.rmSync(base, { recursive: true, force: true });
 });
 

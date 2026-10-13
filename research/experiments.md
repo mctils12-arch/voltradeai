@@ -107385,3 +107385,15 @@ Live (20:17Z): /api/health status ok, serving.failing [], alpaca ACTIVE, scanner
 QUEUE: shadow-band chain step (a) time-gated to >= 2026-10-13; COT gate-2 15th report 2026-10-16. `gem` provenance-stamp item filed 13:20Z is a low-value display nicety, not queue-head. No new broken item; further research would duplicate filed work. Anti-churn: nothing shipped but this log.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-13 (human-directed session, ~03:30Z) [REPAIR] — T-DATACORE (server/datacoreArchive.ts, server/platformStats.ts + tests; server/bot.ts comment only) — USER-DATA DIRS NO LONGER LEAK THROUGH ARCHIVE SURFACES (v1.0.1050)
+
+TRIGGER: the human asked "who has signed up for the site"; tracing where signups live surfaced two leaks of first-party user data out of the shared archive base.
+FOUND: (1) /api/diag/archive's whitelist is "any dir under archiveBaseDir()", which includes waitlist/ (raw signup emails; manifest: "NEVER exposed via any API") and apiusage/ (per-customer metering). The emails were masked only by sanitizeDiag's defense-in-depth regex, which is ASCII-only (tested offline: "user@münchen.de" passes unchanged, "o'brien@gmail.com" -> "o'[redacted]"). Deliberately NOT exercised live — that would itself pull user data through a channel approved as "no user data". (2) The PUBLIC /api/data/archive/stats (archiveStats; also /api/v1/stats/archive and the quality dashboard) listed waitlist's files/bytes/oldest/newest — live at 03:17Z: 1 file, 56 B, 2026-07-05, i.e. the signup count and dates, to anyone.
+PRIOR (stated before running): the fix removes waitlist/apiusage from every generic archive surface and changes nothing for datacore streams; public archive totals drop by the waitlist's 56 B.
+CHANGE: datacoreArchive.ts gains PRIVATE_ARCHIVE_DIRS {waitlist, apiusage} + isPrivateArchiveDir (judged on the resolved path, so ./waitlist, waitlist/, x/../waitlist cannot slip past a caller's validation). readArchiveDay + readArchiveDayEvenSample return null for them (diag answers 404, same as a missing stream, so no existence oracle); archiveStats skips them. platformStats's OPERATIONAL_DIRS is now that same set object (no drift between "not counted" and "not served").
+TESTS: datacoreArchive.test.ts +2 — both FAIL with the guards removed ("waitlist must read as a missing stream", "waitlist must not be listed") and pass with them; platformStats.test.ts +1. Full server suite 2331/2331; tsc ratchet 11 <= 11; counter ratchet OK.
+BIAS: no measurement code, no trading path. ROLLBACK: git revert (re-opens the leak).
+VERIFY AFTER DEPLOY: /api/data/archive/stats carries no waitlist/apiusage keys; /api/diag/archive?stream=waitlist answers 404.
+FOLLOW-UP (not done here, separate change): sanitizeDiag's email pattern is ASCII-only; harden it if any diag payload can carry user-entered text.
+STARVED: no.

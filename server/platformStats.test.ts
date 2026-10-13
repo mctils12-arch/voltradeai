@@ -8,8 +8,9 @@ import zlib from "zlib";
 import { fileURLToPath } from "node:url";
 import {
   streamsRecording, countFileLines, countObservations, platformStats,
-  _resetPlatformStatsCache, DIR_LAYER_MAP,
+  _resetPlatformStatsCache, DIR_LAYER_MAP, OPERATIONAL_DIRS,
 } from "./platformStats";
+import { PRIVATE_ARCHIVE_DIRS } from "./datacoreArchive";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +21,11 @@ test("streams: live layers + unmapped archive dirs; operational and _tracks neve
   // optionchains has no layer -> +1; waitlist/apiusage/_tracks excluded
   assert.equal(streamsRecording(live, dirs), live.length + 1);
   assert.equal(DIR_LAYER_MAP.filings, "insider", "dir-name translation must be pinned");
+});
+
+test("operational dirs ARE the archive's private user-data dirs (one set, no drift)", () => {
+  assert.equal(OPERATIONAL_DIRS, PRIVATE_ARCHIVE_DIRS);
+  assert.deepEqual([...OPERATIONAL_DIRS].sort(), ["apiusage", "waitlist"]);
 });
 
 test("observations: real line counts, gz-aware, operational dirs excluded", async () => {
