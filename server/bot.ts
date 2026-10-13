@@ -404,9 +404,37 @@ const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", 
 // keep option positions out of the WS bars subscription (they still get
 // full position-monitor tracking — kill/warn/time-exit — just not a live
 // bars stream, which doesn't exist for options on this feed anyway).
+// (Since 2026-10-13 option positions are judged by an option-scaled POS-KILL
+// backstop instead of the stock -25% stop — see isPosKillExemptOption below;
+// POS-WARN and time-exit still apply.)
 function isOptionSymbol(ticker: string): boolean {
   const t = String(ticker).toUpperCase();
   return t.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(t);
+}
+
+// POS-KILL SCOPE FIX 2026-10-13: the ITEM 13 per-position kill
+// (syncMonitoredPositions, STOCK_KILL_LOSS_PCT) is a stock-style percent
+// stop. For an option — above all a just-sold short put — Alpaca's
+// unrealized_plpc is measured against the premium, so the bid/ask spread
+// alone reads <= -25% the moment the order fills, and POS-KILL bought it back
+// at market within seconds (live 2026-10-12: DRAM -54.7% / ~-$35 in 27s; also
+// T, VZ, WMB, TXG), after which T1 re-sold it — a churn loop that pays the
+// spread twice per cycle. options_manager.py is the designed owner of option
+// exits (LOSS_LIMIT_MULTIPLIER=2x credit for sold, 50% for bought,
+// MIN_HOLD_MINUTES gate, limit orders), so option positions are excluded from
+// the stock rule. Detection: explicit asset_class OR the shared OCC-shape
+// check, so a missing asset_class field never re-exposes an option.
+function isPosKillExemptOption(symbol: string, assetClass?: string): boolean {
+  return assetClass === "us_option" || isOptionSymbol(symbol);
+}
+
+// Per-position kill threshold: stocks keep the stock rule; options get the
+// option backstop for their side (see the ITEM 13 block in
+// syncMonitoredPositions for why options keep a backstop at all).
+function posKillThresholdPct(isOption: boolean, side: "long" | "short", stockPct: number,
+                             optionShortPct: number, optionLongPct: number): number {
+  if (!isOption) return stockPct;
+  return side === "short" ? optionShortPct : optionLongPct;
 }
 
 // Shared by executeTrades() and the tier dispatcher's SELL_CSP gate so both
@@ -6321,8 +6349,38 @@ except: print('{}')
         // If this position has lost more than 25%, liquidate immediately.
         // Catches runaway single-name losses faster than portfolio DD kill.
         // ══════════════════════════════════════════════════════════════
-        const POSITION_KILL_LOSS_PCT = -25.0;  // -25% per position
+        const STOCK_KILL_LOSS_PCT = -25.0;     // -25% per stock position
         const POSITION_WARN_LOSS_PCT = -15.0;  // -15% warn threshold
+        // POS-KILL SCOPE FIX 2026-10-13 (see isPosKillExemptOption): option
+        // positions are NOT judged by the stock -25% stop — options_manager.py
+        // owns their normal exits (2x-credit stop for sold, 50% for bought,
+        // MIN_HOLD_MINUTES, limit orders). Prior value: POSITION_KILL_LOSS_PCT
+        // was -25.0 for every position, options included. But options_manager
+        // only runs inside scan_market, which returns early while the
+        // portfolio DD halt is active — so options KEEP a kill backstop at
+        // option-scaled thresholds, past options_manager's own stops (it
+        // normally acts first) and far past the bid/ask-spread noise on a
+        // fresh sale (live worst: -54.7%). An option between the stock
+        // threshold and its backstop gets one POS-KILL-OPTION-HOLD audit line
+        // per position per UTC day (this loop runs every ~45s). The backstop
+        // covers the Python portfolio DD halt while this Node loop is running;
+        // it does not act while the Node drawdown kill has stopped the loop.
+        const OPTION_SHORT_KILL_LOSS_PCT = -150.0; // sold option: mark >= 2.5x the credit
+        const OPTION_LONG_KILL_LOSS_PCT = -75.0;   // bought option: lost 75% of premium
+        const isOptionPos = isPosKillExemptOption(ticker, pos.asset_class);
+        // This position's kill threshold: STOCK_KILL_LOSS_PCT for a stock,
+        // the side's option backstop for an option.
+        const POSITION_KILL_LOSS_PCT = posKillThresholdPct(isOptionPos, side, STOCK_KILL_LOSS_PCT,
+          OPTION_SHORT_KILL_LOSS_PCT, OPTION_LONG_KILL_LOSS_PCT);
+        if (isOptionPos && pnlPct <= STOCK_KILL_LOSS_PCT && pnlPct > POSITION_KILL_LOSS_PCT) {
+          const skipDay = new Date().toISOString().split("T")[0];
+          const skipLog: Record<string, string> = (state as any)._posKillOptionSkipDay || ((state as any)._posKillOptionSkipDay = {});
+          if (skipLog[ticker] !== skipDay) {
+            for (const k of Object.keys(skipLog)) if (skipLog[k] !== skipDay) delete skipLog[k];
+            skipLog[ticker] = skipDay;
+            audit("POS-KILL-OPTION-HOLD", `${ticker}: option down ${pnlPct.toFixed(1)}% vs premium — under the stock ${STOCK_KILL_LOSS_PCT}% rule but above the option backstop ${POSITION_KILL_LOSS_PCT}%; exits owned by options_manager`);
+          }
+        }
         if (pnlPct <= POSITION_KILL_LOSS_PCT) {
           const closeSide = side === "long" ? "sell" : "buy";
 
