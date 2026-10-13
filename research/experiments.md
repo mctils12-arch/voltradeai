@@ -107410,3 +107410,15 @@ BIAS: no trading path, no measurement-of-performance code; requestLog's counting
 ROLLBACK: git revert.
 NEXT (separate change): persist requestLog's daily counters across restarts so visit history survives deploys (today it resets several times a day).
 STARVED: no.
+
+## 2026-10-13 (human-directed session, ~04:00Z) [PRODUCT] — visit history survives deploys: server/visitHistory.ts (+test), requestLog.ts feed line, index.ts boot hook, siteReport.ts reads the ledger, /admin "By day" table (v1.0.1052)
+
+TRIGGER: same request ("get back to me on who's visit[ed]"). requestLog.ts's counters are in-memory and reset on every deploy — several a day — so even with the /admin report (v1.0.1051) there is no visit history to report.
+PRIOR (stated before building): from this deploy on, each UTC day keeps page loads, unique visitors and the browser-class subset across restarts; requestLog's own counters, and everything they feed, are unchanged.
+CHANGE: visitHistory.ts — one record per UTC day in <DATA_DIR>/site_visits.json: views, uniques, browserViews/browserUniques (classifyUa === "browser": declared bots, headless and scripts excluded — the closest available proxy for people), a page tally capped at 100 (+ "(other)"; prototype-named paths forced there). Uniques use a DAILY salt kept only beside that day's hashes, so a mid-day restart doesn't double-count; at UTC rollover salt + hashes are dropped and only counts remain (no cross-day linking; raw IPs never stored). Atomic tmp+rename writes, flushed every 60s while dirty and on SIGTERM; an unreadable file is moved aside, never overwritten; 400 days retained; unique cap 50k/day ("at least" flag). Inert until index.ts calls startVisitHistory(), so tests/scripts that mount requestLog never touch disk. siteReport.ts prefers the ledger (source "history": window = recording start, today's browser visitors, newest-30-day series, top pages over the newest 7 days) and falls back to the in-memory counters ("memory").
+HONESTY: history starts at this deploy — nothing earlier exists anywhere we can read; the page says so. "In browsers" is labelled as a proxy, not a people count.
+TESTS: visitHistory.test.ts 8 (counts + browser split; same-day restart dedupe + no raw IP on disk + atomic write; rollover drops salt/hashes; route cap + prototype keys; unique cap; unreadable file moved aside loudly; retention; requestLog feeds page views only, inert without a ledger). siteReport.test.ts +1 (ledger window/today/series/top-pages-7d) and its memory-path test now pins source "memory".
+VISUAL: --page admin PASS at 390/768/1440 with the history fixture; full-page review: no page overflow, "By day" table fits at 390.
+BIAS: site-traffic counting only; no trading path or performance-measurement code. requestLog's in-memory analytics (adminStats) unchanged.
+ROLLBACK: git revert (the JSON file is inert without the code).
+STARVED: no.

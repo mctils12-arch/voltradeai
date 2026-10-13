@@ -9,6 +9,7 @@ import { createServer } from "http";
 // All mounted BELOW, BEFORE routes register. None edit auth.ts/billing.ts.
 import { securityHeaders } from "./securityHeaders";
 import { requestLog } from "./requestLog";
+import { startVisitHistory } from "./visitHistory";
 import { globalRateLimit, createStrictAuthLimiter } from "./rateLimit";
 import { antiScraping, registerHoneypots } from "./antiScraping";
 import { registerRobots } from "./robots";
@@ -27,6 +28,7 @@ app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
 // touching auth.ts. See server/compression.test.ts precedent + the mount-order
 // pin in server/securityMiddleware.test.ts.
 app.use(securityHeaders());
+startVisitHistory(); // persisted daily visit ledger fed by requestLog (server/visitHistory.ts)
 app.use(requestLog());
 app.use(globalRateLimit());
 app.use(antiScraping());

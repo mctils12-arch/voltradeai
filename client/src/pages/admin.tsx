@@ -22,16 +22,21 @@ interface AccountEntry {
   signedInLast24h: boolean;
 }
 interface WaitlistEntry { at: number; email: string; source: string }
+interface VisitDay { day: string; views: number; uniques: number; browserViews: number; browserUniques: number; capped: boolean }
 interface SiteReport {
   generatedAt: string;
   accounts: AccountEntry[];
   waitlist: WaitlistEntry[];
   visits: {
+    /** "history": the persisted daily ledger; "memory": since the last restart. */
+    source: "history" | "memory";
     since: string;
     totalPageViews: number;
     uniquesToday: number;
     uniquesByDay: Record<string, number>;
     topPages: Array<{ route: string; count: number }>;
+    days?: VisitDay[];
+    browserUniquesToday?: number;
   };
   notes: string[];
 }
@@ -114,6 +119,7 @@ export default function AdminPage() {
   const days = Object.keys(report.visits.uniquesByDay).sort();
   const maxDay = Math.max(1, ...days.map((d) => report.visits.uniquesByDay[d]));
   const since = fmtShort(report.visits.since);
+  const history = report.visits.source === "history";
 
   return (
     <div className="vt-dev-page vt-admin-page">
@@ -142,7 +148,11 @@ export default function AdminPage() {
         <div className="vt-dev-tier">
           <h3>Visitors today</h3>
           <p className="vt-dev-price">{report.visits.uniquesToday.toLocaleString()}</p>
-          <p className="vt-dev-caption">unique, crawlers included</p>
+          <p className="vt-dev-caption">
+            {report.visits.browserUniquesToday !== undefined
+              ? `${report.visits.browserUniquesToday.toLocaleString()} in browsers`
+              : "unique, crawlers included"}
+          </p>
         </div>
         <div className="vt-dev-tier">
           <h3>Page loads</h3>
@@ -201,9 +211,14 @@ export default function AdminPage() {
       <section className="vt-dev-section">
         <h2>Visits</h2>
         <p className="vt-dev-caption">
-          Counted since {since} — the counter resets whenever the site redeploys. Visitors are
-          anonymous (IP addresses are hashed before counting), crawlers are included, and only
-          full page loads count, not clicks inside the app.
+          {history
+            ? <>Recorded daily since {since}; nothing earlier exists. </>
+            : <>Counted since {since} — this counter resets whenever the site redeploys. </>}
+          Visitors are anonymous (IP addresses are hashed before counting) and only full page loads
+          count, not clicks inside the app.{" "}
+          {history
+            ? "“In browsers” leaves out declared bots, headless browsers and scripts — the closest measure of people."
+            : "Crawlers are included."}
         </p>
         {report.visits.totalPageViews === 0 ? (
           <p className="vt-dev-caption">No page loads counted yet in this window.</p>
@@ -222,7 +237,27 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
-            <h3>Most-loaded pages</h3>
+            {history && report.visits.days && (
+              <>
+                <h3>By day</h3>
+                <div className="vt-dev-table-wrap">
+                  <table className="vt-dev-table">
+                    <thead><tr><th>Day</th><th>Visitors</th><th>In browsers</th><th>Page loads</th></tr></thead>
+                    <tbody>
+                      {[...report.visits.days].reverse().slice(0, 14).map((d) => (
+                        <tr key={d.day}>
+                          <td>{d.day}</td>
+                          <td>{d.capped ? "≥ " : ""}{d.uniques.toLocaleString()}</td>
+                          <td>{d.capped ? "≥ " : ""}{d.browserUniques.toLocaleString()}</td>
+                          <td>{d.views.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            <h3>Most-loaded pages{history ? " (last 7 days)" : ""}</h3>
             <div className="vt-dev-table-wrap">
               <table className="vt-dev-table">
                 <thead><tr><th>Page</th><th>Loads</th></tr></thead>

@@ -30,6 +30,7 @@ import path from "path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { analyticsSnapshot, type AnalyticsSnapshot } from "./requestLog";
 import { archiveBaseDir } from "./datacoreArchive";
+import { visitHistorySnapshot, type VisitHistorySnapshot } from "./visitHistory";
 
 export interface AccountEntry {
   email: string;
@@ -54,13 +55,34 @@ export interface WaitlistEntry {
   source: string;
 }
 
+export interface VisitDay {
+  day: string;
+  views: number;
+  uniques: number;
+  /** page loads / visitors whose user agent classifies as a browser —
+   *  declared bots, headless browsers and scripts excluded. */
+  browserViews: number;
+  browserUniques: number;
+  /** the day hit visitHistory's unique cap: "at least" this many. */
+  capped: boolean;
+}
+
 export interface VisitSummary {
-  /** ISO time this process started — the counters' window begins here. */
+  /** "history": visitHistory.ts's persisted daily ledger (survives
+   *  deploys). "memory": requestLog's counters since this process started
+   *  (the fallback when the ledger isn't running). */
+  source: "history" | "memory";
+  /** ISO start of the window the numbers cover. */
   since: string;
   totalPageViews: number;
   uniquesToday: number;
+  /** newest VISIT_REPORT_DAYS days */
   uniquesByDay: Record<string, number>;
+  /** history: summed over the newest TOP_PAGES_DAYS days; memory: since restart. */
   topPages: Array<{ route: string; count: number }>;
+  /** history only — newest VISIT_REPORT_DAYS days, oldest first. */
+  days?: VisitDay[];
+  browserUniquesToday?: number;
 }
 
 export interface SiteReport {
@@ -94,11 +116,48 @@ export interface SiteReportAggregate {
 
 const DAY_MS = 86_400_000;
 
-export const SITE_REPORT_NOTES = [
-  "Visits are in-memory counters since `visits.since` (every deploy resets them); they count full page loads, not in-app navigation, and include crawlers.",
-  "Visitors are anonymous by design: IPs are salted and hashed before they are counted, so no visit can be tied to a person.",
-  "The owner account is created automatically at startup and is not counted as a signup.",
-];
+/** Tally maps have no prototype: waitlist `source` is user-supplied (POST
+ *  /api/waitlist), so a key like "constructor" or "__proto__" must count as
+ *  a plain key, not resolve to Object.prototype. */
+const tally = (): Record<string, number> => Object.create(null);
+function bump(m: Record<string, number>, k: string) { m[k] = (m[k] ?? 0) + 1; }
+
+export const VISIT_REPORT_DAYS = 30;
+export const TOP_PAGES_DAYS = 7;
+
+export function siteReportNotes(source: VisitSummary["source"]): string[] {
+  return [
+    source === "history"
+      ? "Visits come from a daily ledger that survives deploys, recording since `visits.since` (nothing earlier exists). Each day counts full page loads, not in-app navigation; the browser figures exclude declared bots, headless browsers and scripts."
+      : "Visits are in-memory counters since `visits.since` (every deploy resets them); they count full page loads, not in-app navigation, and include crawlers.",
+    "Visitors are anonymous by design: IPs are salted and hashed before they are counted, so no visit can be tied to a person.",
+    "The owner account is created automatically at startup and is not counted as a signup.",
+  ];
+}
+
+function visitsFromHistory(h: VisitHistorySnapshot, now: number): VisitSummary {
+  const keys = Object.keys(h.days).sort();
+  const recent = keys.slice(-VISIT_REPORT_DAYS);
+  const today = h.days[new Date(now).toISOString().slice(0, 10)];
+  const routes = tally();
+  for (const d of keys.slice(-TOP_PAGES_DAYS)) {
+    for (const [r, n] of Object.entries(h.days[d].routes)) routes[r] = (routes[r] ?? 0) + n;
+  }
+  return {
+    source: "history",
+    since: h.recordingSince,
+    totalPageViews: keys.reduce((sum, d) => sum + h.days[d].views, 0),
+    uniquesToday: today?.uniques ?? 0,
+    browserUniquesToday: today?.browserUniques ?? 0,
+    uniquesByDay: Object.fromEntries(recent.map((d) => [d, h.days[d].uniques])),
+    topPages: Object.entries(routes).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([route, count]) => ({ route, count })),
+    days: recent.map((d) => ({
+      day: d, views: h.days[d].views, uniques: h.days[d].uniques,
+      browserViews: h.days[d].browserViews, browserUniques: h.days[d].browserUniques,
+      capped: !!h.days[d].uniquesCapped,
+    })),
+  };
+}
 
 function readWaitlist(archiveBase: string): WaitlistEntry[] {
   const dir = path.join(archiveBase, "waitlist");
@@ -144,12 +203,24 @@ export function buildSiteReport(db: DatabaseType, opts: {
   analytics: AnalyticsSnapshot;
   processStartMs: number;
   now: number;
+  /** visitHistory.ts's ledger when it is running; null -> in-memory counters. */
+  history?: VisitHistorySnapshot | null;
 }): SiteReport {
   const users = db.prepare(
     "SELECT id, email, role, tier, subscription_status, created_at FROM users ORDER BY created_at, id",
   ).all() as Array<{ id: number; email: string; role: string | null; tier: string | null; subscription_status: string | null; created_at: string }>;
   const keys = apiKeyUse(db);
   const recent = recentSessionUsers(db, opts.now);
+  const visits: VisitSummary = opts.history
+    ? visitsFromHistory(opts.history, opts.now)
+    : {
+        source: "memory",
+        since: new Date(opts.processStartMs).toISOString(),
+        totalPageViews: opts.analytics.totalPageViews,
+        uniquesToday: opts.analytics.uniquesToday,
+        uniquesByDay: opts.analytics.uniquesByDay,
+        topPages: opts.analytics.topRoutes,
+      };
   const accounts: AccountEntry[] = users.map((u) => ({
     email: u.email,
     joinedAt: u.created_at,
@@ -165,22 +236,11 @@ export function buildSiteReport(db: DatabaseType, opts: {
     generatedAt: new Date(opts.now).toISOString(),
     accounts,
     waitlist: readWaitlist(opts.archiveBase),
-    visits: {
-      since: new Date(opts.processStartMs).toISOString(),
-      totalPageViews: opts.analytics.totalPageViews,
-      uniquesToday: opts.analytics.uniquesToday,
-      uniquesByDay: opts.analytics.uniquesByDay,
-      topPages: opts.analytics.topRoutes,
-    },
-    notes: [...SITE_REPORT_NOTES],
+    visits,
+    notes: siteReportNotes(visits.source),
   };
 }
 
-/** Tally maps have no prototype: waitlist `source` is user-supplied (POST
- *  /api/waitlist), so a key like "constructor" or "__proto__" must count as
- *  a plain key, not resolve to Object.prototype. */
-const tally = (): Record<string, number> => Object.create(null);
-function bump(m: Record<string, number>, k: string) { m[k] = (m[k] ?? 0) + 1; }
 
 /** Per-day maps keep the newest AGGREGATE_DAY_CAP days (totals stay
  *  all-time): sanitizeDiag keeps an object's FIRST 100 keys, which for an
@@ -232,5 +292,6 @@ export function liveSiteReport(db: DatabaseType, now = Date.now()): SiteReport {
     analytics: analyticsSnapshot(now),
     processStartMs: now - Math.round(process.uptime() * 1000),
     now,
+    history: visitHistorySnapshot(),
   });
 }
