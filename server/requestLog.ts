@@ -14,6 +14,7 @@
 
 import crypto from "crypto";
 import type { Request, Response, NextFunction } from "express";
+import { recordDailyVisit } from "./visitHistory";
 
 // Salt for IP hashing. A per-process random salt by default means hashes are
 // NOT stable across restarts (extra privacy); set REQUEST_LOG_IP_SALT to a
@@ -197,7 +198,8 @@ export function _resetRequestLog() {
 export function requestLog() {
   return function requestLogMw(req: Request, res: Response, next: NextFunction) {
     const start = Date.now();
-    const ipHash = hashIp(req.ip || req.socket?.remoteAddress || undefined);
+    const rawIp = req.ip || req.socket?.remoteAddress || undefined;
+    const ipHash = hashIp(rawIp);
     const uaClass = classifyUa(req.headers["user-agent"]);
     res.on("finish", () => {
       const rec: RequestRecord = {
@@ -216,6 +218,9 @@ export function requestLog() {
       pushRecord(rec);
       if (isPageView(rec.method, rec.route) && rec.status < 400) {
         recordPageView(rec.route, ipHash, rec.t);
+        // Persisted daily ledger (visitHistory.ts): the raw IP only seeds
+        // that day's salted hash there and is never stored.
+        recordDailyVisit(rawIp, uaClass, rec.route, rec.t);
       }
     });
     next();

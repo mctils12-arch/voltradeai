@@ -250,9 +250,16 @@ const FIXTURES = {
     ],
     waitlist: [{ at: 1783236000000, email: "dev.fixture@example.net", source: "developers" }],
     visits: {
-      since: "2026-10-13T03:40:00.000Z", totalPageViews: 412, uniquesToday: 37,
+      source: "history", since: "2026-10-09T00:02:00.000Z", totalPageViews: 412, uniquesToday: 37, browserUniquesToday: 22,
       uniquesByDay: { "2026-10-09": 18, "2026-10-10": 25, "2026-10-11": 12, "2026-10-12": 41, "2026-10-13": 37 },
       topPages: [{ route: "/", count: 260 }, { route: "/app", count: 94 }, { route: "/developers", count: 41 }, { route: "/pricing", count: 17 }],
+      days: [
+        { day: "2026-10-09", views: 52, uniques: 18, browserViews: 30, browserUniques: 9, capped: false },
+        { day: "2026-10-10", views: 77, uniques: 25, browserViews: 51, browserUniques: 14, capped: false },
+        { day: "2026-10-11", views: 31, uniques: 12, browserViews: 15, browserUniques: 6, capped: false },
+        { day: "2026-10-12", views: 140, uniques: 41, browserViews: 96, browserUniques: 26, capped: false },
+        { day: "2026-10-13", views: 112, uniques: 37, browserViews: 70, browserUniques: 22, capped: false },
+      ],
     },
     notes: ["fixture"],
   },

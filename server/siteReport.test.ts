@@ -10,7 +10,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { buildSiteReport, aggregateSiteReport, AGGREGATE_DAY_CAP, SITE_REPORT_NOTES } from "./siteReport";
+import { buildSiteReport, aggregateSiteReport, AGGREGATE_DAY_CAP, siteReportNotes, VISIT_REPORT_DAYS, TOP_PAGES_DAYS } from "./siteReport";
+import type { VisitHistorySnapshot } from "./visitHistory";
 import type { AnalyticsSnapshot } from "./requestLog";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,8 @@ test("buildSiteReport: accounts in join order, owner flagged, key use + 24h sign
   assert.equal(r.visits.since, new Date(NOW - 7_200_000).toISOString());
   assert.equal(r.visits.totalPageViews, 42);
   assert.deepEqual(r.visits.topPages, ANALYTICS.topRoutes);
-  assert.deepEqual(r.notes, SITE_REPORT_NOTES);
+  assert.equal(r.visits.source, "memory", "no ledger running -> the in-memory counters");
+  assert.deepEqual(r.notes, siteReportNotes("memory"));
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -168,4 +170,36 @@ test("wiring: emails only behind the owner login; the diag probe returns the agg
   const block = bot.slice(start, end);
   assert.ok(block.includes("aggregateSiteReport(") && block.includes("sanitizeDiag("), "probe must return the sanitized aggregate");
   assert.ok(!/res\.json\(\s*(sanitizeDiag\(\s*)?(liveSiteReport|buildSiteReport)\(/.test(block), "probe must never return the full report");
+});
+
+test("visits come from the persisted ledger when it runs: window, today, browser subset, top pages over the newest days", () => {
+  const db = makeDb();
+  const base = makeArchive(null);
+  const days: VisitHistorySnapshot["days"] = {};
+  const start = Date.parse("2026-09-01T12:00:00Z");
+  for (let i = 0; i < VISIT_REPORT_DAYS + 13; i++) {        // 2026-09-01 .. 2026-10-13
+    const d = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+    days[d] = { views: 10, uniques: 4, browserViews: 6, browserUniques: 3, routes: { "/": 7, [`/only-${d}`]: 3 } };
+  }
+  days["2026-10-13"] = { views: 50, uniques: 20, browserViews: 30, browserUniques: 12, routes: { "/": 40, "/developers": 10 }, uniquesCapped: true };
+  const history: VisitHistorySnapshot = { recordingSince: "2026-09-01T11:59:00.000Z", days };
+  const r = buildSiteReport(db, { archiveBase: base, analytics: ANALYTICS, processStartMs: NOW, now: NOW, history });
+  const v = r.visits;
+  assert.equal(v.source, "history");
+  assert.equal(v.since, history.recordingSince, "the window is the ledger's, not this process's");
+  assert.equal(v.uniquesToday, 20);
+  assert.equal(v.browserUniquesToday, 12);
+  assert.equal(v.totalPageViews, 10 * (VISIT_REPORT_DAYS + 12) + 50, "all recorded days");
+  assert.equal(Object.keys(v.uniquesByDay).length, VISIT_REPORT_DAYS);
+  assert.equal(v.days!.length, VISIT_REPORT_DAYS);
+  assert.equal(v.days![v.days!.length - 1].day, "2026-10-13");
+  assert.equal(v.days![v.days!.length - 1].capped, true);
+  assert.equal(v.topPages[0].route, "/");
+  assert.equal(v.topPages[0].count, 7 * (TOP_PAGES_DAYS - 1) + 40, "summed over the newest TOP_PAGES_DAYS days only");
+  assert.ok(!v.topPages.some((p) => p.route === "/only-2026-09-01"), "older days don't reach top pages");
+  assert.deepEqual(r.notes, siteReportNotes("history"));
+  const agg = aggregateSiteReport(r);
+  assert.equal(agg.visits.source, "history");
+  assert.ok(!JSON.stringify(agg).includes("@"));
+  fs.rmSync(base, { recursive: true, force: true });
 });
