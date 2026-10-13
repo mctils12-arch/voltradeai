@@ -107766,3 +107766,12 @@ CHANGE: airLayer shader + flightTrackLayer marker shader: nose = normalized scre
 VERIFIED: browser before/after (new build: noses on their paths at pitch 70/bearing 60 and pitch 75/bearing -35; side view: climber nose-up, level flat, descender nose-down). Tests: airLayer +4 (climbRatio, climb packing, shader path contract, fallback-frame == old rotation), flightTrackLayer marker contract, aircraftTiling + openskyGlobal vertical-rate mapping; existing displayAlt test's hardcoded stride offsets now read AIR_INST_STRIDE (same rows, same values). Law IV budget re-checked: 25k x 9 x 4B = 900 KB < 4 MB.
 BIAS/RISK: display only; no trading path, no measurement code. One extra projection per vertex (cheap). ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-13 (scheduled-routine session, ~20:30Z, Tuesday evening) [NO-ACTION] — health green; shadow-band step (a) read live but data not yet mature
+
+Loop-health ratio: research_state_check reports 4/10 REPAIR (<7, no thrash). Raw tag count of the last 10 headers is 8 REPAIR, but they are the planned 7-item rule-conflict sweep (#1 of 7 .. 7/7, each with a CI invariant/regression test, root cause recorded in the 10-13 GLD entry) plus the aircraft-nose repair — a closed, ratcheted series, not a recurring-break generator. No new break found today.
+Live (20:17Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, DD -7.7%, feeds not dead, process faults 0. session_health_check all OK except known daemon_memory WARN (413MB >= 400MB trim, advisory); server_version 1.0.1062 matches checkout.
+STEP (a) READ (PRIOR: action-tagged BUY records start to appear in decision_x_action): /api/diag/shadow_bands shows EVERY labeled record still `unrecorded` (taken n=7308, rejected_score n=8290 at +5d, etc.). Cause is maturity, not a tagging bug as far as can be told: backfill_outcomes requires int(horizon*HORIZON_CALENDAR_BUFFER)+1 calendar days (>= 8 for +5d) after the record timestamp, so the first records tagged on 2026-10-06 (v1.0.1032) cannot be labeled before ~2026-10-14, and the labeler caps at 500 records/call so a backlog of older records may queue them further. No inference possible from zero tagged outcomes.
+NEXT: first session on/after 2026-10-16 re-runs step (a); if decision_x_action still shows no non-`unrecorded` key by then, check the backfill ordering (older-first backlog starving tagged records) as a [REPAIR]. Steps (b)/(c) stay sequenced after (a). COT gate-2 15th report 2026-10-16.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
