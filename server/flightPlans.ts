@@ -97,6 +97,12 @@ export interface FlightPlanResponse {
    *  never drives deviation). scripts/flightplan_gate1.py compares it with the direct-fix baseline
    *  before the resolver may be wired into placement. */
   radialShadow?: { crossTrackNm: number | null; radialTokens: number; pointCount: number };
+  /** additive (2026-10-13), FILED_FAA only: the plan's own history as SWIM reported it. `amendments`
+   *  counts route/destination/cruise changes seen since we first held the plan; `planFirstSeenMs` is
+   *  when we first saw it (a lower bound on plan age — `ageSec` above is the read age and carries no
+   *  plan-age information); `swimMessageMs` is the latest SWIM message timestamp. Lets
+   *  scripts/flightplan_gate1.py test whether the cross-track tail follows amended/old plans. */
+  planHistory?: { amendments: number; planFirstSeenMs: number; swimMessageMs: number | null };
 }
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -867,6 +873,7 @@ interface Candidate {
   /** REPORT-ONLY gate-1 shadow (v1.0.1037): the polyline the radial-token resolver WOULD place for a
    *  route-text-only plan. Never drawn, never used for deviation state. */
   radialShadow?: { points: LatLon[]; radialTokens: number };
+  planHistory?: { amendments: number; planFirstSeenMs: number; swimMessageMs: number | null };
   honesty: string;
 }
 
@@ -933,6 +940,7 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     pathEstimated,
     ...(!pathEstimated && p.routeKind ? { routeKind: p.routeKind } : {}),
     ...(radialShadow ? { radialShadow } : {}),
+    planHistory: { amendments: p.amendments, planFirstSeenMs: p.firstSeen, swimMessageMs: p.timestamp },
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
       (!pathEstimated && p.routeKind === "radial" ? "; some route points are INFERRED from fix-radial-distance tokens using the navaid's filed magnetic variation (typically within a few NM, not a surveyed fix)" : "") +
@@ -1159,6 +1167,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     pathEstimated: cand.pathEstimated,
     routeKind: cand.source === "FILED_FAA" && !cand.pathEstimated ? (cand.routeKind ?? null) : null,
     terminalVectoring,
+    ...(cand.planHistory ? { planHistory: cand.planHistory } : {}),
     ...(cand.radialShadow ? {
       radialShadow: {
         crossTrackNm: pos ? radialShadowXt(pos, cand.radialShadow.points) : null,

@@ -82,3 +82,9 @@ def test_tail_by_group_splits_dedupes_and_ignores_unmeasured():
     assert r["amended=no"]["n"] == 2 and r["amended=no"]["tail"] == 0
     assert r["age=>60m"]["n"] == 2 and r["age=<10m"]["n"] == 1
     assert "kind=direct" not in r
+
+
+def test_plan_meta_prefers_planhistory_for_real_plan_age():
+    plan = {"honesty": "x", "ageSec": 0, "fetchedAt": 1_700_000_600_000,
+            "planHistory": {"amendments": 2, "planFirstSeenMs": 1_700_000_000_000, "swimMessageMs": None}}
+    assert g1.plan_meta(plan) == (2, 600)

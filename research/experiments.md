@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-13 (scheduled-routine session, Tue) [PIPELINE] — T-DATACORE (server/flightPlans.ts + tests + scripts/flightplan_gate1.py; v1.0.1053) — FLIGHT-PLAN RESPONSE NOW EXPOSES PLAN HISTORY (amendments, first-seen, SWIM message time)
+
+HEALTH: session_health_check all OK (v1.0.1052 live = checkout; WARN daemon rss 401MB advisory); thrash 3/10; no audit overdue; STARVED streak 0.
+WHY: the previous entry found the amendment/plan-age tail hypothesis untestable (ageSec is read age, ~0; amendments only in prose). This is the filed next step.
+CHANGE: additive `planHistory {amendments, planFirstSeenMs, swimMessageMs}` on FILED_FAA plan responses (from the stored SWIM plan; no new data, no placement or deviation change). gate1's `plan_meta` prefers it (age = read time - first-seen, a lower bound on plan age) and falls back to the old honesty parse. Tests: new filedCandidate planHistory test, gate1 plan_meta test, CONTRACT_KEYS check extended exactly (FILED_FAA adds planHistory; no assertion weakened).
+PRIOR (for the next gate-1 run, unchanged from the 02:45Z entry): amended plans show >=2x the tail rate of never-amended; older plans (first-seen >60m) show a higher tail rate.
+NEXT: after deploy, run `flightplan_gate1.py` and `--tail` across runs; expect age buckets to vary now. Judge only with hex-deduped, pooled runs.
+EFFECT: no trading path, no measurement-engine change. ROLLBACK: git revert. MERGE: any time CI green.
+STARVED: no.
+
 ## 2026-10-13 (scheduled-routine EDGE session, ~02:45Z Tue, after hours) [RESEARCH] — T-DATACORE (scripts/flightplan_gate1.py + test, docs/data; no code_version change) — AXIS (d): COMPILED THE FLIGHTPLAN TAIL DIAGNOSIS; AMENDMENT/PLAN-AGE HYPOTHESIS IS UNTESTABLE ON CURRENT FIELDS
 
 HEALTH: session_health_check + research_state_check all OK (v1.0.1049 live = checkout); thrash 4/10; no audit overdue; only KNOWN BROKEN #44 (FROZEN Dockerfile, proposal filed). Not a REPAIR session.

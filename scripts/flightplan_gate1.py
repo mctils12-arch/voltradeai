@@ -110,6 +110,12 @@ def plan_meta(plan):
     """(amendments, ageSec) of a plan response. Amendments are not a JSON
     field; the server states them in `honesty` ("amended N×"). ageSec is
     seconds since the SWIM message was last updated."""
+    ph = (plan or {}).get("planHistory")
+    if ph and ph.get("planFirstSeenMs") and (plan or {}).get("fetchedAt") is not None:
+        # v1.0.1053+: real plan history. Age = read time minus when we first held the plan
+        # (lower bound on plan age; ageSec is read age and is always ~0 here).
+        read_ms = plan["fetchedAt"] + (plan.get("ageSec") or 0) * 1000
+        return int(ph.get("amendments") or 0), max(0, round((read_ms - ph["planFirstSeenMs"]) / 1000))
     m = re.search(r"amended (\d+)", (plan or {}).get("honesty") or "")
     return (int(m.group(1)) if m else 0), (plan or {}).get("ageSec")
 

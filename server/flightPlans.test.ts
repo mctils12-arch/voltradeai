@@ -385,7 +385,8 @@ const CONTRACT_KEYS = [
 ].sort();
 
 function assertContract(r: FlightPlanResponse) {
-  assert.deepEqual(Object.keys(r).sort(), CONTRACT_KEYS);
+  // planHistory (v1.0.1053) is additive and present exactly on FILED_FAA plans
+  assert.deepEqual(Object.keys(r).sort(), r.source === "FILED_FAA" ? [...CONTRACT_KEYS, "planHistory"].sort() : CONTRACT_KEYS);
   assert.ok(["FILED_FAA", "ROUTE_DB_PREDICTED", "HISTORY_PREDICTED", "NONE"].includes(r.source));
   assert.equal(typeof r.label, "string");
   assert.equal(typeof r.honesty, "string");
@@ -673,4 +674,16 @@ test("filedCandidate: radial-resolvable route text adds a REPORT-ONLY shadow, pl
   assert.ok(c.radialShadow!.points.length >= 4, "airports bracket the shadow polyline like the direct baseline");
   // no radial token => no shadow (pure-direct plans are already placed elsewhere)
   assert.equal(filedCandidate(mk("KBOS..KATL"), resolve)!.radialShadow, undefined);
+});
+
+test("filedCandidate: planHistory exposes amendments, first-seen and SWIM message time (additive, FILED only)", () => {
+  const ap = (icao: string, lat: number, lon: number) => ({ icao, iata: null, name: icao, lat, lon, elevM: 0 });
+  const refs: Record<string, ReturnType<typeof ap>> = { KBOS: ap("KBOS", 42.36, -71.0), KATL: ap("KATL", 33.64, -84.43) };
+  const plan: StoredSwimPlan = {
+    key: "k", gufi: null, callsign: "UAL1", departure: "KBOS", arrival: "KATL", cruiseAltFt: 36000, routeText: "KBOS..KATL",
+    route: new Float32Array(0), routeNames: "", messageType: null, flightStatus: null, timestamp: 1_700_000_500_000,
+    departureTime: null, firstSeen: 1_700_000_000_000, updatedAt: 1_700_000_600_000, amendments: 2,
+  };
+  const c = filedCandidate(plan, (id) => (id ? refs[id] ?? null : null))!;
+  assert.deepEqual(c.planHistory, { amendments: 2, planFirstSeenMs: 1_700_000_000_000, swimMessageMs: 1_700_000_500_000 });
 });
