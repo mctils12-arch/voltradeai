@@ -38,7 +38,7 @@ export default function CareersPage() {
           Send your background, work you're proud of, and what you'd want to do here.
         </p>
         <a
-          href="mailto:careers@voltradeai.com"
+          href="mailto:hello@voltradeai.com?subject=Careers%20at%20VolTradeAI"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -52,7 +52,7 @@ export default function CareersPage() {
             gap: 6,
           }}
         >
-          careers@voltradeai.com →
+          hello@voltradeai.com →
         </a>
       </section>
     </MarketingPage>

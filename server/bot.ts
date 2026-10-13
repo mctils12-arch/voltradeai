@@ -17,6 +17,7 @@ import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
+import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { loadGnssIntegrityDailyArchive } from "./gnssIntegrityDaily";
@@ -800,7 +801,7 @@ async function sendEmailAlert(subject: string, body: string) {
       method: "POST",
       headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "VolTradeAI <onboarding@resend.dev>",
+        from: EMAIL_FROM,
         to: [ALERT_EMAIL],
         subject: `[VolTradeAI] ${subject}`,
         html: `<div style="font-family:monospace;background:#0a0a0a;color:#00ffd5;padding:20px;border-radius:8px;">

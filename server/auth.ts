@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
+import { EMAIL_FROM } from "./emailSender";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const OWNER_EMAIL = process.env.OWNER_EMAIL || "mctils12@gmail.com";
@@ -274,7 +275,7 @@ export function registerAuthRoutes(app: Express) {
           method: "POST",
           headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            from: "VolTradeAI <onboarding@resend.dev>",
+            from: EMAIL_FROM,
             to: email,
             subject: "Welcome to VolTradeAI",
             html: `<h2>Welcome to VolTradeAI</h2><p>Your account has been created successfully.</p><p>You can now save your watchlists and access all features at <a href="https://voltradeai.com">voltradeai.com</a></p>`,
@@ -361,7 +362,7 @@ export function registerAuthRoutes(app: Express) {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              from: "VolTradeAI <onboarding@resend.dev>",
+              from: EMAIL_FROM,
               to: email,
               subject: "Password Reset — VolTradeAI",
               html: `<p>Click this link to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour.</p>`,
