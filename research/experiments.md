@@ -107475,3 +107475,14 @@ TESTS: 5 new (all fail on the old code, pass on the fix; reviewer
 re-verified in a scratch copy). Built in an isolated worktree, approved by
 an adversarial reviewer, then read and approved by this session.
 STARVED: no.
+
+## 2026-10-13 (scheduled-routine session, ~16:05Z, Tuesday midday) [NO-ACTION] — health green; F2 (floor regime dwell) not startable on current evidence
+
+Loop-health ratio (last 10 tags): 4 REPAIR (<7) — no thrash.
+Live (16:05Z): session_health_check all OK except advisory WARNs — daemon rss 439MB (>= 400MB trim, advisory) and deploy_freshness (live 1.0.1053 vs checkout 1.0.1054: normal post-merge deploy lag for #1309, not a freeze; deploy_gate 2xx, outage_duration clean). Liveness not dark.
+QUEUE HEAD: sweep item F2 (floor regime dwell; #2 of 7 from the 10-13 rule-conflict sweep). The sweep's per-defect detail was never filed — only the one-line index in the #1309 entry — so F2's claim cannot be re-read. Re-derived from code: _manage_spy_floor consumes get_market_regime/classify_regime_5level with no dwell/hysteresis, and the basket path is guarded only by FLOOR_BASKET_DRIFT_THRESHOLD (3% of equity), so a regime flapping near a threshold can move targets back and forth. Whether it DOES flap live is unmeasured: /api/diag/audit has no floor-regime entries and voltrade_floor_state.json stores only last_regime (no history).
+WHY NOT SHIPPED: a regime dwell is a trading-rule threshold change; RULE REVIEW requires counterfactual data or a backtest ablation, and backtest_v2 does not model the floor. Shipping on an unverified, unrecorded claim mid-session would break attribution.
+PRIOR (stated before measuring): regime flips for the floor are infrequent (<1/week) and the 10-12 QQQ churn was GLD/third-leg-driven (fixed #1309), so F2 may be moot.
+NEXT (queue-head, own PR): add a regime-transition log (append {ts, regime, target_pct} to the floor state on change) so F2 can be judged on observed flip frequency; only then decide on dwell. Also: file F2-F7 detail in open_questions.md next session that has the sweep text.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: yes (F2-F7 queued, blocked on evidence/recorded detail).
