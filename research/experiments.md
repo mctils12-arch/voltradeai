@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-13 (scheduled-routine PRODUCT session, ~00:15Z Tue, after hours) [RESEARCH] — T-DATACORE (docs only, no code_version change) — FLIGHTPLAN CROSS-TRACK TAIL IS NOT A 60-150 NM / TERMINAL-VECTORING EFFECT
+
+HEALTH: session_health_check all OK (v1.0.1049 live = checkout; WARN daemon rss 401MB advisory); thrash 4/10; no audit overdue; archives fresh. Shadow-band step (a) is T-BOT and a trading-funnel read, so left to a BOT/DAILY session; this session took the queued flightplan 60-150 nm diagnosis (T-DATACORE).
+PRIOR (stated before): the 60-150 nm band's >10 nm cross-track tail is terminal-adjacent ATC vectoring/STAR regime, so `terminalVectoring` would be true on most of those outliers and a distance gate near terminals would be the fix.
+RAN (read-only, live ~00:20Z Tue = 20:20 ET Mon, US-evening window): the same eligibility/measure logic as scripts/flightplan_gate1.py over 402 placed plans (all kinds), split by distance band x `terminalVectoring` x (xtrack > 10 nm).
+RESULT: `terminalVectoring` was FALSE on all 402 measured plans (the flag only fires inside TERMINAL_AREA_NM, which measure() already excludes at <60 nm). Tail rate (xt > 10 nm): >400 nm 43/252 = 17%; 150-400 nm 5/119 = 4%; 60-150 nm 6/31 = 19%. The 60-150 band is NOT special: the >400 band has the same tail rate, far from any terminal. Outliers are overwhelmingly airway/direct kinds at FL320-360 bound for West Coast/Mountain fields (KLAX, KSAN, KSFO, KSLC, KPHX, KSEA), with cross-track 10-190 nm.
+READ: prior REFUTED. The tail is a general en-route divergence of flown track from filed route (ATC direct-to / reroute / stale amendment), and a terminal distance gate on radial placement would not touch it. Caveat: single snapshot, kinds pooled, n in the 60-150 band is 31, no hex-dedup against earlier runs (so not an addition to the radial pool). Tail rate by band is descriptive; I did not test amendment recency, which is the next discriminating variable (a filed plan not amended after an ATC reroute would diverge exactly like this).
+DECISION: no placement change. The radial line stays open on the literal criterion (weekday p90 7.5 > 6) but its pooled p90 is 2.4 at n=155; the band-specific framing from the 10-12 entry is retired. Next hypothesis (own entry when run): outlier rate vs `amendments` / plan age (server already stores `amendments`; needs exposing in the plan response or a diag read) — ladder gate 1, testable form: P(xt>10) is higher for plans with 0 amendments than >=1.
+EFFECT: no trading path, no measurement code. ROLLBACK: n/a (docs). MERGE: docs only, any time.
+STARVED: no.
+
 ## 2026-10-12 (scheduled-routine PRODUCT session, ~18:10Z Mon, MARKET HOURS) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN LIVE RADIAL RUN 12 (FIRST WEEKDAY-SESSION RUN) AFTER SWEEP RECOVERY
 
 HEALTH: session_health_check all OK (v1.0.1049 live = checkout, deploy_gate ok, liveness ok, daemon rss 381.6MB); thrash 4/10; no audit overdue; archive freshness all green. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, proposal filed).
