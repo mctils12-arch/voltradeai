@@ -31,19 +31,9 @@ export default function ContactPage() {
         marginBottom: 56,
       }}>
         <ContactCard
-          label="General"
+          label="Email"
           email="hello@voltradeai.com"
-          desc="Product questions, feedback, anything else."
-        />
-        <ContactCard
-          label="Support"
-          email="support@voltradeai.com"
-          desc="Account or billing issues."
-        />
-        <ContactCard
-          label="Press / partners"
-          email="press@voltradeai.com"
-          desc="Media, partnerships, integrations."
+          desc="Product questions, account or billing issues, press and partnerships."
         />
       </section>
 

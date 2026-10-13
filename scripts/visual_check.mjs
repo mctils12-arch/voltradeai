@@ -217,6 +217,11 @@ const PAGES = {
   // fixture defaults to authenticated:false, so this exercises the
   // logged-out "log in to manage keys" state — the most common visitor.
   apikeys: { route: "/apikeys", map: false },
+  // Contact + Careers (2026-10-13): the site's public email addresses were
+  // consolidated to hello@voltradeai.com; registered so the one-card Contact
+  // layout passes 390/768/1440 like every other page.
+  contact: { route: "/contact", map: false },
+  careers: { route: "/careers", map: false },
   // Owner signups & visits (2026-10-13, human-directed) — same Phase 5
   // ratchet rule. The page takes its state from /api/admin/site-report
   // alone, so the harness renders the populated owner view (fixture

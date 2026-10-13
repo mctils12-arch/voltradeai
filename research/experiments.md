@@ -107735,3 +107735,12 @@ constant, daily reset). Worktree-built, approved by the adversarial
 reviewer; read and approved by this session. Full Node suite with PRs 3-7
 stacked: 2,377/2,377.
 STARVED: no.
+
+## 2026-10-13 (human-directed session, ~17:10Z) [PRODUCT] — site email identity: send from noreply@voltradeai.com, contact via hello@ (server/emailSender.ts + test; server/auth.ts [FROZEN — explicit human instruction], server/bot.ts; client contact/careers pages; harness pages) (v1.0.1061)
+
+TRIGGER: welcome and password-reset mail went out from Resend's TEST sender (onboarding@resend.dev), which only delivers to the Resend account owner — no user could ever receive them (Resend docs: knowledge-base/403-error-resend-dev-domain). The human verified voltradeai.com in Resend today (send MX/TXT added at Namecheap; DKIM already present; Mail Settings moved to Custom MX with the five eforward @ records re-added) and chose noreply@voltradeai.com, plus "change up the emails on the website to match" -> hello@ for everything (answered in-session).
+CHANGE: server/emailSender.ts EMAIL_FROM = "VolTradeAI <noreply@voltradeai.com>"; auth.ts (2 sends) and bot.ts (owner alert) use it. auth.ts is a FROZEN PATH: edited only the two `from` values + one import, under the human's explicit instruction ("noreply@voltradeai.com do this one") — HUMAN SOVEREIGNTY clause. Contact page: three cards (hello@/support@/press@) -> one hello@ card; Careers: careers@ -> hello@ (subject prefilled "Careers at VolTradeAI").
+TESTS: emailSender.test.ts 3 — the 2 behavioural ones FAIL on the main versions of the 4 files ("auth.ts still sends from Resend's test address", "contact.tsx must not show support@") and pass after. Harness gains contact + careers pages; --page contact / --page careers PASS at 390/768/1440, screenshots reviewed.
+RISK: if the domain is not yet Verified in Resend when this deploys, sends fail until it is (no worse than today for users; owner alerts would pause briefly). FOLLOW-UP for the human: Namecheap forwarding must actually route hello@ (test email), and the root SPF TXT dropped by the Custom MX switch should be re-added.
+ROLLBACK: git revert.
+STARVED: no.
