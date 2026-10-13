@@ -48,6 +48,7 @@ import { healthHttpCode, servingVerdict } from "./healthGate";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
+import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -3742,6 +3743,12 @@ print(json.dumps(result[:20]))
     // specifically. Absent on non-exit orders and anything not yet
     // migrated to this contract.
     pendingExitFill?: Omit<ExitFillArgs, "fillPrice" | "qty">;
+    // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: set only by the tier
+    // dispatcher's SELL_CSP branch — the underlying whose cash-secured put
+    // this order opens. When sweepStaleOrders() confirms the cancel it
+    // records this underlying in sweptCspAt so the dispatcher stops
+    // re-submitting the same non-marketable limit every scan.
+    cspUnderlying?: string;
   }
   const openOrders: TrackedOrder[] = [];
 
@@ -3758,6 +3765,16 @@ print(json.dumps(result[:20]))
 
   // ── Stale Order Sweeper ──────────────────────────────────────────────────
   const STALE_ORDER_MINUTES = 12; // cancel unfilled limits after 12 minutes
+  // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: after sweepStaleOrders() cancels
+  // an unfilled SELL_CSP limit, the tier dispatcher skips that underlying for
+  // this long. Reason: live 2026-10-12 the dispatcher re-submitted the same
+  // non-marketable limit on the same underlying every scan (51 canceled
+  // orders in a day) — a submit/cancel loop that never settles and churns an
+  // options slot. Expected effect: at most one CSP attempt per underlying per
+  // hour once a limit has proven non-marketable; no change to fills that do
+  // happen. Reset daily alongside orderAttemptCounts.
+  const SWEPT_CSP_COOLDOWN_MINUTES = 60;
+  let sweptCspAt: Record<string, number> = {};
 
   // KNOWN BROKEN #35 (half two, MEASUREMENT INTEGRITY — fill-recording
   // contract): resolve a tracked exit order's real outcome from Alpaca
@@ -3805,6 +3822,7 @@ print(json.dumps(result[:20]))
       try {
         await alpaca(`/v2/orders/${stale.orderId}`, { method: "DELETE" });
         audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}) — buying power freed`);
+        if (stale.cspUnderlying) sweptCspAt[stale.cspUnderlying] = Date.now();
         // Remove from tracked list
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
@@ -3813,6 +3831,18 @@ print(json.dumps(result[:20]))
           monitoredPositions[stale.ticker].pendingExit = false;
         }
       } catch (e: any) {
+        // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: Alpaca answers a successful
+        // DELETE with 204 No Content, and alpaca() calls r.json() on every
+        // 2xx — so the throw lands HERE after the cancel already succeeded,
+        // and the SWEEP audit above never ran (live 2026-10-12: 0 SWEEP lines
+        // vs 51 canceled orders). alpaca()'s request path is shared with order
+        // POSTs and is left untouched; instead confirm the probable success
+        // with a read-only status GET and write the audit on canceled.
+        const cancel = await confirmCancelAfterDeleteError(e, () => alpaca(`/v2/orders/${stale.orderId}`));
+        if (cancel.confirmed) {
+          audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}, status ${cancel.status}) — buying power freed`);
+          if (stale.cspUnderlying) sweptCspAt[stale.cspUnderlying] = Date.now();
+        }
         // Order may have already filled or been cancelled — resolve which
         // (KNOWN BROKEN #35 half two) before dropping it, so a real fill on
         // a just-cancelled-in-race order isn't silently lost.
@@ -4725,6 +4755,22 @@ print(json.dumps(check_weekly_loss(history)))
             audit("OPTIONS-SLOT-FULL", `${action.ticker}: tier dispatcher skipped SELL_CSP — options slots full (${tierOptionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
             continue;
           }
+          // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: don't re-submit a CSP on an
+          // underlying whose limit was just swept as non-marketable, nor on one
+          // that already has a resting sell-to-open option order — either way
+          // the new order only restarts the submit/cancel loop.
+          if (action.action === "SELL_CSP") {
+            const cspGate = shouldDispatchCsp(action.ticker, {
+              now: Date.now(),
+              sweptAt: sweptCspAt[String(action.ticker).toUpperCase()],
+              openOrders: Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : [],
+              cooldownMinutes: SWEPT_CSP_COOLDOWN_MINUTES,
+            });
+            if (!cspGate.dispatch) {
+              audit("CSP-SKIP", `${action.ticker}: tier dispatcher skipped SELL_CSP — ${cspGate.detail}`);
+              continue;
+            }
+          }
           try {
             // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
             // CSPs are options trades — use the Python options_execution path
@@ -4806,6 +4852,7 @@ else:
                       side: r.side || "sell",
                       qty: Number(r.qty) || 1,
                       limitPrice: Number(r.limit_price) || 0,
+                      cspUnderlying: String(action.ticker).toUpperCase(),
                     });
                   }
                 } else {
@@ -6157,6 +6204,7 @@ print('cleared')
         state.morningQueueExecuted = false;
         // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
         orderAttemptCounts = {};
+        sweptCspAt = {};
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
         try {
