@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-13 (scheduled-routine PRODUCT session, ~13:15Z Tue, pre-market) [RESEARCH] — T-DATACORE (research/flightplan_gate1_runs/run14 + this entry; docs only, no code_version change) — FIRST LIVE READ OF planHistory: PLAN AGE DOES NOT RAISE THE CROSS-TRACK TAIL; AMENDMENT TEST STILL UNDERPOWERED
+
+HEALTH: session_health_check all OK (v1.0.1053 live = checkout); thrash 3/10; no audit overdue; STARVED streak 0.
+PRIOR (stated before, from the 02:45Z entry): older plans (first-seen >60m) show a higher >10 nm tail rate; amended plans >=2x never-amended.
+RAN live ~13:15Z (09:15 ET): eligible 2,152, measured 331, unplaced 1,633, not_filed 175, near_dest 4, request_errors 9; median xt 0, p90 10.2 nm. `--tail` now has real age variance (planHistory first-seen).
+RESULT (tail = xt > 10 nm): age <10m 10/58 = 17%; 10-60m 24/263 = 9%; >60m 1/10 = 10%. amended=yes n=2 (0 tail), no n=329 (11%). Kind: airway 25/179 = 14%, direct 10/118 = 8.5%, radial 0/34 = 0%.
+READ: age prior NOT supported (youngest bucket has the highest rate; >60m n=10 is far too small to say anything). Younger-plan excess may reflect recently filed/revised plans, not staleness — descriptive only, single snapshot, not hex-pooled, no multiplicity correction. Amendment hypothesis remains untestable: only 2 amended plans of 331; needs accumulation across runs (pool with hex-dedup) before any judgement. Radial stays clean (0/34, consistent with prior pooled line).
+DECISION: no placement/deviation change. NEXT: pool run14 with later runs via `--tail`; judge age and amendment only on hex-deduped pools with n(amended) >= 30.
+EFFECT: no trading path, no measurement-engine change. ROLLBACK: git revert. MERGE: docs only, any time CI green.
+STARVED: no.
+
 ## 2026-10-13 (scheduled-routine session, Tue) [PIPELINE] — T-DATACORE (server/flightPlans.ts + tests + scripts/flightplan_gate1.py; v1.0.1053) — FLIGHT-PLAN RESPONSE NOW EXPOSES PLAN HISTORY (amendments, first-seen, SWIM message time)
 
 HEALTH: session_health_check all OK (v1.0.1052 live = checkout; WARN daemon rss 401MB advisory); thrash 3/10; no audit overdue; STARVED streak 0.
