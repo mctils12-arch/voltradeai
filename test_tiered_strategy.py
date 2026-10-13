@@ -286,3 +286,42 @@ def test_run_tiers_logs_masterkill_shadow_without_changing_return_shape():
     assert result["killed"] is True
     assert result["actions"] == []
     assert result["tier_stats"] == {}
+
+
+# ── f5-t1-occ-dedupe (2026-10-13) ────────────────────────────────────────────
+# BUG: tier1_csp_core built held_tickers from raw position symbols — for
+# options those are OCC symbols ("DRAM261120P00045000") — then tested the
+# plain underlying ticker ("DRAM") against that set, so the de-dupe never
+# matched and T1 re-proposed SELL_CSP on an underlying it already held,
+# every scan.
+
+def test_tier1_csp_core_skips_underlying_already_held_as_occ_option():
+    held = [{"symbol": "DRAM261120P00045000", "asset_class": "us_option", "qty": "-1"}]
+    ctx = _ctx(vxx_ratio=1.0, positions=held)  # NEUTRAL, slots open
+    with patch("tiered_strategy._get_t1_universe", return_value=["DRAM", "PFE"]), \
+         patch("csp_universe._load_layer2_cache", return_value=None):
+        actions = tier1_csp_core(ctx)
+
+    tickers = [a.ticker for a in actions if a.action == "SELL_CSP"]
+    assert "DRAM" not in tickers, "already short a DRAM put — must not re-sell"
+    assert tickers == ["PFE"]
+
+
+def test_tier1_csp_core_dedupe_prefers_underlying_symbol_field():
+    held = [{"symbol": "PFE261120P00025000", "underlying_symbol": "PFE",
+             "asset_class": "us_option", "qty": "-1"}]
+    ctx = _ctx(vxx_ratio=1.0, positions=held)
+    with patch("tiered_strategy._get_t1_universe", return_value=["DRAM", "PFE"]), \
+         patch("csp_universe._load_layer2_cache", return_value=None):
+        actions = tier1_csp_core(ctx)
+    assert [a.ticker for a in actions] == ["DRAM"]
+
+
+def test_tier1_csp_core_stock_positions_do_not_block_csp():
+    """Stock positions were never part of the option de-dupe; unchanged."""
+    held = [{"symbol": "DRAM", "asset_class": "us_equity", "qty": "100"}]
+    ctx = _ctx(vxx_ratio=1.0, positions=held)
+    with patch("tiered_strategy._get_t1_universe", return_value=["DRAM", "PFE"]), \
+         patch("csp_universe._load_layer2_cache", return_value=None):
+        actions = tier1_csp_core(ctx)
+    assert [a.ticker for a in actions] == ["DRAM", "PFE"]

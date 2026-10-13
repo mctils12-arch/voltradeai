@@ -107555,3 +107555,35 @@ approved by the adversarial reviewer; read and approved by this session
 (no circular import between options_execution / options_manager /
 tiered_strategy).
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — T1 CSP DE-DUPE COMPARES UNDERLYINGS, NOT OCC SYMBOLS (v1.0.1057)
+
+PR 4 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry;
+sweep finding F5).
+DEFECT: tiered_strategy.tier1_csp_core built held_tickers from raw option
+position symbols (OCC, e.g. DRAM261120P00045000) and then tested the plain
+underlying ticker (DRAM) against that set — the de-dupe never matched, so
+T1 re-proposed SELL_CSP on underlyings it already held, every scan. Each
+re-proposal went to the Node dispatcher (and, with F4/F7 below, into the
+POS-KILL and sweep loops), doubling single-name put exposure whenever a
+slot was free.
+CHANGE: _option_underlying(position) — Alpaca's underlying_symbol when
+present, else options_manager._parse_occ_symbol (end-anchored, handles
+adjusted roots), else the raw symbol (pre-fix behaviour for non-OCC
+input). held_tickers is the set of underlyings.
+UNCHANGED: stock positions still do not block a CSP (pre-fix scope); the
+options slot count; T1 universe, sizing and regime scaling; T3/T4 symbol
+checks (stock tickers / OCC-root prefix — both already correct).
+DOWNSTREAM: at most one T1 short put per underlying; freed proposals go to
+the next universe name, so CSP breadth rises at equal slot count (lower
+single-name concentration). No risk threshold moved. Backtest unaffected
+(backtest_v2 does not model T1) — evidence is the live re-proposals.
+ROLLBACK TRIGGER: a T1 SELL_CSP proposal on an underlying already held as
+a short put appearing in the tier audit, or T1 proposals collapsing to
+zero with free slots and a non-empty universe.
+TESTS: test_tiered_strategy.py +3: held DRAM put + universe [DRAM, PFE]
+-> only PFE, and underlying_symbol field honoured (both fail on old code);
+stock positions still do not block CSP (pins the unchanged scope). Worktree-built, approved by the
+adversarial reviewer; read and approved by this session.
+STARVED: no.
