@@ -107648,3 +107648,45 @@ exitFillRecordingContract) at the option branch — mutation-tested: deleting
 the duplicate guard's audits still passed on v3; caught again on v4.
 Approved by the reviewer on v4; read and approved by this session.
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — TIER DISPATCHER DEFERS ORDER-PLACING ACTIONS WHILE THE MARKET IS CLOSED (v1.0.1059)
+
+PR 6 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry;
+sweep finding F6).
+DEFECT: the Tier-2 scan window is 04:00-20:00 ET (getETHour is
+weekday-blind), so tier2Intelligence runs pre-market and after-hours with
+isMarketOpen=false (Alpaca clock.is_open). executeTrades already routes
+off-hours stock entries to morningQueue, but the TIER DISPATCHER had no
+market-open check and submitted opening SELL_CSP (and Tier-3 BUY / Tier-4
+BUY_PUT) orders whenever the scan ran. Equity options trade only in
+regular hours, so those limits rested at stale off-hours prices until a
+deploy's cancel-all, or filled at the open — into the POS-KILL buy-back
+(see v1.0.1058) — two rules (scan cadence vs. order timing) contradicting.
+CHANGE: pure gate server/tierDispatchGate.ts shouldDispatchTierAction(
+action, { isMarketOpen }), consulted first in the dispatcher loop (after
+the kill-switch break, before the slot-cap gate and any select_contract /
+submit). While closed, SELL_CSP / BUY / BUY_PUT are skipped — deferred, not
+queued: the next in-hours scan recomputes tier_actions against live
+quotes, slots and buying power. ONE "TIER-DEFER" audit line per scan
+reports the count. Unknown action kinds pass through (the dispatcher's
+if/else chain ignores them anyway).
+UNCHANGED: in-hours behaviour; executeTrades/morningQueue; order
+transmission, gracefulShutdown, submit internals (FROZEN). No risk
+threshold moved.
+DOWNSTREAM: no tier orders resting overnight / pre-market; the first tier
+dispatch of the day happens on the first in-hours scan, priced on live
+quotes; fewer open-print fills into POS-KILL; Tier-3 SPY/QQQ buys also wait
+for the open (previously could rest as off-hours limits). Backtest
+unaffected (backtest_v2 does not model the tier dispatcher).
+ROLLBACK TRIGGER: an in-hours scan logging TIER-DEFER (means the gate
+misreads the clock), or tier dispatches disappearing entirely on trading
+days.
+TESTS: server/tierDispatchOffHours.test.ts (8; the 4 wiring assertions fail
+on old bot.ts): pure gate (closed -> defer the three order kinds, open ->
+dispatch, unknown kinds pass), gate consulted before any select_contract /
+submit, one TIER-DEFER line per scan after the loop. Worktree-built,
+approved by the adversarial reviewer;
+read and approved by this session. Full Node suite with PRs 3-7 stacked:
+2,377/2,377.
+STARVED: no.
