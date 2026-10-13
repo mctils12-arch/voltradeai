@@ -217,6 +217,11 @@ const PAGES = {
   // fixture defaults to authenticated:false, so this exercises the
   // logged-out "log in to manage keys" state — the most common visitor.
   apikeys: { route: "/apikeys", map: false },
+  // Owner signups & visits (2026-10-13, human-directed) — same Phase 5
+  // ratchet rule. The page takes its state from /api/admin/site-report
+  // alone, so the harness renders the populated owner view (fixture
+  // below); signed-out / not-owner are designed copy on the same page.
+  admin: { route: "/admin", map: false },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -235,6 +240,22 @@ const only = process.argv.includes("--page")
 // ── deterministic API fixtures ─────────────────────────────────────────────
 const FIXTURES = {
   "/api/auth/me": { authenticated: false },
+  // /admin owner report (server/siteReport.ts shape). Fixture people only.
+  "/api/admin/site-report": {
+    generatedAt: "2026-10-13T12:00:00.000Z",
+    accounts: [
+      { email: "owner@example.com", joinedAt: "2026-04-01T00:00:00.000Z", role: "owner", tier: "free", subscriptionStatus: null, isOwner: true, activeApiKeys: 0, apiKeyLastUsedAt: null, signedInLast24h: true },
+      { email: "ada.lovelace@example.com", joinedAt: "2026-08-02T09:30:00.000Z", role: "user", tier: "free", subscriptionStatus: null, isOwner: false, activeApiKeys: 1, apiKeyLastUsedAt: 1791900000000, signedInLast24h: false },
+      { email: "grace.hopper.fixture@example.org", joinedAt: "2026-09-14T17:05:00.000Z", role: "user", tier: "pro", subscriptionStatus: "active", isOwner: false, activeApiKeys: 0, apiKeyLastUsedAt: null, signedInLast24h: true },
+    ],
+    waitlist: [{ at: 1783236000000, email: "dev.fixture@example.net", source: "developers" }],
+    visits: {
+      since: "2026-10-13T03:40:00.000Z", totalPageViews: 412, uniquesToday: 37,
+      uniquesByDay: { "2026-10-09": 18, "2026-10-10": 25, "2026-10-11": 12, "2026-10-12": 41, "2026-10-13": 37 },
+      topPages: [{ route: "/", count: 260 }, { route: "/app", count: 94 }, { route: "/developers", count: 41 }, { route: "/pricing", count: 17 }],
+    },
+    notes: ["fixture"],
+  },
   "/api/data/layers": {
     layers: [
       { id: "imagery", name: "Satellite imagery", kind: "raw", status: "live", group: "base", costTier: "light", source: "Esri World Imagery", description: "Base imagery." },

@@ -4169,6 +4169,20 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-keys-usage-bar { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
 .vt-keys-usage-day { font-size: 9px; color: var(--text-tertiary); margin-top: 4px; }
 
+/* /admin — owner signups & visits (pages/admin.tsx). Reuses the vt-dev /
+   vt-keys system; only the deltas live here. */
+.vt-admin-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.vt-admin-stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-top: 28px; }
+.vt-admin-stats .vt-dev-tier h3 { margin: 0 0 4px; font-size: 13px; color: var(--text-secondary); }
+.vt-admin-stats .vt-dev-price { margin: 0 0 2px; font-size: 26px; }
+.vt-admin-page .vt-dev-table td, .vt-admin-page .vt-dev-table th { white-space: nowrap; }
+.vt-admin-you { margin-left: 8px; }
+.vt-admin-page .vt-keys-usage-bars { height: 132px; }
+.vt-admin-bar-track { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: flex-end; }
+.vt-admin-bar-n { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); margin-bottom: 3px; }
+.vt-admin-page .vt-dev-copy-btn:active { background: var(--bg-card-hover); }
+.vt-admin-page .vt-dev-copy-btn:disabled { opacity: 0.6; cursor: default; }
+
 /* W1: the always-on celestial sky canvas — under the UI overlays (which
    carry z-index 30+), over the map canvas; never eats gestures. */
 .vt-celestial-sky { z-index: 5; }
