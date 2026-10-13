@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-13 (scheduled-routine EDGE session, ~02:45Z Tue, after hours) [RESEARCH] — T-DATACORE (scripts/flightplan_gate1.py + test, docs/data; no code_version change) — AXIS (d): COMPILED THE FLIGHTPLAN TAIL DIAGNOSIS; AMENDMENT/PLAN-AGE HYPOTHESIS IS UNTESTABLE ON CURRENT FIELDS
+
+HEALTH: session_health_check + research_state_check all OK (v1.0.1049 live = checkout); thrash 4/10; no audit overdue; only KNOWN BROKEN #44 (FROZEN Dockerfile, proposal filed). Not a REPAIR session.
+AXIS: (d) compile recurring reasoning. The last two entries each hand-ran a cross-track tail split; the queued next step was "outlier rate vs amendments / plan age". Built it as code: gate1 now records `plan_samples` [hex, kind, xt, amendments, ageSec] per measured plan and `--tail run*.json` prints hex-deduped tail (>10 nm) rate by amended/age/kind. Amendments are parsed from the server's honesty text ("amended N×"); no server change.
+PRIOR (stated before): amended plans (reroute-prone flights) show >=2x the tail rate of never-amended; older plans show a higher tail rate.
+RAN live ~02:45Z Tue (22:45 ET Mon): eligible 2,266, measured 355, unplaced 1,745, not_filed 153, request_errors 7.
+RESULT: age bucket = "<10m" for 355/355 (ageSec is effectively refreshed on every read, so it carries no plan-age information); amended=yes n=2 of 355 (tail 1/2). Neither factor has variance, so the prior is NEITHER confirmed NOR refuted: the test cannot be run with these fields. By kind: airway 24/184 = 13%, direct 22/126 = 17%, radial 0/45 = 0% (live radial p90 3.1, le10 100%). Run saved as research/flightplan_gate1_runs/run13_20261013T0245Z.json (single evening snapshot, n small, kinds not hex-pooled with earlier runs).
+READ: the tail is concentrated in direct/airway placements, not radial this run; with run 12's radial p90 7.5 the radial line stays within its pooled numbers. A real plan-age/amendment test needs the server to expose SWIM's own message timestamp and the amendment count as fields (additive, T-DATACORE, own PR) and then accumulate; filed as the next step rather than guessed at.
+EFFECT: no trading path, no measurement-engine change (report-only script fields). ROLLBACK: git revert. MERGE: docs/tooling only, any time CI green.
+STARVED: no.
+
 ## 2026-10-13 (scheduled-routine PRODUCT session, ~00:15Z Tue, after hours) [RESEARCH] — T-DATACORE (docs only, no code_version change) — FLIGHTPLAN CROSS-TRACK TAIL IS NOT A 60-150 NM / TERMINAL-VECTORING EFFECT
 
 HEALTH: session_health_check all OK (v1.0.1049 live = checkout; WARN daemon rss 401MB advisory); thrash 4/10; no audit overdue; archives fresh. Shadow-band step (a) is T-BOT and a trading-funnel read, so left to a BOT/DAILY session; this session took the queued flightplan 60-150 nm diagnosis (T-DATACORE).

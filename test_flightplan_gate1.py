@@ -67,3 +67,18 @@ def test_pool_unique_live_field_is_separate_from_shadow_field():
     s, n_raw = g1.pool_unique([r1, r2], "radial_live_samples")
     assert n_raw == 4 and s["n"] == 3 and s["median"] == 6.0 and s["p90"] == 8.0
     assert g1.pool_unique([r1, r2])[0]["n"] == 1
+
+
+def test_plan_meta_parses_amendments_from_honesty_and_age():
+    assert g1.plan_meta({"honesty": "Route FILED with the FAA (SWIM SFDPS, amended 3×)", "ageSec": 40}) == (3, 40)
+    assert g1.plan_meta({"honesty": "Route FILED with the FAA (SWIM SFDPS)"}) == (0, None)
+    assert g1.plan_meta(None) == (0, None)
+
+def test_tail_by_group_splits_dedupes_and_ignores_unmeasured():
+    rows = [["h1", "radial", 12.0, 2, 30], ["h1", "radial", 0.1, 2, 30],  # dup hex: first wins
+            ["h2", "radial", 1.0, 0, 7200], ["h3", "direct", None, 0, 5], ["h4", "airway", 4.0, 0, 5000]]
+    r = g1.tail_by_group(rows)
+    assert r["amended=yes"] == {"n": 1, "tail": 1, "tail_rate": 1.0}
+    assert r["amended=no"]["n"] == 2 and r["amended=no"]["tail"] == 0
+    assert r["age=>60m"]["n"] == 2 and r["age=<10m"]["n"] == 1
+    assert "kind=direct" not in r
