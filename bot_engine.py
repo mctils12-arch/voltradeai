@@ -3855,9 +3855,18 @@ def _scan_market_inner():
     # Hold passive SPY allocation based on regime. Captures market drift
     # in calm bull markets where momentum signals are noise.
     # Backtest: 12.9% CAGR (beats SPY 12.3%). Fixes quiet bull year losses.
+    # FLOOR REGIME DWELL 2026-10-13: resolve the debounced floor regime ONCE
+    # per scan and share it with both floors (one debounce observation per
+    # scan). On failure each floor resolves it itself.
+    _floor_regime = None
+    try:
+        _floor_regime = _resolve_floor_regime(_macro)
+    except Exception as _fre:
+        import logging as _frl
+        _frl.getLogger("bot_engine").warning(f"[FLOOR-REGIME] resolve failed: {_fre}")
     spy_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
     try:
-        spy_floor_result = _manage_spy_floor(_macro)
+        spy_floor_result = _manage_spy_floor(_macro, _floor_regime)
     except Exception as _sfe:
         spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
 
@@ -3869,7 +3878,7 @@ def _scan_market_inner():
     # User ask: "switch from qqq to something in bear".
     defensive_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
     try:
-        defensive_floor_result = _manage_defensive_floor(_macro)
+        defensive_floor_result = _manage_defensive_floor(_macro, _floor_regime)
     except Exception as _dfe:
         defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
 
@@ -4761,7 +4770,182 @@ def _is_regular_hours() -> bool:
     return 9.5 <= hour < 16.0
 
 
-def _manage_spy_floor(macro: dict) -> dict:
+# ── Floor regime dwell (2026-10-13) ─────────────────────────────────────────
+# Both floors used to re-derive the regime from get_market_regime() on every
+# scan and re-target immediately. vxx_ratio sat on regime_util's BULL boundary
+# (0.95) with no hysteresis, so the label flapped BULL<->NEUTRAL scan to scan
+# and every flip moved the QQQ basket leg by 10% of equity (live 2026-10-12: 7
+# round trips of ~12 QQQ). The floors now act on ONE debounced "floor regime"
+# persisted in voltrade_floor_state.json. The regime_util thresholds and the
+# SPY_FLOOR_* / DEFENSIVE_FLOOR_* percentages are deliberately untouched.
+_FLOOR_REGIME_RISK_RANK = {"BULL": 0, "NEUTRAL": 1, "CAUTION": 2, "BEAR": 3, "PANIC": 4}
+_FLOOR_REGIME_RISK_OFF = ("CAUTION", "BEAR", "PANIC")
+
+
+def _floor_macro_vxx_is_fallback(macro: dict) -> bool:
+    """True when the macro carries no real VXX reading.
+
+    macro_data.get_macro_snapshot() substitutes vxx_ratio=1.0 (which classifies
+    as NEUTRAL) when the VXX fetch fails; it only sets vxx_closes/vxx_latest
+    from real bars, and lists "vxx_ratio" in data_quality_failures when the
+    closes are missing. A regime derived from that substitute must not move
+    the floors.
+    """
+    if not isinstance(macro, dict):
+        return True
+    if "vxx_ratio" in (macro.get("data_quality_failures") or []):
+        return True
+    if macro.get("vxx_closes"):
+        return False
+    return macro.get("vxx_latest") is None
+
+
+def _floor_macro_observation_key(macro: dict) -> str:
+    """Identity of the macro READING behind this call (not of the scan).
+
+    macro_data.get_macro_snapshot() serves one cached snapshot for CACHE_TTL
+    (300s) and stamps it with "timestamp" (_save_cache, on both the fresh and
+    the cached path). Tier-2 scans every 60-120s in the open / power-hour
+    windows, so one snapshot is seen on 2-5 scans in a row; counting scans
+    would let a single VXX reading confirm a regime change on its own. The
+    debounce therefore counts DISTINCT readings: the snapshot timestamp when
+    present, else a fingerprint of the regime inputs.
+    """
+    if not isinstance(macro, dict):
+        return "none"
+    ts = macro.get("timestamp")
+    if ts is not None:
+        return f"ts:{ts!r}"
+    return "fp:" + json.dumps([macro.get("vxx_ratio"), macro.get("vxx_latest"),
+                               macro.get("spy_vs_ma50"),
+                               macro.get("spy_below_200_days"),
+                               macro.get("spy_above_200d")], default=str)
+
+
+def _resolve_floor_regime(macro: dict) -> dict:
+    """Advance the shared floor-regime debounce by ONE observation.
+
+    Rules (state lives in voltrade_floor_state.json under floor_regime*):
+      * no confirmed regime yet -> adopt the raw label (bootstrap).
+      * escalation INTO CAUTION/BEAR/PANIC from a calmer confirmed regime ->
+        effective immediately, even on a fallback macro (a fallback vxx_ratio
+        of 1.0 can never itself classify risk-off, so any such escalation is
+        driven by real SPY trend data). De-risking never lags.
+      * fallback macro (no real VXX reading) -> hold the confirmed regime and
+        clear any pending candidate.
+      * any other change -> becomes effective only after it is seen on
+        FLOOR_REGIME_CONFIRM_CYCLES consecutive DISTINCT macro readings
+        (_floor_macro_observation_key). A repeat of the reading that was
+        already counted (same cached snapshot on a later scan) neither
+        advances nor resets the count.
+      * consecutive readings on the SAME side of the confirmed regime (e.g.
+        CAUTION, NEUTRAL, CAUTION after a confirmed BEAR) accumulate toward
+        the one closest to the confirmed regime, so an alternation between
+        two calmer labels cannot stall de-escalation forever.
+
+    Returns {"regime", "raw_regime", "confirmed_by", "pending",
+    "pending_count", "vxx_fallback"}. Call once per scan and hand the result
+    to both _manage_spy_floor and _manage_defensive_floor so the counter
+    advances once per scan, not twice.
+    """
+    from system_config import BASE_CONFIG, get_market_regime
+    import logging as _frlog
+
+    vxx_ratio   = float(macro.get("vxx_ratio", 1.0) or 1.0)
+    spy_vs_ma50 = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
+    spy_b200    = int(macro.get("spy_below_200_days", 0) or 0)
+    spy_above   = bool(macro.get("spy_above_200d", True))
+    raw = get_market_regime(vxx_ratio, spy_vs_ma50,
+                            spy_below_200_days=spy_b200,
+                            spy_above_200d=spy_above)
+    fallback = _floor_macro_vxx_is_fallback(macro)
+
+    try:
+        confirm_cycles = max(1, int(BASE_CONFIG.get("FLOOR_REGIME_CONFIRM_CYCLES", 3) or 1))
+    except (TypeError, ValueError):
+        confirm_cycles = 3
+
+    state_path = os.path.join(DATA_DIR, 'voltrade_floor_state.json')
+    state = {}
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+        if not isinstance(state, dict):
+            state = {}
+    except FileNotFoundError:
+        state = {}
+    except Exception as _re:
+        _frlog.getLogger("bot_engine").warning(f"[FLOOR-REGIME] state read failed: {_re}")
+        state = {}
+
+    confirmed = state.get("floor_regime")
+    pending = state.get("floor_regime_pending")
+    pending_count = int(state.get("floor_regime_pending_count", 0) or 0)
+    obs_key = _floor_macro_observation_key(macro)
+    last_obs_key = state.get("floor_regime_last_obs")
+
+    def _rank(label):
+        return _FLOOR_REGIME_RISK_RANK.get(label, -1)
+
+    def _side(label):
+        d = _rank(label) - _rank(confirmed)
+        return (d > 0) - (d < 0)
+
+    if not confirmed:
+        confirmed, how = raw, "bootstrap"
+        pending, pending_count = None, 0
+    elif raw == confirmed:
+        how = "unchanged"
+        pending, pending_count = None, 0
+    elif raw in _FLOOR_REGIME_RISK_OFF and _rank(raw) > _rank(confirmed):
+        _frlog.getLogger("bot_engine").info(
+            f"[FLOOR-REGIME] escalation {confirmed}->{raw} applied immediately")
+        confirmed, how = raw, "escalation"
+        pending, pending_count = None, 0
+    elif fallback:
+        how = "held_vxx_fallback"
+        pending, pending_count = None, 0
+    elif pending and pending_count > 0 and obs_key == last_obs_key:
+        # Same macro reading already counted on an earlier scan (cached
+        # snapshot): not new evidence — neither advance nor reset.
+        how = "pending_repeat_observation"
+    else:
+        if pending and pending_count > 0 and _side(pending) == _side(raw):
+            # Same direction as the pending move: accumulate, targeting the
+            # label closest to the confirmed regime (least change).
+            pending_count += 1
+            if abs(_rank(raw) - _rank(confirmed)) < abs(_rank(pending) - _rank(confirmed)):
+                pending = raw
+        else:
+            pending, pending_count = raw, 1
+        if pending_count >= confirm_cycles:
+            _frlog.getLogger("bot_engine").info(
+                f"[FLOOR-REGIME] {confirmed}->{pending} confirmed after "
+                f"{pending_count} consecutive distinct macro readings")
+            confirmed, how = pending, "confirmed"
+            pending, pending_count = None, 0
+        else:
+            how = "pending"
+
+    state["floor_regime"] = confirmed
+    state["floor_regime_raw"] = raw
+    state["floor_regime_pending"] = pending
+    state["floor_regime_pending_count"] = pending_count
+    state["floor_regime_last_obs"] = obs_key
+    try:
+        tmp = state_path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, state_path)
+    except Exception as _we:
+        _frlog.getLogger("bot_engine").warning(f"[FLOOR-REGIME] state write failed: {_we}")
+
+    return {"regime": confirmed, "raw_regime": raw, "confirmed_by": how,
+            "pending": pending, "pending_count": pending_count,
+            "vxx_fallback": fallback}
+
+
+def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
     """
     Passive SPY Floor: hold SPY shares proportional to regime allocation.
     Captures market drift in calm bull markets where momentum signals = noise.
@@ -4781,16 +4965,17 @@ def _manage_spy_floor(macro: dict) -> dict:
     result = {"actions": [], "status": "ok", "target_pct": 0, "current_pct": 0}
 
     try:
-        from system_config import BASE_CONFIG, get_market_regime
+        from system_config import BASE_CONFIG
 
-        vxx_ratio   = float(macro.get("vxx_ratio", 1.0) or 1.0)
-        spy_vs_ma50 = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
-        spy_b200    = int(macro.get("spy_below_200_days", 0) or 0)
-        spy_above   = bool(macro.get("spy_above_200d", True))
-
-        regime = get_market_regime(vxx_ratio, spy_vs_ma50,
-                                   spy_below_200_days=spy_b200,
-                                   spy_above_200d=spy_above)
+        # FLOOR REGIME DWELL 2026-10-13: act on the debounced floor regime,
+        # not this scan's raw label (see _resolve_floor_regime). Resolved
+        # BEFORE the state file is read below, so the debounce keys it just
+        # wrote are carried through this function's own state writes.
+        if floor_regime is None:
+            floor_regime = _resolve_floor_regime(macro)
+        regime = floor_regime["regime"]
+        result["raw_regime"] = floor_regime.get("raw_regime")
+        result["floor_regime_confirmed_by"] = floor_regime.get("confirmed_by")
 
         # ── Regime change detection ──────────────────────────────────────
         # Persist last regime to avoid rebalancing every cycle
@@ -5182,7 +5367,7 @@ def _manage_spy_floor(macro: dict) -> dict:
     return result
 
 
-def _manage_defensive_floor(macro: dict) -> dict:
+def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
     """
     P1-1: Defensive-asset rotation for BEAR/PANIC regimes.
 
@@ -5209,7 +5394,7 @@ def _manage_defensive_floor(macro: dict) -> dict:
     result = {"actions": [], "status": "ok", "target_pct": 0, "current_pct": 0}
 
     try:
-        from system_config import BASE_CONFIG, get_market_regime
+        from system_config import BASE_CONFIG
 
         if not BASE_CONFIG.get("DEFENSIVE_FLOOR_ENABLED", False):
             result["status"] = "disabled"
@@ -5217,15 +5402,14 @@ def _manage_defensive_floor(macro: dict) -> dict:
 
         defensive_ticker = BASE_CONFIG.get("DEFENSIVE_FLOOR_TICKER", "GLD")
 
-        vxx_ratio   = float(macro.get("vxx_ratio", 1.0) or 1.0)
-        spy_vs_ma50 = float(macro.get("spy_vs_ma50", 1.0) or 1.0)
-        spy_b200    = int(macro.get("spy_below_200_days", 0) or 0)
-        spy_above   = bool(macro.get("spy_above_200d", True))
-
-        regime = get_market_regime(vxx_ratio, spy_vs_ma50,
-                                   spy_below_200_days=spy_b200,
-                                   spy_above_200d=spy_above)
+        # FLOOR REGIME DWELL 2026-10-13: same debounced floor regime as
+        # _manage_spy_floor, so regime_changed below no longer keys off a
+        # label that flickers scan to scan (escalations still immediate).
+        if floor_regime is None:
+            floor_regime = _resolve_floor_regime(macro)
+        regime = floor_regime["regime"]
         result["regime"] = regime
+        result["raw_regime"] = floor_regime.get("raw_regime")
         result["ticker"] = defensive_ticker
 
         # Base allocation from regime
