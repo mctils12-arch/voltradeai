@@ -43,6 +43,7 @@ import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eve
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
 import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
+import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
@@ -4705,8 +4706,21 @@ print(json.dumps(check_weekly_loss(history)))
           ? (Number.isFinite(freshOptionsBp) ? freshOptionsBp : parseFloat(freshAcctForTiers.cash || "0"))
           : cashAvailable;
 
+        // OFF-HOURS DEFER FIX 2026-10-13: the Tier-2 window (04:00-20:00 ET,
+        // weekday-blind getETHour) runs this dispatcher with the market
+        // closed, and nothing here checked isMarketOpen — opening SELL_CSP
+        // (options: regular hours only) and Tier-3 BUY orders rested at stale
+        // off-hours prices until a deploy's cancel-all or a fill at the open
+        // into POS-KILL. Defer (do NOT queue) every order-placing tier action
+        // while closed; the next in-hours scan recomputes against live quotes.
+        // One audit line per scan, after the loop — never per action.
+        let tierActionsDeferred = 0;
         for (const action of result.tier_actions) {
           if (state.killSwitch) break;
+          if (!shouldDispatchTierAction(action, { isMarketOpen })) {
+            tierActionsDeferred++;
+            continue;
+          }
           if (action.action === "SELL_CSP" && tierOptionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
             audit("OPTIONS-SLOT-FULL", `${action.ticker}: tier dispatcher skipped SELL_CSP — options slots full (${tierOptionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
             continue;
@@ -4909,6 +4923,9 @@ else:
           } catch (e: any) {
             audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
           }
+        }
+        if (tierActionsDeferred > 0) {
+          audit("TIER-DEFER", tierDeferAuditMessage(tierActionsDeferred));
         }
       }
 
