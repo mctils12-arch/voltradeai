@@ -107587,3 +107587,64 @@ TESTS: test_tiered_strategy.py +3: held DRAM put + universe [DRAM, PFE]
 stock positions still do not block CSP (pins the unchanged scope). Worktree-built, approved by the
 adversarial reviewer; read and approved by this session.
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — POS-KILL: OPTIONS GET AN OPTION-SCALED BACKSTOP, NOT THE STOCK -25% STOP (v1.0.1058)
+
+PR 5 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry;
+sweep finding F4). Risk-threshold change: RULE REVIEW applies.
+DEFECT: the ITEM 13 per-position kill in syncMonitoredPositions (server/
+bot.ts, ~45s cadence) liquidated ANY position at unrealized_plpc <= -25%,
+options included. For an option Alpaca measures unrealized_plpc against
+the premium (verified live: plpc = unrealized_pl / |cost_basis|, e.g. BAC
+short put 0.21 -> 0.25 reads -19.0%), so a cheap short put reads <= -25%
+on bid/ask or opening-print noise alone. Live 2026-10-12/13: DRAM -54.7%
+bought back at market 27s after the sale (~-$35); T, VZ, WMB, TXG the same
+(three at 13:30:29Z, i.e. the open). T1 then re-sold the underlying: a
+churn loop paying the spread twice per cycle. options_manager.py is the
+designed owner of option exits (2x-credit loss limit, 50% for bought,
+MIN_HOLD_MINUTES, limit orders) and the two rules contradicted each other.
+CHANGE (one threshold, one rule): STOCK_KILL_LOSS_PCT = -25.0 keeps the
+stock rule unchanged. POSITION_KILL_LOSS_PCT becomes per-position via
+posKillThresholdPct: stocks -25.0 (unchanged); options get an
+option-scaled BACKSTOP — sold -150% (mark >= 2.5x the credit), bought -75%.
+PRIOR VALUE: -25.0 for every position, options included. Options are NOT
+exempted outright: options_manager only runs inside scan_market, which
+returns early during the Python portfolio DD halt, so the backstop is the
+only automatic loss exit for short options then (while the Node loop
+runs; the Node drawdown kill stops this loop entirely — pre-existing).
+Options between -25% and their backstop get one POS-KILL-OPTION-HOLD audit
+line per position per UTC day (own type; POS-KILL-SKIP stays the
+duplicate-liquidation guard line) and still reach the hourly POS-WARN.
+The kill branch itself is byte-identical to main (liquidation POST, order
+params, KNOWN BROKEN #35 duplicate guard all untouched — FROZEN paths).
+DOWNSTREAM: no more POS-KILL buy-backs of fresh short options on spread
+noise -> no T1 re-sell loop on those names; short-option losses between
+-25% and -150% are left to options_manager (2x-credit stop = -100%), which
+normally acts first; during the Python DD halt a sold option can now run
+to -150% before the backstop fires (previously -25%). Worst case per
+contract at today's sizes (credits $0.21-$7.60): 1.5x the credit.
+ROLLBACK TRIGGER: any option position closed by the backstop at <= -150%
+(sold) / <= -75% (bought) while options_manager was running (means the
+2x-credit stop is not acting first), OR a short option realizing a loss
+> 2x its credit during a DD halt, OR POS-KILL buy-backs of options
+reappearing in /api/diag/orders. Rollback = set OPTION_SHORT_KILL_LOSS_PCT /
+OPTION_LONG_KILL_LOSS_PCT back to -25.0.
+NOTED, NOT CHANGED (follow-ups): risk_kill_switch.check_position_risk has
+its own -25% rule (registered in voltrade_daemon, no Node caller today —
+FROZEN mechanism file; if it is ever wired the bug returns); QQQ hedge puts
+are judged by the option backstop like any other option; multi-leg legs
+are judged one at a time; option P&L could be computed from
+avg_entry_price/current_price instead of trusting plpc.
+TESTS: server/posKillOptionsScope.test.ts (6; fails on old code at load):
+classifier (OCC shape or asset_class), thresholds with the live numbers
+(-54.7% not killed, -160% short / -80% long killed), kill opener appears
+exactly once, option hold is a separate statement before the kill with no
+order / no continue / per-day dedupe / own audit type, kill branch
+unchanged. Caught in adversarial review: v3 reused the kill-branch opener
+inside the option branch, silently re-pointing three existing slice-based
+tests (posKillDuplicateOrderGuard, posKillStaleOrderTracking,
+exitFillRecordingContract) at the option branch — mutation-tested: deleting
+the duplicate guard's audits still passed on v3; caught again on v4.
+Approved by the reviewer on v4; read and approved by this session.
+STARVED: no.
