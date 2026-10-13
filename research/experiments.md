@@ -107690,3 +107690,48 @@ approved by the adversarial reviewer;
 read and approved by this session. Full Node suite with PRs 3-7 stacked:
 2,377/2,377.
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — CSP SUBMIT/CANCEL LOOP: SWEEP AUDITS RESTORED + PER-UNDERLYING COOLDOWN (v1.0.1060)
+
+PR 7 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry;
+sweep finding F7). Closes the sweep.
+DEFECT: sweepStaleOrders() cancels unfilled limits after
+STALE_ORDER_MINUTES (12) via DELETE /v2/orders/{id}. Alpaca answers 204 No
+Content and alpaca() calls r.json() on every 2xx, which throws AFTER the
+cancel succeeded — so the SWEEP audit never ran (live 2026-10-12: 0 SWEEP
+lines vs 51 canceled orders: the loop was invisible). The SELL_CSP tier
+dispatcher then re-submitted the same non-marketable limit on the same
+underlying next scan, so the submit/cancel loop never settled and churned
+an options slot all day.
+CHANGE: (1) on a DELETE throw that is an empty-body JSON parse failure,
+sweepStaleOrders confirms with ONE read-only GET /v2/orders/{id} and writes
+the SWEEP audit when the status is canceled/pending_cancel (real HTTP
+errors and timeouts are not treated as success; a failing GET leaves it
+unconfirmed). alpaca()'s shared request path and all order POST code are
+untouched (FROZEN). (2) swept CSP underlyings are remembered (sweptCspAt,
+reset daily with orderAttemptCounts); the SELL_CSP dispatcher skips an
+underlying swept within SWEPT_CSP_COOLDOWN_MINUTES (new constant, 60, next
+to STALE_ORDER_MINUTES) or one with an open sell-to-open option order (OCC
+root match), writing one CSP-SKIP audit line. Pure helpers in
+server/cspSweepCooldown.ts.
+UNCHANGED: STALE_ORDER_MINUTES, limit pricing, slot caps, the KNOWN BROKEN
+#35 fill-resolution path after a cancel. New constant has no prior value.
+DOWNSTREAM: SWEEP lines reappear in the audit (the loop becomes measurable);
+at most one CSP attempt per underlying per hour once a limit has proven
+non-marketable; a resting sell-to-open is never doubled; freed scans move
+on to other universe names. Sweep memory is in-process (a restart forgets
+it — bounded by the open-order guard). Backtest unaffected.
+ROLLBACK TRIGGER: CSP fills per day falling by more than half vs the prior
+week with CSP-SKIP dominating the tier audit, or canceled CSP orders in
+/api/diag/orders still outnumbering SWEEP audit lines.
+TESTS: server/cspSweepCooldown.test.ts (fails on old code): a real 204
+Response's r.json() failure is classified as a probable success; 204 then
+GET canceled -> confirmed with exactly one GET; GET filled -> not
+confirmed; HTTP 422 / AbortError -> no GET, not confirmed; failing GET ->
+unconfirmed; cooldown / open sell-to-open / other-root / buy / close
+orders; bot.ts wiring (read-only confirm, gate before submit, named
+constant, daily reset). Worktree-built, approved by the adversarial
+reviewer; read and approved by this session. Full Node suite with PRs 3-7
+stacked: 2,377/2,377.
+STARVED: no.
