@@ -107432,3 +107432,46 @@ VISUAL: --page admin PASS at 390/768/1440 with the history fixture; full-page re
 BIAS: site-traffic counting only; no trading path or performance-measurement code. requestLog's in-memory analytics (adminStats) unchanged.
 ROLLBACK: git revert (the JSON file is inert without the code).
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — GLD HAD TWO OWNERS: THIRD-LEG EXIT NO LONGER SELLS FLOOR-OWNED TICKERS (v1.0.1054)
+
+Context: the human asked "whats going on" (account -3.0% 10-06..10-12 vs SPY
+-0.1%). Live attribution (/api/diag/reconstruct_pnl): ~$2.2k of the drop is
+the passive floor basket (QQQ/SMH/KWEB/VXUS, ~76% of equity) in a tech
+down-week (SMH -6.6%, QQQ -1.8%) — design, not malfunction. The malfunction:
+on 2026-10-12 the bot traded ~$300k of QQQ+GLD to end flat (21 GLD
+round-tripped ~11x, 12 QQQ ~7x; realized ≈ $0) plus 51 order cancels.
+
+RULE-CONFLICT SWEEP (workflow, 4 finders + 2-lens adversarial verify, 14
+claims -> 10 confirmed by both verifiers, 7 distinct defects). This PR is
+#1 of 7, one logical change each:
+  F1 GLD ownership (this) · F2 floor regime dwell · F3 CSP entry DTE vs
+  21-DTE exit · F4 POS-KILL scope vs short options · F5 T1 OCC de-dupe ·
+  F6 off-hours tier dispatch · F7 invisible sweep/resubmit loop.
+
+RECURRENCE (HEALTH OF THE LOOP rule 4): _manage_spy_floor's own docstring
+records the 2026-04-10 fix for "buying 112 QQQ then selling 111 two minutes
+later". Same symptom, different collision -> root cause is structural: no
+single-owner rule for allocator tickers. Root-cause fix shipped here as a
+CI invariant (test_third_leg_floor_ownership.py derives the floor-owned set
+from live BASE_CONFIG and drives _run_third_leg end-to-end with every
+floor-owned ticker held: any future third-leg sale of one fails CI).
+Follow-up noted by review: three ownership lists exist (bot_engine
+FLOOR_AND_LEG_TICKERS, bot.ts FLOOR_AND_LEG_TICKERS, new
+_floor_owned_tickers) — consolidation is its own future PR.
+
+CHANGE: _run_third_leg's NEUTRAL/BULL exit set = LEG3_LEGACY_EXIT_TICKERS
+minus _floor_owned_tickers(BASE_CONFIG) (FLOOR_TICKER, non-CASH
+FLOOR_BASKET when enabled, DEFENSIVE_FLOOR_TICKER when enabled). Live
+config: {SVXY, ITA, XOM, LMT}; GLD is the defensive floor's alone. If
+DEFENSIVE_FLOOR_ENABLED goes False, GLD returns to the exit set.
+DOWNSTREAM: GLD sits at its configured 8% in BULL/NEUTRAL; it counts toward
+total_deployed (slightly smaller VRP sizing headroom). After a BEAR/PANIC
+GLD build-up, recovery no longer liquidates GLD — the defensive floor trims
+it to 8% on its own regime-change rule. No parameter changed; backtest
+unaffected (backtest_v2 does not model the third leg / floors).
+TESTS: 5 new (all fail on the old code, pass on the fix; reviewer
+re-verified in a scratch copy). Built in an isolated worktree, approved by
+an adversarial reviewer, then read and approved by this session.
+STARVED: no.
