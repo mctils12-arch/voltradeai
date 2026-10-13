@@ -98,6 +98,9 @@ export function mapOpenSkyStates(raw: unknown): Array<AircraftPoint & { seen_at_
       altitude_m: altM == null ? null : Math.round(altM),
       on_ground: onGround,
       velocity_ms: vel == null ? null : Math.round(vel),
+      // state vector [11] = vertical_rate, already m/s (0.1 precision, same
+      // shape as the readsb rows' vertical_rate_ms)
+      vertical_rate_ms: fin(s[11]) == null ? null : Math.round((s[11] as number) * 10) / 10,
       heading: trk,
       type: null,
       category: catNum == null ? null : (OPENSKY_CATEGORY_TO_ADSB[catNum] ?? null),

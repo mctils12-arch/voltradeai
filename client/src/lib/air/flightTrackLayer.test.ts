@@ -185,6 +185,12 @@ test('shader contract pins: projectTileFor3D, GLOBE far-side fragment discard, w
   assert.ok(FT_FRAG_SRC.includes('abs(v_edge)'), 'rim uses |side| — side-0 wall vertices keep full 34% alpha');
   const mvs = FT_MARKER_VERT_SRC('/*prelude*/', '');
   assert.ok(mvs.includes('mix(u_groundZ, u_altZ, a_altFrac)'), 'marker drop line spans ground→altitude');
+  // 2026-10-13: the replay glyph follows the projected 3D path like airLayer
+  assert.ok(mvs.includes('projectTileFor3D(u_anchor + stepXY, vtProjElev(baseZ + stepZ, u_anchor.y + stepXY.y))'),
+    'marker nose = projected path direction (heading + climb)');
+  assert.ok(mvs.includes('u_climbZ * a_altFrac'), 'climb lifts the ahead point at the glyph end only');
+  assert.ok(mvs.indexOf('fwd = vec2(sin(u_rot), cos(u_rot))') > mvs.indexOf('fwd = normalize(dScr)'),
+    'bearing rotation is only the degenerate fallback');
 });
 
 test('cull runs through the WHOLE globe↔mercator transition; disabled only at full mercator / degenerate plane', () => {

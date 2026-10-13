@@ -52,6 +52,9 @@ export interface AircraftPoint {
   altitude_m: number | null;
   on_ground: boolean;
   velocity_ms: number | null;
+  /** broadcast vertical rate, m/s (+ climbing) — live display only (the 3D
+   *  silhouettes pitch along it); the archive writer does not store it. */
+  vertical_rate_ms?: number | null;
   heading: number | null;
   type?: string | null;      // ICAO type designator when the feed provides it
   category?: string | null;  // ADS-B emitter category when provided

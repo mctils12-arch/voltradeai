@@ -21,6 +21,7 @@ test("mapOpenSkyStates: SI units pass through the metric pipeline fields (never 
   assert.equal(p.lat, 46.4108);
   assert.equal(p.altitude_m, 10980, "baro_altitude is already meters");
   assert.equal(p.velocity_ms, 219, "velocity is already m/s");
+  assert.equal(p.vertical_rate_ms, -0.3, "state vector [11] vertical_rate is already m/s");
   assert.equal(p.heading, 319.66);
   assert.equal(p.on_ground, false);
   assert.equal(p.category, null, "0 = no information");

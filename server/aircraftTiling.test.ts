@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import {
-  planDiscs, dedupeByHex, fetchDiscs, tilingEnvelope, mapPointAircraft,
+  planDiscs, dedupeByHex, fetchDiscs, tilingEnvelope, mapPointAircraft, fpmToMs,
   DISC_RADIUS_MAX_NM, MAX_DISCS_PER_REFRESH, DISC_SPACING_MS,
   type DiscPlan, type DiscProvider,
 } from "./aircraftTiling";
@@ -160,6 +160,22 @@ test("mapPointAircraft: readsb record -> unified shape (units, ground, null-pos 
   assert.equal(out[1].altitude_m, null);
   assert.deepEqual(mapPointAircraft(null, "ac"), []);
   assert.deepEqual(mapPointAircraft({ aircraft: [] }, "aircraft"), []);
+});
+
+test("mapPointAircraft: vertical rate passes through ft/min -> m/s (baro first, geometric fallback, null never invented)", () => {
+  const raw = { ac: [
+    { hex: "clb001", lat: 40, lon: -75, alt_baro: 8000, gs: 250, baro_rate: 2048 },              // climbing
+    { hex: "dsc001", lat: 40, lon: -75, alt_baro: 3000, gs: 140, baro_rate: -704, geom_rate: -640 }, // baro wins
+    { hex: "geo001", lat: 40, lon: -75, alt_baro: 9000, gs: 300, geom_rate: 1000 },              // geometric only
+    { hex: "lvl001", lat: 40, lon: -75, alt_baro: 35000, gs: 450 },                              // not broadcast
+  ] };
+  const by = (id: string) => mapPointAircraft(raw, "ac").find((a) => a.icao24 === id);
+  assert.equal(by("clb001").vertical_rate_ms, 10.4, "2048 ft/min = 10.4 m/s");
+  assert.equal(by("dsc001").vertical_rate_ms, -3.6, "baro_rate preferred, sign kept");
+  assert.equal(by("geo001").vertical_rate_ms, 5.1, "geom_rate fallback");
+  assert.equal(by("lvl001").vertical_rate_ms, null, "absent stays null — the client draws it level");
+  assert.equal(fpmToMs(null), null);
+  assert.equal(fpmToMs(0), 0);
 });
 
 test("mapPointAircraft: alt_geom fallback — a missing alt_baro no longer nulls the altitude of an airborne row", () => {
