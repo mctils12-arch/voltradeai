@@ -116,6 +116,21 @@ test("aggregateSiteReport: counts exclude the seeded owner; by day/tier/source",
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+test("aggregateSiteReport: user-supplied waitlist sources like 'constructor' / '__proto__' count as plain keys", () => {
+  const db = makeDb();
+  const base = makeArchive([
+    '{"t":1783236000,"e":"a@example.net","s":"constructor"}',
+    '{"t":1783236001,"e":"b@example.net","s":"__proto__"}',
+    '{"t":1783236002,"e":"c@example.net","s":"constructor"}',
+  ]);
+  const agg = aggregateSiteReport(buildSiteReport(db, { archiveBase: base, analytics: ANALYTICS, processStartMs: NOW, now: NOW }));
+  const sources = JSON.parse(JSON.stringify(agg.waitlist.bySource));
+  assert.equal(sources.constructor, 2, "not Object.prototype.constructor + 1");
+  assert.equal(sources["__proto__"], 1, "not swallowed by the __proto__ setter");
+  assert.equal(Object.getPrototypeOf({}).polluted, undefined);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 test("aggregateSiteReport: carries NO email, id or per-person field (the diag token's 'no user data' posture)", () => {
   const db = makeDb();
   const base = makeArchive(['{"t":1783236000,"e":"user@münchen.de","s":"developers"}']);

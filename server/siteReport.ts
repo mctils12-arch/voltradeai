@@ -176,7 +176,11 @@ export function buildSiteReport(db: DatabaseType, opts: {
   };
 }
 
-function bump(m: Record<string, number>, k: string) { m[k] = (m[k] || 0) + 1; }
+/** Tally maps have no prototype: waitlist `source` is user-supplied (POST
+ *  /api/waitlist), so a key like "constructor" or "__proto__" must count as
+ *  a plain key, not resolve to Object.prototype. */
+const tally = (): Record<string, number> => Object.create(null);
+function bump(m: Record<string, number>, k: string) { m[k] = (m[k] ?? 0) + 1; }
 
 /** Per-day maps keep the newest AGGREGATE_DAY_CAP days (totals stay
  *  all-time): sanitizeDiag keeps an object's FIRST 100 keys, which for an
@@ -192,14 +196,14 @@ function newestDays(m: Record<string, number>): Record<string, number> {
 /** Counts only — the per-person fields never leave this function. */
 export function aggregateSiteReport(r: SiteReport): SiteReportAggregate {
   const signups = r.accounts.filter((a) => !a.isOwner);
-  const byDay: Record<string, number> = {};
-  const byTier: Record<string, number> = {};
+  const byDay = tally();
+  const byTier = tally();
   for (const a of signups) {
     bump(byDay, String(a.joinedAt).slice(0, 10));
     bump(byTier, a.tier);
   }
-  const wlByDay: Record<string, number> = {};
-  const wlBySource: Record<string, number> = {};
+  const wlByDay = tally();
+  const wlBySource = tally();
   for (const w of r.waitlist) {
     bump(wlByDay, new Date(w.at).toISOString().slice(0, 10));
     bump(wlBySource, w.source);
@@ -210,12 +214,12 @@ export function aggregateSiteReport(r: SiteReport): SiteReportAggregate {
     accounts: {
       signups: signups.length,
       byDay: newestDays(byDay),
-      byTier,
+      byTier: { ...byTier },
       withActiveApiKeys: signups.filter((a) => a.activeApiKeys > 0).length,
       signedInLast24h: signups.filter((a) => a.signedInLast24h).length,
       latestSignupDay: lastKey(byDay),
     },
-    waitlist: { total: r.waitlist.length, byDay: newestDays(wlByDay), bySource: wlBySource, latestDay: lastKey(wlByDay) },
+    waitlist: { total: r.waitlist.length, byDay: newestDays(wlByDay), bySource: { ...wlBySource }, latestDay: lastKey(wlByDay) },
     visits: r.visits,
     notes: r.notes,
   };
