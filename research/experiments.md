@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-13 (scheduled-routine PRODUCT session, ~18:10Z Tue, MARKET HOURS) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN RUN 14: planHistory LIVE, BUT PLAN-AGE IS CENSORED BY CONTAINER UPTIME; AMENDMENT TEST STILL UNDERPOWERED
+
+HEALTH: session_health_check all OK (v1.0.1062 live = checkout, deploy_gate ok, daemon rss 362MB); thrash 3/10; no KNOWN BROKEN blocker.
+WHY: the v1.0.1053 entry filed "run gate1 + --tail once planHistory is live; expect age buckets to vary". Deployed, so this is the first read.
+PRIOR (unchanged): amended plans show >=2x the tail rate of never-amended; older plans (first-seen >60m) show a higher tail rate.
+RAN `scripts/flightplan_gate1.py` live ~18:10Z Tue (14:10 ET), saved research/flightplan_gate1_runs/run14_20261013T1810Z.json. Funnel: eligible 2,682, measured 327, unplaced 2,069, not_filed 271, request_errors 8.
+RESULT: radial n=25 median 0.2 / p90 2.3 / p95 7.3 / le10 96% (second weekday-window run now: run 12 p90 7.5, run 14 p90 2.3; the radial line stays PASS, pooled numbers unchanged in kind). Tail (>10 nm) split: amended=no 53/322 = 16.5%, amended=yes 0/5; age <10m 24/96 = 25%, 10-60m 29/231 = 12.6%; by kind airway 17.2%, direct 17.3%, radial 4%.
+READ (two honest limits, so NO confirmation or refutation): (1) amended n=5 is far too small for any rate comparison. (2) The age buckets now vary but plan age is CENSORED by server uptime: /api/health showed uptime ~1,830s at the time of the run, `planFirstSeenMs` is in-memory, so the maximum observable age is the container's uptime (here ~23 min) and the ">60m" bucket cannot exist right after any deploy. The apparent "<10m has higher tail than 10-60m" is therefore not evidence of anything (it likely mixes newly-filed plans with plans first seen after the restart). `swimMessageMs` was also checked: it is the LATEST SFDPS message time (2-4 s old on every sampled plan), i.e. a freshness stamp, not the filing time, so it cannot substitute.
+DECISION: no code change. The amendment/plan-age hypothesis needs either (a) first-seen persisted across restarts (derivedSnapshot-style, additive, T-DATACORE) or (b) several days of uninterrupted uptime plus pooled hex-deduped runs. Since deploys are frequent, (a) is the real fix; filed as the next slice rather than built mid-session. Do not interpret age buckets from any run taken <2h after a boot.
+EFFECT: no trading path, no measurement-engine change. ROLLBACK: n/a (docs/data). MERGE: docs only, safe mid-market.
+STARVED: no.
+
 ## 2026-10-13 (scheduled-routine session, Tue) [PIPELINE] — T-DATACORE (server/flightPlans.ts + tests + scripts/flightplan_gate1.py; v1.0.1053) — FLIGHT-PLAN RESPONSE NOW EXPOSES PLAN HISTORY (amendments, first-seen, SWIM message time)
 
 HEALTH: session_health_check all OK (v1.0.1052 live = checkout; WARN daemon rss 401MB advisory); thrash 3/10; no audit overdue; STARVED streak 0.
