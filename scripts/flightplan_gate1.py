@@ -11,6 +11,7 @@ Excludes aircraft <60 nm from the destination (terminal vectoring) and below
 
   python3 scripts/flightplan_gate1.py [base_url] [max_aircraft]
   python3 scripts/flightplan_gate1.py --pool run1.json run2.json ...
+  python3 scripts/flightplan_gate1.py --tail run1.json run2.json ...
 
 --pool merges the `radial_samples` of saved runs, keeping ONE (the first)
 observation per aircraft hex, so a long-haul flight sampled in two runs is
@@ -102,6 +103,39 @@ def kind_of(plan):
     return (plan or {}).get("routeKind") or "unknown"
 
 
+TAIL_NM = 10.0
+
+
+def plan_meta(plan):
+    """(amendments, ageSec) of a plan response. Amendments are not a JSON
+    field; the server states them in `honesty` ("amended N×"). ageSec is
+    seconds since the SWIM message was last updated."""
+    m = re.search(r"amended (\d+)", (plan or {}).get("honesty") or "")
+    return (int(m.group(1)) if m else 0), (plan or {}).get("ageSec")
+
+
+def age_bucket(age):
+    return "unknown" if age is None else "<10m" if age < 600 else "10-60m" if age < 3600 else ">60m"
+
+
+def tail_by_group(samples):
+    """REPORT-ONLY: cross-track tail rate (> TAIL_NM) split by amended vs
+    never-amended and by plan-age bucket. samples = [hex, kind, xt, amendments,
+    ageSec] rows, deduped by hex (first wins) so a long-haul flight sampled
+    twice is not double-counted. Why: 2026-10-13 showed the tail is general
+    en-route divergence, not terminal vectoring; this tests whether it tracks
+    reroute-prone (amended) or stale plans instead."""
+    seen, groups = set(), {}
+    for hx, kind, xt, am, age in samples:
+        if hx in seen or xt is None:
+            continue
+        seen.add(hx)
+        for g in (f"amended={'yes' if am else 'no'}", f"age={age_bucket(age)}", f"kind={kind}"):
+            n, t = groups.get(g, (0, 0))
+            groups[g] = (n + 1, t + (xt > TAIL_NM))
+    return {g: {"n": n, "tail": t, "tail_rate": round(t / n, 3)} for g, (n, t) in sorted(groups.items())}
+
+
 def pool_unique(runs, field="radial_samples"):
     """Dedupe samples across saved runs by aircraft hex (first observation
     wins; runs given oldest-first). `field` is radial_samples (shadow) or
@@ -130,6 +164,10 @@ def main():
         print(json.dumps({"radial_pooled_unique": summ, "radial_pooled_raw_n": n_raw,
                           "radial_live_pooled_unique": live, "radial_live_pooled_raw_n": n_live}))
         return
+    if len(sys.argv) > 2 and sys.argv[1] == "--tail":
+        rows = [x for f in sys.argv[2:] for x in json.load(open(f)).get("plan_samples", [])]
+        print(json.dumps(tail_by_group(rows)))
+        return
     base = sys.argv[1] if len(sys.argv) > 1 else "https://voltradeai-production.up.railway.app"
     cap = int(sys.argv[2]) if len(sys.argv) > 2 else 3000
     rows = [r for r in _get(base + "/api/data/aircraft/global?lamin=24&lamax=50&lomin=-125&lomax=-66")["rows"] if eligible(r)][:cap]
@@ -140,8 +178,8 @@ def main():
             m = measure(pl, r)
             rs = measure_radial_shadow(pl, r)
             if rs is not None:
-                return "radial_shadow", rs, dist_band(pl, r), "radial_shadow_measured", r[0]
-            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r), r[0]
+                return "radial_shadow", rs, dist_band(pl, r), "radial_shadow_measured", r[0], plan_meta(pl)
+            return kind_of(pl), m, (dist_band(pl, r) if m is not None else None), reject_reason(pl, r), r[0], plan_meta(pl)
         except Exception:
             return None
     with cf.ThreadPoolExecutor(6) as ex:
@@ -161,6 +199,8 @@ def main():
     out["by_kind_band"] = {k: summarize(v) for k, v in sorted(by_band.items())}
     out["radial_samples"] = [[x[4], x[1]] for x in raw if x is not None and x[0] == "radial_shadow" and x[1] is not None]
     out["radial_live_samples"] = [[x[4], x[1]] for x in raw if x is not None and x[0] == "radial" and x[1] is not None]
+    out["plan_samples"] = [[x[4], x[0], x[1], x[5][0], x[5][1]] for x in raw
+                           if x is not None and x[1] is not None and x[0] != "radial_shadow"]
     print(json.dumps(out))
 
 
