@@ -61,7 +61,7 @@ import {
   TZ_MARK_WIDTH_PX,
   altRampColor,
 } from './trackModel.js';
-import { AIR_SILHOUETTES, AIR_SHAPE } from './airLayer.js';
+import { AIR_SILHOUETTES, AIR_SHAPE, AIR_DIR_STEP_M } from './airLayer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 import { setGauge } from '../../render/perfMetrics.js';
@@ -444,7 +444,9 @@ in float a_altFrac;
 uniform vec2 u_anchor;     // normalized mercator
 uniform float u_altZ;      // altitude end, display-datum meters
 uniform float u_groundZ;   // ground end, display-datum meters
-uniform float u_rot;       // radians: heading - map bearing
+uniform float u_rot;       // radians: heading - map bearing (fallback nose only)
+uniform float u_heading;   // radians: track-tangent heading (0 = N, clockwise)
+uniform float u_climbZ;    // climb ratio x altitude scale (display-datum m per m)
 uniform float u_scaleClip; // clip units per local px at w=1
 uniform float u_aspect;
 uniform vec4 u_color;
@@ -470,9 +472,31 @@ void main() {
   }
 #endif
   vec4 anchor = projectTileFor3D(u_anchor, vtProjElev(mix(u_groundZ, u_altZ, a_altFrac), u_anchor.y));
-  float c = cos(u_rot);
-  float s = sin(u_rot);
-  vec2 p = vec2(a_local.x * c + a_local.y * s, -a_local.x * s + a_local.y * c);
+  // PATH-FOLLOWING NOSE — the same fix and reasoning as airLayer's shader
+  // (2026-10-13): point the glyph along the SCREEN PROJECTION of its 3D
+  // path (heading + climb), not a bearing-only screen rotation that drifts
+  // under pitch/pan. u_rot stays as the degenerate-case fallback.
+  vec2 stepXY = vec2(sin(u_heading), -cos(u_heading))
+    * (${AIR_DIR_STEP_M.toFixed(1)} * cosh(3.14159265 * (1.0 - 2.0 * u_anchor.y)) / 40075016.686);
+  float baseZ = mix(u_groundZ, u_altZ, a_altFrac);
+  float stepZ = ${AIR_DIR_STEP_M.toFixed(1)} * u_climbZ * a_altFrac;
+  vec2 aNdc = anchor.xy / anchor.w;
+  vec4 ahead = projectTileFor3D(u_anchor + stepXY, vtProjElev(baseZ + stepZ, u_anchor.y + stepXY.y));
+  vec2 dScr = vec2(0.0);
+  if (ahead.w > 0.0) {
+    dScr = ahead.xy / ahead.w - aNdc;
+  } else {
+    vec4 behind = projectTileFor3D(u_anchor - stepXY, vtProjElev(baseZ - stepZ, u_anchor.y - stepXY.y));
+    if (behind.w > 0.0) dScr = aNdc - behind.xy / behind.w;
+  }
+  dScr.x *= u_aspect;
+  vec2 fwd;
+  if (anchor.w > 0.0 && dot(dScr, dScr) > 1e-14) {
+    fwd = normalize(dScr);
+  } else {
+    fwd = vec2(sin(u_rot), cos(u_rot));
+  }
+  vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;
   gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;
   v_color = u_color;
 }`;
@@ -493,6 +517,9 @@ export interface TrackMarker {
   groundZ: number;
   /** track-tangent heading, deg (0 = N, clockwise). */
   headingDeg: number;
+  /** tangent of the flight-path angle (airLayer climbRatio); 0/absent = level.
+   *  The glyph's nose pitches along it as seen from a tilted camera. */
+  climb?: number;
   /** AIR_SHAPE code — the selected aircraft's class silhouette
    *  (symbols-not-dots holds for the marker too). */
   shape: number;
@@ -847,6 +874,8 @@ export class FlightTrackLayer implements CustomLayerInterface {
     if (this.mU.groundZ) gl.uniform1f(this.mU.groundZ, m.groundZ + 14 * this.altScale);
     const bearing = this.map?.getBearing() ?? 0;
     if (this.mU.rot) gl.uniform1f(this.mU.rot, ((m.headingDeg - bearing) * Math.PI) / 180);
+    if (this.mU.heading) gl.uniform1f(this.mU.heading, (m.headingDeg * Math.PI) / 180);
+    if (this.mU.climbZ) gl.uniform1f(this.mU.climbZ, (Number.isFinite(m.climb) ? (m.climb as number) : 0) * this.altScale);
 
     if (!this.mDotBuffer) {
       this.mDotBuffer = gl.createBuffer();
@@ -976,6 +1005,8 @@ export class FlightTrackLayer implements CustomLayerInterface {
       altZ: gl.getUniformLocation(mp, 'u_altZ'),
       groundZ: gl.getUniformLocation(mp, 'u_groundZ'),
       rot: gl.getUniformLocation(mp, 'u_rot'),
+      heading: gl.getUniformLocation(mp, 'u_heading'),
+      climbZ: gl.getUniformLocation(mp, 'u_climbZ'),
       scaleClip: gl.getUniformLocation(mp, 'u_scaleClip'),
       aspect: gl.getUniformLocation(mp, 'u_aspect'),
       color: gl.getUniformLocation(mp, 'u_color'),

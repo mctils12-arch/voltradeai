@@ -56,13 +56,39 @@ import { isOverloaded } from '../deviceTier.js';
 export const AIR_3D_MIN_ZOOM = 8.05;
 
 /** floats per instance: mercX, mercY, altMeters, headingDeg, band, shape,
- *  velX, velY. vel* are DISPLAY-ONLY dead-reckoning rates in normalized-
+ *  velX, velY, climb. vel* are DISPLAY-ONLY dead-reckoning rates in normalized-
  *  mercator units per second (airGlide.mercVelPerSec — broadcast track +
  *  ground speed; 0 = frozen: on-ground / not broadcast). The shader glides
  *  base + vel·u_dtSec between polls, capped at MAX_AIR_GLIDE_SEC; fields
  *  [0..5] keep their pre-glide offsets so stride-agnostic readers survive
- *  the extension (the satBuffer velocity-extension precedent). */
-export const AIR_INST_STRIDE = 8;
+ *  the extension (the satBuffer velocity-extension precedent). climb
+ *  (2026-10-13) is climbRatio(): the tangent of the flight-path angle the
+ *  silhouette's nose follows; appended for the same reason. */
+export const AIR_INST_STRIDE = 9;
+
+/** Steepest flight-path angle the nose will show: tan(30°). Real climbs and
+ *  descents are a few degrees; anything past this is a bad rate/speed pair. */
+export const AIR_MAX_CLIMB = Math.tan(Math.PI / 6);
+
+/** Distance ahead along the track (m) projected to find the nose's screen
+ *  direction. Projection keeps straight lines straight, so any step gives
+ *  the same direction; 400 m keeps float32 deltas well-conditioned from z8
+ *  up while staying in front of the camera in practice. */
+export const AIR_DIR_STEP_M = 400;
+
+/** Pure: tangent of the flight-path angle from the BROADCAST vertical rate
+ *  and ground speed (m/s). 0 = level or unknown (ground, either rate
+ *  missing, or under 1 m/s of ground speed — never a guessed slope). */
+export function climbRatio(
+  verticalRateMs: number | null | undefined,
+  groundSpeedMs: number | null | undefined,
+  onGround?: boolean | null,
+): number {
+  if (onGround || verticalRateMs == null || groundSpeedMs == null) return 0;
+  if (!Number.isFinite(verticalRateMs) || !Number.isFinite(groundSpeedMs) || groundSpeedMs < 1) return 0;
+  const r = verticalRateMs / groundSpeedMs;
+  return r > AIR_MAX_CLIMB ? AIR_MAX_CLIMB : r < -AIR_MAX_CLIMB ? -AIR_MAX_CLIMB : r;
+}
 
 /** altitude band codes (match the 2D layer's ALT_COLOR semantics). */
 export const AIR_BAND = { GROUND: 0, LOW: 1, CRUISE: 2 } as const;
@@ -178,6 +204,8 @@ export interface AircraftInstanceInput {
   category?: string | null;
   /** broadcast ground speed (m/s) — the glide rate input; null = frozen. */
   velocity_ms?: number | null;
+  /** broadcast vertical rate (m/s, + = climbing); null = unknown -> level. */
+  vertical_rate_ms?: number | null;
 }
 
 export interface AirShapeGroup { shape: number; start: number; count: number }
@@ -190,7 +218,7 @@ export interface AirShapeGroup { shape: number; start: number; count: number }
  * the server snapshot's hard cap (SNAPSHOT_CAP = 25,000; ~8-15k observed
  * worldwide) in ONE payload, and onData builds instances from every row —
  * at 12k the cap would silently shed a third of the world each poll.
- * Budget math: 25,000 x AIR_INST_STRIDE(8) x 4B = 800 KB instance buffer,
+ * Budget math: 25,000 x AIR_INST_STRIDE(9) x 4B = 900 KB instance buffer,
  * inside the declared 4 MB vramBudget (the static silhouette meshes are a
  * few KB). Still a runaway guard: the 3D silhouettes draw only at
  * z >= AIR_3D_MIN_ZOOM, where the precise viewport feed (a few thousand
@@ -271,6 +299,7 @@ export function buildAircraftInstances<T extends AircraftInstanceInput>(
     inst[i * AIR_INST_STRIDE + 5] = shape;
     inst[i * AIR_INST_STRIDE + 6] = vel.vx;
     inst[i * AIR_INST_STRIDE + 7] = vel.vy;
+    inst[i * AIR_INST_STRIDE + 8] = climbRatio(a.vertical_rate_ms, a.velocity_ms, a.on_ground);
     const g = groups[groups.length - 1];
     if (g && g.shape === shape) g.count += 1;
     else groups.push({ shape, start: i, count: 1 });
@@ -412,7 +441,8 @@ in float a_altFrac;        // per-vertex altitude fraction: 1 for silhouettes;
 in vec4 a_inst;            // per-instance: mercX, mercY, altMeters, headingDeg
 in float a_band;           // per-instance: altitude band (0 ground / 1 low / 2 cruise)
 in vec2 a_vel;             // per-instance GLIDE: d/dt of (mercX, mercY) per second
-uniform float u_bearing;   // map bearing (deg) — silhouettes rotate with the map like icons
+in float a_climb;          // per-instance: climbRatio() = tan(flight-path angle), 0 = level/unknown
+uniform float u_bearing;   // map bearing (deg) — fallback nose rotation only (see below)
 uniform float u_altScale;  // 1, or the terrain exaggeration so vertical datums match
 uniform float u_scaleClip; // clip units per local unit at w=1 (pixel-constant via *w)
 uniform float u_dtSec;     // seconds since the poll anchor, CPU-clamped to MAX_AIR_GLIDE_SEC
@@ -450,10 +480,45 @@ void main() {
   }
 #endif
   vec4 anchor = projectTileFor3D(g_xy, vtProjElev(a_inst.z * u_altScale * a_altFrac, g_xy.y));
-  float rot = radians(a_inst.w - u_bearing);
-  float c = cos(rot);
-  float s = sin(rot);
-  vec2 p = vec2(a_local.x * c + a_local.y * s, -a_local.x * s + a_local.y * c);
+  // PATH-FOLLOWING NOSE (2026-10-13, owner report: "the plane icon moves
+  // direction as you pan/tilt the camera ... it should follow the path and
+  // if it's descending or climbing the icon should do that"). The nose used
+  // to be a screen rotation of (heading - bearing), which is only right when
+  // looking straight down: under pitch, perspective changes the on-screen
+  // angle of a ground direction, and that angle drifts across the view as
+  // you pan. Now the nose points along the SCREEN PROJECTION of the plane's
+  // own 3D path: a point AIR_DIR_STEP_M ahead on the broadcast track, raised
+  // by climb x step at the SAME altitude scale as the anchor. Projection
+  // keeps straight lines straight, so anchor->ahead is exactly the path's
+  // screen direction: true heading at any bearing/pitch/pan, nose up/down
+  // for climbs/descents seen from a tilted camera (from straight overhead a
+  // climb has no screen extent — honest, not hidden). If the ahead point is
+  // behind the camera the behind point is used; if the path points straight
+  // at the camera, the bearing-relative rotation is the fallback.
+  float hRad = radians(a_inst.w);
+  vec2 stepXY = vec2(sin(hRad), -cos(hRad))
+    * (${AIR_DIR_STEP_M.toFixed(1)} * cosh(3.14159265 * (1.0 - 2.0 * g_xy.y)) / 40075016.686);
+  float baseZ = a_inst.z * u_altScale * a_altFrac;
+  float stepZ = ${AIR_DIR_STEP_M.toFixed(1)} * a_climb * u_altScale * a_altFrac;
+  vec2 aNdc = anchor.xy / anchor.w;
+  vec4 ahead = projectTileFor3D(g_xy + stepXY, vtProjElev(baseZ + stepZ, g_xy.y + stepXY.y));
+  vec2 dScr = vec2(0.0);
+  if (ahead.w > 0.0) {
+    dScr = ahead.xy / ahead.w - aNdc;
+  } else {
+    vec4 behind = projectTileFor3D(g_xy - stepXY, vtProjElev(baseZ - stepZ, g_xy.y - stepXY.y));
+    if (behind.w > 0.0) dScr = aNdc - behind.xy / behind.w;
+  }
+  dScr.x *= u_aspect; // NDC -> square screen units, the space p lives in
+  vec2 fwd;
+  if (anchor.w > 0.0 && dot(dScr, dScr) > 1e-14) {
+    fwd = normalize(dScr);
+  } else {
+    float rot = radians(a_inst.w - u_bearing);
+    fwd = vec2(sin(rot), cos(rot));
+  }
+  // silhouette frame: +y = nose (fwd), +x = right wing (fwd turned 90° cw)
+  vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;
   gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;
   int band = int(clamp(a_band, 0.0, 2.0));
   v_color = u_bandColors[band];
@@ -496,6 +561,7 @@ export class AirLayer implements CustomLayerInterface {
   private aInst = -1;
   private aBand = -1;
   private aVel = -1;
+  private aClimb = -1;
   private uBearing: WebGLUniformLocation | null = null;
   private uAltScale: WebGLUniformLocation | null = null;
   private uScale: WebGLUniformLocation | null = null;
@@ -775,6 +841,10 @@ export class AirLayer implements CustomLayerInterface {
       gl.enableVertexAttribArray(this.aVel);
       gl.vertexAttribDivisor(this.aVel, 1);
     }
+    if (this.aClimb >= 0) {
+      gl.enableVertexAttribArray(this.aClimb);
+      gl.vertexAttribDivisor(this.aClimb, 1);
+    }
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -818,6 +888,10 @@ export class AirLayer implements CustomLayerInterface {
       gl.vertexAttribDivisor(this.aVel, 0);
       gl.disableVertexAttribArray(this.aVel);
     }
+    if (this.aClimb >= 0) {
+      gl.vertexAttribDivisor(this.aClimb, 0);
+      gl.disableVertexAttribArray(this.aClimb);
+    }
 
     // GLIDE self-repaint (satLayer's needsGlide pattern): while a glide is
     // in progress AND one AIR_GLIDE_STEP_MS step would move a worst-case
@@ -846,6 +920,7 @@ export class AirLayer implements CustomLayerInterface {
     gl.vertexAttribPointer(this.aInst, 4, gl.FLOAT, false, AIR_INST_STRIDE * 4, base);
     gl.vertexAttribPointer(this.aBand, 1, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 16);
     if (this.aVel >= 0) gl.vertexAttribPointer(this.aVel, 2, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 24);
+    if (this.aClimb >= 0) gl.vertexAttribPointer(this.aClimb, 1, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 32);
   }
 
   private compile(gl: WebGL2RenderingContext, prelude: string, define: string, variant: string): void {
@@ -886,6 +961,7 @@ export class AirLayer implements CustomLayerInterface {
     this.aInst = gl.getAttribLocation(p, 'a_inst');
     this.aBand = gl.getAttribLocation(p, 'a_band');
     this.aVel = gl.getAttribLocation(p, 'a_vel');
+    this.aClimb = gl.getAttribLocation(p, 'a_climb');
     this.uBearing = gl.getUniformLocation(p, 'u_bearing');
     this.uAltScale = gl.getUniformLocation(p, 'u_altScale');
     this.uScale = gl.getUniformLocation(p, 'u_scaleClip');
@@ -901,8 +977,8 @@ export class AirLayer implements CustomLayerInterface {
 }
 
 // ── Law IV budget declaration ───────────────────────────────────────────────
-// AIR_INST_STRIDE is 8 floats per aircraft:
-//   12,000 x 8 x 4B = 384 KB of instance data, plus the shared glyph
+// AIR_INST_STRIDE is 9 floats per aircraft:
+//   12,000 x 9 x 4B = 432 KB of instance data, plus the shared glyph
 //   geometry buffers (fixed size, not per-feature).
 // 12,000 is ~3.4x the busiest observed live render (3,507 aircraft at
 // 1440px in the visual harness), so the cap is a runaway guard rather than

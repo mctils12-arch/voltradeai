@@ -141,7 +141,7 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
-import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, pickNearestAircraftScreenMercator, AIR_3D_MIN_ZOOM, shapeForCategory } from "@/lib/air/airLayer";
+import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, pickNearestAircraftScreenMercator, AIR_3D_MIN_ZOOM, shapeForCategory, climbRatio } from "@/lib/air/airLayer";
 // DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
@@ -4925,6 +4925,9 @@ export default function DataMapPage() {
           altM: Number.isNaN(alt) ? alt : displayAltReal(map, alt, lon, lat),
           groundZ: terrOn ? groundZAt(map, lon, lat) : 0,
           headingDeg: headingDeg ?? 0,
+          // nose pitches along the replayed climb/descent (rates derived
+          // from the recorded fixes; null either way -> level)
+          climb: climbRatio(vsFpm == null ? null : vsFpm * 0.00508, gsKt == null ? null : gsKt * 0.5144),
           shape: flightShapeRef.current,
         });
       }

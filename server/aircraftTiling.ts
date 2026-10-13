@@ -179,6 +179,9 @@ export interface DiscProvider {
 // and never a fabricated value. A reported 0 survives (0 is a real integrity
 // category); only absence/garbage becomes null.
 const numOrNull = (x: any): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
+/** ft/min -> m/s rounded to 0.1 (1 ft/min = 0.00508 m/s); null stays null. */
+export const fpmToMs = (fpm: number | null): number | null =>
+  fpm == null ? null : Math.round(fpm * 0.0508) / 10;
 const strOrNull = (x: any): string | null => (typeof x === "string" && x ? x : null);
 const strArrOrNull = (x: any): string[] | null =>
   Array.isArray(x) ? x.filter((s: any) => typeof s === "string") : null;
@@ -217,6 +220,10 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
       altitude_m: altFt == null ? null : Math.round(altFt * 0.3048),
       on_ground: onGround,
       velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
+      // Broadcast vertical rate, ft/min -> m/s (0.1 precision): baro first,
+      // geometric as the fallback — the same preference as altitude above.
+      // The 3D silhouettes pitch along it (client airLayer, 2026-10-13).
+      vertical_rate_ms: fpmToMs(numOrNull(a.baro_rate) ?? numOrNull(a.geom_rate)),
       heading: a.track ?? null,
       type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
       category: a.category || null,          // ADS-B emitter category (A1..A7)

@@ -16,6 +16,9 @@ import {
   pickNearestAircraftScreen,
   AIR_VERT_SRC,
   AirLayer,
+  climbRatio,
+  AIR_MAX_CLIMB,
+  AIR_DIR_STEP_M,
 } from './airLayer.js';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere } from '../orbital/occlusion.js';
@@ -247,8 +250,8 @@ test('buildAircraftInstances displayAlt hook: caller owns the vertical datum; ba
     { displayAlt: (altM, _lon, _lat, onGround) => (onGround ? 0 : Math.max(0, altM - 1600)) },
   );
   assert.equal(inst[2], 50, 'near-ground plane renders 50m above the flat plane, not 1650m MSL');
-  assert.equal(inst[8 + 2], 9400, 'cruise plane at MSL minus ground');
-  assert.equal(inst[16 + 2], 0, 'parked plane sits ON the flat plane');
+  assert.equal(inst[AIR_INST_STRIDE + 2], 9400, 'cruise plane at MSL minus ground');
+  assert.equal(inst[2 * AIR_INST_STRIDE + 2], 0, 'parked plane sits ON the flat plane');
   // BAND uses RAW broadcast altitude, not the display value: 11000m stays
   // CRUISE even though a hostile hook could map it low
   const { inst: i2 } = buildAircraftInstances(
@@ -323,4 +326,65 @@ test('glideRepaintTick: overloaded+terrain forces zero frames; overloaded alone 
   assert.equal(drive(true, false), 8, 'healthy machine keeps full glide under terrain');
   assert.equal(drive(false, true), 4, 'overloaded without terrain: parity halving unchanged');
   assert.equal(drive(false, false), 8, 'baseline: every tick repaints');
+});
+
+// ── PATH-FOLLOWING NOSE (2026-10-13, owner report: the plane icon turned as
+// the camera panned/tilted instead of following its path, and never showed
+// climbs or descents) ─────────────────────────────────────────────────────
+test('climbRatio: broadcast vertical rate / ground speed, clamped; unknown or ground = level, never guessed', () => {
+  assert.equal(climbRatio(10, 100), 0.1, 'climbing 10 m/s at 100 m/s');
+  assert.equal(climbRatio(-4, 80), -0.05, 'descending keeps its sign');
+  assert.equal(climbRatio(50, 60), AIR_MAX_CLIMB, 'junk-steep pairs clamp to 30°');
+  assert.equal(climbRatio(-50, 60), -AIR_MAX_CLIMB);
+  assert.ok(Math.abs(AIR_MAX_CLIMB - Math.tan(Math.PI / 6)) < 1e-12);
+  assert.equal(climbRatio(null, 100), 0, 'no vertical rate broadcast');
+  assert.equal(climbRatio(5, null), 0, 'no ground speed');
+  assert.equal(climbRatio(5, 0.5), 0, 'hovering / near-zero speed has no defined path angle');
+  assert.equal(climbRatio(5, 100, true), 0, 'on the ground');
+  assert.equal(climbRatio(Number.NaN, 100), 0);
+});
+
+test('buildAircraftInstances: climb packs at [8] from vertical_rate_ms / velocity_ms', () => {
+  const { inst } = buildAircraftInstances([
+    { lon: 0, lat: 0, altitude_m: 3000, heading: 90, velocity_ms: 100, vertical_rate_ms: 10 },
+    { lon: 0, lat: 0, altitude_m: 3000, heading: 90, velocity_ms: 100 },
+  ]);
+  assert.equal(AIR_INST_STRIDE, 9);
+  assert.ok(Math.abs(inst[8] - 0.1) < 1e-6, 'climbing row');
+  assert.equal(inst[AIR_INST_STRIDE + 8], 0, 'no rate broadcast -> level');
+  assert.equal(inst[3], 90, 'heading stays at [3]');
+});
+
+test('shader contract: the nose follows the SCREEN PROJECTION of the 3D path; bearing rotation is only the fallback', () => {
+  const src = AIR_VERT_SRC('/* prelude stub */', '');
+  // a point AIR_DIR_STEP_M ahead on the broadcast track, raised by climb,
+  // projected with the SAME function and altitude scale as the anchor
+  assert.ok(src.includes(`${AIR_DIR_STEP_M.toFixed(1)} * cosh(3.14159265 * (1.0 - 2.0 * g_xy.y)) / 40075016.686`),
+    'step converted metres -> mercator at the plane\'s latitude');
+  assert.ok(src.includes(`${AIR_DIR_STEP_M.toFixed(1)} * a_climb * u_altScale * a_altFrac`),
+    'climb raises the ahead point at the same altitude scale as the anchor');
+  assert.ok(src.includes('projectTileFor3D(g_xy + stepXY, vtProjElev(baseZ + stepZ, g_xy.y + stepXY.y))'),
+    'ahead point projected exactly like the anchor');
+  assert.ok(src.includes('projectTileFor3D(g_xy - stepXY, vtProjElev(baseZ - stepZ, g_xy.y - stepXY.y))'),
+    'behind point when the ahead point falls behind the camera');
+  assert.ok(src.includes('fwd = normalize(dScr)'), 'nose = normalized projected path direction');
+  assert.ok(src.includes('dScr.x *= u_aspect'), 'NDC delta squared to pixel space before normalizing');
+  assert.ok(src.includes('vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;'),
+    'silhouette frame: +y nose along fwd, +x wing to its right');
+  const fallback = src.indexOf('radians(a_inst.w - u_bearing)');
+  assert.ok(fallback > src.indexOf('fwd = normalize(dScr)'), 'bearing-relative rotation survives only as the else-branch');
+});
+
+test('fallback frame equals the old bearing rotation (straight-down views are unchanged)', () => {
+  // mirror of the shader's frame build: old rotation vs fwd/right basis
+  for (const [heading, bearing] of [[0, 0], [90, 0], [270, 45], [33, -120]]) {
+    const rot = ((heading - bearing) * Math.PI) / 180;
+    const c = Math.cos(rot), s = Math.sin(rot);
+    const fwd = [s, c];
+    for (const [x, y] of [[1, 0], [0, 1], [0.3, -0.7]]) {
+      const oldP = [x * c + y * s, -x * s + y * c];
+      const newP = [x * fwd[1] + y * fwd[0], -x * fwd[0] + y * fwd[1]];
+      assert.ok(Math.abs(oldP[0] - newP[0]) < 1e-12 && Math.abs(oldP[1] - newP[1]) < 1e-12, `h${heading} b${bearing}`);
+    }
+  }
 });
