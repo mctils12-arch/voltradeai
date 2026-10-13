@@ -2703,6 +2703,11 @@ print(json.dumps(s))
           // (see each stream's datacore/manifests/*.json) or already
           // displayed live on /data, so there is no additional secret
           // surface a new stream could introduce here.
+          // CORRECTED 2026-10-13: not every dir under the archive base is
+          // a datacore stream — `waitlist` (raw signup emails) and
+          // `apiusage` (customer metering) live there too and WERE served
+          // here. readArchiveDay now refuses datacoreArchive.ts's
+          // PRIVATE_ARCHIVE_DIRS (404, same as a missing stream).
           //
           // Row cap diverges from the other probes' 200-item convention
           // (matching sanitizeDiag's blanket array truncation): archive

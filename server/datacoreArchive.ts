@@ -152,6 +152,31 @@ export function archiveBaseDir(): string {
   return path.join(dataDir, "datacore_archive");
 }
 
+/**
+ * Archive dirs holding FIRST-PARTY USER DATA, not datacore streams:
+ * `waitlist` (raw signup emails — datacore/manifests/waitlist.json: "NEVER
+ * exposed via any API") and `apiusage` (per-customer API metering). They
+ * sit under archiveBaseDir() only because their writers reuse its
+ * day-JSONL layout. The generic, disk-discovering surfaces below
+ * (readArchiveDay / readArchiveDayEvenSample behind /api/diag/archive,
+ * archiveStats behind the PUBLIC /api/data/archive/stats) never serve
+ * them; platformStats.ts's OPERATIONAL_DIRS is this same set.
+ * FOUND 2026-10-13 (human-directed session): /api/diag/archive?stream=
+ * waitlist served the raw rows, with emails hidden only by sanitizeDiag's
+ * regex (which passes e.g. a non-ASCII domain through unredacted), and
+ * /api/data/archive/stats publicly listed waitlist's file count, bytes
+ * and first/last signup day.
+ */
+export const PRIVATE_ARCHIVE_DIRS: ReadonlySet<string> = new Set(["waitlist", "apiusage"]);
+
+/** True when `stream` resolves (under `base`) into a PRIVATE_ARCHIVE_DIRS
+ *  dir — judged on the resolved path, not the raw string, so `./waitlist`,
+ *  `waitlist/` or `x/../waitlist` can't slip past a caller's validation. */
+export function isPrivateArchiveDir(base: string, stream: string): boolean {
+  const top = path.relative(base, path.join(base, stream)).split(path.sep)[0];
+  return PRIVATE_ARCHIVE_DIRS.has(top.toLowerCase());
+}
+
 function hourFile(kind: ArchiveKind, when: Date, base: string): string {
   const d = when.toISOString().slice(0, 13); // YYYY-MM-DDTHH
   return path.join(base, kind, `${d.replace("T", "-")}.jsonl`);
@@ -920,6 +945,9 @@ export async function readArchiveDay(
   rowFilter?: (row: Record<string, unknown>) => boolean,
 ): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
   const base = baseDir || archiveBaseDir();
+  // User-data dirs read exactly like a missing stream (null -> the diag
+  // probe's 404), so the response is no existence oracle either.
+  if (isPrivateArchiveDir(base, stream)) return null;
   const dir = path.join(base, stream);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
   const files = archiveDayFiles(dir, day);
@@ -983,6 +1011,7 @@ export async function readArchiveDayEvenSample(
   rowFilter?: (row: any) => boolean,
 ): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
   const base = baseDir || archiveBaseDir();
+  if (isPrivateArchiveDir(base, stream)) return null; // same rule as readArchiveDay
   const dir = path.join(base, stream);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
   const files = archiveDayFiles(dir, day);
@@ -1070,7 +1099,9 @@ export function archiveStats(baseDir?: string): any {
   const kinds = new Set<string>(["aircraft", "vessels", "trains", "aircraft_tracks", "vessels_tracks", "trains_tracks"]);
   try {
     for (const e of fs.readdirSync(base, { withFileTypes: true })) {
-      if (e.isDirectory()) kinds.add(e.name);
+      // Served publicly (/api/data/archive/stats): user-data dirs' counts,
+      // bytes and first/last day would disclose signup activity.
+      if (e.isDirectory() && !PRIVATE_ARCHIVE_DIRS.has(e.name)) kinds.add(e.name);
     }
   } catch {}
   for (const kind of Array.from(kinds).sort()) {
