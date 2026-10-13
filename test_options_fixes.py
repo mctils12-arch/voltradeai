@@ -324,7 +324,10 @@ class TestSizePctParameter(unittest.TestCase):
              "strike": 175, "bid": 1.80, "ask": 2.10, "mid": 1.95,
              "delta": -0.28, "gamma": 0.015, "theta": -0.03, "iv": 0.20,
              "volume": 400, "open_interest": 1800, "expiry": "2026-04-18",
-             "days_to_expiry": 9}
+             # 2026-10-13 f3-csp-entry-dte: was 9 — a CSP inside the 21-DTE
+             # exit zone is now (correctly) rejected; this test is about the
+             # size_pct NameError, so the fixture sits outside the zone.
+             "days_to_expiry": 35}
         ]
         try:
             # size_pct=0.20 so 100k * 0.20 = 20k > 17.5k per contract
@@ -415,7 +418,9 @@ class TestSizePctParameter(unittest.TestCase):
              "strike": 175, "bid": 1.80, "ask": 2.10, "mid": 1.95,
              "delta": -0.28, "gamma": 0.015, "theta": -0.03, "iv": 0.20,
              "volume": 400, "open_interest": 1800, "expiry": "2026-04-18",
-             "days_to_expiry": 9}
+             # 2026-10-13 f3-csp-entry-dte: was 9 (inside the 21-DTE exit
+             # zone, now rejected by design); test is about cash_available.
+             "days_to_expiry": 35}
         ]
         result = _select_sell_put(contracts, 185.0, 100000, "AAPL", 0.20,
                                    cash_available=1_000_000)

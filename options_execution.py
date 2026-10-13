@@ -89,6 +89,25 @@ MIN_OPTION_VOLUME = 10           # Minimum daily volume on the contract
 MIN_OPEN_INTEREST = 200          # Minimum open interest
 MAX_SPREAD_PCT = 0.10            # Max bid-ask spread as % of mid price (tightened from 0.15, 2026-04-10)
 
+# CSP ENTRY DTE FLOOR (2026-10-13, fix f3-csp-entry-dte): cash-secured puts
+# used to be fetched from min_dte=7 and picked on delta alone, so the
+# selector often returned 7-21 DTE puts — born INSIDE options_manager's
+# 21-DTE exit zone (Check 3). Every such CSP round-tripped ~60-71 minutes
+# after fill (MIN_HOLD_MINUTES then DTE exit), paying the spread both ways,
+# and T1 re-sold it next cycle (live: XLF/NOK/NU 2026-10-23/10-30 expiries).
+# The 21-DTE exit is a risk rule and stays; the ENTRY side yields. The
+# floor is the T1 target window minimum (tiered_strategy.T1_TARGET_DTE_MIN,
+# 30 — one shared constant, not a new number), clamped to be strictly
+# greater than the exit threshold so the two can never re-overlap if
+# either is retuned. Expected effect: zero CSPs entered at <=21 DTE; CSP
+# candidates come from the 30-50 DTE window; fewer fills on names with no
+# expiry in that window.
+from options_manager import DTE_EXIT_THRESHOLD as _DTE_EXIT_THRESHOLD
+from tiered_strategy import T1_TARGET_DTE_MIN as _T1_TARGET_DTE_MIN
+CSP_ENTRY_MIN_DTE = max(_T1_TARGET_DTE_MIN, _DTE_EXIT_THRESHOLD + 1)
+# Single-leg short-premium entries that must clear the exit-zone floor.
+_SHORT_PREMIUM_SINGLE_LEG = ("sell_cash_secured_put",)
+
 # Top 10 QQQ holdings for iron condor earnings guard
 QQQ_TOP_HOLDINGS = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST"]
 
@@ -373,6 +392,10 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         # Weekly strategies (QQQ iron condor, covered call) need short-dated contracts
         _weekly_strategies = ("qqq_iron_condor", "covered_call")
         _min_dte = 3 if strategy in _weekly_strategies else 7
+        if strategy in _SHORT_PREMIUM_SINGLE_LEG:
+            # 2026-10-13 f3-csp-entry-dte: never request expiries inside the
+            # options_manager 21-DTE exit zone (see CSP_ENTRY_MIN_DTE).
+            _min_dte = CSP_ENTRY_MIN_DTE
         # FIX 2026-05-22: ask Alpaca for the specific side we need.
         # Single-leg strategies only need one side; the API filter dramatically
         # reduces the chance of "chain=7, puts=0" failures by ensuring the
@@ -868,8 +891,27 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         c for c in contracts
         if str(c.get("option_type", "")).lower().startswith("p")
     ]
+    # EXIT-ZONE GUARD 2026-10-13 (f3-csp-entry-dte), defence in depth behind
+    # select_contract's CSP_ENTRY_MIN_DTE fetch floor: a put at or inside
+    # options_manager.DTE_EXIT_THRESHOLD would be closed by the 21-DTE exit
+    # as soon as MIN_HOLD_MINUTES passes — a guaranteed spread round-trip.
+    # A candidate with no usable days_to_expiry cannot be proven outside the
+    # exit zone, so it is dropped too (_fetch_option_chain always sets it).
+    def _outside_exit_zone(c: dict) -> bool:
+        try:
+            return int(c.get("days_to_expiry")) > _DTE_EXIT_THRESHOLD
+        except (TypeError, ValueError):
+            return False
+    dte_eligible_puts = [c for c in all_puts_any_type if _outside_exit_zone(c)]
+    if all_puts_any_type and not dte_eligible_puts:
+        return {"error": (
+            f"No CSP-eligible expiries for {ticker}: all {len(all_puts_any_type)} "
+            f"put(s) in the fetched chain expire within {_DTE_EXIT_THRESHOLD} DTE "
+            f"(the options_manager exit threshold) — entering would round-trip "
+            f"at the first post-hold management pass."
+        )}
     # Standard filter: put below current price (OTM for sell-side)
-    puts = [c for c in all_puts_any_type if c.get("strike", 0) <= price]
+    puts = [c for c in dte_eligible_puts if c.get("strike", 0) <= price]
 
     # AFFORDABILITY FILTER 2026-05-22: pre-filter to strikes the account can
     # actually secure. Each CSP requires strike * 100 cash. The previous code
@@ -917,8 +959,9 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         # messages.
         if not puts:
             return {"error": (
-                f"No OTM puts available for {ticker}: {len(all_puts_any_type)} "
-                f"put(s) in the fetched chain, none struck at or below the "
+                f"No OTM puts available for {ticker}: {len(dte_eligible_puts)} "
+                f"put(s) in the fetched chain beyond {_DTE_EXIT_THRESHOLD} DTE, "
+                f"none struck at or below the "
                 f"current price ${price:.2f}."
             )}
         # GRACEFUL DEGRADATION 2026-05-22: instead of failing, check if there's

@@ -107513,3 +107513,45 @@ confirm, escalation acts on first call, fallback holds). Worktree-built,
 blocked once by the adversarial reviewer, revised, approved; read and
 approved by this session.
 STARVED: no.
+
+
+## 2026-10-13 [REPAIR] — T-BOT — CSP ENTRIES KEPT OUTSIDE THE 21-DTE EXIT ZONE (v1.0.1056)
+
+PR 3 of 7 from the verified rule-conflict sweep (see the v1.0.1054 entry).
+DEFECT: select_contract fetched cash-secured-put expiries from min_dte=7
+and _select_sell_put picked on delta alone, so 7-21 DTE puts were routinely
+chosen. options_manager Check 3 (dte <= DTE_EXIT_THRESHOLD, 21) then closed
+each one as soon as MIN_HOLD_MINUTES (60) elapsed — a ~60-71 minute spread
+round trip — and T1 re-sold the underlying next cycle (live: XLF/NOK/NU on
+2026-10-23/10-30 expiries). Entry rule and exit rule contradicted each
+other.
+CHANGE: the 21-DTE exit is a risk rule and stays; the entry side yields.
+options_execution.CSP_ENTRY_MIN_DTE = max(tiered_strategy.T1_TARGET_DTE_MIN,
+options_manager.DTE_EXIT_THRESHOLD + 1) (= 30 today; built from the two
+existing constants, so the windows cannot re-overlap if either is retuned).
+select_contract requests sell_cash_secured_put expiries from it (other
+strategies keep 7 / 3); _select_sell_put drops puts with days_to_expiry <=
+DTE_EXIT_THRESHOLD (or missing) before affordability/stretch/delta
+selection, with a distinct non-capital error when a whole chain is inside
+the exit zone.
+UNCHANGED: DTE_EXIT_THRESHOLD, MIN_HOLD_MINUTES, delta targets, sizing,
+submit_options_order and every order POST path. No risk threshold moved.
+DOWNSTREAM: zero CSPs entered at <=21 DTE; CSP candidates come from the
+30-50 DTE window (more premium per trade, more theta days, fewer
+round trips); names with no listed expiry in that window produce no CSP
+(fewer fills, logged as a distinct error, not a capital error).
+Backtest unaffected (backtest_v2 does not model the options stack) —
+evidence is the live round trips.
+ROLLBACK TRIGGER: CSP fill count collapsing to ~0 for a full week with the
+new "No CSP-eligible expiries" error dominating the options audit, or a
+CSP appearing in /api/diag/orders with <=21 DTE at entry.
+TESTS: test_csp_entry_dte.py (fails on old code: synthetic 11-DTE delta
+-0.30 vs 35-DTE delta -0.27 chain picks the 35-DTE; a put at exactly
+DTE_EXIT_THRESHOLD is rejected; stretch mode; select_contract fetch floor; invariant entry min DTE
+> exit threshold). Two test_options_fixes.py sell-put fixtures moved
+days_to_expiry 9 -> 35 so they stay valid CSP candidates; their
+assertions (size_pct / cash_available) are unchanged. Worktree-built,
+approved by the adversarial reviewer; read and approved by this session
+(no circular import between options_execution / options_manager /
+tiered_strategy).
+STARVED: no.
