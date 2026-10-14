@@ -43,6 +43,11 @@ export const GLOBAL_FEED_MIN_SPACING_MS = 4_000;
 /** a full (non-delta) resync at least this often: reconciles rows the
  *  server dropped at its cap and any merge drift */
 export const GLOBAL_RESYNC_MS = 90_000;
+/** [REPAIR 2026-10-14] hard cap on one global-feed request. The aircraft poll
+ *  re-arms only after its load settles, so a request stuck on a connection
+ *  that died while the computer slept froze the whole feed overnight. A
+ *  timeout is an error (status shows the retry), not a silent "unchanged". */
+export const GLOBAL_FETCH_TIMEOUT_MS = 30_000;
 /** mirrors server SNAPSHOT_EVICT_MS: the server drops a row whose fix is
  *  older than this, and a delta cannot say so — the client applies the same
  *  rule to its held set */
@@ -314,9 +319,17 @@ export interface AircraftFeed {
 
 const UNCHANGED: UnchangedPayload = { unchanged: true };
 
-export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () => number } = {}): AircraftFeed {
+export function createAircraftFeed(opts: {
+  fetchImpl?: typeof fetch; now?: () => number;
+  timeoutMs?: number;
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  clearTimeout?: (h: unknown) => void;
+} = {}): AircraftFeed {
   const fetchImpl = opts.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const now = opts.now ?? (() => Date.now());
+  const timeoutMs = opts.timeoutMs ?? GLOBAL_FETCH_TIMEOUT_MS;
+  const setT = opts.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearT = opts.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
   let global = false;
   let inflight: AbortController | null = null;
   let lastUrl = "";
@@ -345,6 +358,8 @@ export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () =>
       inflight?.abort(); // a newer request supersedes the older one
       const ac = new AbortController();
       inflight = ac;
+      let timedOut = false;
+      const to = setT(() => { timedOut = true; ac.abort(); }, timeoutMs);
       try {
         const r = await fetchImpl(reqUrl, { signal: ac.signal, ...(bypassCache ? { cache: "reload" as RequestCache } : {}) });
         if (!r.ok) throw new Error(String(r.status));
@@ -359,10 +374,12 @@ export function createAircraftFeed(opts: { fetchImpl?: typeof fetch; now?: () =>
         if (!m.changed) return UNCHANGED;
         return adaptGlobalPayload({ ...(d as Record<string, unknown>), fields: held.fields, rows: Array.from(held.rows.values()) });
       } catch (e) {
+        if (timedOut) throw new Error(`global feed request timed out after ${timeoutMs}ms`);
         // superseded/disposed requests are not errors — the newer one delivers
         if (ac.signal.aborted || (e as { name?: unknown } | null)?.name === "AbortError") return UNCHANGED;
         throw e;
       } finally {
+        clearT(to);
         if (inflight === ac) inflight = null;
       }
     },

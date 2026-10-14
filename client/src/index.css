@@ -2453,6 +2453,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   color: var(--accent-orange, #fbb24c); font-size: 11.5px; line-height: 1.45;
   font-family: var(--font-mono);
 }
+/* registry-load retry notice (repair 2026-10-14): same amber family as the
+   skew note, plus an inline Retry-now pill */
+.vt-registry-note { display: flex; align-items: center; gap: 10px; }
+.vt-registry-note > button { flex: none; }
 
 /* Legend v3 — real registry symbols, grouped, collapsible (390px-legible:
    11px+ labels, 44px toggle target; DESIGN.md legend rule) */
