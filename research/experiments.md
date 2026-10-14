@@ -107814,3 +107814,13 @@ Live (13:13Z): session_health_check all OK except known daemon_memory WARN (rss 
 QUEUE: ladder_readiness_check 0/5 ready (COT ~10-16, fleet_utilization 11-02, 8-K 11-15, GNSS x ITA ~12-31). Flightplan radial line is closed (run 14 / 10-14 entry). SFDPS airway expansion already shipped (server/navAirways.ts). /api/v1 route-vs-meta drift is already guarded by apiProduct.test.ts / apiMetaGuard. The 00:15Z PRODUCT session shipped the filed API-boundary follow-up (diag email scrub). Another feature or hypothesis today would duplicate filed work; anti-churn applies.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~14:30Z Wed) [REPAIR] — site analytics recorded every SPA page as "/"
+
+FOUND while writing the scheduled visit follow-up: /api/diag/signups top pages showed only "/". Root cause: static.ts mounts the SPA fallback with app.use("/{*path}"); a use()-mounted handler has no req.route and Express trims the matched mount out of req.url, so requestLog's req.path fallback read "/" for every client-routed page. Asset misses (/favicon.ico) and unmatched /api paths that fell through to the SPA (200 index.html) were also counted as page views of "/".
+PRIOR (stated before fixing): reading the path from req.originalUrl (query stripped, capped 120 chars) attributes pages correctly and drops asset/API fall-throughs out of page views; unique-visitor counts unchanged.
+CHANGE: server/requestLog.ts route = matched route pattern when present (unchanged), else originalUrl path. Feeds both the in-memory counters and the persisted ledger (site_visits.json).
+MEASUREMENT NOTE: same inputs before/after (new server/requestLog.test.ts, prod mount order): routes ["/","/","/","/","/api/ok"] -> ["/developers","/data","/favicon.ico","/api/nope","/api/ok"]; page views 4 -> 2. Bias direction: page-load totals go DOWN (fall-through noise removed), so this cannot flatter traffic. Unique visitors are unaffected unless a client only ever hit fall-through assets. Already-recorded days (10-13, 10-14 up to deploy) keep the inflated "/" tallies; the ledger is not rewritten. Query strings stay stripped (the password-reset token lives in ?token=, never a path segment).
+TESTS: requestLog.test.ts +2 (SPA mount attribution + page-view filter; route-pattern retention + length cap). Full server suite 2384/2384; tsc + counter ratchets OK.
+BIAS/RISK: analytics only; no trading path. ROLLBACK: git revert.
+STARVED: no.
