@@ -46,7 +46,9 @@ import {
   forwardJoinOnPlan, isTerminalVectoring, PRESENT_POSITION_ON_PLAN_NAME, TERMINAL_AREA_NM, VECTORING_MIN_XT_NM,
   type LatLon, type PlanPoint, type ReplanResult,
 } from "../shared/flightPlanGeometry";
-import { placeDirectFixesWithRadials } from "./navAirways";
+import { placeDirectFixesWithRadials, parseFiledRoute, type ParsedRoute, type ParsedProcedure, type RouteParseContext } from "./navAirways";
+import { matchProcedure, procedureRouteFixes, enrouteTransitions, type CifpIndex } from "./cifp";
+import { sharedCifpStore } from "./cifpShared";
 
 // ── contract types ──────────────────────────────────────────────────────────
 export type PlanSource = "FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
@@ -107,6 +109,21 @@ export interface FlightPlanResponse {
    *  plan-age information); `swimMessageMs` is the latest SWIM message timestamp. Lets
    *  scripts/flightplan_gate1.py test whether the cross-track tail follows amended/old plans. */
   planHistory?: { amendments: number; planFirstSeenMs: number; swimMessageMs: number | null };
+  /** additive (2026-10-14), FILED_FAA route-text plans only: the route as filed and as
+   *  parsed (server/navAirways.ts parseFiledRoute) — the raw string, every placed fix in
+   *  order, the elements that could not be placed, and the SID/STAR expansion. */
+  filedRoute?: FiledRouteInfo;
+}
+
+export interface FiledRouteInfo {
+  text: string;
+  fixes: string[];
+  unresolved: string[];
+  sid: ParsedProcedure | null;
+  star: ParsedProcedure | null;
+  amendedFromPresentPosition: boolean;
+  /** AIRAC cycle the SID/STAR came from (null = CIFP not loaded yet) */
+  cifpCycle: string | null;
 }
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -727,8 +744,12 @@ export class DeviationTracker {
       t.lastFixT = fix.t;
       const first = t.plan[0], last = t.plan[t.plan.length - 1];
       const enRoute = haversineNm(fix, first) >= DEVIATION_TERMINAL_NM && haversineNm(fix, last) >= DEVIATION_TERMINAL_NM;
-      if (!enRoute) {
-        t.offCount = 0; // terminal-area fixes neither start nor end a deviation
+      // the nearest plan segment spans filed elements we could not place: its
+      // drawn line is not the filed path, so it can neither start nor end a
+      // deviation (navAirways parseFiledRoute, 2026-10-14)
+      const unresolvedHere = !!t.plan[xt.segIndex]?.unresolvedNext;
+      if (!enRoute || unresolvedHere) {
+        t.offCount = 0; // terminal-area / unresolved-segment fixes neither start nor end a deviation
       } else if (xt.nm > DEVIATION_OFF_NM) {
         t.offCount++;
         if (t.state !== "OFF_PLAN" && t.offCount >= DEVIATION_CONSECUTIVE) {
@@ -863,6 +884,9 @@ export interface PlanContext {
   /** FAA LADD privacy program membership (server/laddRegistry.ts): FAA-sourced
    *  plans are never served for these aircraft. Defaults to the shared registry. */
   isLadd?: (hex: string, callsign: string | null) => boolean;
+  /** FAA CIFP for SID/STAR expansion of filed route text; MUST NOT block
+   *  (production: the shared store's peek()). Absent = procedures unresolved. */
+  cifp?: (() => { idx: CifpIndex; cycle: { ident: string } } | null) | null;
 }
 
 interface Candidate {
@@ -881,6 +905,7 @@ interface Candidate {
    *  route-text-only plan. Never drawn, never used for deviation state. */
   radialShadow?: { points: LatLon[]; radialTokens: number };
   planHistory?: { amendments: number; planFirstSeenMs: number; swimMessageMs: number | null };
+  filedRoute?: FiledRouteInfo;
   honesty: string;
 }
 
@@ -895,13 +920,73 @@ export function airportRefFromIdent(id: string | null): AirportRef | null {
   return { icao: a.id, iata: null, name: a.n, lat: a.la, lon: a.lo, elevM: a.el };
 }
 
-export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) => AirportRef | null = airportRefFromIdent): Candidate | null {
+// ── filed route text → points, once per plan revision ──────────────────────
+/** parsed filed routes, keyed by everything the parse depends on (the plan's
+ *  route text, its airports and the CIFP cycle) — a plan revision is parsed
+ *  once, not per request */
+export const ROUTE_PARSE_CACHE_MAX = 2000;
+const routeParseCache = new Map<string, ParsedRoute>();
+export function _resetRouteParseCache(): void { routeParseCache.clear(); }
+
+/** SID/STAR expansion from a loaded CIFP index (null when none is loaded) */
+export function cifpProcedureHook(idx: CifpIndex | null): RouteParseContext["procedure"] {
+  if (!idx) return null;
+  return (kind, airport, token, transition) => {
+    const ap = idx.airport(airport);
+    const hit = matchProcedure(ap, kind, token);
+    if (!ap || !hit) return null;
+    const tr = transition && enrouteTransitions(hit.proc).has(transition) ? transition : null;
+    return {
+      id: hit.proc.id, transition: tr, versionMismatch: hit.versionMismatch,
+      points: procedureRouteFixes(idx, ap, hit.proc, tr),
+    };
+  };
+}
+
+export function parsedFiledRoute(
+  p: Pick<StoredSwimPlan, "routeText" | "departure" | "arrival">,
+  origin: AirportRef | null, destination: AirportRef | null,
+  cifp: { idx: CifpIndex; cycle: { ident: string } } | null,
+): ParsedRoute {
+  const key = `${p.departure ?? ""}|${p.arrival ?? ""}|${cifp?.cycle.ident ?? "-"}|${p.routeText ?? ""}`;
+  const hit = routeParseCache.get(key);
+  if (hit) { routeParseCache.delete(key); routeParseCache.set(key, hit); return hit; }
+  const parsed = parseFiledRoute(p.routeText, {
+    departure: p.departure, arrival: p.arrival,
+    origin: origin ? { lat: origin.lat, lon: origin.lon } : null,
+    destination: destination ? { lat: destination.lat, lon: destination.lon } : null,
+    procedure: cifpProcedureHook(cifp?.idx ?? null),
+  });
+  routeParseCache.set(key, parsed);
+  while (routeParseCache.size > ROUTE_PARSE_CACHE_MAX) routeParseCache.delete(routeParseCache.keys().next().value as string);
+  return parsed;
+}
+
+/** parsed points as plan route points; a gap marks the leg ARRIVING at a
+ *  point, i.e. the previous point's segment-from-here (`unresolvedNext`) */
+function routePointsFromParse(parsed: ParsedRoute): { points: Array<{ lat: number; lon: number; name: string; unresolvedNext?: boolean }>; leadGap: boolean } {
+  const pts = parsed.points.map((q) => ({ lat: q.lat, lon: q.lon, name: q.name } as { lat: number; lon: number; name: string; unresolvedNext?: boolean }));
+  for (let i = 1; i < pts.length; i++) if (parsed.points[i].gapBefore?.length) pts[i - 1].unresolvedNext = true;
+  if (pts.length && parsed.gapAfter.length) pts[pts.length - 1].unresolvedNext = true;
+  return { points: pts, leadGap: !!parsed.points[0]?.gapBefore?.length };
+}
+
+export function filedCandidate(
+  p: StoredSwimPlan,
+  resolve: (id: string | null) => AirportRef | null = airportRefFromIdent,
+  cifp: { idx: CifpIndex; cycle: { ident: string } } | null = null,
+): Candidate | null {
   const origin = resolve(p.departure);
   const destination = resolve(p.arrival);
   const cruise = p.cruiseAltFt;
   let raw: PlanPoint[];
   let pathEstimated: boolean;
-  const routePoints = routePointsOf(p);
+  // ROUTE-TEXT plans (no SFDPS expanded route) are parsed in full once per
+  // revision: airways, lat/lon, radials, SID/STAR (CIFP), unresolved gaps
+  const parsed = p.routeKind !== "expanded" && p.routeText ? parsedFiledRoute(p, origin, destination, cifp) : null;
+  const fromParse = parsed ? routePointsFromParse(parsed) : null;
+  const routePoints: Array<{ lat: number; lon: number; name?: string; altFt?: number | null; unresolvedNext?: boolean }> =
+    fromParse ? fromParse.points : routePointsOf(p);
   // SFDPS expandedRoute often carries only the two endpoint fixes (resolved via
   // the NASR gazetteer they sit AT the airports); placed alone they are a
   // great-circle, not a filed path — so require >=1 point that is not an
@@ -911,8 +996,9 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     raw = routePoints.map((r) => ({
       lat: r.lat, lon: r.lon, altM: r.altFt != null ? Math.round(r.altFt / FT_PER_M) : null,
       altEstimated: r.altFt == null, ...(r.name ? { name: r.name } : {}),
+      ...(r.unresolvedNext ? { unresolvedNext: true } : {}),
     }));
-    if (origin && haversineNm(origin, raw[0]) > 2) raw.unshift(apPoint(origin));
+    if (origin && haversineNm(origin, raw[0]) > 2) raw.unshift({ ...apPoint(origin), ...(fromParse?.leadGap ? { unresolvedNext: true } : {}) });
     if (destination && haversineNm(destination, raw[raw.length - 1]) > 2) raw.push(apPoint(destination));
     pathEstimated = false;
   } else if (origin && destination) {
@@ -934,11 +1020,23 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
   if (raw.length < 2) return null;
   const len = polylineLengthNm(raw);
   const pair = `${p.departure || "?"}→${p.arrival || "?"}`;
+  // the parse's own class (the stored one is the ingest parse, which had no CIFP)
+  const kind = parsed ? (parsed.kind ?? undefined) : p.routeKind;
+  const procNote = (x: ParsedProcedure | null, what: string) => x?.expanded
+    ? `${what} ${x.id}${x.transition ? `.${x.transition}` : ""}${x.versionMismatch ? ` (filed as ${x.filed}; the current FAA cycle carries ${x.id})` : ""}`
+    : null;
+  const procs = parsed ? [procNote(parsed.sid, "SID"), procNote(parsed.star, "STAR")].filter(Boolean) : [];
+  const parseNotes = !parsed || pathEstimated ? "" :
+    (procs.length ? `; ${procs.join(" and ")} expanded from FAA CIFP (runway transitions omitted: the runway is not in the plan)` : "") +
+    (parsed.amendedFromPresentPosition ? "; the route was AMENDED from the aircraft's position at the time (\"./.\"), so the leg into the first amended point is unknown" : "") +
+    (parsed.unresolved.length
+      ? `; ${parsed.unresolved.length} filed route element${parsed.unresolved.length === 1 ? "" : "s"} could not be placed (${parsed.unresolved.slice(0, 6).join(", ")}${parsed.unresolved.length > 6 ? ", …" : ""}): the legs across them are drawn lighter and deviation is not judged along them`
+      : "");
   return {
     source: "FILED_FAA",
     label: pathEstimated
       ? `FILED — FAA SWIM flight plan ${pair} (route text only; path drawn great-circle, estimated)`
-      : p.routeKind === "corridor"
+      : kind === "corridor"
         ? `FILED — FAA SWIM flight plan ${pair} (route text names ${interior.length === 1 ? "1 fix" : `${interior.length} fixes`}; legs between them drawn direct)`
         : `FILED — FAA SWIM flight plan ${pair}`,
     origin, destination,
@@ -947,13 +1045,21 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     points: densifyPlan(raw, stepFor(len)),
     fetchedAt: p.updatedAt,
     pathEstimated,
-    ...(!pathEstimated && p.routeKind ? { routeKind: p.routeKind } : {}),
+    ...(!pathEstimated && kind ? { routeKind: kind } : {}),
     ...(radialShadow ? { radialShadow } : {}),
     planHistory: { amendments: p.amendments, planFirstSeenMs: p.firstSeen, swimMessageMs: p.timestamp },
+    ...(parsed && p.routeText ? {
+      filedRoute: {
+        text: p.routeText, fixes: parsed.points.map((q) => q.name), unresolved: parsed.unresolved,
+        sid: parsed.sid, star: parsed.star, amendedFromPresentPosition: parsed.amendedFromPresentPosition,
+        cifpCycle: cifp?.cycle.ident ?? null,
+      },
+    } : {}),
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
-      (!pathEstimated && p.routeKind === "radial" ? "; some route points are INFERRED from fix-radial-distance tokens using the navaid's filed magnetic variation (typically within a few NM, not a surveyed fix)" : "") +
-      (!pathEstimated && p.routeKind === "corridor" ? "; the route text names only one or two fixes, each placed at its FAA NASR position after checking it lies in the corridor between the filed airports (a same-named fix elsewhere is never used); the legs between them are drawn direct" : "") +
+      (!pathEstimated && kind === "radial" ? "; some route points are INFERRED from fix-radial-distance tokens using the navaid's filed magnetic variation (typically within a few NM, not a surveyed fix)" : "") +
+      (!pathEstimated && kind === "corridor" ? "; the route text names only one or two fixes, each placed at its FAA NASR position after checking it lies in the corridor between the filed airports (a same-named fix elsewhere is never used); the legs between them are drawn direct" : "") +
+      parseNotes +
       "; altitudes flagged altEstimated are a typical-jet profile estimate, not filed.",
   };
 }
@@ -1057,7 +1163,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   let cand: Candidate | null = null;
   let noneReason = "";
   const filed = ladd ? null : ctx.swim.lookup(cs, now);
-  if (filed) cand = filedCandidate(filed);
+  if (filed) cand = filedCandidate(filed, airportRefFromIdent, ctx.cifp ? ctx.cifp() : null);
   if (!cand) {
     // route DB and the (bounded, cached) history scan run concurrently
     const histP = ctx.history.trips(cs, ctx.historyBudgetMs ?? HISTORY_BUDGET_MS).catch(() => null);
@@ -1147,6 +1253,8 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     if (fj) {
       const here: PlanPoint = {
         lat: pos.lat, lon: pos.lon, altM: Math.round(obsAltM), altEstimated: false, name: PRESENT_POSITION_ON_PLAN_NAME,
+        // the aircraft is inside the segment that ENDS at the join vertex
+        ...(cand.points[fj.join.index - 1]?.unresolvedNext ? { unresolvedNext: true } : {}),
       };
       const b = estimateVerticalProfile([...cand.points.slice(0, fj.firstAhead), here], originElev, obsAltM, cruiseFt);
       const a = estimateVerticalProfile([here, ...cand.points.slice(fj.join.index)], obsAltM, destElev, cruiseFt);
@@ -1192,6 +1300,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     routeKind: cand.source === "FILED_FAA" && !cand.pathEstimated ? (cand.routeKind ?? null) : null,
     terminalVectoring,
     ...(cand.planHistory ? { planHistory: cand.planHistory } : {}),
+    ...(cand.filedRoute ? { filedRoute: cand.filedRoute } : {}),
     ...(cand.radialShadow ? {
       radialShadow: {
         crossTrackNm: pos ? radialShadowXt(pos, cand.radialShadow.points) : null,
@@ -1282,6 +1391,7 @@ export function getFlightPlanContext(): PlanContext {
     tracker,
     now: () => Date.now(),
     recentFixes: (hex) => recentTrackCached("aircraft", hex),
+    cifp: () => sharedCifpStore().peek(),
   };
   return defaultCtx;
 }

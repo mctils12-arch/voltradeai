@@ -22700,3 +22700,16 @@ Testable form: place a leading radial token after "./." with resolveRadialToken 
 Prior: 60% that the corridor p90 (40.5 nm) falls below 25 nm on the "./." subset, with the median unchanged on the rest.
 Ladder: gate 1 again, same scorer (cross-track of own ADS-B positions), split by "./." vs clean text. Ship only if the "./." subset improves and the rest does not move.
 Also open: whether corridor plans can carry deviation judging (DEVIATION_OFF_NM 8 vs median error 8.5 says no today).
+
+**STATUS 2026-10-14 (v1.0.1073), for "SFDPS routePoints empty" (2026-09-29):** route-TEXT plans are now parsed in full at request time (navAirways.parseFiledRoute; SID/STAR via FAA CIFP). Gate 1, n = 477 live flights: placed path p50 0.0 / p90 3.4 nm from the aircraft (old chain 0.8 / 29); 21 former great-circle plans placed; 0 lost. Unplaceable elements are kept as lighter, unjudged legs.
+
+## [PRODUCT · filed 2026-10-14] Deviation P1 follow-ups: oceanic track source; retire the radial shadow
+1. NAT / PACOTS track designators ("NATW", "PACOTS3") stay unresolved: no track definitions are ingested.
+   - Testable: does the SWIM NOTAM product (or FAA's published NAT track message / PACOTS bulletin) carry the daily tracks in a parseable form?
+   - Ladder: gate 1 = a parsed track vs the positions of aircraft filed on it.
+2. radialShadow (flightPlans, v1.0.1037) is superseded: the parser places every route the shadow could.
+   - Remove the field and its test once the live parserShadow counters show `lost` ≈ 0 over a week.
+   - scripts/flightplan_gate1.py reads it, so update that script at the same time.
+3. Namesake parity: the parser keeps the chain's guard (consecutive legs ≤ 1,200 nm; corridor for 1–2 points).
+   - A route of ≥ 3 same-named western fixes on an eastern flight still places, as it did under the chain.
+   - Testable: a whole-route length ≤ 3× direct bound. Gate 1 measures it on live plans before adoption (prior: < 1% of plans affected).

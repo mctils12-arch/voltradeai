@@ -39,6 +39,11 @@ export interface PlanPoint {
    *  vectoring (a connector the aircraft is being flown along near the
    *  destination), NOT part of the filed/predicted route. */
   vectors?: boolean;
+  /** additive (2026-10-14): the segment FROM this point to the next spans
+   *  filed route elements the server could not place (unknown fix, retired
+   *  airway, unexpanded SID/STAR, oceanic track) — drawn lighter + dashed,
+   *  and the server never judges deviation along it. */
+  unresolvedNext?: boolean;
 }
 
 export type DeviationState = "ON_PLAN" | "OFF_PLAN" | "UNKNOWN";
@@ -120,7 +125,11 @@ function normPoints(v: unknown): PlanPoint[] {
     const lat = num(o.lat), lon = num(o.lon);
     if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue; // never guessed
     const altM = num(o.altM);
-    out.push({ lon, lat, altM, altEstimated: o.altEstimated === true, name: str(o.name), ...(o.vectors === true ? { vectors: true } : {}) });
+    out.push({
+      lon, lat, altM, altEstimated: o.altEstimated === true, name: str(o.name),
+      ...(o.vectors === true ? { vectors: true } : {}),
+      ...(o.unresolvedNext === true ? { unresolvedNext: true } : {}),
+    });
   }
   return out;
 }
@@ -390,6 +399,6 @@ export function shouldCallsignRefetch(o: {
 export function planGeometryKey(plan: FlightPlan | null): string {
   if (!planDrawable(plan)) return "none";
   const pk = (pts: PlanPoint[] | null) =>
-    (pts ?? []).map((p) => `${p.lon.toFixed(5)},${p.lat.toFixed(5)},${p.altM == null ? "-" : Math.round(p.altM)}${p.altEstimated ? "e" : ""}${p.vectors ? "v" : ""}`).join(";");
+    (pts ?? []).map((p) => `${p.lon.toFixed(5)},${p.lat.toFixed(5)},${p.altM == null ? "-" : Math.round(p.altM)}${p.altEstimated ? "e" : ""}${p.vectors ? "v" : ""}${p.unresolvedNext ? "u" : ""}`).join(";");
   return `${plan.source}|${pk(plan.points)}|${pk(plan.originalPoints)}`;
 }

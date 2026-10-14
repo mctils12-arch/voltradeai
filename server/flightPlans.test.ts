@@ -511,17 +511,21 @@ test("FAA LADD aircraft: the SWIM-filed plan is withheld, predictions still work
 });
 
 test("contract: routeKind distinguishes airway / direct text expansion and is null for estimated + predicted plans", async () => {
+  // 2026-10-14: the airports were KBOS/KATL around Nevada/Utah fixes; the full
+  // route parser (v1.0.1073) rightly refuses a fix 2,000 nm off its own route
+  // as a same-named point elsewhere. KSFO/KDEN is the corridor these J80 fixes
+  // (OAL ILC MLF SAKES JNC) actually serve; every assertion is unchanged.
   const mk = (cs: string, text: string) => `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
     <flightIdentification aircraftIdentification="${cs}"/><gufi>g-${cs}</gufi>
-    <departure departurePoint="KBOS"/><arrival arrivalPoint="KATL"/>
+    <departure departurePoint="KSFO"/><arrival arrivalPoint="KDEN"/>
     <route nasRouteText="${text}"/></flight></message></m:MessageCollection>`;
   const swim = new SwimPlanStore();
-  for (const [cs, t] of [["AWY1", "KBOS..ILC.J80.JNC..KATL"], ["DIR1", "KBOS..ILC..MLF..SAKES..KATL"], ["TXT1", "KBOS..KATL"]])
+  for (const [cs, t] of [["AWY1", "KSFO..ILC.J80.JNC..KDEN"], ["DIR1", "KSFO..ILC..MLF..SAKES..KDEN"], ["TXT1", "KSFO..KDEN"]])
     for (const f of parseSfdpsMessages(mk(cs, t))) swim.upsert(f, NOW - 60_000);
   const kind = async (cs: string) => (await resolveFlightPlan(q({ callsign: cs, lat: "40", lon: "-80" }), ctxWith({ swim }))).routeKind;
   assert.equal(await kind("AWY1"), "airway");
   assert.equal(await kind("DIR1"), "direct");
-  for (const f of parseSfdpsMessages(mk("RAD1", "KBOS..ILC..SNS285053..MLF..KATL"))) swim.upsert(f, NOW - 60_000);
+  for (const f of parseSfdpsMessages(mk("RAD1", "KSFO..ILC..SNS285053..MLF..KDEN"))) swim.upsert(f, NOW - 60_000);
   assert.equal(await kind("RAD1"), "radial");
   const rad = await resolveFlightPlan(q({ callsign: "RAD1", lat: "40", lon: "-80" }), ctxWith({ swim }));
   assert.equal(rad.pathEstimated, false);
@@ -741,10 +745,16 @@ test("filedCandidate: radial-resolvable route text adds a REPORT-ONLY shadow, pl
     departureTime: null, firstSeen: 0, updatedAt: 0, amendments: 0,
   });
   const resolve = (id: string | null) => (id ? refs[id] ?? null : null);
+  // SUPERSEDED BY PLANNED PROMOTION (v1.0.1073, the full route parser — same
+  // precedent as navAirways.test.ts's v1.0.1039 note): this text used to stay a
+  // great-circle estimate with the radial shadow beside it; the parser now
+  // places it (fix-radial-distance included, gate-1 2026-10-14 n=477), so the
+  // shadow — computed only for paths that stay estimated — is absent. What the
+  // shadow test protected still holds: it is report-only and never placement.
   const c = filedCandidate(mk("KBOS..ILC..SNS285053..MLF..KATL"), resolve)!;
-  assert.equal(c.pathEstimated, true, "the drawn path is still the great-circle estimate");
-  assert.ok(c.radialShadow && c.radialShadow.radialTokens === 1);
-  assert.ok(c.radialShadow!.points.length >= 4, "airports bracket the shadow polyline like the direct baseline");
+  assert.equal(c.pathEstimated, false, "the parser places the radial route");
+  assert.equal(c.routeKind, "radial");
+  assert.equal(c.radialShadow, undefined, "no shadow beside a placed path");
   // no radial token => no shadow (pure-direct plans are already placed elsewhere)
   assert.equal(filedCandidate(mk("KBOS..KATL"), resolve)!.radialShadow, undefined);
 });
