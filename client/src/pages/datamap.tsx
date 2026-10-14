@@ -16272,6 +16272,8 @@ export default function DataMapPage() {
           {detail.kind === "aircraft" && flightProcedures.row}
           {/* runway state, inferred (components/RunwayStatus.tsx) */}
           {detail.kind === "aircraft" && runwayStatus.row}
+          {/* published ATC frequencies for the fix (components/AtcFrequencies.tsx) */}
+          {detail.kind === "aircraft" && runwayStatus.atcRow}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}

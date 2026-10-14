@@ -7,10 +7,13 @@
 // trip's departure runway. Every line is an INFERENCE from ADS-B position +
 // track against FAA CIFP runway geometry, and says so — never an ATC
 // assignment. Zero cost when no aircraft card is open (no fetch, no timer).
+// The same response carries the published ATC frequencies for the fix
+// (`atcRow`, components/AtcFrequencies.tsx) — one poll serves both rows.
 
 import { useEffect, useState } from "react";
 import { HEX_RE } from "@/lib/air/flightPlan";
 import { pollWhenVisible, timeoutSignal } from "@/lib/tabResume";
+import { AtcFrequencyRows, type AtcContextData } from "@/components/AtcFrequencies";
 
 /** Re-check cadence while a card is open: runway states change in seconds. */
 export const RUNWAY_POLL_MS = 8_000;
@@ -29,6 +32,8 @@ export interface RunwayStatusData {
   airport: { icao: string; name: string } | null;
   current: { state: string; runway: string; label: string } | null;
   departure: { airport: string; runway: string; label: string } | null;
+  /** published ATC frequencies for the same fix (components/AtcFrequencies.tsx) */
+  atc?: AtcContextData;
   honesty: string;
 }
 
@@ -57,7 +62,7 @@ export function useRunwayStatus(opts: {
   hex: string | null | undefined;
   suppressed?: boolean;
   getLive: () => RunwayLiveFix | null;
-}): { row: JSX.Element | null } {
+}): { row: JSX.Element | null; atcRow: JSX.Element | null } {
   const hex = opts.hex && HEX_RE.test(opts.hex) && !opts.suppressed ? opts.hex.toLowerCase() : null;
   const [data, setData] = useState<RunwayStatusData | null>(null);
   const getLiveRef = opts.getLive;
@@ -87,9 +92,11 @@ export function useRunwayStatus(opts: {
   }, [hex]);
 
   const line = runwayLine(data);
-  if (!hex || !line) return { row: null };
+  const atcRow = hex && data?.atc ? <AtcFrequencyRows atc={data.atc} airport={data.airport?.icao} /> : null;
+  if (!hex || !line) return { row: null, atcRow };
   const active = !!data?.current;
   return {
+    atcRow,
     row: (
       <p className={`vt-runway-row${active ? " vt-runway-row-active" : ""}`} data-vt-runway title={data?.honesty}>
         <span className="vt-runway-label">{line}</span>
