@@ -22692,3 +22692,11 @@ Live 2026-09-29: 59/59 FILED_FAA plans `pathEstimated:true` (route text only), a
 
 Script: `scripts/kuramoto_sync_probe.py` (+ `test_kuramoto_sync_probe.py`). Prior, spec and numbers are in the experiments.md 2026-10-14 EDGE entry. Result: partial rho(R, fwd-20d SPY return) = -0.029 (p 0.80), halves sign-flip -> FAIL. Fwd-20d vol: partial rho +0.197 (p 0.078, n=83).
 Testable follow-up (ONLY if a non-price axis is joined — price-only imports are retired after seven GATE-2 failures): does R, computed on the sector ETFs, add forward-vol information over trailing vol + mean correlation when the sample is extended to the ~15-20y available from a second provider (n -> ~200 de-strided) and replicated on a held-out disjoint window? Ladder path: gate 2 only; a vol-timing use would be a SIZING (gate 4) input, not an entry signal, and must beat a plain trailing-vol-targeting baseline. Discount: 2 targets tried. Status: NOT queued ahead of time-gated items; revisit only if the sizing layer needs a vol-forecast input.
+
+
+## [PRODUCT · filed 2026-10-14] Amended "./." route texts: place the cleared route from the amendment point, not the origin
+Corridor placement (v1.0.1072, experiments.md 2026-10-14) put the filed line a median 8.5 nm from flown positions (great circle 25.3; n=169). The worst cases are all amended clearances of the form `KBNA./.OKM171047..HELPR.JAZZZ1.KSLC`. "./." marks a route cleared from an en-route point, often a fix-radial-distance token. The corridor skips that token, so the first leg runs from the origin, not from the amendment point.
+Testable form: place a leading radial token after "./." with resolveRadialToken (filed navaid variation, as the radial resolver does) and start the drawn path there.
+Prior: 60% that the corridor p90 (40.5 nm) falls below 25 nm on the "./." subset, with the median unchanged on the rest.
+Ladder: gate 1 again, same scorer (cross-track of own ADS-B positions), split by "./." vs clean text. Ship only if the "./." subset improves and the rest does not move.
+Also open: whether corridor plans can carry deviation judging (DEVIATION_OFF_NM 8 vs median error 8.5 says no today).
