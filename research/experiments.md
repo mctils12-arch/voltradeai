@@ -108011,3 +108011,21 @@ TESTS: routeParse.test.ts (11), planUnresolved.test.ts (11).
 BLOCKED / NOT DONE: NAT/PACOTS track definitions (no source ingested: NAT TDM / PACOTS messages; filed). The radialShadow instrument is superseded and stays report-only until the parserShadow counters confirm lost≈0 live; then it is removed (open_questions).
 VERSION: v1.0.1073. ROLLBACK: git revert.
 STARVED: no (P2 eligibility next).
+
+## 2026-10-14 (human-directed session, ~21:55Z Wed) [REPAIR] — archive storage: vessels 8 local days, aircraft 22 (ops audit, storage = top risk)
+
+TERRITORY: server archive (server/archiveOffload.ts) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops workstream item 3): report storage, build tiered archiving (hot 7 d local, cold compressed in the cloud, verified-before-delete, transparent cold reads), never delete before a verified copy.
+FOUND (investigate before building; nothing duplicated): the tiered archive ALREADY EXISTS on Cloudflare R2 (#1205, 2026-09-28): manifest, sha256, size-verified upload, delete only after verify, 512 MB cold cache, aircraftWindow reads cold hours transparently. GCS is not used anywhere in the repo, and this session's GCP token is rejected (billing could not be read). Live offload-status at 21:26Z:
+- local 1.48 GB (vessels 1.21, aircraft 0.27, flight_events 0.004);
+- R2 1.79 GB;
+- volume free 1.32 GB (pressure);
+- growth ~65 MB/day gz;
+- R2 cost $0 (inside the 10 GB free tier).
+The pinned constraint is HOT_TIER_FLOOR_DAYS = 22 for EVERY kind; it exists only for the aircraft GNSS-integrity signal.
+CHANGE: per-kind floor; vessels VESSEL_HOT_TIER_DAYS = 8 (port dwell's 168 h + 1 day), evicted by age once verified.
+PRIOR (stated before deploy): free space +~0.77 GB to ~2.09 GB within a few 30-min ticks (6 evictions/tick); the viewport/tracked guard margin ~0.3 → ~1.0 GB; global sweep still paused (2 GiB + growth not reachable while aircraft keep 22 days).
+ROLLBACK TRIGGER: offload-status lastError on an eviction; any vessels_tracks day missing for an evicted date; a port-dwell weekly capture failing for lack of local data. Rollback = git revert (evicted days stay in R2).
+QUEUED (own PRs): (1) [RULE-REVIEW] the GNSS signal reads gnss_integrity_daily for days not on local disk (prove identical output on identical inputs), then the aircraft floor can drop to a few days and global-sweep archiving (~250 MB/day) fits; (2) a raw-retention decision for the human. Flight logs are a 30-day rolling window on BOTH tiers by the 2026-09-28 human directive (R2 deletes day 31+ daily). The new intent workstream asks for permanent history, so the conflict is filed as a checklist decision, not silently resolved: REPLAY_RETENTION_DAYS up to 400 ≈ $0.2/month at current growth.
+VERSION: v1.0.1074. ROLLBACK: git revert.
+STARVED: no.
