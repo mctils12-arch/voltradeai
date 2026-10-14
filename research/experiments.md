@@ -107904,3 +107904,17 @@ VISUAL HARNESS (PROMOTION RULE 6): data @ 390/768/1440 PASS, 0 hard failures; ze
 NOT CHANGED: fleet replay heads (fleetReplayLayer.ts still uses the old bearing rotation; replay-only, filed for a follow-up). The 2D icon band (< z8.05) still has no pitch cue: a top-down icon cannot show attitude.
 VERSION: v1.0.1069. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~19:30Z Wed) [PRODUCT] — runway state on the aircraft card, inferred from ADS-B vs FAA CIFP runway geometry
+
+TERRITORY: server procedures (server/runwayDetect.ts new; procedures.ts) + T-CLIENT (client/src/components/RunwayStatus.tsx new; datamap.tsx, index.css) + shared package.json/research.
+REQUEST (human, 2026-10-14, tracking N843S at CLT): "know what runway they are landing on based on their heading and position unless we can get their FAA flight plan"; "activate the plane for a takeoff when it's on the runway".
+CHANGE: runwayDetect.ts (pure) — runway ends from CIFP PG records (heading = bearing to the opposite threshold, length threshold-to-threshold); one fix -> LINED_UP / TAKEOFF_ROLL / LANDING_ROLL (on the pavement, aligned within 20 deg, within 75 m of the centreline, split at 40 kt; landing vs takeoff by "airborne in the last 3 min") / ON_FINAL (before the threshold, within 12 nm, widening cone) / DEPARTED (past the far end, climbing, within 8 nm). Closest centreline wins, so parallel runways never collide. departureRunway reads a trip's first archived fixes. New GET /api/data/procedures/runway (live fix + optional hex for the archived track). The card shows one row ("Taking off — runway 36 · KCLT") tagged "inferred"; its tooltip says it is not an ATC assignment. The row polls every 8 s only while a card is open (pollWhenVisible).
+FAA PLAN: SWIM flight plans carry no runway assignment, so geometry is the only source. LADD aircraft (N843S) are unaffected — this reads ADS-B only.
+PRIOR (stated before testing): N843S's first archived fixes on 10-14 (35.2011,-80.9329 then north along -80.935) are on CLT runway 36.
+RESULT: departureRunway on those real fixes -> runway 36 TAKEOFF_ROLL (pinned as a test). Browser probe on the built bundle: the card row reads "Taking off — runway 36 · KCLT" with the inferred tag.
+TESTS: runwayDetect.test.ts (6, real KCLT CIFP 2610 ends: reciprocal ends + lengths, lined-up/takeoff/landing roll, 01L/01R/36 parallels, taxiway/cross-heading/no-track refusals, final/departed/no-AGL refusal, the N843S case). procedures.test.ts +1 (endpoint on the KAUS fixture). RunwayStatus.test.ts (2). Client suite 1279/1279; tsc 11 (unchanged); counter ratchet OK.
+VISUAL HARNESS (PROMOTION RULE 6): data @ 390/768/1440 PASS, 0 hard failures; zero-cost-when-off and layer-scale PASS; p95 133/250/283 ms (same band as v1.0.1069).
+LIMITS: needs a broadcast track (no track = no claim). The ground states need the plane to be seen on the surface (see v1.0.1068 gap-fill). Not validated against tower data (none public); validated against geometry and the one real trip above.
+VERSION: v1.0.1070. ROLLBACK: git revert.
+STARVED: no (ATC frequencies and the filed-route corridor are queued in this session).
