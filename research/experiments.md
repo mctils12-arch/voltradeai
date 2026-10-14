@@ -107824,3 +107824,15 @@ MEASUREMENT NOTE: same inputs before/after (new server/requestLog.test.ts, prod 
 TESTS: requestLog.test.ts +2 (SPA mount attribution + page-view filter; route-pattern retention + length cap). Full server suite 2384/2384; tsc + counter ratchets OK.
 BIAS/RISK: analytics only; no trading path. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~15:30Z Wed) [REPAIR] — /data layers panel lost every layer group after one failed registry fetch at startup
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, client/src/lib/layerRegistry.ts, index.css) + shared package.json/research.
+FOUND: human screenshot ("I can't see the options for the variables... it seems to do this on start up"). The layers panel went from the page-wide dashboard launchers straight to CELESTIAL, with no Base/Live/Facilities/... groups at all. Live /api/data/layers was healthy (256 layers, 200 in ~0.3s, v1.0.1064), so the server was fine.
+ROOT CAUSE: the registry was a one-shot `fetch("/api/data/layers")` with `.catch(() => setLayers([]))` and no retry. renderPanelGroup returns null for an empty member list, so a single failure at page start (tab restored before the network is up, deploy container switch, transient 5xx/non-JSON) emptied the toggle list for the whole session, with no error shown. The map looked alive because DEFAULT_ON layers poll on their own and recovered.
+PRIOR (stated before fixing): routing the load through the existing runResilientLoad (15s timeout, 3/8/20/45s backoff) and treating non-2xx / non-JSON / empty list as failures brings the panel back within ~3s of the server being reachable, with no change to the success path.
+CHANGE: client/src/lib/layerRegistry.ts (parseLayerRegistry + fetchLayerRegistry; every failure throws). datamap.tsx loads the registry through runResilientLoad. Once a failure has happened, the panel shows an amber "Couldn't load the layer list — retrying automatically" note with a Retry-now pill; nothing shows on a normal load, so there's no flash. v1.0.1065.
+TESTS: client/src/lib/layerRegistry.test.ts (5): parse rejects every panel-emptying shape; HTTP 502 / HTML body / network error all throw; network-error -> 502 -> 200 sequence through runResilientLoad fills the list; source ratchet bans the bare one-shot (confirmed FAILING on the pre-fix datamap.tsx). tsc error count unchanged (11 pre-existing, none new).
+BROWSER PROBE (real Chromium, built bundle, 390/768/1440): server resets the 1st registry request and 502s the 2nd. During: retry note visible, 0 layer groups. ~3.5s later: 14 groups, note gone. All three widths PASS.
+BIAS/RISK: UI only; no trading or measurement path. ROLLBACK: git revert.
+STARVED: no.

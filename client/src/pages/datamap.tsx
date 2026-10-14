@@ -258,6 +258,7 @@ import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis, setTimeAxis, formatAxi
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
 // timeout + auto-retry backoff so a transient blip self-heals.
 import { runResilientLoad } from "@/lib/resilientLoad";
+import { fetchLayerRegistry } from "@/lib/layerRegistry";
 // worldview_globe.md Phase G2: shared NASA GIBS raster-layer factory. G2a
 // (night lights) is the first consumer; G2b-h reuse this same helper.
 import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibsLatestScanTime } from "@/lib/gibs";
@@ -3558,19 +3559,24 @@ export default function DataMapPage() {
     return () => window.clearInterval(iv);
   }, []);
 
-  // Layer registry (datacore boundary) + open-tab version-skew detection
+  // Layer registry (datacore boundary) + open-tab version-skew detection.
+  // [REPAIR 2026-10-14] retried until it lands (lib/layerRegistry.ts). The
+  // old one-shot fetch left every panel group missing for the whole session
+  // after a single startup failure. registryRetry > 0 = at least one attempt
+  // failed and a retry is pending (surfaced in the panel); registryNonce
+  // restarts the loop from the panel's "Retry now".
   const [versionSkew, setVersionSkew] = useState<string | null>(null);
-  useEffect(() => {
-    fetch("/api/data/layers")
-      .then(r => r.json())
-      .then(d => {
-        setLayers(Array.isArray(d.layers) ? d.layers : []);
-        if (d.server_version && d.server_version !== CLIENT_VERSION) {
-          setVersionSkew(String(d.server_version));
-        }
-      })
-      .catch(() => setLayers([]));
-  }, []);
+  const [registryRetry, setRegistryRetry] = useState(0);
+  const [registryNonce, setRegistryNonce] = useState(0);
+  useEffect(() => runResilientLoad(async (signal) => {
+    const reg = await fetchLayerRegistry<LayerMeta>(fetch, signal);
+    if (signal.aborted) return;
+    setLayers(reg.layers);
+    setRegistryRetry(0);
+    if (reg.serverVersion && reg.serverVersion !== CLIENT_VERSION) {
+      setVersionSkew(reg.serverVersion);
+    }
+  }, (failures) => setRegistryRetry(failures + 1)), [registryNonce]);
 
   // Map bootstrap (maplibre JS lazy-loaded to keep the main bundle lean)
   useEffect(() => {
@@ -15052,6 +15058,21 @@ export default function DataMapPage() {
               <div className="vt-skew-note" role="status">
                 Site updated to v{versionSkew} (you're on v{CLIENT_VERSION}) —
                 reload the page to enable the newest layers.
+              </div>
+            )}
+            {/* [REPAIR 2026-10-14] the registry load failed and is retrying.
+                Before this, the panel quietly showed no layer groups. Shown
+                only after a real failure, so a normal load never flashes it. */}
+            {layers.length === 0 && registryRetry > 0 && (
+              <div className="vt-skew-note vt-registry-note" role="status" data-vt-registry-retry>
+                <span>
+                  Couldn't load the layer list — retrying automatically.
+                  The map keeps running meanwhile.
+                </span>
+                <button type="button" className="vt-preset-pill"
+                        onClick={() => setRegistryNonce((n) => n + 1)}>
+                  Retry now
+                </button>
               </div>
             )}
             {BOOT_SAFE && !BOOT_QS.get("reset") && (
