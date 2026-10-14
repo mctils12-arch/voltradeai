@@ -45,6 +45,11 @@ export const INTENT_BANDS_FT = [0, 5_000, 10_000, 15_000, 20_000, 25_000, 30_000
 export const QNH_MAX_ALT_FT = 18_000;
 /** a day is folded only once its last hour file can no longer grow */
 export const FOLD_AFTER_DAY_END_MS = 2 * 3600_000;
+/** The first UTC day whose hour files can carry `x` lines (schema v4 went
+ *  live 2026-10-14 ~22:40Z, v1.0.1076). Older days hold no intent by
+ *  construction: folding them only re-reads ~12 MB/day of gz to write an
+ *  empty rollup (seen live the first hour: 2026-09-23/24 folded empty). */
+export const INTENT_ARCHIVE_SINCE_DAY = "2026-10-14";
 /** bound the work one call does (older days catch up on later ticks) */
 export const MAX_DAYS_PER_FOLD = 2;
 
@@ -170,9 +175,10 @@ export function intentDailyPath(base: string, day: string): string {
   return path.join(base, INTENT_DAILY_DIR, `${day}.json.gz`);
 }
 
-/** Fold every complete UTC day (ended >= FOLD_AFTER_DAY_END_MS ago) whose
- *  rollup does not exist yet, oldest first, up to MAX_DAYS_PER_FOLD per call.
- *  Days with no local hour files (already evicted) are skipped. Never throws. */
+/** Fold every complete UTC day (ended >= FOLD_AFTER_DAY_END_MS ago, and not
+ *  before INTENT_ARCHIVE_SINCE_DAY) whose rollup does not exist yet, oldest
+ *  first, up to MAX_DAYS_PER_FOLD per call. Days with no local hour files
+ *  (already evicted) are skipped. Never throws. */
 export async function foldIntentDays(
   base = archiveBaseDir(), nowMs = Date.now(), maxDays = MAX_DAYS_PER_FOLD,
 ): Promise<{ daysFolded: string[]; bytes: number }> {
@@ -185,7 +191,7 @@ export async function foldIntentDays(
   const byDay = new Map<string, Map<number, string>>();
   for (const f of names) {
     const m = HOUR_FILE_RE.exec(f);
-    if (!m) continue;
+    if (!m || m[1] < INTENT_ARCHIVE_SINCE_DAY) continue;
     const dayEnd = Date.parse(`${m[1]}T00:00:00Z`) + 86_400_000;
     if (!Number.isFinite(dayEnd) || nowMs - dayEnd < FOLD_AFTER_DAY_END_MS) continue;
     if (fs.existsSync(intentDailyPath(base, m[1]))) continue;
