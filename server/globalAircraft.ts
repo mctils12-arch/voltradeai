@@ -50,6 +50,7 @@ import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
 import { setPlanLiveLookup } from "./flightPlans";
+import { IntentStore } from "./aircraftIntent";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -98,6 +99,8 @@ export interface GlobalAircraftHandle {
   snapshot: GlobalSnapshot;
   sweep: SweepHandle;
   opensky: OpenSkyHandle;
+  /** per-aircraft intent/derived fields (AIRCRAFT INTENT A) */
+  intent: IntentStore;
   /** the bus subscriber (exposed for tests) */
   onBatch: (b: FixBatch) => void;
   stop: () => void;
@@ -118,6 +121,9 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     ?? ((datacoreSites as { sites?: SitePoint[] }).sites || []).map((s) => ({ lat: s.lat, lon: s.lon }));
   const archiveOn = String(env.GLOBAL_SWEEP_ARCHIVE ?? "1").trim() !== "0";
   const snapshot = new GlobalSnapshot();
+  // AIRCRAFT INTENT A (2026-10-14): mode bits / selected altitude / derived
+  // state per aircraft, fed by the same bus — no extra provider calls
+  const intent = new IntentStore();
   // flight plans fill a request that arrived without the aircraft's
   // callsign/position (a watched plane opened off-viewport) from this snapshot
   setPlanLiveLookup((hex) => {
@@ -166,6 +172,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
 
   const onBatch = (b: FixBatch) => {
     snapshot.ingest(b, now());
+    try { intent.ingest(b, now()); } catch (e) { noteError("intent", e); }
     if (b.origin === "viewport" && b.disc) {
       try { sweep.scheduler.creditViewportDisc(b.disc, now()); } catch (e) { noteError("viewport-credit", e); }
     }
@@ -181,6 +188,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
 
   const evictTimer = setInterval(() => {
     try { snapshot.evict(now()); } catch (e) { noteError("evict", e); }
+    try { intent.evict(now()); } catch (e) { noteError("intent-evict", e); }
   }, GLOBAL_EVICT_TICK_MS);
   unrefTimer(evictTimer);
 
@@ -322,12 +330,25 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       fields: [...ROW_FIELDS, "baroRate"],
       rows: fresh ? [[...encodeRow(fresh), baroRate]] : [],
       fast_lane: fastOn ? fastLane.stats() : null,
+      // AIRCRAFT INTENT A: fresh values only (stale ones listed with age),
+      // per-aircraft capability, units — null when never seen
+      intent: intent.view(hex, t),
       honesty: GLOBAL_HONESTY,
     });
   });
 
+  // AIRCRAFT INTENT A: which intent/derived fields the feeds actually send,
+  // across airborne aircraft seen in the last 5 min (+ per provider)
+  let coverageCache: { at: number; body: ReturnType<IntentStore["coverage"]> } | null = null;
+  app.get("/api/data/aircraft/intent-coverage", (_req, res) => {
+    const t = now();
+    if (!coverageCache || t - coverageCache.at > 15_000) coverageCache = { at: t, body: intent.coverage(t) };
+    res.set("Cache-Control", "public, max-age=15");
+    res.json(coverageCache.body);
+  });
+
   return {
-    snapshot, sweep, opensky, onBatch,
+    snapshot, sweep, opensky, intent, onBatch,
     stop: () => {
       unsubscribe();
       clearInterval(evictTimer);
