@@ -30,6 +30,9 @@ import { georeferencePlate, type GeorefResult } from "./plateGeoref";
 import { getFlightPlanContext } from "./flightPlans";
 import { laddRegistry } from "./laddRegistry";
 import { lookupFix } from "./navFixes";
+import { nearestAirport } from "./airportsIndex";
+import { recentTrackCached } from "./datacoreArchive";
+import { runwayEnds, classifyRunwayFix, departureRunway, runwayStateLabel, RUNWAY_HONESTY, type RunwayFix } from "./runwayDetect";
 
 export const NOT_FOR_NAVIGATION = "NOT FOR NAVIGATION — FAA CIFP/d-TPP data drawn for situational awareness only.";
 export const APPROACH_HONESTY =
@@ -275,6 +278,64 @@ export function registerProcedureRoutes(app: Express, ctxIn?: Partial<Procedures
     try { dtpp = await ctx().dtpp.get(); } catch (e: unknown) { dtppError = errMsg(e); }
     return { cifp, dtpp, dtppError };
   };
+
+  // RUNWAY STATE (2026-10-14, human request: "know what runway they are
+  // landing on based on their heading and position" / "activate the plane for
+  // a takeoff when it's on the runway"). The client sends the aircraft's live
+  // fix; ?hex= adds the archived track (recently-airborne test + the trip's
+  // departure runway). Inference over FAA CIFP runway geometry only.
+  app.get("/api/data/procedures/runway", async (req: Request, res: Response) => {
+    const num = (k: string) => { const v = Number(req.query[k]); return req.query[k] != null && req.query[k] !== "" && Number.isFinite(v) ? v : null; };
+    const lat = num("lat"), lon = num("lon");
+    if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      return res.status(400).json({ error: "lat and lon required" });
+    }
+    const hex = /^[0-9a-f]{6}$/i.test(String(req.query.hex || "")) ? String(req.query.hex).toLowerCase() : null;
+    const L = await load(res);
+    if (!L) return;
+    const fix: RunwayFix = {
+      lat, lon, altFt: num("altFt"), onGround: String(req.query.gnd || "") === "1",
+      gsKt: num("gsKt"), trk: num("trk"), vsFpm: num("vs"),
+    };
+    const near = nearestAirport(lat, lon, 25, ["L", "M", "S"]);
+    const ap = near ? cifpAirport(L.cifp.idx, near.id) : null;
+    let track: Array<{ t: number; la: number; lo: number; al?: number | null }> = [];
+    if (hex) { try { track = await recentTrackCached("aircraft", hex); } catch (e: unknown) { console.warn("[procedures] runway track:", errMsg(e)); } }
+    const nowSec = ctx().now() / 1000;
+    let current: { state: string; runway: string; label: string } | null = null;
+    if (ap) {
+      const elevFt = ap.elevFt;
+      const recentlyAirborne = elevFt != null && track.some((p) => nowSec - p.t <= 180 && p.al != null && p.al * 3.28084 > elevFt + 300);
+      const m = classifyRunwayFix(fix, runwayEnds(ap), { elevFt, recentlyAirborne });
+      if (m) current = { state: m.state, runway: m.runway, label: runwayStateLabel(m) };
+    }
+    // the CURRENT trip's departure runway: walk back from the newest fix to a
+    // > 20 min gap, then classify its first fixes at the airport they start at
+    let departure: { airport: string; runway: string; label: string } | null = null;
+    if (track.length) {
+      let i0 = track.length - 1;
+      while (i0 > 0 && track[i0].t - track[i0 - 1].t < 1200) i0--;
+      const trip = track.slice(i0);
+      const startAp = nearestAirport(trip[0].la, trip[0].lo, 8, ["L", "M", "S"]);
+      const dap = startAp ? cifpAirport(L.cifp.idx, startAp.id) : null;
+      if (dap) {
+        const fixes: RunwayFix[] = trip.slice(0, 16).map((p, i, arr) => {
+          const a = arr[Math.min(i, arr.length - 2)], b = arr[Math.min(i + 1, arr.length - 1)];
+          const trk = a && b && (a.la !== b.la || a.lo !== b.lo)
+            ? ((Math.atan2((b.lo - a.lo) * Math.cos((a.la * Math.PI) / 180), b.la - a.la) * 180) / Math.PI + 360) % 360
+            : null;
+          return { lat: p.la, lon: p.lo, altFt: p.al == null ? null : p.al * 3.28084, onGround: false, gsKt: null, trk };
+        });
+        const d = departureRunway(fixes, runwayEnds(dap), dap.elevFt);
+        if (d) departure = { airport: dap.icao, runway: d.runway, label: `Departed ${dap.icao} runway ${d.runway}` };
+      }
+    }
+    res.json({
+      airport: ap ? { icao: ap.icao, name: ap.name } : null,
+      current, departure,
+      honesty: RUNWAY_HONESTY, cycle: cycleOut(L.cifp.cycle), notForNavigation: NOT_FOR_NAVIGATION,
+    });
+  });
 
   app.get("/api/data/procedures/status", (_req: Request, res: Response) => {
     const c = ctx();

@@ -117,6 +117,7 @@ import {
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
+import { useRunwayStatus } from "@/components/RunwayStatus";
 import { useFlightProcedures } from "@/components/FlightProcedures";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
@@ -4392,6 +4393,27 @@ export default function DataMapPage() {
   // approaches for the selected flight, the FAA CIFP path on the map and the
   // georeferenced FAA plate under it — components/FlightProcedures.tsx.
   // The plan's airports come from the planned-route store (no second fetch).
+  // runway state (2026-10-14): lined up / taking off / on final / departed,
+  // inferred from the live fix against FAA CIFP runways (RunwayStatus.tsx)
+  const runwayStatus = useRunwayStatus({
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    suppressed: tripReplay != null,
+    getLive: () => {
+      const lv = airFollowLiveRef.current;
+      if (!lv || String(lv.id).toLowerCase() !== selectedHexLc()) return null;
+      const row = (airPayloadRef.current || []).find((x) => String(x?.icao24 || "").toLowerCase() === selectedHexLc());
+      const altM = lv.fix.al ?? row?.altitude_m ?? null;
+      const vs = lastLiveVsRef.current;
+      return {
+        lat: lv.fix.la, lon: lv.fix.lo,
+        altFt: altM == null ? null : altM * 3.28084,
+        gsKt: lastLiveKtsRef.current ?? (row?.velocity_ms != null ? row.velocity_ms * 1.94384 : null),
+        trk: lastLiveHeadingRef.current ?? row?.heading ?? null,
+        onGround: !!row?.on_ground,
+        vsFpm: vs && Math.abs(vs.t - lv.fix.t) < 5 ? vs.fpm : null,
+      };
+    },
+  });
   const flightProcedures = useFlightProcedures({
     mapRef, mapReady,
     hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
@@ -16248,6 +16270,8 @@ export default function DataMapPage() {
           {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
               path + georeferenced plate — components/FlightProcedures.tsx */}
           {detail.kind === "aircraft" && flightProcedures.row}
+          {/* runway state, inferred (components/RunwayStatus.tsx) */}
+          {detail.kind === "aircraft" && runwayStatus.row}
           {/* live-trail freshness — honesty machinery stays on the COMPACT
               card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
               freshness), never buried behind the expander */}

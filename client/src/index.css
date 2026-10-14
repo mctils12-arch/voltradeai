@@ -4525,3 +4525,16 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 @media (pointer: coarse) {
   .vt-card-trips-retry { min-height: 44px; min-width: 44px; }
 }
+
+/* runway state row on the aircraft card (RunwayStatus.tsx, 2026-10-14):
+   inferred from ADS-B + FAA CIFP runways, tagged "inferred" */
+.vt-runway-row {
+  display: flex; align-items: center; gap: 8px; margin: 6px 0 2px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+}
+.vt-runway-row-active .vt-runway-label { color: var(--accent); font-weight: 700; }
+.vt-runway-tag {
+  font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-tertiary); border: 1px solid rgba(77, 159, 255, 0.25);
+  border-radius: 999px; padding: 1px 6px;
+}
