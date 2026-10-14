@@ -107918,3 +107918,23 @@ VISUAL HARNESS (PROMOTION RULE 6): data @ 390/768/1440 PASS, 0 hard failures; ze
 LIMITS: needs a broadcast track (no track = no claim). The ground states need the plane to be seen on the surface (see v1.0.1068 gap-fill). Not validated against tower data (none public); validated against geometry and the one real trip above.
 VERSION: v1.0.1070. ROLLBACK: git revert.
 STARVED: no (ATC frequencies and the filed-route corridor are queued in this session).
+
+## 2026-10-14 (human-directed session, ~20:10Z Wed) [PRODUCT] — ATC frequencies on the aircraft card from FAA NASR, picked by position and phase of flight
+
+TERRITORY: datacore aircraft data (scripts/build_nasr_atc.py new -> datacore/aircraft/nasr_atc.json; refresh_nasr.py, script/build.ts) + server (server/atcFrequencies.ts new; procedures.ts) + T-CLIENT (client/src/components/AtcFrequencies.tsx new; RunwayStatus.tsx, datamap.tsx, index.css) + shared package.json/research.
+REQUEST (human, 2026-10-14, tracking N843S at CLT): "is there a way to get the ATC frequencies, the ARTCC, or anything".
+DATA: FAA NASR cycle 2026-10-01 (public domain). FRQ.csv: 7,605 airports' civil VHF frequencies (tower by runway split, ground, clearance, ATIS, approach/departure sectors, CTAF/UNICOM). 121.5 guard, UHF, navaid voice, and DP/STAR-specific rows are dropped. 814 center transmitter sites (RCAG) with LOW / HIGH / LOW-HIGH / ULTRA-HIGH strata. ARB_SEG: 26 ARTCC boundaries (LOW/HIGH rings plus oceanic rings). APT_BASE: ICAO ids and magnetic variation. GATE 1 (DATA) at build time: 15 reference airports (CLT ATL DEN ORD JFK LAX SEA MIA DFW BOS MSP SLC IAD MEM IAH) must sit inside their own center's LOW and HIGH rings, or the build fails.
+LOGIC (pure, server/atcFrequencies.ts):
+- RUNWAY (inferred runway state, v1.0.1070): the tower whose published runway split names that runway, plus the departure sector once DEPARTED.
+- SURFACE: ground/clearance/ATIS at towered fields; CTAF/UNICOM otherwise; part-time towers get "CTAF when closed".
+- TERMINAL (below FL180, within 40 nm): the published approach/departure sector containing the aircraft's MAGNETIC bearing and altitude from the airport. A sector match beats a nearer satellite field's general frequency.
+- ENROUTE: the ARTCC by point-in-polygon (stratum by FL180, antimeridian-safe oceanic fallback) and up to 3 nearest center transmitters of the matching stratum. These are never claimed as "the" sector: center sector boundaries are not published.
+Sector texts with navaid radials, time windows, or "when X closed" are never used to single an entry out (553 of 816 non-empty approach/departure sector strings parse; 263 do not).
+PRIOR (stated before testing): N843S departing CLT runway 36 northbound is Charlotte Tower 118.1 (RWY 18/36), then Charlotte Departure 128.325 (001-119, 8000 ft and below).
+RESULT: exactly that, from the real table, pinned as tests; Atlanta Center (ZTL) above FL180. Browser probe (built bundle, 390/1200): the card shows "ATC · Atlanta Center (ZTL) · low", then "Charlotte Tower 118.1 · RWY 18/36" and "Charlotte Departure 128.325 · 001-119 8000 ft & BLW", tagged published · inferred. Sector altitudes go through the units setting. The tooltip carries the honesty. A plain "Search LiveATC for KCLT feeds" link is shown; no stream is embedded.
+WIRING: one request. /api/data/procedures/runway now returns `atc` for the same fix, so the card still polls once every 8 s, only while open. The runway and ATC rows are inset to the card padding (the v1.0.1070 runway row sat flush to the edge at 390 px).
+TESTS: server/atcFrequencies.test.ts (6), procedures.test.ts endpoint +atc, AtcFrequencies.test.ts (5), test_build_nasr_atc.py (4). Server 2412/2412; client 1284/1284; tsc 11 (unchanged); counter ratchet OK.
+VISUAL HARNESS: the first run, concurrent with tsc + test runs on the same CPU, failed the 768/1440 frame gates (median 217 ms). The rerun with no other load: data @ 390/768/1440 PASS, 0 hard failures; p95 100/267/250 ms; zero-cost and layer-scale PASS. The rows render only with an aircraft card open.
+LIMITS: the frequency the crew is on is not public (sectors are split and combined by controllers). No validation against live ATC is possible without an audio source (wishlist ATC-audio entry). DP/STAR-specific frequencies are not used yet; the filed DP is known, so this is a follow-up.
+VERSION: v1.0.1071. ROLLBACK: git revert.
+STARVED: no (corridor route placement is ready behind this PR).
