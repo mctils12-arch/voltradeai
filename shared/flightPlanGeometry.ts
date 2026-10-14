@@ -31,6 +31,15 @@ export interface PlanPoint extends LatLon {
    *  connector the aircraft is being flown along by ATC (terminal-area
    *  vectors), NOT part of the filed/predicted route — drawn faint + dotted */
   vectors?: boolean;
+  /** additive (2026-10-14): the segment FROM this point to the next one spans
+   *  filed route elements that could not be placed (server/navAirways.ts
+   *  parseFiledRoute) — drawn lighter, and deviation is never judged along it */
+  unresolvedNext?: boolean;
+}
+
+/** the segment-from-here flags a point inserted INSIDE segment a→b inherits */
+export function segmentFlags(a: PlanPoint): Pick<PlanPoint, "unresolvedNext"> {
+  return a.unresolvedNext ? { unresolvedNext: true } : {};
 }
 
 // ── vector helpers ──────────────────────────────────────────────────────────
@@ -151,7 +160,7 @@ export function densifyPlan(points: PlanPoint[], stepNm = 50): PlanPoint[] {
     const a = points[i - 1], b = points[i];
     const gc = greatCircle(a, b, stepNm);
     for (let k = 1; k < gc.length - 1; k++) {
-      out.push({ lat: gc[k].lat, lon: gc[k].lon, altM: null, altEstimated: true });
+      out.push({ lat: gc[k].lat, lon: gc[k].lon, altM: null, altEstimated: true, ...segmentFlags(a) });
     }
     if (gc.length > 1 || haversineNm(a, b) > 1e-6) out.push({ ...b, lon: normLon(b.lon) });
   }
@@ -264,6 +273,7 @@ export function splitPlanAt(points: PlanPoint[], pos: LatLon): {
       lat: xt.proj.lat, lon: xt.proj.lon,
       altM: both ? Math.round((a.altM as number) + ((b.altM as number) - (a.altM as number)) * f) : null,
       altEstimated: a.altEstimated || b.altEstimated || !both || a.altM !== b.altM,
+      ...segmentFlags(a),
     };
   }
   const behind = [...points.slice(0, atA ? i : i + 1), pp];
@@ -341,7 +351,7 @@ export function estimateVerticalProfile(
     // never override a segment whose ends are both known (filed/observed)
     if (a.altM != null && b.altM != null) continue;
     if (withMarks.some((w) => Math.abs(w.x - m.x) < 0.5)) continue;
-    withMarks.push({ p: { lat: ll.lat, lon: ll.lon, altM: null, altEstimated: true, name: m.name }, x: m.x });
+    withMarks.push({ p: { lat: ll.lat, lon: ll.lon, altM: null, altEstimated: true, name: m.name, ...segmentFlags(a) }, x: m.x });
   }
   withMarks.sort((u, v) => u.x - v.x);
   return withMarks.map(({ p, x }) =>

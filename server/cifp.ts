@@ -782,6 +782,80 @@ export function procedureFixes(idx: CifpIndex, ap: AirportData, proc: CifpProced
   return out;
 }
 
+export interface FiledMatch {
+  id: string;
+  transition: string | null;
+  /** filed token when it differs from the CIFP ident (older/newer version) */
+  filedAs: string | null;
+  versionMismatch: boolean;
+}
+
+/** The SID/STAR a filed token names at `ap`: exact ident first, else a
+ *  same-name different-version procedure (BLEWE4 filed, CIFP now BLEWE5),
+ *  reported as a version mismatch rather than silently promoted. */
+export function matchProcedure(ap: AirportData | null, kind: ProcKind, token: string): { proc: CifpProcedure; versionMismatch: boolean } | null {
+  if (!ap) return null;
+  const procs = ap.procedures.filter((p) => p.kind === kind);
+  const exact = procs.find((x) => x.id === token);
+  if (exact) return { proc: exact, versionMismatch: false };
+  const m = /^([A-Z]{3,5})(\d)$/.exec(token);
+  const p = m ? procs.find((x) => x.id.replace(/\d$/, "") === m[1]) : undefined;
+  return p ? { proc: p, versionMismatch: true } : null;
+}
+
+/** enroute transition ids of a SID/STAR */
+export function enrouteTransitions(p: CifpProcedure): Set<string> {
+  return new Set(p.transitions.filter((t) => segmentRole(p.kind, t.routeType) === "enroute transition").map((t) => t.id));
+}
+
+/**
+ * The DP and STAR named in a filed route string ("KAUS.AUS7.CWK J25 …
+ * ACT.BLEWE5.KAUS"). The SID's enroute transition is the token after it;
+ * the STAR's is the token before it.
+ */
+export function findFiledProcedures(routeText: string | null, dep: AirportData | null, arr: AirportData | null): { dp: FiledMatch | null; star: FiledMatch | null } {
+  const toks = String(routeText || "").toUpperCase().split(/[\s.+/]+/).filter(Boolean);
+  const find = (ap: AirportData | null, kind: ProcKind): FiledMatch | null => {
+    if (!ap) return null;
+    for (let i = 0; i < toks.length; i++) {
+      const hit = matchProcedure(ap, kind, toks[i]);
+      if (!hit) continue;
+      const nb = kind === "SID" ? toks[i + 1] : toks[i - 1];
+      return {
+        id: hit.proc.id, transition: nb && enrouteTransitions(hit.proc).has(nb) ? nb : null,
+        filedAs: hit.versionMismatch ? toks[i] : null, versionMismatch: hit.versionMismatch,
+      };
+    }
+    return null;
+  };
+  return { dp: find(dep, "SID"), star: find(arr, "STAR") };
+}
+
+/**
+ * The ordered fixes a filed SID/STAR adds to a ROUTE (not the leg geometry
+ * procedurePath draws): SID = common route then the filed enroute
+ * transition; STAR = the filed enroute transition then the common route.
+ * Runway transitions are skipped — the runway is not in the flight plan.
+ * Legs with no fix (heading/altitude/vector terminations) add nothing.
+ * Positions resolve CIFP-first (idx.resolve, NASR fallback).
+ */
+export function procedureRouteFixes(idx: CifpIndex, ap: AirportData, proc: CifpProcedure, transition: string | null): Array<{ name: string; lat: number; lon: number }> {
+  const role = (t: ProcTransition) => segmentRole(proc.kind, t.routeType);
+  const common = proc.transitions.filter((t) => role(t) === "common");
+  const enroute = transition ? proc.transitions.filter((t) => role(t) === "enroute transition" && t.id === transition) : [];
+  const ordered = proc.kind === "SID" ? [...common, ...enroute] : [...enroute, ...common];
+  const out: Array<{ name: string; lat: number; lon: number }> = [];
+  for (const t of ordered) {
+    for (const leg of t.legs) {
+      if (!leg.fix || (leg.fix.section === "P" && (leg.fix.sub === "G" || leg.fix.sub === "I"))) continue;
+      const ll = idx.resolve(leg.fix, ap);
+      if (!ll || out[out.length - 1]?.name === leg.fix.ident) continue;
+      out.push({ name: leg.fix.ident, lat: ll.lat, lon: ll.lon });
+    }
+  }
+  return out;
+}
+
 // ── the store: download once per cycle to /tmp, index, serve ───────────────
 
 export interface CifpStoreDeps {
@@ -819,6 +893,20 @@ export class CifpStore {
       airports: this.idx ? this.idx.airportIds().length : 0,
       lastError: this.lastError,
     };
+  }
+
+  /** The loaded index, or null — NEVER blocks a caller. With no index (or a
+   *  stale cycle) and no failure inside the backoff window it starts the load
+   *  in the background, so the next caller has it. For hot paths (the flight
+   *  plan route parser) that must not wait on a 9 MB download. */
+  peek(): { idx: CifpIndex; cycle: AiracCycle } | null {
+    const want = cycleAt(this.now());
+    const current = !!this.idx && !!this.idxCycle && this.idxCycle.ident === want.ident;
+    const backingOff = !!this.lastError && this.now() - this.lastError.at < CIFP_FAILURE_BACKOFF_MS;
+    if (!current && !this.loading && !backingOff) {
+      this.get().catch((e: unknown) => console.warn("[cifp] background load:", e instanceof Error ? e.message : e));
+    }
+    return this.idx && this.idxCycle ? { idx: this.idx, cycle: this.idxCycle } : null;
   }
 
   /** The index for the cycle in force (downloads on first use / new cycle). */

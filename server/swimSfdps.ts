@@ -35,7 +35,7 @@
 // and every field degrades to null rather than guessing.
 
 import { lookupFix } from "./navFixes";
-import { expandRouteText, placeDirectFixes, placeDirectFixesWithRadials, placeFixesInCorridor, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
+import { expandRouteText, placeDirectFixes, placeDirectFixesWithRadials, placeFixesInCorridor, parseFiledRoute, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
 import { airportByIdent } from "./airportsIndex";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
 
@@ -292,6 +292,13 @@ export interface RouteShapeSample { where: string; shape: string; count: number;
 const routeShapes = new Map<string, RouteShapeSample>();
 export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0, radialPlaced: 0, corridorPlaced: 0 };
 
+/** REPORT-ONLY shadow of the full route parser (navAirways.parseFiledRoute,
+ *  2026-10-14) on every route-TEXT plan, without CIFP: served plans are parsed
+ *  at request time (flightPlans), this live counter shows how the parser
+ *  compares with the ingest chain above — `gained` = plans the chain left
+ *  unplaced that the parser places, `lost` = the reverse (must stay ~0). */
+export const parserShadowCounters = { routes: 0, placed: 0, chainPlaced: 0, gained: 0, lost: 0, withUnresolved: 0, procedureTokens: 0, amended: 0 };
+
 /** Why route TEXT (the fallback path) left a plan unplaced — report-only. */
 export const unplacedReasonCounters: Record<UnplacedReason, number> = { noText: 0, noFixResolved: 0, fewFixes: 0, airwayUnbounded: 0, legTooLong: 0, other: 0 };
 
@@ -325,6 +332,25 @@ function recordUnresolved(reason: UnplacedReason, routeText: string | null): voi
   if (unresolvedTexts.length < UNRESOLVED_TEXT_MAX) unresolvedTexts.push({ reason, text: routeText.slice(0, 200) });
 }
 
+function recordParserShadow(routeText: string, departure: string | null, arrival: string | null, chainPlaced: boolean): void {
+  const o = departure ? airportByIdent(departure) : null;
+  const d = arrival ? airportByIdent(arrival) : null;
+  const pr = parseFiledRoute(routeText, {
+    departure, arrival,
+    origin: o ? { lat: o.la, lon: o.lo } : null, destination: d ? { lat: d.la, lon: d.lo } : null,
+  });
+  const c = parserShadowCounters;
+  const placed = pr.points.length > 0 && pr.kind != null;
+  c.routes++;
+  if (placed) c.placed++;
+  if (chainPlaced) c.chainPlaced++;
+  if (placed && !chainPlaced) c.gained++;
+  if (!placed && chainPlaced) c.lost++;
+  if (pr.unresolved.length) c.withUnresolved++;
+  if (pr.sid || pr.star) c.procedureTokens++;
+  if (pr.amendedFromPresentPosition) c.amended++;
+}
+
 function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode | null, placed: number, routeText: string | null): void {
   if (placed > 0) { routeShapeCounters.placed++; return; }
   const reason = classifyUnplacedRoute(routeText);
@@ -340,9 +366,9 @@ function recordRouteShape(flight: XNode, agreed: XNode | null, expanded: XNode |
   if (hit) { hit.count++; return; }
   if (routeShapes.size < ROUTE_SHAPE_MAX_SAMPLES) routeShapes.set(key, { where, shape, count: 1, firstSeenAt: Date.now() });
 }
-export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[]; unresolvedTokens: { token: string; count: number }[]; unresolvedTexts: { reason: UnplacedReason; text: string }[]; fewFixesProfile: typeof fewFixesProfileCounters } {
+export function routeShapeSamples(): { counters: typeof routeShapeCounters; unplacedReasons: typeof unplacedReasonCounters; samples: RouteShapeSample[]; unresolvedTokens: { token: string; count: number }[]; unresolvedTexts: { reason: UnplacedReason; text: string }[]; fewFixesProfile: typeof fewFixesProfileCounters; parserShadow: typeof parserShadowCounters } {
   const unresolvedTokens = [...unresolvedTokenCounts].map(([token, count]) => ({ token, count })).sort((a, b) => b.count - a.count).slice(0, 50);
-  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()], unresolvedTokens, unresolvedTexts: [...unresolvedTexts], fewFixesProfile: { ...fewFixesProfileCounters } };
+  return { counters: { ...routeShapeCounters }, unplacedReasons: { ...unplacedReasonCounters }, samples: [...routeShapes.values()], unresolvedTokens, unresolvedTexts: [...unresolvedTexts], fewFixesProfile: { ...fewFixesProfileCounters }, parserShadow: { ...parserShadowCounters } };
 }
 
 function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage {
@@ -422,6 +448,7 @@ function extractFlight(flight: XNode, message: XNode | null): SwimFlightMessage 
   }
 
   recordRouteShape(flight, agreed, expanded, routePoints.length, routeText);
+  if (routeText && routeKind !== "expanded") recordParserShadow(routeText, departure, arrival, routePoints.length > 0);
 
   const source = attr(flight, "source") ?? attr(message, "source");
   const messageType = source ? source.trim().toUpperCase() : null;
@@ -909,4 +936,5 @@ export function _resetSfdpsCountersForTests(): void {
   for (const k of Object.keys(unplacedReasonCounters) as UnplacedReason[]) unplacedReasonCounters[k] = 0;
   unresolvedTokenCounts.clear(); unresolvedTexts.length = 0;
   for (const k of Object.keys(fewFixesProfileCounters) as (keyof typeof fewFixesProfileCounters)[]) fewFixesProfileCounters[k] = 0;
+  for (const k of Object.keys(parserShadowCounters) as (keyof typeof parserShadowCounters)[]) parserShadowCounters[k] = 0;
 }

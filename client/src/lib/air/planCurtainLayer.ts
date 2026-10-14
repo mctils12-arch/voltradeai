@@ -169,6 +169,8 @@ export interface PlanPointLike {
   altEstimated?: boolean;
   /** the segment FROM this point is ATC vectoring (server-flagged). */
   vectors?: boolean;
+  /** the segment FROM this point spans unplaced filed elements (server-flagged). */
+  unresolvedNext?: boolean;
 }
 
 /** The plan densified along great circles — one entry per render vertex. */
@@ -186,6 +188,10 @@ export interface DensePlan {
   /** 1 = the segment STARTING at this vertex is an ATC-vectoring connector
    *  (drawn faint + dashed, no curtain — not part of the route). */
   vec: Uint8Array;
+  /** 1 = the segment STARTING at this vertex spans filed route elements the
+   *  server could not place — drawn lighter (estimated alpha, dashed edge
+   *  and trace): the line there is not the filed path. */
+  unr: Uint8Array;
   /** index into the INPUT points array of the point this vertex is, or −1
    *  for an inserted (great-circle / antimeridian) vertex. */
   src: Int32Array;
@@ -240,12 +246,12 @@ export function densifyPlan(
   setGauge('planCurtain.decimated', decimated);
 
   const oLon: number[] = [], oLat: number[] = [], oAlt: number[] = [], oEst: number[] = [];
-  const oVec: number[] = [], oSrc: number[] = [];
-  // per-push extras: the segment-from-here flag and the input index
-  let curVec = 0, curSrc = -1;
+  const oVec: number[] = [], oUnr: number[] = [], oSrc: number[] = [];
+  // per-push extras: the segment-from-here flags and the input index
+  let curVec = 0, curUnr = 0, curSrc = -1;
   const pushRaw = (lon: number, lat: number, alt: number, est: boolean, src = -1) => {
     oLon.push(lon); oLat.push(lat); oAlt.push(alt); oEst.push(est ? 1 : 0);
-    oVec.push(curVec); oSrc.push(src);
+    oVec.push(curVec); oUnr.push(curUnr); oSrc.push(src);
   };
   const push = (lon: number, lat: number, alt: number, est: boolean) => {
     const k = oLon.length;
@@ -270,14 +276,15 @@ export function densifyPlan(
   /** push an INPUT point: its own segment flag, its input index */
   const pushPoint = (k: number, alt: number, est: boolean) => {
     const p = pts[k];
-    const prevVec = curVec;
+    const prevVec = curVec, prevUnr = curUnr;
     curVec = p.vectors ? 1 : 0;
+    curUnr = p.unresolvedNext ? 1 : 0;
     curSrc = srcOf[k];
     // an antimeridian split pair before this point belongs to the segment
-    // ARRIVING here: it carries the previous point's flag
+    // ARRIVING here: it carries the previous point's flags
     const k0 = oLon.length;
     push(p.lon, p.lat, alt, est);
-    for (let q = k0; q < oLon.length - 1; q++) { oVec[q] = prevVec; oSrc[q] = -1; }
+    for (let q = k0; q < oLon.length - 1; q++) { oVec[q] = prevVec; oUnr[q] = prevUnr; oSrc[q] = -1; }
     curSrc = -1;
   };
 
@@ -343,6 +350,7 @@ export function densifyPlan(
     est: Uint8Array.from(oEst),
     alongM: along,
     vec: Uint8Array.from(oVec),
+    unr: Uint8Array.from(oUnr),
     src: Int32Array.from(oSrc),
     inputCount,
     decimated,
@@ -441,8 +449,12 @@ const traceWidth = (vector: boolean): number => (vector ? -PLAN_TRACE_WIDTH_PX :
 /** the segment starting at dense vertex i is an ATC-vectoring connector. */
 const segVec = (d: DensePlan, i: number): boolean => d.vec[i] === 1;
 
-/** a segment is "estimated" when either end's altitude is. */
-const segEst = (d: DensePlan, i: number, j: number): boolean => d.est[i] === 1 || d.est[j] === 1;
+/** the segment starting at dense vertex i spans unplaced filed elements. */
+const segUnr = (d: DensePlan, i: number): boolean => d.unr?.[i] === 1;
+
+/** a segment is "estimated" (drawn lighter + dashed) when either end's
+ *  altitude is, or when its lateral path is unresolved. */
+const segEst = (d: DensePlan, i: number, j: number): boolean => d.est[i] === 1 || d.est[j] === 1 || segUnr(d, i);
 
 /**
  * Pure: the whole plan → ONE packed buffer, grouped trace | curtain | edge
@@ -476,7 +488,7 @@ export function buildPlanGeometry(input: PlanGeomInput): PlanGeometry {
     const ax = merc[s * 2], ay = merc[s * 2 + 1], bx = merc[s * 2 + 2], by = merc[s * 2 + 3];
     if (!wrapOk(ax, bx)) continue;
     pk.ribbon(ax, ay, groundZ[s] + lift, bx, by, groundZ[s + 1] + lift,
-      traceWidth(segVec(dense, s)), TRACE_RGBA_PLAN, A[s], A[s + 1]);
+      traceWidth(segVec(dense, s) || segUnr(dense, s)), TRACE_RGBA_PLAN, A[s], A[s + 1]);
   }
   segQuad[PG_TRACE][nSeg] = groupEnd[PG_TRACE] = pk.quads;
   // 2) curtain

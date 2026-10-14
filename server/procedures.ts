@@ -23,14 +23,14 @@
 
 import type { Express, Request, Response } from "express";
 import {
-  CifpStore, approachName, parseApproachIdent, procedureFixes, procedurePath, segmentRole,
-  type AirportData, type CifpIndex, type CifpProcedure, type AiracCycle, type ProcKind, type LL,
+  CifpStore, approachName, parseApproachIdent, procedureFixes, procedurePath, segmentRole, findFiledProcedures,
+  type AirportData, type CifpIndex, type CifpProcedure, type AiracCycle, type ProcKind, type LL, type FiledMatch,
 } from "./cifp";
 import { DtppStore, PlateCache, chartsForProcedure, type DtppAirport, type DtppChart, type DtppIndex } from "./dtpp";
 import { georeferencePlate, type GeorefResult } from "./plateGeoref";
 import { getFlightPlanContext } from "./flightPlans";
 import { laddRegistry } from "./laddRegistry";
-import { lookupFix } from "./navFixes";
+import { sharedCifpStore } from "./cifpShared";
 import { nearestAirport } from "./airportsIndex";
 import { recentTrackCached } from "./datacoreArchive";
 import { runwayEnds, classifyRunwayFix, departureRunway, runwayStateLabel, RUNWAY_HONESTY, type RunwayFix } from "./runwayDetect";
@@ -86,47 +86,10 @@ export function summarize(ap: AirportData, p: CifpProcedure, dap: DtppAirport | 
   };
 }
 
-export interface FiledMatch {
-  id: string;
-  transition: string | null;
-  /** filed token when it differs from the CIFP ident (older/newer version) */
-  filedAs: string | null;
-  versionMismatch: boolean;
-}
-
-/**
- * The DP and STAR named in a filed route string ("KAUS.AUS7.CWK J25 …
- * ACT.BLEWE5.KAUS"). Exact ident first; a same-name different-version token
- * (BLEWE4 filed, CIFP now BLEWE5) is reported as a version mismatch rather
- * than silently promoted. The SID's enroute transition is the token after
- * it; the STAR's is the token before it.
- */
-export function findFiledProcedures(routeText: string | null, dep: AirportData | null, arr: AirportData | null): { dp: FiledMatch | null; star: FiledMatch | null } {
-  const toks = String(routeText || "").toUpperCase().split(/[\s.+/]+/).filter(Boolean);
-  const find = (ap: AirportData | null, kind: ProcKind): FiledMatch | null => {
-    if (!ap) return null;
-    const procs = ap.procedures.filter((p) => p.kind === kind);
-    const transOf = (p: CifpProcedure) => new Set(p.transitions.filter((t) => {
-      const r = segmentRole(kind, t.routeType);
-      return r === "enroute transition";
-    }).map((t) => t.id));
-    for (let i = 0; i < toks.length; i++) {
-      const tk = toks[i];
-      let p = procs.find((x) => x.id === tk);
-      let mismatch = false;
-      if (!p) {
-        const m = /^([A-Z]{3,5})(\d)$/.exec(tk);
-        if (m) { p = procs.find((x) => x.id.replace(/\d$/, "") === m[1]); mismatch = !!p; }
-      }
-      if (!p) continue;
-      const tr = transOf(p);
-      const nb = kind === "SID" ? toks[i + 1] : toks[i - 1];
-      return { id: p.id, transition: nb && tr.has(nb) ? nb : null, filedAs: mismatch ? tk : null, versionMismatch: mismatch };
-    }
-    return null;
-  };
-  return { dp: find(dep, "SID"), star: find(arr, "STAR") };
-}
+// FiledMatch / findFiledProcedures live in cifp.ts (2026-10-14): the route
+// parser's SID/STAR expansion (server/navAirways.ts via flightPlans) uses the
+// same matcher, so there is one rule for "which procedure was filed".
+export { findFiledProcedures, matchProcedure, type FiledMatch } from "./cifp";
 
 export interface Wind { dirDeg: number | null; speedKt: number; gustKt: number | null; obsTime: string | null; raw: string | null }
 export interface RunwayWind { runway: string; headingTrue: number; headwindKt: number | null; crosswindKt: number | null }
@@ -257,7 +220,7 @@ export function registerProcedureRoutes(app: Express, ctxIn?: Partial<Procedures
     lazy = {
       // NASR fix/navaid gazetteer (server/navFixes.ts, #1214): fallback for
       // an unresolved CIFP reference + an independent cross-check of each fix
-      cifp: ctxIn?.cifp ?? new CifpStore({ external: (id) => lookupFix(id) }),
+      cifp: ctxIn?.cifp ?? sharedCifpStore(),
       dtpp: ctxIn?.dtpp ?? new DtppStore(),
       plates: ctxIn?.plates ?? new PlateCache(),
       filedPlan: ctxIn?.filedPlan ?? defaultFiledPlan,
