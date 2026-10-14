@@ -39,6 +39,7 @@ import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } 
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 import { applyFeatureCap } from '../../render/layerContract.js';
 import { isOverloaded } from '../deviceTier.js';
+import { WEB_MERCATOR_CIRCUMFERENCE_M } from '../lod.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
  *
@@ -194,6 +195,124 @@ export const AIR_SILHOUETTES: Float32Array[] = [
     quad(-0.43, 0.065, 0.43, 0.135);    // main rotor blade E-W
   }),
 ];
+
+/** floats per 3D mesh vertex: x (right wing), y (nose), z (up), shade. */
+export const AIR_MESH_STRIDE = 4;
+
+/** Fuselage half-height per AIR_SHAPE code (local units, silhouette scale). */
+const FUSE_HALF_H = [0.06, 0.045, 0.085, 0.05, 0.09];
+
+/** Face shades: lit from above in the aircraft's own frame. */
+export const AIR_SHADE = { TOP: 1.0, SIDE: 0.78, FIN: 0.66 } as const;
+
+/**
+ * Pure: a class's TOP-VIEW silhouette → a small 3D mesh in the aircraft's own
+ * frame (x right wing, y nose, z up; [x, y, z, shade] per vertex). The
+ * planform lies at z = 0; a vertical fuselage keel and a tail fin give it
+ * side-on area, so the shape stays readable from a tilted camera and a nose
+ * pitched up or down is visible from the side (2026-10-14 owner report: "it
+ * changes as I move around ... show a nose up or nose down"). The mesh is
+ * placed in WORLD space by the shader (airWorldVertex), so turning the camera
+ * shows the same aircraft from another side instead of spinning a flat
+ * cutout in place.
+ */
+export function buildAirMesh3D(sil: Float32Array, shape: number): Float32Array {
+  const v: number[] = [];
+  for (let i = 0; i + 1 < sil.length; i += 2) v.push(sil[i], sil[i + 1], 0, AIR_SHADE.TOP);
+  let noseY = -Infinity, tailY = Infinity;
+  for (let i = 1; i < sil.length; i += 2) { noseY = Math.max(noseY, sil[i]); tailY = Math.min(tailY, sil[i]); }
+  const h = FUSE_HALF_H[shape] ?? FUSE_HALF_H[0];
+  const tri = (a: number[], b: number[], c: number[], shade: number) => {
+    v.push(a[0], a[1], a[2], shade, b[0], b[1], b[2], shade, c[0], c[1], c[2], shade);
+  };
+  // keel: the fuselage seen side-on, tapering to the nose tip
+  const bodyFront = noseY - (noseY - tailY) * 0.14;
+  tri([0, tailY, -h], [0, bodyFront, -h], [0, bodyFront, h], AIR_SHADE.SIDE);
+  tri([0, tailY, -h], [0, bodyFront, h], [0, tailY, h], AIR_SHADE.SIDE);
+  tri([0, bodyFront, -h], [0, noseY, 0], [0, bodyFront, h], AIR_SHADE.SIDE);
+  // tail fin (a rotorcraft gets a short one on its boom)
+  const len = noseY - tailY;
+  const finH = shape === AIR_SHAPE.ROTOR ? h * 1.4 : h + len * 0.2;
+  tri([0, tailY, h], [0, tailY + len * 0.16, h], [0, tailY + len * 0.02, finH], AIR_SHADE.FIN);
+  return new Float32Array(v);
+}
+
+/** Per-class 3D meshes, indexed by AIR_SHAPE code (derived from AIR_SILHOUETTES). */
+export const AIR_MESHES: Float32Array[] = AIR_SILHOUETTES.map((sil, shape) => buildAirMesh3D(sil, shape));
+
+/** Display pitch exaggeration for the nose attitude. Real flight-path angles
+ *  are 3–7°, a few pixels on a 30 px plane, so the attitude is drawn
+ *  exaggerated (the terrain-exaggeration precedent), clamped. The DATA
+ *  (a_climb, the card's vertical rate) is never altered. */
+export const AIR_PITCH_EXAGGERATION = 2.5;
+export const AIR_MAX_PITCH_DISPLAY_DEG = 30;
+
+/** Pure CPU mirror of the shader's attitude frame (east, north, up): heading
+ *  is the broadcast TRACK, climb the climbRatio() tangent. No camera input
+ *  exists, so the orientation cannot change when the camera moves. */
+export function airAttitudeFrame(headingDeg: number, climb: number): {
+  fwd: [number, number, number]; right: [number, number, number]; up: [number, number, number];
+} {
+  const h = (headingDeg * Math.PI) / 180;
+  const maxG = (AIR_MAX_PITCH_DISPLAY_DEG * Math.PI) / 180;
+  const g = Math.max(-maxG, Math.min(maxG, Math.atan(climb) * AIR_PITCH_EXAGGERATION));
+  return {
+    fwd: [Math.sin(h) * Math.cos(g), Math.cos(h) * Math.cos(g), Math.sin(g)],
+    right: [Math.cos(h), -Math.sin(h), 0],
+    up: [-Math.sin(h) * Math.sin(g), -Math.cos(h) * Math.sin(g), Math.cos(g)],
+  };
+}
+
+/**
+ * GLSL: one aircraft-mesh vertex in WORLD space (shared by AirLayer and the
+ * flight-track marker). `anchor` is projectTileFor3D(xy, vtProjElev(altM)).
+ * Size stays pixel-constant: pixels per metre AT the anchor are measured by
+ * projecting short east and north steps there (under pitch one of the two is
+ * foreshortened, never both, so the larger is the true scale).
+ */
+export const AIR_WORLD_GLSL = `
+vec4 airWorldVertex(vec4 anchor, vec2 xy, float altM, float headingDeg, float climb,
+                    vec3 local, float pxPerUnit, float mppSeed, vec2 viewportPx) {
+  float mPerMerc = ${WEB_MERCATOR_CIRCUMFERENCE_M.toFixed(3)} / cosh(3.14159265 * (1.0 - 2.0 * xy.y));
+  float stepM = max(mppSeed * 20.0, 1.0);
+  float stepMerc = stepM / mPerMerc;
+  vec4 e = projectTileFor3D(xy + vec2(stepMerc, 0.0), vtProjElev(altM, xy.y));
+  vec4 n = projectTileFor3D(xy - vec2(0.0, stepMerc), vtProjElev(altM, xy.y - stepMerc));
+  float pxPerM = 0.0;
+  if (anchor.w > 0.0) {
+    vec2 an = anchor.xy / anchor.w;
+    if (e.w > 0.0) pxPerM = max(pxPerM, length((e.xy / e.w - an) * viewportPx * 0.5) / stepM);
+    if (n.w > 0.0) pxPerM = max(pxPerM, length((n.xy / n.w - an) * viewportPx * 0.5) / stepM);
+  }
+  float unitM = pxPerM > 0.0 ? min(pxPerUnit / pxPerM, 60000.0) : pxPerUnit * mppSeed;
+  float h = radians(headingDeg);
+  float g = clamp(atan(climb) * ${AIR_PITCH_EXAGGERATION.toFixed(2)}, -radians(${AIR_MAX_PITCH_DISPLAY_DEG.toFixed(1)}), radians(${AIR_MAX_PITCH_DISPLAY_DEG.toFixed(1)}));
+  vec3 fwdW = vec3(sin(h) * cos(g), cos(h) * cos(g), sin(g));
+  vec3 rightW = vec3(cos(h), -sin(h), 0.0);
+  vec3 upW = vec3(-sin(h) * sin(g), -cos(h) * sin(g), cos(g));
+  vec3 o = (local.x * rightW + local.y * fwdW + local.z * upW) * unitM; // east, north, up (m)
+  vec2 vxy = xy + vec2(o.x, -o.y) / mPerMerc;                            // mercator y grows south
+  return projectTileFor3D(vxy, vtProjElev(altM + o.z, vxy.y));
+}
+`;
+
+/** Metres per device pixel at a latitude/zoom (MapLibre 512 px tiles) — the
+ *  shader's step seed only; the real scale is measured at each anchor. */
+export function metresPerDevicePixel(lat: number, zoom: number, dpr: number): number {
+  return (WEB_MERCATOR_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) / (512 * Math.pow(2, zoom)) / Math.max(dpr, 1);
+}
+
+/** The step seed for a live map: device px per CSS px is read from the
+ *  drawing buffer vs the canvas's CSS width (never the raw devicePixelRatio —
+ *  deviceTier.ts owns that clamp). */
+export function seedMetresPerDevicePixel(
+  map: { getCenter(): { lat: number }; getZoom(): number; getCanvas(): { clientWidth: number } } | null,
+  bufferWidthPx: number,
+  fallbackZoom: number,
+): number {
+  const css = map?.getCanvas().clientWidth || bufferWidthPx || 1;
+  return metresPerDevicePixel(map?.getCenter().lat ?? 0, map?.getZoom() ?? fallbackZoom, (bufferWidthPx || css) / css);
+}
 
 export interface AircraftInstanceInput {
   lon?: number | null;
@@ -435,18 +554,19 @@ export const AIR_VERT_SRC = (prelude: string, define: string): string => `#versi
 ${prelude}
 ${define}
 ${VT_PROJ_ELEV_GLSL}
-in vec2 a_local;           // silhouette vertex (per-vertex)
-in float a_altFrac;        // per-vertex altitude fraction: 1 for silhouettes;
+${AIR_WORLD_GLSL}
+in vec4 a_local;           // mesh vertex: x right wing, y nose, z up (local units), w face shade
+in float a_altFrac;        // per-vertex altitude fraction: 1 for meshes;
                            // 0→1 for the ground drop-line (constant-attrib trick)
 in vec4 a_inst;            // per-instance: mercX, mercY, altMeters, headingDeg
 in float a_band;           // per-instance: altitude band (0 ground / 1 low / 2 cruise)
 in vec2 a_vel;             // per-instance GLIDE: d/dt of (mercX, mercY) per second
 in float a_climb;          // per-instance: climbRatio() = tan(flight-path angle), 0 = level/unknown
-uniform float u_bearing;   // map bearing (deg) — fallback nose rotation only (see below)
 uniform float u_altScale;  // 1, or the terrain exaggeration so vertical datums match
-uniform float u_scaleClip; // clip units per local unit at w=1 (pixel-constant via *w)
+uniform float u_pxPerUnit; // device px per local mesh unit (AIR_PIXELS / LOCAL_EXTENT)
+uniform float u_mppSeed;   // metres per device px at the view centre (step seed only)
+uniform vec2 u_viewportPx; // drawing buffer size, device px
 uniform float u_dtSec;     // seconds since the poll anchor, CPU-clamped to MAX_AIR_GLIDE_SEC
-uniform float u_aspect;
 uniform vec4 u_bandColors[3];
 out vec4 v_color;
 void main() {
@@ -480,48 +600,22 @@ void main() {
   }
 #endif
   vec4 anchor = projectTileFor3D(g_xy, vtProjElev(a_inst.z * u_altScale * a_altFrac, g_xy.y));
-  // PATH-FOLLOWING NOSE (2026-10-13, owner report: "the plane icon moves
-  // direction as you pan/tilt the camera ... it should follow the path and
-  // if it's descending or climbing the icon should do that"). The nose used
-  // to be a screen rotation of (heading - bearing), which is only right when
-  // looking straight down: under pitch, perspective changes the on-screen
-  // angle of a ground direction, and that angle drifts across the view as
-  // you pan. Now the nose points along the SCREEN PROJECTION of the plane's
-  // own 3D path: a point AIR_DIR_STEP_M ahead on the broadcast track, raised
-  // by climb x step at the SAME altitude scale as the anchor. Projection
-  // keeps straight lines straight, so anchor->ahead is exactly the path's
-  // screen direction: true heading at any bearing/pitch/pan, nose up/down
-  // for climbs/descents seen from a tilted camera (from straight overhead a
-  // climb has no screen extent — honest, not hidden). If the ahead point is
-  // behind the camera the behind point is used; if the path points straight
-  // at the camera, the bearing-relative rotation is the fallback.
-  float hRad = radians(a_inst.w);
-  vec2 stepXY = vec2(sin(hRad), -cos(hRad))
-    * (${AIR_DIR_STEP_M.toFixed(1)} * cosh(3.14159265 * (1.0 - 2.0 * g_xy.y)) / 40075016.686);
-  float baseZ = a_inst.z * u_altScale * a_altFrac;
-  float stepZ = ${AIR_DIR_STEP_M.toFixed(1)} * a_climb * u_altScale * a_altFrac;
-  vec2 aNdc = anchor.xy / anchor.w;
-  vec4 ahead = projectTileFor3D(g_xy + stepXY, vtProjElev(baseZ + stepZ, g_xy.y + stepXY.y));
-  vec2 dScr = vec2(0.0);
-  if (ahead.w > 0.0) {
-    dScr = ahead.xy / ahead.w - aNdc;
-  } else {
-    vec4 behind = projectTileFor3D(g_xy - stepXY, vtProjElev(baseZ - stepZ, g_xy.y - stepXY.y));
-    if (behind.w > 0.0) dScr = aNdc - behind.xy / behind.w;
-  }
-  dScr.x *= u_aspect; // NDC -> square screen units, the space p lives in
-  vec2 fwd;
-  if (anchor.w > 0.0 && dot(dScr, dScr) > 1e-14) {
-    fwd = normalize(dScr);
-  } else {
-    float rot = radians(a_inst.w - u_bearing);
-    fwd = vec2(sin(rot), cos(rot));
-  }
-  // silhouette frame: +y = nose (fwd), +x = right wing (fwd turned 90° cw)
-  vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;
-  gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;
+  // WORLD-SPACE ATTITUDE (2026-10-14, owner report: "the nose ... changes as
+  // I move around ... show a nose up or nose down"). v1.0.1062 pointed a flat,
+  // screen-facing cutout along the projected path: right for the direction,
+  // but turning the camera spun the cutout in place, and its climb tilt was
+  // a few degrees of screen rotation. Now the class mesh (AIR_MESHES) is laid
+  // out in WORLD space — nose along the broadcast track, pitched by the
+  // flight-path angle (display-exaggerated, AIR_PITCH_EXAGGERATION), wings
+  // level — and every vertex goes through the map's own projection. Camera
+  // moves now only change the viewpoint; heading and attitude are camera-
+  // independent by construction (airAttitudeFrame has no camera input).
+  float altM = a_inst.z * u_altScale * a_altFrac;
+  gl_Position = airWorldVertex(anchor, g_xy, altM, a_inst.w, a_climb, a_local.xyz,
+                               u_pxPerUnit, u_mppSeed, u_viewportPx);
   int band = int(clamp(a_band, 0.0, 2.0));
   v_color = u_bandColors[band];
+  v_color.rgb *= a_local.w; // face shade: top 1.0, side keel, fin (drop-line w = 1)
   // the drop-line fades toward the ground end (altFrac 0); silhouettes
   // (altFrac 1 everywhere) keep full band alpha
   v_color.a *= mix(0.25, 1.0, a_altFrac);
@@ -562,11 +656,11 @@ export class AirLayer implements CustomLayerInterface {
   private aBand = -1;
   private aVel = -1;
   private aClimb = -1;
-  private uBearing: WebGLUniformLocation | null = null;
   private uAltScale: WebGLUniformLocation | null = null;
-  private uScale: WebGLUniformLocation | null = null;
+  private uPxPerUnit: WebGLUniformLocation | null = null;
+  private uMppSeed: WebGLUniformLocation | null = null;
+  private uViewportPx: WebGLUniformLocation | null = null;
   private uDtSec: WebGLUniformLocation | null = null;
-  private uAspect: WebGLUniformLocation | null = null;
   private uBandColors: WebGLUniformLocation | null = null;
   private uProjMatrix: WebGLUniformLocation | null = null;
   private uProjTile: WebGLUniformLocation | null = null;
@@ -802,7 +896,6 @@ export class AirLayer implements CustomLayerInterface {
     if (this.uProjTrans) gl.uniform1f(this.uProjTrans, pd.projectionTransition);
     if (this.uProjFallback) gl.uniformMatrix4fv(this.uProjFallback, false, pd.fallbackMatrix);
 
-    if (this.uBearing) gl.uniform1f(this.uBearing, this.map?.getBearing() ?? 0);
     if (this.uAltScale) gl.uniform1f(this.uAltScale, this.altScale);
     // GLIDE: capped seconds since the poll anchor (0 when the parent hasn't
     // wired setTickTime — renders raw poll positions, pre-glide behavior).
@@ -810,16 +903,16 @@ export class AirLayer implements CustomLayerInterface {
     if (this.uDtSec) gl.uniform1f(this.uDtSec, dtSec);
     const h = gl.drawingBufferHeight || 1;
     const w = gl.drawingBufferWidth || 1;
-    const pxPerUnit = AIR_PIXELS / LOCAL_EXTENT;
-    if (this.uScale) gl.uniform1f(this.uScale, (pxPerUnit * 2) / h);
-    if (this.uAspect) gl.uniform1f(this.uAspect, w / h);
+    if (this.uPxPerUnit) gl.uniform1f(this.uPxPerUnit, AIR_PIXELS / LOCAL_EXTENT);
+    if (this.uViewportPx) gl.uniform2f(this.uViewportPx, w, h);
+    if (this.uMppSeed) gl.uniform1f(this.uMppSeed, seedMetresPerDevicePixel(this.map, w, AIR_3D_MIN_ZOOM));
     if (this.uBandColors) gl.uniform4fv(this.uBandColors, BAND_COLORS.flat());
 
     if (!this.geomUploaded) {
-      for (let s = 0; s < AIR_SILHOUETTES.length; s++) {
+      for (let s = 0; s < AIR_MESHES.length; s++) {
         if (!this.geomBuffers[s]) this.geomBuffers[s] = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, this.geomBuffers[s]);
-        gl.bufferData(gl.ARRAY_BUFFER, AIR_SILHOUETTES[s], gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, AIR_MESHES[s], gl.STATIC_DRAW);
       }
       if (!this.lineBuffer) this.lineBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
@@ -851,10 +944,10 @@ export class AirLayer implements CustomLayerInterface {
 
     // ── pass 1: ALTITUDE DROP-LINES for every instance (one draw). The
     // line's two vertices are altFrac 0→1 from lineBuffer; a_local is held
-    // constant at (0,0) so the line runs surface→aircraft with no offset.
-    // Ground aircraft (alt 0) produce a degenerate, invisible line.
+    // constant at (0,0,0, shade 1) so the line runs surface→aircraft with no
+    // offset. Ground aircraft (alt 0) produce a degenerate, invisible line.
     gl.disableVertexAttribArray(this.aLocal);
-    gl.vertexAttrib2f(this.aLocal, 0, 0);
+    gl.vertexAttrib4f(this.aLocal, 0, 0, 0, 1);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
     gl.enableVertexAttribArray(this.aAltFrac);
     gl.vertexAttribPointer(this.aAltFrac, 1, gl.FLOAT, false, 0, 0);
@@ -862,16 +955,16 @@ export class AirLayer implements CustomLayerInterface {
     this.bindInstPointers(gl, 0);
     gl.drawArraysInstanced(gl.LINES, 0, 2, this.count);
 
-    // ── pass 2: per-class silhouettes, one instanced draw per contiguous
+    // ── pass 2: per-class 3D meshes, one instanced draw per contiguous
     // shape group (a_altFrac held constant at 1 = full altitude, full alpha).
     gl.disableVertexAttribArray(this.aAltFrac);
     gl.vertexAttrib1f(this.aAltFrac, 1);
     for (const g of this.groups) {
       const geom = this.geomBuffers[g.shape] ?? this.geomBuffers[AIR_SHAPE.DEFAULT];
-      const verts = (AIR_SILHOUETTES[g.shape] ?? PLANE_SILHOUETTE).length / 2;
+      const verts = (AIR_MESHES[g.shape] ?? AIR_MESHES[AIR_SHAPE.DEFAULT]).length / AIR_MESH_STRIDE;
       gl.bindBuffer(gl.ARRAY_BUFFER, geom);
       gl.enableVertexAttribArray(this.aLocal);
-      gl.vertexAttribPointer(this.aLocal, 2, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(this.aLocal, AIR_MESH_STRIDE, gl.FLOAT, false, 0, 0);
       gl.vertexAttribDivisor(this.aLocal, 0);
       this.bindInstPointers(gl, g.start);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, verts, g.count);
@@ -962,11 +1055,11 @@ export class AirLayer implements CustomLayerInterface {
     this.aBand = gl.getAttribLocation(p, 'a_band');
     this.aVel = gl.getAttribLocation(p, 'a_vel');
     this.aClimb = gl.getAttribLocation(p, 'a_climb');
-    this.uBearing = gl.getUniformLocation(p, 'u_bearing');
     this.uAltScale = gl.getUniformLocation(p, 'u_altScale');
-    this.uScale = gl.getUniformLocation(p, 'u_scaleClip');
+    this.uPxPerUnit = gl.getUniformLocation(p, 'u_pxPerUnit');
+    this.uMppSeed = gl.getUniformLocation(p, 'u_mppSeed');
+    this.uViewportPx = gl.getUniformLocation(p, 'u_viewportPx');
     this.uDtSec = gl.getUniformLocation(p, 'u_dtSec');
-    this.uAspect = gl.getUniformLocation(p, 'u_aspect');
     this.uBandColors = gl.getUniformLocation(p, 'u_bandColors');
     this.uProjMatrix = gl.getUniformLocation(p, 'u_projection_matrix');
     this.uProjTile = gl.getUniformLocation(p, 'u_projection_tile_mercator_coords');

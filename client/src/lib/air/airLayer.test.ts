@@ -19,6 +19,13 @@ import {
   climbRatio,
   AIR_MAX_CLIMB,
   AIR_DIR_STEP_M,
+  AIR_WORLD_GLSL,
+  AIR_MESHES,
+  AIR_MESH_STRIDE,
+  AIR_SHADE,
+  AIR_PITCH_EXAGGERATION,
+  AIR_MAX_PITCH_DISPLAY_DEG,
+  airAttitudeFrame,
 } from './airLayer.js';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere } from '../orbital/occlusion.js';
@@ -103,7 +110,7 @@ test('pickNearestAircraft: nearest within tolerance, honest miss outside it', ()
   assert.equal(pickNearestAircraft(null, 0, 0, 1), -1);
 });
 
-test('shader contract: altitude-aware projection, GLOBE-guarded cull identical to the orbital layers, bearing-relative rotation, w-scaled offsets', () => {
+test('shader contract: altitude-aware projection, GLOBE-guarded cull identical to the orbital layers, world-space heading, pixel-constant size measured at the anchor', () => {
   const src = AIR_VERT_SRC('/* prelude stub */', '#define GLOBE');
   assert.ok(src.includes('projectTileFor3D(g_xy, vtProjElev(a_inst.z * u_altScale * a_altFrac, g_xy.y))'),
     'anchor = GLIDED position + REAL altitude (terrain-exaggeration matched, drop-line fraction)');
@@ -126,9 +133,18 @@ test('shader contract: altitude-aware projection, GLOBE-guarded cull identical t
   }
   const r2 = (OCCLUSION_RADIUS * OCCLUSION_RADIUS).toFixed(6);
   assert.ok(src.includes(r2), 'cull radius² matches ./occlusion');
-  assert.ok(src.includes('radians(a_inst.w - u_bearing)'),
-    'heading rotates relative to map bearing — parity with icon-rotation-alignment: map');
-  assert.ok(/\* anchor\.w/.test(src), 'constant-pixel offsets scale by anchor w');
+  // 2026-10-14: the heading is laid out in WORLD space (map-aligned by
+  // construction, the icon-rotation-alignment: map parity) — the map bearing
+  // is no longer an input at all, so a camera turn cannot rotate the plane
+  assert.ok(src.includes('vec3 fwdW = vec3(sin(h) * cos(g), cos(h) * cos(g), sin(g));'),
+    'nose = broadcast track in world east/north, pitched by the flight-path angle');
+  assert.ok(!src.includes('u_bearing'), 'no map-bearing input: heading cannot depend on the camera');
+  // pixel-constant size: px per metre measured AT the anchor from projected
+  // east/north steps (replaces the screen-space `* anchor.w` offset)
+  assert.ok(src.includes('pxPerM = max(pxPerM, length((e.xy / e.w - an) * viewportPx * 0.5) / stepM)'),
+    'east step measures the on-screen scale at the anchor');
+  assert.ok(src.includes('pxPerM = max(pxPerM, length((n.xy / n.w - an) * viewportPx * 0.5) / stepM)'),
+    'north step too (one is foreshortened under pitch, never both)');
   // drop-line contract: altitude scales by the per-vertex fraction and the
   // ground end fades — silhouettes (altFrac 1) keep full altitude + alpha
   assert.ok(src.includes('a_inst.z * u_altScale * a_altFrac'), 'altitude scaled by the drop-line fraction');
@@ -355,24 +371,118 @@ test('buildAircraftInstances: climb packs at [8] from vertical_rate_ms / velocit
   assert.equal(inst[3], 90, 'heading stays at [3]');
 });
 
-test('shader contract: the nose follows the SCREEN PROJECTION of the 3D path; bearing rotation is only the fallback', () => {
+test('shader contract: the mesh is laid out in WORLD space along the track and flight-path angle, then projected per vertex', () => {
   const src = AIR_VERT_SRC('/* prelude stub */', '');
-  // a point AIR_DIR_STEP_M ahead on the broadcast track, raised by climb,
-  // projected with the SAME function and altitude scale as the anchor
-  assert.ok(src.includes(`${AIR_DIR_STEP_M.toFixed(1)} * cosh(3.14159265 * (1.0 - 2.0 * g_xy.y)) / 40075016.686`),
-    'step converted metres -> mercator at the plane\'s latitude');
-  assert.ok(src.includes(`${AIR_DIR_STEP_M.toFixed(1)} * a_climb * u_altScale * a_altFrac`),
-    'climb raises the ahead point at the same altitude scale as the anchor');
-  assert.ok(src.includes('projectTileFor3D(g_xy + stepXY, vtProjElev(baseZ + stepZ, g_xy.y + stepXY.y))'),
-    'ahead point projected exactly like the anchor');
-  assert.ok(src.includes('projectTileFor3D(g_xy - stepXY, vtProjElev(baseZ - stepZ, g_xy.y - stepXY.y))'),
-    'behind point when the ahead point falls behind the camera');
-  assert.ok(src.includes('fwd = normalize(dScr)'), 'nose = normalized projected path direction');
-  assert.ok(src.includes('dScr.x *= u_aspect'), 'NDC delta squared to pixel space before normalizing');
-  assert.ok(src.includes('vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;'),
-    'silhouette frame: +y nose along fwd, +x wing to its right');
-  const fallback = src.indexOf('radians(a_inst.w - u_bearing)');
-  assert.ok(fallback > src.indexOf('fwd = normalize(dScr)'), 'bearing-relative rotation survives only as the else-branch');
+  assert.ok(src.includes(AIR_WORLD_GLSL), 'the shared world-space vertex function is compiled in');
+  assert.ok(src.includes('gl_Position = airWorldVertex(anchor, g_xy, altM, a_inst.w, a_climb, a_local.xyz,'),
+    'every vertex goes through airWorldVertex with the glided anchor, track heading and climb');
+  // the GLSL frame is airAttitudeFrame line for line
+  assert.ok(AIR_WORLD_GLSL.includes('vec3 rightW = vec3(cos(h), -sin(h), 0.0);'), 'wings stay level');
+  assert.ok(AIR_WORLD_GLSL.includes('vec3 upW = vec3(-sin(h) * sin(g), -cos(h) * sin(g), cos(g));'));
+  assert.ok(AIR_WORLD_GLSL.includes(`clamp(atan(climb) * ${AIR_PITCH_EXAGGERATION.toFixed(2)}, -radians(${AIR_MAX_PITCH_DISPLAY_DEG.toFixed(1)}), radians(${AIR_MAX_PITCH_DISPLAY_DEG.toFixed(1)}))`),
+    'pitch = exaggerated flight-path angle, clamped');
+  assert.ok(AIR_WORLD_GLSL.includes('vec2 vxy = xy + vec2(o.x, -o.y) / mPerMerc;'), 'north is -y in mercator');
+  assert.ok(AIR_WORLD_GLSL.includes('return projectTileFor3D(vxy, vtProjElev(altM + o.z, vxy.y));'),
+    'each vertex projected exactly like the anchor (same function, same datum)');
+  assert.ok(src.includes('v_color.rgb *= a_local.w'), 'face shading from the mesh');
+});
+
+// ── WORLD-SPACE ATTITUDE (2026-10-14, owner report: "the nose ... changes as
+// I move around ... show a nose up or nose down") ──────────────────────────
+test('airAttitudeFrame: orthonormal; nose = track; climb pitches the nose up, descent down; no camera input', () => {
+  assert.equal(airAttitudeFrame.length, 2, 'heading and climb only: nothing about the camera');
+  const len = (v: number[]) => Math.hypot(v[0], v[1], v[2]);
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (const [hdg, c] of [[0, 0], [90, 0], [225, 0.1], [33, -0.06], [300, 2]]) {
+    const f = airAttitudeFrame(hdg, c);
+    for (const v of [f.fwd, f.right, f.up]) assert.ok(Math.abs(len(v) - 1) < 1e-12);
+    assert.ok(Math.abs(dot(f.fwd, f.right)) < 1e-12 && Math.abs(dot(f.fwd, f.up)) < 1e-12 && Math.abs(dot(f.right, f.up)) < 1e-12);
+    assert.equal(f.right[2], 0, 'wings level');
+  }
+  const north = airAttitudeFrame(0, 0).fwd, east = airAttitudeFrame(90, 0).fwd;
+  assert.ok(Math.abs(north[1] - 1) < 1e-12 && Math.abs(east[0] - 1) < 1e-12, 'nose along the broadcast track');
+  const climb = airAttitudeFrame(90, 0.05), desc = airAttitudeFrame(90, -0.05);
+  assert.ok(climb.fwd[2] > 0 && desc.fwd[2] < 0, 'nose up climbing, down descending');
+  const shown = (Math.asin(climb.fwd[2]) * 180) / Math.PI;
+  assert.ok(Math.abs(shown - (Math.atan(0.05) * 180 / Math.PI) * AIR_PITCH_EXAGGERATION) < 1e-9, 'exaggerated, stated');
+  assert.ok(Math.abs((Math.asin(airAttitudeFrame(0, 2).fwd[2]) * 180) / Math.PI - AIR_MAX_PITCH_DISPLAY_DEG) < 1e-9, 'clamped');
+  assert.equal(airAttitudeFrame(0, 0).fwd[2], 0, 'level / unknown = level');
+});
+
+// A real perspective camera (look-at + perspective, metres around the plane)
+// at many bearings and tilts: the projected nose must lie along the projected
+// flight path. This is the property the owner tests by moving the camera.
+function cameraProject(bearingDeg: number, pitchDeg: number, distM: number) {
+  const b = (bearingDeg * Math.PI) / 180, t = (pitchDeg * Math.PI) / 180;
+  // camera sits "behind" the bearing direction, raised by the tilt
+  const eye = [-Math.sin(b) * Math.sin(t) * distM, -Math.cos(b) * Math.sin(t) * distM, Math.cos(t) * distM];
+  const sub = (a: number[], c: number[]) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+  const cross = (a: number[], c: number[]) => [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+  const norm = (a: number[]) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+  const zc = norm(sub(eye, [0, 0, 0]));
+  const worldUp = Math.abs(zc[2]) > 0.999 ? [Math.sin(b), Math.cos(b), 0] : [0, 0, 1];
+  const xc = norm(cross(worldUp, zc));
+  const yc = cross(zc, xc);
+  const f = 1 / Math.tan((36.87 * Math.PI) / 360);
+  return (p: number[]) => {
+    const d = sub(p, eye);
+    const x = d[0] * xc[0] + d[1] * xc[1] + d[2] * xc[2];
+    const y = d[0] * yc[0] + d[1] * yc[1] + d[2] * yc[2];
+    const z = d[0] * zc[0] + d[1] * zc[1] + d[2] * zc[2];
+    return [(f * x) / -z, (f * y) / -z];
+  };
+}
+
+test('projected nose follows the projected flight path at every bearing and tilt (level and climbing)', () => {
+  const mesh = AIR_MESHES[AIR_SHAPE.DEFAULT];
+  let noseY = -Infinity, tailY = Infinity, tipOnAxis = false;
+  for (let i = 0; i < mesh.length; i += AIR_MESH_STRIDE) {
+    noseY = Math.max(noseY, mesh[i + 1]); tailY = Math.min(tailY, mesh[i + 1]);
+  }
+  for (let i = 0; i < mesh.length; i += AIR_MESH_STRIDE) {
+    if (mesh[i + 1] === noseY && mesh[i] === 0 && mesh[i + 2] === 0) tipOnAxis = true;
+  }
+  assert.ok(tipOnAxis, 'the nose tip is a mesh vertex on the aircraft axis');
+  const unitM = 100;
+  for (const hdg of [0, 72, 186, 290]) {
+    for (const climb of [0, 0.12, -0.05]) {
+      const f = airAttitudeFrame(hdg, climb);
+      const at = (lx: number, ly: number, lz: number) =>
+        [0, 1, 2].map((k) => (lx * f.right[k] + ly * f.fwd[k] + lz * f.up[k]) * unitM);
+      const nose = at(0, noseY, 0);
+      const tail = at(0, tailY, 0); // tail centre: the keel's mid-height at the tail
+      const pathAhead = f.fwd.map((v) => v * unitM * 3);  // the DRAWN path direction
+      for (const bearing of [0, 45, 135, 250]) {
+        for (const tilt of [0.5, 30, 60, 80]) {
+          const proj = cameraProject(bearing, tilt, 20_000);
+          const pn = proj(nose), pt = proj(tail), p0 = proj([0, 0, 0]), pa = proj(pathAhead);
+          const a1 = Math.atan2(pn[1] - pt[1], pn[0] - pt[0]);
+          const a2 = Math.atan2(pa[1] - p0[1], pa[0] - p0[0]);
+          let d = Math.abs(a1 - a2) % (2 * Math.PI);
+          if (d > Math.PI) d = 2 * Math.PI - d;
+          assert.ok(d < 1e-3, `hdg ${hdg} climb ${climb} bearing ${bearing} tilt ${tilt}: nose off path by ${(d * 180 / Math.PI).toFixed(3)}°`);
+        }
+      }
+    }
+  }
+});
+
+test('AIR_MESHES: one 3D mesh per class, planform at z=0 plus a vertical keel and fin', () => {
+  assert.equal(AIR_MESHES.length, AIR_SILHOUETTES.length);
+  assert.equal(AIR_MESH_STRIDE, 4);
+  for (const [si, m] of AIR_MESHES.entries()) {
+    assert.equal(m.length % (3 * AIR_MESH_STRIDE), 0, `class ${si}: whole triangles`);
+    const verts = m.length / AIR_MESH_STRIDE;
+    let flat = 0, above = 0;
+    for (let i = 0; i < m.length; i += AIR_MESH_STRIDE) {
+      if (m[i + 2] === 0 && m[i + 3] === AIR_SHADE.TOP) flat++;
+      if (m[i + 2] > 0) above++;
+      assert.ok(m[i + 3] > 0 && m[i + 3] <= 1, 'shade in (0, 1]');
+      if (m[i + 3] !== AIR_SHADE.TOP) assert.equal(m[i], 0, 'keel and fin lie in the centre plane');
+    }
+    assert.equal(flat, AIR_SILHOUETTES[si].length / 2, 'the whole top-view silhouette is the planform');
+    assert.ok(above >= 3 && verts > flat, 'side-on area exists (keel + fin): visible from a tilted camera');
+  }
 });
 
 test('fallback frame equals the old bearing rotation (straight-down views are unchanged)', () => {
