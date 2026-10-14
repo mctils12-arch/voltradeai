@@ -137,6 +137,7 @@ import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MA
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
+import { gapFiller } from "./coverageGapFill";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootAppStorePoll, latestAppStoreRankings, lookupAppStoreTickerHistory, readAppStoreAggregateHistory } from "./appStoreRankings";
@@ -948,10 +949,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       { key: "airplaneslive", label: "airplanes.live (ADS-B, community)", arr: "ac", url: (la, lo, r) => `https://api.airplanes.live/v2/point/${la.toFixed(3)}/${lo.toFixed(3)}/${r}` },
       { key: "adsbfi", label: "adsb.fi (ADS-B, community)", arr: "aircraft", url: (la, lo, r) => `https://opendata.adsb.fi/api/v2/lat/${la.toFixed(3)}/lon/${lo.toFixed(3)}/dist/${r}` },
     ];
-    const { aircraft, sources, discsOk } = await fetchDiscs(plan, {
+    const fetched = await fetchDiscs(plan, {
       providers: PROVIDERS, headers: UA,
       backoffActive, backoffBump, backoffClear,
     });
+    const { sources, discsOk } = fetched;
+    // COVERAGE GAP-FILL (2026-10-14): a zoomed-in view also gets the hexes
+    // adsb.fi sees and the primary answer is blind to (e.g. the CLT surface:
+    // adsb.lol 0 on the ground, adsb.fi 9). Provenance stays adsbfi.
+    const filled = await gapFiller().fillDisc(plan, fetched.aircraft, sources);
+    const aircraft = filled.aircraft;
+    if (filled.added && !sources.some((x) => /adsb\.fi/i.test(x))) sources.push("adsb.fi (coverage gap-fill)");
 
     // Feed the permanent archive (adaptive thinning inside; fire-and-forget).
     try { archiveAircraft(aircraft, ARCHIVE_SITES); } catch {}

@@ -59,11 +59,15 @@ export interface FastLaneDeps {
   now?: () => number;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** COVERAGE GAP-FILL (2026-10-14): rows for a hex adsb.lol returned NOTHING
+   *  for, from adsb.fi (coverageGapFill.ts) — e.g. a plane taxiing on a
+   *  surface adsb.lol's receivers cannot see. Rows keep "adsbfi" provenance. */
+  fallbackHex?: (hex: string) => Promise<any[]>;
 }
 
 export interface FastLane {
   lookup(hex: string): Promise<FastResult>;
-  stats(): { upstream_requests: number; coalesced: number; cache_hits: number; snapshot_hits: number; limited: number; errors: number; hexes_last_min: number };
+  stats(): { upstream_requests: number; coalesced: number; cache_hits: number; snapshot_hits: number; limited: number; errors: number; fallback_rows: number; hexes_last_min: number };
 }
 
 export function createFastLane(deps: FastLaneDeps): FastLane {
@@ -80,7 +84,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
   const baro = new Map<string, { seenAt: number; fpm: number }>();
   let tokens = FAST_BURST;
   let lastRefill = now();
-  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0 };
+  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0, fallback_rows: 0 };
 
   const baroFor = (r: SnapRow | null | undefined): number | null => {
     if (!r) return null;
@@ -120,6 +124,12 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
       const upstreamNowMs = typeof raw?.now === "number" && Number.isFinite(raw.now) ? raw.now : null;
       if (mapped.length) {
         deps.publish({ provider: "adsblol", origin: "fastlane", aircraft: mapped, fetchedAt: now(), upstreamNowMs });
+      } else if (deps.fallbackHex) {
+        const alt = await deps.fallbackHex(hex).catch(() => []);
+        if (alt.length) {
+          counts.fallback_rows += alt.length;
+          deps.publish({ provider: "adsbfi", origin: "fastlane", aircraft: alt, fetchedAt: now(), upstreamNowMs: null });
+        }
       }
       const row = deps.snapshotGet(hex) ?? null;
       const ac = (raw?.ac || []).find((a) => String(a?.hex || "").toLowerCase() === hex);
