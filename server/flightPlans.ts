@@ -40,6 +40,7 @@ import { nearestAirport, airportByIdent } from "./airportsIndex";
 import { SwimPlanStore, startSfdps, sfdpsStatus, routePointsOf, SFDPS_ENV_PREFIX, type StoredSwimPlan } from "./swimSfdps";
 import { laddRegistry, LADD_WITHHELD_NOTE } from "./laddRegistry";
 import { swimEnvVarNames, swimProductsEnvStatus } from "./swimConnector";
+import { registerSwimCaptureRoutes, startSwimCapture } from "./swimCapture";
 import {
   crossTrackNm, densifyPlan, estimateVerticalProfile, haversineNm, initialBearingDeg, angleDiffDeg,
   polylineLengthNm, replanFromPosition, typicalCruiseFt, cumulativeNm, FT_PER_M,
@@ -1417,16 +1418,18 @@ export function planStatus(ctx: PlanContext) {
       product: s.product,
       messagesReceived: s.messagesReceived, messagesProcessed: s.messagesProcessed,
       processErrors: s.processErrors, droppedOverflow: s.droppedOverflow, queueDepth: s.queueDepth,
-      reconnects: s.reconnects, lastMessageAt: s.lastMessageAt, lastError: s.lastError,
+      reconnects: s.reconnects, stallRestarts: s.stallRestarts, hourly: s.hourly,
+      lastMessageAt: s.lastMessageAt, lastError: s.lastError,
       byService: s.counters.byService, flightByType: s.counters.flightByType,
       fullParses: s.counters.fullParses, lightParses: s.counters.lightParses, parseErrors: s.counters.parseErrors,
       planStoreSize: s.storeSize,
       routeShape: s.routeShape,
       envVars: swimEnvVarNames(SFDPS_ENV_PREFIX),
     },
-    // env readiness of every SCDS product (names only, never values). Only
-    // SFDPS has a consumer in this build; the others are reported, not
-    // connected (volume), so ops can verify the Railway env ahead of time.
+    // env readiness of every SCDS product (names only, never values). SFDPS
+    // feeds flight plans; TFMS + NOTAM run capture consumers (shape profile
+    // + samples, /api/data/swim/products, swimCapture.ts); STDDS/ITWS stay
+    // configured-only.
     swimProducts: swimProductsEnvStatus(),
     generatedAt: ctx.now(),
   };
@@ -1435,6 +1438,9 @@ export function planStatus(ctx: PlanContext) {
 export function registerFlightPlanRoutes(app: Express, ctx: PlanContext = getFlightPlanContext()): void {
   // no-op (no import, no socket) unless every SWIM_SFDPS_* env var is set
   void startSfdps(ctx.swim).catch((e: unknown) => console.error("[flightPlans] SFDPS start:", errMsg(e)));
+  // TFMS + NOTAM capture consumers (each a no-op unless its env is complete)
+  void startSwimCapture().catch((e: unknown) => console.error("[flightPlans] SWIM capture start:", errMsg(e)));
+  registerSwimCaptureRoutes(app);
 
   app.get("/api/data/aircraft/plan-status", (_req, res) => {
     res.json(planStatus(ctx));
