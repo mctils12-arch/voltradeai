@@ -28,6 +28,7 @@ import {
 import { DtppStore, PlateCache, chartsForProcedure, type DtppAirport, type DtppChart, type DtppIndex } from "./dtpp";
 import { georeferencePlate, type GeorefResult } from "./plateGeoref";
 import { getFlightPlanContext } from "./flightPlans";
+import { laddRegistry } from "./laddRegistry";
 import { lookupFix } from "./navFixes";
 
 export const NOT_FOR_NAVIGATION = "NOT FOR NAVIGATION — FAA CIFP/d-TPP data drawn for situational awareness only.";
@@ -432,6 +433,20 @@ export function registerProcedureRoutes(app: Express, ctxIn?: Partial<Procedures
 /** SWIM SFDPS store lookup — the same singleton store flightPlans.ts fills
  *  (getFlightPlanContext never opens a connection; registerFlightPlanRoutes does). */
 function defaultFiledPlan(callsign: string): FiledPlanLite | null {
-  const p = getFlightPlanContext().swim.lookup(callsign, Date.now());
+  return filedPlanUnlessLadd(callsign,
+    (cs) => getFlightPlanContext().swim.lookup(cs, Date.now()),
+    (cs) => laddRegistry().isLadd(null, cs));
+}
+
+/** Pure: the filed plan for a callsign, or null for an FAA LADD aircraft
+ *  (server/laddRegistry.ts) — its SWIM plan is never used to pick or show
+ *  procedures. The route's dep/arr query params still work for it. */
+export function filedPlanUnlessLadd(
+  callsign: string,
+  lookup: (cs: string) => { departure: string | null; arrival: string | null; routeText: string | null; updatedAt: number } | null,
+  isLadd: (cs: string) => boolean,
+): FiledPlanLite | null {
+  if (isLadd(callsign)) return null;
+  const p = lookup(callsign);
   return p ? { departure: p.departure, arrival: p.arrival, routeText: p.routeText, updatedAt: p.updatedAt } : null;
 }

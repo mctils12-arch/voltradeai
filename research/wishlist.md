@@ -4610,3 +4610,10 @@ MEASUREMENT INTEGRITY exist to prevent.
 and every release we already hold from them is CC BY 4.0 free; the ask
 is a human visiting a download page (and possibly filling a free form or
 sending one email), not a purchase.
+
+## 2026-10-14 — FAA LADD industry list (authoritative) — free registration, human action needed
+
+WHY: server/laddRegistry.ts (v1.0.1067) withholds FAA SWIM flight plans for FAA LADD privacy-program aircraft, after N843S's FAA-filed plan was found served publicly. Its membership source is adsb.lol's /v2/ladd scope, which only lists LADD aircraft that are transmitting NOW. The registry remembers sightings for 90 days. A LADD aircraft never yet seen airborne by adsb.lol is still unknown, so its filed plan could be shown.
+BUILD-FIRST ANALYSIS: (1) raw material we have: the adsb.lol scope, already built and wired; (2) accumulation: done (90-day persisted memory); (3) inference: not appropriate for a privacy list, since guessing wrong in the permissive direction is the harm. The remaining gap is the FAA's own list.
+ASK: the FAA distributes the LADD "industry" list to registered data subscribers (FAA LADD program, ladd.faa.gov). Registration is free but needs the human's account/attestation. Once a download URL or file exists, load it into LaddRegistry as a second source (keep the adsb.lol source too).
+COST: $0. PRIORITY: medium (compliance gap is narrow but real).

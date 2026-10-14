@@ -36,7 +36,11 @@ test("pollGlobalScopesOnce: fetches all scopes, dedupes overlap, archives to rea
     ok: true,
     json: async () => payloads[String(url).split("/").pop()!],
   })) as unknown as typeof fetch;
-  const st = await pollGlobalScopesOnce(fetchImpl, {}, [], base);
+  const laddRows: Array<{ icao24: string; callsign: string }> = [];
+  const st = await pollGlobalScopesOnce(fetchImpl, {}, [], base, (rows) => { laddRows.push(...rows); });
+  // FAA LADD registry feed (2026-10-14): only the ladd scope's rows, never mil/pia
+  assert.deepEqual(laddRows.map((r) => r.icao24).sort(), ["a11111", "ae0001"]);
+  assert.equal(laddRows[0].callsign, "TEST01");
   assert.equal(st.per_scope.mil, 2);
   assert.equal(st.per_scope.ladd, 2);
   assert.equal(st.per_scope.pia, 0);
@@ -57,7 +61,9 @@ test("pollGlobalScopesOnce: a failed scope reads -1 and never sinks the others",
     if (String(url).endsWith("/ladd")) return { ok: false, status: 503 };
     return { ok: true, json: async () => ({ ac: [{ hex: "a22222", r: "N2TEST", lat: 1, lon: 2, alt_baro: 100, category: "A1" }] }) };
   }) as unknown as typeof fetch;
-  const st = await pollGlobalScopesOnce(fetchImpl, {}, [], base);
+  let laddCalls = 0;
+  const st = await pollGlobalScopesOnce(fetchImpl, {}, [], base, () => { laddCalls++; });
+  assert.equal(laddCalls, 0, "a failed ladd fetch records nothing (never an empty overwrite)");
   assert.equal(st.per_scope.mil, -1);
   assert.equal(st.per_scope.ladd, -1);
   assert.equal(st.per_scope.pia, 1);

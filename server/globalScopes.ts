@@ -17,6 +17,7 @@ import fs from "fs";
 import { archiveAircraft, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
 import { publishFixes } from "./aircraftFixBus";
+import { laddRegistry } from "./laddRegistry";
 
 export const GLOBAL_SCOPES = ["mil", "ladd", "pia"] as const;
 export type GlobalScope = (typeof GLOBAL_SCOPES)[number];
@@ -63,6 +64,9 @@ export async function pollGlobalScopesOnce(
   headers: Record<string, string>,
   sites: SitePoint[],
   baseDir?: string,
+  // LADD membership feeds server/laddRegistry.ts so FAA-sourced data
+  // (filed plans) is withheld for these aircraft
+  noteLadd: (rows: AircraftPoint[]) => void = (rows) => laddRegistry().note(rows),
 ): Promise<GlobalCycleStatus> {
   const base = baseDir || archiveBaseDir();
   const free = readFreeBytes(base);
@@ -79,6 +83,9 @@ export async function pollGlobalScopesOnce(
       // scopes are always adsb.lol (scopeUrl → api.adsb.lol) — tag provenance
       const pts = mapPointAircraft(await res.json(), "ac", "adsblol") as AircraftPoint[];
       status.per_scope[scope] = pts.length;
+      if (scope === "ladd") {
+        try { noteLadd(pts); } catch (e) { console.error("[global-scopes] ladd registry:", e instanceof Error ? e.message : String(e)); }
+      }
       for (const p of pts) {
         if (seen.has(p.icao24)) continue; // scopes overlap (mil ∩ ladd)
         seen.add(p.icao24);

@@ -38,6 +38,7 @@ import { archiveBaseDir, streamJsonlLines, recentTrackCached } from "./datacoreA
 import { splitTrips, TRIP_GAP_SEC, type ArchivedFix, type Trip } from "./aircraftTrips";
 import { nearestAirport, airportByIdent } from "./airportsIndex";
 import { SwimPlanStore, startSfdps, sfdpsStatus, routePointsOf, SFDPS_ENV_PREFIX, type StoredSwimPlan } from "./swimSfdps";
+import { laddRegistry, LADD_WITHHELD_NOTE } from "./laddRegistry";
 import { swimEnvVarNames, swimProductsEnvStatus } from "./swimConnector";
 import {
   crossTrackNm, densifyPlan, estimateVerticalProfile, haversineNm, initialBearingDeg, angleDiffDeg,
@@ -91,6 +92,9 @@ export interface FlightPlanResponse {
    *  connector from it to the route (points flagged `vectors`) is ATC
    *  vectoring, not part of the filed/predicted route */
   terminalVectoring: boolean;
+  /** additive (2026-10-14): "LADD" when FAA-sourced plan data was withheld
+   *  for an FAA LADD privacy-program aircraft (server/laddRegistry.ts) */
+  privacy?: "LADD";
   /** additive, REPORT-ONLY (2026-10-07, gate-1 of the radial-token resolver): present only for a
    *  FILED plan whose path is a great-circle estimate but whose route text the radial resolver
    *  could place. crossTrackNm is the aircraft's distance from THAT shadow polyline (never drawn,
@@ -856,6 +860,9 @@ export interface PlanContext {
   now: () => number;
   recentFixes: (hex: string) => Promise<Array<{ t: number; la: number; lo: number; al?: number | null }>>;
   historyBudgetMs?: number;
+  /** FAA LADD privacy program membership (server/laddRegistry.ts): FAA-sourced
+   *  plans are never served for these aircraft. Defaults to the shared registry. */
+  isLadd?: (hex: string, callsign: string | null) => boolean;
 }
 
 interface Candidate {
@@ -1034,13 +1041,19 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   const now = ctx.now();
   const q = fillFromLive(qIn, ctx.liveLookup === undefined ? bootLiveLookup : ctx.liveLookup, now);
   const cs = q.callsign;
-  if (!cs) return noneResponse(q, "the aircraft broadcasts no callsign, so there is no route to look up", now);
+  // [REPAIR 2026-10-14] FAA LADD: the owner asked the FAA to limit display of
+  // this aircraft's data, and the FAA's feed carries that obligation. Skip
+  // the SWIM plan; non-FAA predictions (route DB, our own ADS-B history) stay.
+  const ladd = (ctx.isLadd ?? ((h, c) => laddRegistry().isLadd(h, c)))(q.hex, cs);
+  const withLaddNote = (r: FlightPlanResponse): FlightPlanResponse =>
+    ladd ? { ...r, honesty: `${r.honesty} ${LADD_WITHHELD_NOTE}`, privacy: "LADD" } : r;
+  if (!cs) return withLaddNote(noneResponse(q, "the aircraft broadcasts no callsign, so there is no route to look up", now));
   const pos: LatLon | null = q.lat != null && q.lon != null ? { lat: q.lat, lon: q.lon } : null;
   const obsAltM = q.altFt != null ? q.altFt / FT_PER_M : null;
 
   let cand: Candidate | null = null;
   let noneReason = "";
-  const filed = ctx.swim.lookup(cs, now);
+  const filed = ladd ? null : ctx.swim.lookup(cs, now);
   if (filed) cand = filedCandidate(filed);
   if (!cand) {
     // route DB and the (bounded, cached) history scan run concurrently
@@ -1062,7 +1075,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     else if (lookup.error) noneReason = `the route lookup failed (${lookup.error}) and nothing is cached`;
     else noneReason = `${cs} is not in the adsb.lol route DB and has no recent completed trip in our archive`;
   }
-  if (!cand) return noneResponse(q, noneReason, now);
+  if (!cand) return withLaddNote(noneResponse(q, noneReason, now));
 
   const originElev = cand.origin?.elevM ?? null;
   const destElev = cand.destination?.elevM ?? null;
@@ -1152,7 +1165,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   }
   honesty += " The real flown path is always the recorded ADS-B track.";
 
-  return {
+  return withLaddNote({
     hex: q.hex, callsign: cs,
     source: cand.source, label: cand.label,
     origin: cand.origin, destination: cand.destination,
@@ -1160,7 +1173,8 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     points: capPoints(points),
     originalPoints: originalPoints ? capPoints(originalPoints) : null,
     deviation: { state: track.state, crossTrackNm: track.crossTrackNm, since: track.since },
-    events: track.events.slice(),
+    // PLAN_AMENDED details are FAA (SWIM) data
+    events: ladd ? track.events.filter((e) => e.type !== "PLAN_AMENDED") : track.events.slice(),
     fetchedAt: cand.fetchedAt,
     ageSec: Math.max(0, Math.round((now - cand.fetchedAt) / 1000)),
     honesty,
@@ -1174,7 +1188,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
         radialTokens: cand.radialShadow.radialTokens, pointCount: cand.radialShadow.points.length,
       },
     } : {}),
-  };
+  });
 }
 
 function radialShadowXt(pos: LatLon, pts: LatLon[]): number | null {
@@ -1245,7 +1259,10 @@ export function getFlightPlanContext(): PlanContext {
     // SWIM amendments land on every tracked aircraft flying that callsign
     onAmended: (plan, detail) => {
       if (!plan.callsign) return;
-      for (const t of tracker.forCallsign(plan.callsign)) tracker.addEvent(t, "PLAN_AMENDED", detail, Date.now());
+      for (const t of tracker.forCallsign(plan.callsign)) {
+        if (laddRegistry().isLadd(t.hex, plan.callsign)) continue; // FAA data, LADD aircraft
+        tracker.addEvent(t, "PLAN_AMENDED", detail, Date.now());
+      }
     },
   });
   defaultCtx = {
