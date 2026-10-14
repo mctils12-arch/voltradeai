@@ -107970,3 +107970,44 @@ WORST CASES: amended texts of the form "KBNA./.OKM171047..HELPR.JAZZZ1.KSLC". ".
 TESTS: navAirways.test.ts +2; flightPlans.test.ts +1 (end to end incl. label, honesty, deviation UNKNOWN, far namesake unplaced). The "great-circle stand-in" contract test's fixture text KSFO..SNS..KLAX now places SNS, so its stand-in is the endpoint-only KSFO..KLAX. Its assertions are unchanged; the old text is the new corridor test. Server suite 2409/2409; tsc 11 (unchanged); counter ratchet OK.
 VERSION: v1.0.1072. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~21:30Z Wed) [PRODUCT] — deviation program P1: full filed-route parser (airway chains, lat/lon, radials, SID/STAR via CIFP, speed/level groups), unresolved legs drawn lighter
+
+TERRITORY: server flight plans (navAirways.ts, cifp.ts, cifpShared.ts new, procedures.ts, flightPlans.ts, swimSfdps.ts, shared/flightPlanGeometry.ts) + T-CLIENT (flightPlan.ts, planCurtainLayer.ts) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14): the five-phase route-deviation program. P1 = "parse full ICAO/FAA route strings into points … unknown tokens marked unresolved, never crash; unresolved segments render lighter" (research/open_questions.md 2026-09-29 "SFDPS routePoints empty").
+STATE BEFORE: route-text plans were placed by a four-step chain (airway → direct → radial → corridor). Each step refused a whole route over one token it could not place. Live funnel since boot: 1,633 fewFixes, 501 noFixResolved, 527 noText. Top unplaced tokens: "/" (the "./." amendment marker) 1,465, airport idents with "/HHMM" ETA, and SID/STAR names.
+CHANGE: navAirways.parseFiledRoute, built from the existing primitives.
+- Directs, fixes/navaids, mid-route airports, every lat/lon form (incl. ARINC 5-character oceanic), radials.
+- Airway chains, incl. airway-to-airway joins.
+- SID/STAR + transitions via a CIFP hook (cifp.ts matchProcedure / procedureRouteFixes).
+- NAT/PACOTS via a hook (no track source ingested → unresolved).
+- Speed/level groups, IFR/VFR, "./." and ETA suffixes handled.
+- Every element placed or kept as an unresolved gap; never throws.
+- Served plans are parsed once per revision (LRU) with SID/STAR from the one shared CIFP store (peek(): never blocks). The ingest chain is untouched; the parser shadows it there (parserShadow counters).
+- Unresolved legs: PlanPoint.unresolvedNext → drawn lighter (estimated curtain alpha, dashed edge + trace). The tracker never starts or ends a deviation alongside one.
+PRIOR (stated before testing): on plans both place, the parser is no worse than the chain; it places a share of today's great-circle plans; it loses none.
+GATE 1 (DATA), read-only vs production. Scored on each aircraft's own live position (> 30 nm from both airports). n = 477 FAA-filed flights:
+- Both place (450): parser p50 0.0 / p90 3.4 nm vs chain 0.8 / 29. Worse by > 5 nm: 2/450, both ATC moving the aircraft off its filed STAR.
+- Parser-only (21): p50 0.2 / p90 2.7 nm vs the great circle's 9.3 / 38; better in 21/21.
+- Chain-only: 0.
+- Run 1 found two bugs, each now pinned by a regression test:
+  - (a) the departure was used as the namesake anchor, which dropped international "./." plans (EGLL→KDFW);
+  - (b) procedure-only routes had no class.
+  Both fixed; the numbers above are the re-run. One theory-motivated design, no threshold tuning.
+PERF:
+- Visual harness (SwiftShader, frame times quantized ~16.7 ms), main vs P1:
+  | width | main median / p95 | P1 median / p95 |
+  | 390 | 67 / 117 | 67 / 117 |
+  | 768 | 133 / 217 | 150 / 250 (with 19% more aircraft rendered) |
+  | 1440 | 183 / 283 | 167 / 267 |
+  All within one quantum; 0 hard failures either side. The harness cannot resolve a 1 ms gate.
+- The client path P1 changes, plan geometry build (densify + datum + build) for a 300-point plan, 600 builds × 2 runs: main 1.13 / 1.10 ms mean vs P1 1.26 / 1.11 ms. It runs once per plan revision, never per frame; the per-frame draw has the same quad count.
+- Server parse: 8.4 µs/route vs chain 3.9 µs (ingest shadow < 1 ms/s).
+RENDER MODES: planUnresolved.test.ts covers the 8 globe|flat × 2D|3D × terrain combos plus the antimeridian. Browser probe screenshots (flat 2D, flat 3D, globe 3D): the unresolved leg is drawn dashed and lighter.
+TESTS: routeParse.test.ts (11), planUnresolved.test.ts (11).
+- flightPlans.test.ts: the routeKind contract's fixture moved to KSFO/KDEN (assertions unchanged).
+- The radialShadow test is updated as SUPERSEDED-BY-PLANNED-PROMOTION (v1.0.1039 precedent): its input is now placed by the parser.
+- Server 2426/2426, client 1295/1295, tsc 11, counter ratchet OK.
+BLOCKED / NOT DONE: NAT/PACOTS track definitions (no source ingested: NAT TDM / PACOTS messages; filed). The radialShadow instrument is superseded and stays report-only until the parserShadow counters confirm lost≈0 live; then it is removed (open_questions).
+VERSION: v1.0.1073. ROLLBACK: git revert.
+STARVED: no (P2 eligibility next).
