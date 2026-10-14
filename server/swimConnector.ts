@@ -111,8 +111,21 @@ export interface SwimProductStatus {
   /** sessions restarted by the stall watchdog (connected-but-silent or a
    *  consumer that went DOWN without an error event) */
   stallRestarts: number;
+  /** messages received per UTC hour, oldest first (last SWIM_HOURLY_KEEP
+   *  hours of this process) — the ops view of each product's cadence */
+  hourly: Array<{ hour: string; n: number }>;
   lastMessageAt: number | null;
   lastError: string | null;
+}
+
+export const SWIM_HOURLY_KEEP = 25;
+/** count one message into its UTC hour bucket (pure on the array) */
+export function bumpHourly(hourly: Array<{ hour: string; n: number }>, at: number): void {
+  const hour = new Date(at).toISOString().slice(0, 13);
+  const last = hourly[hourly.length - 1];
+  if (last && last.hour === hour) { last.n++; return; }
+  hourly.push({ hour, n: 1 });
+  if (hourly.length > SWIM_HOURLY_KEEP) hourly.splice(0, hourly.length - SWIM_HOURLY_KEEP);
 }
 
 // ── the slice of the solclientjs API this connector uses ────────────────────
@@ -168,7 +181,7 @@ function freshStatus(product: string, envPrefix: string): SwimProductStatus {
     product, envPrefix, configured: false, solclientAvailable: null, connected: false,
     messagesReceived: 0, messagesProcessed: 0, processErrors: 0, droppedOverflow: 0, clientErrors: 0,
     unreadablePayloads: 0, lastUnreadableShape: null,
-    queueDepth: 0, reconnects: 0, stallRestarts: 0, lastMessageAt: null, lastError: null,
+    queueDepth: 0, reconnects: 0, stallRestarts: 0, hourly: [], lastMessageAt: null, lastError: null,
   };
 }
 
@@ -188,7 +201,8 @@ export function messageShape(message: unknown): string {
 
 /** status snapshot for a product (an unconfigured default when never started) */
 export function swimProductStatus(product: string, envPrefix = `SWIM_${product}`): SwimProductStatus {
-  return { ...(registry.get(product) ?? freshStatus(product, envPrefix)) };
+  const s = registry.get(product) ?? freshStatus(product, envPrefix);
+  return { ...s, hourly: s.hourly.map((h) => ({ ...h })) };
 }
 
 function asSolaceMessage(m: unknown): SolaceMessage {
@@ -358,6 +372,7 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
     status.messagesReceived++;
     status.lastMessageAt = now();
     lastProgressAt = status.lastMessageAt;
+    bumpHourly(status.hourly, status.lastMessageAt);
     if (queue.length >= maxInFlight * 2) { // the window should prevent this; never silent if it doesn't
       status.droppedOverflow++;
       ack(msg);

@@ -108167,3 +108167,23 @@ PRIOR: once deployed, the adsb.lol check WARNs (bg 429 share ~40% live). The pro
 TESTS: test_session_health_check.py +14 (85 pass); adsbGovernor.test.ts +1 (last-hour split and ageing). Server suites green; tsc 11.
 VERSION: v1.0.1079. ROLLBACK: git revert.
 STARVED: no (SWIM capture consumers next).
+
+## 2026-10-14 (human-directed session, ~23:25Z Wed) [PIPELINE] — SWIM TFMS + NOTAM capture consumers (shape profile + token-gated samples) and per-hour cadence for every product
+
+TERRITORY: server SWIM (new server/swimCapture.ts, swimConnector.ts hourly counters, flightPlans.ts wiring + plan-status fields) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops item 1): per-product audit (env present, connected, messages/hour, parse errors). If TFMS/NOTAM env vars are present, build consumers through swimConnector.ts (TFMS reroutes and flow programs; NOTAM TFRs with geometry), store them and expose them to the deviation classifier. Leave STDDS/ITWS configured-only.
+FOUND: production plan-status swimProducts shows SFDPS, TFMS, STDDS and NOTAM configured; ITWS missing SWIM_ITWS_URL/VPN/QUEUE. Only SFDPS was consumed. The SFDPS precedent (2026-09-28): FIXM element names assumed offline meant the first live deploy processed 0 of 39,472 messages.
+CHANGE (capture first, parsers next):
+- TFMS and NOTAM consumers through swimConnector (same transport, acking, backoff, redaction).
+- Each message is profiled by a content-free SHAPE: the first 6 opening tags (local names) plus type-like attributes.
+- The 2 latest raw samples per shape are kept (≤ 96 KB each, ≤ 60 shapes), readable only behind the diag token, because TFMS flight data can include LADD/PIA flights.
+- Per-hour message counts for EVERY product (swimConnector `hourly`, last 25 h).
+- GET /api/data/swim/products (public; env readiness by NAME, transport status, hourly cadence, shapes) and GET /api/data/swim/samples (diag token).
+- plan-status swim gains stallRestarts and hourly.
+- STDDS stays configured-only (no consumer need yet); ITWS lacks its queue settings (human checklist).
+NEXT (own PRs, written against the REAL samples): TFMS parser (ground stops, GDP/AFP flow programs, reroute advisories with route strings via navAirways.parseFiledRoute) and NOTAM parser (TFR polygons/circles from AIXM/GML with effective windows) → stores → the P3 deviation classifier.
+PRIOR: within an hour of deploy, TFMS and NOTAM show connected with hourly > 0. TFMS likely dominated by flight-data shapes (fltdOutput) at SFDPS-like volume, FI messages (fiOutput) a small minority. NOTAM: AIXMBasicMessage/Event shapes at a few hundred per hour.
+ROLLBACK TRIGGER: SFDPS droppedOverflow or event-loop lag rising after TFMS starts (shared process). Rollback = git revert, or unset SWIM_TFMS_QUEUE in Railway (the consumer is a no-op without its env).
+TESTS: swimCapture.test.ts (4): content-free shapes, bounded samples/shapes with overflow counted, hourly buckets, consumers end to end (STDDS never consumed; /products public and secret-free; /samples 404 without or with a wrong token).
+VERSION: v1.0.1080. ROLLBACK: git revert.
+STARVED: no.
