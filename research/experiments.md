@@ -107798,3 +107798,11 @@ STEP (a) READ (PRIOR: action-tagged BUY records start to appear in decision_x_ac
 NEXT: first session on/after 2026-10-16 re-runs step (a); if decision_x_action still shows no non-`unrecorded` key by then, check the backfill ordering (older-first backlog starving tagged records) as a [REPAIR]. Steps (b)/(c) stay sequenced after (a). COT gate-2 15th report 2026-10-16.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-14 (scheduled-routine session, ~11:00Z, Wednesday) [NO-ACTION] — health green; queue head still time-gated to 2026-10-16
+
+Loop-health ratio: same closed, ratcheted REPAIR series as the 10-13 entry; no new break found. No thrash.
+Live (11:01Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, DD -7.8%, feeds (aircraft/vessels/trains) not dead, process faults 0, memory pressure ok.
+Queue: shadow-band step (a) re-run is gated to on/after 2026-10-16 (labeler horizon maturity); COT gate-2 15th report 2026-10-16. Research would duplicate filed work (latest merged: Kuramoto gate-2 negative, #1322). Anti-churn rule: no padding.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
