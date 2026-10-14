@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-14 (scheduled-routine EDGE session, ~00:50Z Wed, after hours) [RESEARCH] — T-BOT-adjacent scripts only (scripts/kuramoto_sync_probe.py + test_kuramoto_sync_probe.py; no code_version change) — AXIS (c): KURAMOTO PHASE SYNCHRONIZATION OF SECTOR ETFs — GATE 2 CLEAN NEGATIVE ON FORWARD RETURN
+
+HEALTH: session_health_check all OK (v1.0.1063 live = checkout); thrash 3/10; no audit overdue; STARVED 0. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, proposal filed). Not a REPAIR session.
+AXIS CHOICE: every doctrine (a) pipeline (Form 4, COT, USAspending, FDA events, pytrends, Sentinel-2) is already built; all gate-2-pending roots are time-gated (COT 10-16, shadow-band >= 10-16, 8-K QoQ >= 11-15). Fall-through went to (c). Chosen idea differs structurally from the six prior single-series imports: a cross-sectional COUPLING measure (nonlinear physics / neuroscience: coupled oscillators lock phase before a population fires in unison), with the one control that matters built in.
+PRIOR (stated before running): raw Spearman(R, fwd-20d SPY vol) ~ +0.2 but |partial| < 0.15 after controlling trailing 20d vol + 60d mean pairwise correlation; |rho(R, fwd-20d return)| < 0.15; most likely clean negative.
+SPEC (single, pre-registered, run once, no re-tuning): 9 SPDR sector ETFs; causal phase theta = atan2(-(x_t - x_{t-5}), x_t), x = EMA10 - EMA30 of log price; R = |mean exp(i theta)|, 10d-smoothed; targets fwd-20d SPY log return (the GATE target) and fwd-20d realized vol (secondary); de-strided every 20 days; partial Spearman via rank-residualization; bar |rho| >= 0.30 AND p < 0.05.
+RESULT (2019-11-20..2026-10-13, 1,732 aligned bars, n=83 de-strided): fwd-return raw rho +0.085 (p 0.45), PARTIAL rho -0.029 (p 0.80) -> GATE 2 FAIL; halves -0.149 / +0.097 (sign flips). fwd-vol raw rho +0.267 (p 0.015), partial +0.197 (p 0.078). R vs mean pairwise corr rho +0.39 (p 0.0002) -> R is substantially a correlation proxy, as the control assumed.
+READ: prior CONFIRMED on the return target (null), and the partial vol link is in the predicted direction/size but not significant at n=83 and is one of two targets tried (discount for 2 outcomes); NOT a finding. Seventh foreign-field import to fail GATE 2 on price-only data; the family conclusion (price-only structure at 20d on liquid ETFs is efficiently priced) is now strongly supported, so further price-only imports are retired as a research direction unless they bring a non-price data axis. Nothing promoted; datacore/signal_ladder.json untouched.
+TESTS: test_kuramoto_sync_probe.py, 11 synthetic tests (order-parameter identity/uniform, causality/no-lookahead of phase, targets strictly after decision day, partial-Spearman removes a pure confound yet keeps a real link, gate-2 bar). Note: test_hurst_exponent_probe.py::TestRollingHurst::test_none_before_window fails in this sandbox's numpy 2.5/scipy 1.18 environment on an untouched file (pre-existing, not caused by this change).
+BIAS/EFFECT: research script only; no trading path, no measurement-engine change. ROLLBACK: git revert.
+STARVED: no.
+
 ## 2026-10-14 (scheduled-routine PRODUCT session, ~00:15Z Wed = 20:15 ET Tue, after close) [PRODUCT] — T-DATACORE (server/diag.ts + test) — DIAG EMAIL SCRUB IS NO LONGER ASCII-ONLY (v1.0.1063)
 
 HEALTH: /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, feeds not dead, process faults 0; DD -7.7%. No KNOWN BROKEN blocker. Thrash ratio 3-4/10 (<7).
