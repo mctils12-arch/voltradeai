@@ -107836,3 +107836,21 @@ TESTS: client/src/lib/layerRegistry.test.ts (5): parse rejects every panel-empty
 BROWSER PROBE (real Chromium, built bundle, 390/768/1440): server resets the 1st registry request and 502s the 2nd. During: retry note visible, 0 layer groups. ~3.5s later: 14 groups, note gone. All three widths PASS.
 BIAS/RISK: UI only; no trading or measurement path. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~16:30Z Wed) [REPAIR] — stale /data tab after an overnight absence: one shared resume signal for every feed (RECURRENCE → root-cause)
+
+TERRITORY: T-CLIENT (client/src/lib/tabResume.ts, lib/air/globalFeed.ts, lib/layerRegistry.ts, pages/datamap.tsx) + shared package.json/research.
+REPORT: human, same day: "what if the tab is stale over time like you leave the tab up over night and the adsb gets stale and the other stuff". RECURRENCE of the 2026-07-22 report ("I leave the page… come back and the data is stale"), which was patched only for the open aircraft card. Law V says a bug seen twice gets a root-cause fix, so this one is.
+ROOT CAUSE (three gaps, one shape: each poller handled "the tab is live again" on its own, or not at all):
+ 1. 30 hidden-gated pollers (`setInterval(() => { if (!document.hidden) load(); }, 2–60 min)`) skipped ticks while hidden and waited a full interval after the tab came back. 4 more ungated pollers (wind/temp, fires, shadowstats, portdwell) had no catch-up after a sleep.
+ 2. The 3 handlers that did exist (live aircraft/vessels/trains poller, tracked-planes list, open-card trail) listened only to visibilitychange. That never fires on sleep→wake with the tab in front, or when the network drops and comes back.
+ 3. The live poll chain re-arms only after `await load()`, and neither the bbox fetch nor the global feed fetch had a timeout. A request stuck on a connection that died in a sleep froze aircraft until the next pan or tab switch.
+PRIOR (stated before testing): one shared signal (visible / heartbeat-gap wake / online / bfcache pageshow), a pollWhenVisible helper that reloads on resume only when its interval has elapsed, and a 30s cap on live-feed requests should refresh every enabled feed within seconds of return, at no extra cost for quick tab flips.
+CHANGE: lib/tabResume.ts (createTabResume + onTabResume singleton + pollWhenVisible + timeoutSignal + LIVE_FETCH_TIMEOUT_MS). All 34 interval pollers moved to pollWhenVisible: the 4 ungated keep `whileHidden: true`, so their hidden-tab behavior is unchanged. The 3 visibilitychange handlers moved to onTabResume. Live bbox fetch time-boxed at 30s. globalFeed.fetchGlobal gets GLOBAL_FETCH_TIMEOUT_MS = 30s, and a timeout THROWS (status shows "retrying") instead of being swallowed as "unchanged". After ≥30 min away, the registry is re-fetched for its server_version only (setLayers untouched, since vessels/fires remount on a new array), so an overnight deploy shows the existing "Site updated — reload" note. v1.0.1066.
+NOT DONE (deliberate): auto-reload. Layer toggles and camera are not persisted, so a reload would wipe the user's setup every morning. The skew note asks instead.
+TESTS: client/src/lib/tabResume.test.ts (10): visible/wake/online/pageshow emission; hidden-tab throttling never counts as a wake; a throwing listener can't starve the others; dispose detaches; pollWhenVisible catch-up and quick-flip no-op; whileHidden; a hung global-feed request rejects with "timed out"; source ratchet (no gated/bare setInterval pollers, no raw visibilitychange listeners, live fetch time-boxed), which FAILS on the pre-fix datamap.tsx. Client suite 1274/1274. tsc: 11 pre-existing errors, none new.
+BROWSER PROBE (built bundle, real Chromium, Date.now skew + document.hidden override; same probe on old vs new code):
+  return after 8h hidden — OLD: aircraft + tracked list only (2 requests). NEW: 11 feeds + registry version check within 3s, overnight-deploy note shown.
+  8h sleep with tab in front — OLD: aircraft + sites + powerplants. NEW: all 14 enabled feeds on the next 15s heartbeat.
+BIAS/RISK: UI/network only; no trading or measurement path. Request volume rises only on a real resume, at most one load per poller per resume. ROLLBACK: git revert.
+STARVED: no.

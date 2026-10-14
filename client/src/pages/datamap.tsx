@@ -258,7 +258,8 @@ import { getTimeAxis, subscribeTimeAxis, gibsDateForAxis, setTimeAxis, formatAxi
 // left them spinning or dead until a manual toggle. runResilientLoad adds a hard
 // timeout + auto-retry backoff so a transient blip self-heals.
 import { runResilientLoad } from "@/lib/resilientLoad";
-import { fetchLayerRegistry } from "@/lib/layerRegistry";
+import { fetchLayerRegistry, VERSION_RECHECK_AWAY_MS } from "@/lib/layerRegistry";
+import { LIVE_FETCH_TIMEOUT_MS, onTabResume, pollWhenVisible, timeoutSignal } from "@/lib/tabResume";
 // worldview_globe.md Phase G2: shared NASA GIBS raster-layer factory. G2a
 // (night lights) is the first consumer; G2b-h reuse this same helper.
 import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibsLatestScanTime } from "@/lib/gibs";
@@ -1375,9 +1376,9 @@ function TrackedPlanesPanel({ onOpen }: {
     // hidden-tab gate (2026-09-30 page-aware audit: the ONLY /data request
     // still firing in a background tab) — skip while hidden, refresh on return
     const t = window.setInterval(() => { if (!document.hidden) void load(); }, 30_000);
-    const onVis = () => { if (!document.hidden) void load(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { window.clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+    // tab return, wake from sleep, network back (lib/tabResume.ts)
+    const offResume = onTabResume(() => { if (!document.hidden) void load(); });
+    return () => { window.clearInterval(t); offResume(); };
   }, []);
   const add = async () => {
     const q = reg.trim();
@@ -3577,6 +3578,15 @@ export default function DataMapPage() {
       setVersionSkew(reg.serverVersion);
     }
   }, (failures) => setRegistryRetry(failures + 1)), [registryNonce]);
+  // overnight-tab version re-check (repair 2026-10-14, lib/tabResume.ts)
+  useEffect(() => onTabResume(({ awayMs }) => {
+    if (awayMs < VERSION_RECHECK_AWAY_MS) return;
+    fetchLayerRegistry(fetch, timeoutSignal(LIVE_FETCH_TIMEOUT_MS))
+      .then((reg) => {
+        if (reg.serverVersion && reg.serverVersion !== CLIENT_VERSION) setVersionSkew(reg.serverVersion);
+      })
+      .catch(() => { /* next resume tries again; the feeds refresh regardless */ });
+  }), []);
 
   // Map bootstrap (maplibre JS lazy-loaded to keep the main bundle lean)
   useEffect(() => {
@@ -5355,9 +5365,11 @@ export default function DataMapPage() {
     // visible again — the freshest archive track + last-position land right
     // away instead of waiting for the next interval tick. (The fleet poll
     // has its own visibilitychange refresh for the live marker.)
-    const onVis = () => { if (!document.hidden) refresh(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
+    // [REPAIR 2026-10-14] tab return only: a sleep/wake with the tab in
+    // front, or a network drop, left the card stale. lib/tabResume.ts covers
+    // all three.
+    const offResume = onTabResume(() => { if (!document.hidden) refresh(); });
+    return () => { clearInterval(iv); offResume(); };
   }, [detailTrailId, detailTrailKind]);
 
   // 10s ticker so the freshness age in the open card counts up between
@@ -8486,8 +8498,8 @@ export default function DataMapPage() {
     const onMove = () => { window.clearTimeout(debounce); debounce = window.setTimeout(load, 600); };
     load();
     map.on("moveend", onMove);
-    const iv = window.setInterval(load, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); window.clearTimeout(debounce); try { map.off("moveend", onMove); } catch {} };
+    const iv = pollWhenVisible(load, 10 * 60_000, { whileHidden: true });
+    return () => { stop = true; iv(); window.clearTimeout(debounce); try { map.off("moveend", onMove); } catch {} };
   }, [enabled.weather_wind, enabled.weather_temp, windArrows, tempLabels, mapReady]);
 
   // ── wind arrows layer (static grid — redraws on pan; no animation by
@@ -8887,7 +8899,13 @@ export default function DataMapPage() {
           d = await airFeed.fetchGlobal(bnd, firstFetch); // B1 worldwide snapshot
           if (!("unchanged" in d)) firstFetch = false;
         } else {
-          const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
+          // [REPAIR 2026-10-14] time-boxed: the poll chain awaits this
+          // load before re-arming, so a request stuck on a connection that
+          // died in a sleep froze the layer until the next pan
+          const r = await fetch(`/api/data/${id}?${q}`, {
+            ...(firstFetch ? { cache: "reload" as RequestCache } : {}),
+            signal: timeoutSignal(LIVE_FETCH_TIMEOUT_MS),
+          });
           firstFetch = false;
           if (!r.ok) throw new Error(String(r.status));
           d = await r.json();
@@ -9091,15 +9109,16 @@ export default function DataMapPage() {
       try { applyVectors(lastPayload); } catch {}
     };
     map.on("zoomend", onZoomEnd);
-    const onVisible = () => { if (!document.hidden) load(); };
-    document.addEventListener("visibilitychange", onVisible);
+    // tab return, wake from sleep, network back (lib/tabResume.ts) — the
+    // old visibilitychange-only listener missed the last two
+    const offResume = onTabResume(() => { if (!document.hidden) load(); });
     return () => {
       teardown();
       airFeed?.dispose(); // abort any in-flight global fetch
       window.clearTimeout(pollTimer);
       if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
-      document.removeEventListener("visibilitychange", onVisible);
+      offResume();
       try { map.off("moveend", onMove); } catch {}
       try { map.off("zoomend", onZoomEnd); } catch {}
     };
@@ -10098,8 +10117,8 @@ export default function DataMapPage() {
     };
     load();
     // 15-min refresh, hidden-tab gated (matches server's 15-min poll cadence)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 15 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 15 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.faa_airports, mapReady, setStatus]);
 
   // ── CBP land-border wait times (RAW — server/cbpBorderWait.ts's own
@@ -10213,8 +10232,8 @@ export default function DataMapPage() {
     };
     load();
     // hourly refresh, hidden-tab gated (matches server's hourly poll cadence)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 60 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.border_waits, mapReady, setStatus]);
 
   // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
@@ -12131,8 +12150,8 @@ export default function DataMapPage() {
     load();
     // hidden-tab gate ([REPAIR 2026-07-05] map perf) — refresh resumes on
     // the next tick after the tab returns; server cache covers the gap
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 30_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 30_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.trains, mapReady, mapSettled, setStatus]);
 
   // ── active fires (RAW; NASA FIRMS/LANCE VIIRS 375m NRT — Tier-1(c)
@@ -12230,8 +12249,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 15 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 15 * 60_000, { whileHidden: true });
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.fires, mapReady, layers, setStatus]);
 
   // ── USGS river gauges (RAW; stream #6 surface — 14 barge-corridor
@@ -12349,8 +12368,8 @@ export default function DataMapPage() {
     };
     load();
     // hourly refresh, hidden-tab gated (matches the server's 1h poll)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 60 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.rivergauges, mapReady, setStatus]);
 
   // ── NWS severe-weather alerts (RAW overlay — official warnings as-is,
@@ -12430,8 +12449,8 @@ export default function DataMapPage() {
     };
     load();
     // 5-min refresh, hidden-tab gated (server polls upstream every 10)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 5 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.alerts, mapReady, setStatus]);
 
   // ── NOAA SWPC space weather (RAW overlay): aurora viewing-probability
@@ -12539,8 +12558,8 @@ export default function DataMapPage() {
     };
     load();
     // 5-min refresh, hidden-tab gated (server polls upstream every 10)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 5 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.spaceweather, mapReady, setStatus]);
 
   // ── USGS earthquakes (RAW; M2.5+, global, rolling 24h — sized/colored by
@@ -12633,8 +12652,8 @@ export default function DataMapPage() {
     };
     load();
     // 2-min refresh, hidden-tab gated (matches server's max-age=120)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 2 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 2 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.earthquakes, mapReady, setStatus]);
 
   // ── LARGE METEORS (NASA/JPL CNEOS bolides — human-approved mock
@@ -12757,8 +12776,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 10 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.meteors, mapReady, setStatus]);
 
   // ── USGS volcano alert levels (RAW; elevated volcanoes only, coordinates
@@ -12849,8 +12868,8 @@ export default function DataMapPage() {
     // 5-min refresh, hidden-tab gated (matches server's max-age=300 —
     // alert-level changes are far rarer than earthquakes, no need for a
     // tighter poll)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 5 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.volcanoes, mapReady, setStatus]);
 
   // ── NOAA NDBC ocean buoys (RAW; ~889 stations worldwide, latest obs —
@@ -12936,8 +12955,8 @@ export default function DataMapPage() {
     };
     load();
     // 5-min refresh, hidden-tab gated (matches server's max-age=300)
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detach(); };
+    const iv = pollWhenVisible(load, 5 * 60_000);
+    return () => { stop = true; iv(); detach(); };
   }, [enabled.buoys, mapReady, setStatus]);
 
   // ── dark-ship RAW statistics (non-geospatial; derived from our own AIS
@@ -12961,8 +12980,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 10 * 60_000, { whileHidden: true });
+    return () => { stop = true; iv(); };
   }, [enabled.shadowstats, mapSettled, setStatus]);
 
   // ── port dwell RAW statistics (fusion directive 2026-07-04) — per-port
@@ -13053,8 +13072,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); detachClicks?.(); };
+    const iv = pollWhenVisible(load, 10 * 60_000, { whileHidden: true });
+    return () => { stop = true; iv(); detachClicks?.(); };
   }, [enabled.portdwell, mapReady, mapSettled, setStatus]);
 
   // ── SEC EDGAR Form 4 insider transactions (RAW; non-geospatial — no
@@ -13080,8 +13099,8 @@ export default function DataMapPage() {
     // COUNT — the actual feed lives in the overlay view; the server caches
     // upstream at 15-min anyway. Hidden-tab gated inside load's fetch cost
     // via the interval guard.
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.insider, mapSettled, setStatus]);
 
   // ── SEC EDGAR 8-K Item 2.02 earnings-language releases (RAW;
@@ -13104,8 +13123,8 @@ export default function DataMapPage() {
     };
     load();
     // 300s + hidden-gate — same rationale as the insider poll above.
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.earnings, mapSettled, setStatus]);
 
   // ── FINRA daily short-sale volume (RAW; non-geospatial — same
@@ -13131,8 +13150,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.shortvol, mapSettled, setStatus]);
 
   // ── FINRA ATS/OTC venue volume leaderboards (RAW; non-geospatial — same
@@ -13157,8 +13176,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.ats_summary, mapSettled, setStatus]);
 
   // ── SEC MIDAS market-structure metrics (RAW; non-geospatial — same
@@ -13183,8 +13202,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.midas, mapSettled, setStatus]);
 
   // ── SEC CNS fails-to-deliver (RAW; non-geospatial — same inline-panel-
@@ -13209,8 +13228,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.secftd, mapSettled, setStatus]);
 
   // ── Corporate/LLC aircraft fleet utilization (RAW; non-geospatial — same
@@ -13234,8 +13253,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.fleet_utilization, mapSettled, setStatus]);
 
   // ── EIA-930 hourly electric grid demand (RAW; non-geospatial — same
@@ -13259,8 +13278,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.grid_demand, mapSettled, setStatus]);
 
   // ── EIA-930 hourly net generation by fuel type (RAW; non-geospatial —
@@ -13284,8 +13303,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.grid_generation, mapSettled, setStatus]);
 
   // ── OCC daily options cleared volume by trade origin (RAW; non-geospatial
@@ -13309,8 +13328,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.occ_volume, mapSettled, setStatus]);
 
   // ── CFTC Traders in Financial Futures (RAW; non-geospatial — same
@@ -13335,8 +13354,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.tff, mapSettled, setStatus]);
 
   // ── US Treasury auctions (RAW; non-geospatial — same inline-panel-row +
@@ -13361,8 +13380,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.treasury_auctions, mapSettled, setStatus]);
 
   // ── Treasury Daily Statement (RAW; non-geospatial — same inline-panel-
@@ -13387,8 +13406,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.treasury_dts, mapSettled, setStatus]);
 
   // ── FDA binary events (RAW; non-geospatial — same inline-panel-row +
@@ -13414,8 +13433,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.fda_events, mapSettled, setStatus]);
 
   // ── NHTSA vehicle complaints (RAW; non-geospatial — same inline-panel-
@@ -13440,8 +13459,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.vehicle_complaints, mapSettled, setStatus]);
 
   // ── FDIC bank failures (RAW; non-geospatial — same inline-panel-row +
@@ -13466,8 +13485,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.bank_failures, mapSettled, setStatus]);
 
   // ── USAspending.gov federal contract awards (RAW; non-geospatial — same
@@ -13494,8 +13513,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.contracts, mapSettled, setStatus]);
 
   // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
@@ -13521,8 +13540,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.attention, mapSettled, setStatus]);
 
   // ── CFTC Commitments of Traders, disaggregated (RAW; non-geospatial —
@@ -13549,8 +13568,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.cot, mapSettled, setStatus]);
 
   // ── Everything Graph (RAW join over insiders/facilities/vessels; non-
@@ -13574,8 +13593,8 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
   }, [enabled.graph, mapSettled, setStatus]);
 
   // ── panel helpers ──

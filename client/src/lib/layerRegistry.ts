@@ -34,6 +34,12 @@ export function parseLayerRegistry<T = unknown>(body: unknown): LayerRegistryPay
   };
 }
 
+/** After a resume (lib/tabResume.ts) from at least this long away, re-check
+ *  the server version: an overnight tab is usually a deploy or two behind.
+ *  Only the skew notice updates; the layer list is left alone (vessels and
+ *  fires remount when it changes). */
+export const VERSION_RECHECK_AWAY_MS = 30 * 60_000;
+
 type FetchLike = (url: string, init?: { signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; json: () => Promise<unknown>;
 }>;
