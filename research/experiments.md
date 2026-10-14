@@ -107946,3 +107946,27 @@ Live (20:16Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not d
 Queue: shadow-band step (a) re-run and COT gate-2 15th report both gated to on/after 2026-10-16. The only merges since the 16:05Z entry are human-directed sessions already logged above (v1.0.1067-1071). Research would duplicate filed work; anti-churn applies.
 MERGE NOTE: docs-only; touches no trading path.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~20:20Z Wed) [REPAIR] — filed route drawn through its 1-2 fixes (corridor placement with the filed airports as context)
+
+TERRITORY: server flight plans (server/navAirways.ts, swimSfdps.ts, flightPlans.ts) + shared package.json/research.
+REPORT (human, 2026-10-14): "their flight path is not based on the FAA flight plan as filed"; "keep the current planned-route line ... it should follow the filed route".
+ROOT CAUSE: route texts naming only 1-2 fixes (the fewFixes class: 5,033 live unplaced plans on 2026-10-14) were drawn as a great circle between the airports. placeDirectFixes needs >= 3 points so that a same-named fix elsewhere cannot bend the line; with 1-2 fixes nothing ruled a namesake out.
+CHANGE: navAirways.placeFixesInCorridor uses the filed departure and arrival airports as that context.
+- Each fix, and the whole path, must fit within 1.3x the airport-to-airport distance.
+- Refused: a far namesake, any airway-shaped token (even one NASR does not list), hops under 40 nm, unknown idents.
+- It is the LAST route-text fallback (expanded -> airway -> direct -> radial -> corridor). routeKind "corridor"; counter corridorPlaced.
+- Label: "route text names N fix(es); legs between them drawn direct"; honesty text says how the points were placed.
+PRIOR (stated before testing): measured against each aircraft's own ADS-B positions, the corridor path is closer than the great-circle stand-in it replaces for most flights; the residual error is the direct legs between few fixes.
+GATE 1 (DATA): scratchpad script, read-only against production.
+- Sample: 3,000 US aircraft above 15,000 ft, deterministic by hex. 402 had FAA route text; 192 were unplaced today; 171 corridor-placed; 21 refused.
+- Scoring: cross-track distance of each aircraft's own en-route fixes (> 30 nm from both airports) from each path.
+- Mostly the live position. The global sweep archive is paused for low disk (wishlist top entry), so archived tracks are sparse; run 1 with tracks only scored n=2.
+- RESULT, n=169: corridor median 8.5 nm vs great circle 25.3; p90 40.5 vs 72.3. Corridor closer in 139/169; worse by > 1 nm in 30/169.
+- One theory-motivated variant, no tuning.
+- The airway-shaped-token refusal was tightened after the run; it can only remove placements, not change any scored one.
+DEVIATION GUARD: the corridor median error (8.5 nm) sits at DEVIATION_OFF_NM (8). Judging OFF_PLAN against these paths would repeat the great-circle false-alarm problem (2026-09-29: 44/59 false OFF_PLAN). Deviation stays UNKNOWN for corridor plans, with its own honesty reason. The test is mutation-checked: it fails with the guard removed.
+WORST CASES: amended texts of the form "KBNA./.OKM171047..HELPR.JAZZZ1.KSLC". "./." means the cleared route starts at an en-route point; the leading fix-radial-distance token is not placed by the corridor, so the first leg runs from the origin, not from the amendment point. Filed in open_questions.md.
+TESTS: navAirways.test.ts +2; flightPlans.test.ts +1 (end to end incl. label, honesty, deviation UNKNOWN, far namesake unplaced). The "great-circle stand-in" contract test's fixture text KSFO..SNS..KLAX now places SNS, so its stand-in is the endpoint-only KSFO..KLAX. Its assertions are unchanged; the old text is the new corridor test. Server suite 2409/2409; tsc 11 (unchanged); counter ratchet OK.
+VERSION: v1.0.1072. ROLLBACK: git revert.
+STARVED: no.

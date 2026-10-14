@@ -102,6 +102,51 @@ export function placeDirectFixes(routeText: string | null | undefined): { lat: n
   return out;
 }
 
+/** Corridor bound for {@link placeFixesInCorridor}: the path through every
+ *  fix may be at most this multiple of the airport-to-airport distance. */
+export const CORRIDOR_MAX_DETOUR = 1.3;
+/** Below this airport-to-airport distance a 1–2 fix route is left unplaced
+ *  (terminal-area hops: the fixes ARE the departure/arrival procedures). */
+export const CORRIDOR_MIN_DIRECT_NM = 40;
+/** A fix this close to either airport adds nothing (often the airport's own VOR). */
+const CORRIDOR_AIRPORT_NM = 2;
+
+/** Place the "fewFixes" class (1–2 resolved fixes, no airway — 5,033 of the
+ *  live unplaced plans on 2026-10-14) that placeDirectFixes refuses because,
+ *  WITHOUT context, one or two names cannot be told from a same-named point
+ *  elsewhere. The filed departure and arrival airports are that context:
+ *  every fix must lie in the corridor between them (via-fix distance at most
+ *  CORRIDOR_MAX_DETOUR x direct), and so must the whole path. A fix that
+ *  resolves to a namesake far away (BEARZ resolves to Indiana) fails the
+ *  bound and the route stays unplaced — never guessed. Any airway-shaped
+ *  token refuses the route (an unexpanded airway would be drawn straight). */
+export function placeFixesInCorridor(
+  routeText: string | null | undefined,
+  origin: { lat: number; lon: number },
+  destination: { lat: number; lon: number },
+): { lat: number; lon: number; name: string }[] {
+  if (!routeText) return [];
+  if (!table) loadNavAirways();
+  const toks = routeText.toUpperCase().split("&")[0].split(/[\s.]+/).filter(Boolean);
+  // stricter than placeDirectFixes: ANY airway-shaped token refuses, even one
+  // NASR does not list (an unexpandable airway would be drawn as a straight leg)
+  if (toks.some((t) => AIRWAY_RE.test(t))) return [];
+  const direct = legNm(origin, destination);
+  if (!(direct >= CORRIDOR_MIN_DIRECT_NM)) return [];
+  const out: { lat: number; lon: number; name: string }[] = [];
+  for (const t of toks) {
+    const p = lookupFix(t);
+    if (!p || out[out.length - 1]?.name === t) continue;
+    if (legNm(origin, p) <= CORRIDOR_AIRPORT_NM || legNm(p, destination) <= CORRIDOR_AIRPORT_NM) continue;
+    if (legNm(origin, p) + legNm(p, destination) > CORRIDOR_MAX_DETOUR * direct) return [];
+    out.push({ ...p, name: t });
+  }
+  if (out.length === 0) return [];
+  let via = legNm(origin, out[0]) + legNm(out[out.length - 1], destination);
+  for (let i = 1; i < out.length; i++) via += legNm(out[i - 1], out[i]);
+  return via <= CORRIDOR_MAX_DETOUR * direct ? out : [];
+}
+
 export type UnplacedReason = "noText" | "noFixResolved" | "fewFixes" | "airwayUnbounded" | "legTooLong" | "other";
 
 /** Report-only: WHY a route text yields no placed points via expandRouteText /

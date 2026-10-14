@@ -86,7 +86,7 @@ export interface FlightPlanResponse {
    *  fix names), "airway" (route text FIX AIRWAY FIX, NASR expansion) or
    *  "direct" (route text direct-fix legs). null otherwise. Lets the filed-vs-
    *  flown gate-1 (scripts/flightplan_gate1.py) split deviation by kind. */
-  routeKind: "expanded" | "airway" | "direct" | "radial" | null;
+  routeKind: "expanded" | "airway" | "direct" | "radial" | "corridor" | null;
   /** additive (2026-09-30): the aircraft is inside the destination's terminal
    *  area (DEVIATION_TERMINAL_NM) and > VECTORING_MIN_XT_NM off the route — the
    *  connector from it to the route (points flagged `vectors`) is ATC
@@ -876,7 +876,7 @@ interface Candidate {
   points: PlanPoint[];
   fetchedAt: number;
   pathEstimated: boolean;
-  routeKind?: "expanded" | "airway" | "direct" | "radial";
+  routeKind?: "expanded" | "airway" | "direct" | "radial" | "corridor";
   /** REPORT-ONLY gate-1 shadow (v1.0.1037): the polyline the radial-token resolver WOULD place for a
    *  route-text-only plan. Never drawn, never used for deviation state. */
   radialShadow?: { points: LatLon[]; radialTokens: number };
@@ -938,7 +938,9 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     source: "FILED_FAA",
     label: pathEstimated
       ? `FILED — FAA SWIM flight plan ${pair} (route text only; path drawn great-circle, estimated)`
-      : `FILED — FAA SWIM flight plan ${pair}`,
+      : p.routeKind === "corridor"
+        ? `FILED — FAA SWIM flight plan ${pair} (route text names ${interior.length === 1 ? "1 fix" : `${interior.length} fixes`}; legs between them drawn direct)`
+        : `FILED — FAA SWIM flight plan ${pair}`,
     origin, destination,
     cruiseAltFt: cruise ?? typicalCruiseFt(len),
     cruiseAltEstimated: cruise == null,
@@ -951,6 +953,7 @@ export function filedCandidate(p: StoredSwimPlan, resolve: (id: string | null) =
     honesty: `Route FILED with the FAA (SWIM SFDPS${p.amendments ? `, amended ${p.amendments}×` : ""})` +
       (pathEstimated ? "; the message carried route text only, so the path between the filed airports is a great-circle estimate" : "") +
       (!pathEstimated && p.routeKind === "radial" ? "; some route points are INFERRED from fix-radial-distance tokens using the navaid's filed magnetic variation (typically within a few NM, not a surveyed fix)" : "") +
+      (!pathEstimated && p.routeKind === "corridor" ? "; the route text names only one or two fixes, each placed at its FAA NASR position after checking it lies in the corridor between the filed airports (a same-named fix elsewhere is never used); the legs between them are drawn direct" : "") +
       "; altitudes flagged altEstimated are a typical-jet profile estimate, not filed.",
   };
 }
@@ -1095,7 +1098,12 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   // airways, not the great circle (live 2026-09-29: median 61 nm cross-track,
   // 44/59 false OFF_PLAN) — so deviation is not measurable against it and
   // stays UNKNOWN rather than claiming the aircraft left a route we never had.
-  const deviationMeasurable = !(cand.source === "FILED_FAA" && cand.pathEstimated);
+  // A CORRIDOR path (1-2 filed fixes, legs drawn direct) is far closer than
+  // the great circle (gate-1 2026-10-14, n=169: median 8.5 vs 25.3 nm) but its
+  // median error still sits at DEVIATION_OFF_NM, so judging deviation against
+  // it would raise false OFF_PLAN calls the same way.
+  const coarseFiled = cand.source === "FILED_FAA" && !cand.pathEstimated && cand.routeKind === "corridor";
+  const deviationMeasurable = !(cand.source === "FILED_FAA" && cand.pathEstimated) && !coarseFiled;
   if (deviationMeasurable && now - track.archiveCheckedAt > ARCHIVE_RECHECK_MS) {
     track.archiveCheckedAt = now;
     let fixes: Array<{ t: number; la: number; lo: number; al?: number | null }> = [];
@@ -1156,7 +1164,9 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     }
   }
   if (!deviationMeasurable) {
-    honesty += " Deviation from the filed route is not assessed: only the route text was received, so there is no filed path to measure against.";
+    honesty += coarseFiled
+      ? " Deviation from the filed route is not assessed: the route text names only one or two fixes, so the drawn path is too coarse to judge against."
+      : " Deviation from the filed route is not assessed: only the route text was received, so there is no filed path to measure against.";
   }
   if (terminalVectoring && xtNow) {
     honesty += ` ${vectoringNote(cand.source)}: within ${DEVIATION_TERMINAL_NM} nm of the destination and ` +
