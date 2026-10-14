@@ -108029,3 +108029,53 @@ ROLLBACK TRIGGER: offload-status lastError on an eviction; any vessels_tracks da
 QUEUED (own PRs): (1) [RULE-REVIEW] the GNSS signal reads gnss_integrity_daily for days not on local disk (prove identical output on identical inputs), then the aircraft floor can drop to a few days and global-sweep archiving (~250 MB/day) fits; (2) a raw-retention decision for the human. Flight logs are a 30-day rolling window on BOTH tiers by the 2026-09-28 human directive (R2 deletes day 31+ daily). The new intent workstream asks for permanent history, so the conflict is filed as a checklist decision, not silently resolved: REPLAY_RETENTION_DAYS up to 400 ≈ $0.2/month at current growth.
 VERSION: v1.0.1074. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~22:30Z Wed) [PIPELINE] — Aircraft intent A: one parser for mode bits, selected altitude and derived state (ingest + normalize)
+
+TERRITORY: server aircraft ingest (new server/aircraftIntent.ts; aircraftTiling.ts mapper, openskyGlobal.ts mapper, globalAircraft.ts routes) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, intent workstream item A): parse nav_modes, nav_heading, nav_altitude_mcp/fms, nav_qnh and the derived fields in ONE module; null never 0; per-aircraft capability; fresh = updated within 30 s; units in one place; providers adsb.lol / airplanes.live / adsb.fi + OpenSky where available; tests for present / partial / absent / stale.
+FOUND (coordinate first): no code read any nav_* field before this (survey: zero consumers). The fast lane re-reads baro_rate for the live endpoint; left as is (that is a separate, existing contract).
+CHANGE:
+- server/aircraftIntent.ts:
+  - parseReadsbIntent / parseOpenSkyIntent / parseAcasRa;
+  - INTENT_UNITS (ft, kt, deg, hPa, degC, ft/min);
+  - plausibility bounds; rejections are counted, not swallowed;
+  - nav_modes [] (bits sent, none engaged) is kept distinct from null.
+- IntentStore (per-hex): freshest-wins per field; 30 s freshness (stale values are listed with their age, never served); capability (mode_bits ever sent, fields_ever); TTL 10 min; 30k cap.
+- The parse rides on each mapped row under a SYMBOL key, so every serialized aircraft payload is byte-identical (tested).
+- The store is fed from the existing fix bus, so it costs no extra provider calls.
+- API (additive):
+  - /api/data/aircraft/live/:hex gains `intent` (fresh values, stale list with ages, per-field source, capability, units);
+  - new GET /api/data/aircraft/intent-coverage (airborne aircraft in a 5-min window: latest_pct, ever_pct, by_provider, mode_bit_capable_pct, rejected).
+FIELD COVERAGE (measured with THIS parser on live payloads, 22:20Z; one 250 nm query per hub; % of airborne aircraft whose fix carried the field):
+
+| field | adsb.lol US (n=1501, CLT+ORD) | adsb.fi US (n=1537) | adsb.lol EU (n=217, AMS; FRA got a 429) | adsb.fi EU (n=303, AMS+FRA) |
+|---|---|---|---|---|
+| nav_altitude_mcp | 77.9 | 77.2 | 94.0 | 93.4 |
+| nav_qnh | 78.7 | 78.0 | 94.0 | 91.4 |
+| nav_heading | 53.6 | 52.8 | 75.1 | 72.6 |
+| nav_modes (= mode-bit capable) | 21.2 | 21.5 | 13.4 | 11.6 |
+| nav_altitude_fms | 0.2 | 0.3 | 37.8 | 37.6 |
+| wd/ws | 0.1 | 0.1 | 88.0 | 89.1 |
+| oat/tat | 0 | 0 | 77.9/76.0 | 80.5/78.5 |
+| ias/tas/mach | 0/0.3/0 | 0/0.3/0 | 92.2/90.8/92.2 | 91.7/90.1/91.7 |
+| roll / track_rate | 0 / 0 | 0 / 0 | 90.8 / 82.0 | 90.1 / 81.8 |
+| geom_rate / baro_rate | 28.8 / 78.3 | 29.1 / 74.5 | 90.8 / 100 | 91.4 / 99.0 |
+| acas_ra | 0 | 0 | 0 | 0 |
+
+- Rejected live: oat/tat ×3. Inspected: a -215 °C OAT at 5,050 ft (A21N 4cae19), a physically impossible decode artifact. The bounds are doing their job.
+- READING: the EU derived fields come from Mode-S EHS (BDS 4,4/5,0/6,0) that European receivers interrogate; US traffic is almost never EHS-decoded. E2 (turbulence) and E3 (winds/temps aloft) will therefore be Europe-led products unless US EHS appears. Labeled, not extrapolated.
+- airplanes.live returns 403 from this container (as before), so it is measured only in production.
+PERF (server only, no client change):
+- mapPointAircraft over 10k real rows: 19.8–22.6 ms → 43–47 ms (+2.2 µs/row, ~0.7 ms per typical 300-row disc). Parse alone is 1.6 µs/row after a hot-path rewrite (fixed-shape literal, lazy rejects; it was 2.6).
+- Store ingest: 1.2 µs/row. Coverage over 20k aircraft: 2.1 ms. view(): 3 µs.
+- Memory: ~0.93 KB/aircraft, ≤ 28 MB at the 30k cap, ~14 MB at typical load.
+- /data frame time: untouched (no client code; payloads byte-identical).
+ARCHIVE: no change in A. Intent fields are not written yet; that is B (delta-encoded, schema-versioned).
+PRIOR: production intent-coverage should match the table within ±10 pts once sweep plus viewport traffic flows (US-heavy, so global mode_bit_capable ~18–22%). rejected should stay < 0.1% of rows.
+TESTS:
+- aircraftIntent.test.ts (14): present / partial / absent / stale, [] vs null, garbage counted, ACAS RA, capability, freshest-wins, payload byte-identical, OpenSky subset, bus timing, coverage, bounds.
+- globalAircraft.test.ts +1 (live/:hex intent + /intent-coverage end-to-end).
+- Server 2442/2442; tsc 11; counter ratchet OK.
+VERSION: v1.0.1075. ROLLBACK: git revert (additive fields only).
+STARVED: no (intent B next).

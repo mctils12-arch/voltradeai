@@ -35,6 +35,7 @@
 
 import type { AircraftPoint } from "./datacoreArchive";
 import { publishFixes, type FixBatch } from "./aircraftFixBus";
+import { attachIntent, parseOpenSkyIntent } from "./aircraftIntent";
 import { unrefTimer } from "./globalSweep";
 
 export const OPENSKY_PROVIDER_KEY = "opensky";
@@ -90,7 +91,7 @@ export function mapOpenSkyStates(raw: unknown): Array<AircraftPoint & { seen_at_
     const trk = fin(s[10]);
     const catNum = fin(s[17]);
     const posSrc = fin(s[16]);
-    out.push({
+    const row: AircraftPoint & { seen_at_ms: number } = {
       icao24: hex,
       callsign: typeof s[1] === "string" ? s[1].trim() : "",
       registration: null,
@@ -110,7 +111,11 @@ export function mapOpenSkyStates(raw: unknown): Array<AircraftPoint & { seen_at_
       pos_type: posSrc === 2 ? "mlat" : null,
       provider: OPENSKY_PROVIDER_KEY,
       seen_at_ms: Math.round(tPos * 1000),
-    });
+    };
+    // AIRCRAFT INTENT A: OpenSky carries baro/geometric altitude + squawk
+    // only (aircraftIntent.parseOpenSkyIntent) — no mode bits, never invented
+    attachIntent(row, parseOpenSkyIntent(s));
+    out.push(row);
   }
   return out;
 }

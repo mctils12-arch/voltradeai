@@ -17,6 +17,7 @@ import {
 } from "./globalAircraft";
 import { MIN_FREE_BYTES } from "./globalScopes";
 import { publishFixes } from "./aircraftFixBus";
+import { mapPointAircraft } from "./aircraftTiling";
 import { ROW_FIELDS } from "./globalSnapshot";
 import type { AircraftPoint } from "./datacoreArchive";
 
@@ -234,5 +235,37 @@ test("GET /api/data/aircraft/live/:hex — one snapshot row in the /global wire 
     const miss = await (await fetch(`${base}/api/data/aircraft/live/abcdef`)).json() as { rows: Row[] };
     assert.deepEqual(miss.rows, [], "absent hex -> empty rows, not an error");
     assert.equal((await fetch(`${base}/api/data/aircraft/live/zz`)).status, 400);
+  }, { env: { AIRCRAFT_FAST_LANE: "0" } });
+});
+
+test("AIRCRAFT INTENT A: live/:hex carries the aircraft's fresh intent + capability; /intent-coverage reports what the feeds send", async () => {
+  await withApp(async (base) => {
+    const now = Date.now();
+    const raw = { now, ac: [
+      { hex: "a1b2c3", flight: "AAL123", alt_baro: 11000, alt_geom: 11475, gs: 280, track: 45, baro_rate: -1216,
+        nav_qnh: 1012.8, nav_altitude_mcp: 10016, nav_modes: [], lat: 35.5, lon: -80.6, seen: 1, seen_pos: 1 },
+      { hex: "abc123", alt_baro: 3500, gs: 120, track: 10, lat: 35.2, lon: -80.9, seen: 0.5, seen_pos: 0.5 },
+    ] };
+    publishFixes({ provider: "adsblol", origin: "tracked", aircraft: mapPointAircraft(raw, "ac", "adsblol"), fetchedAt: now, upstreamNowMs: now });
+    const d = await (await fetch(`${base}/api/data/aircraft/live/a1b2c3`)).json() as {
+      rows: Row[]; intent: { values: Record<string, unknown>; stale: string[]; capability: { mode_bits: boolean }; units: Record<string, string> } | null;
+    };
+    assert.equal(d.rows.length, 1);
+    assert.ok(d.intent);
+    assert.equal(d.intent!.values.nav_altitude_mcp, 10016);
+    assert.equal(d.intent!.values.nav_qnh, 1012.8);
+    assert.deepEqual(d.intent!.values.nav_modes, [], "mode bits sent, none engaged");
+    assert.ok(!("wd" in d.intent!.values), "a field never sent is absent, never 0");
+    assert.equal(d.intent!.capability.mode_bits, true);
+    assert.equal(d.intent!.units.nav_altitude_mcp, "ft");
+    const miss = await (await fetch(`${base}/api/data/aircraft/live/abcdef`)).json() as { intent: unknown };
+    assert.equal(miss.intent, null);
+    const cr = await fetch(`${base}/api/data/aircraft/intent-coverage`);
+    assert.match(cr.headers.get("cache-control") || "", /max-age=15/);
+    const c = await cr.json() as { aircraft: number; latest_pct: Record<string, number>; mode_bit_capable_pct: number };
+    assert.equal(c.aircraft, 2);
+    assert.equal(c.latest_pct.nav_altitude_mcp, 50);
+    assert.equal(c.latest_pct.alt_baro, 100);
+    assert.equal(c.mode_bit_capable_pct, 50);
   }, { env: { AIRCRAFT_FAST_LANE: "0" } });
 });

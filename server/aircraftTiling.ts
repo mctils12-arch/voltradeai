@@ -38,6 +38,7 @@
 
 import { adsbLolGovernor, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import { publishFixes } from "./aircraftFixBus";
+import { attachIntent, parseReadsbIntent } from "./aircraftIntent";
 
 /** adsb.lol / airplanes.live / adsb.fi point-query hard radius cap (nm). */
 export const DISC_RADIUS_MAX_NM = 250;
@@ -206,7 +207,7 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
       : typeof a.alt_baro === "number" ? a.alt_baro
       : typeof a.alt_geom === "number" ? a.alt_geom
       : null;
-    return {
+    const row = {
       icao24: a.hex,
       callsign: String(a.flight || "").trim(),
       // `r` is the aircraft REGISTRATION (tail number, e.g. N8667D) in the
@@ -259,6 +260,11 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
       seen_pos: numOrNull(a.seen_pos),
       provider: provider || null,
     };
+    // AIRCRAFT INTENT A (2026-10-14): the intent/derived fields parse ONCE,
+    // here, and ride on the row under a symbol key (aircraftIntent) — the row's
+    // JSON shape, and so every serialized aircraft payload, is unchanged.
+    attachIntent(row, parseReadsbIntent(a));
+    return row;
   }).filter((a: any) => a.lat != null && a.lon != null);
 }
 
