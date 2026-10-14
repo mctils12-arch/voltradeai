@@ -108206,3 +108206,13 @@ ROLLBACK TRIGGER: effective_bg_rps pinned at its floor with < 5% 429s (it would 
 TESTS: adsbGovernor.test.ts +1 (halving to a floor, additive recovery to the cap, only background 429s cut, token wait follows the effective rate); test_session_health_check.py +1. Existing governor/sweep/fast-lane suites unchanged and green.
 VERSION: v1.0.1081. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~23:45Z Wed) [RESEARCH] — Ops audit closed: final LiveATC email + the human checklist filed (docs only)
+
+TERRITORY: research/wishlist.md, research/experiments.md (docs only, no version bump).
+DIRECTIVE (human, 2026-10-14): the human should end up with the shortest possible checklist (exact values, where to go, time), and the LiveATC email should be ready to send unchanged.
+FILED:
+- wishlist.md ATC AUDIO entry gains the FINAL LiveATC text (form URL, fields, subject, message), which supersedes DRAFT 1.
+- New wishlist entry "OPS AUDIT: the human checklist": 3 required steps (SWIM password rotation with the exact plan-status fields to confirm; send LiveATC or "drop"; the raw replay retention decision) and 2 optional ones (ITWS queue settings; GCP billing + Air Quality API enable).
+Everything else found in the audit was fixed in code: #1336, #1339, #1340, #1341 and the capture / AIMD PRs that follow.
+STARVED: no (intent C, deviation P2 and the TFMS/NOTAM parsers queued).
