@@ -10,6 +10,7 @@ import {
   retentionConfig, effectiveRetentionDays, ageDays, isDateExpired, oldestReplayableDate,
   hourKey, eventsKey, dateOfKey, estimateR2MonthlyCost, loadManifest, isOffloaded, listLocalHourUnits,
   HOT_TIER_FLOOR_DAYS, HOT_TIER_TARGET_FREE_BYTES, MANIFEST_NAME, OFFLOAD_MAX_UNITS_PER_TICK,
+  VESSEL_HOT_TIER_DAYS, hotTierFloorDays,
   type OffloadManifest,
 } from "./archiveOffload";
 import { createR2Client, r2ConfigFromEnv } from "./r2Client";
@@ -323,18 +324,48 @@ test("eviction under pressure: a verified day is folded, rolled up, then deleted
 });
 
 test("eviction floor: a verified day younger than HOT_TIER_FLOOR_DAYS is never evicted, even under pressure", async () => {
+  // 2026-10-14: the 22-day floor now applies to AIRCRAFT (the GNSS signal's
+  // 21-day local read); vessels have their own VESSEL_HOT_TIER_DAYS (next
+  // test). This fixture moved from vessels to aircraft; assertions unchanged.
   const base = tmp();
   const r2 = fakeR2();
   const young = dateAgo(HOT_TIER_FLOOR_DAYS - 1);
   const edge = dateAgo(HOT_TIER_FLOOR_DAYS);
-  writeHour(base, "vessels", edge, 0, rows(edge, 0, ["1"]));
-  writeHour(base, "vessels", young, 0, rows(young, 0, ["1"]));
+  writeHour(base, "aircraft", edge, 0, rows(edge, 0, ["aaaaa1"]));
+  writeHour(base, "aircraft", young, 0, rows(young, 0, ["aaaaa1"]));
   const svc = svcFor(base, r2, { free: () => 0 });
   const s = (await svc.runTick())!;
   assert.equal(s.uploaded, 2, "both are offloaded (verified)");
   assert.deepEqual(s.evicted.map((e) => e.date), [edge], "day 22 may go; day 21 never");
-  assert.ok(fs.existsSync(path.join(base, "vessels", `${young}-00.jsonl.gz`)));
-  assert.ok(fs.existsSync(path.join(base, "vessels_tracks", `${edge}.jsonl.gz`)), "vessel day rollup written before delete");
+  assert.ok(fs.existsSync(path.join(base, "aircraft", `${young}-00.jsonl.gz`)));
+  assert.ok(fs.existsSync(path.join(base, "aircraft_tracks", `${edge}.jsonl.gz`)), "aircraft day rollup written before delete");
+});
+
+test("vessel hot tier (2026-10-14): verified vessel days past VESSEL_HOT_TIER_DAYS go by AGE (no pressure needed); younger ones and same-age aircraft stay", async () => {
+  const base = tmp();
+  const r2 = fakeR2();
+  const days = [VESSEL_HOT_TIER_DAYS + 2, VESSEL_HOT_TIER_DAYS + 1, VESSEL_HOT_TIER_DAYS, VESSEL_HOT_TIER_DAYS - 1];
+  for (const n of days) {
+    writeHour(base, "vessels", dateAgo(n), 0, rows(dateAgo(n), 0, ["1"]));
+    writeHour(base, "aircraft", dateAgo(n), 0, rows(dateAgo(n), 0, ["aaaaa1"]));
+  }
+  const svc = svcFor(base, r2); // plenty of free space: no pressure
+  const s = (await svc.runTick())!;
+  assert.equal(s.uploaded, days.length * 2, "every day verified in R2 first");
+  assert.deepEqual(s.evicted.map((e) => [e.kind, e.date, e.reason]), [
+    ["vessels", dateAgo(VESSEL_HOT_TIER_DAYS + 2), "age"],
+    ["vessels", dateAgo(VESSEL_HOT_TIER_DAYS + 1), "age"],
+  ]);
+  assert.ok(fs.existsSync(path.join(base, "vessels", `${dateAgo(VESSEL_HOT_TIER_DAYS)}-00.jsonl.gz`)), "day 8 stays without pressure");
+  assert.ok(fs.existsSync(path.join(base, "vessels_tracks", `${dateAgo(VESSEL_HOT_TIER_DAYS + 2)}.jsonl.gz`)), "permanent rollup written before delete");
+  assert.ok(fs.existsSync(path.join(base, "aircraft", `${dateAgo(VESSEL_HOT_TIER_DAYS + 2)}-00.jsonl.gz`)), "aircraft keep the GNSS floor");
+  // under pressure the vessel floor itself (day 8) may go; day 7 never
+  const s2 = (await svcFor(base, r2, { free: () => 0 }).runTick())!;
+  assert.ok(s2.evicted.some((e) => e.kind === "vessels" && e.date === dateAgo(VESSEL_HOT_TIER_DAYS)));
+  assert.ok(fs.existsSync(path.join(base, "vessels", `${dateAgo(VESSEL_HOT_TIER_DAYS - 1)}-00.jsonl.gz`)));
+  assert.ok(!s2.evicted.some((e) => e.kind === "aircraft"), "aircraft under 22 days are never evicted");
+  assert.equal(hotTierFloorDays("vessels"), VESSEL_HOT_TIER_DAYS);
+  assert.equal(hotTierFloorDays("aircraft"), HOT_TIER_FLOOR_DAYS);
 });
 
 test("eviction by age: LOCAL_HOT_DAYS=24 evicts verified days older than 24 without pressure", async () => {

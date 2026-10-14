@@ -19,8 +19,9 @@
 //            is the ledger, a changed local file re-uploads.
 //   evict    (R2 configured only): a local day may be deleted EARLY only
 //            after every hour of it is verified in R2, only when it is older
-//            than LOCAL_HOT_DAYS or the volume is under pressure, never
-//            younger than HOT_TIER_FLOOR_DAYS, oldest day first. Before the
+//            than LOCAL_HOT_DAYS (vessels: VESSEL_HOT_TIER_DAYS) or the
+//            volume is under pressure, never younger than its kind's floor
+//            (hotTierFloorDays: aircraft 22, vessels 8), oldest day first. Before the
 //            delete it runs the same fold-before-delete chain the 6-hourly
 //            rollup runs (fleet weekly + GNSS daily folds, then the per-day
 //            <kind>_tracks summary) so the PERMANENT ROLLUPS never lose a day.
@@ -86,6 +87,17 @@ export const MAX_REPLAY_RETENTION_DAYS = 400;
  *  silently change a validated signal's input (MEASUREMENT INTEGRITY). 22 =
  *  21 + one day of margin. Lowering it is a [RULE-REVIEW], not a tune. */
 export const HOT_TIER_FLOOR_DAYS = 22;
+/** VESSELS keep their own, shorter local window (2026-10-14, storage was the
+ *  top ops risk: vessels were 1.21 of 1.48 GB local, 21 days, held to the
+ *  aircraft floor that only the GNSS signal needs). No validated vessel
+ *  signal reads past 7 days of LOCAL vessel files — port dwell folds 168 h,
+ *  shadow fleet 72 h — so 8 = 7 + one day of margin. Older vessel days stay
+ *  replayable from R2 (aircraftWindow's cold source) and in the permanent
+ *  vessels_tracks rollup; eviction still deletes only R2-verified days. */
+export const VESSEL_HOT_TIER_DAYS = 8;
+/** the local floor per kind: never evicted younger than this */
+export const hotTierFloorDays = (kind: OffloadHourKind): number =>
+  kind === "vessels" ? VESSEL_HOT_TIER_DAYS : HOT_TIER_FLOOR_DAYS;
 /** evict under pressure while free space is below this — twice the global-
  *  scopes guard, so eviction acts BEFORE the guard pauses global archiving */
 export const HOT_TIER_TARGET_FREE_BYTES = 2 * MIN_FREE_BYTES;
@@ -577,13 +589,15 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
         // past RAW_RETENTION_DAYS the existing 6-hourly rollup owns the day
         if (dayStartMs(date) < rollupCutoff) continue;
         const age = ageDays(date, t);
-        if (age < HOT_TIER_FLOOR_DAYS) break;
+        if (age < hotTierFloorDays(kind)) break;
         const us = byDay.get(date)!;
         const expired = isDateExpired(date, t, cfg.replayDays);
         const verified = us.every((u) => !u.bothFlavors && isOffloaded(u, manifest));
+        // vessels: the local hot window IS their floor (no env widens it)
+        const hotDays = kind === "vessels" ? VESSEL_HOT_TIER_DAYS : cfg.localHotDays;
         const reason: EvictionRecord["reason"] | null =
           expired ? "expired"
-          : verified && age > cfg.localHotDays ? "age"
+          : verified && age > hotDays ? "age"
           : verified && underPressure ? "pressure"
           : null;
         if (!reason) break; // contiguity: never evict past an older day that stays
@@ -599,7 +613,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
     const underPressure = !volumeAllowsWrite(free, HOT_TIER_TARGET_FREE_BYTES);
     const cands = evictionCandidates(t, underPressure);
     if (!cands.length) {
-      if (underPressure) s.evictionNote = `volume under pressure (${free} bytes free) but no day is both >= ${HOT_TIER_FLOOR_DAYS} days old and fully verified in R2 yet`;
+      if (underPressure) s.evictionNote = `volume under pressure (${free} bytes free) but no day is both past its kind's floor (aircraft ${HOT_TIER_FLOOR_DAYS} d, vessels ${VESSEL_HOT_TIER_DAYS} d) and fully verified in R2 yet`;
       return;
     }
     const blockedKinds = new Set<string>();
@@ -832,6 +846,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
       replayRetentionClamped: cfg.replayClamped,
       localHotDays: cfg.localHotDays,
       hotTierFloorDays: HOT_TIER_FLOOR_DAYS,
+      vesselHotTierDays: VESSEL_HOT_TIER_DAYS,
       oldestReplayableDate: oldestReplayableDate(t, days),
       lastRun: state.lastRun ? new Date(state.lastRun).toISOString() : null,
       lastDailyRun: manifest.lastDailyRunAt ? new Date(manifest.lastDailyRunAt).toISOString() : null,
@@ -863,7 +878,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
       },
       notes: [
         "Permanent rollups (<kind>_tracks daily summaries, aircraft_fleet_weekly.json.gz, gnss_integrity_daily.json.gz) are not flight logs: never offloaded, never deleted by this job.",
-        `Local early eviction never touches days younger than ${HOT_TIER_FLOOR_DAYS} (the live GNSS-integrity signal reads 21 days of local raw files) and only deletes a day after every hour of it is verified in R2.`,
+        `Local early eviction never touches aircraft days younger than ${HOT_TIER_FLOOR_DAYS} (the live GNSS-integrity signal reads 21 days of local raw files) or vessel days younger than ${VESSEL_HOT_TIER_DAYS} (port dwell reads 168 h); vessel days older than that go once verified in R2. Nothing is deleted before every hour of the day is verified in R2.`,
       ],
       generated_at: new Date(t).toISOString(),
     };
