@@ -48,6 +48,16 @@ test("sanitizer: key-like strings, long hex, base64 blobs, and emails are redact
   assert.ok(clean.fine.includes("2026-07-04T21:00:00Z"), "normal timestamps/messages survive");
 });
 
+test("sanitizer: non-ASCII and apostrophe emails are redacted whole (2026-10-14 regression)", () => {
+  const cases = ["user@münchen.de", "o'brien@gmail.com", "o\u2019brien@gmail.com", "иван@пример.рф", "a.b+tag@sub.example.co.uk"];
+  for (const e of cases) {
+    const out = sanitizeDiag({ line: `signup ${e} from web` }) as any;
+    assert.equal(out.line, "signup [redacted] from web", `${e} must be redacted whole, got: ${out.line}`);
+  }
+  const fine = sanitizeDiag({ line: "ratio 3@1 filled at 12.5, user@host no tld" }) as any;
+  assert.ok(fine.line.includes("3@1") && fine.line.includes("user@host"), "non-email @ text survives");
+});
+
 test("wiring pinned: /api/diag route exists in bot.ts, gated + sanitized, whitelist only, auth.ts untouched", () => {
   const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
   assert.ok(bot.includes('"/api/diag/:probe"'), "diag route missing");

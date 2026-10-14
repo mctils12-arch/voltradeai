@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-14 (scheduled-routine PRODUCT session, ~00:15Z Wed = 20:15 ET Tue, after close) [PRODUCT] — T-DATACORE (server/diag.ts + test) — DIAG EMAIL SCRUB IS NO LONGER ASCII-ONLY (v1.0.1063)
+
+HEALTH: /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, feeds not dead, process faults 0; DD -7.7%. No KNOWN BROKEN blocker. Thrash ratio 3-4/10 (<7).
+QUEUE CHECK: flightplan radial line is closed (radial placement live; gate-1 PASS pooled n=155; run 14 tail split underpowered, amended n=5) and must not keep consuming sessions; shadow-band step (a) and COT gate-2 are time-gated (>= 10-16). So product value went to the follow-up filed in the 2026-10-13 03:30Z entry (option d, API-boundary hardening).
+PRIOR (stated before): sanitizeDiag's email pattern `[\w.+-]+@[\w-]+\.[\w.]+` is ASCII-only, so "user@münchen.de" passes whole and "o'brien@gmail.com" leaves "o'" unredacted; a Unicode-aware pattern redacts both with no change to non-email text.
+CHANGE: SECRETISH email regex -> `/[\p{L}\p{N}._%+'\u2019-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu`. Requires a dotted domain, so "3@1" and "user@host" are untouched.
+TESTS: diag.test.ts +1 (non-ASCII local/domain, ASCII and curly apostrophe, Cyrillic, subdomain TLD, plus non-email '@' text survives). Verified it FAILS on the old regex (29 pass / 1 fail) and passes on the new (30/30). counter_ratchet OK; tsc errors 3 (<= pinned). Full server suite in this sandbox: 17 failing files, identical set and count with the change stashed (environmental; CI is authoritative).
+BIAS: display/defense-in-depth only; no trading path, no measurement code. Could over-redact a string shaped like an email, which is the safe direction. ROLLBACK: git revert.
+MERGE: after-hours now; touches no trading path.
+STARVED: no.
+
 ## 2026-10-13 (scheduled-routine PRODUCT session, ~18:10Z Tue, MARKET HOURS) [RESEARCH] — T-DATACORE (docs + data file only, no code_version change) — FLIGHTPLAN RUN 14: planHistory LIVE, BUT PLAN-AGE IS CENSORED BY CONTAINER UPTIME; AMENDMENT TEST STILL UNDERPOWERED
 
 HEALTH: session_health_check all OK (v1.0.1062 live = checkout, deploy_gate ok, daemon rss 362MB); thrash 3/10; no KNOWN BROKEN blocker.
