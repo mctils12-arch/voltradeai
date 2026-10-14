@@ -581,11 +581,15 @@ test("contract: archive fixes seed the state machine on the first request", asyn
 
 test("contract: FILED text-only plan (great-circle stand-in) never reports OFF_PLAN — deviation stays UNKNOWN", async () => {
   const swim = new SwimPlanStore();
+  // 2026-10-14: this fixture's text was "KSFO..SNS..KLAX"; corridor placement
+  // (v1.0.1072) now places SNS from it, so it is no longer a great-circle
+  // stand-in — that case moved to the corridor test below. An endpoint-only
+  // text is the stand-in this contract is about; every assertion is unchanged.
   const FH = `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
     <flightIdentification aircraftIdentification="SKW5000"/><gufi>g-2</gufi>
     <departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>
     <requestedAltitude><simple uom="FEET">24000</simple></requestedAltitude>
-    <agreed><route nasRouteText="KSFO..SNS..KLAX"/></agreed></flight></message></m:MessageCollection>`;
+    <agreed><route nasRouteText="KSFO..KLAX"/></agreed></flight></message></m:MessageCollection>`;
   for (const f of parseSfdpsMessages(FH)) swim.upsert(f, NOW - 60_000);
   let now = NOW;
   const ctx = ctxWith({ swim, now: () => now });
@@ -602,6 +606,40 @@ test("contract: FILED text-only plan (great-circle stand-in) never reports OFF_P
   assert.equal(r.originalPoints, null);
   assert.deepEqual(r.events, []);
   assert.match(r.honesty, /Deviation from the filed route is not assessed/);
+});
+
+test("corridor (v1.0.1072): a 1-fix route text between the filed airports is drawn through its fix, labelled, deviation NOT judged", async () => {
+  const swim = new SwimPlanStore();
+  const FH = `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
+    <flightIdentification aircraftIdentification="SKW5009"/><gufi>g-9</gufi>
+    <departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>
+    <requestedAltitude><simple uom="FEET">24000</simple></requestedAltitude>
+    <agreed><route nasRouteText="KSFO..SNS..KLAX"/></agreed></flight></message></m:MessageCollection>`;
+  const [m] = parseSfdpsMessages(FH);
+  assert.equal(m.routeKind, "corridor");
+  assert.deepEqual(m.routePoints.map((p) => p.name), ["SNS"]);
+  for (const f of parseSfdpsMessages(FH)) swim.upsert(f, NOW - 60_000);
+  let now = NOW;
+  const ctx = ctxWith({ swim, now: () => now });
+  let r: FlightPlanResponse | null = null;
+  // far (> DEVIATION_OFF_NM) off the drawn path for several en-route fixes: still never OFF_PLAN
+  for (const [lat, lon] of [[36.4, -120.4], [36.2, -120.2], [36.0, -120.0], [35.9, -119.9]]) {
+    now += 60_000;
+    r = await resolveFlightPlan(q({ callsign: "SKW5009", lat: String(lat), lon: String(lon), alt: "20000", trk: "140" }), ctx);
+  }
+  if (!r) throw new Error("no response");
+  assert.equal(r.source, "FILED_FAA");
+  assert.equal(r.pathEstimated, false, "the path runs through the filed fix, not a great circle");
+  assert.equal(r.routeKind, "corridor");
+  assert.equal(r.label, "FILED — FAA SWIM flight plan KSFO→KLAX (route text names 1 fix; legs between them drawn direct)");
+  assert.match(r.honesty, /corridor between the filed airports/);
+  assert.equal(r.deviation.state, "UNKNOWN", "a 1-2 fix path is too coarse to call OFF_PLAN against");
+  assert.equal(r.originalPoints, null);
+  assert.match(r.honesty, /too coarse to judge against/);
+  // a far-away namesake never bends the line: the same text between two airports SNS is nowhere near
+  const [far] = parseSfdpsMessages(FH.replace("KSFO", "KBOS").replace("KLAX", "KATL").replace("KSFO..SNS..KLAX", "KBOS..SNS..KATL"));
+  assert.deepEqual(far.routePoints, []);
+  assert.equal(far.routeKind, undefined);
 });
 
 test("parsePlanQuery: validation", () => {

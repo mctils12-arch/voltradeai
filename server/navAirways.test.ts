@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, resolveRadialToken, placeDirectFixesWithRadials } from "./navAirways";
+import { airwaySegment, expandRouteText, placeDirectFixes, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, resolveRadialToken, placeDirectFixesWithRadials, placeFixesInCorridor, CORRIDOR_MAX_DETOUR, CORRIDOR_MIN_DIRECT_NM } from "./navAirways";
 import { lookupFix } from "./navFixes";
 import { haversineNm, initialBearingDeg } from "../shared/flightPlanGeometry";
 import { parseSfdpsMessages, routeShapeCounters, unplacedReasonCounters, routeShapeSamples, _resetSfdpsCountersForTests } from "./swimSfdps";
@@ -143,4 +143,37 @@ test("radial shadow resolver clears the >=3 bar only with real placed points and
   // and counted by routeShapeCounters.radialPlaced instead, so the residual shadow stays 0.
   assert.equal(c.radialShadowPlaced, 0);
   assert.equal(c.radialShadowTokens, 0);
+});
+
+// ── corridor placement (2026-10-14): the "fewFixes" class, placed only with the
+// filed airports as context. Gate-1 vs each aircraft's own ADS-B position is
+// logged in research/experiments.md 2026-10-14.
+test("placeFixesInCorridor: 1-2 fixes between the filed airports are placed; namesakes, airways, short hops refused", () => {
+  const SFO = { lat: 37.619, lon: -122.375 }, LAX = { lat: 33.9425, lon: -118.4081 };
+  const BOS = { lat: 42.3656, lon: -71.0096 }, ATL = { lat: 33.6367, lon: -84.4281 };
+  assert.deepEqual(placeFixesInCorridor("KSFO..SNS..KLAX", SFO, LAX).map((p) => p.name), ["SNS"]);
+  const sns = lookupFix("SNS")!;
+  assert.ok(haversineNm(SFO, sns) + haversineNm(sns, LAX) <= CORRIDOR_MAX_DETOUR * haversineNm(SFO, LAX));
+  assert.deepEqual(placeFixesInCorridor("KBOS..SNS..KATL", BOS, ATL), [], "SNS is in California: outside the BOS-ATL corridor");
+  assert.deepEqual(placeFixesInCorridor("KTEB..WHITE..J209..KPBI", { lat: 40.85, lon: -74.06 }, { lat: 26.68, lon: -80.1 }), [],
+    "an airway-shaped token refuses even when NASR does not list it");
+  assert.deepEqual(placeFixesInCorridor("KBOS..ILC.J80.JNC..KATL", BOS, ATL), []);
+  const near = { lat: SFO.lat - 0.3, lon: SFO.lon };
+  assert.ok(haversineNm(SFO, near) < CORRIDOR_MIN_DIRECT_NM);
+  assert.deepEqual(placeFixesInCorridor("KSFO..SNS..KXXX", SFO, near), [], "terminal hops stay unplaced");
+  assert.deepEqual(placeFixesInCorridor(null, SFO, LAX), []);
+  assert.deepEqual(placeFixesInCorridor("KSFO..QZQZQ..KLAX", SFO, LAX), [], "unknown idents are never guessed");
+});
+
+test("corridor placement is the LAST text fallback and counts corridorPlaced; no airports, no corridor", () => {
+  _resetSfdpsCountersForTests();
+  const mk = (t: string, ap = true) => `<MessageCollection><message><flight source="FH" timestamp="2026-10-14T12:00:00Z"><flightIdentification aircraftIdentification="C1"/>${ap ? '<departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>' : ""}<route nasRouteText="${t}"/></flight></message></MessageCollection>`;
+  const [f] = parseSfdpsMessages(mk("KSFO..SNS..KLAX"));
+  assert.equal(f.routeKind, "corridor");
+  assert.equal(routeShapeCounters.corridorPlaced, 1);
+  const [g] = parseSfdpsMessages(mk("KSFO..SNS..KLAX", false));
+  assert.deepEqual(g.routePoints, [], "no filed airports = no context = unplaced");
+  const [d] = parseSfdpsMessages(mk("KBOS..ILC..MLF..SAKES..KATL"));
+  assert.equal(d.routeKind, "direct", "earlier fallbacks still win");
+  assert.equal(routeShapeCounters.corridorPlaced, 1);
 });
