@@ -255,3 +255,72 @@ test("consumer: a message with no readable section is counted + described, never
   assert.equal(acked, 1);
   assert.match(s.lastUnreadableShape ?? "", /type=number xmlDecoded=absent xml=absent sdt=null bin=undefined/);
 });
+
+// ── stall watchdog (ops auto-fix, 2026-10-14) ───────────────────────────────
+
+function watchdogRig(stallMs?: number) {
+  _resetSwimConnectorForTests();
+  const f = fakeSolace();
+  let clock = 1_000_000;
+  const timers: Array<{ fn: () => void; ms: number }> = [];
+  const logs: string[] = [];
+  const started = startSwimProduct({
+    product: "SFDPS", envPrefix: "SWIM_SFDPS", env: SFDPS_ENV, onPayload: () => {}, stallMs,
+    importer: async () => f.mod, now: () => clock, log: (m) => logs.push(m), schedule: () => {},
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return 0; },
+  });
+  const every = Math.max(1_000, Math.min(60_000, Math.floor((stallMs ?? 0) / 4)));
+  const advance = (ms: number) => {
+    clock += ms;
+    // fire the watchdog ticks armed BEFORE this step once each (a tick re-arms
+    // itself; firing those in the same step would never terminate)
+    const due = timers.filter((t) => t.ms === every);
+    for (const t of due) timers.splice(timers.indexOf(t), 1);
+    for (const t of due) t.fn();
+  };
+  return { f, started, advance, timers, logs, msg: () => f.ch.MSG({ getBinaryAttachment: () => "<m/>", acknowledge: () => {} }) };
+}
+
+test("stall watchdog: a connected consumer that goes silent past stallMs is restarted (once, through the backoff path)", async () => {
+  const r = watchdogRig(600_000);
+  const h = await r.started;
+  assert.equal(h.status().connected, true);
+  r.advance(150_000); r.msg();               // traffic keeps it alive
+  r.advance(150_000);
+  assert.equal(h.status().stallRestarts, 0);
+  r.advance(600_000);                         // 750 s silent > 600 s
+  const s = h.status();
+  assert.equal(s.stallRestarts, 1);
+  assert.equal(s.connected, false);
+  assert.equal(r.f.rec.disposed, 1, "the silent session is disposed");
+  assert.match(s.lastError || "", /stalled: no messages for \d+ min on a connected consumer/);
+  assert.ok(r.timers.some((t) => t.ms === 30_000), "reconnect scheduled with the normal 30 s backoff");
+  r.advance(600_000);
+  assert.equal(h.status().stallRestarts, 1, "no second restart while the reconnect is pending");
+  h.stop();
+});
+
+test("stall watchdog: a consumer DOWN with no error event (nothing else rebinds it) is restarted", async () => {
+  const r = watchdogRig(600_000);
+  const h = await r.started;
+  r.f.ch.CDOWN();
+  assert.equal(h.status().connected, false);
+  assert.equal(h.status().reconnects, 0, "the library raised no error — nothing would have retried");
+  r.advance(660_000);
+  assert.equal(h.status().stallRestarts, 1);
+  assert.match(h.status().lastError || "", /and no live consumer/);
+  h.stop();
+});
+
+test("stall watchdog: off unless a product opts in; steady traffic never trips it", async () => {
+  const off = watchdogRig(undefined);
+  const h0 = await off.started;
+  assert.equal(off.timers.length, 0, "no watchdog timer without stallMs");
+  h0.stop();
+  const r = watchdogRig(600_000);
+  const h = await r.started;
+  for (let i = 0; i < 20; i++) { r.advance(150_000); r.msg(); }
+  assert.equal(h.status().stallRestarts, 0);
+  assert.equal(h.status().connected, true);
+  h.stop();
+});

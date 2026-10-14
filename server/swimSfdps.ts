@@ -911,12 +911,19 @@ export function sfdpsCounters(): SfdpsCounters {
   return { ...counters, byService: { ...counters.byService }, flightByType: { ...counters.flightByType } };
 }
 
+/** SFDPS streams ~85 msg/s around the clock (163k messages in a 32-min-old
+ *  process, live 2026-10-14): 10 silent minutes is a dead flow, never a
+ *  quiet one — the connector's stall watchdog restarts the session (ops
+ *  auto-fix). */
+export const SFDPS_STALL_MS = 10 * 60_000;
+
 /** Start the SFDPS consumer (no-op unless all SWIM_SFDPS_* env vars exist). */
 export function startSfdps(
   store: SwimPlanStore,
   opts: Omit<Partial<SwimProductOptions>, "onPayload" | "product" | "envPrefix"> = {},
 ): Promise<SwimConnectorHandle> {
   return startSwimProduct({
+    stallMs: SFDPS_STALL_MS,
     ...opts,
     product: "SFDPS",
     envPrefix: SFDPS_ENV_PREFIX,
