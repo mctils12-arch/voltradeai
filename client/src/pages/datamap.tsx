@@ -309,6 +309,11 @@ const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
 // per layer when present; a null camera altitude fails OPEN (lib/lod.ts).
 const MARKER_LOD_FALLBACK = { camMaxKm: 80_000, fadeBandKm: 40_000 };
 const MARKER_LOD_NOTE = "hidden at this camera altitude (LOD) — zoom in";
+/** Continent-zoom (< 4.5) aircraft icon thinning: the fraction of planes the
+ *  low-zoom symbol layer keeps (rank-filtered). Shared by the layer setup and
+ *  the tracked-plane icon hide filter. */
+const AIR_LOW_ZOOM_KEEP = 0.35;
+
 /** layer-id → {styleLayers, base icon-opacity} for the fade-by-relevance pass. */
 const MARKER_LOD_TARGETS: Record<string, { styleLayers: string[]; baseOpacity: number }> = {
   aircraft: { styleLayers: ["aircraft-sym", "aircraft-sym-lo"], baseOpacity: 0.95 },
@@ -4327,6 +4332,16 @@ export default function DataMapPage() {
   }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
   const flightShapeRef = useRef(0);
+  // [REPAIR 2026-10-14] the LIVE tail's end point, computed ONCE per tick by
+  // updateFlightTail and reused by the marker + floating tag, so the line,
+  // the plane and its label can never disagree (owner report: "the line is
+  // not following the plane ... it's not up to the plane"). altDisp is the
+  // display-datum altitude (displayAltReal), NaN = altitude gap.
+  const liveTailEndRef = useRef<{ lon: number; lat: number; altDisp: number } | null>(null);
+  // the tracked plane's 2D icon is hidden while its 3D marker draws it
+  // (below AIR_3D_MIN_ZOOM) — one representation, never two
+  const hiddenIconHexRef = useRef<string | null>(null);
+  const iconFilterWarnedRef = useRef(false);
   // the selected plane's latest BROADCAST rates (real feed values — the
   // live card prefers them over derivation; replay derives from fixes)
   const lastLiveKtsRef = useRef<number | null>(null);
@@ -4832,6 +4847,29 @@ export default function DataMapPage() {
     });
   };
 
+  /** Hide ONE aircraft's 2D icon (the tracked plane while its 3D marker
+   *  draws it), or none. Filter writes only when the hidden hex CHANGES,
+   *  never per tick. The low-zoom layer keeps its rank thinning. */
+  const syncHiddenAircraftIcon = (map: maplibregl.Map, hex: string | null) => {
+    if (hiddenIconHexRef.current === hex) return;
+    try {
+      const not: maplibregl.FilterSpecification | null = hex ? ["!=", ["get", "icao24"], hex] : null;
+      if (map.getLayer("aircraft-sym")) map.setFilter("aircraft-sym", not);
+      if (map.getLayer("aircraft-sym-lo")) {
+        const rank: maplibregl.FilterSpecification = ["<", ["get", "rank"], AIR_LOW_ZOOM_KEEP];
+        map.setFilter("aircraft-sym-lo", not ? ["all", rank, not] : rank);
+      }
+      hiddenIconHexRef.current = hex;
+    } catch (e) {
+      // style mid-reload: the ref is NOT updated, so the next tick retries;
+      // said once, never silent
+      if (!iconFilterWarnedRef.current) {
+        iconFilterWarnedRef.current = true;
+        console.warn("[datamap] tracked-plane icon filter deferred:", e instanceof Error ? e.message : String(e));
+      }
+    }
+  };
+
   const updateFlightTail = () => {
     const map = mapRef.current;
     const layer = flightTrackRef.current;
@@ -4842,6 +4880,7 @@ export default function DataMapPage() {
       const lv = airFollowLiveRef.current;
       if (!st || !fid || !lv || lv.id !== fid || st.samples.length === 0) {
         layer.setTail(null);
+        liveTailEndRef.current = null;
         updateFlightMarker();
         return;
       }
@@ -4858,6 +4897,7 @@ export default function DataMapPage() {
       const terrainOn = !!map.getTerrain();
       const fromAlt = st.altDisp[li];
       const toAlt = lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la);
+      liveTailEndRef.current = { lon: lo, lat: la, altDisp: toAlt };
       const inner = terrainOn ? tailInnerOnGround(map, st, li, lo, la, fromAlt, toAlt) : undefined;
       layer.setTail({
         inner,
@@ -4895,6 +4935,7 @@ export default function DataMapPage() {
     if (!map || !layer) return;
     if (!st || !det || det.trailKind !== "aircraft" || st.samples.length === 0) {
       try { layer.setMarker(null); } catch {}
+      syncHiddenAircraftIcon(map, null);
       if (tag) tag.style.display = "none";
       flightMarkerPosRef.current = null;
       return;
@@ -4908,10 +4949,16 @@ export default function DataMapPage() {
       const end = st.samples[st.samples.length - 1];
       if (clock.live) {
         const lv = airFollowLiveRef.current;
+        const tailEnd = liveTailEndRef.current;
         if (lv && lv.id === airCrumbsRef.current.id) {
-          const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-          lon = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
-          lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
+          if (tailEnd) {
+            // the SAME point the tail ends at (same dt + frozen gate)
+            lon = tailEnd.lon; lat = tailEnd.lat;
+          } else {
+            const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
+            lon = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
+            lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
+          }
           alt = lv.fix.al == null ? NaN : lv.fix.al;
           headingDeg = lastLiveHeadingRef.current;
           gsKt = lastLiveKtsRef.current; // broadcast (real feed value)
@@ -4925,8 +4972,32 @@ export default function DataMapPage() {
           gsKt = end.gap ? null : end.gsKt;
           vsFpm = end.gap ? null : end.vsFpm;
         }
-        layer.setMarker(null); // live: the airLayer silhouette is the plane
+        // LIVE (2026-10-14): at/above AIR_3D_MIN_ZOOM the airLayer mesh IS
+        // the plane. Below it the plane used to be a flat 2D icon on the
+        // GROUND while its trail ended at ALTITUDE — in a tilted view the
+        // trail visibly stopped short of the plane. Now the tracked plane is
+        // drawn as the 3D marker at the tail's own end point (altitude
+        // included) and its 2D icon is hidden: one plane, joined to its line.
+        const below3d = map.getZoom() < AIR_3D_MIN_ZOOM;
+        const fid = airCrumbsRef.current.id;
+        if (below3d && lv && lv.id === fid) {
+          const mm = lonLatToMercator(lon, lat);
+          const terrOn = !!map.getTerrain();
+          layer.setMarker({
+            mercX: mm.x, mercY: mm.y,
+            altM: tailEnd ? tailEnd.altDisp : (Number.isNaN(alt) ? alt : displayAltReal(map, alt, lon, lat)),
+            groundZ: terrOn ? groundZAt(map, lon, lat) : 0,
+            headingDeg: headingDeg ?? 0,
+            climb: climbRatio(vsFpm == null ? null : vsFpm * 0.00508, gsKt == null ? null : gsKt * 0.5144),
+            shape: flightShapeRef.current,
+          });
+          syncHiddenAircraftIcon(map, fid);
+        } else {
+          layer.setMarker(null); // the airLayer mesh is the plane
+          syncHiddenAircraftIcon(map, null);
+        }
       } else {
+        syncHiddenAircraftIcon(map, null); // replay: the live icon stays visible
         const s = trackSampleAt(st.samples, clock.t);
         if (!s) return;
         lon = s.lon; lat = s.lat; alt = s.altM;
@@ -4964,11 +5035,13 @@ export default function DataMapPage() {
       if (tag) {
         const canvas = map.getCanvas();
         const mm = lonLatToMercator(lon, lat);
-        const p = layer.projectToScreen(
-          mm.x, mm.y,
-          Number.isNaN(alt) ? gZ : displayAltReal(map, alt, lon, lat),
-          canvas.clientWidth || 1, canvas.clientHeight || 1,
-        );
+        // live: the tail's own end altitude (held when the fix has none), so
+        // the tag sits on the plane the line ends at
+        const tailEnd = clock.live ? liveTailEndRef.current : null;
+        const tagAlt = tailEnd && Number.isFinite(tailEnd.altDisp)
+          ? tailEnd.altDisp
+          : (Number.isNaN(alt) ? gZ : displayAltReal(map, alt, lon, lat));
+        const p = layer.projectToScreen(mm.x, mm.y, tagAlt, canvas.clientWidth || 1, canvas.clientHeight || 1);
         if (p) {
           tag.style.display = "flex";
           tag.style.left = `${p.x}px`;
@@ -9173,7 +9246,7 @@ export default function DataMapPage() {
       fastWhen: () => !!airCrumbsRef.current.id,
       fastIntervalMs: 2_000,
       rearmRef: airPollRearmRef,
-      lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
+      lowZoom: { splitZoom: 4.5, keepFraction: AIR_LOW_ZOOM_KEEP },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,
       // O6-4: operator filter — one pass feeds symbols, vectors AND the 3D
