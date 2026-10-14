@@ -107825,6 +107825,13 @@ TESTS: requestLog.test.ts +2 (SPA mount attribution + page-view filter; route-pa
 BIAS/RISK: analytics only; no trading path. ROLLBACK: git revert.
 STARVED: no.
 
+## 2026-10-14 (scheduled-routine session, ~16:05Z Wed, market hours) [NO-ACTION] — health green; queue unchanged since 11:00Z, still time-gated to 2026-10-16
+
+Loop-health ratio: last 10 tags include the closed, ratcheted rule-conflict REPAIR series plus three NO-ACTION; no new break found. No thrash.
+Live (16:03Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, feeds (aircraft/vessels/trains) not dead, process faults 0, memory pressure ok. Drawdown -9.1% (was -7.7/-7.8% earlier today) — drifting, not halted; no kill-switch event to act on, noted for the next session's health read.
+Queue: shadow-band step (a) and COT gate-2 15th report both gated to on/after 2026-10-16. Only merge since the 11:00Z entry is the analytics REPAIR (#1325), already logged. Research would duplicate filed work; anti-churn applies.
+MERGE NOTE: docs-only; touches no trading path, so it may merge any time (no live-break fix; no need to wait for 4:00 PM ET beyond routine caution).
+
 ## 2026-10-14 (human-directed session, ~15:30Z Wed) [REPAIR] — /data layers panel lost every layer group after one failed registry fetch at startup
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, client/src/lib/layerRegistry.ts, index.css) + shared package.json/research.
