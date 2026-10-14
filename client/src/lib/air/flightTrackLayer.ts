@@ -61,7 +61,7 @@ import {
   TZ_MARK_WIDTH_PX,
   altRampColor,
 } from './trackModel.js';
-import { AIR_SILHOUETTES, AIR_SHAPE, AIR_DIR_STEP_M } from './airLayer.js';
+import { AIR_MESHES, AIR_MESH_STRIDE, AIR_SHAPE, AIR_DIR_STEP_M, AIR_WORLD_GLSL, seedMetresPerDevicePixel } from './airLayer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 import { setGauge } from '../../render/perfMetrics.js';
@@ -439,8 +439,14 @@ export const FT_MARKER_VERT_SRC = (prelude: string, define: string): string => `
 ${prelude}
 ${define}
 ${VT_PROJ_ELEV_GLSL}
-in vec2 a_local;
+${AIR_WORLD_GLSL}
+in vec4 a_local;           // glyph: AIR_MESHES vertex (x, y, z, shade); dot: px (x, y) [z=0, w=1 defaults]
 in float a_altFrac;
+uniform float u_world;     // 1 = the aircraft mesh in WORLD space (airWorldVertex); 0 = screen-space dot / line
+uniform float u_climb;     // climbRatio() tangent, for the world-space attitude
+uniform float u_pxPerUnit; // device px per mesh unit (world path)
+uniform float u_mppSeed;   // metres per device px at the view centre (world path step seed)
+uniform vec2 u_viewportPx; // drawing buffer px (world path)
 uniform vec2 u_anchor;     // normalized mercator
 uniform float u_altZ;      // altitude end, display-datum meters
 uniform float u_groundZ;   // ground end, display-datum meters
@@ -499,6 +505,14 @@ void main() {
   vec2 p = a_local.x * vec2(fwd.y, -fwd.x) + a_local.y * fwd;
   gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;
   v_color = u_color;
+  if (u_world > 0.5) {
+    // the aircraft itself: the SAME world-space mesh + attitude as airLayer
+    // (2026-10-14 — the tracked plane drawn at the end of its own trail at
+    // every zoom; nose along the track, pitched by the flight-path angle)
+    gl_Position = airWorldVertex(anchor, u_anchor, baseZ, degrees(u_heading), u_climb, a_local.xyz,
+                                 u_pxPerUnit, u_mppSeed, u_viewportPx);
+    v_color.rgb *= a_local.w;
+  }
 }`;
 
 const FT_MARKER_FRAG_SRC = `#version 300 es
@@ -876,6 +890,11 @@ export class FlightTrackLayer implements CustomLayerInterface {
     if (this.mU.rot) gl.uniform1f(this.mU.rot, ((m.headingDeg - bearing) * Math.PI) / 180);
     if (this.mU.heading) gl.uniform1f(this.mU.heading, (m.headingDeg * Math.PI) / 180);
     if (this.mU.climbZ) gl.uniform1f(this.mU.climbZ, (Number.isFinite(m.climb) ? (m.climb as number) : 0) * this.altScale);
+    if (this.mU.climb) gl.uniform1f(this.mU.climb, Number.isFinite(m.climb) ? (m.climb as number) : 0);
+    if (this.mU.pxPerUnit) gl.uniform1f(this.mU.pxPerUnit, MARKER_PIXELS / 1.24);
+    if (this.mU.viewportPx) gl.uniform2f(this.mU.viewportPx, w, h);
+    if (this.mU.mppSeed) gl.uniform1f(this.mU.mppSeed, seedMetresPerDevicePixel(this.map, w, 8));
+    if (this.mU.world) gl.uniform1f(this.mU.world, 0);
 
     if (!this.mDotBuffer) {
       this.mDotBuffer = gl.createBuffer();
@@ -890,14 +909,12 @@ export class FlightTrackLayer implements CustomLayerInterface {
     const shape = Number.isFinite(m.shape) ? m.shape : AIR_SHAPE.DEFAULT;
     if (!this.mGlyphBuffer || this.mGlyphShape !== shape) {
       if (!this.mGlyphBuffer) this.mGlyphBuffer = gl.createBuffer();
-      const sil = AIR_SILHOUETTES[shape] ?? AIR_SILHOUETTES[AIR_SHAPE.DEFAULT];
-      // silhouettes span ~±0.62 local units — scale to MARKER_PIXELS px
-      const px = new Float32Array(sil.length);
-      const k = MARKER_PIXELS / 1.24;
-      for (let i = 0; i < sil.length; i++) px[i] = sil[i] * k;
+      // the class's 3D mesh in local units (world-space path sizes it to
+      // MARKER_PIXELS via u_pxPerUnit)
+      const mesh = AIR_MESHES[shape] ?? AIR_MESHES[AIR_SHAPE.DEFAULT];
       gl.bindBuffer(gl.ARRAY_BUFFER, this.mGlyphBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, px, gl.STATIC_DRAW);
-      this.mGlyphVerts = px.length / 2;
+      gl.bufferData(gl.ARRAY_BUFFER, mesh, gl.STATIC_DRAW);
+      this.mGlyphVerts = mesh.length / AIR_MESH_STRIDE;
       this.mGlyphShape = shape;
     }
 
@@ -905,7 +922,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
     if (hasAlt) {
       if (this.mU.color) gl.uniform4fv(this.mU.color, MARKER_LINE_RGBA);
       gl.disableVertexAttribArray(this.mALocal);
-      gl.vertexAttrib2f(this.mALocal, 0, 0);
+      gl.vertexAttrib4f(this.mALocal, 0, 0, 0, 1);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.mLineBuffer);
       gl.enableVertexAttribArray(this.mAAltFrac);
       gl.vertexAttribPointer(this.mAAltFrac, 1, gl.FLOAT, false, 0, 0);
@@ -919,12 +936,15 @@ export class FlightTrackLayer implements CustomLayerInterface {
     gl.enableVertexAttribArray(this.mALocal);
     gl.vertexAttribPointer(this.mALocal, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, DOT_SEGS * 3);
-    // 3) the glyph at altitude (altFrac 1), nose along the track tangent
+    // 3) the aircraft at altitude (altFrac 1): world-space 3D mesh, nose
+    // along the track, pitched by the climb (airLayer's airWorldVertex)
     if (this.mU.color) gl.uniform4fv(this.mU.color, MARKER_GLYPH_RGBA);
+    if (this.mU.world) gl.uniform1f(this.mU.world, 1);
     gl.vertexAttrib1f(this.mAAltFrac, 1);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.mGlyphBuffer);
-    gl.vertexAttribPointer(this.mALocal, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(this.mALocal, AIR_MESH_STRIDE, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, this.mGlyphVerts);
+    if (this.mU.world) gl.uniform1f(this.mU.world, 0);
     gl.disableVertexAttribArray(this.mALocal);
   }
 
@@ -1007,6 +1027,11 @@ export class FlightTrackLayer implements CustomLayerInterface {
       rot: gl.getUniformLocation(mp, 'u_rot'),
       heading: gl.getUniformLocation(mp, 'u_heading'),
       climbZ: gl.getUniformLocation(mp, 'u_climbZ'),
+      climb: gl.getUniformLocation(mp, 'u_climb'),
+      world: gl.getUniformLocation(mp, 'u_world'),
+      pxPerUnit: gl.getUniformLocation(mp, 'u_pxPerUnit'),
+      mppSeed: gl.getUniformLocation(mp, 'u_mppSeed'),
+      viewportPx: gl.getUniformLocation(mp, 'u_viewportPx'),
       scaleClip: gl.getUniformLocation(mp, 'u_scaleClip'),
       aspect: gl.getUniformLocation(mp, 'u_aspect'),
       color: gl.getUniformLocation(mp, 'u_color'),
