@@ -15,11 +15,11 @@ import {
 import { createAircraftFeed } from "./air/globalFeed.ts";
 
 function fakeTarget() {
-  const fns = new Map<string, Set<(e: any) => void>>();
+  const fns = new Map<string, Set<(e: Event) => void>>();
   return {
-    addEventListener(t: string, fn: (e: any) => void) { (fns.get(t) ?? fns.set(t, new Set()).get(t)!).add(fn); },
-    removeEventListener(t: string, fn: (e: any) => void) { fns.get(t)?.delete(fn); },
-    fire(t: string, e: any = {}) { for (const fn of Array.from(fns.get(t) ?? [])) fn(e); },
+    addEventListener(t: string, fn: (e: Event) => void) { (fns.get(t) ?? fns.set(t, new Set()).get(t)!).add(fn); },
+    removeEventListener(t: string, fn: (e: Event) => void) { fns.get(t)?.delete(fn); },
+    fire(t: string, e: object = {}) { for (const fn of Array.from(fns.get(t) ?? [])) fn(e as Event); },
     count(t: string) { return fns.get(t)?.size ?? 0; },
   };
 }
@@ -81,12 +81,18 @@ test("online after offline emits; bfcache restore emits; plain pageshow does not
   assert.equal(r.got[1].reason, "pageshow");
 });
 
-test("a throwing listener never starves the others; dispose detaches everything", () => {
+test("a throwing listener never starves the others, is logged, and dispose detaches everything", () => {
   const r = rig();
   r.tr.subscribe(() => { throw new Error("bad listener"); });
-  r.doc.hidden = true; r.doc.fire("visibilitychange");
-  r.doc.hidden = false; r.doc.fire("visibilitychange");
+  const logged: unknown[][] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    r.doc.hidden = true; r.doc.fire("visibilitychange");
+    r.doc.hidden = false; r.doc.fire("visibilitychange");
+  } finally { console.error = realError; }
   assert.equal(r.got.length, 1);
+  assert.equal(logged.length, 1, "the failure is loud, not swallowed");
   r.tr.dispose();
   assert.equal(r.doc.count("visibilitychange"), 0);
   for (const t of ["online", "offline", "pageshow"]) assert.equal(r.win.count(t), 0, t);

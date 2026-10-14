@@ -31,8 +31,8 @@ export const RESUME_HEARTBEAT_MS = 15_000;
 export const RESUME_SLEEP_GAP_MS = 60_000;
 
 interface EventTargetLike {
-  addEventListener(type: string, fn: (e: any) => void): void;
-  removeEventListener(type: string, fn: (e: any) => void): void;
+  addEventListener(type: string, fn: (e: Event) => void): void;
+  removeEventListener(type: string, fn: (e: Event) => void): void;
 }
 export interface TabResumeDeps {
   doc: EventTargetLike & { hidden: boolean };
@@ -60,7 +60,8 @@ export function createTabResume(deps: TabResumeDeps): TabResume {
   const emit = (ev: ResumeEvent) => {
     lastBeat = now(); // a resume resets the wake clock: never double-fire
     for (const fn of Array.from(listeners)) {
-      try { fn(ev); } catch { /* one bad listener never starves the rest */ }
+      // one bad listener never starves the rest, and never fails silently
+      try { fn(ev); } catch (err) { console.error("[tabResume] resume listener threw", err); }
     }
   };
   const onVisibility = () => {
@@ -75,8 +76,8 @@ export function createTabResume(deps: TabResumeDeps): TabResume {
     emit({ reason: "online", awayMs: away });
   };
   const onOffline = () => { offlineAt = now(); };
-  const onPageShow = (e: { persisted?: boolean }) => {
-    if (e && e.persisted) emit({ reason: "pageshow", awayMs: now() - lastBeat });
+  const onPageShow = (e: Event) => {
+    if ((e as PageTransitionEvent).persisted) emit({ reason: "pageshow", awayMs: now() - lastBeat });
   };
   const beat = setI(() => {
     const t = now();
