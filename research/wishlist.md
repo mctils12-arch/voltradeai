@@ -4617,3 +4617,32 @@ WHY: server/laddRegistry.ts (v1.0.1067) withholds FAA SWIM flight plans for FAA 
 BUILD-FIRST ANALYSIS: (1) raw material we have: the adsb.lol scope, already built and wired; (2) accumulation: done (90-day persisted memory); (3) inference: not appropriate for a privacy list, since guessing wrong in the permissive direction is the harm. The remaining gap is the FAA's own list.
 ASK: the FAA distributes the LADD "industry" list to registered data subscribers (FAA LADD program, ladd.faa.gov). Registration is free but needs the human's account/attestation. Once a download URL or file exists, load it into LaddRegistry as a second source (keep the adsb.lol source too).
 COST: $0. PRIORITY: medium (compliance gap is narrow but real).
+
+## 2026-10-14 — ATC AUDIO → "ATC instruction line" (live controller instructions drawn ahead of a tracked plane) — needs an audio source decision (human)
+
+WHAT THE HUMAN ASKED (2026-10-14, verbatim intent): listen to live ATC for the frequency a tracked plane is on, transcribe the controller's instructions to it (headings, altitudes, distances — "vectors"), and draw them as a NEW line ahead of the plane. The planned-route line should bend to follow vectors and return to the filed route on "resume own navigation" / "direct <fix>" / "cleared as filed". Any airport, tracked in the background.
+BUILD-FIRST ANALYSIS:
+1. Raw material: VHF airband audio. We receive none today. No free, documented, any-airport ATC audio API was found (search 2026-10-14):
+   - LiveATC.net: the widest coverage, but no public API. Its site returned 403 to automated reads, so its terms could not be read directly. Third-party reports say the terms prohibit apps that tune into its streams. → Needs written permission.
+   - Broadcastify (RadioReference): Calls + Live Audio APIs, but its catalog policy refuses "parallel front doors" / scanner-style listening apps. Calls access is by email application (support@broadcastify.com); aviation is not addressed. → Ask.
+   - UFA ATTranscribe: commercial ATC speech-to-text with an API (paid, price on request).
+   - Own receiver: RTL-SDR + airband antenna + a small computer with line of sight to the airport's tower/ground/approach frequencies (≈ $100–150 hardware per site, estimate). Covers only sites we equip. Free ATC-tuned speech models exist (e.g. atc2txt, a Whisper fine-tune), with known errors on fast speech/accents/noise.
+2. Accumulation: recording our own receiver's audio from day one turns it into an archive nobody can bill for (EDGE DOCTRINE #1).
+3. Inference without audio: partial. We can already infer "being vectored" from the ADS-B track vs the filed route (shared/flightPlanGeometry.ts terminalVectoring), but not the instruction itself.
+4. Genuinely paid/permission-gated: the any-airport audio feed. Scope that is realistic even with permission: only the frequency a TRACKED plane is on, only while tracked (transcribing every frequency everywhere is thousands of concurrent streams).
+HONESTY: transcripts would be labeled "ATC instructions — heard, unverified", never presented as fact; the ADS-B track stays the truth. Legal review is needed before any monetized use of ATC audio content.
+WHAT CAN SHIP WITHOUT AUDIO (task queued): the controller + frequency for the tracked plane's phase/position (FAA NASR frequency + ARTCC boundary data, free), and the instruction-PARSER + line renderer tested on sample phrases, inert until audio exists.
+DECISION NEEDED (human): which source to pursue. Drafts below are ready to send from the human's own email; the session cannot send email.
+
+DRAFT 1 — to LiveATC.net (contact form on liveatc.net):
+> Subject: Permission request — transcribing one LiveATC feed for a tracked aircraft (non-commercial prototype)
+> Hello LiveATC team,
+> I run VolTradeAI (voltradeai-production.up.railway.app), a non-commercial prototype map of live aircraft built on community ADS-B data. I'd like to ask permission to connect to the single LiveATC feed matching the frequency of an aircraft a user is actively tracking, transcribe the controller instructions for that aircraft, and show them on the map. Each transcription would be labeled "heard, unverified" and credit LiveATC with a link. We would make no more than one connection per tracked aircraft, only while it is tracked; we would not rebroadcast audio and would cache nothing beyond the text. Would this be allowed? If so, are there terms, rate limits or a partner arrangement you'd want us to follow? If it isn't, I'd be grateful for a pointer to what is allowed.
+> Thanks, [name]
+
+DRAFT 2 — to Broadcastify (support@broadcastify.com):
+> Subject: Calls API application — aviation feeds, per-aircraft transcription prototype
+> Hello,
+> I'd like to apply for Broadcastify Calls API access for VolTradeAI, a non-commercial prototype aircraft map. Use: for an aircraft a user is tracking, read calls from the matching aviation feed, transcribe the instructions addressed to that aircraft, and show them as text on the map with attribution. We would not offer audio playback or a listening interface, and would not build a feed directory. Is aviation-feed access available under the Calls API, and on what terms?
+> Thanks, [name]
+PRIORITY: medium (the human asked for it; feature value is high, cost unknown until a source answers). COST: $0 for the permission route; ≈ $100–150/site for own receivers (estimate) + compute for speech-to-text.
