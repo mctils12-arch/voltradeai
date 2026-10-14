@@ -15,6 +15,7 @@ import {
   fillFromLive, LIVE_FILL_MAX_AGE_MS,
 } from "./flightPlans";
 import { SwimPlanStore, parseSfdpsMessages, type StoredSwimPlan } from "./swimSfdps";
+import { LADD_WITHHELD_NOTE } from "./laddRegistry";
 import { densifyPlan, haversineNm, type PlanPoint } from "../shared/flightPlanGeometry";
 
 // ── fixtures: live adsb.lol route files (captured 2026-09-28) ───────────────
@@ -473,6 +474,40 @@ test("contract: FILED_FAA outranks every prediction", async () => {
   assert.ok(r.points.some((p) => p.name === "SNS"), "filed route point kept");
   assert.equal(r.ageSec, 60);
   assert.equal(r.routeKind, "expanded");
+});
+
+test("FAA LADD aircraft: the SWIM-filed plan is withheld, predictions still work, and the response says why", async () => {
+  // 2026-10-14: N843S (LADD) had its FAA-filed plan served publicly
+  const swim = new SwimPlanStore();
+  const FH = `<m:MessageCollection xmlns:m="urn:x"><message><flight source="FH" timestamp="2026-09-28T17:00:00Z">
+    <flightIdentification aircraftIdentification="SKW5000"/><gufi>g-ladd</gufi>
+    <departure departurePoint="KSFO"/><arrival arrivalPoint="KLAX"/>
+    <requestedAltitude><simple uom="FEET">24000</simple></requestedAltitude>
+    <agreed><route nasRouteText="KSFO..SNS..KLAX"><expandedRoute>
+      <routePoint><point fix="SNS"><location><pos>36.6636 -121.6031</pos></location></point></routePoint>
+    </expandedRoute></route></agreed></flight></message></m:MessageCollection>`;
+  for (const f of parseSfdpsMessages(FH)) swim.upsert(f, NOW - 60_000);
+  const base = ctxWith({ routes: { SKW5000: KSFO_KLAX }, swim });
+  const seen: Array<[string, string | null]> = [];
+  const ladd = { ...base, isLadd: (h: string, c: string | null) => { seen.push([h, c]); return true; } };
+  const r = await resolveFlightPlan(q({ callsign: "SKW5000", lat: "36.2", lon: "-120.1" }), ladd);
+  assert.notEqual(r.source, "FILED_FAA");
+  assert.equal(r.source, "ROUTE_DB_PREDICTED", "non-FAA prediction still drawn");
+  assert.equal(r.privacy, "LADD");
+  assert.ok(r.honesty.includes(LADD_WITHHELD_NOTE));
+  assert.doesNotMatch(r.label, /FAA|FILED/);
+  assert.equal(r.planHistory, undefined, "SWIM plan history is FAA data too");
+  assert.deepEqual(seen[0], ["a1b2c3", "SKW5000"], "checked by hex and callsign");
+
+  // same aircraft, not LADD: FAA plan as before, no privacy field
+  const open = await resolveFlightPlan(q({ callsign: "SKW5000", lat: "36.2", lon: "-120.1" }), { ...base, isLadd: () => false });
+  assert.equal(open.source, "FILED_FAA");
+  assert.equal(open.privacy, undefined);
+
+  // LADD with nothing else to show: NONE, still explained
+  const none = await resolveFlightPlan(q({ callsign: "NOROUTE1", lat: "36.2", lon: "-120.1" }), { ...ctxWith({ swim }), isLadd: () => true });
+  assert.equal(none.source, "NONE");
+  assert.equal(none.privacy, "LADD");
 });
 
 test("contract: routeKind distinguishes airway / direct text expansion and is null for estimated + predicted plans", async () => {

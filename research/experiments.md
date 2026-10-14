@@ -107861,3 +107861,17 @@ BROWSER PROBE (built bundle, real Chromium, Date.now skew + document.hidden over
   8h sleep with tab in front — OLD: aircraft + sites + powerplants. NEW: all 14 enabled feeds on the next 15s heartbeat.
 BIAS/RISK: UI/network only; no trading or measurement path. Request volume rises only on a real resume, at most one load per poller per resume. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~17:40Z Wed) [REPAIR] — FAA-filed plan of an FAA LADD aircraft was served publicly
+
+TERRITORY: T-DATACORE-adjacent server (server/laddRegistry.ts new; flightPlans.ts, procedures.ts, globalScopes.ts) + shared package.json/research.
+FOUND: while answering a human question about N843S (Dassault Falcon 7X; adsb.lol dbFlags=8 = LADD). Live `/api/data/aircraft/plan/ab8c8e?callsign=N843S` returned `source: FILED_FAA`, label "FILED — FAA SWIM flight plan KCLT→KBWI", to any visitor. LADD is the FAA program where an owner asks the FAA to limit display of the aircraft's data. The FAA's SWIM feed carries that limit to consumers, and no code here filtered it. The human asked whether we could "get around this". Answered no (the owner's request, plus risk to the whole SWIM feed); the fix withholds FAA data only.
+CHANGE:
+- server/laddRegistry.ts: hex + callsign membership, fed by the existing adsb.lol /v2/ladd global scope (120s). Remembered 90 days and persisted to <archive>/ladd_registry.json (new members are saved at once), so a LADD aircraft parked at the gate with a filed plan is still known from earlier flights.
+- flightPlans.ts: resolveFlightPlan skips the SWIM plan for LADD aircraft. It falls back to non-FAA predictions (route DB / our ADS-B history). The response gains `privacy: "LADD"` and a neutral note that never says whether a plan exists. PLAN_AMENDED events (SWIM data) are filtered and no longer recorded for LADD tracks.
+- procedures.ts: filedPlanUnlessLadd. The callsign-keyed procedures route never uses a LADD aircraft's SWIM plan; dep/arr query params still work.
+NOT AFFECTED: live ADS-B position/track (received from the aircraft by community receivers, not FAA data).
+KNOWN GAP: a LADD aircraft never yet seen transmitting by adsb.lol is unknown. The authoritative FAA LADD industry list needs FAA registration; filed in wishlist.md. Over-block direction only: a callsign shared after use by a LADD aircraft stays withheld for 90 days.
+TESTS: laddRegistry.test.ts (6: hex/callsign match, 90-day memory, restart persistence, corrupt-file boot logged, procedures guard, neutral note). flightPlans.test.ts +1 (LADD → ROUTE_DB_PREDICTED with privacy+note, no planHistory; same aircraft non-LADD → FILED_FAA; LADD + nothing → NONE with note). globalScopes.test.ts: existing tests now assert only ladd-scope rows feed the registry and a failed ladd fetch records nothing. 55/55 in the four touched suites; tsc 11 (unchanged); counter ratchet OK.
+VERSION: v1.0.1067. RISK: hides data, cannot show more. ROLLBACK: git revert.
+STARVED: no.
