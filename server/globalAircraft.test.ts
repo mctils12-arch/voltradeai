@@ -267,5 +267,9 @@ test("AIRCRAFT INTENT A: live/:hex carries the aircraft's fresh intent + capabil
     assert.equal(c.latest_pct.nav_altitude_mcp, 50);
     assert.equal(c.latest_pct.alt_baro, 100);
     assert.equal(c.mode_bit_capable_pct, 50);
+    // AIRCRAFT INTENT B: archive writer counters + the permanent daily rollup inventory
+    const arch = (c as unknown as { archive: { writer: { keyframes: number }; daily: { days: number } } }).archive;
+    assert.equal(typeof arch.writer.keyframes, "number");
+    assert.equal(arch.daily.days, 0);
   }, { env: { AIRCRAFT_FAST_LANE: "0" } });
 });

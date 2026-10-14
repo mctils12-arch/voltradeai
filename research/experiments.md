@@ -108079,3 +108079,38 @@ TESTS:
 - Server 2442/2442; tsc 11; counter ratchet OK.
 VERSION: v1.0.1075. ROLLBACK: git revert (additive fields only).
 STARVED: no (intent B next).
+
+## 2026-10-14 (human-directed session, ~23:05Z Wed) [PIPELINE] — Aircraft intent B: intent fields in the hourly archive (delta-encoded, schema v4) + permanent daily rollup
+
+TERRITORY: server archive (datacoreArchive.ts writer, new aircraftIntentDaily.ts, aircraftIntent.ts codec, archiveOffload.ts backstop, globalAircraft.ts schedule/status) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, intent workstream item B): add the intent fields to the existing hourly JSONL, keep schema versioning and retention/rollup rules, delta-encode (write only on change), add rollups for the E products, report archive size impact per day.
+CHANGE:
+- Archive line `x` block (schema_version 4, additive), written only by the live writer, keyframe per aircraft per hour file:
+  - x absent = no intent information (old lines, trace backfill);
+  - x.k = 1 is a keyframe with the full state;
+  - otherwise a delta: a value sets, null clears ("no longer sent", never 0), {} = unchanged.
+  Every hour file decodes on its own, so offload, cold reads and eviction never break it. The codec (IntentArchiveEncoder/Decoder, short keys, nav_modes bitmask with [] → 0) lives in aircraftIntent.ts, the one parsing module.
+- Retention unchanged: the raw x rides the hour files (30-day rolling window on both tiers, aircraft local floor 22 days). The generic `<kind>_tracks` rollup drops x, which is why the fold below exists (same bug shape as gnssIntegrityDaily/fleetUtilization).
+- aircraftIntentDaily.ts folds each COMPLETE UTC day once (idempotent) into `aircraft_intent_daily/<day>.json.gz`, which is permanent.
+  - Grid: hour × 2° × 9 altitude bands, airborne only, each cell with its own sample counts.
+  - Ingredients: wind vector sums (E3), OAT sum/sumsq (E3), nav_qnh below FL180 (E4), alt_geom−alt_baro sum/sumsq (E4), baro_rate sum/sumsq (an E2 ingredient, labeled NOT a turbulence measurement at archive cadence).
+  - Per-field coverage and mode-bit aircraft counts.
+  - Streamed reads; only x lines are parsed; when both plain and .gz of an hour exist mid-compression, the plain file wins.
+  - Scheduled 5 min after boot and every 30 min (globalAircraft.ts; deploys outpace the 6-hourly chain). foldAircraftBeforeEvict is the never-evict-unfolded backstop.
+  - E1 (ATC stress) and E5 (airline ops) rollups need the C/D detectors and ship with them.
+- /api/data/aircraft/intent-coverage gains `archive: { writer: {keyframes, deltas, unchanged, bytes}, daily: {days, latest, bytes} }`.
+ARCHIVE SIZE IMPACT (measured on live traffic, adsb.fi, ORD + FRA 250 nm, 5 rounds at the 76 s cruise cadence, written through the real writer):
+- Measured gz growth of the hour files: US +28.8% (3,318 lines), EU +78.0% (1,058 lines). In this sample a keyframe lands every ~4 lines; real hours have ~48 lines per cruising aircraft.
+- Per-line model: base line 37 B gz; US keyframe x ~13 B, delta ~7 B; EU keyframe ~36 B, delta ~24 B. Extrapolated to a full hour (L = 48): US ~+16–22%, EU ~+66–70%.
+- Deltas, not keyframes, carry the cost. Changing keys: US ag 81% / ab 71% / br 60% / gr 32%; EU true_heading 92%, wind 77%, mag_heading 76%, ias/tas 69%, roll 65%, mach 61%. These are real per-fix changes, kept exact as directed (no deadbands; a deadband would be a lossy measurement choice and its own decision).
+- Production estimate: aircraft archive ~12 MB/day gz (R2 ledger: 329 MB / 29 days; local 265 MB / 22 days). At a mostly-US writer mix (+20–30%) that is +2.5–4 MB/day gz, i.e. +55–90 MB on the 22-day local tier and +75–120 MB in R2 (free tier).
+- Daily rollup: ~0.1–0.9 MB/day gz permanent (7k–60k cell rows/day; the upper end applies only if sweep archiving resumes). Both numbers are verifiable after 24 h via intent-coverage `archive`.
+PRIOR: after 24 h live, archive.writer.bytes × ~0.25 (gz) ≈ 3 ± 1.5 MB/day. The first daily rollup lands ~02:00Z on the first full day after deploy, with hours_present = the hours since deploy.
+ROLLBACK TRIGGER: offload-status volume freeBytes falls below 1.2 GB (global-scopes guard 1 GiB + margin) because of aircraft growth, or a fold error logged twice. Rollback = git revert: lines simply stop carrying x; readers ignore it; rollups stay.
+TESTS:
+- aircraftIntentArchive.test.ts (8): codec round-trip, keyframe/delta/null/{} semantics, per-hour keyframes, writer end to end (backfill lines carry none, the existing schema is untouched), bands and QNH ceiling, the accumulator (vector-mean wind cancels; QNH excluded at FL370; geo-baro; field %), the fold (complete days only, idempotent, gz + plain, plain wins mid-compression), the offload backstop.
+- globalAircraft.test.ts: the archive block on /intent-coverage.
+- Server 2450/2450; tsc 11; counter ratchet OK.
+PRODUCTION A CHECK (v1.0.1075 live, minutes after deploy): intent-coverage 3,086 airborne (adsb.lol sweep); latest mcp 58.5%, qnh 60.4%, nav_heading 34.7%, mode bits 24.4% (capable 25.1%), wind 4.2%, ias 5.3%, baro_rate 71.8%, squawk 93%. rejected oat 2 / tat 1. This is lower than the US hub probe because the global mix includes GA and regions without these broadcasts.
+VERSION: v1.0.1076. ROLLBACK: git revert.
+STARVED: no (intent C next; ops checklist due).

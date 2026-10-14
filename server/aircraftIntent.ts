@@ -476,3 +476,161 @@ export class IntentStore {
     };
   }
 }
+
+// ── Archive encoding (AIRCRAFT INTENT B, schema_version 4) ───────────────
+// Each aircraft archive line MAY carry an `x` block. Delta-encoded, write
+// only on change, self-contained per hour file:
+//   - x absent       → this line carries NO intent information (old lines,
+//                      trace backfill, aircraft that never sent a field)
+//   - x.k === 1      → KEYFRAME: the full state (every field the fix
+//                      carried); fields not listed are not being sent
+//   - x without k    → DELTA vs the previous x line of the same aircraft in
+//                      the same hour file: a value sets, null clears ("no
+//                      longer sent" — never 0), an omitted key is unchanged;
+//                      `x: {}` = nothing changed
+// The first intent line of each aircraft in each hour file is a keyframe,
+// so any single hour file decodes on its own (offload, cold reads, evicted
+// neighbours never break it).
+
+/** archive short key per field (one table; decode is its inverse) */
+export const INTENT_ARCHIVE_KEYS: Record<IntentField, string> = {
+  nav_modes: "nm", nav_heading: "nh", nav_altitude_mcp: "na", nav_altitude_fms: "nf", nav_qnh: "nq",
+  wd: "wd", ws: "ws", oat: "ot", tat: "tt", ias: "ia", tas: "ta", mach: "mc", roll: "rl",
+  track_rate: "tr", mag_heading: "hm", true_heading: "ht", alt_geom: "ag", alt_baro: "ab",
+  geom_rate: "gr", baro_rate: "br", acas_ra: "ra", squawk: "sq", emergency: "em",
+};
+const KEY_FIELD: Record<string, IntentField> = Object.fromEntries(
+  Object.entries(INTENT_ARCHIVE_KEYS).map(([f, k]) => [k, f as IntentField]));
+
+/** nav_modes ↔ bitmask (autopilot 1, vnav 2, althold 4, approach 8, lnav 16,
+ *  tcas 32); [] encodes as 0 — "bits sent, none engaged" survives */
+export function navModesToBits(m: readonly NavMode[]): number {
+  let b = 0;
+  for (const x of m) { const i = NAV_MODES.indexOf(x); if (i >= 0) b |= 1 << i; }
+  return b;
+}
+export function navModesFromBits(b: number): NavMode[] {
+  return NAV_MODES.filter((_, i) => (b & (1 << i)) !== 0);
+}
+
+type Enc = Record<string, unknown>;
+
+/** The fields one parse carries, in archive short keys (present only). */
+export function encodeIntentState(v: IntentValues): Enc {
+  const out: Enc = {};
+  const r = v as unknown as Record<string, unknown>;
+  for (const f of INTENT_FIELDS) {
+    const val = r[f];
+    if (val === null || val === undefined) continue;
+    if (f === "nav_modes") out.nm = navModesToBits(val as NavMode[]);
+    else if (f === "acas_ra") {
+      const ra = val as AcasRa;
+      const o: Enc = {};
+      if (ra.advisory != null) o.a = ra.advisory;
+      if (ra.advisory_complement != null) o.c = ra.advisory_complement;
+      if (ra.rat != null) o.rt = ra.rat ? 1 : 0;
+      if (ra.mte != null) o.mt = ra.mte ? 1 : 0;
+      if (ra.threat_hex != null) o.th = ra.threat_hex;
+      if (ra.at_ms != null) o.at = ra.at_ms;
+      out.ra = o;
+    } else out[INTENT_ARCHIVE_KEYS[f]] = val;
+  }
+  return out;
+}
+
+const sameVal = (a: unknown, b: unknown): boolean =>
+  a === b || (typeof a === "object" && a !== null && typeof b === "object" && b !== null
+    && JSON.stringify(a) === JSON.stringify(b));
+
+/** The x block for a line: keyframe when `prev` is null, else the delta
+ *  (possibly {}). Returns null when there is nothing to say at all (no prior
+ *  state and the fix carries no intent field) — the line then omits x. */
+export function intentArchiveBlock(cur: Enc, prev: Enc | null): Enc | null {
+  if (!prev) return Object.keys(cur).length ? { k: 1, ...cur } : null;
+  const d: Enc = {};
+  for (const k of Object.keys(cur)) if (!sameVal(cur[k], prev[k])) d[k] = cur[k];
+  for (const k of Object.keys(prev)) if (!(k in cur)) d[k] = null;
+  return d;
+}
+
+/** Inverse of encodeIntentState: archive keys → IntentValues (nulls for
+ *  everything not present). */
+export function decodeIntentState(enc: Enc): IntentValues {
+  const v = emptyValues() as unknown as Record<string, unknown>;
+  for (const [k, val] of Object.entries(enc)) {
+    const f = KEY_FIELD[k];
+    if (!f || val === null || val === undefined) continue;
+    if (f === "nav_modes") v[f] = typeof val === "number" ? navModesFromBits(val) : null;
+    else if (f === "acas_ra") {
+      const o = (val || {}) as Enc;
+      v[f] = {
+        advisory: typeof o.a === "string" ? o.a : null,
+        advisory_complement: typeof o.c === "string" ? o.c : null,
+        rat: o.rt === 1 ? true : o.rt === 0 ? false : null,
+        mte: o.mt === 1 ? true : o.mt === 0 ? false : null,
+        threat_hex: typeof o.th === "string" ? o.th : null,
+        at_ms: typeof o.at === "number" ? o.at : null,
+      } satisfies AcasRa;
+    } else v[f] = val;
+  }
+  return v as unknown as IntentValues;
+}
+
+/** Writer-side delta state (one per process; archive writer owns it). The
+ *  hour key starts a fresh keyframe per aircraft per hour file. */
+export class IntentArchiveEncoder {
+  private readonly last = new Map<string, { hour: string; enc: Enc }>();
+  keyframes = 0;
+  deltas = 0;
+  unchanged = 0;
+  bytes = 0;
+  constructor(private readonly maxEntries = 100_000) {}
+
+  /** x block for this aircraft's line in `hourKey`'s file (null = omit). */
+  block(hex: string, v: IntentValues, hourKey: string): Enc | null {
+    const cur = encodeIntentState(v);
+    const prior = this.last.get(hex);
+    const prev = prior && prior.hour === hourKey ? prior.enc : null;
+    const x = intentArchiveBlock(cur, prev);
+    if (x == null) return null;
+    this.last.set(hex, { hour: hourKey, enc: cur });
+    if (this.last.size > this.maxEntries) this.last.clear(); // bound memory: next lines keyframe again
+    if (x.k === 1) this.keyframes++;
+    else if (Object.keys(x).length) this.deltas++;
+    else this.unchanged++;
+    this.bytes += JSON.stringify(x).length + 5; // + `,"x":`
+    return x;
+  }
+
+  stats() {
+    return { keyframes: this.keyframes, deltas: this.deltas, unchanged: this.unchanged, bytes: this.bytes, tracked: this.last.size };
+  }
+}
+
+/** Reader side: feed one hour file's parsed lines in file order; returns the
+ *  aircraft's decoded intent state AT that line (null = the line carries no
+ *  intent information, or a delta arrived without its keyframe). */
+export class IntentArchiveDecoder {
+  private readonly state = new Map<string, Enc>();
+
+  feed(row: { i?: unknown; x?: unknown }): IntentValues | null {
+    const x = row.x;
+    if (!x || typeof x !== "object" || typeof row.i !== "string") return null;
+    const xo = x as Enc;
+    const hex = row.i;
+    let st: Enc | undefined;
+    if (xo.k === 1) {
+      st = {};
+      for (const [k, val] of Object.entries(xo)) if (k !== "k" && val !== null) st[k] = val;
+    } else {
+      const prev = this.state.get(hex);
+      if (!prev) return null; // delta without its keyframe: unknown, never guessed
+      st = { ...prev };
+      for (const [k, val] of Object.entries(xo)) {
+        if (val === null) delete st[k]; else st[k] = val;
+      }
+    }
+    this.state.set(hex, st);
+    return decodeIntentState(st);
+  }
+}

@@ -27,6 +27,7 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { pipeline } from "stream/promises";
+import { intentOf, IntentArchiveEncoder } from "./aircraftIntent";
 
 // 7 -> 30 (human directive 2026-08-11: "store all the data some how for up
 // to a month for all planes... this should be for all thing track like
@@ -273,6 +274,17 @@ export function aircraftChangedSinceKept(prev: KeptFixState | undefined, p: Airc
 
 const lastKeptAircraft: Map<string, KeptFixState> = new Map();
 
+// AIRCRAFT INTENT B (schema_version 4, additive, 2026-10-14): the `x` block
+// — mode bits, selected/FMS altitude, QNH, derived state — delta-encoded per
+// aircraft with a keyframe per hour file (format + decoder:
+// aircraftIntent.ts IntentArchiveEncoder/IntentArchiveDecoder). Only the
+// live writer below emits it; trace backfill lines carry none (x absent =
+// "no intent information", never "unchanged").
+let intentArchive = new IntentArchiveEncoder();
+export function intentArchiveStats() { return intentArchive.stats(); }
+/** test hook: fresh delta state (next lines keyframe) */
+export function _resetIntentArchiveForTests(): void { intentArchive = new IntentArchiveEncoder(); }
+
 // ── append ───────────────────────────────────────────────────────────────────
 function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date) {
   if (!lines.length) return;
@@ -335,6 +347,7 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
   const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const t = Math.floor(now / 1000);
+  const hourKey = new Date(now).toISOString().slice(0, 13); // the same hour file appendLines picks
   const lines: string[] = [];
   for (const p of points) {
     if (p.lat == null || p.lon == null || !p.icao24) continue;
@@ -364,6 +377,8 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
       rg: p.registration || undefined,
       // integrity/origin/provenance (schema_version 3, additive, 2026-08-11)
       ...aircraftIntegrityFields(p),
+      // intent block (schema_version 4, additive, 2026-10-14; see above)
+      x: intentBlockFor(p, hourKey),
     }));
   }
   try { appendLines("aircraft", lines, base, new Date(now)); } catch (e: any) {
@@ -371,6 +386,11 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
     return 0;
   }
   return lines.length;
+}
+
+function intentBlockFor(p: AircraftPoint, hourKey: string): Record<string, unknown> | undefined {
+  const ip = intentOf(p);
+  return (ip && intentArchive.block(p.icao24, ip.v, hourKey)) || undefined;
 }
 
 export function archiveVessels(points: VesselPoint[], sites: SitePoint[],
