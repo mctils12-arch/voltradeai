@@ -5,8 +5,8 @@
   python3 scripts/refresh_nasr.py             # download current cycle, rebuild, print diff
   python3 scripts/refresh_nasr.py --zip F.zip # rebuild from a local bundle
 
-Rebuilds datacore/aircraft/nasr_fixes.json and nasr_airways.json via the existing
-builders (public-domain data). Staleness is judged on the FIX cycle only: the FAA
+Rebuilds datacore/aircraft/nasr_fixes.json, nasr_airways.json and nasr_atc.json via
+the existing builders (public-domain data). Staleness is judged on the FIX cycle only: the FAA
 does not republish airways every cycle (AWY_BASE EFF_DATE can lag), so an unchanged
 airways cycle is normal, not a failure. Commit the result as its own data PR.
 """
@@ -54,6 +54,7 @@ def rebuild(zip_bytes):
         zipfile.ZipFile(io.BytesIO(zip_bytes)).extractall(tmp)
         _builder("build_nasr_fixes").main(tmp)
         _builder("build_nasr_airways").main(tmp)
+        _builder("build_nasr_atc").main(tmp)
     with open(FIXES) as f:
         new = json.load(f)["fixes"]
     a, r, m = diff_fixes(old, new)

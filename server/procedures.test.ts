@@ -207,6 +207,11 @@ test("GET /api/data/procedures/runway: a fix on the 18L centreline at KAUS = lin
     assert.deepEqual(lined.current, { state: "LINED_UP", runway: "18L", label: "Lined up on runway 18L" });
     assert.match(lined.honesty, /not an ATC runway assignment/);
     assert.equal(lined.notForNavigation, NOT_FOR_NAVIGATION);
+    // ATC block rides the same response: on 18L = the KAUS tower for 18L
+    assert.equal(lined.atc.phase, "RUNWAY");
+    assert.equal(lined.atc.airport, "KAUS");
+    assert.ok(lined.atc.entries.length >= 1 && lined.atc.entries.every((e: { role: string }) => e.role === "Tower"));
+    assert.match(lined.atc.honesty, /not public/);
     const roll = await (await fetch(q("&gsKt=120"))).json();
     assert.equal(roll.current.state, "TAKEOFF_ROLL");
     const across = await (await fetch(`${base}/api/data/procedures/runway?lat=${lat}&lon=${lon}&trk=${(e!.headingTrue + 90) % 360}&gnd=1&gsKt=10`)).json();

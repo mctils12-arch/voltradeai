@@ -13,6 +13,7 @@
 //  * NOT FOR NAVIGATION — display/situational awareness only.
 //
 // Endpoints (registered by ONE line in routes.ts):
+//   GET /api/data/procedures/runway?lat&lon&altFt&gsKt&trk&gnd&vs&hex  (runway state + ATC frequencies)
 //   GET /api/data/procedures/status
 //   GET /api/data/procedures/flight/:callsign?dep=&arr=
 //   GET /api/data/procedures/:airport
@@ -33,6 +34,7 @@ import { lookupFix } from "./navFixes";
 import { nearestAirport } from "./airportsIndex";
 import { recentTrackCached } from "./datacoreArchive";
 import { runwayEnds, classifyRunwayFix, departureRunway, runwayStateLabel, RUNWAY_HONESTY, type RunwayFix } from "./runwayDetect";
+import { loadAtcData, atcContext, ATC_HONESTY } from "./atcFrequencies";
 
 export const NOT_FOR_NAVIGATION = "NOT FOR NAVIGATION — FAA CIFP/d-TPP data drawn for situational awareness only.";
 export const APPROACH_HONESTY =
@@ -330,9 +332,15 @@ export function registerProcedureRoutes(app: Express, ctxIn?: Partial<Procedures
         if (d) departure = { airport: dap.icao, runway: d.runway, label: `Departed ${dap.icao} runway ${d.runway}` };
       }
     }
+    // ATC FREQUENCIES (2026-10-14): the published NASR frequencies for this
+    // fix and its runway state — same request, so the card polls once
+    const atcData = loadAtcData();
+    const atc = atcContext(atcData, { lat, lon, altFt: fix.altFt, onGround: fix.onGround, vsFpm: fix.vsFpm },
+      current && ap ? { state: current.state, runway: current.runway, airport: ap.icao } : null);
     res.json({
       airport: ap ? { icao: ap.icao, name: ap.name } : null,
       current, departure,
+      atc: { ...atc, cycle: atcData.cycle, honesty: ATC_HONESTY },
       honesty: RUNWAY_HONESTY, cycle: cycleOut(L.cifp.cycle), notForNavigation: NOT_FOR_NAVIGATION,
     });
   });
