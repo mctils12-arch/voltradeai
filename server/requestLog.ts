@@ -118,6 +118,8 @@ const DAY_CAP = 90;
 // tally under "(other)" — counted honestly, not dropped; uniques beyond the
 // cap stop registering (the day reads as "at least N").
 const ROUTE_CAP = 2000;
+// Longest raw path kept as a route key (random-path floods stay bounded).
+const ROUTE_MAX_LEN = 120;
 const DAY_UNIQUES_CAP = 200_000;
 
 function dayKey(t: number): string {
@@ -207,9 +209,13 @@ export function requestLog() {
         method: req.method,
         // Use the matched route path when available, else the raw path, to
         // avoid unbounded cardinality from query strings / path params.
+        // The raw path comes from originalUrl, not req.path: the SPA fallback
+        // (static.ts) is mounted with app.use("/{*path}"), which has no
+        // req.route and trims the mount out of req.url, so req.path read "/"
+        // for every page (fixed 2026-10-14).
         route: (req.route?.path && typeof req.route.path === "string"
           ? req.baseUrl + req.route.path
-          : req.path) || req.path,
+          : String(req.originalUrl || req.url || "").split("?")[0].slice(0, ROUTE_MAX_LEN)) || req.path,
         status: res.statusCode,
         latencyMs: Date.now() - start,
         ipHash,
