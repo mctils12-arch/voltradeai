@@ -41,6 +41,7 @@ import type { Express } from "express";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { archiveAircraft, archiveBaseDir, type SitePoint } from "./datacoreArchive";
 import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
+import { createGapFiller, gapFiller, gapFillEnabled } from "./coverageGapFill";
 import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
 import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
 import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
@@ -75,7 +76,7 @@ export const GLOBAL_HONESTY =
 const SOURCE_META: Record<string, { label: string; license: string; commercial_ok: boolean }> = {
   adsblol: { label: "adsb.lol (ADS-B, community)", license: "ODbL 1.0", commercial_ok: true },
   airplaneslive: { label: "airplanes.live (viewport fallback only)", license: "non-commercial", commercial_ok: false },
-  adsbfi: { label: "adsb.fi (viewport fallback only)", license: "non-commercial", commercial_ok: false },
+  adsbfi: { label: "adsb.fi (viewport fallback + coverage gap-fill)", license: "non-commercial", commercial_ok: false },
   opensky: { label: "OpenSky Network states/all", license: "non-commercial (research/education; written agreement for operational use)", commercial_ok: false },
 };
 
@@ -283,11 +284,18 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   // rows is empty when nothing holds the hex. AIRCRAFT_FAST_LANE=0 → the
   // snapshot only (no upstream requests).
   const fastOn = String(env.AIRCRAFT_FAST_LANE ?? "1").trim() !== "0";
+  // coverage gap-fill (coverageGapFill.ts): a hex adsb.lol returns nothing
+  // for is asked of adsb.fi. An injected fetch (tests) gets its own filler
+  // so no test ever reaches the real network through the shared one.
+  const filler = deps.fetchImpl
+    ? createGapFiller({ fetchImpl: deps.fetchImpl, now, enabled: gapFillEnabled(env) })
+    : gapFiller();
   const fastLane = createFastLane({
     snapshotGet: (hex) => snapshot.get(hex),
     publish: (b) => publishFixes(b),
     fetchImpl: deps.fetchImpl,
     now,
+    fallbackHex: (hex) => filler.fetchHex(hex),
   });
   app.get("/api/data/aircraft/live/:hex", async (req, res) => {
     const hex = String(req.params.hex || "").toLowerCase();

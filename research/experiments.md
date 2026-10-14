@@ -107875,3 +107875,17 @@ KNOWN GAP: a LADD aircraft never yet seen transmitting by adsb.lol is unknown. T
 TESTS: laddRegistry.test.ts (6: hex/callsign match, 90-day memory, restart persistence, corrupt-file boot logged, procedures guard, neutral note). flightPlans.test.ts +1 (LADD → ROUTE_DB_PREDICTED with privacy+note, no planHistory; same aircraft non-LADD → FILED_FAA; LADD + nothing → NONE with note). globalScopes.test.ts: existing tests now assert only ladd-scope rows feed the registry and a failed ladd fetch records nothing. 55/55 in the four touched suites; tsc 11 (unchanged); counter ratchet OK.
 VERSION: v1.0.1067. RISK: hides data, cannot show more. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~18:40Z Wed) [REPAIR] — airport-surface coverage gap: adsb.lol blind to the CLT surface, adsb.fi not
+
+TERRITORY: server aircraft feed (server/coverageGapFill.ts new; routes.ts fetchAircraft, aircraftFastLane.ts, globalAircraft.ts) + shared package.json/research.
+REPORT: human, watching N843S taxi out at CLT: "some planes show up on the ground as on the ground, but I didn't see my plane do this". Our archive's first fix for that flight was on the takeoff roll.
+EVIDENCE (live, same day, before the change): adsb.lol /v2/point CLT 4 nm → 4 aircraft, 0 on the ground. adsb.fi same disc → 13 aircraft, 9 on the ground (American gates + the bizjet ramp: EJA846, N670QS). Control: adsb.lol ATL 3 nm → 28 of 30 on the ground. adsb.lol has no receiver with line of sight to the CLT surface; adsb.fi does. fetchDiscs falls through to adsb.fi only when adsb.lol FAILS, so a blind-but-successful adsb.lol answer never reached the map or the archive.
+PRIOR (stated before testing): merging adsb.fi's rows for hexes adsb.lol lacks, on zoomed-in single-disc views and for the tracked hex, recovers the CLT surface traffic without touching wide views or provider politeness.
+CHANGE: coverageGapFill.ts — fillDisc (one disc ≤ 60 nm, adsb.fi not already the answer; primary rows always win; added rows keep provider "adsbfi"; published on the fix bus as origin "gapfill", no sweep credit) + fetchHex (tracked plane when adsb.lol's /v2/hex is empty). One shared 1.1 s token for both paths (adsb.fi asks ≤ 1 req/s). AIRCRAFT_GAPFILL=0 kill switch. routes.ts merges BEFORE archiveAircraft, so taxi fixes are recorded; globalAircraft.ts wires the fast-lane fallback (injected fetch → private filler, tests never reach the network).
+LICENSE: adsb.fi is non-commercial and already in the chain. Its rows keep their provenance, so lawful-only mode and the monetization tripwire (providerCompliance.ts) treat them exactly as before. SOURCE_META label updated.
+RESULT (live after the change, same code path): CLT 4 nm, adsb.lol alone 3 aircraft / 0 on the ground → with gap-fill 15 / 12 on the ground (+12 from adsb.fi).
+TESTS: coverageGapFill.test.ts (8: qualify rule, merge precedence, provenance + bus publish without disc credit, 1-req/1.1s politeness across both paths, kill switch, failure passthrough logged, hex filter, fast-lane fallback, wiring order fetch→fill→archive). Touched suites 50/50; tsc 11 (unchanged); counter ratchet OK.
+LIMIT: N843S's own taxi on 10-14 is not recoverable after the fact (no free adsb.fi history API). Future taxi-outs at CLT will show when someone views the area or tracks the plane.
+VERSION: v1.0.1068. ROLLBACK: AIRCRAFT_GAPFILL=0, or git revert.
+STARVED: no.
