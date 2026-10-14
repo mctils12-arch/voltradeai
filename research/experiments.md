@@ -107939,6 +107939,14 @@ LIMITS: the frequency the crew is on is not public (sectors are split and combin
 VERSION: v1.0.1071. ROLLBACK: git revert.
 STARVED: no (corridor route placement is ready behind this PR).
 
+## 2026-10-14 (scheduled-routine session, ~20:20Z Wed, after close) [NO-ACTION] — health green; queue still time-gated to 2026-10-16
+
+Loop-health ratio: last 10 headers = 6 REPAIR (the closed, ratcheted rule-conflict/human-directed series), 2 PRODUCT, 2 NO-ACTION — below the 7+ thrash line. No new break found.
+Live (20:16Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, feeds (aircraft/vessels/trains) not dead, process faults 0, memory pressure ok. session_health_check: all OK (daemon_memory now 321MB, under trim); server_version 1.0.1071 matches checkout. Drawdown -9.4% (was -9.1% at 16:03Z, -7.7% at 10-13 20:17Z) — drifting, not halted, no kill-switch event; flagged for the next health read.
+Queue: shadow-band step (a) re-run and COT gate-2 15th report both gated to on/after 2026-10-16. The only merges since the 16:05Z entry are human-directed sessions already logged above (v1.0.1067-1071). Research would duplicate filed work; anti-churn applies.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
+
 ## 2026-10-14 (human-directed session, ~20:20Z Wed) [REPAIR] — filed route drawn through its 1-2 fixes (corridor placement with the filed airports as context)
 
 TERRITORY: server flight plans (server/navAirways.ts, swimSfdps.ts, flightPlans.ts) + shared package.json/research.
