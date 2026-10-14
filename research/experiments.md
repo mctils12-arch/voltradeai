@@ -108129,3 +108129,14 @@ ROLLBACK TRIGGER: stallRestarts climbing on a flow that is NOT silent (would mea
 TESTS: swimConnector.test.ts +3. A silent connected consumer is restarted once, through the 30 s backoff, never twice while pending. A DOWN-without-error consumer is restarted. Off by default; steady traffic never trips it. Server 2453/2453, tsc 11.
 VERSION: v1.0.1077. ROLLBACK: git revert.
 STARVED: no (daily health check next).
+
+## 2026-10-14 (human-directed session, ~22:58Z Wed) [REPAIR] — intent daily fold: never fold days before the intent block existed
+
+TERRITORY: server archive (server/aircraftIntentDaily.ts) + shared package.json/research.
+TIME NOTE (append-only correction): this session's three entries above are stamped ~22:30Z, ~23:05Z and ~23:40Z. The real clock was earlier: A merged ~22:05Z, B was live ~22:40Z and the watchdog was in CI at ~22:50Z (date -u 22:52Z when checked).
+FOUND (live, first hour after B deployed): the session_health_check dry run read intent-coverage `archive.daily = {days: 2, latest: 2026-09-24}`. foldIntentDays walks complete days oldest-first, so it was folding the 22 local days from BEFORE schema v4. They hold no x lines by construction, so each fold re-read ~12 MB gz of hour files to write an EMPTY rollup. It is honest (intent_lines 0) but wasted I/O on the shared event loop for ~5 h, and an inventory that counts empty days.
+CHANGE: INTENT_ARCHIVE_SINCE_DAY = "2026-10-14" (the first UTC day that can carry x lines). Earlier days are skipped before any file is read. The empty rollups already written in production stay (tiny, permanent, honest-empty); nothing is deleted.
+PRIOR: within an hour of deploy, intent-coverage archive.daily stops growing with pre-10-14 days. The first real rollup, 2026-10-14 (partial: hours since ~22:40Z), lands ~02:00Z 10-15.
+TESTS: aircraftIntentArchive.test.ts +1 (a 2026-10-01 hour file is never read or folded).
+VERSION: v1.0.1078. ROLLBACK: git revert.
+STARVED: no.

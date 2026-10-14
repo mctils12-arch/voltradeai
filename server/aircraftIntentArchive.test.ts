@@ -17,6 +17,7 @@ import { archiveAircraft, archiveAircraftAt, intentArchiveStats, _resetIntentArc
 import { mapPointAircraft } from "./aircraftTiling";
 import {
   foldIntentDays, loadIntentDaily, intentDailyInventory, IntentDayAccumulator, bandOf, GRID_COLS, QNH_MAX_ALT_FT,
+  INTENT_ARCHIVE_SINCE_DAY,
 } from "./aircraftIntentDaily";
 
 const EU = {
@@ -212,4 +213,15 @@ test("offload backstop: foldAircraftBeforeEvict folds an unfolded intent day bef
   const now = d0 + 30 * 86_400_000;
   await foldAircraftBeforeEvict(base, now - 22 * 86_400_000, now);
   assert.equal(loadIntentDaily("2026-10-25", base)?.intent_lines, 1);
+});
+
+test("fold floor: days before the intent block existed are never read or folded (no empty rollups)", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-10-01-05.jsonl"), JSON.stringify({ t: 1, i: "4ca7b6", la: 51, lo: 5, al: 11000 }) + "\n");
+  const r = await foldIntentDays(base, Date.parse("2026-10-30T00:00:00Z"));
+  assert.deepEqual(r.daysFolded, []);
+  assert.equal(INTENT_ARCHIVE_SINCE_DAY, "2026-10-14");
+  assert.equal(intentDailyInventory(base).days, 0);
 });
