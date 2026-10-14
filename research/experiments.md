@@ -108187,3 +108187,22 @@ ROLLBACK TRIGGER: SFDPS droppedOverflow or event-loop lag rising after TFMS star
 TESTS: swimCapture.test.ts (4): content-free shapes, bounded samples/shapes with overflow counted, hourly buckets, consumers end to end (STDDS never consumed; /products public and secret-free; /samples 404 without or with a wrong token).
 VERSION: v1.0.1080. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~23:35Z Wed) [REPAIR] — adsb.lol sweep paces itself on 429 (AIMD), so the health check stops asking a human to tune GLOBAL_SWEEP_RPS
+
+TERRITORY: server/adsbGovernor.ts + scripts/session_health_check.py (adsb check) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops): fix in code whatever is fixable, and auto-fix what's safe.
+FOUND (live, v1.0.1076): sweep lane 38 failures / 93 requests since boot, last status 429. The backoff paused the sweep after each 429, but the first success reset it straight to the full 0.4 req/s and drew the next 429. The new daily check (#1341) would have turned that into a human step ("set GLOBAL_SWEEP_RPS").
+CHANGE (AIMD, background lane only):
+- each bg 429 halves the effective rate (floor 10% of bgRps);
+- each bg success adds 5% back (cap = bgRps);
+- 5xx/network keep the plain backoff, because they are the upstream's trouble, not ours;
+- the foreground (viewer) lane is never paced;
+- stats gain `effective_bg_rps`.
+The check treats a 429 share above 25% as self-pacing (OK) until the rate sits at its floor. Only then does it name GLOBAL_SWEEP_RPS.
+DOWNSTREAM: sweep throughput falls to what adsb.lol actually grants us. The worldwide snapshot refreshes more slowly in its oldest discs (coverage.oldest_disc_age_s shows it honestly); viewport discs are unaffected.
+PRIOR: after deploy, last_hour.bg rate_limited falls well below 25% within an hour, and effective_bg_rps settles between 0.1 and 0.3.
+ROLLBACK TRIGGER: effective_bg_rps pinned at its floor with < 5% 429s (it would not recover → recovery bug), or oldest_disc_age_s doubles with no 429 drop. Rollback = git revert.
+TESTS: adsbGovernor.test.ts +1 (halving to a floor, additive recovery to the cap, only background 429s cut, token wait follows the effective rate); test_session_health_check.py +1. Existing governor/sweep/fast-lane suites unchanged and green.
+VERSION: v1.0.1081. ROLLBACK: git revert.
+STARVED: no.

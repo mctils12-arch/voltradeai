@@ -51,6 +51,17 @@ export function outcomeKind(status: number): OutcomeKind {
   if (status >= 200 && status < 400) return "ok";
   return "other";
 }
+/** AIMD on the BACKGROUND lane (ops auto-fix 2026-10-14): live, the sweep
+ *  saw 38 failures in 93 requests, mostly 429 — the backoff paused it after
+ *  each 429, but the first success snapped straight back to the full rate
+ *  and drew the next 429. Now each background 429 halves the effective rate
+ *  (floor AIMD_MIN_FRACTION of bgRps) and each background success adds
+ *  AIMD_STEP_FRACTION back (cap: bgRps). Only 429 — "you are too fast" —
+ *  cuts the rate; 5xx/network are the upstream's trouble and stay with the
+ *  backoff. The foreground lane is never paced (viewers first). */
+export const AIMD_MIN_FRACTION = 0.1;
+export const AIMD_STEP_FRACTION = 0.05;
+
 /** the ops window: outcomes kept for one hour (bounded) */
 export const OUTCOME_WINDOW_MS = 3600_000;
 const OUTCOME_LOG_MAX = 20_000;
@@ -68,6 +79,8 @@ export class UpstreamGovernor {
   readonly baseBackoffMs: number;
   readonly maxBackoffMs: number;
   private tokens = 1;
+  /** AIMD multiplier on bgRps (1 = full configured rate) */
+  private rateFrac = 1;
   private lastRefill: number | null = null;
   /** request timestamps (both lanes) inside the sliding window */
   private recent: { t: number; lane: Lane }[] = [];
@@ -99,7 +112,7 @@ export class UpstreamGovernor {
   private refill(now: number) {
     if (this.lastRefill == null) { this.lastRefill = now; return; }
     const dt = Math.max(0, now - this.lastRefill) / 1000;
-    this.tokens = Math.min(1, this.tokens + dt * this.bgRps);
+    this.tokens = Math.min(1, this.tokens + dt * this.effectiveBgRps());
     this.lastRefill = now;
   }
 
@@ -117,6 +130,8 @@ export class UpstreamGovernor {
     this.lastStatus = { lane, status, at: now };
     this.outcomes.push({ t: now, lane, kind: outcomeKind(status) });
     this.pruneOutcomes(now);
+    if (lane === "bg" && status === 429) this.rateFrac = Math.max(AIMD_MIN_FRACTION, this.rateFrac / 2);
+    else if (lane === "bg" && status >= 200 && status < 400) this.rateFrac = Math.min(1, this.rateFrac + AIMD_STEP_FRACTION);
     if (isBackoffStatus(status)) {
       this.failures++;
       if (lane === "fg") this.counts.fgFail++; else this.counts.bgFail++;
@@ -128,6 +143,11 @@ export class UpstreamGovernor {
       this.failures = 0;
       this.backoffUntil = 0;
     }
+  }
+
+  /** the background rate in force after AIMD (req/s) */
+  effectiveBgRps(): number {
+    return this.bgRps * this.rateFrac;
   }
 
   private pruneOutcomes(now: number) {
@@ -163,7 +183,7 @@ export class UpstreamGovernor {
     this.refill(now);
     this.prune(now);
     let wait = Math.max(0, this.backoffUntil - now);
-    if (this.tokens < 1) wait = Math.max(wait, ((1 - this.tokens) / this.bgRps) * 1000);
+    if (this.tokens < 1) wait = Math.max(wait, ((1 - this.tokens) / this.effectiveBgRps()) * 1000);
     const cap = this.ceilingRps * (this.windowMs / 1000);
     if (this.recent.length >= cap && this.recent.length > 0) {
       // the window frees up when its oldest entries age out
@@ -188,6 +208,7 @@ export class UpstreamGovernor {
     const fgWin = this.recent.filter((r) => r.lane === "fg").length;
     return {
       bg_rps: this.bgRps,
+      effective_bg_rps: Math.round(this.effectiveBgRps() * 1000) / 1000,
       ceiling_rps: this.ceilingRps,
       window_s: this.windowMs / 1000,
       window_fg: fgWin,

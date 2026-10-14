@@ -569,8 +569,13 @@ def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failov
               f"to the next provider")
     if bg_n >= min_results and r429 / bg_n > max_429_share:
         rps = governor.get("bg_rps") or 0.4
-        return finding(WARN, label, detail + f" ({r429 / bg_n:.0%} 429s)",
-                       f"set GLOBAL_SWEEP_RPS={max(0.1, round(rps / 2, 2))} in Railway (now {rps}) and redeploy")
+        eff = governor.get("effective_bg_rps")
+        if eff is not None and eff > rps * 0.1 + 1e-9:
+            # the sweep paces itself (AIMD, adsbGovernor.ts): still converging,
+            # nothing for a human to do yet
+            return finding(OK, label, detail + f" ({r429 / bg_n:.0%} 429s; sweep self-pacing at {eff} of {rps} req/s)")
+        return finding(WARN, label, detail + f" ({r429 / bg_n:.0%} 429s at the self-pacing floor)",
+                       f"set GLOBAL_SWEEP_RPS={max(0.05, round(rps / 2, 2))} in Railway (now {rps}) and redeploy")
     if fg_n >= min_results and fg_fail / fg_n > max_failover_share:
         return finding(WARN, label, detail + f" ({fg_fail / fg_n:.0%} failover)",
                        "adsb.lol failing for viewers; the chain still serves airplanes.live/adsb.fi — act only if "

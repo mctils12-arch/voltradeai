@@ -3,7 +3,7 @@
 // semantics. Clock-injected; no timers, no network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { outcomeKind, UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
+import { AIMD_MIN_FRACTION, AIMD_STEP_FRACTION, outcomeKind, UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
 import { fetchDiscs, planDiscs, type DiscProvider } from "./aircraftTiling";
 import { subscribeFixes, type FixBatch } from "./aircraftFixBus";
 
@@ -137,4 +137,26 @@ test("ops window: last-hour outcomes per lane split 429 / 5xx / network / other;
   assert.equal(g.stats(T + 3600_000 + 4).last_hour.bg.results, 0, "an hour later the bg outcomes are gone");
   assert.equal(g.stats(T + 3600_000 + 4).last_hour.fg.results, 2);
   assert.equal(outcomeKind(302), "ok");
+});
+
+test("AIMD (ops auto-fix): background 429s halve the sweep rate to a floor; successes add it back; 5xx/network and foreground 429s never cut it", () => {
+  const g = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 5 });
+  const T = 1_800_000_000_000;
+  assert.equal(g.effectiveBgRps(), 0.4);
+  g.noteResult("bg", 429, T);
+  assert.equal(g.effectiveBgRps(), 0.2);
+  for (let i = 0; i < 10; i++) g.noteResult("bg", 429, T + i);
+  assert.ok(Math.abs(g.effectiveBgRps() - 0.4 * AIMD_MIN_FRACTION) < 1e-9, "floored, never zero");
+  g.noteResult("bg", 503, T + 20); g.noteResult("bg", 0, T + 21); g.noteResult("fg", 429, T + 22);
+  assert.ok(Math.abs(g.effectiveBgRps() - 0.04) < 1e-9, "only a background 429 cuts the rate");
+  for (let i = 0; i < 30; i++) g.noteResult("bg", 200, T + 100 + i);
+  assert.equal(g.effectiveBgRps(), 0.4, "recovers to the configured rate, never above");
+  assert.equal(g.stats(T + 200).effective_bg_rps, 0.4);
+  // the token wait follows the effective rate once the backoff has expired
+  const h = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 5, baseBackoffMs: 1 });
+  assert.equal(h.tryAcquireBackground(T), true);
+  h.noteResult("bg", 429, T + 1);
+  const w = h.backgroundWaitMs(T + 2);
+  assert.ok(w > 4_000 && w <= 5_000, `0.2 req/s -> ~5 s per token (got ${w})`);
+  assert.ok(AIMD_STEP_FRACTION > 0);
 });
