@@ -3,7 +3,7 @@
 // semantics. Clock-injected; no timers, no network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
+import { outcomeKind, UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
 import { fetchDiscs, planDiscs, type DiscProvider } from "./aircraftTiling";
 import { subscribeFixes, type FixBatch } from "./aircraftFixBus";
 
@@ -119,4 +119,22 @@ test("fetchDiscs publishes each successful disc on the fix bus (the global snaps
   assert.equal(got[0].upstreamNowMs, 1790000000000);
   assert.deepEqual(got[0].disc, { lat: 40, lon: -75, radiusNm: 50 });
   assert.equal(got[0].aircraft[0].icao24, "abc");
+});
+
+test("ops window: last-hour outcomes per lane split 429 / 5xx / network / other; older outcomes age out", () => {
+  const g = new UpstreamGovernor({ bgRps: 1, ceilingRps: 5 });
+  const T = 1_800_000_000_000;
+  g.noteResult("bg", 200, T);
+  g.noteResult("bg", 429, T + 1);
+  g.noteResult("bg", 429, T + 2);
+  g.noteResult("bg", 503, T + 3);
+  g.noteResult("fg", 0, T + 4);
+  g.noteResult("fg", 404, T + 5);
+  g.noteResult("fg", 200, T + 6);
+  const h = g.stats(T + 10).last_hour;
+  assert.deepEqual(h.bg, { results: 4, ok: 1, rate_limited: 2, server_error: 1, network_error: 0, other: 0 });
+  assert.deepEqual(h.fg, { results: 3, ok: 1, rate_limited: 0, server_error: 0, network_error: 1, other: 1 });
+  assert.equal(g.stats(T + 3600_000 + 4).last_hour.bg.results, 0, "an hour later the bg outcomes are gone");
+  assert.equal(g.stats(T + 3600_000 + 4).last_hour.fg.results, 2);
+  assert.equal(outcomeKind(302), "ok");
 });
