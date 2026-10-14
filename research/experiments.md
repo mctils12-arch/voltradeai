@@ -107938,3 +107938,11 @@ VISUAL HARNESS: the first run, concurrent with tsc + test runs on the same CPU, 
 LIMITS: the frequency the crew is on is not public (sectors are split and combined by controllers). No validation against live ATC is possible without an audio source (wishlist ATC-audio entry). DP/STAR-specific frequencies are not used yet; the filed DP is known, so this is a follow-up.
 VERSION: v1.0.1071. ROLLBACK: git revert.
 STARVED: no (corridor route placement is ready behind this PR).
+
+## 2026-10-14 (scheduled-routine session, ~20:20Z Wed, after close) [NO-ACTION] — health green; queue still time-gated to 2026-10-16
+
+Loop-health ratio: last 10 headers = 6 REPAIR (the closed, ratcheted rule-conflict/human-directed series), 2 PRODUCT, 2 NO-ACTION — below the 7+ thrash line. No new break found.
+Live (20:16Z): /api/health ok, serving.failing [], alpaca ACTIVE, liveness not dark, feeds (aircraft/vessels/trains) not dead, process faults 0, memory pressure ok. session_health_check: all OK (daemon_memory now 321MB, under trim); server_version 1.0.1071 matches checkout. Drawdown -9.4% (was -9.1% at 16:03Z, -7.7% at 10-13 20:17Z) — drifting, not halted, no kill-switch event; flagged for the next health read.
+Queue: shadow-band step (a) re-run and COT gate-2 15th report both gated to on/after 2026-10-16. The only merges since the 16:05Z entry are human-directed sessions already logged above (v1.0.1067-1071). Research would duplicate filed work; anti-churn applies.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: no.
