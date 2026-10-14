@@ -403,7 +403,9 @@ const SECRETISH = [
   /(?:key|token|secret|password|bearer|sk|pk)[-_ :="']{0,3}[A-Za-z0-9+/_-]{16,}/gi,
   /\b[a-f0-9]{32,}\b/gi,                       // bare long hex
   /\b[A-Za-z0-9+/]{40,}={0,2}\b/g,             // bare long base64
-  /[\w.+-]+@[\w-]+\.[\w.]+/g,                  // emails
+  // emails — Unicode-aware (2026-10-14): the old ASCII-only `[\w.+-]+@[\w-]+\.[\w.]+` let
+  // "user@münchen.de" through whole and left "o'" of "o'brien@gmail.com" unredacted.
+  /[\p{L}\p{N}._%+'\u2019-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu,
 ];
 
 /** Defense-in-depth scrub over already-whitelisted payloads. */
