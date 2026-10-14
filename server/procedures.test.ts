@@ -191,3 +191,26 @@ test("GET /api/data/procedures/flight/:callsign: filed DP/STAR auto-matched; app
     assert.equal((await fetch(`${base}/api/data/procedures/flight/%20`)).status, 400);
   });
 });
+
+// ── runway state (2026-10-14): which runway, from position + track ─────────
+test("GET /api/data/procedures/runway: a fix on the 18L centreline at KAUS = lined up / taking off on 18L; bad input 400", async () => {
+  const { runwayEnds } = await import("./runwayDetect");
+  const e = runwayEnds(kaus).find((x) => x.id === "18L");
+  assert.ok(e, "fixture KAUS codes runway 18L");
+  const h = (e!.headingTrue * Math.PI) / 180;
+  const lat = e!.lat + (300 * Math.cos(h)) / 110_540;
+  const lon = e!.lon + (300 * Math.sin(h)) / (111_320 * Math.cos((e!.lat * Math.PI) / 180));
+  await withServer(async (base) => {
+    const q = (extra: string) => `${base}/api/data/procedures/runway?lat=${lat}&lon=${lon}&trk=${e!.headingTrue}&gnd=1${extra}`;
+    const lined = await (await fetch(q("&gsKt=0"))).json();
+    assert.equal(lined.airport.icao, "KAUS");
+    assert.deepEqual(lined.current, { state: "LINED_UP", runway: "18L", label: "Lined up on runway 18L" });
+    assert.match(lined.honesty, /not an ATC runway assignment/);
+    assert.equal(lined.notForNavigation, NOT_FOR_NAVIGATION);
+    const roll = await (await fetch(q("&gsKt=120"))).json();
+    assert.equal(roll.current.state, "TAKEOFF_ROLL");
+    const across = await (await fetch(`${base}/api/data/procedures/runway?lat=${lat}&lon=${lon}&trk=${(e!.headingTrue + 90) % 360}&gnd=1&gsKt=10`)).json();
+    assert.equal(across.current, null, "crossing the runway is not a runway state");
+    assert.equal((await fetch(`${base}/api/data/procedures/runway?lat=abc&lon=1`)).status, 400);
+  });
+});
