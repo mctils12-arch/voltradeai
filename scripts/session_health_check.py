@@ -39,7 +39,9 @@ Exit code: 0 = all clear, 1 = WARN present (non-blocking, log and move on),
 import argparse
 import json
 import os
+import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -57,8 +59,11 @@ OK, WARN, ALARM = "OK", "WARN", "ALARM"
 _SEVERITY_RANK = {OK: 0, WARN: 1, ALARM: 2}
 
 
-def finding(severity, label, detail):
-    return {"severity": severity, "label": label, "detail": detail}
+def finding(severity, label, detail, fix=None):
+    f = {"severity": severity, "label": label, "detail": detail}
+    if fix:
+        f["fix"] = fix
+    return f
 
 
 # ── pure classifiers (no network) ────────────────────────────────────────
@@ -426,6 +431,194 @@ def save_outage_state(state, path=DEFAULT_OUTAGE_STATE_PATH):
         f.write("\n")
 
 
+# ── DATA-PLANE OPS CHECKS (human-directed 2026-10-14, ops item 4) ────────
+# One daily pass over the live feeds the bot does not own: SWIM flight plans,
+# filed-route placement, aircraft intent coverage, archive storage, the
+# adsb.lol upstream and /data API latency. Each reads a PUBLIC endpoint (no
+# token) and every non-OK finding carries the exact `fix`, so --alert can
+# send one short message only when something needs doing. Safe auto-fixes
+# live in the server, not here: the SWIM stall watchdog restarts a dead
+# consumer (swimConnector.ts) and sweep archiving pauses itself below its
+# 2 GiB gate (globalAircraft.ts sweepArchiveAllowed) — these checks report
+# them, never duplicate them.
+
+GIB = 1_073_741_824
+SWIM_SILENT_ALARM_MIN = 15
+SWIM_AUTH_RE = re.compile(r"auth|login|password|credential|unauthori[sz]ed|\b401\b|\b403\b", re.I)
+
+
+def check_swim(plan_status, uptime_s=None, now_ms=None):
+    label = "SWIM SFDPS (flight plans)"
+    if plan_status is None:
+        return finding(WARN, label, "plan-status unreachable", "check the site is up (/api/health)")
+    if not plan_status.get("swimConfigured"):
+        return finding(WARN, label, "SFDPS env not configured — no FAA flight plans",
+                       "set SWIM_SFDPS_URL/VPN/QUEUE + SWIM_USER/SWIM_PASSWORD in Railway")
+    sw = plan_status.get("swim") or {}
+    err = sw.get("lastError") or ""
+    if not plan_status.get("swimConnected"):
+        if SWIM_AUTH_RE.search(err):
+            fix = ("login rejected: rotate the password in the SCDS portal, paste it into Railway "
+                   "SWIM_PASSWORD, redeploy; confirm plan-status swimConnected=true")
+        else:
+            fix = ("the consumer retries on its own (30 s doubling to 15 min); if still down at the next "
+                   "check, redeploy")
+        return finding(ALARM, label, f"disconnected — lastError: {err or 'none'}", fix)
+    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    last = sw.get("lastMessageAt")
+    if isinstance(last, (int, float)):
+        silent_min = (now_ms - last) / 60000
+        if silent_min > SWIM_SILENT_ALARM_MIN:
+            return finding(ALARM, label, f"connected but silent for {silent_min:.0f} min",
+                           "the stall watchdog restarts it within 10 min; if this persists, redeploy and "
+                           "check the queue subscription in the SCDS portal")
+    recv = sw.get("messagesReceived") or 0
+    processed = sw.get("messagesProcessed") or 0
+    errs = (sw.get("processErrors") or 0) + (sw.get("parseErrors") or 0)
+    dropped = sw.get("droppedOverflow") or 0
+    rate = f"{recv / (uptime_s / 3600):,.0f} msg/h" if uptime_s and uptime_s >= 600 else "rate n/a (just booted)"
+    detail = (f"connected, {rate} since boot, {errs} process/parse errors, {dropped} overflow drops, "
+              f"{sw.get('stallRestarts', 0)} watchdog restarts")
+    if processed >= 1000 and errs / processed > 0.01:
+        return finding(WARN, label, detail, "parse errors above 1%: SFDPS schema change? see swim.lastError")
+    if recv >= 1000 and dropped / recv > 0.01:
+        return finding(WARN, label, detail, "overflow drops above 1%: the drain loop is falling behind")
+    return finding(OK, label, detail)
+
+
+def check_filed_routes(plan_status, min_routes=200, min_share=0.7):
+    """FAA-filed plans must turn into real route points (the parser's live
+    shadow counters, swimSfdps.ts parserShadow)."""
+    label = "Filed routes -> route points"
+    ps = (((plan_status or {}).get("swim") or {}).get("routeShape") or {}).get("parserShadow") or {}
+    routes, placed = ps.get("routes") or 0, ps.get("placed") or 0
+    if routes < min_routes:
+        return finding(OK, label, f"{routes} routes parsed since boot — too few to judge")
+    share = placed / routes
+    # most "unresolved" tokens are honest gaps, not failures: an amendment
+    # from the present position ("./.", the leg from wherever the aircraft
+    # was is unknown) or an unexpanded SID/STAR — so they are reported, and
+    # only the placed share is judged
+    detail = (f"{placed}/{routes} placed ({share:.0%}); {ps.get('amended', 0)} amended from present position, "
+              f"{ps.get('withUnresolved', 0)} carry a gap token")
+    if share < min_share:
+        return finding(WARN, label, detail,
+                       "placement fell below 70%: check the NASR fixes/airways cycle and CIFP load "
+                       "(plan-status swim.routeShape.unresolvedTokens)")
+    return finding(OK, label, detail)
+
+
+def check_intent_coverage(cov, min_aircraft=300, mcp_floor=25.0):
+    label = "Aircraft intent coverage"
+    if cov is None:
+        return finding(WARN, label, "intent-coverage unreachable", "check the site is up (/api/health)")
+    n = cov.get("aircraft") or 0
+    lp = cov.get("latest_pct") or {}
+    rows = cov.get("rows_ingested") or 0
+    rejected = sum((cov.get("rejected") or {}).values())
+    detail = (f"{n} airborne; selected alt {lp.get('nav_altitude_mcp', 0)}%, QNH {lp.get('nav_qnh', 0)}%, "
+              f"mode bits {lp.get('nav_modes', 0)}%, wind {lp.get('wd', 0)}%")
+    daily = ((cov.get("archive") or {}).get("daily") or {})
+    if daily:
+        detail += f"; daily rollups {daily.get('days', 0)} (latest {daily.get('latest')})"
+    if n < min_aircraft:
+        return finding(OK, label, detail + " — sample too small to judge")
+    if (lp.get("nav_altitude_mcp") or 0) < mcp_floor:
+        return finding(WARN, label, detail,
+                       "selected-altitude coverage collapsed: compare a raw adsb.lol row against "
+                       "aircraftIntent.parseReadsbIntent (upstream schema drift?)")
+    if rows >= 1000 and rejected / rows > 0.01:
+        return finding(WARN, label, detail + f"; {rejected} rejected values",
+                       "over 1% of rows rejected: see intent-coverage.rejected for the field")
+    return finding(OK, label, detail)
+
+
+def check_storage(offload, guard_bytes=GIB, alarm_bytes=1_200_000_000):
+    label = "Archive storage"
+    if offload is None:
+        return finding(WARN, label, "offload-status unreachable", "check the site is up (/api/health)")
+    vol = offload.get("volume") or {}
+    free = vol.get("freeBytes")
+    per_day = offload.get("estimatedBytesPerDay") or 0
+    if not isinstance(free, (int, float)):
+        return finding(WARN, label, "volume free space unreadable", "check offload-status.volume")
+    detail = f"{free / GIB:.2f} GiB free, ~{per_day / 1e6:.0f} MB/day archived"
+    if free < 2 * GIB:
+        detail += "; sweep archiving auto-paused below its 2 GiB gate"
+    if per_day > 0:
+        detail += f"; {max(0.0, (free - guard_bytes) / per_day):.0f} d to the 1 GiB guard if eviction stopped"
+    if offload.get("lastError"):
+        return finding(WARN, label, detail + f"; offload error: {offload['lastError']}",
+                       "R2 offload failing: check R2_* env in Railway; nothing is evicted until uploads verify")
+    if free < alarm_bytes:
+        return finding(ALARM, label, detail,
+                       "below 1.2 GB: shorten VESSEL_HOT_TIER_DAYS / localHotDays or enlarge the Railway volume")
+    return finding(OK, label, detail)
+
+
+def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failover_share=0.5):
+    label = "adsb.lol upstream"
+    lh = (governor or {}).get("last_hour")
+    if not lh:
+        return finding(OK, label, "no last-hour governor stats (older build)")
+    bg, fg = lh.get("bg") or {}, lh.get("fg") or {}
+    bg_n, fg_n = bg.get("results") or 0, fg.get("results") or 0
+    r429 = bg.get("rate_limited") or 0
+    fg_fail = fg_n - (fg.get("ok") or 0)
+    detail = (f"sweep {bg_n} req/h, {r429} rate-limited; viewport {fg_n} req/h, {fg_fail} failed over "
+              f"to the next provider")
+    if bg_n >= min_results and r429 / bg_n > max_429_share:
+        rps = governor.get("bg_rps") or 0.4
+        return finding(WARN, label, detail + f" ({r429 / bg_n:.0%} 429s)",
+                       f"set GLOBAL_SWEEP_RPS={max(0.1, round(rps / 2, 2))} in Railway (now {rps}) and redeploy")
+    if fg_n >= min_results and fg_fail / fg_n > max_failover_share:
+        return finding(WARN, label, detail + f" ({fg_fail / fg_n:.0%} failover)",
+                       "adsb.lol failing for viewers; the chain still serves airplanes.live/adsb.fi — act only if "
+                       "it persists a second day (adsb.lol status page)")
+    return finding(OK, label, detail)
+
+
+def p95(samples):
+    xs = sorted(x for x in samples if isinstance(x, (int, float)))
+    if not xs:
+        return None
+    return xs[min(len(xs) - 1, int(round(0.95 * (len(xs) - 1))))]
+
+
+def check_data_latency(samples_ms, warn_ms=2500):
+    label = "/data API latency"
+    v = p95(samples_ms or [])
+    if v is None:
+        return finding(WARN, label, "no successful /data API sample", "check the site is up (/api/health)")
+    detail = f"p95 {v:.0f} ms over {len(samples_ms)} requests"
+    if v > warn_ms:
+        return finding(WARN, label, detail, "slow /data API: check /api/health memory + process blocks")
+    return finding(OK, label, detail)
+
+
+def run_ops_checks(plan_status, intent_cov, offload, governor, latency_ms, uptime_s=None, now_ms=None):
+    return [
+        check_swim(plan_status, uptime_s=uptime_s, now_ms=now_ms),
+        check_filed_routes(plan_status),
+        check_intent_coverage(intent_cov),
+        check_storage(offload),
+        check_adsb_upstream(governor),
+        check_data_latency(latency_ms),
+    ]
+
+
+def alert_message(findings):
+    """ONE short message, only when something needs doing (None = stay quiet)."""
+    bad = [f for f in findings if f["severity"] != OK]
+    if not bad:
+        return None
+    bad.sort(key=lambda f: -_SEVERITY_RANK[f["severity"]])
+    lines = [f"VolTradeAI ops: {len(bad)} item(s) need action"]
+    for f in bad:
+        lines.append(f"- [{f['severity']}] {f['label']}: {f['detail']}" + (f" -> FIX: {f['fix']}" if f.get("fix") else ""))
+    return "\n".join(lines)
+
+
 def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
                     local_version=None, server_version=None):
     return [
@@ -493,6 +686,32 @@ def read_local_package_version(repo_root=None):
         return None
 
 
+def _timed_get_ms(url, timeout=DEFAULT_TIMEOUT_S):
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            r.read()
+        return (time.monotonic() - t0) * 1000
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+
+
+def gather_ops(base_url, health, samples=5):
+    plan_status = _fetch_json(f"{base_url}/api/data/aircraft/plan-status")
+    intent_cov = _fetch_json(f"{base_url}/api/data/aircraft/intent-coverage")
+    offload = _fetch_json(f"{base_url}/api/data/archive/offload-status")
+    glob = _fetch_json(f"{base_url}/api/data/aircraft/global?lamin=0&lamax=1&lomin=0&lomax=1")
+    governor = (((glob or {}).get("coverage") or {}).get("sweep") or {}).get("governor")
+    latency = []
+    for _ in range(samples):
+        for path in ("/api/data/layers", "/api/data/aircraft/global?lamin=30&lamax=50&lomin=-100&lomax=-70"):
+            ms = _timed_get_ms(f"{base_url}{path}")
+            if ms is not None:
+                latency.append(ms)
+    uptime_s = (((health or {}).get("checks") or {}).get("server") or {}).get("uptime_s")
+    return plan_status, intent_cov, offload, governor, latency, uptime_s
+
+
 def gather(base_url, diag_token):
     health = _fetch_json(f"{base_url}/api/health")
     layers = _fetch_json(f"{base_url}/api/data/layers")
@@ -512,6 +731,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("--base-url", default=os.environ.get("VOLTRADE_BASE_URL", DEFAULT_BASE_URL))
     ap.add_argument("--json", action="store_true", help="emit findings as JSON instead of text")
+    ap.add_argument("--alert", action="store_true",
+                    help="print ONE short message only when something needs action (silent when all OK)")
+    ap.add_argument("--no-ops", action="store_true", help="skip the data-plane ops checks")
     args = ap.parse_args()
 
     diag_token = os.environ.get("DIAG_TOKEN", "")
@@ -538,13 +760,23 @@ def main():
         save_outage_state(notify_state, path=DEFAULT_LIVENESS_NOTIFY_STATE_PATH)
     findings.append(check_liveness_notification(prior_notify_state, notify_state, wall_hours))
 
+    if not args.no_ops:
+        plan_status, intent_cov, offload, governor, latency, uptime_s = gather_ops(args.base_url, health)
+        findings.extend(run_ops_checks(plan_status, intent_cov, offload, governor, latency, uptime_s=uptime_s))
+
+    if args.alert:
+        msg = alert_message(findings)
+        if msg:
+            print(msg)
+        return overall_exit_code(findings)
+
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))
     else:
         if not diag_token:
             print("[session_health_check] DIAG_TOKEN not set — only /api/health checks ran\n")
         for f in findings:
-            print(f"[{f['severity']:5s}] {f['label']}: {f['detail']}")
+            print(f"[{f['severity']:5s}] {f['label']}: {f['detail']}" + (f"  FIX: {f['fix']}" if f.get("fix") else ""))
 
     return overall_exit_code(findings)
 

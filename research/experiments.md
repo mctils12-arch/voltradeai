@@ -108140,3 +108140,30 @@ PRIOR: within an hour of deploy, intent-coverage archive.daily stops growing wit
 TESTS: aircraftIntentArchive.test.ts +1 (a 2026-10-01 hour file is never read or folded).
 VERSION: v1.0.1078. ROLLBACK: git revert.
 STARVED: no.
+
+## 2026-10-14 (human-directed session, ~23:15Z Wed) [PIPELINE] — Daily ops health check: SWIM, filed routes, intent coverage, storage, adsb.lol 429/failover, /data latency, one-message alert
+
+TERRITORY: scripts/session_health_check.py (+ test) and server/adsbGovernor.ts (ops counters) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops item 4): add to the existing routines a daily check of SWIM processing, FILED_FAA plans having real route points, intent coverage per field, storage headroom, the adsb.lol 429/failover rate and /data p95. Alert only when action is needed, as one short message with the fix; auto-fix what's safe.
+FOUND (coordinate first): the routines live outside the repo; the de-facto daily check is scripts/session_health_check.py (pure classifiers + thin gather). It is extended rather than duplicated.
+- adsbGovernor folded 429s into fgFail/bgFail with no time window. Live since boot: bg 38 failures of 93, last status 429.
+- Safe auto-fixes already exist in the server: the SWIM stall watchdog (#1339) and the sweep-archive 2 GiB gate (fails closed). The check reports them and never duplicates them.
+CHANGE:
+- adsbGovernor `last_hour` per lane: results / ok / rate_limited (429) / server_error / network_error / other. A foreground failure = a viewport disc that failed over to the next provider.
+- session_health_check.py, six data-plane checks, each non-OK finding carrying an exact `fix`:
+  - SWIM: an auth error points at the SWIM_PASSWORD rotation and the plan-status field to confirm; silent > 15 min while connected = ALARM; >1% parse errors or overflow drops = WARN. Reports msg/h since boot.
+  - Filed routes: the placed share of parserShadow; WARN < 70%.
+  - Intent coverage: mcp < 25% on ≥ 300 aircraft, or > 1% of rows rejected.
+  - Storage: < 1.2 GB = ALARM; offload lastError = WARN; notes the sweep auto-pause and the days to the 1 GiB guard.
+  - adsb.lol: > 25% 429 on the sweep → names GLOBAL_SWEEP_RPS = half the current rate; > 50% viewport failover → WARN.
+  - /data API p95 > 2.5 s.
+- `--alert` prints ONE message (worst first) only when something needs action, else nothing. `--no-ops` skips the new checks. Public endpoints only (no token).
+LIVE DRY RUN (22:58Z, production):
+- SWIM OK; filed routes 4519/4834 placed (93%); intent 8,675 airborne (mcp 78.4%, qnh 78.9%, mode bits 17.7%, wind 22.5%).
+- Storage 1.88 GiB free (sweep auto-paused, 15 d to the guard if eviction stopped); /data p95 296 ms over 10 requests.
+- adsb.lol: "no last-hour stats (older build)" until this deploys.
+- It also caught the intent-fold bug fixed in #1340.
+PRIOR: once deployed, the adsb.lol check WARNs (bg 429 share ~40% live). The proposed fix is GLOBAL_SWEEP_RPS=0.2, to be confirmed on the post-deploy last_hour numbers before it goes on the human checklist.
+TESTS: test_session_health_check.py +14 (85 pass); adsbGovernor.test.ts +1 (last-hour split and ageing). Server suites green; tsc 11.
+VERSION: v1.0.1079. ROLLBACK: git revert.
+STARVED: no (SWIM capture consumers next).

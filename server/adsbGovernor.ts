@@ -40,6 +40,21 @@ export interface GovernorOptions {
 
 export type Lane = "fg" | "bg";
 
+/** How an outcome is counted for the ops check (429 = adsb.lol rate-limited
+ *  us; 5xx = it struggled; net = timeout / no response; other = any other
+ *  non-2xx/3xx such as 403/404). */
+export type OutcomeKind = "ok" | "429" | "5xx" | "net" | "other";
+export function outcomeKind(status: number): OutcomeKind {
+  if (status === 0) return "net";
+  if (status === 429) return "429";
+  if (status >= 500) return "5xx";
+  if (status >= 200 && status < 400) return "ok";
+  return "other";
+}
+/** the ops window: outcomes kept for one hour (bounded) */
+export const OUTCOME_WINDOW_MS = 3600_000;
+const OUTCOME_LOG_MAX = 20_000;
+
 /** Status codes that mean "the upstream is struggling — back off". 0 is our
  *  convention for a network error / timeout (no HTTP status at all). */
 export function isBackoffStatus(status: number): boolean {
@@ -60,6 +75,9 @@ export class UpstreamGovernor {
   private backoffUntil = 0;
   private lastStatus: { lane: Lane; status: number; at: number } | null = null;
   private counts = { fg: 0, bg: 0, fgFail: 0, bgFail: 0 };
+  /** outcomes of the last OUTCOME_WINDOW_MS, oldest first (ops check: the
+   *  429 rate and the viewport failover rate) */
+  private outcomes: { t: number; lane: Lane; kind: OutcomeKind }[] = [];
 
   constructor(o: GovernorOptions) {
     this.bgRps = Math.max(0, o.bgRps);
@@ -97,6 +115,8 @@ export class UpstreamGovernor {
    *  Retry-After header (when present) floors the backoff. */
   noteResult(lane: Lane, status: number, now: number, retryAfterSec?: number | null): void {
     this.lastStatus = { lane, status, at: now };
+    this.outcomes.push({ t: now, lane, kind: outcomeKind(status) });
+    this.pruneOutcomes(now);
     if (isBackoffStatus(status)) {
       this.failures++;
       if (lane === "fg") this.counts.fgFail++; else this.counts.bgFail++;
@@ -108,6 +128,27 @@ export class UpstreamGovernor {
       this.failures = 0;
       this.backoffUntil = 0;
     }
+  }
+
+  private pruneOutcomes(now: number) {
+    const cut = now - OUTCOME_WINDOW_MS;
+    let i = 0;
+    while (i < this.outcomes.length && this.outcomes[i].t <= cut) i++;
+    if (i) this.outcomes.splice(0, i);
+    if (this.outcomes.length > OUTCOME_LOG_MAX) this.outcomes.splice(0, this.outcomes.length - OUTCOME_LOG_MAX);
+  }
+
+  /** Per-lane outcome counts over the last hour. A foreground failure is a
+   *  viewport disc that FAILED OVER to the next provider in the chain. */
+  lastHour(now: number) {
+    this.pruneOutcomes(now);
+    const blank = () => ({ results: 0, ok: 0, rate_limited: 0, server_error: 0, network_error: 0, other: 0 });
+    const out = { fg: blank(), bg: blank() };
+    const key: Record<OutcomeKind, keyof ReturnType<typeof blank>> = {
+      ok: "ok", "429": "rate_limited", "5xx": "server_error", net: "network_error", other: "other",
+    };
+    for (const o of this.outcomes) { out[o.lane].results++; out[o.lane][key[o.kind]]++; }
+    return out;
   }
 
   /** Requests (both lanes) inside the sliding window. */
@@ -154,6 +195,7 @@ export class UpstreamGovernor {
       backoff_s: Math.max(0, Math.ceil((this.backoffUntil - now) / 1000)),
       consecutive_failures: this.failures,
       totals: { ...this.counts },
+      last_hour: this.lastHour(now),
       last_status: this.lastStatus,
     };
   }

@@ -638,3 +638,119 @@ def test_outage_state_new_outage_keeps_previous_record_until_recovery():
 def test_outage_state_fresh_install_has_no_history_keys():
     assert hc.compute_outage_state(True, "2026-09-18T13:08:00+00:00", None) == {"down_since": None}
     assert hc.compute_outage_state(False, "2026-09-18T13:08:00+00:00", {}) == {"down_since": "2026-09-18T13:08:00+00:00"}
+
+
+# ── data-plane ops checks (2026-10-14, ops item 4) ───────────────────────
+
+NOW_MS = 1_792_000_000_000
+
+
+def _plan_status(connected=True, last_err=None, silent_min=0.1, routes=22725, placed=21258, errs=0, dropped=0):
+    return {
+        "swimConfigured": True, "swimConnected": connected,
+        "swim": {
+            "messagesReceived": 163402, "messagesProcessed": 163007, "processErrors": errs, "parseErrors": 0,
+            "droppedOverflow": dropped, "lastMessageAt": NOW_MS - silent_min * 60000, "lastError": last_err,
+            "stallRestarts": 0,
+            "routeShape": {"parserShadow": {"routes": routes, "placed": placed, "withUnresolved": 300}},
+        },
+    }
+
+
+def test_swim_ok_reports_rate_since_boot():
+    f = hc.check_swim(_plan_status(), uptime_s=1896, now_ms=NOW_MS)
+    assert f["severity"] == hc.OK
+    assert "310,257 msg/h" in f["detail"] and "0 watchdog restarts" in f["detail"]
+
+
+def test_swim_disconnected_auth_error_names_the_password_rotation():
+    f = hc.check_swim(_plan_status(connected=False, last_err="session connect failed: Unauthorized (401)"), now_ms=NOW_MS)
+    assert f["severity"] == hc.ALARM
+    assert "SWIM_PASSWORD" in f["fix"] and "swimConnected=true" in f["fix"]
+    g = hc.check_swim(_plan_status(connected=False, last_err="session disconnected"), now_ms=NOW_MS)
+    assert g["severity"] == hc.ALARM and "retries on its own" in g["fix"]
+
+
+def test_swim_connected_but_silent_is_an_alarm():
+    f = hc.check_swim(_plan_status(silent_min=40), now_ms=NOW_MS)
+    assert f["severity"] == hc.ALARM and "silent for 40 min" in f["detail"]
+
+
+def test_swim_unconfigured_and_unreachable():
+    assert hc.check_swim(None)["severity"] == hc.WARN
+    assert hc.check_swim({"swimConfigured": False})["severity"] == hc.WARN
+
+
+def test_swim_parse_errors_and_overflow_warn_above_1pct():
+    assert hc.check_swim(_plan_status(errs=5000), uptime_s=1896, now_ms=NOW_MS)["severity"] == hc.WARN
+    assert hc.check_swim(_plan_status(dropped=5000), uptime_s=1896, now_ms=NOW_MS)["severity"] == hc.WARN
+    assert hc.check_swim(_plan_status(dropped=395), uptime_s=1896, now_ms=NOW_MS)["severity"] == hc.OK
+
+
+def test_filed_routes_share_and_small_samples():
+    assert hc.check_filed_routes(_plan_status())["severity"] == hc.OK
+    assert hc.check_filed_routes(_plan_status(routes=50, placed=1))["severity"] == hc.OK  # too few to judge
+    f = hc.check_filed_routes(_plan_status(routes=1000, placed=500))
+    assert f["severity"] == hc.WARN and "NASR" in f["fix"]
+
+
+def _cov(n=3086, mcp=58.5, rejected=None, rows=9346):
+    return {"aircraft": n, "rows_ingested": rows, "rejected": rejected or {"oat": 2},
+            "latest_pct": {"nav_altitude_mcp": mcp, "nav_qnh": 60.4, "nav_modes": 24.4, "wd": 4.2},
+            "archive": {"daily": {"days": 3, "latest": "2026-10-16"}}}
+
+
+def test_intent_coverage():
+    f = hc.check_intent_coverage(_cov())
+    assert f["severity"] == hc.OK and "daily rollups 3" in f["detail"]
+    assert hc.check_intent_coverage(_cov(mcp=5))["severity"] == hc.WARN
+    assert hc.check_intent_coverage(_cov(n=100, mcp=5))["severity"] == hc.OK  # sample too small
+    assert hc.check_intent_coverage(_cov(rejected={"oat": 500}))["severity"] == hc.WARN
+    assert hc.check_intent_coverage(None)["severity"] == hc.WARN
+
+
+def _offload(free, err=None):
+    return {"volume": {"freeBytes": free}, "estimatedBytesPerDay": 64_674_900, "lastError": err}
+
+
+def test_storage_thresholds_and_auto_pause_note():
+    f = hc.check_storage(_offload(1_624_317_952))
+    assert f["severity"] == hc.OK and "auto-paused" in f["detail"] and "d to the 1 GiB guard" in f["detail"]
+    assert hc.check_storage(_offload(1_100_000_000))["severity"] == hc.ALARM
+    w = hc.check_storage(_offload(3 * hc.GIB, err="PUT 403"))
+    assert w["severity"] == hc.WARN and "R2_" in w["fix"]
+    assert "auto-paused" not in hc.check_storage(_offload(3 * hc.GIB))["detail"]
+
+
+def _gov(bg_n=93, r429=38, fg_n=40, fg_ok=38, rps=0.4):
+    return {"bg_rps": rps, "last_hour": {
+        "bg": {"results": bg_n, "ok": bg_n - r429, "rate_limited": r429},
+        "fg": {"results": fg_n, "ok": fg_ok}}}
+
+
+def test_adsb_upstream_429_share_names_the_env_fix():
+    f = hc.check_adsb_upstream(_gov())
+    assert f["severity"] == hc.WARN and "GLOBAL_SWEEP_RPS=0.2" in f["fix"]
+    assert hc.check_adsb_upstream(_gov(r429=5))["severity"] == hc.OK
+    assert hc.check_adsb_upstream(_gov(r429=5, fg_ok=10))["severity"] == hc.WARN  # 75% failover
+    assert hc.check_adsb_upstream(None)["severity"] == hc.OK  # older build: nothing to judge
+
+
+def test_latency_p95():
+    assert hc.p95([100, 200, 300, 400, 5000]) == 5000
+    assert hc.check_data_latency([120] * 10)["severity"] == hc.OK
+    assert hc.check_data_latency([120] * 9 + [9000])["severity"] == hc.WARN
+    assert hc.check_data_latency([])["severity"] == hc.WARN
+
+
+def test_alert_message_is_silent_when_all_ok_and_one_message_otherwise():
+    ok = hc.run_ops_checks(_plan_status(), _cov(), _offload(3 * hc.GIB), _gov(r429=0), [100] * 10,
+                           uptime_s=1896, now_ms=NOW_MS)
+    assert all(f["severity"] == hc.OK for f in ok)
+    assert hc.alert_message(ok) is None
+    bad = hc.run_ops_checks(_plan_status(connected=False, last_err="login failed"), _cov(), _offload(3 * hc.GIB),
+                            _gov(), [100] * 10, now_ms=NOW_MS)
+    msg = hc.alert_message(bad)
+    assert msg.startswith("VolTradeAI ops: 2 item(s) need action")
+    assert msg.index("[ALARM]") < msg.index("[WARN]"), "worst first"
+    assert "FIX:" in msg
