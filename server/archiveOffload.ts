@@ -53,6 +53,7 @@ import { hourName, setColdHourSource, type ColdHourSource } from "./aircraftWind
 import { createR2Client, errText, r2ConfigDiagnostics, r2ConfigFromEnv, type R2Client } from "./r2Client";
 import { preserveWeeklyBeforeRollup } from "./fleetUtilization";
 import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
+import { foldIntentDays } from "./aircraftIntentDaily";
 
 // ── constants ───────────────────────────────────────────────────────────────
 const DAY_MS = 86_400_000;
@@ -484,7 +485,8 @@ export interface OffloadDeps {
 }
 
 /** production fold chain: the SAME two folds the 6-hourly rollup runs first
- *  (server/routes.ts), with a cutoff 1s before the midnight after the newest
+ *  (server/routes.ts) plus the intent daily fold (normally done within hours
+ *  of each day's end by globalAircraft.ts; here as the backstop), with a cutoff 1s before the midnight after the newest
  *  evicted day so exactly the evicted days (all older days are gone or in
  *  the same eviction run — eviction is oldest-first contiguous) are folded;
  *  their processedFiles sets make the later RAW_RETENTION_DAYS pass a no-op. */
@@ -492,6 +494,9 @@ export async function foldAircraftBeforeEvict(base: string, cutoffMs: number, no
   const retentionDays = (nowMs - cutoffMs) / DAY_MS;
   await preserveWeeklyBeforeRollup(base, nowMs, retentionDays).catch((e) => console.error("[archive-offload] fleet fold:", e?.message || e));
   await preserveGnssIntegrityDailyBeforeRollup(base, nowMs, retentionDays).catch((e) => console.error("[archive-offload] gnss fold:", e?.message || e));
+  // AIRCRAFT INTENT B: normally folded within hours of each day's end
+  // (globalAircraft timer); this is the never-evict-unfolded backstop
+  await foldIntentDays(base, nowMs, 64).catch((e) => console.error("[archive-offload] intent fold:", e?.message || e));
 }
 
 export function createArchiveOffloadService(deps: OffloadDeps = {}) {

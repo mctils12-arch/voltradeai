@@ -39,7 +39,7 @@
 
 import type { Express } from "express";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
-import { archiveAircraft, archiveBaseDir, type SitePoint } from "./datacoreArchive";
+import { archiveAircraft, archiveBaseDir, intentArchiveStats, type SitePoint } from "./datacoreArchive";
 import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
 import { createGapFiller, gapFiller, gapFillEnabled } from "./coverageGapFill";
 import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
@@ -51,6 +51,7 @@ import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
 import { setPlanLiveLookup } from "./flightPlans";
 import { IntentStore } from "./aircraftIntent";
+import { foldIntentDays, intentDailyInventory } from "./aircraftIntentDaily";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -185,6 +186,19 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     }
   };
   const unsubscribe = subscribeFixes(onBatch);
+
+  // AIRCRAFT INTENT B: fold each complete UTC day of archived intent into
+  // its permanent daily rollup (idempotent; streamed; 5 min after boot, then
+  // every 30 min — deploys are more frequent than the 6-hourly chain)
+  const foldIntent = () => {
+    foldIntentDays(deps.baseDir || archiveBaseDir(), now())
+      .then((r) => { if (r.daysFolded.length) console.log(`[intent-daily] folded ${r.daysFolded.join(",")} (${r.bytes} B)`); })
+      .catch((e) => noteError("intent-daily", e));
+  };
+  const foldBoot = setTimeout(foldIntent, 5 * 60_000);
+  const foldTimer = setInterval(foldIntent, 30 * 60_000);
+  unrefTimer(foldBoot);
+  unrefTimer(foldTimer);
 
   const evictTimer = setInterval(() => {
     try { snapshot.evict(now()); } catch (e) { noteError("evict", e); }
@@ -339,10 +353,17 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
 
   // AIRCRAFT INTENT A: which intent/derived fields the feeds actually send,
   // across airborne aircraft seen in the last 5 min (+ per provider)
-  let coverageCache: { at: number; body: ReturnType<IntentStore["coverage"]> } | null = null;
+  let coverageCache: { at: number; body: ReturnType<IntentStore["coverage"]> & { archive: unknown } } | null = null;
   app.get("/api/data/aircraft/intent-coverage", (_req, res) => {
     const t = now();
-    if (!coverageCache || t - coverageCache.at > 15_000) coverageCache = { at: t, body: intent.coverage(t) };
+    if (!coverageCache || t - coverageCache.at > 15_000) {
+      coverageCache = { at: t, body: {
+        ...intent.coverage(t),
+        // AIRCRAFT INTENT B: delta-encoded archive writes since boot + the
+        // permanent daily rollups on disk
+        archive: { writer: intentArchiveStats(), daily: intentDailyInventory(deps.baseDir || archiveBaseDir()) },
+      } };
+    }
     res.set("Cache-Control", "public, max-age=15");
     res.json(coverageCache.body);
   });
@@ -352,6 +373,8 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     stop: () => {
       unsubscribe();
       clearInterval(evictTimer);
+      clearTimeout(foldBoot);
+      clearInterval(foldTimer);
       sweep.stop();
       opensky.stop();
     },
