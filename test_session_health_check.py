@@ -722,8 +722,8 @@ def test_storage_thresholds_and_auto_pause_note():
     assert "auto-paused" not in hc.check_storage(_offload(3 * hc.GIB))["detail"]
 
 
-def _gov(bg_n=93, r429=38, fg_n=40, fg_ok=38, rps=0.4):
-    return {"bg_rps": rps, "last_hour": {
+def _gov(bg_n=93, r429=38, fg_n=40, fg_ok=38, rps=0.4, eff=None):
+    return {"bg_rps": rps, **({"effective_bg_rps": eff} if eff is not None else {}), "last_hour": {
         "bg": {"results": bg_n, "ok": bg_n - r429, "rate_limited": r429},
         "fg": {"results": fg_n, "ok": fg_ok}}}
 
@@ -754,3 +754,10 @@ def test_alert_message_is_silent_when_all_ok_and_one_message_otherwise():
     assert msg.startswith("VolTradeAI ops: 2 item(s) need action")
     assert msg.index("[ALARM]") < msg.index("[WARN]"), "worst first"
     assert "FIX:" in msg
+
+
+def test_adsb_upstream_self_pacing_is_not_a_human_step_until_the_floor():
+    f = hc.check_adsb_upstream(_gov(eff=0.1))
+    assert f["severity"] == hc.OK and "self-pacing at 0.1 of 0.4" in f["detail"]
+    g = hc.check_adsb_upstream(_gov(eff=0.04))
+    assert g["severity"] == hc.WARN and "GLOBAL_SWEEP_RPS=0.2" in g["fix"] and "floor" in g["detail"]
