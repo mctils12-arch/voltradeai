@@ -4646,3 +4646,45 @@ DRAFT 2 — to Broadcastify (support@broadcastify.com):
 > I'd like to apply for Broadcastify Calls API access for VolTradeAI, a non-commercial prototype aircraft map. Use: for an aircraft a user is tracking, read calls from the matching aviation feed, transcribe the instructions addressed to that aircraft, and show them as text on the map with attribution. We would not offer audio playback or a listening interface, and would not build a feed directory. Is aviation-feed access available under the Calls API, and on what terms?
 > Thanks, [name]
 PRIORITY: medium (the human asked for it; feature value is high, cost unknown until a source answers). COST: $0 for the permission route; ≈ $100–150/site for own receivers (estimate) + compute for speech-to-text.
+
+FINAL — LiveATC permission request (2026-10-14, ready to send unchanged; supersedes DRAFT 1 above)
+WHERE: the LiveATC contact form, https://www.liveatc.net/ct/fcontact.php. LiveATC publishes no business email; a LiveATC forum moderator directed contact to this form (Sept 2025). Check for the confirmation email after submitting: one forum user's first submission did not go through.
+FORM FIELDS: Name: Mike · Email: the address you want the reply at · Subject and Message: as below.
+> Subject: Permission request: transcribing one LiveATC feed per tracked aircraft (VolTradeAI)
+>
+> Hello LiveATC team,
+>
+> I run VolTradeAI (https://voltradeai-production.up.railway.app/app#/data), a map of live aircraft built on community ADS-B data. It is non-commercial today; if that changes, I will ask you again first.
+>
+> I'd like your permission for one narrow use. When a user is tracking a single aircraft, we would connect to the one LiveATC feed that matches the frequency that aircraft is on. We would transcribe only the controller instructions addressed to it and show them as text next to the aircraft, labeled "heard, unverified", with credit and a link to LiveATC.
+>
+> We would:
+> - open at most one connection per tracked aircraft, and only while it is tracked;
+> - never rebroadcast, embed or store audio, keeping only the transcribed text;
+> - follow any rate limits, feed exclusions or attribution wording you specify.
+>
+> Is this allowed? If it is, are there terms or a partner arrangement you'd want us to follow? If it isn't, I'd be grateful for a pointer to what is allowed.
+>
+> Thank you,
+> Mike, VolTradeAI
+
+## 2026-10-14 — OPS AUDIT: the human checklist (everything else was fixed in code)
+
+Audit of SWIM, storage, the daily health check and LiveATC (human-directed 2026-10-14). Shipped in code: #1336 (vessels 8-day hot tier), #1339 (SWIM stall watchdog), #1340 (intent fold floor), #1341 (daily ops check + one-message alert), plus the TFMS/NOTAM capture consumers and the adsb.lol self-pacing (AIMD) PRs that follow. Only these steps need a human:
+
+1. ROTATE THE SWIM PASSWORD (~5 min; recommended since the 2026-09-28 screenshot exposure).
+   - Change it in the SCDS portal (https://scds.faa.gov).
+   - In Railway (voltradeai service → Variables), paste it into SWIM_PASSWORD. If any SWIM_<PRODUCT>_PASSWORD override exists, update it too.
+   - Railway redeploys on a variable change; the process reads credentials at startup, so the new one is picked up.
+   - Confirm on https://voltradeai.com/api/data/aircraft/plan-status: `"swimConnected": true`, `swim.lastError: null`, and `swim.messagesReceived` rising on refresh.
+   - If the old password is revoked before the redeploy, the daily check ALARMs with this same fix; nothing is lost but the gap.
+2. LIVEATC (~3 min): submit the FINAL text above (ATC AUDIO entry) at https://www.liveatc.net/ct/fcontact.php (Name: Mike; Email: your reply address; Subject as given), or reply "drop".
+3. RAW REPLAY RETENTION (~1 min): reply "keep 30", or set Railway REPLAY_RETENTION_DAYS=400 (the maximum).
+   - 30 days on both tiers was the 2026-09-28 directive; the intent/E-product work benefits from longer raw history.
+   - It lengthens only the R2 tier; local disk stays ≤ 30 days.
+   - Cost: about 27 GB at steady state, ~$0.28/month beyond the 10 GB free tier.
+4. OPTIONAL — ITWS (~5 min): SCDS portal → ITWS subscription → connection details → Railway SWIM_ITWS_URL, SWIM_ITWS_VPN, SWIM_ITWS_QUEUE. It adds terminal weather (storm cells, gust fronts, microbursts) for the deviation classifier. It is configured-only by design until wanted.
+5. OPTIONAL — GCP (~3 min): https://console.cloud.google.com/billing — confirm the billing account is active after the $300 trial (started ~2026-07-07, so it likely ended ~2026-10-05).
+   - This session's GCP token was rejected, so billing could not be verified.
+   - /api/data/air-quality reports "Air Quality API is not yet enabled": APIs & Services → Library → Air Quality API → Enable.
+   - The 3D Tiles key works today. GCP is not used for the archive (Cloudflare R2, $0).
