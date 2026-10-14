@@ -108,6 +108,9 @@ export interface SwimProductStatus {
   lastUnreadableShape: string | null;
   queueDepth: number;
   reconnects: number;
+  /** sessions restarted by the stall watchdog (connected-but-silent or a
+   *  consumer that went DOWN without an error event) */
+  stallRestarts: number;
   lastMessageAt: number | null;
   lastError: string | null;
 }
@@ -165,7 +168,7 @@ function freshStatus(product: string, envPrefix: string): SwimProductStatus {
     product, envPrefix, configured: false, solclientAvailable: null, connected: false,
     messagesReceived: 0, messagesProcessed: 0, processErrors: 0, droppedOverflow: 0, clientErrors: 0,
     unreadablePayloads: 0, lastUnreadableShape: null,
-    queueDepth: 0, reconnects: 0, lastMessageAt: null, lastError: null,
+    queueDepth: 0, reconnects: 0, stallRestarts: 0, lastMessageAt: null, lastError: null,
   };
 }
 
@@ -242,6 +245,14 @@ export interface SwimProductOptions {
   /** next-turn scheduler for the drain loop (default setImmediate) */
   schedule?: (fn: () => void) => void;
   now?: () => number;
+  /** STALL WATCHDOG (opt-in, 0/absent = off): no message and no consumer-UP
+   *  for this long, with no reconnect already pending, restarts the session
+   *  through the normal retry/backoff path. Covers what the library's own
+   *  reconnect does not: a connected flow that delivers nothing, and a
+   *  consumer DOWN with no error event (nothing else would ever rebind it).
+   *  Set only for products whose silence is unambiguous (SFDPS streams
+   *  ~85 msg/s around the clock). */
+  stallMs?: number;
 }
 
 export interface SwimConnectorHandle {
@@ -303,6 +314,12 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
   let stopped = false;
   let failures = 0;
   let session: SolaceSession | null = null;
+  // stall watchdog state: the live session's retry, whether a reconnect is
+  // already scheduled, and the last sign of life (connect start, consumer
+  // UP, any message)
+  let retryCurrent: ((why: string) => void) | null = null;
+  let retryPending = false;
+  let lastProgressAt = now();
 
   const clientError = (what: string, e: unknown) => {
     status.clientErrors++;
@@ -340,6 +357,7 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
     const msg = asSolaceMessage(raw);
     status.messagesReceived++;
     status.lastMessageAt = now();
+    lastProgressAt = status.lastMessageAt;
     if (queue.length >= maxInFlight * 2) { // the window should prevent this; never silent if it doesn't
       status.droppedOverflow++;
       ack(msg);
@@ -354,6 +372,8 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
 
   const connect = () => {
     if (stopped) return;
+    retryPending = false;
+    lastProgressAt = now();
     let retried = false; // FAILED + DISCONNECTED can both fire: one retry per session
     const retry = (why: string) => {
       if (retried || stopped) return;
@@ -366,8 +386,10 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
       status.reconnects++;
       const wait = Math.min(15 * 60_000, 30_000 * 2 ** Math.min(5, failures - 1));
       log(`[swim] ${o.product}: ${safe} — retry in ${Math.round(wait / 1000)}s`);
+      retryPending = true;
       setTimer(connect, wait);
     };
+    retryCurrent = retry;
     try {
       if (!initedFactories.has(sol)) { // SolclientFactory.init is once per process
         const profile = sol.SolclientFactoryProfiles?.version10;
@@ -393,7 +415,7 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
             windowSize: maxInFlight,
             createIfMissing: false,
           });
-          consumer.on(C.UP, () => { status.connected = true; status.lastError = null; failures = 0; });
+          consumer.on(C.UP, () => { status.connected = true; status.lastError = null; failures = 0; lastProgressAt = now(); });
           consumer.on(C.CONNECT_FAILED_ERROR, (e) => retry(`queue bind failed: ${errText(e)}`));
           if (C.DOWN_ERROR != null) consumer.on(C.DOWN_ERROR, (e) => retry(`consumer down: ${errText(e)}`));
           consumer.on(C.DOWN, () => { status.connected = false; });
@@ -410,6 +432,22 @@ export async function startSwimProduct(o: SwimProductOptions): Promise<SwimConne
     }
   };
   connect();
+
+  const stallMs = Math.max(0, o.stallMs ?? 0);
+  if (stallMs > 0) {
+    const every = Math.max(1_000, Math.min(60_000, Math.floor(stallMs / 4)));
+    const watch = () => {
+      if (stopped) return;
+      const quietMs = now() - lastProgressAt;
+      if (!retryPending && quietMs > stallMs && retryCurrent) {
+        status.stallRestarts++;
+        retryCurrent(`stalled: no messages for ${Math.round(quietMs / 60_000)} min ${status.connected
+          ? "on a connected consumer" : "and no live consumer"} — watchdog restarting the session`);
+      }
+      setTimer(watch, every);
+    };
+    setTimer(watch, every);
+  }
 
   return {
     status: () => swimProductStatus(o.product, o.envPrefix),

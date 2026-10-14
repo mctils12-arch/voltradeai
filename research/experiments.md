@@ -108114,3 +108114,18 @@ TESTS:
 PRODUCTION A CHECK (v1.0.1075 live, minutes after deploy): intent-coverage 3,086 airborne (adsb.lol sweep); latest mcp 58.5%, qnh 60.4%, nav_heading 34.7%, mode bits 24.4% (capable 25.1%), wind 4.2%, ias 5.3%, baro_rate 71.8%, squawk 93%. rejected oat 2 / tat 1. This is lower than the US hub probe because the global mix includes GA and regions without these broadcasts.
 VERSION: v1.0.1076. ROLLBACK: git revert.
 STARVED: no (intent C next; ops checklist due).
+
+## 2026-10-14 (human-directed session, ~23:40Z Wed) [REPAIR] — SWIM consumer stall watchdog: a dead SFDPS flow restarts itself (ops auto-fix)
+
+TERRITORY: server SWIM connector (server/swimConnector.ts, swimSfdps.ts) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops item 4): "Auto-fix what's safe: restart a dead consumer."
+FOUND (read before write): the connector's own retry covers session failure, disconnect and DOWN_ERROR (30 s doubling to a 15-min cap, forever). Two dead states had NO path back short of a redeploy:
+- (1) `consumer DOWN` without an error event, which only sets connected=false and schedules nothing;
+- (2) a connected flow that stops delivering (the AIS dead-air class, feedDeadAir.ts history: the connection looked green for 7 days).
+SFDPS is unambiguous: 163k messages in a 32-min-old process, ~85 msg/s around the clock.
+CHANGE: opt-in `stallMs` per product. With no message and no consumer-UP for stallMs, and no reconnect already pending, the session is restarted through the SAME retry path (dispose, backoff, reconnect). It is counted in `stallRestarts` and lastError names the reason. SFDPS sets SFDPS_STALL_MS = 10 min. TFMS/NOTAM and other low-rate products stay off until their cadence is known.
+PRIOR: stallRestarts stays 0 in normal operation. A non-zero value with messagesProcessed resuming afterwards means the watchdog saved a dead flow (/api/data/aircraft/plan-status swim.stallRestarts).
+ROLLBACK TRIGGER: stallRestarts climbing on a flow that is NOT silent (would mean lastProgressAt is not advancing) → revert.
+TESTS: swimConnector.test.ts +3. A silent connected consumer is restarted once, through the 30 s backoff, never twice while pending. A DOWN-without-error consumer is restarted. Off by default; steady traffic never trips it. Server 2453/2453, tsc 11.
+VERSION: v1.0.1077. ROLLBACK: git revert.
+STARVED: no (daily health check next).
