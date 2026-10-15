@@ -23,6 +23,13 @@
 import type { Express } from "express";
 import { startSwimProduct, swimProductStatus, swimProductsEnvStatus, SWIM_PRODUCTS, type SwimConnectorHandle } from "./swimConnector";
 import { checkDiagToken, diagEnabled } from "./diag";
+import { TfmsStore } from "./swimTfms";
+
+// TFMS parser (written against the captured samples): every TFMS payload is
+// profiled AND parsed into programs / airport configs / per-flight
+// amendments. One process-wide store; the deviation classifier reads it.
+let tfmsStore: TfmsStore | null = null;
+export function sharedTfmsStore(): TfmsStore { return (tfmsStore ??= new TfmsStore()); }
 
 export const CAPTURE_PRODUCTS = ["TFMS", "NOTAM"] as const;
 export type CaptureProduct = typeof CAPTURE_PRODUCTS[number];
@@ -136,14 +143,16 @@ export async function startSwimCapture(o: {
     captures.set(product, cap);
     handles.push(await startSwimProduct({
       product, envPrefix: `SWIM_${product}`, env: o.env, importer: o.importer, log: o.log, now: o.now,
-      onPayload: (payload, now) => cap.observe(payload, now),
+      onPayload: product === "TFMS"
+        ? (payload, now) => { cap.observe(payload, now); sharedTfmsStore().ingest(payload, now); }
+        : (payload, now) => cap.observe(payload, now),
     }));
   }
   return handles;
 }
 
 /** test seam */
-export function _resetSwimCaptureForTests(): void { captures.clear(); }
+export function _resetSwimCaptureForTests(): void { captures.clear(); tfmsStore = null; }
 
 /** GET /api/data/swim/products (public: every SCDS product's env readiness
  *  by NAME, transport status, per-hour cadence and the content-free shape
@@ -163,6 +172,7 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
         processErrors: s.processErrors, droppedOverflow: s.droppedOverflow, reconnects: s.reconnects,
         stallRestarts: s.stallRestarts, lastMessageAt: s.lastMessageAt, lastError: s.lastError, hourly: s.hourly,
         shapes: cap ? cap.shapesView() : null,
+        ...(p === "TFMS" ? { parsed: sharedTfmsStore().stats() } : {}),
       };
     }
     res.set("Cache-Control", "no-store");
@@ -170,6 +180,21 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
       at: Date.now(), products,
       note: "Env readiness is reported by variable NAME only. Shapes are content-free (tag names + type "
         + "attributes); raw samples are diag-token only. STDDS and ITWS are configured-only by design.",
+    });
+  });
+
+  // active flow programs (GDP / ground stop / AFP / restrictions / ATCSCC
+  // advisories / flow-constrained areas) + live airport runway configs and
+  // rates. Per-flight amendments are NOT served here (the classifier reads
+  // them in-process; flight-level data stays behind the LADD gate).
+  app.get("/api/data/swim/tfms/active", (_req, res) => {
+    const st = sharedTfmsStore();
+    const now = Date.now();
+    st.evict(now);
+    res.set("Cache-Control", "public, max-age=30");
+    res.json({
+      at: now, ...st.active(now), stats: st.stats(),
+      source: "FAA SWIM TFMS (SCDS, NDRB pre-approved for public release; not for operational use)",
     });
   });
 
