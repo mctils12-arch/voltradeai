@@ -104,6 +104,10 @@ def test_layer2_score_stale_cache_falls_through_to_fresh_compute_all_completed(t
     monkeypatch.setattr(csp_universe, "_score_vrp",
                          lambda ticker, cache: cache.setdefault(ticker, {"vrp": {"vrp_20d": 0.05}}) and 60.0)
     monkeypatch.setattr("options_scanner._fetch_earnings_calendar", lambda days_ahead=30: {})
+    # KB #45: csp_universe calls the _with_status variant and now fails
+    # closed on a failed lookup; mock the function it actually calls.
+    monkeypatch.setattr("options_scanner._fetch_earnings_calendar_with_status",
+                         lambda days_ahead=30: ({}, True))
 
     candidates = [
         ("AAPL", 200.0, 1_000_000, 200_000_000.0),

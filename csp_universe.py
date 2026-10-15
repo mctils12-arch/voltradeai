@@ -769,6 +769,10 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
         )
         if earnings <= 10:
             continue
+        # KB #45 (2026-10-15): fail CLOSED when the calendar lookup failed —
+        # _score_earnings returns 80 on failure, which passes the <=10 gate.
+        if not earnings_lookup_ok:
+            continue
         scored.append({
             "ticker": ticker,
             "score": composite,

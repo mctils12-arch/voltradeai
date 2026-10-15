@@ -108340,3 +108340,13 @@ FILED (open_questions.md KNOWN BROKEN): #45 CSP earnings gate fails OPEN (unchec
 ALSO FILED: floor-basket tracking-error question (open_questions.md, proposal only — the tech tilt is the human's thesis).
 ACCOUNT: $100,311 at 10/14 close (-1.9% on the day; -9.4% from the $110,727 peak; kill switch off).
 STARVED: yes — KB #45-#48 and the wishlist structural items are queued high-value work for T-BOT sessions.
+
+## 2026-10-15 (scheduled session, ~11:00Z Thu) [REPAIR] — KB #45: CSP earnings gate fails closed (v1.0.1085)
+
+Territory: T-BOT (options_scanner.py earnings fetch, csp_universe.py). Health first: /api/health status ok, liveness not dark, serving.failing empty. Loop-health ratio last 10 tags: 4 REPAIR / 3 PIPELINE / 2 PRODUCT-ish / 1 RULE-REVIEW — under the 7 threshold.
+PRIOR: the BAC CSP (10/13) slipped past the `earnings <= 10` gate via a fail-open path; fixing the paths removes the entry class without changing any threshold.
+CHANGE (one logical fix, no threshold change): (a) `_fetch_earnings_calendar_with_status` now returns lookup_ok=False on non-200 status, non-dict body, or missing/non-list `earningsCalendar` (a 429/bad-key body used to read as "lookup OK, nobody reports"); (b) days computed from calendar dates, so same-day earnings stay in the calendar as 0 (was -1 -> dropped -> scored 100); (c) `_layer2_score` excludes every candidate when the lookup failed (fail closed; _score_earnings' 80 passed the <=10 filter). Downstream chain: fewer CSP candidates during Finnhub outages/rate limits -> fewer new short puts, never more; no sizing/exit effect.
+TESTS: 4 new regression tests in test_csp_earnings_gate_fail_closed.py (429 body, missing key, same-day date, layer2 exclusion on failure); test_csp_universe_layer2_prefetch.py's setup now mocks `_fetch_earnings_calendar_with_status` (it mocked the wrapper csp_universe never calls; assertions untouched). Full suite 2440 pass; 1 pre-existing failure test_hurst_exponent_probe::test_none_before_window (fails on clean main too, unrelated).
+NOT CONFIRMED: which path actually fired for BAC (daemon logs not reachable from this session); item (c) Finnhub window truncation still open. Backtest: not applicable (gate correctness fix; backtest_v2 does not use the Finnhub calendar).
+ROLLBACK TRIGGER: CSP-eligible universe empty for >2 consecutive market days while /api/health shows Finnhub reachable.
+STARVED: yes — KB #46-#48 remain queued.
