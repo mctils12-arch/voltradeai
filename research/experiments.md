@@ -108216,3 +108216,33 @@ FILED:
 - New wishlist entry "OPS AUDIT: the human checklist": 3 required steps (SWIM password rotation with the exact plan-status fields to confirm; send LiveATC or "drop"; the raw replay retention decision) and 2 optional ones (ITWS queue settings; GCP billing + Air Quality API enable).
 Everything else found in the audit was fixed in code: #1336, #1339, #1340, #1341 and the capture / AIMD PRs that follow.
 STARVED: no (intent C, deviation P2 and the TFMS/NOTAM parsers queued).
+
+## 2026-10-14 (human-directed session, ~23:50Z Wed) [PRODUCT] — Aircraft intent C1: plain-English status line on the aircraft card + "vectored (inferred)"
+
+TERRITORY: server/aircraftIntent.ts (inference) + client (lib/air/intentStatus.ts, components/IntentStatus.tsx, selectedFastLane decode, datamap card wiring, index.css) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, intent item C): a plain-English status line on the aircraft card showing only fields the aircraft sends, with inferred states labeled. Heading-mode inference: autopilot on, LNAV off, tracking the selected heading within 5° for ≥ 20 s → "vectored (inferred)". C is split into slices: this is C1 (status line + vectored). The cleared-altitude ghost line + TOD/TOC, go-around, runway prediction and AP-disconnect height follow as their own PRs.
+CHANGE:
+- Server: HeadingModeTracker per mode-bit aircraft (allocated only when mode bits arrive).
+  - Heading reference, in order: broadcast magnetic heading; true heading minus local variation; ground track minus local variation.
+  - Local variation = nearest FAA NASR airport within 200 nm (US). Elsewhere there is no claim unless a magnetic heading is broadcast.
+  - A gap longer than 30 s restarts the hold; a fix without mode bits is no evidence either way.
+  - The view gains `inferred.vectored` {active, reason, since_ms, deviation_deg, heading_source, label "vectored (inferred)"}.
+- Client: the fast lane decodes `intent`. intentStatusParts builds the line from fresh values only:
+  - "Autopilot on/off" only when mode bits ARE sent; "Climbing / Descending to / Level at <sel> (selected)";
+  - FMS altitude; selected heading; "Vectored" + an inferred tag; QNH (hPa), wind (kt), OAT via fmtCelsius, Mach/IAS;
+  - TCAS RA and emergency first, in red.
+  - FL at/above 18,000 ft (fixed aviation convention); lower selected altitudes through fmtMeters.
+  The card re-renders only when the line's TEXT changes (a per-poll setState would re-render the 16k-line page every 2.5 s) and hides the line once its last poll is 30 s old.
+HONESTY LIMIT: a track-based match is subject to wind crab (> 5° in strong crosswinds can fail the match, never fake it). US aircraft rarely send heading/airspeed, so US vectored inference mostly rides on track; the reported heading_source says which.
+TESTS: aircraftIntent.test.ts +6 (hold rule, breaks, references and wrap-around, gap/stale, store wiring, real NASR variation); client intentStatus.test.ts (5) and selectedFastLane.test.ts +1.
+VISUAL (PROMOTION RULE 6): `node scripts/visual_check.mjs --page data` at 390/768/1440, compared with a same-session build of origin/main (median/p95 ms, SwiftShader, ~16.7 ms quantum):
+| width | main | C1 |
+|---|---|---|
+| 390 | 67/117 | 67/117 |
+| 768 | 150/217 | 133/233 |
+| 1440 | 150/250 | 167/250 |
+- Within one quantum; all checks pass.
+- C1's FIRST run failed the time-scrubber close-approach battery at 768/1440. The same build re-run passed every check, and main passed too, so it was a flake: the battery waits a fixed 600 ms for the window fetch. Noted here rather than hidden.
+- The harness never opens an aircraft card, so the status line was rendered on its own with the built CSS at 390/768/1440: the card is 366/352/352 px wide, no horizontal overflow, and it wraps cleanly at 390 (TCAS RA in red, "inferred" tag).
+VERSION: v1.0.1082. ROLLBACK: git revert.
+STARVED: no (TFMS parser next; C2 ghost line + TOD/TOC queued).

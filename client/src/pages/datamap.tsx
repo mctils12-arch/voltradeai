@@ -170,6 +170,8 @@ import { startLayerKeeper, type KeeperMapLike } from "@/lib/layerKeeper";
 import { PLAN_LAYER_ID } from "@/lib/air/planRouteController";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import { startSelectedFastLane } from "@/lib/air/selectedFastLane";
+import { intentStatusParts, type IntentViewWire } from "@/lib/air/intentStatus";
+import { IntentStatusRow } from "@/components/IntentStatus";
 import { cumulativeAlongM, currentDeviceTier, GROUND_TOL_M, lerpPoints, refineForGround, subdivisionCount, trackBudget } from "@/lib/air/terrainFollow";
 import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
@@ -4395,6 +4397,10 @@ export default function DataMapPage() {
   // The plan's airports come from the planned-route store (no second fetch).
   // runway state (2026-10-14): lined up / taking off / on final / departed,
   // inferred from the live fix against FAA CIFP runways (RunwayStatus.tsx)
+  // AIRCRAFT INTENT C1: the selected aircraft's broadcast intent (fast lane)
+  const [selectedIntent, setSelectedIntent] = useState<IntentViewWire | null>(null);
+  const selectedIntentKeyRef = useRef("");
+  const selectedIntentAtRef = useRef(0);
   const runwayStatus = useRunwayStatus({
     hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
     suppressed: tripReplay != null,
@@ -5424,6 +5430,15 @@ export default function DataMapPage() {
     const fid = detailTrailId;
     lastLiveVsRef.current = null;
     const lane = startSelectedFastLane({
+      // AIRCRAFT INTENT C1: the status line re-renders only when its TEXT
+      // changes (a per-poll setState would re-render this page every 2.5 s);
+      // the poll time lives in a ref and the line hides once 30 s old
+      onPoll: (f) => {
+        if (airCrumbsRef.current.id !== fid || !f) return;
+        selectedIntentAtRef.current = Date.now();
+        const key = intentStatusParts(f.intent).map((p) => `${p.key}:${p.text}${p.inferred ? "*" : ""}`).join("|");
+        if (key !== selectedIntentKeyRef.current) { selectedIntentKeyRef.current = key; setSelectedIntent(f.intent); }
+      },
       hex: fid,
       // device-aware (terrainFollow.trackBudget): 2.5 s full · 3 s reduced · 4 s minimal
       pollMs: trackBudget(currentDeviceTier()).fastPollMs,
@@ -5436,7 +5451,10 @@ export default function DataMapPage() {
         ingestSelectedLiveFix(fid, fix, r, { glide: true, ageMs: Math.max(0, Date.now() - f.fixMs), vsFpm: f.baroRateFpm });
       },
     });
-    return () => lane.stop();
+    return () => {
+      lane.stop();
+      selectedIntentKeyRef.current = ""; selectedIntentAtRef.current = 0; setSelectedIntent(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
@@ -16270,6 +16288,10 @@ export default function DataMapPage() {
           {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
               path + georeferenced plate — components/FlightProcedures.tsx */}
           {detail.kind === "aircraft" && flightProcedures.row}
+          {/* what the aircraft itself broadcasts: autopilot, selected
+              altitude/heading, QNH, air data (components/IntentStatus.tsx) */}
+          {detail.kind === "aircraft" && Date.now() - selectedIntentAtRef.current <= 30_000
+            && <IntentStatusRow intent={selectedIntent} />}
           {/* runway state, inferred (components/RunwayStatus.tsx) */}
           {detail.kind === "aircraft" && runwayStatus.row}
           {/* published ATC frequencies for the fix (components/AtcFrequencies.tsx) */}

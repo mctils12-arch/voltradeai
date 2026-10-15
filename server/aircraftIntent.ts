@@ -28,6 +28,7 @@
 // /api/data/aircraft payload (which serializes those rows) is unchanged.
 
 import type { FixBatch } from "./aircraftFixBus";
+import { airportsNear, loadAtcData, type AtcData } from "./atcFrequencies";
 
 /** A value is current only if observed within this window (30 s). */
 export const INTENT_FRESH_MS = 30_000;
@@ -267,6 +268,105 @@ export function intentOf(row: object): IntentParse | undefined {
   return (row as { [INTENT_KEY]?: IntentParse })[INTENT_KEY];
 }
 
+// ── Inference: heading mode → "vectored (inferred)" (INTENT C1) ─────────
+// Human rule (2026-10-14): autopilot on, LNAV off, and the aircraft tracking
+// its SELECTED heading within 5° for at least 20 s. Each piece is a broadcast
+// fact; the conclusion — ATC is giving the crew headings — is an INFERENCE
+// and is always labeled so. The heading compared against the selected
+// heading (magnetic by convention) is, in order of preference: the
+// broadcast magnetic heading; the broadcast true heading minus the local
+// magnetic variation; the ground TRACK minus the local variation (wind crab
+// can exceed 5°, so a track-based match is reported with its source and a
+// crosswind can make it fail — never the other way round). With no
+// magnetic reference at all, nothing is inferred.
+
+export const HDG_MATCH_DEG = 5;
+export const VECTOR_HOLD_MS = 20_000;
+
+export type HeadingSource = "mag_heading" | "true_heading" | "track";
+export type VectoredReason =
+  | "vectored" | "no_mode_bits" | "autopilot_off" | "lnav_engaged" | "no_selected_heading"
+  | "no_heading_reference" | "heading_differs" | "holding_too_short" | "stale";
+
+export interface VectoredInference {
+  active: boolean;
+  reason: VectoredReason;
+  /** when the matching hold began (ms) */
+  since_ms: number | null;
+  /** |measured − selected| at the latest evaluation (deg) */
+  deviation_deg: number | null;
+  heading_source: HeadingSource | null;
+  label: "vectored (inferred)";
+}
+
+const angDiff = (a: number, b: number) => { const d = Math.abs(((a - b) % 360 + 540) % 360 - 180); return d; };
+
+/** Pure per-aircraft hold tracker (allocated only for mode-bit aircraft). */
+export class HeadingModeTracker {
+  since: number | null = null;
+  lastAt = 0;
+  reason: VectoredReason = "no_mode_bits";
+  deviation: number | null = null;
+  source: HeadingSource | null = null;
+
+  /** One observation (in time order; older ones are ignored). `magVar` is
+   *  degrees east-positive at the aircraft, or null when unknown. */
+  update(v: IntentValues, t: number, track: number | null, magVar: number | null, freshMs = INTENT_FRESH_MS): void {
+    if (t < this.lastAt) return;
+    if (v.nav_modes === null) return; // this fix carries no mode bits: no evidence either way
+    const gap = this.lastAt ? t - this.lastAt : 0;
+    this.lastAt = t;
+    const modes = v.nav_modes;
+    let measured: number | null = null;
+    let src: HeadingSource | null = null;
+    if (v.mag_heading !== null) { measured = v.mag_heading; src = "mag_heading"; }
+    else if (v.true_heading !== null && magVar !== null) { measured = v.true_heading - magVar; src = "true_heading"; }
+    else if (track !== null && magVar !== null) { measured = track - magVar; src = "track"; }
+    this.source = src;
+    this.deviation = measured !== null && v.nav_heading !== null ? Math.round(angDiff(measured, v.nav_heading) * 10) / 10 : null;
+    const fail = (r: VectoredReason) => { this.since = null; this.reason = r; };
+    if (!modes.includes("autopilot")) return fail("autopilot_off");
+    if (modes.includes("lnav")) return fail("lnav_engaged");
+    if (v.nav_heading === null) return fail("no_selected_heading");
+    if (measured === null) return fail("no_heading_reference");
+    if (this.deviation !== null && this.deviation > HDG_MATCH_DEG) return fail("heading_differs");
+    // continuity: a gap longer than the freshness window breaks the hold
+    if (this.since === null || gap > freshMs) this.since = t;
+    this.reason = t - this.since >= VECTOR_HOLD_MS ? "vectored" : "holding_too_short";
+  }
+
+  view(now: number, freshMs = INTENT_FRESH_MS): VectoredInference {
+    const stale = !this.lastAt || now - this.lastAt > freshMs;
+    const reason: VectoredReason = stale ? "stale" : this.reason;
+    return {
+      active: reason === "vectored", reason, since_ms: stale ? null : this.since,
+      deviation_deg: stale ? null : this.deviation, heading_source: stale ? null : this.source,
+      label: "vectored (inferred)",
+    };
+  }
+}
+
+/** Local magnetic variation (deg, east +) from the nearest FAA NASR airport
+ *  within 200 nm — US coverage; null elsewhere (the inference then needs a
+ *  broadcast magnetic heading). Cached per 1° cell. */
+export type MagVarLookup = (lat: number, lon: number) => number | null;
+export function nasrMagVarLookup(load: () => AtcData = loadAtcData): MagVarLookup {
+  const cache = new Map<string, number | null>();
+  return (lat, lon) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const key = `${Math.floor(lat)}|${Math.floor(lon)}`;
+    if (cache.has(key)) return cache.get(key)!;
+    let mv: number | null = null;
+    try {
+      const near = airportsNear(load(), lat, lon, 200, (a) => typeof a.mv === "number");
+      mv = near.length ? (near[0].ap.mv as number) : null;
+    } catch { mv = null; }
+    if (cache.size > 20_000) cache.clear();
+    cache.set(key, mv);
+    return mv;
+  };
+}
+
 // ── Per-aircraft store ───────────────────────────────────────────────────
 
 interface HexState {
@@ -282,6 +382,8 @@ interface HexState {
   vals: unknown[];
   ats: number[];
   provs: (string | null)[];
+  /** heading-mode hold (allocated once the aircraft sends mode bits) */
+  hdg?: HeadingModeTracker;
 }
 
 export interface IntentView {
@@ -307,6 +409,8 @@ export interface IntentView {
   };
   fresh_s: number;
   units: typeof INTENT_UNITS;
+  /** inferred states — always labeled as inferences */
+  inferred: { vectored: VectoredInference | null };
 }
 
 export interface IntentCoverage {
@@ -339,17 +443,21 @@ export class IntentStore {
   readonly ttlMs: number;
   readonly maxHexes: number;
 
-  constructor(o: { freshMs?: number; ttlMs?: number; maxHexes?: number } = {}) {
+  private readonly magVar: MagVarLookup;
+
+  constructor(o: { freshMs?: number; ttlMs?: number; maxHexes?: number; magVar?: MagVarLookup } = {}) {
     this.freshMs = o.freshMs ?? INTENT_FRESH_MS;
     this.ttlMs = o.ttlMs ?? INTENT_TTL_MS;
     this.maxHexes = o.maxHexes ?? INTENT_MAX_HEXES;
+    this.magVar = o.magVar ?? nasrMagVarLookup();
   }
 
   get size(): number { return this.hexes.size; }
 
   /** Observe one parsed row at time `t` (the fix's own time). Per field the
    *  freshest observation wins, so a late batch never overwrites newer data. */
-  observe(hexIn: string, p: IntentParse, t: number, provider: string | null): void {
+  observe(hexIn: string, p: IntentParse, t: number, provider: string | null,
+          fix?: { track?: number | null; lat?: number | null; lon?: number | null }): void {
     const hex = String(hexIn || "").toLowerCase();
     if (!hex || !Number.isFinite(t)) return;
     this.rows++;
@@ -376,6 +484,13 @@ export class IntentStore {
       if (val === null || t < s.ats[i]) continue;
       s.vals[i] = val; s.ats[i] = t; s.provs[i] = provider;
     }
+    if (p.v.nav_modes !== null) {
+      // vectored inference needs mode bits; magvar only when the fix has no
+      // broadcast magnetic heading of its own
+      const la = fix?.lat, lo = fix?.lon;
+      const mv = p.v.mag_heading === null && isNum(la) && isNum(lo) ? this.magVar(la, lo) : null;
+      (s.hdg ??= new HeadingModeTracker()).update(p.v, t, isNum(fix?.track) ? fix!.track! : null, mv, this.freshMs);
+    }
     if (this.hexes.size > this.maxHexes) {
       const oldest = this.hexes.keys().next().value;
       if (oldest !== undefined) this.hexes.delete(oldest);
@@ -393,7 +508,8 @@ export class IntentStore {
       const own = (row as { seen_at_ms?: number | null }).seen_at_ms;
       const base = Number.isFinite(b.fetchedAt) ? b.fetchedAt : now;
       const t = isNum(own) ? own : base - (p.seen_s ?? 0) * 1000;
-      this.observe(row.icao24, p, Math.min(t, now), row.provider ?? b.provider ?? null);
+      this.observe(row.icao24, p, Math.min(t, now), row.provider ?? b.provider ?? null,
+        { track: row.heading, lat: row.lat, lon: row.lon });
       n++;
     }
     return n;
@@ -437,6 +553,7 @@ export class IntentStore {
       },
       fresh_s: this.freshMs / 1000,
       units: INTENT_UNITS,
+      inferred: { vectored: s.hdg ? s.hdg.view(now, this.freshMs) : null },
     };
   }
 

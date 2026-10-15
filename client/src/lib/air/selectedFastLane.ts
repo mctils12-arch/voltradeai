@@ -17,6 +17,7 @@
 
 import { adaptGlobalPayload } from './globalFeed.js';
 import type { WatchedRow } from './watchedLookup.js';
+import type { IntentViewWire } from './intentStatus.js';
 
 export const FAST_POLL_MS = 2_500;
 
@@ -28,6 +29,8 @@ export interface FastFix {
   baroRateFpm: number | null;
   /** where the server got it: snapshot | cache | upstream | limited | error */
   source: string;
+  /** the aircraft's own intent/state (fresh values only; AIRCRAFT INTENT A/C1) */
+  intent: IntentViewWire | null;
 }
 
 /** Pure: decode the /live/:hex payload (the /global wire shape + baroRate). */
@@ -35,7 +38,7 @@ export function decodeFastFix(raw: unknown): FastFix | null {
   const ad = adaptGlobalPayload(raw);
   const row = ad.aircraft[0];
   if (!row) return null;
-  const d = (raw && typeof raw === 'object' ? raw : {}) as { fields?: unknown; rows?: unknown; source?: unknown };
+  const d = (raw && typeof raw === 'object' ? raw : {}) as { fields?: unknown; rows?: unknown; source?: unknown; intent?: unknown };
   const fields: string[] = Array.isArray(d.fields) ? d.fields.map(String) : [];
   const first = Array.isArray(d.rows) && Array.isArray(d.rows[0]) ? (d.rows[0] as unknown[]) : [];
   const bi = fields.indexOf('baroRate');
@@ -46,6 +49,8 @@ export function decodeFastFix(raw: unknown): FastFix | null {
     fixMs: ad.at - age,
     baroRateFpm: typeof b === 'number' && Number.isFinite(b) ? b : null,
     source: typeof d.source === 'string' ? d.source : 'snapshot',
+    intent: d.intent && typeof d.intent === 'object' && (d.intent as { values?: unknown }).values
+      && typeof (d.intent as { values?: unknown }).values === 'object' ? (d.intent as IntentViewWire) : null,
   };
 }
 
