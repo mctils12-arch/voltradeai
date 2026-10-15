@@ -12,13 +12,19 @@ whole functions, not grep hits (their full reports are the appendices in
 `research/bot_cockpit_audit/A…H_*.md`, ~500 KB, every claim `file:line`).
 Live production was read the same night through the public health endpoints
 and the token-gated read-only `/api/diag/*` probes
-(`research/bot_cockpit_audit/live_snapshot_2026-10-15.md`). Every
-load-bearing claim then went through an adversarial verification pass (two
-independent refuters per claim unit, a code-semantics lens and a
-live/reachability lens, with a tiebreaker on disagreement); the outcome is the
-**Defect register** (§8), whose `verdict` column is the only place a claim's
-status is authoritative. Fifteen existence/caller claims were verified
-mechanically by grep and are marked `[grep]`.
+(`research/bot_cockpit_audit/live_snapshot_2026-10-15.md`). An
+adversarial verification pass (two independent refuters per claim unit, a
+code-semantics lens and a live/reachability lens, tiebreak on disagreement)
+was launched over 37 claim units; it hit the account's session limit after
+one verifier completed (V01), so the author verified the headline claims
+directly in-session by reading the cited code, and the rest stand as
+**reader-reported** with `file:line`. The **Defect register** (§8) states
+each unit's status honestly: `CONFIRMED` (in-session read or completed
+verifier), `PARTIAL` (verifier, with the corrected statement), or
+`reader-reported` (one stage reader, not independently re-read). Fifteen
+existence/caller claims were verified mechanically by grep and are marked
+`[grep]`. The evidence per unit and the resume command for the blocked
+pass are in `research/bot_cockpit_audit/verification_2026-10-15.md`.
 
 **How to read the stage map (§3).** Each stage has four parts, as the
 directive asks: *what it does* · *the real fields it emits* (exact JSON keys,
@@ -1239,52 +1245,54 @@ lesson of this table.
 
 ## 8. Defect register (verified)
 
-Each row is one claim unit from the eight reports. `verdict` comes from the
-adversarial verification pass (code lens + live lens, tiebreak on
-disagreement); `[grep]` rows were verified mechanically. `filed` says whether
+Each row is one claim unit from the eight reports. `verdict` is `CONFIRMED`
+(author's in-session code read, or the completed independent verifier),
+`PARTIAL` (verifier, with the correction), or `reader-reported` (stated by one
+stage reader with `file:line`; independent re-verification was blocked by the
+session limit — see the verification file for the resume command). Letters
+(a)(b)(c) refer to sub-claims in the verification file. `filed` says whether
 research/ already knows about it (KNOWN BROKEN #, experiments.md date) or
-NEW. Full claim text, cited lines and the verifiers' evidence are in
-`research/bot_cockpit_audit/verification_2026-10-15.md`.
+NEW.
 
 | id | stage | claim (short) | verdict | filed | cockpit consequence |
 |---|---|---|---|---|---|
-| V01 | S0 | "trivial" Python path → 10 s SIGKILL for retrain / manage_positions / backfill / backup / backtest | ⏳ | NEW | retrain budget is not 900 s; show real `training_seconds` vs the cap |
-| V02 | S0/S4 | overnight research + 4 am daily reset unreachable from the scheduler | ⏳ | NEW | "Daily at 4am" labels are false; daily counters reset only on redeploy |
-| V03 | S0/S9 | kill OFF doesn't re-activate; Pause lost on deploy; corrupt latch boots active; Tier 3 runs while killed-at-boot; SIGTERM cancels all orders; circuit breaker pauses the DD check; `/api/health` doesn't check the daemon | ⏳ | partly (F8/F9) | state after any deploy must be re-derived, never assumed |
-| V04 | S0 | no Tier-1 re-entrancy guard; WS reconnect churn; weekend/holiday-blind Tier 2 + liveness; liveness ignores broker-unreadable | ⏳ | NEW | expected-cadence model must know the session type |
-| V05 | S5/S11 | `DIAGNOSTIC-PAUSE` dead; `state.dailyPnL` written only by the dashboard route; email "sent" on reject; diagnostics raise `min_score` to 75 on win rate alone | ⏳ | NEW | show the threshold in force and *why* |
-| V06 | S0 | daemon table lacks `snapshot_python_state`/`strategy_pnl_stats`; `manage_positions` bypasses the daemon; `ru_maxrss` is peak | ⏳ | NEW | `via` field on every Python call |
-| V07 | S2 | tie-break `UnboundLocalError` every scan → `top_10` rank/tiebreak/factor_strength/sector_clash fabricated | ⏳ | NEW | do not render those fields |
-| V08 | S5 | tier regime always "NEUTRAL" → T3 never fires | ⏳ | NEW | T3 panel must say "structurally disabled" |
-| V09 | S5 | sector veto counts OCC symbols → "Unknown"-sector candidates blocked with ≥2 options held | ⏳ | NEW | `rejected_heat` is partly an artefact |
-| V10 | S5 | shadow `taken` = score ≥ 63 only; NEUTRAL → 0 slots before evaluation | ⏳ | partly (10-06 entry) | never label `taken` as "traded" |
-| V11 | S5 | covered-call candidates dead on arrival; dominate "trade candidates" | ⏳ | NEW | "candidates" ≠ actionable |
-| V12 | S5 | Node/Python threshold disagreements (options cap 8 vs 6; score 63/67 vs 65→75; unread config keys) | ⏳ | partly | display the enforced value with its owner |
-| V13 | S6 | tier dispatch drops `size_pct`/metadata; CSP size = 2% budget stretch to 20%, qty ≤ 2 | ⏳ | NEW | "T2 leverage" and `min_iv_rank` are display-only |
-| V14 | S3 | regime label constant (`vxx_ratio` from intel; Markov on []); `--mode=scan` ignored; no-options tickers dropped silently | ⏳ | NEW | regime panel must show the *computed* inputs |
-| V15 | S4 | CV by ticker not time; `pnl None → loss`; barrier definition; no promotion gate; GBM fallback labelled lightgbm | ⏳ | NEW | accuracy numbers are not comparable to live |
-| V16 | S8 | Python advisory only; thirds at 1R / 3R-1.5R-2R; legs unrecorded; phantom Python legs; 1R = 2×ATR | ⏳ | partly | per-leg ledger is new work |
-| V17 | S8/S9 | kill latch stops all management; POS-KILL thresholds; TIME-EXIT dead; displayed stop ≠ enforced | ⏳ | partly (#43) | compute the stop from the live rules, not `/positions.stopPrice` |
-| V18 | S6 | `stocks` bucket Kelly-blocked by priors; live records lack `strategy` → root cause candidate for 0 stock entries | ⏳ | NEW | sizing panel must show `block_reason` |
-| V19 | S6 | DD scalar dead (key mismatch); stress crisis clamped; sector heat dead; floor ETFs count toward heat | ⏳ | NEW | scalars panel must mark dead inputs |
-| V20 | S8 | convexity overlay ignores `enabled=False`; `buy_to_open` side values | ⏳ (D vs E/B conflict) | NEW | hedge panel: "runs; orders likely rejected; unaudited" |
-| V21 | S8 | floor basket: at target 0 only QQQ sold; SMH/KWEB/VXUS/T3-SPY no exit owner | ⏳ | partly (10-13 ownership fix) | ownership column per holding |
-| V22 | S7 | synthetic fills; tier collapse to 0.12–0.25%; phantom filled entries | ⏳ | partly (#35 exits only) | `fill_price` is not the broker fill |
-| V23 | S7 | decision price = delayed daily-bar close; exit pnl = trigger bar; options exits at submit | ⏳ | partly (#12) | slippage shown today is not slippage |
-| V24 | S7 | dispatcher CSPs / floors / manual / legs / rolls record nothing; Python orders unaudited | ⏳ | partly (#12c) | ledger must be broker-seeded |
-| V25 | S11 | `/api/bot/performance` Path A `TypeError` → today-only fallback; export 500 | ⏳ | NEW | never reuse this endpoint as-is |
-| V26 | S10 | equity curve gaps while killed; UTC key; 365-row freeze; chart reversed | ⏳ | NEW | persist from a broker-backed series |
-| V27 | S7/S11 | T3 price from trading host; `replaceIfBetter` misreads 204; `LEARN` 0% structural; local backup misses `voltrade.db` | ⏳ | partly (#38 misdiagnosed) | drop the LEARN line |
-| V28 | S7 | ETF entries priced/recorded with the underlying's price | ⏳ | NEW | |
-| V29 | S12 | options ×100 omitted; status literals 8/95/5; `GET /api/bot/account` trips the kill | ⏳ | NEW | reads must be pure |
-| V30 | S12 | session-only auth on bot-data routes; unauthenticated ML/system/market-status; backtest shell interpolation | ⏳ | NEW | security — see §10 |
-| V31 | S12 | SSE behind compression w/o flush; TradeChart re-fetch storm; stale signals during outages | ⏳ | NEW | |
-| V32 | S11 | tier-pnl all `other`; `realisticPnlPct` double-count; unwritten kill-switch state files; seeded priors | ⏳ | NEW | |
-| V33 | S1 | feed failures swallowed; health by cache mtime; EDGAR filter key; USPTO dead | ⏳ | NEW | feed strip needs new instrumentation |
-| V34 | S1 | directional defaults (Reddit → bullish; VIX 20 → ×0.80; sectors 0 → risk_off −5; VXX fail → 0 slots) | ⏳ | NEW | "default substituted" flag |
-| V35 | S1/S2 | Alpaca tier invisible (`feed_status` uncalled); universe drops `*W` | ⏳ | NEW | show the tape and its delay |
-| V36 | S4 | toggle inert; meta/options models dead; six staleness thresholds; mis-audited retrain statuses | ⏳ | partly | truthful ML status panel |
-| V37 | live | −10.04% vs the −10% kill: latches at the next RTH Tier-1 cycle or dashboard load | ⏳ | — | predicted state change on 2026-10-15 |
+| V01 | S0 | "trivial" Python path → 10 s SIGKILL for retrain / manage_positions / backfill / backup / backtest | PARTIAL — independent verifier (code lens, confidence 0.86): the 10 s cap and the mutex bypass are real for all eleven cited commands, but most jobs complete under it live (manipulation, shadow backfill, COT proven by audit/archive rows); the 4 am block is dead code anyway; the Tier-3 retrain and the Tier-1 `manage_positions` one-liner are undecidable from live evidence | NEW | retrain budget is not 900 s; show real `training_seconds` vs the cap |
+| V02 | S0/S4 | overnight research + 4 am daily reset unreachable from the scheduler | CONFIRMED — in-session code read (`bot.ts:7681` gate vs `:5209` dispatch; `floor(etHour)===4` at `:6199` unreachable; sole caller `:5211`); live BACKUP/RESEARCH/RETRAIN rows = 0 | NEW | "Daily at 4am" labels are false; daily counters reset only on redeploy |
+| V03 | S0/S9 | kill OFF doesn't re-activate; Pause lost on deploy; corrupt latch boots active; Tier 3 runs while killed-at-boot; SIGTERM cancels all orders; circuit breaker pauses the DD check; `/api/health` doesn't check the daemon | reader-reported (A); (e) live-confirmed (24× "All open orders cancelled"); (g) `print('ok')` per A | partly (F8/F9) | state after any deploy must be re-derived, never assumed |
+| V04 | S0 | no Tier-1 re-entrancy guard; WS reconnect churn; weekend/holiday-blind Tier 2 + liveness; liveness ignores broker-unreadable | reader-reported (A); absence of `tier1Running` [grep] | NEW | expected-cadence model must know the session type |
+| V05 | S5/S11 | `DIAGNOSTIC-PAUSE` dead; `state.dailyPnL` written only by the dashboard route; email "sent" on reject; diagnostics raise `min_score` to 75 on win rate alone | reader-reported (A, H); (b) weekly history length 1 [grep]; (d) live `DIAGNOSTIC` ×7 "Low win rate 27.8%" implies threshold 75 | NEW | show the threshold in force and *why* |
+| V06 | S0 | daemon table lacks `snapshot_python_state`/`strategy_pnl_stats`; `manage_positions` bypasses the daemon; `ru_maxrss` is peak | reader-reported (A) | NEW | `via` field on every Python call |
+| V07 | S2 | tie-break `UnboundLocalError` every scan → `top_10` rank/tiebreak/factor_strength/sector_clash fabricated | CONFIRMED — in-session: `current_positions` read at `be:3081`, first assigned `be:3186`, both inside `_scan_market_inner` (2571–4080), no `global` declaration → UnboundLocalError; `except` at 3157–3160 | NEW | do not render those fields |
+| V08 | S5 | tier regime always "NEUTRAL" → T3 never fires | CONFIRMED — in-session: `be:3921` `… if '_regime_ctx' in locals() else "NEUTRAL"`; `_regime_ctx` is assigned only inside `deep_score` (1451, 1458) | NEW | T3 panel must say "structurally disabled" |
+| V09 | S5 | sector veto counts OCC symbols → "Unknown"-sector candidates blocked with ≥2 options held | CONFIRMED — in-session: `be:1905–1915` excludes OCC symbols from `stock_tickers` then re-adds them via `pending_stock_tickers`; D reproduced the block with the live book | NEW | `rejected_heat` is partly an artefact |
+| V10 | S5 | shadow `taken` = score ≥ 63 only; NEUTRAL → 0 slots before evaluation | reader-reported (D); live counts consistent (8,372 `taken`, 0 `TRADE`) | partly (10-06 entry) | never label `taken` as "traded" |
+| V11 | S5 | covered-call candidates dead on arrival; dominate "trade candidates" | slot gate CONFIRMED live (`OPTIONS-SLOT-FULL` ×158, `QUEUE` ×26 VXUS/KWEB); downstream hops (`should_use_options`, morning M3) reader-reported (D) | NEW | "candidates" ≠ actionable |
+| V12 | S5 | Node/Python threshold disagreements (options cap 8 vs 6; score 63/67 vs 65→75; unread config keys) | CONFIRMED — in-session: `be:192`=8 vs `bot:361`=6 vs `sc:110`=6; `sc:35` 30_000 vs 45 s; `sc:307` 5.0 vs `bot:350` −3 | partly | display the enforced value with its owner |
+| V13 | S6 | tier dispatch drops `size_pct`/metadata; CSP size = 2% budget stretch to 20%, qty ≤ 2 | reader-reported (D, E) | NEW | "T2 leverage" and `min_iv_rank` are display-only |
+| V14 | S3 | regime label constant (`vxx_ratio` from intel; Markov on []); `--mode=scan` ignored; no-options tickers dropped silently | (a) CONFIRMED [grep `intel.get("vxx_ratio")`, `_spy_rets=[]`]; (b),(c) reader-reported (B, C, D) | NEW | regime panel must show the *computed* inputs |
+| V15 | S4 | CV by ticker not time; `pnl None → loss`; barrier definition; no promotion gate; GBM fallback labelled lightgbm | reader-reported (C) | NEW | accuracy numbers are not comparable to live |
+| V16 | S8 | Python advisory only; thirds at 1R / 3R-1.5R-2R; legs unrecorded; phantom Python legs; 1R = 2×ATR | reader-reported (E) | partly | per-leg ledger is new work |
+| V17 | S8/S9 | kill latch stops all management; POS-KILL thresholds; TIME-EXIT dead; displayed stop ≠ enforced | (c) CONFIRMED — in-session `bot.ts:6390` reads `pos.created_at || pos.submitted_at` on an Alpaca Position (schema has neither; live probe shows neither); (a),(b),(d) reader-reported (E) | partly (#43) | compute the stop from the live rules, not `/positions.stopPrice` |
+| V18 | S6 | `stocks` bucket Kelly-blocked by priors; live records lack `strategy` → root cause candidate for 0 stock entries | CONFIRMED — in-session: `_get_historical_stats` loads the whole feedback file (no `_seed` filter); stocks f* < 0 under the priors (.49/4.19/4.25 → −0.027) and under the seeded stats (44.6% WR); `_infer_strategy` defaults to `stocks` → `calculate_position` blocks; whether this is THE root cause is moot — B1 (NEUTRAL → 0 slots) also suffices | NEW | sizing panel must show `block_reason` |
+| V19 | S6 | DD scalar dead (key mismatch); stress crisis clamped; sector heat dead; floor ETFs count toward heat | reader-reported (E) | NEW | scalars panel must mark dead inputs |
+| V20 | S8 | convexity overlay ignores `enabled=False`; `buy_to_open` side values | CONFIRMED (code) — `enabled` never read [grep]; `side: "sell_to_close"` at `be:4531/4541`, `"buy_to_open"` at `be:4657/4668`; Alpaca rejection probable (side enum is buy|sell) but not observed live. D's "disabled by config" is wrong | NEW | hedge panel: "runs; orders likely rejected; unaudited" |
+| V21 | S8 | floor basket: at target 0 only QQQ sold; SMH/KWEB/VXUS/T3-SPY no exit owner | reader-reported (E) | partly (10-13 ownership fix) | ownership column per holding |
+| V22 | S7 | synthetic fills; tier collapse to 0.12–0.25%; phantom filled entries | (a),(b) CONFIRMED — in-session: trade dict `be:3554–3597` has no `volume` key; `bot.ts:5660` `|| 1000000` → else branch 0.12–0.25%; (c) 2 s single poll reader-reported (F) | partly (#35 exits only) | `fill_price` is not the broker fill |
+| V23 | S7 | decision price = delayed daily-bar close; exit pnl = trigger bar; options exits at submit | reader-reported (F, E) | partly (#12) | slippage shown today is not slippage |
+| V24 | S7 | dispatcher CSPs / floors / manual / legs / rolls record nothing; Python orders unaudited | reader-reported (F); live: 6 short puts held, `live_options_outcome_breakdown {orphan_exit 30}` | partly (#12c) | ledger must be broker-seeded |
+| V25 | S11 | `/api/bot/performance` Path A `TypeError` → today-only fallback; export 500 | CONFIRMED — in-session: `bot.ts:1689` filter keeps `None`, `:1691` `None > 0` raises, catch `:1753` → `if (perf.totalTrades === 0)` fallback `:1758`; live `live_pnl_null_count 312` | NEW | never reuse this endpoint as-is |
+| V26 | S10 | equity curve gaps while killed; UTC key; 365-row freeze; chart reversed | CONFIRMED — in-session: `bot.ts:1034–1035` `unshift` then `if (length > 365) shift()` removes index 0 (newest); writer gating per A | NEW | persist from a broker-backed series |
+| V27 | S7/S11 | T3 price from trading host; `replaceIfBetter` misreads 204; `LEARN` 0% structural; local backup misses `voltrade.db` | (c) CONFIRMED — in-session: `pnl: 0` at `bot.ts:873` is the only assignment; `strategyWeights` read nowhere [grep]; (a),(b),(d) reader-reported (F, H) | partly (#38 misdiagnosed) | drop the LEARN line |
+| V28 | S7 | ETF entries priced/recorded with the underlying's price | reader-reported (F) | NEW | |
+| V29 | S12 | options ×100 omitted; status literals 8/95/5; `GET /api/bot/account` trips the kill | CONFIRMED — in-session: `bot.tsx:1039–1040` `qty*entry`/`qty*current`; `routes.ts:7070` `(price − matchBuy.price) × qty`; `bot.ts:2328–2330` literals 8/95/5; (c) account-route kill per `bot.ts:1235–1250` read in-session | NEW | reads must be pure |
+| V30 | S12 | session-only auth on bot-data routes; unauthenticated ML/system/market-status; backtest shell interpolation | backtest interpolation CONFIRMED — in-session: `bot.ts:3681–3697` builds `python3 "…" "${ticker}" "${strategy}" "${years}"` and passes it to a shell `exec` (owner-only); per-route auth table reader-reported (G) | NEW | security — see §10 |
+| V31 | S12 | SSE behind compression w/o flush; TradeChart re-fetch storm; stale signals during outages | reader-reported (G) | NEW | |
+| V32 | S11 | tier-pnl all `other`; `realisticPnlPct` double-count; unwritten kill-switch state files; seeded priors | (c) CONFIRMED — `risk_kill_switch.py:738–760` only reads the two files; no writer repo-wide [grep]; (d) CONFIRMED (no `_seed` filter, see V18); (a),(b) reader-reported (H) | NEW | |
+| V33 | S1 | feed failures swallowed; health by cache mtime; EDGAR filter key; USPTO dead | reader-reported (B) with sandbox probes for (c) EFTS schema and (d) USPTO 301 | NEW | feed strip needs new instrumentation |
+| V34 | S1 | directional defaults (Reddit → bullish; VIX 20 → ×0.80; sectors 0 → risk_off −5; VXX fail → 0 slots) | reader-reported (B) | NEW | "default substituted" flag |
+| V35 | S1/S2 | Alpaca tier invisible (`feed_status` uncalled); universe drops `*W` | reader-reported (B, D); `feed_status()` zero callers per B | NEW | show the tape and its delay |
+| V36 | S4 | toggle inert; meta/options models dead; six staleness thresholds; mis-audited retrain statuses | (a) CONFIRMED [grep]; rest reader-reported (C) | partly | truthful ML status panel |
+| V37 | live | −10.04% vs the −10% kill: latches at the next RTH Tier-1 cycle or dashboard load | CONFIRMED — arithmetic −10.0355%, kill line $99,654.34; Tier-1 RTH gate and account-route trip site read in-session; `/api/health` computes but never kills (`bot.ts:1513`) | — | predicted state change on 2026-10-15 |
 
 ---
 
