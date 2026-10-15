@@ -108257,5 +108257,27 @@ DOWNSTREAM: card text only; the line's text key changes with N, so the card re-r
 PRIOR: steady climbs/descents show a falling N; level or sub-300 fpm aircraft show no projection.
 TESTS: intentStatus.test.ts +1 (projection math, all refusal cases, climb/descend wording). Three existing expectations gained the new inferred part for the same inputs (additive; no assertion removed or weakened).
 VISUAL (PROMOTION RULE 6): `node scripts/visual_check.mjs` could not run in this environment (`pngjs` not installed). The change is one extra text part on an existing line the harness never opens; the C1 card-width measurement (352-366 px, wraps cleanly at 390) applies, the new part is ~40 chars. Not verified by screenshot; flagging it rather than claiming it.
-VERSION: v1.0.1083. ROLLBACK: git revert.
+VERSION: v1.0.1084 (re-versioned at merge: 1.0.1083 went to the TFMS parser). ROLLBACK: git revert.
 STARVED: no (C2b ghost line, TFMS/NOTAM parsers queued).
+## 2026-10-15 (human-directed session, ~00:25Z Thu) [PIPELINE] — SWIM TFMS parser: per-flight reroute/route amendments, flow programs, live airport runway configs (written against real captured messages)
+
+TERRITORY: server SWIM (new server/swimTfms.ts, swimCapture.ts wiring + endpoint) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops item 1): TFMS consumer for reroutes and flow programs, stored and exposed to the deviation classifier.
+FOUND (capture PR #1342, live minutes after deploy, ~20 msg/s):
+- fltdOutput flight data: trackInformation, FlightModify, FlightSectors, FlightTimes, FlightCreate/ScheduleActivate (up to 255 KB batches), flightPlanAmendmentInformation, flightPlanInformation, oceanicReport, arrival/departure/boundaryCrossing.
+- fiOutput flow information: TMI_FLIGHT_LIST, RSTR, GADV, FXA, APTC, GDP, TMI_UPDATE (rrAmendment).
+- tfmsStatusOutput.
+Real element names were read from diag-token samples. Nothing was assumed.
+CHANGE: parseTfmsPayload. A cheap msgType regex decides; only the useful types get a full XML parse (parseXmlLite, shared with SFDPS) and everything else is counted.
+- Per flight (by callsign, TTL 12 h, ≤ 8 each): TMI reroute amendments (program id, e.g. TRZID, plus the amended route and status) and HCS/ERAM amendments (new route string, assigned FL); TMI participation (FCA id/name, entry time).
+- Programs with windows: GDP/GS/AFP/CTOP, restrictions (MIT/APREQ: facility, elements, airports, reason), ATCSCC advisories (title/text; GS/GDP/AFP/CTOP read from the title; CTL ELEMENT airport) and flow-constrained areas (polyline, floor/ceiling).
+  - Active = not purged/cancelled and inside its window (default 6 h TTL when there is no end).
+- Airport configs (APTC): arrival/departure runway configuration + AAR/ADR + weather class.
+  - These feed runway prediction (C) and the ATC Stress Index (E1).
+- GET /api/data/swim/tfms/active (public: programs + configs; NDRB public release). Per-flight amendments stay in-process for the P3 classifier; flight-level data never leaves without the LADD gate.
+- /api/data/swim/products TFMS gains `parsed` stats.
+REAL-SAMPLE CHECK: all 40 captured samples parse with 0 errors in 5.3 ms total. 250 KB schedule batches are skipped in 0.06 ms (counted only). The two amendment types and the batched amendment inside a departureInformation payload are all found. Configs seen: MSP 12L/12R AAR 62, PDX 28L/28R AAR 50.
+PRIOR: within an hour of deploy, /tfms/active lists a few dozen active restrictions/FCAs and ~30–80 airport configs; flights with amendments climb into the thousands by evening rush.
+TESTS: swimTfms.test.ts (5): every message type from trimmed real fixtures; counted-not-parsed; store activity/expiry/TTL; FAA- or ICAO-id config lookup. swimCapture suite unchanged and green.
+VERSION: v1.0.1083. ROLLBACK: git revert.
+STARVED: no (NOTAM TFR parser next).
