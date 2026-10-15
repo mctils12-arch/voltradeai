@@ -293,6 +293,18 @@ class RPCDispatcher:
 
             # Shadow portfolio stats
             "shadow_stats": ("shadow_portfolio", "get_shadow_stats"),
+            # Exit-aligned shadow ruler (2026-10-14 [RULE-REVIEW]). Registered
+            # so an RPC caller resolves the same entry point (READ BEFORE
+            # WRITE #4), but bot.ts deliberately runs it as a python3 -c
+            # subprocess through execPythonSerialized's mutex, which has a hard
+            # 90s SIGKILL (checkShadowBackfillExitAligned). Don't route the
+            # nightly job here: a dispatch thread can't be killed
+            # (REQUEST_TIMEOUT_SEC only abandons it), so pythonCall's
+            # subprocess fallback after an RPC timeout would start a second
+            # concurrent run. Also, _memory_watchdog reads ru_maxrss, the
+            # lifetime PEAK, so loading the ~45MB shadow log here would raise
+            # this process's recorded peak for good.
+            "shadow_backfill_exit_aligned": ("shadow_portfolio", "backfill_exit_aligned"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),
