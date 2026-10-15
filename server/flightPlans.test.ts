@@ -770,3 +770,26 @@ test("filedCandidate: planHistory exposes amendments, first-seen and SWIM messag
   const c = filedCandidate(plan, (id) => (id ? refs[id] ?? null : null))!;
   assert.deepEqual(c.planHistory, { amendments: 2, planFirstSeenMs: 1_700_000_000_000, swimMessageMs: 1_700_000_500_000 });
 });
+
+test("startPlanHistoryPersistence: snapshot round trip seeds a fresh store, missing/corrupt snapshot is harmless", async () => {
+  const { startPlanHistoryPersistence, PLAN_HISTORY_SNAPSHOT } = await import("./flightPlans");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "planhist-"));
+  const a = new SwimPlanStore();
+  const stop0 = startPlanHistoryPersistence(a, dir, 20); // nothing to load yet: no throw
+  stop0();
+  // corrupt snapshot -> harmless
+  fs.writeFileSync(path.join(dir, `voltrade_derived_snapshot_${PLAN_HISTORY_SNAPSHOT}.json`), "{nope");
+  const stopC = startPlanHistoryPersistence(new SwimPlanStore(), dir, 1_000_000);
+  stopC();
+  // real round trip
+  const now = Date.now();
+  const rows = [["gufi:rt", now - 1000, 3, now - 500]];
+  const { saveSnapshot } = await import("./derivedSnapshot");
+  assert.ok(saveSnapshot(PLAN_HISTORY_SNAPSHOT, { at: now, data: { rows } }, dir));
+  const b = new SwimPlanStore();
+  const stop = startPlanHistoryPersistence(b, dir, 1_000_000);
+  stop();
+  assert.equal(b.seedSize, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

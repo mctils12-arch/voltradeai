@@ -32,6 +32,7 @@
 // capped + evicted after 2h idle).
 
 import fs from "fs";
+import { saveSnapshot, loadSnapshot } from "./derivedSnapshot";
 import path from "path";
 import type { Express } from "express";
 import { archiveBaseDir, streamJsonlLines, recentTrackCached } from "./datacoreArchive";
@@ -1370,6 +1371,26 @@ export function parsePlanQuery(hexRaw: string, query: Record<string, unknown>): 
 }
 
 // ── wiring ──────────────────────────────────────────────────────────────────
+/** Plan first-seen/amendment history survives a deploy (derivedSnapshot, rows only, no routes) so
+ *  planHistory.planFirstSeenMs is no longer censored at container uptime. Loss is bounded by the interval. */
+export const PLAN_HISTORY_SNAPSHOT = "swim_plan_history";
+export const PLAN_HISTORY_SAVE_MS = 5 * 60_000;
+export function startPlanHistoryPersistence(swim: SwimPlanStore, dir?: string, saveMs = PLAN_HISTORY_SAVE_MS): () => void {
+  try {
+    const snap = loadSnapshot(PLAN_HISTORY_SNAPSHOT, dir);
+    const rows = (snap?.data as { rows?: unknown } | undefined)?.rows;
+    const n = swim.seedHistory(rows);
+    if (n) console.log(`[swim] restored first-seen history for ${n} plans`);
+  } catch (e) {
+    console.warn("[swim] plan-history restore failed:", e instanceof Error ? e.message : String(e));
+  }
+  const t = setInterval(() => {
+    saveSnapshot(PLAN_HISTORY_SNAPSHOT, { at: Date.now(), data: { rows: swim.exportHistory() } }, dir);
+  }, saveMs);
+  t.unref?.();
+  return () => clearInterval(t);
+}
+
 let defaultCtx: PlanContext | null = null;
 
 export function getFlightPlanContext(): PlanContext {
@@ -1385,6 +1406,7 @@ export function getFlightPlanContext(): PlanContext {
       }
     },
   });
+  startPlanHistoryPersistence(swim);
   defaultCtx = {
     routeDb: new RouteDbClient(),
     history: new HistoryIndex(),

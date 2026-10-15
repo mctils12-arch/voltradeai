@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-15 (scheduled-routine PRODUCT session, ~13:15Z Thu = 09:15 ET, PRE-OPEN) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts + tests; v1.0.1086) — FLIGHT-PLAN FIRST-SEEN/AMENDMENT HISTORY NOW SURVIVES A RESTART
+
+HEALTH: session_health_check all OK (v1.0.1085 live = checkout, deploy_gate ok); thrash 1/10; STARVED 0; no KNOWN BROKEN blocker. Declared territory: T-DATACORE.
+WHY: the 2026-10-13 RUN 14 entry found `planHistory.planFirstSeenMs` is in-memory, so plan age (and the amendment count) is censored at container uptime; deploys are frequent, so the amendment/plan-age tail hypothesis could never be judged. It filed "persist first-seen derivedSnapshot-style" as the next slice; this is that slice.
+PRIOR (stated before): after a restart, plans still live in SFDPS keep their pre-restart first-seen and amendment count (seed hit-rate high, since plans live up to the 6h TTL); a plan first seen after the restart is unchanged; no change to placement, deviation or any served field except that planHistory values become uncensored.
+CHANGE: SwimPlanStore.exportHistory()/seedHistory() (compact [key, firstSeen, amendments, updatedAt] rows, no routes; stale >TTL, future, inverted, negative, NaN and malformed rows dropped; seed consumed by the key's first upsert). flightPlans.ts startPlanHistoryPersistence(): load derivedSnapshot "swim_plan_history" at context creation, save every 5 min (unref'd timer). Loss window on a deploy <= 5 min of plans, which fall back to now-stamped first-seen (a lower bound, unchanged honesty).
+TESTS: swimSfdps.test.ts +2 (round trip restores firstSeen/amendments and is consumed once; invalid/stale rows rejected, unseeded stays now), flightPlans.test.ts +1 (snapshot round trip + corrupt-file harmless; the file needs `express`, absent in this sandbox, so the same body was run as a scratch test and passed; CI is authoritative). swim/seam/derivedSnapshot suites 41/41 pass locally. tsc errors 3 (<= pinned 12). counter_ratchet OK (a first draft added a commented-empty catch, 113->114, fixed by logging instead).
+NEXT: a few days after deploy, rerun `scripts/flightplan_gate1.py --tail`; age buckets are now interpretable even soon after a boot. Judge only hex-deduped pooled runs, and the amended n must reach adequate power first.
+BIAS/EFFECT: additive durable state, ~1.5 MB max file; no trading path, no measurement-engine change. Plan age becomes LESS biased low. ROLLBACK: git revert (the snapshot file is ignored if absent).
+MERGE: opened pre-open, but CI + Railway deploy restart would land in market hours; merge AFTER the 16:00 ET close.
+STARVED: no.
+
 ## 2026-10-15 (scheduled-routine EDGE session, Thu) [NO-ACTION] — no code_version change — AXIS SURVEY: EVERY DOCTRINE AXIS IS GATED, BLOCKED, OR ALREADY COMPILED
 
 HEALTH: session_health_check all OK (v1.0.1084 live = checkout, deploy_gate ok, liveness ok, daemon rss 165MB, SWIM/intent/storage/adsb.lol OK); research_state_check: thrash 1/10 REPAIR, STARVED 0, no audit overdue, archives fresh. KNOWN BROKEN: only #44 (needs FROZEN Dockerfile, proposal filed). Not a REPAIR session.
