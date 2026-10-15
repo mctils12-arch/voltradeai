@@ -93,6 +93,11 @@ the vocabulary Design and Build must reuse verbatim.
    first owner load of the dashboard, which trips the same check from a GET)
    will latch the kill switch, cancel all open orders and email, unless
    equity is ≥ $99,654.34 by then. Auto-resume then takes over (V37).
+   **Happened as predicted (added 2026-10-15 17:57Z):** `DRAWDOWN-KILL` at
+   13:30Z on the first Tier-1 cycle, equity $99,008 (−10.6%); loop dark
+   4.4 market hours, `/api/health` `degraded`, `liveness.dark true`;
+   auto-resume evaluated `UNRECONCILED` (−9.5% not above −8%), waiting on
+   `PAPER_REBASE` after 13 market hours.
 
 ---
 
@@ -1292,7 +1297,7 @@ NEW.
 | V34 | S1 | directional defaults (Reddit → bullish; VIX 20 → ×0.80; sectors 0 → risk_off −5; VXX fail → 0 slots) | reader-reported (B) | NEW | "default substituted" flag |
 | V35 | S1/S2 | Alpaca tier invisible (`feed_status` uncalled); universe drops `*W` | reader-reported (B, D); `feed_status()` zero callers per B | NEW | show the tape and its delay |
 | V36 | S4 | toggle inert; meta/options models dead; six staleness thresholds; mis-audited retrain statuses | (a) CONFIRMED [grep]; rest reader-reported (C) | partly | truthful ML status panel |
-| V37 | live | −10.04% vs the −10% kill: latches at the next RTH Tier-1 cycle or dashboard load | CONFIRMED — arithmetic −10.0355%, kill line $99,654.34; Tier-1 RTH gate and account-route trip site read in-session; `/api/health` computes but never kills (`bot.ts:1513`) | — | predicted state change on 2026-10-15 |
+| V37 | live | −10.04% vs the −10% kill: latches at the next RTH Tier-1 cycle or dashboard load | CONFIRMED — arithmetic −10.0355%, kill line $99,654.34; Tier-1 RTH gate and account-route trip site read in-session; `/api/health` computes but never kills (`bot.ts:1513`). **Confirmed live:** `DRAWDOWN-KILL` 2026-10-15T13:30Z, equity $99,008 (−10.6%); auto-resume `UNRECONCILED` ×2 by 16:14Z | — | predicted state change on 2026-10-15 |
 
 ---
 
