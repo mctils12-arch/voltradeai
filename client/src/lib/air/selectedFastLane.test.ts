@@ -118,3 +118,10 @@ test('invalid hex never polls; a failed poll reports null and the loop continues
   assert.equal(timers2.length, 1, 'retries on the next tick');
   l2.stop();
 });
+
+test('AIRCRAFT INTENT C1: the intent block rides along (fresh values only); absent or malformed -> null', () => {
+  const withIntent = { ...payload(AT - 2_000), intent: { values: { nav_altitude_mcp: 10016 }, capability: { mode_bits: false } } };
+  assert.equal(decodeFastFix(withIntent)!.intent!.values.nav_altitude_mcp, 10016);
+  assert.equal(decodeFastFix(payload(AT - 2_000))!.intent, null);
+  assert.equal(decodeFastFix({ ...payload(AT - 2_000), intent: 'nope' })!.intent, null);
+});

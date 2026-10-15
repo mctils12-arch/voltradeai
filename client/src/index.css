@@ -4546,3 +4546,12 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   color: var(--text-tertiary); border: 1px solid rgba(77, 159, 255, 0.25);
   border-radius: 999px; padding: 1px 6px;
 }
+/* AIRCRAFT INTENT C1 status line (components/IntentStatus.tsx): same type
+   scale + tokens as the ATC rows above; wraps freely at 390px */
+.vt-intent { margin: 4px 0 2px; padding: 0 14px; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+.vt-intent-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 2px; }
+.vt-intent-line { margin: 0; padding-left: 4px; overflow-wrap: anywhere; line-height: 1.5; }
+.vt-intent-part { white-space: normal; }
+.vt-intent-sep { color: var(--text-tertiary); }
+.vt-intent-alert { color: var(--accent-red); font-weight: 700; }
+.vt-intent-inferred { margin-left: 4px; }
