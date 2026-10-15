@@ -727,6 +727,9 @@ const keep = (next: string | null | undefined, prev: string | null | undefined):
 export class SwimPlanStore {
   private byKey = new Map<string, StoredSwimPlan>(); // insertion order = last-message (LRU) order
   private keysByCallsign = new Map<string, Set<string>>();
+  /** first-seen/amendment history restored from a previous container's snapshot (see seedHistory);
+   *  consumed by the first upsert of a key, so plan age is no longer censored at uptime */
+  private seed = new Map<string, { firstSeen: number; amendments: number; updatedAt: number }>();
 
   constructor(
     private opts: {
@@ -736,6 +739,34 @@ export class SwimPlanStore {
   ) {}
 
   get size(): number { return this.byKey.size; }
+  get seedSize(): number { return this.seed.size; }
+
+  /** compact [key, firstSeen, amendments, updatedAt] rows for the durable snapshot (no routes: ~100 B/plan) */
+  exportHistory(): Array<[string, number, number, number]> {
+    const out: Array<[string, number, number, number]> = [];
+    for (const [k, p] of this.byKey) out.push([k, p.firstSeen, p.amendments, p.updatedAt]);
+    return out;
+  }
+
+  /** Restore first-seen/amendment counts after a restart. Rows older than the plan TTL or malformed
+   *  are dropped; a restored firstSeen stays a LOWER BOUND on true plan age (honest, never invented). */
+  seedHistory(rows: unknown, now = Date.now()): number {
+    if (!Array.isArray(rows)) return 0;
+    const ttl = this.opts.ttlMs ?? SWIM_PLAN_TTL_MS;
+    const max = this.opts.max ?? SWIM_STORE_MAX;
+    let n = 0;
+    for (const r of rows) {
+      if (n >= max) break;
+      if (!Array.isArray(r) || typeof r[0] !== "string") continue;
+      const [k, fs, am, up] = r as [string, unknown, unknown, unknown];
+      if (typeof fs !== "number" || typeof am !== "number" || typeof up !== "number") continue;
+      if (!Number.isFinite(fs) || !Number.isFinite(am) || !Number.isFinite(up)) continue;
+      if (now - up > ttl || up > now + 60_000 || fs > up || am < 0) continue;
+      this.seed.set(detachString(k), { firstSeen: fs, amendments: Math.floor(am), updatedAt: up });
+      n++;
+    }
+    return n;
+  }
 
   private keyFor(m: SwimFlightMessage, now: number): string | null {
     if (m.gufi) return `gufi:${m.gufi}`;
@@ -754,6 +785,8 @@ export class SwimPlanStore {
     // the key is built from the payload too: reuse the stored (already
     // detached) key, detach a new one (see detachString)
     const key = prev ? prev.key : detachString(rawKey);
+    const restored = !prev && this.seed.size ? this.seed.get(rawKey) : undefined;
+    if (restored) this.seed.delete(rawKey);
     if (m.isCancellation || m.isCompleted) {
       if (prev) this.remove(key);
       return { key, amended: null };
@@ -778,9 +811,9 @@ export class SwimPlanStore {
       flightStatus: keep(m.flightStatus, prev?.flightStatus),
       timestamp: m.timestamp ?? prev?.timestamp ?? null,
       departureTime: m.departureTime ?? prev?.departureTime ?? null,
-      firstSeen: prev?.firstSeen ?? now,
+      firstSeen: prev?.firstSeen ?? restored?.firstSeen ?? now,
       updatedAt: now,
-      amendments: prev?.amendments ?? 0,
+      amendments: prev?.amendments ?? restored?.amendments ?? 0,
     };
     let amended: string | null = null;
     if (prev) {

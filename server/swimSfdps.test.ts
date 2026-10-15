@@ -482,3 +482,43 @@ test("SwimPlanStore does not retain the SFDPS payloads its plans were parsed fro
   // pinned payloads would be ~23 MB; the plans themselves are a few KB
   assert.ok(grownMB < 6, `store retained ${grownMB.toFixed(1)} MB for ${N} plans — payload strings are being pinned`);
 });
+
+// ── plan history survives a restart (first-seen no longer censored at uptime) ──
+
+test("SwimPlanStore: seedHistory restores firstSeen/amendments across a restart; rows are consumed once", () => {
+  const a = new SwimPlanStore();
+  const t0 = Date.parse("2026-10-15T10:00:00Z");
+  for (const f of parseSfdpsMessages(FH)) a.upsert(f, t0);
+  for (const f of parseSfdpsMessages(AH)) a.upsert(f, t0 + 120_000);
+  const rows = JSON.parse(JSON.stringify(a.exportHistory())); // the snapshot round trip
+  assert.equal(rows.length, 1);
+
+  const b = new SwimPlanStore(); // the new container
+  const t1 = t0 + 3600_000;
+  assert.equal(b.seedHistory(rows, t1), 1);
+  for (const f of parseSfdpsMessages(FH)) b.upsert(f, t1);
+  const p = b.lookup("DAL1234", t1 + 1)!;
+  assert.equal(p.firstSeen, t0, "age is measured from the first container's sighting, not the boot");
+  assert.equal(p.amendments, 1);
+  assert.equal(b.seedSize, 0, "seed consumed");
+  assert.ok(p.updatedAt === t1);
+});
+
+test("SwimPlanStore: seedHistory drops stale, malformed and impossible rows; unseeded plans stay now-stamped", () => {
+  const s = new SwimPlanStore();
+  const now = 10 * 3600_000;
+  const rows = [
+    ["gufi:ok", now - 3600_000, 2, now - 60_000],
+    ["gufi:stale", 1, 0, now - 7 * 3600_000],           // past the 6h TTL
+    ["gufi:future", now, 0, now + 3600_000],             // updatedAt in the future
+    ["gufi:inverted", now, 0, now - 1000],               // firstSeen after updatedAt
+    ["gufi:neg", now - 5000, -1, now - 1000],
+    ["gufi:nan", NaN, 0, now - 1000],
+    [42, 1, 1, 1], "junk", null,
+  ];
+  assert.equal(s.seedHistory(rows, now), 1);
+  assert.equal(s.seedHistory("not-an-array", now), 0);
+  const f = parseSfdpsMessages(FH)[0];
+  s.upsert(f, now);
+  assert.equal(s.lookup("DAL1234", now)!.firstSeen, now, "no matching seed row -> first-seen is now");
+});
