@@ -108269,3 +108269,35 @@ PRIOR: within an hour of deploy, /tfms/active lists a few dozen active restricti
 TESTS: swimTfms.test.ts (5): every message type from trimmed real fixtures; counted-not-parsed; store activity/expiry/TTL; FAA- or ICAO-id config lookup. swimCapture suite unchanged and green.
 VERSION: v1.0.1083. ROLLBACK: git revert.
 STARVED: no (NOTAM TFR parser next).
+
+## 2026-10-15 (human-directed session, ~00:40Z Thu) [PIPELINE] — SWIM NOTAM parser: active TFRs with geometry (exact polygon or labeled Q-line circle) + a TFR sample bucket
+
+TERRITORY: server SWIM (new server/swimNotam.ts, swimCapture.ts wiring + endpoint) + shared package.json/research.
+DIRECTIVE (human, 2026-10-14, ops item 1): NOTAM consumer for TFRs with geometry, stored and exposed to the deviation classifier.
+FOUND (capture #1342): FNS digital NOTAMs (AIXM 5.1) at ~1 msg/s.
+- Every Event carries a textNOTAM with series/number/year/type, Q-code, min/max FL, Q-line center (DDMMNDDDMMW) + radius (NM), location, effective window, text, and an EventExtension classification (DOM/INTL/FDC/…).
+- Feature members (runway, taxiway, navaid, obstacle…) carry their OWN geometry.
+- No TFR was among the 24 captured samples (2 per shape; TFRs share the common Event shape).
+CHANGE:
+- parseNotamPayload: every text NOTAM's fields.
+- TFR = FDC text citing 14 CFR 91.137–91.145 / 99.7 or FLIGHT RESTRICTION(S), or an ICAO Q-code QRT….
+- Geometry: an exact polygon only from Airspace members' posLists (feature geometry is never treated as a restriction area); otherwise the Q-line circle with `approximate: true` (it ENCLOSES the area).
+- Cancellations (type C) remove the TFR; an open-ended TFR is kept 7 days past issue.
+- Fallback ids are scoped by location (FNS numbers repeat across airports).
+- NotamStore: active TFRs + counts by classification.
+- GET /api/data/swim/notam/tfrs (public; geometry note included); NOTAM `parsed` stats on /swim/products.
+- Capture files TFR-text messages in their own "TFR:" bucket, so the first real TFR verifies this parser.
+REAL-SAMPLE CHECK: all 24 captured NOTAMs parse with 0 errors, 11 ms total (4 INTL, 16 DOM, 4 FDC; 0 TFRs, as expected for that sample).
+PRIOR: within a day, /notam/tfrs lists the national standing TFRs (VIP/security 99.7, stadium 91.145, wildfire 91.137). Most US TFR digital NOTAMs should carry Airspace geometry (polygon); circles should be the minority.
+NEXT: verify against the first "TFR:" bucket sample via /api/data/swim/samples. The P3 deviation classifier consumes TfmsStore.forFlight and NotamStore.active.
+TESTS: swimNotam.test.ts (5): field decode, a real non-TFR, polygon vs circle, store window/cancellation/TTL, location-scoped ids.
+VERSION: v1.0.1084. ROLLBACK: git revert.
+STARVED: no.
+
+## 2026-10-15 (~00:55Z Thu) [RULE-REVIEW] — Intent B archive-growth prior vs live (measurement note, no code)
+
+PRIOR (B, v1.0.1076): +3 ± 1.5 MB/day gz for the intent `x` block.
+LIVE (v1.0.1081, 2,015 s of uptime, intent-coverage archive.writer): 8,241 intent lines from 2,514 aircraft. Of those, 3,151 were keyframes, 4,687 deltas and 403 unchanged; 539 KB raw (65 B/line).
+- That is ≈ 23 MB/day raw ≈ 5.8 MB/day gz: ABOVE the prior's band.
+WHY THE PRIOR MISSED: the size model assumed ~48 lines per cruising aircraft per hour file, from the 75 s thinning cadence. Production's archive writers (viewport discs, the scopes every 60–120 s, tracked; the sweep is gated off) produce only ~6 lines per aircraft-hour, so the per-hour keyframe is ~1 line in 6, not 1 in 48.
+IMPACT: +5–6 MB/day gz, i.e. +120 MB on the 22-day local aircraft tier and +170 MB in R2 (free tier). Volume free is 1.87 GiB after the vessel 8-day tier (#1336), so this stays inside the rollback trigger (< 1.2 GB). No action. Re-check after a full day; the first hour after a deploy over-weights keyframes.

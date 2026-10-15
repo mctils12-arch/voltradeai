@@ -24,12 +24,15 @@ import type { Express } from "express";
 import { startSwimProduct, swimProductStatus, swimProductsEnvStatus, SWIM_PRODUCTS, type SwimConnectorHandle } from "./swimConnector";
 import { checkDiagToken, diagEnabled } from "./diag";
 import { TfmsStore } from "./swimTfms";
+import { NotamStore, TFR_TEXT_RE } from "./swimNotam";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
 // amendments. One process-wide store; the deviation classifier reads it.
 let tfmsStore: TfmsStore | null = null;
 export function sharedTfmsStore(): TfmsStore { return (tfmsStore ??= new TfmsStore()); }
+let notamStore: NotamStore | null = null;
+export function sharedNotamStore(): NotamStore { return (notamStore ??= new NotamStore()); }
 
 export const CAPTURE_PRODUCTS = ["TFMS", "NOTAM"] as const;
 export type CaptureProduct = typeof CAPTURE_PRODUCTS[number];
@@ -82,9 +85,11 @@ export class SwimCapture {
 
   constructor(readonly product: string) {}
 
-  observe(payload: string, now: number): void {
+  /** `bucket` files the message under its own label (e.g. "TFR"), so a rare
+   *  kind keeps samples of its own instead of sharing a common shape's two */
+  observe(payload: string, now: number, bucket?: string): void {
     this.total++;
-    const sig = xmlShape(payload);
+    const sig = bucket ? `${bucket}:${xmlShape(payload)}` : xmlShape(payload);
     let st = this.shapes.get(sig);
     if (!st) {
       if (this.shapes.size >= CAPTURE_MAX_SHAPES) { this.overflow++; return; }
@@ -145,14 +150,19 @@ export async function startSwimCapture(o: {
       product, envPrefix: `SWIM_${product}`, env: o.env, importer: o.importer, log: o.log, now: o.now,
       onPayload: product === "TFMS"
         ? (payload, now) => { cap.observe(payload, now); sharedTfmsStore().ingest(payload, now); }
-        : (payload, now) => cap.observe(payload, now),
+        : product === "NOTAM"
+          ? (payload, now) => {
+            cap.observe(payload, now, TFR_TEXT_RE.test(payload) ? "TFR" : undefined);
+            sharedNotamStore().ingest(payload, now);
+          }
+          : (payload, now) => cap.observe(payload, now),
     }));
   }
   return handles;
 }
 
 /** test seam */
-export function _resetSwimCaptureForTests(): void { captures.clear(); tfmsStore = null; }
+export function _resetSwimCaptureForTests(): void { captures.clear(); tfmsStore = null; notamStore = null; }
 
 /** GET /api/data/swim/products (public: every SCDS product's env readiness
  *  by NAME, transport status, per-hour cadence and the content-free shape
@@ -173,6 +183,7 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
         stallRestarts: s.stallRestarts, lastMessageAt: s.lastMessageAt, lastError: s.lastError, hourly: s.hourly,
         shapes: cap ? cap.shapesView() : null,
         ...(p === "TFMS" ? { parsed: sharedTfmsStore().stats() } : {}),
+        ...(p === "NOTAM" ? { parsed: sharedNotamStore().stats() } : {}),
       };
     }
     res.set("Cache-Control", "no-store");
@@ -195,6 +206,21 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
     res.json({
       at: now, ...st.active(now), stats: st.stats(),
       source: "FAA SWIM TFMS (SCDS, NDRB pre-approved for public release; not for operational use)",
+    });
+  });
+
+  // active TFRs (FAA FNS digital NOTAMs; FDC TFR rules or Q-code QRT):
+  // exact polygon when the NOTAM carries airspace geometry, else its Q-line
+  // circle labeled approximate
+  app.get("/api/data/swim/notam/tfrs", (_req, res) => {
+    const st = sharedNotamStore();
+    const now = Date.now();
+    st.evict(now);
+    res.set("Cache-Control", "public, max-age=60");
+    res.json({
+      at: now, tfrs: st.active(now), stats: st.stats(),
+      source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use)",
+      note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area; only 'polygon' is the restriction's own shape.",
     });
   });
 
