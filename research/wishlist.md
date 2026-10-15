@@ -4688,3 +4688,20 @@ Audit of SWIM, storage, the daily health check and LiveATC (human-directed 2026-
    - This session's GCP token was rejected, so billing could not be verified.
    - /api/data/air-quality reports "Air Quality API is not yet enabled": APIs & Services → Library → Air Quality API → Enable.
    - The 3D Tiles key works today. GCP is not used for the archive (Cloudflare R2, $0).
+
+
+## 2026-10-15 — 🔴 EVERY DEPLOY CANCELS EVERY OPEN ORDER, and docs-only merges deploy too: market-hours merges are now a measured trading cost, not a hypothetical one [FROZEN-PATH + CONSTITUTIONAL PROPOSAL — human decision]
+
+UPGRADES two earlier low-priority filings (open_questions.md 2026-08-14 "CI's automerge job does not gate on market hours"; wishlist.md 2026-09-14 "hold merge until after market hours is not enforced"). Both rated it low priority because "only a trading-path diff matters". That premise is false:
+- `gracefulShutdown` (server/bot.ts ~821-836) runs on every SIGTERM and cancels EVERY open order on the account (DELETE /v2/orders), resting CSP limits and protective exits included.
+- railway.json / railway.toml set no watchPatterns, so EVERY merge to main redeploys — research/*.md-only PRs included.
+- Measured: 10 production deploys 15:58Z-20:20Z on 2026-10-13; 17 merges -> 17 SIGTERM cancel-alls on 2026-10-14, most inside 13:30-20:00Z. This session's own 7 fix PRs on 10/13 did the same.
+- Consequence found by RCA (open_questions.md KNOWN BROKEN #46): the restarts also wipe the bot's in-memory order state, which re-created the CSP submit/cancel loop F7 had just fixed. The tier-dispatch CSP subsystem has now had KB #30 (x3) + F7 — per HEALTH OF THE LOOP rule 4 this is an architecture smell, so the structural fix is proposed here, not patched again.
+
+OPTIONS (not self-applied; A and B touch FROZEN paths, C is a constitutional amendment, D is a T-BOT build a session can do once approved in principle):
+A. railway.json `watchPatterns` that EXCLUDE research/**, *.md and docs-only paths, so documentation merges stop redeploying. Cheapest, removes most of the deploys (10/14: #1322, #1323, #1324, #1326, #1334 were docs-only). FROZEN file -> human edit.
+B. CI `automerge` holds `claude/*` PRs during 13:30-20:00Z unless labeled `urgent-fix` (the 2026-09-14 entry's option 2, now with evidence). FROZEN file -> human edit.
+C. CONSTITUTIONAL AMENDMENT (proposed text for STANDING BEHAVIORS): "MERGE WINDOW: sessions do not merge non-urgent PRs during regular market hours (13:30-20:00Z); a deploy cancels every open order. Fixes to a live trading break may merge immediately and say so in the PR." Pure behaviour; enforceable only with B.
+D. STRUCTURAL (T-BOT): make order state restart-proof instead of process-memory-only — (1) rehydrate `openOrders` from broker open orders at boot; (2) derive the CSP re-entry brake from broker order history (rested >= STALE_ORDER_MINUTES, canceled within the cooldown — KB #46 has the exact rule); (3) decide whether `gracefulShutdown` should cancel resting ENTRY limits at all (keeping protective-exit semantics) — a deploy is not a reason to abandon a correct order. (3) changes order lifecycle behaviour, so it needs your yes.
+RECOMMENDATION: A + D(1,2) now (A removes most of the cause, D makes the bot correct under any restart, including crashes); B or C if you want the guarantee; D(3) only with your explicit approval.
+COST: $0.

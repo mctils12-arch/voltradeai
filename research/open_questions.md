@@ -7325,6 +7325,170 @@
     not close this item until the Dockerfile line actually ships and the
     probe has been confirmed live.
 
+45. **[FOUND 2026-10-14, check-in session (ruler session — NOT PATCHED,
+    trading-rule fix belongs to its own session), LIVE PRODUCTION LOSS.]
+    The CSP earnings gate can fail OPEN: a cash-secured put was sold on BAC
+    the day before its earnings.** Live: `BAC261120P00048000` sold
+    2026-10-13 14:49Z at $0.20 (37 DTE). BAC reported 2026-10-14 and
+    opened -7.7% (close $53.96 -> open $49.83); the POS-KILL option
+    backstop (v1.0.1058, -150%) bought it back at the open at $0.99
+    (-371%, about -$79 on a $20 credit). The backstop behaved as designed
+    (a real gap, the fill was near fair value); the defect is the ENTRY.
+    The gate that should have blocked it exists: `csp_universe.py`
+    `_score_earnings` returns 0 for earnings within 2 days and
+    `get_top_csp_candidates` drops any ticker with `earnings <= 10`
+    (csp_universe.py ~770). BAC is not in `T1_TICKERS_FALLBACK`
+    (tiered_strategy.py:142), so it came through that dynamic universe, and
+    the Layer-2 cache TTL is 15 min (csp_universe.py:48), so staleness is
+    not the explanation.
+    FAIL-OPEN PATHS FOUND BY READING (not yet confirmed which one fired):
+    (a) `options_scanner._fetch_earnings_calendar_with_status` never checks
+    the HTTP status: a Finnhub 429 / 401 / missing-key response parses as
+    JSON without `earningsCalendar`, the loop sees `[]`, and the function
+    returns `({}, True)` — "lookup OK, nobody reports soon" — so every
+    ticker scores 100 and the gate passes everything. This defeats the
+    lookup_ok=False fail-closed handling `_score_earnings` was given for
+    exactly this case. (b) Same-day earnings drop out: `days =
+    (datetime(date) - datetime.now()).days` is -1 for a date earlier
+    today, which fails `0 <= days`, so a ticker reporting TODAY is missing
+    from the calendar and defaults to 99 -> 100. (c) Not checked: whether
+    Finnhub's free calendar truncates a 30-day window in peak earnings
+    season (mid-October).
+    TESTABLE / NEXT (a T-BOT session, not a ruler session): (1) add a
+    read-only diag view of the last earnings-calendar fetch (HTTP status,
+    entry count, whether BAC/JPM/WFC were present on 2026-10-13) or read
+    the daemon logs to pin which path fired; (2) fix (a) by treating any
+    non-200 / missing-key response as lookup_ok=False, and make a
+    lookup failure EXCLUDE (fail closed) rather than score 80 — that
+    passes the `<= 10` filter today; (3) fix (b) by comparing dates, not
+    datetimes; (4) regression tests that fail on today's code: a 429 body,
+    a same-day date, a missing key. Counterfactual cost of failing closed
+    on an outage: fewer CSPs that scan (log them as CSP-SKIP with reason).
+    Big banks report in the same week, so the exposure is concentrated:
+    check every open CSP's earnings date when this ships.
+
+46. **[FOUND 2026-10-14, RECURRENCE RCA (HEALTH OF THE LOOP rule 4) — NOT
+    RE-PATCHED; structural proposal in wishlist.md.] The CSP submit/cancel
+    loop F7 (v1.0.1060) "fixed" came back on 2026-10-13: F7's code ran as
+    written, but its design assumed a restart is harmless, and it is not.**
+    Live 10/13 after v1.0.1060: XLF/HPE CSP limits resubmitted 3-5 min after
+    a cancel, inside F7's 60-min cooldown. ROOT CAUSE (6-agent workflow,
+    adversarially CONFIRMED; evidence = Alpaca submitted_at/canceled_at +
+    GitHub deployment statuses): every Railway deploy SIGTERMs the bot;
+    `gracefulShutdown` (server/bot.ts ~821-836) cancels EVERY open order
+    (DELETE /v2/orders at ~830) and exits. F7's brake lives only in process
+    memory (`sweptCspAt` ~3778, `openOrders` ~3754), is written only by the
+    sweep, and the cancel-all also empties the broker book that F7's
+    open-sell-to-open guard reads. A fresh container therefore sees no
+    cooldown and no resting order, and its first Tier-2 scan (3m15s-3m59s
+    after boot) re-dispatches the same limit. F7's own experiments.md entry
+    stated the false assumption verbatim: "Sweep memory is in-process (a
+    restart forgets it — bounded by the open-order guard)." Every
+    resubmission within 60 min crossed a container boundary (containers
+    C1-C4 at 16:55/17:29/17:46/18:21Z); deploys came from OTHER sessions'
+    merges, docs-only included (railway.json has no watchPatterns): 10
+    production deploys 15:58Z-20:20Z on 10/13, 17 merges -> 17 SIGTERM
+    cancel-alls on 10/14, most inside market hours.
+    CANCEL ATTRIBUTION 10/13: sweeps (12m16s-12m31s) HPE 17:11:46, XLF
+    17:45:31, HPE 18:02:29, XLF 18:37:34; deploy cancel-alls (15-35s before
+    a deploy success) XLF 17:29:42, XLF 18:21:45.
+    MY OWN CHECK-IN WAS WRONG FIRST: it read "no SIGTERM 16:50-20:20" off
+    /api/diag/audit, but `persistAudit` keeps only the newest 2000 rows
+    globally (bot.ts ~1169-1170) — about 3 market hours — so every 10/13 row
+    was already gone. "0 SWEEP / 0 CSP-SKIP" was the same retention
+    artifact, not evidence. Lesson: the audit probe cannot answer "did X
+    happen yesterday"; use Alpaca order timestamps + GitHub deployment
+    statuses.
+    SECONDARY, confirmed in code: (a) `isMarketOpen` is captured at scan
+    START (bot.ts ~7690) and used at dispatch (~4751), so a scan that starts
+    at 19:57Z dispatched XLF at 20:00:38Z = 16:00:38 ET, after the close
+    (and the TIER-DEFER line at 13:33:36Z 10/14 was the mirror case: a scan
+    that started 13:29:44Z deferred one scan past the open — benign);
+    (b) `replaceIfBetter` (~3893-3901) still gets the same 204 throw, so a
+    successful cancel returns false: no REPLACE audit, the canceled order
+    stays tracked, the better trade is dropped; (c) the open-orders fetch
+    feeding the CSP gate fails OPEN (`.catch(() => [])` ~4702); (d) F7's
+    confirm only counts canceled/pending_cancel — a GET that still says
+    new/accepted right after the 204 records no cooldown.
+    F7's ROLLBACK TRIGGER ("canceled CSP orders in /api/diag/orders still
+    outnumbering SWEEP lines") cannot be evaluated: Alpaca keeps months,
+    the audit ~3 hours, and deploy cancels are never SWEEPs. Rewrite it in
+    the measurement PR that fixes audit retention.
+    NEXT (a T-BOT session; the subsystem has had KB #30 x3 + F7, so per
+    rule 4 the shape is structural, see wishlist.md 2026-10-15): derive the
+    CSP brake from the BROKER, restart-proof — skip underlying U when an
+    unfilled sell-to-open on U RESTED >= STALE_ORDER_MINUTES before it was
+    canceled/expired and canceled_at is within the cooldown (read-only GET
+    /v2/orders?status=closed&after=now-(cooldown+12m)&direction=desc&
+    limit=500 — `after` filters on submitted_at). This is indifferent to
+    who canceled and does NOT treat a deploy cancel 36s after submit as
+    "won't fill" (which a naive "any canceled order" rule would — a
+    trade-blocking widening without RULE REVIEW evidence). It would have
+    blocked HPE 17:50:13, XLF 18:17:11, XLF 18:25:07 and allowed XLF
+    17:33:09. Plus: re-read the clock at dispatch; fail closed on the
+    open-orders fetch; reuse confirmCancelAfterDeleteError in
+    replaceIfBetter; rehydrate openOrders from broker open orders at boot.
+    Regression test: fresh module state (simulated restart) + a broker
+    closed order "XLF put rested 12m, canceled 3m ago" => CSP-SKIP.
+    COST CONTEXT: unfilled limits cost $0; the loop's cost is an options
+    slot held by orders that never fill, audit noise, and attribution.
+
+47. **[FOUND 2026-10-14 by code reading during the labeler RULE-REVIEW,
+    CONFIRMED IN CODE by this session, live frequency NOT YET MEASURED.]
+    Phantom first scale-out: Python can mark 1/3 of a position sold
+    without any order, and Node adopts it.** `bot_engine.manage_positions`
+    (bot_engine.py ~2085-2091) sets `scales_completed=1`,
+    `remaining_qty -= third`, `breakeven_active=True` when it sees
+    r_multiple >= 1.0 and persists that to voltrade_stop_state.json
+    (~2194-2197) — it places no order (bot.ts tier1Reflex ~4210-4228 only
+    uses manage_positions' actions to refresh stop state). Node's sync
+    adopts it: `scalesCompleted = Math.max(existing, ps.scales_completed)`
+    and `remainingQty = Math.min(existing, ps.remaining_qty)` (bot.ts
+    ~6580-6595). If Python's 45s cycle sees 1R before a 1-minute IEX bar
+    close reaches `checkPositionOnTick` (or the WS feed is down), Node never
+    sells the first third, arms breakeven anyway, and its later full exit
+    sells only `remainingQty` (`exitQty = pos.remainingQty`, ~7090), leaving
+    shares behind.
+    TESTABLE: for every closed position since 2026-09-01, compare broker
+    sells vs stop_state scale history: count positions whose first
+    SCALE-OUT audit/sell is missing while stop_state shows
+    scales_completed >= 1, and positions left with a residual third after a
+    full exit. If > 0, the fix is ownership: Python must not write
+    scale-out STATE (only Node, after its order is accepted) — a
+    single-owner invariant test like F1's.
+
+48. **[FOUND 2026-10-14, HONESTY METRIC — outranks new research per GOAL.]
+    The configured exits, the backtest's exits and the live exits are
+    three different exit models.** CONFIGURED (system_config.py ~268-274:
+    ATR_STOP_MULTIPLIER 1.5, MIN/MAX_STOP_PCT 2/6, ATR_TP_MULTIPLIER 4,
+    MIN/MAX_TP_PCT 12/25, TIME_STOP_DAYS 10, plus regime overrides) — NO
+    reader anywhere outside system_config.py (grep, this session).
+    BACKTEST (backtest_v2.py ~138-141): stop = clamp(1.5xATR, 2-6%), TP =
+    2R, regime time stop 3-10 days — it mirrors the DEAD config. LIVE (the
+    only code that places stock exits, server/bot.ts checkPositionOnTick
+    ~6720-7028): phase-1 stop clamp(2xATR%, 1.5-8%); scale out 1/3 at 1R
+    (arms breakeven) and 1/3 at 3R/2R/1.5R (BULL/NEUTRAL/bearish, current
+    regime); phase trails max(1.5,1.5xATR%) / max(1,ATR%) from peak P&L,
+    phase-4 trail ATR%x{3,2,1.5} from the high; TP max(4,min(3xATR%,15))
+    only while phase<3 AND both scale-outs done (so effectively bearish
+    only); time stop >= 7 CALENDAR days AND |pnl| < 2%. Python-only rules
+    that never execute: 60-min min hold, 4-day short-hold grace, -20%
+    POSITION_HARD_STOP_PCT, regime stop scalar. The sync TIME-EXIT (>14d,
+    -5..+2%) reads pos.created_at/submitted_at, which Alpaca position
+    objects likely lack — probably dead (verify on a live payload).
+    CONSEQUENCE: every backtest Sharpe/DD used to gate a change (PROMOTION
+    RULE 3) measures exits the bot does not run, and the shadow labeler
+    (+2/-4) measured a third model. Live-vs-backtest divergence here is
+    structural, not noise.
+    NEXT, in order, each its own [RULE-REVIEW] PR: (1) the exit-aligned
+    shadow labeler (in review 2026-10-15, branch ruler/labeler-exit-aligned
+    — it mirrors checkPositionOnTick and keeps the old labels alongside);
+    (2) backtest_v2 exit model -> the live model (same before/after on
+    identical inputs; expect every stored backtest number to move);
+    (3) only then decide, with evidence, whether the live exits or the
+    config are the intended policy — and delete the losing one (STALENESS:
+    unread config is debt).
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -22713,3 +22877,12 @@ Also open: whether corridor plans can carry deviation judging (DEVIATION_OFF_NM 
 3. Namesake parity: the parser keeps the chain's guard (consecutive legs ≤ 1,200 nm; corridor for 1–2 points).
    - A route of ≥ 3 same-named western fixes on an eastern flight still places, as it did under the chain.
    - Testable: a whole-route length ≤ 3× direct bound. Gate 1 measures it on live plans before adoption (prior: < 1% of plans affected).
+
+
+## [RULE-REVIEW candidate · filed 2026-10-14] Floor-basket tracking error vs the SPY benchmark — quantify the cost of the tech tilt (proposal only; basket composition is the human's call)
+
+The FLOOR_BASKET (system_config.py:151 — QQQ 0.50 / SMH 0.15 / KWEB 0.10 / VXUS 0.15 / CASH 0.10) is the human's stated tech-dominance thesis (65% tech), not an accident. The GOAL measures the account against buy-and-hold SPY, so the tilt's cost shows up as tracking error, and in a bad week it dominates the result.
+Evidence (one week, n=1, not a test): 2026-10-06 close -> 2026-10-13 the account fell 3.4% while SPY fell 0.2%. The basket's own return was about -2.5% (SMH -7.7%, QQQ -2.3%, VXUS -1.7%, KWEB +0.6%); at the live ~77% floor exposure that explains roughly -2.1 to -2.5 points of the -3.2-point gap. The rest was rule-conflict churn (fixed v1.0.1054-1060), a KWEB lot from an earlier entry (-6.8%), and options.
+Hypothesis: replacing QQQ/SMH weight with SPY (or a SPY-weighted core) cuts benchmark-relative drawdown materially while costing little long-run return. Prior: 55% that a SPY-core floor has a better benchmark-relative Sharpe over 10y, 35% that it also has a higher CAGR (the tilt won the 2016-2025 decade).
+Testable form: backtest_v2 ablation, floor basket as-is vs SPY-core vs 50/50, split by regime (BULL/NEUTRAL/CAUTION), reporting CAGR, max DD, and tracking error vs SPY. BLOCKER: backtest_v2 does not model the floors today (noted in the v1.0.1055 entry), so step 1 is floor modelling in the engine.
+Ladder: LOGIC (ablation) then SIZING (vs equal-weight). Decision owner: the human — this entry is the evidence request, not a change.
