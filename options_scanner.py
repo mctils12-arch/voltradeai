@@ -658,12 +658,25 @@ def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str
             params={"from": today, "to": end, "token": FINNHUB_KEY},
             timeout=10
         )
-        for item in r.json().get("earningsCalendar", []):
+        # KB #45 (2026-10-15): a 429/401/missing-key reply parses as JSON
+        # with no "earningsCalendar" and used to read as "lookup OK, nobody
+        # reports soon" -> the earnings gate failed OPEN. Treat it as a
+        # failed lookup.
+        status = getattr(r, "status_code", 200)
+        if isinstance(status, int) and status != 200:
+            return result, False
+        body = r.json()
+        if not isinstance(body, dict) or not isinstance(body.get("earningsCalendar"), list):
+            return result, False
+        # Compare calendar DATES, not datetimes: a same-day report is
+        # (date - now).days == -1 and used to be dropped (KB #45b).
+        today_d = datetime.now().date()
+        for item in body["earningsCalendar"]:
             sym = item.get("symbol", "")
             dt  = item.get("date", "")
             if sym and dt:
                 try:
-                    days = (datetime.strptime(dt, "%Y-%m-%d") - datetime.now()).days
+                    days = (datetime.strptime(dt, "%Y-%m-%d").date() - today_d).days
                     if 0 <= days <= days_ahead:
                         result[sym] = days
                 except Exception:

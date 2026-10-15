@@ -7325,7 +7325,7 @@
     not close this item until the Dockerfile line actually ships and the
     probe has been confirmed live.
 
-45. **[FOUND 2026-10-14, check-in session (ruler session — NOT PATCHED,
+45. **[PATCHED 2026-10-15 v1.0.1085: paths (a),(b) fixed + fail-closed exclusion; (c) truncation + which path fired still UNCONFIRMED] [FOUND 2026-10-14, check-in session (ruler session — NOT PATCHED,
     trading-rule fix belongs to its own session), LIVE PRODUCTION LOSS.]
     The CSP earnings gate can fail OPEN: a cash-secured put was sold on BAC
     the day before its earnings.** Live: `BAC261120P00048000` sold

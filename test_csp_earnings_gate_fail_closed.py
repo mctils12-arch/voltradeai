@@ -137,3 +137,47 @@ def test_layer2_score_wires_lookup_failure_through_to_score_earnings(monkeypatch
 
     csp_universe._layer2_score([("AAPL", 100.0, 1_000_000, 100_000_000.0)])
     assert captured.get("lookup_ok") is False
+
+
+# ---------------------------------------------------------------------------
+# KB #45 (2026-10-15): the BAC-before-earnings fail-open paths
+# ---------------------------------------------------------------------------
+
+def _fake_resp(status=200, body=None):
+    class R:
+        status_code = status
+        def json(self):
+            return body
+    return R()
+
+
+def test_http_429_body_is_a_failed_lookup(monkeypatch):
+    monkeypatch.setattr(options_scanner.requests, "get",
+                        lambda *a, **k: _fake_resp(429, {"error": "API limit reached"}))
+    cal, ok = options_scanner._fetch_earnings_calendar_with_status(days_ahead=30)
+    assert ok is False
+
+
+def test_missing_calendar_key_is_a_failed_lookup(monkeypatch):
+    monkeypatch.setattr(options_scanner.requests, "get",
+                        lambda *a, **k: _fake_resp(200, {"error": "bad token"}))
+    cal, ok = options_scanner._fetch_earnings_calendar_with_status(days_ahead=30)
+    assert ok is False
+
+
+def test_same_day_earnings_is_kept_with_zero_days(monkeypatch):
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    monkeypatch.setattr(options_scanner.requests, "get",
+                        lambda *a, **k: _fake_resp(200, {"earningsCalendar": [{"symbol": "BAC", "date": today}]}))
+    cal, ok = options_scanner._fetch_earnings_calendar_with_status(days_ahead=30)
+    assert ok is True and cal.get("BAC") == 0
+    assert csp_universe._score_earnings("BAC", cal) == 0.0
+
+
+def test_layer2_excludes_all_candidates_when_lookup_failed(monkeypatch, tmp_path):
+    monkeypatch.setattr(csp_universe, "SCORES_CACHE_PATH", str(tmp_path / "scores_cache.json"))
+    monkeypatch.setattr(options_scanner, "_fetch_earnings_calendar_with_status",
+                        lambda days_ahead=30: ({}, False))
+    out = csp_universe._layer2_score([("AAPL", 100.0, 1_000_000, 100_000_000.0)])
+    assert not any(c["ticker"] == "AAPL" for c in (out or []))
