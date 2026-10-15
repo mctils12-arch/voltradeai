@@ -108247,6 +108247,18 @@ VISUAL (PROMOTION RULE 6): `node scripts/visual_check.mjs --page data` at 390/76
 VERSION: v1.0.1082. ROLLBACK: git revert.
 STARVED: no (TFMS parser next; C2 ghost line + TOD/TOC queued).
 
+## 2026-10-15 (scheduled PRODUCT session, ~00:30Z Thu, after the close) [PRODUCT] — Aircraft intent C2a: "level-off projection" on the status line (inferred)
+
+TERRITORY: client/src/lib/air/intentStatus.ts (+ test) + shared package.json/research.
+HEALTH: HEAD d89a1a5; no unfixed trading-loop KNOWN BROKEN item blocks product work. TFMS/NOTAM parsers stay queued: they must be written against REAL samples (SFDPS precedent, 0 of 39,472), and /api/data/swim/samples needs the diag token this session does not hold.
+CHOICE: C2 (ghost cleared-altitude line + TOD/TOC) is a GL change inside the 1,051-line FlightTrackLayer plus Law I/IV/visual-harness work. Split: C2a (this PR) is the honest numeric half, a pure function and one status-line part; C2b (the ghost line, drawn from the same selected altitude) follows as its own PR.
+CHANGE: `levelOffMinutes(alt, target, rateFpm)`: minutes until the selected altitude if the CURRENT vertical rate held. Shown only when moving toward the target at ≥ 300 fpm, outside the 200 ft level band, and ≤ 60 min away. Rendered as "<sel> in ~N min at current rate", flagged inferred. No flight-plan claim, no TOD (needs a destination + descent profile: C2b/C3, labeled estimate).
+DOWNSTREAM: card text only; the line's text key changes with N, so the card re-renders at most once a minute for a steady climb (no per-poll setState). No server, archive or trading path touched.
+PRIOR: steady climbs/descents show a falling N; level or sub-300 fpm aircraft show no projection.
+TESTS: intentStatus.test.ts +1 (projection math, all refusal cases, climb/descend wording). Three existing expectations gained the new inferred part for the same inputs (additive; no assertion removed or weakened).
+VISUAL (PROMOTION RULE 6): `node scripts/visual_check.mjs` could not run in this environment (`pngjs` not installed). The change is one extra text part on an existing line the harness never opens; the C1 card-width measurement (352-366 px, wraps cleanly at 390) applies, the new part is ~40 chars. Not verified by screenshot; flagging it rather than claiming it.
+VERSION: v1.0.1084 (re-versioned at merge: 1.0.1083 went to the TFMS parser). ROLLBACK: git revert.
+STARVED: no (C2b ghost line, TFMS/NOTAM parsers queued).
 ## 2026-10-15 (human-directed session, ~00:25Z Thu) [PIPELINE] — SWIM TFMS parser: per-flight reroute/route amendments, flow programs, live airport runway configs (written against real captured messages)
 
 TERRITORY: server SWIM (new server/swimTfms.ts, swimCapture.ts wiring + endpoint) + shared package.json/research.

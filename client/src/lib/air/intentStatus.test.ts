@@ -4,7 +4,7 @@
 // Run: npx tsx --test client/src/lib/air/intentStatus.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intentStatusParts, fmtSelectedAlt, type IntentViewWire } from './intentStatus.js';
+import { intentStatusParts, fmtSelectedAlt, levelOffMinutes, type IntentViewWire } from './intentStatus.js';
 
 const txt = (v: IntentViewWire | null, sys: 'imperial' | 'metric' = 'imperial') =>
   intentStatusParts(v, sys).map((p) => p.text + (p.inferred ? ' [inferred]' : ''));
@@ -23,10 +23,10 @@ test('European airliner (everything sent): autopilot + modes, level at FL370, FM
 
 test('US airliner (selected altitude + QNH only): climbing/descending wording; no autopilot claim without mode bits', () => {
   const climb: IntentViewWire = { values: { nav_altitude_mcp: 10016, nav_qnh: 1008.2, alt_baro: 6000, baro_rate: 1800 } };
-  assert.deepEqual(txt(climb), ['Climbing to 10000 ft (selected)', 'QNH 1008 hPa']);
-  assert.deepEqual(txt(climb, 'metric'), ['Climbing to 3048 m (selected)', 'QNH 1008 hPa']);
+  assert.deepEqual(txt(climb), ['Climbing to 10000 ft (selected)', '10000 ft in ~2 min at current rate [inferred]', 'QNH 1008 hPa']); // C2a added the projection part
+  assert.deepEqual(txt(climb, 'metric'), ['Climbing to 3048 m (selected)', '3048 m in ~2 min at current rate [inferred]', 'QNH 1008 hPa']);
   const desc: IntentViewWire = { values: { nav_altitude_mcp: 24000, alt_baro: 31000, baro_rate: -2200 } };
-  assert.deepEqual(txt(desc), ['Descending to FL240 (selected)']);
+  assert.deepEqual(txt(desc), ['Descending to FL240 (selected)', 'FL240 in ~3 min at current rate [inferred]']);
   const notMoving: IntentViewWire = { values: { nav_altitude_mcp: 24000, alt_baro: 31000, baro_rate: 0 } };
   assert.deepEqual(txt(notMoving), ['Selected altitude FL240']);
   assert.ok(!txt(climb).some((t) => /autopilot/i.test(t)), 'never "autopilot off" for an aircraft that sends no mode bits');
@@ -55,4 +55,19 @@ test('nothing fresh -> nothing shown; FL formatting', () => {
   assert.equal(fmtSelectedAlt(18000, 'imperial'), 'FL180');
   assert.equal(fmtSelectedAlt(5016, 'imperial'), '5000 ft');
   assert.equal(fmtSelectedAlt(9000, 'imperial'), '9000 ft');
+});
+
+test('C2a level-off projection: extrapolates the current rate, flagged inferred, never when not moving toward the target', () => {
+  assert.equal(levelOffMinutes(6000, 10000, 2000), 2);
+  assert.equal(levelOffMinutes(31000, 24000, -1750), 4);
+  assert.equal(levelOffMinutes(6000, 10000, -2000), null, 'moving away');
+  assert.equal(levelOffMinutes(6000, 10000, 100), null, 'rate below the climbing threshold');
+  assert.equal(levelOffMinutes(9900, 10000, 1000), null, 'already within the level band');
+  assert.equal(levelOffMinutes(1000, 40000, 500), null, 'beyond 60 min is not projected');
+  const climb: IntentViewWire = { values: { nav_altitude_mcp: 10016, alt_baro: 6000, baro_rate: 2000 } };
+  assert.deepEqual(txt(climb), ['Climbing to 10000 ft (selected)', '10000 ft in ~2 min at current rate [inferred]']);
+  const desc: IntentViewWire = { values: { nav_altitude_mcp: 24000, alt_baro: 24500, baro_rate: -2000 } };
+  assert.deepEqual(txt(desc), ['Descending to FL240 (selected)', 'FL240 in <1 min at current rate [inferred]']);
+  const level: IntentViewWire = { values: { nav_altitude_mcp: 37008, alt_baro: 37000, baro_rate: 0 } };
+  assert.ok(!txt(level).some((t) => /current rate/.test(t)));
 });
