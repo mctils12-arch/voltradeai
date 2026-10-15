@@ -108796,3 +108796,18 @@ appendices; the vocabulary in §11 is binding. The security items in §10.9
 are small MUTABLE-territory repairs that should ship before any cockpit
 exposes those routes. STARVED: yes — the independent verification pass
 (36 units) is queued behind the session limit.
+
+## 2026-10-15 (~18:00Z Thu) [NO-ACTION] — Cockpit audit's live prediction confirmed: the −10% latch fired at the open
+
+Observation only (docs). The Stage 1 audit (§1.8 / V37, filed ~04:00Z)
+predicted the Node drawdown kill would latch on the first Tier-1 cycle
+after 09:30 ET. `/api/diag/audit?type=DRAWDOWN-KILL`: "MAX DRAWDOWN KILL
+SWITCH: Equity $99008 is -10.6% below peak $110727" at 13:30Z. At 17:57Z:
+`/api/health` `status degraded`, `checks.bot.status killed`,
+`liveness {dark: true, marketHours 4.4}`, `autoResume.outcome EVALUATED`,
+classification `UNRECONCILED` ("71 closed qty with a pre-window cost
+basis"), drawdown −9.5% not above the −8% recovery line → waiting on
+`PAPER_REBASE` after 13 market hours (≈ Oct 16 close). Zero TRADE / T1 /
+exits today; 43 OPTIONS-SLOT-FULL before the latch. LIVENESS ALARM per
+CLAUDE.md priority 1: surfaced to the human in-session. No change made;
+the decision (re-base now vs wait vs raise the line) is the audit's §10.10.
