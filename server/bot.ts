@@ -4312,6 +4312,81 @@ print(json.dumps(result))
     }
   }
 
+  // [RULE-REVIEW] 2026-10-14 — the EXIT-ALIGNED shadow ruler's nightly job
+  // (shadow_portfolio.backfill_exit_aligned: labels each shadow record under
+  // the live checkPositionOnTick exit policy, stored ALONGSIDE the old
+  // +2%/-4% outcomes, which it never touches). Deliberately its own function
+  // and its own flag so checkShadowBackfill() above stays byte-identical.
+  //
+  // THE CAP THAT ACTUALLY APPLIES (corrected 2026-10-15). execPythonSerialized
+  // hands any command isTrivialPython() calls trivial (<= 150 chars and no
+  // numpy/pandas/... import) straight to execAsync with
+  // Math.min(hardTimeout, 10000) + SIGKILL: no mutex, killed at 10s. The first
+  // version's 132-char command fell into that branch, so every run would have
+  // been killed at 10s before its single end-of-run save, forever. This command
+  // is DELIBERATELY longer than 150 chars (explicit keyword arguments): the job
+  // loads and merge-saves the whole ~45MB shadow log (~130-270MB RSS), so it IS
+  // a heavy Python process and belongs behind the mutex, where the hard kill is
+  // min(timeout, 90000) = 90000ms. server/shadowBackfillExitAligned.test.ts
+  // runs bot.ts's own isTrivialPython + execPythonSerialized on this exact
+  // string and derives the cap from what they do, so shortening it fails CI.
+  // Python sizes itself to that cap: time_budget_s=60 of wall time (no Alpaca
+  // request starts unless it fits) + one merge-save (XA_SAVE_RESERVE_S=15) =
+  // 75s < 90s, and it checkpoints every 5 windows / 20s, so even a kill keeps
+  // the work finished before it.
+  //
+  // Not via the daemon RPC (the route is registered per READ BEFORE WRITE #4,
+  // and deliberately unused here): a daemon dispatch thread cannot be killed,
+  // so an RPC timeout has no hard cap behind it, and pythonCall's subprocess
+  // fallback would then start a SECOND concurrent run (two 180/min token
+  // buckets); and the daemon's self-kill watchdog reads ru_maxrss, the
+  // lifetime PEAK, so loading the log there would permanently raise its
+  // recorded peak toward the 1GB self-kill.
+  //
+  // SEQUENTIAL, never concurrent, with the old job: each Python subprocess
+  // builds its own 180/min Alpaca token bucket, so two backfills at once
+  // could exceed the 200/min quota between them. The mutex does NOT serialize
+  // the two (the old job's command is trivial: no mutex, SIGKILL at 10s); the
+  // gate below does. It waits until the old job has succeeded today
+  // (_shadowBackfilledToday), or until 23:00 UTC if the old one keeps failing
+  // (the old job only starts inside hour 22 and is killed within 10s, so by
+  // 23:00 it cannot still be running).
+  //
+  // At most SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT attempts per UTC day, each failure
+  // audited: a deterministic failure is not re-run every 5 minutes for two
+  // hours (~24 identical SHADOW-BACKFILL-XA-ERROR rows a night).
+  let _shadowXaBackfilledToday = false;
+  let _shadowXaAttemptsToday = 0;
+  const SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT = 3;
+  async function checkShadowBackfillExitAligned() {
+    const nowHour = new Date().getUTCHours();
+    const oldRulerDone = _shadowBackfilledToday;
+    if (((nowHour === 22 && oldRulerDone) || nowHour === 23) && !_shadowXaBackfilledToday
+        && _shadowXaAttemptsToday < SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT) {
+      _shadowXaAttemptsToday += 1;
+      try {
+        const result = await execPythonSerialized(
+          `python3 -c "import json; from shadow_portfolio import backfill_exit_aligned; print(json.dumps(backfill_exit_aligned(max_records=3000, max_windows=40, time_budget_s=60)))"`,
+          { timeout: 90000 }
+        );
+        _shadowXaBackfilledToday = true;
+        try {
+          const stats = JSON.parse(String(result.stdout).trim());
+          audit("SHADOW-BACKFILL-XA", JSON.stringify(stats));
+        } catch (parseErr: unknown) {
+          audit("SHADOW-BACKFILL-XA-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)} (${String(parseErr).slice(0, 100)})`);
+        }
+      } catch (e: unknown) {
+        audit("SHADOW-BACKFILL-XA-ERROR", `attempt ${_shadowXaAttemptsToday}/${SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT}: ` +
+          String(e instanceof Error ? e.message : e).slice(0, 500));
+      }
+    }
+    if (nowHour === 0) {
+      _shadowXaBackfilledToday = false;  // reset at midnight UTC
+      _shadowXaAttemptsToday = 0;
+    }
+  }
+
   // ── Tier 2: Intelligence — find and execute trades (5 min) ────────────────
 
   // Set by tier2Intelligence when the Python scan subprocess returns an error
@@ -7386,6 +7461,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // must NOT live inside the market-hours-gated Tier 1 interval below).
   // 5-minute poll is plenty granular for an hour-boundary check.
   setInterval(() => { checkShadowBackfill().catch((e) => console.error("[SHADOW]", e?.message || e)); }, 5 * 60 * 1000);
+  // Exit-aligned shadow ruler: same unconditional 5-minute poll, its own job
+  // (sequenced after the old one inside checkShadowBackfillExitAligned).
+  setInterval(() => { checkShadowBackfillExitAligned().catch((e) => console.error("[SHADOW-XA]", e?.message || e)); }, 5 * 60 * 1000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
