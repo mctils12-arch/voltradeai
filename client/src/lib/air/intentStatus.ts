@@ -64,6 +64,19 @@ const FT_M = 0.3048;
 export const LEVEL_BAND_FT = 200;
 /** vertical rate magnitude that counts as climbing/descending */
 export const RATE_FPM = 300;
+/** a level-off projection further out than this is not shown (rates change) */
+export const LEVEL_OFF_MAX_MIN = 60;
+
+/** Pure: minutes until `alt` reaches `target` if the CURRENT vertical rate
+ *  held — null when the aircraft is not moving toward the target at a
+ *  meaningful rate or the answer is beyond LEVEL_OFF_MAX_MIN. An
+ *  extrapolation of one number, never a flight-plan fact (C2a). */
+export function levelOffMinutes(alt: number, target: number, rateFpm: number): number | null {
+  const delta = target - alt;
+  if (Math.abs(delta) <= LEVEL_BAND_FT || Math.abs(rateFpm) < RATE_FPM || Math.sign(delta) !== Math.sign(rateFpm)) return null;
+  const min = delta / rateFpm;
+  return min <= LEVEL_OFF_MAX_MIN ? min : null;
+}
 
 export function fmtSelectedAlt(ft: number, system: UnitSystem = getUnits()): string {
   return ft >= FL_FROM_FT ? `FL${String(Math.round(ft / 100)).padStart(3, "0")}` : fmtMeters(Math.round(ft / 100) * 100 * FT_M, 0, system);
@@ -75,6 +88,12 @@ const MODE_LABEL: Record<NavMode, string> = {
 
 const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const deg3 = (d: number) => String(Math.round(((d % 360) + 360) % 360) || 360).padStart(3, "0");
+
+function pushLevelOff(out: StatusPart[], alt: number, target: number, rate: number, sel: string): void {
+  const m = levelOffMinutes(alt, target, rate);
+  if (m === null) return;
+  out.push({ key: "eta", text: `${sel} in ${m < 1 ? "<1" : `~${Math.round(m)}`} min at current rate`, inferred: true });
+}
 
 /** Pure: the status parts for one intent view (empty when nothing fresh). */
 export function intentStatusParts(view: IntentViewWire | null | undefined, system: UnitSystem = getUnits()): StatusPart[] {
@@ -99,8 +118,10 @@ export function intentStatusParts(view: IntentViewWire | null | undefined, syste
       out.push({ key: "alt", text: `Level at ${sel} (selected)` });
     } else if (isNum(alt) && rate !== null && alt < v.nav_altitude_mcp && rate >= RATE_FPM) {
       out.push({ key: "alt", text: `Climbing to ${sel} (selected)` });
+      pushLevelOff(out, alt, v.nav_altitude_mcp, rate, sel);
     } else if (isNum(alt) && rate !== null && alt > v.nav_altitude_mcp && rate <= -RATE_FPM) {
       out.push({ key: "alt", text: `Descending to ${sel} (selected)` });
+      pushLevelOff(out, alt, v.nav_altitude_mcp, rate, sel);
     } else {
       out.push({ key: "alt", text: `Selected altitude ${sel}` });
     }
