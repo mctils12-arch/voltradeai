@@ -108411,3 +108411,119 @@ TESTS: test_session_health_check.py +2 (cause named; missing kind flagged), kill
 ALSO FOUND: (1) /api/diag/orders is capped at 200 rows (about 1 week) and /api/diag/audit retains about 3 market hours, so KB #47 (phantom first scale-out) cannot be measured from the outside; the window held 1 non-ETF stock trade (PENG) and passive QQQ/GLD flipping. Needs the stop_state history persisted before it can be judged. (2) QQQ and GLD are bought and sold repeatedly intraday on 10/13 (QQQ 12 sh x6, GLD 21 sh x8 in about 2h): looks like an overlay/floor oscillation churning round trips; unmeasured, filed for a T-BOT session with fills data (cost = spread + haircut per flip).
 ROLLBACK: git revert (additive payload field).
 STARVED: yes (KB #46/#47, churn question queued).
+## 2026-10-15 (human-directed session, ~03:00–04:10Z Wed) [RESEARCH] — Bot cockpit Stage 1 SYSTEM AUDIT: ground-truth stage map of the bot as it exists today (docs only)
+
+TERRITORY: research/* (shared) + research/directives/. No code touched; no
+version bump (docs-only precedent, #1349). Branch ccr-bafbe08e-0eqknl.
+
+DIRECTIVE: the human's "MASTER PROMPT — VOLTRADEAI BOT COCKPIT" (installed
+verbatim as research/directives/bot_cockpit_prompt_2026-10-15.md) orders a
+three-seat process: Stage 1 audit (Claude Code) → Stage 2 discovery + design
+(Claude Design, against the audit's real fields only) → Stage 3 build (replace
+the bot page). This session is Stage 1 only.
+
+DELIVERABLES
+- research/bot_cockpit_audit.md — the single structured map: §3 per-stage
+  (S0 orchestration … S12 dashboard), each with what it does / exact fields /
+  healthy values anchored to a live read / failure signature + whether it is
+  surfaced; §4 five-layer decision-chain recoverability; §5 edge + leak
+  attribution (computable vs missing fields); §6 failure-variable catalogue;
+  §7 incident history (26 rows); §8 defect register (37 claim units);
+  §9 doc-vs-code disagreements; §10 open decisions for the human; §11
+  canonical vocabulary.
+- research/bot_cockpit_audit/A…H_*.md — the eight stage reports (~500 KB,
+  every claim file:line), produced by eight parallel readers; the audit's
+  appendices.
+- research/bot_cockpit_audit/live_snapshot_2026-10-15.md — production read
+  at 03:12Z via /api/health, /api/ml/status, /api/bot/market-status and the
+  token-gated read-only /api/diag/* probes; anchors every HEALTHY VALUE.
+- research/bot_cockpit_audit/verification_2026-10-15.md — verification
+  evidence and status per claim unit (see VERIFICATION below).
+
+PRIOR (stated before reading): the bot is a working-but-thin paper trader
+whose dashboard under-reports; expected to find a handful of measurement
+bugs and a reasoning trail that could be surfaced with modest plumbing.
+
+WHAT THE AUDIT FOUND (headline; details in the document)
+1. Not trading in any meaningful sense: $99,615 (peak $110,727, −10.04%);
+   83.8% of equity is the passive ETF floor; the active sleeve is six
+   one-contract short puts; a full RTH afternoon in the audit window had
+   zero TRADE / T1 / SWEEP / WS-EXIT and 158 OPTIONS-SLOT-FULL rows.
+2. Zero stock entries are structural, four ways: NEUTRAL → MAX_POSITIONS 0
+   and floor ETFs consume the slots; the stocks Kelly bucket is ≤0 under
+   both the shipped priors and the seeded stats → calculate_position blocks
+   silently; the sector veto re-adds held OCC symbols as "Unknown"-sector
+   stocks; Node's minScoreThreshold is 75 via the win-rate diagnostic.
+3. Edge on the record is negative and nothing computes it: 36 closed live
+   trades, WR 27.8%, +9.08/−5.16 → breakeven WR 36.2%, expectancy ≈ −1.20%
+   per trade. /api/bot/performance's Python path throws TypeError on every
+   pnl_pct:None record (312 live) and silently serves a today-only fallback.
+4. Leak attribution is not computable from persisted state: fill_price is
+   a Math.random() haircut on the broker fill (always the illiquid tier —
+   the trade dict has no volume key); alpaca_fill_price is dropped; decision
+   price is a 15-min-delayed daily-bar close; bid/ask discarded; exit pnl is
+   the trigger bar; scale-out legs unrecorded; no client_order_id anywhere.
+5. The decision chain is mostly lost after each scan (reasons list and most
+   Python vetoes exist only in memory; audit log ≈13 h; no scan_id).
+6. Silent-failure catalogue: feeds return neutral defaults and write caches
+   on failure; diagnostics judge by mtime; EDGAR insider (filters on a key
+   EFTS doesn't return) and USPTO are structurally dead; Reddit failure
+   fabricates "Bullish"; ~11 of 34 ML features are constants at serve time
+   (vxx_ratio pinned at 1.0 → the bull model is unreachable); ML fallback
+   blended as ML ("fallback" vs "fallback_rules"); ML toggle inert.
+7. Scheduling: overnight research + 4 am reset/backup/retrain unreachable
+   from the scheduler; the "trivial" Python path caps eleven heavy jobs at
+   10 s (verified PARTIAL: cap real, most jobs fit, retrain undecidable);
+   tie-break raises UnboundLocalError every scan; tier regime always
+   "NEUTRAL" so T3 never fires; convexity overlay runs despite enabled=False
+   and submits side:"buy_to_open" (Alpaca accepts buy|sell).
+8. The current page: 920 px column, polling only, nonexistent /api/bot/clock
+   (always AFTER HOURS), reversed equity curve, options without ×100, −5%
+   shown vs −3% enforced, errors rendered as $0.00, GET /api/bot/account can
+   latch the kill switch.
+
+VERIFICATION (honest status): an adversarial-verification workflow (37
+claim units × 2 lenses + tiebreak + coverage critic) was launched; it hit
+the account's session limit after one verifier (V01 → PARTIAL, 0.86) and
+111 failed to start ("session limit · resets 6:40am UTC"). The author then
+verified the headline claims directly in-session by reading the code
+(V02, V07, V08, V09, V17c, V18, V20, V22, V25, V37 CONFIRMED; 15
+existence/caller claims by grep). The remaining units stand as
+reader-reported with file:line and are marked so in §8. Re-run:
+Workflow({scriptPath: ".../cockpit-audit-verify-wf_fcd96993-30c.js",
+resumeFromRunId: "wf_fcd96993-30c"}) after 06:40Z.
+
+NEW, NOT PREVIOUSLY FILED (candidates for KNOWN BROKEN; each needs its own
+[REPAIR] with a regression test — none shipped here, docs only):
+performance Path A TypeError → today-only fallback; LEARN "Win rate 0%"
+structural (pnl never set; #38 misdiagnosed); weekly-loss check dead
+(1-point history); tie-break UnboundLocalError; tier regime constant;
+sector veto counts OCC symbols; stocks Kelly bucket blocked; DD sizing
+scalar dead (equityPeak vs peak_equity key); convexity overlay unguarded +
+bad side enum; 4 am branch unreachable; 10 s trivial-path cap; synthetic
+fill tier collapse (no volume key); phantom filled entries (2 s poll);
+ETF entries priced with the underlying; Tier-3 BUY price from the trading
+host; replaceIfBetter misreads 204; equity-curve 365-row freeze (newest
+dropped); local backup misses /data/voltrade.db; /api/bot/clock missing;
+chart time axis reversed; options ×100 omissions; status-endpoint literal
+limits; GET /api/bot/account side effect; EDGAR form_type filter; USPTO
+endpoint dead; Reddit failure → bullish; universe drops *W symbols;
+feed_status() uncalled; CV split by ticker not time; pnl None trained as
+loss; no model-promotion gate; mis-audited retrain statuses; ML toggle
+inert; session-only auth on /api/trades/*, /api/orders/open,
+/api/positions, /api/ml/toggle, /api/ml/retrain; backtest body
+shell-interpolated (owner-only).
+
+LIVE RISK FOR THE NEXT SESSION: equity 99,615.03 vs Node peak 110,727.04 =
+−10.035% ≤ maxDrawdownPct −10 with killSwitch still false; the first
+Tier-1 cycle after 09:30 ET Oct 15 (or the first owner load of the
+dashboard) latches the kill, cancels all open orders and emails unless
+equity ≥ 99,654.34. Auto-resume (paper, drawdown-kill reason) then
+evaluates every 45 s in RTH: RECOVERED above −8%, else PAPER_REBASE after
+13 market hours. Filed in the audit §10 as a decision for the human.
+
+NEXT: Stage 2 (Claude Design) consumes research/bot_cockpit_audit.md +
+appendices; the vocabulary in §11 is binding. The security items in §10.9
+are small MUTABLE-territory repairs that should ship before any cockpit
+exposes those routes. STARVED: yes — the independent verification pass
+(36 units) is queued behind the session limit.
