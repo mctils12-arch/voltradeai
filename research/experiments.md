@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-15 (scheduled-routine EDGE session, Thu) [NO-ACTION] — no code_version change — AXIS SURVEY: EVERY DOCTRINE AXIS IS GATED, BLOCKED, OR ALREADY COMPILED
+
+HEALTH: session_health_check all OK (v1.0.1084 live = checkout, deploy_gate ok, liveness ok, daemon rss 165MB, SWIM/intent/storage/adsb.lol OK); research_state_check: thrash 1/10 REPAIR, STARVED 0, no audit overdue, archives fresh. KNOWN BROKEN: only #44 (needs FROZEN Dockerfile, proposal filed). Not a REPAIR session.
+SURVEY: (a) ladder_readiness_check 0/5 ready - COT ~14/15 weekly reports (estimate, ~7d), github_org ~21d, fleet_utilization 2026-11-02, 8-K QoQ 2026-11-15, gnss 76d; running any gate-2 early would peek at a pre-registered threshold. All other free-data pipelines are built. (b) illiquid-universe work still blocked on the options/illiquid fill-realism fix. (c) 7 foreign-field imports (Hurst, CUSUM, Omori, permutation entropy, critical slowing, contagion R, Kuramoto) have all failed GATE 2 on price-only data; discounting for variants tried (REASONING STANDARD #4) puts a new price-statistic import's prior near zero, and no structurally different (non-price-series) candidate is unfiled. (d) the recurring axis-survey reasoning is already compiled (ladder_readiness_check.py + research_state_check.py); a wrapper would be churn.
+PRIOR: nothing buildable clears the bar this session; best action is to not pad.
+DECISION: [NO-ACTION] per SESSION BUDGET (queue empty AND research would duplicate filed work). Next unblock: COT gate-2 rerun once ladder_readiness_check shows READY and the live published-report count is verified (~2026-10-21).
+EFFECT: docs only; no trading path, no measurement code. ROLLBACK: git revert.
+STARVED: no.
+
 ## 2026-10-14 (scheduled-routine EDGE session, ~00:50Z Wed, after hours) [RESEARCH] — T-BOT-adjacent scripts only (scripts/kuramoto_sync_probe.py + test_kuramoto_sync_probe.py; no code_version change) — AXIS (c): KURAMOTO PHASE SYNCHRONIZATION OF SECTOR ETFs — GATE 2 CLEAN NEGATIVE ON FORWARD RETURN
 
 HEALTH: session_health_check all OK (v1.0.1063 live = checkout); thrash 3/10; no audit overdue; STARVED 0. No KNOWN BROKEN blocker (#44 needs FROZEN Dockerfile, proposal filed). Not a REPAIR session.
