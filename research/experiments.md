@@ -108362,3 +108362,11 @@ TESTS: 4 new regression tests in test_csp_earnings_gate_fail_closed.py (429 body
 NOT CONFIRMED: which path actually fired for BAC (daemon logs not reachable from this session); item (c) Finnhub window truncation still open. Backtest: not applicable (gate correctness fix; backtest_v2 does not use the Finnhub calendar).
 ROLLBACK TRIGGER: CSP-eligible universe empty for >2 consecutive market days while /api/health shows Finnhub reachable.
 STARVED: yes — KB #46-#48 remain queued.
+
+## 2026-10-15 (scheduled routine, ~16:05Z Thu, market hours) [NO-ACTION] — LIVENESS ALARM observed; no code change (docs only)
+
+Loop-health ratio (last 10 tags): 4 REPAIR / 3 PIPELINE / 2 PRODUCT / 1 RULE-REVIEW — under the 7-REPAIR threshold.
+/api/health at 16:03Z: status "degraded", serving.ok true (gates server+database, failing []), alpaca/python/scanner/feeds/licensing ok. TOP-OF-REPORT ALARM: bot.status "killed", liveness.dark true — loop dark since 2026-10-15T13:29:56Z (2.5 market hours, 2.6h wall), drawdown -9.6% from the $110,727.04 peak. -9.6% is well inside PORTFOLIO_DD_KILL (-20%), so a different trigger tripped (candidates: CONSECUTIVE_LOSS_KILL=5, or a daily-loss/BAC-CSP-loss path) — UNCONFIRMED: /api/diag/audit needs auth and this session has no token. Auto-resume is EVALUATED every 45s: classification UNRECONCILED (71 closed qty with a pre-window cost basis), basis null, waits for the paper re-baseline after 13 market hours (2.6 so far) — i.e. designed behaviour, expected to resume around the next session unless a human intervenes. Human notified via push.
+DECISION: no repair is justified from outside — the halt is a designed mechanism (FROZEN), auto-resume is working as specified, and the trigger cause cannot be read from this session. Next session with diag access: read the kill-history entry for 13:29:56Z (voltrade_kill_history.json / audit) and file which trigger fired; if the trigger was CONSECUTIVE_LOSS_KILL on options legs, evaluate it as a RULE-REVIEW item (counterfactual log first).
+PR note: docs-only; merge is safe any time (no deploy-affecting change), but per routine rules prefer after 4:00 PM ET.
+STARVED: yes — KB #46-#48 still queued.
