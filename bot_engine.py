@@ -772,6 +772,20 @@ def _run_diag_fetch(source_name, fn, diag):
         raise
 
 
+def _ml_result_is_model(ml_result) -> bool:
+    """True iff ml_score() returned a REAL model's output (never the rules
+    heuristic). ml_model_v2 labels its fallback "fallback_rules" and uses
+    regime_used "fallback"; any model_type starting with "fallback", an
+    empty model_type, or a non-dict result means: do not blend as ML.
+    REPAIR 2026-10-16 — see test_ml_fallback_guard.py."""
+    if not isinstance(ml_result, dict):
+        return False
+    mt = str(ml_result.get("model_type") or "")
+    if not mt or mt.startswith("fallback"):
+        return False
+    return True
+
+
 def deep_score(ticker, quick_result, _diag=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
@@ -1742,7 +1756,13 @@ except Exception as e:
         # Blend: dynamic ratio loaded from tracker, default 60/40
         # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).
         # Near-50 ML = uncertain. Uncertain ML should NOT drag down a good rules setup.
-        if ml_result.get("model_type") != "fallback":
+        # REPAIR 2026-10-16 (cockpit audit §8 V-fallback-guard): the heuristic
+        # ml_model_v2._rule_based_fallback returns model_type "fallback_rules",
+        # which this guard compared against the literal "fallback" — so a
+        # missing/stale (>ML_MAX_AGE_HOURS) model's rules-of-thumb score was
+        # blended at the ML weight and audited as "ML model: …". The helper
+        # below (tested) excludes every fallback-flavoured model_type.
+        if _ml_result_is_model(ml_result):
             ml_s = ml_result.get("ml_score", combined_score)
             ml_only_score = round(ml_s, 1)  # Capture ML score for attribution
             # Dynamic blend: load tracked accuracy, default 60/40
