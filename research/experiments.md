@@ -108446,3 +108446,11 @@ TESTS: test_session_health_check.py +2 (cause named; missing kind flagged), kill
 ALSO FOUND: (1) /api/diag/orders is capped at 200 rows (about 1 week) and /api/diag/audit retains about 3 market hours, so KB #47 (phantom first scale-out) cannot be measured from the outside; the window held 1 non-ETF stock trade (PENG) and passive QQQ/GLD flipping. Needs the stop_state history persisted before it can be judged. (2) QQQ and GLD are bought and sold repeatedly intraday on 10/13 (QQQ 12 sh x6, GLD 21 sh x8 in about 2h): looks like an overlay/floor oscillation churning round trips; unmeasured, filed for a T-BOT session with fills data (cost = spread + haircut per flip).
 ROLLBACK: git revert (additive payload field).
 STARVED: yes (KB #46/#47, churn question queued).
+
+## 2026-10-16 (scheduled routine, market hours) [NO-ACTION] — LIVENESS ALARM persists (26.6h wall); cause already named; no code change (docs only)
+
+Loop-health ratio (last 10 tags): REPAIR 2 / PIPELINE 4 / RULE-REVIEW 3 / RESEARCH 1 — far under the 7-REPAIR threshold.
+session_health_check: deploy_gate OK (2xx, serving gates server+database), subsystems/daemon/ML/feeds/SWIM/archive all OK, server_version 1.0.1091 matches main. TOP-OF-REPORT ALARM: loop dark 9.0 market hours (26.6h wall) since 2026-10-15T13:29:56Z, latch=DRAWDOWN_KILL (the -10% kill), drawdown -10.24%. Auto-resume is evaluated every 45s: not above -8%, and the paper re-baseline fires at 13 market hours (9.1 so far, roughly 4 more market hours, i.e. around the next session's open). The halt is a designed FROZEN mechanism working as specified. Push notification sent.
+DECISION: no repair justified — nothing is broken; the only lever is a human manual resume/re-baseline. Queue (KB #46/#47, Lazy Prices PR 2b) is T-DATACORE/T-BOT work with no market-hours urgency and other sessions are active there; no padding.
+PR note: docs only; merge safe any time, prefer after 4:00 PM ET.
+STARVED: yes.
