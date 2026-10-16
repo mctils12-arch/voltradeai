@@ -3,7 +3,7 @@
 backtest.py — CLI entrypoint for the backtest engine (backtest_v2.py).
 
 Contract (server/bot.ts — POST /api/bot/backtest and the overnight scheduler):
-    python3 backtest.py <ticker> <strategy> <years>
+    python3 backtest.py <ticker> <strategy> <years> [exit_model]
   - JSON-only on stdout (bot.ts does JSON.parse(stdout.trim()))
   - exit 0 always, even on failure (bot.ts treats nonzero/parse-fail as 500)
   - `results` is an array; the scheduler reads per-item
@@ -11,6 +11,9 @@ Contract (server/bot.ts — POST /api/bot/backtest and the overnight scheduler):
 
 strategy: momentum | mean_reversion | squeeze | all   (default all)
 years: 0.5 .. 10                                       (default 3)
+exit_model: legacy | live                              (default legacy —
+  bot.ts never passes it; "live" simulates server/bot.ts checkPositionOnTick,
+  see backtest_v2.EXIT_MODELS and research/open_questions.md KNOWN BROKEN #48)
 
 The engine simulates the bot's equity strategy logic with live-identical
 regime gating; options/squeeze legs are not simulated (no historical data —
@@ -24,6 +27,7 @@ def main():
     ticker = sys.argv[1] if len(sys.argv) > 1 else "SPY"
     strategy = sys.argv[2] if len(sys.argv) > 2 else "all"
     years_raw = sys.argv[3] if len(sys.argv) > 3 else "3"
+    exit_model = sys.argv[4] if len(sys.argv) > 4 else None
 
     try:
         years = float(years_raw)
@@ -32,7 +36,8 @@ def main():
 
     try:
         from backtest_v2 import run_backtest
-        response = run_backtest(ticker, strategy, years)
+        kwargs = {"exit_model": exit_model} if exit_model else {}
+        response = run_backtest(ticker, strategy, years, **kwargs)
         # Keep the endpoint payload bounded: bot.ts returns this verbatim to
         # the client. Cap per-strategy trade logs at the most recent 200.
         at = response.get("all_trades", {})

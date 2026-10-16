@@ -108384,3 +108384,17 @@ REVIEW: built in a worktree; adversarial review BLOCKED round 1 (the nightly com
 PRE-EXISTING, filed for their own PRs: the OLD shadow backfill command is also 'trivial' (10s kill, single save at the end — latent stall on any backlog); the ML retrain call (`python3 ml_retrain_safe.py`, 26 chars) may also be under the 10s kill (unconfirmed); isTrivialPython is a length heuristic shared by ~44 call sites; log_candidate lost-update race with nightly writers.
 TESTS: test_shadow_exit_aligned.py (79; 41 fail on main) + server/shadowBackfillExitAligned.test.ts (derives the real cap by running bot.ts's own isTrivialPython/execPythonSerialized on the real command). Full pytest 2500 passed; node 2421/2421.
 STARVED: yes (KB #45-#48 queued).
+
+
+## 2026-10-16 [RULE-REVIEW] — T-BOT (measurement only) — backtest_v2 GAINS A SELECTABLE LIVE EXIT MODEL (KNOWN BROKEN #48 step 2) (v1.0.1088)
+
+RULER CHANGE (MEASUREMENT INTEGRITY): its own PR; no strategy change.
+WHY: KB #48 — backtest_v2 simulated the DEAD config exits (1.5xATR clamp 2-6%, 2R TP, regime time stop), not the live engine (server/bot.ts checkPositionOnTick). Every stored backtest number measured exits the bot does not run.
+WHAT: live_exit_policy.py (pure, stdlib) mirrors checkPositionOnTick, matching the merged #1355 shadow mirror (fuzz-asserted equal); adds whole-share tranches (no scale-out under 3 shares, as live) and a daily ATR%/regime refresh from the PREVIOUS bar (R fixed at entry, as bot_engine). backtest_v2.simulate/run_backtest take exit_model='legacy'|'live'; live scale-outs are partial fills paying per-tranche cost; backtest.py optional 4th CLI arg. DEFAULT STAYS 'legacy': flipping it requires widening test_audit_critical.py::test_artifact_trade_schema's exit-reason set (trailing_stop, breakeven_stop) — a human decision, not self-applied. bot.ts 3-arg callers still get legacy.
+PRIOR: live exits (sell 2/3 early, intrabar stops, flat-only 7-day time stop) should report LOWER Sharpe/CAGR than the 2R full-size model.
+BEFORE/AFTER ON IDENTICAL INPUTS (Yahoo fallback for this ruler comparison only — no Alpaca keys in the session; both models read the same cached bars): SPY momentum 2y Sharpe 0.180 -> -0.005, 3y 0.764 -> 0.496, 10y 0.431 -> 0.312; liquid-7 4y momentum mean Sharpe 0.476 -> 0.400 (down in 8/10 configs); trades up in every config; max DD mixed. PRIOR CONFIRMED. The change makes existing strategies look WORSE, so it is not suspect by MEASUREMENT INTEGRITY's default.
+NOT MODELLED (bias): sampled-peak overwrite (optimistic on trails), phantom scale-out KB #47 (mixed), exact-level fills on a continuous walk (slightly optimistic), unfilled limit exits (optimistic), intrabar exit cost uses bar k's full-day liquidity (<=0.001 Sharpe).
+REVIEW: adversarial review APPROVED — legacy simulate() sha256-identical to main on 144 fresh inputs; no lookahead (3 lookahead mutants caught); 13/13 rule mutations caught; 6,000-path independent fuzz vs shadow_portfolio, 0 mismatches; hand-computed accounting case matched to the cent.
+FOLLOW-UPS: (1) human: approve flipping the default to 'live' (test exit-reason set); (2) de-duplicate the two mirrors (shadow_portfolio imports live_exit_policy); (3) KB #48 step 3 — decide live vs config as the intended policy, delete the loser.
+TESTS: test_backtest_v2_exit_model.py (75; collection fails on main). Full pytest 2591 passed.
+STARVED: yes (KB #46/#47, Lazy Prices build).
