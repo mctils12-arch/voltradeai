@@ -118,3 +118,8 @@ test("kill file stays backward compatible and records the anti-flap stamp", () =
   assert.ok(bot.includes("parseKillSwitchRecord(JSON.parse(fs.readFileSync(p, \"utf8\")))"));
   assert.ok(/JSON\.stringify\(\{ killSwitch: state\.killSwitch, reason, savedAt: .*lastAutoResumeAt \}\)/.test(bot));
 });
+
+test("health payload names the latch KIND (enum only, never the raw reason)", () => {
+  assert.ok(/latchKind: state\.killSwitch \? classifyLatchReason\(killSwitchMeta\.reason\) : null/.test(healthBot));
+  assert.ok(!/latchReason/.test(healthBot), "raw reason may carry dollar figures; keep it off the public payload");
+});

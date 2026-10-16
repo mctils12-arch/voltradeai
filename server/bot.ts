@@ -8,7 +8,7 @@ import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import {
-  AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, evaluateAutoResume, fillsWindowStartMs,
+  AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
   parseKillSwitchRecord, summarizePythonSync, type AutoResumeDecision, type AutoResumeNumbers,
 } from "./killSwitchAutoResume";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
@@ -1525,6 +1525,12 @@ print(json.dumps(data))
       // /api/bot/status carries `numbers`.
       autoResume: {
         eligible: autoResumeStatus.eligible,
+        // WHICH kind of latch is holding the loop dark (DRAWDOWN_KILL /
+        // OWNER_MANUAL / UNKNOWN), enum only: the raw reason string can carry
+        // dollar figures and stays on the owner-gated route. Added 2026-10-16
+        // because two consecutive liveness alarms (10/15, 10/16) could not
+        // name the trigger from the public payload.
+        latchKind: state.killSwitch ? classifyLatchReason(killSwitchMeta.reason) : null,
         outcome: autoResumeStatus.outcome,
         classification: autoResumeStatus.classification,
         basis: autoResumeStatus.basis,
