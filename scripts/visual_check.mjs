@@ -45,6 +45,78 @@ const WIDTHS = [
 // Pages under test: name -> app hash route
 // Pages under test: map pages get the full map/perf/self-see battery;
 // non-map pages get layout + interaction checks only.
+function botFixtures({ latched }) {
+  const now = Date.now();
+  const ago = (min) => new Date(now - min * 60_000).toISOString();
+  const row = (min, type, message) => ({ time: ago(min), type, action: type, message, detail: message });
+  const audit = [
+    row(0.5, "TIER2", "Scanned 12138 stocks, 2 trade candidates (via daemon)"),
+    row(1.2, "TIER2", "Starting intelligence scan..."),
+    row(1.2, "TIER2", "Starting scan (interval: 5min based on market time)"),
+    row(1.1, "SIZE-BLOCK", "AMD [stocks]: Negative expectancy for strategy 'stocks' (WR=28%); refusing to size (score 74.3)"),
+    row(1.1, "QUEUE", "KWEB queued for market open (score 75)"),
+    row(1.1, "QUEUE", "VXUS queued for market open (score 75)"),
+    row(6, "TIER2", "Scanned 12138 stocks, 2 trade candidates (via daemon)"), row(7, "TIER2", "Starting scan (interval: 5min based on market time)"),
+    row(12, "TIER2", "Scanned 12138 stocks, 2 trade candidates (via daemon)"), row(13, "TIER2", "Starting scan (interval: 5min based on market time)"),
+    row(18, "TIER2", "Scanned 12138 stocks, 2 trade candidates (via daemon)"), row(19, "TIER2", "Starting scan (interval: 5min based on market time)"),
+    row(24, "TIER2", "Scanned 12138 stocks, 2 trade candidates (via daemon)"), row(25, "TIER2", "Starting scan (interval: 5min based on market time)"),
+    row(44, "TIER3", "ML model fresh (9h old) — skipping retrain"), row(44, "TIER3", "Starting strategic scan..."),
+    row(45, "TIER3-DIAG", "System health: warning — 1 issues: [MEDIUM] ml_model: Low win rate: 27.8% over 36 trades"),
+    row(61, "POS-WARN", "CRWV261120P00055000: down -43.7% (warn threshold -15%)"),
+    row(62, "EVENTLOOP-LAG", "Node event loop stalled ~5151ms past its 2000ms tick — check for a coincident TIER2-ERROR/STREAM-DISCONNECT (KNOWN BROKEN #18)"),
+    row(104, "TIER3", "ML model fresh (8h old) — skipping retrain"),
+    row(105, "STREAM", "Real-time feed live — 43 tickers"), row(105, "POS-MONITOR", "Initialized — tracking 6 positions via WebSocket"),
+    row(105, "SYSTEM", "Mode: PAPER TRADING (Alpaca)"), row(105, "STARTUP", "Server boot — code_version 1.0.1096, pid 1"),
+    row(105.2, "SHUTDOWN", "All open orders cancelled"), row(105.2, "SHUTDOWN", "Received SIGTERM — cancelling open orders and shutting down..."),
+    row(140, "EMAIL", "Alert sent: Trading Loop Still Dark — Resume Decision Needed"),
+    row(164, "KILL-AUTO-RESUME-EVAL", "EVALUATED UNRECONCILED (0/3): UNRECONCILED (71 closed qty with a pre-window cost basis): drawdown -9.65% not above -8.00%; paper re-baseline after 13 market hours (2.8 so far)"),
+    row(165, "LEARN", "Win rate 0% (20 post-deploy trades) — shifting weight toward VRP/squeeze (momentum: 24%, VRP: 27%)"),
+    row(165, "POS-KILL-OPTION-HOLD", "CRWV261120P00055000: option down -78.1% vs premium — under the stock -25% rule but above the option backstop -150%; exits owned by options_manager"),
+    row(165, "EMAIL", "Alert sent: MAX DRAWDOWN — Trading Stopped"),
+    row(165, "DRAWDOWN-KILL", "MAX DRAWDOWN KILL SWITCH: Equity $99008 is -10.6% below peak $110727"),
+    row(167, "SHUTDOWN", "All open orders cancelled"), row(167, "STARTUP", "Server boot — code_version 1.0.1096, pid 1"),
+  ].filter((r) => latched || !/DRAWDOWN-KILL|KILL-AUTO|EMAIL|POS-KILL/.test(r.type));
+  const pos = (ticker, qty, entry, cur, mv, pnl, pnlPct, stop, tp, isOption = false) => ({ ticker, qty, side: "long", entryPrice: entry, currentPrice: cur, marketValue: mv, pnl, pnlPct, stopPrice: stop, takeProfitPrice: tp, phase: 1, rMultiple: 0, highestPnl: 0, daysHeld: 3, asset_class: isOption ? "us_option" : "us_equity", isOption });
+  const positions = [
+    pos("QQQ", 61, 741.32, 723.36, 44124.96, -1095.52, -2.42, 719.1, 785.8), pos("SMH", 20, 551.43, 551.49, 11029.7, 1.15, 0.01, 534.9, 584.5), pos("KWEB", 388, 26.53, 24.54, 9521.52, -770.8, -7.49, 25.7, 28.1),
+    pos("VXUS", 150, 71.2, 71.4, 10710, 30, 0.28, 69.1, 75.5), pos("GLD", 21, 381.05, 380.11, 7982.31, -19.69, -0.25, 369.6, 403.9),
+    pos("CRWV261120P00055000", -1, 2.47, 2.67, -267, -20, -8.1, 6.18, 1.24, true), pos("TEM261120P00070000", -1, 1.4, 1.96, -196, -56, -40.1, 3.5, 0.7, true), pos("PFE261120P00027000", -1, 0.48, 0.21, -21, 27, 56.25, 1.2, 0.24, true),
+  ];
+  const curve = Array.from({ length: 30 }, (_, k) => { const d = new Date(now - (29 - k) * 86400_000); const v = [101068, 101988, 102661, 102560, 102560, 104467, 104964, 104103, 103929, 104390, 104306, 104306, 103811, 103997, 104064, 104239, 104883, 104879, 104879, 105593, 105774, 104847, 103182, 103563, 103553, 103553, 102593, 102181, 99810, 99655][k]; return { date: d.toISOString().slice(0, 10), value: v, pnl: 0 }; });
+  const feats = ["momentum_1m", "momentum_3m", "rsi_14", "price_vs_52w_high", "volume_ratio", "ewma_vol", "atr_pct", "vrp", "iv_rank_proxy", "vwap_position", "adx", "range_pct", "vxx_ratio", "spy_vs_ma50", "markov_state", "regime_score", "sector_momentum", "cross_sec_rank", "earnings_surprise", "put_call_proxy", "vol_of_vol", "frac_diff_price", "idiosyncratic_ret", "change_pct_today", "above_ma10", "trend_strength", "intel_score", "news_sentiment", "insider_signal", "iv_rank_stock", "days_to_earnings", "credit_spread", "market_breadth", "put_call_ratio"];
+  const constant = new Set(["price_vs_52w_high", "ewma_vol", "range_pct", "vxx_ratio", "markov_state", "cross_sec_rank", "earnings_surprise", "intel_score", "news_sentiment", "insider_signal", "days_to_earnings"]);
+  const features = feats.map((name, k) => constant.has(name) ? { name, n: 300, mode: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : name === "days_to_earnings" || name === "cross_sec_rank" ? 0.5 : 0, mode_fraction: 1, variance: 0, constant: true, last: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : 0 } : { name, n: 300, mode: 0, mode_fraction: 0.05 + (k % 7) * 0.04, variance: 1.2 + k, constant: false, last: Math.round(((k * 7) % 13) * 10) / 10 });
+  const q = (a5, a20, n5, n20) => ({ "+5d": { n: n5, win_rate: a5, mean_return_pct: -0.9 }, "+20d": { n: n20, win_rate: a20, mean_return_pct: -1.4 } });
+  const insight = {
+    generated_at: new Date(now).toISOString(),
+    model: { exists: true, age_hours: 9.7, fallback_at_hours: 24, calibrator_newer_than_model: false },
+    blend: { rule_weight: 0.72, ml_weight: 0.28, updated: ago(300) },
+    performance: { total_trades: 36, win_rate: 27.8, avg_win: 9.08, avg_loss: -5.16, recent_win_rate_20: 20 },
+    recent: { window: 300, traced: 120, model_types: { lightgbm_neutral: 118, fallback_rules: 2, "not recorded": 180 }, regime_used: { neutral: 120 }, gated: 41, blended: 120, errors: 0,
+      win_probability: { n: 118, p10: 0.41, p50: 0.52, p90: 0.63 }, features, constant_features: [...constant], feature_count: 34, regime_labels: { NEUTRAL_BULL: 300 }, vxx_ratio: { last: 1.0, min: 1.0, max: 1.0 }, last_timestamp: ago(0.5), last_score: 75 },
+    bands: { labeling: { method: "path_dependent_v2", win_pct: 2, stop_pct: -4 }, score_quintile_edges: [48.15, 56.592, 66.478, 77.4],
+      score_quintile: { Q1: q(56.2, 83.3, 3275, 450), Q2: q(52.5, 76.5, 2873, 792), Q3: q(48.1, 57.4, 3167, 1373), Q4: q(56.8, 54.5, 3103, 1719), Q5: q(42.5, 33.2, 3664, 2369) },
+      decision: { taken: q(51.5, 42.3, 6938, 4031), rejected_score: q(51.8, 70.8, 8098, 2031), rejected_other: q(52.2, 69, 602, 342), rejected_heat: q(24.1, 36.6, 428, 290) },
+      decision_x_band: { "taken|<-10": q(79.7, 79.4, 1863, 383), "taken|10..20": q(38.9, 36.5, 3130, 2420), "taken|20..30": q(44.8, 42.3, 1945, 1228) } },
+  };
+  const nextClose = new Date(now + 2 * 3600_000 + 2 * 60_000).toISOString();
+  return {
+    "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } },
+    "/api/bot/status": { active: !latched, killSwitch: latched, dailyLossLimit: 3, mode: "paper", equityPeak: 110727.04, maxDrawdownPct: 10, autoResume: latched ? { status: "UNRECONCILED", drawdownPct: -9.65, resumeAbovePct: -8, marketHoursSoFar: 2.8, marketHoursRequired: 13, reconciled: 0, required: 3 } : null, unreadNotifications: 0, circuitBreakerActive: false, consecutiveStopLosses: 0 },
+    "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0 },
+    "/api/bot/positions": positions,
+    "/api/bot/audit": audit,
+    "/api/bot/performance": { totalTrades: 36, totalFills: 55, winRate: 27.8, avgGain: 9.08, avgLoss: -5.16, totalPnlPct: -14.1, profitFactor: 0.68, byStrategy: {}, recentTrades: [], equityCurve: curve.slice().reverse(), realisticPnlPct: -15.2, avgSlippagePct: 0.12 },
+    "/api/bot/market-status": { isOpen: true, nextOpen: new Date(now + 20 * 3600_000).toISOString(), nextClose, timestamp: new Date(now).toISOString() },
+    "/api/bot/calendar": { earlyCloses: [], holidays: [], tomorrowStatus: "open" },
+    "/api/ml/status": { model_exists: true, enabled: true, model_age_hours: 9.7, last_accuracy: 58, last_samples: 10000, last_status: "trained" },
+    "/api/bot/insight": insight,
+    "/api/bot/last-scan": { timestamp: ago(0.5), scanned: 12138, filtered: 54, deep_analyzed: 5, slots_available: 0, new_trades: [{ ticker: "KWEB", score: 75, side: "sell", action_label: "SELL COVERED CALL", trade_type: "options", reasons: ["388 shares held, no short call", "Momentum 1m -7.5%", "VRP +4.1"], rules_score: 75, ml_score_raw: null, price: 24.54 }, { ticker: "VXUS", score: 75, side: "sell", action_label: "SELL COVERED CALL", trade_type: "options", reasons: ["150 shares held, no short call"], rules_score: 75, ml_score_raw: null, price: 71.4 }], top_10: [{ ticker: "KWEB", score: 75, side: "sell", action_label: "SELL COVERED CALL", reasons: ["388 shares held, no short call"] }], sizing_blocks: [{ ticker: "AMD", reason: "Negative expectancy for strategy 'stocks' (WR=28%); refusing to size", score: 74.3, strategy: "stocks" }], scan_phase_times: [{ phase: "universe_load", duration_sec: 0.93 }, { phase: "snapshot_fetch", duration_sec: 3.76 }, { phase: "quick_scan", duration_sec: 0.11 }, { phase: "deep_score", duration_sec: 41.44 }, { phase: "step6a_trade_loop_and_covered_calls", duration_sec: 0.39 }, { phase: "step7_manage_positions", duration_sec: 0.04 }, { phase: "step8b_options_manager", duration_sec: 0.3 }, { phase: "step9_third_leg", duration_sec: 0.12 }, { phase: "step9b_convexity_overlay", duration_sec: 0.31 }, { phase: "step10_spy_floor", duration_sec: 0.14 }] },
+    "/api/orders/open": [],
+    "/api/bot/notifications": [],
+  };
+}
+
 const PAGES = {
   data: { route: "/app#/data", map: true },
   // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
@@ -227,6 +299,15 @@ const PAGES = {
   // alone, so the harness renders the populated owner view (fixture
   // below); signed-out / not-owner are designed copy on the same page.
   admin: { route: "/admin", map: false },
+  // Bot page v2 (2026-10-16, research/bot_cockpit_design_brief_v2.md): the
+  // owner's one-page instrument. Two renders of the same route — the kill
+  // switch latched (incident takes the centre) and a normal pre-market
+  // moment with two candidates queued — so both the incident element and
+  // the decision chain pass 390/768/1440. Numbers are the 2026-10-15
+  // production readings; audit times are relative to the run so the day
+  // timeline draws them.
+  bot: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: true }) },
+  botidle: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: false }) },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -243,6 +324,11 @@ const only = process.argv.includes("--page")
   : null;
 
 // ── deterministic API fixtures ─────────────────────────────────────────────
+// Per-page fixture overrides (bot page v2, 2026-10-16): a PAGES entry may
+// carry `fixtures` — a map of route → body consulted BEFORE the global map
+// while that page renders. The bot page is owner-gated, so its entry
+// overrides /api/auth/me with the owner identity (fixture person only).
+let PAGE_FIXTURES = {};
 const FIXTURES = {
   "/api/auth/me": { authenticated: false },
   // /admin owner report (server/siteReport.ts shape). Fixture people only.
@@ -2178,6 +2264,12 @@ function startServer() {
       }
       // exact match wins before prefix match — otherwise /api/data/insider
       // shadows /api/data/insider/history
+      const pfx = Object.keys(PAGE_FIXTURES).find((k) => u === k) ||
+                  Object.keys(PAGE_FIXTURES).find((k) => u.startsWith(k + "/"));
+      if (pfx) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify(PAGE_FIXTURES[pfx]));
+      }
       const fx = Object.keys(FIXTURES).find((k) => u === k) ||
                  Object.keys(FIXTURES).find((k) => u.startsWith(k + "/"));
       if (fx) {
@@ -2496,6 +2588,7 @@ async function main() {
   for (const [name, cfg] of Object.entries(PAGES)) {
     const route = cfg.route;
     if (only && only !== name) continue;
+    PAGE_FIXTURES = cfg.fixtures || {};
     for (const vp of WIDTHS) {
       const ctx = await browser.newContext({
         viewport: { width: vp.w, height: vp.h },

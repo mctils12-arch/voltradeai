@@ -5,7 +5,7 @@ hardcoded_palette_hex counter (D13, MASTER PROGRAM §0.7 DETECT duty).
 Two things are pinned: (1) the detector's synthetic semantics — a palette hex
 value inside a STRING literal counts, the same value inside a COMMENT does
 not, and a non-palette hex color never counts; (2) the real live tree's
-current count matches ci/counter_baseline.txt's pin (402), so a future
+current count matches ci/counter_baseline.txt's pin (361 since the bot page v2; was 402), so a future
 session cannot silently add more hardcoded palette hex without this test (and
 the CI ratchet) catching it.
 """
@@ -77,7 +77,7 @@ class TestLiveRepoCount(unittest.TestCase):
     def test_live_tree_matches_pinned_baseline(self):
         result = compute()
         self.assertEqual(
-            result["count"], 402,
+            result["count"], 361,  # 2026-10-16 bot page v2: the legacy bot.tsx (41 off-token hexes) is gone
             "hardcoded_palette_hex regressed or improved — if this is a real "
             "fix, lower ci/counter_baseline.txt's pin in the same PR; if it "
             "grew, remove the new hardcoded hex and reference the CSS var "
