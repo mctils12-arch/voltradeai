@@ -15,6 +15,7 @@ import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_I
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
+import { formatSizeBlocks } from "./sizeBlocks";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
@@ -4534,6 +4535,13 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       }
 
       audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates (via ${callResult.via})`);
+      // REPAIR 2026-10-16 (cockpit audit S5 B13): candidates the sizing
+      // engine refused (Kelly <= 0 for the bucket, halted asset, qty 0)
+      // used to vanish without a trace — the scan said "2 trade
+      // candidates" and nothing explained why none was placed.
+      for (const line of formatSizeBlocks(result.sizing_blocks)) {
+        audit("SIZE-BLOCK", line);
+      }
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,
