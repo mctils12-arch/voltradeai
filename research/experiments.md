@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-16 (scheduled-routine session, ~11:05Z Fri = 07:05 ET, PRE-OPEN) [RESEARCH] — T-BOT-adjacent read-only measurement (docs only, no code_version change) — QQQ/GLD INTRADAY ROUND-TRIP CHURN IS REAL BUT ECONOMICALLY TRIVIAL
+
+HEALTH: session_health_check: only ALARM is the known liveness one (latch=DRAWDOWN_KILL, loop dark 21.5h wall, auto-resume next evaluates 09:30 ET today; already notified at 13.1h, not repeated). thrash 2/10; STARVED streak 3; no audit overdue; archives fresh; deploy_gate ok. No new repair.
+WHY: the 2026-10-16 02:40Z entry filed "QQQ/GLD bought and sold repeatedly intraday; unmeasured". /api/diag/orders (200 rows, 10/12-10/14) holds the fills, so it is measurable now.
+PRIOR (stated before reading): flips are floor/overlay oscillation; net realized cost of the churn <= ~5 bps of traded notional (ETF spreads ~1-2 bp, zero commission), i.e. tens of dollars, not a performance driver.
+RESULT (60 filled equity orders): QQQ 24 fills, 23 side changes, 14 on 10/12 and 9 on 10/13, ~$214k notional traded, net shares over the window 0, net cash +$114 (gross of haircut). GLD 35 fills, 32 side changes, 21 on 10/12 and 14 on 10/13, ~$297k notional, net +21 sh, net cash about -$23 vs mark. Typical flip: 12 sh QQQ / 21 sh GLD every 3-30 min inside the first 2 hours after the open. Price moves between flips are <= 0.3%.
+READ: prior CONFIRMED. Realized round-trip P&L is about zero (+$114 QQQ), and the plausible cost at 1-2 bp of ~$511k traded notional is roughly $50-100 over 3 days on a ~$100k account (<= 0.1%). Not worth a rule change; no RULE-REVIEW threshold is justified by this. It is still an attribution/noise problem (hundreds of fills dilute trade_feedback and the fills tracker) and an Alpaca order-rate matter, so the cheap fix, if ever wanted, is hysteresis on the overlay/floor re-trigger in a T-BOT session with the counterfactual ablation. Not queued as a priority. Caveats: the 200-row window is about one week and cannot show the 10/15-10/16 halt period; haircut (synthetic) cost not included; single window, n=59 fills.
+EFFECT: docs only; no trading path, no measurement code. ROLLBACK: git revert.
+STARVED: yes (KB #46/#47 need a T-BOT session with persisted stop_state; Lazy Prices PR 2 is human-directed multi-session).
+
 ## 2026-10-15 (scheduled-routine PRODUCT session, ~13:15Z Thu = 09:15 ET, PRE-OPEN) [PIPELINE] — T-DATACORE (server/swimSfdps.ts, server/flightPlans.ts + tests; v1.0.1086) — FLIGHT-PLAN FIRST-SEEN/AMENDMENT HISTORY NOW SURVIVES A RESTART
 
 HEALTH: session_health_check all OK (v1.0.1085 live = checkout, deploy_gate ok); thrash 1/10; STARVED 0; no KNOWN BROKEN blocker. Declared territory: T-DATACORE.
