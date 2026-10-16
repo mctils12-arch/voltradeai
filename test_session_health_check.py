@@ -52,6 +52,26 @@ def test_liveness_alarm_when_dark():
     assert "broker unreadable" in f["detail"]
 
 
+def test_liveness_alarm_names_the_latch_cause():
+    h = _health(dark=True, detail="halted")
+    h["checks"]["bot"]["status"] = "killed"
+    h["checks"]["bot"]["autoResume"] = {
+        "latchKind": "DRAWDOWN_KILL", "outcome": "MARKET_CLOSED",
+        "reason": "market closed", "nextCheck": "2026-10-16T09:30:00-04:00",
+    }
+    f = hc.check_liveness(h)
+    assert f["severity"] == hc.ALARM
+    assert "latch=DRAWDOWN_KILL" in f["detail"]
+    assert "MARKET_CLOSED" in f["detail"]
+
+
+def test_liveness_alarm_flags_missing_latch_kind_on_killed_bot():
+    h = _health(dark=True, detail="halted")
+    h["checks"]["bot"]["status"] = "killed"
+    f = hc.check_liveness(h)
+    assert "latch kind not reported" in f["detail"]
+
+
 def test_liveness_alarm_when_no_response():
     f = hc.check_liveness(None)
     assert f["severity"] == hc.ALARM
