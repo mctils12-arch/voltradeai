@@ -8091,6 +8091,34 @@ print(json.dumps({'report': report, 'auto_fix': params}))
 
 
   // ── ML Model Status ───────────────────────────────────────────────────────
+  // PRODUCT 2026-10-16 (bot page v2, research/bot_cockpit_design_brief_v2.md
+  // §4): what the model is doing, from persisted fields only (ml_insight.py).
+  // Owner-gated like every bot route. The band report walks the whole
+  // shadow log (~20 s cold), so the result is cached for INSIGHT_CACHE_MS
+  // and the page polls it slowly; ?bands=0 skips the report.
+  const INSIGHT_CACHE_MS = 120_000;
+  let insightCache: { at: number; bands: boolean; body: unknown } | null = null;
+  app.get("/api/bot/insight", requireOwner, async (req, res) => {
+    const wantBands = String(req.query.bands ?? "1") !== "0";
+    try {
+      if (insightCache && Date.now() - insightCache.at < INSIGHT_CACHE_MS && insightCache.bands === wantBands) {
+        return res.json(insightCache.body);
+      }
+      const { stdout } = await execPythonSerialized(
+        `python3 -c "
+import json
+from ml_insight import ml_insight
+print(json.dumps(ml_insight(include_bands=${wantBands ? "True" : "False"}), default=str))
+"`, { timeout: wantBands ? 40000 : 15000 });
+      const body = JSON.parse(stdout.toString().trim() || "{}");
+      insightCache = { at: Date.now(), bands: wantBands, body };
+      res.json(body);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(503).json({ error: msg.slice(0, 300), stale: insightCache?.body ?? null });
+    }
+  });
+
   app.get("/api/bot/ml-status", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(
