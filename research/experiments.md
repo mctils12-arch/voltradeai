@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-16 (scheduled-routine PRODUCT session, ~18:10Z Fri = 14:10 ET, MARKET HOURS) [PIPELINE] — T-DATACORE (sec_filings_classify.py + test; v1.0.1092) — LAZY PRICES PR 2b: OPERATING-VS-VEHICLE FILER CLASS; CLEAN SURVIVORSHIP FIGURE
+
+HEALTH: session_health_check: only the known liveness alarm (latch=DRAWDOWN_KILL, loop dark 28.6h wall, already notified at 26.6h, not repeated); v1.0.1091 live = checkout; deploy_gate ok. No KNOWN BROKEN blocker for product work.
+WHY: PR 2a's 72.8% (2010-Q1) counted filers that never had a ticker (ABS trusts, blank checks, funds); it said PR 2b must classify before quoting a clean figure.
+PRIOR (stated in 2a: "the true dropped-OPERATING share is lower"; magnitude unstated). Fresh prior now: vehicles are ~20-25% of filers, so the operating-only share is ~8-12 points below the all-filer share.
+CHANGE: new sec_filings_classify.py (stdlib + sec_filings_text; no trading imports): one submissions-JSON request per CIK, slim profile (sic, entityType, tickers, exchanges, formerNames) cached write-once under <archive>/filings_10kq/profiles/; classify() = vehicle (SIC 6189/6770/6221/6726/6722), operating (any other real SIC), unknown (no SIC; never counted as operating); `sample` CLI. Delisted names keep their last SIC, so they classify as operating (tested).
+RESULT (random 300 CIKs per quarter, seed 20261016, 1,500 fetches, 0 errors; operating-only share of the quarter's filers absent from today's company_tickers.json): 2010-Q1 71.7%, 2014-Q1 64.2%, 2018-Q1 44.8%, 2022-Q1 35.5%, 2025-Q1 17.9%. Vehicles are only 9-15% of filers (26/300 in 2010 -> 42/300 in 2025) and are ~93% absent from the ticker file as expected. PRIOR WRONG: removing vehicles shaves ~1 point in 2010 (72.8 -> 71.7), not 8-12. READ: the survivorship hole is real among operating companies, not a vehicle artifact; a current-ticker universe would drop about 7 in 10 of 2010's operating filers (n=269, binomial 95% CI roughly +/-5 pts). CAVEATS: "absent from the ticker file" includes live OTC filers with no ticker, so this is an upper bound on companies that are truly gone; SIC and tickers are today's snapshot, not point-in-time; sample not full census. Not a signal claim.
+TESTS: test_sec_filings_classify.py 4; with universe + text suites 71/71 passed.
+NEXT (PR 2c): point-in-time ticker/price source for delisted names (Polygon job; cost estimate first, wishlist if paid), then similarity signals. Full-CIK profile census (~19k fetches, ~40 min) only when the price source exists.
+BIAS/EFFECT: raw-material classifier only; no trading path, no measurement code. ROLLBACK: git revert.
+MERGE: opened during market hours; merge AFTER the 16:00 ET close.
+STARVED: no.
+
 ## 2026-10-16 (scheduled-routine PRODUCT session, ~13:20Z Fri = 09:20 ET, PRE-OPEN) [PIPELINE] — T-DATACORE (sec_filings_universe.py + test; v1.0.1091) — LAZY PRICES PR 2a: POINT-IN-TIME FILER UNIVERSE FROM EDGAR form.idx; SURVIVORSHIP QUANTIFIED
 
 HEALTH: session_health_check: only the known liveness alarm (latch=DRAWDOWN_KILL, auto-resume evaluates 09:30 ET today; already notified, not repeated); v1.0.1090 live = checkout; deploy_gate ok; ladder_readiness 0/5. No KNOWN BROKEN blocker for product work.
