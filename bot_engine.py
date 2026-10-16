@@ -2623,6 +2623,41 @@ def _parse_snapshot_batch(raw, status_code):
     return out, None
 
 
+def _record_sizing_block(blocks: list, ticker: str, score, sizing: dict, strategy: str = "") -> None:
+    """Append one sizing refusal to the scan's `sizing_blocks` list and move
+    the candidate's shadow record to the `rejected_sizing` bucket. Never
+    raises (the scan loop must not die on a logging problem).
+    REPAIR 2026-10-16 — tested in test_sizing_block_visibility.py."""
+    try:
+        reason = str((sizing or {}).get("block_reason") or (sizing or {}).get("reasoning") or "blocked")[:200]
+        try:
+            score_f = round(float(score), 1)
+        except (TypeError, ValueError):
+            score_f = None
+        blocks.append({"ticker": str(ticker).upper(), "reason": reason, "score": score_f, "strategy": strategy or ""})
+        try:
+            from shadow_portfolio import update_last_decision
+            update_last_decision(ticker, "rejected_sizing", f"sizing: {reason}")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
+    """Best-effort bucket name for a sizing block row (mirrors
+    position_sizing._infer_strategy's vocabulary without importing it)."""
+    try:
+        t = str((stock or {}).get("trade_type") or "").lower()
+        if t in ("options", "csp", "csp_options"):
+            return "csp_options"
+        if t == "etf" or str((stock or {}).get("instrument_strategy") or "").startswith("etf"):
+            return "etf"
+        return "stocks"
+    except Exception:
+        return ""
+
+
 def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
@@ -3290,6 +3325,14 @@ def _scan_market_inner():
     except ImportError:
         _has_sizer = False
 
+    # REPAIR 2026-10-16 (cockpit audit S5 gate B13 / V18): candidates the
+    # sizing engine refuses are recorded here (ticker, bucket, reason, score)
+    # and returned as `sizing_blocks` so Node can audit them (SIZE-BLOCK) and
+    # the shadow record moves to the `rejected_sizing` bucket. Until now the
+    # block_reason was discarded and a scan that found candidates but placed
+    # nothing left no trace of why.
+    _sizing_blocks = []
+
     for stock in deep_scored:
         if len(trades) >= slots_available:
             break
@@ -3552,6 +3595,8 @@ def _scan_market_inner():
                 )
                 continue
             if sizing.get("blocked"):
+                _record_sizing_block(_sizing_blocks, ticker, final_score, sizing,
+                                     strategy=_infer_bucket_for_block(stock, side))
                 continue  # Sizing engine blocked this trade (halted, too small, etc.)
             shares = sizing["shares"]
             position_value = sizing["position_value"]
@@ -3663,6 +3708,7 @@ def _scan_market_inner():
         "current_positions": num_positions,
         "slots_available": slots_available,
         "new_trades": list(trades),  # Copy — trades may grow later
+        "sizing_blocks": list(_sizing_blocks[:20]),
         "top_10": [{"ticker": s["ticker"], "price": s.get("price", 0), "score": s.get("deep_score", s.get("quick_score", 0)), "change_pct": s.get("change_pct", 0), "side": s.get("side", "buy"), "action_label": s.get("action_label", "BUY"), "reasons": s.get("reasons", [])[:2]} for s in deep_scored[:10]],
         "partial": True,
     }
@@ -4069,6 +4115,7 @@ def _scan_market_inner():
         "slots_available": slots_available,
         "options_slots_available": options_slots if 'options_slots' in locals() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
+        "sizing_blocks": _sizing_blocks[:20] if '_sizing_blocks' in locals() else [],
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
         "upgrade_candidates": mgmt.get("upgrade_candidates", []),
