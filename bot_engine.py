@@ -60,6 +60,14 @@ import numpy as np
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
+# REPAIR 2026-10-16 (cockpit audit S3): serve-time regime features computed
+# with the training formulas from the macro snapshot (pure, tested).
+try:
+    from regime_inputs import regime_inputs
+except Exception:  # pragma: no cover — never let a helper import kill the scan
+    def regime_inputs(macro):
+        return {"vxx_ratio": 1.0, "vxx_source": "default", "spy_vs_ma50": 1.0, "spy_returns": [],
+                "spy_returns_5": [], "markov_state": 1.0, "regime_score": 50.0, "spy_closes_n": 0}
 
 # OPTIMIZATION 2026-04-20: Auto-throttle all Alpaca requests (180/min).
 # Prevents silent 429 errors during parallel scan workers + options fetches.
@@ -1463,13 +1471,19 @@ except Exception as e:
         from ml_model_v2 import ml_score, _frac_diff  # v3: 34 features, regime-conditional, calibrated
         # Get Markov regime state for the ML (adds real predictive power)
         _regime_ctx = {"regime_score": 50, "markov_state": 1, "size_multiplier": 1.0}
+        # REPAIR 2026-10-16 (cockpit audit S3 rows 13/15/16): the regime
+        # block used to read the VXX ratio from the intelligence dict — a
+        # key intelligence.py never emits — so vxx_ratio was pinned at 1.0
+        # on every live candidate (bull model unreachable) and the Markov
+        # detector was fed an EMPTY return list (the 5-day SPY return key
+        # it asked macro for does not exist either). regime_inputs() takes
+        # the real VXX ratio and SPY closes from the macro snapshot and
+        # computes markov_state / regime_score exactly as
+        # ml_model_v2._compute_features does at training time.
+        _ri = regime_inputs(macro)
         if _HAS_MARKOV:
             try:
-                _spy_rets = []
-                _spy_macro = macro.get("spy_returns_5d", []) or []
-                _vxx_r = intel.get("vxx_ratio", 1.0) if intel else 1.0
-                _spy_ma = macro.get("spy_vs_ma50", 1.0) or 1.0
-                _regime_ctx = _get_markov_regime(_spy_rets, float(_vxx_r), float(_spy_ma))
+                _regime_ctx = _get_markov_regime(_ri["spy_returns"], float(_ri["vxx_ratio"]), float(_ri["spy_vs_ma50"]))
             except Exception:
                 pass
 
@@ -1714,10 +1728,10 @@ except Exception as e:
             "iv_rank_proxy":        _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50,
             "atr_pct":              _atr_pct,
             # Regime (5)
-            "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
-            "spy_vs_ma50":          macro.get("spy_vs_ma50", 1.0) or 1.0,
-            "markov_state":         float(_regime_ctx.get("markov_state", 1)),
-            "regime_score":         float(_regime_ctx.get("regime_score", 50)),
+            "vxx_ratio":            _ri["vxx_ratio"],       # training: VXX close / 30-d avg (macro_data)
+            "spy_vs_ma50":          _ri["spy_vs_ma50"],
+            "markov_state":         _ri["markov_state"],    # training: mean of 5 SPY daily returns vs ±0.2%
+            "regime_score":         _ri["regime_score"],    # training: closed form of spy_vs_ma50 + vxx_ratio
             "sector_momentum":      sector_mom.get(stock_sector, 0),
             # Additive 6 features
             "cross_sec_rank":       _cross_sec_rank,
@@ -1854,7 +1868,7 @@ except Exception as e:
             decision=_decision,
             decision_reason=_reason,
             entry_price=quick_result.get("price", 0),
-            vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
+            vxx_ratio=float(_ri["vxx_ratio"]) if '_ri' in locals() else 1.0,
             regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
             side=side,
             action_label=action_label,
