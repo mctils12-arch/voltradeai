@@ -29,11 +29,14 @@ Invoked by backtest.py (see bot.ts contract): JSON to stdout, exit 0 always.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
+
+import live_exit_policy as lep
 
 # Same classifier the live system uses (system_config.get_market_regime
 # delegates here). Import guarded so the engine still runs if moved.
@@ -139,6 +142,23 @@ ATR_STOP_MULT = 1.5        # system_config ATR_STOP_MULTIPLIER
 MIN_STOP_PCT = 2.0         # system_config MIN_STOP_PCT
 MAX_STOP_PCT = 6.0         # system_config MAX_STOP_PCT
 TAKE_PROFIT_RR = 2.0       # target = 2R (asymmetry over accuracy)
+
+# ── Exit models ([RULE-REVIEW] measurement change, 2026-10-16) ──────────────
+# KNOWN BROKEN #48: the four constants above are the "legacy" exit model — a
+# copy of system_config's ATR_STOP_MULTIPLIER/MIN/MAX_STOP_PCT block, which
+# NO live code reads. The only live stock exits are server/bot.ts
+# checkPositionOnTick: 2xATR R-ladder, scale-outs in thirds, breakeven,
+# phase trails, conditional TP, 7-calendar-day flat time stop.
+# exit_model="live" simulates THAT engine through live_exit_policy.py
+# (same rule set as PR #1355's reviewed shadow-labeler mirror), walking each
+# bar OPEN -> LOW -> HIGH -> CLOSE (adverse leg first = stop-first on an
+# ambiguous bar, the same priority the legacy close-only check gives stops),
+# gaps filling at the open. Entries, universe, costs and regime gating are
+# untouched — only the exit block differs.
+# DEFAULT stays "legacy" until the before/after is judged (research/
+# experiments.md); every stored backtest number to date is legacy-model.
+EXIT_MODELS = ("legacy", "live")
+DEFAULT_EXIT_MODEL = "legacy"
 
 
 def get_adaptive_params(regime: str) -> dict:
@@ -254,6 +274,28 @@ def atr14(bars, i, period=14):
     return sum(trs) / period
 
 
+def live_atr_pct(bars: dict, k: int) -> float:
+    """ATR% the live exit engine would hold at the START of bar k.
+
+    bot_engine.manage_positions -> _get_atr: Wilder ATR(14) over the daily
+    bars from (today - 60 calendar days), first period*3 = 42 bars, as % of
+    the current price. NO LOOKAHEAD: only bars strictly before k (bar k's own
+    range is unknown at its open), price = close[k-1]. Falls back to
+    manage_positions' own 2.0 default when there is too little history."""
+    if k < 1:
+        return lep.ATR_DEFAULT_PCT
+    dates = bars["date"]
+    cutoff = (datetime.strptime(dates[k][:10], "%Y-%m-%d")
+              - timedelta(days=lep.ATR_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    j0 = bisect.bisect_left(dates, cutoff, 0, k)
+    j1 = min(k, j0 + lep.ATR_LIMIT_BARS)
+    atr = lep.wilder_atr(bars["high"][j0:j1], bars["low"][j0:j1], bars["close"][j0:j1])
+    px = bars["close"][k - 1]
+    if not atr or not px or px <= 0:
+        return lep.ATR_DEFAULT_PCT
+    return atr / px * 100.0
+
+
 # ── Scoring: the bot's ACTUAL strategy modules ──────────────────────────────
 def score_candidate(strategy: str, bars: dict, i: int) -> int:
     closes, vols = bars["close"], bars["volume"]
@@ -365,10 +407,64 @@ def regime_series(spy: dict, vxx: dict | None) -> tuple[list, str]:
 
 
 # ── Core simulation ──────────────────────────────────────────────────────────
+def _live_trade_record(ticker: str, strategy: str, bars: dict, pos: dict,
+                       exit_i: int, reason: str) -> dict:
+    """One round-trip record for a live-model position: every tranche's
+    net-of-cost proceeds summed, exit_price = the share-weighted average fill.
+    Same keys as the legacy record plus scale_outs."""
+    shares, entry = pos["shares"], pos["entry"]
+    avg_fill = pos["proceeds"] / shares
+    return {
+        "date_entry": bars["date"][pos["entry_i"]],
+        "date_exit": bars["date"][exit_i], "ticker": ticker,
+        "instrument": "etf" if ticker in ("SPY", "QQQ") else "stock",
+        "strategy": strategy,
+        "entry_price": round(entry, 2),
+        "exit_price": round(avg_fill, 2),
+        "holding_days": exit_i - pos["entry_i"],
+        "pnl": round(pos["proceeds"] - shares * entry, 2),
+        "net_pct": round((avg_fill / entry - 1) * 100, 2),
+        "exit_reason": reason, "score": pos["score"],
+        "vxx_ratio": pos["vxx_ratio"], "vrp": 0.0,
+        "scale_outs": pos["lp"].scales,
+    }
+
+
+def _live_exit_bar(pos: dict, bars: dict, k: int, regime_by_date: dict) -> tuple:
+    """Walk bar k through the live exit engine. Returns (cash_in, closed).
+
+    No lookahead: the ATR% and regime the engine holds on bar k come from
+    bars strictly before k (live_atr_pct; the regime label of bar k-1, whose
+    close is the last thing known at bar k's open). Each tranche the engine
+    sells fills at its walked price less bar k's per-side liquidity cost."""
+    lp = pos["lp"]
+    lp.refresh(live_atr_pct(bars, k),
+               lep.regime_class(regime_by_date.get(bars["date"][k - 1], "NEUTRAL")))
+    closed = lep.walk_bar(lp, bars["open"][k], bars["high"][k], bars["low"][k],
+                          bars["close"][k],
+                          lep.time_eligible(bars["date"][pos["entry_i"]], bars["date"][k]))
+    cost = liquidity_cost_pct(bars, k)
+    cash_in = 0.0
+    for qty, px in lp.fills[pos["n_fills"]:]:
+        cash_in += qty * px * (1 - cost)
+    pos["n_fills"] = len(lp.fills)
+    pos["proceeds"] += cash_in
+    return cash_in, closed
+
+
 def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
-             vxx: dict | None) -> dict:
+             vxx: dict | None, exit_model: str = DEFAULT_EXIT_MODEL) -> dict:
     """Daily-bar simulation. Signal on close[i] -> entry at open[i+1] (no
-    lookahead). Exits: ATR stop / 2R take-profit / regime time stop."""
+    lookahead). Exits, by exit_model (see EXIT_MODELS):
+      legacy — ATR stop / 2R take-profit / regime time stop, checked on each
+               bar's close and filled at the close (the pre-2026-10-16 model).
+      live   — server/bot.ts checkPositionOnTick via live_exit_policy, walked
+               intrabar O->L->H->C from the entry bar's open; scale-outs are
+               partial fills; equity is marked AFTER the bar's exits so an
+               intrabar exit is booked on the bar it happened."""
+    if exit_model not in EXIT_MODELS:
+        raise ValueError(f"unknown exit_model {exit_model!r}; expected one of {EXIT_MODELS}")
+    live = exit_model == "live"
     regimes, data_quality = regime_series(spy, vxx)
     regime_by_date = dict(zip(spy["date"], regimes))
 
@@ -384,12 +480,25 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
         regime = regime_by_date.get(d, "NEUTRAL")
         params = get_adaptive_params(regime)
 
+        if live:
+            # exits first (intrabar), then mark-to-market the remaining shares
+            if pos:
+                cash_in, closed = _live_exit_bar(pos, bars, i, regime_by_date)
+                cash += cash_in
+                if closed:
+                    trades.append(_live_trade_record(
+                        ticker, strategy, bars, pos, i,
+                        lep.REASON_NAMES[pos["lp"].exit_reason]))
+                    pos = None
+            equity.append(cash + (pos["lp"].remaining_qty * closes[i] if pos else 0.0))
+
         # mark-to-market
-        mtm = cash + (pos["shares"] * closes[i] if pos else 0.0)
-        equity.append(mtm)
+        if not live:
+            mtm = cash + (pos["shares"] * closes[i] if pos else 0.0)
+            equity.append(mtm)
 
         # exits (checked on bar i using its close; filled at close with cost)
-        if pos:
+        if pos and not live:
             px = closes[i]
             held = i - pos["entry_i"]
             reason = None
@@ -444,8 +553,26 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
                            "entry_i": i + 1, "score": score,
                            "time_stop": params["time_stop_days"],
                            "vxx_ratio": vr}
+                    if live:
+                        # R unit fixed here from what is known at the fill
+                        # (bars <= i, regime of the signal bar i); the
+                        # legacy stop/target/time_stop above go unused.
+                        pos["lp"] = lep.LivePosition(
+                            entry, live_atr_pct(bars, i + 1),
+                            lep.regime_class(regime), original_qty=shares)
+                        pos["n_fills"] = 0
+                        pos["proceeds"] = 0.0
 
     # close any open position at the last bar (end_of_backtest)
+    if pos and live:
+        lp = pos["lp"]
+        fill = bars["close"][n - 1] * (1 - liquidity_cost_pct(bars, n - 1))
+        cash += lp.remaining_qty * fill
+        pos["proceeds"] += lp.remaining_qty * fill
+        lp.remaining_qty = 0
+        trades.append(_live_trade_record(ticker, strategy, bars, pos, n - 1,
+                                         "end_of_backtest"))
+        pos = None
     if pos:
         fill = bars["close"][n - 1] * (1 - liquidity_cost_pct(bars, n - 1))
         cash += pos["shares"] * fill
@@ -465,7 +592,7 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
 
     m = compute_metrics(equity, n)
     wins = sum(1 for t in trades if t["pnl"] > 0)
-    return {
+    out = {
         # bot.ts scheduler contract (camelCase)
         "strategy": strategy,
         "sharpe": m["sharpe"],
@@ -482,12 +609,21 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
         "data_quality": data_quality,
         "trades": trades,
     }
+    if live:
+        # legacy output stays byte-identical (pinned in
+        # test_backtest_v2_exit_model.py); only a live run is labeled here
+        out["exit_model"] = "live"
+    return out
 
 
 def run_backtest(ticker: str = "SPY", strategy: str = "all", years: float = 3,
                  bars: dict | None = None, spy: dict | None = None,
-                 vxx: dict | None = None) -> dict:
-    """Entry point. bars/spy/vxx are injectable for offline tests."""
+                 vxx: dict | None = None,
+                 exit_model: str = DEFAULT_EXIT_MODEL) -> dict:
+    """Entry point. bars/spy/vxx are injectable for offline tests.
+    exit_model: "legacy" (default) | "live" — see EXIT_MODELS."""
+    if exit_model not in EXIT_MODELS:
+        raise ValueError(f"unknown exit_model {exit_model!r}; expected one of {EXIT_MODELS}")
     ticker = ticker.upper()
     years = max(0.5, min(float(years), 10))
     days = int(years * 365) + 400   # warmup for 252d momentum + 200d MA
@@ -509,7 +645,7 @@ def run_backtest(ticker: str = "SPY", strategy: str = "all", years: float = 3,
     results, all_trades = [], {}
     for s in strategies:
         if s in ("momentum", "mean_reversion"):
-            r = simulate(ticker, s, bars, spy, vxx)
+            r = simulate(ticker, s, bars, spy, vxx, exit_model=exit_model)
             all_trades[s] = r.pop("trades")
             results.append(r)
         elif s == "squeeze":
@@ -539,6 +675,7 @@ def run_backtest(ticker: str = "SPY", strategy: str = "all", years: float = 3,
     return {
         "ok": True,
         "engine": "backtest_v2",
+        "exit_model": exit_model,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "request": {"ticker": ticker, "strategy": strategy, "years": years},
         "period_start": bars["date"][0],
