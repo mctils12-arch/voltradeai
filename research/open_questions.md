@@ -7639,6 +7639,31 @@ should be its own PR per CLAUDE.md promotion rule 5 — do not bundle them the
 way #817 did (that bundling is exactly why it could not be safely resurrected
 in one session).
 
+## STOCKS-BUCKET LEARNING DEADLOCK (filed 2026-10-16, cockpit audit S6 / V18 — surfaced, not fixed)
+
+position_sizing.calculate_position refuses any candidate whose bucket has
+non-positive Kelly expectancy. The "stocks" prior (WR 0.49, +4.19/−4.25)
+is already negative (the in-code comment expected "a small starter size";
+the arithmetic gives −0.027 → blocked), and the live stats (WR 27.8 %,
++9.08/−5.16 over 36 trades) are negative too. Consequence: no stock
+entry → no new stock feedback → the bucket can never prove itself: a
+learning deadlock. The block is CORRECT under priority 2 (corrupted
+learning is worse than none) and is now VISIBLE (SIZE-BLOCK audit rows,
+`rejected_sizing` shadow bucket, the page's Issues panel, v1.0.1094).
+
+Testable form (ladder gate 3, LOGIC): an EXPLORATION BUDGET — allow at
+most k stock entries per week at a fixed exploratory size (e.g. 1 % of
+equity) when the bucket is Kelly-blocked, tagged exploratory with a kill
+date, so the bucket accumulates out-of-sample feedback at bounded cost.
+PRIOR (stated before any test): the shadow log says taken candidates win
+51.5 % at +5 d under a +2/−4 labeler (breakeven 66.7 %) and the top score
+quintile wins 42.5 %, so the expected outcome is that exploration
+CONFIRMS the block — its value is the measurement, not the P&L. Needs: a
+backtest ablation of the exploratory rule on backtest_v2, and the
+counterfactual P&L of `rejected_sizing` records once +5d/+20d labels
+accrue (shadow_portfolio backfill). Not shipped: a sizing rule change
+is a RULE-REVIEW PR with evidence, one threshold at a time.
+
 ## OPEN RESEARCH QUESTIONS
 
 ### SPACEFRAME TILE-CACHE CEILING — is `TILE_CACHE_MAX=512` too loose against the 256 MB mobile Law IV budget? (filed 2026-08-22)

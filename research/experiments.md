@@ -108843,3 +108843,95 @@ the decision (re-base now vs wait vs raise the line) is the audit's §10.10.
   factor is 0.68 (10 × 9.08 / 26 × 5.16). v2 labels payoff only.
 - STARVED: yes (Stage 3 build waits on the owner's review of the canvas;
   the T-BOT instrumentation PRs in brief §9 are unblocked and queued).
+
+## 2026-10-16 (~02:00–05:00Z, human-directed "whatever you think works best, implement and fix the issues") · [REPAIR] ×5 + [PIPELINE] + [PRODUCT] — bot cockpit audit repairs and the bot page v2 (territory: T-BOT for the Python/bot.ts repairs, T-CLIENT for the page; research/* last)
+
+Decisions taken on the owner's delegation (brief §8): the page can act, with
+confirm-with-consequence (resume = unkill + start; stop; kill) through the
+existing owner-gated endpoints; alerts stay on the existing email path
+(push/text needs a paid provider — build-first says file it, not buy it);
+"Paper · Alpaca" plain text in the rail; polling 5–60 s (SSE's compression
+problem, audit V31, is untouched); drift baseline = the training run's
+sidecar (not built yet — the page shows constancy over the shadow window,
+which needs no baseline); per-tier user layout persisted later (not in this
+PR); the −10 % latch is NOT changed: the paper re-baseline path clears it
+after 13 market hours by design, and a risk-threshold change needs its own
+RULE-REVIEW PR with counterfactual data.
+
+One logical change per commit, each with a test and a version bump:
+
+- v1.0.1104 [REPAIR] deep_score's ML blend guard compared model_type to the
+  literal "fallback"; the heuristic labels itself "fallback_rules", so a
+  missing/stale model was blended at the ML weight and audited as "ML
+  model: …". Helper `_ml_result_is_model()` + wiring pin
+  (test_ml_fallback_guard.py). PRIOR: no live score changes while the model
+  is fresh (< ML_MAX_AGE_HOURS); when it is stale the final score becomes
+  rules-only instead of rules×0.72 + heuristic×0.28 — expected to REMOVE
+  the "ML model: BUY (62% confidence)" reasons seen during fallback hours.
+- v1.0.1105 [REPAIR] Tier 3 audited every retrain whose status was not
+  "error:*"/"failed" as "ML retrain complete" — including insufficient_data,
+  skipped, the wrapper's bare "error" and "fatal". server/mlRetrainStatus.ts:
+  only "trained" is a success; the TIER3-ML-ERROR line carries samples /
+  error / steps. Regression test + the existing reason-visibility pins stay
+  green. ROLLBACK TRIGGER: none needed (classification only).
+- v1.0.1106 [REPAIR] ML regime features: vxx_ratio came from
+  intel.get("vxx_ratio", 1.0) — intelligence.py never emits it — so every
+  live candidate carried vxx_ratio = 1.0 (20,000 / 20,000 shadow records),
+  the bull model was unreachable, and markov_state / regime_score came from
+  the Markov detector fed an empty return list. regime_inputs.py computes
+  the four regime features from macro_data's real VXX ratio (training's
+  own definition) and spy_closes_60d with ml_model_v2._compute_features'
+  formulas. This CHANGES EVERY SCORE (serve input now matches train
+  input). PRIOR: regime_score leaves the pinned [43.5, 68.5] band;
+  classify_regime can route to bull/bear; feature-constant count on the
+  page falls from 11 toward 8 (the ewma_vol / range_pct / 52w-high /
+  earnings_surprise constants remain — each is its own PR). ROLLBACK
+  TRIGGER: TIER2-ERROR rate above the pre-change baseline, or the constant
+  count on /api/bot/insight not falling within a trading day of deploy.
+  Backtest not re-run: backtest_v2 has its own feature path; this is a
+  serve-time input repair, not a strategy change.
+- v1.0.1107 [PIPELINE] shadow records carry `ml` (model_type, regime_used,
+  win_probability, ml_score, ml_confidence, ml_signal, gated, blended,
+  weights, rules/ML split, final score, vxx_source, error). The ML block's
+  exception is recorded instead of `pass`. No scoring change.
+- v1.0.1108 [REPAIR] sizing refusals (calculate_position blocked → reason
+  discarded) now return as scan_market `sizing_blocks`, audit as
+  SIZE-BLOCK (≤5 per scan) and move the shadow record to `rejected_sizing`.
+  The block itself is unchanged (live stock stats are −EV; priority 2).
+- v1.0.1109 [REPAIR] counter hygiene for the two above (logged handlers,
+  typed retrain input).
+- v1.0.1110 [PRODUCT] /api/bot/insight + ml_insight.py: model age vs the
+  fallback line, calibrator pairing, blend weights, check_model_health
+  performance, the per-candidate trace histogram, win-probability
+  percentiles, per-feature constancy over the newest 300 shadow records,
+  the regime block, and the band report. Owner-gated, 120 s cache, 503 +
+  stale body on failure.
+- v1.0.1111 [PRODUCT] the bot page v2 replaces client/src/pages/bot.tsx
+  (now a re-export of client/src/bot/BotPage.tsx): full-bleed under the
+  nav; page state machine from real audit rows (pageState.ts, tested);
+  director with dwell/recede hysteresis (director.ts, tested); zone
+  templates per tier xl/l/m/s (zoneModel.ts, tested); stages as
+  status-history boxes, issues as condition → consequence → clears →
+  action (derive.ts, tested); the state element (scan strip / decision
+  chain / incident / day review) exists only in its state; the model zone
+  from /api/bot/insight; chart (existing TradeCharts), book, orders,
+  day timeline with a replay cursor; per-panel hold (view only, "+N"
+  live ticks), pin, open-as-window with a ghost slot (drag, resize,
+  edge snap, dock, Esc), zoom, page-level layout hold; FLIP motion on
+  frameCore springs. Tokens only: hardcoded_palette_hex 402 → 361
+  (bot.tsx's 41 off-token hexes are gone); ts_any 1247 → 1228. Visual
+  harness: two renders of /app#/bot (latched / pre-market candidates)
+  at 390/768/1440 with owner-auth fixtures per page.
+
+What is still NOT on the page because the bot does not record it: the
+per-candidate win probability for executed trades (track_fill drops it),
+feature training bands (sidecar not built), SPY benchmark, per-leg exit
+fills, scan_id / client_order_id joins. Each renders as "not recorded".
+
+STARVED: yes — brief §9 instrumentation PRs (feature baseline sidecar,
+retrain ledger file, SPY series, position_id) and the remaining constant
+features are queued and unblocked.
+
+NOTE (2026-10-19, at ship): the branch was rebased onto main (then at
+v1.0.1103) before the PR; the eight versioned commits above were renumbered
+v1.0.1104 → v1.0.1111 at that point (read-and-increment at commit time).
