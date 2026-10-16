@@ -2638,10 +2638,12 @@ def _record_sizing_block(blocks: list, ticker: str, score, sizing: dict, strateg
         try:
             from shadow_portfolio import update_last_decision
             update_last_decision(ticker, "rejected_sizing", f"sizing: {reason}")
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as _shadow_err:
+            import logging as _blk_log
+            _blk_log.getLogger("bot_engine").debug(f"rejected_sizing shadow update failed for {ticker}: {_shadow_err}")
+    except Exception as _rec_err:
+        import logging as _blk_log
+        _blk_log.getLogger("bot_engine").debug(f"_record_sizing_block failed for {ticker}: {_rec_err}")
 
 
 def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
@@ -2654,7 +2656,9 @@ def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
         if t == "etf" or str((stock or {}).get("instrument_strategy") or "").startswith("etf"):
             return "etf"
         return "stocks"
-    except Exception:
+    except Exception as _bucket_err:
+        import logging as _blk_log
+        _blk_log.getLogger("bot_engine").debug(f"_infer_bucket_for_block: {_bucket_err}")
         return ""
 
 

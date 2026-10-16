@@ -16,10 +16,13 @@ export function retrainStatusIsSuccess(status: unknown): boolean {
 /** Extra detail for a non-success retrain result, in the order a reader
  *  needs it: the wrapper's `error`, then `samples` (insufficient_data's
  *  only payload), then which steps completed before it died. */
-export function retrainFailureDetail(result: any): string {
+export interface RetrainResultLike { status?: unknown; error?: unknown; samples?: unknown; steps_completed?: unknown }
+
+export function retrainFailureDetail(result: RetrainResultLike | null | undefined): string {
   const parts: string[] = [];
-  if (result?.error) parts.push(String(result.error).slice(0, 200));
-  if (result?.samples !== undefined && result?.samples !== null) parts.push(`samples ${result.samples}`);
-  if (Array.isArray(result?.steps_completed) && result.steps_completed.length) parts.push(`steps ${result.steps_completed.join(">")}`);
+  const r: RetrainResultLike = result && typeof result === "object" ? result : {};
+  if (r.error) parts.push(String(r.error).slice(0, 200));
+  if (r.samples !== undefined && r.samples !== null) parts.push(`samples ${String(r.samples)}`);
+  if (Array.isArray(r.steps_completed) && r.steps_completed.length) parts.push(`steps ${r.steps_completed.map(String).join(">")}`);
   return parts.join(" · ");
 }
