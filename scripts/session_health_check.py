@@ -119,10 +119,17 @@ def check_liveness(health):
     bot = (health.get("checks") or {}).get("bot") or {}
     lv = bot.get("liveness") or {}
     if lv.get("dark"):
+        ar = bot.get("autoResume") or {}
+        cause = ""
+        if ar.get("latchKind"):
+            cause = (f" CAUSE: latch={ar.get('latchKind')}, auto-resume {ar.get('outcome')} "
+                     f"({ar.get('reason')}), next check {ar.get('nextCheck')}.")
+        elif bot.get("status") == "killed":
+            cause = " CAUSE: killed, latch kind not reported (pre-v1.0.1089 server?)."
         return finding(
             ALARM, "liveness",
             f"LOOP DARK: {lv.get('detail', '(no detail)')} "
-            f"(marketHours={lv.get('marketHours')}, wallHours={lv.get('wallHours')})",
+            f"(marketHours={lv.get('marketHours')}, wallHours={lv.get('wallHours')}){cause}",
         )
     status = health.get("status")
     if status not in ("ok", "degraded"):
