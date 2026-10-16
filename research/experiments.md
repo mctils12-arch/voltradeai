@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-16 (scheduled-routine session, ~20:20Z Fri = 16:20 ET, AFTER THE CLOSE) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1093) — LAZY PRICES PR 2c: YEAR-OVER-YEAR SECTION SIMILARITY (COSINE-TF, JACCARD) AS RAW MATERIAL
+
+HEALTH: session_health_check all OK (liveness recovered: loop alive; deploy_gate ok; v1.0.1092 live = checkout); thrash 1/10; STARVED 0; no audit overdue. No KNOWN BROKEN blocker for product work.
+WHY: PR 2b's NEXT named similarity signals; the metrics need only archived sections (no price source), so they ship ahead of the Polygon/PIT-price decision, which still needs a cost estimate and possibly a wishlist entry.
+PRIOR (stated before running tests/data): same-company consecutive-year sections are highly similar (typical cosine > 0.9 for MD&A/risk factors); the signal lives in the left tail. Boilerplate-flagged sections (no_material_changes, not_applicable, incorporated_by_reference) would score near 1 by construction, so they are excluded, not scored.
+CHANGE: new sec_filings_similarity.py (stdlib + sec_filings_text; no trading imports, no network): word-only tokenizer (numbers dropped), raw-TF cosine and set Jaccard, exclusion reasons (not_found/short/boilerplate flags/<50 tokens), pair_similarity() and build_rows() using sft.pair_prior_filings. Rows carry the CURRENT filing's accepted_at (the earliest time the reading is knowable). No schedule, no daemon method, no signal claim.
+TESTS: test_sec_filings_similarity.py 5; with text + classify suites 69/69 passed.
+NOT DONE / HONEST LIMITS: no archive run (the raw archive lives on the Railway volume, not in this sandbox), so the empirical similarity distribution is unmeasured; the >0.9 prior is untested. TF-IDF/embeddings variants deferred (variants tried so far: 2).
+NEXT (PR 2d): run build_rows over the production archive via a scheduled job, record the distribution by section/size; then PIT price panel (Polygon cost estimate first), then ladder gate 2 quintile sort, out-of-sample 2015+.
+BIAS/EFFECT: raw-material functions only; no trading path, no measurement code. ROLLBACK: git revert.
+MERGE: opened after the close.
+STARVED: no.
+
 ## 2026-10-16 (scheduled-routine PRODUCT session, ~18:10Z Fri = 14:10 ET, MARKET HOURS) [PIPELINE] — T-DATACORE (sec_filings_classify.py + test; v1.0.1092) — LAZY PRICES PR 2b: OPERATING-VS-VEHICLE FILER CLASS; CLEAN SURVIVORSHIP FIGURE
 
 HEALTH: session_health_check: only the known liveness alarm (latch=DRAWDOWN_KILL, loop dark 28.6h wall, already notified at 26.6h, not repeated); v1.0.1091 live = checkout; deploy_gate ok. No KNOWN BROKEN blocker for product work.
