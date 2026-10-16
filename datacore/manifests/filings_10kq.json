@@ -1,0 +1,29 @@
+{
+ "stream": "filings_10kq",
+ "storage": "volume <archive>/filings_10kq/raw/<cik10>/<accession>.<ext>.gz (primary document, write-once) + raw/<cik10>/<accession>.index-headers.html.gz (write-once) + sections/<cik10>/<accession>.json.gz (derived, recomputable)",
+ "written_by": "sec_filings_text.py process_filing (CLI: python3 sec_filings_text.py sample)",
+ "source": "SEC EDGAR 10-K / 10-Q primary documents (as filed) + data.sec.gov submissions JSON + EDGAR index-headers",
+ "license": "US public records; no reuse restriction; 10 req/s + declared User-Agent",
+ "attribution": "SEC EDGAR",
+ "schema_version": 1,
+ "field_map": {
+  "cik": "10-digit zero-padded CIK (company entity key)",
+  "accession": "SEC accession (dedup key; file name)",
+  "form": "10-K | 10-Q | 10-K/A | 10-Q/A (as filed)",
+  "is_amendment": "true for /A forms (archived, excluded from comparison by default)",
+  "filing_date": "EDGAR filingDate (calendar date only)",
+  "accepted_at": "SIGNAL TIMESTAMP, UTC ISO 'Z' — from index-headers ACCEPTANCE-DATETIME (US Eastern -> UTC)",
+  "accepted_at_source": "index_headers | submissions_json_unverified (fallback, never earlier than truth)",
+  "acceptance_datetime_raw": "submissions JSON acceptanceDateTime verbatim (inconsistently NOT UTC — ~37% read UTC+ET offset; see sec_filings_text.py docstring)",
+  "period": "reportDate (fiscal period end)",
+  "sections.<risk_factors|legal_proceedings|mdna>": "found, text, char_count, start_heading, end_heading, end_found, candidates, toc_duplicate_defeated, short, title_mismatch_fallback (10-K only), flags{no_material_changes, not_applicable, incorporated_by_reference}",
+  "extraction": "version (EXTRACTION_VERSION), flags[], counts{} (boilerplate rules applied, tables dropped/kept)"
+ },
+ "confidence_model": "raw bytes: as-filed regulatory records (high; never altered in-archive). sections: heuristic extraction (Item-heading location + ToC defeat) — per-section found/short/end_found flags carry its confidence; cross-reference-index filers flagged, not guessed",
+ "geo_fields": [],
+ "entity_key": "cik (company)",
+ "sentiment": null,
+ "started": "2026-10-16",
+ "cadence": "on-demand backfill (sample CLI); write-once raw, sections rewritten only on EXTRACTION_VERSION change",
+ "_note": "Lazy Prices (Cohen-Malloy-Nguyen 2020) pipeline PR 1: DATA gate only. No similarity scores (PR 2), no prices. Raw primary documents are never deleted."
+}
