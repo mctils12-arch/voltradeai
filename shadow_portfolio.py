@@ -212,6 +212,39 @@ def _save_shadow_log(records: List[dict]) -> bool:
 #  PUBLIC API
 # ══════════════════════════════════════════════════════════════════════════════
 
+# PIPELINE 2026-10-16: per-candidate model trace persisted on every shadow
+# record. Keys and types are fixed here so the page and the band reports can
+# rely on them; anything else deep_score hands over is dropped.
+ML_TRACE_FLOAT_KEYS = ("win_probability", "ml_score", "ml_confidence", "rule_weight",
+                       "ml_weight", "rules_only_score", "ml_only_score", "final_score")
+ML_TRACE_STR_KEYS = ("model_type", "regime_used", "ml_signal", "vxx_source", "error")
+ML_TRACE_BOOL_KEYS = ("gated", "blended")
+
+
+def sanitize_ml_trace(ml) -> dict | None:
+    """Coerce a deep_score ML trace into the persisted shape (floats, short
+    strings, bools, None). Returns None for a missing/invalid trace so an
+    absent model output is stored as absence, never as zeros."""
+    if not isinstance(ml, dict) or not ml:
+        return None
+    out = {}
+    for k in ML_TRACE_FLOAT_KEYS:
+        v = ml.get(k)
+        if isinstance(v, bool):
+            out[k] = None
+        elif isinstance(v, (int, float)) and v == v:
+            out[k] = round(float(v), 4)
+        else:
+            out[k] = None
+    for k in ML_TRACE_STR_KEYS:
+        v = ml.get(k)
+        out[k] = str(v)[:200] if v not in (None, "") else None
+    for k in ML_TRACE_BOOL_KEYS:
+        v = ml.get(k)
+        out[k] = bool(v) if v is not None else None
+    return out
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -224,6 +257,7 @@ def log_candidate(
     side: str = "",
     action_label: str = "",
     trade_type: str = "",
+    ml: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -273,6 +307,11 @@ def log_candidate(
                                 for k, v in features.items()} if features else {},
             "outcomes":        {f"+{h}d": None for h in FORWARD_HORIZONS_DAYS},
             "code_version":    CODE_VERSION,
+            # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): what the model
+            # said about THIS candidate, which was returned by ml_score() and
+            # dropped on the floor until now. None when deep_score passed no
+            # trace (older callers); see sanitize_ml_trace().
+            "ml":              sanitize_ml_trace(ml),
         }
 
         # Load, append, rotate, save

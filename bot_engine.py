@@ -1467,6 +1467,12 @@ except Exception as e:
     ml_only_score = None  # Set below if ML runs
 
     # ── ML Model Integration ──────────────────────────────────────────────────
+    # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): everything ml_score()
+    # says about this candidate is collected here and persisted on the shadow
+    # record (shadow_portfolio.sanitize_ml_trace). Until now model_type,
+    # win_probability, regime_used and the blend arithmetic were dropped, and
+    # an exception anywhere in this block was swallowed by `pass`.
+    _ml_trace = {"blended": False, "gated": None, "error": None}
     try:
         from ml_model_v2 import ml_score, _frac_diff  # v3: 34 features, regime-conditional, calibrated
         # Get Markov regime state for the ML (adds real predictive power)
@@ -1766,6 +1772,16 @@ except Exception as e:
             "put_call_ratio":       round(_put_call_ratio, 3),
         }
         ml_result = ml_score(ml_features)
+        if isinstance(ml_result, dict):
+            _ml_trace.update({
+                "model_type": ml_result.get("model_type"),
+                "regime_used": ml_result.get("regime_used"),
+                "win_probability": ml_result.get("win_probability"),
+                "ml_score": ml_result.get("ml_score"),
+                "ml_confidence": ml_result.get("ml_confidence"),
+                "ml_signal": ml_result.get("ml_signal"),
+                "vxx_source": _ri.get("vxx_source") if isinstance(_ri, dict) else None,
+            })
 
         # Blend: dynamic ratio loaded from tracker, default 60/40
         # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).
@@ -1805,8 +1821,12 @@ except Exception as e:
 
             combined_score = combined_score * rule_weight + ml_s_blended * ml_weight
             reasons.append(f"Blend: {rule_weight:.0%} rules + {ml_weight:.0%} ML")
-    except Exception:
-        pass  # ML not available, use rule-based only
+            _ml_trace.update({"blended": True, "gated": ml_conviction < 8,
+                              "rule_weight": rule_weight, "ml_weight": ml_weight,
+                              "rules_only_score": rules_only_score, "ml_only_score": ml_only_score})
+    except Exception as _ml_exc:
+        # Rules-only scoring continues; the failure is no longer invisible.
+        _ml_trace["error"] = f"{type(_ml_exc).__name__}: {_ml_exc}"[:200]
 
     combined_score = max(0, min(100, combined_score))
 
@@ -1873,6 +1893,7 @@ except Exception as e:
             side=side,
             action_label=action_label,
             trade_type=trade_type,
+            ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
