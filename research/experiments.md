@@ -108811,3 +108811,35 @@ basis"), drawdown −9.5% not above the −8% recovery line → waiting on
 exits today; 43 OPTIONS-SLOT-FULL before the latch. LIVENESS ALARM per
 CLAUDE.md priority 1: surfaced to the human in-session. No change made;
 the decision (re-base now vs wait vs raise the line) is the audit's §10.10.
+
+## 2026-10-16 (~02:00Z) · [PRODUCT] — Bot page mockup v2 + Stage 2 design brief (territory: research/* only; no code)
+
+- Owner rejected mockup v1 (2026-10-15): "not a bot cockpit, unnecessary
+  wording… ever changing (searching / found / idle)… click and stop one
+  portion… windows on windows that snap back… a visual way of showing what
+  the ML is doing is the key". Nine research passes were run (trading
+  terminals, NOC/observability walls, ML-monitoring UIs, windowing/docking
+  libraries, attention-driven cockpits, bot dashboards + explainability,
+  refined dense visual language, a v1 compliance check — 58 rows: met 9 ·
+  partly 38 · missing 16 · contradicted 2 — and an ML-zone spec from real
+  fields). Reports live in the session scratchpad; their conclusions are
+  compiled into `research/bot_cockpit_design_brief_v2.md`.
+- Shipped: `research/bot_cockpit_design_brief_v2.md` (discovery
+  recommendation with tradeoffs per directive §3a, the page state machine
+  from real audit rows, the Model zone spec, the windowing model, failure
+  behaviours, open decisions, the instrumentation PRs the page needs) and
+  the Design canvas v2 (same URL as v1; nine boards: interactive Main with a
+  state tweak + hold / hold-panel / open-as-window / dock, five static
+  states on the real 15 Oct sequence — idle 08:19, scanning 08:24, two
+  candidates queued 09:28:55, latched 13:58, day review 16:00 — plus
+  Windows, Laptop 1280 and Phone 390).
+- Real finding surfaced by the mockup data (shadow log, 20,000 candidates
+  03 Aug–14 Oct): the final score has no discriminating power at the top —
+  Q5 (score ≥ 77) wins 42.5 % at +5 d vs Q1 56.2 %; taken candidates that
+  were down > 10 % that day win 79.7 %, those up 10–20 % win 38.9 %. Filed
+  as the page's problem statement; it belongs in open_questions.md as a
+  [RESEARCH] hypothesis (momentum-spike entries mean-revert) — NOT acted on.
+- Correction to v1: "profit factor 1.76" was the payoff ratio; the profit
+  factor is 0.68 (10 × 9.08 / 26 × 5.16). v2 labels payoff only.
+- STARVED: yes (Stage 3 build waits on the owner's review of the canvas;
+  the T-BOT instrumentation PRs in brief §9 are unblocked and queued).
