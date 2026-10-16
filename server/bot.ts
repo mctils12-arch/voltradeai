@@ -14,6 +14,7 @@ import {
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
+import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
@@ -5828,7 +5829,12 @@ else:
           // showing "error: 'NoneType' object is not subscriptable"
           // every hour with no file/line.
           const _statusStr = String(trainResult.status || "");
-          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed")) {
+          // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
+          // "skipped", the wrapper's bare "error" and "fatal" all fell into
+          // the else-branch below and were audited as "ML retrain complete"
+          // although no model was written. Only "trained" is a success
+          // (server/mlRetrainStatus.ts, tested).
+          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
             // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
             // _train_model_impl early returns use the plain shape
             // {"status": "failed", "reason": "..."} (no error_location/
@@ -5837,9 +5843,11 @@ else:
             // "ML retrain failed: failed". `reason` carries the real cause
             // (e.g. "Could not fetch training bars") and was being dropped.
             const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
+            const _detailExtra = retrainFailureDetail(trainResult);
+            const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
             const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
             const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
-            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_loc}${_tbTail}`);
+            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
           } else {
             audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
           }
