@@ -3,6 +3,20 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-16 (scheduled-routine PRODUCT session, ~13:20Z Fri = 09:20 ET, PRE-OPEN) [PIPELINE] — T-DATACORE (sec_filings_universe.py + test; v1.0.1091) — LAZY PRICES PR 2a: POINT-IN-TIME FILER UNIVERSE FROM EDGAR form.idx; SURVIVORSHIP QUANTIFIED
+
+HEALTH: session_health_check: only the known liveness alarm (latch=DRAWDOWN_KILL, auto-resume evaluates 09:30 ET today; already notified, not repeated); v1.0.1090 live = checkout; deploy_gate ok; ladder_readiness 0/5. No KNOWN BROKEN blocker for product work.
+WHY: PR 1's NEXT list starts with the survivorship-free universe; company_tickers.json lists current filers only.
+PRIOR (stated before running): a current-filer universe silently drops a large minority of historical filers (guess 30-50% of 2010 filers), shrinking toward ~10% for the latest quarter.
+CHANGE: new module sec_filings_universe.py (stdlib + sec_filings_text.EdgarClient; no trading imports): form.idx parser for 10-K/10-Q family (+405/KSB/QSB/KT/QT; /A excluded by default), write-once gz cache of complete quarters under <archive>/filings_10kq/form_idx/, per-quarter summary and the universe build CLI (`python3 sec_filings_universe.py build --start 2010`). No tickers, no prices, no schedule/daemon.
+BUG CAUGHT BY REAL DATA (not by synthetic tests): the real form.idx header is NOT aligned with its data columns (data sits 5 columns right of the header text, 1999-2026 verified). A header-offset parser returned 0 rows silently; replaced with a right-anchored regex grammar and a test using the real layout. Fixtures that mimic the header lie.
+RESULT (2010-Q1..2026-Q3, 67 quarters, 19,146 distinct report filers, ~13 min at 8 req/s): share of a quarter's filers absent from today's company_tickers.json: 2010-Q1 72.8%, 2014-Q1 64.6%, 2018-Q1 52.5%, 2022-Q1 43.8%, 2025-Q1 29.3%, 2026-Q3 9.8%. PRIOR WRONG IN MAGNITUDE (72.8% vs guessed 30-50%): a current-ticker universe would be badly survivor-biased. CAVEAT (important): the index includes filers that never had a ticker (ABS/auto-lease trusts, funds, shells), so the true dropped-OPERATING-company share is lower; PR 2b must classify (SIC code / ticker-ever) before quoting a clean figure. Not a signal claim.
+TESTS: test_sec_filings_universe.py 7 (real-layout parse, amendments, caching write-once/open-quarter-never-cached, survivorship share, completeness); with test_sec_filings_text.py 66/66.
+NEXT (PR 2b): classify operating companies (SIC from submissions) and a point-in-time ticker/price source for delisted names (Polygon job, cost estimate first); then similarity signals (PR 2c).
+BIAS/EFFECT: raw-material builder only; no trading path, no measurement code. ROLLBACK: git revert.
+MERGE: opened pre-open; merge AFTER the 16:00 ET close.
+STARVED: no.
+
 ## 2026-10-16 (scheduled-routine session, ~11:05Z Fri = 07:05 ET, PRE-OPEN) [RESEARCH] — T-BOT-adjacent read-only measurement (docs only, no code_version change) — QQQ/GLD INTRADAY ROUND-TRIP CHURN IS REAL BUT ECONOMICALLY TRIVIAL
 
 HEALTH: session_health_check: only ALARM is the known liveness one (latch=DRAWDOWN_KILL, loop dark 21.5h wall, auto-resume next evaluates 09:30 ET today; already notified at 13.1h, not repeated). thrash 2/10; STARVED streak 3; no audit overdue; archives fresh; deploy_gate ok. No new repair.
