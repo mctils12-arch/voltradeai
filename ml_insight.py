@@ -55,8 +55,8 @@ def _blend_block() -> dict:
             with open(BLEND_TRACKER_PATH) as f:
                 b = json.load(f)
             out = {"rule_weight": b.get("rule_weight"), "ml_weight": b.get("ml_weight"), "updated": b.get("updated")}
-    except Exception:
-        pass
+    except Exception as e:  # unreadable tracker → weights reported as unknown, never as defaults
+        out["error"] = f"{type(e).__name__}: {e}"[:120]
     return out
 
 
