@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine PRODUCT session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1099) — LAZY PRICES PR 2g(i): MIN-CORPUS FLOOR ON THE POINT-IN-TIME IDF
+
+HEALTH: no new fact; live /api/health unreachable from sandbox (as earlier today); no KNOWN BROKEN blocker for product work. Not re-notified.
+WHY: PR 2f's own NEXT/HONEST LIMITS: early PIT rows are scored against thin corpora where idf is noise; gate 2 should drop or flag them.
+PRIOR (before any data): with a floor of 30 prior filings per section, the earliest cohort (corpus < 30) loses its tfidf score and later rows are bit-identical to the no-floor run; plain cosine/Jaccard unaffected.
+CHANGE: `pit_rows_from_archive(..., min_corpus=0)`; sections whose PitIdf.n < min_corpus get cosine_tfidf=None. Rows now carry `idf_min_corpus` and per-section `idf_n` so gate 2 can re-filter without re-running. CLI `distribution --pit` applies MIN_PIT_CORPUS=30 (`--min-corpus` overrides). 30 is an UNTUNED theory default fixed before any return data; not to be tuned on outcomes (variants tried so far: 3, floor not counted as a variant).
+TESTS: +1 (floor nulls a one-doc corpus, leaves cosine unchanged, floor=1 restores). 85/85 sec_filings suites.
+NOT DONE: production `--pit` run (volume not in sandbox); PIT price panel (Polygon cost estimate -> wishlist if paid); gate-2 quintile sort OOS 2015+. No signal claim.
+BIAS/EFFECT: descriptive tooling, no trading path, no measurement code. ROLLBACK: git revert.
+NEXT (PR 2g ii): scheduled production `distribution --pit` run; PIT price panel.
+MERGE: merge-safe any time (markets closed).
+STARVED: no.
+
 ## 2026-10-17 (scheduled-routine session, Sat, markets closed) [REPAIR] — T-BOT (server/bot.ts types only, ci/tsc_baseline.txt; v1.0.1098) — TSC RATCHET 11 -> 8: type QueuedTrade + signals[] to match fields the code already reads
 
 HEALTH: research_state_check all OK (thrash 1/10 before this entry, STARVED 0, no audit overdue, archives fresh). Live /api/health unreachable from the sandbox (404 from host); no new fact to notify. Volume-capacity decision (wishlist 10-12) still open, human-owned, not touched.
