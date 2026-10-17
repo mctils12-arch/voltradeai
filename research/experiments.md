@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine session, Sat, markets closed) [REPAIR] — STALENESS AUDIT run (due 10-16); removed 7 unused npm dependencies (v1.0.1096)
+
+TERRITORY: SHARED-minimal (package.json, package-lock.json) + script/build.ts allowlist line. No trading, client/src, datacore or frozen path touched.
+HEALTH: research_state_check — only WARN was this audit; thrash 1/10, STARVED 0, archives fresh. Live /api/health not reachable from the sandbox (host returned 404 app-not-found); last logged state is the recovered DRAWDOWN_KILL latch (10-16 20:20Z). Not re-notified: no new fact.
+PRIOR: a month of fast PIPELINE/PRODUCT sessions left some expired review-by adapters and some orphaned code/deps.
+FINDINGS: (1) review-by dates: all four remaining hits (options_scanner.py 2026-08-26, open_questions OpenSky 08-17) are already-closed deletion notes, nothing expired-and-live. (2) Python modules: no orphans (<=2 references). (3) server/*.ts: one unreferenced module, fleetOperatorTickers.ts, KEPT — it is a built pipeline input awaiting ladder gate 2 (signal_ladder.json), not debt. (4) npm dependencies with zero imports anywhere outside package.json: @hookform/resolvers, @jridgewell/trace-mapping, framer-motion, next-themes, react-icons, tw-animate-css, zod-validation-error — REMOVED. NOT removed: zod / drizzle-zod (zod is a drizzle-zod peer; drizzle-zod itself has no import either — left for a follow-up that can verify the build-allowlist/peer implications), date-fns (named in script/build.ts bundle allowlist, no import), cross-env (used by VolTrade-Launch.bat), solclientjs (used).
+CHANGE: `npm uninstall --package-lock-only` of the seven packages; the stale "zod-validation-error" entry dropped from script/build.ts's bundle allowlist; version 1.0.1095 -> 1.0.1096.
+VERIFY: `npm ci` clean, `npm run build` succeeds (dist/index.cjs 18.1mb), `tsc --noEmit` error count identical before/after (11 pre-existing, unrelated: bot.ts QueuedTrade fields, pngjs types). No behavior change by construction (no importer existed). No Python change, so pytest not rerun.
+BIAS/EFFECT: none on measurement or trading. ROLLBACK: git revert.
+NEXT: follow-up audit PR for drizzle-zod/zod/date-fns; the 11 pre-existing tsc errors deserve a [REPAIR] look (bot.ts QueuedTrade type drift) if CI doesn't gate on tsc.
+STARVED: no. Register updated in place (STALENESS last run 2026-10-17, next 2026-11-16).
+
 ## 2026-10-17 (scheduled-routine EDGE session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1095) — LAZY PRICES PR 2e: TF-IDF COSINE AS VARIANT 3
 
 HEALTH: research_state_check OK (thrash 1/10, STARVED 0, archive freshness OK); only WARN = STALENESS AUDIT overdue (due 10-16) — not run: a queued item (this one) fit, per SESSION BUDGET the audit runs when fall-through reaches the research tier. ladder_readiness 0/5 (COT ~14/15 reports, ~10-21). KNOWN BROKEN: #44/#48 have no close marker; #48 steps 1-2 shipped (#1355/#1356), step 3 is a policy decision, not a blocker. AXIS: (a) continuation — every other doctrine-(a) root is built or time-gated.
@@ -34359,7 +34371,7 @@ change, so it is created directly rather than proposed in wishlist.md.
 
 | Audit | Cadence | Last run | Next due |
 |---|---|---|---|
-| STALENESS AUDIT | 30d | 2026-09-16 | 2026-10-16 |
+| STALENESS AUDIT | 30d | 2026-10-17 | 2026-11-16 |
 | CONSTITUTIONAL AUDIT | 30d | 2026-09-20 | 2026-10-20 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
