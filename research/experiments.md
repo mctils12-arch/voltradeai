@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine EDGE session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1095) — LAZY PRICES PR 2e: TF-IDF COSINE AS VARIANT 3
+
+HEALTH: research_state_check OK (thrash 1/10, STARVED 0, archive freshness OK); only WARN = STALENESS AUDIT overdue (due 10-16) — not run: a queued item (this one) fit, per SESSION BUDGET the audit runs when fall-through reaches the research tier. ladder_readiness 0/5 (COT ~14/15 reports, ~10-21). KNOWN BROKEN: #44/#48 have no close marker; #48 steps 1-2 shipped (#1355/#1356), step 3 is a policy decision, not a blocker. AXIS: (a) continuation — every other doctrine-(a) root is built or time-gated.
+PRIOR (stated before running): TF-IDF cosine (idf per section key from the archive corpus) has >= 3x the p05-p95 spread of raw-TF cosine on 10-K risk factors (raw: 0.986-1.000 = 0.014), because it strips corpus-wide boilerplate words.
+CHANGE: sec_filings_similarity.py gains cosine_tfidf(), build_idf() (smoothed ln((N+1)/(df+1))+1), idf_from_archive(); rows carry `cosine_tfidf`; distribution report prints its quantiles. No prices, no schedule, no trading imports.
+MEASUREMENT (sandbox, same 50-company stratified sample, seed 20261016, 410 pairs, 2023+; idf corpus = this tiny sample, NOT production): 10-K risk factors tfidf p05/p50/p95 0.957/0.996/0.999 (spread 0.042 = 3.0x raw) — prior CONFIRMED, at its boundary. 10-K MD&A 0.916/0.979/0.995 (spread 0.079 vs raw 0.032 = 2.5x) — below the prior's 3x. 10-Q MD&A 0.867/0.970/0.995. Jaccard remains the widest (10-K risk factors 0.725-0.985 = 0.26, ~6x tfidf).
+READ: tf-idf helps but does not rescue cosine; at this n it is still compressed near 1, so Jaccard (or a quantile-rank of any metric within section/form) remains the better sort key for gate 2. Small n, one seed: do not tune on this.
+HONEST LIMITS: idf is built over the whole archive, so it carries mild lookahead on word rarity; fine for this descriptive report, but gate 2 must rebuild idf point-in-time (docs with accepted_at <= row's). Variants tried so far: 3 (cosine-TF, Jaccard, cosine-TF-IDF) — discount any gate-2 edge accordingly.
+TESTS: test_sec_filings_similarity.py 9 (+2: idf downweights corpus-wide words incl. self-similarity 1.0/None edge cases; archive rows carry tfidf, with_idf=False omits it); with text/classify/universe suites 80/80 pass.
+BIAS/EFFECT: descriptive tooling only; no trading path, no measurement code. ROLLBACK: git revert.
+NEXT (PR 2f): production scheduled `distribution` run over the Railway archive; PIT idf; then PIT price panel (Polygon cost estimate first -> wishlist if paid), gate-2 quintile sort, out-of-sample 2015+.
+STARVED: no.
+
 ## 2026-10-17 (scheduled-routine PRODUCT session, ~00:15Z Sat = 20:15 ET Fri, AFTER HOURS) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1094) — LAZY PRICES PR 2d: ARCHIVE-WALK + SIMILARITY DISTRIBUTION, FIRST REAL MEASUREMENT
 
 HEALTH: not re-run in full (sandbox has no prod access); last logged state: liveness alarm = DRAWDOWN_KILL latch, named and notified, recovered per the 10-16 20:20Z entry. No KNOWN BROKEN blocker for product work.
