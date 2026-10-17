@@ -116,7 +116,8 @@ def archive_filings(archive: str) -> list:
     for path in sorted(glob.glob(os.path.join(root, "*", "*.json.gz"))):
         try:
             d = json.loads(sft.read_gz(path))
-        except (OSError, ValueError, EOFError):
+        except (OSError, ValueError, EOFError) as e:
+            print(f"[sec_filings_similarity] skipping unreadable sections file {path}: {e}", file=sys.stderr)
             continue
         out.append({"cik": d["cik"], "accession": d["accession"], "form": d["form"],
                     "reportDate": d.get("period"), "filingDate": d.get("filing_date"),
