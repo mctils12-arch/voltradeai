@@ -7,8 +7,13 @@ ladder gate 2 (SIGNAL) — no predictive claim is made here.
 Lookahead: a row is knowable only at the CURRENT filing's accepted_at (carried
 through unchanged); the prior filing is by construction older.
 """
+import argparse
+import glob
+import json
 import math
+import os
 import re
+import sys
 from collections import Counter
 from typing import Optional
 
@@ -99,3 +104,81 @@ def build_rows(filings: list, load_sections) -> list:
             row["gap_days"] = p["gap_days"]
             rows.append(row)
     return rows
+
+
+# ── PR 2d: archive walk + distribution report (still no prices, no signal claim)
+
+def archive_filings(archive: str) -> list:
+    """Rebuild list_filings()-shaped dicts from the archived sections files, so
+    pairing needs no network. Unreadable files are skipped, never guessed."""
+    root = os.path.join(sft.stream_root(archive), "sections")
+    out = []
+    for path in sorted(glob.glob(os.path.join(root, "*", "*.json.gz"))):
+        try:
+            d = json.loads(sft.read_gz(path))
+        except (OSError, ValueError, EOFError):
+            continue
+        out.append({"cik": d["cik"], "accession": d["accession"], "form": d["form"],
+                    "reportDate": d.get("period"), "filingDate": d.get("filing_date"),
+                    "isAmendment": bool(d.get("is_amendment"))})
+    return out
+
+
+def rows_from_archive(archive: str) -> list:
+    def load(cik, acc):
+        try:
+            return json.loads(sft.read_gz(sft.sections_path(archive, cik, acc)))
+        except (OSError, ValueError, EOFError):
+            return None
+    return build_rows(archive_filings(archive), load)
+
+
+def _q(vals: list, q: float) -> Optional[float]:
+    if not vals:
+        return None
+    s = sorted(vals)
+    return s[min(len(s) - 1, int(q * len(s)))]
+
+
+def distribution_report(rows: list) -> str:
+    """Per (form, section): scored n, exclusion counts, cosine/Jaccard quantiles
+    and the share of scored pairs below 0.9. Descriptive only."""
+    cells = {}
+    for r in rows:
+        for key, s in r["sections"].items():
+            c = cells.setdefault((r["form"], key), {"cos": [], "jac": [], "ex": Counter()})
+            if s["excluded"]:
+                c["ex"][s["excluded"]] += 1
+            else:
+                c["cos"].append(s["cosine"])
+                c["jac"].append(s["jaccard"])
+    lines = [f"pairs: {len(rows)}",
+             "form      section  n_scored  cos p05/p25/p50/p75/p95        <0.9   jac p05/p50/p95      excluded"]
+    for (form, key), c in sorted(cells.items()):
+        n = len(c["cos"])
+        f = lambda v: "  -  " if v is None else f"{v:.3f}"
+        cq = "/".join(f(_q(c["cos"], x)) for x in (.05, .25, .5, .75, .95))
+        jq = "/".join(f(_q(c["jac"], x)) for x in (.05, .5, .95))
+        lt = f"{sum(v < 0.9 for v in c['cos']) / n:5.1%}" if n else "  -  "
+        lines.append(f"{form:<9} {key:<8} {n:>8}  {cq:<30} {lt:>6}   {jq:<20} {dict(c['ex'])}")
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    d = sub.add_parser("distribution", help="similarity distribution over an archive")
+    d.add_argument("--archive", default=None)
+    d.add_argument("--rows-json", default=None, help="also write the scored rows here")
+    args = ap.parse_args(argv)
+    archive = args.archive or sft.archive_base_dir()
+    rows = rows_from_archive(archive)
+    print(distribution_report(rows))
+    if args.rows_json:
+        with open(args.rows_json, "w") as f:
+            json.dump(rows, f)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

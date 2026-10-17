@@ -3,6 +3,24 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine PRODUCT session, ~00:15Z Sat = 20:15 ET Fri, AFTER HOURS) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1094) — LAZY PRICES PR 2d: ARCHIVE-WALK + SIMILARITY DISTRIBUTION, FIRST REAL MEASUREMENT
+
+HEALTH: not re-run in full (sandbox has no prod access); last logged state: liveness alarm = DRAWDOWN_KILL latch, named and notified, recovered per the 10-16 20:20Z entry. No KNOWN BROKEN blocker for product work.
+PRIOR (stated in PR 2c, tested now): same-company consecutive-year MD&A / risk-factor cosine mostly > 0.9; signal lives in the left tail. Added prior: raw-TF cosine will be compressed near 1, leaving little dispersion to sort on.
+CHANGE: sec_filings_similarity.py gains archive_filings() (rebuild list_filings-shaped dicts from archived sections, no network), rows_from_archive(), distribution_report() and a `distribution` CLI (`python3 sec_filings_similarity.py distribution --archive DIR`). No prices, no schedule, no daemon method, no signal claim.
+MEASUREMENT (sandbox, fresh 50-company stratified sample via PR 1's `sample`, since 2023-01-01, seed 20261016; 648 filings, 0 errors; 410 paired rows; NOT the production archive, small-n, 2023+ only):
+ 10-K MD&A n=108 cosine p05/p50/p95 0.966/0.994/0.998, 0% < 0.9 | Jaccard p05/p50/p95 0.565/0.819/0.937
+ 10-K risk factors n=96 cosine 0.986/0.999/1.000, 0% < 0.9 | Jaccard 0.725/0.914/0.985
+ 10-Q MD&A n=297 cosine 0.943/0.989/0.998, 1.7% < 0.9 | Jaccard 0.481/0.772/0.930
+ 10-Q risk factors n=53 scored (113 'no_material_changes' + 72 short + others excluded) cosine p50 0.977, 26% < 0.9
+ Legal proceedings: heavily excluded (incorporated_by_reference / short / too_few_tokens); 10-Q 32.8% < 0.9, 10-K 20.8% < 0.9 on small n.
+READ: PRIOR CONFIRMED for MD&A/risk factors (>0.9). PRIOR CONFIRMED that raw-TF cosine is compressed: 10-K risk-factor cosine spans only ~0.986-1.000 from p05 to p95, so a quintile sort on it ranks differences in the third decimal. Jaccard has about 5-10x the dispersion over the same sections. Implication for gate 2 (not a result): the left tail is thin; prefer Jaccard and/or TF-IDF cosine as primary and report cosine as the paper-comparable secondary; discount for the number of variants (now 2 metrics x 3 sections x 2 forms). 10-Q risk factors are mostly excluded by construction (Part II Item 1A rarely restated), so the section/form that carries the most sorted names is MD&A. Legal proceedings is a poor candidate. CAVEATS: sandbox sample, 2023+ (not the paper's regime), Jaccard is length-sensitive (a longer text lowers it), no size/sector controls; no returns touched.
+TESTS: test_sec_filings_similarity.py 7 (+2: archive round trip; exclusion counts in report); with text/classify/universe suites 78/78 pass.
+BIAS/EFFECT: descriptive tooling only; no trading path, no measurement code. ROLLBACK: git revert.
+NEXT (PR 2e): add TF-IDF cosine (corpus df from the full archive) as variant 3; production scheduled run of `distribution` over the Railway archive; then PIT price panel (Polygon cost estimate first), then gate-2 quintile sort, out-of-sample 2015+.
+MERGE: opened after the close (Fri 20:15 ET); merge-safe any time.
+STARVED: no.
+
 ## 2026-10-16 (scheduled-routine session, ~20:20Z Fri = 16:20 ET, AFTER THE CLOSE) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1093) — LAZY PRICES PR 2c: YEAR-OVER-YEAR SECTION SIMILARITY (COSINE-TF, JACCARD) AS RAW MATERIAL
 
 HEALTH: session_health_check all OK (liveness recovered: loop alive; deploy_gate ok; v1.0.1092 live = checkout); thrash 1/10; STARVED 0; no audit overdue. No KNOWN BROKEN blocker for product work.
