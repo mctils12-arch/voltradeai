@@ -83,3 +83,37 @@ def test_archive_roundtrip_and_distribution_report(tmp_path):
 def test_distribution_report_counts_exclusions():
     rows = [{"form": "10-Q", "sections": {"mdna": {"excluded": "short", "cosine": None, "jaccard": None}}}]
     assert "'short': 1" in s.distribution_report(rows)
+
+
+def test_tfidf_downweights_corpus_wide_words():
+    """PR 2e: two filings sharing only words every filing uses look near-identical
+    under raw TF but distinct under tf-idf (the signal lives in distinctive words)."""
+    common = " ".join(["revenue customers competition regulation"] * 20)
+    a = common + " " + " ".join(["alphazone"] * 5)
+    b = common + " " + " ".join(["betazone"] * 5)
+    corpus = [s.tokenize(common + " filler%d" % i) for i in range(30)] + [s.tokenize(a), s.tokenize(b)]
+    idf = s.build_idf(corpus)
+    assert idf["revenue"] < idf["alphazone"]
+    raw = s.cosine_tf(s.tokenize(a), s.tokenize(b))
+    tfidf = s.cosine_tfidf(s.tokenize(a), s.tokenize(b), idf)
+    assert tfidf < raw
+    assert math.isclose(s.cosine_tfidf(s.tokenize(a), s.tokenize(a), idf), 1.0)
+    assert s.cosine_tfidf([], s.tokenize(a), idf) is None and s.cosine_tfidf(s.tokenize(a), s.tokenize(b), {}) is None
+
+
+def test_archive_rows_carry_tfidf_and_report_shows_it(tmp_path):
+    import json
+    import os
+    import sec_filings_text as sft
+    arch = str(tmp_path)
+    for acc, per, fd, text in (("A-2", "2023-12-31", "2024-02-20", TEXT),
+                               ("A-1", "2022-12-31", "2023-02-20", TEXT.replace("tariff", "pandemic"))):
+        d = doc(acc, per, text)
+        d["filing_date"] = fd
+        p = sft.sections_path(arch, "5", acc)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        sft.write_once_gz(p, json.dumps(d).encode())
+    r = s.rows_from_archive(arch)[0]["sections"]["risk_factors"]
+    assert r["cosine_tfidf"] is not None and 0 < r["cosine_tfidf"] < 1
+    assert s.rows_from_archive(arch, with_idf=False)[0]["sections"]["risk_factors"]["cosine_tfidf"] is None
+    assert "tfidf" in s.distribution_report(s.rows_from_archive(arch))

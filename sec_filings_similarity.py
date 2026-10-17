@@ -39,6 +39,32 @@ def cosine_tf(a: list, b: list) -> Optional[float]:
     return dot / (na * nb) if na and nb else None
 
 
+def cosine_tfidf(a: list, b: list, idf: dict) -> Optional[float]:
+    """Cosine of tf*idf vectors (PR 2e). idf comes from a corpus of the SAME
+    section key, so words every filing uses ('the', 'company', 'risk') get low
+    weight and the cosine is dominated by distinctive language. Unknown words
+    get the maximum idf (rare by definition)."""
+    if not a or not b or not idf:
+        return None
+    default = max(idf.values())
+    ca, cb = Counter(a), Counter(b)
+    w = lambda c: {k: v * idf.get(k, default) for k, v in c.items()}
+    wa, wb = w(ca), w(cb)
+    dot = sum(v * wb.get(k, 0.0) for k, v in wa.items())
+    na = math.sqrt(sum(v * v for v in wa.values()))
+    nb = math.sqrt(sum(v * v for v in wb.values()))
+    return dot / (na * nb) if na and nb else None
+
+
+def build_idf(token_lists) -> dict:
+    """Smoothed idf = ln((N+1)/(df+1)) + 1 over an iterable of token lists."""
+    df, n = Counter(), 0
+    for toks in token_lists:
+        n += 1
+        df.update(set(toks))
+    return {k: math.log((n + 1) / (v + 1)) + 1.0 for k, v in df.items()}
+
+
 def jaccard_set(a: list, b: list) -> Optional[float]:
     sa, sb = set(a), set(b)
     if not sa or not sb:
@@ -60,9 +86,9 @@ def exclusion_reason(sec: Optional[dict]) -> Optional[str]:
     return None
 
 
-def section_similarity(cur: Optional[dict], prior: Optional[dict]) -> dict:
+def section_similarity(cur: Optional[dict], prior: Optional[dict], idf: Optional[dict] = None) -> dict:
     reason = exclusion_reason(cur) or exclusion_reason(prior)
-    out = {"excluded": reason, "cosine": None, "jaccard": None, "tokens_cur": 0, "tokens_prior": 0}
+    out = {"excluded": reason, "cosine": None, "jaccard": None, "cosine_tfidf": None, "tokens_cur": 0, "tokens_prior": 0}
     if reason:
         return out
     tc, tp = tokenize(cur["text"]), tokenize(prior["text"])
@@ -71,23 +97,26 @@ def section_similarity(cur: Optional[dict], prior: Optional[dict]) -> dict:
         out["excluded"] = "too_few_tokens"
         return out
     out["cosine"], out["jaccard"] = cosine_tf(tc, tp), jaccard_set(tc, tp)
+    if idf:
+        out["cosine_tfidf"] = cosine_tfidf(tc, tp, idf)
     return out
 
 
-def pair_similarity(cur_doc: dict, prior_doc: dict) -> dict:
+def pair_similarity(cur_doc: dict, prior_doc: dict, idf_by_section: Optional[dict] = None) -> dict:
     """One row per (current filing, prior-year filing): per-section scores plus
     the identifiers a downstream join needs."""
     secs = {}
     for key in (cur_doc.get("sections") or {}):
         secs[key] = section_similarity(cur_doc["sections"].get(key),
-                                       (prior_doc.get("sections") or {}).get(key))
+                                       (prior_doc.get("sections") or {}).get(key),
+                                       (idf_by_section or {}).get(key))
     return {"cik": cur_doc.get("cik"), "accession": cur_doc.get("accession"),
             "prior_accession": prior_doc.get("accession"), "form": cur_doc.get("form"),
             "period": cur_doc.get("period"), "accepted_at": cur_doc.get("accepted_at"),
             "accepted_at_source": cur_doc.get("accepted_at_source"), "sections": secs}
 
 
-def build_rows(filings: list, load_sections) -> list:
+def build_rows(filings: list, load_sections, idf_by_section: Optional[dict] = None) -> list:
     """filings: list_filings() dicts for ONE or many companies; load_sections(
     cik, accession) -> sections doc or None (archive read injected for tests).
     Unpaired or unreadable filings are skipped, never guessed."""
@@ -100,7 +129,7 @@ def build_rows(filings: list, load_sections) -> list:
         cur = load_sections(by_acc[acc]["cik"], acc)
         prior = load_sections(by_acc[p["prior"]]["cik"], p["prior"])
         if cur and prior:
-            row = pair_similarity(cur, prior)
+            row = pair_similarity(cur, prior, idf_by_section)
             row["gap_days"] = p["gap_days"]
             rows.append(row)
     return rows
@@ -125,13 +154,33 @@ def archive_filings(archive: str) -> list:
     return out
 
 
-def rows_from_archive(archive: str) -> list:
+def _loader(archive: str):
     def load(cik, acc):
         try:
             return json.loads(sft.read_gz(sft.sections_path(archive, cik, acc)))
         except (OSError, ValueError, EOFError):
             return None
-    return build_rows(archive_filings(archive), load)
+    return load
+
+
+def idf_from_archive(archive: str, filings: Optional[list] = None) -> dict:
+    """Per-section-key idf over every scoreable archived section. DESCRIPTIVE
+    USE ONLY: the corpus includes filings after any given row's accepted_at, a
+    mild lookahead on word rarity. Gate 2 must rebuild this point-in-time."""
+    load = _loader(archive)
+    toks = {}
+    for f in (filings if filings is not None else archive_filings(archive)):
+        d = load(f["cik"], f["accession"])
+        for key, sec in ((d or {}).get("sections") or {}).items():
+            if not exclusion_reason(sec):
+                toks.setdefault(key, []).append(tokenize(sec["text"]))
+    return {k: build_idf(v) for k, v in toks.items()}
+
+
+def rows_from_archive(archive: str, with_idf: bool = True) -> list:
+    filings = archive_filings(archive)
+    idf = idf_from_archive(archive, filings) if with_idf else None
+    return build_rows(filings, _loader(archive), idf)
 
 
 def _q(vals: list, q: float) -> Optional[float]:
@@ -147,21 +196,24 @@ def distribution_report(rows: list) -> str:
     cells = {}
     for r in rows:
         for key, s in r["sections"].items():
-            c = cells.setdefault((r["form"], key), {"cos": [], "jac": [], "ex": Counter()})
+            c = cells.setdefault((r["form"], key), {"cos": [], "jac": [], "tf": [], "ex": Counter()})
             if s["excluded"]:
                 c["ex"][s["excluded"]] += 1
             else:
                 c["cos"].append(s["cosine"])
                 c["jac"].append(s["jaccard"])
+                if s.get("cosine_tfidf") is not None:
+                    c["tf"].append(s["cosine_tfidf"])
     lines = [f"pairs: {len(rows)}",
-             "form      section  n_scored  cos p05/p25/p50/p75/p95        <0.9   jac p05/p50/p95      excluded"]
+             "form      section  n_scored  cos p05/p25/p50/p75/p95        <0.9   jac p05/p50/p95      tfidf p05/p50/p95    excluded"]
     for (form, key), c in sorted(cells.items()):
         n = len(c["cos"])
         f = lambda v: "  -  " if v is None else f"{v:.3f}"
         cq = "/".join(f(_q(c["cos"], x)) for x in (.05, .25, .5, .75, .95))
         jq = "/".join(f(_q(c["jac"], x)) for x in (.05, .5, .95))
+        tq = "/".join(f(_q(c["tf"], x)) for x in (.05, .5, .95))
         lt = f"{sum(v < 0.9 for v in c['cos']) / n:5.1%}" if n else "  -  "
-        lines.append(f"{form:<9} {key:<8} {n:>8}  {cq:<30} {lt:>6}   {jq:<20} {dict(c['ex'])}")
+        lines.append(f"{form:<9} {key:<8} {n:>8}  {cq:<30} {lt:>6}   {jq:<20} {tq:<20} {dict(c['ex'])}")
     return "\n".join(lines)
 
 
