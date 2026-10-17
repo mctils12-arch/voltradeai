@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine session, Sat, markets closed) [REPAIR] — T-BOT (server/bot.ts types only, ci/tsc_baseline.txt; v1.0.1098) — TSC RATCHET 11 -> 8: type QueuedTrade + signals[] to match fields the code already reads
+
+HEALTH: research_state_check all OK (thrash 1/10 before this entry, STARVED 0, no audit overdue, archives fresh). Live /api/health unreachable from the sandbox (404 from host); no new fact to notify. Volume-capacity decision (wishlist 10-12) still open, human-owned, not touched.
+CHOICE: queue empty of non-human-gated higher items that fit; the STALENESS session's own NEXT named the bot.ts QueuedTrade type drift. Small, zero-runtime-risk.
+CHANGE: QueuedTrade gains optional `volume`, `instrument` (morning-queue entries are `{...trade}` spreads of the Python scan dict, which carries both; the fill-tracking code already reads them). signals[] element type gains optional rank/factors/factor_strength/sector_clash/sector/tiebreak_score (ranked-pick path already writes them). Types only; emitted JS unchanged. Pin lowered 11 -> 8 (TS2339 5->3, TS2353 3->2); scripts/tsc_ratchet.sh OK at 8.
+REMAINING 8: 3 in frozen server/billing.ts, 2 TradeChart.tsx (lightweight-charts option names), 2 datamap.tsx, 1 pngjs types — T-CLIENT / frozen, not this territory.
+NOT A BEHAVIOR CHANGE: no trading, sizing, or measurement path touched; no backtest needed. ROLLBACK: git revert.
+MERGE: markets closed; merge-safe any time (types only).
+STARVED: no.
+
 ## 2026-10-17 (scheduled-routine PRODUCT session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1097) — LAZY PRICES PR 2f: POINT-IN-TIME IDF (GATE-2-SAFE TF-IDF COSINE)
 
 HEALTH: research_state_check all OK (thrash 2/10, STARVED 0, archives fresh, no audit overdue). Live /api/health unreachable from sandbox; no KNOWN BROKEN blocker for product work.

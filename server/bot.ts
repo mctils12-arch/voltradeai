@@ -3596,6 +3596,9 @@ print(json.dumps(result[:20]))
   const signals: Array<{
     ticker: string; action: string; reason: string;
     confidence: number; timestamp: string; type: string;
+    // Ranked-pick extras (set by the Tier-2 ranking path; typing only).
+    rank?: number; factors?: unknown; factor_strength?: unknown;
+    sector_clash?: unknown; sector?: string; tiebreak_score?: unknown;
   }> = [];
 
   // Generate signals for a list of tickers
@@ -3718,6 +3721,9 @@ print(json.dumps(result[:20]))
     position_value: number;
     queuedAt: string;
     vrp?: number;
+    // Carried through from the Python scan result's trade dict via spread.
+    volume?: number;
+    instrument?: string;
   }
   const morningQueue: QueuedTrade[] = [];
 
