@@ -227,11 +227,19 @@ def _knowable_at(doc: dict) -> str:
     return f"{fd}T23:59:59Z" if fd else ""
 
 
-def pit_rows_from_archive(archive: str, filings: Optional[list] = None) -> list:
+# PR 2g: below this many prior filings in a section's corpus the idf is noise
+# (a handful of docs make every word look rare). UNTUNED theory default, set
+# before looking at any return; the library default stays 0 (off) so PR 2f
+# behaviour is unchanged, the CLI --pit run applies this floor.
+MIN_PIT_CORPUS = 30
+
+
+def pit_rows_from_archive(archive: str, filings: Optional[list] = None, min_corpus: int = 0) -> list:
     """Like rows_from_archive, but each row's tfidf cosine uses an idf built
     ONLY from sections of filings knowable strictly before that row's
     accepted_at (the row's own filing and same-instant filings excluded).
-    Rows with an empty corpus get cosine_tfidf=None (nothing to weight by)."""
+    Rows with an empty corpus get cosine_tfidf=None (nothing to weight by); with
+    min_corpus > 0 so do sections whose corpus holds fewer than min_corpus docs."""
     filings = filings if filings is not None else archive_filings(archive)
     load = _loader(archive)
     docs = {}
@@ -261,9 +269,12 @@ def pit_rows_from_archive(archive: str, filings: Optional[list] = None) -> list:
             for key, toks in events[i][1].items():
                 idf.setdefault(key, PitIdf()).add(toks)
             i += 1
-        row = pair_similarity(docs[acc], docs[p["prior"]], idf)
+        usable = {k: v for k, v in idf.items() if v.n >= min_corpus} if min_corpus > 0 else idf
+        row = pair_similarity(docs[acc], docs[p["prior"]], usable)
         row["gap_days"] = p["gap_days"]
         row["idf_pit"] = True
+        row["idf_min_corpus"] = min_corpus
+        row["idf_n"] = {k: v.n for k, v in idf.items()}
         rows.append(row)
     return rows
 
@@ -308,10 +319,12 @@ def main(argv=None) -> int:
     d = sub.add_parser("distribution", help="similarity distribution over an archive")
     d.add_argument("--archive", default=None)
     d.add_argument("--pit", action="store_true", help="point-in-time idf (gate-2 safe) instead of whole-archive idf")
+    d.add_argument("--min-corpus", type=int, default=MIN_PIT_CORPUS,
+                   help="with --pit: null the tfidf score where the section corpus is smaller than this")
     d.add_argument("--rows-json", default=None, help="also write the scored rows here")
     args = ap.parse_args(argv)
     archive = args.archive or sft.archive_base_dir()
-    rows = pit_rows_from_archive(archive) if args.pit else rows_from_archive(archive)
+    rows = pit_rows_from_archive(archive, min_corpus=args.min_corpus) if args.pit else rows_from_archive(archive)
     print(distribution_report(rows))
     if args.rows_json:
         with open(args.rows_json, "w") as f:

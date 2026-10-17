@@ -177,3 +177,18 @@ def test_knowable_at_pads_date_only_to_end_of_day():
     assert s._knowable_at({"filing_date": "2024-02-20"}) == "2024-02-20T23:59:59Z"
     assert s._knowable_at({"accepted_at": "2024-02-20T21:00:00Z", "filing_date": "2024-02-20"}) == "2024-02-20T21:00:00Z"
     assert s._knowable_at({}) == ""
+
+
+def test_pit_min_corpus_floor_nulls_thin_corpus(tmp_path):
+    """PR 2g: a one-doc corpus is scored with the floor off, nulled with it on;
+    the plain cosine is unaffected either way."""
+    arch = str(tmp_path)
+    _write(arch, "5", "A-1", "2022-12-31", "2023-02-20", TEXT.replace("tariff", "pandemic"), "2023-02-20T21:00:00Z")
+    _write(arch, "5", "A-2", "2023-12-31", "2024-02-20", TEXT, "2024-02-20T21:00:00Z")
+    off = s.pit_rows_from_archive(arch)[0]
+    on = s.pit_rows_from_archive(arch, min_corpus=2)[0]
+    assert off["sections"]["risk_factors"]["cosine_tfidf"] is not None
+    assert on["sections"]["risk_factors"]["cosine_tfidf"] is None
+    assert on["sections"]["risk_factors"]["cosine"] == off["sections"]["risk_factors"]["cosine"]
+    assert on["idf_min_corpus"] == 2 and on["idf_n"]["risk_factors"] == 1
+    assert s.pit_rows_from_archive(arch, min_corpus=1)[0]["sections"]["risk_factors"]["cosine_tfidf"] is not None
