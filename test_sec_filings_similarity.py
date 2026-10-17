@@ -60,3 +60,26 @@ def test_build_rows_pairs_prior_year_and_carries_current_accepted_at():
     assert r["accession"] == "A-2" and r["prior_accession"] == "A-1"
     assert r["accepted_at"] == "2024-02-20T21:00:00Z" and r["gap_days"] == 365
     assert math.isclose(r["sections"]["risk_factors"]["cosine"], 1.0)
+
+
+def test_archive_roundtrip_and_distribution_report(tmp_path):
+    """PR 2d: rows are rebuilt from the sections archive alone (no network)."""
+    import sec_filings_text as sft
+    arch = str(tmp_path)
+    for acc, per, fd, text in (("A-2", "2023-12-31", "2024-02-20", TEXT),
+                               ("A-1", "2022-12-31", "2023-02-20", TEXT.replace("tariff", "pandemic"))):
+        d = doc(acc, per, text)
+        d["filing_date"] = fd
+        p = sft.sections_path(arch, "5", acc)
+        import os
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        sft.write_once_gz(p, __import__("json").dumps(d).encode())
+    rows = s.rows_from_archive(arch)
+    assert len(rows) == 1 and rows[0]["accession"] == "A-2"
+    rep = s.distribution_report(rows)
+    assert "pairs: 1" in rep and "risk_factors" in rep and "10-K" in rep
+
+
+def test_distribution_report_counts_exclusions():
+    rows = [{"form": "10-Q", "sections": {"mdna": {"excluded": "short", "cosine": None, "jaccard": None}}}]
+    assert "'short': 1" in s.distribution_report(rows)
