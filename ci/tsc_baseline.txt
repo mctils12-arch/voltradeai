@@ -18,7 +18,8 @@
 # 86% of the original count was two mechanical causes. That noise is precisely
 # why nobody ever read the list the two real bugs were sitting in.
 #
-# ── WHY THE PIN IS 11 AND NOT 0 ───────────────────────────────────────────
+# (2026-10-17: pin 11 -> 8; QueuedTrade + signals[] typed to match fields the code already reads, typing only.)
+# ── WHY THE PIN IS 8 (WAS 11) AND NOT 0 ───────────────────────────────────────────
 # (2026-09-09: one TS2339 fixed and dropped from this pin — `state.lastEquity`
 # didn't exist on `state`'s type, the same dead-field bug fixed in bot.ts's
 # health check this session; see research/experiments.md.)
@@ -36,10 +37,10 @@
 # — do not "fix" it by raising the pin. The script prints a per-code diff on
 # failure so the two cases are distinguishable at a glance.
 
-TOTAL 11
+TOTAL 8
 
-TS2339 5
+TS2339 3
 TS2345 1
 TS2349 1
-TS2353 3
+TS2353 2
 TS7016 1
