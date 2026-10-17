@@ -183,6 +183,91 @@ def rows_from_archive(archive: str, with_idf: bool = True) -> list:
     return build_rows(filings, _loader(archive), idf)
 
 
+# ── PR 2f: point-in-time idf (gate 2 must not see words' future rarity)
+
+class PitIdf:
+    """Live smoothed-idf view over the docs added so far for ONE section key.
+    Same formula as build_idf (ln((N+1)/(df+1))+1) and same unknown-word
+    default (max idf = the rarest seen word), but updated incrementally so a
+    row can be scored against exactly the corpus knowable at its accepted_at."""
+
+    def __init__(self):
+        self.n, self.df, self._n_df1 = 0, Counter(), 0
+
+    def add(self, token_set) -> None:
+        self.n += 1
+        for t in token_set:
+            c = self.df[t]
+            self.df[t] = c + 1
+            if c == 0:
+                self._n_df1 += 1
+            elif c == 1:
+                self._n_df1 -= 1
+
+    def get(self, tok, default=None):
+        v = self.df.get(tok)
+        return default if v is None else math.log((self.n + 1) / (v + 1)) + 1.0
+
+    def values(self):
+        if self._n_df1 > 0:      # fast path: rarest seen word has df == 1
+            return [math.log((self.n + 1) / 2) + 1.0]
+        return [self.get(t) for t in self.df]
+
+    def __bool__(self):
+        return self.n > 0
+
+
+def _knowable_at(doc: dict) -> str:
+    """accepted_at if known, else the filing date padded to END of that day —
+    a date-only filing is conservatively treated as knowable late, never early."""
+    ts = doc.get("accepted_at")
+    if ts:
+        return ts
+    fd = doc.get("filing_date")
+    return f"{fd}T23:59:59Z" if fd else ""
+
+
+def pit_rows_from_archive(archive: str, filings: Optional[list] = None) -> list:
+    """Like rows_from_archive, but each row's tfidf cosine uses an idf built
+    ONLY from sections of filings knowable strictly before that row's
+    accepted_at (the row's own filing and same-instant filings excluded).
+    Rows with an empty corpus get cosine_tfidf=None (nothing to weight by)."""
+    filings = filings if filings is not None else archive_filings(archive)
+    load = _loader(archive)
+    docs = {}
+    for f in filings:
+        d = load(f["cik"], f["accession"])
+        if d:
+            docs[f["accession"]] = d
+    # corpus events: (knowable-at, per-section token sets), oldest first
+    events = []
+    for d in docs.values():
+        ts = _knowable_at(d)
+        if not ts:
+            continue    # undated filing can never be proven knowable; never used as corpus
+        sets = {k: set(tokenize(sec["text"])) for k, sec in (d.get("sections") or {}).items()
+                if not exclusion_reason(sec)}
+        events.append((ts, sets))
+    events.sort(key=lambda e: e[0])
+    pairs = sft.pair_prior_filings(filings)
+    by_acc = {f["accession"]: f for f in filings}
+    todo = [(acc, p) for acc, p in pairs.items()
+            if p["prior"] and acc in docs and p["prior"] in docs and _knowable_at(docs[acc])]
+    todo.sort(key=lambda t: _knowable_at(docs[t[0]]))
+    idf, i, rows = {}, 0, []
+    for acc, p in todo:
+        cutoff = _knowable_at(docs[acc])
+        while i < len(events) and events[i][0] < cutoff:
+            for key, toks in events[i][1].items():
+                idf.setdefault(key, PitIdf()).add(toks)
+            i += 1
+        row = pair_similarity(docs[acc], docs[p["prior"]], idf)
+        row["gap_days"] = p["gap_days"]
+        row["idf_pit"] = True
+        rows.append(row)
+    return rows
+
+
 def _q(vals: list, q: float) -> Optional[float]:
     if not vals:
         return None
@@ -222,10 +307,11 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("distribution", help="similarity distribution over an archive")
     d.add_argument("--archive", default=None)
+    d.add_argument("--pit", action="store_true", help="point-in-time idf (gate-2 safe) instead of whole-archive idf")
     d.add_argument("--rows-json", default=None, help="also write the scored rows here")
     args = ap.parse_args(argv)
     archive = args.archive or sft.archive_base_dir()
-    rows = rows_from_archive(archive)
+    rows = pit_rows_from_archive(archive) if args.pit else rows_from_archive(archive)
     print(distribution_report(rows))
     if args.rows_json:
         with open(args.rows_json, "w") as f:

@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-17 (scheduled-routine PRODUCT session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1097) — LAZY PRICES PR 2f: POINT-IN-TIME IDF (GATE-2-SAFE TF-IDF COSINE)
+
+HEALTH: research_state_check all OK (thrash 2/10, STARVED 0, archives fresh, no audit overdue). Live /api/health unreachable from sandbox; no KNOWN BROKEN blocker for product work.
+WHY: PR 2e's own HONEST LIMITS said gate 2 must rebuild idf point-in-time; whole-archive idf leaks future word rarity. This closes that before any price data is joined.
+PRIOR (stated before testing): PIT idf is equal to whole-archive idf on the last-accepted row and differs on earlier rows; a filing accepted after a row must not move that row's tfidf cosine.
+CHANGE: PitIdf (incremental smoothed idf, same formula + same unknown-word default as build_idf, exact max via df==1 counter) and pit_rows_from_archive() (rows scored against only filings with knowable-at STRICTLY before the row's accepted_at; date-only filings padded to end-of-day, undated filings never enter the corpus; empty corpus -> cosine_tfidf None; rows tagged idf_pit). CLI `distribution --pit`. rows_from_archive unchanged (descriptive, documented lookahead).
+TESTS: +4 (PitIdf == build_idf at every prefix; future filing leaves PIT row unchanged while whole-archive idf moves; empty corpus -> None; date padding). sec_filings similarity/text/classify suites 77/77.
+NOT DONE: no production archive run (volume not in sandbox); no price panel; no signal claim. Early rows have thin corpora (idf noisy) — gate 2 should drop or flag rows with PitIdf.n below a floor; not tuned here. Variants tried so far: 3.
+BIAS/EFFECT: descriptive tooling, no trading path, no measurement code. ROLLBACK: git revert.
+NEXT (PR 2g): scheduled production `distribution --pit` run; min-corpus floor; PIT price panel (Polygon cost estimate first -> wishlist if paid); gate-2 quintile sort out-of-sample 2015+.
+MERGE: opened after the close; merge-safe any time.
+STARVED: no.
+
 ## 2026-10-17 (scheduled-routine session, Sat, markets closed) [REPAIR] — STALENESS AUDIT run (due 10-16); removed 7 unused npm dependencies (v1.0.1096)
 
 TERRITORY: SHARED-minimal (package.json, package-lock.json) + script/build.ts allowlist line. No trading, client/src, datacore or frozen path touched.

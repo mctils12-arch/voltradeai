@@ -117,3 +117,63 @@ def test_archive_rows_carry_tfidf_and_report_shows_it(tmp_path):
     assert r["cosine_tfidf"] is not None and 0 < r["cosine_tfidf"] < 1
     assert s.rows_from_archive(arch, with_idf=False)[0]["sections"]["risk_factors"]["cosine_tfidf"] is None
     assert "tfidf" in s.distribution_report(s.rows_from_archive(arch))
+
+
+def test_pit_idf_matches_build_idf_incrementally():
+    """PR 2f: the live view is the same formula as build_idf at every prefix."""
+    docs = [s.tokenize(x) for x in ("alpha beta gamma", "alpha beta delta", "alpha epsilon zeta")]
+    v = s.PitIdf()
+    assert not v
+    for i, toks in enumerate(docs, 1):
+        v.add(set(toks))
+        ref = s.build_idf(docs[:i])
+        assert all(math.isclose(v.get(k), x) for k, x in ref.items())
+        assert math.isclose(max(v.values()), max(ref.values()))
+    assert v.get("never_seen", "dflt") == "dflt"
+
+
+def _write(arch, cik, acc, per, fd, text, accepted=None):
+    import json
+    import os
+    import sec_filings_text as sft
+    d = doc(acc, per, text)
+    d["filing_date"] = fd
+    if accepted:
+        d["accepted_at"] = accepted
+    p = sft.sections_path(arch, cik, acc)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    sft.write_once_gz(p, json.dumps(d).encode())
+
+
+def test_pit_rows_ignore_future_filings(tmp_path):
+    """PR 2f: a filing accepted AFTER a row changes whole-archive idf but must not
+    change that row's point-in-time tfidf; and an empty corpus yields None."""
+    arch = str(tmp_path)
+    t_prior = TEXT.replace("tariff", "pandemic")
+    _write(arch, "5", "A-1", "2022-12-31", "2023-02-20", t_prior, "2023-02-20T21:00:00Z")
+    _write(arch, "5", "A-2", "2023-12-31", "2024-02-20", TEXT, "2024-02-20T21:00:00Z")
+    base = s.pit_rows_from_archive(arch)
+    assert len(base) == 1 and base[0]["idf_pit"] is True
+    first = base[0]["sections"]["risk_factors"]["cosine_tfidf"]
+    assert first is not None and 0 < first < 1   # corpus = A-1 only (accepted earlier)
+    # a later, unrelated filer (accepted after A-2) must not move the A-2 row
+    _write(arch, "9", "B-1", "2024-06-30", "2024-08-01", " ".join(["zzfuture"] * 60), "2024-08-01T21:00:00Z")
+    after = [r for r in s.pit_rows_from_archive(arch) if r["accession"] == "A-2"][0]
+    assert after["sections"]["risk_factors"]["cosine_tfidf"] == first
+    # whole-archive idf DOES see the future filing (documents the lookahead being avoided)
+    whole = [r for r in s.rows_from_archive(arch) if r["accession"] == "A-2"][0]
+    assert whole["sections"]["risk_factors"]["cosine_tfidf"] != first
+
+
+def test_pit_empty_corpus_gives_none(tmp_path):
+    arch = str(tmp_path)
+    _write(arch, "5", "A-1", "2022-12-31", "2023-02-20", TEXT, "2024-03-01T00:00:00Z")  # prior accepted LATER than current
+    _write(arch, "5", "A-2", "2023-12-31", "2024-02-20", TEXT, "2024-02-20T21:00:00Z")
+    r = s.pit_rows_from_archive(arch)[0]["sections"]["risk_factors"]
+    assert r["cosine"] is not None and r["cosine_tfidf"] is None
+
+
+def test_knowable_at_pads_date_only_to_end_of_day():
+    assert s._knowable_at({"filing_date": "2024-02-20"}) == "2024-02-20T23:59:59Z"
+    assert s._knowable_at({"accepted_at": "2024-02-20T21:00:00Z", "filing_date": "2024-02-20"}) == "2024-02-20T21:00:00Z"
+    assert s._knowable_at({}) == ""
