@@ -108559,3 +108559,10 @@ session_health_check: deploy_gate OK (2xx, serving gates server+database), subsy
 DECISION: no repair justified — nothing is broken; the only lever is a human manual resume/re-baseline. Queue (KB #46/#47, Lazy Prices PR 2b) is T-DATACORE/T-BOT work with no market-hours urgency and other sessions are active there; no padding.
 PR note: docs only; merge safe any time, prefer after 4:00 PM ET.
 STARVED: yes.
+
+## 2026-10-17 (scheduled routine, Sat) [NO-ACTION] — all healthy; liveness alarm cleared; no code change (docs only)
+
+Loop-health ratio (last 10 tags): REPAIR 2-3 / PIPELINE+PRODUCT majority / RULE-REVIEW 3 — far under the 7-REPAIR threshold.
+session_health_check: deploy_gate OK, liveness OK (loop alive, not dark — the 10/15 DRAWDOWN_KILL halt has since resumed), subsystems/ML/feeds/SWIM/intent all OK, server_version 1.0.1099 matches main. Only WARN: daemon rss 408.8MB >= trim_mb 400MB (deep_score in trimmed mode; designed, below the 1GB self-kill). Archive: 1.85 GiB free vs the 2 GiB sweep gate (already filed in wishlist.md top item, a human decision; nothing new to add), ~14 d to the 1 GiB guard.
+DECISION: no repair justified; queued work (KB #46/#47, Lazy Prices PR 2g follow-ons) is owned by active T-BOT/T-DATACORE sessions with no weekend urgency. No padding.
+STARVED: yes.
