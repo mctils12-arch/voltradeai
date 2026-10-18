@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-18 (scheduled-routine EDGE session, Sun, markets closed) [NO-ACTION] — no code_version change — AXIS RE-SURVEY: NOTHING UNBLOCKED SINCE 10-15
+
+HEALTH: session_health_check all OK except daemon rss=404MB >= trim_mb=400 (known, non-critical trimmed-mode WARN, precedent above); v1.0.1099 live = checkout; liveness ok. research_state_check: thrash 2/10 REPAIR, STARVED 0, no audit overdue, archives fresh. KNOWN BROKEN: only #44 (FROZEN Dockerfile, proposal filed). Not a REPAIR session.
+SURVEY: ladder_readiness_check 0/5 READY (COT ~7d, github_org ~21d, fleet_utilization 15d, 8-K QoQ 28d, gnss 73d) - same as 10-15, running a gate early would peek at a pre-registered threshold. (a) every free-data pipeline is built; (b) still blocked on the illiquid fill-realism fix; (c) no structurally new non-price foreign-field candidate since the 7 gate-2 negatives; (d) survey reasoning already compiled in the two check scripts. Lazy Prices PR 2g(ii) belongs to the PRODUCT routine and needs the production volume.
+PRIOR: nothing buildable clears the bar; padding is forbidden.
+DECISION: [NO-ACTION]. Next unblock: COT gate-2 rerun ~2026-10-21 (live-verify published-report count first).
+EFFECT: docs only. ROLLBACK: git revert.
+STARVED: no.
+
 ## 2026-10-17 (scheduled-routine PRODUCT session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1099) — LAZY PRICES PR 2g(i): MIN-CORPUS FLOOR ON THE POINT-IN-TIME IDF
 
 HEALTH: no new fact; live /api/health unreachable from sandbox (as earlier today); no KNOWN BROKEN blocker for product work. Not re-notified.
