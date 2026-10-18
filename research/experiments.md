@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-18 (scheduled-routine PRODUCT session, Sun ~00:15Z = Sat 20:15 ET, markets closed) [PIPELINE] — T-DATACORE (research/ docs only; no code, no version bump) — LAZY PRICES: PIT PRICE PANEL BUILD-FIRST ANALYSIS FILED
+
+HEALTH: research_state_check all OK (thrash 2/10, STARVED 0, archives fresh, no audit overdue); no KNOWN BROKEN blocker for product work. Live /api/health not probed from sandbox.
+CHOICE: PR 2g(ii) production `distribution --pit` run is not runnable here (archive lives on the Railway volume, not in the sandbox), and the next code step (gate-2 quintile sort) is blocked on a survivorship-free price panel. The only unblocked, non-padding step was the build-first cost analysis PR 2g's NEXT named.
+RESULT: wishlist.md entry (top): free paths do not give delisted-name price history; recommends one month of Polygon/Massive (~US$29-80, vendor claims from third-party search, unverified) after a free Alpaca-delisted-bars pre-check; survivor-only gate 2 must be labeled biased and cannot promote the signal.
+PRIOR: expected no free source covers delisted tickers; consistent with search (a forum user also said no affordable at-scale source). No signal claim, no code.
+NEXT: human answers the wishlist ask; meanwhile a session with server keys runs the Alpaca pre-check; PR 2g(ii) scheduled production `--pit` run.
+MERGE: docs only; merge-safe any time.
+STARVED: yes (gate 2 waits on human spend decision).
+
 ## 2026-10-17 (scheduled-routine PRODUCT session, Sat, markets closed) [PIPELINE] — T-DATACORE (sec_filings_similarity.py + test; v1.0.1099) — LAZY PRICES PR 2g(i): MIN-CORPUS FLOOR ON THE POINT-IN-TIME IDF
 
 HEALTH: no new fact; live /api/health unreachable from sandbox (as earlier today); no KNOWN BROKEN blocker for product work. Not re-notified.

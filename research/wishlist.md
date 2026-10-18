@@ -1,5 +1,14 @@
 # Data / Access Wishlist — human reviews weekly
 
+## LAZY PRICES GATE 2 — point-in-time PRICE PANEL (survivorship-free) — build-first analysis 2026-10-18; small human spend decision
+
+NEED: ladder gate 2 for the Lazy Prices signal (10-K/10-Q section-similarity -> forward returns, 2015+ out-of-sample) needs daily adjusted closes for every filer INCLUDING the ones that later delisted. A panel of today's tickers only silently drops the worst outcomes (CLAUDE.md REASONING STANDARD 7).
+BUILD-FIRST (CLAUDE.md order): (1) RAW MATERIAL: we already have the filer universe incl. delisted CIKs (sec_filings_universe.py, from EDGAR form.idx) and the filings; what we lack is the price series for names no longer listed. Alpaca/Yahoo (our free feeds) key on CURRENT tickers and are survivorship-biased for this purpose — unverified for delisted symbols, and the sandbox holds no Alpaca keys to test. (2) ACCUMULATION cannot substitute: gate 2 needs 2015-2024 history that forward recording never recovers. (3) INFERENCE: no honest free proxy for a delisted name's return path (terminal return is the part that matters). (4) So the history is genuinely bought.
+PRICES (from third-party search results 2026-10-18, NOT verified on vendor pages; verify before spend): Polygon (now Massive) stocks plans ~US$29-199/mo, cited as including delisted tickers; EODHD lists ~60k delisted US symbols queryable via the normal price endpoints (price not confirmed); Norgate is the classic survivorship-free source (price not confirmed).
+RECOMMENDATION: ONE month of the cheapest Polygon/Massive stocks tier (~US$29-80), bulk-pull daily bars once for the ~10-12k-CIK universe, archive into datacore (own the copy; confirm the plan's redistribution/retention terms first - the /data surface must not republish vendor bars), cancel. Honest cost bound: a one-month ~US$80 ceiling. Free pre-check before paying: have a session test whether Alpaca's data API returns bars for the delisted symbols in the archive (needs the server's keys; one scripted run).
+WHAT PAID ADDS: terminal/delisting returns. WITHOUT IT: gate 2 can run only on survivors and its result must be labeled survivor-biased and may not promote the signal.
+Ask: approve ~US$30-80 one-month Polygon/Massive pull (or name a different vendor), or say to wait for the Alpaca free pre-check.
+
 ## ⚠ VOLUME CAPACITY 2026-10-12 — sweep/OpenSky aircraft archiving permanently paused; human decision needed
 
 Live /api/data/archive/offload-status (2026-10-12 ~16:08Z): volume free 1.39 GB, local archive 1.47 GB (21 days; vessels 1.2 GB = 82%), R2 holds 1.67 GB. The sweep archive gate is 2 GiB free, but the 22-day hot-tier floor (required by the GNSS-integrity signal) keeps local near 1.43 GB at ~65 MB/day, so free never exceeds ~1.4 GB: 381,882 sweep fixes skipped, 0 archived since boot. Viewport/tracked archiving has only ~0.3 GB above its 1 GiB floor. An archive gap never refills (Priority 1).
