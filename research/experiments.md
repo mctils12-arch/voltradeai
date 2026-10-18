@@ -3,6 +3,19 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-18 (scheduled-routine PRODUCT session, Sun, markets closed) [PIPELINE] — T-DATACORE (sec_filings_gate2.py + test; v1.0.1100) — LAZY PRICES PR 3: GATE-2 (SIGNAL) HARNESS, BUILT AHEAD OF THE PRICE PANEL
+
+HEALTH: no KNOWN BROKEN item blocks product work (only #44, FROZEN Dockerfile, proposal filed); recent sessions healthy per the two [NO-ACTION] entries above. No new fact to notify.
+CHOICE: PR 2g(ii)'s production `--pit` run needs the Railway volume and the PIT price panel needs a vendor decision (Polygon cost estimate -> wishlist), neither reachable from the sandbox. The one gate-2 piece that needs neither is the test machinery itself; building it now means the first real panel is judged by a harness whose rules were fixed BEFORE any return was seen.
+PRIOR (stated before running): on synthetic worlds the harness recovers a planted top-minus-bottom spread (PASS), flags a reversed one (FAIL), passes none of 6 pure-noise worlds, fails an effect smaller than the 20 bps cost, and returns INSUFFICIENT (not FAIL) when OOS cohorts < 24.
+CHANGE: new `sec_filings_gate2.py` (stdlib only, no trading imports). Pre-registered in its docstring: primary test 10-K / Item 1A / cosine_tfidf; monthly-cohort quintiles (market drift cancels); direction least-changed minus most-changed > 0; entry = first session OPEN after the filing is public (same-day only if accepted before 09:00 ET, DST-correct via zoneinfo, never the filing-day close); 63d horizon; delisted-before-exit uses last close and is counted; 10 bps per leg; OOS = cohorts from 2015-01, in-sample is context only; Newey-West lag 2; t must clear a Bonferroni-style critical value for `variants` tried (3 so far) over >= 24 OOS cohorts. `SimplePanel` / `load_panel` define the price-panel contract (days calendar, open/close, injected ADV eligibility). CLI `python3 sec_filings_gate2.py --rows rows.json --panel panel.json --variants 3`.
+TESTS: +16 (entry-time rule incl. DST/weekend/past-end, pre-filing spike invisible, delisting, drop reasons, deterministic quintiles, planted/reversed/null/sub-cost/short-OOS/in-sample-only worlds, NW t at lag 0 vs plain t, critical-t monotone in variants, small cohorts skipped, unverified-timestamp surfaced). 4 mutations (cutoff moved, same-day always, costs removed, wrong return base) each fail >= 1 test. 101/101 across the five sec_filings suites.
+RESULT / HONEST LIMITS: NO SIGNAL CLAIM. Synthetic data proves the machinery only. Not done: real panel (needs delisted names — Yahoo-style panels are survivor-biased and must NOT be used for this gate), ADV floor wiring, size/Item-1A-vs-other splits, Q-by-Q 10-Q test (each is a new variant and must raise `variants`). Newey-West at lag 2 is a stated approximation for monthly cohorts with 63d windows.
+BIAS/EFFECT: new descriptive/evaluation tooling; no trading path, no existing measurement code touched. ROLLBACK: git revert.
+NEXT (PR 2g ii / 4): scheduled production `distribution --pit --rows-json` run; PIT price panel incl. delisted names (Polygon estimate -> wishlist.md if paid), then run this harness once, OOS verdict recorded as-is.
+MERGE: markets closed; merge-safe any time.
+STARVED: no.
+
 ## 2026-10-18 (scheduled-routine EDGE session, Sun, markets closed) [NO-ACTION] — no code_version change — AXIS RE-SURVEY: NOTHING UNBLOCKED SINCE 10-15
 
 HEALTH: session_health_check all OK except daemon rss=404MB >= trim_mb=400 (known, non-critical trimmed-mode WARN, precedent above); v1.0.1099 live = checkout; liveness ok. research_state_check: thrash 2/10 REPAIR, STARVED 0, no audit overdue, archives fresh. KNOWN BROKEN: only #44 (FROZEN Dockerfile, proposal filed). Not a REPAIR session.
