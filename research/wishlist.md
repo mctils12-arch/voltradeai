@@ -1,5 +1,17 @@
 # Data / Access Wishlist — human reviews weekly
 
+## LAZY PRICES GATE 2 NEEDS A POINT-IN-TIME PRICE PANEL INCLUDING DELISTED NAMES — 2026-10-18, human decision on a small spend (est. $20-199 one-off/monthly), build-first analysis attached
+
+Gate-2 harness `sec_filings_gate2.py` (v1.0.1100) is built and pre-registered; every upstream step is free and done. The only missing input is daily open/close for ~every US 10-K filer 2009-2026 INCLUDING names delisted before today, keyed by CIK. Yahoo/Alpaca-style panels of surviving tickers are survivor-biased and would flatter exactly the "least-changed minus most-changed" spread the test measures (changed-language filers skew toward later failures), so they must not be used.
+
+BUILD-FIRST (CLAUDE.md order):
+1. Raw material free? Filing side yes (EDGAR, done). Price side: SEC publishes no prices. Alpaca historical bars may cover some inactive symbols, but this is UNVERIFIED (no Alpaca key in the sandbox) and coverage of pre-2016 delistings is not documented — a session with keys can probe it for free first: pull 30 known delisted CIKs, count how many return bars. If >= ~90% return bars back to 2009, no spend is needed.
+2. Accumulation? No — the test needs 2009-2026 history; recording from today cannot substitute.
+3. Inference? No honest free substitute for realised returns.
+4. Genuinely paid candidates (prices from web search 2026-10-18, UNVERIFIED against vendor pages — confirm before buying): Polygon/Massive Developer $79/mo (10y history, delisted tickers reported included) or Advanced $199/mo (20y+) — one month of Advanced is enough for a bulk pull; EODHD ~$20/mo (delisted flag, EOD back to 1990s for e.g. ATVI; coverage for pre-2018 delistings is EOD-only, which is all this test needs; user-reported price). Risk on every vendor: ticker reuse maps an old CIK's ticker to a NEW company — the CIK→ticker→price join must use the filing-date ticker with an identity check (EDGAR submissions carry former names/tickers).
+HONESTY: free probe (1) is cheap and should go first; if it fails, recommend EODHD one month (~$20) with a 25-CIK delisted spot-check before the full pull, escalating to Polygon Advanced only if EODHD coverage fails the spot-check. Licence: research use only; do NOT redistribute vendor prices in /data (derived signal statistics only) — check the vendor's terms before any product surface.
+ASK: (a) authorise the free Alpaca delisted probe in a keyed session, (b) approve up to ~$20-199 one month if (a) fails. Until then the Lazy Prices line stays at harness-built, gate 2 not run. No signal is claimed.
+
 ## ⚠ VOLUME CAPACITY 2026-10-12 — sweep/OpenSky aircraft archiving permanently paused; human decision needed
 
 Live /api/data/archive/offload-status (2026-10-12 ~16:08Z): volume free 1.39 GB, local archive 1.47 GB (21 days; vessels 1.2 GB = 82%), R2 holds 1.67 GB. The sweep archive gate is 2 GiB free, but the 22-day hot-tier floor (required by the GNSS-integrity signal) keeps local near 1.43 GB at ~65 MB/day, so free never exceeds ~1.4 GB: 381,882 sweep fixes skipped, 0 archived since boot. Viewport/tracked archiving has only ~0.3 GB above its 1 GiB floor. An archive gap never refills (Priority 1).

@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-18 (scheduled-routine PRODUCT session #2, Sun, markets closed) [PIPELINE] — T-DATACORE (docs only, no code_version change) — LAZY PRICES: PIT PRICE-PANEL REQUIREMENT FILED WITH BUILD-FIRST ANALYSIS
+
+HEALTH: no KNOWN BROKEN item blocks product work (only #44, FROZEN, proposal filed); preceding sessions healthy. No notification needed.
+CHOICE: PR 2g(ii) needs the production volume (unreachable here); the gate-2 harness (v1.0.1100) needs a delisted-inclusive price panel, a vendor/spend decision the constitution routes to wishlist.md. That entry was promised by the prior session and not yet filed.
+PRIOR: a free route (Alpaca inactive-symbol bars) may cover part of the need but is unverified; survivor-biased panels are unacceptable for this test.
+CHANGE: wishlist.md top entry — build-first analysis (probe Alpaca delisted coverage first; else EODHD ~$20/mo with 25-CIK spot-check; Polygon Advanced as escalation), ticker-reuse/CIK-join hazard, licence note. Vendor prices came from web search and are marked unverified.
+RESULT: no code, no signal claim. EFFECT: docs only. ROLLBACK: git revert.
+NEXT: keyed session runs the free Alpaca probe; then human spend decision; then PR 2g(ii) production --pit run and one pre-registered gate-2 run.
+MERGE: markets closed; merge-safe any time.
+STARVED: no (blocked on human decision, filed).
+
 ## 2026-10-18 (scheduled-routine PRODUCT session, Sun, markets closed) [PIPELINE] — T-DATACORE (sec_filings_gate2.py + test; v1.0.1100) — LAZY PRICES PR 3: GATE-2 (SIGNAL) HARNESS, BUILT AHEAD OF THE PRICE PANEL
 
 HEALTH: no KNOWN BROKEN item blocks product work (only #44, FROZEN Dockerfile, proposal filed); recent sessions healthy per the two [NO-ACTION] entries above. No new fact to notify.
