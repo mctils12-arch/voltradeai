@@ -23,7 +23,10 @@ import {
 } from "./clinicalTrials";
 
 // Shape verified live against clinicaltrials.gov/api/v2 on 2026-10-19.
-const study = (nct: string, over: any = {}) => ({
+interface StudyOver {
+  title?: string; status?: string; pcd?: string | null; fp?: string; sponsor?: string; phases?: string[];
+}
+const study = (nct: string, over: StudyOver = {}) => ({
   protocolSection: {
     identificationModule: { nctId: nct, briefTitle: over.title ?? `Study ${nct}` },
     statusModule: {
@@ -65,7 +68,7 @@ test("diffTrials: bootstrap run emits ONE marker and no fabricated changes", () 
   assert.equal(ev[0].tracked, 2);
 });
 
-const snap = (studies: any[]) => {
+const snap = (studies: ReturnType<typeof study>[]) => {
   const m: Record<string, TrialState> = {};
   for (const s of parseTrials({ studies })) m[s.n] = s;
   return m;
@@ -133,7 +136,7 @@ test("buildTrialsUrl: industry Phase 2/3 interventional, date window, page token
   assert.ok(!decodeURIComponent(buildTrialsUrl(NOW)).includes("pageToken"));
 });
 
-const okFetch = (pages: any[]) => {
+const okFetch = (pages: unknown[]) => {
   let i = 0;
   return async () => {
     const body = pages[Math.min(i++, pages.length - 1)];

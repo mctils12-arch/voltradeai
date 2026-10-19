@@ -108649,3 +108649,4 @@ NOT DONE / NEXT (own PRs): sponsor->ticker join; gate-1 spot check once >= 4 wee
 ROLLBACK: git revert (additive route, additive archive dir; the dir can be deleted with no consumer).
 MERGE: any time (no trading-path code).
 STARVED: yes (Lazy Prices gate 2 awaits human spend/keys).
+CI FOLLOW-UP 2026-10-19 (same PR, v1.0.1102): counter_ratchet failed on the first push (empty_ts_catch +2, ts_any +6, boundary_any +4) because the new module used `: any` and two bare `catch {}`. Fixed in code, pins untouched: typed CtStudy/CtResponse for the registry response, FetchFn exported with RequestInit, the gzip catches now log. Local: ratchet OK (28 counters), 16 tests pass, strict tsc clean on both new files. Lesson compiled: new TS modules must not copy fdaEvents.ts's `any` idiom; type the upstream response.

@@ -86,7 +86,25 @@ export function normDate(s: string | null | undefined): { iso: string; coarse: b
   return { iso: `${m[1]}-${m[2]}-${m[3] || "01"}`, coarse: !m[3] };
 }
 
-export function parseTrials(json: any): TrialState[] {
+/** The slice of the ClinicalTrials.gov v2 response we read (verified live
+ *  2026-10-19); every field optional because the registry omits freely. */
+export interface CtStudy {
+  protocolSection?: {
+    identificationModule?: { nctId?: string; briefTitle?: string };
+    statusModule?: {
+      overallStatus?: string;
+      primaryCompletionDateStruct?: { date?: string; type?: string };
+      lastUpdatePostDateStruct?: { date?: string };
+      studyFirstPostDateStruct?: { date?: string };
+    };
+    sponsorCollaboratorsModule?: { leadSponsor?: { name?: string; class?: string } };
+    conditionsModule?: { conditions?: string[] };
+    designModule?: { phases?: string[]; enrollmentInfo?: { count?: number } };
+  };
+}
+export interface CtResponse { studies?: CtStudy[]; nextPageToken?: string }
+
+export function parseTrials(json: CtResponse | null | undefined): TrialState[] {
   const out: TrialState[] = [];
   for (const s of json?.studies || []) {
     const p = s?.protocolSection;
@@ -175,7 +193,7 @@ export function diffTrials(prev: Record<string, TrialState> | null, cur: TrialSt
 
 // ── fetch (injectable) ──────────────────────────────────────────────────────
 
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+export type FetchFn = (url: string, init?: RequestInit) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
 const FIELDS = [
   "NCTId", "BriefTitle", "LeadSponsorName", "Phase", "OverallStatus", "PrimaryCompletionDate",
@@ -192,13 +210,13 @@ export function buildTrialsUrl(nowMs: number, pageToken?: string): string {
 
 /** Pages through the whole window. THROWS if pages remain after MAX_PAGES —
  *  a partial snapshot must never reach the diff. */
-export async function fetchTrials(fetchImpl: FetchFn = fetch as any, nowMs: number = Date.now()): Promise<TrialState[]> {
+export async function fetchTrials(fetchImpl: FetchFn = fetch as unknown as FetchFn, nowMs: number = Date.now()): Promise<TrialState[]> {
   const all: TrialState[] = [];
   let token: string | undefined;
   for (let i = 0; i < MAX_PAGES; i++) {
-    const r = await fetchImpl(buildTrialsUrl(nowMs, token), { headers: UA, signal: AbortSignal.timeout(30000) as any });
+    const r = await fetchImpl(buildTrialsUrl(nowMs, token), { headers: UA, signal: AbortSignal.timeout(30000) });
     if (!r.ok) throw new Error(`clinicaltrials page ${i} -> ${r.status}`);
-    const json = JSON.parse(await r.text());
+    const json = JSON.parse(await r.text()) as CtResponse;
     all.push(...parseTrials(json));
     token = json?.nextPageToken || undefined;
     if (!token) return all;
@@ -286,7 +304,9 @@ export function gzipOldTrialDays(baseDir?: string, nowMs?: number): number {
       fs.unlinkSync(fp);
       n++;
     }
-  } catch {}
+  } catch (e) {
+    console.error("[datacore] clinical trials gzip:", e instanceof Error ? e.message : e);
+  }
   return n;
 }
 
@@ -297,7 +317,7 @@ export function gzipOldTrialDays(baseDir?: string, nowMs?: number): number {
  *  re-emits the same events next cycle, which archiveTrialEvents'
  *  same-day key check absorbs; the reverse order would LOSE them. */
 export async function runClinicalTrialsOnce(
-  fetchImpl: FetchFn = fetch as any, nowMs: number = Date.now(), baseDir?: string,
+  fetchImpl: FetchFn = fetch as unknown as FetchFn, nowMs: number = Date.now(), baseDir?: string,
 ): Promise<{ tracked: number; events: number }> {
   const rt = new Date(nowMs).toISOString().slice(0, 10);
   const cur = await fetchTrials(fetchImpl, nowMs);
@@ -305,7 +325,9 @@ export async function runClinicalTrialsOnce(
   const events = diffTrials(loadTrialState(baseDir), cur, rt);
   const written = archiveTrialEvents(events, baseDir, nowMs);
   saveTrialState(cur, baseDir);
-  try { gzipOldTrialDays(baseDir, nowMs); } catch {}
+  try { gzipOldTrialDays(baseDir, nowMs); } catch (e) {
+    console.error("[datacore] clinical trials gzip:", e instanceof Error ? e.message : e);
+  }
   return { tracked: cur.length, events: written };
 }
 
@@ -332,14 +354,14 @@ export function recentTrialEvents(baseDir?: string, nowMs?: number): TrialEvent[
   return out;
 }
 
-export async function refreshClinicalTrials(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
+export async function refreshClinicalTrials(fetchImpl: FetchFn = fetch as unknown as FetchFn, nowMs?: number, baseDir?: string): Promise<void> {
   try {
     const r = await runClinicalTrialsOnce(fetchImpl, nowMs, baseDir);
     cache = { at: Date.now(), tracked: r.tracked, events: recentTrialEvents(baseDir, nowMs) };
-  } catch (e: any) {
+  } catch (e) {
     // Loud, never silent (Law V spirit): a failed cycle keeps the old
     // snapshot and old cache; the next cycle retries from the same state.
-    console.error("[datacore] clinical trials:", e?.message || e);
+    console.error("[datacore] clinical trials:", e instanceof Error ? e.message : e);
     if (!cache) {
       const events = recentTrialEvents(baseDir, nowMs);
       const st = loadTrialState(baseDir);
