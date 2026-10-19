@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HEALTH_SICS, joinSponsors, joinStats, tickerToCik, type SecTickerRow } from "./clinicalTrialsTicker";
+import { annotateWithTicker, loadSponsorIndex, sponsorIndex, _resetSponsorIndexForTests, HEALTH_SICS, joinSponsors, joinStats, tickerToCik, type SecTickerRow } from "./clinicalTrialsTicker";
 
 const TICKERS: Record<string, SecTickerRow> = {
   "0": { cik_str: 1595097, ticker: "CRBP", title: "Corbus Pharmaceuticals Holdings, Inc." },
@@ -56,4 +56,29 @@ test("joinStats counts trials by matched sponsors only", async () => {
 
 test("health SIC set is the pre-registered five", () => {
   assert.deepEqual([...HEALTH_SICS].sort(), [2833, 2834, 2835, 2836, 8731]);
+});
+
+test("sponsorIndex keeps only matched rows; annotate never guesses", () => {
+  const idx = sponsorIndex({ rows: [
+    { sponsor: "Corbus Pharmaceuticals Inc.", status: "matched", ticker: "CRBP", cik: 1595097, sic: 2834 },
+    { sponsor: "Polaris Group", status: "rejected_sic", ticker: "PII", cik: 931015, sic: 3790 },
+    { sponsor: "Unreadable", status: "sic_unknown", ticker: "UNRD", cik: 555, sic: null },
+  ] });
+  assert.equal(idx.size, 1);
+  const out = annotateWithTicker([{ sponsor: "Corbus Pharmaceuticals Inc.", n: 1 }, { sponsor: "Polaris Group", n: 2 }, { sponsor: "Nobody", n: 3 }], idx);
+  assert.deepEqual(out.map((e) => e.ticker), ["CRBP", null, null]);
+  assert.equal(out[0].cik, 1595097);
+  assert.equal(out[1].cik, null);
+  assert.equal(out[0].n, 1, "original fields preserved");
+  assert.equal(annotateWithTicker([{ sponsor: null }], idx)[0].ticker, null, "null sponsor is tolerated");
+});
+
+test("loadSponsorIndex reads the committed map and degrades to empty on a bad path", () => {
+  _resetSponsorIndexForTests();
+  const real = loadSponsorIndex();
+  assert.ok(real.size > 100, "committed snapshot has >100 matched sponsors");
+  assert.equal(real.get("Sanofi")?.ticker, "SNY");
+  _resetSponsorIndexForTests();
+  assert.equal(loadSponsorIndex("/nonexistent/map.json").size, 0);
+  _resetSponsorIndexForTests();
 });

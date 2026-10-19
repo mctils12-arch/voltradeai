@@ -15,7 +15,10 @@
  * sponsors never appear in company_tickers.json); an unmatched sponsor is
  * dropped from gate 2, never guessed. No trading imports (datacore boundary).
  */
+import fs from "node:fs";
+import path from "node:path";
 import { buildTickerMap, normalizeCompanyName } from "./usaSpending";
+import { repoDataPath } from "./repoFiles";
 
 /** Pre-registered: 2833 medicinal chemicals, 2834 pharma preps, 2835 in-vitro
  *  diagnostics, 2836 biologicals, 8731 commercial physical/biological research. */
@@ -82,4 +85,47 @@ export function joinStats(rows: SponsorJoin[], trialsBySponsor: Map<string, numb
     trials_matched: trials(by("matched")),
     trial_coverage: total ? trials(by("matched")) / total : 0,
   };
+}
+
+/** Display-side use of the join (identity only, NO signal claim): sponsor ->
+ *  {ticker,cik} for `matched` rows only. rejected_sic / sic_unknown /
+ *  unmatched sponsors get no ticker — the display never guesses. */
+export interface SponsorMapFile { rows?: SponsorJoin[] }
+export type SponsorIndex = Map<string, { ticker: string; cik: number }>;
+
+export function sponsorIndex(file: SponsorMapFile | null | undefined): SponsorIndex {
+  const m: SponsorIndex = new Map();
+  for (const r of file?.rows || []) {
+    if (r?.status === "matched" && r.ticker && r.cik != null) m.set(r.sponsor, { ticker: r.ticker, cik: r.cik });
+  }
+  return m;
+}
+
+export function annotateWithTicker<T extends { sponsor: string | null }>(
+  events: T[],
+  idx: SponsorIndex,
+): Array<T & { ticker: string | null; cik: number | null }> {
+  return events.map((e) => {
+    const hit = e.sponsor == null ? undefined : idx.get(e.sponsor);
+    return { ...e, ticker: hit?.ticker ?? null, cik: hit?.cik ?? null };
+  });
+}
+
+let cachedIndex: SponsorIndex | null = null;
+/** Lazy, cached load of the committed snapshot map. Missing/corrupt file
+ *  degrades to an empty index (tickers null) and logs — never throws. */
+export function loadSponsorIndex(jsonPath?: string): SponsorIndex {
+  if (cachedIndex) return cachedIndex;
+  const p = jsonPath || repoDataPath(path.join("datacore", "clinical_trials_sponsor_map.json"));
+  try {
+    cachedIndex = sponsorIndex(JSON.parse(fs.readFileSync(p, "utf-8")));
+  } catch (e) {
+    console.error("[clinical-trials] sponsor map load:", (e as Error)?.message || e);
+    return new Map();
+  }
+  return cachedIndex;
+}
+
+export function _resetSponsorIndexForTests(): void {
+  cachedIndex = null;
 }

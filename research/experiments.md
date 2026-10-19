@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-19 (scheduled routine PRODUCT session #2, ~18:10Z Mon = 14:10 ET, MID-MARKET) [PIPELINE] — T-DATACORE (server/clinicalTrialsTicker.ts + test, routes.ts one block, script/build.ts one line; v1.0.1112) — CLINICALTRIALS API NOW CARRIES THE SPONSOR->TICKER IDENTITY
+
+HEALTH: session_health_check all OK live (v1.0.1111 == main, deploy_gate 2xx, liveness alive, daemon 361MB); no critical KNOWN BROKEN. GNSS raw-vs-fold comparison and Lazy Prices gate 2 need the Railway volume / price panel (unreachable here), so not the action.
+CHOICE: the 10-19 join map existed only as a repo file; no customer-facing surface used it. Wiring it into the raw endpoint makes the catalyst feed ticker-addressable (priority (3) API surface) and is the join half a future gate-2 consumer reads.
+PRIOR: ~20% of change events carry a ticker (trial coverage was 21.7%); zero rejected_sic/unmatched sponsors get one.
+CHANGE: `sponsorIndex/annotateWithTicker/loadSponsorIndex` (matched rows only; missing/corrupt map degrades to null tickers, logs, never throws). /api/data/clinical-trials adds `ticker`,`cik` per event; note text states identity-only snapshot join. build.ts stages the map into dist/ (R14 class: repoDataPath reads dist/ on Railway; without the cp prod would silently return null tickers).
+TESTS: clinicalTrialsTicker.test.ts 10 pass (+2: matched-only index and never-guess annotate; real committed map loads with Sanofi->SNY, bad path -> empty); clinicalTrials 16 pass; counter_ratchet OK (28).
+NO SIGNAL CLAIM: kind stays raw; ticker is a current-day name+SIC-lock match, not point-in-time (gate 2 must key on CIK and re-verify at event date). No trading path or measurement code touched.
+NEXT: after deploy, live-verify ticker non-null share on /api/data/clinical-trials (expect ~20%); /data UI card (needs visual harness run, own PR).
+ROLLBACK: git revert. MERGE: prepared mid-market; no trading-path code, but prefer merging after 16:00 ET.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-19 (scheduled routine PRODUCT session, ~13:05Z Mon = 09:05 ET, pre-market) [PIPELINE] — T-DATACORE (server/clinicalTrialsTicker.ts + test, scripts/clinical_trials_sponsor_join.ts, datacore/clinical_trials_sponsor_map.json; v1.0.1103) — CLINICALTRIALS SPONSOR->TICKER JOIN (gate-2 prerequisite (i))
 
 HEALTH: preceding sessions healthy (07:10 ET daily: all OK, v1.0.1102 == main); no critical KNOWN BROKEN. Product action proceeds. Lazy Prices gate 2 still blocked on the human price-panel decision.
