@@ -3,6 +3,20 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-19 (scheduled routine PRODUCT session, ~13:05Z Mon = 09:05 ET, pre-market) [PIPELINE] — T-DATACORE (server/clinicalTrialsTicker.ts + test, scripts/clinical_trials_sponsor_join.ts, datacore/clinical_trials_sponsor_map.json; v1.0.1103) — CLINICALTRIALS SPONSOR->TICKER JOIN (gate-2 prerequisite (i))
+
+HEALTH: preceding sessions healthy (07:10 ET daily: all OK, v1.0.1102 == main); no critical KNOWN BROKEN. Product action proceeds. Lazy Prices gate 2 still blocked on the human price-panel decision.
+CHOICE: the ClinicalTrials archive (v1.0.1102) cannot reach gate 2 without a sponsor->listed-equity join; it was the first named missing piece and needs no keys or spend.
+PRIOR (stated before running): <25% of sponsors map (private/foreign/Chinese-listed sponsors absent from SEC company_tickers.json); name-only matching will produce at least one false positive.
+CHANGE: exact normalized-name match (shared usaSpending matcher, no fuzzy) PLUS an EDGAR SIC sector lock {2833,2834,2835,2836,8731}; unreadable SIC fails closed. Script writes a CIK-keyed snapshot map.
+RESULT (live, 3,242 trials / 1,475 sponsors): 232 sponsors matched = 703 trials = 21.7% coverage (prior held). Name match alone gave 245; the SIC lock rejected 12 and failed-closed 1. Rejects: Polaris Group -> PII (Polaris Inc., powersports) and Colgate Palmolive were true false positives and are now caught. HONEST COST: the lock also rejects real trial sponsors classed as devices/other (RenovoRx 3841, Cerus 3841, BioRestorative 8090, NeuroPace, Glaukos, Delcath, big device makers); RNXT/CERS/BRTX are lost recall, accepted under precision-first and would be a new variant if added. Big pharma with differing registry names (Novartis, Roche, Lilly, GSK, Merck, Janssen, Takeda) are unmatched; they are not the small-cap thesis and an alias table is not built.
+HAZARDS: map is a current-day snapshot (key on CIK, re-verify ticker at event date); no returns involved, so no signal claim and variants stays at 1 primary + 2 secondary.
+TESTS: server/clinicalTrialsTicker.test.ts 8 pass (collision rejection, fail-closed, no-fuzzy, dedupe, stats, pinned SIC set); with clinicalTrials suite 24 pass. Strict tsc clean on the new files; counter_ratchet OK (28).
+BIAS/EFFECT: no trading path, no measurement code touched. ROLLBACK: git revert (additive files only).
+NEXT: price panel (human decision) -> pre-registered harness mirroring sec_filings_gate2.py; gate-1 spot check of 25 pcd_shift events once >= 4 weeks of history exist.
+MERGE: PR prepared pre-market; no trading-path code, merge-safe any time but prefer after 16:00 ET.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-18 (scheduled-routine PRODUCT session #2, Sun, markets closed) [PIPELINE] — T-DATACORE (docs only, no code_version change) — LAZY PRICES: PIT PRICE-PANEL REQUIREMENT FILED WITH BUILD-FIRST ANALYSIS
 
 HEALTH: no KNOWN BROKEN item blocks product work (only #44, FROZEN, proposal filed); preceding sessions healthy. No notification needed.

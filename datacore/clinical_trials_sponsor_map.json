@@ -1,0 +1,1730 @@
+{
+ "generated": "2026-10-19",
+ "stats": {
+  "sponsors": 1475,
+  "matched": 232,
+  "rejected_sic": 12,
+  "sic_unknown": 1,
+  "unmatched": 1230,
+  "trials_total": 3242,
+  "trials_matched": 703,
+  "trial_coverage": 0.21684145589142503
+ },
+ "rows": [
+  {
+   "sponsor": "Sanofi",
+   "status": "matched",
+   "ticker": "SNY",
+   "cik": 1121404,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Corbus Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "CRBP",
+   "cik": 1595097,
+   "sic": 2834
+  },
+  {
+   "sponsor": "TG Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "TGTX",
+   "cik": 1001316,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Bristol-Myers Squibb",
+   "status": "matched",
+   "ticker": "BMY",
+   "cik": 14272,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Kiora Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "KPRX",
+   "cik": 1372514,
+   "sic": 2834
+  },
+  {
+   "sponsor": "IDEAYA Biosciences",
+   "status": "matched",
+   "ticker": "IDYA",
+   "cik": 1676725,
+   "sic": 2834
+  },
+  {
+   "sponsor": "AstraZeneca",
+   "status": "matched",
+   "ticker": "AZN",
+   "cik": 901832,
+   "sic": 2834
+  },
+  {
+   "sponsor": "AbbVie",
+   "status": "matched",
+   "ticker": "ABBV",
+   "cik": 1551152,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Cytokinetics",
+   "status": "matched",
+   "ticker": "CYTK",
+   "cik": 1061983,
+   "sic": 2834
+  },
+  {
+   "sponsor": "60 Degrees Pharmaceuticals LLC",
+   "status": "matched",
+   "ticker": "SXTP",
+   "cik": 1946563,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Olema Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "OLMA",
+   "cik": 1750284,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Gilead Sciences",
+   "status": "matched",
+   "ticker": "GILD",
+   "cik": 882095,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Biogen",
+   "status": "matched",
+   "ticker": "BIIB",
+   "cik": 875045,
+   "sic": 2836
+  },
+  {
+   "sponsor": "BioAge Labs, Inc.",
+   "status": "matched",
+   "ticker": "BIOA",
+   "cik": 1709941,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Dogwood Therapeutics Inc.",
+   "status": "matched",
+   "ticker": "DWTX",
+   "cik": 1818844,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Regeneron Pharmaceuticals",
+   "status": "matched",
+   "ticker": "REGN",
+   "cik": 872589,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Abivax S.A.",
+   "status": "matched",
+   "ticker": "ABVX",
+   "cik": 1956827,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Palisade Bio",
+   "status": "matched",
+   "ticker": "PALI",
+   "cik": 1357459,
+   "sic": 2836
+  },
+  {
+   "sponsor": "RenovoRx",
+   "status": "rejected_sic",
+   "ticker": "RNXT",
+   "cik": 1574094,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Arrowhead Pharmaceuticals",
+   "status": "matched",
+   "ticker": "ARWR",
+   "cik": 879407,
+   "sic": 2834
+  },
+  {
+   "sponsor": "PTC Therapeutics",
+   "status": "matched",
+   "ticker": "PTCT",
+   "cik": 1070081,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Celldex Therapeutics",
+   "status": "matched",
+   "ticker": "CLDX",
+   "cik": 744218,
+   "sic": 2835
+  },
+  {
+   "sponsor": "Novo Nordisk A/S",
+   "status": "matched",
+   "ticker": "NVO",
+   "cik": 353278,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Biomea Fusion Inc.",
+   "status": "matched",
+   "ticker": "BMEA",
+   "cik": 1840439,
+   "sic": 2834
+  },
+  {
+   "sponsor": "REGENXBIO Inc.",
+   "status": "matched",
+   "ticker": "RGNX",
+   "cik": 1590877,
+   "sic": 2836
+  },
+  {
+   "sponsor": "MediWound Ltd",
+   "status": "matched",
+   "ticker": "MDWD",
+   "cik": 1593984,
+   "sic": 2833
+  },
+  {
+   "sponsor": "NervGen Pharma",
+   "status": "matched",
+   "ticker": "NGEN",
+   "cik": 1751912,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Revolution Medicines, Inc.",
+   "status": "matched",
+   "ticker": "RVMD",
+   "cik": 1628171,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Savara Inc.",
+   "status": "matched",
+   "ticker": "SVRA",
+   "cik": 1160308,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Incyte Corporation",
+   "status": "matched",
+   "ticker": "INCY",
+   "cik": 879169,
+   "sic": 8731
+  },
+  {
+   "sponsor": "Amgen",
+   "status": "matched",
+   "ticker": "AMGN",
+   "cik": 318154,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Alkermes, Inc.",
+   "status": "matched",
+   "ticker": "ALKS",
+   "cik": 1520262,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Recursion Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "RXRX",
+   "cik": 1601830,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Pfizer",
+   "status": "matched",
+   "ticker": "PFE",
+   "cik": 78003,
+   "sic": 2834
+  },
+  {
+   "sponsor": "ImmunityBio, Inc.",
+   "status": "matched",
+   "ticker": "IBRX",
+   "cik": 1326110,
+   "sic": 2836
+  },
+  {
+   "sponsor": "SIGA Technologies",
+   "status": "matched",
+   "ticker": "SIGA",
+   "cik": 1010086,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Jazz Pharmaceuticals",
+   "status": "matched",
+   "ticker": "JAZZ",
+   "cik": 1232524,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Genelux Corporation",
+   "status": "matched",
+   "ticker": "GNLX",
+   "cik": 1231457,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tiziana Life Sciences LTD",
+   "status": "matched",
+   "ticker": "TLSA",
+   "cik": 1723069,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Aligos Therapeutics",
+   "status": "matched",
+   "ticker": "ALGS",
+   "cik": 1799448,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Polaris Group",
+   "status": "rejected_sic",
+   "ticker": "PII",
+   "cik": 931015,
+   "sic": 3790
+  },
+  {
+   "sponsor": "Colgate Palmolive",
+   "status": "rejected_sic",
+   "ticker": "CL",
+   "cik": 21665,
+   "sic": 2844
+  },
+  {
+   "sponsor": "Neurocrine Biosciences",
+   "status": "matched",
+   "ticker": "NBIX",
+   "cik": 914475,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Alto Neuroscience",
+   "status": "matched",
+   "ticker": "ANRO",
+   "cik": 1999480,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Coya Therapeutics",
+   "status": "matched",
+   "ticker": "COYA",
+   "cik": 1835022,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Cardiol Therapeutics Inc.",
+   "status": "matched",
+   "ticker": "CRDL",
+   "cik": 1702123,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Stoke Therapeutics, Inc",
+   "status": "matched",
+   "ticker": "STOK",
+   "cik": 1623526,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Sarepta Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "SRPT",
+   "cik": 873303,
+   "sic": 2834
+  },
+  {
+   "sponsor": "BeOne Medicines",
+   "status": "matched",
+   "ticker": "ONC",
+   "cik": 1651308,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Coherus Oncology, Inc.",
+   "status": "matched",
+   "ticker": "CHRS",
+   "cik": 1512762,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Belite Bio, Inc",
+   "status": "matched",
+   "ticker": "BLTE",
+   "cik": 1889109,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vir Biotechnology, Inc.",
+   "status": "matched",
+   "ticker": "VIR",
+   "cik": 1706431,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Inhibikase Therapeutics",
+   "status": "matched",
+   "ticker": "IKT",
+   "cik": 1750149,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Cerus Corporation",
+   "status": "rejected_sic",
+   "ticker": "CERS",
+   "cik": 1020214,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Ascendis Pharma A/S",
+   "status": "matched",
+   "ticker": "ASND",
+   "cik": 1612042,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Adagene Inc",
+   "status": "matched",
+   "ticker": "ADAG",
+   "cik": 1818838,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Larimar Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "LRMR",
+   "cik": 1374690,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vanda Pharmaceuticals",
+   "status": "matched",
+   "ticker": "VNDA",
+   "cik": 1347178,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Solid Biosciences Inc.",
+   "status": "matched",
+   "ticker": "SLDB",
+   "cik": 1707502,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Alnylam Pharmaceuticals",
+   "status": "matched",
+   "ticker": "ALNY",
+   "cik": 1178670,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Climb Bio, Inc.",
+   "status": "matched",
+   "ticker": "CLYM",
+   "cik": 1768446,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Travere Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "TVTX",
+   "cik": 1438533,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Quoin Pharmaceuticals",
+   "status": "matched",
+   "ticker": "QNRX",
+   "cik": 1671502,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Arcturus Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ARCT",
+   "cik": 1768224,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ascentage Pharma Group Inc.",
+   "status": "matched",
+   "ticker": "AAPG",
+   "cik": 2023311,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Enanta Pharmaceuticals, Inc",
+   "status": "matched",
+   "ticker": "ENTA",
+   "cik": 1177648,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Verrica Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "VRCA",
+   "cik": 1660334,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Acrivon Therapeutics",
+   "status": "matched",
+   "ticker": "ACRV",
+   "cik": 1781174,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Kardigan, Inc.",
+   "status": "matched",
+   "ticker": "KARD",
+   "cik": 2123613,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Mirum Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "MIRM",
+   "cik": 1759425,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ultragenyx Pharmaceutical Inc",
+   "status": "matched",
+   "ticker": "RARE",
+   "cik": 1515673,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Lexeo Therapeutics",
+   "status": "matched",
+   "ticker": "LXEO",
+   "cik": 1907108,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Bolt Biotherapeutics, Inc.",
+   "status": "matched",
+   "ticker": "BOLT",
+   "cik": 1641281,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Incannex Healthcare Ltd",
+   "status": "matched",
+   "ticker": "IXHL",
+   "cik": 1873875,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vera Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "VERA",
+   "cik": 1831828,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Satellos Bioscience, Inc.",
+   "status": "matched",
+   "ticker": "MSLE",
+   "cik": 1421642,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Rhythm Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "RYTM",
+   "cik": 1649904,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Skye Bioscience, Inc.",
+   "status": "matched",
+   "ticker": "SKYE",
+   "cik": 1516551,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Verastem, Inc.",
+   "status": "matched",
+   "ticker": "VSTM",
+   "cik": 1526119,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Karyopharm Therapeutics Inc",
+   "status": "matched",
+   "ticker": "KPTI",
+   "cik": 1503802,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Seaport Therapeutics",
+   "status": "matched",
+   "ticker": "SPTX",
+   "cik": 2042347,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Nkarta, Inc.",
+   "status": "matched",
+   "ticker": "NKTX",
+   "cik": 1787400,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Indaptus Therapeutics, Inc",
+   "status": "matched",
+   "ticker": "INDP",
+   "cik": 1857044,
+   "sic": 2834
+  },
+  {
+   "sponsor": "BioNTech SE",
+   "status": "matched",
+   "ticker": "BNTX",
+   "cik": 1776985,
+   "sic": 2836
+  },
+  {
+   "sponsor": "ACADIA Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "ACAD",
+   "cik": 1070494,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Candel Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "CADL",
+   "cik": 1841387,
+   "sic": 2836
+  },
+  {
+   "sponsor": "IGC Pharma, LLC",
+   "status": "matched",
+   "ticker": "IGC",
+   "cik": 1326205,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Turn Therapeutics",
+   "status": "matched",
+   "ticker": "TTRX",
+   "cik": 2023016,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Maia Biotechnology",
+   "status": "matched",
+   "ticker": "MAIA",
+   "cik": 1878313,
+   "sic": 2834
+  },
+  {
+   "sponsor": "ORIC Pharmaceuticals",
+   "status": "matched",
+   "ticker": "ORIC",
+   "cik": 1796280,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Estrella Immunopharma, Inc.",
+   "status": "matched",
+   "ticker": "ESLA",
+   "cik": 1844417,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Viking Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "VKTX",
+   "cik": 1607678,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Mesoblast, Ltd.",
+   "status": "matched",
+   "ticker": "MESO",
+   "cik": 1345099,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Opus Genetics, Inc",
+   "status": "matched",
+   "ticker": "IRD",
+   "cik": 1228627,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Upstream Bio Inc.",
+   "status": "matched",
+   "ticker": "UPB",
+   "cik": 2022626,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ionis Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "IONS",
+   "cik": 874015,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Cocrystal Pharma, Inc.",
+   "status": "matched",
+   "ticker": "COCP",
+   "cik": 1412486,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vogenx, Inc.",
+   "status": "matched",
+   "ticker": "VOGX",
+   "cik": 1903784,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vaxart",
+   "status": "matched",
+   "ticker": "VXRT",
+   "cik": 72444,
+   "sic": 2836
+  },
+  {
+   "sponsor": "MiNK Therapeutics",
+   "status": "matched",
+   "ticker": "INKT",
+   "cik": 1840229,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Krystal Biotech, Inc.",
+   "status": "matched",
+   "ticker": "KRYS",
+   "cik": 1711279,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Avalyn Pharma Inc.",
+   "status": "matched",
+   "ticker": "AVLN",
+   "cik": 1540171,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Compass Therapeutics",
+   "status": "matched",
+   "ticker": "CMPX",
+   "cik": 1738021,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Lexicon Pharmaceuticals",
+   "status": "matched",
+   "ticker": "LXRX",
+   "cik": 1062822,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Iovance Biotherapeutics, Inc.",
+   "status": "matched",
+   "ticker": "IOVA",
+   "cik": 1425205,
+   "sic": 2836
+  },
+  {
+   "sponsor": "NeuroPace",
+   "status": "rejected_sic",
+   "ticker": "NPCE",
+   "cik": 1528287,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Cerenome",
+   "status": "rejected_sic",
+   "ticker": "CNSY",
+   "cik": 1095981,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Trevi Therapeutics",
+   "status": "matched",
+   "ticker": "TRVI",
+   "cik": 1563880,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ardelyx",
+   "status": "matched",
+   "ticker": "ARDX",
+   "cik": 1437402,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Spyre Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "SYRE",
+   "cik": 1636282,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Edgewise Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "EWTX",
+   "cik": 1710072,
+   "sic": 2834
+  },
+  {
+   "sponsor": "BioRestorative Therapies",
+   "status": "rejected_sic",
+   "ticker": "BRTX",
+   "cik": 1505497,
+   "sic": 8090
+  },
+  {
+   "sponsor": "Sagimet Biosciences Inc.",
+   "status": "matched",
+   "ticker": "SGMT",
+   "cik": 1400118,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Praxis Precision Medicines",
+   "status": "matched",
+   "ticker": "PRAX",
+   "cik": 1689548,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Eupraxia Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "EPRX",
+   "cik": 1581178,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tvardi Therapeutics, Incorporated",
+   "status": "matched",
+   "ticker": "TVRD",
+   "cik": 1346830,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tectonic Therapeutic",
+   "status": "matched",
+   "ticker": "TECX",
+   "cik": 1681087,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Acumen Pharmaceuticals",
+   "status": "matched",
+   "ticker": "ABOS",
+   "cik": 1576885,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Cartesian Therapeutics",
+   "status": "matched",
+   "ticker": "RNAC",
+   "cik": 1453687,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Xenon Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "XENE",
+   "cik": 1582313,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tenaya Therapeutics",
+   "status": "matched",
+   "ticker": "TNYA",
+   "cik": 1858848,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Korro Bio, Inc.",
+   "status": "matched",
+   "ticker": "KRRO",
+   "cik": 1703647,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Aclaris Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ACRS",
+   "cik": 1557746,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Akebia Therapeutics",
+   "status": "matched",
+   "ticker": "AKBA",
+   "cik": 1517022,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Traws Pharma, Inc.",
+   "status": "matched",
+   "ticker": "TRAW",
+   "cik": 1130598,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tango Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "TNGX",
+   "cik": 1819133,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ocugen",
+   "status": "matched",
+   "ticker": "OCGN",
+   "cik": 1372299,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Azitra Inc.",
+   "status": "matched",
+   "ticker": "AZTR",
+   "cik": 1701478,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Thiogenesis Therapeutics, Inc.",
+   "status": "sic_unknown",
+   "ticker": "TTIPF",
+   "cik": 1877778,
+   "sic": null
+  },
+  {
+   "sponsor": "Aldeyra Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ALDX",
+   "cik": 1341235,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Relmada Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "RLMD",
+   "cik": 1553643,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Bausch & Lomb Incorporated",
+   "status": "rejected_sic",
+   "ticker": "BLCO",
+   "cik": 1860742,
+   "sic": 3851
+  },
+  {
+   "sponsor": "Okyo Pharma Ltd",
+   "status": "matched",
+   "ticker": "OKYO",
+   "cik": 1849296,
+   "sic": 2836
+  },
+  {
+   "sponsor": "MediciNova",
+   "status": "matched",
+   "ticker": "MNOV",
+   "cik": 1226616,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Rein Therapeutics",
+   "status": "matched",
+   "ticker": "RNTX",
+   "cik": 1420565,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Palvella Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "PVLA",
+   "cik": 1583648,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Clearmind Medicine Inc.",
+   "status": "matched",
+   "ticker": "CMND",
+   "cik": 1892500,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Silence Therapeutics plc",
+   "status": "matched",
+   "ticker": "SLN",
+   "cik": 1479615,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Corcept Therapeutics",
+   "status": "matched",
+   "ticker": "CORT",
+   "cik": 1088856,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Sinovac Biotech Co., Ltd",
+   "status": "matched",
+   "ticker": "SVA",
+   "cik": 1084201,
+   "sic": 2834
+  },
+  {
+   "sponsor": "MeiraGTx, LLC",
+   "status": "matched",
+   "ticker": "MGTX",
+   "cik": 1735438,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Glaukos Corporation",
+   "status": "rejected_sic",
+   "ticker": "GKOS",
+   "cik": 1192448,
+   "sic": 3841
+  },
+  {
+   "sponsor": "vTv Therapeutics",
+   "status": "matched",
+   "ticker": "VTVT",
+   "cik": 1641489,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Denali Therapeutics Inc.",
+   "status": "matched",
+   "ticker": "DNLI",
+   "cik": 1714899,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Nuvation Bio Inc.",
+   "status": "matched",
+   "ticker": "NUVB",
+   "cik": 1811063,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Immunocore Ltd",
+   "status": "matched",
+   "ticker": "IMCR",
+   "cik": 1671927,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Atea Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "AVIR",
+   "cik": 1593899,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Intellia Therapeutics",
+   "status": "matched",
+   "ticker": "NTLA",
+   "cik": 1652130,
+   "sic": 2835
+  },
+  {
+   "sponsor": "4D Molecular Therapeutics",
+   "status": "matched",
+   "ticker": "FDMT",
+   "cik": 1650648,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Curis, Inc.",
+   "status": "matched",
+   "ticker": "CRIS",
+   "cik": 1108205,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Monte Rosa Therapeutics, Inc",
+   "status": "matched",
+   "ticker": "GLUE",
+   "cik": 1826457,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Neonc Technologies, Inc.",
+   "status": "matched",
+   "ticker": "NTHI",
+   "cik": 1979414,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Boston Scientific Corporation",
+   "status": "rejected_sic",
+   "ticker": "BSX",
+   "cik": 885725,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Parabilis Medicines, Inc.",
+   "status": "matched",
+   "ticker": "PBLS",
+   "cik": 1657677,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Zura Bio Inc",
+   "status": "matched",
+   "ticker": "ZURA",
+   "cik": 1855644,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Disc Medicine, Inc",
+   "status": "matched",
+   "ticker": "IRON",
+   "cik": 1816736,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vaxcyte, Inc.",
+   "status": "matched",
+   "ticker": "PCVX",
+   "cik": 1649094,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Precigen, Inc",
+   "status": "matched",
+   "ticker": "PGEN",
+   "cik": 1356090,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Axsome Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "AXSM",
+   "cik": 1579428,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Veradermics, Inc.",
+   "status": "matched",
+   "ticker": "MANE",
+   "cik": 1827635,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Tyra Biosciences, Inc",
+   "status": "matched",
+   "ticker": "TYRA",
+   "cik": 1863127,
+   "sic": 2834
+  },
+  {
+   "sponsor": "PMV Pharmaceuticals, Inc",
+   "status": "matched",
+   "ticker": "PMVP",
+   "cik": 1699382,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Design Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "DSGN",
+   "cik": 1807120,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Assembly Biosciences",
+   "status": "matched",
+   "ticker": "ASMB",
+   "cik": 1426800,
+   "sic": 2834
+  },
+  {
+   "sponsor": "DiaMedica Therapeutics Inc",
+   "status": "matched",
+   "ticker": "DMAC",
+   "cik": 1401040,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Delcath Systems Inc.",
+   "status": "rejected_sic",
+   "ticker": "DCTH",
+   "cik": 872912,
+   "sic": 3841
+  },
+  {
+   "sponsor": "Kodiak Sciences Inc",
+   "status": "matched",
+   "ticker": "KOD",
+   "cik": 1468748,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Phathom Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "PHAT",
+   "cik": 1783183,
+   "sic": 2834
+  },
+  {
+   "sponsor": "PepGen Inc",
+   "status": "matched",
+   "ticker": "PEPG",
+   "cik": 1835597,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Maze Therapeutics",
+   "status": "matched",
+   "ticker": "MAZE",
+   "cik": 1842295,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Tarsus Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "TARS",
+   "cik": 1819790,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Arcus Biosciences, Inc.",
+   "status": "matched",
+   "ticker": "RCUS",
+   "cik": 1724521,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Eledon Pharmaceuticals",
+   "status": "matched",
+   "ticker": "ELDN",
+   "cik": 1404281,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Ocular Therapeutix, Inc.",
+   "status": "matched",
+   "ticker": "OCUL",
+   "cik": 1393434,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Supernus Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "SUPN",
+   "cik": 1356576,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Insmed Incorporated",
+   "status": "matched",
+   "ticker": "INSM",
+   "cik": 1104506,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Retension Pharmaceuticals. Inc.",
+   "status": "matched",
+   "ticker": "RTSN",
+   "cik": 2002988,
+   "sic": 2834
+  },
+  {
+   "sponsor": "PDS Biotechnology Corp.",
+   "status": "matched",
+   "ticker": "PDSB",
+   "cik": 1472091,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Eloxx Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "ELOX",
+   "cik": 1035354,
+   "sic": 2836
+  },
+  {
+   "sponsor": "ARS Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "SPRY",
+   "cik": 1671858,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Annexon, Inc.",
+   "status": "matched",
+   "ticker": "ANNX",
+   "cik": 1528115,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Beam Therapeutics Inc.",
+   "status": "matched",
+   "ticker": "BEAM",
+   "cik": 1745999,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Evommune, Inc.",
+   "status": "matched",
+   "ticker": "EVMN",
+   "cik": 2044725,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Altimmune, Inc.",
+   "status": "matched",
+   "ticker": "ALT",
+   "cik": 1326190,
+   "sic": 2834
+  },
+  {
+   "sponsor": "LB Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "LBRX",
+   "cik": 1691082,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Sol-Gel Technologies, Ltd.",
+   "status": "matched",
+   "ticker": "SLGL",
+   "cik": 1684693,
+   "sic": 2834
+  },
+  {
+   "sponsor": "OPKO Health, Inc.",
+   "status": "matched",
+   "ticker": "OPK",
+   "cik": 944809,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Oncolytics Biotech",
+   "status": "matched",
+   "ticker": "ONCY",
+   "cik": 1129928,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Telomir Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "TELO",
+   "cik": 1971532,
+   "sic": 2834
+  },
+  {
+   "sponsor": "AbCellera Biologics Inc.",
+   "status": "matched",
+   "ticker": "ABCL",
+   "cik": 1703057,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Agios Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "AGIO",
+   "cik": 1439222,
+   "sic": 2834
+  },
+  {
+   "sponsor": "CG Oncology, Inc.",
+   "status": "matched",
+   "ticker": "CGON",
+   "cik": 1991792,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Kyverna Therapeutics",
+   "status": "matched",
+   "ticker": "KYTX",
+   "cik": 1994702,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Kymera Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "KYMR",
+   "cik": 1815442,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Galmed Pharmaceuticals Ltd",
+   "status": "matched",
+   "ticker": "EOCN",
+   "cik": 1595353,
+   "sic": 2834
+  },
+  {
+   "sponsor": "BioCardia, Inc.",
+   "status": "matched",
+   "ticker": "BCDA",
+   "cik": 925741,
+   "sic": 2836
+  },
+  {
+   "sponsor": "XBiotech, Inc.",
+   "status": "matched",
+   "ticker": "XBIT",
+   "cik": 1626878,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Oruka Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ORKA",
+   "cik": 907654,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Imunon",
+   "status": "matched",
+   "ticker": "IMNN",
+   "cik": 749647,
+   "sic": 2834
+  },
+  {
+   "sponsor": "BioMarin Pharmaceutical",
+   "status": "matched",
+   "ticker": "BMRN",
+   "cik": 1048477,
+   "sic": 2834
+  },
+  {
+   "sponsor": "United Therapeutics",
+   "status": "matched",
+   "ticker": "UTHR",
+   "cik": 1082554,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Cogent Biosciences, Inc.",
+   "status": "matched",
+   "ticker": "COGT",
+   "cik": 1622229,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Veru Inc.",
+   "status": "matched",
+   "ticker": "VERU",
+   "cik": 863894,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Acurx Pharmaceuticals Inc.",
+   "status": "matched",
+   "ticker": "ACXP",
+   "cik": 1736243,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Creative Medical Technology Holdings Inc",
+   "status": "matched",
+   "ticker": "CELZ",
+   "cik": 1187953,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Alzamend Neuro, Inc.",
+   "status": "matched",
+   "ticker": "ALZN",
+   "cik": 1677077,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Sangamo Therapeutics",
+   "status": "matched",
+   "ticker": "SGMOQ",
+   "cik": 1001233,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Humacyte, Inc.",
+   "status": "matched",
+   "ticker": "HUMA",
+   "cik": 1818382,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Omeros Corporation",
+   "status": "matched",
+   "ticker": "OMER",
+   "cik": 1285819,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Corvus Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "CRVS",
+   "cik": 1626971,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Intuitive Surgical",
+   "status": "rejected_sic",
+   "ticker": "ISRG",
+   "cik": 1035267,
+   "sic": 3842
+  },
+  {
+   "sponsor": "Allarity Therapeutics",
+   "status": "matched",
+   "ticker": "ALLR",
+   "cik": 1860657,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Polaryx Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "PLYX",
+   "cik": 2075320,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Eikon Therapeutics",
+   "status": "matched",
+   "ticker": "EIKN",
+   "cik": 1861123,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Exelixis",
+   "status": "matched",
+   "ticker": "EXEL",
+   "cik": 939767,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Cellectis S.A.",
+   "status": "matched",
+   "ticker": "CLLS",
+   "cik": 1627281,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Inovio Pharmaceuticals",
+   "status": "matched",
+   "ticker": "INO",
+   "cik": 1055726,
+   "sic": 2834
+  },
+  {
+   "sponsor": "UroGen Pharma Ltd.",
+   "status": "matched",
+   "ticker": "URGN",
+   "cik": 1668243,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Madrigal Pharmaceuticals, Inc.",
+   "status": "matched",
+   "ticker": "MDGL",
+   "cik": 1157601,
+   "sic": 2834
+  },
+  {
+   "sponsor": "X4 Pharmaceuticals",
+   "status": "matched",
+   "ticker": "XFOR",
+   "cik": 1501697,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Can-Fite BioPharma",
+   "status": "matched",
+   "ticker": "CANF",
+   "cik": 1536196,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Aura Biosciences",
+   "status": "matched",
+   "ticker": "AURA",
+   "cik": 1501796,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Cognition Therapeutics",
+   "status": "matched",
+   "ticker": "CGTX",
+   "cik": 1455365,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Vicore Pharma AB",
+   "status": "matched",
+   "ticker": "VCRE",
+   "cik": 2124403,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Voyager Therapeutics",
+   "status": "matched",
+   "ticker": "VYGR",
+   "cik": 1640266,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Scholar Rock, Inc.",
+   "status": "matched",
+   "ticker": "SRRK",
+   "cik": 1727196,
+   "sic": 2836
+  },
+  {
+   "sponsor": "MacroGenics",
+   "status": "matched",
+   "ticker": "MGNX",
+   "cik": 1125345,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Atossa Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ATOS",
+   "cik": 1488039,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Medicenna Therapeutics, Inc.",
+   "status": "matched",
+   "ticker": "MDNAF",
+   "cik": 1807983,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Lipocine Inc.",
+   "status": "matched",
+   "ticker": "LPCN",
+   "cik": 1535955,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Mannkind Corporation",
+   "status": "matched",
+   "ticker": "MNKD",
+   "cik": 899460,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Protara Therapeutics",
+   "status": "matched",
+   "ticker": "TARA",
+   "cik": 1359931,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Artiva Biotherapeutics, Inc.",
+   "status": "matched",
+   "ticker": "ARTV",
+   "cik": 1817241,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Cardiff Oncology",
+   "status": "matched",
+   "ticker": "CRDF",
+   "cik": 1213037,
+   "sic": 2836
+  },
+  {
+   "sponsor": "LeonaBio",
+   "status": "matched",
+   "ticker": "LONA",
+   "cik": 1620463,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Achieve Life Sciences",
+   "status": "matched",
+   "ticker": "ACHV",
+   "cik": 949858,
+   "sic": 2835
+  },
+  {
+   "sponsor": "Harrow Inc",
+   "status": "matched",
+   "ticker": "HROW",
+   "cik": 1360214,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Lantern Pharma Inc.",
+   "status": "matched",
+   "ticker": "LTRN",
+   "cik": 1763950,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Compugen Ltd",
+   "status": "matched",
+   "ticker": "CGEN",
+   "cik": 1119774,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Syndax Pharmaceuticals",
+   "status": "matched",
+   "ticker": "SNDX",
+   "cik": 1395937,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Arvinas Inc.",
+   "status": "matched",
+   "ticker": "ARVN",
+   "cik": 1655759,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Sellas Life Sciences Group",
+   "status": "matched",
+   "ticker": "SLS",
+   "cik": 1390478,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Medicure",
+   "status": "matched",
+   "ticker": "MCUJF",
+   "cik": 1133519,
+   "sic": 2834
+  },
+  {
+   "sponsor": "Vor Biopharma",
+   "status": "matched",
+   "ticker": "VOR",
+   "cik": 1817229,
+   "sic": 2836
+  },
+  {
+   "sponsor": "Agenus Inc.",
+   "status": "matched",
+   "ticker": "AGEN",
+   "cik": 1098972,
+   "sic": 2836
+  }
+ ]
+}
