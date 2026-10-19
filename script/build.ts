@@ -79,6 +79,8 @@ async function buildAll() {
   await cp("datacore/aircraft/nasr_airways.json", "dist/datacore/aircraft/nasr_airways.json");
   // [PRODUCT 2026-10-14] server/atcFrequencies.ts reads the NASR frequency table at runtime
   await cp("datacore/aircraft/nasr_atc.json", "dist/datacore/aircraft/nasr_atc.json");
+  // [PRODUCT 2026-10-19] server/clinicalTrialsTicker.ts loadSponsorIndex reads this via repoDataPath
+  await cp("datacore/clinical_trials_sponsor_map.json", "dist/datacore/clinical_trials_sponsor_map.json");
   await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
   await cp("datacore/gem/methane_emitters.json.gz", "dist/datacore/gem/methane_emitters.json.gz");
   // [REPAIR 2026-07-20] gemMethaneAssets.ts (server/gemMethaneAssets.ts,

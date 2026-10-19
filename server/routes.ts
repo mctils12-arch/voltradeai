@@ -141,6 +141,7 @@ import { gapFiller } from "./coverageGapFill";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootClinicalTrialsPoll, latestClinicalTrials } from "./clinicalTrials";
+import { annotateWithTicker, loadSponsorIndex } from "./clinicalTrialsTicker";
 import { bootAppStorePoll, latestAppStoreRankings, lookupAppStoreTickerHistory, readAppStoreAggregateHistory } from "./appStoreRankings";
 import { bootGithubActivityPoll, latestGithubActivity, lookupGithubOrgHistory, readGithubActivityAggregateHistory } from "./githubOrgActivity";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
@@ -4085,7 +4086,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ClinicalTrials.gov catalyst-drift archive (RAW display — EDGE DOCTRINE
   // axis (a)): CHANGES in industry Phase 2/3 primary completion dates /
   // statuses, recorded by diffing daily snapshots (the registry serves only
-  // the current value). Sponsor names are not ticker-mapped; no signal is
+  // the current value). Sponsor->ticker is an identity-only snapshot join; no signal is
   // claimed (gate 2 needs >= 52 weeks of accumulation). Boots eagerly.
   bootClinicalTrialsPoll();
   app.get("/api/data/clinical-trials", (_req, res) => {
@@ -4101,8 +4102,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       tracked: hit.tracked,
       count: hit.events.length,
-      note: "Change events from the last 14 days. Dates are sponsor self-reported; coarse=true means a month-only date. Sponsor names are not mapped to tickers.",
-      events: hit.events,
+      note: "Change events from the last 14 days. Dates are sponsor self-reported; coarse=true means a month-only date. ticker/cik are set only where the sponsor's exact normalized name matches an SEC filer whose SIC is pharma/biotech (current-day snapshot map, identity only — not a signal); null otherwise.",
+      events: annotateWithTicker(hit.events, loadSponsorIndex()),
     });
   });
 
