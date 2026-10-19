@@ -90,6 +90,7 @@ ALIASES = {
     "dtcc_sbsdr": ["dtcc_sbsdr_equity_swaps"],
     "un_comtrade": ["un_comtrade_bilateral_trade"],
     "fmcsa_oos_orders": ["fmcsa_oos_orders"],
+    "clinicaltrials_catalyst_drift": ["clinicaltrials_catalyst_drift"],
 }
 
 

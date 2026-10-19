@@ -140,6 +140,7 @@ import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type Disc
 import { gapFiller } from "./coverageGapFill";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
+import { bootClinicalTrialsPoll, latestClinicalTrials } from "./clinicalTrials";
 import { bootAppStorePoll, latestAppStoreRankings, lookupAppStoreTickerHistory, readAppStoreAggregateHistory } from "./appStoreRankings";
 import { bootGithubActivityPoll, latestGithubActivity, lookupGithubOrgHistory, readGithubActivityAggregateHistory } from "./githubOrgActivity";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
@@ -4077,6 +4078,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.events.length,
       note: "No PDUFA target dates — legally unavailable free (21 CFR 314.430); adcom dates carry parse confidence",
+      events: hit.events,
+    });
+  });
+
+  // ClinicalTrials.gov catalyst-drift archive (RAW display — EDGE DOCTRINE
+  // axis (a)): CHANGES in industry Phase 2/3 primary completion dates /
+  // statuses, recorded by diffing daily snapshots (the registry serves only
+  // the current value). Sponsor names are not ticker-mapped; no signal is
+  // claimed (gate 2 needs >= 52 weeks of accumulation). Boots eagerly.
+  bootClinicalTrialsPoll();
+  app.get("/api/data/clinical-trials", (_req, res) => {
+    const hit = latestClinicalTrials();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ClinicalTrials.gov", warming_up: true, count: 0, events: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "ClinicalTrials.gov API v2 (industry-sponsored Phase 2/3, primary completion date within -60d..+365d)",
+      attribution: "ClinicalTrials.gov (U.S. National Library of Medicine)",
+      time: hit.at,
+      tracked: hit.tracked,
+      count: hit.events.length,
+      note: "Change events from the last 14 days. Dates are sponsor self-reported; coarse=true means a month-only date. Sponsor names are not mapped to tickers.",
       events: hit.events,
     });
   });
