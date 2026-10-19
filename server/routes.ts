@@ -122,7 +122,7 @@ import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { bootOosPoll, latestOosOrders } from "./fmcsaOutOfService";
 import { fleetSeriesCached, preserveWeeklyBeforeRollup } from "./fleetUtilization";
-import { preserveGnssIntegrityDailyBeforeRollup } from "./gnssIntegrityDaily";
+import { preserveGnssIntegrityDailyBeforeRollup, loadGnssIntegrityDailyArchive } from "./gnssIntegrityDaily";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
@@ -4561,7 +4561,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (gnssSignalRunning) return;
     gnssSignalRunning = true;
     try {
-      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignal() };
+      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignal(21, undefined, Date.now(), loadGnssIntegrityDailyArchive()) };
     } catch (e: unknown) {
       console.error("[datacore] gnss integrity signal refresh:", (e as Error)?.message || e);
     } finally {

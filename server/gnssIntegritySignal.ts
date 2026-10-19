@@ -27,7 +27,43 @@
  * accumulated evidence instead of a hardcoded date range going stale.
  */
 import { binomialUpperTailP } from "../scripts/statsUtils";
-import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
+import {
+  readGnssIntegrityWindow, mergeCells, type Bbox, type GnssIntegrityWindowResult, type IntegrityCell,
+} from "./gnssIntegrityQuery";
+
+/** Shape of gnssIntegrityDaily.ts's permanent per-day fold (type-only here:
+ *  that module imports this one, so a value import would be a cycle). */
+export type GnssDailyLookup = Record<string, { candidate: IntegrityCell[]; control: IntegrityCell[] }>;
+
+export type GnssWindowWithProvenance = GnssIntegrityWindowResult & { days_from_daily_archive: string[] };
+
+/**
+ * Fill days the raw window could not read from the permanent daily fold.
+ * RAW WINS: a day with any raw file is never touched, so on a window whose
+ * raw days are all present this returns the input cells byte-for-byte (no
+ * change to the signal while every day is still local). A day only moves
+ * from days_missing to days_read when the fold actually holds it; the
+ * fold is the FULL population of that day while the raw read is an even
+ * sample capped at perDayLimit, so pooled counts stay comparable (the test
+ * pools row counts, it does not average per-day rates) but the provenance
+ * list says exactly which days came from the fold.
+ */
+export function fillMissingDaysFromDaily(
+  win: GnssIntegrityWindowResult, daily: GnssDailyLookup | undefined, region: "candidate" | "control",
+): GnssWindowWithProvenance {
+  const fromDaily: string[] = [];
+  let cells = win.cells;
+  const stillMissing: string[] = [];
+  for (const day of win.days_missing) {
+    const entry = daily?.[day]?.[region];
+    if (!entry) { stillMissing.push(day); continue; }
+    cells = mergeCells(cells, entry);
+    fromDaily.push(day);
+  }
+  if (!fromDaily.length) return { ...win, days_from_daily_archive: [] };
+  const days_read = [...win.days_read, ...fromDaily].sort().reverse();
+  return { ...win, cells, days_read, days_missing: stillMissing, days_from_daily_archive: fromDaily };
+}
 
 export interface DiagCell {
   band: string;
@@ -153,8 +189,8 @@ export interface GnssIntegritySignalSummary {
   };
   freshness: {
     writer_live_since: string;
-    candidate: { days_read: string[]; days_missing: string[]; rows_scanned: number; truncated: boolean };
-    control: { days_read: string[]; days_missing: string[]; rows_scanned: number; truncated: boolean };
+    candidate: { days_read: string[]; days_missing: string[]; rows_scanned: number; truncated: boolean; days_from_daily_archive: string[] };
+    control: { days_read: string[]; days_missing: string[]; rows_scanned: number; truncated: boolean; days_from_daily_archive: string[] };
   };
   methodology_note: string;
   caveats: string[];
@@ -197,13 +233,15 @@ const LICENSE_NOTE =
  * the derived statistics.
  */
 export async function computeGnssIntegritySignal(
-  maxDays = 21, baseDir?: string, now: number = Date.now(),
+  maxDays = 21, baseDir?: string, now: number = Date.now(), daily?: GnssDailyLookup,
 ): Promise<GnssIntegritySignalSummary> {
   const days = recentDays(maxDays, WRITER_LIVE_SINCE, now);
-  const [candidate, control] = await Promise.all([
+  const [rawCandidate, rawControl] = await Promise.all([
     readGnssIntegrityWindow(days, CANDIDATE_BBOX, baseDir),
     readGnssIntegrityWindow(days, CONTROL_BBOX, baseDir),
   ]);
+  const candidate = fillMissingDaysFromDaily(rawCandidate, daily, "candidate");
+  const control = fillMissingDaysFromDaily(rawControl, daily, "control");
   const bands = evaluateBands(candidate.cells as unknown as DiagCell[], control.cells as unknown as DiagCell[]);
   return {
     kind: "signal",
@@ -223,10 +261,12 @@ export async function computeGnssIntegritySignal(
       candidate: {
         days_read: candidate.days_read, days_missing: candidate.days_missing,
         rows_scanned: candidate.rows_scanned, truncated: candidate.truncated,
+        days_from_daily_archive: candidate.days_from_daily_archive,
       },
       control: {
         days_read: control.days_read, days_missing: control.days_missing,
         rows_scanned: control.rows_scanned, truncated: control.truncated,
+        days_from_daily_archive: control.days_from_daily_archive,
       },
     },
     methodology_note: METHODOLOGY_NOTE,
