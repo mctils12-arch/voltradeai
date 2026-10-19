@@ -108622,3 +108622,15 @@ session_health_check: all 17 checks OK (deploy_gate 2xx, liveness alive, subsyst
 DECISION: nothing broken; queued work (KB #46/#47, Lazy Prices follow-ons, price-panel spend decision in wishlist.md) is owned by active sessions or awaits the human. No padding.
 PR note: docs only; merge safe any time.
 STARVED: yes.
+
+## 2026-10-19 (scheduled routine PRODUCT session, ~00:10Z Mon = 20:10 ET Sun, after hours) [PIPELINE] — T-DATACORE (server/gnssIntegritySignal.ts, gnssIntegrityQuery.ts, gnssIntegrityDaily.ts + tests; routes.ts one line; v1.0.1101) — GNSS LIVE SIGNAL CAN READ THE PERMANENT DAILY FOLD (step 1 of the aircraft-floor drop)
+
+Health first: session_health_check all OK (deploy_gate 2xx, liveness alive, server_version 1.0.1100 == main); only WARN daemon rss 404MB (trimmed mode, designed). Archive 1.83 GiB free, sweep archiving still auto-paused below its 2 GiB gate (wishlist 2026-10-12). Lazy Prices gate 2 is blocked on the human price-panel decision (wishlist 2026-10-18) and this sandbox has no Alpaca key, so it was not the action.
+CHOICE (logged): deepen the irreplaceable archive. The 2026-10-14 queue item (1) says the aircraft hot-tier floor (22 d, pinned only for this signal) can drop to a few days once the live GNSS signal reads days that are no longer on local disk. This PR is that read half ONLY; the floor is NOT changed here (own PR, own rollback trigger).
+WHAT: computeGnssIntegritySignal gains an optional `daily` lookup (the gnss_integrity_daily fold). Days the raw read reports missing are filled from it; a day with ANY raw data is never touched (raw wins, no double count). freshness.{candidate,control}.days_from_daily_archive names every fold-sourced day. mergeCells moved gnssIntegrityDaily.ts -> gnssIntegrityQuery.ts (exported) to avoid an import cycle; routes.ts passes loadGnssIntegrityDailyArchive() (one line).
+PRIOR: zero change to today's output (all 21 window days are local). Tests prove it: output with a fold supplied is deepEqual to output without when every raw day is local.
+MEASUREMENT NOTE (honest): the raw read is an even sample capped at 20k rows/day/region; the fold is the FULL day population. Pooled counts are comparable for the exact binomial test but a fold day weighs more than a capped raw day. Direction of bias: neither inflates nor deflates the elevation rate by construction (same row predicate, aggregateGnssIntegrity), it only adds power. Before the floor drops, a follow-up should compare a locally-present day computed both ways (raw sample vs fold) on identical input and record the cell-rate difference.
+NEXT (own PRs): (2) [RULE-REVIEW] raw-vs-fold same-day rate comparison on live data; (3) lower aircraft HOT_TIER_FLOOR_DAYS (rollback trigger: GNSS verdict changes on identical window, or offload-status lastError) so ~250 MB/day global sweep archiving fits.
+Tests: server/gnssIntegritySignal.test.ts +5 (34 pass across the three gnss test files). tsc not runnable here (no @types/node in sandbox); no new type surface beyond additive fields.
+MERGE: after hours or any time (no trading-path code).
+STARVED: yes (Lazy Prices gate 2 awaits human spend/keys).

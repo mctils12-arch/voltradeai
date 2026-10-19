@@ -11,7 +11,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import {
-  evaluateBands, gate2Verdict, recentDays, computeGnssIntegritySignal,
+  evaluateBands, gate2Verdict, recentDays, computeGnssIntegritySignal, fillMissingDaysFromDaily,
   WRITER_LIVE_SINCE, CANDIDATE_BBOX, CONTROL_BBOX,
   type DiagCell,
 } from "./gnssIntegritySignal";
@@ -136,5 +136,74 @@ test("computeGnssIntegritySignal: no archive data at all still returns a well-fo
   assert.equal(summary.bands.length, 0);
   assert.equal(summary.verdict, "INCONCLUSIVE");
   assert.deepEqual(summary.freshness.candidate.days_read, []);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// ── daily-fold fallback (lets the raw aircraft floor drop without blinding the live signal) ──
+
+function dcell(band: string, n_total: number, n_zero: number) {
+  return { band, origin: "broadcast", n_total, n_zero, distinct_airframes: 1 } as never;
+}
+const emptyWin = (days_read: string[], days_missing: string[], cells: never[] = []) =>
+  ({ cells, days_read, days_missing, rows_scanned: 0, truncated: false });
+
+test("fillMissingDaysFromDaily: no fold supplied -> window returned unchanged (today's behaviour)", () => {
+  const w = emptyWin(["2026-10-18"], ["2026-10-01"]);
+  const out = fillMissingDaysFromDaily(w, undefined, "candidate");
+  assert.deepEqual(out.cells, w.cells);
+  assert.deepEqual(out.days_missing, ["2026-10-01"]);
+  assert.deepEqual(out.days_from_daily_archive, []);
+});
+
+test("fillMissingDaysFromDaily: a missing day the fold holds is pooled in and labelled; a day it lacks stays missing", () => {
+  const w = emptyWin(["2026-10-18"], ["2026-10-02", "2026-10-01"], [dcell("cruise", 10, 1)] as never[]);
+  const daily = { "2026-10-02": { candidate: [dcell("cruise", 90, 9)], control: [dcell("cruise", 1000, 10)] } };
+  const out = fillMissingDaysFromDaily(w, daily, "candidate");
+  assert.deepEqual(out.days_from_daily_archive, ["2026-10-02"]);
+  assert.deepEqual(out.days_missing, ["2026-10-01"], "no fold entry -> still honestly missing");
+  assert.deepEqual(out.days_read, ["2026-10-18", "2026-10-02"]);
+  const c = out.cells.find((x) => x.band === "cruise")!;
+  assert.equal(c.n_total, 100);
+  assert.equal(c.n_zero, 10);
+  const ctl = fillMissingDaysFromDaily(emptyWin([], ["2026-10-02"]), daily, "control");
+  assert.equal(ctl.cells[0].n_total, 1000, "control region reads the control half of the fold");
+});
+
+test("fillMissingDaysFromDaily: RAW WINS — a day present in raw is never double-counted from the fold", () => {
+  const w = emptyWin(["2026-10-18"], [], [dcell("cruise", 10, 1)] as never[]);
+  const daily = { "2026-10-18": { candidate: [dcell("cruise", 9999, 999)], control: [] } };
+  const out = fillMissingDaysFromDaily(w, daily, "candidate");
+  assert.equal(out.cells[0].n_total, 10);
+  assert.deepEqual(out.days_from_daily_archive, []);
+});
+
+test("computeGnssIntegritySignal: output with a fold supplied is identical to without when every raw day is local", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  const rows = Array.from({ length: 30 }, (_, i) =>
+    `{"t":${i},"i":"b${i}","la":55,"lo":20,"al":9000,"ni":${i < 3 ? 0 : 8},"pt":"adsb_icao"}`).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-11-00.jsonl"), rows);
+  const now = Date.parse("2026-08-11T12:00:00Z");
+  const a = await computeGnssIntegritySignal(1, base, now);
+  const b = await computeGnssIntegritySignal(1, base, now, { "2026-08-11": { candidate: [dcell("cruise", 500, 50)], control: [] } });
+  assert.deepEqual(b.bands, a.bands);
+  assert.deepEqual(b.freshness, a.freshness);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("computeGnssIntegritySignal: a day evicted from local disk is recovered from the fold and named in freshness", async () => {
+  const base = tmp();
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  const now = Date.parse("2026-08-11T12:00:00Z");
+  const daily = { "2026-08-11": {
+    candidate: [dcell("cruise", 100, 10)], control: [dcell("cruise", 10000, 100)],
+  } };
+  const s = await computeGnssIntegritySignal(1, base, now, daily);
+  assert.deepEqual(s.freshness.candidate.days_from_daily_archive, ["2026-08-11"]);
+  assert.deepEqual(s.freshness.candidate.days_missing, []);
+  const cruise = s.bands.find((b) => b.band === "cruise")!;
+  assert.equal(cruise.candidate_n, 100);
+  assert.equal(cruise.elevated, true);
   fs.rmSync(base, { recursive: true, force: true });
 });

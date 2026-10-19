@@ -138,6 +138,36 @@ export function aggregateGnssIntegrity(rows: ArchiveAircraftRow[], bbox?: Bbox):
     .sort((a, b) => (a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band)));
 }
 
+/** Merge-add `from` cells into `into` (never overwrite — a day can
+ *  legitimately accumulate contributions from more than one fold call if
+ *  its hour files don't all age past retention in the same tick, mirroring
+ *  fleetUtilization.ts's addWeekly). n_total/n_zero are always safely
+ *  additive (processedFiles guarantees no single file is ever folded
+ *  twice). distinct_airframes is summed too, which can OVER-count an
+ *  airframe seen across two separate fold events for the same day — an
+ *  accepted approximation because the field is explicitly informational
+ *  only and never gates a count (aggregateGnssIntegrity's own contract, see
+ *  gnssIntegrityQuery.ts) and, in practice, a full calendar day's hour
+ *  files age past the retention cutoff together (rollupOldDaysAsync's own
+ *  byDay grouping uses the same day-midnight boundary), so this multi-fold
+ *  path is a defensive rare case, not the routine one. */
+export function mergeCells(into: IntegrityCell[], from: IntegrityCell[]): IntegrityCell[] {
+  const byKey = new Map<string, IntegrityCell>(into.map((c) => [`${c.band}|${c.origin}`, { ...c }]));
+  for (const c of from) {
+    const key = `${c.band}|${c.origin}`;
+    const cur = byKey.get(key);
+    if (cur) {
+      cur.n_total += c.n_total;
+      cur.n_zero += c.n_zero;
+      cur.distinct_airframes += c.distinct_airframes;
+    } else {
+      byKey.set(key, { ...c });
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => (a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band)));
+}
+
 export interface GnssIntegrityWindowResult {
   cells: IntegrityCell[];
   days_read: string[];

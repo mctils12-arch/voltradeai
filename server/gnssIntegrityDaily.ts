@@ -62,7 +62,7 @@ import path from "path";
 import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir, RAW_RETENTION_DAYS } from "./datacoreArchive";
-import { aggregateGnssIntegrity, type ArchiveAircraftRow, type IntegrityCell } from "./gnssIntegrityQuery";
+import { aggregateGnssIntegrity, mergeCells, type ArchiveAircraftRow, type IntegrityCell } from "./gnssIntegrityQuery";
 import { CANDIDATE_BBOX, CONTROL_BBOX } from "./gnssIntegritySignal";
 
 const GNSS_DAILY_ARCHIVE_NAME = "gnss_integrity_daily.json.gz";
@@ -104,36 +104,6 @@ function loadArchive(base: string): GnssDailyArchive {
 
 function saveArchive(base: string, archive: GnssDailyArchive): void {
   fs.writeFileSync(archivePath(base), zlib.gzipSync(JSON.stringify(archive)));
-}
-
-/** Merge-add `from` cells into `into` (never overwrite — a day can
- *  legitimately accumulate contributions from more than one fold call if
- *  its hour files don't all age past retention in the same tick, mirroring
- *  fleetUtilization.ts's addWeekly). n_total/n_zero are always safely
- *  additive (processedFiles guarantees no single file is ever folded
- *  twice). distinct_airframes is summed too, which can OVER-count an
- *  airframe seen across two separate fold events for the same day — an
- *  accepted approximation because the field is explicitly informational
- *  only and never gates a count (aggregateGnssIntegrity's own contract, see
- *  gnssIntegrityQuery.ts) and, in practice, a full calendar day's hour
- *  files age past the retention cutoff together (rollupOldDaysAsync's own
- *  byDay grouping uses the same day-midnight boundary), so this multi-fold
- *  path is a defensive rare case, not the routine one. */
-function mergeCells(into: IntegrityCell[], from: IntegrityCell[]): IntegrityCell[] {
-  const byKey = new Map<string, IntegrityCell>(into.map((c) => [`${c.band}|${c.origin}`, { ...c }]));
-  for (const c of from) {
-    const key = `${c.band}|${c.origin}`;
-    const cur = byKey.get(key);
-    if (cur) {
-      cur.n_total += c.n_total;
-      cur.n_zero += c.n_zero;
-      cur.distinct_airframes += c.distinct_airframes;
-    } else {
-      byKey.set(key, { ...c });
-    }
-  }
-  return Array.from(byKey.values())
-    .sort((a, b) => (a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band)));
 }
 
 /** Stream one hour file (gz or plain) into its raw JSON lines. Never throws
