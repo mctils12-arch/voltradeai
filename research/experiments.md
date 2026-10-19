@@ -108680,3 +108680,258 @@ Loop-health ratio (last 10 tags): REPAIR 1 / PIPELINE 3 / NO-ACTION 6 — far un
 DECISION: nothing broken; queued work (GNSS raw-vs-fold comparison, floor drop, Lazy Prices price-panel spend decision) is owned by active sessions or awaits the human. No padding.
 PR note: docs only; merge safe any time (no trading-path code).
 STARVED: yes.
+## 2026-10-15 (human-directed session, ~03:00–04:10Z Wed) [RESEARCH] — Bot cockpit Stage 1 SYSTEM AUDIT: ground-truth stage map of the bot as it exists today (docs only)
+
+TERRITORY: research/* (shared) + research/directives/. No code touched; no
+version bump (docs-only precedent, #1349). Branch ccr-bafbe08e-0eqknl.
+
+DIRECTIVE: the human's "MASTER PROMPT — VOLTRADEAI BOT COCKPIT" (installed
+verbatim as research/directives/bot_cockpit_prompt_2026-10-15.md) orders a
+three-seat process: Stage 1 audit (Claude Code) → Stage 2 discovery + design
+(Claude Design, against the audit's real fields only) → Stage 3 build (replace
+the bot page). This session is Stage 1 only.
+
+DELIVERABLES
+- research/bot_cockpit_audit.md — the single structured map: §3 per-stage
+  (S0 orchestration … S12 dashboard), each with what it does / exact fields /
+  healthy values anchored to a live read / failure signature + whether it is
+  surfaced; §4 five-layer decision-chain recoverability; §5 edge + leak
+  attribution (computable vs missing fields); §6 failure-variable catalogue;
+  §7 incident history (26 rows); §8 defect register (37 claim units);
+  §9 doc-vs-code disagreements; §10 open decisions for the human; §11
+  canonical vocabulary.
+- research/bot_cockpit_audit/A…H_*.md — the eight stage reports (~500 KB,
+  every claim file:line), produced by eight parallel readers; the audit's
+  appendices.
+- research/bot_cockpit_audit/live_snapshot_2026-10-15.md — production read
+  at 03:12Z via /api/health, /api/ml/status, /api/bot/market-status and the
+  token-gated read-only /api/diag/* probes; anchors every HEALTHY VALUE.
+- research/bot_cockpit_audit/verification_2026-10-15.md — verification
+  evidence and status per claim unit (see VERIFICATION below).
+
+PRIOR (stated before reading): the bot is a working-but-thin paper trader
+whose dashboard under-reports; expected to find a handful of measurement
+bugs and a reasoning trail that could be surfaced with modest plumbing.
+
+WHAT THE AUDIT FOUND (headline; details in the document)
+1. Not trading in any meaningful sense: $99,615 (peak $110,727, −10.04%);
+   83.8% of equity is the passive ETF floor; the active sleeve is six
+   one-contract short puts; a full RTH afternoon in the audit window had
+   zero TRADE / T1 / SWEEP / WS-EXIT and 158 OPTIONS-SLOT-FULL rows.
+2. Zero stock entries are structural, four ways: NEUTRAL → MAX_POSITIONS 0
+   and floor ETFs consume the slots; the stocks Kelly bucket is ≤0 under
+   both the shipped priors and the seeded stats → calculate_position blocks
+   silently; the sector veto re-adds held OCC symbols as "Unknown"-sector
+   stocks; Node's minScoreThreshold is 75 via the win-rate diagnostic.
+3. Edge on the record is negative and nothing computes it: 36 closed live
+   trades, WR 27.8%, +9.08/−5.16 → breakeven WR 36.2%, expectancy ≈ −1.20%
+   per trade. /api/bot/performance's Python path throws TypeError on every
+   pnl_pct:None record (312 live) and silently serves a today-only fallback.
+4. Leak attribution is not computable from persisted state: fill_price is
+   a Math.random() haircut on the broker fill (always the illiquid tier —
+   the trade dict has no volume key); alpaca_fill_price is dropped; decision
+   price is a 15-min-delayed daily-bar close; bid/ask discarded; exit pnl is
+   the trigger bar; scale-out legs unrecorded; no client_order_id anywhere.
+5. The decision chain is mostly lost after each scan (reasons list and most
+   Python vetoes exist only in memory; audit log ≈13 h; no scan_id).
+6. Silent-failure catalogue: feeds return neutral defaults and write caches
+   on failure; diagnostics judge by mtime; EDGAR insider (filters on a key
+   EFTS doesn't return) and USPTO are structurally dead; Reddit failure
+   fabricates "Bullish"; ~11 of 34 ML features are constants at serve time
+   (vxx_ratio pinned at 1.0 → the bull model is unreachable); ML fallback
+   blended as ML ("fallback" vs "fallback_rules"); ML toggle inert.
+7. Scheduling: overnight research + 4 am reset/backup/retrain unreachable
+   from the scheduler; the "trivial" Python path caps eleven heavy jobs at
+   10 s (verified PARTIAL: cap real, most jobs fit, retrain undecidable);
+   tie-break raises UnboundLocalError every scan; tier regime always
+   "NEUTRAL" so T3 never fires; convexity overlay runs despite enabled=False
+   and submits side:"buy_to_open" (Alpaca accepts buy|sell).
+8. The current page: 920 px column, polling only, nonexistent /api/bot/clock
+   (always AFTER HOURS), reversed equity curve, options without ×100, −5%
+   shown vs −3% enforced, errors rendered as $0.00, GET /api/bot/account can
+   latch the kill switch.
+
+VERIFICATION (honest status): an adversarial-verification workflow (37
+claim units × 2 lenses + tiebreak + coverage critic) was launched; it hit
+the account's session limit after one verifier (V01 → PARTIAL, 0.86) and
+111 failed to start ("session limit · resets 6:40am UTC"). The author then
+verified the headline claims directly in-session by reading the code
+(V02, V07, V08, V09, V17c, V18, V20, V22, V25, V37 CONFIRMED; 15
+existence/caller claims by grep). The remaining units stand as
+reader-reported with file:line and are marked so in §8. Re-run:
+Workflow({scriptPath: ".../cockpit-audit-verify-wf_fcd96993-30c.js",
+resumeFromRunId: "wf_fcd96993-30c"}) after 06:40Z.
+
+NEW, NOT PREVIOUSLY FILED (candidates for KNOWN BROKEN; each needs its own
+[REPAIR] with a regression test — none shipped here, docs only):
+performance Path A TypeError → today-only fallback; LEARN "Win rate 0%"
+structural (pnl never set; #38 misdiagnosed); weekly-loss check dead
+(1-point history); tie-break UnboundLocalError; tier regime constant;
+sector veto counts OCC symbols; stocks Kelly bucket blocked; DD sizing
+scalar dead (equityPeak vs peak_equity key); convexity overlay unguarded +
+bad side enum; 4 am branch unreachable; 10 s trivial-path cap; synthetic
+fill tier collapse (no volume key); phantom filled entries (2 s poll);
+ETF entries priced with the underlying; Tier-3 BUY price from the trading
+host; replaceIfBetter misreads 204; equity-curve 365-row freeze (newest
+dropped); local backup misses /data/voltrade.db; /api/bot/clock missing;
+chart time axis reversed; options ×100 omissions; status-endpoint literal
+limits; GET /api/bot/account side effect; EDGAR form_type filter; USPTO
+endpoint dead; Reddit failure → bullish; universe drops *W symbols;
+feed_status() uncalled; CV split by ticker not time; pnl None trained as
+loss; no model-promotion gate; mis-audited retrain statuses; ML toggle
+inert; session-only auth on /api/trades/*, /api/orders/open,
+/api/positions, /api/ml/toggle, /api/ml/retrain; backtest body
+shell-interpolated (owner-only).
+
+LIVE RISK FOR THE NEXT SESSION: equity 99,615.03 vs Node peak 110,727.04 =
+−10.035% ≤ maxDrawdownPct −10 with killSwitch still false; the first
+Tier-1 cycle after 09:30 ET Oct 15 (or the first owner load of the
+dashboard) latches the kill, cancels all open orders and emails unless
+equity ≥ 99,654.34. Auto-resume (paper, drawdown-kill reason) then
+evaluates every 45 s in RTH: RECOVERED above −8%, else PAPER_REBASE after
+13 market hours. Filed in the audit §10 as a decision for the human.
+
+NEXT: Stage 2 (Claude Design) consumes research/bot_cockpit_audit.md +
+appendices; the vocabulary in §11 is binding. The security items in §10.9
+are small MUTABLE-territory repairs that should ship before any cockpit
+exposes those routes. STARVED: yes — the independent verification pass
+(36 units) is queued behind the session limit.
+
+## 2026-10-15 (~18:00Z Thu) [NO-ACTION] — Cockpit audit's live prediction confirmed: the −10% latch fired at the open
+
+Observation only (docs). The Stage 1 audit (§1.8 / V37, filed ~04:00Z)
+predicted the Node drawdown kill would latch on the first Tier-1 cycle
+after 09:30 ET. `/api/diag/audit?type=DRAWDOWN-KILL`: "MAX DRAWDOWN KILL
+SWITCH: Equity $99008 is -10.6% below peak $110727" at 13:30Z. At 17:57Z:
+`/api/health` `status degraded`, `checks.bot.status killed`,
+`liveness {dark: true, marketHours 4.4}`, `autoResume.outcome EVALUATED`,
+classification `UNRECONCILED` ("71 closed qty with a pre-window cost
+basis"), drawdown −9.5% not above the −8% recovery line → waiting on
+`PAPER_REBASE` after 13 market hours (≈ Oct 16 close). Zero TRADE / T1 /
+exits today; 43 OPTIONS-SLOT-FULL before the latch. LIVENESS ALARM per
+CLAUDE.md priority 1: surfaced to the human in-session. No change made;
+the decision (re-base now vs wait vs raise the line) is the audit's §10.10.
+
+## 2026-10-16 (~02:00Z) · [PRODUCT] — Bot page mockup v2 + Stage 2 design brief (territory: research/* only; no code)
+
+- Owner rejected mockup v1 (2026-10-15): "not a bot cockpit, unnecessary
+  wording… ever changing (searching / found / idle)… click and stop one
+  portion… windows on windows that snap back… a visual way of showing what
+  the ML is doing is the key". Nine research passes were run (trading
+  terminals, NOC/observability walls, ML-monitoring UIs, windowing/docking
+  libraries, attention-driven cockpits, bot dashboards + explainability,
+  refined dense visual language, a v1 compliance check — 58 rows: met 9 ·
+  partly 38 · missing 16 · contradicted 2 — and an ML-zone spec from real
+  fields). Reports live in the session scratchpad; their conclusions are
+  compiled into `research/bot_cockpit_design_brief_v2.md`.
+- Shipped: `research/bot_cockpit_design_brief_v2.md` (discovery
+  recommendation with tradeoffs per directive §3a, the page state machine
+  from real audit rows, the Model zone spec, the windowing model, failure
+  behaviours, open decisions, the instrumentation PRs the page needs) and
+  the Design canvas v2 (same URL as v1; nine boards: interactive Main with a
+  state tweak + hold / hold-panel / open-as-window / dock, five static
+  states on the real 15 Oct sequence — idle 08:19, scanning 08:24, two
+  candidates queued 09:28:55, latched 13:58, day review 16:00 — plus
+  Windows, Laptop 1280 and Phone 390).
+- Real finding surfaced by the mockup data (shadow log, 20,000 candidates
+  03 Aug–14 Oct): the final score has no discriminating power at the top —
+  Q5 (score ≥ 77) wins 42.5 % at +5 d vs Q1 56.2 %; taken candidates that
+  were down > 10 % that day win 79.7 %, those up 10–20 % win 38.9 %. Filed
+  as the page's problem statement; it belongs in open_questions.md as a
+  [RESEARCH] hypothesis (momentum-spike entries mean-revert) — NOT acted on.
+- Correction to v1: "profit factor 1.76" was the payoff ratio; the profit
+  factor is 0.68 (10 × 9.08 / 26 × 5.16). v2 labels payoff only.
+- STARVED: yes (Stage 3 build waits on the owner's review of the canvas;
+  the T-BOT instrumentation PRs in brief §9 are unblocked and queued).
+
+## 2026-10-16 (~02:00–05:00Z, human-directed "whatever you think works best, implement and fix the issues") · [REPAIR] ×5 + [PIPELINE] + [PRODUCT] — bot cockpit audit repairs and the bot page v2 (territory: T-BOT for the Python/bot.ts repairs, T-CLIENT for the page; research/* last)
+
+Decisions taken on the owner's delegation (brief §8): the page can act, with
+confirm-with-consequence (resume = unkill + start; stop; kill) through the
+existing owner-gated endpoints; alerts stay on the existing email path
+(push/text needs a paid provider — build-first says file it, not buy it);
+"Paper · Alpaca" plain text in the rail; polling 5–60 s (SSE's compression
+problem, audit V31, is untouched); drift baseline = the training run's
+sidecar (not built yet — the page shows constancy over the shadow window,
+which needs no baseline); per-tier user layout persisted later (not in this
+PR); the −10 % latch is NOT changed: the paper re-baseline path clears it
+after 13 market hours by design, and a risk-threshold change needs its own
+RULE-REVIEW PR with counterfactual data.
+
+One logical change per commit, each with a test and a version bump:
+
+- v1.0.1104 [REPAIR] deep_score's ML blend guard compared model_type to the
+  literal "fallback"; the heuristic labels itself "fallback_rules", so a
+  missing/stale model was blended at the ML weight and audited as "ML
+  model: …". Helper `_ml_result_is_model()` + wiring pin
+  (test_ml_fallback_guard.py). PRIOR: no live score changes while the model
+  is fresh (< ML_MAX_AGE_HOURS); when it is stale the final score becomes
+  rules-only instead of rules×0.72 + heuristic×0.28 — expected to REMOVE
+  the "ML model: BUY (62% confidence)" reasons seen during fallback hours.
+- v1.0.1105 [REPAIR] Tier 3 audited every retrain whose status was not
+  "error:*"/"failed" as "ML retrain complete" — including insufficient_data,
+  skipped, the wrapper's bare "error" and "fatal". server/mlRetrainStatus.ts:
+  only "trained" is a success; the TIER3-ML-ERROR line carries samples /
+  error / steps. Regression test + the existing reason-visibility pins stay
+  green. ROLLBACK TRIGGER: none needed (classification only).
+- v1.0.1106 [REPAIR] ML regime features: vxx_ratio came from
+  intel.get("vxx_ratio", 1.0) — intelligence.py never emits it — so every
+  live candidate carried vxx_ratio = 1.0 (20,000 / 20,000 shadow records),
+  the bull model was unreachable, and markov_state / regime_score came from
+  the Markov detector fed an empty return list. regime_inputs.py computes
+  the four regime features from macro_data's real VXX ratio (training's
+  own definition) and spy_closes_60d with ml_model_v2._compute_features'
+  formulas. This CHANGES EVERY SCORE (serve input now matches train
+  input). PRIOR: regime_score leaves the pinned [43.5, 68.5] band;
+  classify_regime can route to bull/bear; feature-constant count on the
+  page falls from 11 toward 8 (the ewma_vol / range_pct / 52w-high /
+  earnings_surprise constants remain — each is its own PR). ROLLBACK
+  TRIGGER: TIER2-ERROR rate above the pre-change baseline, or the constant
+  count on /api/bot/insight not falling within a trading day of deploy.
+  Backtest not re-run: backtest_v2 has its own feature path; this is a
+  serve-time input repair, not a strategy change.
+- v1.0.1107 [PIPELINE] shadow records carry `ml` (model_type, regime_used,
+  win_probability, ml_score, ml_confidence, ml_signal, gated, blended,
+  weights, rules/ML split, final score, vxx_source, error). The ML block's
+  exception is recorded instead of `pass`. No scoring change.
+- v1.0.1108 [REPAIR] sizing refusals (calculate_position blocked → reason
+  discarded) now return as scan_market `sizing_blocks`, audit as
+  SIZE-BLOCK (≤5 per scan) and move the shadow record to `rejected_sizing`.
+  The block itself is unchanged (live stock stats are −EV; priority 2).
+- v1.0.1109 [REPAIR] counter hygiene for the two above (logged handlers,
+  typed retrain input).
+- v1.0.1110 [PRODUCT] /api/bot/insight + ml_insight.py: model age vs the
+  fallback line, calibrator pairing, blend weights, check_model_health
+  performance, the per-candidate trace histogram, win-probability
+  percentiles, per-feature constancy over the newest 300 shadow records,
+  the regime block, and the band report. Owner-gated, 120 s cache, 503 +
+  stale body on failure.
+- v1.0.1111 [PRODUCT] the bot page v2 replaces client/src/pages/bot.tsx
+  (now a re-export of client/src/bot/BotPage.tsx): full-bleed under the
+  nav; page state machine from real audit rows (pageState.ts, tested);
+  director with dwell/recede hysteresis (director.ts, tested); zone
+  templates per tier xl/l/m/s (zoneModel.ts, tested); stages as
+  status-history boxes, issues as condition → consequence → clears →
+  action (derive.ts, tested); the state element (scan strip / decision
+  chain / incident / day review) exists only in its state; the model zone
+  from /api/bot/insight; chart (existing TradeCharts), book, orders,
+  day timeline with a replay cursor; per-panel hold (view only, "+N"
+  live ticks), pin, open-as-window with a ghost slot (drag, resize,
+  edge snap, dock, Esc), zoom, page-level layout hold; FLIP motion on
+  frameCore springs. Tokens only: hardcoded_palette_hex 402 → 361
+  (bot.tsx's 41 off-token hexes are gone); ts_any 1247 → 1228. Visual
+  harness: two renders of /app#/bot (latched / pre-market candidates)
+  at 390/768/1440 with owner-auth fixtures per page.
+
+What is still NOT on the page because the bot does not record it: the
+per-candidate win probability for executed trades (track_fill drops it),
+feature training bands (sidecar not built), SPY benchmark, per-leg exit
+fills, scan_id / client_order_id joins. Each renders as "not recorded".
+
+STARVED: yes — brief §9 instrumentation PRs (feature baseline sidecar,
+retrain ledger file, SPY series, position_id) and the remaining constant
+features are queued and unblocked.
+
+NOTE (2026-10-19, at ship): the branch was rebased onto main (then at
+v1.0.1103) before the PR; the eight versioned commits above were renumbered
+v1.0.1104 → v1.0.1111 at that point (read-and-increment at commit time).

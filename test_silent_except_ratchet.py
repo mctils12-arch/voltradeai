@@ -52,7 +52,7 @@ BASELINE = {
     "analyze.py": 32,
     "backtest_v2.py": 1,
     "backup_to_github.py": 2,
-    "bot_engine.py": 72,
+    "bot_engine.py": 71,  # 2026-10-16 v1.0.1093: the ML block records its exception instead of `pass`
     "csp_universe.py": 7,
     "diagnostics.py": 7,
     "etf_analyzer.py": 13,

@@ -60,6 +60,14 @@ import numpy as np
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
+# REPAIR 2026-10-16 (cockpit audit S3): serve-time regime features computed
+# with the training formulas from the macro snapshot (pure, tested).
+try:
+    from regime_inputs import regime_inputs
+except Exception:  # pragma: no cover — never let a helper import kill the scan
+    def regime_inputs(macro):
+        return {"vxx_ratio": 1.0, "vxx_source": "default", "spy_vs_ma50": 1.0, "spy_returns": [],
+                "spy_returns_5": [], "markov_state": 1.0, "regime_score": 50.0, "spy_closes_n": 0}
 
 # OPTIMIZATION 2026-04-20: Auto-throttle all Alpaca requests (180/min).
 # Prevents silent 429 errors during parallel scan workers + options fetches.
@@ -772,6 +780,20 @@ def _run_diag_fetch(source_name, fn, diag):
         raise
 
 
+def _ml_result_is_model(ml_result) -> bool:
+    """True iff ml_score() returned a REAL model's output (never the rules
+    heuristic). ml_model_v2 labels its fallback "fallback_rules" and uses
+    regime_used "fallback"; any model_type starting with "fallback", an
+    empty model_type, or a non-dict result means: do not blend as ML.
+    REPAIR 2026-10-16 — see test_ml_fallback_guard.py."""
+    if not isinstance(ml_result, dict):
+        return False
+    mt = str(ml_result.get("model_type") or "")
+    if not mt or mt.startswith("fallback"):
+        return False
+    return True
+
+
 def deep_score(ticker, quick_result, _diag=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
@@ -1445,17 +1467,29 @@ except Exception as e:
     ml_only_score = None  # Set below if ML runs
 
     # ── ML Model Integration ──────────────────────────────────────────────────
+    # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): everything ml_score()
+    # says about this candidate is collected here and persisted on the shadow
+    # record (shadow_portfolio.sanitize_ml_trace). Until now model_type,
+    # win_probability, regime_used and the blend arithmetic were dropped, and
+    # an exception anywhere in this block was swallowed by `pass`.
+    _ml_trace = {"blended": False, "gated": None, "error": None}
     try:
         from ml_model_v2 import ml_score, _frac_diff  # v3: 34 features, regime-conditional, calibrated
         # Get Markov regime state for the ML (adds real predictive power)
         _regime_ctx = {"regime_score": 50, "markov_state": 1, "size_multiplier": 1.0}
+        # REPAIR 2026-10-16 (cockpit audit S3 rows 13/15/16): the regime
+        # block used to read the VXX ratio from the intelligence dict — a
+        # key intelligence.py never emits — so vxx_ratio was pinned at 1.0
+        # on every live candidate (bull model unreachable) and the Markov
+        # detector was fed an EMPTY return list (the 5-day SPY return key
+        # it asked macro for does not exist either). regime_inputs() takes
+        # the real VXX ratio and SPY closes from the macro snapshot and
+        # computes markov_state / regime_score exactly as
+        # ml_model_v2._compute_features does at training time.
+        _ri = regime_inputs(macro)
         if _HAS_MARKOV:
             try:
-                _spy_rets = []
-                _spy_macro = macro.get("spy_returns_5d", []) or []
-                _vxx_r = intel.get("vxx_ratio", 1.0) if intel else 1.0
-                _spy_ma = macro.get("spy_vs_ma50", 1.0) or 1.0
-                _regime_ctx = _get_markov_regime(_spy_rets, float(_vxx_r), float(_spy_ma))
+                _regime_ctx = _get_markov_regime(_ri["spy_returns"], float(_ri["vxx_ratio"]), float(_ri["spy_vs_ma50"]))
             except Exception:
                 pass
 
@@ -1700,10 +1734,10 @@ except Exception as e:
             "iv_rank_proxy":        _compute_stock_iv_rank(ticker, _deep_closes) if _deep_closes else 50,
             "atr_pct":              _atr_pct,
             # Regime (5)
-            "vxx_ratio":            intel.get("vxx_ratio", 1.0) if intel else 1.0,
-            "spy_vs_ma50":          macro.get("spy_vs_ma50", 1.0) or 1.0,
-            "markov_state":         float(_regime_ctx.get("markov_state", 1)),
-            "regime_score":         float(_regime_ctx.get("regime_score", 50)),
+            "vxx_ratio":            _ri["vxx_ratio"],       # training: VXX close / 30-d avg (macro_data)
+            "spy_vs_ma50":          _ri["spy_vs_ma50"],
+            "markov_state":         _ri["markov_state"],    # training: mean of 5 SPY daily returns vs ±0.2%
+            "regime_score":         _ri["regime_score"],    # training: closed form of spy_vs_ma50 + vxx_ratio
             "sector_momentum":      sector_mom.get(stock_sector, 0),
             # Additive 6 features
             "cross_sec_rank":       _cross_sec_rank,
@@ -1738,11 +1772,27 @@ except Exception as e:
             "put_call_ratio":       round(_put_call_ratio, 3),
         }
         ml_result = ml_score(ml_features)
+        if isinstance(ml_result, dict):
+            _ml_trace.update({
+                "model_type": ml_result.get("model_type"),
+                "regime_used": ml_result.get("regime_used"),
+                "win_probability": ml_result.get("win_probability"),
+                "ml_score": ml_result.get("ml_score"),
+                "ml_confidence": ml_result.get("ml_confidence"),
+                "ml_signal": ml_result.get("ml_signal"),
+                "vxx_source": _ri.get("vxx_source") if isinstance(_ri, dict) else None,
+            })
 
         # Blend: dynamic ratio loaded from tracker, default 60/40
         # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).
         # Near-50 ML = uncertain. Uncertain ML should NOT drag down a good rules setup.
-        if ml_result.get("model_type") != "fallback":
+        # REPAIR 2026-10-16 (cockpit audit §8 V-fallback-guard): the heuristic
+        # ml_model_v2._rule_based_fallback returns model_type "fallback_rules",
+        # which this guard compared against the literal "fallback" — so a
+        # missing/stale (>ML_MAX_AGE_HOURS) model's rules-of-thumb score was
+        # blended at the ML weight and audited as "ML model: …". The helper
+        # below (tested) excludes every fallback-flavoured model_type.
+        if _ml_result_is_model(ml_result):
             ml_s = ml_result.get("ml_score", combined_score)
             ml_only_score = round(ml_s, 1)  # Capture ML score for attribution
             # Dynamic blend: load tracked accuracy, default 60/40
@@ -1771,8 +1821,12 @@ except Exception as e:
 
             combined_score = combined_score * rule_weight + ml_s_blended * ml_weight
             reasons.append(f"Blend: {rule_weight:.0%} rules + {ml_weight:.0%} ML")
-    except Exception:
-        pass  # ML not available, use rule-based only
+            _ml_trace.update({"blended": True, "gated": ml_conviction < 8,
+                              "rule_weight": rule_weight, "ml_weight": ml_weight,
+                              "rules_only_score": rules_only_score, "ml_only_score": ml_only_score})
+    except Exception as _ml_exc:
+        # Rules-only scoring continues; the failure is no longer invisible.
+        _ml_trace["error"] = f"{type(_ml_exc).__name__}: {_ml_exc}"[:200]
 
     combined_score = max(0, min(100, combined_score))
 
@@ -1834,11 +1888,12 @@ except Exception as e:
             decision=_decision,
             decision_reason=_reason,
             entry_price=quick_result.get("price", 0),
-            vxx_ratio=float(_regime_ctx.get("vxx_ratio", 1.0) or 1.0) if '_regime_ctx' in locals() else 1.0,
+            vxx_ratio=float(_ri["vxx_ratio"]) if '_ri' in locals() else 1.0,
             regime_label=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
             side=side,
             action_label=action_label,
             trade_type=trade_type,
+            ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
@@ -2568,6 +2623,45 @@ def _parse_snapshot_batch(raw, status_code):
     return out, None
 
 
+def _record_sizing_block(blocks: list, ticker: str, score, sizing: dict, strategy: str = "") -> None:
+    """Append one sizing refusal to the scan's `sizing_blocks` list and move
+    the candidate's shadow record to the `rejected_sizing` bucket. Never
+    raises (the scan loop must not die on a logging problem).
+    REPAIR 2026-10-16 — tested in test_sizing_block_visibility.py."""
+    try:
+        reason = str((sizing or {}).get("block_reason") or (sizing or {}).get("reasoning") or "blocked")[:200]
+        try:
+            score_f = round(float(score), 1)
+        except (TypeError, ValueError):
+            score_f = None
+        blocks.append({"ticker": str(ticker).upper(), "reason": reason, "score": score_f, "strategy": strategy or ""})
+        try:
+            from shadow_portfolio import update_last_decision
+            update_last_decision(ticker, "rejected_sizing", f"sizing: {reason}")
+        except Exception as _shadow_err:
+            import logging as _blk_log
+            _blk_log.getLogger("bot_engine").debug(f"rejected_sizing shadow update failed for {ticker}: {_shadow_err}")
+    except Exception as _rec_err:
+        import logging as _blk_log
+        _blk_log.getLogger("bot_engine").debug(f"_record_sizing_block failed for {ticker}: {_rec_err}")
+
+
+def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
+    """Best-effort bucket name for a sizing block row (mirrors
+    position_sizing._infer_strategy's vocabulary without importing it)."""
+    try:
+        t = str((stock or {}).get("trade_type") or "").lower()
+        if t in ("options", "csp", "csp_options"):
+            return "csp_options"
+        if t == "etf" or str((stock or {}).get("instrument_strategy") or "").startswith("etf"):
+            return "etf"
+        return "stocks"
+    except Exception as _bucket_err:
+        import logging as _blk_log
+        _blk_log.getLogger("bot_engine").debug(f"_infer_bucket_for_block: {_bucket_err}")
+        return ""
+
+
 def _scan_market_inner():
     global _partial_scan_result
     _partial_scan_result = None
@@ -3235,6 +3329,14 @@ def _scan_market_inner():
     except ImportError:
         _has_sizer = False
 
+    # REPAIR 2026-10-16 (cockpit audit S5 gate B13 / V18): candidates the
+    # sizing engine refuses are recorded here (ticker, bucket, reason, score)
+    # and returned as `sizing_blocks` so Node can audit them (SIZE-BLOCK) and
+    # the shadow record moves to the `rejected_sizing` bucket. Until now the
+    # block_reason was discarded and a scan that found candidates but placed
+    # nothing left no trace of why.
+    _sizing_blocks = []
+
     for stock in deep_scored:
         if len(trades) >= slots_available:
             break
@@ -3497,6 +3599,8 @@ def _scan_market_inner():
                 )
                 continue
             if sizing.get("blocked"):
+                _record_sizing_block(_sizing_blocks, ticker, final_score, sizing,
+                                     strategy=_infer_bucket_for_block(stock, side))
                 continue  # Sizing engine blocked this trade (halted, too small, etc.)
             shares = sizing["shares"]
             position_value = sizing["position_value"]
@@ -3608,6 +3712,7 @@ def _scan_market_inner():
         "current_positions": num_positions,
         "slots_available": slots_available,
         "new_trades": list(trades),  # Copy — trades may grow later
+        "sizing_blocks": list(_sizing_blocks[:20]),
         "top_10": [{"ticker": s["ticker"], "price": s.get("price", 0), "score": s.get("deep_score", s.get("quick_score", 0)), "change_pct": s.get("change_pct", 0), "side": s.get("side", "buy"), "action_label": s.get("action_label", "BUY"), "reasons": s.get("reasons", [])[:2]} for s in deep_scored[:10]],
         "partial": True,
     }
@@ -4014,6 +4119,7 @@ def _scan_market_inner():
         "slots_available": slots_available,
         "options_slots_available": options_slots if 'options_slots' in locals() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
+        "sizing_blocks": _sizing_blocks[:20] if '_sizing_blocks' in locals() else [],
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
         "upgrade_candidates": mgmt.get("upgrade_candidates", []),

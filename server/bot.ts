@@ -14,6 +14,8 @@ import {
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
+import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
+import { formatSizeBlocks } from "./sizeBlocks";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
@@ -4533,6 +4535,13 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       }
 
       audit("TIER2", `Scanned ${result.scanned || 0} stocks, ${(result.new_trades || []).length} trade candidates (via ${callResult.via})`);
+      // REPAIR 2026-10-16 (cockpit audit S5 B13): candidates the sizing
+      // engine refused (Kelly <= 0 for the bucket, halted asset, qty 0)
+      // used to vanish without a trace — the scan said "2 trade
+      // candidates" and nothing explained why none was placed.
+      for (const line of formatSizeBlocks(result.sizing_blocks)) {
+        audit("SIZE-BLOCK", line);
+      }
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,
@@ -5834,7 +5843,12 @@ else:
           // showing "error: 'NoneType' object is not subscriptable"
           // every hour with no file/line.
           const _statusStr = String(trainResult.status || "");
-          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed")) {
+          // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
+          // "skipped", the wrapper's bare "error" and "fatal" all fell into
+          // the else-branch below and were audited as "ML retrain complete"
+          // although no model was written. Only "trained" is a success
+          // (server/mlRetrainStatus.ts, tested).
+          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
             // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
             // _train_model_impl early returns use the plain shape
             // {"status": "failed", "reason": "..."} (no error_location/
@@ -5843,9 +5857,11 @@ else:
             // "ML retrain failed: failed". `reason` carries the real cause
             // (e.g. "Could not fetch training bars") and was being dropped.
             const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
+            const _detailExtra = retrainFailureDetail(trainResult);
+            const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
             const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
             const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
-            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_loc}${_tbTail}`);
+            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
           } else {
             audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
           }
@@ -8075,6 +8091,34 @@ print(json.dumps({'report': report, 'auto_fix': params}))
 
 
   // ── ML Model Status ───────────────────────────────────────────────────────
+  // PRODUCT 2026-10-16 (bot page v2, research/bot_cockpit_design_brief_v2.md
+  // §4): what the model is doing, from persisted fields only (ml_insight.py).
+  // Owner-gated like every bot route. The band report walks the whole
+  // shadow log (~20 s cold), so the result is cached for INSIGHT_CACHE_MS
+  // and the page polls it slowly; ?bands=0 skips the report.
+  const INSIGHT_CACHE_MS = 120_000;
+  let insightCache: { at: number; bands: boolean; body: unknown } | null = null;
+  app.get("/api/bot/insight", requireOwner, async (req, res) => {
+    const wantBands = String(req.query.bands ?? "1") !== "0";
+    try {
+      if (insightCache && Date.now() - insightCache.at < INSIGHT_CACHE_MS && insightCache.bands === wantBands) {
+        return res.json(insightCache.body);
+      }
+      const { stdout } = await execPythonSerialized(
+        `python3 -c "
+import json
+from ml_insight import ml_insight
+print(json.dumps(ml_insight(include_bands=${wantBands ? "True" : "False"}), default=str))
+"`, { timeout: wantBands ? 40000 : 15000 });
+      const body = JSON.parse(stdout.toString().trim() || "{}");
+      insightCache = { at: Date.now(), bands: wantBands, body };
+      res.json(body);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(503).json({ error: msg.slice(0, 300), stale: insightCache?.body ?? null });
+    }
+  });
+
   app.get("/api/bot/ml-status", requireOwner, async (_req, res) => {
     try {
       const { stdout } = await execPythonSerialized(
