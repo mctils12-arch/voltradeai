@@ -101,12 +101,12 @@ export function sponsorIndex(file: SponsorMapFile | null | undefined): SponsorIn
   return m;
 }
 
-export function annotateWithTicker<T extends { sponsor: string }>(
+export function annotateWithTicker<T extends { sponsor: string | null }>(
   events: T[],
   idx: SponsorIndex,
 ): Array<T & { ticker: string | null; cik: number | null }> {
   return events.map((e) => {
-    const hit = idx.get(e.sponsor);
+    const hit = e.sponsor == null ? undefined : idx.get(e.sponsor);
     return { ...e, ticker: hit?.ticker ?? null, cik: hit?.cik ?? null };
   });
 }

@@ -70,6 +70,7 @@ test("sponsorIndex keeps only matched rows; annotate never guesses", () => {
   assert.equal(out[0].cik, 1595097);
   assert.equal(out[1].cik, null);
   assert.equal(out[0].n, 1, "original fields preserved");
+  assert.equal(annotateWithTicker([{ sponsor: null }], idx)[0].ticker, null, "null sponsor is tolerated");
 });
 
 test("loadSponsorIndex reads the committed map and degrades to empty on a bad path", () => {
