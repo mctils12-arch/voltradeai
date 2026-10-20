@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-20 (scheduled routine PRODUCT session, ~00:10Z Tue = 20:10 ET Mon, after hours) [PRODUCT] — T-CLIENT (client/src/pages/clinicalTrials.tsx, datamap.tsx wiring, visual_check.mjs fixtures) + shared (datacore/layers.json, layersRegistry.test.ts pin, package.json; v1.0.1113) — /data CLINICAL-TRIAL DATE-DRIFT VIEW
+
+HEALTH: session_health_check all OK except daemon rss 405MB (trim mode, known, not a break); v1.0.1112 == main; no critical KNOWN BROKEN.
+LIVE VERIFY (carried NEXT from 10-19): /api/data/clinical-trials returned 5/23 events with a ticker (22%) — prior (~20%) held; all five are real pharma/biotech names (SYRE, ANNX, RCUS x2, ZURA).
+CHOICE: the archive + ticker join had no customer-facing surface (shipped-data-no-UI class). RAW view is priority (4)/(3) work and needs no gate; gate 2 still blocked on the price-panel human decision.
+CHANGE: ClinicalTrialsView (#/data/clinical-trials): date moves sorted by |shift|, other changes (new/status/window) below, ticker chip with identity-only tooltip, "~" for month-only dates, data age + tracked count in the header, hypothesis stated as gate-locked. Registered as layer clinical_trials (raw, filings group) with panel row + LAYER_GROUP/icon/unit wiring. No new CSS (reuses .vt-filings-*).
+VISUAL: harness --page clinicaltrials at 390/768/1440 = 0 hard failures; screenshots reviewed against DESIGN.md (mobile card-stacked rows, desktop table, no overflow; GPU toast is software-renderer harness noise).
+TESTS: layersRegistry pin 255->256 with the documented non-rendered-tabular precedent (same class as fda_events); tsc_ratchet OK (8<=8); counter_ratchet OK; gated_tests green apart from that pin, now fixed.
+NO SIGNAL CLAIM: kind raw, labeled "not a signal"; no trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared after hours; client-only plus registry, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-19 (scheduled routine PRODUCT session #2, ~18:10Z Mon = 14:10 ET, MID-MARKET) [PIPELINE] — T-DATACORE (server/clinicalTrialsTicker.ts + test, routes.ts one block, script/build.ts one line; v1.0.1112) — CLINICALTRIALS API NOW CARRIES THE SPONSOR->TICKER IDENTITY
 
 HEALTH: session_health_check all OK live (v1.0.1111 == main, deploy_gate 2xx, liveness alive, daemon 361MB); no critical KNOWN BROKEN. GNSS raw-vs-fold comparison and Lazy Prices gate 2 need the Railway volume / price panel (unreachable here), so not the action.

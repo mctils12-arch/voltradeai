@@ -311,7 +311,7 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
 // PR consciously updates the pin — silent drift in either direction fails.
 test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
   const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
-  const PINNED_GAP = 255; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  const PINNED_GAP = 256; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
   // 248 -> 249: new "grid_generation" layer, a non-rendered RAW tabular
   // root (respondent leaderboard, no map geometry) — same class as its own
   // sibling "grid_demand" and "treasury_dts", both of which also carry
@@ -355,6 +355,10 @@ test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration ga
   // in this registry, already carries (also missing both fields) — so
   // this one stays consistent with its one true sibling rather than
   // inventing a one-off renderKind value alone.
+  // 255 -> 256: new "clinical_trials" layer, a non-rendered RAW tabular
+  // root (a change-event listing with no map geometry) — same class as
+  // "fda_events"/"treasury_dts"/"grid_generation", which carry neither
+  // field; renderKind/lod describe how a layer paints on the map/globe.
   assert.equal(
     missing.length,
     PINNED_GAP,

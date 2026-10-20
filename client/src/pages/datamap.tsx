@@ -70,6 +70,7 @@ import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
 import TreasuryDtsView from "./treasuryDts";
 import FdaEventsView from "./fdaEvents";
+import ClinicalTrialsView from "./clinicalTrials";
 import VehicleComplaintsView from "./vehicleComplaints";
 import BankFailuresView from "./bankFailures";
 import UsaspendingContractsView from "./usaspendingContracts";
@@ -944,7 +945,7 @@ const LAYER_GROUP: Record<string, string> = {
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings", contracts: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", clinical_trials: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings", contracts: "filings",
   graph: "graph",
   grid_demand: "facilities",
   grid_generation: "facilities",
@@ -3075,6 +3076,10 @@ export default function DataMapPage() {
   // API-only 2026-07-05; no client view until now, same "shipped-data-
   // no-UI" gap class as treasury_dts/treasury_auctions/tff above).
   const [fdaEventsOpen, setFdaEventsOpen] = useState(() => window.location.hash === "#/data/fda-events");
+  // ClinicalTrials.gov date-drift archive (#/data/clinical-trials) — same
+  // overlay pattern (server/clinicalTrials.ts, v1.0.1102, shipped API-only;
+  // same "shipped-data-no-UI" gap class as fda_events above).
+  const [clinicalTrialsOpen, setClinicalTrialsOpen] = useState(() => window.location.hash === "#/data/clinical-trials");
   // NHTSA vehicle complaints (#/data/vehicle-complaints) — same overlay
   // pattern (server/nhtsaComplaints.ts, BUILD ORDER 6 #4, shipped
   // API-only 2026-07-06; no client view AND no registry entry until now —
@@ -3524,6 +3529,7 @@ export default function DataMapPage() {
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
       setTreasuryDtsOpen(window.location.hash === "#/data/treasury-dts");
       setFdaEventsOpen(window.location.hash === "#/data/fda-events");
+      setClinicalTrialsOpen(window.location.hash === "#/data/clinical-trials");
       setVehicleComplaintsOpen(window.location.hash === "#/data/vehicle-complaints");
       setBankFailuresOpen(window.location.hash === "#/data/bank-failures");
       setContractsOpen(window.location.hash === "#/data/contracts");
@@ -13550,6 +13556,30 @@ export default function DataMapPage() {
     return () => { stop = true; iv(); };
   }, [enabled.fda_events, mapSettled, setStatus]);
 
+  // ── ClinicalTrials.gov date drift (RAW; non-geospatial — same inline-
+  // panel-row + full-view pattern as fda_events). Server polls daily, so
+  // this poll only refreshes the panel's change-count badge (300s). ──
+  useEffect(() => {
+    if (!enabled.clinical_trials) { setStatus("clinical_trials", "off"); return; }
+    if (!mapSettled) { setStatus("clinical_trials", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("clinical_trials", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/clinical-trials");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("clinical_trials", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("clinical_trials", "active", d.count);
+      } catch {
+        if (!stop) setStatus("clinical_trials", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = pollWhenVisible(load, 300_000);
+    return () => { stop = true; iv(); };
+  }, [enabled.clinical_trials, mapSettled, setStatus]);
+
   // ── NHTSA vehicle complaints (RAW; non-geospatial — same inline-panel-
   // row + full-view pattern as fda_events/treasury_dts/treasury_auctions/
   // tff). Server refreshes on a 12h poll (bulk file updates daily), so
@@ -13764,6 +13794,7 @@ export default function DataMapPage() {
     id === "treasury_auctions" ? <Tag size={15} /> :
     id === "treasury_dts" ? <Banknote size={15} /> :
     id === "fda_events" ? <Pill size={15} /> :
+    id === "clinical_trials" ? <FlaskConical size={15} /> :
     id === "vehicle_complaints" ? <Car size={15} /> :
     id === "bank_failures" ? <Building2 size={15} /> :
     id === "contracts" ? <Handshake size={15} /> :
@@ -13783,7 +13814,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "lng_shipyards" ? "shipyards" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "clinical_trials" ? "changes" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "lng_shipyards" ? "shipyards" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -14365,6 +14396,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "clinical_trials" && on && (
+          // Same pattern as fda_events: a change listing doesn't belong in
+          // a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/clinical-trials"; setClinicalTrialsOpen(true); }}>
+              Open clinical-trial date drift view — primary completion date changes →
+            </button>
+          </div>
+        )}
         {l.id === "vehicle_complaints" && on && (
           // Same pattern as fda_events/treasury_dts/treasury_auctions/tff:
           // a per-vehicle complaint count table doesn't belong in a
@@ -14624,6 +14665,9 @@ export default function DataMapPage() {
       )}
       {fdaEventsOpen && (
         <FdaEventsView onBack={() => { window.location.hash = "#/data"; setFdaEventsOpen(false); }} />
+      )}
+      {clinicalTrialsOpen && (
+        <ClinicalTrialsView onBack={() => { window.location.hash = "#/data"; setClinicalTrialsOpen(false); }} />
       )}
       {vehicleComplaintsOpen && (
         <VehicleComplaintsView onBack={() => { window.location.hash = "#/data"; setVehicleComplaintsOpen(false); }} />

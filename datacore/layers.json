@@ -2448,6 +2448,16 @@
    "description": "openFDA approvals from the last 30 days (backward-looking confirmations) plus Federal Register FDA advisory-committee meeting notices (forward-looking catalysts; meeting date parsed from the notice text where stated, labeled 'unparsed' rather than guessed otherwise). No PDUFA target dates — legally unavailable free (21 CFR 314.430). Binary-event-timing-drives-biotech-options-IV-into-scheduled-catalysts (a theta-side input, not directional) is an open gate-2 hypothesis, not yet attempted, not yet surfaced as a signal."
   },
   {
+   "id": "clinical_trials",
+   "name": "Clinical-trial date drift",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "ClinicalTrials.gov API v2 (US National Library of Medicine, public domain, no API key required); sponsor->ticker via SEC company_tickers.json + EDGAR SIC",
+   "description": "Changes in sponsor-reported primary completion dates and statuses for industry Phase 2/3 trials, recorded by diffing daily snapshots (the registry serves only the current value) \u2014 last 14 days. A ticker is attached only where the sponsor's exact normalized name matches an SEC filer with a pharma/biotech SIC code: a current-day identity match, not point-in-time and not a call. A >=90-day slip leading small-cap operational trouble is an open gate-2 hypothesis (needs >=52 weeks of accumulation), not yet surfaced as a signal."
+  },
+  {
    "id": "vehicle_complaints",
    "name": "Vehicle complaints",
    "kind": "raw",
