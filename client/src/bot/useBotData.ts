@@ -4,8 +4,15 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
-async function getJson<T>(url: string): Promise<T> {
-  const r = await apiRequest("GET", url);
+/** Every Bot page read is polled, so none may hang forever (a hung request
+ *  blocks its query's polling until a manual reload — lib/queryClient.ts
+ *  apiRequest). These are quick reads; /api/bot/insight runs Python with a
+ *  40 s server-side cap, so it gets more room. */
+export const BOT_READ_TIMEOUT_MS = 20_000;
+export const BOT_INSIGHT_TIMEOUT_MS = 60_000;
+
+async function getJson<T>(url: string, timeoutMs: number = BOT_READ_TIMEOUT_MS): Promise<T> {
+  const r = await apiRequest("GET", url, undefined, { timeoutMs });
   return (await r.json()) as T;
 }
 
@@ -83,7 +90,7 @@ export function useBotData(): BotData {
   const market = useQuery<MarketStatus>({ queryKey: ["/api/bot/market-status"], queryFn: () => getJson("/api/bot/market-status"), refetchInterval: 60_000 });
   const calendar = useQuery<Calendar>({ queryKey: ["/api/bot/calendar"], queryFn: () => getJson("/api/bot/calendar"), refetchInterval: 10 * 60_000 });
   const ml = useQuery<MlStatus>({ queryKey: ["/api/ml/status"], queryFn: () => getJson("/api/ml/status"), refetchInterval: 60_000 });
-  const insight = useQuery<Insight>({ queryKey: ["/api/bot/insight"], queryFn: () => getJson("/api/bot/insight"), refetchInterval: 5 * 60_000, staleTime: 2 * 60_000 });
+  const insight = useQuery<Insight>({ queryKey: ["/api/bot/insight"], queryFn: () => getJson("/api/bot/insight", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 5 * 60_000, staleTime: 2 * 60_000 });
   const lastScan = useQuery<LastScan>({ queryKey: ["/api/bot/last-scan"], queryFn: () => getJson("/api/bot/last-scan"), refetchInterval: 60_000 });
   const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson("/api/orders/open"), refetchInterval: 30_000 });
   return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders };

@@ -9,17 +9,41 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/** Field bug 2026-10-20 (Bot page empty until a manual reload): a request
+ *  that never answers — a connection held open across a Railway deploy —
+ *  blocks react-query polling for good, because an interval refetch JOINS
+ *  the in-flight request instead of starting a new one. Polled reads pass
+ *  `timeoutMs`; a request with no answer by then is aborted and surfaces as
+ *  a "timeout:" error, which retryTransient treats like any dropped
+ *  connection, so the next poll starts fresh. Opt-in, never a global
+ *  default: some GETs are legitimately slow (a full /api/scan, analysis),
+ *  and mutations must never be cut off mid-flight (a retried POST could
+ *  act twice). */
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  opts: { timeoutMs?: number } = {},
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const ms = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 0;
+  const ac = ms ? new AbortController() : null;
+  let timedOut = false;
+  const timer = ac ? setTimeout(() => { timedOut = true; ac.abort(); }, ms) : null;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${url}`, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+      ...(ac ? { signal: ac.signal } : {}),
+    });
+  } catch (e) {
+    if (timedOut) throw new Error(`timeout: no answer from ${url} in ${ms} ms`);
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   await throwIfResNotOk(res);
   return res;
@@ -50,6 +74,7 @@ export const getQueryFn: <T>(options: {
 export function isTransientError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (/^(502|503|504):/.test(msg)) return true;
+  if (/^timeout:/.test(msg)) return true; // apiRequest's own timeout (a hung connection)
   // fetch() rejects with a TypeError before any response on a dropped connection
   return err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
 }
