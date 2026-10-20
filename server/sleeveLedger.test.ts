@@ -2,7 +2,7 @@
 // 2026-10-20). Run: npx tsx --test server/sleeveLedger.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sleeveLedger, realizedEvents, sleeveOf } from "./sleeveLedger";
+import { sleeveLedger, realizedEvents, sleeveOf, occRoot, SLEEVE_UNDERLYING_CAP } from "./sleeveLedger";
 import { realizedPnlFromFills, type FillRow, type PositionRow } from "./killSwitchAutoResume";
 
 const FLOOR = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD"]);
@@ -77,4 +77,32 @@ test("closes against an unknown basis are counted, never guessed; a missing unre
   assert.equal(by.floor.unrealized, null);
   assert.equal(L.unrealizedTotal, null);
   assert.deepEqual(sleeveLedger([], [], FLOOR).rows.map((r) => r.realized), [0, 0, 0]);
+});
+
+test("the options sleeve by underlying: losers first, the condor's −$66 under TSLA, open P&L per root, capped", () => {
+  const L = sleeveLedger(FILLS, POSITIONS, FLOOR);
+  assert.equal(L.optionsUnderlyings, 2);
+  assert.deepEqual(L.optionsByUnderlying.map((u) => u.root), ["TSLA", "BAC"], "losers first");
+  const tsla = L.optionsByUnderlying[0];
+  assert.equal(tsla.realized, -66);
+  assert.equal(tsla.fills, 8);
+  assert.deepEqual(tsla.byMonth, { "2026-10": -66 });
+  assert.equal(tsla.open, 0);
+  const bac = L.optionsByUnderlying[1];
+  assert.equal(bac.realized, 0, "still open: nothing realized");
+  assert.equal(bac.open, -17);
+  assert.equal(bac.openPositions, 1);
+  assert.equal(occRoot("TSLA261030C00470000"), "TSLA");
+  assert.equal(occRoot("BRK.B"), "BRK.B");
+  assert.equal(occRoot("IONQ1261120P00037000"), "IONQ1", "adjusted roots keep their digit");
+  // cap: 45 distinct roots -> 40 reported, the count stays 45
+  const many = Array.from({ length: 45 }, (_, i) => {
+    const root = `R${String(i).padStart(2, "0")}`;
+    const occ = `${root}261120P00050000`;
+    return [fill(occ, -1, 1, 1.0, "2026-09-01T14:00:00Z"), fill(occ, 1, 1, 1.0 + i / 100, "2026-09-02T14:00:00Z")];
+  }).flat();
+  const C = sleeveLedger(many, [], FLOOR);
+  assert.equal(C.optionsUnderlyings, 45);
+  assert.equal(C.optionsByUnderlying.length, SLEEVE_UNDERLYING_CAP);
+  assert.equal(C.optionsByUnderlying[0].root, "R44", "the biggest loser first");
 });

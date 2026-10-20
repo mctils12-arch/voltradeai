@@ -80,7 +80,22 @@ export interface SleeveRow {
   openPositions: number;
   byMonth: Record<string, number>;
 }
-export interface SleeveLedger { firstFill: string | null; lastFill: string | null; rows: SleeveRow[]; realizedTotal: number; unrealizedTotal: number | null }
+/** One options underlying (OCC root): where the options sleeve's P&L came
+ *  from. Symbols are within the 2026-07-07 human-authorized diag widening. */
+export interface UnderlyingRow { root: string; fills: number; realized: number; byMonth: Record<string, number>; open: number | null; openPositions: number }
+export interface SleeveLedger {
+  firstFill: string | null; lastFill: string | null; rows: SleeveRow[]; realizedTotal: number; unrealizedTotal: number | null;
+  /** options sleeve by underlying, losers first, capped at SLEEVE_UNDERLYING_CAP */
+  optionsByUnderlying: UnderlyingRow[];
+  /** how many underlyings the options sleeve touched (the list above may be shorter) */
+  optionsUnderlyings: number;
+}
+export const SLEEVE_UNDERLYING_CAP = 40;
+
+/** "TSLA261030C00470000" → "TSLA"; a stock symbol is its own root. */
+export function occRoot(symbol: string): string {
+  return symbol.length > 15 && /\d{6}[CP]\d{8}$/.test(symbol) ? symbol.slice(0, -15) : symbol;
+}
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -112,10 +127,33 @@ export function sleeveLedger(fills: readonly FillRow[], positions: readonly Posi
     };
   });
   const unrealizedTotal = out.some((r) => r.unrealized === null) ? null : r2(out.reduce((s, r) => s + (r.unrealized ?? 0), 0));
+  // the options sleeve by underlying (where its P&L came from)
+  const und = new Map<string, UnderlyingRow>();
+  const row = (root: string) => { let u = und.get(root); if (!u) { u = { root, fills: 0, realized: 0, byMonth: {}, open: 0, openPositions: 0 }; und.set(root, u); } return u; };
+  for (const f of sorted) if (sleeveOf(f.symbol, floorTickers) === "options") row(occRoot(f.symbol)).fills++;
+  for (const e of events) {
+    if (sleeveOf(e.symbol, floorTickers) !== "options") continue;
+    const u = row(occRoot(e.symbol));
+    u.realized += e.pnl;
+    const m = new Date(e.t).toISOString().slice(0, 7);
+    u.byMonth[m] = (u.byMonth[m] ?? 0) + e.pnl;
+  }
+  for (const p of positions) {
+    if (sleeveOf(p.symbol, floorTickers, p.option) !== "options") continue;
+    const u = row(occRoot(p.symbol));
+    u.openPositions++;
+    u.open = u.open === null || p.unrealizedPl === null ? null : u.open + p.unrealizedPl;
+  }
+  const optionsByUnderlying = [...und.values()]
+    .map((u) => ({ ...u, realized: r2(u.realized), open: u.open === null ? null : r2(u.open),
+      byMonth: Object.fromEntries(Object.entries(u.byMonth).sort().map(([k, v]) => [k, r2(v)])) }))
+    .sort((a, b) => a.realized - b.realized || a.root.localeCompare(b.root))
+    .slice(0, SLEEVE_UNDERLYING_CAP);
   return {
     firstFill: sorted.length ? new Date(sorted[0].t).toISOString() : null,
     lastFill: sorted.length ? new Date(sorted[sorted.length - 1].t).toISOString() : null,
     rows: out, realizedTotal: r2(out.reduce((s, r) => s + r.realized, 0)), unrealizedTotal,
+    optionsByUnderlying, optionsUnderlyings: und.size,
   };
 }
 

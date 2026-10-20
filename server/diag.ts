@@ -29,7 +29,8 @@ export const DIAG_PROBES = [
   // ADDED 2026-10-20: the two measurements a session needs to judge the
   // account against its GOAL without owner cookies — the SPY benchmark and
   // P&L by sleeve. Both serve the owner routes' own bodies (bot.ts
-  // benchmarkBody / sleevesBody) and carry no symbols or per-fill rows.
+  // benchmarkBody / sleevesBody); sleeves adds the options sleeve by
+  // underlying root (symbols, per the 2026-07-07 widening); no per-fill rows.
   "benchmark", "sleeves",
   // ADDED 2026-07-18 (scheduled-routine session, REPAIR — KNOWN BROKEN #18
   // recurrence investigation): scan_market's daemon-thread path already

@@ -76,8 +76,10 @@ export interface Benchmark {
 /** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
  *  Alpaca's fill ledger + open P&L from current positions. */
 export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
+export interface UnderlyingRow { root: string; fills: number; realized: number; byMonth: Record<string, number>; open: number | null; openPositions: number }
 export interface Sleeves {
   rows?: SleeveRow[]; realizedTotal?: number; unrealizedTotal?: number | null; firstFill?: string | null; lastFill?: string | null;
+  optionsByUnderlying?: UnderlyingRow[]; optionsUnderlyings?: number;
   since?: string; truncated?: boolean; malformedFills?: number; fetchedAt?: string; stale?: boolean; pending?: boolean; error?: string; lastError?: string | null;
 }
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
