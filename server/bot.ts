@@ -2660,9 +2660,9 @@ print(json.dumps(s))
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
-          // SAME body as the owner's /api/bot/sleeves. Per-sleeve
-          // aggregates only — no symbols, no per-fill rows (less than the
-          // 2026-07-07 widening already authorizes).
+          // SAME body as the owner's /api/bot/sleeves. Per-sleeve aggregates
+          // plus the options sleeve by underlying ROOT (symbols are what
+          // the 2026-07-07 widening authorizes); no per-fill rows.
           return res.json(sanitizeDiag({ probe: "sleeves", ...(await sleevesBody()) }));
         }
         case "account": {

@@ -124,6 +124,13 @@ function botFixtures({ latched }) {
           { sleeve: "options", fills: 412, symbols: 118, realized: -1532.1, unpricedCloses: 0, unrealized: -96, openPositions: 6, byMonth: { "2026-10": -516.4 } },
           { sleeve: "floor", fills: 690, symbols: 7, realized: 93.2, unpricedCloses: 0, unrealized: -4398.2, openPositions: 5, byMonth: { "2026-10": 93.2 } },
           { sleeve: "stocks", fills: 236, symbols: 61, realized: -1522.5, unpricedCloses: 3, unrealized: 85.3, openPositions: 2, byMonth: { "2026-08": -1340.2 } },
+        ], optionsUnderlyings: 118, optionsByUnderlying: [
+          { root: "CRWV", fills: 14, realized: -612.4, byMonth: { "2026-08": -414.4, "2026-10": -198 }, open: -42.5, openPositions: 1 },
+          { root: "TSLA", fills: 8, realized: -66, byMonth: { "2026-10": -66 }, open: 0, openPositions: 0 },
+          { root: "META", fills: 8, realized: -70, byMonth: { "2026-10": -70 }, open: 0, openPositions: 0 },
+          { root: "GOOGL", fills: 8, realized: -84, byMonth: { "2026-10": -84 }, open: 0, openPositions: 0 },
+          { root: "BAC", fills: 6, realized: -78, byMonth: { "2026-10": -78 }, open: -17, openPositions: 1 },
+          { root: "XLF", fills: 12, realized: 161.2, byMonth: { "2026-09": 161.2 }, open: 0, openPositions: 0 },
         ] }
       : { pending: true },
   };

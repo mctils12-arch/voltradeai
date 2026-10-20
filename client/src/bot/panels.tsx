@@ -392,6 +392,14 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
           <span className={`px ${cls(r.realized)}`}>{k(r.realized)}</span><span className={`pl ${cls(r.unrealized)}`}>{r.unrealized === null ? "·" : k(r.unrealized)}</span>
         </div>
       ))}
+      {sleeves.optionsByUnderlying?.length ? (() => {
+        const worst = sleeves.optionsByUnderlying.filter((u) => u.realized < 0).slice(0, 5);
+        return worst.length ? (
+          <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title="options realized P&L by underlying, worst first (OCC root); the full list is on /api/bot/sleeves">
+            worst options: {worst.map((u) => `${u.root} ${k(u.realized)}`).join(" · ")}{(sleeves.optionsUnderlyings ?? 0) > worst.length ? ` · of ${sleeves.optionsUnderlyings}` : ""}
+          </div>
+        ) : null;
+      })() : null}
       {sleeves.truncated || sleeves.rows.some((r) => r.unpricedCloses > 0) ? (
         <div className="vt-bot-t3" style={{ fontSize: 10 }}>{sleeves.truncated ? "fill history truncated · " : ""}{sleeves.rows.some((r) => r.unpricedCloses > 0) ? "some closes predate the window (not counted)" : ""}</div>
       ) : null}
