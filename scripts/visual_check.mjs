@@ -2724,6 +2724,101 @@ async function main() {
       const checks = await page.evaluate(CHECKS_SNIPPET(vp.w, vp.touch, cfg.map));
       checks.failures.push(...errors);
 
+      // ── BOT PAGE CONTROLS (2026-10-20, field report: "dock and zoom don't
+      // work" on a panel opened as a window). Every panel control is driven
+      // with real pointer events (locator.click / tap) and its effect read
+      // back from the DOM: hold, pin, open-as-window, the window's dock /
+      // zoom / close buttons, the ghost slot, Esc, title-bar drag, the
+      // zoomed view's way back. Runs on both bot renders at every width.
+      if (name === "bot" || name === "botidle") {
+        const fail = (m) => checks.failures.push("bot-ui: " + m);
+        const winCount = () => page.locator(".vt-bot-win").count();
+        const ctl = (id, label) => page.locator(`section.vt-bot-panel[data-panel="${id}"] .vt-bot-ctl button[aria-label="${label}"]`).first();
+        const press = async (loc) => { if (vp.touch) await loc.tap(); else await loc.click(); };
+        const settle = () => page.waitForTimeout(250);
+        const panels = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => [...new Set(els.map((e) => e.getAttribute("data-panel")))]);
+        if (!panels.length) fail("no panels rendered");
+        // every docked panel has a real height (a collapsed one is invisible
+        // and its controls sit under the next panel)
+        for (const [id, h] of await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => [e.getAttribute("data-panel"), Math.round(e.getBoundingClientRect().height)]))) {
+          if (h < 40) fail(`${id}: panel is ${h}px tall`);
+        }
+        for (const id of panels) {
+          try {
+            // hold + pin toggle and report it
+            for (const label of ["Hold this panel", "Pin this panel"]) {
+              const b = ctl(id, label);
+              if (!(await b.count())) { fail(`${id}: '${label}' missing`); continue; }
+              await press(b); await settle();
+              const after = label === "Hold this panel" ? ctl(id, "Resume this panel") : b;
+              if ((await after.getAttribute("aria-pressed")) !== "true") fail(`${id}: '${label}' did not toggle on`);
+              await press(after); await settle();
+              if ((await ctl(id, label).getAttribute("aria-pressed")) !== "false") fail(`${id}: '${label}' did not toggle off`);
+            }
+            const open = async () => { await press(ctl(id, "Open as a window")); await settle(); return (await winCount()) === 1; };
+            const win = page.locator(".vt-bot-win");
+            // window → dock button
+            if (!(await open())) { fail(`${id}: 'Open as a window' opened ${await winCount()} windows`); continue; }
+            await press(win.locator("button.vt-bot-wbtn", { hasText: "dock" })); await settle();
+            if (await winCount()) { fail(`${id}: window 'dock' button did nothing`); await page.keyboard.press("Escape"); await settle(); }
+            // window → close (x)
+            if (await open()) {
+              await press(win.locator('button[aria-label="Close window"]')); await settle();
+              if (await winCount()) { fail(`${id}: window close button did nothing`); await page.keyboard.press("Escape"); await settle(); }
+            }
+            // window → zoom → back to the page
+            if (await open()) {
+              await press(win.locator("button.vt-bot-wbtn", { hasText: "zoom" })); await settle();
+              const back = page.locator("button.vt-bot-wbtn", { hasText: "back to the page" });
+              if (!(await back.count()) || (await winCount())) fail(`${id}: window 'zoom' button did not zoom`);
+              if (await back.count()) { await press(back); await settle(); if (await back.count()) fail(`${id}: 'back to the page' did not leave the zoom`); }
+              if (await winCount()) { await page.keyboard.press("Escape"); await settle(); }
+            }
+            // window → ghost slot docks it (when the window does not cover
+            // its own ghost — it opens centred, over the centre column)
+            if (await open()) {
+              const ghost = page.locator(".vt-bot-ghost").first();
+              await ghost.scrollIntoViewIfNeeded();
+              const reachable = await ghost.evaluate((g) => { const r = g.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && g.contains(hit); });
+              if (reachable) {
+                await press(ghost); await settle();
+                if (await winCount()) fail(`${id}: clicking the ghost slot did not dock`);
+              }
+              if (await winCount()) { await page.keyboard.press("Escape"); await settle(); }
+            }
+            // window → Esc docks it (the title bar promises "Esc docks"),
+            // with focus wherever the click left it
+            if (await open()) {
+              await page.keyboard.press("Escape"); await settle();
+              if (await winCount()) {
+                fail(`${id}: Esc did not dock the window`);
+                await press(win.locator("button.vt-bot-wbtn", { hasText: "dock" })); await settle();
+              }
+            }
+            // window → drag the title bar
+            if (!vp.touch && (await open())) {
+              const bar = win.locator(".vt-bot-wh");
+              const b0 = await win.boundingBox();
+              const hb = await bar.boundingBox();
+              if (b0 && hb) {
+                await page.mouse.move(hb.x + 40, hb.y + hb.height / 2);
+                await page.mouse.down();
+                await page.mouse.move(hb.x + 40 - 60, hb.y + hb.height / 2 + 40, { steps: 6 });
+                await page.mouse.up();
+                await settle();
+                const b1 = await win.boundingBox();
+                if (!b1 || Math.abs(b1.x - (b0.x - 60)) > 14 || Math.abs(b1.y - (b0.y + 40)) > 14) fail(`${id}: dragging the title bar did not move the window (${JSON.stringify(b0)} -> ${JSON.stringify(b1)})`);
+              }
+              await page.keyboard.press("Escape"); await settle();
+              if (await winCount()) { await press(win.locator('button[aria-label="Close window"]')); await settle(); }
+            }
+            if (await winCount()) fail(`${id}: a window was left open after the battery`);
+          } catch (e) {
+            fail(`${id}: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 700)}`);
+          }
+        }
+      }
+
       // ── IMAGERY CAPTURE-DATE RATCHET (Phase 3a/5, 2026-07-07): the
       // DESIGN.md imagery-honesty rule requires the capture-date chip on
       // the map whenever the imagery base is on. External Esri calls
