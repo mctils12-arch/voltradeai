@@ -1410,3 +1410,27 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
             "code_version": _code_version(),
         }
     _save_options_state(state)
+
+
+def merge_options_meta(occ_symbols, meta: dict) -> None:
+    """
+    Add display/grouping fields (strategy, setup, ticker, …) to the state of
+    each key WITHOUT dropping what register_options_entry() already recorded.
+
+    REPAIR 2026-10-20 (live: TSLA/META/GOOGL iron condors 2026-10-19/20,
+    each market-closed 4-10 minutes after opening for -$66/-$70/-$84): the
+    bot.ts scanner-direct path registered every leg here and then rewrote
+    the same keys as a bare {strategy, setup, ticker} dict, deleting
+    entry_timestamp (so _manage_strategy_group's MIN_HOLD_MINUTES gate saw
+    no timestamp and let every exit rule run on the first cycle) and
+    max_loss (so the iron-condor 50%-of-max-loss exit never armed). Every
+    writer of display metadata goes through this merge instead.
+    """
+    keys = [k for k in (occ_symbols or []) if isinstance(k, str) and k]
+    if not keys:
+        return
+    state = _load_options_state()
+    for k in keys:
+        prev = state.get(k)
+        state[k] = {**(prev if isinstance(prev, dict) else {}), **meta}
+    _save_options_state(state)

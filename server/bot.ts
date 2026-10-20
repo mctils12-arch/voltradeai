@@ -5593,25 +5593,15 @@ else:
                 )
         except Exception as _e: pass
         # v1.0.33: Save options state for dashboard display (setup, strategy, expiry)
+        # REPAIR 2026-10-20: MERGED into each key, never rewritten — the old
+        # rewrite deleted the entry_timestamp/max_loss register_options_entry
+        # just recorded above (iron condors closed minutes after opening).
         try:
-            import os
-            try:
-                from storage_config import DATA_DIR
-            except ImportError:
-                DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
-            state_path = os.path.join(DATA_DIR, 'voltrade_options_state.json')
-            try:
-                with open(state_path) as _f: ostate = json.load(_f)
-            except: ostate = {}
+            from options_manager import merge_options_meta
             # P0-9 FIX: iterate all possible multi-leg keys, not just call/put.
-            for key in [contract.get('occ_symbol',''),
-                        contract.get('short_call',''), contract.get('long_call',''),
-                        contract.get('short_put',''),  contract.get('long_put',''),
-                        contract.get('call_leg',''),   contract.get('put_leg','')]:
-                if key:
-                    ostate[key] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')}
-            ostate[data.get('ticker','')] = {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')}
-            with open(state_path, 'w') as _f: json.dump(ostate, _f)
+            merge_options_meta([contract.get(k,'') for k in ('occ_symbol','short_call','long_call','short_put','long_put','call_leg','put_leg')],
+                               {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')})
+            merge_options_meta([data.get('ticker','')], {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')})
         except: pass
     print(json.dumps({'instrument':'options','strategy':data['strategy'],'contract':contract,'order':order,'reasoning':'Scanner direct execution'}))
 "`,
