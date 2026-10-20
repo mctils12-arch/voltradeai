@@ -42,6 +42,12 @@ try:
 except ImportError:
     DATA_DIR = "/tmp"
 
+# REPAIR 2026-10-20: the leveraged / inverse exclusion is SHARED with
+# options_scanner.py — leveraged_etf_filter.py decides by /v2/assets NAME
+# (seed list + names cache); MUU / NVDL / METU had slipped past the old
+# static list and its dead ticker heuristic for −$2,001.
+from leveraged_etf_filter import KNOWN_LEVERAGED_TICKERS, leveraged_symbols
+
 UNIVERSE_CACHE_PATH = os.path.join(DATA_DIR, "voltrade_csp_universe_cache.json")
 SCORES_CACHE_PATH = os.path.join(DATA_DIR, "voltrade_csp_scores_cache.json")
 LAYER1_CACHE_TTL = 900   # 15 min — universe filter changes slowly
@@ -60,11 +66,12 @@ CSP_ANCHOR_TICKERS = [
 # CSP), USO/UNG (commodity ETFs with thin/seasonal chains — failed liquidity gates),
 # and ETFs with structural issues for premium selling.
 CSP_BLOCKED_TICKERS = {
-    # Leveraged & inverse (volatility decay makes premium selling unprofitable)
-    "TQQQ", "SQQQ", "UPRO", "SPXU", "UVXY", "SVXY", "TMF", "TMV",
-    "SOXL", "SOXS", "TNA", "TZA", "LABU", "LABD", "SPXL", "SPXS",
-    "FAS", "FAZ", "YINN", "YANG", "JNUG", "JDST", "NUGT", "DUST",
-    "BOIL", "KOLD", "UGL", "GLL", "UCO", "SCO", "UVIX", "SVIX",
+    # Leveraged & inverse (volatility decay makes premium selling unprofitable):
+    # the seed list lives in leveraged_etf_filter.KNOWN_LEVERAGED_TICKERS
+    # (REPAIR 2026-10-20) and is widened at runtime by /v2/assets NAMES in
+    # _layer1_hard_gates — the old `_is_likely_etf_leveraged` ticker heuristic
+    # could match nothing real (MUU / NVDL / METU got through).
+    *KNOWN_LEVERAGED_TICKERS,
     # Treasury bill ETFs — options exist but volume too thin for reliable CSP
     "SGOV", "BIL", "SHV",
     # Commodity ETFs — thin/seasonal chains (per audit log, USO repeatedly failed)
@@ -143,15 +150,13 @@ def get_last_layer1_stats() -> Dict[str, Any]:
 
 
 def _is_likely_etf_leveraged(ticker: str) -> bool:
-    """Heuristic: avoid tickers matching known leveraged ETF patterns."""
-    if ticker in CSP_BLOCKED_TICKERS:
-        return True
-    # Common leveraged ETF suffixes
-    if len(ticker) == 4:
-        suffixes = ("BULL", "BEAR", "SOXL", "SOXS", "SQQQ", "TQQQ")
-        if ticker.endswith(("L", "S")) and ticker[:-1] in ("TQQQ", "SQQQ", "SOXL", "SOXS"):
-            return True
-    return False
+    """True for a blocked or leveraged / inverse ticker. REPAIR 2026-10-20: the
+    former ticker-suffix heuristic could match nothing real (it needed a
+    4-letter ticker whose first three letters were TQQQ / SQQQ / SOXL / SOXS —
+    impossible); the decision now comes from leveraged_etf_filter (seed ∪
+    /v2/assets names), the same source options_scanner.py uses."""
+    t = (ticker or "").upper()
+    return t in CSP_BLOCKED_TICKERS or t in leveraged_symbols()
 
 
 # Account equity cache for affordability filter (refreshed every 15 min)
@@ -265,10 +270,11 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
                          f"(account equity: ${_eq:.0f})")
     except Exception as _e:
         logger.debug(f"Could not fetch equity for affordability cap, using default: {_e}")
+    _excluded = leveraged_symbols()  # seed ∪ /v2/assets names (REPAIR 2026-10-20)
     for sym, snap in snap_data.items():
         if not sym or "." in sym or len(sym) > 5:
             continue
-        if sym in CSP_BLOCKED_TICKERS or _is_likely_etf_leveraged(sym):
+        if sym in CSP_BLOCKED_TICKERS or sym in _excluded:
             continue
         try:
             bar = snap.get("dailyBar", {}) or {}

@@ -2477,6 +2477,15 @@ def _get_full_universe() -> list:
         # Cache it
         with open(cache_path, "w") as f:
             json.dump(symbols, f)
+        # REPAIR 2026-10-20: the assets' NAMES ride along free for the shared
+        # leveraged / inverse exclusion (leveraged_etf_filter, universe_names.json)
+        # — never fatal to the universe itself.
+        try:
+            from leveraged_etf_filter import write_universe_names
+            _keep = set(symbols)
+            write_universe_names(a for a in assets if isinstance(a, dict) and a.get("symbol") in _keep)
+        except Exception as _ne:
+            import logging; logging.getLogger("bot_engine").warning(f"universe names not written: {type(_ne).__name__}: {_ne}")
         import logging; logging.getLogger("bot_engine").info(f"Universe cache refreshed: {len(symbols):,} symbols")
         return symbols
     except Exception as e:
