@@ -12,6 +12,7 @@ import {
   parseKillSwitchRecord, summarizePythonSync, parseFills, parsePositions, type AutoResumeDecision, type AutoResumeNumbers,
 } from "./killSwitchAutoResume";
 import { sleeveLedger, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS } from "./sleeveLedger";
+import { parseNonTradeActivities, activityLedger, reconcile } from "./accountActivities";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
@@ -1953,8 +1954,12 @@ print(json.dumps({
   app.get("/api/bot/benchmark", requireOwner, async (_req, res) => { res.json(await benchmarkBody()); });
 
   // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
-  // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20). Fills since the
-  // equity curve's first day; recomputed in the background at most every
+  // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20), plus the
+  // NON-TRADE cash flows (dividends, interest, fees, journals, option events;
+  // server/accountActivities.ts) and the reconciliation of both to the equity
+  // curve. One page walk of /v2/account/activities (EVERY type) since the
+  // equity curve's first day: FILL rows feed the sleeve ledger, the rest the
+  // activity ledger. Recomputed in the background at most every
   // SLEEVE_CACHE_MS so a poll never waits on dozens of pages.
   let sleeveCache: { at: number; body: Record<string, unknown> } | null = null;
   let sleeveError: string | null = null;
@@ -1969,8 +1974,8 @@ print(json.dumps({
       for (let page = 0; ; page++) {
         if (page >= SLEEVE_FILLS_MAX_PAGES) { truncated = true; break; }
         const qs = `after=${encodeURIComponent(afterIso)}&direction=asc&page_size=${SLEEVE_FILLS_PAGE_SIZE}` + (token ? `&page_token=${encodeURIComponent(token)}` : "");
-        const batch: unknown = await alpaca(`/v2/account/activities/FILL?${qs}`);
-        if (!Array.isArray(batch)) throw new Error("a fills page was not a list");
+        const batch: unknown = await alpaca(`/v2/account/activities?${qs}`);
+        if (!Array.isArray(batch)) throw new Error("an activities page was not a list");
         raw.push(...batch);
         if (batch.length < SLEEVE_FILLS_PAGE_SIZE) break;
         const last: unknown = batch[batch.length - 1];
@@ -1978,12 +1983,20 @@ print(json.dumps({
         token = typeof id === "string" ? id : "";
         if (!token) { truncated = true; break; }
       }
-      const fills = parseFills(raw);
+      const fills = parseFills(raw.filter((r) => r && typeof r === "object" && (r as { activity_type?: unknown }).activity_type === "FILL"));
+      const nta = parseNonTradeActivities(raw);
       const positions = parsePositions(await alpaca("/v2/positions"));
-      if (!fills || !positions) throw new Error("fills or positions unreadable");
+      if (!fills || !nta || !positions) throw new Error("fills, activities or positions unreadable");
+      const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS);
+      const nonTrade = activityLedger(nta.rows);
       sleeveCache = {
         at: Date.now(),
-        body: { ...sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS), since: afterIso, truncated, malformedFills: fills.malformed, fetchedAt: new Date().toISOString() },
+        body: {
+          ...ledger, since: afterIso, truncated, malformedFills: fills.malformed,
+          nonTrade, malformedActivities: nta.malformed,
+          reconciliation: reconcile(equityCurve, ledger.realizedTotal, ledger.unrealizedTotal, nonTrade.total),
+          fetchedAt: new Date().toISOString(),
+        },
       };
       sleeveError = null;
     } catch (err) {
@@ -2662,7 +2675,9 @@ print(json.dumps(s))
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
           // SAME body as the owner's /api/bot/sleeves. Per-sleeve aggregates
           // plus the options sleeve by underlying ROOT (symbols are what
-          // the 2026-07-07 widening authorizes); no per-fill rows.
+          // the 2026-07-07 widening authorizes), the non-trade cash ledger
+          // by type / month and the equity reconciliation; no per-fill or
+          // per-activity rows.
           return res.json(sanitizeDiag({ probe: "sleeves", ...(await sleevesBody()) }));
         }
         case "account": {

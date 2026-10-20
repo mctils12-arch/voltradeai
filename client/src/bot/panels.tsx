@@ -374,6 +374,7 @@ export function ChartBody({ positions }: { positions: BotPosition[] | undefined 
   return <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}><TradeCharts positions={positions} /></div>;
 }
 const SLEEVE_LABEL: Record<string, string> = { options: "options", floor: "ETF floor", stocks: "stocks" };
+const ACTIVITY_LABEL: Array<[keyof NonNullable<Sleeves["nonTrade"]>["groups"], string]> = [["dividends", "div"], ["interest", "int"], ["fees", "fees"], ["journals", "journals"], ["optionEvents", "option events"], ["corporate", "corp"], ["transfers", "transfers"], ["other", "other"]];
 /** Where the P&L comes from — realized since the first fetched fill + open. */
 export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
   if (!sleeves) return null;
@@ -399,6 +400,16 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
             worst options: {worst.map((u) => `${u.root} ${k(u.realized)}`).join(" · ")}{(sleeves.optionsUnderlyings ?? 0) > worst.length ? ` · of ${sleeves.optionsUnderlyings}` : ""}
           </div>
         ) : null;
+      })() : null}
+      {sleeves.nonTrade ? (() => {
+        const g = sleeves.nonTrade.groups;
+        const parts = ACTIVITY_LABEL.filter(([key]) => (g[key] ?? 0) !== 0).map(([key, label]) => `${label} ${k(g[key])}`);
+        const r = sleeves.reconciliation;
+        return (
+          <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title={`cash the fill ledger cannot see, from Alpaca's activity ledger since ${since} (dividends, interest, fees, journals, option expiration / assignment); unexplained = equity change since ${r?.equityFrom ?? "?"} minus realized, open and other cash — what no ledger accounts for${sleeves.nonTrade.nonCashRows ? ` · ${sleeves.nonTrade.nonCashRows} share-only event(s) counted, not valued` : ""}`}>
+            other cash {k(sleeves.nonTrade.total)}{parts.length ? ` · ${parts.join(" · ")}` : ""}{r && r.residual !== null ? ` · unexplained ${k(r.residual)}` : ""}
+          </div>
+        );
       })() : null}
       {sleeves.truncated || sleeves.rows.some((r) => r.unpricedCloses > 0) ? (
         <div className="vt-bot-t3" style={{ fontSize: 10 }}>{sleeves.truncated ? "fill history truncated · " : ""}{sleeves.rows.some((r) => r.unpricedCloses > 0) ? "some closes predate the window (not counted)" : ""}</div>

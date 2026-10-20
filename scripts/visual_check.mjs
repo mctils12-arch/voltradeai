@@ -131,7 +131,9 @@ function botFixtures({ latched }) {
           { root: "GOOGL", fills: 8, realized: -84, byMonth: { "2026-10": -84 }, open: 0, openPositions: 0 },
           { root: "BAC", fills: 6, realized: -78, byMonth: { "2026-10": -78 }, open: -17, openPositions: 1 },
           { root: "XLF", fills: 12, realized: 161.2, byMonth: { "2026-09": 161.2 }, open: 0, openPositions: 0 },
-        ] }
+        ], nonTrade: { total: 4712.3, count: 9, nonCashRows: 0, groups: { dividends: 412.3, interest: 0, fees: 0, journals: 4300, optionEvents: 0, corporate: 0, transfers: 0, other: 0 },
+          byMonth: { "2026-05": 4300, "2026-08": 312.3, "2026-09": 100 }, types: [{ type: "JNLC", group: "journals", count: 1, net: 4300, byMonth: { "2026-05": 4300 } }, { type: "DIV", group: "dividends", count: 8, net: 412.3, byMonth: { "2026-08": 312.3, "2026-09": 100 } }], first: "2026-05-05", last: "2026-09-15" },
+        reconciliation: { equityFrom: "2026-05-06", equityTo: "2026-10-20", equityStart: 106743, equityEnd: 99373, equityChange: -7370, realized: -2961.4, unrealized: -4408.9, nonTrade: 4712.3, explained: -2658, residual: -4712 } }
       : { pending: true },
   };
 }
