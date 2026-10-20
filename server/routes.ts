@@ -5263,6 +5263,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FDA binary-event calendar keyed mirror (same "shipped-data-no-v1-API"
+  // sweep). Reuses latestFdaEvents() — the cache /api/data/fda-events
+  // already serves; no new poller. Public-domain US federal data, resell ok.
+  // RAW: gate 2 never attempted; no PDUFA dates (21 CFR 314.430).
+  app.get("/api/v1/data/fda-events", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestFdaEvents();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first FDA poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/fda-events", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/fda-events", { count: hit.events.length, events: hit.events }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fda-events", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fda-events", status: 500, tier: auth.tier });
+    }
+  });
+
   // FDIC bank failures keyed mirror (same "shipped-data-no-v1-API" sweep as
   // fred-macro/eu-macro/nrc-reactor-status/crop-conditions above — one of
   // four gate1_pass roots the 2026-08-23 PRODUCT session survey found still
