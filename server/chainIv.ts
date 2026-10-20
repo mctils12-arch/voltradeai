@@ -29,7 +29,7 @@
 import fs from "fs";
 import path from "path";
 import { parseOcc, chainDir, type ChainRecord } from "./optionsChainArchive";
-import { archiveDayFiles, streamJsonlLines } from "./datacoreArchive";
+import { archiveBaseDir, archiveDayFiles, streamJsonlLines } from "./datacoreArchive";
 
 export const IV30_TARGET_DAYS = 30;
 export const IV30_DELTA_BAND: readonly [number, number] = [0.35, 0.65];
@@ -132,8 +132,11 @@ export function atmIv30ForDay(records: readonly ChainRecord[], day: string): Iv3
 
 // ── archive reading + derived cache ────────────────────────────────────────
 
+/** The derived cache lives beside the chain day files under the datacore
+ *  archive base (the Railway volume: archiveBaseDir() → DATA_DIR/datacore_archive),
+ *  so it is DURABLE like the archive itself (server/durability.test.ts). */
 export function derivedDir(baseDir?: string): string {
-  return path.join(chainDir(baseDir), "derived", "iv30");
+  return path.join(chainDir(baseDir ?? archiveBaseDir()), "derived", "iv30");
 }
 
 /** Days with a chain day-file, ascending ("YYYY-MM-DD"). */
