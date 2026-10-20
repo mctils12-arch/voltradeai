@@ -109137,3 +109137,15 @@ WHAT CHANGES NOW: nothing live. NEXT, in order (research step 2): (1) the same f
 ROLLBACK TRIGGER: none needed — measurement only, opt-in arms, defaults unchanged.
 Tests: test_exit_model_controls.py 7 (time_only ignores a −20% / +60% path and exits at the regime time stop; wide_stop = entry − 3×ATR and never a take-profit; legacy output unlabeled; random entry reproducible by seed, labelled, regime-gated, rate validated); test_exit_model_reconciliation.py 4 (the DSR arithmetic reproduces the research file's N=8 / 324 / 1000 figures; Lo SE scaling; aggregation incl. SE and alpha; the report lists the prior and every arm); test_backtest_v2_exit_model.py's EXIT_MODELS literal updated to the four-tuple (assertion kept as strict), its legacy byte-identical pins pass; full Python suite 2,743 passed (the one failure is the pre-existing Hurst test). Counter ratchet OK.
 STARVED: no.
+
+## 2026-10-20 (interactive session, ~21:05Z) [RESEARCH] — SPY-GAP ATTRIBUTION from the live fill ledger (read through the v1.0.1123 "sleeves" / "benchmark" probes): the unexplained −6 pt was the OPTIONS sleeve, −$5.4k of it in August — docs only, no code_version change
+
+NUMBERS (Alpaca FILL activities since 2026-05-05: 3,748 fills, 0 malformed, not truncated, 0 unpriced closes; positions as of 20:45Z):
+- options: realized −$8,893.00 (815 fills, 294 OCC symbols), open +$49 (6 positions); by month May −5 · Jun −664 · Jul −191 · Aug −5,437 · Sep −942 · Oct −1,654 (20 days).
+- floor (QQQ/SMH/KWEB/VXUS/GLD): realized −$60.62 over 2,755 fills (the regime-flip churn — net ≈ 0, as the v1.0.1054/1055 entries found), open −$2,630.45 (5 positions); by month May −2,779 · Jun +1,353 · Jul −1,484 · Aug +1,536 · Sep +114 · Oct +1,199.
+- stocks: realized −$499.39 (178 fills, 28 symbols), nothing open; Aug −671 · Sep +19 · Oct +153.
+- totals: realized −$9,453, open −$2,581 → −$12,034. Benchmark probe: account −6.91% vs SPY +5.34% since 2026-05-06 (gap −12.26 pt); 30 d −3.11% vs +0.98% (−4.1 pt).
+ATTRIBUTION of the account's −$7,370 (−6.91% of $106,743): options −8.3 pt; floor −2.5 pt, plus the ~+4 pt SPY earned on the floor's ~$80k that the basket did not (the "composition" term of the morning diagnosis); stocks −0.5 pt. The diagnosis's unattributed "−6 pt, worst Aug 7–31" IS the options sleeve's August (−$5,437 = −5.1 pt) — read from the ledger, not inferred.
+RESIDUAL, stated: the ledger sums to −$12.0k while equity moved −$7.4k; about +$4.7k entered the account through something the FILL ledger does not see — dividends on the floor ETFs, interest, fees, option expiration / assignment credits (0 unpriced closes says no option expired or was assigned inside the window), or a cash journal on the paper account. Until a non-fill activities probe reads it (filed in open_questions.md), the sleeve numbers are the right RANKING, not exact to the dollar.
+SECOND-ORDER: the research round's Q2 finding (single-name VRP ≈ 0) is consistent with a single-name short-premium sleeve losing −$8.9k in 5.5 months; which underlyings carried it is the next read (options by underlying — in flight).
+STARVED: no.
