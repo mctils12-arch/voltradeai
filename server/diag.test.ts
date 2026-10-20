@@ -585,3 +585,16 @@ test("KNOWN BROKEN #44 (2026-09-22): the shared /api/diag/:probe catch block exp
   assert.ok(/return res\.status\(500\)\.json\(\{ error: sanitizeDiag\(msg\) \}\);\s*\n\s*\}/.test(block),
     "the plain error path (no scripts/-only module detected) must still return exactly {error: sanitizeDiag(msg)}");
 });
+
+test("2026-10-20: benchmark + sleeves probes are whitelisted, wired, sanitized, and share the owner routes' bodies", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  for (const [probe, body] of [["benchmark", "benchmarkBody()"], ["sleeves", "sleevesBody()"]] as const) {
+    assert.ok((DIAG_PROBES as readonly string[]).includes(probe), `${probe} must be whitelisted`);
+    const i = bot.indexOf(`case "${probe}": {`);
+    assert.ok(i > 0, `case "${probe}" missing`);
+    const block = bot.slice(i, i + 700);
+    assert.ok(block.includes("sanitizeDiag"), `${probe} probe must pass the sanitizer`);
+    assert.ok(block.includes(body), `${probe} probe must serve the owner route's body (${body}), never a second computation`);
+    assert.ok(bot.includes(`res.json(await ${body})`), `the owner route must serve ${body} too`);
+  }
+});

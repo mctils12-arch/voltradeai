@@ -1935,19 +1935,22 @@ print(json.dumps({
   // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are
   // dividend-adjusted (total return) and cached: the series moves once a day.
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
-  app.get("/api/bot/benchmark", requireOwner, async (_req, res) => {
+  // One body for the owner route AND the "benchmark" diag probe (2026-10-20),
+  // so what a session reads can never drift from what the page shows.
+  async function benchmarkBody(): Promise<Record<string, unknown>> {
     const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
     try {
-      if (!oldest) return res.json({ ...benchmarkVsSpy([], []), fetchedAt: null });
+      if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null };
       if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
         const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
         spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
       }
-      res.json({ ...benchmarkVsSpy(equityCurve, spyBenchCache.bars), fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all" });
+      return { ...benchmarkVsSpy(equityCurve, spyBenchCache.bars), fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all" };
     } catch (err) {
-      res.json({ ...benchmarkVsSpy([], []), fetchedAt: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) });
+      return { ...benchmarkVsSpy([], []), fetchedAt: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
-  });
+  }
+  app.get("/api/bot/benchmark", requireOwner, async (_req, res) => { res.json(await benchmarkBody()); });
 
   // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
   // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20). Fills since the
@@ -1987,14 +1990,16 @@ print(json.dumps({
       sleeveError = String(err instanceof Error ? err.message : err).slice(0, 200);
     }
   }
-  app.get("/api/bot/sleeves", requireOwner, async (_req, res) => {
+  // One body for the owner route AND the "sleeves" diag probe (2026-10-20).
+  async function sleevesBody(): Promise<Record<string, unknown>> {
     if (!sleeveCache || Date.now() - sleeveCache.at > SLEEVE_CACHE_MS) {
       sleeveInflight ??= refreshSleeves().finally(() => { sleeveInflight = null; });
       if (!sleeveCache) await Promise.race([sleeveInflight, new Promise((r) => setTimeout(r, SLEEVE_COLD_WAIT_MS))]);
     }
-    if (sleeveCache) return res.json({ ...sleeveCache.body, stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError });
-    res.json(sleeveError ? { error: sleeveError } : { pending: true });
-  });
+    if (sleeveCache) return { ...sleeveCache.body, stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError };
+    return sleeveError ? { error: sleeveError } : { pending: true };
+  }
+  app.get("/api/bot/sleeves", requireOwner, async (_req, res) => { res.json(await sleevesBody()); });
 
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
@@ -2645,6 +2650,20 @@ print(json.dumps(s))
             ...positionsSummary(arr),
             positions: arr.map(positionRow),
           }));
+        }
+        case "benchmark": {
+          // ADDED 2026-10-20: the account vs buy-and-hold SPY
+          // (server/spyBenchmark.ts) — the SAME body the owner's
+          // /api/bot/benchmark serves, so a session reads the GOAL's own
+          // yardstick itself. Carries no symbol but SPY.
+          return res.json(sanitizeDiag({ probe: "benchmark", ...(await benchmarkBody()) }));
+        }
+        case "sleeves": {
+          // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
+          // SAME body as the owner's /api/bot/sleeves. Per-sleeve
+          // aggregates only — no symbols, no per-fill rows (less than the
+          // 2026-07-07 widening already authorizes).
+          return res.json(sanitizeDiag({ probe: "sleeves", ...(await sleevesBody()) }));
         }
         case "account": {
           // ADDED 2026-09-10 (KNOWN BROKEN #42 support) — see diag.ts's

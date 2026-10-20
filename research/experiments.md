@@ -109103,3 +109103,12 @@ Downstream: none beyond the page; no data path touched.
 PRIOR (before the re-run): all 36 clear with the three changes. Result: 0 hard failures on both renders at all widths; desktop screenshots unchanged.
 Regression test: the battery itself — it runs on every bot-page harness run (PRs touching client/ must run it); no unit test can see pointer capture or document focus. Client suite 1329/1329; tsc 8 ≤ 8; counter ratchet OK.
 STARVED: no.
+
+## 2026-10-20 (interactive session, ~20:35Z) [PIPELINE] — T-BOT observability — "benchmark" and "sleeves" diag probes: sessions read the GOAL's yardstick and the P&L-by-sleeve split without owner cookies (v1.0.1123)
+
+Territory: server/bot.ts (diag handler; the two owner routes refactored onto shared bodies), server/diag.ts whitelist, server/diag.test.ts; package.json/research shared, last.
+WHY: v1.0.1118 (SPY benchmark) and v1.0.1121 (P&L by sleeve) landed as owner-only routes. When Railway finally deployed them (20:24Z, after a four-hour stall the human cleared from the Railway dashboard — "a railway issue"), this session could not read either: /api/diag had no probe for them, so the attribution of the unexplained −6 pt of the SPY gap — the reason the sleeve ledger was built — was unreadable to the loop. Same posture as the 2026-07-07 whitelist widening (token-gated, read-only, sanitized); these expose LESS than that widening already authorizes (per-sleeve aggregates and one SPY series; no symbols, no per-fill rows).
+CHANGE: benchmarkBody() / sleevesBody() are the single computation behind each owner route AND its probe; the test pins both routes to the shared body, so what a session reads can never drift from what the page shows. DIAG_PROBES += "benchmark", "sleeves".
+Tests: diag.test.ts +1 (whitelisted, wired, sanitized, shared body; the file's existing loop also requires a case for every whitelisted probe) — 31/31; tsc 8 ≤ 8; counter ratchet OK; build OK; deploy-gate smoke PASS; route registration 15/15.
+Deploy note: the stall (16:15Z → 20:24Z) was Railway-side — every merge in the window had green CI including docker-build, and the deploy gate passed locally. Once this deploys: read both probes and file the sleeve attribution.
+STARVED: no — the research round's five tests are queued (research/bot_logic_research_2026-10-20.md, its own docs PR after review).
