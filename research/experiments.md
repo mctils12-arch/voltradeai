@@ -108993,3 +108993,16 @@ session_health_check: all OK (deploy_gate 2xx, liveness alive, subsystems/ML/fee
 DECISION: nothing broken; queued work is owned by active sessions or awaits the human. No padding.
 PR note: docs only; merge safe any time.
 STARVED: yes.
+
+## 2026-10-20 (interactive session, ~16:40Z) [REPAIR] — Bot page stuck "not loaded" until a manual reload: one hung request froze react-query polling (v1.0.1115)
+
+Territory: T-CLIENT (client/src/lib/queryClient.ts, client/src/bot/useBotData.ts) + package.json/research (shared, last).
+Field report (human, 2026-10-20 ~12:20 ET): the Bot page loaded only after a manual refresh. Production at that time: status ok, bot active, process uptime ~900 s — a deploy/restart ~15 min earlier.
+ROOT CAUSE (reproduced, not assumed): TanStack Query v5 interval refetches JOIN an in-flight fetch instead of starting a new one (query-core queryObserver's interval calls #executeFetch() with no cancelRefetch; Query.fetch then returns the running retryer's promise — and even a cancelRefetch refetch only cancels when data already exists, which on first load it does not). A request held open across the Railway deploy never settled, so every 15–30 s poll on that query joined it and nothing ever re-requested; the panel stayed empty until the tab reloaded. apiRequest had no timeout at all.
+Reproduction (client/src/lib/queryClientTimeout.test.ts, "the reproduced bug"): first fetch never answers, refetchInterval 50 ms → after 600 ms the observer had issued exactly 1 request and data was undefined.
+FIX: apiRequest takes an OPT-IN `{ timeoutMs }` (AbortController); the abort surfaces as `timeout: no answer from <url> in <ms> ms`, which isTransientError treats like a dropped connection, so the existing retryTransient/transientRetryDelay policy retries it. The Bot page's polled reads pass 20 s (BOT_READ_TIMEOUT_MS); /api/bot/insight passes 60 s (its server-side Python timeout is 40 s with bands). Opt-in, deliberately: slow GETs elsewhere (/api/scan, analysis) and all mutations are never cut off — the test pins that no-timeout calls behave exactly as before.
+PRIOR (stated before the fix test ran): with a 100 ms timeout the same hang recovers to data within 600 ms on its own. Result: recovered ({ok:true}, ≥ 2 requests). Full client suite 1328/1328.
+Downstream: a timed-out read now shows the page's existing error/retry state for ≤ 20 s instead of an indefinite blank; no server change; mutations untouched.
+Regression test: the reproduction above runs in CI (client suite).
+Not addressed here (separate items): signed-out viewers still see empty owner panels (owner endpoints answer 401 by design) — a "sign in to see" hint is offered, not shipped.
+STARVED: no — the underperformance-vs-SPY diagnosis requested in the same message is running.
