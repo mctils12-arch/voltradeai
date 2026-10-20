@@ -21,6 +21,7 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
+import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -3266,6 +3267,32 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // email before this response exists; the per-person report is
           // owner-login-only (/api/admin/site-report).
           return res.json(sanitizeDiag({ probe: "signups", ...aggregateSiteReport(liveSiteReport(db)) }));
+        }
+        case "chain_iv30": {
+          // ADDED 2026-10-20 (research test 2 step 1, [RULE-REVIEW]): per
+          // underlying per day, the ATM 30-day implied vol DERIVED from the
+          // options chain archive (server/chainIv.ts — delta-ATM, total-
+          // variance interpolation, "nearest" fallback, null otherwise; the
+          // method is in that module's header). The archive's own rows are
+          // 30k/day and the "archive" probe caps at 5,000, so the derivation
+          // runs here. ?from=&to= (YYYY-MM-DD, default: every archived day),
+          // ?u=SPY,QQQ (optional underlying filter), ?max= uncached days to
+          // compute this call (default IV30_MAX_COMPUTE_PER_CALL; the rest
+          // come back in `pending` — call again). Rows sanitized PER ROW
+          // like the archive probe (an underlying's series is longer than
+          // sanitizeDiag's 200-item array cap); no quotes, no contracts.
+          const fromQ = String(req.query.from || "").trim(), toQ = String(req.query.to || "").trim();
+          for (const q of [fromQ, toQ]) if (q && !/^\d{4}-\d{2}-\d{2}$/.test(q)) return res.status(400).json({ error: "invalid from/to (expected YYYY-MM-DD)" });
+          const uFilter = new Set(String(req.query.u || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+          const max = Math.min(Math.max(parseInt(String(req.query.max || ""), 10) || IV30_MAX_COMPUTE_PER_CALL, 1), 60);
+          const days = listChainDays().filter((d) => (!fromQ || d >= fromQ) && (!toQ || d <= toQ));
+          const r = await iv30ForDays(days, undefined, Date.now(), max);
+          const rows = uFilter.size ? r.rows.filter((x) => uFilter.has(x.u)) : r.rows;
+          return res.json({
+            ...sanitizeDiag({ probe: "chain_iv30", from: days[0] || null, to: days[days.length - 1] || null, days: days.length,
+              computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
+            rows: rows.map((x) => sanitizeDiag(x)),
+          });
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
