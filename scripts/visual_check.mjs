@@ -120,7 +120,7 @@ function botFixtures({ latched }) {
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
     // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
     "/api/bot/sleeves": latched
-      ? { since: "2026-05-05T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-05-06T13:31:02.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
+      ? { since: "2026-05-07T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-03-12T14:02:11.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
           { sleeve: "options", fills: 412, symbols: 118, realized: -1532.1, unpricedCloses: 0, unrealized: -96, openPositions: 6, byMonth: { "2026-10": -516.4 } },
           { sleeve: "floor", fills: 690, symbols: 7, realized: 93.2, unpricedCloses: 0, unrealized: -4398.2, openPositions: 5, byMonth: { "2026-10": 93.2 } },
           { sleeve: "stocks", fills: 236, symbols: 61, realized: -1522.5, unpricedCloses: 3, unrealized: 85.3, openPositions: 2, byMonth: { "2026-08": -1340.2 } },
@@ -133,7 +133,8 @@ function botFixtures({ latched }) {
           { root: "XLF", fills: 12, realized: 161.2, byMonth: { "2026-09": 161.2 }, open: 0, openPositions: 0 },
         ], nonTrade: { total: 4712.3, count: 9, nonCashRows: 0, groups: { dividends: 412.3, interest: 0, fees: 0, journals: 4300, optionEvents: 0, corporate: 0, transfers: 0, other: 0 },
           byMonth: { "2026-05": 4300, "2026-08": 312.3, "2026-09": 100 }, types: [{ type: "JNLC", group: "journals", count: 1, net: 4300, byMonth: { "2026-05": 4300 } }, { type: "DIV", group: "dividends", count: 8, net: 412.3, byMonth: { "2026-08": 312.3, "2026-09": 100 } }], first: "2026-05-05", last: "2026-09-15" },
-        reconciliation: { equityFrom: "2026-05-06", equityTo: "2026-10-20", equityStart: 106743, equityEnd: 99373, equityChange: -7370, realized: -2961.4, unrealized: -4408.9, nonTrade: 4712.3, explained: -2658, residual: -4712 } }
+        reconciliation: { equityFrom: "2026-05-06", equityTo: "2026-10-20", equityStart: 106743, equityEnd: 99373, equityChange: -7370, realized: -2961.4, unrealized: -4408.9, nonTrade: 4712.3, explained: -2658, residual: -4712 },
+        windowStart: "2026-05-07T00:00:00.000Z", preWindowFills: 212 }
       : { pending: true },
   };
 }

@@ -106,3 +106,40 @@ test("the options sleeve by underlying: losers first, the condor's −$66 under 
   assert.equal(C.optionsByUnderlying.length, SLEEVE_UNDERLYING_CAP);
   assert.equal(C.optionsByUnderlying[0].root, "R44", "the biggest loser first");
 });
+
+test("window start: a lot held at the window start is priced at its REAL pre-window basis, and only in-window fills, events and months are counted", () => {
+  // QQQ: 20 bought in April at 500 (pre-window), 10 sold in August at 590 (in window), 10 still held
+  // with Alpaca's CURRENT avg_entry at 560 (set by later churn in the live book — the old approximation's basis).
+  // AMD: a full round trip in April (pre-window): must not appear in the window at all.
+  const fills: FillRow[] = [
+    fill("QQQ", 1, 20, 500, "2026-04-01T14:00:00Z"), fill("QQQ", -1, 10, 590, "2026-08-20T14:00:00Z"),
+    fill("AMD", 1, 20, 150, "2026-04-05T14:00:00Z"), fill("AMD", -1, 20, 140, "2026-04-20T14:00:00Z"),
+    fill("TSLA261030C00470000", -1, 1, 6.10, "2026-10-19T13:36:13Z"), fill("TSLA261030C00470000", 1, 1, 6.45, "2026-10-19T13:40:38Z"),
+  ];
+  const positions: PositionRow[] = [pos("QQQ", 10, 560, 300)];
+  const W = T("2026-05-05T00:00:00Z");
+  const L = sleeveLedger(fills, positions, FLOOR, W);
+  const by = Object.fromEntries(L.rows.map((r) => [r.sleeve, r]));
+  assert.equal(by.floor.realized, 900, "10 × (590 − 500): the April basis, not the current 560 avg_entry");
+  assert.deepEqual(by.floor.byMonth, { "2026-08": 900 }, "no April month in the window");
+  assert.equal(by.floor.fills, 1, "the April buy is basis only");
+  assert.equal(by.stocks.realized, 0, "AMD's pre-window round trip is outside the window");
+  assert.equal(by.stocks.fills, 0);
+  assert.deepEqual(by.stocks.byMonth, {});
+  assert.equal(by.options.realized, -35);
+  assert.equal(L.realizedTotal, 865);
+  assert.equal(L.preWindowFills, 3);
+  assert.equal(L.windowStart, "2026-05-05T00:00:00.000Z");
+  assert.equal(L.firstFill, "2026-04-01T14:00:00.000Z", "the history's first fill, not the window's");
+  assert.equal(L.unrealizedTotal, 300);
+  assert.deepEqual(L.optionsByUnderlying.map((u) => [u.root, u.realized, u.fills]), [["TSLA", -35, 2]]);
+  // the OLD reading of the same window (only in-window fills known) prices the QQQ lot at the current avg_entry
+  const old = sleeveLedger(fills.filter((f) => f.t >= W), positions, FLOOR);
+  assert.equal(Object.fromEntries(old.rows.map((r) => [r.sleeve, r])).floor.realized, 300, "10 × (590 − 560): the approximation this replaces");
+  assert.equal(old.windowStart, null);
+  assert.equal(old.preWindowFills, 0);
+  // no window: byte-identical to before (every fill is in the window)
+  const none = sleeveLedger(fills, positions, FLOOR);
+  assert.equal(Object.fromEntries(none.rows.map((r) => [r.sleeve, r])).stocks.realized, -200);
+  assert.equal(none.realizedTotal, 665);
+});

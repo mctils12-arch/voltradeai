@@ -85,6 +85,11 @@ export interface SleeveRow {
 export interface UnderlyingRow { root: string; fills: number; realized: number; byMonth: Record<string, number>; open: number | null; openPositions: number }
 export interface SleeveLedger {
   firstFill: string | null; lastFill: string | null; rows: SleeveRow[]; realizedTotal: number; unrealizedTotal: number | null;
+  /** the P&L window's start (ISO) when one was given — every lot's BASIS comes from the whole fill history,
+   *  but fills, realized P&L and months are counted from here ([RULE-REVIEW] 2026-10-20: the +$4.7k residual) */
+  windowStart: string | null;
+  /** fills before the window that only served as basis */
+  preWindowFills: number;
   /** options sleeve by underlying, losers first, capped at SLEEVE_UNDERLYING_CAP */
   optionsByUnderlying: UnderlyingRow[];
   /** how many underlyings the options sleeve touched (the list above may be shorter) */
@@ -99,10 +104,17 @@ export function occRoot(symbol: string): string {
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-/** Pure: fills (any order) + current positions → P&L by sleeve. */
-export function sleeveLedger(fills: readonly FillRow[], positions: readonly PositionRow[], floorTickers: ReadonlySet<string>): SleeveLedger {
-  const sorted = [...fills].sort((a, b) => a.t - b.t);
-  const { events, unpriced } = realizedEvents(sorted, positions);
+/** Pure: fills (any order) + current positions → P&L by sleeve.
+ *  `windowStartMs` (optional): the whole fill history still prices every lot
+ *  (a position held at the window start gets its REAL basis instead of the
+ *  current avg_entry_price), but fills, realized events and months are
+ *  counted only from the window start. Without it, every fill is in the window. */
+export function sleeveLedger(fills: readonly FillRow[], positions: readonly PositionRow[], floorTickers: ReadonlySet<string>, windowStartMs?: number): SleeveLedger {
+  const all = [...fills].sort((a, b) => a.t - b.t);
+  const { events: allEvents, unpriced } = realizedEvents(all, positions);
+  const inWindow = (t: number) => windowStartMs === undefined || t >= windowStartMs;
+  const sorted = all.filter((f) => inWindow(f.t));
+  const events = allEvents.filter((e) => inWindow(e.t));
   const rows = new Map<Sleeve, SleeveRow & { syms: Set<string> }>(SLEEVES.map((s) => [s, {
     sleeve: s, fills: 0, symbols: 0, realized: 0, unpricedCloses: 0, unrealized: 0, openPositions: 0, byMonth: {}, syms: new Set<string>(),
   }]));
@@ -150,16 +162,21 @@ export function sleeveLedger(fills: readonly FillRow[], positions: readonly Posi
     .sort((a, b) => a.realized - b.realized || a.root.localeCompare(b.root))
     .slice(0, SLEEVE_UNDERLYING_CAP);
   return {
-    firstFill: sorted.length ? new Date(sorted[0].t).toISOString() : null,
-    lastFill: sorted.length ? new Date(sorted[sorted.length - 1].t).toISOString() : null,
+    firstFill: all.length ? new Date(all[0].t).toISOString() : null,
+    lastFill: all.length ? new Date(all[all.length - 1].t).toISOString() : null,
     rows: out, realizedTotal: r2(out.reduce((s, r) => s + r.realized, 0)), unrealizedTotal,
+    windowStart: windowStartMs === undefined ? null : new Date(windowStartMs).toISOString(),
+    preWindowFills: all.length - sorted.length,
     optionsByUnderlying, optionsUnderlyings: und.size,
   };
 }
 
-/** bounded fills read: 100 per page (Alpaca's max) */
+/** bounded activity read: 100 per page (Alpaca's max), newest first; the cap
+ *  cuts the OLDEST rows (basis only), never the newest. 150 pages = 15k rows ≈
+ *  the whole paper account's history with headroom ([RULE-REVIEW] 2026-10-20;
+ *  was 60 when only the window's fills were read). */
 export const SLEEVE_FILLS_PAGE_SIZE = 100;
-export const SLEEVE_FILLS_MAX_PAGES = 60;
+export const SLEEVE_FILLS_MAX_PAGES = 150;
 /** the ledger is recomputed at most this often */
 export const SLEEVE_CACHE_MS = 30 * 60_000;
 /** a cold request waits this long for the first computation, then answers "pending" */
