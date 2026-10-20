@@ -401,6 +401,11 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
           </div>
         ) : null;
       })() : null}
+      {sleeves.optionsByHold?.some((h) => h.events > 0) ? (
+        <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title="options realized P&L by how long the closed lot was held (close − open of the lot); 'unknown' = the lot predates the fetched fill history">
+          options by hold: {sleeves.optionsByHold.filter((h) => h.events > 0).map((h) => `${h.bucket} ${k(h.realized)} (${h.events})`).join(" · ")}
+        </div>
+      ) : null}
       {sleeves.nonTrade ? (() => {
         const g = sleeves.nonTrade.groups;
         const parts = ACTIVITY_LABEL.filter(([key]) => (g[key] ?? 0) !== 0).map(([key, label]) => `${label} ${k(g[key])}`);
