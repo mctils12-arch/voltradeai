@@ -55,6 +55,12 @@ export const DIAG_PROBES = [
   // close KNOWN BROKEN #37's own NEXT step for a sandbox with no Railway
   // volume access.
   "archive",
+  // ADDED 2026-10-20 (research test 2 step 1): ATM 30-day implied vol per
+  // underlying per day, DERIVED server-side from the options chain archive
+  // (server/chainIv.ts) — the raw chain day is 30k rows, beyond the archive
+  // probe's cap. Aggregates only (one number per underlying-day); same
+  // token gate, read-only, indicative-feed label carried.
+  "chain_iv30",
   // ADDED 2026-08-03 (scheduled-routine session): shadow_portfolio.py's
   // get_shadow_stats() (win/loss counts by decision bucket, incl. the
   // rejected_masterkill and score-band buckets) has been queryable
