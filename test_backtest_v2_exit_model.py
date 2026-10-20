@@ -318,7 +318,9 @@ def test_unknown_exit_model_is_refused():
         bt.simulate("T", "momentum", synth_bars(50), synth_bars(50), None, exit_model="bogus")
     with pytest.raises(ValueError):
         bt.run_backtest("T", "momentum", 1, bars=synth_bars(50), exit_model="bogus")
-    assert bt.DEFAULT_EXIT_MODEL == "legacy" and bt.EXIT_MODELS == ("legacy", "live")
+    # 2026-10-20: the reconciliation's two control arms joined the list
+    # (test_exit_model_controls.py); legacy stays the default
+    assert bt.DEFAULT_EXIT_MODEL == "legacy" and bt.EXIT_MODELS == ("legacy", "live", "time_only", "wide_stop")
 
 
 # ── whole-series runs on the synthetic fixtures ─────────────────────────────
