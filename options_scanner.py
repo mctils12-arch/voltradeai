@@ -1267,6 +1267,8 @@ _OPTIONS_ANCHOR = [
 # Cache for the pre-filtered candidate list (refreshed every scan cycle)
 _options_candidates_cache: list = []
 _options_candidates_time: float = 0.0
+# REPAIR 2026-10-20: the leveraged / inverse funds the last candidate pass refused [(symbol, price)]
+_LAST_LEVERAGED_REFUSALS: list = []
 _CANDIDATES_CACHE_TTL = 60  # 1 minute — candidates change during the day
 
 # KNOWN BROKEN #18 continuation (2026-07-29): scan-wide budget for Setup 7's
@@ -1393,6 +1395,17 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     high_iv_candidates: list = []  # abs(change) > 2% → IV likely elevated
     low_iv_candidates:  list = []  # abs(change) < 0.3% AND vol > 1M → IV may be cheap
 
+    # REPAIR 2026-10-20: leveraged / inverse funds are refused HERE — the
+    # "biggest movers = highest IV" ranking below promotes 2x funds by
+    # construction (they move twice their underlying), and this path had no
+    # exclusion at all: MUU / NVDL / METU cost −$2,001 (research/experiments.md
+    # 2026-10-20 ~21:25Z). One source of truth with csp_universe
+    # (leveraged_etf_filter: seed ∪ /v2/assets names); every refusal is
+    # recorded so the rule earns its prevention-P&L.
+    from leveraged_etf_filter import leveraged_symbols, record_refusal
+    excluded = leveraged_symbols()
+    leveraged_refused: list = []
+
     for sym, snap in snap_data.items():
         if "." in sym or len(sym) > 5:
             continue
@@ -1409,9 +1422,12 @@ def _get_options_candidates(snap_data: dict = None) -> list:
         chg = abs((c - pc) / pc * 100) if pc > 0 else 0
 
         if chg > 2.0:
+            if sym in excluded:
+                leveraged_refused.append((sym, c))
+                continue
             # Stock moved significantly today → IV is elevated → sell premium candidate
             high_iv_candidates.append((sym, c, "high_iv", chg))
-        elif chg < 0.3:
+        elif chg < 0.3 and sym not in excluded:
             # Stock is very quiet today → IV may be at lows → buy cheap options candidate
             low_iv_candidates.append((sym, c, "low_iv"))
 
@@ -1433,6 +1449,10 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     # BROKEN #18) for the full trace.
     MAX_PER_TIER = 400
     high_iv_top = high_iv_candidates[:MAX_PER_TIER]
+
+    for _sym, _px in leveraged_refused:
+        record_refusal(_sym, _px, "options_scanner")
+    _LAST_LEVERAGED_REFUSALS[:] = leveraged_refused
 
     # low_iv_candidates is NOT included in the returned result (as of
     # 2026-07-26, KNOWN BROKEN #18): its only two consumers, Setup 4
@@ -1467,7 +1487,8 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     logger.info(
         f"Options candidates: {len(result)} total "
         f"({len(high_iv_top)} high-IV, {len(low_iv_candidates)} low-IV classified but "
-        f"not scanned [KNOWN BROKEN #18], {len(_OPTIONS_ANCHOR)} anchors) "
+        f"not scanned [KNOWN BROKEN #18], {len(_OPTIONS_ANCHOR)} anchors, "
+        f"{len(leveraged_refused)} leveraged/inverse refused) "
         f"from {len(full_universe):,} universe"
     )
     return result
