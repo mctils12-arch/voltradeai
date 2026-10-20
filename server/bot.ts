@@ -32,6 +32,7 @@ import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./sha
 import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
+import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose } from "./spyBenchmark";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -1928,6 +1929,24 @@ print(json.dumps({
     }
   });
 
+  // The account vs buy-and-hold SPY — the GOAL's own yardstick
+  // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are
+  // dividend-adjusted (total return) and cached: the series moves once a day.
+  let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
+  app.get("/api/bot/benchmark", requireOwner, async (_req, res) => {
+    const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
+    try {
+      if (!oldest) return res.json({ ...benchmarkVsSpy([], []), fetchedAt: null });
+      if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
+        const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+        spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
+      }
+      res.json({ ...benchmarkVsSpy(equityCurve, spyBenchCache.bars), fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all" });
+    } catch (err) {
+      res.json({ ...benchmarkVsSpy([], []), fetchedAt: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) });
+    }
+  });
+
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
     try {
@@ -2415,8 +2434,9 @@ print(json.dumps(result, default=str))
   // years of KRE history for the event study. Same host/feed/adjustment
   // choice as /api/bars (data.alpaca.markets, feed=iex — bars reject
   // delayed_sip, see that route's own 2026-07-20/27 comment).
-  async function fetchDailyBarsRange(symbol: string, startISO: string, endISO: string): Promise<Gate2Bar[]> {
-    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${startISO}&end=${endISO}&limit=10000&adjustment=split&feed=iex`;
+  // `adjustment` "all" adds dividends (total return) — the SPY benchmark.
+  async function fetchDailyBarsRange(symbol: string, startISO: string, endISO: string, adjustment: "split" | "all" = "split"): Promise<Gate2Bar[]> {
+    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${startISO}&end=${endISO}&limit=10000&adjustment=${adjustment}&feed=iex`;
     const r = await fetch(url, {
       headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
       signal: AbortSignal.timeout(30000) as any,

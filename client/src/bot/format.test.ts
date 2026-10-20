@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtSigned, fmtPct, fmtMoney, fmtCompact, fmtAge, fmtCountdown, edgeStats, fmtOcc, MINUS } from "./format";
+import { fmtSigned, fmtPct, fmtMoney, fmtCompact, fmtAge, fmtCountdown, edgeStats, fmtOcc, spyTodayPct, MINUS } from "./format";
 
 test("signed numbers print a true minus and never rely on colour", () => {
   assert.equal(fmtPct(-1.2), `${MINUS}1.20%`);
@@ -39,4 +39,12 @@ test("OCC symbols read as root, strike, right and expiry", () => {
   assert.equal(fmtOcc(`TEM${yy}1120P00070000`), "TEM 70P 20-Nov");
   assert.equal(fmtOcc("QQQ"), "QQQ");
   assert.equal(fmtOcc(null), "—");
+});
+
+test("SPY today is shown only for the ET session day of its bar", () => {
+  const bar = { date: "2026-10-20", pct: 0.25 };
+  assert.equal(spyTodayPct(bar, Date.parse("2026-10-20T20:30:00Z")), 0.25, "16:30 ET same day");
+  assert.equal(spyTodayPct(bar, Date.parse("2026-10-21T02:00:00Z")), 0.25, "22:00 ET is still the 20th in New York");
+  assert.equal(spyTodayPct(bar, Date.parse("2026-10-21T14:00:00Z")), null, "next day: yesterday's move is not today's");
+  assert.equal(spyTodayPct(null, Date.parse("2026-10-20T20:30:00Z")), null);
 });

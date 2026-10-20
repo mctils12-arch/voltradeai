@@ -2,10 +2,10 @@
 // drawn as an outlined dot + "not recorded", never as a zero.
 import { useState, type ReactNode } from "react";
 import TradeCharts from "@/components/TradeChart";
-import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, edgeStats, MINUS } from "./format";
+import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
-import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar } from "./useBotData";
+import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark } from "./useBotData";
 import { num } from "./useBotData";
 import type { PanelId } from "./zoneModel";
 
@@ -54,8 +54,8 @@ export function Panel({ chrome, title, status, meta, ageMs, children, scroll, st
 }
 
 // ── KPI strip ───────────────────────────────────────────────────────────────
-export function KpiStrip({ perf, account, status, market, calendar, now, state, hold, onHold }: {
-  perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined;
+export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold }: {
+  perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined; bench: Benchmark | undefined;
   now: number; state: DerivedState; hold: boolean; onHold: () => void;
 }) {
   const edge = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
@@ -108,8 +108,22 @@ export function KpiStrip({ perf, account, status, market, calendar, now, state, 
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
           <div className="vt-bot-eb">vs holding SPY</div>
-          <div className="vt-bot-kpiv vt-bot-t3">—</div>
-          <div style={{ fontSize: 11 }}><NotRecorded what="not recorded · no SPY series" /></div>
+          {bench?.since ? (
+            <>
+              <div className="vt-bot-kpiv" title={`account return minus SPY total return (dividend-adjusted closes through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
+                <span className={bench.since.gapPp < 0 ? "vt-bot-r" : "vt-bot-g"}>{fmtSigned(bench.since.gapPp, 1, " pt")}</span>
+              </div>
+              <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>
+                SPY {fmtPct(bench.since.spyPct, 1)} · acct {fmtPct(bench.since.accountPct, 1)}<br />
+                since {bench.since.from.slice(5)} · {bench.d30 ? `${bench.d30.days}d ${fmtSigned(bench.d30.gapPp, 1)}` : "30d —"}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="vt-bot-kpiv vt-bot-t3">—</div>
+              <div style={{ fontSize: 11 }}><NotRecorded what={bench?.error ? "SPY series unavailable" : "not recorded · no SPY series"} /></div>
+            </>
+          )}
         </div>
       </div>
       <div className="vt-bot-panel">
@@ -286,12 +300,13 @@ export function IncidentBody({ state, status, issues, onAct, busy }: { state: De
 }
 
 // ── state element: day review ───────────────────────────────────────────────
-export function DayReviewBody({ day, account, market, insight }: { day: DayReview; account: BotAccount | undefined; market: MarketStatus | undefined; insight: Insight | undefined }) {
+export function DayReviewBody({ day, account, market, insight, bench }: { day: DayReview; account: BotAccount | undefined; market: MarketStatus | undefined; insight: Insight | undefined; bench?: Benchmark | undefined }) {
   const pnl = num(account?.dailyPnL), pnlPct = num(account?.dailyPnLPct);
+  const spyToday = spyTodayPct(bench?.spyLast, Date.now());
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
       <div><div className="vt-bot-eb">Activity</div><div className="vt-bot-kv"><span className="k">scans</span><span className="v">{day.scans}</span><span className="k">most candidates</span><span className="v">{day.candidatesMax}</span><span className="k">orders placed</span><span className="v">{day.trades}</span><span className="k">refused by sizing</span><span className="v">{day.sizingBlocks}</span><span className="k">cancelled by deploy</span><span className="v">{day.deploys}</span><span className="k">event-loop stalls</span><span className="v">{day.stalls}{day.stallMaxMs ? ` · max ${(day.stallMaxMs / 1000).toFixed(1)} s` : ""}</span></div></div>
-      <div><div className="vt-bot-eb">Result</div><div className="vt-bot-kpiv">{fmtMoney(num(account?.equity))} {pnl !== null ? <span className={pnl < 0 ? "vt-bot-r" : "vt-bot-g"} style={{ fontSize: 13 }}>{fmtCompact(pnl)}{pnlPct !== null ? ` · ${fmtPct(pnlPct)}` : ""}</span> : null}</div><div className="vt-bot-kv"><span className="k">SPY today</span><span className="v vt-bot-t3">not recorded</span><span className="k">kill latched</span><span className="v">{day.killAt ? fmtClockET(day.killAt) + " ET" : "no"}</span><span className="k">emails</span><span className="v">{day.emails}</span></div></div>
+      <div><div className="vt-bot-eb">Result</div><div className="vt-bot-kpiv">{fmtMoney(num(account?.equity))} {pnl !== null ? <span className={pnl < 0 ? "vt-bot-r" : "vt-bot-g"} style={{ fontSize: 13 }}>{fmtCompact(pnl)}{pnlPct !== null ? ` · ${fmtPct(pnlPct)}` : ""}</span> : null}</div><div className="vt-bot-kv"><span className="k">SPY today</span>{spyToday !== null ? <span className={`v ${spyToday < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{fmtPct(spyToday)}</span> : <span className="v vt-bot-t3">not recorded</span>}<span className="k">kill latched</span><span className="v">{day.killAt ? fmtClockET(day.killAt) + " ET" : "no"}</span><span className="k">emails</span><span className="v">{day.emails}</span></div></div>
       <div><div className="vt-bot-eb">Model today</div><div className="vt-bot-kv"><span className="k">retrains</span><span className="v">{day.retrains} · fresh ×{day.freshChecks}</span><span className="k">age</span><span className="v">{insight?.model?.age_hours != null ? `${insight.model.age_hours.toFixed(1)} h` : "—"}</span><span className="k">constant inputs</span><span className="v">{insight?.recent?.constant_features ? `${insight.recent.constant_features.length} / ${insight.recent.feature_count}` : "—"}</span><span className="k">next open</span><span className="v">{market?.nextOpen ? new Date(market.nextOpen).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) : "—"}</span></div></div>
     </div>
   );

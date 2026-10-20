@@ -114,6 +114,10 @@ function botFixtures({ latched }) {
     "/api/bot/last-scan": { timestamp: ago(0.5), scanned: 12138, filtered: 54, deep_analyzed: 5, slots_available: 0, new_trades: [{ ticker: "KWEB", score: 75, side: "sell", action_label: "SELL COVERED CALL", trade_type: "options", reasons: ["388 shares held, no short call", "Momentum 1m -7.5%", "VRP +4.1"], rules_score: 75, ml_score_raw: null, price: 24.54 }, { ticker: "VXUS", score: 75, side: "sell", action_label: "SELL COVERED CALL", trade_type: "options", reasons: ["150 shares held, no short call"], rules_score: 75, ml_score_raw: null, price: 71.4 }], top_10: [{ ticker: "KWEB", score: 75, side: "sell", action_label: "SELL COVERED CALL", reasons: ["388 shares held, no short call"] }], sizing_blocks: [{ ticker: "AMD", reason: "Negative expectancy for strategy 'stocks' (WR=28%); refusing to size", score: 74.3, strategy: "stocks" }], scan_phase_times: [{ phase: "universe_load", duration_sec: 0.93 }, { phase: "snapshot_fetch", duration_sec: 3.76 }, { phase: "quick_scan", duration_sec: 0.11 }, { phase: "deep_score", duration_sec: 41.44 }, { phase: "step6a_trade_loop_and_covered_calls", duration_sec: 0.39 }, { phase: "step7_manage_positions", duration_sec: 0.04 }, { phase: "step8b_options_manager", duration_sec: 0.3 }, { phase: "step9_third_leg", duration_sec: 0.12 }, { phase: "step9b_convexity_overlay", duration_sec: 0.31 }, { phase: "step10_spy_floor", duration_sec: 0.14 }] },
     "/api/orders/open": [],
     "/api/bot/notifications": [],
+    // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
+    "/api/bot/benchmark": latched
+      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all" }
+      : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
   };
 }
 

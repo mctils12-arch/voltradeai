@@ -98,3 +98,12 @@ export function fmtOcc(sym: string | null | undefined): string {
   const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mm) - 1] ?? mm;
   return `${root} ${Number.isInteger(k) ? k : k.toFixed(1)}${cp} ${dd}-${mon}${yy !== String(new Date().getUTCFullYear()).slice(2) ? `-${yy}` : ""}`;
 }
+
+/** SPY's change on the ET session day of `nowMs`, from the benchmark's last
+ *  bar — null when that bar is not today's (weekend, holiday, not fetched),
+ *  so an old day's move is never shown as today's. */
+export function spyTodayPct(spyLast: { date: string; pct: number } | null | undefined, nowMs: number): number | null {
+  if (!spyLast || !Number.isFinite(spyLast.pct)) return null;
+  const today = new Date(nowMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return spyLast.date === today ? spyLast.pct : null;
+}
