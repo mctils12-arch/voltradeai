@@ -1968,13 +1968,25 @@ print(json.dumps({
   async function refreshSleeves(): Promise<void> {
     try {
       const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : new Date().toISOString().slice(0, 10);
-      const afterIso = new Date(Date.parse(`${oldest}T00:00:00Z`) - 86_400_000).toISOString();
+      // [RULE-REVIEW] 2026-10-20: the P&L window is EXACTLY the equity curve's
+      // span — recordDailyEquity rewrites a day's point on every call, so the
+      // oldest point holds that day's LAST value and the window opens at the
+      // following UTC midnight (every fill on the snapshot day is already
+      // inside equityStart). The WHOLE activity history is read, newest
+      // first, so every lot held at the window start is priced at its real
+      // fills — the +$4.7k reconciliation residual was the old "current
+      // avg_entry_price as basis" approximation (research/experiments.md
+      // ~21:50Z). Fills, realized events, months and non-trade cash are
+      // COUNTED from the window start (sleeveLedger's windowStartMs); a page
+      // cap now cuts the OLDEST rows (basis only), never the newest.
+      const windowStartMs = Date.parse(`${oldest}T00:00:00Z`) + 86_400_000;
+      const afterIso = new Date(windowStartMs).toISOString();
       const raw: unknown[] = [];
       let truncated = false;
       let token = "";
       for (let page = 0; ; page++) {
         if (page >= SLEEVE_FILLS_MAX_PAGES) { truncated = true; break; }
-        const qs = `after=${encodeURIComponent(afterIso)}&direction=asc&page_size=${SLEEVE_FILLS_PAGE_SIZE}` + (token ? `&page_token=${encodeURIComponent(token)}` : "");
+        const qs = `direction=desc&page_size=${SLEEVE_FILLS_PAGE_SIZE}` + (token ? `&page_token=${encodeURIComponent(token)}` : "");
         const batch: unknown = await alpaca(`/v2/account/activities?${qs}`);
         if (!Array.isArray(batch)) throw new Error("an activities page was not a list");
         raw.push(...batch);
@@ -1988,8 +2000,8 @@ print(json.dumps({
       const nta = parseNonTradeActivities(raw);
       const positions = parsePositions(await alpaca("/v2/positions"));
       if (!fills || !nta || !positions) throw new Error("fills, activities or positions unreadable");
-      const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS);
-      const nonTrade = activityLedger(nta.rows);
+      const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS, windowStartMs);
+      const nonTrade = activityLedger(nta.rows.filter((r) => r.t >= windowStartMs));
       sleeveCache = {
         at: Date.now(),
         body: {

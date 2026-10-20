@@ -385,7 +385,7 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
   // the book's P&L column is sized for "−2.4%": thousands as k
   const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? MINUS : ""}$${(Math.abs(v) / 1000).toFixed(1)}k` : fmtCompact(v));
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 6 }} title={`realized from Alpaca fills since ${sleeves.since ?? "?"} (average cost); open = current unrealized${sleeves.truncated ? " · fill history TRUNCATED" : ""}`}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 6 }} title={`realized from Alpaca fills since ${sleeves.since ?? "?"} (average cost; every lot's basis from the account's full fill history${sleeves.preWindowFills ? `, ${sleeves.preWindowFills} earlier fills` : ""}); open = current unrealized${sleeves.truncated ? " · oldest fill history TRUNCATED (basis approximate for the oldest lots)" : ""}`}>
       <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>P&L by sleeve · realized since {since} · open</div>
       {sleeves.rows.map((r) => (
         <div key={r.sleeve} className="vt-bot-trow">

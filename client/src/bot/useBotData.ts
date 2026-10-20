@@ -85,6 +85,8 @@ export interface Sleeves {
   rows?: SleeveRow[]; realizedTotal?: number; unrealizedTotal?: number | null; firstFill?: string | null; lastFill?: string | null;
   optionsByUnderlying?: UnderlyingRow[]; optionsUnderlyings?: number;
   nonTrade?: NonTradeLedger; reconciliation?: Reconciliation | null; malformedActivities?: number;
+  /** every lot's basis comes from the full fill history; these fills precede the window and only served as basis */
+  windowStart?: string | null; preWindowFills?: number;
   since?: string; truncated?: boolean; malformedFills?: number; fetchedAt?: string; stale?: boolean; pending?: boolean; error?: string; lastError?: string | null;
 }
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
