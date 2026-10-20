@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-20 (scheduled routine PRODUCT session #2, ~13:05Z Tue = 09:05 ET, PRE-OPEN) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1114) — KEYED /api/v1/data/clinical-trials MIRROR
+
+HEALTH: session_health_check all OK except daemon rss 403MB (trim mode, known); v1.0.1113 == main; no critical KNOWN BROKEN.
+CHOICE: the clinical-trials archive had a raw endpoint and a /data view but no API-product surface (shipped-data-no-v1-API class, priority (3)). Gate 2 still blocked on the price-panel human decision, so product surface is the unblocked work.
+CHANGE: GET /api/v1/data/clinical-trials behind requireApiKey + meterUsage, reusing latestClinicalTrials() and the identity-only annotateWithTicker (no new poller). LICENSE_MARKS data/clinical-trials resell "ok" (NLM public domain, attribution), meta entry with preview route, agent tool voltrade_clinical_trials, response schema.
+TESTS: apiProduct.test.ts 71 pass (+1 license/honesty test; endpoint-list, preview, tool/openapi/schema counters all track it); layersRegistry + clinicalTrials suites pass; tsc error count unchanged (3 <= baseline).
+NO SIGNAL CLAIM: tool description and meta state RAW, gate-2 NOT tested, ticker join identity-only, dates sponsor self-reported. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared pre-open; no trading-path code, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-20 (scheduled routine PRODUCT session, ~00:10Z Tue = 20:10 ET Mon, after hours) [PRODUCT] — T-CLIENT (client/src/pages/clinicalTrials.tsx, datamap.tsx wiring, visual_check.mjs fixtures) + shared (datacore/layers.json, layersRegistry.test.ts pin, package.json; v1.0.1113) — /data CLINICAL-TRIAL DATE-DRIFT VIEW
 
 HEALTH: session_health_check all OK except daemon rss 405MB (trim mode, known, not a break); v1.0.1112 == main; no critical KNOWN BROKEN.
