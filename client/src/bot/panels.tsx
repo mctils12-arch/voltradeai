@@ -5,7 +5,7 @@ import TradeCharts from "@/components/TradeChart";
 import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
-import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark } from "./useBotData";
+import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
 import type { PanelId } from "./zoneModel";
 
@@ -373,13 +373,40 @@ export function ChartBody({ positions }: { positions: BotPosition[] | undefined 
   if (!positions?.length) return <div className="vt-bot-empty"><NotRecorded what="no positions to chart" /></div>;
   return <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}><TradeCharts positions={positions} /></div>;
 }
-export function BookBody({ positions, spot }: { positions: BotPosition[] | undefined; spot: string | null }) {
+const SLEEVE_LABEL: Record<string, string> = { options: "options", floor: "ETF floor", stocks: "stocks" };
+/** Where the P&L comes from — realized since the first fetched fill + open. */
+export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
+  if (!sleeves) return null;
+  if (sleeves.pending) return <div className="vt-bot-t3" style={{ fontSize: 11, padding: "4px 0" }}><St word="P&L by sleeve · computing from fills" /></div>;
+  if (!sleeves.rows) return <div style={{ fontSize: 11, padding: "4px 0" }}><NotRecorded what={`P&L by sleeve unavailable${sleeves.error ? ` · ${sleeves.error}` : ""}`} /></div>;
+  const since = sleeves.since ? sleeves.since.slice(5, 10) : "?";
+  const cls = (v: number | null | undefined) => (v === null || v === undefined ? "vt-bot-t3" : v < 0 ? "vt-bot-r" : v > 0 ? "vt-bot-g" : "");
+  // the book's P&L column is sized for "−2.4%": thousands as k
+  const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? MINUS : ""}$${(Math.abs(v) / 1000).toFixed(1)}k` : fmtCompact(v));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 6 }} title={`realized from Alpaca fills since ${sleeves.since ?? "?"} (average cost); open = current unrealized${sleeves.truncated ? " · fill history TRUNCATED" : ""}`}>
+      <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>P&L by sleeve · realized since {since} · open</div>
+      {sleeves.rows.map((r) => (
+        <div key={r.sleeve} className="vt-bot-trow">
+          <span className="sym">{SLEEVE_LABEL[r.sleeve] ?? r.sleeve}</span><span className="q vt-bot-t3">{r.fills}f</span>
+          <span className={`px ${cls(r.realized)}`}>{k(r.realized)}</span><span className={`pl ${cls(r.unrealized)}`}>{r.unrealized === null ? "·" : k(r.unrealized)}</span>
+        </div>
+      ))}
+      {sleeves.truncated || sleeves.rows.some((r) => r.unpricedCloses > 0) ? (
+        <div className="vt-bot-t3" style={{ fontSize: 10 }}>{sleeves.truncated ? "fill history truncated · " : ""}{sleeves.rows.some((r) => r.unpricedCloses > 0) ? "some closes predate the window (not counted)" : ""}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export function BookBody({ positions, spot, sleeves }: { positions: BotPosition[] | undefined; spot: string | null; sleeves?: Sleeves | undefined }) {
   if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
-  if (!positions.length) return <div className="vt-bot-empty"><St word="flat · no positions" /></div>;
+  if (!positions.length) return <div className="vt-bot-list"><SleeveSummary sleeves={sleeves} /><div className="vt-bot-empty"><St word="flat · no positions" /></div></div>;
   const isOpt = (p: BotPosition) => !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
   const groups: Array<[string, BotPosition[]]> = [["equities", positions.filter((p) => !isOpt(p))], ["options", positions.filter(isOpt)]];
   return (
     <div className="vt-bot-list">
+      <SleeveSummary sleeves={sleeves} />
       {groups.filter(([, g]) => g.length).map(([name, g]) => (
         <div key={name} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>{name} · {g.length}</div>

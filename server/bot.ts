@@ -9,8 +9,9 @@ import { getDisplaySide } from "../shared/inverseEtfs";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
-  parseKillSwitchRecord, summarizePythonSync, type AutoResumeDecision, type AutoResumeNumbers,
+  parseKillSwitchRecord, summarizePythonSync, parseFills, parsePositions, type AutoResumeDecision, type AutoResumeNumbers,
 } from "./killSwitchAutoResume";
+import { sleeveLedger, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS } from "./sleeveLedger";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
@@ -1946,6 +1947,53 @@ print(json.dumps({
     } catch (err) {
       res.json({ ...benchmarkVsSpy([], []), fetchedAt: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) });
     }
+  });
+
+  // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
+  // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20). Fills since the
+  // equity curve's first day; recomputed in the background at most every
+  // SLEEVE_CACHE_MS so a poll never waits on dozens of pages.
+  let sleeveCache: { at: number; body: Record<string, unknown> } | null = null;
+  let sleeveError: string | null = null;
+  let sleeveInflight: Promise<void> | null = null;
+  async function refreshSleeves(): Promise<void> {
+    try {
+      const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : new Date().toISOString().slice(0, 10);
+      const afterIso = new Date(Date.parse(`${oldest}T00:00:00Z`) - 86_400_000).toISOString();
+      const raw: unknown[] = [];
+      let truncated = false;
+      let token = "";
+      for (let page = 0; ; page++) {
+        if (page >= SLEEVE_FILLS_MAX_PAGES) { truncated = true; break; }
+        const qs = `after=${encodeURIComponent(afterIso)}&direction=asc&page_size=${SLEEVE_FILLS_PAGE_SIZE}` + (token ? `&page_token=${encodeURIComponent(token)}` : "");
+        const batch: unknown = await alpaca(`/v2/account/activities/FILL?${qs}`);
+        if (!Array.isArray(batch)) throw new Error("a fills page was not a list");
+        raw.push(...batch);
+        if (batch.length < SLEEVE_FILLS_PAGE_SIZE) break;
+        const last: unknown = batch[batch.length - 1];
+        const id = last && typeof last === "object" ? (last as { id?: unknown }).id : undefined;
+        token = typeof id === "string" ? id : "";
+        if (!token) { truncated = true; break; }
+      }
+      const fills = parseFills(raw);
+      const positions = parsePositions(await alpaca("/v2/positions"));
+      if (!fills || !positions) throw new Error("fills or positions unreadable");
+      sleeveCache = {
+        at: Date.now(),
+        body: { ...sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS), since: afterIso, truncated, malformedFills: fills.malformed, fetchedAt: new Date().toISOString() },
+      };
+      sleeveError = null;
+    } catch (err) {
+      sleeveError = String(err instanceof Error ? err.message : err).slice(0, 200);
+    }
+  }
+  app.get("/api/bot/sleeves", requireOwner, async (_req, res) => {
+    if (!sleeveCache || Date.now() - sleeveCache.at > SLEEVE_CACHE_MS) {
+      sleeveInflight ??= refreshSleeves().finally(() => { sleeveInflight = null; });
+      if (!sleeveCache) await Promise.race([sleeveInflight, new Promise((r) => setTimeout(r, SLEEVE_COLD_WAIT_MS))]);
+    }
+    if (sleeveCache) return res.json({ ...sleeveCache.body, stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError });
+    res.json(sleeveError ? { error: sleeveError } : { pending: true });
   });
 
   // ── Trade History CSV Export ─────────────────────────────────────────────
