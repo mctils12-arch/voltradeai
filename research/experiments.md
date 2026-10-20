@@ -109080,3 +109080,17 @@ PRIOR: options realized since May is negative and larger than stocks' realized (
 Tests: server/sleeveLedger.test.ts 4 (sleeve classification; per-sleeve/per-month realized incl. the condor's −$66, unrealized sums; same-ruler equality with realizedPnlFromFills; unpriced closes counted, missing unrealized is null not 0). Client 1329/1329; tsc 8 ≤ 8; counter ratchet OK; deploy-gate smoke PASS; route registration 15/15. Visual harness bot/botidle at 390/768/1440: 0 hard failures; first render wrapped "−$4,398" in the narrow P&L column — thousands now print as "−$4.4k", re-verified.
 NEXT: once deployed, read the live split and file the attribution (which sleeve carries the −6 pt) in open_questions.md; a per-month mark-to-market split (needs historical marks) is the follow-up if realized-only is not conclusive.
 STARVED: no.
+
+## 2026-10-20 (interactive session, ~19:30Z) [REPAIR] — T-CLIENT — Bot page windows: dock / zoom / close and Esc were dead; phone/tablet panels collapsed to 0 px (v1.0.1122)
+
+Territory: T-CLIENT (client/src/bot/BotPage.tsx, scripts/visual_check.mjs) + package.json/research (shared, last).
+Field report (human, screenshot ~18:30 ET): a panel opened as a floating window could not be put back — its dock and zoom buttons did nothing ("could be that my computer is slow" — it was not; the buttons were dead by construction).
+METHOD: a new harness battery (bot + botidle, 390/768/1440) drives every panel control with REAL pointer events and reads the effect back from the DOM: hold/pin toggles, open-as-window, the window's dock / close / zoom (→ "back to the page"), the ghost slot when it is not under the window, Esc, a title-bar drag (desktop), and a ≥ 40 px height for every docked panel. First run: 36 hard failures.
+THREE DEFECTS, all reproduced by the battery before the fix and gone after:
+1. FloatWin's title bar starts a drag on pointerdown and calls setPointerCapture on the BAR — so a press on a title-bar BUTTON captured the pointer to the bar and the button's click never fired: dock / zoom / close dead on every panel at 1440. Fix: pointerdown whose target is inside a button is not a drag.
+2. Esc was an onKeyDown on the page root (tabIndex −1): it only fired while focus was inside the root, and a click on page content left focus elsewhere → "Esc docks" (the title bar's own promise) dead everywhere. Fix: a document keydown listener while a window or zoom is open.
+3. slot() rendered panelEl(id) WITHOUT the slot's style, so every panel kept its desktop grid flex (chart "1.05 1 0", book "1.35 1 0", orders "0.6 1 0" — basis 0) inside the phone/tablet stack, which has nothing to grow into: Chart, Book and Orders rendered at 0 px at 390 and 768 (their controls sat under the next panel — Playwright: "element is not stable" / "subtree intercepts pointer events"). Fix: the slot's style reaches the panel. Desktop heights unchanged (same numbers before/after).
+Downstream: none beyond the page; no data path touched.
+PRIOR (before the re-run): all 36 clear with the three changes. Result: 0 hard failures on both renders at all widths; desktop screenshots unchanged.
+Regression test: the battery itself — it runs on every bot-page harness run (PRs touching client/ must run it); no unit test can see pointer capture or document focus. Client suite 1329/1329; tsc 8 ≤ 8; counter ratchet OK.
+STARVED: no.

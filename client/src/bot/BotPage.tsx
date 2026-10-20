@@ -144,7 +144,16 @@ export default function BotPage() {
   const onDock = useCallback((id: PanelId) => setFlags((f) => ({ ...f, floating: f.floating.filter((x) => x !== id), zoomed: f.zoomed === id ? null : f.zoomed })), []);
   const onZoom = useCallback((id: PanelId) => setFlags((f) => ({ ...f, zoomed: f.zoomed === id ? null : id, floating: f.floating.filter((x) => x !== id) })), []);
   const onFocus = useCallback((id: PanelId) => { onZoom(id); }, [onZoom]);
-  const onKey = useCallback((e: React.KeyboardEvent) => { if (e.key === "Escape") setFlags((f) => ({ ...f, zoomed: null, floating: [] })); }, []);
+  // Esc docks every window and leaves the zoom. Listened on the document
+  // while one is open: the page root only received keys while focus was
+  // inside it, and a click on the page body left focus outside (2026-10-20).
+  const windowsOpen = flags.floating.length > 0 || flags.zoomed !== null;
+  useEffect(() => {
+    if (!windowsOpen) return;
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setFlags((f) => ({ ...f, zoomed: null, floating: [] })); };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [windowsOpen]);
 
   const chrome = useCallback((id: PanelId): Chrome => {
     const h = held.current.get(id);
@@ -189,7 +198,11 @@ export default function BotPage() {
   const slotRef = (id: PanelId) => (el: HTMLElement | null) => { if (el) slots.current.set(id, el); else slots.current.delete(id); };
   const slot = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => flags.floating.includes(id)
     ? <div key={id} ref={slotRef(id)} className="vt-bot-ghost" role="button" tabIndex={0} onClick={() => onDock(id)} onKeyDown={(e) => { if (e.key === "Enter") onDock(id); }} style={extraStyle}>{TITLES[id]} · open as a window · click to dock</div>
-    : <div key={id} ref={slotRef(id)} style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, ...extraStyle }}>{panelEl(id)}</div>;
+    // the slot's flex reaches the panel too: each panel carries its desktop
+    // grid flex ("1.35 1 0" for the book), and in the phone/tablet stack —
+    // natural heights, nothing to grow into — a 0 basis collapsed Chart,
+    // Book and Orders to 0 px (bot-ui harness battery, 2026-10-20)
+    : <div key={id} ref={slotRef(id)} style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, ...extraStyle }}>{panelEl(id, extraStyle)}</div>;
 
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
@@ -197,7 +210,7 @@ export default function BotPage() {
   const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} />;
 
   return (
-    <div ref={rootRef} className="vt-bot-page" data-touch={touch ? "true" : undefined} data-state={shown} data-tier={tier} onKeyDown={onKey} tabIndex={-1}>
+    <div ref={rootRef} className="vt-bot-page" data-touch={touch ? "true" : undefined} data-state={shown} data-tier={tier} tabIndex={-1}>
       {flags.zoomed ? (
         <div className="vt-bot-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `${tier === "s" ? "auto" : "76px"} minmax(0, 1fr)`, gridTemplateAreas: '"kpi" "centre"' }} data-scrolls={tpl.scrolls ? "true" : undefined}>
           {kpi}
@@ -235,7 +248,14 @@ export default function BotPage() {
 
 function FloatWin({ id, rect, page, onRect, onDock, onZoom, children }: { id: PanelId; rect: Rect; page: { w: number; h: number }; onRect: (r: Rect) => void; onDock: () => void; onZoom: () => void; children: ReactNode }) {
   const drag = useRef<{ mode: "move" | "size"; sx: number; sy: number; start: Rect } | null>(null);
-  const onDown = (mode: "move" | "size") => (e: React.PointerEvent) => { if (e.button !== 0) return; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); drag.current = { mode, sx: e.clientX, sy: e.clientY, start: rect }; };
+  // A press on a title-bar BUTTON is not a drag: capturing the pointer to the
+  // bar sent the button's click to the bar instead, so dock / zoom / close
+  // never fired (field report 2026-10-20; bot-ui harness battery).
+  const onDown = (mode: "move" | "size") => (e: React.PointerEvent) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { mode, sx: e.clientX, sy: e.clientY, start: rect };
+  };
   const onMove = (e: React.PointerEvent) => {
     const g = drag.current; if (!g) return;
     const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
