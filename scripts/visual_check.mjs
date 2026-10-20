@@ -221,6 +221,9 @@ const PAGES = {
   // FDA binary events — same Phase 5 ratchet rule as streams/treasurydts
   // above.
   fdaevents: { route: "/app#/data/fda-events", map: false },
+  // ClinicalTrials.gov date drift — same Phase 5 ratchet rule as streams/
+  // fdaevents above.
+  clinicaltrials: { route: "/app#/data/clinical-trials", map: false },
   // NHTSA vehicle complaints — same Phase 5 ratchet rule as
   // streams/fdaevents above.
   vehiclecomplaints: { route: "/app#/data/vehicle-complaints", map: false },
@@ -466,6 +469,7 @@ const FIXTURES = {
       { id: "treasury_auctions", name: "US Treasury auctions", kind: "raw", status: "live", group: "filings", costTier: "light", source: "TreasuryDirect TA_WS, securities/auctioned", description: "Primary-market bid-to-cover + bidder-class shares — a stress proxy, not a signal." },
       { id: "treasury_dts", name: "Treasury Daily Statement", kind: "raw", status: "live", group: "filings", costTier: "light", source: "U.S. Treasury Fiscal Data API, deposits_withdrawals_operating_cash", description: "Daily operating-cash deposit/withdrawal line items — a cash-flow proxy, not a signal." },
       { id: "fda_events", name: "FDA binary events", kind: "raw", status: "live", group: "filings", costTier: "light", source: "openFDA drugsfda API + Federal Register API", description: "Drug approvals + advisory-committee meeting notices — a catalyst-timing proxy, not a signal." },
+      { id: "clinical_trials", name: "Clinical-trial date drift", kind: "raw", status: "live", group: "filings", costTier: "light", source: "ClinicalTrials.gov API v2", description: "Changes in sponsor-reported primary completion dates — identity-tagged where a ticker matches, not a signal." },
       { id: "vehicle_complaints", name: "Vehicle complaints", kind: "raw", status: "live", group: "filings", costTier: "light", source: "NHTSA Office of Defects Investigation complaints API", description: "Per-vehicle complaint counts (crash/fire-flagged) over a curated ticker-mapped watchlist — a complaint-velocity proxy, not a signal." },
       { id: "bank_failures", name: "Bank failures", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FDIC Bank Data API", description: "Most recent US bank failure/assistance events — a regional-bank-stress proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
@@ -1704,6 +1708,32 @@ const FIXTURES = {
         title: "Notice of Meeting of the Antimicrobial Drugs Advisory Committee",
         url: "https://www.federalregister.gov/documents/2026/08/03/2026-12399", pub: "2026-08-03",
         dateConf: "unparsed", rt: "2026-08-16" },
+    ],
+  },
+  // ClinicalTrials.gov date drift (2026-10-20, RAW display, clinicalTrials.tsx).
+  // Fixture covers a date slip with a ticker, an improvement without one, a
+  // month-only (coarse) date, a status change and a new trial so both
+  // sections and every badge state render.
+  "/api/data/clinical-trials": {
+    kind: "raw", source: "ClinicalTrials.gov API v2 (fixture)",
+    attribution: "ClinicalTrials.gov (U.S. National Library of Medicine)", time: 1792441277485, tracked: 3242,
+    count: 5, note: "fixture",
+    events: [
+      { t: "pcd_shift", key: "pcd_shift|NCT00000001|2026-12>2027-06", nct: "NCT00000001", sponsor: "Example Biosciences, Inc.",
+        phase: "PHASE2", status: "RECRUITING", prevStatus: null, pcd: "2027-06-01", prevPcd: "2026-12-01", shiftDays: 182,
+        coarse: true, title: "Fixture trial A", cond: "Fixture", enroll: 120, rt: "2026-10-19", ticker: "EXBI", cik: "0000000001" },
+      { t: "pcd_shift", key: "pcd_shift|NCT00000002|2027-03-15>2027-02-01", nct: "NCT00000002", sponsor: "Sample Pharma Co",
+        phase: "PHASE3", status: "ACTIVE_NOT_RECRUITING", prevStatus: null, pcd: "2027-02-01", prevPcd: "2027-03-15", shiftDays: -42,
+        coarse: false, title: "Fixture trial B", cond: "Fixture", enroll: 800, rt: "2026-10-18", ticker: null, cik: null },
+      { t: "status", key: "status|NCT00000003|RECRUITING>TERMINATED", nct: "NCT00000003", sponsor: "Example Biosciences, Inc.",
+        phase: "PHASE2", status: "TERMINATED", prevStatus: "RECRUITING", pcd: "2027-01-01", prevPcd: null, shiftDays: null,
+        coarse: false, title: "Fixture trial C", cond: "Fixture", enroll: 60, rt: "2026-10-19", ticker: "EXBI", cik: "0000000001" },
+      { t: "new", key: "new|NCT00000004|2026-10-19", nct: "NCT00000004", sponsor: "Hansoh BioMedical R&D Company",
+        phase: "PHASE2", status: "RECRUITING", prevStatus: null, pcd: "2027-03-01", prevPcd: null, shiftDays: null,
+        coarse: false, title: "Fixture trial D", cond: "Fixture", enroll: 390, rt: "2026-10-19", ticker: null, cik: null },
+      { t: "entered_window", key: "entered_window|NCT00000005|2026-10-17", nct: "NCT00000005", sponsor: "Sample Pharma Co",
+        phase: "PHASE2/PHASE3", status: "ACTIVE_NOT_RECRUITING", prevStatus: null, pcd: "2027-10-01", prevPcd: null, shiftDays: null,
+        coarse: true, title: "Fixture trial E", cond: "Fixture", enroll: 300, rt: "2026-10-17", ticker: null, cik: null },
     ],
   },
   // NHTSA vehicle complaints (2026-08-18, RAW display, vehicleComplaints.tsx).
