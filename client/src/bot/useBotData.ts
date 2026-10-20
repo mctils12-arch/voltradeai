@@ -73,6 +73,13 @@ export interface Benchmark {
   since: BenchWindow | null; d30: BenchWindow | null; spyLast: { date: string; pct: number } | null;
   barsThrough: string | null; fetchedAt?: string | null; adjustment?: string; error?: string;
 }
+/** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
+ *  Alpaca's fill ledger + open P&L from current positions. */
+export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
+export interface Sleeves {
+  rows?: SleeveRow[]; realizedTotal?: number; unrealizedTotal?: number | null; firstFill?: string | null; lastFill?: string | null;
+  since?: string; truncated?: boolean; malformedFills?: number; fetchedAt?: string; stale?: boolean; pending?: boolean; error?: string; lastError?: string | null;
+}
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
 
 export interface BotData {
@@ -88,6 +95,7 @@ export interface BotData {
   lastScan: UseQueryResult<LastScan>;
   orders: UseQueryResult<OpenOrder[]>;
   benchmark: UseQueryResult<Benchmark>;
+  sleeves: UseQueryResult<Sleeves>;
 }
 
 export function useBotData(): BotData {
@@ -103,7 +111,9 @@ export function useBotData(): BotData {
   const lastScan = useQuery<LastScan>({ queryKey: ["/api/bot/last-scan"], queryFn: () => getJson("/api/bot/last-scan"), refetchInterval: 60_000 });
   const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson("/api/orders/open"), refetchInterval: 30_000 });
   const benchmark = useQuery<Benchmark>({ queryKey: ["/api/bot/benchmark"], queryFn: () => getJson("/api/bot/benchmark"), refetchInterval: 10 * 60_000 });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark };
+  // pending while the server's first ledger computation runs: poll sooner
+  const sleeves = useQuery<Sleeves>({ queryKey: ["/api/bot/sleeves"], queryFn: () => getJson("/api/bot/sleeves"), refetchInterval: (q) => (q.state.data?.pending ? 20_000 : 10 * 60_000) });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {

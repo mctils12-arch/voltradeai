@@ -118,6 +118,14 @@ function botFixtures({ latched }) {
     "/api/bot/benchmark": latched
       ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all" }
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
+    // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
+    "/api/bot/sleeves": latched
+      ? { since: "2026-05-05T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-05-06T13:31:02.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
+          { sleeve: "options", fills: 412, symbols: 118, realized: -1532.1, unpricedCloses: 0, unrealized: -96, openPositions: 6, byMonth: { "2026-10": -516.4 } },
+          { sleeve: "floor", fills: 690, symbols: 7, realized: 93.2, unpricedCloses: 0, unrealized: -4398.2, openPositions: 5, byMonth: { "2026-10": 93.2 } },
+          { sleeve: "stocks", fills: 236, symbols: 61, realized: -1522.5, unpricedCloses: 3, unrealized: 85.3, openPositions: 2, byMonth: { "2026-08": -1340.2 } },
+        ] }
+      : { pending: true },
   };
 }
 

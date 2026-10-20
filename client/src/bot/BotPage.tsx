@@ -160,7 +160,7 @@ export default function BotPage() {
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
     chart: <ChartBody positions={d.positions.data} />,
-    book: <BookBody positions={d.positions.data} spot={null} />,
+    book: <BookBody positions={d.positions.data} spot={null} sleeves={d.sleeves.data} />,
     orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
   };
