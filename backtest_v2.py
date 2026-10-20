@@ -157,8 +157,18 @@ TAKE_PROFIT_RR = 2.0       # target = 2R (asymmetry over accuracy)
 # untouched — only the exit block differs.
 # DEFAULT stays "legacy" until the before/after is judged (research/
 # experiments.md); every stored backtest number to date is legacy-model.
-EXIT_MODELS = ("legacy", "live")
+# CONTROL ARMS (research/bot_logic_research_2026-10-20.md Q1, test 1;
+# [RULE-REVIEW] 2026-10-20): the two arms the exit-model reconciliation
+# compares the legacy and live models against, both close-checked like
+# legacy (so they are slightly OPTIMISTIC on stops vs the intrabar live
+# walk — bias direction stated, MEASUREMENT INTEGRITY):
+#   time_only — no stop, no target; exit at the regime time stop.
+#   wide_stop — 3xATR stop (unclamped), no target, regime time stop.
+# Neither is selectable by bot.ts; both are opt-in from the runner/CLI.
+EXIT_MODELS = ("legacy", "live", "time_only", "wide_stop")
 DEFAULT_EXIT_MODEL = "legacy"
+WIDE_STOP_ATR_MULT = 3.0
+CONTROL_MODELS = ("time_only", "wide_stop")
 
 
 def get_adaptive_params(regime: str) -> dict:
@@ -453,7 +463,8 @@ def _live_exit_bar(pos: dict, bars: dict, k: int, regime_by_date: dict) -> tuple
 
 
 def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
-             vxx: dict | None, exit_model: str = DEFAULT_EXIT_MODEL) -> dict:
+             vxx: dict | None, exit_model: str = DEFAULT_EXIT_MODEL,
+             random_entry: tuple | None = None) -> dict:
     """Daily-bar simulation. Signal on close[i] -> entry at open[i+1] (no
     lookahead). Exits, by exit_model (see EXIT_MODELS):
       legacy — ATR stop / 2R take-profit / regime time stop, checked on each
@@ -461,10 +472,24 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
       live   — server/bot.ts checkPositionOnTick via live_exit_policy, walked
                intrabar O->L->H->C from the entry bar's open; scale-outs are
                partial fills; equity is marked AFTER the bar's exits so an
-               intrabar exit is booked on the bar it happened."""
+               intrabar exit is booked on the bar it happened.
+      time_only / wide_stop — the reconciliation's control arms (see
+               CONTROL_MODELS); legacy-shaped close checks.
+    random_entry=(rate, seed): the random-entry BASE RATE (REASONING STANDARD
+    #3). The score gate is replaced by a coin with P(enter)=rate on every bar
+    where an entry is otherwise allowed (regime gate, flat, sizing unchanged);
+    seed makes the run reproducible; trade records carry score=None."""
     if exit_model not in EXIT_MODELS:
         raise ValueError(f"unknown exit_model {exit_model!r}; expected one of {EXIT_MODELS}")
     live = exit_model == "live"
+    control = exit_model in CONTROL_MODELS
+    rng = None
+    if random_entry is not None:
+        rate, seed = float(random_entry[0]), int(random_entry[1])
+        if not (0.0 < rate <= 1.0):
+            raise ValueError(f"random_entry rate must be in (0, 1], got {rate}")
+        import random as _random
+        rng = _random.Random(seed)
     regimes, data_quality = regime_series(spy, vxx)
     regime_by_date = dict(zip(spy["date"], regimes))
 
@@ -502,9 +527,9 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
             px = closes[i]
             held = i - pos["entry_i"]
             reason = None
-            if px <= pos["stop"]:
+            if pos["stop"] is not None and px <= pos["stop"]:
                 reason = "stop_loss"
-            elif px >= pos["target"]:
+            elif pos["target"] is not None and px >= pos["target"]:
                 reason = "take_profit"
             elif held >= pos["time_stop"]:
                 reason = "time_stop"
@@ -529,8 +554,13 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
 
         # entries: regime gate + score gate, fill next open
         if pos is None and params["max_pos"] > 0:
-            score = score_candidate(strategy, bars, i)
-            if score >= params["min_score"]:
+            if rng is not None:
+                score = None
+                enter = rng.random() < rate
+            else:
+                score = score_candidate(strategy, bars, i)
+                enter = score >= params["min_score"]
+            if enter:
                 entry = bars["open"][i + 1] * (1 + liquidity_cost_pct(bars, i))
                 atr = atr14(bars, i) or (entry * 0.02)
                 stop_pct = min(max(ATR_STOP_MULT * atr / entry * 100,
@@ -553,6 +583,12 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
                            "entry_i": i + 1, "score": score,
                            "time_stop": params["time_stop_days"],
                            "vxx_ratio": vr}
+                    if control:
+                        # the control arms: same entry, sizing and time stop;
+                        # no target; stop = none or 3xATR below the entry
+                        pos["target"] = None
+                        pos["stop"] = (None if exit_model == "time_only"
+                                       else entry - WIDE_STOP_ATR_MULT * atr)
                     if live:
                         # R unit fixed here from what is known at the fill
                         # (bars <= i, regime of the signal bar i); the
@@ -609,10 +645,12 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
         "data_quality": data_quality,
         "trades": trades,
     }
-    if live:
+    if live or control or rng is not None:
         # legacy output stays byte-identical (pinned in
-        # test_backtest_v2_exit_model.py); only a live run is labeled here
-        out["exit_model"] = "live"
+        # test_backtest_v2_exit_model.py); only non-legacy runs are labeled
+        out["exit_model"] = exit_model
+        if rng is not None:
+            out["random_entry"] = {"rate": rate, "seed": seed}
     return out
 
 
