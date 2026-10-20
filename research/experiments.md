@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-20 (scheduled routine DAILY health session, ~20:15Z Tue = 16:15 ET, just after close) [NO-ACTION] — no code_version change — DEPLOY STALL FLAGGED: LIVE STUCK AT 1.0.1114 WHILE MAIN IS 1.0.1122
+
+HEALTH: session_health_check all OK except daemon rss 441MB (trim mode, known) and deploy_freshness. Archive storage 1.82 GiB free, sweep archiving auto-paused below its 2 GiB gate, ~13 d to the 1 GiB guard (open: wishlist 2 GiB gate problem, human volume decision).
+FINDING: /api/data/layers server_version = 1.0.1114 on three reads; /api/health uptime_s 14549 => container started ~16:10Z. Since then 8 code merges (#1389-#1396, v1.0.1115-1122, 17:09Z-19:33Z) have NOT deployed, 4 h and counting. The earlier session called a 4-version gap "normal lag"; at 2+ h it is not. CI is green on all of them (actions_list), so this is not the old GitHub Actions freeze.
+RULED OUT (code side): `npm run build` on main HEAD succeeds (40 s) and scripts/deploy_gate_smoke.mjs PASSES (200 in 2.5 s under latched kill switch + stale liveness). So a Railway build failure from the code is unlikely; cause is on the Railway side (deploy paused/queued, build failing in its env, trigger disconnected) and is not visible from this sandbox.
+EFFECT: the repairs in #1390-#1396 (options entry/exit audit, grouped multi-leg fetch, Bot page fixes, SPY benchmark) are not live. Not merging anything further is asked of nobody; human should open the Railway deployments tab.
+STARVED: no. Next session: re-read server_version; if still 1.0.1114, escalate again.
+ROLLBACK: n/a (docs only).
+
 ## 2026-10-20 (scheduled routine PRODUCT session #3, ~18:10Z Tue = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1119) — KEYED /api/v1/data/fda-events MIRROR
 
 HEALTH: session_health_check all OK except daemon rss 402MB (trim mode, known) and deploy_freshness (live 1.0.1114 vs checkout 1.0.1118 — normal post-merge lag, deploy_gate 2xx, not the old freeze); no critical KNOWN BROKEN.
