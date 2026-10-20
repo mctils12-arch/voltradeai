@@ -77,9 +77,14 @@ export interface Benchmark {
  *  Alpaca's fill ledger + open P&L from current positions. */
 export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
 export interface UnderlyingRow { root: string; fills: number; realized: number; byMonth: Record<string, number>; open: number | null; openPositions: number }
+export type ActivityGroup = "dividends" | "interest" | "fees" | "journals" | "optionEvents" | "corporate" | "transfers" | "other";
+/** server/accountActivities.ts: the non-trade cash flows the fill ledger cannot see, and the reconciliation to the equity curve */
+export interface NonTradeLedger { total: number; count: number; nonCashRows: number; groups: Record<ActivityGroup, number>; byMonth: Record<string, number>; types: Array<{ type: string; group: ActivityGroup; count: number; net: number; byMonth: Record<string, number> }>; first: string | null; last: string | null }
+export interface Reconciliation { equityFrom: string; equityTo: string; equityStart: number; equityEnd: number; equityChange: number; realized: number; unrealized: number | null; nonTrade: number; explained: number | null; residual: number | null }
 export interface Sleeves {
   rows?: SleeveRow[]; realizedTotal?: number; unrealizedTotal?: number | null; firstFill?: string | null; lastFill?: string | null;
   optionsByUnderlying?: UnderlyingRow[]; optionsUnderlyings?: number;
+  nonTrade?: NonTradeLedger; reconciliation?: Reconciliation | null; malformedActivities?: number;
   since?: string; truncated?: boolean; malformedFills?: number; fetchedAt?: string; stale?: boolean; pending?: boolean; error?: string; lastError?: string | null;
 }
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
