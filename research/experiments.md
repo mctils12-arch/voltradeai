@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-20 (scheduled routine PRODUCT session #3, ~18:10Z Tue = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1119) — KEYED /api/v1/data/fda-events MIRROR
+
+HEALTH: session_health_check all OK except daemon rss 402MB (trim mode, known) and deploy_freshness (live 1.0.1114 vs checkout 1.0.1118 — normal post-merge lag, deploy_gate 2xx, not the old freeze); no critical KNOWN BROKEN.
+CHOICE: fda-events had a raw endpoint and a /data view but no API-product surface (shipped-data-no-v1-API class, priority (3)); same recipe as the 10-20 clinical-trials mirror. Gate 2 on every catalyst root still blocked on the price-panel human decision, so the surface is the unblocked work.
+CHANGE: GET /api/v1/data/fda-events behind requireApiKey + meterUsage, reusing latestFdaEvents() (no new poller). LICENSE_MARKS data/fda-events resell "ok" (openFDA + Federal Register, US-gov public domain), meta entry with preview route, agent tool voltrade_fda_events, response schema.
+TESTS: apiProduct 71->72 + fdaEvents suites pass (81); tsc_ratchet OK (3<=8); counter_ratchet OK (28; the tests/assertions "IMPROVED" pins are pre-existing drift from other merges, deliberately not re-pinned here for attribution).
+NO SIGNAL CLAIM: tool description and meta state RAW, gate-2 NOT tested, no PDUFA dates (21 CFR 314.430), adcom date parse-confidence carried, no ticker join. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared MID-MARKET; no trading-path code, but merge after the 16:00 ET close per deploy coupling.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-20 (scheduled routine PRODUCT session #2, ~13:05Z Tue = 09:05 ET, PRE-OPEN) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1114) — KEYED /api/v1/data/clinical-trials MIRROR
 
 HEALTH: session_health_check all OK except daemon rss 403MB (trim mode, known); v1.0.1113 == main; no critical KNOWN BROKEN.
