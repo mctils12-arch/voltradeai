@@ -2,7 +2,7 @@
 // 2026-10-20). Run: npx tsx --test server/sleeveLedger.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sleeveLedger, realizedEvents, sleeveOf, occRoot, SLEEVE_UNDERLYING_CAP } from "./sleeveLedger";
+import { sleeveLedger, realizedEvents, sleeveOf, occRoot, holdBucket, SLEEVE_UNDERLYING_CAP, HOLD_BUCKETS } from "./sleeveLedger";
 import { realizedPnlFromFills, type FillRow, type PositionRow } from "./killSwitchAutoResume";
 
 const FLOOR = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD"]);
@@ -142,4 +142,37 @@ test("window start: a lot held at the window start is priced at its REAL pre-win
   const none = sleeveLedger(fills, positions, FLOOR);
   assert.equal(Object.fromEntries(none.rows.map((r) => [r.sleeve, r])).stocks.realized, -200);
   assert.equal(none.realizedTotal, 665);
+});
+
+test("options by hold time: the condor's four-minute round trip is <1h; a CSP bought back after nine days is 8–30d; a lot older than the fetched history is unknown; the same ruler", () => {
+  const H = 3_600_000;
+  assert.equal(holdBucket(null, 5), "unknown");
+  assert.equal(holdBucket(0, 59 * 60_000), "<1h");
+  assert.equal(holdBucket(0, 23 * H), "<1d");
+  assert.equal(holdBucket(0, 24 * H), "1–7d");
+  assert.equal(holdBucket(0, 7 * 24 * H), "1–7d");
+  assert.equal(holdBucket(0, 7 * 24 * H + 1), "8–30d");
+  assert.equal(holdBucket(0, 30 * 24 * H + 1), ">30d");
+  const fills: FillRow[] = [
+    ...FILLS,                                                                                    // the condor: 4 legs, −66 in 4 minutes
+    fill("AMD261120P00120000", -1, 2, 2.00, "2026-09-01T14:00:00Z"), fill("AMD261120P00120000", 1, 2, 1.00, "2026-09-10T14:00:00Z"),  // CSP, 9 days, +200
+    fill("XOM261120C00110000", -1, 1, 1.50, "2026-10-01T14:00:00Z"), fill("XOM261120C00110000", 1, 1, 1.80, "2026-10-01T19:00:00Z"),  // same day, −30
+    fill("GE261120P00150000", 1, 1, 2.50, "2026-09-15T14:00:00Z"),                                                                  // closes a lot opened before the history
+  ];
+  // GE: held −2 before the first fetched fill (current −1 after buying 1 back), Alpaca's avg_entry prices it
+  const positions: PositionRow[] = [...POSITIONS, pos("GE261120P00150000", -1, 3.00, 10)];
+  const L = sleeveLedger(fills, positions, FLOOR);
+  const by = Object.fromEntries(L.optionsByHold.map((h) => [h.bucket, h]));
+  assert.deepEqual(L.optionsByHold.map((h) => h.bucket), [...HOLD_BUCKETS], "every bucket present, in order");
+  assert.deepEqual([by["<1h"].events, by["<1h"].realized], [4, -66]);
+  assert.deepEqual([by["<1d"].events, by["<1d"].realized], [1, -30]);
+  assert.deepEqual([by["8–30d"].events, by["8–30d"].realized], [1, 200]);
+  assert.deepEqual([by["unknown"].events, by["unknown"].realized], [1, 50], "GE: (3.00 − 2.50) × 100, open time unknown");
+  assert.equal(by["1–7d"].events + by[">30d"].events, 0);
+  const total = L.optionsByHold.reduce((s, h) => s + h.realized, 0);
+  assert.equal(Math.round(total * 100) / 100, Object.fromEntries(L.rows.map((r) => [r.sleeve, r])).options.realized, "the buckets sum to the sleeve");
+  // the open time follows the lot: a flip through zero opens a new lot at the flipping fill
+  const flip = [fill("IWM", 1, 3, 200, "2026-09-01T14:00:00Z"), fill("IWM", -1, 5, 210, "2026-09-02T14:00:00Z"), fill("IWM", 1, 2, 205, "2026-09-05T14:00:00Z")];
+  const { events } = realizedEvents(flip, []);
+  assert.deepEqual(events.map((e) => [e.pnl, e.openedAt]), [[30, T("2026-09-01T14:00:00Z")], [10, T("2026-09-02T14:00:00Z")]]);
 });

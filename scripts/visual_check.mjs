@@ -134,7 +134,8 @@ function botFixtures({ latched }) {
         ], nonTrade: { total: 4712.3, count: 9, nonCashRows: 0, groups: { dividends: 412.3, interest: 0, fees: 0, journals: 4300, optionEvents: 0, corporate: 0, transfers: 0, other: 0 },
           byMonth: { "2026-05": 4300, "2026-08": 312.3, "2026-09": 100 }, types: [{ type: "JNLC", group: "journals", count: 1, net: 4300, byMonth: { "2026-05": 4300 } }, { type: "DIV", group: "dividends", count: 8, net: 412.3, byMonth: { "2026-08": 312.3, "2026-09": 100 } }], first: "2026-05-05", last: "2026-09-15" },
         reconciliation: { equityFrom: "2026-05-06", equityTo: "2026-10-20", equityStart: 106743, equityEnd: 99373, equityChange: -7370, realized: -2961.4, unrealized: -4408.9, nonTrade: 4712.3, explained: -2658, residual: -4712 },
-        windowStart: "2026-05-07T00:00:00.000Z", preWindowFills: 212 }
+        windowStart: "2026-05-07T00:00:00.000Z", preWindowFills: 212,
+        optionsByHold: [{ bucket: "<1h", events: 96, realized: -1104.3 }, { bucket: "<1d", events: 40, realized: -212 }, { bucket: "1–7d", events: 110, realized: 318.5 }, { bucket: "8–30d", events: 150, realized: -534.3 }, { bucket: ">30d", events: 12, realized: 0 }, { bucket: "unknown", events: 4, realized: 0 }] }
       : { pending: true },
   };
 }

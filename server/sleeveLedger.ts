@@ -30,7 +30,9 @@ export function sleeveOf(symbol: string, floorTickers: ReadonlySet<string>, opti
   return floorTickers.has(symbol.toUpperCase()) ? "floor" : "stocks";
 }
 
-export interface RealizedEvent { symbol: string; t: number; pnl: number }
+/** `openedAt`: when the lot being closed was opened (the fill that took the
+ *  position from flat); null when the lot predates the fetched history. */
+export interface RealizedEvent { symbol: string; t: number; pnl: number; openedAt: number | null }
 
 /** The realizedPnlFromFills walk, one event per priced close. */
 export function realizedEvents(fills: readonly FillRow[], positions: readonly PositionRow[]): { events: RealizedEvent[]; unpriced: Map<string, number> } {
@@ -50,21 +52,23 @@ export function realizedEvents(fills: readonly FillRow[], positions: readonly Po
     if (Math.abs(pos) < 1e-9) pos = 0;
     let avg: number | null =
       pos !== 0 && cur && cur.avgEntry !== null && Math.sign(cur.qty) === Math.sign(pos) ? cur.avgEntry : null;
+    let openedAt: number | null = null; // a lot held before the first fetched fill has no known open time
     for (const f of list) {
       if (pos === 0 || Math.sign(pos) === f.dir) {
         const absPos = Math.abs(pos);
-        avg = pos === 0 ? f.price : avg === null ? null : (absPos * avg + f.qty * f.price) / (absPos + f.qty);
+        if (pos === 0) { avg = f.price; openedAt = f.t; }
+        else avg = avg === null ? null : (absPos * avg + f.qty * f.price) / (absPos + f.qty);
         pos += f.dir * f.qty;
         continue;
       }
       const closing = Math.min(f.qty, Math.abs(pos));
       if (avg === null) unpriced.set(symbol, (unpriced.get(symbol) ?? 0) + closing);
-      else events.push({ symbol, t: f.t, pnl: closing * (f.price - avg) * Math.sign(pos) * mult });
+      else events.push({ symbol, t: f.t, pnl: closing * (f.price - avg) * Math.sign(pos) * mult, openedAt });
       pos += f.dir * closing;
       if (Math.abs(pos) < 1e-9) pos = 0;
       const rest = f.qty - closing;
-      if (rest > 1e-9) { pos = f.dir * rest; avg = f.price; }
-      else if (pos === 0) avg = null;
+      if (rest > 1e-9) { pos = f.dir * rest; avg = f.price; openedAt = f.t; }
+      else if (pos === 0) { avg = null; openedAt = null; }
     }
   }
   return { events, unpriced };
@@ -94,8 +98,28 @@ export interface SleeveLedger {
   optionsByUnderlying: UnderlyingRow[];
   /** how many underlyings the options sleeve touched (the list above may be shorter) */
   optionsUnderlyings: number;
+  /** options realized P&L by hold time of the closed lot, every bucket present */
+  optionsByHold: HoldRow[];
 }
 export const SLEEVE_UNDERLYING_CAP = 40;
+
+/** Options realized P&L by how long the lot was held ([RULE-REVIEW]
+ *  2026-10-20): the research round's churn question — August's NVDA 133
+ *  fills for −$1,126, the entry/exit DTE conflict's instant closes (fixed
+ *  v1.0.1117) — needs the instant round trips separated from the adverse
+ *  moves. Same realized events, bucketed by close − open. */
+export const HOLD_BUCKETS = ["<1h", "<1d", "1–7d", "8–30d", ">30d", "unknown"] as const;
+export type HoldBucket = (typeof HOLD_BUCKETS)[number];
+export interface HoldRow { bucket: HoldBucket; events: number; realized: number }
+export function holdBucket(openedAt: number | null, closedAt: number): HoldBucket {
+  if (openedAt === null) return "unknown";
+  const h = (closedAt - openedAt) / 3_600_000;
+  if (h < 1) return "<1h";
+  if (h < 24) return "<1d";
+  if (h <= 24 * 7) return "1–7d";
+  if (h <= 24 * 30) return "8–30d";
+  return ">30d";
+}
 
 /** "TSLA261030C00470000" → "TSLA"; a stock symbol is its own root. */
 export function occRoot(symbol: string): string {
@@ -161,13 +185,21 @@ export function sleeveLedger(fills: readonly FillRow[], positions: readonly Posi
       byMonth: Object.fromEntries(Object.entries(u.byMonth).sort().map(([k, v]) => [k, r2(v)])) }))
     .sort((a, b) => a.realized - b.realized || a.root.localeCompare(b.root))
     .slice(0, SLEEVE_UNDERLYING_CAP);
+  const hold = new Map<HoldBucket, HoldRow>(HOLD_BUCKETS.map((b) => [b, { bucket: b, events: 0, realized: 0 }]));
+  for (const e of events) {
+    if (sleeveOf(e.symbol, floorTickers) !== "options") continue;
+    const h = hold.get(holdBucket(e.openedAt, e.t))!;
+    h.events++;
+    h.realized += e.pnl;
+  }
+  const optionsByHold = HOLD_BUCKETS.map((b) => ({ ...hold.get(b)!, realized: r2(hold.get(b)!.realized) }));
   return {
     firstFill: all.length ? new Date(all[0].t).toISOString() : null,
     lastFill: all.length ? new Date(all[all.length - 1].t).toISOString() : null,
     rows: out, realizedTotal: r2(out.reduce((s, r) => s + r.realized, 0)), unrealizedTotal,
     windowStart: windowStartMs === undefined ? null : new Date(windowStartMs).toISOString(),
     preWindowFills: all.length - sorted.length,
-    optionsByUnderlying, optionsUnderlyings: und.size,
+    optionsByUnderlying, optionsUnderlyings: und.size, optionsByHold,
   };
 }
 
