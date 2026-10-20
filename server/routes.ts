@@ -5240,6 +5240,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ClinicalTrials.gov change-event keyed mirror (same "shipped-data-no-v1-API"
+  // sweep). Reuses latestClinicalTrials() + the identity-only ticker annotate
+  // /api/data/clinical-trials already uses — no new poller or computation.
+  // Public-domain US federal data, resell ok. RAW: gate-2 is locked.
+  app.get("/api/v1/data/clinical-trials", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestClinicalTrials();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/clinical-trials", status: 503, tier: auth.tier });
+        return;
+      }
+      const events = annotateWithTicker(hit.events, loadSponsorIndex());
+      res.json(v1Envelope("data/clinical-trials", { tracked: hit.tracked, count: events.length, events }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/clinical-trials", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/clinical-trials", status: 500, tier: auth.tier });
+    }
+  });
+
   // FDIC bank failures keyed mirror (same "shipped-data-no-v1-API" sweep as
   // fred-macro/eu-macro/nrc-reactor-status/crop-conditions above — one of
   // four gate1_pass roots the 2026-08-23 PRODUCT session survey found still

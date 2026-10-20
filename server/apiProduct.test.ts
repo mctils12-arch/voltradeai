@@ -77,6 +77,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/eu-macro"), "European macro cluster keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/fred-macro"), "FRED macro cluster keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/bank-failures"), "FDIC bank failures keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/clinical-trials"), "ClinicalTrials.gov change-event keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/gnss-integrity-signal"), "GNSS integrity signal keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/dtcc-swaps"), "DTCC SBSDR equity swaps keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/fleet-utilization"), "corporate-fleet utilization keyed mirror shipped — must be a live endpoint");
@@ -107,7 +108,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/lng-shipyards", "/api/v1/data/steel-raw-materials", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/clinical-trials", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/lng-shipyards", "/api/v1/data/steel-raw-materials", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -344,6 +345,19 @@ test("bank-failures license mark: public-domain US-gov data resells freely like 
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
   assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
   assert.ok(tool.description.includes("null"), "honesty: the never-coerce-cost-to-zero rule must travel with the tool description");
+});
+
+test("clinical-trials license mark: NLM public-domain data resells freely; agent tool carries gate-2-locked and identity-only-ticker honesty", () => {
+  assert.equal(LICENSE_MARKS["data/clinical-trials"].resell, "ok");
+  assert.ok(LICENSE_MARKS["data/clinical-trials"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["data/clinical-trials"].attribution.includes("ClinicalTrials.gov"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_clinical_trials");
+  assert.ok(tool, "voltrade_clinical_trials tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/clinical-trials"]);
+  assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: gate-2 status must travel with the tool description");
+  assert.ok(tool.description.includes("identity-only"), "honesty: the ticker join is identity-only, not point-in-time");
+  assert.ok(tool.description.includes("self-reported"), "honesty: dates are sponsor self-reported");
 });
 
 test("gnss-integrity-signal license mark: aircraft-archive-derived ODbL share-alike like tracks/aircraft, not conditional like the AIS-derived stats; agent tool documents it as the first gate-2-passed signal on the API", () => {
