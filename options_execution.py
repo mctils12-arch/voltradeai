@@ -108,6 +108,45 @@ CSP_ENTRY_MIN_DTE = max(_T1_TARGET_DTE_MIN, _DTE_EXIT_THRESHOLD + 1)
 # Single-leg short-premium entries that must clear the exit-zone floor.
 _SHORT_PREMIUM_SINGLE_LEG = ("sell_cash_secured_put",)
 
+# MULTI-LEG ENTRY DTE FLOOR (2026-10-20, RECURRENCE of the CSP defect above):
+# iron condors kept the min_dte=7 fetch, and on big chains (TSLA/META/GOOGL)
+# the 100-contract snapshot page fills with the nearest weeklies, so
+# _select_condor's "closest to 30 DTE" preference only ever saw 7-14 DTE
+# expiries — every live condor was born inside _manage_strategy_group's
+# 21-DTE rule (Exit Rule 4) and closed on its first eligible cycle (live
+# 2026-10-19/20, -$66/-$70/-$84). Root cause, not a per-strategy patch: the
+# entry floor for EVERY multi-leg structure the manager groups (its own
+# MULTI_LEG_STRATEGIES list, so the two cannot drift) is the same shared
+# CSP_ENTRY_MIN_DTE — 30 today, which also clears the one-day gap between
+# the fetch's calendar-date floor and the manager's floor((expiry - now))
+# DTE count. The weekly qqq_iron_condor keeps its 3-DTE design (listed in
+# ENTRY_EXIT_ZONE_CONFLICTS below for a human decision, not silently moved).
+from options_manager import MULTI_LEG_STRATEGIES as _MULTI_LEG_STRATEGIES
+MULTI_LEG_ENTRY_MIN_DTE = CSP_ENTRY_MIN_DTE
+_WEEKLY_STRATEGIES = ("qqq_iron_condor", "covered_call")
+_EXIT_ZONE_FLOORED = tuple(
+    s for s in _MULTI_LEG_STRATEGIES if s not in _WEEKLY_STRATEGIES
+) + _SHORT_PREMIUM_SINGLE_LEG
+# Strategies select_contract can open INSIDE the manager's 21-DTE exit zone
+# on purpose or by an unresolved design conflict. Every strategy in
+# select_contract's dispatch must be either floored above or named here
+# (test_entry_exit_zone_invariant.py fails CI otherwise), so a new strategy
+# can never again be born inside the exit zone unnoticed. Filed for the
+# human in research/open_questions.md (2026-10-20 ENTRY/EXIT DTE CONFLICTS).
+ENTRY_EXIT_ZONE_CONFLICTS = {
+    "qqq_iron_condor": "weekly by design (4-7 DTE); the manager's DTE-critical "
+                       "rule (<=5) closes it with no hold, Rule 4 after the hold",
+    "covered_call": "weekly by design (4-7 DTE); standalone Check 3 rolls it "
+                    "out after the hold",
+    "buy_call": "long single leg, 7-DTE fetch (scope pinned by "
+                "test_csp_entry_dte); Check 3 closes bought options <=21 DTE",
+    "buy_put": "long single leg, same as buy_call",
+    "calendar_spread": "front leg targets 14-30 DTE; back leg 50-90 is beyond "
+                       "the 50-DTE fetch window, so it cannot currently fill",
+    "diagonal_spread": "short leg targets 21-35 DTE; long leg 60-120 is beyond "
+                       "the 50-DTE fetch window, so it cannot currently fill",
+}
+
 # Top 10 QQQ holdings for iron condor earnings guard
 QQQ_TOP_HOLDINGS = ["AAPL", "MSFT", "AMZN", "NVDA", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST"]
 
@@ -390,12 +429,15 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
 
         # Fetch available options contracts from Alpaca
         # Weekly strategies (QQQ iron condor, covered call) need short-dated contracts
-        _weekly_strategies = ("qqq_iron_condor", "covered_call")
-        _min_dte = 3 if strategy in _weekly_strategies else 7
+        _min_dte = 3 if strategy in _WEEKLY_STRATEGIES else 7
         if strategy in _SHORT_PREMIUM_SINGLE_LEG:
             # 2026-10-13 f3-csp-entry-dte: never request expiries inside the
             # options_manager 21-DTE exit zone (see CSP_ENTRY_MIN_DTE).
             _min_dte = CSP_ENTRY_MIN_DTE
+        elif strategy in _EXIT_ZONE_FLOORED:
+            # 2026-10-20: the same floor for every grouped multi-leg
+            # structure (see MULTI_LEG_ENTRY_MIN_DTE).
+            _min_dte = MULTI_LEG_ENTRY_MIN_DTE
         # FIX 2026-05-22: ask Alpaca for the specific side we need.
         # Single-leg strategies only need one side; the API filter dramatically
         # reduces the chance of "chain=7, puts=0" failures by ensuring the
