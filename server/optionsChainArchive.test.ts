@@ -8,20 +8,31 @@ import { fileURLToPath } from "node:url";
 import {
   underlyingsFor, parseOcc, withinFilters, compactContract,
   archiveChainRecords, shouldRunNow, snapshotUrl, fetchChainForUnderlying,
-  CHAIN_MAX_UNDERLYINGS, CHAIN_MAX_DTE_DAYS,
+  CHAIN_MAX_UNDERLYINGS, CHAIN_MAX_DTE_DAYS, CHAIN_ALWAYS,
 } from "./optionsChainArchive";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = Date.UTC(2026, 6, 8, 20, 30); // Wed 2026-07-08 16:30 ET
 
-test("universe: positions first, then cache candidates with their spot, capped, deduped", () => {
+test("universe: the index chains first, then positions, then cache candidates with their spot, capped, deduped", () => {
   const cache = { candidates: [["AAPL", 210.5, 1e6, 2.1e8], ["F", 12.1, 5e6, 6e7], ["AAPL", 210.5, 1, 1]] };
   const u = underlyingsFor(cache, ["f", "SPY"]);
-  assert.deepEqual(u.map((x) => x.sym), ["F", "SPY", "AAPL"]);
+  assert.deepEqual(u.map((x) => x.sym), ["SPY", "QQQ", "IWM", "F", "AAPL"]);
   assert.equal(u.find((x) => x.sym === "AAPL")?.spot, 210.5, "spot must ride along from the cache tuple");
-  assert.equal(u.find((x) => x.sym === "SPY")?.spot, null, "position-only underlyings have no cached spot");
+  assert.equal(u.find((x) => x.sym === "SPY")?.spot, null, "pinned/position-only underlyings have no cached spot");
   const big = { candidates: Array.from({ length: 500 }, (_, i) => [`T${i}`, 10, 1, 1]) };
-  assert.equal(underlyingsFor(big).length, CHAIN_MAX_UNDERLYINGS, "hard cap");
+  const capped = underlyingsFor(big);
+  assert.equal(capped.length, CHAIN_MAX_UNDERLYINGS, "hard cap");
+  assert.deepEqual(capped.slice(0, 3).map((x) => x.sym), [...CHAIN_ALWAYS], "the index names survive a full cache — the 2026-10-20 gap");
+});
+
+test("universe: an index name that the cache also carries keeps its pinned slot but takes the cache's spot", () => {
+  const cache = { candidates: [...Array.from({ length: 200 }, (_, i) => [`T${i}`, 10, 1, 1]), ["SPY", 598.2, 1e6, 1e9]] };
+  const u = underlyingsFor(cache);
+  assert.equal(u[0].sym, "SPY");
+  assert.equal(u[0].spot, 598.2, "the cache's spot replaces the pinned null so the strike band applies");
+  assert.equal(u.length, CHAIN_MAX_UNDERLYINGS);
+  assert.equal(new Set(u.map((x) => x.sym)).size, u.length, "no duplicates");
 });
 
 test("OCC parse + filters: DTE and strike band enforced; malformed rejected", () => {
