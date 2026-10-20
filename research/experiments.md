@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-20 (scheduled-routine EDGE session, Tue, ~01:00Z = 21:00 ET Mon, after hours) [NO-ACTION] — no code_version change — AXIS RE-SURVEY: NOTHING UNBLOCKED SINCE 10-18
+
+HEALTH: session_health_check all OK (v1.0.1113 live == checkout, deploy_gate 2xx, liveness alive, daemon 158MB). research_state_check: thrash 0/10 REPAIR, STARVED 8 consecutive (below 10 trigger), no audit overdue, archives fresh. No critical KNOWN BROKEN (#44 FROZEN Dockerfile, proposal filed).
+SURVEY: ladder_readiness_check 0/5 READY (COT ~7d, github_org ~14d, fleet_utilization 13d, 8-K QoQ 26d, gnss 71d); running a gate early would peek at a pre-registered threshold. (a) every free-data pipeline built; (b) illiquid-universe work still blocked on fill-realism fix; (c) no new non-price foreign-field candidate since the 7 gate-2 negatives; (d) survey reasoning already compiled in the two check scripts.
+PRIOR: nothing buildable clears the bar; padding is forbidden.
+DECISION: [NO-ACTION]. Next unblock: COT gate-2 rerun ~2026-10-21 (live-verify published-report count first).
+EFFECT: docs only. ROLLBACK: git revert.
+STARVED: yes (price-panel decision, gate re-run dates).
+
 ## 2026-10-20 (scheduled routine PRODUCT session, ~00:10Z Tue = 20:10 ET Mon, after hours) [PRODUCT] — T-CLIENT (client/src/pages/clinicalTrials.tsx, datamap.tsx wiring, visual_check.mjs fixtures) + shared (datacore/layers.json, layersRegistry.test.ts pin, package.json; v1.0.1113) — /data CLINICAL-TRIAL DATE-DRIFT VIEW
 
 HEALTH: session_health_check all OK except daemon rss 405MB (trim mode, known, not a break); v1.0.1112 == main; no critical KNOWN BROKEN.
