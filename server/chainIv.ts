@@ -153,12 +153,28 @@ export async function readChainDay(day: string, baseDir?: string): Promise<Chain
   const out: ChainRecord[] = [];
   for (const fp of archiveDayFiles(chainDir(baseDir), day)) {
     await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
-      let r: any;
-      try { r = JSON.parse(line); } catch { return; }
-      if (r && typeof r === "object" && typeof r.s === "string" && typeof r.u === "string") out.push(r as ChainRecord);
+      const r = parseJsonLine(line);
+      if (r && typeof r === "object" && typeof (r as ChainRecord).s === "string" && typeof (r as ChainRecord).u === "string") out.push(r as ChainRecord);
     });
   }
   return out;
+}
+
+/** A JSONL line → value, or null for a corrupt line (counted by the caller's silence: a bad line is noise, not history). */
+function parseJsonLine(line: string): unknown {
+  try { return JSON.parse(line); } catch { return null; }
+}
+
+/** The derived day file → rows, or null when missing / unreadable (then the day is recomputed). */
+function readDerived(fp: string): Iv30Row[] | null {
+  if (!fs.existsSync(fp)) return null;
+  try {
+    const v: unknown = JSON.parse(fs.readFileSync(fp, "utf8"));
+    return Array.isArray(v) ? (v as Iv30Row[]) : null;
+  } catch (e) {
+    console.warn(`[chainIv] derived file unreadable, recomputing ${fp}:`, e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }
 
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -176,15 +192,15 @@ export async function iv30ForDays(
   const computed: string[] = [], cached: string[] = [], pending: string[] = [];
   for (const day of days) {
     const fp = path.join(dir, `${day}.json`);
-    if (fs.existsSync(fp)) {
-      try { rows.push(...(JSON.parse(fs.readFileSync(fp, "utf8")) as Iv30Row[])); cached.push(day); continue; } catch { /* recompute below */ }
-    }
+    const derived = readDerived(fp);
+    if (derived) { rows.push(...derived); cached.push(day); continue; }
     if (computed.length >= maxCompute) { pending.push(day); continue; }
     const dayRows = atmIv30ForDay(await readChainDay(day, baseDir), day);
     rows.push(...dayRows);
     computed.push(day);
     if (day < today) {
-      try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fp, JSON.stringify(dayRows)); } catch (e: any) { console.error(`[chainIv] cache write failed for ${day}:`, e?.message || e); }
+      try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fp, JSON.stringify(dayRows)); }
+      catch (e) { console.error(`[chainIv] cache write failed for ${day}:`, e instanceof Error ? e.message : String(e)); }
     }
   }
   return { rows, computed, cached, pending };
