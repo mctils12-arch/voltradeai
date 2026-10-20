@@ -65,6 +65,14 @@ export interface Insight {
   error?: string;
 }
 export interface LastScan { timestamp?: string; scanned?: number; new_trades?: unknown[]; top_10?: Array<{ ticker: string; score: number; side?: string; action_label?: string; reasons?: string[] }>; sizing_blocks?: Array<{ ticker: string; reason: string; score?: number | null; strategy?: string }>; scan_phase_times?: unknown }
+/** GET /api/bot/benchmark (server/spyBenchmark.ts): the account vs
+ *  buy-and-hold SPY on dividend-adjusted closes. Null windows = not enough
+ *  data on one side — never a zero. */
+export interface BenchWindow { from: string; to: string; days: number; accountPct: number; spyPct: number; gapPp: number }
+export interface Benchmark {
+  since: BenchWindow | null; d30: BenchWindow | null; spyLast: { date: string; pct: number } | null;
+  barsThrough: string | null; fetchedAt?: string | null; adjustment?: string; error?: string;
+}
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
 
 export interface BotData {
@@ -79,6 +87,7 @@ export interface BotData {
   insight: UseQueryResult<Insight>;
   lastScan: UseQueryResult<LastScan>;
   orders: UseQueryResult<OpenOrder[]>;
+  benchmark: UseQueryResult<Benchmark>;
 }
 
 export function useBotData(): BotData {
@@ -93,7 +102,8 @@ export function useBotData(): BotData {
   const insight = useQuery<Insight>({ queryKey: ["/api/bot/insight"], queryFn: () => getJson("/api/bot/insight", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 5 * 60_000, staleTime: 2 * 60_000 });
   const lastScan = useQuery<LastScan>({ queryKey: ["/api/bot/last-scan"], queryFn: () => getJson("/api/bot/last-scan"), refetchInterval: 60_000 });
   const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson("/api/orders/open"), refetchInterval: 30_000 });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders };
+  const benchmark = useQuery<Benchmark>({ queryKey: ["/api/bot/benchmark"], queryFn: () => getJson("/api/bot/benchmark"), refetchInterval: 10 * 60_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {
