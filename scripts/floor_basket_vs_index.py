@@ -197,8 +197,12 @@ def _std(x: Sequence[float]) -> float:
 
 
 def sharpe_annual(r: Sequence[float]) -> float:
+    """Annualized Sharpe (rf 0); NaN for a (numerically) zero-variance series —
+    ten identical floats can leave a 1e-18 sample deviation, not an edge."""
     s = _std(r)
-    return (_mean(r) / s) * math.sqrt(TRADING_DAYS) if s and s > 0 else float("nan")
+    if not (s == s) or s < 1e-12:
+        return float("nan")
+    return (_mean(r) / s) * math.sqrt(TRADING_DAYS)
 
 
 def cagr(equity: Sequence[float]) -> float:
