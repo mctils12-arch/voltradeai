@@ -31,23 +31,37 @@ export function chainEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ALPACA_KEY && env.ALPACA_SECRET);
 }
 
-/** Underlyings for today's snapshot: CSP-universe cache tuples
- *  [symbol, price, volume, dollarVol] (spot rides along free) + any open
- *  position underlyings (spot unknown → band check skipped for them). */
+/** The index chains every day, ahead of everything else ([PIPELINE]
+ *  2026-10-20): 76 archived days held NO SPY / QQQ / IWM rows because the
+ *  CSP cache appends its anchors AFTER the ranked candidates, beyond the cap
+ *  — research test 2's index control (the variance risk premium of the
+ *  index vs single names) was unmeasurable. Three of 120 slots. */
+export const CHAIN_ALWAYS: readonly string[] = ["SPY", "QQQ", "IWM"];
+
+/** Underlyings for today's snapshot: the pinned index names, then any open
+ *  position underlyings (spot unknown → band check skipped for them), then
+ *  the CSP-universe cache tuples [symbol, price, volume, dollarVol] (spot
+ *  rides along free). */
 export function underlyingsFor(
   cacheJson: any, positionSymbols: string[] = [], cap = CHAIN_MAX_UNDERLYINGS,
 ): Array<{ sym: string; spot: number | null }> {
   const out = new Map<string, number | null>();
+  for (const s of CHAIN_ALWAYS) out.set(s, null);
   for (const s of positionSymbols) {
     const sym = String(s || "").toUpperCase();
     if (sym && sym.length <= 5) out.set(sym, null);
   }
   const cands = Array.isArray(cacheJson?.candidates) ? cacheJson.candidates : [];
   for (const c of cands) {
-    if (out.size >= cap) break;
     const sym = String(c?.[0] || "").toUpperCase();
+    if (!sym) continue;
     const spot = Number(c?.[1]);
-    if (sym && !out.has(sym)) out.set(sym, Number.isFinite(spot) && spot > 0 ? spot : null);
+    const known = Number.isFinite(spot) && spot > 0 ? spot : null;
+    // a pinned or position name later in the cache still takes the cache's spot
+    // (the strike band needs it); the cap only limits NEW names, so the scan
+    // never stops early
+    if (out.has(sym)) { if (out.get(sym) === null && known !== null) out.set(sym, known); continue; }
+    if (out.size < cap) out.set(sym, known);
   }
   return [...out.entries()].slice(0, cap).map(([sym, spot]) => ({ sym, spot }));
 }
