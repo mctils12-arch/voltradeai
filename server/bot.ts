@@ -16,6 +16,7 @@ import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
 import { formatSizeBlocks } from "./sizeBlocks";
+import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
@@ -4562,6 +4563,10 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       for (const line of formatSizeBlocks(result.sizing_blocks)) {
         audit("SIZE-BLOCK", line);
       }
+      // REPAIR 2026-10-20: the options manager's closes/rolls were returned
+      // here and never read — every options exit was invisible
+      // (server/optionsMgmtAudit.ts).
+      for (const row of formatOptionsMgmt(result.options_management)) audit(row.type, row.message);
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,
