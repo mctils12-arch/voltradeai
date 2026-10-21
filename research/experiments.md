@@ -109295,3 +109295,12 @@ CODE: cot_gate2_oos.py (oos_power: OOS weeks, extreme weeks, independent episode
 NEXT: re-run when USO enters extreme_high (the script reports episodes); CORN is worth one pre-registered look only if it accumulates >=5 episodes — do not promote on its present single episode.
 Environment note: a fresh session needs requests/numpy/pandas/scipy/yfinance/pytest installed into the `python3` (3.11) interpreter (pip targets 3.13 by default) before any root-level gate script runs.
 STARVED: no.
+
+## 2026-10-21 (scheduled routine, ~11:20Z) [RULE-REVIEW] — measurement: the options sleeve's hold-time buckets are also split per CLOSE month (`optionsByHoldMonth`), so the months after the v1.0.1117 DTE-conflict fix read on their own (v1.0.1134)
+
+TERRITORY: T-BOT (server/sleeveLedger.ts measurement, own PR). HEALTH at start: /api/health ok (serving.failing empty, liveness not dark, equity peak 99,918, drawdown −0.5%); thrash 1/10 REPAIR.
+PRIOR: purely additive. The all-time buckets (85% of closes <1d) mix pre- and post-fix months; I expect the post-v1.0.1117 months (Oct) to show a much smaller <1h share than August. ~70%.
+CHANGE: same realized events and bucket definitions, grouped by close month; no existing field changed. Before vs after on identical inputs: optionsByHold is byte-identical; test asserts the per-month buckets sum to the all-time buckets, so the ruler cannot drift. Bias direction: none (a regrouping).
+TEST: sleeveLedger.test.ts extended (month sum == all-time sum; Oct XOM same-day lands in <1d; every month carries every bucket). 7/7 pass.
+NEXT: read the live "sleeves" probe once deployed and record the Aug/Sep/Oct <1h shares; if Oct still carries instant closes, that is a [REPAIR] with the exit-reason split; otherwise proceed to research test 2 gate 3 (manager-rule simulation on archived chains).
+STARVED: no.

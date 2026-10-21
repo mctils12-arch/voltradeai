@@ -100,6 +100,8 @@ export interface SleeveLedger {
   optionsUnderlyings: number;
   /** options realized P&L by hold time of the closed lot, every bucket present */
   optionsByHold: HoldRow[];
+  /** the same split per CLOSE month (ISO yyyy-mm, oldest first) so the months after a fix read on their own */
+  optionsByHoldMonth: Array<{ month: string; rows: HoldRow[] }>;
 }
 export const SLEEVE_UNDERLYING_CAP = 40;
 
@@ -193,13 +195,25 @@ export function sleeveLedger(fills: readonly FillRow[], positions: readonly Posi
     h.realized += e.pnl;
   }
   const optionsByHold = HOLD_BUCKETS.map((b) => ({ ...hold.get(b)!, realized: r2(hold.get(b)!.realized) }));
+  const holdMonth = new Map<string, Map<HoldBucket, HoldRow>>();
+  for (const e of events) {
+    if (sleeveOf(e.symbol, floorTickers) !== "options") continue;
+    const mo = new Date(e.t).toISOString().slice(0, 7);
+    if (!holdMonth.has(mo)) holdMonth.set(mo, new Map(HOLD_BUCKETS.map((b) => [b, { bucket: b, events: 0, realized: 0 }])));
+    const h = holdMonth.get(mo)!.get(holdBucket(e.openedAt, e.t))!;
+    h.events++;
+    h.realized += e.pnl;
+  }
+  const optionsByHoldMonth = [...holdMonth.keys()].sort().map((month) => ({
+    month, rows: HOLD_BUCKETS.map((b) => ({ ...holdMonth.get(month)!.get(b)!, realized: r2(holdMonth.get(month)!.get(b)!.realized) })),
+  }));
   return {
     firstFill: all.length ? new Date(all[0].t).toISOString() : null,
     lastFill: all.length ? new Date(all[all.length - 1].t).toISOString() : null,
     rows: out, realizedTotal: r2(out.reduce((s, r) => s + r.realized, 0)), unrealizedTotal,
     windowStart: windowStartMs === undefined ? null : new Date(windowStartMs).toISOString(),
     preWindowFills: all.length - sorted.length,
-    optionsByUnderlying, optionsUnderlyings: und.size, optionsByHold,
+    optionsByUnderlying, optionsUnderlyings: und.size, optionsByHold, optionsByHoldMonth,
   };
 }
 
