@@ -17,8 +17,10 @@ export function tierFor(width: number): Tier {
 /** grid-template-* per tier. Areas: kpi / left (stages + issues) / centre
  *  (state element + model) / right (chart + book + orders) / timeline. */
 export const TEMPLATES: Record<Tier, { columns: string; rows: string; areas: string[]; scrolls: boolean }> = {
-  xl: { columns: "340px minmax(0, 1fr) 380px", rows: "76px minmax(0, 1fr) 116px", areas: ["kpi kpi kpi", "left centre right", "timeline timeline timeline"], scrolls: false },
-  l:  { columns: "300px minmax(0, 1fr) 316px", rows: "72px minmax(0, 1fr) 108px", areas: ["kpi kpi kpi", "left centre right", "timeline timeline timeline"], scrolls: false },
+  // the right column carries the chart (2026-10-21: our own engine, the
+  // column's largest share) — wider than the v2 brief's 380 / 316
+  xl: { columns: "340px minmax(0, 1fr) 480px", rows: "76px minmax(0, 1fr) 116px", areas: ["kpi kpi kpi", "left centre right", "timeline timeline timeline"], scrolls: false },
+  l:  { columns: "300px minmax(0, 1fr) 400px", rows: "72px minmax(0, 1fr) 108px", areas: ["kpi kpi kpi", "left centre right", "timeline timeline timeline"], scrolls: false },
   m:  { columns: "minmax(0, 1fr) 300px", rows: "auto minmax(420px, 1fr) auto auto", areas: ["kpi kpi", "centre right", "left left", "timeline timeline"], scrolls: true },
   s:  { columns: "minmax(0, 1fr)", rows: "auto", areas: ["kpi", "centre", "left", "right", "timeline"], scrolls: true },
 };

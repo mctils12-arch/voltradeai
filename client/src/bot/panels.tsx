@@ -1,7 +1,10 @@
 // Bot page v2 — the panels. Every number comes from a real field; absence is
 // drawn as an outlined dot + "not recorded", never as a zero.
-import { useState, type ReactNode } from "react";
-import TradeCharts from "@/components/TradeChart";
+import { useMemo, useState, type ReactNode } from "react";
+import { sanitizePosition } from "@/lib/tradeChartGuards";
+import { BotChart } from "./chart/BotChart";
+import { DEFAULT_TIMEFRAME, timeframeSpec, type Timeframe } from "./chart/scales";
+import { underlyingOf } from "./chart/levels";
 import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
@@ -369,9 +372,41 @@ export function ModelBody({ insight, audit, compact }: { insight: Insight | unde
 }
 
 // ── chart / book / orders ───────────────────────────────────────────────────
-export function ChartBody({ positions }: { positions: BotPosition[] | undefined }) {
-  if (!positions?.length) return <div className="vt-bot-empty"><NotRecorded what="no positions to chart" /></div>;
-  return <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}><TradeCharts positions={positions} /></div>;
+// ── chart ───────────────────────────────────────────────────────────────────
+const TF_KEY = "vt-bot-chart-tf";
+function readTf(): Timeframe {
+  try { return timeframeSpec(sessionStorage.getItem(TF_KEY)).tf; } catch { return DEFAULT_TIMEFRAME; }
+}
+export interface ChartSubjectRow { key: string; label: string; symbol: string | null; position: BotPosition; pnlPct: number | null }
+/** One chart subject per open position; an option leg charts its underlying. */
+export function chartSubjects(positions: BotPosition[] | undefined): ChartSubjectRow[] {
+  return (positions ?? []).map((p) => {
+    const isOption = !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
+    const position = { ...p, isOption };
+    // chips stay short ("CRWV 55P"); the expiry lives in the chart legend and the chip's title
+    return { key: p.ticker, label: isOption ? fmtOcc(p.ticker).split(" ").slice(0, 2).join(" ") : p.ticker, symbol: underlyingOf(position), position, pnlPct: num(p.pnlPct) };
+  });
+}
+export function ChartBody({ positions, focus, onFocus, paused }: { positions: BotPosition[] | undefined; focus: string | null; onFocus: (key: string) => void; paused?: boolean }) {
+  const [tf, setTfState] = useState<Timeframe>(readTf);
+  const setTf = (t: Timeframe) => {
+    setTfState(t);
+    try { sessionStorage.setItem(TF_KEY, t); } catch (err) { console.warn("[bot chart] timeframe not persisted (storage unavailable):", err); }
+  };
+  const subjects = useMemo(() => chartSubjects(positions), [positions]);
+  const sel = subjects.find((s) => s.key === focus) ?? subjects[0] ?? null;
+  if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
+  if (!subjects.length) return <div className="vt-bot-empty"><St word="flat · nothing to chart" out /></div>;
+  const strip = (
+    <div className="vt-chart-strip" aria-label="Chart symbol">
+      {subjects.map((s) => (
+        <button key={s.key} type="button" className="vt-chart-chip" aria-pressed={sel?.key === s.key} onClick={() => onFocus(s.key)} title={s.position.isOption ? `${fmtOcc(s.key)} · charts ${s.symbol ?? "?"}` : s.key}>
+          {s.label}<span className={`pl ${s.pnlPct === null ? "vt-bot-t3" : s.pnlPct < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{s.pnlPct === null ? "·" : fmtPct(s.pnlPct, 1)}</span>
+        </button>
+      ))}
+    </div>
+  );
+  return <BotChart symbol={sel?.symbol ?? null} subject={sel ? sanitizePosition(sel.position) : null} tf={tf} onTf={setTf} top={strip} paused={paused} />;
 }
 const SLEEVE_LABEL: Record<string, string> = { options: "options", floor: "ETF floor", stocks: "stocks" };
 const ACTIVITY_LABEL: Array<[keyof NonNullable<Sleeves["nonTrade"]>["groups"], string]> = [["dividends", "div"], ["interest", "int"], ["fees", "fees"], ["journals", "journals"], ["optionEvents", "option events"], ["corporate", "corp"], ["transfers", "transfers"], ["other", "other"]];
@@ -423,7 +458,7 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
   );
 }
 
-export function BookBody({ positions, spot, sleeves }: { positions: BotPosition[] | undefined; spot: string | null; sleeves?: Sleeves | undefined }) {
+export function BookBody({ positions, focus, onSelect, sleeves }: { positions: BotPosition[] | undefined; focus: string | null; onSelect: (ticker: string) => void; sleeves?: Sleeves | undefined }) {
   if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
   if (!positions.length) return <div className="vt-bot-list"><SleeveSummary sleeves={sleeves} /><div className="vt-bot-empty"><St word="flat · no positions" /></div></div>;
   const isOpt = (p: BotPosition) => !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
@@ -435,7 +470,7 @@ export function BookBody({ positions, spot, sleeves }: { positions: BotPosition[
         <div key={name} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>{name} · {g.length}</div>
           {g.map((p) => { const pl = num(p.pnlPct); return (
-            <div key={p.ticker} className="vt-bot-trow" style={spot && p.ticker.startsWith(spot) ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : undefined}>
+            <div key={p.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === p.ticker} title={`${p.ticker} · chart it`} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
               <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span><span className="q">{num(p.qty) ?? "·"}</span><span className="px">{num(p.currentPrice)?.toFixed(2) ?? "·"}</span><span className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}</span>
             </div>); })}
         </div>
