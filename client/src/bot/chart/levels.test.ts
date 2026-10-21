@@ -28,6 +28,12 @@ test("a phase-1 long draws entry, stop, both thirds, the pending target and the 
   assert.ok(o.zones.some((z) => z.label === "to the first ⅓"));
   assert.ok(o.legend.some(([k, v]) => k === "phase" && v === "1 of 4"));
   assert.ok(o.legend.some(([k, v]) => k === "scale-outs" && v.startsWith("0 of 2 · next at +1.0R")));
+  // every drawn level is named in the legend (each key carries its "?")
+  assert.ok(o.legend.some(([k, v]) => k === "entry" && v === "100.00"));
+  assert.ok(o.legend.some(([k, v]) => k === "stop" && v === "95.00 · 5.00% · stop · from entry"));
+  assert.ok(o.legend.some(([k, v]) => k === "1R" && v === "5.00% · ATR 2.50%"));
+  assert.ok(o.legend.some(([k, v]) => k === "target" && v === "107.50 · +7.5% · after ⅔ out"));
+  assert.ok(o.legend.some(([k, v]) => k === "floor" && v === "80.00 · −20%"));
   assert.deepEqual(o.notes, []);
 });
 
@@ -48,6 +54,7 @@ test("after the first third the done level is muted, the locked-in zone replaces
   assert.ok(!o.levels.some((l) => l.label.startsWith("target")));
   assert.ok(o.notes.some((n) => n.startsWith("no fixed target in phase 3+")));
   assert.ok(o.legend.some(([k, v]) => k === "scale-outs" && v.includes("breakeven stop on")));
+  assert.ok(o.legend.some(([k, v]) => k === "stop" && v.includes(" · breakeven")));
 });
 
 test("not recorded: only the entry line and the honest note; a one-share lot says it cannot scale out", () => {
@@ -88,6 +95,7 @@ test("the entry marker is anchored at the fill time from heldMinutes; a candidat
   const c = candidateOverlay({ ticker: "NVDA", rank: 2, score: 73.4, price: 184.2, action: "BUY", reasons: ["Momentum 1m +9.8%"], sector: "Semiconductors", admitted: true, changePct: 2.1 }, T);
   assert.deepEqual(c.levels.map((l) => [l.label, l.price, l.muted]), [["price at scan", 184.2, true]]);
   assert.ok(c.legend.some(([k, v]) => k === "score" && v === "73.4 · admitted"));
+  assert.ok(c.legend.some(([k, v]) => k === "price" && v === "184.20"));
   assert.ok(c.notes[0].startsWith("a candidate has no stop or target yet"));
   assert.deepEqual(c.zones, []);
 });

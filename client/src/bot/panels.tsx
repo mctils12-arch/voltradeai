@@ -7,6 +7,8 @@ import { DEFAULT_TIMEFRAME, timeframeSpec, type Timeframe } from "./chart/scales
 import { underlyingOf, overlayFor, candidateOverlay, EMPTY_OVERLAY, type Overlay } from "./chart/levels";
 import type { Theme } from "./chart/draw";
 import { candidateKey, FACTOR_KEYS, FACTOR_SHORT, type WatchModel, type WatchCandidate } from "./watch";
+import { Help } from "./help";
+import type { GlossaryKey } from "./glossary";
 import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
@@ -36,13 +38,13 @@ export interface Chrome {
   id: PanelId; held: boolean; pinned: boolean; heldSince: number | null; ticksSinceHold: number; nowMs: number;
   onHold: (id: PanelId) => void; onPin: (id: PanelId) => void; onFloat: (id: PanelId) => void;
 }
-export function Panel({ chrome, title, status, meta, ageMs, children, scroll, style }: {
-  chrome: Chrome; title: string; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
+export function Panel({ chrome, title, help, status, meta, ageMs, children, scroll, style }: {
+  chrome: Chrome; title: string; help?: GlossaryKey; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
 }) {
   return (
     <section className="vt-bot-panel" data-panel={chrome.id} data-held={chrome.held ? "true" : undefined} data-pinned={chrome.pinned ? "true" : undefined} style={style}>
       <div className="vt-bot-ph">
-        <span className="vt-bot-ti">{title}</span>
+        <span className="vt-bot-ti">{title}{help ? <Help k={help} /> : null}</span>
         {status}
         {meta ? <span className="vt-bot-meta">{meta}</span> : <span className="vt-bot-sp" />}
         <span className="vt-bot-age">{fmtAge(ageMs)}</span>
@@ -97,22 +99,22 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
     <div className="vt-bot-kpi vt-bot-area-kpi">
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Expectancy / trade · net</div>
+          <div className="vt-bot-eb">Expectancy / trade · net<Help k="expectancy" /></div>
           {edge ? <div className={`vt-bot-hero ${edge.expectancy < 0 ? "vt-bot-r" : edge.expectancy > 0 ? "vt-bot-g" : ""}`}>{fmtPct(edge.expectancy)}</div> : <div className="vt-bot-hero vt-bot-t3">—</div>}
         </div>
         <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>n {n ?? "?"}<br />{n !== null && n < 30 ? "wide band" : "trigger-price pnl"}</div>
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Win rate · breakeven</div>
+          <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Win rate · breakeven<Help k="winRate" /></div>
           {edge ? <div className="vt-bot-kpiv"><span className={edge.winRate < edge.breakevenWr ? "vt-bot-r" : "vt-bot-g"}>{(edge.winRate * 100).toFixed(1)}%</span> <span className="vt-bot-t3">/ {(edge.breakevenWr * 100).toFixed(1)}%</span></div> : <div className="vt-bot-kpiv vt-bot-t3">—</div>}
           <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{edge?.payoff ? `payoff ${edge.payoff.toFixed(2)}` : "payoff —"}{num(perf?.profitFactor) !== null ? ` · pf ${Number(perf?.profitFactor).toFixed(2)}` : ""}</div>
         </div>
-        {edge ? <div style={{ flex: "1 1 auto", minWidth: 50 }}><div className="vt-bot-bar"><i style={{ width: `${Math.min(100, edge.winRate * 100)}%`, background: "var(--accent-red)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, edge.breakevenWr * 100)}%` }} /></div></div> : null}
+        {edge ? <div className="vt-bot-wrbar"><div className="vt-bot-bar"><i style={{ width: `${Math.min(100, edge.winRate * 100)}%`, background: "var(--accent-red)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, edge.breakevenWr * 100)}%` }} /></div></div> : null}
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">vs holding SPY</div>
+          <div className="vt-bot-eb">vs holding SPY<Help k="vsSpy" /></div>
           {bench?.since ? (
             <>
               <div className="vt-bot-kpiv" title={`account return minus SPY total return (dividend-adjusted closes through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
@@ -133,7 +135,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Equity · from peak</div>
+          <div className="vt-bot-eb">Equity · from peak<Help k="equityPeak" /></div>
           <div className="vt-bot-kpiv">{fmtMoney(equity)} {dd !== null ? <span className={`${dd < 0 ? "vt-bot-r" : "vt-bot-g"}`} style={{ fontSize: 14 }}>{fmtPct(dd)}</span> : null}</div>
           <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>peak {fmtMoney(peak)} · kill {maxDd !== null ? `${MINUS}${maxDd}%` : "—"}{toLine !== null ? ` · ${toLine.toFixed(2)} pt to line` : ""}</div>
         </div>
@@ -146,7 +148,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Session</div>
+          <div className="vt-bot-eb">Session<Help k="session" /></div>
           <div className="vt-bot-m vt-bot-t1" style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.2 }}>
             {open === null ? "—" : open ? `RTH · closes in ${fmtCountdown(nextMs - now)}` : `closed · opens in ${fmtCountdown(nextMs - now)}`}
           </div>
@@ -155,13 +157,13 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Now</div>
+          <div className="vt-bot-eb">Now<Help k="now" /></div>
           <div className="vt-bot-row" style={{ gap: 8 }}>
             <span className={`vt-bot-st ${stateCls}`} style={{ fontSize: 15, fontWeight: 600 }}><span className="vt-bot-dot" />{stateWord}</span>
             {hold ? <span className="vt-bot-st vt-bot-t1"><span className="vt-bot-dot" />layout held · bot live</span> : null}
           </div>
         </div>
-        <button type="button" className="vt-bot-wbtn" style={{ marginLeft: "auto" }} aria-pressed={hold} onClick={onHold}>hold</button>
+        <span className="vt-bot-row" style={{ marginLeft: "auto", gap: 2 }}><Help k="hold" /><button type="button" className="vt-bot-wbtn" aria-pressed={hold} onClick={onHold}>hold</button></span>
       </div>
     </div>
   );
@@ -243,8 +245,8 @@ function asTrade(x: unknown): TradeLike | null {
   const o = x as Record<string, unknown>;
   return { ticker: typeof o.ticker === "string" ? o.ticker : undefined, score: num(o.score) ?? undefined, side: typeof o.side === "string" ? o.side : undefined, action_label: typeof o.action_label === "string" ? o.action_label : undefined, reasons: Array.isArray(o.reasons) ? o.reasons.map(String) : undefined, rules_score: num(o.rules_score), ml_score_raw: num(o.ml_score_raw), price: num(o.price) ?? undefined, trade_type: typeof o.trade_type === "string" ? o.trade_type : undefined, instrument_strategy: typeof o.instrument_strategy === "string" ? o.instrument_strategy : undefined };
 }
-function Node({ title, cls, children }: { title: string; cls: string; children: ReactNode }) {
-  return <div className="vt-bot-node"><div className="vt-bot-row" style={{ gap: 6 }}><span className={`vt-bot-dot ${cls}`} /><span className="vt-bot-eb">{title}</span></div>{children}</div>;
+function Node({ title, cls, help, children }: { title: string; cls: string; help?: GlossaryKey; children: ReactNode }) {
+  return <div className="vt-bot-node"><div className="vt-bot-row" style={{ gap: 6 }}><span className={`vt-bot-dot ${cls}`} /><span className="vt-bot-eb">{title}{help ? <Help k={help} /> : null}</span></div>{children}</div>;
 }
 export function DecisionBody({ lastScan, audit, nowMs }: { lastScan: LastScan | undefined; audit: AuditRow[]; nowMs: number }) {
   const trades = (lastScan?.new_trades ?? []).map(asTrade).filter((x): x is TradeLike => !!x && !!x.ticker);
@@ -266,7 +268,7 @@ export function DecisionBody({ lastScan, audit, nowMs }: { lastScan: LastScan | 
         <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 10.5 }}>only gates that write a row are shown · trace incomplete</div>
       </Node>
       <div className="vt-bot-arrow">{I.arrow}</div>
-      <Node title="conviction" cls="vt-bot-t3">
+      <Node title="conviction" cls="vt-bot-t3" help="conviction">
         <div className="vt-bot-row" style={{ gap: 14 }}>
           <div><div className="vt-bot-eb" style={{ fontSize: 10 }}>rules</div><div className="vt-bot-kpiv">{rules ?? "—"}</div></div>
           <div><div className="vt-bot-eb" style={{ fontSize: 10 }}>ml</div><div className={`vt-bot-kpiv ${ml !== null ? "vt-bot-p" : "vt-bot-t3"}`}>{ml ?? "—"}</div></div>
@@ -339,34 +341,34 @@ export function ModelBody({ insight, audit, compact }: { insight: Insight | unde
       <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0 }}>
         <div className="vt-bot-row"><St word={typeWord} cls={typeWord.startsWith("fallback") ? "vt-bot-o" : typeWord === "not recorded" ? "vt-bot-t3" : "vt-bot-t1"} out={typeWord === "not recorded"} /><span className="vt-bot-sp" /><span className="vt-bot-st vt-bot-p"><span className="vt-bot-dot" />ml values</span></div>
         <div className="vt-bot-kv">
-          <span className="k">age · fallback at</span><span className="v">{age != null ? `${age.toFixed(1)} h` : "—"} · {fb ?? "—"} h</span>
-          <span className="k">regime route</span><span className="v">{Object.keys(r?.regime_used ?? {}).length ? Object.entries(r!.regime_used).map(([k, v]) => `${k} ${v}`).join(" · ") : "not recorded"}</span>
-          <span className="k">vxx ratio</span><span className={`v ${vxxPinned ? "vt-bot-r" : ""}`}>{r?.vxx_ratio?.last ?? "—"}{vxxPinned ? " · pinned" : r?.vxx_ratio?.min != null ? ` · ${r.vxx_ratio.min}–${r.vxx_ratio.max}` : ""}</span>
-          <span className="k">blend r / ml</span><span className="v">{bl?.rule_weight != null ? `${bl.rule_weight.toFixed(2)} / ${bl.ml_weight?.toFixed(2)}` : "—"}</span>
-          <span className="k">gated · blended</span><span className="v">{r ? `${r.gated} · ${r.blended} of ${r.traced}` : "—"}</span>
+          <span className="k">age · fallback at<Help k="modelAge" /></span><span className="v">{age != null ? `${age.toFixed(1)} h` : "—"} · {fb ?? "—"} h</span>
+          <span className="k">regime route<Help k="regimeRoute" /></span><span className="v">{Object.keys(r?.regime_used ?? {}).length ? Object.entries(r!.regime_used).map(([k, v]) => `${k} ${v}`).join(" · ") : "not recorded"}</span>
+          <span className="k">vxx ratio<Help k="vxxRatio" /></span><span className={`v ${vxxPinned ? "vt-bot-r" : ""}`}>{r?.vxx_ratio?.last ?? "—"}{vxxPinned ? " · pinned" : r?.vxx_ratio?.min != null ? ` · ${r.vxx_ratio.min}–${r.vxx_ratio.max}` : ""}</span>
+          <span className="k">blend r / ml<Help k="blend" /></span><span className="v">{bl?.rule_weight != null ? `${bl.rule_weight.toFixed(2)} / ${bl.ml_weight?.toFixed(2)}` : "—"}</span>
+          <span className="k">gated · blended<Help k="gated" /></span><span className="v">{r ? `${r.gated} · ${r.blended} of ${r.traced}` : "—"}</span>
           <span className="k">errors</span><span className={`v ${r?.errors ? "vt-bot-r" : ""}`}>{r ? r.errors : "—"}</span>
-          <span className="k">calibrator</span><span className="v">{m?.calibrator_newer_than_model === null || m?.calibrator_newer_than_model === undefined ? "unknown" : m.calibrator_newer_than_model ? "newer than model" : "paired"}</span>
+          <span className="k">calibrator<Help k="calibrator" /></span><span className="v">{m?.calibrator_newer_than_model === null || m?.calibrator_newer_than_model === undefined ? "unknown" : m.calibrator_newer_than_model ? "newer than model" : "paired"}</span>
         </div>
         {age != null && fb ? <div className="vt-bot-row" style={{ gap: 8 }}><span className="vt-bot-t3 vt-bot-m" style={{ fontSize: 10.5, width: 28 }}>age</span><div className="vt-bot-bar" style={{ height: 5 }}><i style={{ width: `${Math.min(100, (age / fb) * 100)}%`, background: "var(--text-secondary)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, ((fb - 4) / fb) * 100)}%`, background: "var(--accent-orange)", width: 1 }} /></div><span className="vt-bot-m vt-bot-t3" style={{ fontSize: 10.5 }}>{fb - 4} · {fb} h</span></div> : null}
         <div className="vt-bot-hr" />
-        <div className="vt-bot-eb">Retrain checks</div>
+        <div className="vt-bot-eb">Retrain checks<Help k="retrainChecks" /></div>
         {tier3.length ? tier3.map((x, k) => <div key={k} className="vt-bot-ev"><span className="ts">{fmtClockET(x.time)}</span><span className={`tx ${x.type === "TIER3-ML-ERROR" ? "vt-bot-r" : ""}`}>{x.message.replace(/^ML (model|retrain)\s*/i, "").slice(0, 70)}</span></div>) : <NotRecorded what="no Tier 3 row in the log window" />}
-        {r?.win_probability?.n ? <><div className="vt-bot-hr" /><div className="vt-bot-eb">Win probability · p10 / p50 / p90</div><div className="vt-bot-m vt-bot-p" style={{ fontSize: 12 }}>{r.win_probability.p10} / {r.win_probability.p50} / {r.win_probability.p90} <span className="vt-bot-t3">n {r.win_probability.n}</span></div></> : null}
+        {r?.win_probability?.n ? <><div className="vt-bot-hr" /><div className="vt-bot-eb">Win probability · p10 / p50 / p90<Help k="winProbability" /></div><div className="vt-bot-m vt-bot-p" style={{ fontSize: 12 }}>{r.win_probability.p10} / {r.win_probability.p50} / {r.win_probability.p90} <span className="vt-bot-t3">n {r.win_probability.n}</span></div></> : null}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, minHeight: 0 }}>
-        <div className="vt-bot-row"><span className="vt-bot-eb">What it saw · last {r?.window ?? 0} candidates</span><span className="vt-bot-sp" /><span className="vt-bot-m" style={{ fontSize: 10.5 }}>{r ? <><span className="vt-bot-r">{r.constant_features.length} constant</span> · <span className="vt-bot-t2">{r.feature_count - r.constant_features.length} move</span></> : "—"}</span></div>
+        <div className="vt-bot-row"><span className="vt-bot-eb">What it saw · last {r?.window ?? 0} candidates<Help k="whatItSaw" /></span><span className="vt-bot-sp" /><span className="vt-bot-m" style={{ fontSize: 10.5 }}>{r ? <><span className="vt-bot-r">{r.constant_features.length} constant</span> · <span className="vt-bot-t2">{r.feature_count - r.constant_features.length} move</span></> : "—"}</span></div>
         {feats.length ? <div className="vt-bot-feat" style={{ overflow: "hidden" }}>{feats.map((f) => <div key={f.name} className="f" title={`mode ${f.mode} · ${(f.mode_fraction * 100).toFixed(0)}% · variance ${f.variance}`}><span className={`nm ${f.constant ? "vt-bot-r" : "vt-bot-t1"}`}>{f.name}</span><div className="vt-bot-bar" style={{ height: 4 }}><i style={{ width: `${Math.max(2, Math.min(100, f.constant ? 2 : 100 - f.mode_fraction * 100))}%`, background: f.constant ? "var(--accent-red)" : "var(--text-secondary)" }} /></div><span className="vv">{f.constant ? "constant" : f.last}</span></div>)}</div> : <NotRecorded what="no feature vectors in the window" />}
         <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 10.5 }}>bar = share of candidates where the value moved · constant = modal value on ≥ 98 %</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, minHeight: 0 }}>
-        <div className="vt-bot-row"><span className="vt-bot-eb">Score → forward win rate</span><span className="vt-bot-sp" /><span className="vt-bot-m vt-bot-t3" style={{ fontSize: 10.5 }}>+5d · +20d{b?.labeling ? ` · label +${b.labeling.win_pct} / ${b.labeling.stop_pct}` : ""}</span></div>
+        <div className="vt-bot-row"><span className="vt-bot-eb">Score → forward win rate<Help k="scoreQuintile" /></span><span className="vt-bot-sp" /><span className="vt-bot-m vt-bot-t3" style={{ fontSize: 10.5 }}>+5d · +20d{b?.labeling ? ` · label +${b.labeling.win_pct} / ${b.labeling.stop_pct}` : ""}</span></div>
         {Object.keys(q).length ? (
           <div style={{ position: "relative" }}>
             {be !== null ? <><div style={{ position: "absolute", left: 0, right: 0, top: `${(1 - be / 100) * H}px`, borderTop: "1px dashed var(--text-secondary)", opacity: .6 }} /><span className="vt-bot-m vt-bot-t3" style={{ position: "absolute", right: 0, top: `${(1 - be / 100) * H - 13}px`, fontSize: 9.5 }}>breakeven {be.toFixed(1)}%</span></> : null}
             <div className="vt-bot-quint">{["Q1", "Q2", "Q3", "Q4", "Q5"].map((k, idx) => { const a = q[k]?.["+5d"]?.win_rate, c = q[k]?.["+20d"]?.win_rate; return <div key={k}><div className="bars"><i title={`+5d ${a ?? "—"}% n ${q[k]?.["+5d"]?.n ?? 0}`} style={{ height: `${((a ?? 0) / 100) * H}px` }} /><i data-h="2" title={`+20d ${c ?? "—"}% n ${q[k]?.["+20d"]?.n ?? 0}`} style={{ height: `${((c ?? 0) / 100) * H}px` }} /></div><span className="vt-bot-m vt-bot-t1" style={{ fontSize: 10.5 }}>{k}</span><span className="vt-bot-m vt-bot-t3" style={{ fontSize: 9.5 }}>{idx === 0 ? `≤${edges[0]?.toFixed(0) ?? ""}` : idx === 4 ? `≥${edges[3]?.toFixed(0) ?? ""}` : `${edges[idx - 1]?.toFixed(0) ?? ""}–${edges[idx]?.toFixed(0) ?? ""}`}</span></div>; })}</div>
           </div>
         ) : <NotRecorded what={b?.error ? `bands unavailable · ${b.error}` : "band report not loaded"} />}
-        {b?.decision ? <><div className="vt-bot-hr" /><div className="vt-bot-eb" style={{ fontSize: 10 }}>By decision · +5d</div>{Object.entries(b.decision).slice(0, 5).map(([k, v]) => <Hbar key={k} label={k.replace(/_/g, " · ")} w={v["+5d"]?.win_rate} n={v["+5d"]?.n} cls={k === "taken" ? "vt-bot-p" : "vt-bot-t3"} />)}</> : null}
+        {b?.decision ? <><div className="vt-bot-hr" /><div className="vt-bot-eb" style={{ fontSize: 10 }}>By decision · +5d<Help k="byDecision" /></div>{Object.entries(b.decision).slice(0, 5).map(([k, v]) => <Hbar key={k} label={k.replace(/_/g, " · ")} w={v["+5d"]?.win_rate} n={v["+5d"]?.n} cls={k === "taken" ? "vt-bot-p" : "vt-bot-t3"} />)}</> : null}
         {b?.decision_x_band ? <><div className="vt-bot-hr" /><div className="vt-bot-eb" style={{ fontSize: 10 }}>Taken × day move · +5d</div>{Object.entries(b.decision_x_band).filter(([k]) => k.startsWith("taken|")).slice(0, 4).map(([k, v]) => <Hbar key={k} label={k.replace("taken|", "")} w={v["+5d"]?.win_rate} n={v["+5d"]?.n} cls={(v["+5d"]?.win_rate ?? 0) >= (be ?? 50) ? "vt-bot-g" : "vt-bot-r"} lw={120} />)}</> : null}
       </div>
     </div>
@@ -457,18 +459,19 @@ export function WatchBody({ model, focus, onFocus, nowMs }: { model: WatchModel;
         <span>scan {model.scanAt ? `${fmtClockET(model.scanAt)} ET` : "—"}{model.partial ? " · partial" : ""}</span>
         {model.scanned !== null ? <span>{model.scanned.toLocaleString("en-US")} scanned → {model.filtered ?? "?"} → {model.deep ?? "?"} deep</span> : null}
         <span>slots {model.slots ?? "?"} · options {model.optionsSlots ?? "?"}</span>
-        <span title="a scanner trade must clear this score in Node (audit SKIP rows below it)">admission ≥ {model.threshold ?? "?"}</span>
+        <span>admission ≥ {model.threshold ?? "?"}<Help k="admission" /></span>
+        <span>outcome<Help k="outcome" /></span>
       </div>
       {model.candidates.length ? model.candidates.map((c) => <CandidateRow key={c.ticker} c={c} threshold={model.threshold} focus={focus} onFocus={onFocus} />) : <div className="vt-bot-row"><St word="the last scan surfaced no candidates" out /></div>}
       {model.decided.length ? (
         <>
-          <div className="vt-watch-sec">decided · handed to Node</div>
+          <div className="vt-watch-sec">decided · handed to Node<Help k="decided" /></div>
           {model.decided.map((d) => <div key={`d-${d.ticker}`} className="vt-watch-ref"><button type="button" className="tk" aria-pressed={focus === candidateKey(d.ticker)} onClick={() => onFocus(candidateKey(d.ticker))}>{d.ticker}</button><span className="ty vt-bot-t2">{d.action.toLowerCase()}{d.kind ? ` · ${d.kind}` : ""}</span><span className="rs">{d.reasons[0] ?? ""}</span><span className="tm">{d.score === null ? "" : d.score.toFixed(0)}</span></div>)}
         </>
       ) : null}
       {model.refused.length ? (
         <>
-          <div className="vt-watch-sec">refused · why</div>
+          <div className="vt-watch-sec">refused · why<Help k="refused" /></div>
           {model.refused.slice(0, 8).map((r) => <div key={`r-${r.ticker}-${r.type}`} className="vt-watch-ref"><button type="button" className="tk" aria-pressed={focus === candidateKey(r.ticker)} onClick={() => onFocus(candidateKey(r.ticker))}>{r.ticker}</button><span className="ty">{r.type.toLowerCase()}</span><span className="rs" title={r.reason}>{r.reason}</span><span className="tm">{r.time ? fmtAge(nowMs - Date.parse(r.time)) : ""}</span></div>)}
         </>
       ) : null}
@@ -488,7 +491,7 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
   const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? MINUS : ""}$${(Math.abs(v) / 1000).toFixed(1)}k` : fmtCompact(v));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 6 }} title={`realized from Alpaca fills since ${sleeves.since ?? "?"} (average cost; every lot's basis from the account's full fill history${sleeves.preWindowFills ? `, ${sleeves.preWindowFills} earlier fills` : ""}); open = current unrealized${sleeves.truncated ? " · oldest fill history TRUNCATED (basis approximate for the oldest lots)" : ""}`}>
-      <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>P&L by sleeve · realized since {since} · open</div>
+      <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>P&L by sleeve<Help k="sleeve" /> · realized since {since}<Help k="realized" /> · open</div>
       {sleeves.rows.map((r) => (
         <div key={r.sleeve} className="vt-bot-trow">
           <span className="sym">{SLEEVE_LABEL[r.sleeve] ?? r.sleeve}</span><span className="q vt-bot-t3">{r.fills}f</span>
@@ -499,13 +502,13 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
         const worst = sleeves.optionsByUnderlying.filter((u) => u.realized < 0).slice(0, 5);
         return worst.length ? (
           <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title="options realized P&L by underlying, worst first (OCC root); the full list is on /api/bot/sleeves">
-            worst options: {worst.map((u) => `${u.root} ${k(u.realized)}`).join(" · ")}{(sleeves.optionsUnderlyings ?? 0) > worst.length ? ` · of ${sleeves.optionsUnderlyings}` : ""}
+            worst options<Help k="worstOptions" />: {worst.map((u) => `${u.root} ${k(u.realized)}`).join(" · ")}{(sleeves.optionsUnderlyings ?? 0) > worst.length ? ` · of ${sleeves.optionsUnderlyings}` : ""}
           </div>
         ) : null;
       })() : null}
       {sleeves.optionsByHold?.some((h) => h.events > 0) ? (
         <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title="options realized P&L by how long the closed lot was held (close − open of the lot); 'unknown' = the lot predates the fetched fill history">
-          options by hold: {sleeves.optionsByHold.filter((h) => h.events > 0).map((h) => `${h.bucket} ${k(h.realized)} (${h.events})`).join(" · ")}
+          options by hold<Help k="optionsByHold" />: {sleeves.optionsByHold.filter((h) => h.events > 0).map((h) => `${h.bucket} ${k(h.realized)} (${h.events})`).join(" · ")}
         </div>
       ) : null}
       {sleeves.nonTrade ? (() => {
@@ -514,7 +517,7 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
         const r = sleeves.reconciliation;
         return (
           <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title={`cash the fill ledger cannot see, from Alpaca's activity ledger since ${since} (dividends, interest, fees, journals, option expiration / assignment); unexplained = equity change since ${r?.equityFrom ?? "?"} minus realized, open and other cash — what no ledger accounts for${sleeves.nonTrade.nonCashRows ? ` · ${sleeves.nonTrade.nonCashRows} share-only event(s) counted, not valued` : ""}`}>
-            other cash {k(sleeves.nonTrade.total)}{parts.length ? ` · ${parts.join(" · ")}` : ""}{r && r.residual !== null ? ` · unexplained ${k(r.residual)}` : ""}
+            other cash<Help k="otherCash" /> {k(sleeves.nonTrade.total)}{parts.length ? ` · ${parts.join(" · ")}` : ""}{r && r.residual !== null ? ` · unexplained ${k(r.residual)}` : ""}
           </div>
         );
       })() : null}

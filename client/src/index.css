@@ -4574,7 +4574,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-panel { background: var(--bg-card); border-radius: var(--radius-md); min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .vt-bot-panel[data-pinned="true"] { box-shadow: inset 0 0 0 1px var(--border); }
 .vt-bot-ph { display: flex; align-items: center; gap: 8px; padding: 8px 12px 6px; min-height: 32px; flex: 0 0 auto; }
-.vt-bot-ph .vt-bot-ti { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 0 1 auto; min-width: 48px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-bot-ph .vt-bot-ti { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 0 0 auto; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-bot-meta { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 .vt-bot-stack { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .vt-bot-stack > * { flex: 0 0 auto; }
@@ -4744,3 +4744,20 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-watch .tk { min-height: 44px; }
 }
 .vt-bot-page[data-touch="true"] .vt-watch .tk { min-height: 44px; }
+
+/* ── Bot page help "?" (client/src/bot/help.tsx, 2026-10-21): a 1 em glyph
+   beside a term; hover / focus / tap opens one card, portalled into the
+   anchor's own document so it works in windows and pop-outs ───────────── */
+.vt-help { display: inline-flex; align-items: center; justify-content: center; width: 1em; height: 1em; margin-left: .3em; vertical-align: -0.08em; border-radius: 50%; border: 1px solid currentColor; background: none; color: inherit; opacity: .5; font: inherit; font-size: inherit; line-height: 1; padding: 0; cursor: help; flex: 0 0 auto; }
+.vt-help::before { content: "?"; font-size: .72em; font-weight: 600; font-family: var(--font-body); }
+.vt-help:hover, .vt-help:focus-visible, .vt-help[aria-expanded="true"] { opacity: 1; color: var(--accent-bright); border-color: var(--accent); outline: none; }
+.vt-help-card { position: fixed; z-index: 60; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 14px 40px rgba(0, 0, 0, .5); padding: 8px 10px; font-size: 12px; line-height: 1.4; color: var(--text-secondary); pointer-events: auto; }
+.vt-help-card .vt-help-term { font-weight: 600; color: var(--text-primary); margin-bottom: 3px; font-size: 12px; }
+.vt-help-card .vt-help-text { color: var(--text-secondary); }
+@media (max-width: 639px) { .vt-help { width: 1.1em; height: 1.1em; } }
+/* the win-rate tile's breakeven bar yields to its label (which never wraps: a
+   wrapped label overflowed the fixed-height tile once the "?" joined it) */
+.vt-bot-wrbar { flex: 1 1 auto; min-width: 24px; }
+@media (max-width: 639px) { .vt-bot-wrbar { display: none; } }
+.vt-bot-page[data-touch="true"] .vt-help { position: relative; }
+.vt-bot-page[data-touch="true"] .vt-help::after { content: ""; position: absolute; inset: -12px; }
