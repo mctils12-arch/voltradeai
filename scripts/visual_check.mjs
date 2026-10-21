@@ -366,6 +366,10 @@ const PAGES = {
   // timeline draws them.
   bot: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: true }) },
   botidle: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: false }) },
+  // POP-OUT PANE (slice D, 2026-10-21): one panel popped out into its own
+  // browser window — the same app at /app#/bot/pane/<id>, rendered alone
+  // (no shell), the window IS the panel. Same fixtures as `bot`.
+  botpane: { route: "/app#/bot/pane/chart", map: false, fixtures: botFixtures({ latched: true }) },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -2773,6 +2777,51 @@ async function main() {
       // back from the DOM: hold, pin, open-as-window, the window's dock /
       // zoom / close buttons, the ghost slot, Esc, title-bar drag, the
       // zoomed view's way back. Runs on both bot renders at every width.
+      // ── POP-OUT PANE (slice D, 2026-10-21): /app#/bot/pane/chart is the
+      // chart ALONE in its own browser window — no shell nav, the panel fills
+      // the window, the chart paints there, a "?" opens its card inside THIS
+      // window (the directive: "it should function even if it's detached"),
+      // "Back to the page" is the one way-back control and pin is gone.
+      if (name === "botpane") {
+        const fail = (m) => checks.failures.push("bot-pane: " + m);
+        const ids = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => e.getAttribute("data-panel")));
+        if (ids.length !== 1 || ids[0] !== "chart") fail(`expected the chart panel alone, got [${ids.join(", ")}]`);
+        if (await page.locator(".tab-nav").count()) fail("the app shell's nav rendered inside the pane");
+        const fill = await page.evaluate(() => { const el = document.querySelector("section.vt-bot-panel"); if (!el) return 0; return el.getBoundingClientRect().height / innerHeight; });
+        if (fill < 0.85) fail(`the panel fills ${Math.round(fill * 100)}% of the window height`);
+        const title = await page.title();
+        if (!title.includes("Chart")) fail(`window title is "${title}"`);
+        if (!(await page.locator('section.vt-bot-panel .vt-bot-ctl button[aria-label="Back to the page"]').count())) fail("no 'Back to the page' control");
+        if (await page.locator('section.vt-bot-panel .vt-bot-ctl button[aria-label="Pin this panel"]').count()) fail("pin control shown in a pane (it has no layout to pin to)");
+        let info = null;
+        for (let i = 0; i < 24; i++) {
+          info = await page.evaluate(() => {
+            const c = document.querySelector("section.vt-bot-panel canvas");
+            if (!c) return { present: false };
+            const r = c.getBoundingClientRect();
+            try {
+              const img = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+              let painted = 0, total = 0;
+              for (let k = 3; k < img.length; k += 4 * 7) { total++; if (img[k] > 0) painted++; }
+              return { present: true, w: Math.round(r.width), h: Math.round(r.height), painted, total };
+            } catch (e) { return { present: true, w: Math.round(r.width), h: Math.round(r.height), error: String(e) }; }
+          });
+          if (info.present && info.total && info.painted / info.total >= 0.02) break;
+          await page.waitForTimeout(250);
+        }
+        if (!info || !info.present) fail("no canvas in the pane");
+        else if (info.error) fail(`the pane's canvas is unreadable (${info.error})`);
+        else if (!info.total || info.painted / info.total < 0.02) fail(`the pane's chart has not painted (${info.w}×${info.h})`);
+        const glyph = page.locator("button.vt-help").first();
+        if (!(await glyph.count())) fail("no help glyph in the pane");
+        else {
+          if (vp.touch) await glyph.tap(); else await glyph.click();
+          await page.waitForTimeout(120);
+          const card = await page.evaluate(() => { const c = document.querySelector(".vt-help-card"); if (!c) return null; const r = c.getBoundingClientRect(); return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, text: (c.textContent || "").trim().length }; });
+          if (!card) fail("the help glyph opened no card in the pane"); else if (!card.inside) fail("the pane's help card leaves its window");
+          await page.keyboard.press("Escape");
+        }
+      }
       if (name === "bot" || name === "botidle") {
         const fail = (m) => checks.failures.push("bot-ui: " + m);
         const winCount = () => page.locator(".vt-bot-win").count();
@@ -2781,6 +2830,34 @@ async function main() {
         const settle = () => page.waitForTimeout(250);
         const panels = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => [...new Set(els.map((e) => e.getAttribute("data-panel")))]);
         if (!panels.length) fail("no panels rendered");
+        // POP-OUT (slice D, 2026-10-21): the chart's "own window" control
+        // opens /app#/bot/pane/chart as a named popup. window.open is stubbed:
+        // a blocked popup (null) leaves the panel docked and says so; an
+        // opened one turns the slot into a ghost whose "bring back" closes
+        // the window and restores the panel. Not offered on touch.
+        if (!vp.touch) {
+          await page.evaluate(() => { window.__vtOpened = []; window.__vtWin = null; window.open = (u, n, f) => { window.__vtOpened.push({ u: String(u), n, f }); return window.__vtWin; }; });
+          const popBtn = ctl("chart", "Open in its own browser window");
+          if (!(await popBtn.count())) fail("chart: no 'Open in its own browser window' control");
+          else {
+            await press(popBtn); await settle();
+            if (!(await page.locator(".vt-bot-popnote").count())) fail("pop-out: a blocked popup shows no note");
+            const opened = await page.evaluate(() => window.__vtOpened);
+            if (opened.length !== 1 || !opened[0].u.endsWith("#/bot/pane/chart") || opened[0].n !== "vt-pane-chart" || !/popup=yes,width=\d+,height=\d+/.test(opened[0].f)) fail(`pop-out: window.open got ${JSON.stringify(opened)}`);
+            if ((await page.locator('section.vt-bot-panel[data-panel="chart"]').count()) !== 1) fail("pop-out: a blocked popup removed the panel");
+            await page.evaluate(() => { window.__vtWin = { closed: false, focus() {}, close() { this.closed = true; } }; });
+            await press(popBtn); await settle();
+            if (await page.locator('section.vt-bot-panel[data-panel="chart"]').count()) fail("pop-out: the panel stayed docked after opening its window");
+            const ghost = page.locator('.vt-bot-ghost[data-popped="true"]');
+            if (!(await ghost.count())) fail("pop-out: no ghost slot for the popped panel");
+            const back = ghost.locator("button").first();
+            if (!(await back.count())) fail("pop-out: the ghost has no bring-back control");
+            else { await press(back); await settle(); }
+            if ((await page.locator('section.vt-bot-panel[data-panel="chart"]').count()) !== 1) fail("pop-out: bring back did not restore the panel");
+            if (!(await page.evaluate(() => !!(window.__vtWin && window.__vtWin.closed)))) fail("pop-out: bring back did not close the window");
+            await page.evaluate(() => { const b = document.querySelector(".vt-bot-popnote button"); if (b) b.click(); });
+          }
+        }
         // every docked panel has a real height (a collapsed one is invisible
         // and its controls sit under the next panel)
         for (const [id, h] of await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => [e.getAttribute("data-panel"), Math.round(e.getBoundingClientRect().height)]))) {
