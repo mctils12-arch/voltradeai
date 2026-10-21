@@ -98,7 +98,20 @@ export interface Sleeves {
   windowStart?: string | null; preWindowFills?: number;
   /** options realized P&L by hold time of the closed lot (server/sleeveLedger.ts HOLD_BUCKETS) */
   optionsByHold?: Array<{ bucket: string; events: number; realized: number }>;
+  /** the same closed trades in a TAXABLE account — an ESTIMATE at the rates shown (server/taxLedger.ts) */
+  tax?: TaxView;
   since?: string; truncated?: boolean; malformedFills?: number; fetchedAt?: string; stale?: boolean; pending?: boolean; error?: string; lastError?: string | null;
+}
+export interface TaxView {
+  rates: { shortTerm: number; longTerm: number; state: number; niit: number };
+  windowStart: string | null;
+  byTerm: Array<{ term: "short" | "long" | "unknown"; events: number; gains: number; losses: number; net: number; washDisallowed: number }>;
+  byYear: Array<{ year: number; short: number; long: number; unknown: number; washDisallowed: number; estimatedTax: number }>;
+  washSales: { count: number; disallowed: number; examples: Array<{ symbol: string; closedAt: string; loss: number; disallowed: number; replacementQty: number; replacedAt: string; term: string }> };
+  netting: { shortNet: number; longNet: number; shortAfterNetting: number; longAfterNetting: number; carryforward: number };
+  estimatedTax: { shortTerm: number; longTerm: number; niit: number; total: number };
+  afterTax: { realizedNet: number; taxDrag: number; afterTaxNet: number };
+  notes: string[];
 }
 export interface OpenOrder { id?: string; symbol: string; side: string; qty?: string | number; type?: string; limit_price?: string | number | null; status?: string; submitted_at?: string; filled_avg_price?: string | number | null }
 
