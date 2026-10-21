@@ -66,21 +66,36 @@ test("sanitizePosition: a fully-populated position is unchanged", () => {
 
 // ── source ratchet (test_alpaca_feed precedent) ─────────────────────────────
 // A refactor of TradeChart.tsx must keep (1) the single sanitation pass and
-// (2) the null guards on every unconditional createPriceLine call — casts
-// like `entryPrice as number` do NOT guard and are what shipped the crash.
+// (2) the null guards on every drawn level — casts like `entryPrice as
+// number` do NOT guard and are what shipped the crash. (The chart moved
+// from components/TradeChart.tsx to client/src/bot/chart/ on 2026-10-21;
+// the contract moved with it.)
 
-test("TradeChart.tsx routes the raw position through sanitizePosition", () => {
-  const src = readFileSync(new URL("../components/TradeChart.tsx", import.meta.url), "utf-8");
-  assert.match(src, /sanitizePosition\(rawPosition\)/,
+test("the chart panel routes the raw position through sanitizePosition before any level is derived", () => {
+  // 2026-10-21: the library chart (components/TradeChart.tsx) is gone; the
+  // same contract now lives in the Bot page's own chart — ChartBody
+  // (client/src/bot/panels.tsx) sanitizes the selected position before
+  // levels.ts reads a single numeric field from it.
+  const src = readFileSync(new URL("../bot/panels.tsx", import.meta.url), "utf-8");
+  assert.match(src, /sanitizePosition\(sel\.position\)/,
     "the sanitation pass was removed — null API fields will crash the dashboard again");
 });
 
-test("TradeChart.tsx guards every price line behind a null check", () => {
-  const src = readFileSync(new URL("../components/TradeChart.tsx", import.meta.url), "utf-8");
-  for (const field of ["entryPrice", "stopPrice", "currentPrice"]) {
-    assert.match(src, new RegExp(String.raw`if \(position\.${field} != null\)`),
-      `createPriceLine(${field}) lost its null guard`);
+test("every drawn level is guarded by a finiteness check, never a cast", () => {
+  // draw.ts skips a level whose price is not finite (lines and gutter
+  // pills alike); levels.ts only emits the entry level from a finite entry
+  // price and checks the strike before an option overlay uses it.
+  const draw = readFileSync(new URL("../bot/chart/draw.ts", import.meta.url), "utf-8");
+  assert.ok((draw.match(/Number\.isFinite\(l\.price\)/g) ?? []).length >= 2,
+    "draw.ts lost the finite-price guard on its level loops");
+  const levels = readFileSync(new URL("../bot/chart/levels.ts", import.meta.url), "utf-8");
+  assert.match(levels, /entry !== null && Number\.isFinite\(entry\)/,
+    "levels.ts lost the finite-entry guard before the entry level");
+  assert.match(levels, /Number\.isFinite\(m\.strike \?\? NaN\)/,
+    "levels.ts lost the strike check before the option overlay");
+  for (const file of ["../bot/panels.tsx", "../bot/chart/draw.ts", "../bot/chart/BotChart.tsx"]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf-8");
+    assert.doesNotMatch(src, /position\.\w+ as number/,
+      `${file}: an \`as number\` cast reappeared — casts do not guard nulls`);
   }
-  assert.doesNotMatch(src, /position\.\w+ as number/,
-    "an `as number` cast reappeared — casts do not guard nulls into createPriceLine");
 });
