@@ -253,6 +253,10 @@ export default function BotPage() {
 
   const stateTitle = shown === "scanning" ? "Scan · tier 2" : shown === "candidate" ? `Decision · ${((lastScan?.new_trades?.[0] as { ticker?: string } | undefined)?.ticker ?? lastScan?.top_10?.[0]?.ticker ?? "").toUpperCase()}` : shown === "placed" ? "Order working" : shown === "exit" ? "Exit" : shown === "incident" ? `Halted · ${derived.incident?.kind ?? ""} · ${derived.since ? fmtAge(effNow - Date.parse(derived.since)) : ""}` : shown === "closed" ? "Day review" : "Now";
   const hasState = shown !== "idle";
+  // chart room (2026-10-21, "I'd rather have a larger chart"): while nothing is
+  // working the Orders panel is one line at its natural height and the chart
+  // takes the room; with real orders it grows back into a share of the column
+  const ordersFlex = d.orders.data && d.orders.data.length ? "0.65 1 0" : "0 0 auto";
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
@@ -266,9 +270,9 @@ export default function BotPage() {
       // 2026-10-21)
       case "watch": return <Panel {...common} title="Watch" help="watch" meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "model": return <Panel {...common} title="Model" help="model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
-      case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "1.9 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.25 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "orders": return <Panel {...common} title="Orders" help="orders" style={{ flex: "0.65 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "2.4 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.1 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "orders": return <Panel {...common} title="Orders" help="orders" style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
       default: return null;
     }
@@ -328,7 +332,7 @@ export default function BotPage() {
           {kpi}
           <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("watch", { flex: "0 1 auto", maxHeight: hasState ? "36%" : "44%", minHeight: 136 })}{slot("model", { flex: "1 1 auto" })}</div>
-          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1.9 1 0" })}{slot("book", { flex: "1.25 1 0" })}{slot("orders", { flex: "0.65 1 0" })}</div>
+          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "2.4 1 0" })}{slot("book", { flex: "1.1 1 0" })}{slot("orders", { flex: ordersFlex })}</div>
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>
         </div>
       )}
