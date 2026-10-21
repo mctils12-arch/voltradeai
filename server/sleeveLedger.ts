@@ -31,8 +31,11 @@ export function sleeveOf(symbol: string, floorTickers: ReadonlySet<string>, opti
 }
 
 /** `openedAt`: when the lot being closed was opened (the fill that took the
- *  position from flat); null when the lot predates the fetched history. */
-export interface RealizedEvent { symbol: string; t: number; pnl: number; openedAt: number | null }
+ *  position from flat); null when the lot predates the fetched history.
+ *  `qty` / `closeDir` (2026-10-21, taxLedger.ts): the quantity this event
+ *  closed and the direction of the closing fill (−1 sold a long, +1 covered
+ *  a short) — the wash-sale rule needs both; totals are unchanged. */
+export interface RealizedEvent { symbol: string; t: number; pnl: number; openedAt: number | null; qty: number; closeDir: 1 | -1 }
 
 /** The realizedPnlFromFills walk, one event per priced close. */
 export function realizedEvents(fills: readonly FillRow[], positions: readonly PositionRow[]): { events: RealizedEvent[]; unpriced: Map<string, number> } {
@@ -63,7 +66,7 @@ export function realizedEvents(fills: readonly FillRow[], positions: readonly Po
       }
       const closing = Math.min(f.qty, Math.abs(pos));
       if (avg === null) unpriced.set(symbol, (unpriced.get(symbol) ?? 0) + closing);
-      else events.push({ symbol, t: f.t, pnl: closing * (f.price - avg) * Math.sign(pos) * mult, openedAt });
+      else events.push({ symbol, t: f.t, pnl: closing * (f.price - avg) * Math.sign(pos) * mult, openedAt, qty: closing, closeDir: f.dir });
       pos += f.dir * closing;
       if (Math.abs(pos) < 1e-9) pos = 0;
       const rest = f.qty - closing;

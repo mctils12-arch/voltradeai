@@ -12,7 +12,8 @@ import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
   parseKillSwitchRecord, summarizePythonSync, parseFills, parsePositions, type AutoResumeDecision, type AutoResumeNumbers,
 } from "./killSwitchAutoResume";
-import { sleeveLedger, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS } from "./sleeveLedger";
+import { sleeveLedger, realizedEvents, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS, type RealizedEvent } from "./sleeveLedger";
+import { taxLedger, ratesFromQuery, type TaxRates } from "./taxLedger";
 import { parseNonTradeActivities, activityLedger, reconcile } from "./accountActivities";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
@@ -1982,7 +1983,10 @@ print(json.dumps({
   // equity curve's first day: FILL rows feed the sleeve ledger, the rest the
   // activity ledger. Recomputed in the background at most every
   // SLEEVE_CACHE_MS so a poll never waits on dozens of pages.
-  let sleeveCache: { at: number; body: Record<string, unknown> } | null = null;
+  // taxInputs ([RULE-REVIEW] 2026-10-21, server/taxLedger.ts): the realized
+  // events and fills the sleeve ledger walked, kept so the TAXABLE-account
+  // view can be recomputed at the caller's rates without another fetch
+  let sleeveCache: { at: number; body: Record<string, unknown>; taxInputs: { events: RealizedEvent[]; fills: Parameters<typeof taxLedger>[1]; windowStartMs: number } } | null = null;
   let sleeveError: string | null = null;
   let sleeveInflight: Promise<void> | null = null;
   async function refreshSleeves(): Promise<void> {
@@ -2022,8 +2026,10 @@ print(json.dumps({
       if (!fills || !nta || !positions) throw new Error("fills, activities or positions unreadable");
       const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS, windowStartMs);
       const nonTrade = activityLedger(nta.rows.filter((r) => r.t >= windowStartMs));
+      const taxInputs = { events: realizedEvents(fills.rows, positions).events, fills: fills.rows, windowStartMs };
       sleeveCache = {
         at: Date.now(),
+        taxInputs,
         body: {
           ...ledger, since: afterIso, truncated, malformedFills: fills.malformed,
           nonTrade, malformedActivities: nta.malformed,
@@ -2037,15 +2043,28 @@ print(json.dumps({
     }
   }
   // One body for the owner route AND the "sleeves" diag probe (2026-10-20).
-  async function sleevesBody(): Promise<Record<string, unknown>> {
+  async function sleevesBody(rates: Partial<TaxRates> = {}): Promise<Record<string, unknown>> {
     if (!sleeveCache || Date.now() - sleeveCache.at > SLEEVE_CACHE_MS) {
       sleeveInflight ??= refreshSleeves().finally(() => { sleeveInflight = null; });
       if (!sleeveCache) await Promise.race([sleeveInflight, new Promise((r) => setTimeout(r, SLEEVE_COLD_WAIT_MS))]);
     }
-    if (sleeveCache) return { ...sleeveCache.body, stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError };
+    if (sleeveCache) {
+      const { events, fills, windowStartMs } = sleeveCache.taxInputs;
+      // the same trades in a TAXABLE account: terms, wash sales, an estimated
+      // tax at the caller's rates (?st&lt&state&niit, fractions) — an ESTIMATE
+      // the UI labels as such; the paper account pays no tax
+      return { ...sleeveCache.body, tax: taxLedger(events, fills, { windowStartMs, rates }), stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError };
+    }
     return sleeveError ? { error: sleeveError } : { pending: true };
   }
-  app.get("/api/bot/sleeves", requireOwner, async (_req, res) => { res.json(await sleevesBody()); });
+  app.get("/api/bot/sleeves", requireOwner, async (req, res) => {
+    // ?st&lt&state&niit (fractions) recompute only the tax estimate at those
+    // rates; without them the route serves the one shared body (diag.test.ts
+    // pins that the diag probe and this route never compute twice)
+    const rates = ratesFromQuery(req.query as Record<string, unknown>);
+    if (Object.keys(rates).length) return res.json(await sleevesBody(rates));
+    res.json(await sleevesBody());
+  });
 
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {

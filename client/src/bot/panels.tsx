@@ -526,6 +526,16 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
           options by hold<Help k="optionsByHold" />: {sleeves.optionsByHold.filter((h) => h.events > 0).map((h) => `${h.bucket} ${k(h.realized)} (${h.events})`).join(" · ")}
         </div>
       ) : null}
+      {sleeves.tax ? (() => {
+        const t = sleeves.tax;
+        const st = t.byTerm.find((r) => r.term === "short"), lt = t.byTerm.find((r) => r.term === "long"), un = t.byTerm.find((r) => r.term === "unknown");
+        const pct = (v: number) => `${Math.round(v * 100)}`;
+        return (
+          <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title={t.notes.join(" · ")}>
+            if taxed<Help k="taxView" />: short {k(st?.net ?? 0)} ({st?.events ?? 0}) · long {k(lt?.net ?? 0)} ({lt?.events ?? 0}){un?.events ? ` · unknown ${k(un.net)} (${un.events})` : ""}<Help k="holdingTerm" /> · wash {t.washSales.count} / {k(t.washSales.disallowed)} held back<Help k="washSale" /> · est. tax {k(t.estimatedTax.total)} at {pct(t.rates.shortTerm)}/{pct(t.rates.longTerm)} % · after tax {k(t.afterTax.afterTaxNet)}<Help k="afterTax" />
+          </div>
+        );
+      })() : null}
       {sleeves.nonTrade ? (() => {
         const g = sleeves.nonTrade.groups;
         const parts = ACTIVITY_LABEL.filter(([key]) => (g[key] ?? 0) !== 0).map(([key, label]) => `${label} ${k(g[key])}`);
