@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
+import { positionLevels, levelConfigFromBaseConfig } from "../shared/positionLevels";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
@@ -1286,6 +1287,7 @@ export function registerBotRoutes(app: Express) {
       // Load stop state and options state in parallel — these are enrichment data,
       // so failures must not prevent returning positions
       let stopState: any = {};
+      let levelConfig: Record<string, unknown> = {};
       let optionsState: any = {};
       await Promise.all([
         (async () => {
@@ -1300,9 +1302,24 @@ stop_path = os.path.join(DATA_DIR, 'voltrade_stop_state.json')
 try:
     with open(stop_path) as f: data = json.load(f)
 except Exception: data = {}
-print(json.dumps(data))
+cfg = {}
+try:
+    from system_config import BASE_CONFIG as _bc
+    cfg = {k: v for k, v in _bc.items() if k.startswith('STOP_SCALAR_') or k in ('POSITION_HARD_STOP_PCT', 'POSITION_HARD_STOP_ENABLED')}
+except Exception as _e:
+    cfg = {'error': str(_e)}
+print(json.dumps({'stop_state': data, 'config': cfg}))
 "`, { timeout: 5000 });
-            stopState = JSON.parse(stopOut.trim() || "{}");
+            // 2026-10-21: the script also carries the BASE_CONFIG subset the
+            // engine's exit formulas read (shared/positionLevels.ts); the
+            // direct-file fallback below has no config → engine defaults
+            const parsed = JSON.parse(stopOut.trim() || "{}") as Record<string, unknown>;
+            if (parsed && typeof parsed === "object" && "stop_state" in parsed) {
+              stopState = (parsed.stop_state as Record<string, unknown>) || {};
+              levelConfig = (parsed.config as Record<string, unknown>) || {};
+            } else {
+              stopState = parsed;
+            }
           } catch (e: any) {
             console.error("[bot] Python stop state failed, trying direct file read:", e.message);
             try {
@@ -1347,17 +1364,19 @@ print(json.dumps(data))
       ]);
 
       const mapped = (positions as any[]).map((p: any) => {
-        const ss = stopState[p.symbol] || {};
+        const ss = stopState[p.symbol] || null;
         const entry = parseFloat(p.avg_entry_price);
         const current = parseFloat(p.current_price);
         const pnlPct = parseFloat(p.unrealized_plpc) * 100;
-        const atrPct = ss.current_stop_pct || 2.5;
-        const phase = ss.phase || 1;
-        // Calculate live stop and TP prices from evolving stop state
-        const stopPrice = phase >= 2
-          ? current * (1 - atrPct / 100)  // Trailing from current
-          : entry * (1 - atrPct / 100);    // Phase 1: from entry
-        const tpPrice = phase >= 3 ? null : entry * (1 + atrPct * 1.5 / 100);
+        // 2026-10-21: the engine's own exit ladder (shared/positionLevels.ts
+        // mirrors manage_positions). Before this the stop trailed 1×ATR from
+        // the CURRENT price in phase ≥ 2 and the target sat at 1.5×ATR —
+        // neither is what the engine fires on; both are now the engine's
+        // numbers, null until the first manage tick records a stop state.
+        const levels = positionLevels({ entry, current, qty: parseFloat(p.qty), pnlPct: Number.isFinite(pnlPct) ? pnlPct : null, stop: ss, config: levelConfigFromBaseConfig(levelConfig, ss?.regime), nowMs: Date.now() });
+        const phase = levels.phase;
+        const stopPrice = levels.stopPrice;
+        const tpPrice = levels.takeProfitPrice;
 
         // v1.0.33: Parse OCC symbol for options positions
         const isOption = (p.asset_class || "").toLowerCase().includes("option") || (p.symbol || "").length > 12;
@@ -1395,15 +1414,16 @@ print(json.dumps(data))
           marketValue: parseFloat(p.market_value),
           pnl: parseFloat(p.unrealized_pl),
           pnlPct: pnlPct,
-          stopPrice: Math.round(stopPrice * 100) / 100,
-          takeProfitPrice: tpPrice ? Math.round(tpPrice * 100) / 100 : null,
+          stopPrice: stopPrice !== null ? Math.round(stopPrice * 100) / 100 : null,
+          takeProfitPrice: tpPrice !== null ? Math.round(tpPrice * 100) / 100 : null,
           phase: phase,
-          rMultiple: ss.r_multiple || 0,
-          highestPnl: ss.highest_pnl || 0,
-          daysHeld: ss.days_held || 0,
+          rMultiple: levels.rMultiple ?? ss?.r_multiple ?? 0,
+          highestPnl: levels.highestPnl ?? ss?.highest_pnl ?? 0,
+          daysHeld: levels.daysHeld ?? ss?.days_held ?? 0,
           asset_class: p.asset_class || "us_equity",
           isOption,
           optionMeta,
+          levels: isOption ? null : levels,
         };
       });
       res.json(mapped);
@@ -3458,6 +3478,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
         },
       });
       const data = await r.json();
+      // 2026-10-21: an Alpaca error used to come back as `{bars: []}` — an
+      // empty chart with no explanation. The chart now shows the message.
+      if (!r.ok) {
+        const msg = data && typeof data === "object" && typeof data.message === "string" ? data.message : `HTTP ${r.status}`;
+        return res.status(502).json({ error: `Alpaca bars ${r.status}: ${msg}`, ticker: String(ticker).toUpperCase(), timeframe: tf });
+      }
       const bars = (data.bars || []).map((b: any) => ({
         time: Math.floor(new Date(b.t).getTime() / 1000),
         open: b.o,

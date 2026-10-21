@@ -1,6 +1,6 @@
 {
   "name": "rest-express",
-  "version": "1.0.1134",
+  "version": "1.0.1135",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -59,7 +59,6 @@
     "fflate": "^0.8.3",
     "gray-matter": "^4.0.3",
     "input-otp": "^1.4.2",
-    "lightweight-charts": "^5.1.0",
     "lucide-react": "^0.453.0",
     "maplibre-gl": "^5.24.0",
     "marked": "^14.1.3",

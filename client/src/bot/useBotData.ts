@@ -3,6 +3,7 @@
 // hook result carries dataUpdatedAt so every panel can print its own age.
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import type { PositionLevels } from "../../../shared/positionLevels";
 
 /** Every Bot page read is polled, so none may hang forever (a hung request
  *  blocks its query's polling until a manual reload — lib/queryClient.ts
@@ -25,12 +26,15 @@ export interface BotAccount {
   drawdownPct?: number; equityPeak?: number;
 }
 /** Shape of /api/bot/positions (server/bot.ts maps Alpaca's raw position
- *  into this; pnlPct is already a percent). */
+ *  into this; pnlPct is already a percent). `levels` is the engine's own
+ *  exit ladder for the position (shared/positionLevels.ts); stopPrice and
+ *  takeProfitPrice are its headline numbers, null until recorded. */
+export interface OptionMeta { underlyingTicker: string; expiry: string; strike: number; optionType: "CALL" | "PUT"; strategy: string | null; setup: unknown; daysToExpiry: number }
 export interface BotPosition {
   ticker: string; qty: number; side: string; entryPrice: number; currentPrice: number; marketValue: number;
-  pnl: number; pnlPct: number; stopPrice: number; takeProfitPrice: number | null; phase: number;
+  pnl: number; pnlPct: number; stopPrice: number | null; takeProfitPrice: number | null; phase: number;
   rMultiple: number; highestPnl: number; daysHeld: number;
-  asset_class?: string; isOption?: boolean; optionMeta?: unknown;
+  asset_class?: string; isOption?: boolean; optionMeta?: OptionMeta | null; levels?: PositionLevels | null;
 }
 export interface AuditRowApi { time: string; type: string; message: string; action?: string; detail?: string }
 export interface Performance {

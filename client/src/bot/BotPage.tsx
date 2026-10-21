@@ -80,6 +80,9 @@ export default function BotPage() {
   const [flags, setFlags] = useState<LayoutFlags>(EMPTY_FLAGS);
   const [rects, setRects] = useState<Partial<Record<PanelId, Rect>>>({});
   const [replayAt, setReplayAt] = useState<number | null>(null);
+  // the focus context (brief §6): the position the chart shows; a Book row
+  // or a chart chip sets it
+  const [focusSym, setFocusSym] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actErr, setActErr] = useState<string | null>(null);
   const slots = useRef<Map<PanelId, HTMLElement>>(new Map());
@@ -168,8 +171,8 @@ export default function BotPage() {
     issues: <IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} />,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
-    chart: <ChartBody positions={d.positions.data} />,
-    book: <BookBody positions={d.positions.data} spot={null} sleeves={d.sleeves.data} />,
+    chart: <ChartBody positions={d.positions.data} focus={focusSym} onFocus={setFocusSym} paused={flags.held.includes("chart")} />,
+    book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={setFocusSym} sleeves={d.sleeves.data} />,
     orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
   };
@@ -188,9 +191,9 @@ export default function BotPage() {
       case "issues": return <Panel {...common} title="Issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
       case "state": return <Panel {...common} title={stateTitle} status={shown === "incident" ? <span className="vt-bot-st vt-bot-r"><span className="vt-bot-dot" />first-out</span> : replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay</span> : undefined} style={{ flex: shown === "closed" ? "1 1 auto" : "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       case "model": return <Panel {...common} title="Model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
-      case "chart": return <Panel {...common} title="Chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions` : undefined} style={{ flex: "1.05 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.35 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "orders": return <Panel {...common} title="Orders" style={{ flex: "0.6 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "chart": return <Panel {...common} title="Chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "1.9 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.25 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "orders": return <Panel {...common} title="Orders" style={{ flex: "0.65 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
       default: return null;
     }
@@ -226,9 +229,9 @@ export default function BotPage() {
           {kpi}
           {hasState ? slot("state", { flex: "0 0 auto" }) : null}
           {slot("issues", { flex: "0 0 auto" })}
+          {slot("chart", { flex: "0 0 auto" })}
           {slot("model", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("stages", { flex: "0 0 auto" })}<div className="vt-bot-col">{slot("book", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</div></div> : <>{slot("book", { flex: "0 0 auto" })}{slot("stages", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</>}
-          {slot("chart", { flex: "0 0 auto" })}
           {slot("timeline", { flex: "0 0 auto" })}
         </div>
       ) : (
@@ -236,7 +239,7 @@ export default function BotPage() {
           {kpi}
           <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("model", { flex: "1 1 auto" })}</div>
-          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1.05 1 0" })}{slot("book", { flex: "1.35 1 0" })}{slot("orders", { flex: "0.6 1 0" })}</div>
+          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1.9 1 0" })}{slot("book", { flex: "1.25 1 0" })}{slot("orders", { flex: "0.65 1 0" })}</div>
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>
         </div>
       )}

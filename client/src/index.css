@@ -4584,7 +4584,6 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-node .vt-bot-kv .v { white-space: normal; overflow: visible; word-break: break-word; }
 .vt-bot-stack .vt-bot-pb { overflow: visible; }
 .vt-bot-stack [data-panel="model"] .vt-bot-pb { max-height: 720px; overflow-y: auto; }
-.vt-bot-stack [data-panel="chart"] .vt-bot-pb { max-height: 420px; overflow-y: auto; }
 .vt-bot-stack [data-panel="issues"] .vt-bot-pb { max-height: 480px; overflow-y: auto; }
 .vt-bot-stack [data-panel="timeline"] .vt-bot-pb { min-height: 72px; }
 .vt-bot-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -4678,3 +4677,35 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-scan i[data-s="done"] { background: var(--accent); } .vt-bot-scan i[data-s="active"] { background: var(--accent); opacity: .45; }
 .vt-bot-empty { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; color: var(--text-tertiary); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { .vt-bot-panel, .vt-bot-win, .vt-bot-ctl { transition: none !important; } }
+
+/* ── Bot page chart (client/src/bot/chart/, 2026-10-21) — our own canvas
+   engine; tokens only, no library chrome ─────────────────────────────── */
+.vt-chart { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; gap: 4px; }
+.vt-chart-strip { display: flex; flex-wrap: wrap; gap: 3px; flex: 0 0 auto; min-width: 0; }
+.vt-chart-chip { font: inherit; font-size: 11px; padding: 1px 6px; min-height: 22px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); background: none; color: var(--text-secondary); cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.vt-chart-chip:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.vt-chart-chip[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); background: var(--elevate-2, rgba(77,159,255,.08)); }
+.vt-chart-chip .pl { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10.5px; }
+.vt-chart-top { display: flex; align-items: center; gap: 8px; min-height: 24px; flex: 0 0 auto; min-width: 0; }
+.vt-chart-tf { display: flex; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+.vt-chart-tf button { font: inherit; font-size: 11px; font-family: var(--font-mono); padding: 2px 7px; min-height: 24px; border-radius: var(--radius-sm); border: 0; background: none; color: var(--text-tertiary); cursor: pointer; }
+.vt-chart-tf button:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+.vt-chart-tf button[aria-pressed="true"] { color: var(--text-primary); background: var(--elevate-2, rgba(77,159,255,.08)); }
+.vt-chart-readout { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-secondary); display: flex; gap: 10px; min-height: 16px; flex: 1 1 auto; min-width: 0; line-height: 1.3; white-space: nowrap; overflow: hidden; }
+.vt-chart-readout > span { flex: 0 0 auto; }
+.vt-chart-wrap { position: relative; flex: 1 1 auto; min-height: 130px; min-width: 0; }
+.vt-chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; outline: none; cursor: crosshair; }
+.vt-chart-wrap canvas:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.vt-chart-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 12px; pointer-events: none; }
+.vt-chart-state button { pointer-events: auto; border: 1px solid var(--border); }
+.vt-chart-skel { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 20%, var(--elevate-2, rgba(77,159,255,.08)) 50%, transparent 80%); background-size: 200% 100%; animation: vt-chart-shimmer 1.4s linear infinite; pointer-events: none; }
+@keyframes vt-chart-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.vt-chart-legend { display: flex; flex-wrap: wrap; gap: 1px 10px; font-size: 10.5px; flex: 0 0 auto; line-height: 1.35; }
+.vt-chart-legend .k { color: var(--text-tertiary); margin-right: 5px; }
+.vt-chart-legend .v { color: var(--text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.vt-chart-note { font-size: 10.5px; color: var(--text-tertiary); }
+.vt-bot-stack [data-panel="chart"] .vt-bot-pb { max-height: none; overflow: visible; min-height: 400px; }
+.vt-bot-stack [data-panel="chart"] .vt-chart-wrap { min-height: 260px; }
+.vt-bot-page[data-touch="true"] .vt-chart-chip, .vt-bot-page[data-touch="true"] .vt-chart-tf button { min-height: 44px; }
+@media (max-width: 639px) { .vt-chart-chip, .vt-chart-tf button { min-height: 44px; } .vt-chart-readout { font-size: 10.5px; gap: 8px; } }
+@media (prefers-reduced-motion: reduce) { .vt-chart-skel { animation: none; } }
