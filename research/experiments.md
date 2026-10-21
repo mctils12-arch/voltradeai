@@ -109556,3 +109556,10 @@ CHANGE: the human's "I'd rather have a larger chart", and a defect slice C surfa
 VISUAL (promotion rule 6): `node scripts/visual_check.mjs --page bot` and `--page botidle` PASS at 390 / 768 / 1440, 0 hard failures. At 1440 latched the chart panel now shows every legend row — phase · R · entry 741.32 · stop 719.08 · 3.00% · from entry · 1R · ATR · scale-outs · target 774.68 · floor 593.06 · held 3d · regime neutral — above a Book that still carries its full sleeve summary, and Orders reads as one line (none working · 2 cancelled by deploy today).
 HONESTY: a layout share change only; no number, mechanism or data path changed.
 STARVED: yes (slice F next).
+
+## 2026-10-21 (scheduled routine, ~20:15Z Wed, after the close) [NO-ACTION] — health ok; deploy stall persists (live 1.0.1133, main 1.0.1141) — human-side Railway auth, not fixable from a session
+LOOP HEALTH: last 10 tags = PRODUCT x6, REPAIR x3, RULE-REVIEW x1 — no repair thrash (3/10 < 7).
+HEALTH: voltradeai.com /api/health 200, status ok; serving.failing=[]; bot active, liveness not dark, drawdown -0.4%, alpaca ACTIVE, feeds (aircraft/vessels/trains) all <0.3h silent, 0 unhandled rejections. The container has been up ~17.5h on the same bundle.
+DEPLOY STALL: /api/data/layers reports server_version 1.0.1133 while package.json on main is 1.0.1141 (eight merges unshipped, incl. the Bot-page slices A-F, the sleeve tax ledger, the /api/v1/data/tff mirror). The 14:45Z [REPAIR] entry diagnosed this as Railway's "Error authenticating with GitHub" on the Source link; nothing changed since. Railway config is FROZEN and the fix is a human reconnect (Railway service Settings -> Source -> reconnect GitHub, then redeploy). Not a code fault; no PR can fix it.
+ACTION: none beyond this log and a notification to the human. Queue (open_questions F2-F7, Bot page slice F) is evidence- or deploy-blocked; building more client slices onto an unshipped base adds unverifiable-live risk (live visual verification is impossible until the deploy link is restored).
+STARVED: yes (deploy-blocked).
