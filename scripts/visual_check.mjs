@@ -1599,6 +1599,73 @@ const FIXTURES = {
   // throw and the layer render "error" forever) — four shipyards across
   // three named country tiers + "other" so the legend-parity battery
   // exercises every LNG_SHIPYARD_COUNTRY_LABEL entry, not just one.
+  // GEM point-layer route fixtures (ported 2026-10-21 from stale PR #1174,
+  // whose `layers` rows had already landed via the 2026-09-25 repair above
+  // but whose route fixtures never did): two rows per layer spanning
+  // distinct symbol/colour categories so toggle-consistency and
+  // legend-parity exercise more than one branch, same discipline as the
+  // lng_shipyards / steel_raw_materials fixtures below. The iron-steel rows
+  // carry the `units` array main's route returns today (furnace-level
+  // detail keyed from steel_units.json; [] when none joined).
+  "/api/data/coal-terminals": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Coal Terminals Tracker (fixture)",
+    release: "fixture", count: 2,
+    terminals: [
+      { id: "FX1", terminalId: "FXT1", name: "Fixture Export Terminal", parentPort: "Fixture Port", status: "Operating",
+        typeClass: "exports", typeRaw: "Exports", productType: "Thermal coal", capacityMt: 12.5,
+        owner: "Fixture Coal Co", country: "Australia", region: "Oceania", startYear: "1998", retiredYear: null,
+        locationAccuracy: "Exact", wiki: null, lat: -23.5, lon: 151.9 },
+      { id: "FX2", terminalId: "FXT2", name: "Fixture Import Terminal", parentPort: null, status: "Proposed",
+        typeClass: "imports", typeRaw: "Imports", productType: "Thermal coal", capacityMt: null,
+        owner: "Fixture Import Co", country: "India", region: "Asia", startYear: null, retiredYear: null,
+        locationAccuracy: "Approximate", wiki: null, lat: 19.0, lon: 72.8 },
+    ],
+  },
+  "/api/data/iron-ore-mines": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Iron Ore Mines Tracker (fixture)",
+    release: "fixture", count: 2,
+    mines: [
+      { id: "FXM1", name: "Fixture Ore Mine", status: "operating", statusRaw: "Operating", country: "Brazil",
+        region: "South America", coordinateAccuracy: "Exact", production2024Kt: 5000, designCapacityKt: 6000,
+        totalReservesKt: 200000, totalResourceKt: 500000, startDate: "1985", stopDate: null,
+        owner: "Fixture Mining Co", parent: "Fixture Holdings", wiki: null, lat: -20.0, lon: -43.5 },
+      { id: "FXM2", name: "Fixture Proposed Mine", status: "proposed", statusRaw: "Proposed", country: "Guinea",
+        region: "Africa", coordinateAccuracy: "Approximate", production2024Kt: null, designCapacityKt: 3000,
+        totalReservesKt: 800000, totalResourceKt: null, startDate: null, stopDate: null,
+        owner: "Fixture Exploration Co", parent: null, wiki: null, lat: 10.0, lon: -12.5 },
+    ],
+  },
+  "/api/data/iron-steel-plants": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Iron and Steel Tracker (fixture)",
+    release: "fixture", count: 2,
+    plants: [
+      { id: "FXS1", name: "Fixture Integrated Steel Plant", technology: "bf_bof", technologyRaw: "Blast Furnace/Basic Oxygen Furnace",
+        categorySteelProduct: "Crude", country: "China", region: "Asia", municipality: null, subnationalUnit: null, coordinateAccuracy: "Exact", workforceSize: 8000,
+        startDate: "1970", retiredDate: null, idledDate: null, owner: "Fixture Steel Group", parent: null,
+        soeStatus: "State-owned", wiki: null, lat: 39.9, lon: 116.4,
+        units: [
+          { plantId: "FXS1", unitId: "FXU1", name: "BOF 1", furnaceType: "bof", status: "operating", capacityTtpa: 2400, startDate: "1970", retiredDate: null, manufacturer: null },
+          { plantId: "FXS1", unitId: "FXU2", name: "Open hearth 1", furnaceType: "open_hearth", status: "retired", capacityTtpa: 600, startDate: "1970", retiredDate: "1995", manufacturer: null },
+        ] },
+      { id: "FXS2", name: "Fixture Mini-mill", technology: "eaf", technologyRaw: "Electric Arc Furnace",
+        categorySteelProduct: "Finished rolled", country: "United States", region: "North America", municipality: null, subnationalUnit: null, coordinateAccuracy: "Exact",
+        workforceSize: 450, startDate: "2005", retiredDate: null, idledDate: null, owner: "Fixture Mini-Mill LLC",
+        parent: null, soeStatus: null, wiki: null, lat: 33.7, lon: -84.4,
+        units: [{ plantId: "FXS2", unitId: "FXU3", name: "EAF 1", furnaceType: "eaf", status: "operating", capacityTtpa: 900, startDate: "2005", retiredDate: null, manufacturer: "Fixture Furnaces" }] },
+    ],
+  },
+  "/api/data/chemicals": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor — Global Chemicals Inventory (fixture)",
+    release: "fixture", count: 2,
+    plants: [
+      { id: "FXC1", name: "Fixture Ammonia Plant", feedstockFamily: "natural_gas", feedstockRaw: "Natural Gas",
+        primaryProducts: "Ammonia", secondaryProducts: "Urea", country: "United States", region: "North America",
+        coordinateAccuracy: "Exact", owner: "Fixture Chemical Co", wiki: null, lat: 29.7, lon: -95.4 },
+      { id: "FXC2", name: "Fixture Refinery Petrochemical Complex", feedstockFamily: "petroleum", feedstockRaw: "Petroleum Liquid",
+        primaryProducts: "Ethylene", secondaryProducts: "Propylene", country: "Germany", region: "Europe",
+        coordinateAccuracy: "Exact", owner: "Fixture Petro AG", wiki: null, lat: 51.5, lon: 6.5 },
+    ],
+  },
   "/api/data/lng-shipyards": {
     kind: "raw", predictive: false,
     source: "Global Energy Monitor — Global LNG Carrier Tracker (by shipyard) (fixture)",
