@@ -76,7 +76,7 @@
    "status": "gate2_pending",
    "current_gate": 2,
    "last_update_date": "2026-07-08",
-   "note": "Gate 1 DATA passed 2026-07-05 (0 rejections across 156-week backfill, 7 symbols). Gate-2 screen killed GLD/CORN/SPY/QQQ/TLT outright and, after a Newey-West HAC correction, also killed SLV; only USO survives as a quantified-but-unpromoted carry (p=0.0355, fails the multi-comparison Bonferroni bar) \u2014 explicitly not promoted to LOGIC gate 3.",
+   "note": "Gate 1 DATA passed 2026-07-05 (0 rejections across 156-week backfill, 7 symbols). Gate-2 screen killed GLD/CORN/SPY/QQQ/TLT outright and, after a Newey-West HAC correction, also killed SLV; only USO survives as a quantified-but-unpromoted carry (p=0.0355, fails the multi-comparison Bonferroni bar) \u2014 explicitly not promoted to LOGIC gate 3. 2026-10-21 OOS check (cot_gate2_oos.py): the USO carry is extreme_high -> lower returns, and USO had ZERO extreme_high weeks in the 14 reports since 2026-07-08 (in-sample rate 13/152 = 8.6%), so the carry is UNTESTABLE out of sample, not confirmed or refuted; the report-count trigger below is necessary but not sufficient \u2014 it needs >=5 independent extreme_high episodes.",
    "readiness_trigger": {
     "type": "weekly_reports",
     "since": "2026-07-08",
