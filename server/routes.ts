@@ -5307,6 +5307,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // CFTC Traders in Financial Futures keyed mirror (same sweep). Reuses
+  // latestTff() — the cache /api/data/tff already serves; no new poller.
+  // Public-domain CFTC data, resell ok. RAW: gate 2 was run and KILLED
+  // (signal_ladder.json cftc_tff_positioning) — the tool text says so.
+  app.get("/api/v1/data/tff", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestTff();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first TFF poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/tff", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/tff", { report_date: hit.report_date, count: hit.rows.length, note: "weekly financial-futures positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; raw positioning, no predictive claim (gate 2 killed)", markets: hit.rows }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/tff", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/tff", status: 500, tier: auth.tier });
+    }
+  });
+
   // FDIC bank failures keyed mirror (same "shipped-data-no-v1-API" sweep as
   // fred-macro/eu-macro/nrc-reactor-status/crop-conditions above — one of
   // four gate1_pass roots the 2026-08-23 PRODUCT session survey found still

@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-21 (scheduled routine PRODUCT session #2, ~18:10Z Wed = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1141) — KEYED /api/v1/data/tff MIRROR
+
+HEALTH: session_health_check all OK except daemon rss 436MB (trim mode, known) and deploy_freshness (live 1.0.1133 vs checkout 1.0.1140 — post-merge lag, deploy_gate 2xx); no critical KNOWN BROKEN.
+CHOICE: tff had a raw endpoint and a /data layer but no API-product surface (shipped-data-no-v1-API class, priority (3)); same recipe as treasury-auctions/fda-events. dts is the same class, left for its own PR.
+CHANGE: GET /api/v1/data/tff behind requireApiKey + meterUsage, reusing latestTff() (no new poller). LICENSE_MARKS data/tff resell "ok" (CFTC, US-gov public domain), meta entry with preview route, agent tool voltrade_tff, response schema.
+TESTS: apiProduct 73->74 pass (+1 license/honesty/route test); tsc_ratchet OK (3<=6); counter_ratchet OK (28).
+NO SIGNAL CLAIM: tool description and meta state RAW; gate 1 passed (accounting identities), gate 2 KILLED 2026-08-03 (signal_ladder.json cftc_tff_positioning) and says so; futures-only. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared MID-MARKET; no trading-path code, but merge after the 16:00 ET close per deploy coupling.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-21 (scheduled routine PRODUCT session, ~00:12Z Wed) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1132) — KEYED /api/v1/data/treasury-auctions MIRROR
 
 HEALTH: session_health_check all OK (live 1.0.1131 == main, deploy_gate 2xx, liveness alive, daemon 377MB; the 10-20 deploy stall has cleared); no critical KNOWN BROKEN.
