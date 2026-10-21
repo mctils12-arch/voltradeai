@@ -173,3 +173,13 @@ tagged [PRODUCT] (or [RULE-REVIEW] for E).
 ## 6. RESUME STATE
 
 - 2026-10-21: program installed; slice A in build.
+- 2026-10-21 (scheduled routine): slice A SHIPPED (#1416, v1.0.1135). Slice B SHIPPED
+  (v1.0.1136): `watch.ts` (pure) + a Watch panel (left column, between Stages and
+  Issues; phone/tablet stack after Issues) — the last scan's top 10 plus any trade or
+  sizing refusal outside it, each marked taken / blocked / not taken; a row click
+  charts the ticker as a price-only chip tagged "watch" (no stop/target — the engine
+  sets those at entry). NOT in slice B, deliberately: the morning-queue rows (audit
+  `QUEUE` events, not in the scan result — a follow-up reading the audit) and an
+  admission-score line (MIN_SCORE is regime-adaptive and the scan result does not
+  carry it; adding `min_score` to scan_market's return is a small T-BOT change, filed
+  in open_questions.md). NEXT: slice C (help glossary).

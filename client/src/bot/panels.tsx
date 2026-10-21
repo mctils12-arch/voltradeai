@@ -10,6 +10,7 @@ import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
+import { scanAgeMs, type Watch, type WatchRow } from "./watch";
 import type { PanelId } from "./zoneModel";
 
 // ── chrome ──────────────────────────────────────────────────────────────────
@@ -387,16 +388,20 @@ export function chartSubjects(positions: BotPosition[] | undefined): ChartSubjec
     return { key: p.ticker, label: isOption ? fmtOcc(p.ticker).split(" ").slice(0, 2).join(" ") : p.ticker, symbol: underlyingOf(position), position, pnlPct: num(p.pnlPct) };
   });
 }
-export function ChartBody({ positions, focus, onFocus, paused }: { positions: BotPosition[] | undefined; focus: string | null; onFocus: (key: string) => void; paused?: boolean }) {
+export function ChartBody({ positions, candidates, focus, onFocus, paused }: { positions: BotPosition[] | undefined; candidates?: WatchRow[]; focus: string | null; onFocus: (key: string) => void; paused?: boolean }) {
   const [tf, setTfState] = useState<Timeframe>(readTf);
   const setTf = (t: Timeframe) => {
     setTfState(t);
     try { sessionStorage.setItem(TF_KEY, t); } catch (err) { console.warn("[bot chart] timeframe not persisted (storage unavailable):", err); }
   };
   const subjects = useMemo(() => chartSubjects(positions), [positions]);
-  const sel = subjects.find((s) => s.key === focus) ?? subjects[0] ?? null;
+  // a Watch row the user clicked charts like any symbol, but it has no
+  // position — so no levels: the engine sets a stop and target at entry, and
+  // drawing one for a candidate would be invention
+  const cand = subjects.some((s) => s.key === focus) ? null : (candidates ?? []).find((c) => c.ticker === focus) ?? null;
+  const sel = subjects.find((s) => s.key === focus) ?? (cand ? null : subjects[0] ?? null);
   if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
-  if (!subjects.length) return <div className="vt-bot-empty"><St word="flat · nothing to chart" out /></div>;
+  if (!subjects.length && !cand) return <div className="vt-bot-empty"><St word="flat · nothing to chart" out /></div>;
   const strip = (
     <div className="vt-chart-strip" aria-label="Chart symbol">
       {subjects.map((s) => (
@@ -404,9 +409,36 @@ export function ChartBody({ positions, focus, onFocus, paused }: { positions: Bo
           {s.label}<span className={`pl ${s.pnlPct === null ? "vt-bot-t3" : s.pnlPct < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{s.pnlPct === null ? "·" : fmtPct(s.pnlPct, 1)}</span>
         </button>
       ))}
+      {cand ? <button type="button" className="vt-chart-chip" aria-pressed="true" data-watch="true" title={`${cand.ticker} · a Watch candidate from the last scan, not a position: price only, no stop or target`}>{cand.ticker}<span className="pl vt-bot-t3">watch</span></button> : null}
     </div>
   );
-  return <BotChart symbol={sel?.symbol ?? null} subject={sel ? sanitizePosition(sel.position) : null} tf={tf} onTf={setTf} top={strip} paused={paused} />;
+  return <BotChart symbol={cand ? cand.ticker : sel?.symbol ?? null} subject={sel ? sanitizePosition(sel.position) : null} tf={tf} onTf={setTf} top={strip} paused={paused} />;
+}
+/** Watch: what the last scan was looking at, and what the trade loop did with each name. */
+export function WatchBody({ watch, nowMs, focus, onSelect }: { watch: Watch; nowMs: number; focus: string | null; onSelect: (ticker: string) => void }) {
+  if (watch.empty) return <div className="vt-bot-empty"><NotRecorded what="no scan recorded yet · the server holds the last scan in memory, so a deploy clears it until the next scan" /></div>;
+  const s = watch.summary, age = scanAgeMs(watch, nowMs);
+  const funnel = [s.scanned !== null ? `${s.scanned.toLocaleString("en-US")} scanned` : null, s.filtered !== null ? `${s.filtered} passed the quick filter` : null, s.deepAnalyzed !== null ? `${s.deepAnalyzed} deep-scored` : null, s.slots !== null ? `${s.slots} stock slots open` : null].filter(Boolean).join(" · ");
+  return (
+    <div className="vt-bot-list">
+      <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }} title="the last completed scan; each name is marked by what the trade loop did with it. The admission score floor is regime-adaptive and is not part of the scan result, so none is drawn here.">
+        {funnel || "scan funnel not recorded"}{age !== null ? ` · ${fmtAge(age)} ago` : ""}
+      </div>
+      {watch.rows.map((r) => (
+        <div key={r.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === r.ticker} data-status={r.status}
+          title={`${r.ticker} · ${r.action}${r.reasons.length ? ` · ${r.reasons.join(" · ")}` : ""}${r.blockReason ? ` · blocked: ${r.blockReason}` : ""} · chart it`}
+          onClick={() => onSelect(r.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(r.ticker); } }}>
+          <span className="sym">{r.ticker}</span><span className="q">{r.score !== null ? r.score.toFixed(0) : "·"}</span><span className="px">{r.price !== null ? r.price.toFixed(2) : "·"}</span>
+          <span className={`pl ${r.status === "taken" ? "vt-bot-g" : r.status === "blocked" ? "vt-bot-r" : "vt-bot-t3"}`}>{r.status}</span>
+        </div>
+      ))}
+      {watch.rows.some((r) => r.blockReason) ? (
+        <div className="vt-bot-t3" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+          {watch.rows.filter((r) => r.blockReason).slice(0, 3).map((r) => `${r.ticker}: ${r.blockReason}`).join(" · ")}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 const SLEEVE_LABEL: Record<string, string> = { options: "options", floor: "ETF floor", stocks: "stocks" };
 const ACTIVITY_LABEL: Array<[keyof NonNullable<Sleeves["nonTrade"]>["groups"], string]> = [["dividends", "div"], ["interest", "int"], ["fees", "fees"], ["journals", "journals"], ["optionEvents", "option events"], ["corporate", "corp"], ["transfers", "transfers"], ["other", "other"]];

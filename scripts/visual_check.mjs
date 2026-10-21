@@ -2809,6 +2809,22 @@ async function main() {
           const legend = await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-legend .k').count();
           if (!legend) fail("chart: no legend row (phase / R / scale-outs)");
         }
+        // WATCH (2026-10-21, slice B): the last scan's names with what the
+        // trade loop did with each, and a click charts a name that is not a
+        // position (price only — a chip tagged watch, never a stop/target).
+        if (name === "bot") {
+          const rows = page.locator('section.vt-bot-panel[data-panel="watch"] .vt-bot-trow');
+          const n = await rows.count();
+          if (n < 3) fail(`watch: ${n} rows from a fixture scan with 3 names`);
+          else {
+            const statuses = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-status")));
+            if (!statuses.includes("taken") || !statuses.includes("blocked")) fail(`watch: statuses ${statuses.join(",")} lack taken / blocked`);
+            const row = page.locator('section.vt-bot-panel[data-panel="watch"] .vt-bot-trow[data-status="blocked"]').first();
+            if (vp.touch) await row.tap(); else await row.click();
+            await page.waitForTimeout(300);
+            if (!(await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-chip[data-watch="true"]').count())) fail("watch: clicking a candidate row did not chart it");
+          }
+        }
         for (const id of panels) {
           try {
             // hold + pin toggle and report it
