@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { positionOverlay, optionOverlay, overlayFor, underlyingOf, type OverlaySubject } from "./levels";
+import { positionOverlay, optionOverlay, overlayFor, underlyingOf, candidateOverlay, type OverlaySubject } from "./levels";
 import { FALLBACK_THEME } from "./draw";
 import type { PositionLevels } from "../../../../shared/positionLevels";
 
@@ -76,4 +76,18 @@ test("underlyingOf: a stock charts itself, an option leg its underlying from the
   assert.equal(underlyingOf({ ticker: "CRWV261120P00055000", isOption: true, optionMeta: { underlyingTicker: "CRWV" } }), "CRWV");
   assert.equal(underlyingOf({ ticker: "TEM261120P00070000", isOption: true, optionMeta: null }), "TEM");
   assert.equal(underlyingOf({ ticker: "", isOption: true }), null);
+});
+
+test("the entry marker is anchored at the fill time from heldMinutes; a candidate draws only the scan price with an honest note", () => {
+  const now = Date.parse("2026-10-21T14:00:00Z");
+  const o = positionOverlay(pos(lv({ heldMinutes: 90 })), T, now);
+  assert.equal(o.markers.length, 1);
+  assert.equal(o.markers[0].timeS, (now - 90 * 60_000) / 1000);
+  assert.equal(o.markers[0].price, 100);
+  assert.deepEqual(positionOverlay(pos(lv({ heldMinutes: null })), T, now).markers, []);
+  const c = candidateOverlay({ ticker: "NVDA", rank: 2, score: 73.4, price: 184.2, action: "BUY", reasons: ["Momentum 1m +9.8%"], sector: "Semiconductors", admitted: true, changePct: 2.1 }, T);
+  assert.deepEqual(c.levels.map((l) => [l.label, l.price, l.muted]), [["price at scan", 184.2, true]]);
+  assert.ok(c.legend.some(([k, v]) => k === "score" && v === "73.4 · admitted"));
+  assert.ok(c.notes[0].startsWith("a candidate has no stop or target yet"));
+  assert.deepEqual(c.zones, []);
 });

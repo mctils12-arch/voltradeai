@@ -16,7 +16,7 @@ import {
   iOf, pxPerBar, fmtBarTime, fmtPrice,
 } from "./scales";
 import { draw, readTheme, geometry, FALLBACK_THEME, type Theme, type DrawLevel, type DrawZone, type DrawMarker } from "./draw";
-import { overlayFor, type OverlaySubject, type Overlay } from "./levels";
+import { EMPTY_OVERLAY, type Overlay } from "./levels";
 import { BOT_READ_TIMEOUT_MS } from "../useBotData";
 import { fmtAge, MINUS } from "../format";
 
@@ -64,7 +64,7 @@ export function useBars(symbol: string | null, tf: Timeframe, paused = false) {
 
 // ── controller (no React inside) ────────────────────────────────────────────
 export interface ChartOverlay { levels: DrawLevel[]; zones: DrawZone[]; markers: DrawMarker[] }
-const EMPTY_OVERLAY: ChartOverlay = { levels: [], zones: [], markers: [] };
+const EMPTY_CHART_OVERLAY: ChartOverlay = { levels: [], zones: [], markers: [] };
 /** The backing store scales with the square of the pixel ratio; the device
  *  tier (lib/deviceTier surfacePixelRatio) decides the cap, never the raw
  *  devicePixelRatio (Rendering & Motion Law: "DPR 3 capped to 2" on the S24;
@@ -76,7 +76,7 @@ export class ChartController {
   n = 0;
   size = { w: 0, h: 0, dpr: 1 };
   cross: { x: number; y: number } | null = null;
-  overlay: ChartOverlay = EMPTY_OVERLAY;
+  overlay: ChartOverlay = EMPTY_CHART_OVERLAY;
   tf: Timeframe = "1Hour";
   theme: Theme = FALLBACK_THEME;
   showVolume = true;
@@ -178,7 +178,7 @@ export class ChartController {
     if (this.disposed) return;
     this.disposed = true;
     this.unregister(); this.detachFrom(); this.detachTo();
-    this.bars = []; this.n = 0; this.overlay = EMPTY_OVERLAY; this.onCross = null;
+    this.bars = []; this.n = 0; this.overlay = EMPTY_CHART_OVERLAY; this.onCross = null;
   }
 }
 
@@ -196,7 +196,8 @@ export const LOADING_WATCHDOG_MS = 30_000;
 export interface BotChartProps {
   /** what to fetch bars for (an option leg charts its underlying) */
   symbol: string | null;
-  subject: OverlaySubject | null;
+  /** the levels, zones, markers and legend for the subject, in the page's theme (levels.ts) */
+  overlayFor: (theme: Theme) => Overlay;
   tf: Timeframe;
   onTf: (tf: Timeframe) => void;
   /** the symbol strip (its own wrapping row above the chart) */
@@ -205,7 +206,7 @@ export interface BotChartProps {
   paused?: boolean;
 }
 
-export function BotChart({ symbol, subject, tf, onTf, top, paused = false }: BotChartProps) {
+export function BotChart({ symbol, overlayFor, tf, onTf, top, paused = false }: BotChartProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctrlRef = useRef<ChartController | null>(null);
@@ -320,18 +321,16 @@ export function BotChart({ symbol, subject, tf, onTf, top, paused = false }: Bot
     c.setBars(bars ?? [], refit);
   }, [bars, seriesKey, tf]);
 
-  const overlay: Overlay = useMemo(() => (subject ? overlayFor(subject, theme) : { levels: [], zones: [], legend: [], notes: [] }), [subject, theme]);
+  const overlay: Overlay = useMemo(() => (symbol ? overlayFor(theme) : EMPTY_OVERLAY), [symbol, overlayFor, theme]);
   useEffect(() => {
     const c = ctrlRef.current; if (!c) return;
     const markers: DrawMarker[] = [];
-    const lv = subject?.levels;
-    if (bars && subject && !subject.isOption && lv?.heldMinutes != null && subject.entryPrice !== null && Number.isFinite(subject.entryPrice)) {
-      const entryS = (Date.now() - lv.heldMinutes * 60_000) / 1000;
-      const i = barIndexAt(bars, entryS, timeframeSpec(tf).minutes);
-      if (i !== null) markers.push({ index: i, price: subject.entryPrice, color: theme.accent, shape: "up", label: "in" });
+    if (bars) for (const m of overlay.markers) {
+      const i = barIndexAt(bars, m.timeS, timeframeSpec(tf).minutes);
+      if (i !== null) markers.push({ index: i, price: m.price, color: m.color, shape: m.shape, label: m.label });
     }
     c.setOverlay({ levels: overlay.levels, zones: overlay.zones, markers });
-  }, [overlay, bars, subject, theme, tf]);
+  }, [overlay, bars, tf]);
 
   // clock for the age line and the loading watchdog
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1_000); return () => clearInterval(id); }, []);

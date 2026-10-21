@@ -20,6 +20,8 @@ async function getJson<T>(url: string, timeoutMs: number = BOT_READ_TIMEOUT_MS):
 export interface BotStatus {
   active: boolean; killSwitch: boolean; equityPeak: number; maxDrawdownPct: number;
   autoResume?: unknown; mode?: string; circuitBreakerActive?: boolean; consecutiveStopLosses?: number;
+  /** the Node admission threshold a scanner trade must clear */
+  minScoreThreshold?: number;
 }
 export interface BotAccount {
   equity: number; lastEquity?: number; cash?: number; buyingPower?: number; dailyPnL?: number; dailyPnLPct?: number;
@@ -68,7 +70,10 @@ export interface Insight {
   };
   error?: string;
 }
-export interface LastScan { timestamp?: string; scanned?: number; new_trades?: unknown[]; top_10?: Array<{ ticker: string; score: number; side?: string; action_label?: string; reasons?: string[] }>; sizing_blocks?: Array<{ ticker: string; reason: string; score?: number | null; strategy?: string }>; scan_phase_times?: unknown }
+/** bot_engine.py scan result as served by /api/bot/last-scan. top_10 carries
+ *  the per-pick rank, sector and factor breakdown (ALPHA AUDIT batch 11). */
+export interface LastScanPick { ticker: string; score: number; price?: number; change_pct?: number; side?: string; action_label?: string; reasons?: string[]; rank?: number; tiebreak_score?: number | null; factor_strength?: number | null; sector_clash?: boolean; sector?: string | null; factors?: { momentum?: number | null; mean_reversion?: number | null; vrp?: number | null; squeeze?: number | null; volume?: number | null } }
+export interface LastScan { timestamp?: string; scanned?: number; filtered?: number; deep_analyzed?: number; current_positions?: number; slots_available?: number; options_slots_available?: number; partial?: boolean; new_trades?: unknown[]; top_10?: LastScanPick[]; sizing_blocks?: Array<{ ticker: string; reason: string; score?: number | null; strategy?: string }>; scan_phase_times?: unknown }
 /** GET /api/bot/benchmark (server/spyBenchmark.ts): the account vs
  *  buy-and-hold SPY on dividend-adjusted closes. Null windows = not enough
  *  data on one side — never a zero. */
