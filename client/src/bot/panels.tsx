@@ -9,6 +9,7 @@ import type { Theme } from "./chart/draw";
 import { candidateKey, FACTOR_KEYS, FACTOR_SHORT, type WatchModel, type WatchCandidate } from "./watch";
 import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
+import { flashAttr, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
 import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
@@ -45,11 +46,13 @@ export interface Chrome {
   /** the pop-out control is offered (not on touch / the phone tier) */
   canPop: boolean;
 }
-export function Panel({ chrome, title, help, status, meta, ageMs, children, scroll, style }: {
+export function Panel({ chrome, title, help, status, meta, ageMs, children, scroll, style, pulse }: {
   chrome: Chrome; title: string; help?: GlossaryKey; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
+  /** a fresh loud event this panel concerns (live.ts): the frame pulses once */
+  pulse?: EventKind;
 }) {
   return (
-    <section className="vt-bot-panel" data-panel={chrome.id} data-held={chrome.held ? "true" : undefined} data-pinned={chrome.pinned ? "true" : undefined} style={style}>
+    <section className="vt-bot-panel" data-panel={chrome.id} data-held={chrome.held ? "true" : undefined} data-pinned={chrome.pinned ? "true" : undefined} data-pulse={pulse} style={style}>
       <div className="vt-bot-ph">
         <span className="vt-bot-ti">{title}{help ? <Help k={help} /> : null}</span>
         {status}
@@ -76,10 +79,14 @@ export function Panel({ chrome, title, help, status, meta, ageMs, children, scro
 }
 
 // ── KPI strip ───────────────────────────────────────────────────────────────
-export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold }: {
+export type KpiKey = "expectancy" | "winRate" | "vsSpy" | "equity";
+export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events }: {
   perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined; bench: Benchmark | undefined;
   now: number; state: DerivedState; hold: boolean; onHold: () => void;
+  /** values that changed since the last tick (live.ts flashes) and the latest decisions (newest first) */
+  flash?: Partial<Record<KpiKey, Flash>>; events?: LiveEvent[];
 }) {
+  const latest = events?.[0];
   const edge = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
   const n = num(perf?.totalTrades);
   const equity = num(account?.equity);
@@ -115,14 +122,14 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
           <div className="vt-bot-eb">Expectancy / trade · net<Help k="expectancy" /></div>
-          {edge ? <div className={`vt-bot-hero ${edge.expectancy < 0 ? "vt-bot-r" : edge.expectancy > 0 ? "vt-bot-g" : ""}`}>{fmtPct(edge.expectancy)}</div> : <div className="vt-bot-hero vt-bot-t3">—</div>}
+          {edge ? <div className={`vt-bot-hero ${edge.expectancy < 0 ? "vt-bot-r" : edge.expectancy > 0 ? "vt-bot-g" : ""}`} data-flash={flashAttr(flash?.expectancy, now)}>{fmtPct(edge.expectancy)}</div> : <div className="vt-bot-hero vt-bot-t3">—</div>}
         </div>
         <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>n {n ?? "?"}<br />{n !== null && n < 30 ? "wide band" : "trigger-price pnl"}</div>
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
           <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Win rate · breakeven<Help k="winRate" /></div>
-          {edge ? <div className="vt-bot-kpiv"><span className={edge.winRate < edge.breakevenWr ? "vt-bot-r" : "vt-bot-g"}>{(edge.winRate * 100).toFixed(1)}%</span> <span className="vt-bot-t3">/ {(edge.breakevenWr * 100).toFixed(1)}%</span></div> : <div className="vt-bot-kpiv vt-bot-t3">—</div>}
+          {edge ? <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.winRate, now)}><span className={edge.winRate < edge.breakevenWr ? "vt-bot-r" : "vt-bot-g"}>{(edge.winRate * 100).toFixed(1)}%</span> <span className="vt-bot-t3">/ {(edge.breakevenWr * 100).toFixed(1)}%</span></div> : <div className="vt-bot-kpiv vt-bot-t3">—</div>}
           <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{edge?.payoff ? `payoff ${edge.payoff.toFixed(2)}` : "payoff —"}{num(perf?.profitFactor) !== null ? ` · pf ${Number(perf?.profitFactor).toFixed(2)}` : ""}</div>
         </div>
         {edge ? <div className="vt-bot-wrbar"><div className="vt-bot-bar"><i style={{ width: `${Math.min(100, edge.winRate * 100)}%`, background: "var(--accent-red)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, edge.breakevenWr * 100)}%` }} /></div></div> : null}
@@ -132,7 +139,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
           <div className="vt-bot-eb">vs holding SPY<Help k="vsSpy" /></div>
           {bench?.since ? (
             <>
-              <div className="vt-bot-kpiv" title={`account return minus SPY total return (dividend-adjusted closes through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
+              <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.vsSpy, now)} title={`account return minus SPY total return (dividend-adjusted closes through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
                 <span className={bench.since.gapPp < 0 ? "vt-bot-r" : "vt-bot-g"}>{fmtSigned(bench.since.gapPp, 1, " pt")}</span>
               </div>
               <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>
@@ -151,7 +158,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
           <div className="vt-bot-eb">Equity · from peak<Help k="equityPeak" /></div>
-          <div className="vt-bot-kpiv">{fmtMoney(equity)} {dd !== null ? <span className={`${dd < 0 ? "vt-bot-r" : "vt-bot-g"}`} style={{ fontSize: 14 }}>{fmtPct(dd)}</span> : null}</div>
+          <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.equity, now)}>{fmtMoney(equity)} {dd !== null ? <span className={`${dd < 0 ? "vt-bot-r" : "vt-bot-g"}`} style={{ fontSize: 14 }}>{fmtPct(dd)}</span> : null}</div>
           <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>peak {fmtMoney(peak)} · kill {maxDd !== null ? `${MINUS}${maxDd}%` : "—"}{toLine !== null ? ` · ${toLine.toFixed(2)} pt to line` : ""}</div>
         </div>
         {vals.length > 1 ? (
@@ -171,14 +178,21 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
         </div>
       </div>
       <div className="vt-bot-panel">
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
           <div className="vt-bot-eb">Now<Help k="now" /></div>
           <div className="vt-bot-row" style={{ gap: 8 }}>
             <span className={`vt-bot-st ${stateCls}`} style={{ fontSize: 15, fontWeight: 600 }}><span className="vt-bot-dot" />{stateWord}</span>
             {hold ? <span className="vt-bot-st vt-bot-t1"><span className="vt-bot-dot" />layout held · bot live</span> : null}
+            <span className="vt-bot-row" style={{ marginLeft: "auto", gap: 2, flex: "0 0 auto" }}><Help k="hold" /><button type="button" className="vt-bot-wbtn" aria-pressed={hold} onClick={onHold}>hold</button></span>
           </div>
+          {latest ? (
+            // the newest decision the audit log carries (live.ts): a fresh one slides in and stays marked for FRESH_MS;
+            // it sits under the state row (the hold control shares that row) so it gets the tile's whole width
+            <div className="vt-live-ev" data-kind={latest.kind} data-loud={latest.loud ? "true" : undefined} data-fresh={now - latest.t < FRESH_MS ? "true" : undefined} title={`${fmtClockET(latest.time)} ET · ${latest.detail}`}>
+              <span className="vt-live-ev-k">{latest.title}</span>{latest.detail ? <span className="vt-live-ev-d"> · {latest.detail}</span> : null}<span className="vt-live-ev-t"> · {fmtAge(now - latest.t)}</span>
+            </div>
+          ) : null}
         </div>
-        <span className="vt-bot-row" style={{ marginLeft: "auto", gap: 2 }}><Help k="hold" /><button type="button" className="vt-bot-wbtn" aria-pressed={hold} onClick={onHold}>hold</button></span>
       </div>
     </div>
   );
@@ -553,7 +567,7 @@ export function SleeveSummary({ sleeves }: { sleeves: Sleeves | undefined }) {
   );
 }
 
-export function BookBody({ positions, focus, onSelect, sleeves }: { positions: BotPosition[] | undefined; focus: string | null; onSelect: (ticker: string) => void; sleeves?: Sleeves | undefined }) {
+export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs }: { positions: BotPosition[] | undefined; focus: string | null; onSelect: (ticker: string) => void; sleeves?: Sleeves | undefined; rowFlash?: Partial<Record<string, Flash>>; nowMs?: number }) {
   if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
   if (!positions.length) return <div className="vt-bot-list"><SleeveSummary sleeves={sleeves} /><div className="vt-bot-empty"><St word="flat · no positions" /></div></div>;
   const isOpt = (p: BotPosition) => !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
@@ -566,7 +580,7 @@ export function BookBody({ positions, focus, onSelect, sleeves }: { positions: B
           <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>{name} · {g.length}</div>
           {g.map((p) => { const pl = num(p.pnlPct); return (
             <div key={p.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === p.ticker} title={`${p.ticker} · chart it`} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
-              <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span><span className="q">{num(p.qty) ?? "·"}</span><span className="px">{num(p.currentPrice)?.toFixed(2) ?? "·"}</span><span className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}</span>
+              <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span><span className="q">{num(p.qty) ?? "·"}</span><span className="px">{num(p.currentPrice)?.toFixed(2) ?? "·"}</span><span data-flash={flashAttr(rowFlash?.[p.ticker], nowMs ?? 0)} className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}</span>
             </div>); })}
         </div>
       ))}

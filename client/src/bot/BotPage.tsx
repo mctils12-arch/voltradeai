@@ -17,7 +17,8 @@ import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, I
 import { watchModel } from "./watch";
 import { Help } from "./help";
 import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
-import { fmtAge } from "./format";
+import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
+import { fmtAge, edgeStats } from "./format";
 
 function useNow(periodMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -130,6 +131,33 @@ export default function BotPage() {
   const killSince = useMemo(() => { const k = audit.find((r) => r.type === "DRAWDOWN-KILL"); return status?.killSwitch && k ? Date.parse(k.time) : null; }, [audit, status?.killSwitch]);
   // what the scan looked at, decided and refused (watch.ts) — replayed audit rows when replaying
   const watch = useMemo(() => watchModel({ lastScan, audit, threshold: num(status?.minScoreThreshold), nowMs: effNow }), [lastScan, audit, status?.minScoreThreshold, effNow]);
+  // LIVE CHANGE (live.ts): the decisions that landed since the page's first
+  // look (minus 15 min, so a fresh page shows what just happened), newest
+  // first — the Now tile's latest line; a fresh LOUD one pulses the panel it
+  // concerns. Replay shows the replayed moment's events.
+  const firstLook = useRef(Date.now() - 15 * 60_000);
+  const events: LiveEvent[] = useMemo(() => liveEvents(audit, replayAt !== null ? replayAt - 15 * 60_000 : firstLook.current), [audit, replayAt]);
+  const pulses = useMemo(() => {
+    const out: Partial<Record<PanelId, EventKind>> = {};
+    for (const e of events) {
+      if (!e.loud || now - e.t >= FRESH_MS) continue;
+      const targets: PanelId[] = e.kind === "trade" || e.kind === "exit" ? ["book", "chart"] : e.kind === "queue" || e.kind === "refusal" ? ["watch"] : e.kind === "halt" || e.kind === "resume" || e.kind === "error" ? ["state", "stages"] : ["model"];
+      for (const id of targets) if (!out[id]) out[id] = e.kind;
+    }
+    return out;
+  }, [events, now]);
+  // values that changed since the previous tick flash with their direction
+  const kpiVals = { expectancy: edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss)?.expectancy ?? null, winRate: num(perf?.winRate), vsSpy: num(d.benchmark.data?.since?.gapPp), equity: num(account?.equity) };
+  const prevKpi = useRef<typeof kpiVals | null>(null);
+  const kpiFlash = useRef<Partial<Record<keyof typeof kpiVals, Flash>>>({});
+  kpiFlash.current = flashes(prevKpi.current, kpiVals, kpiFlash.current, now);
+  prevKpi.current = kpiVals;
+  const rowVals: Record<string, number | null> = {};
+  for (const p of d.positions.data ?? []) rowVals[p.ticker] = num(p.pnlPct);
+  const prevRows = useRef<Record<string, number | null> | null>(null);
+  const rowFlash = useRef<Partial<Record<string, Flash>>>({});
+  rowFlash.current = flashes(prevRows.current, rowVals, rowFlash.current, now);
+  prevRows.current = rowVals;
 
   // ticks since hold: count data updates
   const updates = [d.status, d.account, d.positions, d.audit, d.performance, d.market, d.insight, d.lastScan, d.orders].reduce((a, q) => a + (q.dataUpdatedAt || 0), 0);
@@ -241,7 +269,7 @@ export default function BotPage() {
     watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
     chart: <ChartBody positions={d.positions.data} candidates={watch.candidates} focus={focusSym} onFocus={focus} paused={flags.held.includes("chart")} />,
-    book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} />,
+    book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />,
     orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
   };
@@ -260,7 +288,7 @@ export default function BotPage() {
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
-    const common = { chrome: c, ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       case "issues": return <Panel {...common} title="Issues" help="issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
@@ -292,7 +320,7 @@ export default function BotPage() {
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
   const tpl = TEMPLATES[tier];
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} />;
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped

@@ -4768,3 +4768,26 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-page[data-pane] > .vt-bot-kpi { flex: 0 0 auto; }
 .vt-bot-ghost[data-popped="true"] { flex-direction: column; gap: 8px; border-style: solid; border-color: var(--accent); color: var(--text-secondary); }
 .vt-bot-popnote { display: flex; align-items: center; gap: 10px; margin: 8px 8px 0; padding: 6px 10px; border: 1px solid var(--accent-orange); border-radius: var(--radius-md); font-size: 12px; color: var(--text-primary); flex: 0 0 auto; }
+
+/* ── Bot page live change (slice F, 2026-10-21): a value that changed since the
+   last tick flashes with its direction; a fresh decision slides into the Now
+   tile; the panel a loud event concerns pulses once. Tokens only; all motion
+   off under prefers-reduced-motion. ── */
+@keyframes vt-flash-up { 0% { color: var(--accent-green); text-shadow: 0 0 10px var(--accent-green); } 100% { text-shadow: none; } }
+@keyframes vt-flash-down { 0% { color: var(--accent-red); text-shadow: 0 0 10px var(--accent-red); } 100% { text-shadow: none; } }
+@keyframes vt-flash-changed { 0% { color: var(--accent-bright); text-shadow: 0 0 10px var(--accent); } 100% { text-shadow: none; } }
+@keyframes vt-ev-in { 0% { opacity: 0; transform: translateY(4px); } 100% { opacity: 1; transform: none; } }
+@keyframes vt-pulse { 0% { box-shadow: 0 0 0 0 var(--accent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+[data-flash="up"] { animation: vt-flash-up 1.4s ease-out; }
+[data-flash="down"] { animation: vt-flash-down 1.4s ease-out; }
+[data-flash="changed"] { animation: vt-flash-changed 1.4s ease-out; }
+.vt-live-ev { margin-top: 3px; font-size: 11px; line-height: 1.3; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; contain: inline-size; } /* inline-size containment: the one-line decision never widens the Now tile (it contributes 0 to the KPI track's minimum and to the tile's content width), so the hold control is never pushed out of view — it takes the room the tile has and ellipsizes */
+.vt-live-ev .vt-live-ev-k { font-weight: 600; color: var(--text-primary); }
+.vt-live-ev[data-kind="trade"] .vt-live-ev-k, .vt-live-ev[data-kind="queue"] .vt-live-ev-k { color: var(--accent-green); }
+.vt-live-ev[data-kind="exit"] .vt-live-ev-k, .vt-live-ev[data-kind="refusal"] .vt-live-ev-k { color: var(--accent-orange); }
+.vt-live-ev[data-kind="halt"] .vt-live-ev-k, .vt-live-ev[data-kind="error"] .vt-live-ev-k { color: var(--accent-red); }
+.vt-live-ev .vt-live-ev-t { color: var(--text-tertiary); }
+.vt-live-ev[data-fresh="true"] { animation: vt-ev-in .35s ease-out; }
+.vt-bot-panel[data-pulse] { animation: vt-pulse 1.4s ease-out; }
+.vt-bot-panel[data-pulse="exit"], .vt-bot-panel[data-pulse="halt"], .vt-bot-panel[data-pulse="error"] { --accent: var(--accent-red); }
+@media (prefers-reduced-motion: reduce) { [data-flash], .vt-live-ev[data-fresh="true"], .vt-bot-panel[data-pulse] { animation: none; } }
