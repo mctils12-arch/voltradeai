@@ -109539,3 +109539,10 @@ CHANGE: PR #1174 (2026-09-25) closed the "GEM point-layer suite never fixtured" 
 VISUAL: `node scripts/visual_check.mjs --page data` PASS at 390 / 768 / 1440 plus the all-off and layer-scale renders, 0 hard failures, with the four layers now toggling against real two-row routes (incl. an iron-steel row whose popup reads the joined furnace units).
 HONESTY: fixture data, not a product change; the layers themselves are unchanged. #1174 and #1173 were closed with the findings; their commits remain at refs/pull/<n>/head.
 STARVED: yes.
+
+## 2026-10-21 15:20Z — [PRODUCT] Bot page: chart room — the right column re-cut so the chart's legend is never clipped and the chart is larger (v1.0.1140)
+TERRITORY: T-CLIENT (client/src/bot/BotPage.tsx only).
+CHANGE: the human's "I'd rather have a larger chart", and a defect slice C surfaced: at 1440 the right column gave the chart 1.9 of 3.8 shares, which left room for two legend rows — phase · R and 1R — while entry · stop · scale-outs · target · floor · held · regime sat clipped under the Book (the pop-out pane showed the whole legend because it had the room). Now the chart takes 2.4 of 3.5 (Book 1.1), and the Orders panel sits at its natural one-line height while nothing is working (`0 0 auto`), growing back into a 0.65 share only when real orders exist. The Book keeps its scroll; its sleeve summary stays visible, the position rows scroll.
+VISUAL (promotion rule 6): `node scripts/visual_check.mjs --page bot` and `--page botidle` PASS at 390 / 768 / 1440, 0 hard failures. At 1440 latched the chart panel now shows every legend row — phase · R · entry 741.32 · stop 719.08 · 3.00% · from entry · 1R · ATR · scale-outs · target 774.68 · floor 593.06 · held 3d · regime neutral — above a Book that still carries its full sleeve summary, and Orders reads as one line (none working · 2 cancelled by deploy today).
+HONESTY: a layout share change only; no number, mechanism or data path changed.
+STARVED: yes (slice F next).
