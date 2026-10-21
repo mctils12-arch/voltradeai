@@ -2812,6 +2812,33 @@ async function main() {
           else if (info.error) fail(`chart: canvas unreadable (${info.error})`);
           else if (info.w < 200 || info.h < 120) fail(`chart: canvas is ${info.w}×${info.h}px`);
           else if (!info.total || info.painted / info.total < 0.02) fail(`chart: canvas blank (${info.painted}/${info.total} sampled pixels painted)`);
+          // HELP (slice C, 2026-10-21): every "?" opens one card inside the
+          // viewport that never covers its own anchor; Escape closes it.
+          // Sampled: the first eight glyphs on the page.
+          {
+            const glyphs = page.locator("button.vt-help");
+            const total = await glyphs.count();
+            if (total < 20) fail(`help: only ${total} "?" glyphs on the page`);
+            const sample = Math.min(8, total);
+            for (let g = 0; g < sample; g++) {
+              const btn = glyphs.nth(g);
+              await btn.scrollIntoViewIfNeeded();
+              await press(btn); await page.waitForTimeout(120);
+              const info = await page.evaluate(() => {
+                const c = document.querySelector(".vt-help-card");
+                const b = document.querySelector('button.vt-help[aria-expanded="true"]');
+                if (!c || !b) return { open: false };
+                const r = c.getBoundingClientRect(), a = b.getBoundingClientRect();
+                const inside = r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+                const overlaps = !(r.right <= a.left || r.left >= a.right || r.bottom <= a.top || r.top >= a.bottom);
+                return { open: true, inside, overlaps, text: (c.textContent || "").trim().length };
+              });
+              if (!info.open) fail(`help: glyph ${g} opened no card`);
+              else { if (!info.inside) fail(`help: glyph ${g}'s card leaves the viewport`); if (info.overlaps) fail(`help: glyph ${g}'s card covers its anchor`); if (info.text < 40) fail(`help: glyph ${g}'s card is empty`); }
+              await page.keyboard.press("Escape"); await page.waitForTimeout(80);
+              if (await page.locator(".vt-help-card").count()) { fail(`help: Escape did not close glyph ${g}'s card`); await page.mouse.click(2, 2); await page.waitForTimeout(80); }
+            }
+          }
           const chips = await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-chip').count();
           if (chips < 2) fail(`chart: symbol strip shows ${chips} chips for 8 positions`);
           const legend = await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-legend .k').count();

@@ -17,6 +17,8 @@ import {
 } from "./scales";
 import { draw, readTheme, geometry, FALLBACK_THEME, type Theme, type DrawLevel, type DrawZone, type DrawMarker } from "./draw";
 import { EMPTY_OVERLAY, type Overlay } from "./levels";
+import { Help } from "../help";
+import type { GlossaryKey } from "../glossary";
 import { BOT_READ_TIMEOUT_MS } from "../useBotData";
 import { fmtAge, MINUS } from "../format";
 
@@ -192,6 +194,8 @@ export function barIndexAt(bars: readonly Bar[], timeS: number, minutes: number)
 
 // ── the component ───────────────────────────────────────────────────────────
 export const LOADING_WATCHDOG_MS = 30_000;
+/** glossary entry behind each legend label (levels.ts words) */
+const LEGEND_HELP: Record<string, GlossaryKey> = { phase: "phase", R: "rMultiple", entry: "entry", stop: "stop", "1R": "atr", "scale-outs": "scaleOut", target: "target", floor: "hardFloor", held: "timeStop", regime: "trailingStop", leg: "strike", expiry: "strike", premium: "breakevenAtExpiry", "manager target": "managerTarget", price: "priceAtScan", score: "score", why: "factors", rank: "admission" };
 
 export interface BotChartProps {
   /** what to fetch bars for (an option leg charts its underlying) */
@@ -374,7 +378,7 @@ export function BotChart({ symbol, overlayFor, tf, onTf, top, paused = false }: 
       </div>
       {overlay.legend.length || overlay.notes.length ? (
         <div className="vt-chart-legend">
-          {overlay.legend.map(([k, v]) => <span key={k}><span className="k">{k}</span><span className="v">{v}</span></span>)}
+          {overlay.legend.map(([k, v]) => <span key={k}><span className="k">{k}{LEGEND_HELP[k] ? <Help k={LEGEND_HELP[k]} /> : null}</span><span className="v">{v}</span></span>)}
           {overlay.notes.map((n, k) => <span key={`n${k}`} className="vt-chart-note">{n}</span>)}
         </div>
       ) : null}

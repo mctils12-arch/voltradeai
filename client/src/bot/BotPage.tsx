@@ -15,6 +15,7 @@ import { Director } from "./director";
 import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, type LayoutFlags, type PanelId, type Rect, type Tier } from "./zoneModel";
 import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, ICONS, type Chrome, type ActionKind } from "./panels";
 import { watchModel } from "./watch";
+import { Help } from "./help";
 import { fmtAge } from "./format";
 
 function useNow(periodMs = 1000): number {
@@ -191,18 +192,18 @@ export default function BotPage() {
     const c = chrome(id);
     const common = { chrome: c, ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
-      case "stages": return <Panel {...common} title="Stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
-      case "issues": return <Panel {...common} title="Issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
-      case "state": return <Panel {...common} title={stateTitle} status={shown === "incident" ? <span className="vt-bot-st vt-bot-r"><span className="vt-bot-dot" />first-out</span> : replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay</span> : undefined} style={{ flex: shown === "closed" ? "1 1 auto" : "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
+      case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
+      case "issues": return <Panel {...common} title="Issues" help="issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
+      case "state": return <Panel {...common} title={stateTitle} help={shown === "candidate" || shown === "placed" || shown === "exit" ? "decision" : "now"} status={shown === "incident" ? <span className="vt-bot-st vt-bot-r"><span className="vt-bot-dot" />first-out</span> : replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} style={{ flex: shown === "closed" ? "1 1 auto" : "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share (maxHeight); the panel fills its
       // slot — applying the cap to both halved the body to a strip (harness
       // 2026-10-21)
-      case "watch": return <Panel {...common} title="Watch" meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
-      case "model": return <Panel {...common} title="Model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
-      case "chart": return <Panel {...common} title="Chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "1.9 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.25 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "orders": return <Panel {...common} title="Orders" style={{ flex: "0.65 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
+      case "watch": return <Panel {...common} title="Watch" help="watch" meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
+      case "model": return <Panel {...common} title="Model" help="model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
+      case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "1.9 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.25 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "orders": return <Panel {...common} title="Orders" help="orders" style={{ flex: "0.65 1 0", ...extraStyle }}>{body(id)}</Panel>;
+      case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
       default: return null;
     }
   };

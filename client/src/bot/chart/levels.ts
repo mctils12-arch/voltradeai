@@ -32,6 +32,8 @@ export interface OverlaySubject {
 }
 
 const f2 = (v: number | null | undefined, d = 2) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(d));
+/** a price for the legend: 2 decimals, 3 under $10 (the gutter pills do the same) */
+const px = (v: number) => f2(v, v < 10 ? 3 : 2);
 const signed = (v: number | null | undefined, d = 1, suffix = "") => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${v < 0 ? MINUS : "+"}${Math.abs(v).toFixed(d)}${suffix}`);
 
 const STOP_WORDS: Record<NonNullable<PositionLevels["stopFrom"]>, string> = {
@@ -90,10 +92,14 @@ export function positionOverlay(p: OverlaySubject, theme: Theme, nowMs: number =
   // legend
   legend.push(["phase", `${lv.phase} of 4`]);
   legend.push(["R", `${signed(lv.rMultiple, 2, "R")} · peak ${signed(lv.peakR, 2, "R")}`]);
-  if (lv.riskPct !== null) legend.push(["1R", `${f2(lv.riskPct, 2)}%${lv.atrPct !== null ? ` · ATR ${f2(lv.atrPct, 2)}%` : ""}${lv.stopPct !== null ? ` · stop ${f2(lv.stopPct, 2)}%` : ""}`]);
+  if (entry !== null && Number.isFinite(entry)) legend.push(["entry", px(entry)]);
+  if (lv.stopPrice !== null) legend.push(["stop", `${px(lv.stopPrice)}${lv.stopPct !== null ? ` · ${f2(lv.stopPct, 2)}%` : ""} · ${STOP_WORDS[lv.stopFrom ?? "entry"]}${lv.breakevenActive ? " · breakeven" : ""}${lv.stopSuppressed ? " · waits" : ""}`]);
+  if (lv.riskPct !== null) legend.push(["1R", `${f2(lv.riskPct, 2)}%${lv.atrPct !== null ? ` · ATR ${f2(lv.atrPct, 2)}%` : ""}`]);
   const done = lv.scaleOuts.filter((s) => s.done).length;
   const next = lv.scaleOuts.find((s) => !s.done && s.applicable);
   legend.push(["scale-outs", `${done} of 2${next ? ` · next at +${f2(next.rMultiple, 1)}R` : ""}${lv.breakevenActive ? " · breakeven stop on" : ""}`]);
+  if (lv.takeProfitPrice !== null && lv.takeProfitPct !== null) legend.push(["target", `${px(lv.takeProfitPrice)} · +${f2(lv.takeProfitPct, 1)}%${lv.takeProfitArmed ? " · armed" : " · after ⅔ out"}`]);
+  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) legend.push(["floor", `${px(lv.hardFloorPrice)} · ${MINUS}${lv.hardFloorPct}%`]);
   if (lv.originalQty !== null && lv.remainingQty !== null && lv.remainingQty !== lv.originalQty) legend.push(["shares", `${lv.remainingQty} of ${lv.originalQty} left`]);
   legend.push(["held", `${lv.daysHeld ?? "?"}d · time stop d${lv.timeStop.day} if ±${lv.timeStop.withinPct}%${lv.timeStop.armed ? " · armed" : ""}`]);
   if (lv.regime) legend.push(["regime", `${lv.regime.toLowerCase()} · ⅔ at ${f2(lv.scaleOut2R, 1)}R · trail ${f2(lv.trailAtrMult, 1)}×ATR`]);
@@ -140,7 +146,7 @@ export interface CandidateSubject { ticker: string; rank: number | null; score: 
 export function candidateOverlay(c: CandidateSubject, theme: Theme): Overlay {
   const levels: DrawLevel[] = [];
   const legend: Array<[string, string]> = [];
-  if (c.price !== null && Number.isFinite(c.price) && c.price > 0) levels.push({ price: c.price, color: theme.textDim, dash: "dot", label: "price at scan", muted: true });
+  if (c.price !== null && Number.isFinite(c.price) && c.price > 0) { levels.push({ price: c.price, color: theme.textDim, dash: "dot", label: "price at scan", muted: true }); legend.push(["price", px(c.price)]); }
   legend.push(["score", `${c.score === null ? "—" : c.score.toFixed(1)} · ${c.admitted === null ? "threshold not recorded" : c.admitted ? "admitted" : "below threshold"}`]);
   legend.push(["action", c.action.toLowerCase()]);
   if (c.rank !== null) legend.push(["rank", `#${c.rank}`]);
