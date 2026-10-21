@@ -109347,3 +109347,188 @@ MEASUREMENT INTEGRITY — before/after on identical inputs: every existing numbe
 TESTS: taxLedger.test.ts (terms by holding period; a wash sale's proportional disallowance, same-side only, window edges; netting short vs long and carryforward; the rate query parser; the after-tax arithmetic). Server suite 2572 / 2572 (diag.test.ts's pin that the owner route serves the literal shared `sleevesBody()` caught the first wiring — the rate query now branches around it, one shared body either way); client suite 1359 / 1359; tsc at the 6-error pin; ratchets green (pins moved: tests 611, assertions 21626). VISUAL (promotion rule 6): `node scripts/visual_check.mjs --page bot` and `--page botidle` PASS at 390 / 768 / 1440, 0 hard failures; the fixture's sleeves carry a tax block (a net loss, no tax, a carryforward) so the Book's "if taxed" line renders in every screenshot — at 1440 it reads short −$2.8k (380) · long $0 (0) · unknown −$121 (4) · wash 23 / $613 held back · est. tax $0 at 24/15 % · after tax −$3.0k, each term with its "?".
 NEXT: the honest benchmark the human asked for — after-tax account vs after-tax buy-and-hold SPY (SPY defers until sold) — needs the SPY leg modelled: a follow-up on /api/bot/benchmark, not this PR.
 STARVED: yes.
+
+
+<!-- salvaged 2026-10-21 from stranded docs-only PR #1311 (its branch never merged; the entry is reproduced verbatim, dated as written) -->
+## 2026-10-13 (scheduled-routine session, ~16:05Z, Tuesday midday) [NO-ACTION] — health green; F2 (floor regime dwell) not startable on current evidence
+
+Loop-health ratio (last 10 tags): 4 REPAIR (<7) — no thrash.
+Live (16:05Z): session_health_check all OK except advisory WARNs — daemon rss 439MB (>= 400MB trim, advisory) and deploy_freshness (live 1.0.1053 vs checkout 1.0.1054: normal post-merge deploy lag for #1309, not a freeze; deploy_gate 2xx, outage_duration clean). Liveness not dark.
+QUEUE HEAD: sweep item F2 (floor regime dwell; #2 of 7 from the 10-13 rule-conflict sweep). The sweep's per-defect detail was never filed — only the one-line index in the #1309 entry — so F2's claim cannot be re-read. Re-derived from code: _manage_spy_floor consumes get_market_regime/classify_regime_5level with no dwell/hysteresis, and the basket path is guarded only by FLOOR_BASKET_DRIFT_THRESHOLD (3% of equity), so a regime flapping near a threshold can move targets back and forth. Whether it DOES flap live is unmeasured: /api/diag/audit has no floor-regime entries and voltrade_floor_state.json stores only last_regime (no history).
+WHY NOT SHIPPED: a regime dwell is a trading-rule threshold change; RULE REVIEW requires counterfactual data or a backtest ablation, and backtest_v2 does not model the floor. Shipping on an unverified, unrecorded claim mid-session would break attribution.
+PRIOR (stated before measuring): regime flips for the floor are infrequent (<1/week) and the 10-12 QQQ churn was GLD/third-leg-driven (fixed #1309), so F2 may be moot.
+NEXT (queue-head, own PR): add a regime-transition log (append {ts, regime, target_pct} to the floor state on change) so F2 can be judged on observed flip frequency; only then decide on dwell. Also: file F2-F7 detail in open_questions.md next session that has the sweep text.
+MERGE NOTE: docs-only; touches no trading path.
+STARVED: yes (F2-F7 queued, blocked on evidence/recorded detail).
+
+
+<!-- salvaged 2026-10-21 from stranded docs-only PR #1253 (its branch never merged; the entry is reproduced verbatim, dated as written) -->
+## 2026-10-05 (scheduled-routine session, ~evening Monday) [PIPELINE] — T-DATACORE (docs-only, no code_version change) — FLIGHTPLAN `unplaced` BREAKDOWN FROM LIVE routeShape COUNTERS
+
+HEALTH: green (status ok, serving.failing empty). research_state_check clean (thrash 0/10, no audit overdue, nasr current). Took NEXT from the 18:10Z entry: why ~80% of eligible rows are `unplaced`.
+PRIOR: the loss is dominated by messages whose route text cannot be placed (no expandedRoute), not by parse faults.
+RESULT (live /api/data/aircraft/plan-status swim.routeShape.counters, cumulative per-message since last restart, planStore 5291): placed 108,366 (69%; of which airwayExpanded 23,548 and directFixPlaced 17,100 are subsets by route kind), noExpanded 38,964 (25%), expandedNoPoints 7,417 (5%). Top noExpanded shapes carry only nasRouteText of the form `<AP>./.<FIX><nn>..<FIX>.` (the 1,263/1,594/2,786-count samples), i.e. a handful of tokens with a `./.` departure-procedure separator, not an empty route.
+VERDICT: counters count messages, not unique flights, so 69% placed does not equal the 20% flight-level placement seen in gate-1; the two views differ and the gap is itself unexplained (candidate causes: placed plans amended/superseded by later unplaced messages overwriting the store, or the airline-callsign eligible subset skewing to a different message mix). No claim. The actionable lead is the `./.` nasRouteText shape: if the text parser (server/swimSfdps.ts ~l.363) does not handle the `./.` separator, those 25% never place. NEXT (own PR, T-DATACORE): reproduce with a stored sample of that shape, test whether the text parser places it, and check whether later messages overwrite a placed plan with an unplaced one. No ladder promotion. ROLLBACK: n/a (docs-only). MERGE: any time.
+STARVED: no
+
+
+<!-- salvaged 2026-10-21 from stranded docs-only PR #1238 (its branch never merged; the entry is reproduced verbatim, dated as written) -->
+## 2026-10-03 (scheduled-routine session #4, market hours) [NO-ACTION] — JUDGED v1.0.1021 nasr_airways staging fix LIVE: prior CONFIRMED
+
+HEALTH: session_health_check green (deploy_gate 2xx, liveness alive, v1.0.1021 matches checkout); only the known #21 alt_data WARN. research_state_check: thrash 1/10 REPAIR, 0 STARVED, no audit overdue.
+JUDGED (prior stated in the #3 [REPAIR] entry: "airwayExpanded becomes >0 after deploy"): live /api/data/aircraft/plan-status swim.routeShape.counters since container boot (~2.7 h): airwayExpanded 31670 (was 0 on v1.0.1020), directFixPlaced 21887, placed 138565, expandedNoPoints 11508, noExpanded 47808. Airway expansion is alive on prod. CONFIRMED.
+UPDATE (same session, gate-1 finished): scripts/flightplan_gate1.py live n=354 FILED_FAA placed plans: airway n=222 crossTrack median 0.0 nm, p90 9.5, p95 19.4, 93.2% <=15 nm; direct n=132 median 0.0, p90 11.0, p95 20.5. Rollback trigger (airway median > 15 nm) NOT hit; the prior session's UNMEASURABLE airway-vs-direct split is now measurable and airway is no worse than direct. One snapshot; tails (p95 ~20 nm) remain.
+CAVEATS: counters are per-message, not per-plan; single snapshot; gate-1 split by routeKind (scripts/flightplan_gate1.py, ~2+ min) not yet re-run on airway-kind plans, so the 15 nm cross-track rollback trigger is still UNMEASURED, not passed.
+NEXT: re-run scripts/flightplan_gate1.py by_kind once airway plans accumulate (next session); NASR cycle 2026-10-01 refresh still pending.
+NO CODE/VERSION CHANGE. STARVED: no. MERGE: docs-only, safe after the 16:00 ET close (market-hours routine; not a live-break fix).
+
+
+<!-- salvaged 2026-10-21 from stranded docs-only PR #1186 (its branch never merged; the entry is reproduced verbatim, dated as written) -->
+## 2026-09-27 (scheduled-routine session, second session this UTC day) [RESEARCH] — SHARED-only (research/open_questions.md, research/experiments.md), no code touched: re-diagnosed STALE PR #817 RE-QUEUE item 1 (camera cannot cross a pole) — corrected a mis-scoped bug filing into a precise, derivable engineering spec
+
+TERRITORY: SHARED (research/* only, per WORKSTREAM PARTITION — no
+T-DATACORE/T-CLIENT/T-BOT file touched, no FROZEN path touched).
+
+READ ORDER followed: CLAUDE.md (full re-read), research/experiments.md
+(top entry — the immediately-prior scheduled session this same UTC day,
+which shipped item 3 of this same RE-QUEUE list), research/
+open_questions.md KNOWN BROKEN section (items #40-#44, all previously
+diagnosed/gated on human action, none newly actionable), research/
+wishlist.md tail (the two most recent entries — Dockerfile FROZEN-PATH
+proposal for `insider_cusum_gate2` and the GEM pipeline-geometry free
+ask — both awaiting human action, neither self-actionable this session).
+
+SYSTEM HEALTH CHECKED FIRST (`curl https://voltradeai.com/api/health`,
+2026-09-27T16:02Z, plus `python3 scripts/session_health_check.py`):
+`status:"degraded"`, `bot.status:"killed"`, liveness alarm unchanged in
+kind (65.0 market hours / 420.8h wall-clock dark since 2026-09-10,
+KNOWN BROKEN #42/#43) — `session_health_check.py`'s own
+`liveness_notify` line explicitly returned "already notified at 276.9h
+— no new notify threshold crossed, do not repeat", so NOT re-notified
+this session per that tool's own doubling-threshold policy (correctly
+distinct from a session choosing not to notify from prose judgment
+alone). `insider_cusum_gate2` (#44) unchanged, still awaiting human
+Dockerfile approval in wishlist.md. Deploy gate: 2xx, `server_version:
+1.0.989` matches this checkout. Neither KNOWN BROKEN item is this
+session's to resolve — both explicitly human-gated.
+
+LOOP-HEALTH RATIO CHECKED: `python3 scripts/research_state_check.py` —
+`thrash_ratio: 2/10 REPAIR in the last 10 tagged sessions` (well under
+the 7+ trigger), `audits_register: none overdue`, `known_broken: 45
+items, 2 without an explicit close marker (#40, #44) — advisory only,
+both already read this session`, `starvation_signal: 0 consecutive
+STARVED`. No meta-problem override; normal session.
+
+PRIMARY-ACTION SELECTION: re-ran, not assumed, the same three automated
+backlog surveys the immediately-prior 3 sessions today reported
+exhausted — `ladder_readiness_check.py` (still 0/4 READY: cftc_cot
+28d-waiting/11d-remaining-est, sec_8k_earnings 5d remaining, fleet_util
+36d remaining, gnss_integrity_adsb 10d remaining), `data_stream_
+registry_check.py` (still 26/35 built, remaining 9/9 declined/blocked
+on human registration or a dead upstream), `ladder_registry_coverage_
+check.py` (still 26/26 full coverage) — all confirmed still exhausted,
+not stale-trusted. Fell through to `research/open_questions.md`'s
+STALE PR #817 RE-QUEUE section: item 2 closed 2026-08-31, item 3 closed
+this same UTC day by the immediately-prior session (v1.0.989), item 4
+(own-tile Moon bake, 5.55 GiB) explicitly deferred to a future
+RunPod-budgeted session by that same filing. Item 1 (camera cannot
+cross a pole) was therefore the one remaining candidate that fit the
+"next queued item" slot.
+
+READ BEFORE WRITE, in full, before writing anything: `applyOrbit()`,
+`camBasis()`, `polarClampDots()`, `LOCK_POLAR_MIN/MAX`, `UNLOCK_POLAR_
+MIN/MAX`, every call site of `camBasis` (`spaceFrame.ts` lines ~2957,
+~3084, ~3887, ~3984, ~3999), and — critically, not done by any prior
+filing of this item — the LIVE user-facing "Lock horizon" toggle copy
+at `client/src/pages/datamap.tsx:14989-14993`. That copy states the
+locked state's contract explicitly: "on — view never swings under the
+ecliptic" / "off — full polar range (roll still impossible)". This
+directly falsifies the standing filing's framing that the locked
+state's ~66°-short-of-south-pole clamp is itself the defect: it is
+documented, tested (`spaceFrame.test.ts`'s own `"polarClampDots: lock
+forbids under-ecliptic, unlock only widens"` test), shipped behavior,
+not a bug. Blindly porting PR #817's "delete the clamp" framing — the
+exact risk this file's own prior note flagged but did not itself
+check — would have silently broken a documented feature contract.
+
+REASONING STANDARD #1 (trace the downstream chain) applied to find the
+REAL remaining defect rather than stopping at "not a bug, close it":
+derived algebraically (full derivation in open_questions.md's dated
+update to this item) that `camBasis`'s `r = norm3(cross(f, upRef))`,
+built fresh from `dir` and a FIXED external reference every call, is a
+CONTINUOUS but SIGN-FLIPPING function of the polar angle as `dir`
+sweeps through the reference axis — normalizing a continuous
+zero-crossing vector produces a genuine ~180° DISCONTINUITY exactly at
+the crossing. This is real and reproducible, not a hand-wave: it is
+also currently UNREACHABLE in production, because both clamp states
+keep `dir` at least `UNLOCK_POLAR_MIN` (2.86°) from the reference axis
+— the narrow (unlocked) end of the clamp is not an arbitrary UX choice,
+it is the guard preventing this exact discontinuity. The genuine,
+narrower, real contract shortfall: the UNLOCKED state's own UI copy
+promises "full polar range" but delivers only to within 2.86° of
+either pole — a hard wall, not a crash, but not what "full" claims.
+
+CORRECTED SCOPE FILED (open_questions.md, dated update to RE-QUEUE item
+1, append-only): a real fix needs a second piece of PERSISTENT camera
+state (`orbitUp`, parallel-transported through the same yaw/pitch
+rotations already applied to `dir` each `applyOrbit()` step, re-
+orthonormalized against the new `dir` via Gram-Schmidt each step) so
+the basis stays continuous through an actual pole crossing — a
+stateful architecture change to the ORBIT interactive path specifically
+(`applyOrbit`, `panOffsetBy`), not a constant tweak. The transient
+one-shot `camBasis(x, CAMERA_UP_ECL)` calls used for flight/arrival
+vectors do not need the same treatment absent a specific flight path
+shown to cross near the axis (none filed). The LOCKED state's clamp is
+explicitly OUT OF SCOPE for this fix — it stays exactly as documented.
+
+WHY NOT IMPLEMENTED THIS SESSION (a genuine judgment call, stated
+plainly rather than silently deferred again): this is real surgery on
+`camBasis`/`applyOrbit`, the shared basis behind every celestial view
+(Earth, Moon, satellites, aircraft), governed by the RENDERING & MOTION
+LAW's Law I (continuity). Correctly identifying and updating every
+consuming call site, with no way to interactively verify mouse-drag
+pole-crossing "feel" in this sandbox (the visual harness's scripted
+navigation does not drive a manual pole-crossing drag — the same
+exemption logged for item 3 and the 2026-08-28 Day/Night PR), is higher
+risk than this automated session should take blind. Two prior sessions
+(2026-08-26, 2026-08-28) already independently declined this exact item
+for size/coupling reasons without deriving why; this session's value is
+replacing that vague caution with a precise, testable, falsifiable spec
+(the 400-step pole-crossing-sweep methodology this file already
+specified remains the correct verification test for whoever implements
+it) — and, just as importantly, heading off a plausible WRONG fix (the
+"just delete the clamp" reading) that would have shipped a regression
+against documented product behavior with a clean diff and passing
+tests, the kind of failure REASONING STANDARD #1 and READ BEFORE WRITE
+exist to catch before code ships, not after.
+
+GATES: none run — no code, config, test, or client/ file was touched;
+`research/*` markdown only. No backtest applicable (pure rendering
+research finding, no trading-path or measurement-code change). No
+version bump (PROMOTION RULE 4 ties version bumps to shipped behavior
+change; none shipped).
+
+STARVED: no — this session's own re-verification of the automated
+backlog (all three surveys re-run, not trusted from a stale report) plus
+a from-scratch mathematical re-diagnosis of a previously-vague filing is
+itself the RESEARCH-tier artifact SESSION BUDGET's fall-through
+explicitly allows when no code action safely fits, per REASONING
+STANDARD #4/#8 (better to file the correct scope than force a risky
+implementation to avoid looking idle).
+
+MARKET-HOURS NOTE: this run's PR touches research/*.md only (no
+trading-path, no client/, no deploy-affecting file) — the scheduled
+task's standing market-hours merge-hold instruction is included in the
+PR description for consistency, though 2026-09-27 is a Sunday (no
+market session in progress) and this change carries no live-break risk
+either way.
+
+NOT A SPEND REQUEST.
+
+## 2026-10-21 14:45Z — [REPAIR] GitHub backlog cleanup (human-directed: "see what has been pushed to GitHub that is not actually on Railway … delete the ones that aren't being utilized … finish ones that need to be finished"): inventory, the stranded PRs resolved, a reusable prune script; the branch deletion itself needs a permission the session does not hold
+TERRITORY: SHARED (research/*, scripts/github_branch_cleanup.sh). No runtime file touched; no version bump (nothing ships to the site).
+FOUND: 865 remote branches (796 `claude/*`). The clone was shallow (143 commits of main visible), so the first merge-state read was wrong — unshallowed main (1,857 commits) and re-measured with real merge bases. Of the 805 branches older than 7 days: 641 are patch-identical to main (every commit already upstream — squash-merged PR heads the auto-merge workflow never deletes); 162 carry commits that are not on main patch-for-patch (13 of them research/*.md only; the rest are mostly July session branches superseded by later re-implementations, April-era fix/feat branches, and the GPU result pushes); 2 have no merge base with main at all (`gridvision-pod-result-gv-div4-ks` / `-div5-ks`, orphan result pushes). PRESERVED on purpose, not in the prune list: `data-backup` (110 nightly state snapshots to 2026-04-05), `gridvision-pod-result*` and `gv-res-*` (11 branches carrying `gv_best.pt` weights, `gv_result.txt`, train logs, leaderboard/ledger deltas from the July RunPod runs — the only copies of those weights; main holds the leaderboard/ledger rows but no `.pt`), `celestial-catalog-data` (a live mirror, 0.1 d old), every branch younger than 7 days, and every open-PR head. Prune list: 825 branches (scratchpad; the script below regenerates it).
+OPEN PRs (7): #604 (2026-07-25 draft backlog holder, 49 commits) — every bundled change has since shipped on its own (euGenerationMix, usaSpending, apiProduct, FINRA ATS, /api/v1/graph, Superfund symbols, MODIS flood, deploy_freshness all present on main) → CLOSED with that finding; its commits stay at refs/pull/604/head. #1186 / #1238 / #1253 / #1311 — docs-only research entries (2026-09-27 pole-crossing re-diagnosis incl. its open_questions.md spec; 2026-10-03 airway-staging judgment; 2026-10-05 flightplan unplaced breakdown; 2026-10-13 F2 floor-dwell [NO-ACTION]) that never reached main because their branches went stale → their entries are SALVAGED verbatim above (marked `salvaged 2026-10-21`), the PRs close once this lands. #1173 (steel furnace-unit join, 561 lines, server/gemSteelUnits.ts + route + popup) and #1174 (visual-harness fixtures for coal_terminals / iron_ore_mines / iron_steel_plants / chemicals) — real, unmerged, still relevant (the iron_steel_plants layer is live on main; none of their files landed) → to be PORTED onto today's main as their own PRs (#1174 first, small; #1173 with its data-page harness run), then closed as superseded. #1421 — this session's own tax-ledger PR, in CI.
+BLOCKED: `git push origin --delete …` is refused by the session's permission classifier (Git Destructive), so no branch was deleted this session. `scripts/github_branch_cleanup.sh` (dry-run by default; `--apply` prunes in batches of 100; `--days`, `--keep-file`) reproduces the policy; the human can allow the push for a session or run it. The standing fix is GitHub's own setting — Settings → General → Pull Requests → "Automatically delete head branches" — which stops the pile from growing (the auto-merge workflow in .github/workflows/ci.yml is a FROZEN PATH, so the `--delete-branch` flag cannot be added by a session; the repo setting does the same job).
+RAILWAY: the live site serves 1.0.1133 while main is 1.0.1139 (six merges unshipped); Railway shows "Error authenticating with GitHub" on the human's screen. The cleanup helps the GitHub-side pickers (865 refs), but the deploy stall is the auth link: reconnect GitHub under the Railway service's Settings → Source and redeploy.
+STARVED: yes (slice F, the chart-room pass, the two ports).
