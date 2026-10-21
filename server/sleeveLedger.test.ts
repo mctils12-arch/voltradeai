@@ -171,6 +171,13 @@ test("options by hold time: the condor's four-minute round trip is <1h; a CSP bo
   assert.equal(by["1–7d"].events + by[">30d"].events, 0);
   const total = L.optionsByHold.reduce((s, h) => s + h.realized, 0);
   assert.equal(Math.round(total * 100) / 100, Object.fromEntries(L.rows.map((r) => [r.sleeve, r])).options.realized, "the buckets sum to the sleeve");
+  // per close month: Sep = condor/CSP/GE, Oct = XOM same-day; each month's buckets sum, and the months sum to the sleeve
+  assert.deepEqual(L.optionsByHoldMonth.map((m) => m.month), [...new Set(L.optionsByHoldMonth.map((m) => m.month))].sort());
+  const monthTotal = L.optionsByHoldMonth.reduce((s, m) => s + m.rows.reduce((t, h) => t + h.realized, 0), 0);
+  assert.equal(Math.round(monthTotal * 100) / 100, Math.round(total * 100) / 100, "months sum to the all-time buckets");
+  const octRows = Object.fromEntries(L.optionsByHoldMonth.find((m) => m.month === "2026-10")!.rows.map((h) => [h.bucket, h]));
+  assert.deepEqual([octRows["<1d"].events, octRows["<1d"].realized], [1, -30]);
+  assert.equal(L.optionsByHoldMonth.every((m) => m.rows.length === HOLD_BUCKETS.length), true);
   // the open time follows the lot: a flip through zero opens a new lot at the flipping fill
   const flip = [fill("IWM", 1, 3, 200, "2026-09-01T14:00:00Z"), fill("IWM", -1, 5, 210, "2026-09-02T14:00:00Z"), fill("IWM", 1, 2, 205, "2026-09-05T14:00:00Z")];
   const { events } = realizedEvents(flip, []);
