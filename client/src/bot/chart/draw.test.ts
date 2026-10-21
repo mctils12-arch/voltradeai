@@ -37,7 +37,8 @@ test("geometry reserves the price gutter and the time axis; the volume pane take
   assert.ok(geometry(10, 10, true).plotW >= 1 && geometry(10, 10, true).paneH >= 1);
 });
 
-test("readTheme without a DOM returns the DESIGN.md fallback tokens", () => {
+test("readTheme without a DOM returns the generic fallback, which restates none of the palette (the tokens live in index.css alone)", () => {
   assert.deepEqual(readTheme(null), FALLBACK_THEME);
-  assert.equal(FALLBACK_THEME.accent, "#4d9fff");
+  for (const [k, v] of Object.entries(FALLBACK_THEME)) if (k !== "font") assert.ok(!/#[0-9a-f]{3,8}/i.test(v), `${k} restates a hex colour`);
+  assert.ok(FALLBACK_THEME.font.includes("monospace"));
 });

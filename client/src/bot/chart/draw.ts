@@ -12,16 +12,23 @@ export interface Theme {
   up: string; down: string; accent: string; red: string; green: string; orange: string; purple: string;
   surface: string; font: string;
 }
+/** The no-DOM theme (node tests; a page whose tokens are missing). It is
+ *  deliberately GENERIC — CSS keywords, not the palette — so the canonical
+ *  values live in index.css alone (DESIGN.md; program counter D13
+ *  hardcoded_palette_hex): a chart drawn in these colours is the visible
+ *  sign that the page's tokens did not reach it. */
 export const FALLBACK_THEME: Theme = {
-  text: "#eef3fb", textDim: "#b3c2d8", textFaint: "#6680a0", grid: "rgba(120, 165, 220, 0.08)", gridStrong: "rgba(120, 165, 220, 0.16)",
-  up: "#4ade80", down: "#ff5a6e", accent: "#4d9fff", red: "#ff5a6e", green: "#4ade80", orange: "#fbb24c", purple: "#c084fc",
-  surface: "#0a1628", font: "'Geist Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', monospace",
+  text: "white", textDim: "silver", textFaint: "gray", grid: "rgba(255, 255, 255, 0.08)", gridStrong: "rgba(255, 255, 255, 0.16)",
+  up: "mediumseagreen", down: "tomato", accent: "dodgerblue", red: "tomato", green: "mediumseagreen", orange: "orange", purple: "orchid",
+  surface: "black", font: "ui-monospace, monospace",
 };
 
-/** The page's tokens, with DESIGN.md's canonical values as the fallback. */
+/** The page's tokens, read from the element (custom properties inherit) or
+ *  the document root; the generic FALLBACK_THEME only where there is no DOM. */
 export function readTheme(el: Element | null): Theme {
-  if (!el || typeof getComputedStyle !== "function") return FALLBACK_THEME;
-  const cs = getComputedStyle(el);
+  const root = el ?? (typeof document !== "undefined" ? document.documentElement : null);
+  if (!root || typeof getComputedStyle !== "function") return FALLBACK_THEME;
+  const cs = getComputedStyle(root);
   const v = (name: string, fb: string) => { const x = cs.getPropertyValue(name).trim(); return x || fb; };
   return {
     text: v("--text-primary", FALLBACK_THEME.text), textDim: v("--text-secondary", FALLBACK_THEME.textDim), textFaint: v("--text-tertiary", FALLBACK_THEME.textFaint),

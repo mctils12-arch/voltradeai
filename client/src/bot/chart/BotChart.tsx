@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { frameCore, PRIORITY, SPRING, type Spring } from "@/render/frameCore";
 import { wheelToLogDelta, spread, centroid } from "@/render/zoomInput";
+import { surfacePixelRatio } from "@/lib/deviceTier";
 import {
   type Bar, type Viewport, type Timeframe, TIMEFRAMES, timeframeSpec, capBars, fitViewport, clampViewport, zoomViewport, panViewport, followViewport,
   iOf, pxPerBar, fmtBarTime, fmtPrice,
@@ -64,8 +65,10 @@ export function useBars(symbol: string | null, tf: Timeframe, paused = false) {
 // ── controller (no React inside) ────────────────────────────────────────────
 export interface ChartOverlay { levels: DrawLevel[]; zones: DrawZone[]; markers: DrawMarker[] }
 const EMPTY_OVERLAY: ChartOverlay = { levels: [], zones: [], markers: [] };
-/** Device pixel ratio cap: the S24 reports 3; textures and fill cost scale
- *  with its square (Rendering & Motion Law harness note: "DPR 3 capped to 2"). */
+/** The backing store scales with the square of the pixel ratio; the device
+ *  tier (lib/deviceTier surfacePixelRatio) decides the cap, never the raw
+ *  devicePixelRatio (Rendering & Motion Law: "DPR 3 capped to 2" on the S24;
+ *  program counter D8 uncapped_surface). */
 export const DPR_CAP = 2;
 
 export class ChartController {
@@ -221,10 +224,10 @@ export function BotChart({ symbol, subject, tf, onTf, top, paused = false }: Bot
     const c = new ChartController(canvas, th);
     ctrlRef.current = c;
     c.onCross = (i, price) => setCross({ i, price });
-    const ro = new ResizeObserver(() => { const r = wrap.getBoundingClientRect(); c.setSize(Math.round(r.width), Math.round(r.height), window.devicePixelRatio || 1); });
+    const ro = new ResizeObserver(() => { const r = wrap.getBoundingClientRect(); c.setSize(Math.round(r.width), Math.round(r.height), surfacePixelRatio()); });
     ro.observe(wrap);
     const r0 = wrap.getBoundingClientRect();
-    c.setSize(Math.round(r0.width), Math.round(r0.height), window.devicePixelRatio || 1);
+    c.setSize(Math.round(r0.width), Math.round(r0.height), surfacePixelRatio());
 
     // ── input (Pointer Events only) ──
     const pointers = new Map<number, { x: number; y: number }>();
