@@ -79,6 +79,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/bank-failures"), "FDIC bank failures keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/clinical-trials"), "ClinicalTrials.gov change-event keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/fda-events"), "FDA binary-event keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/tff"), "CFTC TFF keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/treasury-auctions"), "Treasury auction-results keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/gnss-integrity-signal"), "GNSS integrity signal keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/dtcc-swaps"), "DTCC SBSDR equity swaps keyed mirror shipped — must be a live endpoint");
@@ -384,6 +385,20 @@ test("treasury-auctions license mark: public-domain Treasury data resells freely
   assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: gate-2 status must travel with the tool description");
   assert.ok(tool.description.includes("no tail metric"), "honesty: the no-tail limit must travel with the tool description");
   assert.ok(tool.description.includes("DERIVED"), "honesty: dealer_take is derived, not published");
+});
+
+test("tff license mark: public-domain CFTC data resells freely; agent tool carries gate-2-killed and futures-only honesty", () => {
+  assert.equal(LICENSE_MARKS["data/tff"].resell, "ok");
+  assert.ok(LICENSE_MARKS["data/tff"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["data/tff"].attribution.includes("Commodity Futures Trading Commission"));
+  const tool = agentToolSpec().tools.find((t) => t.name === "voltrade_tff");
+  assert.ok(tool, "voltrade_tff tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/tff"]);
+  assert.ok(tool.description.includes("GATE 2 KILLED"), "honesty: the killed verdict must travel with the tool description");
+  assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
+  assert.ok(tool.description.includes("Futures-only"), "honesty: futures-only scope must travel");
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/data/tff"'), "tff keyed route must be registered");
 });
 
 test("gnss-integrity-signal license mark: aircraft-archive-derived ODbL share-alike like tracks/aircraft, not conditional like the AIS-derived stats; agent tool documents it as the first gate-2-passed signal on the API", () => {
