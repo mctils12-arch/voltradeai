@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-21 (scheduled routine PRODUCT session, ~00:12Z Wed) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1132) — KEYED /api/v1/data/treasury-auctions MIRROR
+
+HEALTH: session_health_check all OK (live 1.0.1131 == main, deploy_gate 2xx, liveness alive, daemon 377MB; the 10-20 deploy stall has cleared); no critical KNOWN BROKEN.
+CHOICE: treasury-auctions had a raw endpoint and a /data layer but no API-product surface (shipped-data-no-v1-API class, priority (3)); tff and dts are the same class, left for their own PRs. Gate 2 on the catalyst roots stays blocked on the price-panel human decision, so the surface is the unblocked work.
+CHANGE: GET /api/v1/data/treasury-auctions behind requireApiKey + meterUsage, reusing latestAuctions() (no new poller). LICENSE_MARKS data/treasury-auctions resell "ok" (TreasuryDirect, US-gov public domain), meta entry with preview route, agent tool voltrade_treasury_auctions, response schema.
+TESTS: apiProduct 72->73 pass; treasuryAuctions + layersRegistry suites pass (33); tsc_ratchet OK (3<=8); counter_ratchet OK (28; the tests/assertions/harness "IMPROVED" pins are pre-existing drift from other merges, deliberately not re-pinned here for attribution).
+NO SIGNAL CLAIM: tool description and meta state RAW, gate-2 NOT tested, dealer_take labeled DERIVED, no tail metric (WI quotes are paid data). No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared pre-market; no trading-path code, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-20 (scheduled routine DAILY health session, ~20:15Z Tue = 16:15 ET, just after close) [NO-ACTION] — no code_version change — DEPLOY STALL FLAGGED: LIVE STUCK AT 1.0.1114 WHILE MAIN IS 1.0.1122
 
 HEALTH: session_health_check all OK except daemon rss 441MB (trim mode, known) and deploy_freshness. Archive storage 1.82 GiB free, sweep archiving auto-paused below its 2 GiB gate, ~13 d to the 1 GiB guard (open: wishlist 2 GiB gate problem, human volume decision).
