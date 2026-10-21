@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-21 (scheduled routine PRODUCT session, ~00:12Z Wed) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1132) — KEYED /api/v1/data/treasury-auctions MIRROR
+
+HEALTH: session_health_check all OK (live 1.0.1131 == main, deploy_gate 2xx, liveness alive, daemon 377MB; the 10-20 deploy stall has cleared); no critical KNOWN BROKEN.
+CHOICE: treasury-auctions had a raw endpoint and a /data layer but no API-product surface (shipped-data-no-v1-API class, priority (3)); tff and dts are the same class, left for their own PRs. Gate 2 on the catalyst roots stays blocked on the price-panel human decision, so the surface is the unblocked work.
+CHANGE: GET /api/v1/data/treasury-auctions behind requireApiKey + meterUsage, reusing latestAuctions() (no new poller). LICENSE_MARKS data/treasury-auctions resell "ok" (TreasuryDirect, US-gov public domain), meta entry with preview route, agent tool voltrade_treasury_auctions, response schema.
+TESTS: apiProduct 72->73 pass; treasuryAuctions + layersRegistry suites pass (33); tsc_ratchet OK (3<=8); counter_ratchet OK (28; the tests/assertions/harness "IMPROVED" pins are pre-existing drift from other merges, deliberately not re-pinned here for attribution).
+NO SIGNAL CLAIM: tool description and meta state RAW, gate-2 NOT tested, dealer_take labeled DERIVED, no tail metric (WI quotes are paid data). No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared pre-market; no trading-path code, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-20 (scheduled routine DAILY health session, ~20:15Z Tue = 16:15 ET, just after close) [NO-ACTION] — no code_version change — DEPLOY STALL FLAGGED: LIVE STUCK AT 1.0.1114 WHILE MAIN IS 1.0.1122
 
 HEALTH: session_health_check all OK except daemon rss 441MB (trim mode, known) and deploy_freshness. Archive storage 1.82 GiB free, sweep archiving auto-paused below its 2 GiB gate, ~13 d to the 1 GiB guard (open: wishlist 2 GiB gate problem, human volume decision).
@@ -109273,6 +109283,26 @@ Sub-day round trips: 310 of 366 closes (85%), −$9,734 — 109% of the sleeve's
 READ: the options sleeve's loss is not the premium (the VRP run found a positive average premium on these names) and not the held positions (profitable) — it is the INSTANT ROUND TRIPS: a lot opened and closed inside an hour pays the spread twice on a four-leg structure and collects nothing. The known mechanism is the entry/exit conflict family (entries inside the manager's exit zone, closed on the next manage cycle — fixed for CSPs at v1.0.1056 and for every grouped multi-leg structure at v1.0.1117, both inside this window, the latter only hours before this read), but 168 closes under one hour is more than that family alone should produce under the manager's 60-minute minimum hold (the TSLA condor closed in 4 minutes on 2026-10-19) — kill-switch liquidations and any exit path that bypasses the hold are the other candidates. The ledger cannot name the exit reason; the OPTIONS-EXIT / OPTIONS-ROLL audit entries (recording since v1.0.1120, 2026-10-20) can, going forward.
 LADDER PLACEMENT: gate 2 (SIGNAL) passes on this population; the fault is at gate 3 (LOGIC: an exit rule that fires on a lot it just opened) and gate 5 (EXECUTION: the spread paid twice on four legs) — exactly where the 21:05Z attribution and the 22:35Z VRP contrast pointed. Nothing new to fix blind: the v1.0.1117 fix is live and untested by time; the measurement that decides whether it was enough is the November hold buckets.
 NEXT (own PRs): (1) per-month hold buckets on the ledger (the same ruler; so the post-v1.0.1117 months read on their own) and the exit REASON split from the audit log joined to the fills — the two together name any remaining instant-close path; (2) if a path that bypasses the 60-minute hold is found, it is a [REPAIR] with a regression test; (3) the options manager's rules are then simulated on the archived chains (research test 2, gate 3) with the instant-close path removed — the first honest estimate of what the sleeve earns when it is allowed to hold.
+STARVED: no.
+
+## 2026-10-21 (scheduled routine, ~02:50Z) [RESEARCH] — doctrine axis (a)/(d): the CFTC COT carry's out-of-sample judgment is UNTESTABLE, and the readiness trigger measured the wrong thing; compiled into cot_gate2_oos.py (v1.0.1133) — scripts + datacore note, no trading change
+
+TERRITORY: T-DATACORE (root-level gate-2 scripts, datacore/signal_ladder.json note). HEALTH at start: /api/health ok (serving.failing empty, liveness not dark); thrash 3/10 REPAIR; no critical KNOWN BROKEN (#44 awaits a frozen-path decision, #48 is mid-sequence under interactive sessions).
+PRIOR (stated before running): the only surviving COT carry (USO, HAC p=0.0355 raw after the multi-comparison screen) fails Bonferroni; I expected it NOT to replicate, ~85%, and expected the 14-report window to be thin.
+RESULT: re-ran cot_gate2_test.py live (7 symbols x 156 weeks, all fetch OK), then restricted to reports after 2026-07-08: 14 weeks. The USO carry is extreme_HIGH -> lower forward return (in-sample 20d: -3.77% vs +2.68% baseline, n=13). USO had 0 extreme_high weeks OOS (expected ~1.2 at the 8.6% in-sample rate), so there is nothing to test; its 2 extreme_low weeks are the direction the screen already rejected. Other symbols: 0-4 extreme weeks each, CORN 4 extreme_high weeks (one episode, 20d -6.28% vs +2.28% base) — a single overlapping episode, not evidence.
+FINDING: the signal_ladder readiness_trigger counted weekly REPORTS (>=15), but a report only tests a carry if the index is in the carry's bucket. N reports does not mean N observations; consecutive extreme weeks are one episode. Verdict: UNTESTABLE (not confirmed, not refuted); carry stays gate2_pending, unpromoted.
+CODE: cot_gate2_oos.py (oos_power: OOS weeks, extreme weeks, independent episodes, matured returns, verdict UNTESTABLE below MIN_EPISODES=5) + test_cot_gate2_oos.py (4 tests; 23 pass with test_cot_gate2.py). Re-run: python3 cot_gate2_oos.py [--symbol CORN]. signal_ladder.json note records the finding. No backtest/strategy change; the ruler is untouched.
+NEXT: re-run when USO enters extreme_high (the script reports episodes); CORN is worth one pre-registered look only if it accumulates >=5 episodes — do not promote on its present single episode.
+Environment note: a fresh session needs requests/numpy/pandas/scipy/yfinance/pytest installed into the `python3` (3.11) interpreter (pip targets 3.13 by default) before any root-level gate script runs.
+STARVED: no.
+
+## 2026-10-21 (scheduled routine, ~11:20Z) [RULE-REVIEW] — measurement: the options sleeve's hold-time buckets are also split per CLOSE month (`optionsByHoldMonth`), so the months after the v1.0.1117 DTE-conflict fix read on their own (v1.0.1134)
+
+TERRITORY: T-BOT (server/sleeveLedger.ts measurement, own PR). HEALTH at start: /api/health ok (serving.failing empty, liveness not dark, equity peak 99,918, drawdown −0.5%); thrash 1/10 REPAIR.
+PRIOR: purely additive. The all-time buckets (85% of closes <1d) mix pre- and post-fix months; I expect the post-v1.0.1117 months (Oct) to show a much smaller <1h share than August. ~70%.
+CHANGE: same realized events and bucket definitions, grouped by close month; no existing field changed. Before vs after on identical inputs: optionsByHold is byte-identical; test asserts the per-month buckets sum to the all-time buckets, so the ruler cannot drift. Bias direction: none (a regrouping).
+TEST: sleeveLedger.test.ts extended (month sum == all-time sum; Oct XOM same-day lands in <1d; every month carries every bucket). 7/7 pass.
+NEXT: read the live "sleeves" probe once deployed and record the Aug/Sep/Oct <1h shares; if Oct still carries instant closes, that is a [REPAIR] with the exit-reason split; otherwise proceed to research test 2 gate 3 (manager-rule simulation on archived chains).
 STARVED: no.
 
 ## 2026-10-21 11:30Z — [PRODUCT] Bot page program installed (docs only, no version bump): the human's directive mapped to what the engine has; slice A (own chart engine) starts
