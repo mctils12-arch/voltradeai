@@ -11,6 +11,7 @@ import PlannerPage from "./planner";
 import DataMapPage from "./datamap";
 import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
+import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
 type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "bot";
@@ -180,6 +181,9 @@ const MENU_TABS: Record<"trade" | "data", Set<TabId>> = {
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
   const [activeTab, setActiveTab] = useState<TabId>(getInitialTab);
+  // /app#/bot/pane/<id>: one bot panel popped out into its own browser window
+  // (client/src/bot/popout.ts) — rendered alone, without the shell
+  const [paneId] = useState(() => paneIdFromHash(window.location.hash));
   const [analyzeSection, setAnalyzeSection] = useState<AnalyzeSection>(getInitialAnalyzeSection);
   const [, navigate] = useLocation(); // wouter route nav (Developers/API page)
   // Desktop hover dropdowns — which top-nav menu ("trade" | "data") is open, with
@@ -325,6 +329,10 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         <LoginPage onLogin={handleLoginSuccess} />
       </div>
     );
+  }
+
+  if (paneId && authenticated && isOwner) {
+    return <div className="dark" style={{ minHeight: "100dvh", background: "var(--bg-primary)" }}><BotDashboard /></div>;
   }
 
   return (

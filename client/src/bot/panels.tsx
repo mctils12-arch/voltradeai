@@ -25,6 +25,7 @@ const I = {
   zoom: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7" /></svg>,
   dock: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7" /></svg>,
   close: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>,
+  pop: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M11 5H4v15h15v-7" /></svg>,
   arrow: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>,
 };
 export const ICONS = I;
@@ -37,6 +38,12 @@ export const NotRecorded = ({ what = "not recorded" }: { what?: string }) => <St
 export interface Chrome {
   id: PanelId; held: boolean; pinned: boolean; heldSince: number | null; ticksSinceHold: number; nowMs: number;
   onHold: (id: PanelId) => void; onPin: (id: PanelId) => void; onFloat: (id: PanelId) => void;
+  /** open this panel in its own browser window (popout.ts) */
+  onPop: (id: PanelId) => void;
+  /** this panel IS its own browser window: nothing to pin to or float over */
+  pane: boolean;
+  /** the pop-out control is offered (not on touch / the phone tier) */
+  canPop: boolean;
 }
 export function Panel({ chrome, title, help, status, meta, ageMs, children, scroll, style }: {
   chrome: Chrome; title: string; help?: GlossaryKey; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
@@ -50,8 +57,16 @@ export function Panel({ chrome, title, help, status, meta, ageMs, children, scro
         <span className="vt-bot-age">{fmtAge(ageMs)}</span>
         <div className="vt-bot-ctl">
           <button type="button" aria-label={chrome.held ? "Resume this panel" : "Hold this panel"} aria-pressed={chrome.held} onClick={() => chrome.onHold(chrome.id)}>{chrome.held ? I.play : I.hold}</button>
-          <button type="button" aria-label="Pin this panel" aria-pressed={chrome.pinned} onClick={() => chrome.onPin(chrome.id)}>{I.pin}</button>
-          <button type="button" aria-label="Open as a window" onClick={() => chrome.onFloat(chrome.id)}>{I.win}</button>
+          {chrome.pane ? (
+            // a pane's one way back is closing its window; the page restores the slot
+            <button type="button" aria-label="Back to the page" title="Close this window — the panel returns to its slot on the page" onClick={() => window.close()}>{I.dock}</button>
+          ) : (
+            <>
+              <button type="button" aria-label="Pin this panel" aria-pressed={chrome.pinned} onClick={() => chrome.onPin(chrome.id)}>{I.pin}</button>
+              <button type="button" aria-label="Open as a window" onClick={() => chrome.onFloat(chrome.id)}>{I.win}</button>
+              {chrome.canPop ? <button type="button" aria-label="Open in its own browser window" title="Its own browser window — drag it to another monitor" onClick={() => chrome.onPop(chrome.id)}>{I.pop}</button> : null}
+            </>
+          )}
         </div>
       </div>
       <div className="vt-bot-pb" data-scroll={scroll ? "true" : undefined}>{children}</div>

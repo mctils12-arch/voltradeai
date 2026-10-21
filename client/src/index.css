@@ -4761,3 +4761,10 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 @media (max-width: 639px) { .vt-bot-wrbar { display: none; } }
 .vt-bot-page[data-touch="true"] .vt-help { position: relative; }
 .vt-bot-page[data-touch="true"] .vt-help::after { content: ""; position: absolute; inset: -12px; }
+
+/* ── Bot page pop-out pane (slice D, 2026-10-21): this window IS the panel ── */
+.vt-bot-page[data-pane] { top: 0; padding: 8px; }
+.vt-bot-page[data-pane] > .vt-bot-panel { flex: 1 1 auto; min-height: 0; }
+.vt-bot-page[data-pane] > .vt-bot-kpi { flex: 0 0 auto; }
+.vt-bot-ghost[data-popped="true"] { flex-direction: column; gap: 8px; border-style: solid; border-color: var(--accent); color: var(--text-secondary); }
+.vt-bot-popnote { display: flex; align-items: center; gap: 10px; margin: 8px 8px 0; padding: 6px 10px; border: 1px solid var(--accent-orange); border-radius: var(--radius-md); font-size: 12px; color: var(--text-primary); flex: 0 0 auto; }
