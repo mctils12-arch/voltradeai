@@ -13,7 +13,8 @@ import { derivePageState, type AuditRow } from "./pageState";
 import { deriveStages, deriveIssues, deriveDayReview, rowsToday, type DeriveInput } from "./derive";
 import { Director } from "./director";
 import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, type LayoutFlags, type PanelId, type Rect, type Tier } from "./zoneModel";
-import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, ICONS, type Chrome, type ActionKind } from "./panels";
+import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, ICONS, type Chrome, type ActionKind } from "./panels";
+import { watchModel } from "./watch";
 import { fmtAge } from "./format";
 
 function useNow(periodMs = 1000): number {
@@ -32,7 +33,7 @@ function reducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today" };
+const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today" };
 
 /** FLIP on frameCore springs: when the layout key changes, every slot that
  *  moved springs from its old box to its new one with a transform; on
@@ -115,6 +116,8 @@ export default function BotPage() {
   const day = useMemo(() => deriveDayReview(audit, effNow), [audit, effNow]);
   const deploysToday = useMemo(() => rowsToday(audit, effNow).filter((r) => r.type === "SHUTDOWN" && /orders cancelled/i.test(r.message)).length, [audit, effNow]);
   const killSince = useMemo(() => { const k = audit.find((r) => r.type === "DRAWDOWN-KILL"); return status?.killSwitch && k ? Date.parse(k.time) : null; }, [audit, status?.killSwitch]);
+  // what the scan looked at, decided and refused (watch.ts) — replayed audit rows when replaying
+  const watch = useMemo(() => watchModel({ lastScan, audit, threshold: num(status?.minScoreThreshold), nowMs: effNow }), [lastScan, audit, status?.minScoreThreshold, effNow]);
 
   // ticks since hold: count data updates
   const updates = [d.status, d.account, d.positions, d.audit, d.performance, d.market, d.insight, d.lastScan, d.orders].reduce((a, q) => a + (q.dataUpdatedAt || 0), 0);
@@ -164,14 +167,15 @@ export default function BotPage() {
   }, [flags, now, onHold, onPin, onFloat]);
 
   // bodies (fresh), then hold snapshots
-  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null };
+  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null };
   const freshBody: Record<PanelId, ReactNode> = {
     kpi: null,
     stages: <StagesBody rows={stages} />,
     issues: <IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} />,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
+    watch: <WatchBody model={watch} focus={focusSym} onFocus={setFocusSym} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
-    chart: <ChartBody positions={d.positions.data} focus={focusSym} onFocus={setFocusSym} paused={flags.held.includes("chart")} />,
+    chart: <ChartBody positions={d.positions.data} candidates={watch.candidates} focus={focusSym} onFocus={setFocusSym} paused={flags.held.includes("chart")} />,
     book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={setFocusSym} sleeves={d.sleeves.data} />,
     orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
@@ -185,11 +189,15 @@ export default function BotPage() {
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
-    const common = { chrome: c, ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       case "issues": return <Panel {...common} title="Issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
       case "state": return <Panel {...common} title={stateTitle} status={shown === "incident" ? <span className="vt-bot-st vt-bot-r"><span className="vt-bot-dot" />first-out</span> : replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay</span> : undefined} style={{ flex: shown === "closed" ? "1 1 auto" : "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
+      // the slot carries the column share (maxHeight); the panel fills its
+      // slot — applying the cap to both halved the body to a strip (harness
+      // 2026-10-21)
+      case "watch": return <Panel {...common} title="Watch" meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "model": return <Panel {...common} title="Model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
       case "chart": return <Panel {...common} title="Chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "1.9 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.25 1 0", ...extraStyle }}>{body(id)}</Panel>;
@@ -230,6 +238,7 @@ export default function BotPage() {
           {hasState ? slot("state", { flex: "0 0 auto" }) : null}
           {slot("issues", { flex: "0 0 auto" })}
           {slot("chart", { flex: "0 0 auto" })}
+          {slot("watch", { flex: "0 0 auto" })}
           {slot("model", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("stages", { flex: "0 0 auto" })}<div className="vt-bot-col">{slot("book", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</div></div> : <>{slot("book", { flex: "0 0 auto" })}{slot("stages", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</>}
           {slot("timeline", { flex: "0 0 auto" })}
@@ -238,7 +247,7 @@ export default function BotPage() {
         <div className="vt-bot-grid" style={gridStyle(tier)}>
           {kpi}
           <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "1 1 auto" })}</div>
-          <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("model", { flex: "1 1 auto" })}</div>
+          <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("watch", { flex: "0 1 auto", maxHeight: hasState ? "36%" : "44%", minHeight: 136 })}{slot("model", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1.9 1 0" })}{slot("book", { flex: "1.25 1 0" })}{slot("orders", { flex: "0.65 1 0" })}</div>
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>
         </div>

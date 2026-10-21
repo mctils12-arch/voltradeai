@@ -4709,3 +4709,38 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-page[data-touch="true"] .vt-chart-chip, .vt-bot-page[data-touch="true"] .vt-chart-tf button { min-height: 44px; }
 @media (max-width: 639px) { .vt-chart-chip, .vt-chart-tf button { min-height: 44px; } .vt-chart-readout { font-size: 10.5px; gap: 8px; } }
 @media (prefers-reduced-motion: reduce) { .vt-chart-skel { animation: none; } }
+
+/* ── Bot page Watch panel (client/src/bot/watch.ts, 2026-10-21): what the
+   scan looked at, decided and refused ─────────────────────────────────── */
+.vt-watch { display: flex; flex-direction: column; gap: 2px; }
+.vt-watch-hd { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); display: flex; gap: 10px; flex-wrap: wrap; padding-bottom: 4px; }
+.vt-watch-row { display: grid; grid-template-columns: 24px 60px 96px minmax(96px, 1.1fr) 50px minmax(0, 1.2fr); gap: 0 8px; align-items: center; min-height: 24px; font-size: 11.5px; }
+.vt-watch-row .rk { font-family: var(--font-mono); color: var(--text-tertiary); font-size: 10.5px; text-align: right; }
+.vt-watch .tk { font: inherit; font-size: 12px; font-weight: 600; color: var(--text-primary); background: none; border: 0; padding: 0 5px; min-height: 24px; text-align: left; cursor: pointer; border-radius: var(--radius-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch .tk:hover { background: var(--bg-card-hover); color: var(--accent-bright); }
+.vt-watch .tk[aria-pressed="true"] { background: var(--elevate-2, rgba(77,159,255,.08)); color: var(--accent-bright); }
+.vt-watch-row .ac { font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch-row .sc { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11.5px; min-width: 0; }
+.vt-watch-row .sc .vt-bot-bar { height: 5px; }
+.vt-watch-row .ch { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; }
+.vt-watch-row .oc { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch-sub { grid-column: 2 / -1; display: flex; gap: 10px; align-items: center; font-size: 10.5px; color: var(--text-tertiary); min-width: 0; margin: -4px 0 3px; padding-left: 5px; }
+.vt-watch-sub .why { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch-f { display: flex; gap: 4px; flex: 0 0 auto; }
+.vt-watch-f > span { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; width: 22px; font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); line-height: 1; }
+.vt-watch-f i { display: block; width: 18px; height: 4px; border-radius: 2px; background: var(--surface-3); position: relative; overflow: hidden; }
+.vt-watch-f i b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); opacity: .7; }
+.vt-watch-sec { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); padding: 6px 0 2px; }
+.vt-watch-ref { display: grid; grid-template-columns: 60px 88px minmax(0, 1fr) 36px; gap: 0 8px; align-items: center; min-height: 22px; font-size: 11px; }
+.vt-watch-ref .ty { font-family: var(--font-mono); font-size: 10px; color: var(--accent-orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch-ref .rs { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-watch-ref .tm { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10px; color: var(--text-tertiary); text-align: right; }
+.vt-bot-stack [data-panel="watch"] .vt-bot-pb { max-height: 560px; overflow-y: auto; }
+@media (max-width: 639px) {
+  .vt-watch-row { grid-template-columns: 22px 58px minmax(70px, 1fr) 48px; }
+  .vt-watch-row .ac, .vt-watch-row .oc { display: none; }
+  .vt-watch-ref { grid-template-columns: 58px minmax(0, 1fr) 36px; }
+  .vt-watch-ref .ty { display: none; }
+  .vt-watch .tk { min-height: 44px; }
+}
+.vt-bot-page[data-touch="true"] .vt-watch .tk { min-height: 44px; }

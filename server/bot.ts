@@ -2444,6 +2444,9 @@ print(json.dumps(result, default=str))
       mode: "paper",
       equityPeak: state.equityPeak,
       maxDrawdownPct: state.maxDrawdownPct,
+      // the Node admission threshold a scanner trade must clear (audit "SKIP:
+      // score < threshold"); the Bot page's Watch panel draws it (2026-10-21)
+      minScoreThreshold: state.minScoreThreshold,
       // Paper-account drawdown-kill auto-resume (server/killSwitchAutoResume.ts)
       autoResume: autoResumeStatus,
       unreadNotifications: notifications.filter(n => !n.read).length,

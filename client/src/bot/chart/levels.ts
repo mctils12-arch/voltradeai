@@ -7,14 +7,18 @@ import { optionLegLevels, pricePct } from "../../../../shared/positionLevels";
 import type { DrawLevel, DrawZone, Theme } from "./draw";
 import { MINUS } from "../format";
 
+/** A time-anchored mark (the entry fill); BotChart maps timeS to a bar. */
+export interface OverlayMarker { timeS: number; price: number; label: string; shape: "up" | "down"; color: string }
 export interface Overlay {
   levels: DrawLevel[];
   zones: DrawZone[];
+  markers: OverlayMarker[];
   /** label → value pairs for the legend row under the chart */
   legend: Array<[string, string]>;
   /** honest footnotes: what is not recorded, what is suppressed */
   notes: string[];
 }
+export const EMPTY_OVERLAY: Overlay = { levels: [], zones: [], markers: [], legend: [], notes: [] };
 
 /** The subset of /api/bot/positions a chart overlay reads. */
 export interface OverlaySubject {
@@ -37,18 +41,20 @@ const STOP_WORDS: Record<NonNullable<PositionLevels["stopFrom"]>, string> = {
   breakeven: "breakeven stop",
 };
 
-export function positionOverlay(p: OverlaySubject, theme: Theme): Overlay {
+export function positionOverlay(p: OverlaySubject, theme: Theme, nowMs: number = Date.now()): Overlay {
   const levels: DrawLevel[] = [];
   const zones: DrawZone[] = [];
+  const markers: OverlayMarker[] = [];
   const legend: Array<[string, string]> = [];
   const notes: string[] = [];
   const entry = p.entryPrice;
   const lv = p.levels ?? null;
   if (entry !== null && Number.isFinite(entry)) levels.push({ price: entry, color: theme.accent, dash: "dash", label: "entry" });
   else notes.push("entry price not recorded");
+  if (lv?.heldMinutes != null && entry !== null && Number.isFinite(entry)) markers.push({ timeS: (nowMs - lv.heldMinutes * 60_000) / 1000, price: entry, label: "in", shape: "up", color: theme.accent });
   if (!lv || !lv.recorded) {
     notes.push("stop state not recorded yet — the engine writes it on its first manage tick after entry");
-    return { levels, zones, legend, notes };
+    return { levels, zones, markers, legend, notes };
   }
   const long = lv.side === "long";
   // stop
@@ -91,7 +97,7 @@ export function positionOverlay(p: OverlaySubject, theme: Theme): Overlay {
   if (lv.originalQty !== null && lv.remainingQty !== null && lv.remainingQty !== lv.originalQty) legend.push(["shares", `${lv.remainingQty} of ${lv.originalQty} left`]);
   legend.push(["held", `${lv.daysHeld ?? "?"}d · time stop d${lv.timeStop.day} if ±${lv.timeStop.withinPct}%${lv.timeStop.armed ? " · armed" : ""}`]);
   if (lv.regime) legend.push(["regime", `${lv.regime.toLowerCase()} · ⅔ at ${f2(lv.scaleOut2R, 1)}R · trail ${f2(lv.trailAtrMult, 1)}×ATR`]);
-  return { levels, zones, legend, notes };
+  return { levels, zones, markers, legend, notes };
 }
 
 export function optionOverlay(p: OverlaySubject, theme: Theme): Overlay {
@@ -103,10 +109,10 @@ export function optionOverlay(p: OverlaySubject, theme: Theme): Overlay {
   const type = m?.optionType === "PUT" || m?.optionType === "CALL" ? m.optionType : null;
   if (!m || !type || !Number.isFinite(m.strike ?? NaN) || p.entryPrice === null) {
     notes.push("option leg details not recorded (strike / type / premium) — showing the underlying only");
-    return { levels, zones, legend, notes };
+    return { levels, zones, markers: [], legend, notes };
   }
   const lg: OptionLegLevels | null = optionLegLevels({ optionType: type, strike: m.strike as number, qty: p.qty, premium: p.entryPrice });
-  if (!lg) { notes.push("option leg details not recorded"); return { levels, zones, legend, notes }; }
+  if (!lg) { notes.push("option leg details not recorded"); return { levels, zones, markers: [], legend, notes }; }
   levels.push({ price: lg.strike, color: theme.text, dash: "dash", label: `strike · ${lg.side} ${type.toLowerCase()}` });
   levels.push({ price: lg.breakevenAtExpiry, color: theme.orange, dash: "dot", label: "breakeven at expiry" });
   if (lg.maxProfitZone === "above_strike") zones.push({ lo: lg.strike, hi: Number.POSITIVE_INFINITY, color: theme.green, alpha: 0.05, label: "keeps the whole premium at expiry" });
@@ -120,11 +126,28 @@ export function optionOverlay(p: OverlaySubject, theme: Theme): Overlay {
   legend.push(["manager target", `closes at ${Math.round(lg.profitTargetFrac * 100)}% of max profit`]);
   legend.push(["strategy", m.strategy ? String(m.strategy) : "not recorded"]);
   legend.push(["underlying", m.underlyingTicker ?? "—"]);
-  return { levels, zones, legend, notes };
+  return { levels, zones, markers: [], legend, notes };
 }
 
-export function overlayFor(p: OverlaySubject, theme: Theme): Overlay {
-  return p.isOption ? optionOverlay(p, theme) : positionOverlay(p, theme);
+export function overlayFor(p: OverlaySubject, theme: Theme, nowMs: number = Date.now()): Overlay {
+  return p.isOption ? optionOverlay(p, theme) : positionOverlay(p, theme, nowMs);
+}
+
+/** A scan candidate (client/src/bot/watch.ts) — not a position: the engine
+ *  sizes a stop and a target from that day's ATR only AT ENTRY, so nothing
+ *  of the kind is drawn; the scan's own price and score are. */
+export interface CandidateSubject { ticker: string; rank: number | null; score: number | null; price: number | null; action: string; reasons: string[]; sector: string | null; admitted: boolean | null; changePct: number | null }
+export function candidateOverlay(c: CandidateSubject, theme: Theme): Overlay {
+  const levels: DrawLevel[] = [];
+  const legend: Array<[string, string]> = [];
+  if (c.price !== null && Number.isFinite(c.price) && c.price > 0) levels.push({ price: c.price, color: theme.textDim, dash: "dot", label: "price at scan", muted: true });
+  legend.push(["score", `${c.score === null ? "—" : c.score.toFixed(1)} · ${c.admitted === null ? "threshold not recorded" : c.admitted ? "admitted" : "below threshold"}`]);
+  legend.push(["action", c.action.toLowerCase()]);
+  if (c.rank !== null) legend.push(["rank", `#${c.rank}`]);
+  if (c.sector) legend.push(["sector", c.sector]);
+  if (c.changePct !== null) legend.push(["day", signed(c.changePct, 2, "%")]);
+  if (c.reasons.length) legend.push(["why", c.reasons.join(" · ")]);
+  return { levels, zones: [], markers: [], legend, notes: ["a candidate has no stop or target yet — the engine sizes both from the ATR at entry; the chart shows the scan's price and score only"] };
 }
 
 /** The symbol whose bars a subject charts: itself, or an option leg's

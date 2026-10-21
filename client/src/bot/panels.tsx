@@ -1,10 +1,12 @@
 // Bot page v2 — the panels. Every number comes from a real field; absence is
 // drawn as an outlined dot + "not recorded", never as a zero.
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { sanitizePosition } from "@/lib/tradeChartGuards";
 import { BotChart } from "./chart/BotChart";
 import { DEFAULT_TIMEFRAME, timeframeSpec, type Timeframe } from "./chart/scales";
-import { underlyingOf } from "./chart/levels";
+import { underlyingOf, overlayFor, candidateOverlay, EMPTY_OVERLAY, type Overlay } from "./chart/levels";
+import type { Theme } from "./chart/draw";
+import { candidateKey, FACTOR_KEYS, FACTOR_SHORT, type WatchModel, type WatchCandidate } from "./watch";
 import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
@@ -377,36 +379,101 @@ const TF_KEY = "vt-bot-chart-tf";
 function readTf(): Timeframe {
   try { return timeframeSpec(sessionStorage.getItem(TF_KEY)).tf; } catch { return DEFAULT_TIMEFRAME; }
 }
-export interface ChartSubjectRow { key: string; label: string; symbol: string | null; position: BotPosition; pnlPct: number | null }
-/** One chart subject per open position; an option leg charts its underlying. */
-export function chartSubjects(positions: BotPosition[] | undefined): ChartSubjectRow[] {
-  return (positions ?? []).map((p) => {
+export interface ChartSubjectRow { key: string; label: string; symbol: string | null; kind: "position" | "candidate"; position?: BotPosition; candidate?: WatchCandidate; pnlPct: number | null; score: number | null }
+/** One chart subject per open position (an option leg charts its underlying),
+ *  then the scan's candidates that are not already held. */
+export function chartSubjects(positions: BotPosition[] | undefined, candidates: readonly WatchCandidate[] = []): ChartSubjectRow[] {
+  const rows: ChartSubjectRow[] = (positions ?? []).map((p) => {
     const isOption = !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
     const position = { ...p, isOption };
     // chips stay short ("CRWV 55P"); the expiry lives in the chart legend and the chip's title
-    return { key: p.ticker, label: isOption ? fmtOcc(p.ticker).split(" ").slice(0, 2).join(" ") : p.ticker, symbol: underlyingOf(position), position, pnlPct: num(p.pnlPct) };
+    return { key: p.ticker, label: isOption ? fmtOcc(p.ticker).split(" ").slice(0, 2).join(" ") : p.ticker, symbol: underlyingOf(position), kind: "position" as const, position, pnlPct: num(p.pnlPct), score: null };
   });
+  const held = new Set(rows.map((r) => r.symbol).filter((x): x is string => !!x));
+  for (const c of candidates) {
+    if (held.has(c.ticker)) continue;
+    rows.push({ key: candidateKey(c.ticker), label: c.ticker, symbol: c.ticker, kind: "candidate", candidate: c, pnlPct: null, score: c.score });
+  }
+  return rows;
 }
-export function ChartBody({ positions, focus, onFocus, paused }: { positions: BotPosition[] | undefined; focus: string | null; onFocus: (key: string) => void; paused?: boolean }) {
+export function ChartBody({ positions, candidates, focus, onFocus, paused }: { positions: BotPosition[] | undefined; candidates?: readonly WatchCandidate[]; focus: string | null; onFocus: (key: string) => void; paused?: boolean }) {
   const [tf, setTfState] = useState<Timeframe>(readTf);
   const setTf = (t: Timeframe) => {
     setTfState(t);
     try { sessionStorage.setItem(TF_KEY, t); } catch (err) { console.warn("[bot chart] timeframe not persisted (storage unavailable):", err); }
   };
-  const subjects = useMemo(() => chartSubjects(positions), [positions]);
+  const subjects = useMemo(() => chartSubjects(positions, candidates ?? []), [positions, candidates]);
   const sel = subjects.find((s) => s.key === focus) ?? subjects[0] ?? null;
+  const overlayFn = useCallback((theme: Theme): Overlay => {
+    if (!sel) return EMPTY_OVERLAY;
+    if (sel.kind === "candidate" && sel.candidate) return candidateOverlay(sel.candidate, theme);
+    return sel.position ? overlayFor(sanitizePosition(sel.position), theme, Date.now()) : EMPTY_OVERLAY;
+  }, [sel]);
   if (!positions) return <div className="vt-bot-empty"><NotRecorded what="positions not loaded" /></div>;
   if (!subjects.length) return <div className="vt-bot-empty"><St word="flat · nothing to chart" out /></div>;
   const strip = (
     <div className="vt-chart-strip" aria-label="Chart symbol">
       {subjects.map((s) => (
-        <button key={s.key} type="button" className="vt-chart-chip" aria-pressed={sel?.key === s.key} onClick={() => onFocus(s.key)} title={s.position.isOption ? `${fmtOcc(s.key)} · charts ${s.symbol ?? "?"}` : s.key}>
-          {s.label}<span className={`pl ${s.pnlPct === null ? "vt-bot-t3" : s.pnlPct < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{s.pnlPct === null ? "·" : fmtPct(s.pnlPct, 1)}</span>
+        <button key={s.key} type="button" className="vt-chart-chip" data-kind={s.kind} aria-pressed={sel?.key === s.key} onClick={() => onFocus(s.key)} title={s.kind === "candidate" ? `${s.label} · scan candidate · score ${s.score?.toFixed(1) ?? "—"}` : s.position?.isOption ? `${fmtOcc(s.key)} · charts ${s.symbol ?? "?"}` : s.key}>
+          {s.label}
+          {s.kind === "candidate"
+            ? <span className="pl vt-bot-t2" title="scan score">{s.score === null ? "·" : s.score.toFixed(0)}</span>
+            : <span className={`pl ${s.pnlPct === null ? "vt-bot-t3" : s.pnlPct < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{s.pnlPct === null ? "·" : fmtPct(s.pnlPct, 1)}</span>}
         </button>
       ))}
     </div>
   );
-  return <BotChart symbol={sel?.symbol ?? null} subject={sel ? sanitizePosition(sel.position) : null} tf={tf} onTf={setTf} top={strip} paused={paused} />;
+  return <BotChart symbol={sel?.symbol ?? null} overlayFor={overlayFn} tf={tf} onTf={setTf} top={strip} paused={paused} />;
+}
+
+// ── watch: what the scan looked at, decided and refused ─────────────────────
+const OUTCOME_CLS: Record<string, string> = { queued: "vt-bot-b", refused: "vt-bot-o", blocked: "vt-bot-o" };
+function CandidateRow({ c, threshold, focus, onFocus }: { c: WatchCandidate; threshold: number | null; focus: string | null; onFocus: (key: string) => void }) {
+  const key = candidateKey(c.ticker);
+  const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
+  const out = c.outcome;
+  const word = out ? `${out.kind === "queued" ? "queued" : out.type.toLowerCase()}${out.kind !== "queued" ? ` · ${out.reason}` : ""}` : c.decided ? "handed to Node" : c.admitted === false ? "below threshold" : "no decision row";
+  const cls = out ? OUTCOME_CLS[out.kind] : c.decided ? "vt-bot-t1" : "vt-bot-t3";
+  return (
+    <div className="vt-watch-row" data-admitted={c.admitted === null ? undefined : String(c.admitted)}>
+      <span className="rk">{c.rank !== null ? `#${c.rank}` : "·"}</span>
+      <button type="button" className="tk" aria-pressed={focus === key} onClick={() => onFocus(key)} title={`${c.ticker} · chart it`}>{c.ticker}</button>
+      <span className="ac" title={c.side ?? undefined}>{c.action.toLowerCase()}{c.sectorClash ? " · sector clash" : ""}</span>
+      <span className="sc"><span className={c.admitted === false ? "vt-bot-t3" : "vt-bot-t1"}>{c.score === null ? "—" : c.score.toFixed(1)}</span><div className="vt-bot-bar" title={threshold !== null ? `admission ≥ ${threshold}` : "threshold not recorded"}><i style={{ width: `${pct}%`, background: c.admitted === false ? "var(--text-tertiary)" : "var(--accent)" }} />{threshold !== null ? <span className="vt-bot-tick" style={{ left: `${Math.max(0, Math.min(100, threshold))}%` }} /> : null}</div></span>
+      <span className={`ch ${c.changePct === null ? "vt-bot-t3" : c.changePct < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{c.changePct === null ? "·" : fmtPct(c.changePct, 1)}</span>
+      <span className={`oc ${cls}`} title={out ? `${out.type} · ${fmtClockET(out.time)} ET · ${out.reason}` : undefined}>{word}</span>
+      <div className="vt-watch-sub">
+        <span className="why" title={c.reasons.join(" · ")}>{c.reasons.length ? c.reasons.join(" · ") : c.sector ?? "no reasons recorded"}</span>
+        {c.factors ? <span className="vt-watch-f" aria-label="factor scores">{FACTOR_KEYS.map((k) => { const v = c.factors![k]; return <span key={k} title={`${k} ${v === null ? "—" : v.toFixed(0)}`}>{FACTOR_SHORT[k]}<i><b style={{ width: `${v === null ? 0 : Math.max(0, Math.min(100, v))}%` }} /></i></span>; })}</span> : null}
+      </div>
+    </div>
+  );
+}
+export function WatchBody({ model, focus, onFocus, nowMs }: { model: WatchModel; focus: string | null; onFocus: (key: string) => void; nowMs: number }) {
+  if (!model.scanAt && !model.candidates.length) return <div className="vt-bot-empty"><NotRecorded what="no scan result yet" /><span className="vt-chart-note">the scan's top-10, its decisions and Node's refusals appear here after the first tier-2 scan</span></div>;
+  return (
+    <div className="vt-watch">
+      <div className="vt-watch-hd">
+        <span>scan {model.scanAt ? `${fmtClockET(model.scanAt)} ET` : "—"}{model.partial ? " · partial" : ""}</span>
+        {model.scanned !== null ? <span>{model.scanned.toLocaleString("en-US")} scanned → {model.filtered ?? "?"} → {model.deep ?? "?"} deep</span> : null}
+        <span>slots {model.slots ?? "?"} · options {model.optionsSlots ?? "?"}</span>
+        <span title="a scanner trade must clear this score in Node (audit SKIP rows below it)">admission ≥ {model.threshold ?? "?"}</span>
+      </div>
+      {model.candidates.length ? model.candidates.map((c) => <CandidateRow key={c.ticker} c={c} threshold={model.threshold} focus={focus} onFocus={onFocus} />) : <div className="vt-bot-row"><St word="the last scan surfaced no candidates" out /></div>}
+      {model.decided.length ? (
+        <>
+          <div className="vt-watch-sec">decided · handed to Node</div>
+          {model.decided.map((d) => <div key={`d-${d.ticker}`} className="vt-watch-ref"><button type="button" className="tk" aria-pressed={focus === candidateKey(d.ticker)} onClick={() => onFocus(candidateKey(d.ticker))}>{d.ticker}</button><span className="ty vt-bot-t2">{d.action.toLowerCase()}{d.kind ? ` · ${d.kind}` : ""}</span><span className="rs">{d.reasons[0] ?? ""}</span><span className="tm">{d.score === null ? "" : d.score.toFixed(0)}</span></div>)}
+        </>
+      ) : null}
+      {model.refused.length ? (
+        <>
+          <div className="vt-watch-sec">refused · why</div>
+          {model.refused.slice(0, 8).map((r) => <div key={`r-${r.ticker}-${r.type}`} className="vt-watch-ref"><button type="button" className="tk" aria-pressed={focus === candidateKey(r.ticker)} onClick={() => onFocus(candidateKey(r.ticker))}>{r.ticker}</button><span className="ty">{r.type.toLowerCase()}</span><span className="rs" title={r.reason}>{r.reason}</span><span className="tm">{r.time ? fmtAge(nowMs - Date.parse(r.time)) : ""}</span></div>)}
+        </>
+      ) : null}
+    </div>
+  );
 }
 const SLEEVE_LABEL: Record<string, string> = { options: "options", floor: "ETF floor", stocks: "stocks" };
 const ACTIVITY_LABEL: Array<[keyof NonNullable<Sleeves["nonTrade"]>["groups"], string]> = [["dividends", "div"], ["interest", "int"], ["fees", "fees"], ["journals", "journals"], ["optionEvents", "option events"], ["corporate", "corp"], ["transfers", "transfers"], ["other", "other"]];
