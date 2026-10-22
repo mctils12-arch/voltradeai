@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-22 (scheduled routine PRODUCT session #2, ~18:10Z Thu = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1149) — KEYED /api/v1/data/border-waits MIRROR
+
+HEALTH: session_health_check all OK (live 1.0.1148 == checkout, deploy_gate 2xx, liveness alive, daemon 372MB); only WARN is tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking); no critical KNOWN BROKEN.
+CHOICE: ladder_readiness_check shows COT "READY [ESTIMATE]" but 2026-10-21's cot_gate2_oos.py already judged that carry UNTESTABLE (episodes < 5), so no gate to run. CBP border waits (road leg of the freight proxy) had a raw endpoint but no API-product surface (shipped-data-no-v1-API class, priority (3)); many other raw endpoints share this gap and remain queued.
+CHANGE: GET /api/v1/data/border-waits behind requireApiKey + meterUsage, reusing latestBorderWaits() (no new poller). LICENSE_MARKS data/border-waits resell "ok" (CBP, public domain), meta entry with preview route, agent tool voltrade_border_waits, response schema.
+TESTS: apiProduct 75->76 pass (+1 license/honesty/route test); tsc errors 3 (baseline).
+NO SIGNAL CLAIM: tool and meta state RAW, gate-2 NOT tested (signal_ladder cbp_border_wait_times raw_only); localized status strings and null-delay-not-zero carried. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared MID-MARKET; no trading-path code, but merge after the 16:00 ET close per deploy coupling.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-22 (scheduled routine PRODUCT session, ~13:05Z Thu = 09:05 ET, PRE-OPEN) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1142) — KEYED /api/v1/data/dts MIRROR
 
 HEALTH: session_health_check all OK except daemon rss 402MB (trim mode, known); deploy_freshness OK (live 1.0.1141 == checkout; the 10-20 deploy stall has cleared); no critical KNOWN BROKEN.
