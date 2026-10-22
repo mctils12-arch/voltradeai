@@ -109630,3 +109630,11 @@ VISUAL (promotion rule 6): `node scripts/visual_check.mjs --page bot`, `--page b
 HONESTY: the harness cannot read canvas text, so the gutter geometry is pinned by the unit test, not a screenshot assertion; the hover is exercised, not measured. The unexplained misspelling the human saw under the mouse is NOT in this PR: a dictionary scan of every label found nothing; waiting for the word.
 NEXT: 1m timeframe (own PR), the Book tape (own PR), the dead-space re-cut, the lookup.
 STARVED: no.
+
+## 2026-10-22 (scheduled routine, ~16:15Z Thu, market hours) [NO-ACTION] — no code_version change (docs only): DEPLOY STALL RESOLVED; health ok, queue still date/decision-gated
+
+LOOP HEALTH: last-10 tags show no REPAIR thrash (REPAIR x2, PRODUCT x2, RULE-REVIEW x1, NO-ACTION x3, PIPELINE x1 in the recent window). STARVED streak < 10.
+HEALTH: /api/health 200 ok, serving.failing empty, bot active, liveness not dark, drawdown -3.0%, alpaca ACTIVE, feeds <0.3h silent, scanner 0 failures, 0 unhandled rejections. Container uptime 220s at the check, i.e. a fresh deploy had just landed.
+DEPLOY STALL: RESOLVED. `/api/data/layers` now reports server_version 1.0.1144 (was 1.0.1133 through the 10-21/10-22 entries); main is 1.0.1145 (#1433, merged ~16:00Z) and is deploying behind it. The Railway Source link was evidently reconnected by the human. Unshipped-merge backlog is now one version. Nothing for a session to do; the earlier "human-side Railway auth" diagnosis stands as the cause.
+QUEUE: unchanged — 13F/8-K gate-2 reads wait on 2026-11-16+, index-VRP re-run ~2027-01-15, Lazy Prices on the price-panel human decision. Anti-churn: no padding PR. The Bot-page client slices now ship live, so their live visual verification becomes possible again (a [PRODUCT]/[REPAIR] session may use it).
+STARVED: yes (date- and decision-gated).
