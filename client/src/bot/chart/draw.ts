@@ -105,6 +105,27 @@ export function deoverlap(ys: number[], paneH: number, gap = LABEL_H): number[] 
   return out.map((y) => Math.max(gap / 2, y));
 }
 
+/** De-overlap `ys` around an optional pinned y (the crosshair's price pill):
+ *  the pills above the pin spread within [top, pin − gap], the pills below
+ *  within [pin + gap, bottom], so only the pills the pin collides with move
+ *  (a distant pill never shifts because the mouse is somewhere else). A pill
+ *  exactly at the pin goes to the roomier side. Returns positions for `ys`
+ *  only — the pin is drawn at its own y, on top. */
+export function gutterYs(ys: number[], pinY: number | null, paneH: number, gap = LABEL_H): number[] {
+  if (pinY === null) return deoverlap(ys, paneH, gap);
+  const out = new Array<number>(ys.length);
+  const above: number[] = [], below: number[] = [];
+  ys.forEach((v, k) => ((v < pinY || (v === pinY && pinY >= paneH / 2)) ? above : below).push(k));
+  // above: the band's floor is the pane top, its ceiling pin − gap (deoverlap clamps to paneH − gap/2)
+  const ya = deoverlap(above.map((k) => ys[k]), pinY - gap / 2, gap);
+  above.forEach((k, j) => { out[k] = ya[j]; });
+  // below: shift the band so that its floor (pin + gap) is deoverlap's gap/2, then shift back
+  const off = pinY + gap / 2;
+  const yb = deoverlap(below.map((k) => ys[k] - off), Math.max(gap, paneH - off), gap);
+  below.forEach((k, j) => { out[k] = yb[j] + off; });
+  return out.map((v) => Math.min(paneH - gap / 2, Math.max(gap / 2, v)));
+}
+
 export function draw(ctx: CanvasRenderingContext2D, f: Frame): DrawResult {
   const { w, h, bars, vp, theme } = f;
   const n = bars.length;
@@ -212,9 +233,14 @@ export function draw(ctx: CanvasRenderingContext2D, f: Frame): DrawResult {
   };
   const shown = f.levels.filter((l) => Number.isFinite(l.price));
   // the last price is pinned in the de-overlap set so no level pill ever
-  // covers it (it is drawn last, on top)
+  // covers it (it is drawn last, on top); the crosshair's price pill joins
+  // the set the same way ([REPAIR] 2026-10-22: it used to be drawn straight
+  // over whichever level pill sat under the mouse) and stays EXACTLY at the
+  // mouse y — the whole set is shifted back onto it after the spread, so
+  // the level pills move out of its way, never the other way round
   const lastY = lastBar ? y(lastBar.close) : null;
-  const ys = deoverlap([...shown.map((l) => y(l.price)), ...(lastY !== null ? [lastY] : [])], g.priceH);
+  const crossY = f.cross && n && f.cross.x >= 0 && f.cross.x <= g.plotW && f.cross.y >= 0 && f.cross.y <= g.priceH ? Math.round(f.cross.y) + 0.5 : null;
+  const ys = gutterYs([...shown.map((l) => y(l.price)), ...(lastY !== null ? [lastY] : [])], crossY, g.priceH);
   shown.forEach((l, k) => {
     const yy = ys[k];
     if (yy < -LABEL_H || yy > g.priceH + LABEL_H) return;

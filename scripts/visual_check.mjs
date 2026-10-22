@@ -3090,6 +3090,19 @@ async function main() {
             fail(`${id}: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 700)}`);
           }
         }
+        // ── CHART READOUT ([REPAIR] 2026-10-22): the readout row carries no
+        // browser tooltip (a native title used to open over the strip and the
+        // legend — "text covering text"). The hover-tag de-overlap itself is
+        // canvas geometry, pinned by draw.test.ts (gutterYs); the crosshair
+        // path is exercised below by moving over the plot.
+        {
+          const titled = await page.evaluate(() => [...document.querySelectorAll('.vt-chart-readout [title], .vt-chart-tf [title]')].length);
+          if (titled) fail(`chart: ${titled} readout control(s) still carry a browser tooltip`);
+          if (!vp.touch) {
+            const box = await page.locator('.vt-chart canvas').first().boundingBox();
+            if (box) { await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.4); await page.waitForTimeout(150); await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5); await page.waitForTimeout(150); await page.mouse.move(2, 2); }
+          }
+        }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
         // benchmark fixture carries the after-tax comparison (both legs sold
         // at the window's end); the vs-SPY tile must show it as its own line

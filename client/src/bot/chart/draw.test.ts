@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deoverlap, withAlpha, geometry, GUTTER_R, AXIS_B, LABEL_H, readTheme, FALLBACK_THEME } from "./draw";
+import { deoverlap, gutterYs, withAlpha, geometry, GUTTER_R, AXIS_B, LABEL_H, readTheme, FALLBACK_THEME } from "./draw";
 
 test("gutter labels are pushed apart by one label height and stay inside the pane", () => {
   const ys = deoverlap([100, 104, 101, 300], 320);
@@ -42,3 +42,18 @@ test("readTheme without a DOM returns the generic fallback, which restates none 
   for (const [k, v] of Object.entries(FALLBACK_THEME)) if (k !== "font") assert.ok(!/#[0-9a-f]{3,8}/i.test(v), `${k} restates a hex colour`);
   assert.ok(FALLBACK_THEME.font.includes("monospace"));
 });
+
+test("gutterYs: the crosshair's pill is a pin — the level pills are pushed clear of it, it keeps its exact y, and nothing leaves the pane", () => {
+  // a level pill sits right under the mouse: it moves one label height away; the pin's own y is not returned (it is drawn where it is)
+  const pushed = gutterYs([200, 100], 200, 400);
+  assert.equal(pushed.length, 2);
+  assert.ok(Math.abs(pushed[0] - 200) >= LABEL_H, `the level under the pin moved: ${pushed[0]}`);
+  assert.equal(pushed[1], 100);
+  // pins near the bottom edge push the neighbours up, never below the pane
+  const low = gutterYs([396, 394], 398, 400);
+  assert.ok(low.every((v) => v <= 400 - LABEL_H / 2 && v >= LABEL_H / 2));
+  assert.ok(low.every((v) => Math.abs(v - 398) >= LABEL_H - 1e-9), `pushed clear of the pin: ${low}`);
+  // no pin: identical to the plain de-overlap
+  assert.deepEqual(gutterYs([100, 104, 101, 300], null, 320), deoverlap([100, 104, 101, 300], 320));
+});
+
