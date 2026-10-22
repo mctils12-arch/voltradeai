@@ -34,7 +34,7 @@ export interface BotAccount {
 export interface OptionMeta { underlyingTicker: string; expiry: string; strike: number; optionType: "CALL" | "PUT"; strategy: string | null; setup: unknown; daysToExpiry: number }
 export interface BotPosition {
   ticker: string; qty: number; side: string; entryPrice: number; currentPrice: number; marketValue: number;
-  pnl: number; pnlPct: number; stopPrice: number | null; takeProfitPrice: number | null; phase: number;
+  pnl: number; pnlPct: number; dayPct?: number | null; stopPrice: number | null; takeProfitPrice: number | null; phase: number;
   rMultiple: number; highestPnl: number; daysHeld: number;
   asset_class?: string; isOption?: boolean; optionMeta?: OptionMeta | null; levels?: PositionLevels | null;
 }

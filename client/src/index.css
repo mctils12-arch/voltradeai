@@ -4663,12 +4663,22 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-feat .f .vv { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); width: 52px; text-align: right; }
 @media (max-width: 639px) { .vt-bot-feat { grid-template-columns: minmax(0, 1fr); } }
 .vt-bot-list { display: flex; flex-direction: column; gap: 3px; }
-.vt-bot-trow { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 12px; }
+.vt-bot-trow { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; }
 @media (max-width: 639px) { .vt-bot-trow { min-height: 36px; } }
-.vt-bot-trow .sym { width: 110px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vt-bot-trow .q { width: 44px; text-align: right; font-family: var(--font-mono); color: var(--text-tertiary); font-size: 11px; }
-.vt-bot-trow .px { width: 64px; text-align: right; font-family: var(--font-mono); color: var(--text-secondary); font-size: 11.5px; }
-.vt-bot-trow .pl { flex: 1; text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+/* the Book as a tape (2026-10-22): sym takes the slack; qty · last · day · P&L are fixed, right-aligned mono columns with their units */
+.vt-bot-trow .sym { flex: 1 1 64px; min-width: 64px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-bot-trow .q { width: 50px; flex: 0 0 auto; text-align: right; font-family: var(--font-mono); color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+.vt-bot-trow .q i { font-style: normal; color: var(--text-tertiary); margin-left: 3px; font-size: 9.5px; }
+.vt-bot-trow .px { width: 62px; flex: 0 0 auto; text-align: right; font-family: var(--font-mono); color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+.vt-bot-trow .dy { width: 44px; flex: 0 0 auto; text-align: right; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.vt-bot-trow .pl { width: 88px; flex: 0 0 auto; text-align: right; font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.vt-bot-trow .pl .usd { color: var(--text-tertiary); font-size: 10.5px; }
+.vt-bot-thead { min-height: 18px; border-bottom: 1px solid var(--border-subtle); cursor: default; }
+.vt-bot-thead .sym, .vt-bot-thead .q, .vt-bot-thead .px, .vt-bot-thead .dy, .vt-bot-thead .pl { font-family: inherit; font-size: 9.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
+/* the Book sizes its tape by its OWN width (a container query, not the viewport): in a slot under 380 px — the l-tier left
+   column, the phone, a tablet pair — the dollar P&L hides so the symbol keeps its 64 px; the pane window and the xl column show it */
+section.vt-bot-panel[data-panel="book"] { container-type: inline-size; }
+@container (max-width: 379px) { .vt-bot-trow .pl { width: 56px; } .vt-bot-trow .pl .usd { display: none; } }
 .vt-bot-issue { display: flex; flex-direction: column; gap: 3px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }
 .vt-bot-issue .t { font-size: 12.5px; font-weight: 600; color: var(--text-primary); flex: 1; }
 .vt-bot-issue .l { font-size: 11.5px; color: var(--text-secondary); padding-left: 14px; }

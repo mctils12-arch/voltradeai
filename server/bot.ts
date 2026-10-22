@@ -1416,6 +1416,10 @@ print(json.dumps(data))
           marketValue: parseFloat(p.market_value),
           pnl: parseFloat(p.unrealized_pl),
           pnlPct: pnlPct,
+          // 2026-10-22 (Book tape): today's move in the position's own price — Alpaca's
+          // change_today is (current − previous close) / previous close, a fraction; null
+          // when the broker row has none (the tape's number, not the position's result)
+          dayPct: Number.isFinite(parseFloat(p.change_today)) ? parseFloat(p.change_today) * 100 : null,
           stopPrice: stopPrice !== null ? Math.round(stopPrice * 100) / 100 : null,
           takeProfitPrice: tpPrice !== null ? Math.round(tpPrice * 100) / 100 : null,
           phase: phase,
