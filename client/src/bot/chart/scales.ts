@@ -221,3 +221,8 @@ export function fmtBarTime(timeS: number, tf: Timeframe): string {
   const p = etParts(timeS);
   return tf === "1Day" ? `${p.weekdayShort} ${p.monthShort} ${p.dayNum}, ${p.year}` : `${p.weekdayShort} ${p.monthShort} ${p.dayNum} · ${p.hm} ET`;
 }
+/** The same instant, short enough for the readout row ("through 15:55 ET" / "through Oct 21"). */
+export function fmtBarTimeShort(timeS: number, tf: Timeframe): string {
+  const p = etParts(timeS);
+  return tf === "1Day" ? `${p.monthShort} ${p.dayNum}` : `${p.hm} ET`;
+}

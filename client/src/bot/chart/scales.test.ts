@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   type Bar, capBars, fitViewport, clampViewport, zoomViewport, panViewport, followViewport, priceRange, niceStep, priceTicks, decimalsFor, priceDecimals,
-  xOf, iOf, yOf, priceOfY, timeTicks, indexAtX, etParts, MAX_BARS, MIN_VISIBLE_BARS, RIGHT_PAD_FRAC, timeframeSpec, fmtPrice,
+  xOf, iOf, yOf, priceOfY, timeTicks, indexAtX, etParts, MAX_BARS, MIN_VISIBLE_BARS, RIGHT_PAD_FRAC, timeframeSpec, fmtPrice, fmtBarTimeShort,
 } from "./scales";
 
 const T0 = Date.parse("2026-10-19T13:30:00Z") / 1000; // 09:30 ET Monday
@@ -113,3 +113,10 @@ test("indexAtX maps a pixel to its bar, null past either end; timeframe specs re
   assert.equal(timeframeSpec("bogus").tf, "1Hour");
   assert.equal(timeframeSpec("1Day").minutes, 1440);
 });
+
+test("the short bar time fits the readout: the clock intraday, the date on the daily chart", () => {
+  const t = Date.UTC(2026, 9, 21, 19, 55) / 1000; // 15:55 ET on a Wednesday
+  assert.equal(fmtBarTimeShort(t, "1Hour"), "15:55 ET");
+  assert.equal(fmtBarTimeShort(t, "1Day"), "Oct 21");
+});
+

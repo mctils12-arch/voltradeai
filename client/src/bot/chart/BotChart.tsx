@@ -13,7 +13,7 @@ import { wheelToLogDelta, spread, centroid } from "@/render/zoomInput";
 import { surfacePixelRatio } from "@/lib/deviceTier";
 import {
   type Bar, type Viewport, type Timeframe, TIMEFRAMES, timeframeSpec, capBars, fitViewport, clampViewport, zoomViewport, panViewport, followViewport,
-  iOf, pxPerBar, fmtBarTime, fmtPrice,
+  iOf, pxPerBar, fmtBarTime, fmtBarTimeShort, fmtPrice,
 } from "./scales";
 import { draw, readTheme, geometry, FALLBACK_THEME, type Theme, type DrawLevel, type DrawZone, type DrawMarker } from "./draw";
 import { EMPTY_OVERLAY, type Overlay } from "./levels";
@@ -361,7 +361,7 @@ export function BotChart({ symbol, overlayFor, tf, onTf, top, paused = false }: 
               <span className="vt-bot-t1">C {fmtPrice(shown.close, dec)}</span>
               {chg !== null ? <span className={chg < 0 ? "vt-bot-r" : "vt-bot-g"}>{chg < 0 ? MINUS : "+"}{Math.abs(chg).toFixed(2)}%</span> : null}
               <span className="vt-bot-t3">vol {vol}</span>
-              {cross.i === null && q.data && last ? <span className="vt-bot-t3" title={`bars through ${fmtBarTime(last.time, tf)}`}>fetched {fmtAge(Math.max(0, now - q.data.fetchedAt))} ago</span> : null}
+              {cross.i === null && q.data && last ? <span className="vt-bot-t3">fetched {fmtAge(Math.max(0, now - q.data.fetchedAt))} ago · through {fmtBarTimeShort(last.time, tf)}</span> : null}
             </>
           ) : <span className="vt-bot-t3">{symbol ? `${symbol} · ${timeframeSpec(tf).label}` : "no symbol"}</span>}
         </div>
