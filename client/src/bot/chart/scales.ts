@@ -16,6 +16,9 @@ export interface TimeframeSpec { tf: Timeframe; label: string; minutes: number; 
 /** `limit` = bars requested from /api/bot/bars; `show` = bars in the fitted
  *  view (the rest is history the user can pan into). */
 export const TIMEFRAMES: readonly TimeframeSpec[] = [
+  // 1m (2026-10-22, human-asked): a full session is 390 bars; the IEX feed
+  // can leave gaps in thin names — the empty state says so, nothing is filled
+  { tf: "1Min", label: "1m", minutes: 1, limit: 390, show: 120 },
   { tf: "5Min", label: "5m", minutes: 5, limit: 240, show: 110 },
   { tf: "15Min", label: "15m", minutes: 15, limit: 240, show: 100 },
   { tf: "1Hour", label: "1h", minutes: 60, limit: 300, show: 120 },

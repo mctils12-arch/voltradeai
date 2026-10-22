@@ -109638,3 +109638,11 @@ HEALTH: /api/health 200 ok, serving.failing empty, bot active, liveness not dark
 DEPLOY STALL: RESOLVED. `/api/data/layers` now reports server_version 1.0.1144 (was 1.0.1133 through the 10-21/10-22 entries); main is 1.0.1145 (#1433, merged ~16:00Z) and is deploying behind it. The Railway Source link was evidently reconnected by the human. Unshipped-merge backlog is now one version. Nothing for a session to do; the earlier "human-side Railway auth" diagnosis stands as the cause.
 QUEUE: unchanged — 13F/8-K gate-2 reads wait on 2026-11-16+, index-VRP re-run ~2027-01-15, Lazy Prices on the price-panel human decision. Anti-churn: no padding PR. The Bot-page client slices now ship live, so their live visual verification becomes possible again (a [PRODUCT]/[REPAIR] session may use it).
 STARVED: yes (date- and decision-gated).
+
+## 2026-10-22 16:25Z — [PRODUCT] Bot page chart: a 1-minute timeframe (v1.0.1146)
+TERRITORY: T-CLIENT (client/src/bot/chart/scales.ts + scales.test.ts, scripts/visual_check.mjs).
+CHANGE: human-asked ("can we get one min chart option as well"). TIMEFRAMES gains 1Min first — label 1m, 390 bars requested (a full session), 120 shown — within the chart's MAX_BARS cap; the server's bars route already mapped 1Min to Alpaca (IEX feed, split-adjusted). Thin names can show gaps on IEX; the chart's existing empty-state message covers a bar-less answer, nothing is filled in. Harness: the timeframe row reads 1m first of five, selecting 1m keeps the chart painted with a bar in the readout, then the page switches back.
+TESTS: scales.test.ts (1Min first, minutes 1, limit within the cap, every spec's show ≤ limit). Client suite 1365 / 1365 (was 1364: the 1Min spec test); tsc 6 ≤ 6; ratchets green.
+VISUAL (promotion rule 6): `node scripts/visual_check.mjs --page bot`, `--page botidle` and `--page botpane` PASS at 390 / 768 / 1440, 0 hard failures — in the chart-fix build's run (15:45Z) and again in the combined build's run (16:12Z); the 1m rule green both times. The builds also carried the queued Book-tape and dead-space changes (their own PRs, next); their harness rules were lifted out of this commit.
+HONESTY: the harness fixture answers any timeframe with the same hourly walk, so the 1m rule proves the control path, not minute data; live minute bars come from the IEX feed only.
+STARVED: no.
