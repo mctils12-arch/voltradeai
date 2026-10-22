@@ -2324,8 +2324,25 @@ let trackCalls = 0;
 
 function startServer() {
   return new Promise((resolve) => {
+    // LIVE CHANGE (slice F, 2026-10-21): the bot page must react to the bot
+    // without a reload. From the THIRD poll on, every /api/bot/audit answer
+    // carries a fresh MORNING-TRADE row (2 s old) and every /api/bot/account
+    // answer a higher equity, so the Now tile's latest-decision line, the
+    // Book's pulse and the equity flash have something to react to while
+    // the battery watches (polls run every 10 s; see the bot battery).
+    const liveHits = {};
     const srv = createServer((req, res) => {
       const [u, qs] = (req.url || "/").split("?");
+      if ((u === "/api/bot/audit" || u === "/api/bot/account") && PAGE_FIXTURES[u]) {
+        liveHits[u] = (liveHits[u] || 0) + 1;
+        const n = liveHits[u];
+        if (n >= 3) {
+          res.writeHead(200, { "content-type": "application/json" });
+          const base = PAGE_FIXTURES[u];
+          if (u === "/api/bot/audit") return res.end(JSON.stringify([{ time: new Date(Date.now() - 2000).toISOString(), type: "MORNING-TRADE", message: `KWEB: bought 120 @ 31.42 (score 75) — live fixture ${n}` }, ...base]));
+          return res.end(JSON.stringify({ ...base, equity: Number(base.equity) + 12.5 * (n - 2) }));
+        }
+      }
       if (u.startsWith("/api/data/wxtile/")) {
         res.writeHead(200, { "content-type": "image/png" });
         return res.end(WX_TILE_PNG);
@@ -3070,6 +3087,27 @@ async function main() {
           } catch (e) {
             fail(`${id}: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 700)}`);
           }
+        }
+        // ── LIVE CHANGE (slice F, 2026-10-21): the fixture server's third
+        // and later polls carry a fresh trade row and a moving equity (see
+        // liveHits above). The page must react without a reload: the Now
+        // tile shows the trade as its latest decision, the Book panel pulses
+        // for it, and the equity value flashes. Watched for up to 30 s
+        // (polls run every 10 s; a flash lasts 1.4 s, a pulse 10 s).
+        {
+          let seen = { ev: false, pulse: false, flash: false };
+          for (let i = 0; i < 300 && !(seen.ev && seen.pulse && seen.flash); i++) {
+            const s = await page.evaluate(() => ({
+              ev: !!document.querySelector('.vt-live-ev[data-kind="trade"]'),
+              pulse: !!document.querySelector('section.vt-bot-panel[data-panel="book"][data-pulse="trade"]'),
+              flash: !!document.querySelector('.vt-bot-kpi [data-flash]'),
+            }));
+            seen = { ev: seen.ev || s.ev, pulse: seen.pulse || s.pulse, flash: seen.flash || s.flash };
+            await page.waitForTimeout(100);
+          }
+          if (!seen.ev) fail("live: the fresh trade never reached the Now tile's latest-decision line");
+          if (!seen.pulse) fail("live: the Book panel never pulsed for the fresh trade");
+          if (!seen.flash) fail("live: no KPI value flashed while the equity moved");
         }
       }
 
