@@ -86,10 +86,10 @@ function botFixtures({ latched }) {
   const lv = (o) => ({ recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 1.5, riskPct: 3, pnlPct: -2.42, rMultiple: -0.81, peakR: 0.2, highestPnl: 0.6, highestPrice: 745.8, stopPct: 3, stopPrice: 719.08, stopFrom: "entry", breakevenActive: false, stopSuppressed: null, hardFloorPct: 20, hardFloorPrice: 593.06, takeProfitPct: 4.5, takeProfitPrice: 774.68, takeProfitArmed: false, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: true }], trailAtrMult: 2, scaleOut2R: 2, originalQty: 61, remainingQty: 61, scalesCompleted: 0, daysHeld: 3, heldMinutes: 4320, timeStop: { day: 7, withinPct: 2, armed: false }, ...o });
   const optMeta = (underlyingTicker, strike, expiry = "2026-11-20") => ({ optionMeta: { underlyingTicker, expiry, strike, optionType: "PUT", strategy: "csp", setup: null, daysToExpiry: 30 }, levels: null });
   const positions = [
-    pos("QQQ", 61, 741.32, 723.36, 44124.96, -1095.52, -2.42, 719.08, 774.68, false, { levels: lv({}) }),
+    pos("QQQ", 61, 741.32, 723.36, 44124.96, -1095.52, -2.42, 719.08, 774.68, false, { levels: lv({}), dayPct: -2.4 }),
     pos("SMH", 20, 551.43, 551.49, 11029.7, 1.15, 0.01, 551.43, 576.24, false, { phase: 2, rMultiple: 0.004, highestPnl: 3.4, daysHeld: 9, levels: lv({ phase: 2, atrPct: 1.6, riskPct: 3.2, pnlPct: 0.01, rMultiple: 0.004, peakR: 1.06, highestPnl: 3.4, highestPrice: 570.2, stopPct: 2.4, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPct: null, hardFloorPrice: null, takeProfitPct: 4.8, takeProfitPrice: 576.24, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], originalQty: 30, remainingQty: 20, scalesCompleted: 1, daysHeld: 9, heldMinutes: 12960, timeStop: { day: 7, withinPct: 2, armed: true } }) }),
     pos("KWEB", 388, 26.53, 24.54, 9521.52, -770.8, -7.49, 25.47, 27.59, false, { daysHeld: 2, levels: lv({ atrPct: 2, riskPct: 4, pnlPct: -7.49, rMultiple: -1.87, peakR: 0.1, highestPnl: 0.4, highestPrice: 26.64, stopPct: 4, stopPrice: 25.47, stopSuppressed: { until: "day4", reason: "short-hold grace", overridePct: 15, minutesLeft: null, daysLeft: 2 }, hardFloorPrice: 21.22, takeProfitPct: 6, takeProfitPrice: 28.12, scaleOuts: [{ n: 1, rMultiple: 1, pct: 4, price: 27.59, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 8, price: 28.65, done: false, applicable: true }], originalQty: 388, remainingQty: 388, daysHeld: 2, heldMinutes: 2880 }) }),
-    pos("VXUS", 150, 71.2, 71.4, 10710, 30, 0.28, null, null, false, { levels: null }), pos("GLD", 21, 381.05, 380.11, 7982.31, -19.69, -0.25, null, null, false, { levels: null }),
+    pos("VXUS", 150, 71.2, 71.4, 10710, 30, 0.28, null, null, false, { levels: null, dayPct: 0.3 }), pos("GLD", 21, 381.05, 380.11, 7982.31, -19.69, -0.25, null, null, false, { levels: null, dayPct: -0.4 }),
     pos("CRWV261120P00055000", -1, 2.47, 2.67, -267, -20, -8.1, null, null, true, optMeta("CRWV", 55)), pos("TEM261120P00070000", -1, 1.4, 1.96, -196, -56, -40.1, null, null, true, optMeta("TEM", 70)), pos("PFE261120P00027000", -1, 0.48, 0.21, -21, 27, 56.25, null, null, true, optMeta("PFE", 27)),
   ];
   // /api/bot/bars/<any symbol> (prefix fixture): 300 hourly bars, a
@@ -3007,8 +3007,11 @@ async function main() {
               });
               if (!info.open) fail(`help: glyph ${g} opened no card`);
               else { if (!info.inside) fail(`help: glyph ${g}'s card leaves the viewport`); if (info.overlaps) fail(`help: glyph ${g}'s card covers its anchor`); if (info.text < 40) fail(`help: glyph ${g}'s card is empty`); }
-              await page.keyboard.press("Escape"); await page.waitForTimeout(80);
-              if (await page.locator(".vt-help-card").count()) { fail(`help: Escape did not close glyph ${g}'s card`); await page.mouse.click(2, 2); await page.waitForTimeout(80); }
+              // Escape closes the card; wait for the close instead of assuming 80 ms (at 1440 the heavier page missed that twice, 2026-10-22)
+              await page.keyboard.press("Escape");
+              let closed = false;
+              for (let w = 0; w < 12 && !closed; w++) { await page.waitForTimeout(50); closed = (await page.locator(".vt-help-card").count()) === 0; }
+              if (!closed) { fail(`help: Escape did not close glyph ${g}'s card within 600 ms`); await page.mouse.click(2, 2); await page.waitForTimeout(80); }
             }
           }
           const chips = await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-chip').count();
@@ -3127,6 +3130,44 @@ async function main() {
             } catch (e) {
               fail(`chart: 1m driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
             }
+          }
+        }
+        // ── BOOK TAPE (2026-10-22, human-asked): the Book reads like a tape —
+        // a header row names the columns, every row has five cells, last
+        // carries its dollar sign, day is its own cell, and the P&L cell
+        // carries a dollar amount beside the percent at desktop widths (the
+        // phone row hides the dollars to keep its width).
+        {
+          const bk = await page.evaluate(() => {
+            const panel = document.querySelector('section.vt-bot-panel[data-panel="book"]');
+            if (!panel) return null;
+            const head = panel.querySelector('.vt-bot-thead');
+            const rows = [...panel.querySelectorAll('.vt-bot-trow[role="button"]')]; // position rows; the sleeve summary reuses the row class
+            return {
+              head: head ? [...head.children].map((c) => (c.textContent || '').trim().replace(/\?$/, '').trim()) : null,
+              rows: rows.length,
+              fiveCells: rows.every((r) => r.querySelectorAll('.sym, .q, .px, .dy, .pl').length === 5),
+              dollarLast: rows.every((r) => /^\$\d|^·$/.test((r.querySelector('.px')?.textContent || '').trim())),
+              units: rows.every((r) => /(sh|ct)$/.test((r.querySelector('.q')?.textContent || '').trim())),
+              dayCells: rows.filter((r) => /[−+]\d+\.\d%$/.test((r.querySelector('.dy')?.textContent || '').trim())).length,
+              usd: rows.filter((r) => /\$\d/.test(r.querySelector('.pl .usd')?.textContent || '')).length,
+              usdShown: rows.some((r) => { const u = r.querySelector('.pl .usd'); return !!u && getComputedStyle(u).display !== 'none'; }),
+              panelW: panel.getBoundingClientRect().width,
+              symW: rows.length ? rows[0].querySelector('.sym').getBoundingClientRect().width : null,
+            };
+          });
+          if (bk === null) fail("book: no Book panel");
+          else {
+            if (!bk.head || bk.head.join(" ") !== "sym qty last day P&L") fail(`book: header reads "${(bk.head || []).join(" ")}"`);
+            if (bk.rows && !bk.fiveCells) fail("book: a row lacks one of its five cells");
+            if (bk.rows && !bk.dollarLast) fail("book: a last price has no dollar sign");
+            if (bk.rows && !bk.units) fail("book: a quantity has no unit (sh / ct)");
+            if (bk.rows && bk.dayCells < 1) fail("book: no row shows today's move although the fixture carries it");
+            if (bk.rows && bk.usd < 1) fail("book: no P&L cell carries a dollar amount");
+            // the dollars follow the Book's OWN width (container query): shown from 380 px, hidden below so the symbol keeps its room
+            if (bk.rows && bk.panelW >= 380 && !bk.usdShown) fail(`book: the dollar P&L is hidden in a ${Math.round(bk.panelW)} px Book`);
+            if (bk.rows && bk.panelW < 380 && bk.usdShown) fail(`book: the dollar P&L shows in a ${Math.round(bk.panelW)} px Book and squeezes the symbol`);
+            if (bk.symW !== null && bk.symW < 60) fail(`book: the symbol column is ${Math.round(bk.symW)} px — unreadable`);
           }
         }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's

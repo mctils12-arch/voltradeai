@@ -578,16 +578,23 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
   const groups: Array<[string, BotPosition[]]> = [["equities", positions.filter((p) => !isOpt(p))], ["options", positions.filter(isOpt)]];
   return (
     <div className="vt-bot-list">
-      <SleeveSummary sleeves={sleeves} />
+      {/* the tape's header (2026-10-22, human-asked): every number carries its column and unit; the rows come
+          first — they are what the Book is for — and the sleeve summary follows them */}
+      <div className="vt-bot-trow vt-bot-thead"><span className="sym">sym</span><span className="q">qty</span><span className="px">last</span><span className="dy">day<Help k="dayChange" /></span><span className="pl">P&L<Help k="bookPnl" /></span></div>
       {groups.filter(([, g]) => g.length).map(([name, g]) => (
         <div key={name} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>{name} · {g.length}</div>
-          {g.map((p) => { const pl = num(p.pnlPct); return (
-            <div key={p.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === p.ticker} title={`${p.ticker} · chart it`} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
-              <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span><span className="q">{num(p.qty) ?? "·"}</span><span className="px">{num(p.currentPrice)?.toFixed(2) ?? "·"}</span><span data-flash={flashAttr(rowFlash?.[p.ticker], nowMs ?? 0)} className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}</span>
+          {g.map((p) => { const pl = num(p.pnlPct); const dy = num(p.dayPct); const last = num(p.currentPrice); const usd = num(p.pnl); return (
+            <div key={p.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === p.ticker} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
+              <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span>
+              <span className="q">{num(p.qty) ?? "·"}<i>{isOpt(p) ? "ct" : "sh"}</i></span>
+              <span className="px">{last === null ? "·" : `$${last.toFixed(2)}`}</span>
+              <span className={`dy ${dy === null ? "vt-bot-t3" : dy < 0 ? "vt-bot-r" : dy > 0 ? "vt-bot-g" : "vt-bot-t3"}`}>{dy === null ? "·" : fmtSigned(dy, 1, "%")}</span>
+              <span data-flash={flashAttr(rowFlash?.[p.ticker], nowMs ?? 0)} className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}{usd === null ? null : <span className="usd"> {fmtMoney(usd)}</span>}</span>
             </div>); })}
         </div>
       ))}
+      <SleeveSummary sleeves={sleeves} />
     </div>
   );
 }

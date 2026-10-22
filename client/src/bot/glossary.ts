@@ -60,7 +60,7 @@ export const GLOSSARY = {
   refused: { term: "Refused · why", text: "The audit rows where Node or the sizer declined a scanner trade, newest first, with the reason the code gave." },
   decided: { term: "Decided", text: "The trades the scan itself produced and handed to Node for admission, sizing and placement." },
   // ── book ──
-  book: { term: "Book", text: "Every open position with quantity, last price and open P&L in percent; above it, where the account's profit and loss has come from, by sleeve." },
+  book: { term: "Book", text: "Every open position as a tape row — quantity with its unit, last price in dollars, today's move, and P&L since entry in percent and dollars; above it, where the account's profit and loss has come from, by sleeve." },
   sleeve: { term: "Sleeve", text: "One of three parts of the strategy: the options sleeve (sold premium and spreads), the ETF floor (the passive core and its legs), and single stocks. P&L is attributed to each from the broker's fill ledger." },
   realized: { term: "Realized", text: "Profit or loss on closed lots since the window start, from the broker's fills on an average-cost basis. Open positions count separately as unrealized." },
   worstOptions: { term: "Worst options", text: "Realized P&L by underlying for the options sleeve, worst first, so the names that cost the most are visible." },
@@ -75,6 +75,8 @@ export const GLOSSARY = {
   timeline: { term: "Today", text: "Every audit event of the ET session on a time axis: scans, trades, exits, halts, emails. Hatched = the kill switch was latched. Drag to replay the page at an earlier moment." },
   replay: { term: "Replay", text: "The page as it was at the chosen time, rebuilt from the audit rows up to then. Live data keeps flowing underneath; move the slider to the end to return to now." },
   afterTaxVsSpy: { term: "After tax vs SPY", text: "The same comparison if both were sold at the window's end: the account's return minus its estimated tax (closed trades at the ledger's terms, open positions as short-term) against SPY's total return minus one sale's tax at its holding term — SPY defers until sold, so its drag is smaller. An estimate; the paper account pays nothing." },
+  dayChange: { term: "Day", text: "Today's move in the position's own price: last against the previous close, in percent — the tape's number, not the position's result. The P&L column is the result since entry." },
+  bookPnl: { term: "P&L since entry", text: "What the position has made or lost since it was opened — as a percent of its cost and in dollars, unrealized until it closes. An option's percent is measured against the premium, so a cheap contract swings wide." },
 } as const satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof GLOSSARY;
