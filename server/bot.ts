@@ -38,7 +38,8 @@ import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./sha
 import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
-import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose } from "./spyBenchmark";
+import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose, type Benchmark } from "./spyBenchmark";
+import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -1960,20 +1961,44 @@ print(json.dumps({
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
   // One body for the owner route AND the "benchmark" diag probe (2026-10-20),
   // so what a session reads can never drift from what the page shows.
-  async function benchmarkBody(): Promise<Record<string, unknown>> {
+  async function benchmarkBody(rates: Partial<TaxRates> = {}): Promise<Record<string, unknown>> {
     const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
     try {
-      if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null };
+      if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null };
       if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
         const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
         spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
       }
-      return { ...benchmarkVsSpy(equityCurve, spyBenchCache.bars), fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all" };
+      const bench = benchmarkVsSpy(equityCurve, spyBenchCache.bars);
+      return { ...bench, fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
     } catch (err) {
-      return { ...benchmarkVsSpy([], []), fetchedAt: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+      return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
   }
-  app.get("/api/bot/benchmark", requireOwner, async (_req, res) => { res.json(await benchmarkBody()); });
+  // The same comparison AFTER TAX ([RULE-REVIEW] 2026-10-22, server/
+  // afterTaxBenchmark.ts): both legs sold at the window's end — SPY's one
+  // sale at its holding term, the account's ledger tax on the trades closed
+  // in the benchmark's own window plus what selling its open positions would
+  // add. Needs the sleeve cache (the realized events and the open P&L): null
+  // until it has loaded, and asking for it warms that cache for the next poll.
+  function afterTaxFor(bench: Benchmark, rates: Partial<TaxRates>): AfterTaxBenchmark | null {
+    if (!bench.since) return null;
+    if (!sleeveCache) { void sleevesBody().catch(() => {}); return null; }
+    const start = equityCurve.find((p) => p.date === bench.since!.from)?.value;
+    if (!(typeof start === "number" && start > 0)) return null;
+    const { events, fills } = sleeveCache.taxInputs;
+    const ledger = taxLedger(events, fills, { windowStartMs: Date.parse(`${bench.since.from}T00:00:00Z`), rates });
+    const open = sleeveCache.body.unrealizedTotal;
+    return afterTaxBenchmark(bench.since, ledger, { equityStart: start, openPnl: typeof open === "number" ? open : null });
+  }
+  app.get("/api/bot/benchmark", requireOwner, async (req, res) => {
+    // ?st&lt&state&niit (fractions) recompute only the after-tax legs at those
+    // rates; without them the route serves the one shared body (diag.test.ts
+    // pins that the diag probe and this route never compute twice)
+    const rates = ratesFromQuery(req.query as Record<string, unknown>);
+    if (Object.keys(rates).length) return res.json(await benchmarkBody(rates));
+    res.json(await benchmarkBody());
+  });
 
   // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
   // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20), plus the

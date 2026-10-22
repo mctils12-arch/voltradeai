@@ -148,7 +148,9 @@ function botFixtures({ latched }) {
     "/api/bot/notifications": [],
     // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
     "/api/bot/benchmark": latched
-      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all" }
+      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all",
+          // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold 2026-10-20 at the default rates — a net realized loss (no tax, carried forward), open losses, SPY's one short-term sale
+          afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its whole total return taxed once at the short-term rate; the dividends inside it would really be taxed each year at the qualified rate, so SPY's tax is slightly overstated (about (short − long) × yield), which flatters the account by that much", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
     // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
     "/api/bot/sleeves": latched
@@ -3087,6 +3089,22 @@ async function main() {
           } catch (e) {
             fail(`${id}: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 700)}`);
           }
+        }
+        // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
+        // benchmark fixture carries the after-tax comparison (both legs sold
+        // at the window's end); the vs-SPY tile must show it as its own line
+        // with a help glyph and the liquidation framing on hover. The idle
+        // page has no SPY series, so it must show no such line.
+        {
+          const at = await page.evaluate(() => { const el = document.querySelector(".vt-bot-aftertax"); return el ? { text: el.textContent || "", help: !!el.querySelector("button.vt-help"), title: el.getAttribute("title") || "" } : null; });
+          if (name === "bot") {
+            if (!at) fail("after-tax: the vs-SPY tile shows no after-tax line for the latched fixture");
+            else {
+              if (!/after tax [−+-]?\d/.test(at.text)) fail(`after-tax: the line reads "${at.text}"`);
+              if (!at.help) fail("after-tax: the line has no help glyph");
+              if (!/both sold/.test(at.title)) fail("after-tax: the hover carries no liquidation framing");
+            }
+          } else if (at) fail("after-tax: the idle page (no SPY series) shows an after-tax line");
         }
         // ── LIVE CHANGE (slice F, 2026-10-21): the fixture server's third
         // and later polls carry a fresh trade row and a moving equity (see

@@ -74,6 +74,7 @@ export const GLOSSARY = {
   orders: { term: "Orders", text: "Orders working at the broker right now, with their status and age. 'Cancelled by deploy' counts open orders a restart cancelled today." },
   timeline: { term: "Today", text: "Every audit event of the ET session on a time axis: scans, trades, exits, halts, emails. Hatched = the kill switch was latched. Drag to replay the page at an earlier moment." },
   replay: { term: "Replay", text: "The page as it was at the chosen time, rebuilt from the audit rows up to then. Live data keeps flowing underneath; move the slider to the end to return to now." },
+  afterTaxVsSpy: { term: "After tax vs SPY", text: "The same comparison if both were sold at the window's end: the account's return minus its estimated tax (closed trades at the ledger's terms, open positions as short-term) against SPY's total return minus one sale's tax at its holding term — SPY defers until sold, so its drag is smaller. An estimate; the paper account pays nothing." },
 } as const satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

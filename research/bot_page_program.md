@@ -173,3 +173,5 @@ tagged [PRODUCT] (or [RULE-REVIEW] for E).
 ## 6. RESUME STATE
 
 - 2026-10-21: program installed; slice A in build.
+- 2026-10-21: all six slices shipped the same day — A chart engine (#1418), B Watch (#1419's base), C help glossary (#1419), D pop-out windows (#1420), E tax-aware ledger (#1421), the chart-room re-cut (#1424), F live change (#1431). The record is the dated [PRODUCT]/[RULE-REVIEW] entries in experiments.md.
+- 2026-10-22: the after-tax vs-SPY leg (slice E's "Next") shipped: server/afterTaxBenchmark.ts on /api/bot/benchmark, a fourth line on the vs-SPY tile. REMAINING from the directive: periodic polish passes (PREMIUM EXPERIENCE STANDARD d) as their own small PRs; nothing else is queued from the 2026-10-21 text.

@@ -145,6 +145,10 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
               <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>
                 SPY {fmtPct(bench.since.spyPct, 1)} · acct {fmtPct(bench.since.accountPct, 1)}<br />
                 since {bench.since.from.slice(5)} · {bench.d30 ? `${bench.d30.days}d ${fmtSigned(bench.d30.gapPp, 1)}` : "30d —"}
+                {bench.afterTax ? (
+                  // the same comparison with both legs sold at the window's end (server/afterTaxBenchmark.ts) — an estimate; the breakdown and the bias notes on hover
+                  <><br /><span className="vt-bot-aftertax" title={`after tax, both sold ${bench.afterTax.window.to}: acct ${fmtPct(bench.afterTax.account.afterTaxPct, 1)} (tax ${fmtPct(bench.afterTax.account.taxPct, 2)} of the start equity) vs SPY ${fmtPct(bench.afterTax.spy.afterTaxPct, 1)} (${bench.afterTax.spy.term}-term sale, tax ${fmtPct(bench.afterTax.spy.taxPct, 2)}) at ${Math.round(bench.afterTax.rates.shortTerm * 100)}/${Math.round(bench.afterTax.rates.longTerm * 100)} % · ${bench.afterTax.notes.join(" · ")}`}>after tax <span className={bench.afterTax.gapPp < 0 ? "vt-bot-r" : "vt-bot-g"}>{fmtSigned(bench.afterTax.gapPp, 1, " pt")}</span><Help k="afterTaxVsSpy" /></span></>
+                ) : null}
               </div>
             </>
           ) : (
