@@ -146,6 +146,19 @@ function botFixtures({ latched }) {
       ], sizing_blocks: [{ ticker: "AMD", reason: "Negative expectancy for strategy 'stocks' (WR=28%); refusing to size", score: 74.3, strategy: "stocks" }], scan_phase_times: [{ phase: "universe_load", duration_sec: 0.93 }, { phase: "snapshot_fetch", duration_sec: 3.76 }, { phase: "quick_scan", duration_sec: 0.11 }, { phase: "deep_score", duration_sec: 41.44 }, { phase: "step6a_trade_loop_and_covered_calls", duration_sec: 0.39 }, { phase: "step7_manage_positions", duration_sec: 0.04 }, { phase: "step8b_options_manager", duration_sec: 0.3 }, { phase: "step9_third_leg", duration_sec: 0.12 }, { phase: "step9b_convexity_overlay", duration_sec: 0.31 }, { phase: "step10_spy_floor", duration_sec: 0.14 }] },
     "/api/orders/open": [],
     "/api/bot/notifications": [],
+    // look-up (2026-10-22): what the scan would do with NVDA right now — a name down big on bad news that scores on mean
+    // reversion, stopped at admission (prefix fixture: /api/bot/lookup/<symbol>)
+    "/api/bot/lookup": { symbol: "NVDA", at: new Date(now).toISOString(), path: "snapshot → quick pass → deep_score → gates → chain", errors: {}, timings: { total_s: 6.4 },
+      quick: { price: 183.2, change_pct: -6.8, volume: 61_000_000, dollar_volume: 11_175_200_000, quick_score: 48.6, above_open: false },
+      deep: { score: 58.2, side: "buy", action_label: "BUY", sector: "Semiconductors", ml_win_prob: 0.44, reasons: ["Mean reversion: RSI 24 oversold", "Volume 2.6× average", "News sentiment −0.6 (guidance cut)"], factors: { momentum: -18, mean_reversion: 31, vrp: 4, squeeze: 2, volume: 2.6, sentiment: -9 } },
+      regime: { label: "NEUTRAL", vxx_ratio: 1.02, spy_vs_ma50: 1.01, spy_below_200_days: 0, min_score: 65 }, held: false,
+      decision: { stopped_at: "admission", verdict: "stopped at admission", gates: [
+        { gate: "universe", pass: true, why: "in the scan's universe" }, { gate: "regime", pass: true, why: "NEUTRAL" }, { gate: "cooldown", pass: true, why: "no recent stop" },
+        { gate: "admission", pass: false, why: "score 58.2 vs MIN_SCORE 65" }, { gate: "sector", pass: false, why: "sector / correlation cap reached (max 3/sector)" }, { gate: "sizing", pass: true, why: "40 sh · $7,300" } ] },
+      chain: { contracts: 412, atm_iv: 61.2, iv_rank: 88, window_days: "21–45", expiries: ["2026-11-21", "2026-12-19"],
+        csp: { occ: "NVDA261121P00170000", strike: 170, exp_date: "2026-11-21", days_out: 30, bid: 2.4, ask: 2.6, delta: -0.22, delta_real: true, iv: 0.61, oi: 12_400, premium_pct: 1.31 },
+        cc: { occ: "NVDA261121C00200000", strike: 200, exp_date: "2026-11-21", days_out: 30, bid: 1.9, ask: 2.0, delta: 0.25, delta_real: true, iv: 0.58, oi: 9_800, premium_pct: 1.04 },
+        scanner_setup: null } },
     // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
     "/api/bot/benchmark": latched
       ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all",
@@ -3198,6 +3211,48 @@ async function main() {
           }
           if (!ds.book) fail("dead space: the Book is not in the left column");
           if (ds.chartFrac !== null && ds.chartFrac < 0.7) fail(`dead space: the chart is only ${Math.round(ds.chartFrac * 100)} % of the right column`);
+        }
+        // ── LOOK-UP (2026-10-22, human-asked): type a symbol in the Watch
+        // header's box, Enter → the card above the candidates names the
+        // verdict, the six gates in the scan's order and the factors; "/"
+        // focuses the box. The fixture answers NVDA stopped at admission.
+        {
+          const box = page.locator('.vt-lookup-box input').first();
+          if (!(await box.count())) fail("lookup: no box in the Watch header");
+          else {
+            try {
+              await box.fill("nvda"); await box.press("Enter");
+              let card = null;
+              for (let i = 0; i < 40 && !card; i++) {
+                await page.waitForTimeout(100);
+                card = await page.evaluate(() => {
+                  const c = document.querySelector('.vt-lookup[data-symbol]');
+                  if (!c || c.getAttribute('data-busy')) return null;
+                  return { sym: c.getAttribute('data-symbol'), verdict: (c.querySelector('.verdict')?.textContent || '').trim(), gates: [...c.querySelectorAll('.vt-lookup-gates span[data-status]')].map((g) => g.getAttribute('data-status')), bars: c.querySelectorAll('.vt-lookup-bars > span').length, chain: /ATM IV/.test(c.textContent || '') };
+                });
+              }
+              // the card as drawn, for the PR's visual review (.visual/<page>-lookup-<w>.png)
+              await page.screenshot({ path: path.join(OUT, `${name}-lookup-${vp.w}.png`), animations: "disabled" });
+              if (!card) fail("lookup: no card within 4 s of Enter");
+              else {
+                if (card.sym !== "NVDA") fail(`lookup: the card is for ${card.sym}`);
+                if (!/stopped at admission/.test(card.verdict)) fail(`lookup: the verdict reads "${card.verdict}"`);
+                if (card.gates.join(",") !== "pass,pass,pass,fail,skipped,skipped") fail(`lookup: the gates read ${card.gates.join(",")}`);
+                if (card.bars < 4) fail(`lookup: only ${card.bars} factor bars`);
+                if (!card.chain) fail("lookup: no chain line");
+              }
+              if (!vp.touch) {
+                await page.mouse.click(2, 2); await page.keyboard.press("/"); await page.waitForTimeout(80);
+                const focused = await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('.vt-lookup-box'));
+                if (!focused) fail("lookup: '/' did not focus the box");
+                await page.keyboard.press("Escape"); await page.mouse.click(2, 2);
+              }
+              const close = page.locator('.vt-lookup button[aria-label="Close the look-up"]').first();
+              if (await close.count()) { await press(close); await page.waitForTimeout(200); }
+            } catch (e) {
+              fail(`lookup: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+            }
+          }
         }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
         // benchmark fixture carries the after-tax comparison (both legs sold

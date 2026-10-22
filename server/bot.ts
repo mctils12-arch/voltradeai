@@ -2004,6 +2004,50 @@ print(json.dumps({
     res.json(await benchmarkBody());
   });
 
+  // ── Look-up (2026-10-22, human-asked): what the bot thinks of ONE symbol
+  // right now, through the scan's own path — lookup_ticker.py via the
+  // daemon ("lookup_ticker", registered in voltrade_daemon.py) with the
+  // python3 -c subprocess fallback. Owner only; one run per symbol per
+  // minute (deep_score and the chain cost seconds); the symbol is letters
+  // only before it reaches a command line; an OCC option code is looked up
+  // by its underlying (the chain is part of the answer).
+  const LOOKUP_CACHE_MS = 60_000;
+  const lookupCache = new Map<string, { at: number; body: Record<string, unknown> }>();
+  const lookupInflight = new Map<string, Promise<Record<string, unknown>>>();
+  async function lookupBody(symbol: string, withChain: boolean): Promise<Record<string, unknown>> {
+    const key = `${symbol}|${withChain ? 1 : 0}`;
+    const hit = lookupCache.get(key);
+    if (hit && Date.now() - hit.at < LOOKUP_CACHE_MS) return { ...hit.body, cached: true, cachedAgeS: Math.round((Date.now() - hit.at) / 1000) };
+    let p = lookupInflight.get(key);
+    if (!p) {
+      p = (async () => {
+        const r = await pythonCall(
+          "lookup_ticker", { symbol, with_chain: withChain },
+          `python3 -c "import json, sys; from lookup_ticker import lookup; print(json.dumps(lookup(sys.argv[1], sys.argv[2] == '1'), default=str))" ${symbol} ${withChain ? 1 : 0}`,
+          { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 }, 90_000,
+        );
+        const body: Record<string, unknown> = r.success && r.result && typeof r.result === "object"
+          ? { ...(r.result as Record<string, unknown>), via: r.via }
+          : { symbol, at: new Date().toISOString(), errors: { lookup: String((r.result as { error?: unknown } | null)?.error || "lookup failed").slice(0, 200) }, via: r.via };
+        if (r.success) lookupCache.set(key, { at: Date.now(), body });
+        return body;
+      })().finally(() => lookupInflight.delete(key));
+      lookupInflight.set(key, p);
+    }
+    return p;
+  }
+  app.get("/api/bot/lookup/:symbol", requireOwner, async (req, res) => {
+    const raw = String(req.params.symbol || "").trim().toUpperCase();
+    const m = /^([A-Z]{1,6})(\d{6}[CP]\d{8})?$/.exec(raw);
+    if (!m) return res.status(400).json({ error: "a symbol is 1–6 letters, or an OCC option code" });
+    const withChain = String(req.query.chain ?? "1") !== "0";
+    try {
+      res.json(await lookupBody(m[1], withChain));
+    } catch (e: unknown) {
+      res.status(500).json({ symbol: m[1], at: new Date().toISOString(), errors: { lookup: String(e instanceof Error ? e.message : e).slice(0, 200) } });
+    }
+  });
+
   // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
   // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20), plus the
   // NON-TRADE cash flows (dividends, interest, fees, journals, option events;

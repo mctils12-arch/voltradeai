@@ -4596,6 +4596,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-ctl button[aria-pressed="true"] { color: var(--text-primary); }
 @media (max-width: 639px) { .vt-bot-ctl button { width: 44px; height: 44px; } }
 .vt-bot-page[data-touch="true"] .vt-bot-ctl button { width: 44px; height: 44px; }
+.vt-bot-page[data-touch="true"] .vt-lookup-box button { min-width: 44px; min-height: 44px; }
 .vt-bot-page[data-touch="true"] .vt-bot-act, .vt-bot-page[data-touch="true"] .vt-bot-wbtn, .vt-bot-page[data-touch="true"] .vt-bot-confirm .vt-bot-row button { min-height: 44px; }
 .vt-bot-page[data-touch="true"] .vt-bot-issue .l button { min-height: 44px; display: inline-flex; align-items: center; }
 .vt-bot-pb { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1 1 auto; overflow: hidden; }
@@ -4665,6 +4666,31 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-list { display: flex; flex-direction: column; gap: 3px; }
 .vt-bot-trow { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; }
 @media (max-width: 639px) { .vt-bot-trow { min-height: 36px; } }
+/* look-up (2026-10-22): the box in the Watch header and the card above the candidates */
+.vt-lookup-box { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.vt-lookup-box input { font: inherit; font-family: var(--font-mono); font-size: 11px; width: 118px; max-width: 40vw; padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); text-transform: uppercase; }
+.vt-lookup-box input::placeholder { text-transform: none; color: var(--text-tertiary); }
+.vt-lookup-box input:focus { outline: none; border-color: var(--accent); }
+.vt-lookup-box button { font: inherit; font-size: 11px; color: var(--accent); background: none; border: 0; padding: 2px 4px; cursor: pointer; }
+.vt-lookup { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; margin: 2px 0 6px; border-radius: var(--radius-md); background: var(--bg-primary); box-shadow: inset 0 0 0 1px var(--border); font-size: 11.5px; }
+.vt-lookup-hd { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.vt-lookup-hd .sym { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.vt-lookup-hd .px { font-family: var(--font-mono); color: var(--text-secondary); }
+.vt-lookup-hd .verdict { font-weight: 600; }
+.vt-lookup-hd .verdict[data-tone="g"] { color: var(--accent-green); } .vt-lookup-hd .verdict[data-tone="o"] { color: var(--accent-orange); } .vt-lookup-hd .verdict[data-tone="r"] { color: var(--accent-red); } .vt-lookup-hd .verdict[data-tone="t"] { color: var(--text-tertiary); }
+.vt-lookup-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vt-lookup-line b { font-weight: 500; color: var(--text-primary); }
+.vt-lookup-gates { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
+.vt-lookup-gates span[data-status="pass"] { color: var(--accent-green); } .vt-lookup-gates span[data-status="fail"] { color: var(--accent-red); } .vt-lookup-gates span[data-status="skipped"], .vt-lookup-gates span[data-status="unknown"] { color: var(--text-tertiary); }
+.vt-lookup-gates i { font-style: normal; color: var(--text-secondary); margin-left: 4px; }
+.vt-lookup-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 3px 10px; font-size: 10.5px; font-family: var(--font-mono); }
+.vt-lookup-bars span { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--text-secondary); }
+.vt-lookup-bars em { font-style: normal; color: var(--text-primary); }
+.vt-lookup-bars i { display: block; height: 4px; border-radius: 2px; background: var(--accent); opacity: .8; }
+.vt-lookup-bars i[data-neg="true"] { background: var(--accent-red); }
+.vt-lookup-err { font-size: 10.5px; color: var(--accent-orange); }
+.vt-lookup-hist { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 10.5px; color: var(--text-tertiary); }
+.vt-lookup-hist button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
 /* the Book as a tape (2026-10-22): sym takes the slack; qty · last · day · P&L are fixed, right-aligned mono columns with their units */
 .vt-bot-trow .sym { flex: 1 1 64px; min-width: 64px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-bot-trow .q { width: 50px; flex: 0 0 auto; text-align: right; font-family: var(--font-mono); color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
@@ -4677,6 +4703,17 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-thead .sym, .vt-bot-thead .q, .vt-bot-thead .px, .vt-bot-thead .dy, .vt-bot-thead .pl { font-family: inherit; font-size: 9.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
 /* the Book sizes its tape by its OWN width (a container query, not the viewport): in a slot under 380 px — the l-tier left
    column, the phone, a tablet pair — the dollar P&L hides so the symbol keeps its 64 px; the pane window and the xl column show it */
+/* LOOK-UP (2026-10-22): the Watch header carries the symbol box; under 480 px of panel width the box takes its own
+   full row under the title row instead of squeezing beside the meta (harness 2026-10-22 at 390: the box shrank to
+   43 px and its input overflowed the meta and the age). Same container-query pattern as the Book tape below. */
+section.vt-bot-panel[data-panel="watch"] { container-type: inline-size; }
+@container (max-width: 479px) {
+  section.vt-bot-panel[data-panel="watch"] .vt-bot-ph { flex-wrap: wrap; }
+  /* the meta keeps a zero basis so the title row never wraps the controls off it (it grows into the rest, ellipsis) */
+  section.vt-bot-panel[data-panel="watch"] .vt-bot-ph .vt-bot-meta, section.vt-bot-panel[data-panel="watch"] .vt-bot-ph .vt-bot-sp { flex: 1 1 0; }
+  .vt-lookup-box { order: 9; flex: 1 1 100%; }
+  .vt-lookup-box input { flex: 1 1 auto; width: auto; max-width: none; }
+}
 section.vt-bot-panel[data-panel="book"] { container-type: inline-size; }
 @container (max-width: 379px) { .vt-bot-trow .pl { width: 56px; } .vt-bot-trow .pl .usd { display: none; } }
 .vt-bot-issue { display: flex; flex-direction: column; gap: 3px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }

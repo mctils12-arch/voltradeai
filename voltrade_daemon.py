@@ -313,6 +313,12 @@ class RPCDispatcher:
             # previously pointed at non-existent "main_scan" which made
             # every daemon-routed scan return "Method main_scan not found"
             "run_full_scan": ("bot_engine", "scan_market"),
+
+            # Look-up (2026-10-22, human-asked): what the bot thinks of ONE
+            # symbol right now through the scan's own path — lookup_ticker.py.
+            # args {"symbol": "NVDA", "with_chain": true}; bot.ts serves it on
+            # /api/bot/lookup/:symbol with the python3 -c subprocess fallback.
+            "lookup_ticker": ("lookup_ticker", "lookup"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:
