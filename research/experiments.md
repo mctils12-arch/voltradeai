@@ -109571,3 +109571,15 @@ CONSEQUENCE: research test 2's index control (variance risk premium, index vs si
 HONESTY: forward-only recording; the pre-10-21 index gap is permanent. Live site still serves 1.0.1133 (Railway GitHub-auth stall, human-side), but 1.0.1130 is already inside it, which is why this judgment is possible.
 HEALTH: /api/health 200 ok, bot active, liveness not dark, drawdown -0.6%, feeds all <0.3h. Last-10 tags show no repair thrash.
 STARVED: yes (deploy-blocked client work; this was the one datacore item with a live-verifiable prior).
+
+## 2026-10-22 (scheduled routine, EDGE-DOCTRINE axis pick, ~02:35Z Thu, after the close) [NO-ACTION] — no code_version change (docs only): all four doctrine axes are saturated or date-gated; nothing built, nothing padded
+
+LOOP HEALTH: research_state_check thrash 0/10 REPAIR; 3 consecutive STARVED (< 10). session_health_check all OK except daemon rss 458MB (trim mode, known) and deploy_freshness (live 1.0.1133 vs main 1.0.1141). No critical KNOWN BROKEN (#44 is a FROZEN-path proposal already in wishlist; #48 steps 1-2 shipped as #1400, step 3 is an evidence decision on the 10-yr report, not a repair).
+AXIS SURVEY (priors stated before surveying: 70% that at least one axis has a startable item):
+(a) free-data pipelines: Form 4, 13F, USAspending, COT/TFF, FDA, Trends, Sentinel-2 all exist; datacore/signal_ladder.json has 59 roots; pytrends is gate1_fail-dead (wishlist). The two startable gate-2 reads wait on dates: 13F new-position clustering and the 8-K QoQ language delta both need the Q3 filing season (13F deadline 2026-11-16). Lazy Prices gate 2 waits on the price-panel human decision (wishlist, 2026-10-18).
+(b) capacity-constrained corners: the same price-panel gap (no point-in-time delisted-inclusive panel) means any illiquid-universe result would be survivor-biased simulator fiction.
+(c) foreign-field imports: ecology (CSD), reliability (renewal), seismology (Omori), epidemiology (R_t) are all filed with scripts; a fifth would be a duplicate without a new data hook.
+(d) compile recurring reasoning: the recurring chores (health, thrash ratio, starvation, archive freshness, deploy gate) are already scripts; the CONSTITUTIONAL AUDIT is overdue (due 2026-10-20) but its last two rounds of proposals are still unanswered by the human, so a fourth adds to the pile without moving anything.
+RESULT: prior refuted (no startable item). Anti-churn rule: no padding PR. Next startable, in date order: 2026-11-16+ 13F Q2->Q3 gate 2 and 8-K QoQ delta; ~2027-01-15 index-VRP gate-2 re-run (index series began 2026-10-21); the CONSTITUTIONAL AUDIT is the one overdue item the next fall-through session should run.
+DEPLOY STALL (priority 1, still human-side): live 1.0.1133, main 1.0.1141, 8 merges unshipped; Railway Source link needs a GitHub reconnect + redeploy (frozen config; see the 2026-10-20 and 2026-10-21 entries). Notified again.
+STARVED: yes (date- and decision-gated).
