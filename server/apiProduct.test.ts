@@ -79,6 +79,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/bank-failures"), "FDIC bank failures keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/clinical-trials"), "ClinicalTrials.gov change-event keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/fda-events"), "FDA binary-event keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/border-waits"), "CBP border-waits keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/dts"), "Treasury DTS keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/tff"), "CFTC TFF keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/treasury-auctions"), "Treasury auction-results keyed mirror shipped — must be a live endpoint");
@@ -399,6 +400,19 @@ test("dts license mark: public-domain Treasury data resells freely; agent tool c
   assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
   assert.ok(routes.includes('"/api/v1/data/dts"'), "dts keyed route must be registered");
+});
+
+test("border-waits license mark: public-domain CBP data resells freely; agent tool carries gate-2-untested and not-a-signal honesty", () => {
+  assert.equal(LICENSE_MARKS["data/border-waits"].resell, "ok");
+  assert.ok(LICENSE_MARKS["data/border-waits"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["data/border-waits"].attribution.includes("Border Wait Times"));
+  const tool = agentToolSpec().tools.find((t) => t.name === "voltrade_border_waits");
+  assert.ok(tool, "voltrade_border_waits tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/border-waits"]);
+  assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: untested must travel");
+  assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/data/border-waits"'), "border-waits keyed route must be registered");
 });
 
 test("tff license mark: public-domain CFTC data resells freely; agent tool carries gate-2-killed and futures-only honesty", () => {

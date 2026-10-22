@@ -5307,6 +5307,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // CBP border wait times keyed mirror (same sweep). Reuses
+  // latestBorderWaits() — the cache /api/data/border-waits already serves;
+  // no new poller. Public-domain CBP data, resell ok. RAW: gate 2 not tested.
+  app.get("/api/v1/data/border-waits", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestBorderWaits();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first border-wait poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/border-waits", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/border-waits", { count: hit.obs.length, note: "hourly snapshot per lane class; status strings as published (localized by CBP's serving region), join on port_number; null delay = not published, never zero; raw, the freight-delay hypothesis is gate-locked and untested", waits: hit.obs }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/border-waits", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/border-waits", status: 500, tier: auth.tier });
+    }
+  });
+
   // Treasury Daily Statement keyed mirror (same sweep). Reuses latestDts()
   // — the cache /api/data/dts already serves; no new poller. Public-domain
   // Treasury data, resell ok. RAW: gate 2 not tested.
