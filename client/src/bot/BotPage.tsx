@@ -291,7 +291,10 @@ export default function BotPage() {
     const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
-      case "issues": return <Panel {...common} title="Issues" help="issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ flex: "1 1 auto", ...extraStyle }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
+      // the slot carries the column share and the cap (maxHeight); the panel
+      // fills its slot — a cap on both sized the panel to 40 % of its own
+      // wrapper and left a hole under it (harness 2026-10-22, same as watch)
+      case "issues": return <Panel {...common} title="Issues" help="issues" meta={issues.length ? `${issues.length} standing` : undefined} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}{actErr ? <div className="vt-bot-r" style={{ fontSize: 11.5 }}>action failed · {actErr}</div> : null}</Panel>;
       case "state": return <Panel {...common} title={stateTitle} help={shown === "candidate" || shown === "placed" || shown === "exit" ? "decision" : "now"} status={shown === "incident" ? <span className="vt-bot-st vt-bot-r"><span className="vt-bot-dot" />first-out</span> : replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} style={{ flex: shown === "closed" ? "1 1 auto" : "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share (maxHeight); the panel fills its
       // slot — applying the cap to both halved the body to a strip (harness
@@ -358,9 +361,12 @@ export default function BotPage() {
       ) : (
         <div className="vt-bot-grid" style={gridStyle(tier)}>
           {kpi}
-          <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "1 1 auto" })}</div>
+          {/* DEAD SPACE (2026-10-22, human-approved): no column leaves a blank — Issues takes only its content
+              (capped, scrolls when long), the Book takes the rest of the left column, the chart the whole right
+              column; Orders is one line while nothing works and grows back with real orders */}
+          <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "0 1 auto", maxHeight: "40%", minHeight: 0 })}{slot("book", { flex: "1 1 auto", minHeight: 120 })}</div>
           <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("watch", { flex: "0 1 auto", maxHeight: hasState ? "36%" : "44%", minHeight: 136 })}{slot("model", { flex: "1 1 auto" })}</div>
-          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "2.4 1 0" })}{slot("book", { flex: "1.1 1 0" })}{slot("orders", { flex: ordersFlex })}</div>
+          <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1 1 auto" })}{slot("orders", { flex: ordersFlex })}</div>
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>
         </div>
       )}
