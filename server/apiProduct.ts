@@ -214,6 +214,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Customs and Border Protection (Border Wait Times)",
     resell: "ok",
   },
+  "data/fmcsa-oos": {
+    license: "FMCSA Out-of-Service Orders (data.transportation.gov dataset p2mt-9ige) — a US DOT/FMCSA government work in the public domain. Mirrored as published: trailing-45-day window of motor-carrier out-of-service orders, status ACTIVE/INACTIVE/PENDING and rescind_date verbatim; an order rescinded after it ages out of the window is not re-observed.",
+    attribution: "U.S. DOT Federal Motor Carrier Safety Administration (Out-of-Service Orders)",
+    resell: "ok",
+  },
   "data/dts": {
     license: "U.S. Treasury Fiscal Data — Daily Treasury Statement, Table II (deposits & withdrawals of operating cash) — a US Department of the Treasury government work in the public domain. Mirrored as published ($ millions); no derived fields.",
     attribution: "U.S. Treasury Fiscal Data — Daily Treasury Statement",
@@ -374,6 +379,7 @@ export function apiMeta() {
       { path: "/api/v1/data/attention-history", params: "?days<=90 (default 30), ?ticker=TICKER (optional)", desc: "Accumulated Wikimedia pageviews archive — the multi-day companion to /api/v1/data/attention above, which mirrors only the newest poll cache. No ticker: the seed-total daily pageview trend log. ?ticker=TICKER: that ticker's own pageview series read directly from the day-archive. Same GATE 1 PASS / GATE 2 NOT-ATTEMPTED status and the same freely-resellable posture as data/attention (not a separate root, not a separate license).", preview: "/api/data/attention/history" },
       { path: "/api/v1/data/wiki-attention-signal", params: "-", desc: "Live per-ticker pageview z-score board (23-ticker seed) plus the frozen result table of the validated study behind it: a pageview attention spike (z>=2.0 vs a trailing up-to-90-day baseline) on a small/mid-cap ticker's article is followed by elevated forward trading volume, net of a same-day-or-prior-day SEC 8-K (Bonferroni-corrected across a 10-cell family, alpha=0.005). THE SECOND GATE 2 (SIGNAL)-PASSED root exposed on this API after data/gnss-integrity-signal (datacore/signal_ladder.json, wikimedia_pageviews_attention, gate2_pass, 2026-09-04). This board does NOT re-check today's flagged spikes against EDGAR live — a shown spike could be news-driven; see the response's own caveats[]. No volatility or directional-price claim (the study found none). Not tradeable: gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. GATE 3 (long-only buy-spike-close/sell-at-h close, h in {1,3,5}) was ATTEMPTED 2026-09-05 and NOT PASSED (no cost-net, base-rate-beating edge at any horizon across four independent partial-coverage draws) — see signal_ladder.json. Same freely-resellable CC0 lineage as data/attention above.", preview: "/api/data/wiki-attention-signal" },
       { path: "/api/v1/data/border-waits", params: "-", desc: "CBP land-border wait times, latest hourly snapshot flattened per crossing and lane class (commercial standard, commercial FAST, passenger standard): delay minutes, lanes open, status as published (localized by CBP's serving region, verbatim), joinable on port_number. The road leg of physical-economy freight flow. RAW display + archive only: the freight-crossing-delay hypothesis is gate-locked and has NOT been gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/border-waits" },
+      { path: "/api/v1/data/fmcsa-oos", params: "-", desc: "FMCSA motor-carrier out-of-service orders, trailing 45-day window, polled every 6h: per order the status (ACTIVE/INACTIVE/PENDING) and rescind_date as published. Hits mostly small non-public carriers (e.g. new entrants failing their first safety audit). RAW display + archive only: the aggregate-order-volume vs trucking-returns hypothesis is NOT gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/fmcsa-oos" },
       { path: "/api/v1/data/dts", params: "-", desc: "US Treasury Daily Statement, deposits and withdrawals of operating cash (Table II), newest business day: per transaction category (withheld income/employment taxes, corporate taxes, FUTA, Medicare, SNAP, etc.) the today / month-to-date / fiscal-year-to-date amount in $ millions as published, ~1-2 business-day lag. RAW display + archive only: the withheld-tax payroll-nowcast hypothesis is gate-locked and has NOT been gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/dts" },
       { path: "/api/v1/data/tff", params: "-", desc: "CFTC Traders in Financial Futures, futures-only: weekly positioning by trader category (dealer/intermediary, asset manager, leveraged money, other reportable — long/short/spread, plus non-reportable) for every reported financial-futures market (equity index, rates, FX class), Tuesday as-of/Friday-publish, newest week only. GATE 1 (DATA) PASSED (each row reconciles to CFTC's own accounting identities: trader categories + spreads sum to total reportable, reportable + non-reportable to open interest). GATE 2 KILLED 2026-08-03: the pre-registered 'leveraged-money extremes mean-revert' hypothesis was REJECTED across 7 ETF/futures pairs (the Bonferroni survivors, e.g. TLT, are the wrong sign for mean-reversion). RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/tff" },
       { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
@@ -654,6 +660,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/border-waits",
       returns_provenance: ["data/border-waits"],
+    },
+    {
+      name: "voltrade_fmcsa_oos",
+      description: "FMCSA motor-carrier out-of-service orders over a trailing 45-day window (polled every 6h): per order the status (ACTIVE/INACTIVE/PENDING) and rescind_date as published. An order rescinded after it ages out of the window is not re-observed. RAW enforcement log, NOT a trading signal: the aggregate-volume vs trucking-returns hypothesis has NOT been gate-2 tested.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/fmcsa-oos",
+      returns_provenance: ["data/fmcsa-oos"],
     },
     {
       name: "voltrade_dts",
@@ -961,6 +974,7 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
   voltrade_clinical_trials: dataObj({ tracked: INT, count: INT, events: ARR }, ["count", "events"]),
   voltrade_fda_events: dataObj({ count: INT, events: ARR }, ["count", "events"]),
   voltrade_border_waits: dataObj({ count: INT, note: STR, waits: ARR }, ["count", "waits"]),
+  voltrade_fmcsa_oos: dataObj({ count: INT, note: STR, orders: ARR }, ["count", "orders"]),
   voltrade_dts: dataObj({ record_date: STR, count: INT, note: STR, lines: ARR }, ["record_date", "count", "lines"]),
   voltrade_tff: dataObj({ report_date: STR, count: INT, note: STR, markets: ARR }, ["report_date", "count", "markets"]),
   voltrade_treasury_auctions: dataObj({ count: INT, auctions: ARR }, ["count", "auctions"]),
