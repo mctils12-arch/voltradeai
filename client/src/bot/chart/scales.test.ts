@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   type Bar, capBars, fitViewport, clampViewport, zoomViewport, panViewport, followViewport, priceRange, niceStep, priceTicks, decimalsFor, priceDecimals,
-  xOf, iOf, yOf, priceOfY, timeTicks, indexAtX, etParts, MAX_BARS, MIN_VISIBLE_BARS, RIGHT_PAD_FRAC, timeframeSpec, fmtPrice, fmtBarTimeShort,
+  xOf, iOf, yOf, priceOfY, timeTicks, indexAtX, etParts, MAX_BARS, MIN_VISIBLE_BARS, RIGHT_PAD_FRAC, timeframeSpec, fmtPrice, fmtBarTimeShort, TIMEFRAMES,
 } from "./scales";
 
 const T0 = Date.parse("2026-10-19T13:30:00Z") / 1000; // 09:30 ET Monday
@@ -120,3 +120,10 @@ test("the short bar time fits the readout: the clock intraday, the date on the d
   assert.equal(fmtBarTimeShort(t, "1Day"), "Oct 21");
 });
 
+test("1-minute timeframe: first in the row, a full session of bars within the hard cap", () => {
+  assert.equal(TIMEFRAMES[0].tf, "1Min");
+  assert.equal(TIMEFRAMES[0].label, "1m");
+  assert.equal(timeframeSpec("1Min").minutes, 1);
+  assert.ok(timeframeSpec("1Min").limit >= 390 && timeframeSpec("1Min").limit <= MAX_BARS);
+  assert.ok(TIMEFRAMES.every((t) => t.limit <= MAX_BARS && t.show <= t.limit));
+});

@@ -3103,6 +3103,32 @@ async function main() {
             if (box) { await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.4); await page.waitForTimeout(150); await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5); await page.waitForTimeout(150); await page.mouse.move(2, 2); }
           }
         }
+        // ── 1-MINUTE TIMEFRAME (2026-10-22, human-asked): the timeframe row
+        // offers 1m first of five, and selecting it keeps the chart painted
+        // (the fixture answers any timeframe).
+        {
+          const tfs = await page.evaluate(() => [...document.querySelectorAll('.vt-chart-tf button')].map((b) => (b.textContent || '').trim()));
+          if (tfs[0] !== "1m" || tfs.length !== 5) fail(`chart: timeframe row reads ${tfs.join(" ")} (expected 1m first of five)`);
+          const oneMin = page.locator('.vt-chart-tf button', { hasText: /^1m$/ }).first();
+          if (await oneMin.count()) {
+            try {
+              await press(oneMin); await page.waitForTimeout(700);
+              const after = await page.evaluate(() => {
+                const pressed = document.querySelector('.vt-chart-tf button[aria-pressed="true"]');
+                const canvas = document.querySelector('.vt-chart canvas');
+                const readout = (document.querySelector('.vt-chart-readout')?.textContent || '');
+                return { pressed: (pressed?.textContent || '').trim(), canvas: !!canvas && canvas.width > 0, readout };
+              });
+              if (after.pressed !== "1m") fail(`chart: 1m did not take (pressed: ${after.pressed})`);
+              if (!after.canvas) fail("chart: no canvas after switching to 1m");
+              if (!/O \d/.test(after.readout)) fail(`chart: the readout shows no bar after switching to 1m: "${after.readout.slice(0, 60)}"`);
+              const back = page.locator('.vt-chart-tf button', { hasText: /^1h$/ }).first();
+              if (await back.count()) { await press(back); await page.waitForTimeout(300); }
+            } catch (e) {
+              fail(`chart: 1m driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+            }
+          }
+        }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
         // benchmark fixture carries the after-tax comparison (both legs sold
         // at the window's end); the vs-SPY tile must show it as its own line
