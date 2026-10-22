@@ -5328,6 +5328,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FMCSA out-of-service orders keyed mirror (same sweep). Reuses
+  // latestOosOrders() — the cache /api/data/fmcsa-oos already serves; no
+  // new poller. Public-domain FMCSA data, resell ok. RAW: gate 2 not tested.
+  app.get("/api/v1/data/fmcsa-oos", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestOosOrders();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first FMCSA out-of-service poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/fmcsa-oos", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/fmcsa-oos", { count: hit.obs.length, note: "trailing-45-day window, polled every 6h; status and rescind_date as published; an order rescinded after it ages out of the window is not re-observed; raw, the aggregate-volume hypothesis is gate-locked and untested", orders: hit.obs }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fmcsa-oos", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fmcsa-oos", status: 500, tier: auth.tier });
+    }
+  });
+
   // Treasury Daily Statement keyed mirror (same sweep). Reuses latestDts()
   // — the cache /api/data/dts already serves; no new poller. Public-domain
   // Treasury data, resell ok. RAW: gate 2 not tested.

@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-22 (scheduled routine session #3, ~late Thu, after hours) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1151) — KEYED /api/v1/data/fmcsa-oos MIRROR
+
+HEALTH: session_health_check all OK (live 1.0.1150 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 430MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). Last-10 tags: 8 PRODUCT/PIPELINE, 1 NO-ACTION, 0 REPAIR — no thrash.
+CHOICE: raw-vs-v1 path diff overstated the gap (many mirrors live under /api/v1/stats/*); real remaining gap included fmcsa-oos (US-gov raw endpoint, no keyed surface; shipped-data-no-v1-API class, priority (3)). Same recipe as border-waits.
+CHANGE: GET /api/v1/data/fmcsa-oos behind requireApiKey + meterUsage, reusing latestOosOrders() (no new poller). LICENSE_MARKS resell "ok" (FMCSA, public domain), meta entry, agent tool voltrade_fmcsa_oos, response schema.
+TESTS: apiProduct 76->77 pass; tsc errors 3 (baseline).
+NO SIGNAL CLAIM: RAW, gate-2 (aggregate OOS volume vs trucking returns) NOT tested; rescind-after-window limitation carried. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: no trading-path code; merge after the close per deploy coupling.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-22 (scheduled routine PRODUCT session #2, ~18:10Z Thu = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1149) — KEYED /api/v1/data/border-waits MIRROR
 
 HEALTH: session_health_check all OK (live 1.0.1148 == checkout, deploy_gate 2xx, liveness alive, daemon 372MB); only WARN is tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking); no critical KNOWN BROKEN.
