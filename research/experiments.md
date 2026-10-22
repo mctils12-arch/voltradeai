@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-22 (scheduled routine PRODUCT session, ~13:05Z Thu = 09:05 ET, PRE-OPEN) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1142) — KEYED /api/v1/data/dts MIRROR
+
+HEALTH: session_health_check all OK except daemon rss 402MB (trim mode, known); deploy_freshness OK (live 1.0.1141 == checkout; the 10-20 deploy stall has cleared); no critical KNOWN BROKEN.
+CHOICE: dts had a raw endpoint but no API-product surface (shipped-data-no-v1-API class, priority (3)); last of the tff/treasury-auctions/dts trio. Gate 2 on catalyst roots stays blocked on the price-panel decision.
+CHANGE: GET /api/v1/data/dts behind requireApiKey + meterUsage, reusing latestDts() (no new poller). LICENSE_MARKS data/dts resell "ok" (Treasury Fiscal Data, public domain), meta entry with preview route, agent tool voltrade_dts, response schema.
+TESTS: apiProduct 74->75 pass (+1 license/honesty/route test); tsc errors 3 (baseline).
+NO SIGNAL CLAIM: tool and meta state RAW, payroll-nowcast gate-2 NOT tested. No trading or measurement code touched. ROLLBACK: git revert.
+MERGE: prepared pre-open; no trading-path code, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-21 (scheduled routine PRODUCT session #2, ~18:10Z Wed = 14:10 ET, MID-MARKET) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1141) — KEYED /api/v1/data/tff MIRROR
 
 HEALTH: session_health_check all OK except daemon rss 436MB (trim mode, known) and deploy_freshness (live 1.0.1133 vs checkout 1.0.1140 — post-merge lag, deploy_gate 2xx); no critical KNOWN BROKEN.

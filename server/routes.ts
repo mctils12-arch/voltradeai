@@ -5307,6 +5307,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Treasury Daily Statement keyed mirror (same sweep). Reuses latestDts()
+  // — the cache /api/data/dts already serves; no new poller. Public-domain
+  // Treasury data, resell ok. RAW: gate 2 not tested.
+  app.get("/api/v1/data/dts", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestDts();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first DTS poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/dts", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/dts", { record_date: hit.record_date, count: hit.rows.length, note: "daily TGA deposits/withdrawals by category, $ millions as published (~1-2 business-day lag); raw, the payroll-nowcast hypothesis is gate-locked and untested", lines: hit.rows }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/dts", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/dts", status: 500, tier: auth.tier });
+    }
+  });
+
   // CFTC Traders in Financial Futures keyed mirror (same sweep). Reuses
   // latestTff() — the cache /api/data/tff already serves; no new poller.
   // Public-domain CFTC data, resell ok. RAW: gate 2 was run and KILLED
