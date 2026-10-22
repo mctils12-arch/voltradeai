@@ -15,6 +15,7 @@ import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
+import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, type LookupResult } from "./lookup";
 import type { PanelId } from "./zoneModel";
 
 // ── chrome ──────────────────────────────────────────────────────────────────
@@ -197,6 +198,60 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
             </div>
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── look-up (2026-10-22, human-asked): the box in the Watch header and the card ────
+export function LookupBox({ value, onChange, onSubmit, busy, inputRef }: { value: string; onChange: (v: string) => void; onSubmit: () => void; busy: boolean; inputRef?: React.Ref<HTMLInputElement> }) {
+  return (
+    <form className="vt-lookup-box" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+      <input ref={inputRef} value={value} onChange={(e) => onChange(e.target.value)} placeholder="look up a symbol…" aria-label="Look up a stock or option" spellCheck={false} autoComplete="off" maxLength={21} />
+      <button type="submit" disabled={busy || !value.trim()} aria-label="Look it up">{busy ? "…" : "↵"}</button>
+      <Help k="lookup" />
+    </form>
+  );
+}
+
+/** What the scan would do with one symbol right now — the server walked its own path (lookup_ticker.py); this only draws the answer. */
+export function LookupCard({ r, busy, history, onPick, onClear }: { r: LookupResult | null; busy: boolean; history: LookupResult[]; onPick?: (symbol: string) => void; onClear?: () => void }) {
+  const v = verdictWord(r ?? undefined);
+  const gates = gateRows(r?.decision);
+  const bars = factorBars(r?.deep?.factors as Record<string, number> | null | undefined);
+  const errs = lookupErrors(r ?? undefined);
+  const score = r?.deep?.score;
+  const minScore = r?.regime?.min_score;
+  const top = bars.length ? Math.abs(bars[0].value) || 1 : 1;
+  return (
+    <div className="vt-lookup" data-symbol={r?.symbol} data-busy={busy ? "true" : undefined}>
+      <div className="vt-lookup-hd">
+        <span className="sym">{r?.symbol ?? "…"}</span>
+        {r?.quick ? <span className="px">${r.quick.price.toFixed(2)} · day {fmtSigned(r.quick.change_pct, 1, "%")} · vol {fmtCompact(r.quick.volume)}</span> : null}
+        <span className="verdict" data-tone={busy && !r ? "t" : v.tone}>{busy && !r ? "scoring…" : v.word}</span>
+        {typeof score === "number" ? <span className="vt-bot-m vt-bot-t2" style={{ fontSize: 11 }}>score {score.toFixed(1)}{typeof minScore === "number" ? ` vs MIN_SCORE ${minScore}` : ""}{r?.regime ? ` · ${r.regime.label.toLowerCase()}` : ""}{r?.held ? " · held" : ""}</span> : null}
+        <Help k="lookupVerdict" />
+        <span className="vt-bot-sp" />
+        {onClear ? <button type="button" className="vt-bot-wbtn" onClick={onClear} aria-label="Close the look-up">×</button> : null}
+      </div>
+      {gates.length ? (
+        <div className="vt-lookup-gates">
+          {gates.map((g) => <span key={g.gate} data-status={g.status}>{g.status === "pass" ? "✓" : g.status === "fail" ? "✗" : "·"} {g.label}<i>{g.status === "fail" || g.status === "unknown" ? g.why : ""}</i></span>)}
+          <Help k="lookupGates" />
+        </div>
+      ) : null}
+      {bars.length ? (
+        <div className="vt-lookup-bars">
+          {bars.map((b) => <span key={b.key}><em>{b.key.replace(/_/g, " ")}</em>{fmtSigned(b.value, 0)}<i data-neg={b.value < 0 ? "true" : undefined} style={{ width: `${Math.max(6, (Math.abs(b.value) / top) * 100)}%`, maxWidth: 48 }} /></span>)}
+          <Help k="lookupFactors" />
+        </div>
+      ) : null}
+      {r?.deep?.reasons?.length ? <div className="vt-lookup-line"><b>why</b> {r.deep.reasons.join(" · ")}</div> : null}
+      {r && !busy ? <div className="vt-lookup-line"><b>chain</b> {chainLine(r.chain)}<Help k="lookupChain" /></div> : null}
+      {errs.length ? <div className="vt-lookup-err">could not run: {errs.join(" · ")}</div> : null}
+      <div className="vt-lookup-hist">
+        {r && !busy ? <span>the scan's own path{typeof r.timings?.total_s === "number" ? ` · ${r.timings.total_s}s` : ""} · at {fmtClockET(r.at)} ET{(r as { cached?: boolean }).cached ? " · cached" : ""}</span> : null}
+        {history.filter((h) => h.symbol !== r?.symbol).map((h) => <button key={h.symbol} type="button" onClick={() => onPick?.(h.symbol)}>{h.symbol} · {verdictWord(h).word}</button>)}
       </div>
     </div>
   );
@@ -484,10 +539,14 @@ function CandidateRow({ c, threshold, focus, onFocus }: { c: WatchCandidate; thr
     </div>
   );
 }
-export function WatchBody({ model, focus, onFocus, nowMs }: { model: WatchModel; focus: string | null; onFocus: (key: string) => void; nowMs: number }) {
-  if (!model.scanAt && !model.candidates.length) return <div className="vt-bot-empty"><NotRecorded what="no scan result yet" /><span className="vt-chart-note">the scan's top-10, its decisions and Node's refusals appear here after the first tier-2 scan</span></div>;
+export function WatchBody({ model, focus, onFocus, nowMs, lookup, lookupBusy, lookupHistory, onLookupPick, onLookupClear }: { model: WatchModel; focus: string | null; onFocus: (key: string) => void; nowMs: number;
+  /** the look-up card (2026-10-22): what the bot thinks of one symbol right now, above the candidates */
+  lookup?: LookupResult | null; lookupBusy?: boolean; lookupHistory?: LookupResult[]; onLookupPick?: (symbol: string) => void; onLookupClear?: () => void }) {
+  const card = lookup || lookupBusy ? <LookupCard r={lookup ?? null} busy={!!lookupBusy} history={lookupHistory ?? []} onPick={onLookupPick} onClear={onLookupClear} /> : null;
+  if (!model.scanAt && !model.candidates.length) return <div className="vt-watch">{card}<div className="vt-bot-empty"><NotRecorded what="no scan result yet" /><span className="vt-chart-note">the scan's top-10, its decisions and Node's refusals appear here after the first tier-2 scan</span></div>;</div>;
   return (
     <div className="vt-watch">
+      {card}
       <div className="vt-watch-hd">
         <span>scan {model.scanAt ? `${fmtClockET(model.scanAt)} ET` : "—"}{model.partial ? " · partial" : ""}</span>
         {model.scanned !== null ? <span>{model.scanned.toLocaleString("en-US")} scanned → {model.filtered ?? "?"} → {model.deep ?? "?"} deep</span> : null}
