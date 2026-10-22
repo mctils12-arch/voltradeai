@@ -3170,6 +3170,35 @@ async function main() {
             if (bk.symW !== null && bk.symW < 60) fail(`book: the symbol column is ${Math.round(bk.symW)} px — unreadable`);
           }
         }
+        // ── DEAD SPACE (2026-10-22, human-approved): at the desktop tiers no
+        // column leaves a blank — the last panel of each column reaches the
+        // column's bottom (≤ 12 px), the Book lives in the left column and
+        // the chart is at least 70 % of the right column.
+        if (!vp.touch && vp.width >= 1180) {
+          const ds = await page.evaluate(() => {
+            const cols = ["left", "centre", "right"].map((a) => {
+              const col = document.querySelector(`.vt-bot-area-${a}`);
+              if (!col) return { a, missing: true };
+              const panels = [...col.querySelectorAll('section.vt-bot-panel[data-panel]')];
+              const cr = col.getBoundingClientRect();
+              const bottom = Math.max(...panels.map((p) => p.getBoundingClientRect().bottom));
+              // a hole BETWEEN panels: the painted panel heights plus the 8 px gaps must add up to the column
+              const painted = panels.reduce((s, p) => s + p.getBoundingClientRect().height, 0) + 8 * Math.max(0, panels.length - 1);
+              return { a, missing: false, n: panels.length, gap: panels.length ? cr.bottom - bottom : null, hole: panels.length ? cr.height - painted : null, ids: panels.map((p) => p.getAttribute('data-panel')) };
+            });
+            const book = !!document.querySelector('.vt-bot-area-left section.vt-bot-panel[data-panel="book"]');
+            const chart = document.querySelector('.vt-bot-area-right section.vt-bot-panel[data-panel="chart"]');
+            const right = document.querySelector('.vt-bot-area-right');
+            return { cols, book, chartFrac: chart && right ? chart.getBoundingClientRect().height / right.getBoundingClientRect().height : null };
+          });
+          for (const c of ds.cols) {
+            if (c.missing) fail(`dead space: no ${c.a} column`);
+            else if (c.gap !== null && c.gap > 12) fail(`dead space: the ${c.a} column leaves ${Math.round(c.gap)} px blank under ${c.ids[c.ids.length - 1]}`);
+            else if (c.hole !== null && c.hole > 12) fail(`dead space: the ${c.a} column has ${Math.round(c.hole)} px of hole between its panels (${c.ids.join(" · ")})`);
+          }
+          if (!ds.book) fail("dead space: the Book is not in the left column");
+          if (ds.chartFrac !== null && ds.chartFrac < 0.7) fail(`dead space: the chart is only ${Math.round(ds.chartFrac * 100)} % of the right column`);
+        }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
         // benchmark fixture carries the after-tax comparison (both legs sold
         // at the window's end); the vs-SPY tile must show it as its own line
