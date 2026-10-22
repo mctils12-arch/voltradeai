@@ -81,6 +81,17 @@ export interface BenchWindow { from: string; to: string; days: number; accountPc
 export interface Benchmark {
   since: BenchWindow | null; d30: BenchWindow | null; spyLast: { date: string; pct: number } | null;
   barsThrough: string | null; fetchedAt?: string | null; adjustment?: string; error?: string;
+  afterTax?: AfterTaxBenchmark | null;
+}
+/** server/afterTaxBenchmark.ts: the same comparison with both legs sold at the window's end —
+ *  SPY's one sale at its holding term, the account's ledger tax plus the tax selling its open
+ *  positions would add; an estimate at the rates shown, null until the sleeve ledger has loaded */
+export interface AfterTaxBenchmark {
+  rates: { shortTerm: number; longTerm: number; state: number; niit: number };
+  window: { from: string; to: string; days: number };
+  spy: { pct: number; term: "short" | "long" | "unknown"; taxPct: number; afterTaxPct: number };
+  account: { pct: number; taxPct: number; afterTaxPct: number; equityStart: number; realizedTax: number; liquidationTax: number; openPnl: number | null; openTaxIfSold: number | null };
+  gapPp: number; notes: string[];
 }
 /** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
  *  Alpaca's fill ledger + open P&L from current positions. */
