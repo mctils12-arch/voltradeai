@@ -20,10 +20,9 @@
  * rail_ep724_carload_traffic entry for the pre-registered bar, the exact
  * numbers, and the interchange-double-count explanation for why our own
  * multi-railroad sum runs above, not below, the once-counted national
- * total). GATE 2 (SIGNAL) NOT attempted — this view is RAW, self-reported
- * carload counts only, no predictive claim; the manifest's own filed
- * hypothesis ("carload deltas by commodity lead rail earnings + industrial
- * regime") stays gate-locked.
+ * total). GATE 2 (SIGNAL) REJECTED 2026-09-28 (scripts/rail_traffic_gate2.py)
+ * — this view is RAW, self-reported carload counts only, no predictive
+ * claim.
  */
 import railArchive from "../datacore/rail/ep724_carloads.json";
 
@@ -31,7 +30,9 @@ export const RAIL_TRAFFIC_GATE_NOTE =
   "GATE 1 (data) PASSED 2026-09-27 — our 7-Class-I-railroad system sum " +
   "reconciles against FRED/BTS-AAR's independent national carload and " +
   "intermodal series within a stable offset (see scripts/rail_traffic_gate1.py). " +
-  "GATE 2 (signal) not attempted — shown here as RAW, self-reported weekly " +
+  "GATE 2 (signal) REJECTED 2026-09-28 — a pre-registered intermodal-growth-extreme " +
+  "vs IYT 5-day test found the wrong sign and no significance (p=0.43, 0 of 16 " +
+  "comparisons cleared Bonferroni). Shown here as RAW, self-reported weekly " +
   "carload counts only, no predictive claim.";
 
 const CARLOAD_MEASURE = "Weekly Carloads By 22 Commodity Categories";

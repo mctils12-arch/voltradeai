@@ -93,6 +93,11 @@ test("view is marked raw/non-predictive with the gate-1 note carried verbatim", 
   assert.match(v.note, /GATE 1/);
 });
 
+test("gate note states the 2026-09-28 gate-2 rejection, never 'not attempted'", () => {
+  assert.match(RAIL_TRAFFIC_GATE_NOTE, /GATE 2 \(signal\) REJECTED 2026-09-28/);
+  assert.doesNotMatch(RAIL_TRAFFIC_GATE_NOTE, /not attempted/i);
+});
+
 test("commodity rows sort by latest-week carloads descending", () => {
   const v = railTrafficView(fixture());
   for (let i = 1; i < v.commodities.length; i++) {
