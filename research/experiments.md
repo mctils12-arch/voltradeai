@@ -3,6 +3,12 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-23 (scheduled routine voltrade-daily-am, ~11:20Z Fri = 07:20 ET, PRE-OPEN) [NO-ACTION] — no code_version change (1.0.1153)
+
+HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 442MB (trim mode, known), tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking) — nothing new. Archive storage 1.81 GiB free (was 1.39 on 10-12), sweep archiving still below its 2 GiB gate: known, awaiting the human volume decision in wishlist.md. thrash 1/10 REPAIR (10-23 session earlier today); no critical KNOWN BROKEN.
+QUEUE: two sessions already shipped today (v1.0.1152 PRODUCT, v1.0.1153 REPAIR). Remaining items are date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel decision). Raw-vs-v1 path diff lists ~60 raw /api/data/* names without a literal /api/v1/(data|stats)/ twin, but it overstates the gap (many mirrors live under other v1 paths); each candidate needs a per-endpoint check before it counts, and a fourth mirror in 24h with no demand signal would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+
 ## 2026-10-23 (scheduled routine, EDGE-DOCTRINE axis pick, Fri) [REPAIR] — T-DATACORE (server/railTraffic.ts, railTraffic.test.ts) + shared (package.json; v1.0.1153) — raw /api/data/rail-traffic gate note no longer says gate 2 "not attempted"
 
 HEALTH: session_health_check all OK (live 1.0.1152 == checkout); WARN only tier2 daemon timeouts (KNOWN BROKEN #18) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered). thrash 1/10; STARVED streak 7 (< 10). No critical KNOWN BROKEN.
