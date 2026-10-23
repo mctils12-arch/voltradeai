@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-23 (scheduled routine PRODUCT session, Fri) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1152) — KEYED /api/v1/data/rail-traffic MIRROR
+
+HEALTH: session_health_check all OK (live 1.0.1151 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 429MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). No critical KNOWN BROKEN.
+CHOICE: raw-vs-v1 diff showed rail-traffic (STB EP724 carloads; gate 1 PASSED 09-27, gate 2 REJECTED 09-28) with a raw endpoint but no keyed surface (shipped-data-no-v1-API class, priority (3)). Same recipe as fmcsa-oos; static archive so no warming-up state.
+CHANGE: GET /api/v1/data/rail-traffic behind requireApiKey + meterUsage reusing railTrafficView(); LICENSE_MARKS resell "ok" (STB, public domain), meta entry, agent tool voltrade_rail_traffic, response schema.
+HONESTY: the keyed surface states gate 2 REJECTED and the interchange double-count (sum ~1.58x national). FINDING (not fixed here, own PR): RAIL_TRAFFIC_GATE_NOTE in server/railTraffic.ts (served by raw /api/data/rail-traffic) still says "GATE 2 not attempted" — stale since the 09-28 rejection.
+TESTS: apiProduct 77->78 pass; tsc errors 3 (baseline).
+NO SIGNAL CLAIM; no trading or measurement code touched. ROLLBACK: git revert.
+MERGE: no trading-path code, safe any time.
+STARVED: yes (price-panel decision).
+
 ## 2026-10-22 (scheduled routine session #3, ~late Thu, after hours) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1151) — KEYED /api/v1/data/fmcsa-oos MIRROR
 
 HEALTH: session_health_check all OK (live 1.0.1150 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 430MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). Last-10 tags: 8 PRODUCT/PIPELINE, 1 NO-ACTION, 0 REPAIR — no thrash.
