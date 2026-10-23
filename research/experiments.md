@@ -3,6 +3,12 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-23 (scheduled routine voltrade-product-am, ~13:05Z Fri = 09:05 ET, PRE-OPEN) [NO-ACTION] — no code_version change (1.0.1153)
+
+HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 427MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). No critical KNOWN BROKEN.
+AXES: (a) gate work is date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15; Lazy Prices gate 2 needs the price-panel decision, and its free Alpaca delisted probe needs ALPACA keys, absent from this sandbox: 0 ALPACA_* env vars). (b) three keyed mirrors shipped in 24h (dts, border-waits, fmcsa-oos, rail-traffic) with no demand signal; a fifth is padding. (c) filed. (d) chores already scripts.
+FILED: nothing new. STARVED: yes (price-panel decision, volume decision).
+
 ## 2026-10-23 (scheduled routine voltrade-daily-am, ~11:20Z Fri = 07:20 ET, PRE-OPEN) [NO-ACTION] — no code_version change (1.0.1153)
 
 HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 442MB (trim mode, known), tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking) — nothing new. Archive storage 1.81 GiB free (was 1.39 on 10-12), sweep archiving still below its 2 GiB gate: known, awaiting the human volume decision in wishlist.md. thrash 1/10 REPAIR (10-23 session earlier today); no critical KNOWN BROKEN.
