@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-23 (scheduled routine, EDGE-DOCTRINE axis pick, Fri) [REPAIR] — T-DATACORE (server/railTraffic.ts, railTraffic.test.ts) + shared (package.json; v1.0.1153) — raw /api/data/rail-traffic gate note no longer says gate 2 "not attempted"
+
+HEALTH: session_health_check all OK (live 1.0.1152 == checkout); WARN only tier2 daemon timeouts (KNOWN BROKEN #18) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered). thrash 1/10; STARVED streak 7 (< 10). No critical KNOWN BROKEN.
+AXIS SURVEY: unchanged from the 10-22 02:35Z entry — (a)/(b) date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel decision), (c) filed, (d) chores already scripts. PRIOR: ~85% no startable axis item. Confirmed.
+CHANGE: the one live honesty defect from the 10-23 rail-traffic entry — RAIL_TRAFFIC_GATE_NOTE (served by raw /api/data/rail-traffic) said "GATE 2 not attempted" though gate 2 was REJECTED 2026-09-28 (p=0.43, 0/16 Bonferroni). Note + header comment now state the rejection, matching the keyed /api/v1 surface. New regression test pins the wording.
+NO SIGNAL CLAIM; no trading or measurement code touched. ROLLBACK: git revert.
+STARVED: yes (date- and decision-gated).
+
 ## 2026-10-23 (scheduled routine PRODUCT session, Fri) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1152) — KEYED /api/v1/data/rail-traffic MIRROR
 
 HEALTH: session_health_check all OK (live 1.0.1151 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 429MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). No critical KNOWN BROKEN.
