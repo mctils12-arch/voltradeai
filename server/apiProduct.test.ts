@@ -81,6 +81,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/fda-events"), "FDA binary-event keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/border-waits"), "CBP border-waits keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/fmcsa-oos"), "FMCSA out-of-service keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/rail-traffic"), "STB rail-traffic keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/dts"), "Treasury DTS keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/tff"), "CFTC TFF keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/treasury-auctions"), "Treasury auction-results keyed mirror shipped — must be a live endpoint");
@@ -114,7 +115,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/clinical-trials", "/api/v1/data/fda-events", "/api/v1/data/treasury-auctions", "/api/v1/data/dts", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/lng-shipyards", "/api/v1/data/steel-raw-materials", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/earnings-language-history", "/api/v1/data/appstore-rankings", "/api/v1/data/appstore-rankings-history", "/api/v1/data/github-activity", "/api/v1/data/github-activity-history", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/data/13f-holdings-history", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/clinical-trials", "/api/v1/data/fda-events", "/api/v1/data/treasury-auctions", "/api/v1/data/dts", "/api/v1/data/rail-traffic", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/attention-history", "/api/v1/data/wiki-attention-signal", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-volume-history", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/coal-terminals", "/api/v1/data/coal-mine-features", "/api/v1/data/iron-ore-mines", "/api/v1/data/chemicals", "/api/v1/data/iron-steel-plants", "/api/v1/data/lng-shipyards", "/api/v1/data/steel-raw-materials", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -414,6 +415,20 @@ test("fmcsa-oos license mark: public-domain FMCSA data resells freely; agent too
   assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
   assert.ok(routes.includes('"/api/v1/data/fmcsa-oos"'), "fmcsa-oos keyed route must be registered");
+});
+
+test("rail-traffic license mark: public-domain STB data resells freely; agent tool carries the gate-2-REJECTED, not-a-signal and interchange-double-count honesty", () => {
+  assert.equal(LICENSE_MARKS["data/rail-traffic"].resell, "ok");
+  assert.ok(LICENSE_MARKS["data/rail-traffic"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["data/rail-traffic"].attribution.includes("Surface Transportation Board"));
+  const tool = agentToolSpec().tools.find((t) => t.name === "voltrade_rail_traffic");
+  assert.ok(tool, "voltrade_rail_traffic tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/rail-traffic"]);
+  assert.ok(tool.description.includes("REJECTED"), "honesty: the gate-2 rejection must travel, not a silent not-attempted");
+  assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
+  assert.ok(tool.description.includes("double-count"), "honesty: per-railroad sums are not a national total");
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/data/rail-traffic"'), "rail-traffic keyed route must be registered");
 });
 
 test("border-waits license mark: public-domain CBP data resells freely; agent tool carries gate-2-untested and not-a-signal honesty", () => {

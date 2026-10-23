@@ -5349,6 +5349,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // STB EP724 weekly rail carloads keyed mirror (same sweep). Reuses
+  // railTrafficView() — static session-run archive, so no warming-up state.
+  // Public-domain STB data, resell ok. GATE 1 passed, GATE 2 REJECTED
+  // 2026-09-28; RAW levels only, no predictive claim.
+  app.get("/api/v1/data/rail-traffic", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const v = railTrafficView();
+      res.json(v1Envelope("data/rail-traffic", {
+        latestWeek: v.latestWeek,
+        priorWeek: v.priorWeek,
+        weeksArchived: v.weeksArchived,
+        railroadsReporting: v.railroadsReporting,
+        systemLatestWeekCarloads: v.systemLatestWeekCarloads,
+        systemIntermodalLatestWeekCarloads: v.systemIntermodalLatestWeekCarloads,
+        systemNonIntermodalLatestWeekCarloads: v.systemNonIntermodalLatestWeekCarloads,
+        archiveBuiltAt: v.archiveBuiltAt,
+        note: "raw self-reported weekly carloads summed across 7 Class I railroads (interchange can double-count: an activity measure, not a national total); gate 1 passed, gate 2 rejected 2026-09-28, no predictive claim",
+        commodities: v.commodities,
+        railroads: v.railroads,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/rail-traffic", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/rail-traffic", status: 500, tier: auth.tier });
+    }
+  });
+
   // Treasury Daily Statement keyed mirror (same sweep). Reuses latestDts()
   // — the cache /api/data/dts already serves; no new poller. Public-domain
   // Treasury data, resell ok. RAW: gate 2 not tested.
