@@ -1724,8 +1724,13 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
 seeded_count = sum(1 for t in feedback_raw if t.get('_seed'))
 feedback = [t for t in feedback_raw if not t.get('_seed')]
 
-# Filter out corrupt records: require non-empty ticker
-feedback = [t for t in feedback if t.get('ticker', '').strip() and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
+# Filter out corrupt records: require non-empty ticker and a NUMERIC pnl_pct.
+# [RULE-REVIEW] 2026-10-22: open entries (track_fill) and orphan exits carry
+# pnl_pct None; 'None > 0' below raised TypeError, the catch fell back to the
+# Alpaca today-only path (open positions counted as trades) and the KPI strip
+# showed THAT — whenever a position was open the history never got measured.
+# Same filter as diagnostics.py; pinned by test_performance_route_null_pnl.py.
+feedback = [t for t in feedback if t.get('ticker', '').strip() and t.get('pnl_pct') is not None and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
 # Win rate
 wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
 losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]
