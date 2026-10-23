@@ -129,7 +129,8 @@ def _rs_stat(chunk: Sequence[float]) -> float | None:
         cum_series.append(cum)
     r = max(cum_series) - min(cum_series)
     var = sum(d * d for d in dev) / n
-    if var <= 0:
+    tol = (1e-12 * max(abs(x) for x in chunk)) ** 2
+    if var <= tol:
         return None
     s = math.sqrt(var)
     if s == 0:

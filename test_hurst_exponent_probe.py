@@ -77,10 +77,15 @@ class TestHurstRs(unittest.TestCase):
 
 class TestRollingHurst(unittest.TestCase):
     def test_none_before_window(self):
-        rets = [0.01] * 300
+        rets = [0.01 * (1 if i % 3 else -2) for i in range(300)]
         out = hep.rolling_hurst(rets, window=252, min_chunk=8)
         self.assertTrue(all(v is None for v in out[:251]))
         self.assertIsNotNone(out[251])
+
+    def test_constant_window_is_undefined_on_every_python(self):
+        self.assertIsNone(hep.hurst_rs([0.01] * 252, min_chunk=8))
+        self.assertIsNone(hep.rolling_hurst([0.01] * 300, window=252, min_chunk=8)[251])
+        self.assertIsNotNone(hep.hurst_rs([1e-6 * (1 if i % 2 else -1) for i in range(252)], min_chunk=8))
 
     def test_no_lookahead(self):
         # Two series identical up to index 300, diverging only after.
