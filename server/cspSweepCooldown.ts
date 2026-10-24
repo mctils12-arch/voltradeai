@@ -81,6 +81,12 @@ export interface OpenOrderLike {
   symbol?: string;
   side?: string;
   position_intent?: string;
+  // Present on closed orders returned by the broker order-history read.
+  status?: string;
+  submitted_at?: string | null;
+  canceled_at?: string | null;
+  expired_at?: string | null;
+  filled_qty?: string | number | null;
 }
 
 /**
@@ -102,11 +108,41 @@ export interface CspDispatchContext {
   sweptAt?: number; // epoch ms of the last confirmed sweep of a CSP on this underlying
   openOrders?: OpenOrderLike[];
   cooldownMinutes: number;
+  // RESTART-PROOF BRAKE (KB #46): recent CLOSED broker orders. The sweep memory
+  // above lives in process memory and a deploy's cancel-all empties the open
+  // book, so a fresh container forgets both. The broker remembers.
+  closedOrders?: OpenOrderLike[];
+  staleMinutes?: number; // an order that rested at least this long "would not fill"
 }
 
 export type CspDispatchDecision =
   | { dispatch: true }
-  | { dispatch: false; reason: "swept_cooldown" | "open_sell_to_open"; detail: string };
+  | { dispatch: false; reason: "swept_cooldown" | "open_sell_to_open" | "broker_unfilled_rested"; detail: string };
+
+/**
+ * True when `order` is a closed, never-filled sell-to-open on `underlying`
+ * that RESTED >= staleMinutes before it was canceled/expired, and that ended
+ * within `cooldownMinutes` of `now`. Indifferent to WHO canceled it (sweep,
+ * deploy cancel-all, manual) — but a cancel soon after submit proves nothing
+ * about fillability, so it does not count.
+ */
+export function isRecentUnfilledRestedCsp(
+  order: OpenOrderLike,
+  underlying: string,
+  now: number,
+  cooldownMinutes: number,
+  staleMinutes: number,
+): boolean {
+  if (!isOpenSellToOpenOn(order, underlying)) return false;
+  if (order.status !== "canceled" && order.status !== "expired") return false;
+  if (Number(order.filled_qty ?? 0) > 0) return false;
+  const start = Date.parse(String(order.submitted_at ?? ""));
+  const end = Date.parse(String(order.canceled_at ?? order.expired_at ?? ""));
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  if ((end - start) / 60000 < staleMinutes) return false;
+  const sinceEnd = (now - end) / 60000;
+  return sinceEnd >= 0 && sinceEnd < cooldownMinutes;
+}
 
 /**
  * Decide whether the tier dispatcher may submit a SELL_CSP on `ticker` now.
@@ -134,6 +170,18 @@ export function shouldDispatchCsp(ticker: string, ctx: CspDispatchContext): CspD
       reason: "open_sell_to_open",
       detail: `open sell-to-open order already resting (${resting.symbol})`,
     };
+  }
+  if (typeof ctx.staleMinutes === "number") {
+    const stale = (Array.isArray(ctx.closedOrders) ? ctx.closedOrders : []).find((o) =>
+      isRecentUnfilledRestedCsp(o, sym, ctx.now, ctx.cooldownMinutes, ctx.staleMinutes as number),
+    );
+    if (stale) {
+      return {
+        dispatch: false,
+        reason: "broker_unfilled_rested",
+        detail: `broker shows ${stale.symbol} rested >= ${ctx.staleMinutes} min unfilled, ended ${stale.canceled_at ?? stale.expired_at} (cooldown ${ctx.cooldownMinutes} min)`,
+      };
+    }
   }
   return { dispatch: true };
 }
