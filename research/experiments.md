@@ -23,6 +23,14 @@ HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx,
 QUEUE: two sessions already shipped today (v1.0.1152 PRODUCT, v1.0.1153 REPAIR). Remaining items are date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel decision). Raw-vs-v1 path diff lists ~60 raw /api/data/* names without a literal /api/v1/(data|stats)/ twin, but it overstates the gap (many mirrors live under other v1 paths); each candidate needs a per-endpoint check before it counts, and a fourth mirror in 24h with no demand signal would be padding.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 
+## 2026-10-24 (scheduled routine, EDGE-DOCTRINE axis pick, Sat) [NO-ACTION] — no code_version change (1.0.1156)
+
+HEALTH: session_health_check all OK (live 1.0.1156 == checkout, deploy_gate 2xx, liveness alive); WARN only tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). thrash 3/10 REPAIR; STARVED streak 0 per research_state_check (log entry below is STARVED: yes). No critical KNOWN BROKEN.
+AXIS SURVEY: PRIOR stated before surveying: ~85% no startable axis item. (a) 13F Q2->Q3 clustering and 8-K QoQ delta gate 2 wait on the Q3 filing season (2026-11-16+); index-VRP gate-2 re-run ~2027-01-15; Lazy Prices gate 2 waits on the price-panel human decision. (b) same price-panel gap — illiquid-universe results would be simulator fiction. (c) ecology/reliability/seismology/epidemiology imports all filed with scripts; a fifth without a data hook is a duplicate. (d) chores already scripts. Main unchanged since the 10-23 PRODUCT merge (a4d7487). Prior confirmed.
+OVERDUE: CONSTITUTIONAL AUDIT (due 2026-10-20) — not run: its last two rounds of proposals are still unanswered in wishlist.md, so another round adds to the pile; the next session with a human answer (or a new rule conflict) should run it.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-23 (scheduled routine, EDGE-DOCTRINE axis pick, Fri) [REPAIR] — T-DATACORE (server/railTraffic.ts, railTraffic.test.ts) + shared (package.json; v1.0.1153) — raw /api/data/rail-traffic gate note no longer says gate 2 "not attempted"
 
 HEALTH: session_health_check all OK (live 1.0.1152 == checkout); WARN only tier2 daemon timeouts (KNOWN BROKEN #18) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered). thrash 1/10; STARVED streak 7 (< 10). No critical KNOWN BROKEN.
