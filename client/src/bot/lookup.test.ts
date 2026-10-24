@@ -59,3 +59,22 @@ test("errors read as step: message; the history keeps the newest per symbol, cap
   assert.equal(again[0].at, "later");
   assert.equal(again.filter((x) => x.symbol === "S5").length, 1);
 });
+
+import { ledgerKey, ledgerLine, type LedgerReport } from "./lookup";
+const cell = (n: number, ex: number | null, thin = true) => ({ n, thin, mean_ret_pct: 1, win_rate: 50, n_excess: ex === null ? 0 : n, mean_excess_pct: ex });
+const rep = (by: LedgerReport["by_verdict"]): LedgerReport => ({ total: 9, pending: 3, min_n: 20, caveat: "", by_verdict: by });
+
+test("ledger key mirrors the report: the gate stopped at, else the verdict", () => {
+  assert.equal(ledgerKey(base({ decision: { stopped_at: "admission", verdict: "stopped at admission", gates: [] } })), "stopped at admission");
+  assert.equal(ledgerKey(base({ decision: { stopped_at: null, verdict: "would place it", gates: [] } })), "would place it");
+  assert.equal(ledgerKey(base()), null);
+});
+
+test("ledger line: thin buckets say so, unsettled ones wait, an unseen verdict is first, no report is no line", () => {
+  const r = base({ decision: { stopped_at: "admission", verdict: "stopped at admission", gates: [] } });
+  assert.equal(ledgerLine(null, r), null);
+  assert.equal(ledgerLine(rep({}), r), "first look-up with this verdict in the ledger");
+  assert.equal(ledgerLine(rep({ "stopped at admission": { count: 1, "+5d": cell(0, null) } }), r), "1 look-up got this verdict · +5d outcomes not settled yet");
+  assert.equal(ledgerLine(rep({ "stopped at admission": { count: 7, "+5d": cell(5, -1.234) } }), r), "7 look-ups got this verdict · +5d vs SPY -1.2% over 5 (thin, under 20 — anecdote)");
+  assert.equal(ledgerLine(rep({ "stopped at admission": { count: 30, "+5d": cell(25, 0.8, false) } }), r), "30 look-ups got this verdict · +5d vs SPY +0.8% over 25");
+});

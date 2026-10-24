@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-24 18:40Z — [PRODUCT] Look-up card: a ledger line — how past look-ups with this verdict went, +5d vs SPY, thin buckets said to be thin (v1.0.1159)
+TERRITORY: T-CLIENT (client/src/bot/lookup.ts, panels.tsx, BotPage.tsx, lookup.test.ts). SHARED: package.json, research/*. Health at start: all OK (live 1.0.1158 == checkout, liveness alive); thrash 4/10.
+PRIOR: the line will read "thin / not settled yet" for months (look-ups are hand-picked and rare); no claim is made from it until a bucket reaches the ledger's MIN_N = 20.
+CHANGE: the 2026-10-24 ledger entry's NEXT (1). After each look-up the page reads /api/bot/lookup-ledger once; LookupCard shows `ledger` + ledgerLine(): count of look-ups that got the same verdict key (stopped-at gate, else verdict — mirrors lookup_ledger.report()), the +5d mean excess vs SPY with n, and "(thin, under 20 — anecdote)" when n < min_n; "not settled yet" / "first look-up with this verdict" otherwise. A failed read leaves the card without the line. Read-only; no decision, sizing or order path touched.
+TESTS: lookup.test.ts +2 (8/8): key mirroring, all five line states. tsc 6 errors = pinned baseline, none in client/src/bot.
+VISUAL: `npm run build` ok, but `node scripts/visual_check.mjs --page bot` hangs/terminates in this container (same environment failure as the 10-24 useFlip entry), so the 390/768/1440 screenshot review was NOT done. The change adds one single-line `.vt-lookup-line` (existing nowrap+ellipsis class), no new CSS; a session with a working browser should run the harness on a look-up.
+HONESTY: the sample is hand-picked and the line says so by being thin; it is context, not a signal.
+MERGE: client change, weekend — safe any time.
+STARVED: no.
+
 ## 2026-10-23 (scheduled routine, ~20:16Z Fri = 16:16 ET, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1155)
 
 HEALTH: session_health_check all OK (live 1.0.1155 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 400MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). Archive storage 1.77 GiB free, sweep archiving below its 2 GiB gate (known, awaiting human volume decision in wishlist.md). thrash: 2 REPAIR PRs landed today (#1445, #1446), ratio well under 7/10; no critical KNOWN BROKEN.
