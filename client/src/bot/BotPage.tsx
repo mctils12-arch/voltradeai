@@ -19,7 +19,7 @@ import { watchModel } from "./watch";
 import { Help } from "./help";
 import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
-import { parseLookupInput, pushHistory, type LookupResult } from "./lookup";
+import { parseLookupInput, pushHistory, type LookupResult, type LedgerReport } from "./lookup";
 import { fmtAge, edgeStats } from "./format";
 
 function useNow(periodMs = 1000): number {
@@ -177,6 +177,7 @@ export default function BotPage() {
   const [lookupRes, setLookupRes] = useState<LookupResult | null>(null);
   const [lookupHist, setLookupHist] = useState<LookupResult[]>([]);
   const lookupRef = useRef<HTMLInputElement | null>(null);
+  const [lookupLedger, setLookupLedger] = useState<LedgerReport | null>(null);
   const runLookup = useCallback(async (raw: string) => {
     const parsed = parseLookupInput(raw);
     if (!parsed) return;
@@ -185,6 +186,8 @@ export default function BotPage() {
       const res = await apiRequest("GET", `/api/bot/lookup/${encodeURIComponent(parsed.underlying)}`, undefined, { timeoutMs: 120_000 });
       const body = (await res.json()) as LookupResult;
       setLookupRes(body); setLookupHist((h) => pushHistory(h, body));
+      // the ledger line is garnish: a failed read leaves the card without it, never with an error
+      apiRequest("GET", "/api/bot/lookup-ledger", undefined, { timeoutMs: 20_000 }).then((l) => l.json()).then((l) => setLookupLedger(l && l.by_verdict ? (l as LedgerReport) : null)).catch(() => setLookupLedger(null));
     } catch (e) {
       setLookupRes({ symbol: parsed.underlying, at: new Date().toISOString(), errors: { lookup: String(e instanceof Error ? e.message : e).slice(0, 160) } });
     } finally { setLookupBusy(false); }
@@ -300,7 +303,7 @@ export default function BotPage() {
     stages: <StagesBody rows={stages} />,
     issues: <IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} />,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
-    watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} lookup={lookupRes} lookupBusy={lookupBusy} lookupHistory={lookupHist} onLookupPick={(sym) => { void runLookup(sym); }} onLookupClear={() => setLookupRes(null)} />,
+    watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} lookup={lookupRes} lookupBusy={lookupBusy} lookupHistory={lookupHist} onLookupPick={(sym) => { void runLookup(sym); }} onLookupClear={() => setLookupRes(null)} lookupLedger={lookupLedger} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
     chart: <ChartBody positions={d.positions.data} candidates={watch.candidates} focus={focusSym} onFocus={focus} paused={flags.held.includes("chart")} />,
     book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />,
