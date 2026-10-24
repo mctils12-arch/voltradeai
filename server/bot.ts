@@ -2053,6 +2053,25 @@ print(json.dumps({
     }
   });
 
+  // Look-up ledger (2026-10-24): every fresh look-up is recorded by
+  // lookup_ticker.lookup() itself (so the RPC and subprocess paths both
+  // record); the nightly job below fills +1d/+5d/+20d vs SPY, and this serves
+  // the grouped report. Owner only, read-only, hand-picked sample — the
+  // report carries its own caveat string.
+  app.get("/api/bot/lookup-ledger", requireOwner, async (_req, res) => {
+    try {
+      const r = await pythonCall(
+        "lookup_ledger_report", {},
+        `python3 -c "import json; from lookup_ledger import report; print(json.dumps(report(), default=str))"`,
+        { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }, 20_000,
+      );
+      if (!r.success || !r.result || typeof r.result !== "object") return res.status(502).json({ error: "ledger report failed" });
+      res.json(r.result);
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+  });
+
   // P&L by sleeve — options / floor / stocks — from Alpaca's complete fill
   // ledger (server/sleeveLedger.ts; [RULE-REVIEW] 2026-10-20), plus the
   // NON-TRADE cash flows (dividends, interest, fees, journals, option events;
@@ -4463,6 +4482,7 @@ print(json.dumps(result[:20]))
   let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
   let _shadowBackfilledToday = false;
+  let _lookupLedgerFilledToday = false;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
@@ -4589,8 +4609,23 @@ print(json.dumps(result))
         audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
       }
     }
+    // Look-up ledger outcomes ride the same nightly slot (its own try: a
+    // shadow failure must not skip it, and it must not flip the shadow flag).
+    if (nowHour === 22 && !_lookupLedgerFilledToday) {
+      _lookupLedgerFilledToday = true;
+      try {
+        const lr = await execPythonSerialized(
+          `python3 -c "from lookup_ledger import backfill; import json; print(json.dumps(backfill(60)))"`,
+          { timeout: 60000 }
+        );
+        audit("LOOKUP-LEDGER-BACKFILL", String(lr.stdout).trim().slice(0, 300));
+      } catch (e: unknown) {
+        audit("LOOKUP-LEDGER-BACKFILL-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+      }
+    }
     if (nowHour === 0) {
       _shadowBackfilledToday = false;  // reset at midnight UTC
+      _lookupLedgerFilledToday = false;
     }
   }
 
