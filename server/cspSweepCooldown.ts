@@ -81,7 +81,7 @@ export interface OpenOrderLike {
   symbol?: string;
   side?: string;
   position_intent?: string;
-  // Present on closed orders returned by GET /v2/orders?status=closed.
+  // Present on closed orders returned by the broker order-history read.
   status?: string;
   submitted_at?: string | null;
   canceled_at?: string | null;
