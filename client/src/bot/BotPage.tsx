@@ -5,6 +5,7 @@
 // freezes, the bot never does. Layout motion runs on frameCore springs
 // (Law I: one rAF loop; transforms only during motion).
 // Brief: research/bot_cockpit_design_brief_v2.md.
+import { contentPos, type Box } from "./flipGeometry";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { frameCore, PRIORITY, type Spring } from "@/render/frameCore";
@@ -45,7 +46,7 @@ const WIN_ID = windowId();
  *  moved springs from its old box to its new one with a transform; on
  *  settle the transform is dropped and CSS grid owns the final box. */
 function useFlip(layoutKey: string, slots: React.MutableRefObject<Map<PanelId, HTMLElement>>) {
-  const prev = useRef<Map<PanelId, DOMRect>>(new Map());
+  const prev = useRef<Map<PanelId, Box>>(new Map());
   const anim = useRef<Map<PanelId, { x: Spring; y: Spring; detach: () => void }>>(new Map());
   const loop = useMemo(() => frameCore(), []);
   useEffect(() => {
@@ -61,8 +62,12 @@ function useFlip(layoutKey: string, slots: React.MutableRefObject<Map<PanelId, H
     return () => { un(); for (const a of anim.current.values()) a.detach(); anim.current.clear(); };
   }, [loop, slots]);
   useLayoutEffect(() => {
-    const next = new Map<PanelId, DOMRect>();
-    for (const [id, el] of slots.current) next.set(id, el.getBoundingClientRect());
+    const next = new Map<PanelId, Box>();
+    for (const [id, el] of slots.current) {
+      const g = el.closest<HTMLElement>(".vt-bot-grid");
+      const gr = g?.getBoundingClientRect();
+      next.set(id, contentPos(el.getBoundingClientRect(), g && gr ? { left: gr.left, top: gr.top, scrollLeft: g.scrollLeft, scrollTop: g.scrollTop } : null));
+    }
     if (!reducedMotion()) {
       for (const [id, rect] of next) {
         const was = prev.current.get(id);
