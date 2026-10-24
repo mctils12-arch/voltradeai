@@ -7490,6 +7490,7 @@
     unread config is debt).
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
+[DONE — annotated 2026-10-24: airway/radial expansion shipped via server/navAirways.ts (v1.0.1036-1038); session_health_check reports 34450/37286 filed routes placed (92%). Remaining gate-1 cross-track work lives in the flightplan_gate1 runs, not this item.]
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
 ## RULE COST AUDIT — after counterfactual logging exists
