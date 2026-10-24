@@ -5103,6 +5103,9 @@ print(json.dumps(check_weekly_loss(history)))
         // option orders so a slot already committed (but not yet filled) is
         // counted before this cycle dispatches another SELL_CSP into it.
         const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open").catch(() => []);
+        // KB #46: restart-proof CSP brake reads the BROKER's closed orders (read-only GET).
+        const cspClosedSince = new Date(Date.now() - (SWEPT_CSP_COOLDOWN_MINUTES + STALE_ORDER_MINUTES) * 60000).toISOString();
+        const recentClosedOrdersForCsp = await alpaca(`/v2/orders?status=closed&after=${encodeURIComponent(cspClosedSince)}&direction=desc&limit=500`).catch(() => []);
         let tierOptionsSlotsUsed = countOptionsPositions(
           Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
         ) + countOpenOptionsOpeningOrders(
@@ -5169,6 +5172,8 @@ print(json.dumps(check_weekly_loss(history)))
               sweptAt: sweptCspAt[String(action.ticker).toUpperCase()],
               openOrders: Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : [],
               cooldownMinutes: SWEPT_CSP_COOLDOWN_MINUTES,
+              closedOrders: Array.isArray(recentClosedOrdersForCsp) ? recentClosedOrdersForCsp : [],
+              staleMinutes: STALE_ORDER_MINUTES,
             });
             if (!cspGate.dispatch) {
               audit("CSP-SKIP", `${action.ticker}: tier dispatcher skipped SELL_CSP — ${cspGate.detail}`);

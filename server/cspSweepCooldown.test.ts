@@ -188,3 +188,42 @@ test("SWEPT_CSP_COOLDOWN_MINUTES is declared next to STALE_ORDER_MINUTES and the
   assert.ok(/const STALE_ORDER_MINUTES = 12;[^\n]*\n[\s\S]{0,800}?const SWEPT_CSP_COOLDOWN_MINUTES = 60;/.test(bot));
   assert.ok(/orderAttemptCounts = \{\};\s*\n\s*sweptCspAt = \{\};/.test(bot), "sweptCspAt must reset in the 4am daily reset alongside orderAttemptCounts");
 });
+
+// KB #46 — restart-proof brake: a fresh process (no sweep memory, empty open
+// book) still skips an underlying the BROKER shows rested unfilled.
+test("broker closed order rested 12m, canceled 3m ago => skip with no in-process memory", () => {
+  const now = Date.parse("2026-10-13T18:30:00Z");
+  const closed = [{
+    symbol: "XLF261120P00050000", side: "sell", status: "canceled", filled_qty: "0",
+    submitted_at: "2026-10-13T18:15:00Z", canceled_at: "2026-10-13T18:27:00Z",
+  }];
+  const d = shouldDispatchCsp("XLF", { now, cooldownMinutes: 60, closedOrders: closed, staleMinutes: 12 });
+  assert.equal(d.dispatch, false);
+  assert.equal((d as { reason?: string }).reason, "broker_unfilled_rested");
+});
+
+test("deploy cancel-all 36s after submit is NOT evidence of non-fill", () => {
+  const now = Date.parse("2026-10-13T17:35:00Z");
+  const closed = [{
+    symbol: "XLF261120P00050000", side: "sell", status: "canceled", filled_qty: "0",
+    submitted_at: "2026-10-13T17:33:09Z", canceled_at: "2026-10-13T17:33:45Z",
+  }];
+  assert.equal(shouldDispatchCsp("XLF", { now, cooldownMinutes: 60, closedOrders: closed, staleMinutes: 12 }).dispatch, true);
+});
+
+test("filled, old, other-underlying and buy-to-close closed orders do not brake", () => {
+  const now = Date.parse("2026-10-13T18:30:00Z");
+  const base = { symbol: "XLF261120P00050000", side: "sell", status: "canceled", filled_qty: "0",
+    submitted_at: "2026-10-13T18:15:00Z", canceled_at: "2026-10-13T18:27:00Z" };
+  const run = (o: Record<string, unknown>, t = "XLF") => shouldDispatchCsp(t, { now, cooldownMinutes: 60, closedOrders: [o], staleMinutes: 12 }).dispatch;
+  assert.equal(run({ ...base, filled_qty: "1" }), true);
+  assert.equal(run({ ...base, canceled_at: "2026-10-13T16:00:00Z", submitted_at: "2026-10-13T15:45:00Z" }), true);
+  assert.equal(run(base, "HPE"), true);
+  assert.equal(run({ ...base, side: "buy" }), true);
+  assert.equal(run({ ...base, status: "filled" }), true);
+});
+
+test("bot.ts feeds the dispatcher gate the broker's closed orders", () => {
+  assert.match(bot, /closedOrders: Array\.isArray\(recentClosedOrdersForCsp\)/);
+  assert.match(bot, /status=closed&after=/);
+});
