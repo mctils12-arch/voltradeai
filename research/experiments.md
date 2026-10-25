@@ -109826,3 +109826,10 @@ SECOND-ORDER: only suppresses a re-submit of a limit the broker already proved d
 TESTS: cspSweepCooldown.test.ts +4 (19/19): simulated restart => skip; 36 s deploy cancel => dispatch; filled/old/other-underlying/buy/status variants => dispatch; bot.ts wiring pin. tsc errors unchanged (3). pytest unavailable in this container, so the Python suite was NOT run here; CI is the gate.
 ROLLBACK TRIGGER: SELL_CSP fills drop with CSP-SKIP "broker shows" lines on underlyings whose prior limit later would have filled. MERGE NOTE: not a live-break fix — merge after 4:00 PM ET (a deploy cancels all open orders).
 STARVED: no.
+
+## 2026-10-25 (scheduled routine, ~18:00Z Sun, [PRODUCT] slot) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all 17 OK (deploy_gate 2xx, liveness alive, server_version 1.0.1159 == checkout, daemon rss 377MB under trim_mb, /data p95 213 ms). The 13:00Z "adsb.lol upstream WARN" did NOT persist: now OK (sweep 3 req/h, 3 rate-limited; viewport 3 failed over) — the check's own "second day" rule is not triggered; no action. Archive 1.78 GiB free vs the 2 GiB sweep gate: already filed (wishlist 2026-10-12, human decision), ~14 d to the 1 GiB guard.
+QUEUE: re-surveyed PRODUCT axes (a)-(d): 13F/8-K gate 2 waits 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume are human decisions, look-up ledger report needs >= 20 admitted look-ups. Nothing startable without padding; no new roots proposed (would duplicate filed work).
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
