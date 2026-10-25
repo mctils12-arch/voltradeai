@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-25 (scheduled routine, ~13:00Z Sun, [PRODUCT] slot) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive). WARN: daemon rss 407MB (trim mode, known); NEW WARN adsb.lol upstream — viewport 86% failover to airplanes.live/adsb.fi, sweep 2 rate-limited; chain still serves, the check's own rule is "act only if it persists a second day" — FIRST DAY OBSERVED, next session re-check. Overdue CONSTITUTIONAL AUDIT (due 2026-10-20) unchanged, proposals await human. thrash 2/10 REPAIR. main unchanged since a4d8235.
+QUEUE: PRODUCT axes (a)-(d) re-surveyed against the 10-25 11:10Z entry: 13F/8-K gate 2 wait 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions, look-up ledger report waits for >= 20 admitted look-ups. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-25 (scheduled routine, ~11:10Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: voltradeai.com /api/health 200, status ok; bot active, liveness not dark, drawdown -3.8% (no halt latched), alpaca ACTIVE, scanner 0 consecutive failures, feeds none dead. main unchanged since c7ef96f. Loop tags last 10: no REPAIR surge (3/10 as of prior entry).
