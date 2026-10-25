@@ -1,5 +1,13 @@
 # Data / Access Wishlist — human reviews weekly
 
+## FAA CHART BAKE CANNOT PUBLISH — R2_ACCOUNT_ID + R2_TILES_BUCKET ARE MISSING FROM THE AGENT ENVIRONMENT; /data CHARTS SERVE AN EXPIRED EDITION — 2026-10-25, human action ~5 min, $0
+
+Live (2026-10-25 00:10Z, /api/data/aero/status): Sectional, TAC and IFR Low serve edition 2026-07-09 (expired 2026-09-03), IFR High 2026-05-14 (expired 2026-07-09); currentFaaCycle = 2026-09-03; `bake: null` on every family. The next FAA cycle is effective 2026-10-29 (anchor + 5 x 56 d), i.e. in 4 days. The card already says so honestly ("edition ... expired — FAA's newer cycle not baked yet"); this is a freshness gap, not a lie.
+CAUSE: scripts/faa_charts/run.py (v1.0.1033) baked the 2026-09-03 Sectional + TAC on 2026-10-06 but could not upload them: publishing needs R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_TILES_BUCKET. Verified by name this session: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_PUBLIC_URL are present; R2_ACCOUNT_ID and R2_TILES_BUCKET are NOT. (The archive stack uses R2_ARCHIVE_BUCKET, a different, private bucket; the public tiles bucket is the one behind R2_PUBLIC_URL.) The unattended first live cycle queued for 10-29 will fail the same way.
+BUILD-FIRST: raw material is free (aeronav.faa.gov), the processing is built and gate-verified, accumulation/inference do not apply. Nothing is paid; the only missing item is two environment variables.
+ASK (human, ~5 min): add R2_ACCOUNT_ID (Cloudflare account id) and R2_TILES_BUCKET (name of the public tiles bucket behind R2_PUBLIC_URL) to the agent session environment. A session can then run `python3 scripts/faa_charts/run.py` (Sectional + TAC ~30 min on 4 cores, ~1.7 GB; IFR families still fall back to the FAA service by design — their stricter matcher is queued).
+IF NOT DONE: the site keeps serving the FAA tile service, which is a cycle behind and will be two behind after 10-29. Nothing breaks.
+
 ## LAZY PRICES GATE 2 NEEDS A POINT-IN-TIME PRICE PANEL INCLUDING DELISTED NAMES — 2026-10-18, human decision on a small spend (est. $20-199 one-off/monthly), build-first analysis attached
 
 Gate-2 harness `sec_filings_gate2.py` (v1.0.1100) is built and pre-registered; every upstream step is free and done. The only missing input is daily open/close for ~every US 10-K filer 2009-2026 INCLUDING names delisted before today, keyed by CIK. Yahoo/Alpaca-style panels of surviving tickers are survivor-biased and would flatter exactly the "least-changed minus most-changed" spread the test measures (changed-language filers skew toward later failures), so they must not be used.

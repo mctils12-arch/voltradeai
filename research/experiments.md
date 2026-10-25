@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-25 (scheduled routine [PRODUCT], ~00:15Z Sun, weekend) [NO-ACTION] — no code_version change (1.0.1159): the FAA chart bake is credential-gated, filed to the human
+
+HEALTH: /api/health 200 status ok, serving.failing=[], bot active, liveness not dark, drawdown -3.8%, feeds silent 0.18h, live 1.0.1159 == checkout (4d0805b). No critical KNOWN BROKEN.
+FOUND (layer-catalog freshness sweep): /api/data/aero/status shows all four FAA chart families a cycle or more behind (Sectional/TAC/IFR Low 2026-07-09 expired 09-03; IFR High 2026-05-14), `bake: null`. The 2026-09-03 bake from the 2026-10-06 entry was never uploaded: this session has R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL but NOT R2_ACCOUNT_ID / R2_TILES_BUCKET, which run.py needs to publish. The 2026-10-29 cycle (4 days out) will hit the same wall.
+FILED: wishlist.md top entry (5-minute human env-var ask, $0, build-first analysis: raw free, processing built, only config missing). UI is already honest about the staleness (client/src/lib/aeroCharts.ts), so no code change.
+Ran no bake: it cannot publish here and a 1.7 GB local bake with no upload changes nothing the site serves.
+STARVED: yes (credential-gated; other items date/decision-gated per the 10-24 entries).
+MERGE: docs-only; safe any time.
+
 ## 2026-10-24 (scheduled routine, ~20:20Z Sat, weekend) [NO-ACTION] — no code_version change (1.0.1159)
 
 LOOP HEALTH: last 10 tags = PRODUCT x6, REPAIR x3, NO-ACTION x1 (REPAIR 3/10, under the 7/10 thrash line).
