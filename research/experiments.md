@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-25 (scheduled routine, ~16:10Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: voltradeai.com /api/health 200, status ok, serving.failing=[]; bot active, liveness not dark, drawdown -3.8% (no halt latched), alpaca ACTIVE, scanner 0 failures, feeds none dead (silent 0.16h), 0 unhandled rejections, memory pressure ok. main == checkout (e3effca). Loop tags: REPAIR well under the 7/10 line.
+QUEUE: unchanged since the 13:00Z entry; all items date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions). adsb.lol WARN not re-evaluated here (health payload carries no feed-provider detail); the next session with session_health_check should apply the persists-a-second-day rule.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time (market hours note: no live-behavior change).
+
 ## 2026-10-25 (scheduled routine, ~13:00Z Sun, [PRODUCT] slot) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive). WARN: daemon rss 407MB (trim mode, known); NEW WARN adsb.lol upstream — viewport 86% failover to airplanes.live/adsb.fi, sweep 2 rate-limited; chain still serves, the check's own rule is "act only if it persists a second day" — FIRST DAY OBSERVED, next session re-check. Overdue CONSTITUTIONAL AUDIT (due 2026-10-20) unchanged, proposals await human. thrash 2/10 REPAIR. main unchanged since a4d8235.
