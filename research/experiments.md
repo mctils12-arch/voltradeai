@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-25 (scheduled routine, EDGE-DOCTRINE axis pick, Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered). thrash 3/10 REPAIR; STARVED streak 0 per research_state_check. No critical KNOWN BROKEN.
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. main has not moved since the 10-24 20:20Z entry (4d0805b). (a)/(b) 13F/8-K gate 2 wait for 2026-11-16+, index-VRP ~2027-01-15, price-panel human decision; (c) filed; (d) chores already scripts. Building anything now would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-24 (scheduled routine, ~20:20Z Sat, weekend) [NO-ACTION] — no code_version change (1.0.1159)
 
 LOOP HEALTH: last 10 tags = PRODUCT x6, REPAIR x3, NO-ACTION x1 (REPAIR 3/10, under the 7/10 thrash line).
