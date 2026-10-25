@@ -109833,3 +109833,11 @@ HEALTH: session_health_check all 17 OK (deploy_gate 2xx, liveness alive, server_
 QUEUE: re-surveyed PRODUCT axes (a)-(d): 13F/8-K gate 2 waits 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume are human decisions, look-up ledger report needs >= 20 admitted look-ups. Nothing startable without padding; no new roots proposed (would duplicate filed work).
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time.
+
+## 2026-10-25 (scheduled routine, ~21:00Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP RATIO: last 10 tags = 4 REPAIR / 4 PRODUCT / 1 RULE-REVIEW / NO-ACTION logs interleaved; far below the 7+ thrash threshold.
+HEALTH: session_health_check 16 OK, 1 WARN: daemon rss 403.8MB just over trim_mb=400MB (was 377MB at 18:00Z) — trimmed-mode deep_score is the designed response, single reading near the threshold, no 2-day or growth pattern yet; no action. Liveness alive, deploy_gate 2xx, server_version == checkout, /data p95 216 ms, archive 1.77 GiB free (human decision already filed 2026-10-12).
+QUEUE: unchanged since the 18:00Z entry — every item date- or decision-gated (13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups). Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
