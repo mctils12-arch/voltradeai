@@ -110056,3 +110056,12 @@ score-breakdown decomposition.
 LOOP RATIO: [RULE-REVIEW] — healthy.
 STARVED: yes (the remaining gates above and the Thompson sampler that
 reads these buckets are queued).
+
+## 2026-10-26 (scheduled routine, ~evening Mon) [NO-ACTION] — no code_version change (1.0.1162)
+
+LOOP RATIO: last 10 tags = 3 REPAIR / 2 RULE-REVIEW / 1 PIPELINE / 1 PRODUCT / 3 NO-ACTION; far under the 7+ REPAIR thrash threshold.
+HEALTH: session_health_check 17/17 OK (deploy_gate 2xx, liveness alive, server_version 1.0.1162 == checkout, daemon rss 336MB under trim_mb — the 377->463MB sawtooth reset, confirming the "known cycle" read, /data p95 293 ms, archive 1.76 GiB free — human decision filed 2026-10-12).
+QUEUE: the one startable-looking item, "Expand counterfactual logging to ALL rule gates" (tier-dispatcher SELL_CSP OPTIONS-SLOT-FULL / CSP-SKIP), was read at bot.ts ~5166-5185 and deferred on purpose, not for lack of capacity: (1) tier actions carry NO entry price (cspPayload price=0, Python fetches), so a shadow record needs a price source designed first; (2) a blocked short put's counterfactual is a short-put payoff, not the long-stock +Nd return the backfill computes — logging it as-is would mix decision classes (the exact 2026-10-06 side/trade_type bug); (3) it would be a third measurement PR in a day, stacked on #1463/#1464/score-breakdown whose first reads are due 2026-11-16 — nothing to learn from yet, and the CSP gates fire rarely. Design note for the next session that takes it: log with side="sell", trade_type="options", entry_price from the quote already fetched for CSP sizing, and add a CSP-payoff outcome label in the backfill before any win-rate is read.
+OTHER: 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups; price-panel/archive-volume are human decisions.
+FILED: design note above. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
