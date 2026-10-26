@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-26 (scheduled routine, ~13:25Z Mon, [PRODUCT] slot, pre-market) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK, /data p95 246ms); WARN only daemon rss 418MB (trim mode, known). Archive storage reads 1.79 GiB free, under the 2 GiB sweep-archiving gate (auto-paused, ~15 d to the 1 GiB guard) — the filed archive-volume human decision stands; not new. main unchanged since 50bd04a.
+QUEUE: PRODUCT axes (a)-(d) unchanged from the 10-25 entries: 13F/8-K gate 2 wait 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions, look-up ledger report waits for >= 20 admitted look-ups. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-26 (scheduled routine, EDGE-DOCTRINE axis pick, Mon) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). thrash 0/10 REPAIR; STARVED streak 0 per research_state_check. KNOWN BROKEN: no critical item open (#44/#48 lack a close marker, advisory, already filed with their human/frozen-path decisions). No REPAIR session warranted.
