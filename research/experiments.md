@@ -110056,3 +110056,119 @@ score-breakdown decomposition.
 LOOP RATIO: [RULE-REVIEW] — healthy.
 STARVED: yes (the remaining gates above and the Thompson sampler that
 reads these buckets are queued).
+
+---
+
+### 2026-10-26 [RULE-REVIEW] scan_market's ten silent post-score filters relabel their shadow record (v1.0.1163)
+
+TERRITORY: T-BOT (bot_engine._scan_market_inner, server/bot.ts audit line,
+tests). Measurement change — own PR; step 2 of "Expand counterfactual
+logging to ALL rule gates" (open_questions.md), directly after step 1
+(#1464, v1.0.1162, the Node admission loop).
+
+**WHAT**: the per-candidate loop in `_scan_market_inner` runs AFTER
+`deep_score` has logged every candidate (so a shadow record exists), and
+ten of its filters dropped a candidate with a bare `continue` — the
+record stayed "taken": already-held, stop cooldown, the BEAR/PANIC
+no-new-longs gate, the adaptive MIN_SCORE, the $50M dollar-volume floor,
+BLOCKED_TICKERS, extreme movers (>50% today), a sizing exception, zero
+shares, the volume-share cap — plus the slots `break` at the top of the
+loop, which drops every later candidate (and in NEUTRAL/BEAR/PANIC,
+where adaptive MAX_POSITIONS is 0, drops ALL of them on iteration one).
+Each site now calls `_note_gate`; ONE `update_decisions_batch` call per
+scan relabels them (batched because the regime gate hits every candidate
+in BEAR/PANIC and a per-candidate load/save of the ~45MB log would not
+fit the scan's SIGALRM cap). The three sites that already relabelled
+inline (sector -> rejected_heat, spread -> rejected_other, sizing block
+-> rejected_sizing) are untouched. Counts travel in the scan result as
+`shadow_gate_relabels` and bot.ts audits them (`SHADOW-GATES scan: ...`),
+so a silently failing wiring is visible.
+
+Buckets: rejected_held and rejected_stock_slots (shared with Node — same
+rule, two enforcement points), rejected_score (same rule as deep_score's
+bucket, now with the ADAPTIVE threshold — see finding), and new:
+rejected_cooldown, rejected_regime_gate, rejected_dollar_volume,
+rejected_blocked_ticker, rejected_extreme_mover, rejected_sizing_error,
+rejected_zero_shares, rejected_volume_share. The slot-break reason
+carries the adaptive cap ("adaptive MAX_POSITIONS 0") so a regime-zeroed
+slot count is distinguishable from a genuinely full book.
+
+**BEFORE vs AFTER on identical inputs**: historical records untouched
+(30-min window, freshest-only, "taken"-only). From the first scan after
+deploy, "taken" in NEUTRAL/BEAR/PANIC shrinks to ~zero stock candidates —
+which is TRUE: the bot places no new stock longs there. Before, "taken"
+meant "scored >= 63"; after, it means "cleared every scan_market filter
+and reached bot.ts". CAVEAT ON #1463: its counterfactual analysis
+(composite score anti-predictive, Q5 42.5% win / -2.01% at +20d) was run
+on the OLD labels, i.e. on "scored >= 63" candidates in all regimes. That
+remains a valid statement about the SCORE; it was never a statement about
+orders placed, and from now on the "taken" bucket will not be comparable
+to its pre-2026-10-26 self without filtering on regime_label.
+
+**DIRECTION OF BIAS**: can only move records OFF "taken". "taken" becomes
+BULL/CAUTION-only (the regimes with slots > 0); if BULL candidates carry
+better forward returns than NEUTRAL ones (trend), "taken"'s win rate
+RISES — flattering, so suspect by default. Justification: a named bug
+(never-ordered candidates labelled as orders, the class #1464 and BUILD
+ORDER 4 #6 already fixed elsewhere); every moved record keeps its own
+bucket AND its regime_label, so the per-regime comparison the honest
+reading needs is still possible; no record is discarded.
+
+**PRIORS (stated before any data)**:
+- rejected_regime_gate (BEAR/PANIC): mean forward return NEGATIVE at
+  +5d/+10d (the rule earns its keep) with a fat right tail (bear rallies)
+  — judge by expectancy and tails, not win rate (REASONING STANDARD #8).
+- rejected_stock_slots with "adaptive MAX_POSITIONS 0" (NEUTRAL): roughly
+  market-like forward returns — i.e. the NEUTRAL no-new-longs rule costs
+  the index drift. This is the most actionable bucket for the human's
+  "increase risk within reason": if it shows positive expectancy net of
+  costs, raising NEUTRAL MAX_POSITIONS above 0 is the first threshold
+  change to run through the ladder — one threshold, logged rollback.
+- rejected_score (63..74 in CAUTION/BEAR/PANIC): given #1463's inversion,
+  these mid-scorers may do BETTER than "taken" — a direct test of the
+  anti-predictive finding at the margin.
+- rejected_cooldown: slightly negative at short horizons (stopped-out
+  names keep falling) — rule earning its keep.
+- rejected_dollar_volume: high variance, negative skew (micro-caps).
+Readable at n >= 5 per bucket per horizon: regime_gate and stock_slots
+within days (they fire every scan in their regimes); the rest weeks.
+
+**LATENT FINDING (label source, queued as its own measurement PR)**:
+`deep_score` labels against `_scan_params.get("MIN_SCORE", 63) if
+'_scan_params' in locals() else 63` — `_scan_params` is never a local of
+`deep_score` (it lives in `_scan_market_inner`), so deep_score's label
+threshold is ALWAYS 63 while the scan's real gate is the adaptive
+63/67/75. deep_score's `rejected_score` therefore undercounts in
+CAUTION/BEAR/PANIC; this PR's relabel at the scan's threshold makes the
+FINAL label right, but the label source should take the adaptive
+threshold (pass it in) so the record is right at write time.
+
+**NOT COVERED (unchanged from step 1)**: tier-dispatcher SELL_CSP
+OPTIONS-SLOT-FULL / CSP-SKIP (inline-Python path), MORNING-SKIP qty=0,
+DD-HALT (shadow scan needed). CORRECTION to step 1's open_questions note:
+the "pre-score Python filters" it listed (volume-share cap, $50M floor,
+extreme mover, cooldown, BEAR/PANIC gate) are POST-score — covered here.
+What is genuinely pre-score is the universe screen (MIN_PRICE/MIN_VOLUME
+in the quick scan) and the deep-score top-N cut; those define the
+universe rather than reject a scored candidate, and logging thousands of
+unscored tickers per scan would overrun the 20k-record shadow cap — a
+sampled universe-screen counterfactual is a separate design.
+
+**FILES**: bot_engine.py (`_gate_relabels`/`_note_gate`, enumerate loop
+with remainder labelling at the slots break, 10 site notes, one batched
+flush with a logged failure path, `shadow_gate_relabels` in both scan
+results), server/bot.ts (SHADOW-GATES scan audit line),
+test_shadow_scan_gate_relabel.py (9 tests + 11 subtests: every site notes
+then drops, remainder labelling, adaptive-threshold reason, exact bucket
+set, inline sites untouched, single flush after the loop, failure logged
+not swallowed, counts in both results, reason truncation),
+server/shadowGateRelabel.test.ts (+1: scan-side audit), ci/
+counter_baseline.txt (assertions 21922 -> 21925, non-decreasing pin
+raised by the new Node assertions, as the ratchet asks).
+
+**KILL DATE**: none — measurement infrastructure; first read 2026-11-16
+with the score-breakdown decomposition and step 1's buckets.
+
+LOOP RATIO: [RULE-REVIEW] x2 today — healthy.
+STARVED: yes (CSP dispatcher gates, MORNING-SKIP, DD-HALT, the deep_score
+label-source fix, and the Thompson sampler that reads these buckets).
