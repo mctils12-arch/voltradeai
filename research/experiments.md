@@ -109857,3 +109857,11 @@ HEALTH: session_health_check 15 OK, 2 WARN. deploy_gate 2xx, liveness alive, ser
 QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time.
+
+## 2026-10-26 (scheduled routine, ~16:10Z Mon, market hours) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP RATIO: last 10 tags = REPAIR/PRODUCT/NO-ACTION mix, well under the 7+ REPAIR thrash threshold.
+HEALTH: session_health_check 16 OK, 1 WARN. deploy_gate 2xx, liveness alive, subsystems OK, server_version == checkout, /data p95 280 ms, adsb.lol OK (the 11:15Z failover WARN did not persist), archive 1.78 GiB free (human decision filed 2026-10-12). WARN daemon rss 463MB (377 -> 404 -> 441 -> 463 over ~22h): the 11:15Z entry set a "persists past 10-27 or nears 600MB" trigger — neither met. Prior log history shows the same 380-460MB sawtooth across many sessions (e.g. 458MB, 444MB, 439MB, then back under 400MB), so this is the known cycle, not a new monotone leak; still under the 1GB self-kill. Trigger stays armed: a reading >= 600MB or still climbing after 10-27 opens a [REPAIR] root-cause on daemon memory.
+QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time (market-hours run, no live-code change).
