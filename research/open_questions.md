@@ -23170,10 +23170,14 @@ screen (MIN_PRICE/MIN_VOLUME quick scan + deep-score top-N cut) — that
 one defines the universe rather than rejecting a scored candidate, and
 logging thousands of unscored tickers per scan would overrun the
 20k-record shadow cap; a SAMPLED universe-screen counterfactual is a
-separate design. LABEL-SOURCE FIX QUEUED: deep_score's own threshold is
-a fixed 63 (`'_scan_params' in locals()` can never bind there) while the
-scan gates at the adaptive 63/67/75 — pass the adaptive threshold into
-deep_score so the record is right at write time (measurement-only PR).
+separate design. LABEL-SOURCE FIX SHIPPED same day (v1.0.1164,
+experiments.md): deep_score's threshold was a fixed 63 (`'_scan_params'
+in locals()` could never bind there) while the scan gates at the
+adaptive 63/67/75 — the scan now computes the adaptive MIN_SCORE once
+before the deep-score fan-out and passes it as `min_score`, so the record
+is right at write time; a sub-threshold candidate in CAUTION/BEAR/PANIC
+is `rejected_score` at source, and the regime-gate / slots buckets keep
+only candidates that cleared the threshold (attribution order).
 
 PROBLEM: the shadow portfolio currently logs ONLY Python-side scoring gates. All Node-side gates are blind spots: SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL, Kelly blocks, volume-share cap, $50M dollar-volume floor, blocked tickers, extreme-mover filter, earnings halt, cooldown, BEAR/PANIC gates, all options-scanner rejections, covered-call exclusions.
 
