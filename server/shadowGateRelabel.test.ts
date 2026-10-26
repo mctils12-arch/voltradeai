@@ -105,3 +105,11 @@ test("the daemon route is registered for the batch relabel", () => {
   const daemon = fs.readFileSync(path.join(here, "..", "voltrade_daemon.py"), "utf8");
   assert.ok(daemon.includes('"shadow_update_decisions": ("shadow_portfolio", "update_decisions_batch")'));
 });
+
+test("scan_market's own batch relabel counts reach the audit log from the scan result", () => {
+  const at = bot.indexOf("result.shadow_gate_relabels");
+  assert.ok(at > 0, "bot.ts must read shadow_gate_relabels off the Tier2 scan result");
+  const window = bot.slice(at, at + 600);
+  assert.ok(window.includes('audit("SHADOW-GATES"'), "a silently failing scan-side wiring must be visible");
+  assert.ok(window.includes("g.by_decision"), "per-bucket counts are what makes the line readable");
+});

@@ -3364,8 +3364,29 @@ def _scan_market_inner():
     # nothing left no trace of why.
     _sizing_blocks = []
 
-    for stock in deep_scored:
+    # [RULE-REVIEW] 2026-10-26: every filter below that drops a candidate
+    # notes it here, and ONE update_decisions_batch call after the loop moves
+    # the shadow record (logged "taken" by deep_score) to the real bucket —
+    # the correction the sector/spread/sizing sites already make inline.
+    # Batched, not inline: the regime gate drops EVERY candidate in
+    # BEAR/PANIC, and a per-candidate load/save of the shadow log would not
+    # fit the scan's SIGALRM cap. The slots `break` drops every later
+    # candidate too, so the remainder is labelled with its reason.
+    _gate_relabels = []
+
+    def _note_gate(_t, _decision, _reason):
+        _gate_relabels.append({"ticker": _t, "decision": _decision, "reason": str(_reason)[:200]})
+
+    for _di, stock in enumerate(deep_scored):
         if len(trades) >= slots_available:
+            for _rest in deep_scored[_di:]:
+                _rt = _rest.get("ticker")
+                if _rt in current_tickers:
+                    _note_gate(_rt, "rejected_held", "already holding")
+                else:
+                    _note_gate(_rt, "rejected_stock_slots",
+                               f"stock slots full ({len(trades)}/{slots_available}, "
+                               f"adaptive MAX_POSITIONS {_max_positions_adaptive}) — loop ended")
             break
 
         final_score = stock.get("deep_score", stock.get("quick_score", 0))
@@ -3373,6 +3394,7 @@ def _scan_market_inner():
 
         # Skip if already holding
         if ticker in current_tickers:
+            _note_gate(ticker, "rejected_held", "already holding")
             continue
 
         # Skip if recently stopped out — REGIME-AWARE cooldown
@@ -3424,10 +3446,13 @@ def _scan_market_inner():
         _cooldown_secs  = _cooldown_map.get(_scan_regime, 7200)
         _cooldown_label = f"{_scan_regime} ({_cooldown_secs//3600:.1f}h)"
         if time.time() - _last_stop < _cooldown_secs:
+            _note_gate(ticker, "rejected_cooldown",
+                       f"stop cooldown {_cooldown_label}, {int(time.time() - _last_stop)}s since stop")
             continue  # Ticker in cooldown — skip. Re-entry blocked ({_cooldown_label})
 
         # Fix B: block ALL new stock longs in BEAR/PANIC (200MA slow-bear included)
         if _scan_regime in ("BEAR", "PANIC"):
+            _note_gate(ticker, "rejected_regime_gate", f"no new stock longs in {_scan_regime}")
             continue  # No new stock longs in bear/panic — preserve capital
 
         # Skip if below minimum score — use regime-adaptive threshold from get_adaptive_params.
@@ -3444,6 +3469,12 @@ def _scan_market_inner():
         except Exception:
             _min_score_threshold = 63  # system_config BASE_CONFIG default
         if final_score < _min_score_threshold:
+            # deep_score labels against a fixed 63 (its `_scan_params` lookup
+            # never binds there), so a 63..74 candidate in CAUTION/BEAR/PANIC
+            # arrives here labelled "taken" — this is where the label becomes
+            # the adaptive threshold's verdict.
+            _note_gate(ticker, "rejected_score",
+                       f"score {final_score:.1f} < adaptive MIN_SCORE {_min_score_threshold} ({_scan_regime})")
             continue
 
         # Correlation / sector check — don't over-concentrate
@@ -3499,6 +3530,8 @@ def _scan_market_inner():
         _dollar_vol   = _stock_price * _stock_volume
         _MIN_DOLLAR_VOL = 50_000_000  # $50M minimum daily dollar volume
         if _dollar_vol < _MIN_DOLLAR_VOL:
+            _note_gate(ticker, "rejected_dollar_volume",
+                       f"dollar volume ${_dollar_vol:,.0f} < ${_MIN_DOLLAR_VOL:,.0f} floor")
             continue  # Skip micro-cap / low-liquidity stock
 
         # Sector quality filter — 3-year backtest confirmed these destroy returns
@@ -3510,6 +3543,7 @@ def _scan_market_inner():
             "UBER",  # Ride-share — consistent underperformer (not in system_config by design)
         }
         if ticker in _BLOCKED_TICKERS:
+            _note_gate(ticker, "rejected_blocked_ticker", "BLOCKED_TICKERS list")
             continue  # Skip — 3-year backtest shows these hurt more than they help
 
         # Extreme mover check: stock already up 50%+ today
@@ -3531,6 +3565,8 @@ def _scan_market_inner():
                     })
                     with open(_em_path, 'w') as _f: json.dump(_em, _f)
             except Exception: pass
+            _note_gate(ticker, "rejected_extreme_mover",
+                       f"extreme mover {change_pct_val:+.1f}% today — deferred to overnight watchlist")
             continue  # Skip — will be analyzed tonight for tomorrow
 
         # Stock shorting disabled (backtest: -$419K). Bearish plays use options scanner.
@@ -3624,6 +3660,8 @@ def _scan_market_inner():
                     f"calculate_position raised for {ticker}: "
                     f"{type(_sizing_err).__name__}: {_sizing_err} — skipping candidate, scan continues"
                 )
+                _note_gate(ticker, "rejected_sizing_error",
+                           f"calculate_position raised {type(_sizing_err).__name__}")
                 continue
             if sizing.get("blocked"):
                 _record_sizing_block(_sizing_blocks, ticker, final_score, sizing,
@@ -3646,6 +3684,8 @@ def _scan_market_inner():
             sizing_scalars = {}
 
         if shares <= 0:
+            _note_gate(ticker, "rejected_zero_shares",
+                       f"sizing gave {shares} shares (position ${position_value:,.0f} at ${stock['price']})")
             continue
 
         # ALPHA AUDIT 2026-05-06 batch 11: VOLUME-SHARE CAP ENFORCEMENT
@@ -3676,6 +3716,7 @@ def _scan_market_inner():
                     )
                     import logging as _vl
                     _vl.getLogger("bot_engine").info(_liquid_log)
+                    _note_gate(ticker, "rejected_volume_share", _liquid_log)
                     continue
         except Exception as _vol_err:
             # Defensive: never block trades on volume-share calc errors
@@ -3727,6 +3768,23 @@ def _scan_market_inner():
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
         })
 
+    # One relabel call per scan (see _gate_relabels above). Counts travel in
+    # the scan result so bot.ts can audit the wiring's liveness.
+    _shadow_gate_relabels = None
+    if _gate_relabels:
+        try:
+            from shadow_portfolio import update_decisions_batch
+            _shadow_gate_relabels = update_decisions_batch(_gate_relabels)
+            _by_dec = {}
+            for _g in _gate_relabels:
+                _by_dec[_g["decision"]] = _by_dec.get(_g["decision"], 0) + 1
+            _shadow_gate_relabels["by_decision"] = _by_dec
+        except Exception as _gr_err:
+            import logging as _gr_log
+            _gr_log.getLogger("bot_engine").warning(
+                f"shadow gate relabel failed (measurement only, scan unaffected): {_gr_err}"
+            )
+
     # Update partial results with stock trades — survives SIGALRM if timeout
     # fires during options scanner or later steps
     _partial_scan_result = {
@@ -3740,6 +3798,7 @@ def _scan_market_inner():
         "slots_available": slots_available,
         "new_trades": list(trades),  # Copy — trades may grow later
         "sizing_blocks": list(_sizing_blocks[:20]),
+        "shadow_gate_relabels": _shadow_gate_relabels,
         "top_10": [{"ticker": s["ticker"], "price": s.get("price", 0), "score": s.get("deep_score", s.get("quick_score", 0)), "change_pct": s.get("change_pct", 0), "side": s.get("side", "buy"), "action_label": s.get("action_label", "BUY"), "reasons": s.get("reasons", [])[:2]} for s in deep_scored[:10]],
         "partial": True,
     }
@@ -4147,6 +4206,7 @@ def _scan_market_inner():
         "options_slots_available": options_slots if 'options_slots' in locals() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
         "sizing_blocks": _sizing_blocks[:20] if '_sizing_blocks' in locals() else [],
+        "shadow_gate_relabels": _shadow_gate_relabels if '_shadow_gate_relabels' in locals() else None,
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
         "upgrade_candidates": mgmt.get("upgrade_candidates", []),

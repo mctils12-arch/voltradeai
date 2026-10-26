@@ -4880,6 +4880,12 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
         audit("DD-HALT", `RELEASED as bad-data trip — re-read equity=${e.confirm_equity} dd_pct=${e.confirm_dd_pct} vs trip "${e.trip_reason}" (trip equity=${e.trip_equity}, peak=${e.peak_equity})`);
       }
 
+      // [RULE-REVIEW] 2026-10-26: scan_market's own gate relabels (one batch
+      // per scan) — audited here so a silently failing wiring is visible.
+      if (result.shadow_gate_relabels && result.shadow_gate_relabels.received > 0) {
+        const g = result.shadow_gate_relabels;
+        audit("SHADOW-GATES", `scan: ${g.received} gate rejection(s) ${JSON.stringify(g.by_decision || {})} → relabelled ${g.updated}, skipped ${g.skipped}${g.saved ? "" : " (not saved)"}`);
+      }
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
         ? result.data_source_errors : {};
 

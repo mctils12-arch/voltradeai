@@ -23151,15 +23151,29 @@ block, size cap, exposure cap, correlation cap, exchange halt, max
 retry, dup order, buying power, options no-contract/error) now relabel
 the candidate's shadow record through one `shadow_update_decisions`
 RPC per loop — gate 1 of the ladder path below is in place for them.
+STEP 2 SHIPPED same day (v1.0.1163, experiments.md "[RULE-REVIEW]
+scan_market's ten silent post-score filters"): held, cooldown, BEAR/PANIC
+regime gate, adaptive MIN_SCORE, $50M dollar-volume floor,
+BLOCKED_TICKERS, extreme mover, sizing exception, zero shares,
+volume-share cap, and the slots break (which in NEUTRAL/BEAR/PANIC drops
+every candidate because adaptive MAX_POSITIONS is 0) — batched into one
+update_decisions_batch call per scan. CORRECTION of the step-1 note
+below: those filters are POST-score (the loop reads deep_score's
+result), so a relabel was the right mechanism, not log_candidate.
 STILL BLIND: tier-dispatcher SELL_CSP OPTIONS-SLOT-FULL and CSP-SKIP
 (inline-Python path — add buckets the way rejected_capital was),
 MORNING-SKIP qty=0 (needs a fresh log_candidate, the record is hours
 old), DD-HALT (blocks the scan itself — needs a shadow scan to have a
-counterfactual at all), and the Python-side pre-score filters listed
-below (volume-share cap, $50M dollar-volume floor, extreme-mover,
-earnings halt, cooldown, BEAR/PANIC gates, options-scanner and
-covered-call exclusions) — those drop a ticker BEFORE deep_score logs
-anything, so they need log_candidate calls at the filter, not a relabel.
+counterfactual at all), the options-scanner / covered-call exclusions
+(options path, no stock record), and the genuinely pre-score universe
+screen (MIN_PRICE/MIN_VOLUME quick scan + deep-score top-N cut) — that
+one defines the universe rather than rejecting a scored candidate, and
+logging thousands of unscored tickers per scan would overrun the
+20k-record shadow cap; a SAMPLED universe-screen counterfactual is a
+separate design. LABEL-SOURCE FIX QUEUED: deep_score's own threshold is
+a fixed 63 (`'_scan_params' in locals()` can never bind there) while the
+scan gates at the adaptive 63/67/75 — pass the adaptive threshold into
+deep_score so the record is right at write time (measurement-only PR).
 
 PROBLEM: the shadow portfolio currently logs ONLY Python-side scoring gates. All Node-side gates are blind spots: SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL, Kelly blocks, volume-share cap, $50M dollar-volume floor, blocked tickers, extreme-mover filter, earnings halt, cooldown, BEAR/PANIC gates, all options-scanner rejections, covered-call exclusions.
 
