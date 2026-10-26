@@ -194,6 +194,67 @@ def dedupe(entries: Iterable[dict], days: int = 5) -> List[dict]:
     return out
 
 
+def filter_entries(rows: Iterable[dict], max_abs_delta: Optional[float] = None,
+                   asset_names: Optional[Dict[str, Optional[str]]] = None) -> dict:
+    """The selectable rows the bot would actually have traded: optionally only
+    picks within `max_abs_delta` of the money (the archive carries no open
+    interest, so the probe's size-only liquidity test skews picks toward the
+    money — the live bot targets −0.30), and optionally minus the leveraged /
+    inverse funds the live bot excludes (leveraged_etf_filter, by the asset's
+    NAME when one is given, else its seed list). Counts what each cut removed."""
+    out: List[dict] = []
+    cut_delta = 0; cut_lev = 0
+    excluded: set = set()
+    if asset_names is not None:
+        from leveraged_etf_filter import is_leveraged_or_inverse
+        for r in rows:
+            u = str(r.get("u") or "").upper()
+            if u in excluded:
+                cut_lev += 1
+                continue
+            if is_leveraged_or_inverse(u, asset_names.get(u)):
+                excluded.add(u); cut_lev += 1
+                continue
+            d = r.get("delta")
+            if max_abs_delta is not None and (d is None or abs(float(d)) > max_abs_delta):
+                cut_delta += 1
+                continue
+            out.append(r)
+    else:
+        for r in rows:
+            d = r.get("delta")
+            if max_abs_delta is not None and (d is None or abs(float(d)) > max_abs_delta):
+                cut_delta += 1
+                continue
+            out.append(r)
+    return {"rows": out, "cut_delta": cut_delta, "cut_leveraged": cut_lev, "excluded_names": sorted(excluded)}
+
+
+def asset_names(symbols: Iterable[str], cache_path: str) -> Dict[str, Optional[str]]:
+    """{SYMBOL: long name or None} via yfinance, cached to a JSON file — the
+    offline stand-in for the live /v2/assets names the exclusion reads."""
+    out: Dict[str, Optional[str]] = {}
+    if os.path.exists(cache_path):
+        with open(cache_path) as f:
+            out = json.load(f)
+    try:
+        import yfinance as yf
+    except ImportError:
+        return out
+    for s in symbols:
+        if s in out:
+            continue
+        try:
+            info = yf.Ticker(s).info or {}
+            out[s] = info.get("longName") or info.get("shortName")
+        except Exception as e:  # a name without a name stays on the seed-only rule, and is counted
+            print(f"[csp-sim] asset name unavailable for {s}: {type(e).__name__}", file=sys.stderr)
+            out[s] = None
+    with open(cache_path, "w") as f:
+        json.dump(out, f)
+    return out
+
+
 def simulate_all(entries: Iterable[dict], bars_by_u: Dict[str, dict], variant: str,
                  regime_by_day: Optional[Dict[str, str]] = None,
                  earnings_by_u: Optional[Dict[str, Sequence[str]]] = None) -> dict:
@@ -347,6 +408,8 @@ def render(aggs: Dict[str, dict], meta: dict, comparison: Sequence[dict] = ()) -
           "- The probe's liquidity test lacks the volume branch the live `_is_liquid` has: this universe is a SUBSET of the live one. Indicative quotes throughout.",
           "- The 60-minute minimum hold cannot bind at daily resolution; the VRP-evaporation exit is not replicated (no historical vol surface).",
           f"- Overlap: one entry per name per {meta['dedupe_days']} days was kept ({meta['deduped']} of {meta['entry_ok']}); SEs are plain, not HAC — treat them as optimistic.",
+          ("- Selection cuts: " + (f"picks with |delta| > {meta['max_abs_delta']} dropped ({meta.get('cut_delta', 0)}) — the archive carries no open interest, so the probe's size-only liquidity test skews picks toward the money against the live −0.30 target; " if meta.get("max_abs_delta") is not None else "NO delta cut — picks skew toward the money (archive has no open interest) and this set is riskier than the live −0.30 target; ")
+           + (f"leveraged / inverse funds dropped as the live bot does ({meta.get('cut_leveraged', 0)} rows, {len(meta.get('excluded_names') or [])} names, by asset name where yfinance had one, else the seed list)." if meta.get("exclude_leveraged") else "leveraged / inverse funds NOT excluded — the pre-2026-10-20 live universe included them, and they dominate the selectable rows.")),
           "- Four variants were tried; discount the best by four (REASONING STANDARD #4). Nothing here trades or changes a rule."]
     return "\n".join(L) + "\n"
 
@@ -407,6 +470,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--probe", help="base URL of the site (DIAG_TOKEN from the environment)")
     ap.add_argument("--bars-days", type=int, default=400)
     ap.add_argument("--dedupe-days", type=int, default=5)
+    ap.add_argument("--max-abs-delta", type=float, default=None,
+                    help="keep only picks with |delta| <= this (the live target is 0.30; the archive has no OI, so picks skew to the money)")
+    ap.add_argument("--exclude-leveraged", action="store_true",
+                    help="drop the leveraged / inverse funds the live bot excludes (asset names via yfinance, cached)")
     ap.add_argument("--earnings", action="store_true", help="enable the earnings_gate variant (yfinance earnings dates)")
     ap.add_argument("--sleeves-json", help="a saved dump of the sleeves probe, for the live-vs-sim comparison")
     ap.add_argument("--no-regime", action="store_true")
@@ -419,7 +486,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         with open(a.save_dump, "w") as f:
             json.dump({"rows": rows}, f)
     ok = [r for r in rows if r.get("reason") == "ok"]
-    entries = dedupe(ok, a.dedupe_days)
+    os.makedirs(a.out, exist_ok=True)
+    names = asset_names(sorted({r["u"] for r in ok}), os.path.join(a.out, "csp_sim_asset_names.json")) if a.exclude_leveraged else None
+    flt = filter_entries(ok, a.max_abs_delta, names)
+    entries = dedupe(flt["rows"], a.dedupe_days)
     import backtest_v2 as bt  # noqa: E402 (sys.path above)
     bars_by_u: Dict[str, dict] = {}
     for s in sorted({e["u"] for e in entries}):
@@ -449,8 +519,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     meta = {"date": date_s, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "entry_rows": len(rows), "entry_ok": len(ok), "entry_days": len({r["day"] for r in rows}),
             "entry_underlyings": len({r["u"] for r in rows}), "deduped": len(entries), "dedupe_days": a.dedupe_days,
+            "max_abs_delta": a.max_abs_delta, "cut_delta": flt["cut_delta"], "exclude_leveraged": a.exclude_leveraged,
+            "cut_leveraged": flt["cut_leveraged"], "excluded_names": flt["excluded_names"],
             "bars_names": len(bars_by_u), "source": a.from_json or a.probe, "runtime_s": round(time.time() - t0, 1), "prior": PRIOR}
-    os.makedirs(a.out, exist_ok=True)
     md = os.path.join(a.out, f"csp_manager_rule_sim_{date_s}.md")
     with open(md, "w") as f:
         f.write(render(aggs, meta, comparison))

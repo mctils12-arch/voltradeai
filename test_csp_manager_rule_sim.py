@@ -139,6 +139,17 @@ class TestSets(unittest.TestCase):
         self.assertAlmostEqual(o["pnl_sum"], agg["per_underlying"]["AAA"]["pnl_sum"] + agg["per_underlying"]["BBB"]["pnl_sum"], places=2)
         self.assertIsNotNone(o["expectancy_pct_collateral"])
 
+    def test_filter_entries_delta_cut_and_leveraged_exclusion_by_name_or_seed(self):
+        rows = [entry(delta=-0.28), entry(u="BBB", delta=-0.47), entry(u="TQQQ", delta=-0.30), entry(u="XYZ", delta=-0.31), entry(u="NON", delta=None)]
+        f = sim.filter_entries(rows, max_abs_delta=0.40, asset_names={"XYZ": "Direxion Daily Something Bull 3X Shares", "BBB": "Plain Company Inc", "AAA": None})
+        self.assertEqual([r["u"] for r in f["rows"]], ["AAA"])
+        self.assertEqual((f["cut_delta"], f["cut_leveraged"]), (2, 2), "BBB and NON by delta; TQQQ (seed) and XYZ (name) as leveraged")
+        self.assertEqual(f["excluded_names"], ["TQQQ", "XYZ"])
+        g = sim.filter_entries(rows)
+        self.assertEqual(len(g["rows"]), 5, "no cuts without options")
+        h = sim.filter_entries(rows, asset_names={})
+        self.assertEqual([r["u"] for r in h["rows"]], ["AAA", "BBB", "XYZ", "NON"], "without a name only the seed list excludes")
+
     def test_live_comparison_joins_on_the_occ_root(self):
         aggs = {"live": {"per_underlying": {"AAA": {"n": 2, "pnl_sum": 50.0}, "BBB": {"n": 1, "pnl_sum": -300.0}}}}
         sleeves = {"optionsByUnderlying": [{"root": "AAA", "realized": -120, "fills": 7}, {"root": "QQQ", "realized": 5, "fills": 2}]}
