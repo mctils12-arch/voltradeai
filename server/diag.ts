@@ -61,6 +61,12 @@ export const DIAG_PROBES = [
   // probe's cap. Aggregates only (one number per underlying-day); same
   // token gate, read-only, indicative-feed label carried.
   "chain_iv30",
+  // ADDED 2026-10-26 (research test 2 gate 3, [RULE-REVIEW]): per underlying
+  // per archived day, the CSP the bot would have sold with its archived
+  // quote (server/chainCspEntry.ts) — one row per underlying-day, derived
+  // server-side for the same reason as chain_iv30; same gate, read-only,
+  // indicative-feed label carried.
+  "chain_csp_entry",
   // ADDED 2026-08-03 (scheduled-routine session): shadow_portfolio.py's
   // get_shadow_stats() (win/loss counts by decision bucket, incl. the
   // rejected_masterkill and score-band buckets) has been queryable

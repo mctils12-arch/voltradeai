@@ -110330,3 +110330,95 @@ is the prerequisite for them to mean anything).
 LOOP RATIO: [RULE-REVIEW] x4 today — healthy.
 STARVED: yes (CSP-economics labeler, MORNING-SKIP, DD-HALT shadow scan,
 universe-screen sampling, Thompson sampler).
+
+---
+
+## 2026-10-26 (interactive session, ~20:45Z) [RESEARCH] — first post-fix read of the options sleeve's hold-time buckets (live `sleeves` probe, 4 trading days after v1.0.1117): the instant round trips STOPPED; the held lots are now where the loss is — docs only, no code_version change
+
+CONTEXT: the 2026-10-20 23:20Z entry found 85% of the sleeve's closes were sub-day round trips carrying 109% of its loss, named the v1.0.1117 entry/exit-zone fix as the candidate cure and queued "the measurement that decides whether it was enough is the November hold buckets". The human asked today whether the CSP sleeve works; this is the earliest honest read (Oct 21–26: four trading days).
+
+NUMBERS (probe at 20:39Z; window 2026-05-07 → now; lastFill 19:46Z today; 0 malformed, not truncated):
+- all-window hold buckets: <1h 168 / −$4,812 · <1d 142 / −$4,922 · 1–7d 54 / +$64 · 8–30d 4 / +$389 · >30d 1 / +$104. The Oct 20 23:15Z read had <1h 168 and <1d 142 — IDENTICAL counts: ZERO new sub-day closes in four trading days. The three closes since were 2 × 1–7d (−$408 between them) and 1 × 8–30d (+$124).
+- October by hold (close month, pre- and post-fix together): <1h 28 / −$490 · <1d 27 / −$818 · 1–7d 11 / −$858 · 8–30d 1 / +$124 · >30d 1 / +$104.
+- sleeves: options realized −$9,177 (822 fills, 298 symbols; by month May −5 · Jun −664 · Jul −191 · Aug −5,437 · Sep −942 · Oct −1,938), unrealized −$657, 7 open — −$9,834 all-in (Oct 20 read: −$8,844); floor realized +$1,554, unrealized +$141; stocks −$499, flat. Account: equity 106,742.68 (May 6) → 96,776.89 (−$9,966, −9.3%); explained −$8,756, residual −$1,210. /api/health ok, liveness not dark, bot active, −3.2% from the $99,962 peak.
+
+READ: (1) the churn term is gone, for now — four trading days with no lot closed inside a day is the first stretch of its kind in the window; too short to call the fix proven (the <1h family had unexplained members beyond the DTE conflict — task #36 stays open until the OPTIONS-EXIT reasons are joined to the fills), but consistent with v1.0.1117 being the cure. (2) With the churn removed, the sleeve STILL lost: −$284 realized on three held closes plus −$706 of open P&L in six days, and October's 1–7d bucket is −$858 on 11 closes where the earlier months' 1–7d lots were net positive (+$472 at the Oct 20 read). So the earlier "every lot held a day or longer was net profitable" was the small-sample reading it was flagged as (56 closes); the held population's edge is NOT established. (3) The single-name premium was positive on average (test 2, gate 2) and the sleeve loses when it holds — the remaining candidates are the left tail (earnings jumps crystallized by the 2× stop / max-loss exit at the worst point) and execution at the open/close (no options slippage model exists; paper NBBO fills). Gate placement unchanged: fault at gate 3 (manager rules) and gate 5 (execution), signal gate passes.
+
+ALSO CONFIRMED LIVE: server_version 1.0.1164 (#1467 deployed; #1468 rolling); the `SHADOW-GATES scan:` audit line fires — two scans so far, each 3 × rejected_stock_slots (adaptive MAX_POSITIONS 0 → loop ended at iteration one, the regime-zeroed case the v1.0.1163 entry predicted), with the "skipped" relabels being records v1.0.1164 already wrote as rejected_score at source — the attribution order working as designed.
+
+NEXT (the decision this read forces): research test 2, gate 3 — the manager rules (hold to expiry / 50% TP / 21-DTE force-close / 2× credit stop, and an earnings-date gate as the one new variant) simulated on the archived chains for the names traded, with the instant-close path removed — the first honest estimate of what the sleeve earns when allowed to hold, and the evidence a pause/continue/index-only decision on single-name CSPs needs. The chain archive's per-contract rows exceed the diag probe's 5,000-row cap, so the simulation runs server-side like chain_iv30 did (own [RULE-REVIEW] PR: derived probe + script + tests). The CSP-economics labeler for the shadow buckets (filed today) shares that engine.
+STARVED: no.
+
+ADDENDUM (~20:55Z) — gate-3 DESIGN FINDING from the live chain_iv30 probe (80 archived days): the names the sleeve traded have almost no CONSECUTIVE archived chain days — NVDA 2 days (Jul 23, Aug 17; 133 live fills in August), TEM/BB/EWZ 1, PATH 6, RIOT 4, T 11 — because optionsChainArchive snapshots each day's ROTATING candidate list plus the positions open at snapshot time, and the churned positions rarely survived to it. A same-OCC daily mark-to-market simulation is therefore NOT possible for single names on this archive; only SPY/QQQ/IWM (pinned since Oct 21, 4 days so far) will accrue contiguous chains. DESIGN SPLIT for gate 3: (a) server-side derived probe `chain_csp_entry` — per underlying per archived day, the contract `_select_sell_put` would have sold (30-delta OTM put, 30–45 DTE, outside the 21-DTE exit zone, affordability ignored for equal-weight gate 3) with its archived bid/ask/iv/delta/oi — one row per name-day (~100/day), cached like iv30; (b) client-side script that marks each entry daily from the underlying's bars (Alpaca-first/Yahoo, as the VRP script did) with a Black–Scholes mark at the entry IV — LABELLED a model mark, never ground truth — and applies the manager rules (50% TP, 2× credit stop, 21-DTE force close, hold-to-expiry variant, earnings-date gate variant), charging the archived entry spread and a modelled exit spread; (c) the index leg reads the archived marks directly once ≥ 24 contiguous days exist (~2026-11-25). Stated bias of (b): model marks smooth the intraday path the 2× stop actually fires on, so the stop's cost is UNDER-estimated — the result is a lower bound on how much the stop hurts, not an upper one.
+
+---
+
+### 2026-10-26 [RULE-REVIEW] chain_csp_entry — the CSP the bot would have sold, per underlying per archived day (v1.0.1166)
+
+TERRITORY: T-BOT (server/chainCspEntry.ts, the bot.ts diag probe case,
+the diag.ts whitelist, tests). Measurement — own PR; research test 2
+gate 3, step 1 (the ENTRY half of the design split recorded in the
+20:55Z addendum above; the forward marking is step 2).
+
+**WHAT**: a derived, read-only, cached table — per underlying per
+archived chain day, the cash-secured put `options_execution.
+_select_sell_put` would have sold, with its archived bid/ask/mid/spread,
+IV, delta and OI, served as the `chain_csp_entry` diag probe (same
+query shape as chain_iv30: ?from=&to=&u=&max=, derived cache under
+optionchains/derived/csp_entry/<day>.json, write-once for finished days,
+`pending` beyond the per-call compute cap). One row per name-day
+(~100/day), which is why it is derived server-side: the archive's raw
+rows are ~30k/day against the archive probe's 5,000-row cap.
+
+**SELECTION** mirrors `select_contract` + `_select_sell_put`, every
+constant pinned to the Python SOURCE by the tests (a drift fails CI, and
+the first run of that test caught my own regex reading another
+selector's `target_delta = -0.4`): puts only; DTE in [30, 50]
+(`CSP_ENTRY_MIN_DTE` = max(T1_TARGET_DTE_MIN, DTE_EXIT_THRESHOLD + 1),
+`_fetch_option_chain`'s now + 50 ceiling); `_is_liquid` — bid and ask
+present, spread ≤ 10% of mid, mid ≥ $0.10, OI ≥ 200 or both quote sizes
+≥ 10 — MINUS its daily-volume branch, which the archive cannot supply;
+OTM as |delta| ≤ 0.5 (the live filter is strike ≤ spot and the archive
+carries no spot); the put nearest −0.30 delta, ties to higher OI.
+`spotImplied` = the strike where put |delta| crosses 0.5 in the chosen
+expiry, interpolated — a LABELLED proxy for the simulation to cross-check
+against the underlying's real bar, never a price. Every row carries
+`feed: "indicative"`.
+
+**BEFORE vs AFTER / BIAS**: nothing that trades or measures the live book
+changes — no existing metric moves. The table's own biases, stated: (1)
+the missing volume branch under-counts liquid contracts, so some
+name-days the live bot would have traded come back `no_liquid` — the
+simulation's universe is a SUBSET of the live one, visible per row via
+nPuts/nLiquid; (2) |delta| ≤ 0.5 vs strike ≤ spot can differ by one
+strike at the money, immaterial at the −0.30 target; (3) indicative
+quotes, as everywhere in this archive.
+
+**FILES**: server/chainCspEntry.ts (isLiquid, impliedSpot, cspEntryFor,
+cspEntryForDay, derivedDir, cspEntryForDays), server/bot.ts (`case
+"chain_csp_entry"`), server/diag.ts (whitelist),
+server/chainCspEntry.test.ts (9: constants pinned to source; isLiquid
+branches; selection with an exact −0.30 but illiquid loser, an ITM row,
+a call and out-of-window expiries; tie → OI; every failure reason with
+counts; impliedSpot exact/bracket/null; one row per underlying; cache
+write-once / pending / today-never; probe whitelisted and wired),
+ci/counter_baseline.txt (tests 623 → 625, assertions 21976 → 22019 —
+non-decreasing pins raised by the new tests).
+
+**NEXT (step 2, own PR + [RESEARCH] run)**: scripts/csp_manager_rule_sim.py
+— reads chain_csp_entry (and chain_iv30 for the day's ATM IV), pulls the
+underlying's daily bars (Alpaca-first/Yahoo fallback, as the VRP script
+did), marks each entry forward with a Black–Scholes model mark at the
+entry IV (LABELLED a model mark), applies the manager's rules in the
+live order (5-DTE critical close; 50% of credit; −2× credit; 21-DTE
+close — the VRP-evaporation exit cannot be replicated without the vol
+surface, stated) and two variants (hold-to-expiry; earnings-date gate),
+charges the archived entry spread (sold at the bid) and a modelled exit
+spread, reports expectancy and tails per regime, and compares to the
+live sleeve by underlying. The prior goes in that entry BEFORE the run.
+Stated bias of the model mark: it smooths the intraday path the −2× stop
+fires on, so the stop's cost reads as a lower bound.
+
+**KILL DATE**: none — measurement.
+LOOP RATIO: [RULE-REVIEW] x5 today, all measurement — healthy.
+STARVED: no (step 2 is next).
