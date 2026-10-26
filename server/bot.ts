@@ -5677,12 +5677,13 @@ else:
     // rejected_exposure_cap). A `break` drops every later trade too, so the
     // remainder is labelled with the break's own reason.
     const gateRejections: Array<{ ticker: string; decision: string; reason: string }> = [];
-    const noteGate = (t: any, decision: string, reason: string) => {
-      if (t && t.ticker && !(t as any)._consumed) {
+    type GateTrade = { ticker?: string; _consumed?: boolean };
+    const noteGate = (t: GateTrade | null | undefined, decision: string, reason: string) => {
+      if (t && t.ticker && !t._consumed) {
         gateRejections.push({ ticker: String(t.ticker), decision, reason: String(reason).slice(0, 200) });
       }
     };
-    const noteRemaining = (from: any, decision: string, reason: string) => {
+    const noteRemaining = (from: GateTrade, decision: string, reason: string) => {
       const start = trades.indexOf(from);
       for (const t of trades.slice(start < 0 ? 0 : start)) {
         noteGate(t, held.includes(t.ticker) ? "rejected_held" : decision,
@@ -6101,10 +6102,10 @@ else:
         const counts: Record<string, number> = {};
         for (const g of gateRejections) counts[g.decision] = (counts[g.decision] || 0) + 1;
         audit("SHADOW-GATES", `${gateRejections.length} gate rejection(s) ${JSON.stringify(counts)} → shadow relabel via ${relabel.via}: ${relabel.success ? JSON.stringify(relabel.result) : String(relabel.result?.error || "failed").slice(0, 120)}`);
-      } catch (gateErr: any) {
-        audit("SHADOW-GATES", `relabel failed (measurement only, loop unaffected): ${(gateErr?.message || "").slice(0, 120)}`);
+      } catch (gateErr) {
+        audit("SHADOW-GATES", `relabel failed (measurement only, loop unaffected): ${(gateErr instanceof Error ? gateErr.message : String(gateErr)).slice(0, 120)}`);
       } finally {
-        try { fs.unlinkSync(gateTmpPath); } catch (_) {}
+        try { fs.unlinkSync(gateTmpPath); } catch (unlinkErr) { console.warn(`[shadow-gates] temp file not removed: ${gateTmpPath}`); }
       }
     }
 

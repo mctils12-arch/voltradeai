@@ -75,7 +75,7 @@ test("every Node bucket is distinct, rejected_-prefixed, and never reuses a Pyth
 
 test("noteGate skips a trade consumed by the upgrade path and the remainder keeps held tickers honest", () => {
   const collector = slice("const gateRejections: Array<", "for (const trade of trades) {");
-  assert.ok(collector.includes("!(t as any)._consumed"), "a consumed trade was ordered via UPGRADE — it stays taken");
+  assert.ok(collector.includes("!t._consumed"), "a consumed trade was ordered via UPGRADE — it stays taken");
   assert.ok(collector.includes('held.includes(t.ticker) ? "rejected_held" : decision'), "the remainder after a break must label already-held tickers rejected_held, not with the break reason");
   assert.ok(collector.includes(".slice(0, 200)"), "reason is truncated to the shadow record's 200-char field");
 });
@@ -86,7 +86,7 @@ test("one relabel call per loop, via pythonCall with the daemon route and a temp
   assert.ok(flush.includes("max_age_seconds: SHADOW_GATE_RELABEL_MAX_AGE_S"), "daemon args must carry the window");
   assert.ok(flush.includes("from shadow_portfolio import update_decisions_batch"), "subprocess fallback must call the same entry point");
   assert.ok(flush.includes("json.load(open('${gateTmpPath}'))"), "fallback reads the payload from a temp file — reasons carry quotes, never inline them into python3 -c");
-  assert.ok(/try \{[\s\S]*catch \(gateErr: any\)[\s\S]*finally \{[\s\S]*fs\.unlinkSync\(gateTmpPath\)/.test(flush), "try/catch/finally: a relabel failure is audited and the temp file always removed");
+  assert.ok(/try \{[\s\S]*catch \(gateErr\)[\s\S]*finally \{[\s\S]*fs\.unlinkSync\(gateTmpPath\)/.test(flush), "try/catch/finally: a relabel failure is audited and the temp file always removed");
   assert.ok(flush.includes('audit("SHADOW-GATES"'), "the relabel result is visible in the audit log");
   // The flush sits AFTER the loop closes and BEFORE fill confirmation —
   // the loop body never pays for it.
