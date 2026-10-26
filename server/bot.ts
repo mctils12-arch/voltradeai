@@ -369,6 +369,11 @@ const MAX_POSITIONS = 8; // absolute ceiling (dynamic sizing uses portfolio heat
 // 2026-08-03 comment at the tier dispatcher for why two enforcement
 // points need to agree on more than just this value.
 const MAX_OPTIONS_POSITIONS = 6;
+// Age window for executeTrades' gate relabel of shadow records; mirrors
+// shadow_portfolio.NODE_GATE_RELABEL_MAX_AGE_S (deep_score logs the record
+// during the scan, up to ~55s + the admission loop's per-candidate RPCs
+// before the Node gates reach it).
+const SHADOW_GATE_RELABEL_MAX_AGE_S = 1800;
 const STOP_LOSS_PCT = 0.15; // Emergency backstop only — real stops from system_config.py (6% ATR-based)
 const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_config.py (12% ATR-based)
 // NOTE: These are EMERGENCY SAFETY NETS only. The real limits come from
@@ -5662,27 +5667,59 @@ else:
       : 0;
     const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
 
+    // [RULE-REVIEW] 2026-10-26: every gate below that drops a candidate
+    // notes it here, and ONE RPC after the loop relabels the candidate's
+    // shadow record (logged "taken" by deep_score) with the real reason it
+    // was never ordered — the same correction scan_market already makes for
+    // its own sector/spread/sizing filters. Measurement only: no gate's
+    // behaviour changes. Bucket names must not collide with the Python-side
+    // ones (rejected_heat is the SECTOR block, so HEAT-CAP is
+    // rejected_exposure_cap). A `break` drops every later trade too, so the
+    // remainder is labelled with the break's own reason.
+    const gateRejections: Array<{ ticker: string; decision: string; reason: string }> = [];
+    const noteGate = (t: any, decision: string, reason: string) => {
+      if (t && t.ticker && !(t as any)._consumed) {
+        gateRejections.push({ ticker: String(t.ticker), decision, reason: String(reason).slice(0, 200) });
+      }
+    };
+    const noteRemaining = (from: any, decision: string, reason: string) => {
+      const start = trades.indexOf(from);
+      for (const t of trades.slice(start < 0 ? 0 : start)) {
+        noteGate(t, held.includes(t.ticker) ? "rejected_held" : decision,
+          held.includes(t.ticker) ? "already holding" : reason);
+      }
+    };
+
     for (const trade of trades) {
-      if (state.killSwitch) break;
+      if (state.killSwitch) {
+        noteRemaining(trade, "rejected_killswitch", "Node kill switch on — loop ended");
+        break;
+      }
       const isOptionsTrade = trade.trade_type === "options" || (trade.use_options && trade.options_strategy !== "stock");
       // Options have separate slot limit from stocks
       if (isOptionsTrade) {
         if (optionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
           audit("OPTIONS-SLOT-FULL", `${trade.ticker}: options slots full (${optionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
+          noteGate(trade, "rejected_options_slots", `options slots full (${optionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
           continue;  // Skip this options trade, but continue checking remaining trades
         }
       } else {
-        if (slotsUsed >= MAX_POSITIONS) break;  // Stock slots full
+        if (slotsUsed >= MAX_POSITIONS) {
+          noteRemaining(trade, "rejected_stock_slots", `stock slots full (${slotsUsed}/${MAX_POSITIONS}) — loop ended, later options trades dropped too`);
+          break;  // Stock slots full
+        }
       }
       if (trade.score < state.minScoreThreshold) {
         audit("SKIP", `${trade.ticker}: score ${trade.score} < threshold ${state.minScoreThreshold}`);
+        noteGate(trade, "rejected_node_score", `score ${trade.score} < Node threshold ${state.minScoreThreshold}`);
         continue;
       }
-      if (held.includes(trade.ticker)) continue; // Already holding
+      if (held.includes(trade.ticker)) { noteGate(trade, "rejected_held", "already holding"); continue; }
       if ((trade as any)._consumed) continue;
       // Skip tickers blocked after 3 same-ticker stops today
       if (Array.isArray((state as any).dailyBlockedTickers) && (state as any).dailyBlockedTickers.includes(trade.ticker)) {
         audit("SKIP", `${trade.ticker}: blocked for today after repeated stop-losses`);
+        noteGate(trade, "rejected_daily_block", "blocked for today after repeated stop-losses");
         continue;
       }
 
@@ -5690,12 +5727,14 @@ else:
       const effectiveCeiling = MAX_POSITION_SIZE * state.positionSizeMultiplier;
       if (trade.position_value > equity * effectiveCeiling) {
         audit("SIZE-CAP", `${trade.ticker}: $${trade.position_value} exceeds ceiling ${(effectiveCeiling * 100).toFixed(1)}%`);
+        noteGate(trade, "rejected_size_cap", `$${trade.position_value} exceeds ceiling ${(effectiveCeiling * 100).toFixed(1)}%`);
         continue;
       }
 
       // Portfolio heat check — total deployed capital
       if (totalDeployed + trade.position_value > equity * MAX_TOTAL_EXPOSURE) {
         audit("HEAT-CAP", `${trade.ticker}: total exposure would exceed ${(MAX_TOTAL_EXPOSURE * 100)}%`);
+        noteRemaining(trade, "rejected_exposure_cap", `total exposure would exceed ${(MAX_TOTAL_EXPOSURE * 100)}% — loop ended`);
         break;
       }
 
@@ -5714,6 +5753,7 @@ else:
         );
         if (corrCall.success && corrCall.result && corrCall.result.allowed === false) {
           audit("CORR-CAP", `${trade.ticker}: ${corrCall.result.reason}`);
+          noteGate(trade, "rejected_corr_cap", String(corrCall.result.reason || "sector over-concentrated"));
           continue;  // Skip this trade — sector over-concentrated
         }
       } catch (corrErr: any) {
@@ -5731,6 +5771,7 @@ else:
         const haltResult = haltCall.success ? haltCall.result : { halted: false };
         if (haltResult.halted) {
           audit("HALT-SKIP", `${trade.ticker}: stock is halted (status: ${haltResult.status})`);
+          noteGate(trade, "rejected_stock_halted", `stock is halted (status: ${haltResult.status})`);
           continue;
         }
       } catch (err: any) {
@@ -5742,6 +5783,7 @@ else:
       const priorAttempts = orderAttemptCounts[trade.ticker] || 0;
       if (priorAttempts >= MAX_ORDER_ATTEMPTS_PER_TICKER) {
         audit("MAX-RETRY", `${trade.ticker}: skipped — already attempted ${priorAttempts} times today (max ${MAX_ORDER_ATTEMPTS_PER_TICKER})`);
+        noteGate(trade, "rejected_max_retry", `already attempted ${priorAttempts} times today (max ${MAX_ORDER_ATTEMPTS_PER_TICKER})`);
         continue;
       }
 
@@ -5750,6 +5792,7 @@ else:
         const openOrders = await alpaca("/v2/orders?status=open");
         if (Array.isArray(openOrders) && openOrders.some((o: any) => o.symbol === trade.ticker)) {
           audit("DUP-SKIP", `${trade.ticker}: already have a pending order`);
+          noteGate(trade, "rejected_dup_order", "already have a pending order");
           continue;
         }
       } catch (err: any) { /* proceed if check fails */ }
@@ -5759,7 +5802,10 @@ else:
       const bp = parseFloat(acctCheck.buying_power || "0");
       if (trade.position_value > bp) {
         const replaced = await replaceIfBetter(trade);
-        if (!replaced) continue;
+        if (!replaced) {
+          noteGate(trade, "rejected_buying_power", `$${trade.position_value} > buying power $${bp.toFixed(0)}, no weaker entry to replace`);
+          continue;
+        }
         await new Promise(r => setTimeout(r, 1000));
       }
 
@@ -5961,11 +6007,17 @@ else:
             } else {
               // Options engine said stock is better or scanner contract selection failed
               audit("OPTIONS-SKIP", `${trade.ticker}: ${(optExec.reasoning || '').slice(0, 100)}`);
-              if (trade.trade_type === "options") continue; // Pure options trade — no stock fallback
+              if (trade.trade_type === "options") { // Pure options trade — no stock fallback
+                noteGate(trade, "rejected_options_nocontract", String(optExec.reasoning || "options engine declined"));
+                continue;
+              }
             }
           } catch (optErr: any) {
             audit("OPTIONS-ERROR", `${trade.ticker}: ${(optErr?.message || '').slice(0, 100)} — falling back to stock`);
-            if (trade.trade_type === "options") continue; // Pure options trade — no stock fallback
+            if (trade.trade_type === "options") { // Pure options trade — no stock fallback
+              noteGate(trade, "rejected_options_error", String(optErr?.message || "options engine error"));
+              continue;
+            }
           }
         }
 
@@ -6033,6 +6085,27 @@ else:
       }
 
       await new Promise(r => setTimeout(r, 500));
+    }
+
+    // One relabel call per admission loop (see gateRejections above).
+    if (gateRejections.length > 0) {
+      const gateTmpPath = `/tmp/shadow_gates_${Date.now()}.json`;
+      try {
+        fs.writeFileSync(gateTmpPath, JSON.stringify({ updates: gateRejections }));
+        const relabel = await pythonCall(
+          "shadow_update_decisions",
+          { updates: gateRejections, max_age_seconds: SHADOW_GATE_RELABEL_MAX_AGE_S },
+          `python3 -c "import json; from shadow_portfolio import update_decisions_batch; d = json.load(open('${gateTmpPath}')); print(json.dumps(update_decisions_batch(d['updates'], ${SHADOW_GATE_RELABEL_MAX_AGE_S})))"`,
+          { timeout: 20000 }
+        );
+        const counts: Record<string, number> = {};
+        for (const g of gateRejections) counts[g.decision] = (counts[g.decision] || 0) + 1;
+        audit("SHADOW-GATES", `${gateRejections.length} gate rejection(s) ${JSON.stringify(counts)} → shadow relabel via ${relabel.via}: ${relabel.success ? JSON.stringify(relabel.result) : String(relabel.result?.error || "failed").slice(0, 120)}`);
+      } catch (gateErr: any) {
+        audit("SHADOW-GATES", `relabel failed (measurement only, loop unaffected): ${(gateErr?.message || "").slice(0, 120)}`);
+      } finally {
+        try { fs.unlinkSync(gateTmpPath); } catch (_) {}
+      }
     }
 
     // ── Batch fill confirmation (one 2s wait, then check all orders) ──

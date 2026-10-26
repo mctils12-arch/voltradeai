@@ -109948,3 +109948,111 @@ than composition (likely label/target construction in ML, not scoring).
 TERRITORY: T-BOT.
 LOOP RATIO: [PIPELINE] — healthy.
 STARVED: yes (date-gated items remain).
+
+---
+
+### 2026-10-26 [RULE-REVIEW] Node admission-loop gates relabel their shadow record (v1.0.1162)
+
+TERRITORY: T-BOT (server/bot.ts executeTrades, shadow_portfolio.py,
+voltrade_daemon.py route table). Measurement change — its own PR, no
+strategy or parameter change rides with it.
+
+**WHAT**: `executeTrades`' admission loop applies ~15 gates AFTER
+`scan_market` returns. `deep_score` had already logged each candidate
+"taken" (score >= MIN_SCORE), and `scan_market` corrects that label for
+its OWN downstream filters (sector -> rejected_heat, spread ->
+rejected_other, sizing -> rejected_sizing, BUILD ORDER 4 #6 2026-07-05)
+— but nothing corrected it for the Node gates. Every candidate Node
+dropped stayed "taken". Now each gate notes its rejection and ONE
+`shadow_update_decisions` RPC after the loop relabels the records
+(`shadow_portfolio.update_decisions_batch`: one load + one save per
+loop, not per gate; 30-min window, freshest-record-only, "taken"-only —
+the same guards as `update_last_decision`, which now shares the helper).
+A `break` drops every later trade in the list, so the remainder is
+labelled with the break's own reason (held tickers -> rejected_held).
+
+Buckets (15, all new, none reusing a Python-side name — HEAT-CAP is
+`rejected_exposure_cap`, NOT `rejected_heat`, which is the sector
+block): rejected_killswitch, rejected_options_slots,
+rejected_stock_slots, rejected_node_score (Node's dynamic threshold,
+distinct from Python's MIN_SCORE bucket), rejected_held,
+rejected_daily_block, rejected_size_cap, rejected_exposure_cap,
+rejected_corr_cap, rejected_stock_halted, rejected_max_retry,
+rejected_dup_order, rejected_buying_power, rejected_options_nocontract,
+rejected_options_error. A trade consumed by the UPGRADE path stays
+"taken" (it was ordered). New audit line per loop: `SHADOW-GATES` with
+per-bucket counts and the relabel result, so the wiring's liveness is
+visible in the existing feed; `/api/diag/shadow` grows the buckets
+automatically (`by_decision`, `win_rate_by_decision`,
+`backfill_progress_by_decision` are keyed on whatever decisions exist).
+
+**BEFORE vs AFTER on identical inputs**: historical records are NOT
+rewritten — the relabel only ever touches a record logged within the
+last 30 minutes at loop time — so every existing record reports exactly
+what it did before. From the first admission loop after deploy,
+`win_rate_by_decision["taken"]` stops counting candidates that never
+reached order submission; those appear under the 15 buckets instead.
+The share moved is unquantified from here (Railway is not reachable
+from this container); the first week of `SHADOW-GATES` lines gives the
+live count.
+
+**DIRECTION OF BIAS**: the change can only move records OFF "taken". If
+Node-dropped candidates are systematically worse than ordered ones (the
+exposure cap and stock-slot break fire late in a cycle, on lower-ranked
+trades), "taken"'s win rate RISES — a flattering direction, so suspect
+by default. Justification: a named bug (never-ordered candidates
+labelled as orders; the exact class BUILD ORDER 4 #6 already fixed for
+Python's own filters), and the moved records are not discarded — their
+own buckets get labelled by the same nightly backfill, so the next
+reader can see whether what moved was better or worse than what stayed.
+`taken` after this change means "reached order submission"; execution
+failures (TRADE-ERROR) still stay "taken" — ladder gate 5, not a rule.
+
+**PRIOR (stated before any data)**: rejected_exposure_cap and
+rejected_stock_slots will be the largest buckets and, being rank
+cut-offs rather than quality filters, should carry roughly the "taken"
+population's own forward returns — and PR #1463 found that population
+anti-predictive (Q5 42.5% win / -2.01% at +20d). If so, those caps are
+blocking losers by accident, and LOOSENING them (the human's "increase
+risk within reason") would hurt until the scoring inversion is fixed —
+the counterfactual decides, not the instinct. rejected_corr_cap:
+positive prevention-P&L (blocks correlated losers), consistent with the
+rejected_heat evidence. rejected_size_cap: genuinely unknown — it drops
+the highest-conviction sizes, which could cut either way. Readable at
+n >= 5 labelled per bucket per horizon: ~2-3 weeks for the common
+buckets, months for rare ones (halted, killswitch).
+
+**LATENT FINDING (measure first, no fix in this PR)**: the stock-slots
+`break` ends the loop for OPTIONS trades later in the list too, even
+though options have their own slot cap; `rejected_stock_slots`'s reason
+text names it so its cost shows in the bucket before any behaviour PR.
+
+**NOT COVERED (follow-up, open_questions.md "Expand counterfactual
+logging to ALL rule gates")**: tier-dispatcher SELL_CSP
+OPTIONS-SLOT-FULL and CSP-SKIP (that path logs through inline Python —
+add buckets the way rejected_capital was added), MORNING-SKIP qty=0
+(hours-old record, needs a fresh log_candidate), T3-SKIP (floor basket,
+belongs to the exposure-schedule ablation, not a candidate gate),
+DD-HALT (blocks the scan itself — no candidate exists; a counterfactual
+needs a shadow scan).
+
+**FILES**: server/bot.ts (SHADOW_GATE_RELABEL_MAX_AGE_S, gateRejections /
+noteGate / noteRemaining, 15 note sites, one flush with temp-file
+subprocess fallback), shadow_portfolio.py (_relabel_latest_taken shared
+helper, NODE_GATE_RELABEL_MAX_AGE_S, update_decisions_batch),
+voltrade_daemon.py (shadow_update_decisions route),
+test_shadow_gate_relabel.py (10: one-save batch, taken-only, age window,
+freshest-only, malformed skipped, no-op inputs, truncation,
+update_last_decision regression, daemon route binds bot.ts's args,
+constants agree), server/shadowGateRelabel.test.ts (20: every gate notes
+before its continue/break, buckets distinct and never Python-side,
+consumed/held handling, single pythonCall flush with try/catch/finally,
+constants agree, route registered).
+
+**KILL DATE**: none — measurement infrastructure the RULE REVIEW
+protocol requires; its first read is due 2026-11-16 alongside the
+score-breakdown decomposition.
+
+LOOP RATIO: [RULE-REVIEW] — healthy.
+STARVED: yes (the remaining gates above and the Thompson sampler that
+reads these buckets are queued).
