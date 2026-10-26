@@ -150,6 +150,38 @@ class TestSets(unittest.TestCase):
         h = sim.filter_entries(rows, asset_names={})
         self.assertEqual([r["u"] for r in h["rows"]], ["AAA", "BBB", "XYZ", "NON"], "without a name only the seed list excludes")
 
+    def test_paired_vs_live_reads_the_same_entry_under_both_rule_sets(self):
+        entries = [entry(day="2026-07-06"), entry(day="2026-07-13", u="BBB"), entry(day="2026-07-20", u="CCC", iv=0.35)]
+        bars = {"AAA": path(RISING), "BBB": path(CRASH), "CCC": path(DRIFT)}
+        regime = {"2026-07-06": "BULL", "2026-07-13": "NEUTRAL", "2026-07-20": "NEUTRAL"}
+        earn = {"BBB": ["2026-07-15"]}
+        sims = {v: sim.simulate_all(entries, bars, v, regime, earn) for v in sim.VARIANTS}
+        p = sim.paired_vs_live(sims)
+        ns = p["no_stop"]["overall"]
+        self.assertEqual(ns["n"], 3)
+        self.assertEqual(ns["changed"], 1, "only the crash entry's exit moves when the stop comes off")
+        self.assertEqual(ns["mean_diff"], round((sims["no_stop"]["results"][1]["pnl"] - sims["live"]["results"][1]["pnl"]) / 3, 2))
+        self.assertEqual(p["no_stop"]["by_regime"]["BULL"], {"n": 1, "mean_diff": 0.0, "se": None, "t": None, "changed": 0})
+        nd = p["no_dte_exit"]["overall"]
+        self.assertEqual(nd["changed"], 1, "the rising entry hits its target and the crash entry its stop under both; only the drift entry holds on")
+        self.assertIsNotNone(nd["t"])
+        eg = p["earnings_gate"]
+        self.assertEqual((eg["kept"]["n"], eg["dropped"]["n"]), (2, 1))
+        self.assertEqual(eg["dropped"]["mean"], sims["live"]["results"][1]["pnl"])
+        self.assertEqual(eg["dropped_ex_worst"], {"n": 0, "mean": None, "worst_u": "BBB", "worst_day": "2026-07-13",
+                                                  "worst_pnl": sims["live"]["results"][1]["pnl"]})
+        aggs = {v: sim.aggregate(sims[v]) for v in sim.VARIANTS}
+        meta = {"date": "2026-10-26", "generated_at": "t", "entry_rows": 3, "entry_ok": 3, "entry_days": 3,
+                "entry_underlyings": 3, "deduped": 3, "dedupe_days": 5, "bars_names": 3, "source": "test"}
+        md = sim.render(aggs, meta, (), p)
+        self.assertIn("## Paired vs live", md)
+        self.assertIn("| no_stop | all | 3 |", md)
+        self.assertIn("without the single worst dropped entry (BBB 2026-07-13", md)
+        self.assertIn("paired $", sim.verdict(aggs, p))
+        self.assertIn("dropped entries averaged", sim.verdict(aggs, p))
+        self.assertNotIn("paired $", sim.verdict(aggs), "the unpaired verdict still renders without the paired read")
+        self.assertNotIn("## Paired vs live", sim.render(aggs, meta))
+
     def test_live_comparison_joins_on_the_occ_root(self):
         aggs = {"live": {"per_underlying": {"AAA": {"n": 2, "pnl_sum": 50.0}, "BBB": {"n": 1, "pnl_sum": -300.0}}}}
         sleeves = {"optionsByUnderlying": [{"root": "AAA", "realized": -120, "fills": 7}, {"root": "QQQ", "realized": 5, "fills": 2}]}
