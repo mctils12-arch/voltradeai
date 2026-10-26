@@ -245,6 +245,28 @@ def sanitize_ml_trace(ml) -> dict | None:
     return out
 
 
+SCORE_BREAKDOWN_KEYS = (
+    "momentum", "mean_reversion", "vrp", "squeeze", "volume",
+    "vol_premium", "macro", "news", "adx", "obv",
+    "intel", "alt", "social", "fundamental",
+)
+
+
+def _sanitize_score_breakdown(bd) -> dict | None:
+    """Coerce a deep_score sub-score breakdown into the persisted shape.
+    Returns None for a missing breakdown (older callers)."""
+    if not isinstance(bd, dict) or not bd:
+        return None
+    out = {}
+    for k in SCORE_BREAKDOWN_KEYS:
+        v = bd.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
+            out[k] = round(float(v), 1)
+        else:
+            out[k] = None
+    return out
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -258,6 +280,7 @@ def log_candidate(
     action_label: str = "",
     trade_type: str = "",
     ml: dict = None,
+    score_breakdown: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -312,6 +335,7 @@ def log_candidate(
             # dropped on the floor until now. None when deep_score passed no
             # trace (older callers); see sanitize_ml_trace().
             "ml":              sanitize_ml_trace(ml),
+            "score_breakdown": _sanitize_score_breakdown(score_breakdown),
         }
 
         # Load, append, rotate, save

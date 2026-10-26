@@ -109909,3 +109909,42 @@ HEALTH: session_health_check 16 OK, 1 WARN. deploy_gate 2xx, liveness alive, sub
 QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time (market-hours run, no live-code change).
+
+---
+
+### 2026-10-26 [PIPELINE] Score breakdown instrumentation (v1.0.1161)
+
+**WHAT**: Every shadow candidate record now carries a `score_breakdown` dict
+with all 14 individual sub-scores and adjustments that compose the
+rules-only score: momentum, mean_reversion, vrp, squeeze, volume,
+vol_premium, macro, news, adx, obv, intel, alt, social, fundamental.
+
+**WHY**: The counterfactual analysis (PR #1463) found the composite
+deep_score is ANTI-PREDICTIVE (Q5 highest: 42.5% win / −2.01% at +20d;
+Q1 lowest: 56.2% win / +1.04% — monotonic inversion). To determine WHICH
+sub-scores are predictive vs anti-predictive, we need per-component data.
+The shadow portfolio previously captured only `rules_only_score` and
+`ml_only_score` (aggregates) — no per-component breakdown.
+
+**FILES**: bot_engine.py (collects _score_breakdown dict at deep_score
+return), shadow_portfolio.py (SCORE_BREAKDOWN_KEYS tuple,
+_sanitize_score_breakdown() coercion, score_breakdown parameter on
+log_candidate, stored in record), test_shadow_score_breakdown.py (5 tests:
+all-14-keys, absent-is-none, extra-keys-dropped, nan-and-bool-coerced,
+backward-compat).
+
+**PRIOR**: composite deep_score is anti-predictive (CRITICAL finding).
+**EXPECTED RESULT**: after ~2 weeks of accumulation (~1000+ shadow
+records), run a per-sub-score quintile analysis identical to the
+counterfactual's composite analysis. Hypothesis: at least 2-3 adjustments
+(likely news, social, alt) are net harmful while base scores (momentum,
+vrp) carry whatever real signal exists — the composite loses it by
+blending anti-predictive adjustments.
+
+**KILL DATE**: 2026-11-15 — if insufficient records accumulated, extend;
+if analysis shows all sub-scores are anti-predictive, the issue is deeper
+than composition (likely label/target construction in ML, not scoring).
+
+TERRITORY: T-BOT.
+LOOP RATIO: [PIPELINE] — healthy.
+STARVED: yes (date-gated items remain).

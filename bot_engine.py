@@ -1881,6 +1881,23 @@ except Exception as e:
             _decision = "rejected_score"
             _reason = f"score {combined_score:.1f} < MIN_SCORE {_min_score}"
 
+        _score_breakdown = {
+            "momentum": round(momentum_score, 1),
+            "mean_reversion": round(mean_reversion_score, 1),
+            "vrp": round(vrp_score, 1),
+            "squeeze": round(squeeze_score_val, 1),
+            "volume": round(volume_score, 1),
+            "vol_premium": round(vol_premium_bonus, 1),
+            "macro": round(macro_adjustment, 1),
+            "news": round(news_adjustment, 1),
+            "adx": round(adx_adjustment, 1),
+            "obv": round(obv_adjustment, 1),
+            "intel": round(intel_adjustment, 1),
+            "alt": round(alt_adjustment, 1),
+            "social": round(social_adjustment, 1),
+            "fundamental": round(fundamental_adjustment, 1),
+        }
+
         log_candidate(
             ticker=ticker,
             features=ml_features,
@@ -1894,6 +1911,7 @@ except Exception as e:
             action_label=action_label,
             trade_type=trade_type,
             ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
+            score_breakdown=_score_breakdown,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
