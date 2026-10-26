@@ -33,6 +33,12 @@ back at the model mark plus half the archived entry spread (a modelled exit
 spread — stated). `pnl_gross` is mid-to-model with no spread, for the
 decomposition.
 
+PAIRED READ: a rule-change variant is also reported as the same entry's P&L
+under the variant minus under live (both closed) — an unpaired difference of
+means mixes the rule with the censoring it changes. earnings_gate, a subset,
+is read as live-rules P&L on kept vs dropped entries, and dropped once more
+without its single worst entry.
+
 OVERLAP: the same name is an entry on every archived day, so consecutive
 entries overlap almost entirely. Statistics run on a DEDUPED set — one
 entry per name per `dedupe_days` — and the raw count is reported beside it.
@@ -347,9 +353,61 @@ def live_comparison(aggs: Dict[str, dict], sleeves: Optional[dict]) -> List[dict
     return rows
 
 
+def _paired_stats(diffs: Sequence[float]) -> dict:
+    n = len(diffs)
+    if n < 2:
+        return {"n": n, "mean_diff": round(diffs[0], 2) if n else None, "se": None, "t": None,
+                "changed": sum(1 for x in diffs if abs(x) > 0.005)}
+    m = sum(diffs) / n
+    sd = math.sqrt(sum((x - m) ** 2 for x in diffs) / (n - 1))
+    se = sd / math.sqrt(n)
+    return {"n": n, "mean_diff": round(m, 2), "se": round(se, 2), "t": round(m / se, 2) if se > 0 else None,
+            "changed": sum(1 for x in diffs if abs(x) > 0.005)}
+
+
+def _mean(vals: Sequence[float]) -> Optional[float]:
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
+def paired_vs_live(sims: Dict[str, dict]) -> dict:
+    """The same entry under two rule sets. For a rule change (no_stop, no_dte_exit)
+    the read is the variant's P&L minus live's on entries closed under BOTH, overall
+    and by entry-day regime — an unpaired difference of means mixes the rule's effect
+    with the censoring the rule changes (a longer hold censors more recent entries),
+    and the pair removes that; `changed` counts entries whose exit the rule moved.
+    earnings_gate is a subset, not a rule change: its read is live-rules P&L on the
+    entries it keeps vs the ones it drops, and the dropped set once more without its
+    single worst entry — one gap can carry a gate, and that must be visible."""
+    live = {(r["u"], r["day"]): r for r in sims.get("live", {}).get("results", [])}
+    out: Dict[str, dict] = {}
+    for v in ("no_stop", "no_dte_exit"):
+        if v not in sims:
+            continue
+        var = {(r["u"], r["day"]): r for r in sims[v]["results"]}
+        pairs = [(k, var[k]["pnl"] - live[k]["pnl"]) for k in live
+                 if k in var and not live[k]["censored"] and not var[k]["censored"]]
+        by_regime = {}
+        for reg in sorted({live[k].get("regime") for k, _ in pairs} - {None}):
+            by_regime[reg] = _paired_stats([d for k, d in pairs if live[k].get("regime") == reg])
+        out[v] = {"overall": _paired_stats([d for _, d in pairs]), "by_regime": by_regime}
+    if "earnings_gate" in sims:
+        kept_keys = {(r["u"], r["day"]) for r in sims["earnings_gate"]["results"]}
+        kept = [live[k]["pnl"] for k in live if k in kept_keys and not live[k]["censored"]]
+        dropped_rs = sorted((live[k] for k in live if k not in kept_keys and not live[k]["censored"]), key=lambda r: r["pnl"])
+        dropped = [r["pnl"] for r in dropped_rs]
+        worst = dropped_rs[0] if dropped_rs else None
+        out["earnings_gate"] = {
+            "kept": {"n": len(kept), "mean": _mean(kept)},
+            "dropped": {"n": len(dropped), "mean": _mean(dropped)},
+            "dropped_ex_worst": {"n": max(len(dropped) - 1, 0), "mean": _mean(dropped[1:]),
+                                 "worst_u": worst["u"] if worst else None, "worst_day": worst["day"] if worst else None,
+                                 "worst_pnl": worst["pnl"] if worst else None}}
+    return out
+
+
 # ── report ─────────────────────────────────────────────────────────────────
 
-def verdict(aggs: Dict[str, dict]) -> str:
+def verdict(aggs: Dict[str, dict], paired: Optional[dict] = None) -> str:
     live = aggs["live"]["overall"]
     parts = []
     if live["n_closed"]:
@@ -359,7 +417,16 @@ def verdict(aggs: Dict[str, dict]) -> str:
             o = aggs.get(v, {}).get("overall") or {}
             if o.get("n_closed"):
                 d = o["expectancy_pct_collateral"] - live["expectancy_pct_collateral"]
-                parts.append(f"{v}: {d:+.2f} pts vs live (n {o['n_closed']})")
+                tail = ""
+                pv = (paired or {}).get(v) or {}
+                if v != "earnings_gate" and (pv.get("overall") or {}).get("n"):
+                    po = pv["overall"]
+                    tail = (f"; paired ${po['mean_diff']:+,.0f} ± {po['se'] if po['se'] is not None else 0:,.0f} per contract, "
+                            f"{po['changed']} of {po['n']} entries changed")
+                elif v == "earnings_gate" and pv.get("dropped", {}).get("n"):
+                    tail = (f"; dropped entries averaged ${pv['dropped']['mean']:+,.0f} under live rules (n {pv['dropped']['n']}), "
+                            f"${pv['dropped_ex_worst']['mean'] if pv['dropped_ex_worst']['mean'] is not None else 0:+,.0f} without {pv['dropped_ex_worst']['worst_u']}")
+                parts.append(f"{v}: {d:+.2f} pts vs live (n {o['n_closed']}{tail})")
     else:
         parts.append("no closed entries — nothing to judge")
     return "; ".join(parts) + ". Four variants were tried: discount the best by four. Model marks, not fills."
@@ -376,12 +443,12 @@ HEADER = ("| set | n | closed | censored | mean $ | SE | median $ | p5 | p95 | w
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 
 
-def render(aggs: Dict[str, dict], meta: dict, comparison: Sequence[dict] = ()) -> str:
+def render(aggs: Dict[str, dict], meta: dict, comparison: Sequence[dict] = (), paired: Optional[dict] = None) -> str:
     L = [f"# Research test 2 (gate 3): the manager's rules on the CSPs the bot would have sold — {meta['date']}", "",
          f"Generated {meta['generated_at']} by scripts/csp_manager_rule_sim.py — entry rows {meta['entry_rows']} "
          f"({meta['entry_ok']} with a selectable contract) over {meta['entry_days']} archived days and {meta['entry_underlyings']} underlyings; "
          f"deduped to {meta['deduped']} entries ({meta['dedupe_days']}-day window); bars {meta['bars_names']} names; source {meta['source']}.", "",
-         "## PRIOR (stated before the run)", "", PRIOR, "", "## VERDICT", "", verdict(aggs), "",
+         "## PRIOR (stated before the run)", "", PRIOR, "", "## VERDICT", "", verdict(aggs, paired), "",
          "## Variants (per contract; sold at the archived bid, bought back at the MODEL mark + half the entry spread)", "", HEADER]
     for v in VARIANTS:
         if v in aggs:
@@ -392,6 +459,24 @@ def render(aggs: Dict[str, dict], meta: dict, comparison: Sequence[dict] = ()) -
         if v in aggs:
             br = aggs[v]["by_reason"]
             L.append(f"| {v} | " + " | ".join(str(br.get(k, 0)) for k in ("profit_target", "loss_limit", "dte_exit", "dte_critical", "expiry", "censored")) + f" | {aggs[v]['skipped_earnings']} |")
+    if paired:
+        L += ["", "## Paired vs live (same entry, both closed; $ per contract = variant minus live; unpaired means above mix the rule with the censoring it changes)", "",
+              "| variant | set | n | mean diff $ | SE | t | entries changed |", "|---|---|---|---|---|---|---|"]
+        for v in ("no_stop", "no_dte_exit"):
+            pv = paired.get(v)
+            if not pv:
+                continue
+            for label, st in [("all", pv["overall"])] + list(pv["by_regime"].items()):
+                if st["n"]:
+                    L.append(f"| {v} | {label} | {st['n']} | {st['mean_diff']:+,.1f} | {st['se'] if st['se'] is not None else '—'} | "
+                             f"{st['t'] if st['t'] is not None else '—'} | {st['changed']} |")
+        eg = paired.get("earnings_gate")
+        if eg and eg["dropped"]["n"]:
+            exw = eg["dropped_ex_worst"]
+            L += ["", f"earnings_gate is a subset, not a rule change — under LIVE rules the entries it keeps averaged "
+                      f"${eg['kept']['mean']:+,.0f} (n {eg['kept']['n']}) and the entries it drops ${eg['dropped']['mean']:+,.0f} (n {eg['dropped']['n']}); "
+                      f"without the single worst dropped entry ({exw['worst_u']} {exw['worst_day']}, ${exw['worst_pnl']:+,.0f}) the dropped set averaged "
+                      f"${exw['mean'] if exw['mean'] is not None else 0:+,.0f}."]
     if aggs["live"]["by_regime"]:
         L += ["", "## Live rules by entry-day regime", "", HEADER]
         for reg, s in aggs["live"]["by_regime"].items():
@@ -515,7 +600,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"[csp-sim] regime labels unavailable: {type(e).__name__}: {e}", file=sys.stderr)
     earn = earnings_dates(sorted(bars_by_u), os.path.join(a.out, "csp_sim_earnings_cache.json")) if a.earnings else None
     variants = [v for v in VARIANTS if v != "earnings_gate" or a.earnings]
-    aggs = {v: aggregate(simulate_all(entries, bars_by_u, v, regime_by_day, earn)) for v in variants}
+    sims = {v: simulate_all(entries, bars_by_u, v, regime_by_day, earn) for v in variants}
+    aggs = {v: aggregate(sims[v]) for v in variants}
+    paired = paired_vs_live(sims)
     sleeves = None
     if a.sleeves_json:
         with open(a.sleeves_json) as f:
@@ -530,10 +617,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "bars_names": len(bars_by_u), "source": a.from_json or a.probe, "runtime_s": round(time.time() - t0, 1), "prior": PRIOR}
     md = os.path.join(a.out, f"csp_manager_rule_sim_{date_s}.md")
     with open(md, "w") as f:
-        f.write(render(aggs, meta, comparison))
+        f.write(render(aggs, meta, comparison, paired))
     with open(os.path.join(a.out, f"csp_manager_rule_sim_{date_s}.json"), "w") as f:
-        json.dump({"meta": meta, "aggregates": aggs, "comparison": comparison}, f)
-    print(f"wrote {md} — {verdict(aggs)}")
+        json.dump({"meta": meta, "aggregates": aggs, "paired": paired, "comparison": comparison}, f)
+    print(f"wrote {md} — {verdict(aggs, paired)}")
     return 0
 
 

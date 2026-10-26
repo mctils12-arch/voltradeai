@@ -110489,3 +110489,158 @@ https://voltradeai.com --earnings --sleeves-json <dump of the sleeves
 probe>` — reported as its own [RESEARCH] entry with the verdict against
 the prior above and the per-underlying comparison to the live sleeve.
 STARVED: no.
+
+---
+
+## 2026-10-26 (interactive session, ~21:35Z) [RESEARCH] — research test 2, gate 3 (LOGIC): the manager's rules on the CSPs the bot would have sold, 2026-07-06 → 2026-10-23, first run of scripts/csp_manager_rule_sim.py (v1.0.1168: the run, plus the PAIRED read the run forced into the script) — the 21-DTE close is the expensive rule, the −2× stop is free, the earnings gate buys variance with 44% of the entries
+
+TERRITORY: T-BOT (scripts/csp_manager_rule_sim.py + its test; research/*).
+Inputs: the live `chain_csp_entry` probe (v1.0.1166, four 15-day calls,
+pending → 0), 8,635 name-day rows over 80 archived days and 1,821
+underlyings, 913 with a selectable put, frozen as
+research/csp_manager_rule_sim_2026-10-26_entries.json; the live `sleeves`
+probe for the per-underlying comparison; daily closes through
+backtest_v2.fetch_bars (Alpaca-first, Yahoo fallback); yfinance earnings
+dates and asset names, cached in research/csp_sim_*.json. Two sets were
+run: the REPORTED set (research/csp_manager_rule_sim_2026-10-26.md/.json)
+drops picks with |delta| > 0.40 (253 rows — the archive carries no open
+interest, so the probe's size-only liquidity test skews picks toward the
+money against the live −0.30 target) and the leveraged/inverse funds the
+live bot excludes (153 rows, 38 names, by asset name) → 448 deduped
+entries, 442 with bars, 381 closed, 61 censored; the UNCUT set
+(research/csp_manager_rule_sim_2026-10-26_uncut.md) keeps everything →
+769 deduped, 635 closed. Every number below is a Black–Scholes MODEL MARK
+at the entry's IV, sold at the archived bid, bought back at the mark plus
+half the entry spread (the report's HONESTY section lists every bias).
+SPY over the entry window: +1.41%; mean 13-trading-day forward return
+from each entry day +0.60% (SE 0.24, 54% up) — the tape the holds sat in.
+
+**RESULTS vs the PRIOR stated in the step-2 entry** (reported set; uncut
+in brackets):
+
+1. "60% that the live rules show NEGATIVE expectancy net of spread" —
+   live rules −0.23% of collateral per entry, −$21 ± 28 per contract,
+   median +$47, p5 −$692 / p95 +$505, win 64%, spread $28, hold 13.1 d
+   [uncut −0.85%, −$45 ± 20, win 59%]. Direction as the prior said, but
+   on the live-like set the estimate sits inside one SE of zero: the
+   rules as designed are break-even-to-slightly-negative on model marks
+   over this tape, and the whole measured deficit is the size of the
+   spread ($28 ≈ 0.3% of collateral). Base rate: a 30–40-delta short put
+   carries ~0.35 of the underlying's delta; SPY's +0.60% per 13 days
+   makes the delta-equivalent long worth ~+0.2% of notional — the live
+   rules underperformed even that. No alpha over the tape's own drift.
+2. "70% that no_stop beats live" — FALSIFIED (null). PAIRED read (same
+   entry, both closed — added to the script this PR because the unpaired
+   +0.15 pts in the first render was censoring noise, not the rule):
+   +$0.5 ± 2.2 per contract, t 0.23, 23 of 375 entries changed (6%)
+   [uncut +$1.1 ± 2.2, 35 of 624]. The −2× stop almost never changes an
+   outcome on daily marks: when it fires, the 21-DTE close takes the same
+   loss days later. The model mark's known bias runs the other way
+   (intraday marks fire it more), so live the stop costs MORE than zero —
+   how much is a gate-5 question for the fills tracker, not this ruler.
+3. "55% that no_dte_exit beats live by LESS than the spread it saves" —
+   FALSIFIED in magnitude. PAIRED +$71 ± 18 per contract, t 4.05, 155 of
+   379 entries changed (41%); positive in EVERY regime — BEAR +$240 ± 79
+   (n 27), BULL +$50 ± 20 (n 251), NEUTRAL +$80 ± 37 (n 101) [uncut
+   +$67 ± 17; BEAR +$307, BULL +$35 ± 20 (t 1.7), NEUTRAL +$83 ± 31].
+   Exit mix: 290 profit targets vs 193, 55 loss limits vs 31, 34 expiries;
+   win 78% vs 64%; p5 −$734 vs −$692 (the tail barely widens on model
+   marks). The 21-DTE close is the most expensive rule in the manager on
+   this ruler, by a multiple of the $27 spread it was supposed to be
+   measured against. DISCOUNTS, all stated: (a) a constant-IV mark
+   flatters holding through the gamma window — a crash inside the last
+   three weeks raises IV and the real mark, and this sim under-marks it;
+   (b) ONE tape, SPY +1.4%, 63 entry days with 13–20-day holds → the 379
+   pairs are perhaps 6–8 independent windows, and t = 4 is on the pairs;
+   (c) the BEAR bucket is Jul 6–8 alone (27 entries on 3 days), the
+   post-selloff bottom — holding through a recovery wins by
+   construction; (d) four variants tried. Strong in-sample, zero
+   out-of-sample: NOT a rule change. What has to happen first is in NEXT.
+4. "65% that earnings_gate removes most of the worst-10" — CONFIRMED on
+   the worst-10 (8 of 10 hold an earnings date inside the window: APH
+   07-16, RDDT ×2, ARM, ANET, TPR, SKHY, NBIS 07-23; NBIS 08-17 and MXL
+   do not) and FAILED as an expectancy improver: the gate drops 193 of
+   442 entries (44%), and under live rules the dropped set averaged −$65
+   (n 148) against the kept set's +$6 (n 233) — but −$22 without the one
+   entry APH 2026-07-16 (−$6,353 on a −48% gap), which alone is
+   two-thirds of the dropped set's deficit. Net +0.23 pts on the reported
+   set, −0.20 pts on the uncut set. The open_questions 2026-10-20 prior
+   ("removes more than half of the left-tail losses at a cost of under a
+   third of the premium") is NOT met on the cost side: it costs 44% of
+   the entries and their premium. Second-order reading: the earnings
+   premium pays for the earnings risk on average — the risk is priced,
+   which is exactly what REASONING STANDARD #5 predicts for a gate anyone
+   can see. A variance reducer, not an edge. No rule change.
+
+**REGIME, DTE, IV** (live rules, reported set): BEAR −2.05% (n 27, win
+48%), BULL −0.47% (n 253, Jul 9 → Oct 13), NEUTRAL +0.87% (n 101 closed,
+45 censored — the October entries, so its closed subset over-represents
+fast exits; Jul 17 → Oct 21, win 75%). The sign flips with the regime
+(REASONING STANDARD #2) and the NEUTRAL bucket is the post-spike, rich-IV
+tape. NOTE the sim applies NO IV-rank gate while the live CSP path
+requires IVR > 40 — this universe is wider than the live one on that
+axis. Post-hoc split by entry IV LEVEL (one extra cut, counted): low
+(< 0.38) +$4 ± 17, mid +$1 ± 36, high (≥ 0.59) −$69 ± 76 (win 60%), and
+the no_dte_exit paired gain lives almost entirely in the high-IV tercile
+(+$196 ± 44 vs +$21 ± 15 low, −$4 ± 20 mid). IV level is not IV rank, so
+this does not test the live gate; it says the high-IV names (NBIS, RDDT,
+ARM, BEX, AMDL) are where both the loss and the hold-to-expiry gain sit.
+Entry-DTE buckets: 30–35 −0.32%, 36–42 −0.56%, 43–50 +0.15%, SEs $36–65 —
+nothing.
+
+**LIVE SLEEVE vs SIMULATION, by underlying** (23 names in both, OCC
+root): the live sleeve's realized is negative on ALL 23 (−$5,985 over
+375 fills); the simulation under the live rules is positive on 16 of 23
+(+$2,640 over 38 entries). NVDA: live −$1,126 on 133 fills vs sim +$707
+on 2 entries; PATH −$972 / 42 fills vs +$125 / 3. The live loss on these
+names is not what the rule set produces when it is allowed to hold —
+consistent with the 2026-10-20 23:20Z hold-time finding (sub-day round
+trips carried 109% of the loss) and today's 20:45Z read (the round trips
+stopped after v1.0.1117). The CSP's damage was execution churn, not rule
+design; the rules themselves earn the spread back and nothing more.
+
+**ANSWER to the standing question ("is the CSP designed correctly, does
+it create alpha, what does slippage cost")**, as far as this ruler can
+carry it: the design is conventional and internally consistent (30-delta,
+30–45 DTE, 50% target, −2× stop, 21-DTE close); on one four-month tape it
+produces no alpha over the spread it pays; the spread is ~0.3% of
+collateral per round trip and is the entire measured deficit; the stop is
+free on daily marks; the 21-DTE close is the rule with a measurable cost;
+slippage BEYOND the quoted spread (fills vs quotes) is gate 5 and is not
+measured here. The −$9.8k the sleeve actually lost is attributable to
+closing lots inside a day, which the rules above never ask for.
+
+**CODE this PR** (the ruler, [RULE-REVIEW]-grade change inside a research
+PR because the run forced it): `paired_vs_live(sims)` — for no_stop and
+no_dte_exit, the same entry's P&L under the variant minus under live on
+entries closed under both, overall and by regime, with `changed` =
+entries whose exit the rule moved; for earnings_gate (a subset, not a
+rule change), live-rules P&L on kept vs dropped entries and the dropped
+set once more without its single worst entry (so one gap can never carry
+a gate unseen). Rendered as "## Paired vs live", folded into the VERDICT
+line, saved in the .json. Test (+1, 14 total): a three-entry fixture
+(rising / crash / drift) — the stop moves only the crash entry, the DTE
+exit only the drift entry, the gate drops the crash entry and the
+ex-worst set is empty; the unpaired verdict and report still render
+without the paired read. Before vs after on identical inputs: every
+existing number unchanged (the section is additive) — the change can
+only ADD a read, never move one. Direction of bias: none on the existing
+metrics; the paired read is less optimistic than the unpaired one (it
+removes the censoring term), which is the point. Also in this PR: the
+`except ValueError: continue` the counter ratchet caught on #1470 was
+already fixed there; `assertions` pin 22123 → 22139.
+
+**NEXT (filed in open_questions.md, none of it a rule change today)**:
+(1) OUT-OF-SAMPLE — re-run on the archive's next ~40 days (~2026-12-20,
+`--probe`, same flags); the 21-DTE finding is believed only if it holds
+there with a sign in each regime; (2) the MIDDLE variants — dte_exit 10
+and 14 (21 vs 0 says nothing about where between; one-line VARIANTS
+extension); (3) the IV-RANK gate the live path applies — per-entry IV
+percentile from the chain_iv30 series within the archive (labelled as a
+within-archive rank, not a 52-week IVR); (4) GATE 5 — the fills tracker's
+quote-vs-fill haircut on the live CSP fills, to turn the model-mark
+deficit into a real one and price the stop's intraday cost; (5) the
+CSP-economics shadow labeler (filed 2026-10-26 under the gate-logging
+entry) so the live gates earn a premium-based prevention-P&L.
+Kill date: none (measurement). LOOP RATIO today: [RULE-REVIEW] ×6,
+[RESEARCH] ×2, [PIPELINE] ×1 — healthy. STARVED: no.
