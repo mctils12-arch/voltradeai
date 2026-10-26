@@ -15,7 +15,7 @@ import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
-import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, type LookupResult } from "./lookup";
+import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, ledgerLine, type LookupResult, type LedgerReport } from "./lookup";
 import type { PanelId } from "./zoneModel";
 
 // ── chrome ──────────────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ export function LookupBox({ value, onChange, onSubmit, busy, inputRef }: { value
 }
 
 /** What the scan would do with one symbol right now — the server walked its own path (lookup_ticker.py); this only draws the answer. */
-export function LookupCard({ r, busy, history, onPick, onClear }: { r: LookupResult | null; busy: boolean; history: LookupResult[]; onPick?: (symbol: string) => void; onClear?: () => void }) {
+export function LookupCard({ r, busy, history, onPick, onClear, ledger }: { r: LookupResult | null; busy: boolean; history: LookupResult[]; onPick?: (symbol: string) => void; onClear?: () => void; ledger?: LedgerReport | null }) {
   const v = verdictWord(r ?? undefined);
   const gates = gateRows(r?.decision);
   const bars = factorBars(r?.deep?.factors as Record<string, number> | null | undefined);
@@ -248,6 +248,7 @@ export function LookupCard({ r, busy, history, onPick, onClear }: { r: LookupRes
       ) : null}
       {r?.deep?.reasons?.length ? <div className="vt-lookup-line"><b>why</b> {r.deep.reasons.join(" · ")}</div> : null}
       {r && !busy ? <div className="vt-lookup-line"><b>chain</b> {chainLine(r.chain)}<Help k="lookupChain" /></div> : null}
+      {r && !busy && ledgerLine(ledger, r) ? <div className="vt-lookup-line"><b>ledger</b> {ledgerLine(ledger, r)}</div> : null}
       {errs.length ? <div className="vt-lookup-err">could not run: {errs.join(" · ")}</div> : null}
       <div className="vt-lookup-hist">
         {r && !busy ? <span>the scan's own path{typeof r.timings?.total_s === "number" ? ` · ${r.timings.total_s}s` : ""} · at {fmtClockET(r.at)} ET{(r as { cached?: boolean }).cached ? " · cached" : ""}</span> : null}
@@ -539,10 +540,10 @@ function CandidateRow({ c, threshold, focus, onFocus }: { c: WatchCandidate; thr
     </div>
   );
 }
-export function WatchBody({ model, focus, onFocus, nowMs, lookup, lookupBusy, lookupHistory, onLookupPick, onLookupClear }: { model: WatchModel; focus: string | null; onFocus: (key: string) => void; nowMs: number;
+export function WatchBody({ model, focus, onFocus, nowMs, lookup, lookupBusy, lookupHistory, onLookupPick, onLookupClear, lookupLedger }: { model: WatchModel; focus: string | null; onFocus: (key: string) => void; nowMs: number;
   /** the look-up card (2026-10-22): what the bot thinks of one symbol right now, above the candidates */
-  lookup?: LookupResult | null; lookupBusy?: boolean; lookupHistory?: LookupResult[]; onLookupPick?: (symbol: string) => void; onLookupClear?: () => void }) {
-  const card = lookup || lookupBusy ? <LookupCard r={lookup ?? null} busy={!!lookupBusy} history={lookupHistory ?? []} onPick={onLookupPick} onClear={onLookupClear} /> : null;
+  lookup?: LookupResult | null; lookupBusy?: boolean; lookupHistory?: LookupResult[]; onLookupPick?: (symbol: string) => void; onLookupClear?: () => void; lookupLedger?: LedgerReport | null }) {
+  const card = lookup || lookupBusy ? <LookupCard r={lookup ?? null} busy={!!lookupBusy} history={lookupHistory ?? []} onPick={onLookupPick} onClear={onLookupClear} ledger={lookupLedger} /> : null;
   if (!model.scanAt && !model.candidates.length) return <div className="vt-watch">{card}<div className="vt-bot-empty"><NotRecorded what="no scan result yet" /><span className="vt-chart-note">the scan's top-10, its decisions and Node's refusals appear here after the first tier-2 scan</span></div>;</div>;
   return (
     <div className="vt-watch">

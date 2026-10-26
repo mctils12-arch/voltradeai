@@ -310,6 +310,13 @@ def lookup(symbol: str, with_chain: bool = True) -> dict:
             out["errors"]["chain"] = f"{type(e).__name__}: {str(e)[:160]}"
         out["timings"]["chain_s"] = round(time.time() - t2, 2)
     out["timings"]["total_s"] = round(time.time() - t0, 2)
+    # Ledger: every fresh look-up is recorded so "looks good when it's down
+    # big" becomes a measured rule (lookup_ledger.py). Never raises.
+    try:
+        from lookup_ledger import record as _ledger_record
+        out["ledgered"] = _ledger_record(out)
+    except Exception as e:
+        out["errors"]["ledger"] = f"{type(e).__name__}: {str(e)[:100]}"
     return out
 
 

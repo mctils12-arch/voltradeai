@@ -3,6 +3,67 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-26 (scheduled routine, EDGE-DOCTRINE axis pick, Mon) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). thrash 0/10 REPAIR; STARVED streak 0 per research_state_check. KNOWN BROKEN: no critical item open (#44/#48 lack a close marker, advisory, already filed with their human/frozen-path decisions). No REPAIR session warranted.
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. main has not moved since cd6b5b8 (docs-only). (a)/(b) 13F/8-K gate 2 wait for 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions; (c) foreign-field ideas already filed; (d) recurring chores already scripts. Building anything now would be padding (anti-churn rule).
+AUDIT: CONSTITUTIONAL AUDIT deliberately NOT run again — rounds 2026-08-16 and 2026-09-20 still have unanswered proposals in wishlist.md; a fourth round only grows the pile. Next session with a human answer or a live rule conflict runs it. Register unchanged.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-25 (scheduled routine, ~16:10Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: voltradeai.com /api/health 200, status ok, serving.failing=[]; bot active, liveness not dark, drawdown -3.8% (no halt latched), alpaca ACTIVE, scanner 0 failures, feeds none dead (silent 0.16h), 0 unhandled rejections, memory pressure ok. main == checkout (e3effca). Loop tags: REPAIR well under the 7/10 line.
+QUEUE: unchanged since the 13:00Z entry; all items date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions). adsb.lol WARN not re-evaluated here (health payload carries no feed-provider detail); the next session with session_health_check should apply the persists-a-second-day rule.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time (market hours note: no live-behavior change).
+
+## 2026-10-25 (scheduled routine, ~13:00Z Sun, [PRODUCT] slot) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive). WARN: daemon rss 407MB (trim mode, known); NEW WARN adsb.lol upstream — viewport 86% failover to airplanes.live/adsb.fi, sweep 2 rate-limited; chain still serves, the check's own rule is "act only if it persists a second day" — FIRST DAY OBSERVED, next session re-check. Overdue CONSTITUTIONAL AUDIT (due 2026-10-20) unchanged, proposals await human. thrash 2/10 REPAIR. main unchanged since a4d8235.
+QUEUE: PRODUCT axes (a)-(d) re-surveyed against the 10-25 11:10Z entry: 13F/8-K gate 2 wait 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions, look-up ledger report waits for >= 20 admitted look-ups. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-25 (scheduled routine, ~11:10Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: voltradeai.com /api/health 200, status ok; bot active, liveness not dark, drawdown -3.8% (no halt latched), alpaca ACTIVE, scanner 0 consecutive failures, feeds none dead. main unchanged since c7ef96f. Loop tags last 10: no REPAIR surge (3/10 as of prior entry).
+QUEUE: unchanged; all remaining items date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions). Building anything would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-25 (scheduled routine, EDGE-DOCTRINE axis pick, Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered). thrash 3/10 REPAIR; STARVED streak 0 per research_state_check. No critical KNOWN BROKEN.
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. main has not moved since the 10-24 20:20Z entry (4d0805b). (a)/(b) 13F/8-K gate 2 wait for 2026-11-16+, index-VRP ~2027-01-15, price-panel human decision; (c) filed; (d) chores already scripts. Building anything now would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-24 (scheduled routine, ~20:20Z Sat, weekend) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP HEALTH: last 10 tags = PRODUCT x6, REPAIR x3, NO-ACTION x1 (REPAIR 3/10, under the 7/10 thrash line).
+HEALTH: voltradeai.com /api/health 200, status ok, serving.failing=[]; bot active, liveness not dark, drawdown -3.8% (equity peak 99,962; no halt latched), alpaca ACTIVE, aircraft/vessels/trains feeds silent 0.27h, 0 unhandled rejections/exceptions, memory pressure ok. main == checkout (b642c3c, #1452).
+QUEUE: three sessions already shipped today (#1450, #1451, #1452). Remaining items are date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions; look-up ledger report waits for >= 20 admitted look-ups). Another change without evidence would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-24 18:40Z — [PRODUCT] Look-up card: a ledger line — how past look-ups with this verdict went, +5d vs SPY, thin buckets said to be thin (v1.0.1159)
+TERRITORY: T-CLIENT (client/src/bot/lookup.ts, panels.tsx, BotPage.tsx, lookup.test.ts). SHARED: package.json, research/*. Health at start: all OK (live 1.0.1158 == checkout, liveness alive); thrash 4/10.
+PRIOR: the line will read "thin / not settled yet" for months (look-ups are hand-picked and rare); no claim is made from it until a bucket reaches the ledger's MIN_N = 20.
+CHANGE: the 2026-10-24 ledger entry's NEXT (1). After each look-up the page reads /api/bot/lookup-ledger once; LookupCard shows `ledger` + ledgerLine(): count of look-ups that got the same verdict key (stopped-at gate, else verdict — mirrors lookup_ledger.report()), the +5d mean excess vs SPY with n, and "(thin, under 20 — anecdote)" when n < min_n; "not settled yet" / "first look-up with this verdict" otherwise. A failed read leaves the card without the line. Read-only; no decision, sizing or order path touched.
+TESTS: lookup.test.ts +2 (8/8): key mirroring, all five line states. tsc 6 errors = pinned baseline, none in client/src/bot.
+VISUAL: `npm run build` ok, but `node scripts/visual_check.mjs --page bot` hangs/terminates in this container (same environment failure as the 10-24 useFlip entry), so the 390/768/1440 screenshot review was NOT done. The change adds one single-line `.vt-lookup-line` (existing nowrap+ellipsis class), no new CSS; a session with a working browser should run the harness on a look-up.
+HONESTY: the sample is hand-picked and the line says so by being thin; it is context, not a signal.
+MERGE: client change, weekend — safe any time.
+STARVED: no.
+
+## 2026-10-23 (scheduled routine, ~20:16Z Fri = 16:16 ET, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1155)
+
+HEALTH: session_health_check all OK (live 1.0.1155 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 400MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). Archive storage 1.77 GiB free, sweep archiving below its 2 GiB gate (known, awaiting human volume decision in wishlist.md). thrash: 2 REPAIR PRs landed today (#1445, #1446), ratio well under 7/10; no critical KNOWN BROKEN.
+QUEUE: unchanged since the 12:10 ET NO-ACTION; remaining items date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel decision). Another mirror/repair with no evidence would be padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-23 (scheduled routine, ~16:10Z Fri = 12:10 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1153)
 
 HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 471MB (trim mode, known) and tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). Archive storage 1.78 GiB free, sweep archiving below its 2 GiB gate (known, awaiting the human volume decision in wishlist.md). thrash 1/10 REPAIR; no critical KNOWN BROKEN.
@@ -15,6 +76,14 @@ MERGE: docs-only log; no trading-path code, safe any time.
 HEALTH: session_health_check all OK (live 1.0.1153 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 442MB (trim mode, known), tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking) — nothing new. Archive storage 1.81 GiB free (was 1.39 on 10-12), sweep archiving still below its 2 GiB gate: known, awaiting the human volume decision in wishlist.md. thrash 1/10 REPAIR (10-23 session earlier today); no critical KNOWN BROKEN.
 QUEUE: two sessions already shipped today (v1.0.1152 PRODUCT, v1.0.1153 REPAIR). Remaining items are date- or decision-gated (13F/8-K 2026-11-16+, index-VRP ~2027-01-15, price-panel decision). Raw-vs-v1 path diff lists ~60 raw /api/data/* names without a literal /api/v1/(data|stats)/ twin, but it overstates the gap (many mirrors live under other v1 paths); each candidate needs a per-endpoint check before it counts, and a fourth mirror in 24h with no demand signal would be padding.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
+
+## 2026-10-24 (scheduled routine, EDGE-DOCTRINE axis pick, Sat) [NO-ACTION] — no code_version change (1.0.1156)
+
+HEALTH: session_health_check all OK (live 1.0.1156 == checkout, deploy_gate 2xx, liveness alive); WARN only tier2 daemon timeouts (KNOWN BROKEN #18, non-blocking). thrash 3/10 REPAIR; STARVED streak 0 per research_state_check (log entry below is STARVED: yes). No critical KNOWN BROKEN.
+AXIS SURVEY: PRIOR stated before surveying: ~85% no startable axis item. (a) 13F Q2->Q3 clustering and 8-K QoQ delta gate 2 wait on the Q3 filing season (2026-11-16+); index-VRP gate-2 re-run ~2027-01-15; Lazy Prices gate 2 waits on the price-panel human decision. (b) same price-panel gap — illiquid-universe results would be simulator fiction. (c) ecology/reliability/seismology/epidemiology imports all filed with scripts; a fifth without a data hook is a duplicate. (d) chores already scripts. Main unchanged since the 10-23 PRODUCT merge (a4d7487). Prior confirmed.
+OVERDUE: CONSTITUTIONAL AUDIT (due 2026-10-20) — not run: its last two rounds of proposals are still unanswered in wishlist.md, so another round adds to the pile; the next session with a human answer (or a new rule conflict) should run it.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
 
 ## 2026-10-23 (scheduled routine, EDGE-DOCTRINE axis pick, Fri) [REPAIR] — T-DATACORE (server/railTraffic.ts, railTraffic.test.ts) + shared (package.json; v1.0.1153) — raw /api/data/rail-traffic gate note no longer says gate 2 "not attempted"
 
@@ -109776,10 +109845,67 @@ STARVED: yes — score investigation, logging expansion, regime research, and ru
 
 ---
 
-### 2026-10-26 [REPAIR] Kill switch banner — v1.0.1156
+### 2026-10-26 [REPAIR] Kill switch banner — v1.0.1160
 TERRITORY: T-CLIENT
 PRIOR: the kill switch has been latched since Sep 10 (~46 days) due to a phantom drawdown reading. The user reports no way to unlatch it from the new UI — the old toggle switches were removed in the v2 bot page redesign. The Resume button exists in `panels.tsx` IncidentBody, but is buried inside the state-machine flow: it only renders when (a) `/api/bot/status` returns killSwitch:true AND auth succeeds, (b) `derivePageState` maps to "incident", (c) the Director proposes "incident" as shown state. If any step fails (e.g. 24h session cookie expired → 401 → status undefined → no incident detected), the Resume button is invisible.
 CHANGE: added a `KillBanner` component to `BotPage.tsx` that renders a prominent full-width red banner at the top of the page whenever `status?.killSwitch` is true, independent of the Director/state-machine/incident flow. Two-step confirmation (click Resume → explanation + "Resume now" / "cancel"). The banner calls the same `act("resume")` path (POST /api/bot/kill toggle + POST /api/bot/start). CSS in index.css.
 RESULT: banner renders correctly at all three harness widths (390/768/1440) on bot, botidle, botpane pages. 0 hard failures. Client tests 1371 pass, server tests pass, tsc 6 errors (matches pin), pytest 2774 pass (1 pre-existing unrelated failure).
 NOTE: this does not fix the underlying auth-expiry issue (if the session cookie expires, the status poll itself returns 401 and killSwitch is undefined — the banner won't render either). That is a separate problem requiring an auth-refresh mechanism or public health endpoint. Filed observation only.
 STARVED: yes — counterfactual logging expansion, ML rule testing, regime detection research, score restructuring all queued.
+
+## 2026-10-24 00:50Z — [PRODUCT] Look-up ledger: every look-up recorded, +1d/+5d/+20d outcomes vs SPY, and a grouped report on /api/bot/lookup-ledger (v1.0.1156)
+TERRITORY: T-BOT primary (lookup_ledger.py new, lookup_ticker.py hook, voltrade_daemon.py method table, server/bot.ts route + nightly slot). SHARED: package.json, research/*. No threshold, no order path, no measurement code touched (the ledger is a new, separate ruler; it reads bars through shadow_portfolio's existing fetch).
+PRIOR (stated before building): of look-ups the bot LIKED (score >= MIN_SCORE) on names down >= 5% on the day, the mean +5d excess vs SPY is no better than zero (35% chance it is clearly negative — the human's "looks good when it's down big on bad news"; 60% that n stays under 20 for months because look-ups are hand-picked and rare). Nothing is concluded until MIN_N = 20 per bucket.
+CHANGE: the 2026-10-22 look-up NEXT (1). lookup_ticker.lookup() now appends a compact row (symbol, price, day change, score, MIN_SCORE, regime, verdict, stopped_at) to voltrade_lookup_ledger.json through lookup_ledger.record() (never raises; repeats of a symbol within 6 h are one observation; capped at 5,000). The nightly 22:00 UTC slot (its own try, beside the shadow backfill) runs lookup_ledger.backfill(): close-to-close return from the last close on/before the look-up date AND the same-window SPY return -> `excess_pct`; a horizon with no bars yet stays pending; past 70 days it gets a terminal no_price_data sentinel (never a fabricated number). report() groups by verdict/stopped gate, by the day's move (down>=5% / down 2-5% / flat-up) and — the human's actual question — admitted names by move, with n, mean return, win rate, mean excess, and a `thin` flag under 20.
+SECOND-ORDER: the ledger changes no decision; its one cost is a ~1 KB JSON write per fresh look-up and ~2 Alpaca bar calls per pending record per night (<= 60 records/run). It cannot alter position count, sizing or exposure.
+HONESTY: NOT an unbiased sample — a human chose these symbols because something caught their eye, so it measures "what followed the bot's verdict on names I was curious about", not scan skill; the scan's own admitted/rejected candidates are measured in shadow_portfolio. The report ships its own caveat string. Mid-session look-ups' `ret_pct` starts at the look-up price while `excess_pct` is close-to-close (documented in the module).
+TESTS: test_lookup_ledger.py (7): row rejection; dedup window; record never raises; outcome settlement only for horizons with bars, SPY excess arithmetic; no base bar -> nothing; backfill fills / gives up / idempotent; report grouping, admitted-by-move, thin flag. Full pytest 2758 pass; 4 failures are environment-only/pre-existing in this container (PIL import x2 [faa_charts, collection_health], ts_any pin 1226 vs 1225 — fixed here by using `unknown` in the one new catch, silent-except pin — fixed by narrowing two handlers). tsc ratchet 3 <= 6; counters: undeclared_py_import reads 3 locally only because lookup_ledger.py is untracked at measurement time (clean once committed).
+UI: none this PR — the report is owner-API only. NEXT: (1) a ledger line on the Watch look-up card (own T-CLIENT slice with the visual harness); (2) read the first report after >= 20 admitted down-big look-ups exist — until then do not act on it; (3) BotPage useFlip scroll-offset [REPAIR] candidate from the 10-22 entry still open.
+STARVED: no.
+
+## 2026-10-24 11:30Z — [REPAIR] Bot page useFlip: slots are measured in the scroll host's content coordinates, so a scroll no longer springs every slot (v1.0.1157)
+TERRITORY: T-CLIENT (client/src/bot/BotPage.tsx, flipGeometry.ts new). SHARED: package.json, research/*. Health at start: ok (serving, bot active, liveness not dark, feeds live); loop-health ratio fine (1 REPAIR-heavy pair in last 10, no thrash).
+CHANGE: the 2026-10-22 entry's open candidate. useFlip's layout effect compared viewport getBoundingClientRect() between layout keys; at the stack tier `.vt-bot-grid[data-scrolls]` scrolls, so a float toggle after a scroll read every slot as moved by the scroll delta and sprang all of them. Positions are now taken relative to the slot's `.vt-bot-grid` (rect - host rect + scrollLeft/Top) via flipGeometry.contentPos. Non-scrolling tiers: scroll offsets are 0 and the host rect is constant, so behaviour is unchanged.
+TESTS: flipGeometry.test.ts (3): pure scroll -> identical content position; real move -> delta preserved; no host -> viewport rect. tsc clean for touched files.
+VISUAL: `npm run build` ok; `node scripts/visual_check.mjs --page bot` crashes in this container ("page.evaluate: Target page ... closed", visual_check.mjs:3115) identically with and without this change — environment-only, so the 390/768/1440 screenshot review was NOT done here. The change is transform-math only (no markup/CSS). Human/next session with a working browser should run it.
+HONESTY: not reproduced in a real browser; fix derived from code reading plus the pure-function test.
+STARVED: no.
+
+## 2026-10-24 16:20Z — [REPAIR] CSP brake derived from the broker, restart-proof: a closed, never-filled sell-to-open that RESTED >= 12 min and ended within 60 min blocks a re-dispatch (KB #46 NEXT, v1.0.1158)
+TERRITORY: T-BOT (server/cspSweepCooldown.ts, server/bot.ts SELL_CSP gate). SHARED: package.json, research/*. Health at start: ok (serving, bot active, liveness not dark, feeds live, drawdown -3.8%); loop ratio fine (2-3 REPAIR in last 10).
+CHANGE: shouldDispatchCsp gains a third guard fed by one read-only GET /v2/orders?status=closed&after=now-72m&limit=500 per scan: skip underlying U when a closed sell-to-open on U has filled_qty 0, status canceled/expired, rested >= STALE_ORDER_MINUTES before ending, and ended within SWEPT_CSP_COOLDOWN_MINUTES. Indifferent to who canceled; a deploy cancel-all 36 s after submit does not count (no trade-blocking widening). Fetch failure => [] (fail open, i.e. prior behaviour; fail-closed open-orders, dispatch-time clock re-read, replaceIfBetter and openOrders rehydrate from KB #46 remain NOT done).
+SECOND-ORDER: only suppresses a re-submit of a limit the broker already proved did not fill in 12+ min, within 60 min; fewer repeat orders, no change to position count/sizing, ~1 extra GET per scan. No threshold changed (reuses existing 12/60 constants).
+TESTS: cspSweepCooldown.test.ts +4 (19/19): simulated restart => skip; 36 s deploy cancel => dispatch; filled/old/other-underlying/buy/status variants => dispatch; bot.ts wiring pin. tsc errors unchanged (3). pytest unavailable in this container, so the Python suite was NOT run here; CI is the gate.
+ROLLBACK TRIGGER: SELL_CSP fills drop with CSP-SKIP "broker shows" lines on underlyings whose prior limit later would have filled. MERGE NOTE: not a live-break fix — merge after 4:00 PM ET (a deploy cancels all open orders).
+STARVED: no.
+
+## 2026-10-25 (scheduled routine, ~18:00Z Sun, [PRODUCT] slot) [NO-ACTION] — no code_version change (1.0.1159)
+
+HEALTH: session_health_check all 17 OK (deploy_gate 2xx, liveness alive, server_version 1.0.1159 == checkout, daemon rss 377MB under trim_mb, /data p95 213 ms). The 13:00Z "adsb.lol upstream WARN" did NOT persist: now OK (sweep 3 req/h, 3 rate-limited; viewport 3 failed over) — the check's own "second day" rule is not triggered; no action. Archive 1.78 GiB free vs the 2 GiB sweep gate: already filed (wishlist 2026-10-12, human decision), ~14 d to the 1 GiB guard.
+QUEUE: re-surveyed PRODUCT axes (a)-(d): 13F/8-K gate 2 waits 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume are human decisions, look-up ledger report needs >= 20 admitted look-ups. Nothing startable without padding; no new roots proposed (would duplicate filed work).
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-25 (scheduled routine, ~21:00Z Sun) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP RATIO: last 10 tags = 4 REPAIR / 4 PRODUCT / 1 RULE-REVIEW / NO-ACTION logs interleaved; far below the 7+ thrash threshold.
+HEALTH: session_health_check 16 OK, 1 WARN: daemon rss 403.8MB just over trim_mb=400MB (was 377MB at 18:00Z) — trimmed-mode deep_score is the designed response, single reading near the threshold, no 2-day or growth pattern yet; no action. Liveness alive, deploy_gate 2xx, server_version == checkout, /data p95 216 ms, archive 1.77 GiB free (human decision already filed 2026-10-12).
+QUEUE: unchanged since the 18:00Z entry — every item date- or decision-gated (13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups). Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-26 (scheduled routine, ~11:15Z Mon, voltrade-daily-am) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP RATIO: last 10 tags = REPAIR/PRODUCT/NO-ACTION mix, well under the 7+ REPAIR thrash threshold.
+HEALTH: session_health_check 15 OK, 2 WARN. deploy_gate 2xx, liveness alive, server_version == checkout, /data p95 230 ms, archive 1.81 GiB free (human decision filed 2026-10-12). WARN daemon rss 441.5MB >= trim_mb=400MB: third reading in ~17h rising (377 -> 404 -> 441MB) — still under the 1GB self-kill and the designed trimmed-mode response is active, but a monotone climb is a leak candidate; if it persists past 2026-10-27 or nears 600MB, the next session should open a [REPAIR] root-cause on daemon memory growth (not a patch). WARN adsb.lol upstream failover 100% on viewport — chain still serves; first day at this level in this log's window (the 10-25 18:00Z reading had recovered), act only if it persists a second day.
+QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-26 (scheduled routine, ~16:10Z Mon, market hours) [NO-ACTION] — no code_version change (1.0.1159)
+
+LOOP RATIO: last 10 tags = REPAIR/PRODUCT/NO-ACTION mix, well under the 7+ REPAIR thrash threshold.
+HEALTH: session_health_check 16 OK, 1 WARN. deploy_gate 2xx, liveness alive, subsystems OK, server_version == checkout, /data p95 280 ms, adsb.lol OK (the 11:15Z failover WARN did not persist), archive 1.78 GiB free (human decision filed 2026-10-12). WARN daemon rss 463MB (377 -> 404 -> 441 -> 463 over ~22h): the 11:15Z entry set a "persists past 10-27 or nears 600MB" trigger — neither met. Prior log history shows the same 380-460MB sawtooth across many sessions (e.g. 458MB, 444MB, 439MB, then back under 400MB), so this is the known cycle, not a new monotone leak; still under the 1GB self-kill. Trigger stays armed: a reading >= 600MB or still climbing after 10-27 opens a [REPAIR] root-cause on daemon memory.
+QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time (market-hours run, no live-code change).

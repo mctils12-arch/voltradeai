@@ -95,3 +95,32 @@ export const LOOKUP_HISTORY_MAX = 8;
 export function pushHistory(list: LookupResult[], r: LookupResult): LookupResult[] {
   return [r, ...list.filter((x) => x.symbol !== r.symbol)].slice(0, LOOKUP_HISTORY_MAX);
 }
+
+// ── the look-up ledger line (2026-10-24) ────────────────────────────────────
+// /api/bot/lookup-ledger groups every past look-up by the verdict it got and
+// settles +1d/+5d/+20d vs SPY. This is the card's one honest line from it: how
+// look-ups that got THIS verdict have gone. Thin buckets (n < min_n) are said
+// to be thin, never dressed as a result; a bucket with no settled outcome says
+// it is waiting.
+export interface LedgerCell { n: number; thin: boolean; mean_ret_pct: number | null; win_rate: number | null; n_excess: number; mean_excess_pct: number | null }
+export interface LedgerGroup extends Partial<Record<"+1d" | "+5d" | "+20d", LedgerCell>> { count: number }
+export interface LedgerReport { total: number; pending: number; min_n: number; caveat: string; by_verdict: Record<string, LedgerGroup> }
+
+/** The ledger's verdict key for a look-up — mirrors lookup_ledger.report(): the gate it stopped at, else the verdict. */
+export function ledgerKey(r: LookupResult | undefined): string | null {
+  const d = r?.decision;
+  if (!d) return null;
+  return d.stopped_at ? `stopped at ${d.stopped_at}` : d.verdict || null;
+}
+
+export function ledgerLine(rep: LedgerReport | null | undefined, r: LookupResult | undefined): string | null {
+  const key = ledgerKey(r);
+  if (!rep || !key) return null;
+  const g = rep.by_verdict?.[key];
+  if (!g) return "first look-up with this verdict in the ledger";
+  const c = g["+5d"];
+  const head = `${g.count} look-up${g.count === 1 ? "" : "s"} got this verdict`;
+  if (!c || !c.n_excess || c.mean_excess_pct === null) return `${head} · +5d outcomes not settled yet`;
+  const sign = c.mean_excess_pct > 0 ? "+" : "";
+  return `${head} · +5d vs SPY ${sign}${c.mean_excess_pct.toFixed(1)}% over ${c.n_excess}${c.thin ? ` (thin, under ${rep.min_n} — anecdote)` : ""}`;
+}

@@ -319,6 +319,7 @@ class RPCDispatcher:
             # args {"symbol": "NVDA", "with_chain": true}; bot.ts serves it on
             # /api/bot/lookup/:symbol with the python3 -c subprocess fallback.
             "lookup_ticker": ("lookup_ticker", "lookup"),
+            "lookup_ledger_report": ("lookup_ledger", "report"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:
