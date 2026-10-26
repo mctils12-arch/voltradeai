@@ -23069,3 +23069,88 @@ Evidence (experiments.md 2026-10-20 ~23:20Z, v1.0.1131 probe): <1h 168 closes �
 ## [RULE-REVIEW candidate · filed 2026-10-21] The time stop ignores its config: `days_held >= 7` is hard-coded in manage_positions while TIME_STOP_DAYS says 10 (regime-adaptive 3 / 5 / 10)
 
 bot_engine.py manage_positions: `time_stop = days_held >= 7 and abs(pnl_pct) < 2.0`; system_config.BASE_CONFIG["TIME_STOP_DAYS"] = 10 with get_adaptive_params setting 3 (panic) / 5 / 10 — grep finds no reader of TIME_STOP_DAYS in the engine. Which is the intended rule is an evidence question, not a code question: the 2026-05-03 short-hold analysis found stocks held 4+ days at 55.7% WR; a 7-day flat exit vs a 10-day one changes the holding distribution the stocks sleeve is measured on. TESTABLE (gate 3): backtest_v2 ablation of the time stop at 7 vs 10 vs the regime schedule, same entries, per regime; counterfactual-log the time-stop exits going forward ({date, ticker, days_held, pnl_at_exit, +5d/+20d}). PRIOR: 55% that 10 days beats 7 on expectancy (winners need time), 70% that the difference is inside the noise of n. Until then the Bot page chart labels the time stop as the engine runs it (day 7), not as the config says.
+
+## [CRITICAL · filed 2026-10-26] The composite score (deep_score) is ANTI-PREDICTIVE — highest-scoring candidates lose the most; lowest-scoring rejects have the best forward returns
+
+Evidence (experiments.md 2026-10-26, 20,000 shadow records, +5d/+20d): Q5 (highest scores >77.4) 42.5% win rate at +5d, −2.01% mean at +20d; Q1 (lowest scores <48.2) 56.2% win at +5d, +1.04% mean at +20d. The inversion is monotonic and strengthens at longer horizons. The MIN_SCORE=63 gate blocks the better half. This is the single most impactful finding since the bot launched and the likely root of the 0.68 profit factor.
+
+HYPOTHESIS: the composite score compounds consensus signals (macro sentiment, social sentiment, alt data, finnhub, yfinance) that are already priced in — high conviction = crowded trade = adverse selection. Consistent with REASONING STANDARD #5 and EDGE DOCTRINE #2.
+
+TESTABLE (gates 2–3): (1) decompose deep_score into its six sub-scores (macro, intel, alt, social, finnhub, yfinance base) and measure each independently against the shadow outcomes — find which are predictive, which are noise, which are anti-predictive; (2) backtest_v2 ablation of MIN_SCORE at 63 vs 50 vs 40 vs 0 (no gate), per regime, same exits; (3) test a CONTRARIAN score (invert the worst sub-scores, weight the predictive ones); (4) test a pure-ML score (the LightGBM model alone, no rule-based composite).
+
+PRIOR: 70% that at least two of the six sub-scores are individually anti-predictive (social and macro are the suspects — they track consensus most directly); 60% that the ML column alone outperforms the composite; 80% that lowering MIN_SCORE to 40 improves +20d outcomes.
+
+LADDER PATH: gate 2 (statistical predictive power per sub-score, no trading) → gate 3 (backtest ablation of MIN_SCORE and the restructured score) → gate 4 (sizing comparison). The data exists in the shadow log; no new pipeline needed.
+
+PRIORITY: highest. This finding explains more of the bot's underperformance than any other open question. Fix this before any new strategy work.
+
+---
+
+### [RESEARCH] Regime detection upgrade: VIX term structure + credit spread composite (2026-10-26)
+
+STATUS: hypothesis filed, no code yet.
+EVIDENCE SOURCE: web research (experiments.md 2026-10-26 session, scratchpad/regime_strategy_research.md).
+
+PROBLEM: the current regime classifier is driven almost entirely by recent return momentum — it classified 99.9% of the shadow sample as NEUTRAL_BULL. It cannot detect stress building in credit markets or volatility term structure before it appears in equity returns. The bot needs LEADING indicators, not lagging ones.
+
+PROPOSED UPGRADE (three-lens composite, all free data):
+1. VIX term structure (VIX/VIX3M): ^VIX3M from Yahoo Finance. Binary: ratio > 1.0 = backwardation = acute stress. Fastest-moving signal (flips intraday).
+2. Credit spread proxy: FRED series BAMLH0A0HYM2 (ICE BofA HY OAS), free, daily. Compute trailing 1-year z-score. Z > 1.5 = stress. Leads equity drawdowns by 1-6 weeks per Gilchrist-Zakrajsek.
+3. Existing momentum-based regime (current classifier).
+Composite: 2/3 in stress → CAUTIOUS; 3/3 → BEAR/PANIC. The three lenses are intentionally orthogonal (volatility, credit, momentum).
+
+SECOND-ORDER: this changes position sizing and strategy mix downstream (more conservative in CAUTIOUS, defensive floor in BEAR/PANIC). The trade counts, sector allocation, and options strategy choices all shift. Must trace the chain before implementing.
+
+ACADEMIC SUPPORT: Copenhagen Business School thesis (2024) validated VIX as early-warning for regime shifts in MSGARCH models. Fraunhofer Institute found adding regime info to credit-spread models improved forecasts in high-vol periods. Practitioner consensus: multi-lens confirmation reduces false positives substantially vs any single signal.
+
+LADDER PATH: gate 1 (verify VIX3M and HY OAS data quality against known events — 2020 COVID, 2022 drawdown, 2025 trade-war correction) → gate 2 (statistical: does the composite regime predict forward 5d/20d returns better than the current classifier?) → gate 3 (backtest ablation: same strategies, old regime vs new regime, per regime).
+
+IMPLEMENTATION: add VIX3M fetch to macro_data.py (Yahoo), add FRED HY OAS fetch (fredapi or direct HTTP), compute composite in system_config.py get_adaptive_params(). ~1-2 sessions.
+
+PRIOR: 75% that the composite detects the 2022 and 2025 drawdowns 1-4 weeks earlier than the current classifier; 60% that it improves +20d returns by reducing position size entering drawdowns; 40% that false positive rate stays above 30% (credit spreads widen for many reasons besides equity selloffs).
+
+PRIORITY: high. After score decomposition (#CRITICAL above), this is the highest-leverage change. The bot currently runs the same aggression in all conditions because it can't detect conditions changing.
+
+---
+
+### [RESEARCH] Thompson-sampled parallel rule testing on shadow data (2026-10-26)
+
+STATUS: hypothesis filed, no code yet.
+EVIDENCE SOURCE: web research (Bailey & Borwein on backtest overfitting; Thompson sampling literature).
+
+PROBLEM: the bot has ~15 tunable rule thresholds (MIN_SCORE, spread limit, volume floor, sector cap, correlation cap, Kelly parameters, etc.) but no systematic way to test variants. Backtesting N variants and picking the best overfits to historical noise (Bailey & Borwein). The shadow portfolio generates ~277 candidates/day — enough for ONLINE learning.
+
+PROPOSED APPROACH: Thompson sampling with Beta posteriors.
+- Each rule variant is a bandit arm. Start with 3-5 variants of MIN_SCORE (the highest-impact rule per counterfactual).
+- Each day's shadow candidates are scored under all variants simultaneously. At +5d, record win/loss per variant.
+- Beta(α,β) posterior per arm. Thompson samples → plays "best" arm conceptually (the shadow logs all of them anyway, so all arms get observations — this is a full-information bandit, even faster convergence).
+- Convergence: O(100-1000) observations per arm = 1-4 weeks with 277 candidates/day.
+- KEY CONSTRAINT: test 3-5 variants at a time, not 50 (REASONING STANDARD #4 — discount by variants tried).
+
+ADVANTAGE OVER BACKTESTING: learns from LIVE shadow data, never optimizes on a fixed dataset. New data arrives daily. The optimal variant is not known in advance. This avoids the Bailey-Borwein overfitting trap entirely.
+
+SECOND-ORDER: this is a MEASUREMENT tool, not a deployment mechanism. The Thompson sampler recommends; a human or the existing promotion ladder decides whether to ship. No risk of the bandit autonomously changing live parameters.
+
+LADDER PATH: gate 2 (statistical: run Thompson sampler on historical shadow data as a backtest-of-the-bandit; verify it converges to the correct answer on data where we already know Q1 beats Q5) → gate 3 (deploy in parallel on live shadow, let it run 30 days, compare recommendation to the backtest result).
+
+IMPLEMENTATION: new module shadow_bandit.py, called from the nightly shadow backfill slot. ~1-2 sessions.
+
+PRIOR: 85% that it converges to MIN_SCORE < 55 within 30 days (the shadow data already shows Q1-Q2 are better); 50% that the optimal threshold depends on regime (NEUTRAL_BULL vs others); 30% that the full-information advantage makes Thompson sampling converge 3x faster than the theoretical bound for partial-information bandits.
+
+PRIORITY: medium-high. After score decomposition and regime upgrade. This is infrastructure for continuously tuning ALL rules, not just MIN_SCORE.
+
+---
+
+### [RESEARCH] Expand counterfactual logging to ALL rule gates (2026-10-26)
+
+STATUS: filed from user directive. No code yet.
+
+PROBLEM: the shadow portfolio currently logs ONLY Python-side scoring gates. All Node-side gates are blind spots: SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL, Kelly blocks, volume-share cap, $50M dollar-volume floor, blocked tickers, extreme-mover filter, earnings halt, cooldown, BEAR/PANIC gates, all options-scanner rejections, covered-call exclusions.
+
+Without logging these, we cannot measure whether they earn their keep (like sector/correlation block does) or cost performance (like the score threshold does).
+
+PROPOSED: wire every Node-side gate into the shadow_portfolio RPC call, or add a parallel Node-side shadow log that records {date, ticker, rule_name, entry_price, score, decision: "blocked"} and a nightly backfill that checks outcomes at +5d/+20d.
+
+LADDER PATH: gate 1 (data: verify the log captures all gates correctly, no missing categories) → gate 2 (statistical: per-rule win rate of blocked candidates vs baseline, same analysis as the counterfactual study).
+
+PRIORITY: high. This is foundational — without it, we're flying blind on most of the rules. Should ship before or alongside the Thompson sampler (the sampler needs this data to test non-score rules).

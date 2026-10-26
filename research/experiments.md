@@ -109809,6 +109809,50 @@ TESTS: test_hurst_exponent_probe.py 23/23 (was 22; +1 regression test). The prob
 HONESTY: CI runs Python 3.11, so the gate never saw this; a test that passes only because of summation rounding is a measurement of the interpreter, not the code.
 STARVED: no.
 
+## 2026-10-26 — [RULE-REVIEW] Counterfactual analysis — 90-day shadow portfolio rule verdicts (v1.0.1155)
+TERRITORY: T-BOT (analysis only, no code change).
+DATA SOURCE: live /api/diag/shadow snapshot captured 2026-10-15 (research/bot_cockpit_audit/live_snapshot_2026-10-15.md). 20,000 shadow records spanning 2026-08-03 → 2026-10-14 (~277/day), 16,082 labeled at the +5d horizon. Regime: 99.9% NEUTRAL_BULL.
+PRIOR: expected the score threshold (MIN_SCORE=63) to be earning its keep — filtering noise from signal. Expected sector/correlation block to be costing performance (too conservative). Expected spread filter to be neutral.
+
+### Base rate
+All candidates combined: 50.9% win rate, −0.931% mean return (n=16,082 at +5d).
+
+### Rule verdicts (+5d)
+- Score threshold (MIN_SCORE=63, bucket `rejected_score`): **COSTING PERFORMANCE.** 51.8% win rate (n=8,098) vs 51.5% for admitted ("taken", n=6,938). The score does not select winners. Q1 (lowest scores) 56.2% win / +1.04% mean at +20d; Q5 (highest scores) 42.5% win / −2.01% at +20d. **The composite score is anti-predictive — it selects for losers.** This is the single biggest drag on the system and the likely root of the 0.68 profit factor. PRIOR WRONG.
+- Spread filter (`rejected_other`): **COSTING PERFORMANCE (marginally).** 52.2% win rate (n=602) vs 51.5% taken. But spread is a real execution cost not captured by win rate alone — the comparison is incomplete. PRIOR WRONG (expected neutral).
+- Sector/correlation block (`rejected_heat`): **EARNING ITS KEEP.** 24.1% win rate (n=428) vs 50.9% base — the strongest signal in the dataset. This rule genuinely blocks losers. PRIOR WRONG (expected too conservative).
+- Kill switch (`rejected_masterkill`): **Inconclusive.** 37.5% (n=16) — too small to trust.
+- CSP capital (`rejected_capital`): **No data** (n=0).
+
+### Blind spots (rules NOT logged in the shadow system)
+All Node-side gates (SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL); Kelly blocks; volume-share cap; $50M dollar-volume floor; blocked tickers; extreme-mover filter; earnings halt; cooldown; BEAR/PANIC gates; all options-scanner rejections; covered-call exclusions. The shadow portfolio logs ONLY the Python-side scoring and the few gates wired into shadow_portfolio.py.
+
+### Caveats
+Single regime (99.9% NEUTRAL_BULL) — verdicts may not hold in bear markets. Labels assume long-stock entry (+2%/−4% target/stop) — option-sale and SELL candidates are labeled by the same long-stock path (directional proxy only). 277 candidates/day from a smaller unique ticker universe — correlated outcomes overstate effective n.
+
+### Score quintile analysis
+| Q | Score range | +5d win% | +5d mean% | +20d win% | +20d mean% |
+|---|---|---|---|---|---|
+| Q1 (lowest) | <48.2 | 56.2 | −0.617 | 83.3 | +1.038 |
+| Q2 | 48.2–56.6 | 52.5 | −0.821 | 76.5 | +0.655 |
+| Q3 | 56.6–66.5 | 48.1 | −1.092 | 57.4 | −0.510 |
+| Q4 | 66.5–77.4 | 56.8 | −0.589 | 54.5 | −0.733 |
+| Q5 (highest) | >77.4 | 42.5 | −1.448 | 33.2 | −2.009 |
+
+HYPOTHESIS: the composite score is anti-predictive because it compounds consensus signals (macro, social, alt, finnhub, yfinance sentiment) that are already priced in. High-conviction consensus candidates are crowded trades — everyone sees the same data, the edge is already gone by the time the bot acts. This is consistent with REASONING STANDARD #5 (second-order: who is on the other side?) and EDGE DOCTRINE #2 (fish where whales can't).
+NEXT: (1) decompose the composite score — which sub-scores drive the inversion and which are genuinely predictive on their own; (2) expand counterfactual logging to ALL rule gates (Node-side, options, Kelly, etc.); (3) investigate lowering MIN_SCORE or restructuring scoring to weight contrarian signals; (4) ML-based rule testing in background against shadow data.
+STARVED: yes — score investigation, logging expansion, regime research, and rule ML-testing all queued.
+
+---
+
+### 2026-10-26 [REPAIR] Kill switch banner — v1.0.1160
+TERRITORY: T-CLIENT
+PRIOR: the kill switch has been latched since Sep 10 (~46 days) due to a phantom drawdown reading. The user reports no way to unlatch it from the new UI — the old toggle switches were removed in the v2 bot page redesign. The Resume button exists in `panels.tsx` IncidentBody, but is buried inside the state-machine flow: it only renders when (a) `/api/bot/status` returns killSwitch:true AND auth succeeds, (b) `derivePageState` maps to "incident", (c) the Director proposes "incident" as shown state. If any step fails (e.g. 24h session cookie expired → 401 → status undefined → no incident detected), the Resume button is invisible.
+CHANGE: added a `KillBanner` component to `BotPage.tsx` that renders a prominent full-width red banner at the top of the page whenever `status?.killSwitch` is true, independent of the Director/state-machine/incident flow. Two-step confirmation (click Resume → explanation + "Resume now" / "cancel"). The banner calls the same `act("resume")` path (POST /api/bot/kill toggle + POST /api/bot/start). CSS in index.css.
+RESULT: banner renders correctly at all three harness widths (390/768/1440) on bot, botidle, botpane pages. 0 hard failures. Client tests 1371 pass, server tests pass, tsc 6 errors (matches pin), pytest 2774 pass (1 pre-existing unrelated failure).
+NOTE: this does not fix the underlying auth-expiry issue (if the session cookie expires, the status poll itself returns 401 and killSwitch is undefined — the banner won't render either). That is a separate problem requiring an auth-refresh mechanism or public health endpoint. Filed observation only.
+STARVED: yes — counterfactual logging expansion, ML rule testing, regime detection research, score restructuring all queued.
+
 ## 2026-10-24 00:50Z — [PRODUCT] Look-up ledger: every look-up recorded, +1d/+5d/+20d outcomes vs SPY, and a grouped report on /api/bot/lookup-ledger (v1.0.1156)
 TERRITORY: T-BOT primary (lookup_ledger.py new, lookup_ticker.py hook, voltrade_daemon.py method table, server/bot.ts route + nightly slot). SHARED: package.json, research/*. No threshold, no order path, no measurement code touched (the ledger is a new, separate ruler; it reads bars through shadow_portfolio's existing fetch).
 PRIOR (stated before building): of look-ups the bot LIKED (score >= MIN_SCORE) on names down >= 5% on the day, the mean +5d excess vs SPY is no better than zero (35% chance it is clearly negative — the human's "looks good when it's down big on bad news"; 60% that n stays under 20 for months because look-ups are hand-picked and rare). Nothing is concluded until MIN_N = 20 per bucket.
@@ -109865,3 +109909,42 @@ HEALTH: session_health_check 16 OK, 1 WARN. deploy_gate 2xx, liveness alive, sub
 QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups, price-panel/archive-volume are human decisions. Nothing startable without padding.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time (market-hours run, no live-code change).
+
+---
+
+### 2026-10-26 [PIPELINE] Score breakdown instrumentation (v1.0.1161)
+
+**WHAT**: Every shadow candidate record now carries a `score_breakdown` dict
+with all 14 individual sub-scores and adjustments that compose the
+rules-only score: momentum, mean_reversion, vrp, squeeze, volume,
+vol_premium, macro, news, adx, obv, intel, alt, social, fundamental.
+
+**WHY**: The counterfactual analysis (PR #1463) found the composite
+deep_score is ANTI-PREDICTIVE (Q5 highest: 42.5% win / −2.01% at +20d;
+Q1 lowest: 56.2% win / +1.04% — monotonic inversion). To determine WHICH
+sub-scores are predictive vs anti-predictive, we need per-component data.
+The shadow portfolio previously captured only `rules_only_score` and
+`ml_only_score` (aggregates) — no per-component breakdown.
+
+**FILES**: bot_engine.py (collects _score_breakdown dict at deep_score
+return), shadow_portfolio.py (SCORE_BREAKDOWN_KEYS tuple,
+_sanitize_score_breakdown() coercion, score_breakdown parameter on
+log_candidate, stored in record), test_shadow_score_breakdown.py (5 tests:
+all-14-keys, absent-is-none, extra-keys-dropped, nan-and-bool-coerced,
+backward-compat).
+
+**PRIOR**: composite deep_score is anti-predictive (CRITICAL finding).
+**EXPECTED RESULT**: after ~2 weeks of accumulation (~1000+ shadow
+records), run a per-sub-score quintile analysis identical to the
+counterfactual's composite analysis. Hypothesis: at least 2-3 adjustments
+(likely news, social, alt) are net harmful while base scores (momentum,
+vrp) carry whatever real signal exists — the composite loses it by
+blending anti-predictive adjustments.
+
+**KILL DATE**: 2026-11-15 — if insufficient records accumulated, extend;
+if analysis shows all sub-scores are anti-predictive, the issue is deeper
+than composition (likely label/target construction in ML, not scoring).
+
+TERRITORY: T-BOT.
+LOOP RATIO: [PIPELINE] — healthy.
+STARVED: yes (date-gated items remain).

@@ -4816,6 +4816,21 @@ section.vt-bot-panel[data-panel="book"] { container-type: inline-size; }
 .vt-bot-ghost[data-popped="true"] { flex-direction: column; gap: 8px; border-style: solid; border-color: var(--accent); color: var(--text-secondary); }
 .vt-bot-popnote { display: flex; align-items: center; gap: 10px; margin: 8px 8px 0; padding: 6px 10px; border: 1px solid var(--accent-orange); border-radius: var(--radius-md); font-size: 12px; color: var(--text-primary); flex: 0 0 auto; }
 
+/* ── Kill switch banner (P1 — always visible when latched) ──────────── */
+.vt-bot-killbanner { margin: 8px 8px 0; padding: 10px 14px; background: rgba(255, 90, 110, 0.12); border: 1.5px solid var(--accent-red); border-radius: var(--radius-md); flex: 0 0 auto; }
+.vt-bot-killbanner-body { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vt-bot-killbanner-icon { color: var(--accent-red); font-size: 18px; flex: 0 0 auto; }
+.vt-bot-killbanner-text { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
+.vt-bot-killbanner-text strong { color: var(--accent-red); font-size: 13px; }
+.vt-bot-killbanner-text span { color: var(--text-secondary); font-size: 12px; }
+.vt-bot-killbanner-act { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+.vt-bot-killbanner-act span { color: var(--text-secondary); font-size: 11.5px; max-width: 260px; }
+.vt-bot-killbanner-act button[data-primary="true"] { background: var(--accent-red); color: #fff; border: none; border-radius: var(--radius-sm); padding: 6px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.vt-bot-killbanner-act button[data-primary="true"]:hover { filter: brightness(1.12); }
+.vt-bot-killbanner-act button[data-primary="true"]:disabled { opacity: 0.5; cursor: not-allowed; }
+.vt-bot-killbanner-act button:not([data-primary]) { background: transparent; border: 1px solid var(--border-primary); border-radius: var(--radius-sm); padding: 5px 12px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.vt-bot-killbanner-err { margin-top: 6px; color: var(--accent-red); font-size: 11.5px; }
+
 /* ── Bot page live change (slice F, 2026-10-21): a value that changed since the
    last tick flashes with its direction; a fresh decision slides into the Now
    tile; the panel a loud event concerns pulses once. Tokens only; all motion

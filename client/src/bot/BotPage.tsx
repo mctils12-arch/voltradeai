@@ -374,6 +374,7 @@ export default function BotPage() {
   return (
     <div ref={rootRef} className="vt-bot-page" data-touch={touch ? "true" : undefined} data-state={shown} data-tier={tier} tabIndex={-1}>
       {popNote ? <div className="vt-bot-popnote" role="status"><span>{popNote}</span><button type="button" className="vt-bot-wbtn" onClick={() => setPopNote(null)}>dismiss</button></div> : null}
+      {status?.killSwitch ? <KillBanner days={killSince ? Math.floor((now - killSince) / 86_400_000) : null} onResume={() => void act("resume")} busy={busy} err={actErr} /> : null}
       {flags.zoomed ? (
         <div className="vt-bot-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `${tier === "s" ? "auto" : "76px"} minmax(0, 1fr)`, gridTemplateAreas: '"kpi" "centre"' }} data-scrolls={tpl.scrolls ? "true" : undefined}>
           {kpi}
@@ -409,6 +410,33 @@ export default function BotPage() {
       )}
       {flags.floating.map((id) => <FloatWin key={id} id={id} rect={rects[id] ?? { x: 80, y: 80, w: 760, h: 480 }} page={{ w: pageW, h: pageH }} onRect={(r) => setRects((rs) => ({ ...rs, [id]: r }))} onDock={() => onDock(id)} onZoom={() => onZoom(id)} onPop={() => onPop(id)}>{panelEl(id, { flex: "1 1 auto" })}</FloatWin>)}
       {flags.hold ? <div className="vt-bot-hold-outline" aria-hidden="true" /> : null}
+    </div>
+  );
+}
+
+function KillBanner({ days, onResume, busy, err }: { days: number | null; onResume: () => void; busy: boolean; err: string | null }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div className="vt-bot-killbanner" role="alert">
+      <div className="vt-bot-killbanner-body">
+        <span className="vt-bot-killbanner-icon">&#9632;</span>
+        <div className="vt-bot-killbanner-text">
+          <strong>Kill switch latched{days !== null && days > 0 ? ` for ${days} day${days !== 1 ? "s" : ""}` : ""}</strong>
+          <span>The bot is not scanning, trading, or managing exits. Click Resume to clear the latch and re-activate.</span>
+        </div>
+        <div className="vt-bot-killbanner-act">
+          {confirm ? (
+            <>
+              <span style={{ fontSize: 11.5 }}>Clears the latch and re-starts the loop. The rule re-latches at the same drawdown line.</span>
+              <button type="button" data-primary="true" disabled={busy} onClick={() => { setConfirm(false); onResume(); }}>Resume now</button>
+              <button type="button" onClick={() => setConfirm(false)}>cancel</button>
+            </>
+          ) : (
+            <button type="button" data-primary="true" onClick={() => setConfirm(true)}>Resume</button>
+          )}
+        </div>
+      </div>
+      {err ? <div className="vt-bot-killbanner-err">{err}</div> : null}
     </div>
   );
 }
