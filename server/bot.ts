@@ -24,6 +24,7 @@ import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
+import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -3446,6 +3447,29 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           const rows = uFilter.size ? r.rows.filter((x) => uFilter.has(x.u)) : r.rows;
           return res.json({
             ...sanitizeDiag({ probe: "chain_iv30", from: days[0] || null, to: days[days.length - 1] || null, days: days.length,
+              computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
+            rows: rows.map((x) => sanitizeDiag(x)),
+          });
+        }
+        case "chain_csp_entry": {
+          // ADDED 2026-10-26 (research test 2 gate 3, [RULE-REVIEW]): per
+          // underlying per archived day, the cash-secured put
+          // options_execution._select_sell_put would have sold, with its
+          // archived bid/ask/iv/delta/oi (server/chainCspEntry.ts — the
+          // selection rules are in that module's header and pinned to the
+          // Python constants by its tests). The archive cannot mark the same
+          // contract daily for single names (rotating candidate list), so the
+          // forward marking is scripts/csp_manager_rule_sim.py's job — this is
+          // the entry half. Same query shape as chain_iv30: ?from=&to=&u=&max=.
+          const fromQ = String(req.query.from || "").trim(), toQ = String(req.query.to || "").trim();
+          for (const q of [fromQ, toQ]) if (q && !/^\d{4}-\d{2}-\d{2}$/.test(q)) return res.status(400).json({ error: "invalid from/to (expected YYYY-MM-DD)" });
+          const uFilter = new Set(String(req.query.u || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+          const max = Math.min(Math.max(parseInt(String(req.query.max || ""), 10) || CSP_ENTRY_MAX_COMPUTE_PER_CALL, 1), 60);
+          const days = listChainDays().filter((d) => (!fromQ || d >= fromQ) && (!toQ || d <= toQ));
+          const r = await cspEntryForDays(days, undefined, Date.now(), max);
+          const rows = uFilter.size ? r.rows.filter((x) => uFilter.has(x.u)) : r.rows;
+          return res.json({
+            ...sanitizeDiag({ probe: "chain_csp_entry", from: days[0] || null, to: days[days.length - 1] || null, days: days.length,
               computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
             rows: rows.map((x) => sanitizeDiag(x)),
           });
