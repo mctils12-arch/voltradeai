@@ -310,6 +310,10 @@ class RPCDispatcher:
             # {"updates": [{ticker, decision, reason}], "max_age_seconds"};
             # python3 -c fallback reads the same payload from a temp file.
             "shadow_update_decisions": ("shadow_portfolio", "update_decisions_batch"),
+            # [RULE-REVIEW] 2026-10-26: the tier dispatcher's dropped SELL_CSP
+            # actions get a shadow record (they never had one to relabel).
+            # args {"rejections": [{ticker, decision, reason, metadata}]}.
+            "csp_gate_shadow": ("tiered_strategy", "log_csp_gate_shadow"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),

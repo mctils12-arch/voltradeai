@@ -5163,14 +5163,32 @@ print(json.dumps(check_weekly_loss(history)))
         // while closed; the next in-hours scan recomputes against live quotes.
         // One audit line per scan, after the loop — never per action.
         let tierActionsDeferred = 0;
+        // [RULE-REVIEW] 2026-10-26: a SELL_CSP the gates below drop never had
+        // a shadow record (tier1_csp_core proposes it; deep_score never sees
+        // it), so it is LOGGED rather than relabelled — one
+        // tiered_strategy.log_csp_gate_shadow call after the loop. Measurement
+        // only; the market-closed deferral is not a rule and is not noted.
+        type TierAction = { ticker?: string; action?: string; metadata?: unknown };
+        const cspGateRejections: Array<{ ticker: string; decision: string; reason: string; metadata: unknown }> = [];
+        const noteCspGate = (a: TierAction | null | undefined, decision: string, reason: string) => {
+          if (a && a.ticker && a.action === "SELL_CSP") {
+            cspGateRejections.push({ ticker: String(a.ticker), decision, reason: String(reason).slice(0, 200), metadata: a.metadata ?? {} });
+          }
+        };
         for (const action of result.tier_actions) {
-          if (state.killSwitch) break;
+          if (state.killSwitch) {
+            for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
+              noteCspGate(rest, "rejected_killswitch", "Node kill switch on — dispatcher ended");
+            }
+            break;
+          }
           if (!shouldDispatchTierAction(action, { isMarketOpen })) {
             tierActionsDeferred++;
             continue;
           }
           if (action.action === "SELL_CSP" && tierOptionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
             audit("OPTIONS-SLOT-FULL", `${action.ticker}: tier dispatcher skipped SELL_CSP — options slots full (${tierOptionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
+            noteCspGate(action, "rejected_options_slots", `options slots full (${tierOptionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
             continue;
           }
           // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: don't re-submit a CSP on an
@@ -5188,6 +5206,7 @@ print(json.dumps(check_weekly_loss(history)))
             });
             if (!cspGate.dispatch) {
               audit("CSP-SKIP", `${action.ticker}: tier dispatcher skipped SELL_CSP — ${cspGate.detail}`);
+              noteCspGate(action, "rejected_csp_resubmit", String(cspGate.detail || "swept or resting order"));
               continue;
             }
           }
@@ -5389,6 +5408,26 @@ else:
             }
           } catch (e: any) {
             audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
+          }
+        }
+        // One shadow-log call per dispatcher loop (see cspGateRejections above).
+        if (cspGateRejections.length > 0) {
+          const cspGateTmpPath = `/tmp/csp_gate_shadow_${Date.now()}.json`;
+          try {
+            fs.writeFileSync(cspGateTmpPath, JSON.stringify({ rejections: cspGateRejections }));
+            const logged = await pythonCall(
+              "csp_gate_shadow",
+              { rejections: cspGateRejections },
+              `python3 -c "import json, sys; sys.path.insert(0, '.'); from tiered_strategy import log_csp_gate_shadow; d = json.load(open('${cspGateTmpPath}')); print(json.dumps(log_csp_gate_shadow(d['rejections'])))"`,
+              { timeout: 20000 }
+            );
+            const counts: Record<string, number> = {};
+            for (const g of cspGateRejections) counts[g.decision] = (counts[g.decision] || 0) + 1;
+            audit("SHADOW-GATES", `csp: ${cspGateRejections.length} gate rejection(s) ${JSON.stringify(counts)} → shadow log via ${logged.via}: ${logged.success ? JSON.stringify(logged.result) : String(logged.result?.error || "failed").slice(0, 120)}`);
+          } catch (cspGateErr) {
+            audit("SHADOW-GATES", `csp: shadow log failed (measurement only, dispatcher unaffected): ${(cspGateErr instanceof Error ? cspGateErr.message : String(cspGateErr)).slice(0, 120)}`);
+          } finally {
+            try { fs.unlinkSync(cspGateTmpPath); } catch (unlinkErr) { console.warn(`[shadow-gates] temp file not removed: ${cspGateTmpPath}`); }
           }
         }
         if (tierActionsDeferred > 0) {

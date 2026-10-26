@@ -110242,3 +110242,91 @@ LOOP RATIO: [RULE-REVIEW] x3 today — healthy (all measurement, no
 strategy change has shipped unvalidated).
 STARVED: yes (CSP dispatcher gates, MORNING-SKIP, DD-HALT shadow scan,
 Thompson sampler).
+
+---
+
+### 2026-10-26 [RULE-REVIEW] Tier-dispatcher CSP gates log a shadow record (v1.0.1165)
+
+TERRITORY: T-BOT (server/bot.ts tier dispatcher, tiered_strategy.py,
+voltrade_daemon.py route, tests). Measurement change — own PR; step 3 of
+"Expand counterfactual logging to ALL rule gates" and the last blind RULE
+on the program (what remains blind is listed below and is not a rule on a
+scored candidate).
+
+**WHAT**: the tier dispatcher drops a SELL_CSP action at two gates with
+only an audit line — OPTIONS-SLOT-FULL (MAX_OPTIONS_POSITIONS reached,
+counting resting opening orders) and CSP-SKIP (the 2026-10-13 resubmit
+guard: the underlying's limit was just swept as non-marketable, or a
+sell-to-open order is already resting) — plus the remainder of the list
+after a kill-switch break. Unlike every stock candidate (#1464/#1465/
+#1467), a CSP never had a shadow record to relabel: tier1_csp_core
+proposes it and deep_score never sees it. So this one LOGS: bot.ts
+collects the dropped SELL_CSP actions (floor-ETF buys, BUY_PUT hedges and
+the market-closed deferral are not candidates and are not noted) and
+makes ONE `csp_gate_shadow` call per dispatcher loop ->
+`tiered_strategy.log_csp_gate_shadow`: one log_candidate per action in
+log_masterkill_csp_shadow's exact convention — price from the
+csp_universe layer-2 cache (skipped and counted when unknown, since
+backfill_outcomes cannot label it), vxx_ratio/regime_label off the
+action's metadata, and side/action_label/trade_type = sell / SELL CSP /
+options so every reader of the bucket sees what the bot would have done.
+Buckets: rejected_options_slots (SAME rule as executeTrades' slot gate —
+one rule, two enforcement points, one bucket), rejected_csp_resubmit,
+rejected_killswitch (shared). `SHADOW-GATES csp:` audit line per loop
+with per-bucket counts and the logger's result.
+
+**BEFORE vs AFTER on identical inputs**: pure addition — no existing
+record is touched and no existing bucket changes; the three buckets
+appear from the first dispatch after deploy. Direction of bias: none on
+"taken" or any existing bucket. CAVEAT carried from the
+rejected_masterkill / rejected_capital convention: the label is the
+long-stock price-path proxy (+2%/-4% PT/SL on the UNDERLYING, nightly
+backfill), i.e. "would this underlying have stayed calm" — directional,
+NOT CSP premium economics. A CSP-economics labeler (premium collected at
+the dispatcher's target delta/DTE vs. assignment loss, from the stored
+chains archive that always carries the index chains) is the honest next
+ruler for every options bucket and is filed in open_questions.md; until
+it exists these buckets are read as calm-rate, never as P&L.
+
+**PRIORS (before any data)**:
+- rejected_options_slots: a count cut, not a quality filter, so the
+  blocked underlyings should show the CSP book's own calm-rate. If they
+  do (and especially if higher), the 6-slot cap is forgoing premium and
+  MAX_OPTIONS_POSITIONS is the threshold to test — one at a time, logged
+  rollback — but only together with the cash-sleeve question
+  (rejected_capital): more slots need more collateral, and the two
+  buckets must be read side by side.
+- rejected_csp_resubmit: ~neutral and small — it blocks a re-submit on
+  the same underlying minutes after a sweep, and the opportunity usually
+  returns next scan; its value is in confirming the submit/cancel loop
+  fix cost nothing.
+- rejected_killswitch: rare; informational.
+Readable at n >= 5 per horizon: slots within a week or two in a full
+book; resubmit slower.
+
+**FILES**: server/bot.ts (TierAction type, cspGateRejections /
+noteCspGate, three note sites incl. the kill-switch remainder, one flush
+with temp-file subprocess fallback before the TIER-DEFER line),
+tiered_strategy.py (_layer2_price_lookup, log_csp_gate_shadow),
+voltrade_daemon.py (csp_gate_shadow route), test_csp_gate_shadow.py (6:
+convention fields, unpriced/malformed counted not logged, no-op inputs,
+price-lookup failure never raises, lookup reads the layer-2 cache, route
+binds bot.ts's args), server/cspGateShadow.test.ts (8: each gate notes
+before continue/break, kill-switch labels the remainder, SELL_CSP-only
+and deferral not noted, slot bucket shared with the admission loop, one
+pythonCall flush with try/catch/finally after the loop body, route
+registered), ci/counter_baseline.txt (tests 622 -> 623, assertions
+21951 -> 21976 — non-decreasing pins raised by the new tests).
+
+**STILL BLIND after this step (none is a rule on a scored candidate)**:
+MORNING-SKIP qty=0 (hours-old record; needs a fresh log_candidate),
+DD-HALT (blocks the scan itself; needs a shadow scan), the pre-score
+universe screen (sampled design), the options-scanner / covered-call
+exclusions (options path, no stock record — the CSP-economics labeler
+is the prerequisite for them to mean anything).
+
+**KILL DATE**: none — measurement; first read 2026-11-16 with the rest.
+
+LOOP RATIO: [RULE-REVIEW] x4 today — healthy.
+STARVED: yes (CSP-economics labeler, MORNING-SKIP, DD-HALT shadow scan,
+universe-screen sampling, Thompson sampler).

@@ -23160,10 +23160,21 @@ every candidate because adaptive MAX_POSITIONS is 0) — batched into one
 update_decisions_batch call per scan. CORRECTION of the step-1 note
 below: those filters are POST-score (the loop reads deep_score's
 result), so a relabel was the right mechanism, not log_candidate.
-STILL BLIND: tier-dispatcher SELL_CSP OPTIONS-SLOT-FULL and CSP-SKIP
-(inline-Python path — add buckets the way rejected_capital was),
-MORNING-SKIP qty=0 (needs a fresh log_candidate, the record is hours
-old), DD-HALT (blocks the scan itself — needs a shadow scan to have a
+STEP 3 SHIPPED same day (v1.0.1165, experiments.md "Tier-dispatcher CSP
+gates log a shadow record"): the dispatcher's SELL_CSP OPTIONS-SLOT-FULL
+/ CSP-SKIP gates and the kill-switch remainder now log a record
+(rejected_options_slots — same bucket as the admission loop's slot gate
+— rejected_csp_resubmit, rejected_killswitch) through
+tiered_strategy.log_csp_gate_shadow, in log_masterkill_csp_shadow's
+convention. CAVEAT, every options bucket: the label is the long-stock
+price-path proxy on the underlying, not CSP premium economics — a
+CSP-ECONOMICS LABELER (premium at the dispatcher's target delta/DTE vs.
+assignment loss, from the stored chains archive) is the next ruler and
+the prerequisite for reading rejected_masterkill / rejected_capital /
+rejected_options_slots as P&L rather than calm-rate; it is its own
+[RULE-REVIEW] measurement PR. STILL BLIND (none is a rule on a scored
+candidate): MORNING-SKIP qty=0 (needs a fresh log_candidate, the record
+is hours old), DD-HALT (blocks the scan itself — needs a shadow scan to have a
 counterfactual at all), the options-scanner / covered-call exclusions
 (options path, no stock record), and the genuinely pre-score universe
 screen (MIN_PRICE/MIN_VOLUME quick scan + deep-score top-N cut) — that
