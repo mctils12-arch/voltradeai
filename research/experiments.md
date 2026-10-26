@@ -109739,3 +109739,37 @@ CHANGE: test_hurst_exponent_probe.py::TestRollingHurst::test_none_before_window 
 TESTS: test_hurst_exponent_probe.py 23/23 (was 22; +1 regression test). The probe is a research tool (GATE 2 not passed, 4cdf70ed); no trading path reads it. Full pytest 2775 passed, 0 failures. Counter assertions 21811->21814.
 HONESTY: CI runs Python 3.11, so the gate never saw this; a test that passes only because of summation rounding is a measurement of the interpreter, not the code.
 STARVED: no.
+
+## 2026-10-26 — [RULE-REVIEW] Counterfactual analysis — 90-day shadow portfolio rule verdicts (v1.0.1155)
+TERRITORY: T-BOT (analysis only, no code change).
+DATA SOURCE: live /api/diag/shadow snapshot captured 2026-10-15 (research/bot_cockpit_audit/live_snapshot_2026-10-15.md). 20,000 shadow records spanning 2026-08-03 → 2026-10-14 (~277/day), 16,082 labeled at the +5d horizon. Regime: 99.9% NEUTRAL_BULL.
+PRIOR: expected the score threshold (MIN_SCORE=63) to be earning its keep — filtering noise from signal. Expected sector/correlation block to be costing performance (too conservative). Expected spread filter to be neutral.
+
+### Base rate
+All candidates combined: 50.9% win rate, −0.931% mean return (n=16,082 at +5d).
+
+### Rule verdicts (+5d)
+- Score threshold (MIN_SCORE=63, bucket `rejected_score`): **COSTING PERFORMANCE.** 51.8% win rate (n=8,098) vs 51.5% for admitted ("taken", n=6,938). The score does not select winners. Q1 (lowest scores) 56.2% win / +1.04% mean at +20d; Q5 (highest scores) 42.5% win / −2.01% at +20d. **The composite score is anti-predictive — it selects for losers.** This is the single biggest drag on the system and the likely root of the 0.68 profit factor. PRIOR WRONG.
+- Spread filter (`rejected_other`): **COSTING PERFORMANCE (marginally).** 52.2% win rate (n=602) vs 51.5% taken. But spread is a real execution cost not captured by win rate alone — the comparison is incomplete. PRIOR WRONG (expected neutral).
+- Sector/correlation block (`rejected_heat`): **EARNING ITS KEEP.** 24.1% win rate (n=428) vs 50.9% base — the strongest signal in the dataset. This rule genuinely blocks losers. PRIOR WRONG (expected too conservative).
+- Kill switch (`rejected_masterkill`): **Inconclusive.** 37.5% (n=16) — too small to trust.
+- CSP capital (`rejected_capital`): **No data** (n=0).
+
+### Blind spots (rules NOT logged in the shadow system)
+All Node-side gates (SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL); Kelly blocks; volume-share cap; $50M dollar-volume floor; blocked tickers; extreme-mover filter; earnings halt; cooldown; BEAR/PANIC gates; all options-scanner rejections; covered-call exclusions. The shadow portfolio logs ONLY the Python-side scoring and the few gates wired into shadow_portfolio.py.
+
+### Caveats
+Single regime (99.9% NEUTRAL_BULL) — verdicts may not hold in bear markets. Labels assume long-stock entry (+2%/−4% target/stop) — option-sale and SELL candidates are labeled by the same long-stock path (directional proxy only). 277 candidates/day from a smaller unique ticker universe — correlated outcomes overstate effective n.
+
+### Score quintile analysis
+| Q | Score range | +5d win% | +5d mean% | +20d win% | +20d mean% |
+|---|---|---|---|---|---|
+| Q1 (lowest) | <48.2 | 56.2 | −0.617 | 83.3 | +1.038 |
+| Q2 | 48.2–56.6 | 52.5 | −0.821 | 76.5 | +0.655 |
+| Q3 | 56.6–66.5 | 48.1 | −1.092 | 57.4 | −0.510 |
+| Q4 | 66.5–77.4 | 56.8 | −0.589 | 54.5 | −0.733 |
+| Q5 (highest) | >77.4 | 42.5 | −1.448 | 33.2 | −2.009 |
+
+HYPOTHESIS: the composite score is anti-predictive because it compounds consensus signals (macro, social, alt, finnhub, yfinance sentiment) that are already priced in. High-conviction consensus candidates are crowded trades — everyone sees the same data, the edge is already gone by the time the bot acts. This is consistent with REASONING STANDARD #5 (second-order: who is on the other side?) and EDGE DOCTRINE #2 (fish where whales can't).
+NEXT: (1) decompose the composite score — which sub-scores drive the inversion and which are genuinely predictive on their own; (2) expand counterfactual logging to ALL rule gates (Node-side, options, Kelly, etc.); (3) investigate lowering MIN_SCORE or restructuring scoring to weight contrarian signals; (4) ML-based rule testing in background against shadow data.
+STARVED: yes — score investigation, logging expansion, regime research, and rule ML-testing all queued.

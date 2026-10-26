@@ -23069,3 +23069,17 @@ Evidence (experiments.md 2026-10-20 ~23:20Z, v1.0.1131 probe): <1h 168 closes �
 ## [RULE-REVIEW candidate · filed 2026-10-21] The time stop ignores its config: `days_held >= 7` is hard-coded in manage_positions while TIME_STOP_DAYS says 10 (regime-adaptive 3 / 5 / 10)
 
 bot_engine.py manage_positions: `time_stop = days_held >= 7 and abs(pnl_pct) < 2.0`; system_config.BASE_CONFIG["TIME_STOP_DAYS"] = 10 with get_adaptive_params setting 3 (panic) / 5 / 10 — grep finds no reader of TIME_STOP_DAYS in the engine. Which is the intended rule is an evidence question, not a code question: the 2026-05-03 short-hold analysis found stocks held 4+ days at 55.7% WR; a 7-day flat exit vs a 10-day one changes the holding distribution the stocks sleeve is measured on. TESTABLE (gate 3): backtest_v2 ablation of the time stop at 7 vs 10 vs the regime schedule, same entries, per regime; counterfactual-log the time-stop exits going forward ({date, ticker, days_held, pnl_at_exit, +5d/+20d}). PRIOR: 55% that 10 days beats 7 on expectancy (winners need time), 70% that the difference is inside the noise of n. Until then the Bot page chart labels the time stop as the engine runs it (day 7), not as the config says.
+
+## [CRITICAL · filed 2026-10-26] The composite score (deep_score) is ANTI-PREDICTIVE — highest-scoring candidates lose the most; lowest-scoring rejects have the best forward returns
+
+Evidence (experiments.md 2026-10-26, 20,000 shadow records, +5d/+20d): Q5 (highest scores >77.4) 42.5% win rate at +5d, −2.01% mean at +20d; Q1 (lowest scores <48.2) 56.2% win at +5d, +1.04% mean at +20d. The inversion is monotonic and strengthens at longer horizons. The MIN_SCORE=63 gate blocks the better half. This is the single most impactful finding since the bot launched and the likely root of the 0.68 profit factor.
+
+HYPOTHESIS: the composite score compounds consensus signals (macro sentiment, social sentiment, alt data, finnhub, yfinance) that are already priced in — high conviction = crowded trade = adverse selection. Consistent with REASONING STANDARD #5 and EDGE DOCTRINE #2.
+
+TESTABLE (gates 2–3): (1) decompose deep_score into its six sub-scores (macro, intel, alt, social, finnhub, yfinance base) and measure each independently against the shadow outcomes — find which are predictive, which are noise, which are anti-predictive; (2) backtest_v2 ablation of MIN_SCORE at 63 vs 50 vs 40 vs 0 (no gate), per regime, same exits; (3) test a CONTRARIAN score (invert the worst sub-scores, weight the predictive ones); (4) test a pure-ML score (the LightGBM model alone, no rule-based composite).
+
+PRIOR: 70% that at least two of the six sub-scores are individually anti-predictive (social and macro are the suspects — they track consensus most directly); 60% that the ML column alone outperforms the composite; 80% that lowering MIN_SCORE to 40 improves +20d outcomes.
+
+LADDER PATH: gate 2 (statistical predictive power per sub-score, no trading) → gate 3 (backtest ablation of MIN_SCORE and the restructured score) → gate 4 (sizing comparison). The data exists in the shadow log; no new pipeline needed.
+
+PRIORITY: highest. This finding explains more of the bot's underperformance than any other open question. Fix this before any new strategy work.
