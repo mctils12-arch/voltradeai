@@ -110172,3 +110172,73 @@ with the score-breakdown decomposition and step 1's buckets.
 LOOP RATIO: [RULE-REVIEW] x2 today — healthy.
 STARVED: yes (CSP dispatcher gates, MORNING-SKIP, DD-HALT, the deep_score
 label-source fix, and the Thompson sampler that reads these buckets).
+
+---
+
+### 2026-10-26 [RULE-REVIEW] deep_score's shadow label uses the scan's adaptive MIN_SCORE (v1.0.1164)
+
+TERRITORY: T-BOT (bot_engine.deep_score / _scan_market_inner fan-out,
+tests). Measurement change — own PR; the label-source fix queued by the
+step-2 entry above (v1.0.1163).
+
+**WHAT**: `deep_score` labelled every shadow record against
+`_scan_params.get("MIN_SCORE", 63) if '_scan_params' in locals() else 63`
+— `_scan_params` is a local of `_scan_market_inner`, never of
+`deep_score`, so the lookup could never bind and the threshold was a fixed
+63 while the scan gates at the adaptive value (63 BULL/NEUTRAL base, 67
+CAUTION, 75 BEAR/PANIC). The label now comes from a pure helper
+`_shadow_label_for(combined_score, min_score)` (default
+`BASE_CONFIG["MIN_SCORE"]`, not a literal); `deep_score` takes
+`min_score=None`; `_scan_market_inner` computes the adaptive MIN_SCORE
+ONCE before the serial deep-score fan-out, from the same macro snapshot
+the gate reads (`get_adaptive_params(vxx_ratio, spy_vs_ma50,
+spy_below_200_days)` — a test pins that the label call and the gate call
+use the same inputs), and passes it in. If the snapshot is unavailable
+the fallback is the default, logged with a warning. Label only: no gate
+moves, `lookup_ticker` (positional call, macro computed after its
+deep_score call) keeps the default label.
+
+**BEFORE vs AFTER on identical inputs**: historical records untouched. At
+write time, a candidate scoring in [63, threshold) in CAUTION/BEAR/PANIC
+is now `rejected_score` ("score 70.0 < MIN_SCORE 75") instead of "taken".
+After step 2 (v1.0.1163) such a record did not STAY "taken" — the scan's
+threshold site relabelled it — so for candidates that reach the loop's
+threshold check the FINAL label is unchanged. What changes is attribution
+ORDER for candidates the loop dropped BEFORE that check: the slots break
+(MAX_POSITIONS 0 in NEUTRAL/BEAR/PANIC) and the regime gate ran first and
+labelled a 70-scorer in BEAR `rejected_stock_slots` / `rejected_regime_gate`;
+now it is written `rejected_score` at source and `update_decisions_batch`
+(which only moves "taken" records) leaves it there. The score rule is
+logically prior to slots and regime — a slot or regime rule can only
+"cost" a trade that would otherwise have been placed — so those two
+buckets shrink to candidates that actually cleared the adaptive threshold,
+which is the only population for which their prevention-P&L means
+anything.
+
+**DIRECTION OF BIAS**: "taken" is unchanged relative to v1.0.1163.
+`rejected_score` grows; `rejected_stock_slots` and `rejected_regime_gate`
+lose their sub-threshold members. If score were predictive, removing the
+lowest scorers would RAISE those buckets' measured forward returns (and
+make the rules look costlier); PR #1463 found the composite
+anti-predictive, in which case they FALL. Either way this is a correction
+of attribution order, not a tuning, and the moved records are all still
+present under `rejected_score` with their regime_label. No flattering
+direction for the bucket that measures the bot's own picks.
+
+**FILES**: bot_engine.py (`_shadow_label_for`, `deep_score(...,
+min_score=None)`, `_adaptive_min_score` before `_deep_one`),
+test_deep_score_label_threshold.py (8: default = BASE_CONFIG, adaptive
+threshold wins, reason names the threshold used, numeric coercion,
+signature/positional compatibility, label block uses the helper and the
+dead `locals()` lookup is gone, computed once before the fan-out with a
+logged fallback, label and gate read the same adaptive inputs),
+ci/counter_baseline.txt (tests_run_in_ci/tests_gating_merge 621 -> 622,
+assertions 21925 -> 21951 — non-decreasing pins raised by the new test).
+
+**KILL DATE**: none — label correctness; first read with the rest on
+2026-11-16.
+
+LOOP RATIO: [RULE-REVIEW] x3 today — healthy (all measurement, no
+strategy change has shipped unvalidated).
+STARVED: yes (CSP dispatcher gates, MORNING-SKIP, DD-HALT shadow scan,
+Thompson sampler).

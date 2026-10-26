@@ -794,7 +794,17 @@ def _ml_result_is_model(ml_result) -> bool:
     return True
 
 
-def deep_score(ticker, quick_result, _diag=None):
+def _shadow_label_for(combined_score, min_score=None):
+    """Shadow-record decision for a scored candidate: "taken" at or above
+    the threshold the caller gates at, else "rejected_score". Label only —
+    the trading gate itself is scan_market's."""
+    _t = float(min_score) if min_score is not None else float(BASE_CONFIG.get("MIN_SCORE", 63))
+    if combined_score >= _t:
+        return "taken", f"score {combined_score:.1f} >= MIN_SCORE {_t:g}"
+    return "rejected_score", f"score {combined_score:.1f} < MIN_SCORE {_t:g}"
+
+
+def deep_score(ticker, quick_result, _diag=None, min_score=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
     Integrates all three strategy modules (momentum, mean_reversion, squeeze)
@@ -1872,14 +1882,12 @@ except Exception as e:
     # Log EVERY scored candidate so we can learn from rejections too
     try:
         from shadow_portfolio import log_candidate
-        # Decision tracking: score threshold + risk filters
-        _min_score = _scan_params.get("MIN_SCORE", 63) if '_scan_params' in locals() else 63
-        if combined_score >= _min_score:
-            _decision = "taken"
-            _reason = f"score {combined_score:.1f} >= MIN_SCORE {_min_score}"
-        else:
-            _decision = "rejected_score"
-            _reason = f"score {combined_score:.1f} < MIN_SCORE {_min_score}"
+        # Decision tracking: score threshold + risk filters.
+        # [RULE-REVIEW] 2026-10-26: the threshold is the scan's adaptive
+        # MIN_SCORE when the caller passes it; the previous `_scan_params`
+        # lookup could never bind inside this function, so every record was
+        # labelled against a fixed 63 while the scan gated at 63/67/75.
+        _decision, _reason = _shadow_label_for(combined_score, min_score)
 
         _score_breakdown = {
             "momentum": round(momentum_score, 1),
@@ -3143,10 +3151,31 @@ def _scan_market_inner():
     # scan_market's return dict -> /api/diag/scanner; never affects scoring.
     _source_diag: dict = {}
 
+    # [RULE-REVIEW] 2026-10-26: the scan's adaptive MIN_SCORE, computed once
+    # here from the same macro snapshot the gate below reads, so deep_score
+    # labels each shadow record at the threshold this scan actually applies.
+    # Label only. Falls back to deep_score's default (BASE_CONFIG) if the
+    # snapshot is unavailable — logged, never silent.
+    _adaptive_min_score = None
+    try:
+        from system_config import get_adaptive_params as _gap_label
+        _m = _macro if isinstance(_macro, dict) else {}
+        _adaptive_min_score = _gap_label(
+            vxx_ratio=float(_m.get("vxx_ratio", 1.0) or 1.0),
+            spy_vs_ma50=float(_m.get("spy_vs_ma50", 1.0) or 1.0),
+            spy_below_200_days=int(_m.get("spy_below_200_days", 0) or 0),
+        ).get("MIN_SCORE")
+    except Exception as _ams_err:
+        import logging as _ams_log
+        _ams_log.getLogger("bot_engine").warning(
+            f"adaptive MIN_SCORE for the shadow label unavailable, labelling at the default: {_ams_err}"
+        )
+
     def _deep_one(args):
         idx, candidate = args
         try:
-            return idx, deep_score(candidate["ticker"], candidate, _diag=_source_diag)
+            return idx, deep_score(candidate["ticker"], candidate, _diag=_source_diag,
+                                   min_score=_adaptive_min_score)
         except Exception:
             return idx, candidate
 
