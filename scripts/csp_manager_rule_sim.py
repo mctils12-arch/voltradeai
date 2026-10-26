@@ -99,6 +99,13 @@ def _d(s: str) -> date:
     return date.fromisoformat(str(s)[:10])
 
 
+def _day_or_none(s: object) -> Optional[date]:
+    try:
+        return _d(str(s))
+    except ValueError:
+        return None
+
+
 # ── one entry, one variant ─────────────────────────────────────────────────
 
 def simulate_entry(entry: dict, bars: dict, variant: str = "live",
@@ -123,9 +130,8 @@ def simulate_entry(entry: dict, bars: dict, variant: str = "live",
         return None
     if variant == "earnings_gate" and earnings:
         for e in earnings:
-            try:
-                ed = _d(e)
-            except ValueError:
+            ed = _day_or_none(e)
+            if ed is None:  # a malformed provider date cannot gate anything; coverage is reported, not the row
                 continue
             if entry_day <= ed <= exp:
                 return {"skipped": "earnings", "u": entry["u"], "day": entry["day"], "earnings": ed.isoformat()}
