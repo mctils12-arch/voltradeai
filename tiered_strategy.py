@@ -377,6 +377,65 @@ def log_masterkill_csp_shadow(ctx: TierContext, kill_reason: str) -> int:
         return 0
 
 
+def _layer2_price_lookup() -> dict:
+    """ticker -> last layer-2 price: the source log_masterkill_csp_shadow reads."""
+    from csp_universe import _load_layer2_cache
+    _layer2 = _load_layer2_cache() or {}
+    return {
+        e["ticker"]: float(e["price"])
+        for e in _layer2.get("scores", [])
+        if e.get("ticker") and e.get("price", 0) > 0
+    }
+
+
+def log_csp_gate_shadow(rejections: list) -> dict:
+    """
+    [RULE-REVIEW] 2026-10-26: bot.ts's tier dispatcher drops a SELL_CSP action
+    at two gates — OPTIONS-SLOT-FULL and the swept/resting-order CSP-SKIP (plus
+    the remainder after a kill-switch break) — and, unlike a stock candidate, a
+    CSP never had a shadow record to relabel: tier1_csp_core proposes it and
+    deep_score never sees it. Same convention as log_masterkill_csp_shadow: one
+    log_candidate per dropped action, price from the layer-2 cache (skipped
+    when unknown — backfill_outcomes cannot label it), regime off the action's
+    metadata. The stock price-path labeler is a directional proxy for "would
+    this underlying have stayed calm", not CSP premium economics. Never raises.
+
+    rejections: [{"ticker", "decision", "reason", "metadata": {...}}, ...]
+    """
+    out = {"received": 0, "logged": 0, "skipped_no_price": 0, "skipped": 0}
+    try:
+        if not isinstance(rejections, list) or not rejections:
+            return out
+        out["received"] = len(rejections)
+        import shadow_portfolio
+        prices = _layer2_price_lookup()
+        for r in rejections:
+            if not isinstance(r, dict) or not r.get("ticker") or not r.get("decision"):
+                out["skipped"] += 1
+                continue
+            ticker = str(r["ticker"]).upper()
+            price = float(prices.get(ticker, 0.0) or 0.0)
+            if price <= 0:
+                out["skipped_no_price"] += 1
+                continue
+            meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+            shadow_portfolio.log_candidate(
+                ticker=ticker, features={}, score=0.0,
+                decision=str(r["decision"]),
+                decision_reason=str(r.get("reason") or "")[:200],
+                entry_price=price,
+                vxx_ratio=float(meta.get("vxx_ratio", 1.0) or 1.0),
+                regime_label=str(meta.get("regime_label") or "unknown"),
+                side="sell", action_label="SELL CSP", trade_type="options",
+            )
+            out["logged"] += 1
+        return out
+    except Exception as e:
+        logger.debug(f"log_csp_gate_shadow failed: {e}")
+        out["error"] = str(e)[:200]
+        return out
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TIER 1 — CSP Core
 # ══════════════════════════════════════════════════════════════════════════════
