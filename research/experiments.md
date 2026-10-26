@@ -110422,3 +110422,70 @@ fires on, so the stop's cost reads as a lower bound.
 **KILL DATE**: none — measurement.
 LOOP RATIO: [RULE-REVIEW] x5 today, all measurement — healthy.
 STARVED: no (step 2 is next).
+
+---
+
+### 2026-10-26 [RULE-REVIEW] csp_manager_rule_sim — the manager's rules on the CSPs the bot would have sold (step 2 CODE, v1.0.1167)
+
+TERRITORY: T-BOT (scripts/csp_manager_rule_sim.py, test_csp_manager_rule_sim.py).
+Measurement — own PR; research test 2 gate 3, step 2. The RUN is a separate
+[RESEARCH] entry once the chain_csp_entry probe (#1469, v1.0.1166) is live.
+
+**WHAT**: reads the `chain_csp_entry` rows (the put the bot would have sold
+per name-day, with its archived bid/ask/iv), dedupes to one entry per name
+per 5 days (consecutive name-days overlap almost entirely), pulls each
+underlying's daily closes (backtest_v2.fetch_bars — Alpaca-first, Yahoo
+fallback — the VRP script's loader) and the per-day regime
+(backtest_v2.regime_series), and marks every entry forward with a
+Black–Scholes MODEL MARK at the entry's implied vol, applying the manager's
+rules in the live order with each constant pinned to options_manager.py by
+a test: critical close at DTE ≤ 5, profit target at 50% of the credit, loss
+limit at −2× the credit, 21-DTE close. Sold at the archived bid; bought back
+at the model mark plus half the entry spread (modelled); expiry settles at
+intrinsic. Four theory-motivated variants, each a one-rule ablation or
+gate: `live`; `no_dte_exit` (hold to expiry); `no_stop` (the left-tail
+hypothesis — the −2× stop crystallizes earnings jumps at the worst point);
+`earnings_gate` (never sell into an earnings date inside the holding
+window; yfinance earnings dates, names without data kept and counted).
+Reports expectancy per contract and as % of collateral (equal weight —
+sizing is gate 4), tails, exit reasons, per-regime and per-entry-DTE
+splits, the worst 10 entries, and the live sleeve's realized by underlying
+beside the simulation when a sleeves dump is given. Writes
+research/csp_manager_rule_sim_<date>.md + .json with the PRIOR, an
+automated VERDICT line, and an HONESTY section.
+
+**PRIOR (stated here, before any run)**: 60% that the live rules show
+NEGATIVE expectancy per contract net of the archived spread on the deduped
+single-name set (the sleeve lost when it held); 70% that `no_stop` beats
+`live`; 55% that `no_dte_exit` beats `live` by less than the spread it
+saves; 65% that `earnings_gate` removes most of the worst-10 entries.
+
+**STATED BIASES of the ruler**: the model mark at constant IV smooths the
+intraday path the −2× stop fires on (the stop's cost reads as a LOWER
+bound) and ignores the vol rise a crash brings (an under-mark on the way
+down); the 60-minute minimum hold cannot bind at daily resolution; the
+VRP-evaporation exit is not replicated; the probe's universe lacks the
+live `_is_liquid` volume branch (a subset); indicative quotes; r = 4% as a
+constant; four variants tried — discount the best by four; plain SEs on a
+deduped but still overlapping set.
+
+**TESTS** (12): pricer limits and monotonicity; the four rule constants
+read from options_manager.py; a rising path takes profit before the DTE
+exit, net below gross; a 32% gap hits the loss limit and `no_stop` holds
+longer; a near-the-money drift closes at 21 DTE live and settles at
+intrinsic at expiry without the DTE exits; censoring when bars end;
+unusable entries; the earnings gate skips only entries whose window holds
+an earnings date; dedupe; simulate_all + aggregate (reasons, regimes, DTE
+buckets, per-underlying, worst); the live-vs-sim join on the OCC root; the
+report states the prior, the verdict and the honesty section. FIXTURE
+NOTE, recorded because it is the kind of mistake the run could also hide:
+my first fixture put a $2 bid on a put the model valued at $3.40 at its
+own IV, so every path was underwater from day one and the target never
+fired — an archived row is quoted consistently with its IV, and the
+fixture now derives bid/ask from the model.
+
+**NEXT**: the run — `python3 scripts/csp_manager_rule_sim.py --probe
+https://voltradeai.com --earnings --sleeves-json <dump of the sleeves
+probe>` — reported as its own [RESEARCH] entry with the verdict against
+the prior above and the per-underlying comparison to the live sleeve.
+STARVED: no.
