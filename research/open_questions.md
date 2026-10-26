@@ -23143,7 +23143,23 @@ PRIORITY: medium-high. After score decomposition and regime upgrade. This is inf
 
 ### [RESEARCH] Expand counterfactual logging to ALL rule gates (2026-10-26)
 
-STATUS: filed from user directive. No code yet.
+STATUS: filed from user directive. STEP 1 SHIPPED same day (v1.0.1162,
+experiments.md "[RULE-REVIEW] Node admission-loop gates relabel their
+shadow record"): all 15 gates in executeTrades' admission loop
+(killswitch, options/stock slots, Node score threshold, held, daily
+block, size cap, exposure cap, correlation cap, exchange halt, max
+retry, dup order, buying power, options no-contract/error) now relabel
+the candidate's shadow record through one `shadow_update_decisions`
+RPC per loop — gate 1 of the ladder path below is in place for them.
+STILL BLIND: tier-dispatcher SELL_CSP OPTIONS-SLOT-FULL and CSP-SKIP
+(inline-Python path — add buckets the way rejected_capital was),
+MORNING-SKIP qty=0 (needs a fresh log_candidate, the record is hours
+old), DD-HALT (blocks the scan itself — needs a shadow scan to have a
+counterfactual at all), and the Python-side pre-score filters listed
+below (volume-share cap, $50M dollar-volume floor, extreme-mover,
+earnings halt, cooldown, BEAR/PANIC gates, options-scanner and
+covered-call exclusions) — those drop a ticker BEFORE deep_score logs
+anything, so they need log_candidate calls at the filter, not a relabel.
 
 PROBLEM: the shadow portfolio currently logs ONLY Python-side scoring gates. All Node-side gates are blind spots: SKIP, SIZE-CAP, HEAT-CAP, CORR-CAP, HALT, DUP, MAX-RETRY, OPTIONS-SLOT-FULL, Kelly blocks, volume-share cap, $50M dollar-volume floor, blocked tickers, extreme-mover filter, earnings halt, cooldown, BEAR/PANIC gates, all options-scanner rejections, covered-call exclusions.
 

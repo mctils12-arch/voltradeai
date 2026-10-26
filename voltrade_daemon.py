@@ -305,6 +305,11 @@ class RPCDispatcher:
             # lifetime PEAK, so loading the ~45MB shadow log here would raise
             # this process's recorded peak for good.
             "shadow_backfill_exit_aligned": ("shadow_portfolio", "backfill_exit_aligned"),
+            # [RULE-REVIEW] 2026-10-26: bot.ts's admission loop relabels the
+            # shadow records its own gates reject, ONE call per loop. args
+            # {"updates": [{ticker, decision, reason}], "max_age_seconds"};
+            # python3 -c fallback reads the same payload from a temp file.
+            "shadow_update_decisions": ("shadow_portfolio", "update_decisions_batch"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),

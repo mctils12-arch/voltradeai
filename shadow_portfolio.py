@@ -379,26 +379,90 @@ def update_last_decision(
         if not ticker:
             return False
         records = _load_shadow_log()
-        ticker_u = str(ticker).upper()
-        now = datetime.now(timezone.utc)
-        for record in reversed(records):
-            if record.get("ticker") != ticker_u:
-                continue
-            if record.get("decision") != "taken":
-                return False  # most recent record already resolved elsewhere
-            try:
-                ts = datetime.fromisoformat(str(record["timestamp"]).replace("Z", "+00:00"))
-            except Exception:
-                return False
-            if (now - ts).total_seconds() > max_age_seconds:
-                return False  # too old — not this scan's candidate
-            record["decision"] = str(decision)
-            record["decision_reason"] = str(decision_reason)[:200]
-            return _save_shadow_log(records)
-        return False
+        if not _relabel_latest_taken(records, ticker, decision, decision_reason,
+                                     datetime.now(timezone.utc), max_age_seconds):
+            return False
+        return _save_shadow_log(records)
     except Exception as e:
         logger.debug(f"update_last_decision failed for {ticker}: {e}")
         return False
+
+
+def _relabel_latest_taken(records: List[dict], ticker: str, decision: str,
+                          decision_reason: str, now: datetime,
+                          max_age_seconds: float) -> bool:
+    """In-place relabel of the freshest "taken" record for ticker; no I/O."""
+    ticker_u = str(ticker).upper()
+    for record in reversed(records):
+        if record.get("ticker") != ticker_u:
+            continue
+        if record.get("decision") != "taken":
+            return False  # most recent record already resolved elsewhere
+        try:
+            ts = datetime.fromisoformat(str(record["timestamp"]).replace("Z", "+00:00"))
+        except Exception:
+            return False
+        if (now - ts).total_seconds() > max_age_seconds:
+            return False  # too old — not this scan's candidate
+        record["decision"] = str(decision)
+        record["decision_reason"] = str(decision_reason)[:200]
+        return True
+    return False
+
+
+# [RULE-REVIEW] 2026-10-26: bot.ts's executeTrades admission loop applies
+# ~15 more gates AFTER scan_market returns (Node score threshold, slots,
+# size/exposure caps, sector correlation, exchange halt, retry/dup/BP,
+# options-engine drops) and every one of them left the record "taken" —
+# the bucket's win rate mixed never-ordered candidates with real orders,
+# and none of those rules had a prevention-P&L. Node collects its
+# rejections and sends them here in ONE call so the ~45MB log is loaded
+# and saved once per admission loop, not once per gate. The window is
+# wide (scan SIGALRM ~55s + per-candidate RPCs) but the guards in
+# _relabel_latest_taken (freshest record only, "taken" only) still hold.
+NODE_GATE_RELABEL_MAX_AGE_S = 1800.0
+
+
+def update_decisions_batch(updates: list, max_age_seconds: float = NODE_GATE_RELABEL_MAX_AGE_S) -> dict:
+    """
+    Relabel several just-logged "taken" records in one load/save.
+
+    updates: [{"ticker": "AMD", "decision": "rejected_size_cap",
+               "reason": "..."}, ...] — entries missing a ticker or a
+    decision are counted as skipped, never raised on. Same per-record
+    semantics as update_last_decision(). Returns counts so the caller can
+    audit the relabel; never raises (logging must not break the loop).
+    """
+    out = {"received": 0, "updated": 0, "skipped": 0, "saved": False}
+    try:
+        if not isinstance(updates, list) or not updates:
+            return out
+        out["received"] = len(updates)
+        records = _load_shadow_log()
+        now = datetime.now(timezone.utc)
+        changed = 0
+        for u in updates:
+            if not isinstance(u, dict):
+                out["skipped"] += 1
+                continue
+            ticker = u.get("ticker")
+            decision = u.get("decision")
+            if not ticker or not decision:
+                out["skipped"] += 1
+                continue
+            if _relabel_latest_taken(records, ticker, str(decision),
+                                     str(u.get("reason") or ""), now, max_age_seconds):
+                changed += 1
+            else:
+                out["skipped"] += 1
+        out["updated"] = changed
+        if changed:
+            out["saved"] = bool(_save_shadow_log(records))
+        return out
+    except Exception as e:
+        logger.debug(f"update_decisions_batch failed: {e}")
+        out["error"] = str(e)[:200]
+        return out
 
 
 def _fetch_historical_bars_batch(
