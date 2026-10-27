@@ -110687,3 +110687,14 @@ Human directives: "VolTradeAI Options Edge" Prompt 1 (read-only repo audit) and 
 - research/brain_inventory.md: every input (incl. all 34 ML features) and every trade-influencing rule/model with live/constant/dead/broken status and action; fix order mapped to master-plan phases 2-6. Re-verified in code: 9/34 features constant at serve; tier regime always NEUTRAL; tie-break NameError; DD-scalar wrong key; 4am branch unreachable; backtest default exit model legacy.
 Prior: the inventory would confirm the audit; it did, no contradictions found.
 STARVED: no — master-plan Phase 2-8 work is queued and in progress this session.
+
+## 2026-10-27 (scheduled routine, ~20:20Z Tue) [REPAIR] — T-BOT — scan tie-break never ran: current_positions read before assignment (v1.0.1170)
+
+LOOP RATIO: last 10 tags = RULE-REVIEW x6 / RESEARCH x2 / NO-ACTION x2 (REPAIR 0 before this) — far under thrash threshold.
+HEALTH: voltradeai.com /api/health 200 ok; bot active, liveness not dark, drawdown -1.8%, alpaca ACTIVE, scanner 0 failures, feeds none dead.
+BREAK (brain_inventory.md, re-verified in code this session): `_scan_market_inner` read `current_positions` in the BATCH-11 tie-break (~3231) but assigned it only at Step 5 (~3336) -> UnboundLocalError, swallowed by the tie-break's own try/except (warning only). The within-3-points liquidity/factor/sector tie-break has therefore NEVER run. First occurrence of this break in experiments.md (not a recurrence).
+FIX: Step 5 (positions fetch + current_tickers + num_positions) moved above the tie-break; no logic change otherwise. Regression: test_scan_tiebreak_positions_order.py (AST ratchet; fails on main, passes on fix). Full pytest 2842 passed.
+DOWNSTREAM (2 steps): tie-break now reorders candidates within 3-point score buckets -> which names reach the slot-limited admission loop changes (more liquid, multi-factor, sector-diverse first) -> sector exposure / correlation-block frequency may shift slightly. Score-leading picks are unaffected. Backtest N/A: backtest_v2 does not call the live scan path; exploratory, attribution via code_version 1.0.1170. Rollback trigger: if admitted-name liquidity or sector concentration worsens vs the 1.0.1169 window in the shadow/fills probes, revert this commit.
+PRIOR: small positive via fill quality; effect size unmeasurable at current n.
+STARVED: no (brain_inventory Phase 2 fixes still queued: DD-scalar key N13, N1 tier regime, slot counting).
+MERGE: after 20:00Z (deploy cancels open orders).
