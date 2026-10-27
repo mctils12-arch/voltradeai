@@ -3216,6 +3216,26 @@ def _scan_market_inner():
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
 
+    # Step 5 (moved above the tie-break 2026-10-27): the tie-break reads
+    # current_positions; it used to be assigned ~120 lines later, so the tie-break
+    # always died on UnboundLocalError (caught, logged) and never ran.
+    # Step 5: Check current positions
+    try:
+        current_positions = get_alpaca_positions()
+        current_tickers = (
+            [p.get("symbol") for p in current_positions]
+            if isinstance(current_positions, list) else []
+        )
+        # Count only stock positions for stock slot limit (options have separate slots)
+        num_positions = sum(
+            1 for p in (current_positions if isinstance(current_positions, list) else [])
+            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
+        )
+    except Exception:
+        current_positions = []
+        current_tickers = []
+        num_positions = 0
+
     # ── TIE-BREAKING REFINEMENT (BATCH 11 2026-05-06) ─────────────────────────
     # When 2+ stocks score within 3 points of each other, the score itself is
     # below the model's noise floor — we can't tell which is actually better.
@@ -3331,22 +3351,6 @@ def _scan_market_inner():
         portfolio_value = 100000
         cash = 100000
 
-    # Step 5: Check current positions
-    try:
-        current_positions = get_alpaca_positions()
-        current_tickers = (
-            [p.get("symbol") for p in current_positions]
-            if isinstance(current_positions, list) else []
-        )
-        # Count only stock positions for stock slot limit (options have separate slots)
-        num_positions = sum(
-            1 for p in (current_positions if isinstance(current_positions, list) else [])
-            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
-        )
-    except Exception:
-        current_positions = []
-        current_tickers = []
-        num_positions = 0
 
     # Step 6: Generate trade recommendations using DYNAMIC POSITION SIZING
     trades = []
