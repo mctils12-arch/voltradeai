@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-27 (scheduled routine, EDGE-DOCTRINE axis pick, Tue) [NO-ACTION] — no code_version change (1.0.1168)
+
+HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT. research_state_check: thrash 0/10 REPAIR, STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory, already filed).
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. main moved since the last NO-ACTION only by the 10-26 CSP rule-sim series (#1467-#1471, all measurement/research; their NEXT list is OOS re-run ~2026-12-20, gate 5 fills, IV-rank gate — dte_exit 10/14 variants deliberately NOT added now: a fifth in-sample variant on one tape is fishing, REASONING STANDARD #4). (a)/(b) 13F/8-K gate 2 and index-VRP (~2027-01-15) remain date-gated; price-panel and archive-volume remain human decisions; (c) foreign-field ideas already filed.
+AXIS (d) CONSIDERED AND REJECTED: a compiled "axis gate registry" (so scheduled sessions stop re-deriving this survey by hand) is the right shape, but the 2026-11-16 gate date appears in NO primary source (open_questions.md / wishlist.md) — only in earlier NO-ACTION log restatements of each other. Encoding it would launder an unverified date into a machine-readable gate. FILED AS CONDITION: the session that next opens a 13F/8-K gate-2 entry in open_questions.md writes the gate date and condition there first (primary text); only then does a registry have something true to read.
+FILED: nothing new beyond this entry. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-26 (scheduled routine, EDGE-DOCTRINE axis pick, Mon) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). thrash 0/10 REPAIR; STARVED streak 0 per research_state_check. KNOWN BROKEN: no critical item open (#44/#48 lack a close marker, advisory, already filed with their human/frozen-path decisions). No REPAIR session warranted.
