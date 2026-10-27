@@ -804,6 +804,26 @@ def _shadow_label_for(combined_score, min_score=None):
     return "rejected_score", f"score {combined_score:.1f} < MIN_SCORE {_t:g}"
 
 
+def _stock_short_entry_rejection(side, trade_type, action_label=None):
+    """Why a bearish STOCK candidate must not become an entry, else None.
+
+    [REPAIR] 2026-10-27 (audit §6.8 N3): deep_score labels a score>65,
+    RSI>70 candidate side="sell" / "SELL" (an overbought exit/avoid
+    signal on a name the scan only reaches when it is NOT held), and
+    _scan_market_inner used to rewrite every stock sell/short to BUY —
+    so the overbought signal bought the stock. Stock shorting is disabled
+    (backtest -$419K) and no gated short-entry path exists, so a stock
+    sell/short is dropped from entry candidates instead of flipped to a
+    long. Options-typed sells (SELL OPTIONS) are unaffected: they keep
+    their side for the instrument selector. Pure; tested directly.
+    """
+    if side not in ("sell", "short") or trade_type == "options":
+        return None
+    _lbl = str(action_label or side).upper()
+    return (f"bearish stock signal '{_lbl}' (side={side}) — stock shorting "
+            f"disabled and no long entry on a sell signal; not traded")
+
+
 def deep_score(ticker, quick_result, _diag=None, min_score=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
@@ -3603,9 +3623,14 @@ def _scan_market_inner():
             continue  # Skip — will be analyzed tonight for tomorrow
 
         # Stock shorting disabled (backtest: -$419K). Bearish plays use options scanner.
-        if side in ("sell", "short") and stock.get("trade_type") != "options":
-            side = "buy"
-            action_label = "BUY"
+        # [REPAIR] 2026-10-27 (N3): a bearish stock signal (the RSI-overbought
+        # "SELL") was rewritten to BUY here — the sell signal bought the stock.
+        # It is now dropped and relabelled so its prevention-P&L is measurable.
+        _short_reject = _stock_short_entry_rejection(
+            side, stock.get("trade_type"), action_label)
+        if _short_reject:
+            _note_gate(ticker, "rejected_bearish_stock_signal", _short_reject)
+            continue
 
         # ── Spread awareness check (Fix 2026-04-10) ───────────────────
         # Reject equities with bid-ask spread > 0.5% of price.

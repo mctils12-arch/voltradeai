@@ -110710,3 +110710,42 @@ Tests: server/optionsEntitlements.test.ts (13, fake fetch). Next: read live once
 Master plan Phase 6 research parts. research/edge_preregistration.md: 12 published edges reviewed, post-publication decay applied (McLean-Pontiff 2016: -26% OOS, -58% post-publication). Three pre-registered for shadow testing: P1 dealer gamma -> SPY realized-vs-implied vol beyond VIX (SqueezeMetrics free history 2011-05..2026-10; licence unchecked => research only; runnable now); P2 Cohen-Malloy-Pomorski opportunistic insider purchases (bar t>=2.8 after 8 prior Form-4 variants; blocked on the delisted-inclusive price panel shared with Lazy Prices); P3 Cremers-Weinbaum IV spread as a CSP put screen (forward-only, low power; read at 52 weeks). Nine rejected/deferred with reasons. Three open_questions.md entries appended.
 research/floor_basket_decision.md: KEEP the floor (only live-positive sleeve); no composition change on current evidence (variants within 1 Sharpe SE; live would need ~25y to resolve 2pp/yr); test the regime exposure schedule instead (SPY at floor exposure 7.41%/yr vs buy-hold 13.58% at ~equal Sharpe) — 4-arm pre-registered test.
 Prior: at most 3 of ~12 candidates would fit our data; that held. STARVED: no.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N3: RSI-overbought "SELL" no longer executed as a BUY (v1.0.1172)
+
+What was wrong: bot_engine.py deep_score (~1872) labels score>65 with
+RSI>70 (VRP<=5) as side="sell" / action_label="SELL" / trade_type="stock"
+-- an overbought exit/avoid signal on a name the scan only reaches when it
+is NOT held. _scan_market_inner (~3602) then rewrote every stock sell/short
+to side="buy" ("stock shorting disabled"), so the sell signal opened a long.
+No live, gated short-entry path exists (stock shorting disabled since the
+-$419K backtest; the deep_score SHORT branch is commented out).
+
+What changed: new pure helper _stock_short_entry_rejection(side,
+trade_type, action_label). In the scan loop a stock sell/short candidate is
+now dropped (continue) and noted as "rejected_bearish_stock_signal" via
+_note_gate, so the once-per-scan update_decisions_batch flush relabels its
+shadow record (it was logged "taken" by deep_score) and the rule earns a
+measurable prevention-P&L. Options-typed sells (SELL OPTIONS) keep side
+"sell" for the instrument selector exactly as before.
+
+Downstream chain: (1) fewer entry candidates per scan -> the slot loop
+continues to the next-ranked candidate, so a lower-ranked BUY may take the
+slot; the gate also runs before the spread-quote fetch, sizing and
+instrument selection, saving one quote call per dropped name. (2) The
+trades list reaching Node executeTrades / morningQueue no longer contains
+action "SELL" stock entries; nothing in Node depended on the conversion
+(executeTrades' own PR #52/#53 SHORT-BLOCKED net stays as a backstop and
+now never fires for this source).
+
+Tests: test_n3_overbought_sell_not_bought.py (helper + scan wiring,
+7 fail before / pass after); test_shadow_scan_gate_relabel.py SITES gains
+the new bucket (adds coverage; no assertion weakened).
+
+Rollback trigger: shadow prevention-P&L of rejected_bearish_stock_signal at
++5d/+20d strongly negative vs the taken-BUY base rate over >=30 records
+(i.e. the overbought names it now skips were systematically winners as
+longs) -> revert and re-propose as an explicit, ladder-validated
+"overbought-momentum BUY" rule rather than an accidental flip.
+
+STARVED: no — master-plan queue in progress this session.
