@@ -1,0 +1,92 @@
+NO-PR	-	backtest-pr71-10yr	15	0%	backtest_aggressive.py backtest_aggressive_results.json backtest_full_system_results.json backtest_full_system_v2.py backtest_full_system_v3.py backtest_logs/full_system.log backtest_logs/realml_run.l
+NO-PR	-	celestial-catalog-data	NO-MERGE-BASE
+closed	794	claude/beautiful-planck-3b32bl	11	13%	client/src/pages/datamap.tsx datacore/layers.json datacore/submarine_cables.json package-lock.json package.json research/experiments.md research/open_questions.md scripts/submarine_cables_build.py ser
+closed	1173	claude/beautiful-planck-5tw47l-furnace-units	10	13%	ci/counter_baseline.txt client/src/pages/datamap.tsx package-lock.json package.json research/experiments.md script/build.ts server/apiProduct.ts server/gemSteelUnits.test.ts server/gemSteelUnits.ts se
+NO-PR	-	claude/beautiful-planck-92q3w3	1	0%	research/experiments.md 
+NO-PR	-	claude/beautiful-planck-a8nt2g	2	0%	research/experiments.md research/open_questions.md 
+closed	640	claude/beautiful-planck-cwqv80	13	15%	client/src/pages/datamap.tsx client/src/pages/spaceweather.tsx datacore/layers.json datacore/manifests/swpckindex.json datacore/manifests/swpcxray.json package-lock.json package.json research/experime
+NO-PR	-	claude/beautiful-planck-giz4yz	1	0%	research/experiments.md 
+NO-PR	-	claude/beautiful-planck-hdnfjw	7	0%	package-lock.json package.json research/experiments.md research/open_questions.md server/routes.ts server/vesselStream.test.ts server/vesselStream.ts 
+closed	1418	claude/beautiful-planck-o0wkor	10	6%	client/src/bot/BotPage.tsx client/src/bot/panels.tsx client/src/bot/watch.test.ts client/src/bot/watch.ts client/src/bot/zoneModel.ts package.json research/bot_page_program.md research/experiments.md 
+NO-PR	-	claude/beautiful-planck-od64g9	9	3%	client/src/index.css client/src/pages/datamap.tsx package-lock.json package.json research/experiments.md research/open_questions.md server/gemMethaneAssetRates.test.ts server/gemMethaneAssetRates.ts s
+closed	604	claude/beautiful-planck-odhs6x	2	0%	research/experiments.md research/wishlist.md 
+NO-PR	-	claude/beautiful-planck-tdh6y4	1	40%	research/experiments.md 
+NO-PR	-	claude/beautiful-planck-to9wfc	1	40%	research/experiments.md 
+NO-PR	-	claude/beautiful-planck-vz0ubi	15	18%	client/src/lib/mapIcons.ts client/src/pages/datamap.tsx datacore/layers.json datacore/pfas/pfas_ucmr5.json package-lock.json package.json research/experiments.md research/location_context_engine.md sc
+closed	971	claude/beautiful-planck-x5431c	7	6%	ci/counter_baseline.txt package-lock.json package.json research/experiments.md research/platform_program.md server/apiProduct.test.ts server/apiProduct.ts 
+NO-PR	-	claude/beautiful-planck-x7m71w	2	0%	research/experiments.md research/flightplan_gate1_runs/run14_20261013T1313Z.json 
+closed	638	claude/busy-fermi-v53jcs	6	100%	instrument_selector.py options_execution.py package.json research/experiments.md research/open_questions.md test_options_sizer_csp_bucket.py 
+closed	399	claude/busy-fermi-z6u5a9	7	31%	client/src/pages/datamap.tsx datacore/layers.json package.json research/experiments.md research/open_questions.md research/worldview_globe.md scripts/visual_check.mjs 
+NO-PR	-	claude/dazzling-planck-3d5ryx	1	0%	research/experiments.md 
+NO-PR	-	claude/dazzling-planck-5hhy67	1	42%	research/experiments.md 
+closed	134	claude/dazzling-planck-64joy2	7	88%	cftc_cot.py package.json research/experiments.md research/open_questions.md server/bot.ts storage_config.py test_cftc_cot.py 
+NO-PR	-	claude/dazzling-planck-8h76kt	8	3%	datacore/manifests/vessel_identity.json package.json research/experiments.md research/open_questions.md server/routes.ts server/shadowFleet.ts server/vesselIdentity.test.ts server/vesselIdentity.ts 
+closed	834	claude/dazzling-planck-9dlpa6	6	46%	package-lock.json package.json research/experiments.md research/open_questions.md scripts/microcap_cost_floor_check.py test_microcap_cost_floor_check.py 
+NO-PR	-	claude/dazzling-planck-9xpdbd	7	15%	critical_slowing_down_probe.py package-lock.json package.json research/experiments.md research/open_questions.md research/wishlist.md test_critical_slowing_down_probe.py 
+closed	415	claude/dazzling-planck-g1d293	12	43%	CLAUDE.md datacore/runpod/ledger.jsonl package.json research/experiments.md research/grid_vision_phaseb.md research/runpod_ledger.md research/wishlist.md scripts/gridvision_train/train.py scripts/runp
+closed	999	claude/dazzling-planck-o6mzxz	6	100%	ci/counter_baseline.txt package.json research/experiments.md research/open_questions.md scripts/hazard_rate_probe.py test_hazard_rate_probe.py 
+NO-PR	-	claude/dazzling-planck-olnzzy	1	0%	research/experiments.md 
+NO-PR	-	claude/dazzling-planck-q92lvp	7	11%	datacore/manifests/fdicbankfinancials.json package-lock.json package.json research/experiments.md server/fdicBankFinancials.test.ts server/fdicBankFinancials.ts server/routes.ts 
+NO-PR	-	claude/dazzling-planck-sssexu	5	1%	package.json research/experiments.md research/open_questions.md server/shadowFleet.test.ts server/shadowFleet.ts 
+closed	1092	claude/dazzling-planck-w4pcsa	6	11%	ci/counter_baseline.txt package-lock.json package.json research/experiments.md server/edgar13f.test.ts server/edgar13f.ts 
+closed	1238	claude/eloquent-dijkstra-0x4jik	1	100%	research/experiments.md 
+closed	1186	claude/eloquent-dijkstra-3h0nhi	2	100%	research/experiments.md research/open_questions.md 
+closed	1174	claude/eloquent-dijkstra-bqgxl3	5	6%	ci/counter_baseline.txt package-lock.json package.json research/experiments.md scripts/visual_check.mjs 
+closed	1311	claude/eloquent-dijkstra-g5qtpk	1	100%	research/experiments.md 
+closed	797	claude/eloquent-dijkstra-g82r0i	4	26%	options_execution.py package.json research/experiments.md test_options_fixes.py 
+closed	706	claude/eloquent-dijkstra-k128c1	7	13%	options_execution.py options_scanner.py package-lock.json package.json research/experiments.md research/open_questions.md test_occ_symbol_parsing.py 
+closed	343	claude/eloquent-dijkstra-ngf8ct	5	8%	package-lock.json package.json research/experiments.md server/bot.ts server/manipulationVisibility.test.ts 
+closed	1038	claude/eloquent-dijkstra-zot6df	8	98%	ci/counter_baseline.txt package-lock.json package.json research/experiments.md research/open_questions.md research/wishlist.md server/bot.ts server/ddHaltVisibility.test.ts 
+closed	767	claude/funny-fermat-16jzui	5	10%	package.json research/experiments.md research/open_questions.md server/bot.ts server/tier3DiagVisibility.test.ts 
+open	1466	claude/funny-fermat-lr1qls	1	14%	research/experiments.md 
+closed	708	claude/funny-fermat-sdc1sx	6	13%	package-lock.json package.json research/experiments.md research/open_questions.md server/bot.ts server/optionsCapitalCheckFix.test.ts 
+closed	1253	claude/funny-fermat-wdlgdr	1	100%	research/experiments.md 
+closed	379	claude/globe-3d-terrain	3	18%	client/src/pages/datamap.tsx datacore/layers.json package.json 
+NO-PR	-	claude/lucid-keller-252zvq	1	40%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-3xgxpx	9	11%	client/src/index.css client/src/pages/datamap.tsx package-lock.json package.json research/experiments.md research/open_questions.md server/gemMethaneProximity.test.ts server/gemMethaneProximity.ts ser
+closed	350	claude/lucid-keller-4o6t07	9	11%	client/src/lib/satelliteOrbits.test.ts client/src/lib/satelliteOrbits.ts client/src/pages/datamap.tsx datacore/layers.json package-lock.json package.json research/console_charter.md research/experimen
+NO-PR	-	claude/lucid-keller-7a31gv	6	43%	client/src/pages/datamap.tsx client/src/pages/midas.tsx datacore/layers.json package.json research/experiments.md scripts/visual_check.mjs 
+NO-PR	-	claude/lucid-keller-7qlb2p	2	0%	research/experiments.md research/flightplan_gate1_runs/run8_20261009T1806Z.json 
+NO-PR	-	claude/lucid-keller-9585eb	1	40%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-9tqupi	9	6%	client/src/lib/gebco.test.ts client/src/lib/gebco.ts client/src/pages/datamap.tsx datacore/layers.json package-lock.json package.json research/earth_twin_program.md research/experiments.md scripts/vis
+NO-PR	-	claude/lucid-keller-9za4qp	1	40%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-cmfllp	1	0%	research/experiments.md 
+closed	707	claude/lucid-keller-eej0un	8	20%	client/src/index.css client/src/pages/datamap.tsx client/src/pages/macro.tsx datacore/signal_ladder.json package-lock.json package.json research/experiments.md scripts/visual_check.mjs 
+NO-PR	-	claude/lucid-keller-eovgef	7	13%	client/src/pages/datamap.tsx datacore/layers.json package.json research/experiments.md research/open_questions.md research/worldview_globe.md server/layersRegistry.test.ts 
+NO-PR	-	claude/lucid-keller-jwlo2y	1	0%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-ob9hxo	0	n/a%	
+NO-PR	-	claude/lucid-keller-rr2xmt	1	14%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-rygd2q	1	20%	research/experiments.md 
+NO-PR	-	claude/lucid-keller-slocuv	6	5%	datacore/powerplants/wind_position_verification.json package.json research/earth_twin_program.md research/experiments.md scripts/verify_wind_positions.py test_verify_wind_positions.py 
+NO-PR	-	claude/lucid-keller-v0p1j2	0	n/a%	
+closed	763	claude/lucid-keller-zftc8y	2	28%	research/experiments.md research/wishlist.md 
+NO-PR	-	claude/microcap-cost-floor-revive-834	7	98%	ci/counter_baseline.txt package-lock.json package.json research/experiments.md research/open_questions.md scripts/microcap_cost_floor_check.py test_microcap_cost_floor_check.py 
+closed	449	claude/palantir-platform-comparison-5wfrov	6	21%	package.json research/experiments.md research/wishlist.md server/apiProduct.test.ts server/apiProduct.ts server/routes.ts 
+NO-PR	-	claude/quirky-hopper-1sty9s	2	0%	research/experiments.md research/liveness_notify_state.json 
+NO-PR	-	claude/quirky-hopper-2g3a9g	1	0%	research/experiments.md 
+NO-PR	-	claude/quirky-hopper-8d7ph7	2	0%	research/experiments.md research/open_questions.md 
+closed	303	claude/quirky-hopper-932s7z	0	n/a%	
+NO-PR	-	claude/quirky-hopper-9yor6e	2	0%	research/experiments.md research/wishlist.md 
+NO-PR	-	claude/quirky-hopper-m0gxdj	1	40%	research/experiments.md 
+NO-PR	-	claude/quirky-hopper-steqeq	1	40%	research/experiments.md 
+NO-PR	-	claude/quirky-hopper-uj6dy1	2	0%	research/experiments.md research/wishlist.md 
+NO-PR	-	claude/quirky-hopper-vcxo18	1	0%	research/experiments.md 
+NO-PR	-	claude/quirky-hopper-wnelsp	7	8%	datacore/signal_ladder.json package-lock.json package.json research/experiments.md research/open_questions.md scripts/finra_shortvol_gate2_retest.test.ts scripts/finra_shortvol_gate2_retest.ts 
+NO-PR	-	claude/quirky-hopper-ynadqy	7	10%	datacore/signal_ladder.json package-lock.json package.json research/experiments.md research/open_questions.md scripts/finra_shortvol_gate2_retest.test.ts scripts/finra_shortvol_gate2_retest.ts 
+closed	420	claude/satellite-loading-perf-qaco5f	5	95%	client/src/lib/orbital/tle.test.ts client/src/lib/orbital/tle.ts client/src/pages/datamap.tsx package.json research/experiments.md 
+NO-PR	-	data-backup	9	0%	BACKUP_README.md aapl_response.json voltrade_event_memory.json voltrade_fills.json voltrade_health_log.json voltrade_insider_cache.json voltrade_macro_cache.json voltrade_ml_model.pkl voltrade_weights
+NO-PR	-	fix/full-audit	0	n/a%	
+closed	77	fix/tier2-full-scan-oom	3	15%	bot_engine.py server/bot.ts test_tier2_oom_fix.py 
+NO-PR	-	fixture-coverage-gap-22-layers	4	100%	package-lock.json package.json research/experiments.md scripts/visual_check.mjs 
+NO-PR	-	gridvision-pod-result	10	40%	datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/open_questions.md scripts/gridvision_train/etdii_to_yolo.py scripts/gridvision_tra
+NO-PR	-	gridvision-pod-result-gv-div4-ks	NO-MERGE-BASE
+NO-PR	-	gridvision-pod-result-gv-div5-ks	NO-MERGE-BASE
+NO-PR	-	gv-res-div-az	16	76%	datacore/gridvision/leaderboard.json datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.
+NO-PR	-	gv-res-div-ks	16	76%	datacore/gridvision/leaderboard.json datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.
+NO-PR	-	gv-res-div2-ks	17	91%	datacore/gridvision/leaderboard.json datacore/runpod/ledger.jsonl gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.md scripts/
+NO-PR	-	gv-res-eaug-az	16	76%	datacore/gridvision/leaderboard.json datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.
+NO-PR	-	gv-res-eaug-ks	16	76%	datacore/gridvision/leaderboard.json datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.
+NO-PR	-	gv-res-g1a-az	11	60%	datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.md scripts/gridvision_train/etdii_to_
+NO-PR	-	gv-res-g1a-ks	11	60%	datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.md scripts/gridvision_train/etdii_to_
+NO-PR	-	gv-res-g1d-s	11	53%	datacore/runpod/ledger.jsonl gv_best.pt gv_result.txt gv_train_tail.log package.json research/experiments.md research/grid_vision_gate1.md research/open_questions.md scripts/gridvision_train/etdii_to_
+NO-PR	-	patch-12-strategy-key-alignment	0	n/a%	

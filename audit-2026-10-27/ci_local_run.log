@@ -1,0 +1,161 @@
+### tsc_ratchet
+Typechecking (pin: 6 from ci/tsc_baseline.txt) ...
+tsc reported 6 error(s); TS2304: 0
+OK: 6 <= 6, TS2304 = 0
+tsc_ratchet exit=0
+### npm run build
+../dist/public/assets/gpWorker-DJnzUjRO.js          2.07 kB
+../dist/public/assets/satcatWorker-CT3eHPSS.js      2.33 kB
+../dist/public/index.html                           2.67 kB │ gzip:   1.27 kB
+../dist/public/assets/satWorker-CQXaKeyT.js        18.55 kB
+../dist/public/assets/index-NoUtmkF7.css          281.89 kB │ gzip:  45.57 kB
+../dist/public/assets/AnalystPane-rXkPZ8vc.js       8.18 kB │ gzip:   3.04 kB
+../dist/public/assets/DataWorldMap-817j6pWq.js     10.00 kB │ gzip:   4.41 kB
+../dist/public/assets/index-CrSO6uNF.js            18.70 kB │ gzip:   7.36 kB
+../dist/public/assets/TimeScrubber-RmauIE_g.js     50.63 kB │ gzip:  18.36 kB
+../dist/public/assets/spaceFrame-CKIl-XWd.js       74.07 kB │ gzip:  31.43 kB
+../dist/public/assets/celestialSky-C-b-Rtu1.js    121.93 kB │ gzip:  49.59 kB
+../dist/public/assets/maplibre-gl-DXJYjHME.js   1,053.37 kB │ gzip: 284.75 kB
+../dist/public/assets/index-B8KgFibv.js         1,892.06 kB │ gzip: 559.63 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 16.15s
+building server...
+
+  dist/index.cjs  18.2mb ⚠️
+
+⚡ Done in 1217ms
+copying runtime datacore files into dist/ ...
+build exit=0
+### counter_ratchet
+Counters IMPROVED — lower the pins in the same PR so the gain is locked in:
+  tests_run_in_ci: 626 -> 627   (edit ci/counter_baseline.txt)
+  tests_gating_merge: 626 -> 627   (edit ci/counter_baseline.txt)
+
+OK: 28 counters at or better than baseline.
+counter exit=0
+### gated_tests
+# skipped 0
+# todo 0
+# duration_ms 26821.518225
+OK: client (140 files)
+
+── python ─────────────────────────────────────────────
+........................................................................ [  2%]
+............s........................................................... [  5%]
+........................................................................ [  7%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 30%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+.......................................................................................................................................... [ 50%]
+........................................................................ [ 53%]
+................................................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+............................................................. [ 91%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 99%]
+....................                                                     [100%]
+=============================== warnings summary ===============================
+test_cftc_tff_tlt_disjoint.py::TestRun::test_no_price_data_reports_status
+test_cftc_tff_tlt_disjoint.py::TestRun::test_ok_path_reports_window_bounds_and_delegates_stats
+  /home/user/voltradeai/cftc_tff_tlt_disjoint_replication.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    days_needed = (datetime.utcnow() - earliest).days + 30
+
+test_form4_gate2.py::TestSummarizeAndSignificance::test_significance_computes_for_adequate_samples
+test_midas_gate2.py::TestRunQuarterIntegration::test_high_bucket_shows_negative_separation_in_a_synthetic_universe
+test_nhtsa_gate2_probe.py::test_evaluate_ticker_separates_spike_from_baseline_forward_returns
+test_nhtsa_gate2_probe.py::test_pool_forward_return_skips_tickers_with_errors
+test_usaspending_gate2.py::TestSummarizeAndSignificance::test_significance_computes_for_adequate_samples
+  /usr/local/lib/python3.13/dist-packages/scipy/stats/_axis_nan_policy.py:601: RuntimeWarning: Precision loss occurred in moment calculation due to catastrophic cancellation. This occurs when the data are nearly identical. Results may be unreliable.
+    res = hypotest_fun_out(*samples, **kwds)
+
+test_regime_detector_compare.py::TestCompareDetectors::test_n_and_base_rate_reported
+test_regime_detector_compare.py::TestCompareDetectors::test_perfect_monotonic_relationship_gives_rho_near_one
+  /home/user/voltradeai/regime_detector_compare.py:223: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+    rho, p = spearmanr(xa, ya)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2834 passed, 2 skipped, 9 warnings, 65 subtests passed in 56.95s
+OK: python
+
+── deploy-gate smoke (build + boot + /api/health == 200) ─────────────────────────────────────────────
+[deploy-gate-smoke] npm run build (what the Dockerfile ships)
+
+> rest-express@1.0.1168 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.1 building client environment for production...
+transforming...
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+client/src/lib/celestial/celestialSky.ts (48:63): "default" is not exported by "node_modules/astronomy-engine/esm/astronomy.js", imported by "client/src/lib/celestial/celestialSky.ts".
+✓ 1904 modules transformed.
+rendering chunks...
+[plugin vite:reporter] 
+(!) /home/user/voltradeai/client/src/lib/mapIcons.ts is dynamically imported by /home/user/voltradeai/client/src/pages/landing.tsx but also statically imported by /home/user/voltradeai/client/src/components/FlightProcedures.tsx, /home/user/voltradeai/client/src/pages/datamap.tsx, /home/user/voltradeai/client/src/pages/nrcReactorStatus.tsx, dynamic import will not move module into another chunk.
+
+computing gzip size...
+../dist/public/assets/gpWorker-DJnzUjRO.js          2.07 kB
+../dist/public/assets/satcatWorker-CT3eHPSS.js      2.33 kB
+../dist/public/index.html                           2.67 kB │ gzip:   1.27 kB
+../dist/public/assets/satWorker-CQXaKeyT.js        18.55 kB
+../dist/public/assets/index-NoUtmkF7.css          281.89 kB │ gzip:  45.57 kB
+../dist/public/assets/AnalystPane-rXkPZ8vc.js       8.18 kB │ gzip:   3.04 kB
+../dist/public/assets/DataWorldMap-817j6pWq.js     10.00 kB │ gzip:   4.41 kB
+../dist/public/assets/index-CrSO6uNF.js            18.70 kB │ gzip:   7.36 kB
+../dist/public/assets/TimeScrubber-RmauIE_g.js     50.63 kB │ gzip:  18.36 kB
+../dist/public/assets/spaceFrame-CKIl-XWd.js       74.07 kB │ gzip:  31.43 kB
+../dist/public/assets/celestialSky-C-b-Rtu1.js    121.93 kB │ gzip:  49.59 kB
+../dist/public/assets/maplibre-gl-DXJYjHME.js   1,053.37 kB │ gzip: 284.75 kB
+../dist/public/assets/index-B8KgFibv.js         1,892.06 kB │ gzip: 559.63 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 16.85s
+building server...
+
+  dist/index.cjs  18.2mb ⚠️
+
+⚡ Done in 1613ms
+copying runtime datacore files into dist/ ...
+[deploy-gate-smoke] halt-state fixtures -> /tmp (voltrade_kill_switch.json, voltrade_liveness.json)
+[deploy-gate-smoke] booting node dist/index.cjs on :35731 with kill switch ON + stale liveness, no broker creds, no daemon
+[deploy-gate-smoke] PASS: /api/health answered 200 in 2.6s (status=degraded, serving gates=server+database, liveness.dark=true)
+OK: deploy-gate smoke (build + boot + /api/health == 200)
+
+GATE PASSED: all required suites green; quarantine 0/1, none overdue.
+gated exit=0

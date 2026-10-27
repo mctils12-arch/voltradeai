@@ -1,0 +1,909 @@
+pr_state	pr_number	branch	last_commit	author	behind/ahead_main	subject
+NO-PR	-	celestial-catalog-data	2026-10-27	celestial-catalog-mirror	1909/1	catalog mirror 2026-10-27T17:59:05Z
+NO-PR	-	claude/beautiful-planck-to9wfc	2026-10-27	Claude	1/1	[NO-ACTION] 2026-10-27 product-am: healthy, queue gated, v1 mirror diff false-positive (1.0.1168)
+NO-PR	-	claude/lucid-keller-9585eb	2026-10-27	Claude	0/1	[NO-ACTION] 2026-10-27 product-pm: healthy, product queue gated (1.0.1168)
+NO-PR	-	claude/quirky-hopper-m0gxdj	2026-10-27	Claude	3/1	[NO-ACTION] 2026-10-27 product slot: queue still date/decision-gated
+NO-PR	-	main	2026-10-27	mctils12-arch	0/0	[NO-ACTION] 2026-10-27 daily-midday: healthy, queue gated (1.0.1168) (#1474)
+NO-PR	-	claude/beautiful-planck-tdh6y4	2026-10-26	Claude	12/1	[NO-ACTION] session log 2026-10-26 13:25Z PRODUCT slot (docs only)
+NO-PR	-	claude/lucid-keller-9za4qp	2026-10-26	Claude	10/1	[NO-ACTION] session log 2026-10-26 18:10Z product slot (docs only)
+NO-PR	-	claude/quirky-hopper-steqeq	2026-10-26	Claude	14/1	[NO-ACTION] session log 2026-10-26 00:10Z PRODUCT slot (docs only)
+NO-PR	-	claude/quirky-hopper-9yor6e	2026-10-25	Claude	20/1	[NO-ACTION] 2026-10-25 product session: FAA chart bake credential-gated, filed to wishlist (docs onl
+NO-PR	-	claude/beautiful-planck-a8nt2g	2026-10-24	Claude	23/1	[NO-ACTION] 2026-10-24 PRODUCT session log; mark SFDPS airway queue item done
+NO-PR	-	claude/beautiful-planck-giz4yz	2026-10-23	Claude	30/1	[NO-ACTION] 2026-10-23 AM product session log
+NO-PR	-	claude/lucid-keller-252zvq	2026-10-23	Claude	27/1	[NO-ACTION] 2026-10-23 mid-market PRODUCT session log
+NO-PR	-	claude/dazzling-planck-5hhy67	2026-10-20	Claude	87/1	[NO-ACTION] session log 2026-10-20 EDGE: nothing unblocked
+NO-PR	-	claude/quirky-hopper-uj6dy1	2026-10-18	Claude	102/1	[PIPELINE] Lazy Prices: PIT price panel build-first analysis -> wishlist (docs only)
+NO-PR	-	claude/quirky-hopper-1sty9s	2026-10-16	Claude	118/1	[NO-ACTION] Product session 2026-10-16: queue empty/time-gated, liveness alarm notified (docs only)
+NO-PR	-	claude/lucid-keller-rygd2q	2026-10-14	Claude	144/1	[NO-ACTION] PRODUCT session log: health green; product queue time-gated
+NO-PR	-	claude/beautiful-planck-x7m71w	2026-10-13	Claude	162/1	[RESEARCH] flightplan gate1 run14: first planHistory read, age prior not supported (docs/data only)
+NO-PR	-	claude/lucid-keller-7qlb2p	2026-10-09	Claude	190/1	[RESEARCH] flightplan gate-1: run 8, first hex-pooled live radial read (docs-only)
+NO-PR	-	claude/beautiful-planck-92q3w3	2026-10-08	Claude	197/1	[NO-ACTION] PRODUCT session 2026-10-08 13:15Z: health green, queue head time-gated
+NO-PR	-	claude/lucid-keller-cmfllp	2026-10-08	Claude	196/1	[NO-ACTION] scheduled PRODUCT session 2026-10-08 ~18:05Z: health green, radial decision awaits 20Z w
+NO-PR	-	claude/dazzling-planck-3d5ryx	2026-10-06	Claude	216/1	research: 2026-10-06 EDGE session [NO-ACTION] log entry
+NO-PR	-	claude/quirky-hopper-vcxo18	2026-10-05	Claude	223/1	research: [PIPELINE] flightplan gate-1 second sample pooled (2026-10-05)
+NO-PR	-	claude/lucid-keller-jwlo2y	2026-10-04	Claude	224/1	research: [NO-ACTION] PRODUCT session log 2026-10-04
+NO-PR	-	claude/quirky-hopper-8d7ph7	2026-10-03	Claude	234/1	[NO-ACTION] 2026-10-03 PRODUCT session: health green; file SID/STAR placement spec
+NO-PR	-	claude/lucid-keller-rr2xmt	2026-10-01	Claude	241/1	[PIPELINE] Filed-route gate-1 split by routeKind: direct-fix PASS (n=291, median 0.1 nm)
+NO-PR	-	claude/dazzling-planck-olnzzy	2026-09-30	Claude	254/1	[NO-ACTION] session log 2026-09-30 02:40Z: health green, gated roots waiting, foreign-field axis sat
+NO-PR	-	claude/quirky-hopper-2g3a9g	2026-09-29	Claude	261/1	log: [NO-ACTION] product session 2026-09-29 — all gate-2 roots clock-gated
+NO-PR	-	fixture-coverage-gap-22-layers	2026-09-28	Claude	279/1	product: close a 22-layer /data visual-verification fixture gap; fix a real shadowstats crash found 
+NO-PR	-	claude/microcap-cost-floor-revive-834	2026-08-26	Claude	524/1	research: microcap cost-floor + LULD halt-band pricing, reviving stale PR #834 (v1.0.791)
+NO-PR	-	claude/dazzling-planck-9xpdbd	2026-08-17	Claude	593/1	research: critical slowing down (ecology import) NOT SUPPORTED as forward-vol predictor; OpenSky rej
+NO-PR	-	claude/quirky-hopper-ynadqy	2026-08-11	Claude	708/1	pipeline: finra_short_volume GATE 2 retest — population-baseline + regime-split design PASSES its 
+NO-PR	-	claude/quirky-hopper-wnelsp	2026-08-08	Claude	728/1	pipeline: finra_short_volume GATE 2 retest — random baseline + regime split (v1.0.623)
+NO-PR	-	claude/lucid-keller-v0p1j2	2026-07-31	Claude	798/0	fix: my sky-mount threshold fired on the plane-click gesture; integrated-GPU tile retention; fatal-f
+NO-PR	-	claude/lucid-keller-7a31gv	2026-07-27	Claude	846/1	product: SEC MIDAS market-microstructure /data client view (v1.0.522)
+NO-PR	-	claude/lucid-keller-ob9hxo	2026-07-24	Claude	874/0	Docs: log a new create_pull_request 500 symptom, distinct from the tracked Actions outage
+NO-PR	-	claude/beautiful-planck-hdnfjw	2026-07-20	Claude	959/1	[REPAIR] Vessel/AIS archive silently dead ~14h+: heartbeat reconnect + stream-health observability (
+NO-PR	-	claude/dazzling-planck-q92lvp	2026-07-20	Claude	968/1	[PIPELINE] FDIC bank-financials v2: quarterly per-bank snapshot archive (v1.0.435)
+NO-PR	-	claude/beautiful-planck-od64g9	2026-07-19	Claude	977/1	GEM methane gate-2(b): per-asset repeat-detection count/rate stat (v1.0.416)
+NO-PR	-	claude/lucid-keller-3xgxpx	2026-07-19	Claude	976/2	research: confirm gate-2(b) visual harness result (A/A flake, not a regression)
+NO-PR	-	claude/dazzling-planck-8h76kt	2026-07-16	Claude	1032/1	PIPELINE: vessel identity resolution via IMO checksum over our own AIS archive (v1.0.353)
+NO-PR	-	claude/lucid-keller-slocuv	2026-07-16	Claude	1023/1	pipeline: wind-farm position verification vs real OSM turbine ground truth (v1.0.372)
+NO-PR	-	claude/lucid-keller-9tqupi	2026-07-15	Claude	1039/1	product: EARTH TWIN E2 v2 confidence half — GEBCO seafloor-mapping-confidence overlay (v1.0.340)
+NO-PR	-	claude/beautiful-planck-vz0ubi	2026-07-13	Claude	1060/1	product: PFAS drinking-water detections — Location Context Engine hazard layer #4 (v1.0.303)
+NO-PR	-	claude/dazzling-planck-sssexu	2026-07-13	Claude	1062/1	repair: KNOWN BROKEN #18 root cause found + fixed — shadowstats O(n^2) identity-candidate scan was
+NO-PR	-	claude/lucid-keller-eovgef	2026-07-13	Claude	1055/1	product: worldview-globe G2f — MODIS flood-water detection layer (v1.0.308)
+NO-PR	-	gridvision-pod-result-gv-div4-ks	2026-07-10	GRID VISION pod	1909/1	gridvision result: gv-div4-ks (train_rc=1)
+NO-PR	-	gridvision-pod-result-gv-div5-ks	2026-07-10	GRID VISION pod	1909/1	gridvision result: gv-div5-ks (train_rc=0)
+NO-PR	-	gridvision-pod-result	2026-07-09	gridvision-pod	1125/7	gridvision-pod-result-v1
+NO-PR	-	gv-res-div-az	2026-07-09	gridvision-pod	1125/18	gridvision-gv-div-az
+NO-PR	-	gv-res-div-ks	2026-07-09	gridvision-pod	1125/18	gridvision-gv-div-ks
+NO-PR	-	gv-res-div2-ks	2026-07-09	gridvision-pod	1125/23	gridvision-gv-div2-ks
+NO-PR	-	gv-res-eaug-az	2026-07-09	gridvision-pod	1125/17	gridvision-gv-eaug-az
+NO-PR	-	gv-res-eaug-ks	2026-07-09	gridvision-pod	1125/17	gridvision-gv-eaug-ks
+NO-PR	-	gv-res-g1a-az	2026-07-09	gridvision-pod	1125/11	gridvision-gv-g1a-az-r2
+NO-PR	-	gv-res-g1a-ks	2026-07-09	gridvision-pod	1125/11	gridvision-gv-g1a-ks-r2
+NO-PR	-	gv-res-g1d-s	2026-07-09	gridvision-pod	1125/11	gridvision-gv-g1d-s
+NO-PR	-	patch-12-strategy-key-alignment	2026-05-03	mctils12-arch	1476/0	fix(audit): align _infer_strategy keys with by_strategy dict [patch #12]
+NO-PR	-	backtest-pr71-10yr	2026-04-19	VolTradeAI Assistant	1548/5	backtest aggressive: 1728-config sweep, Pareto frontier identified
+NO-PR	-	fix/full-audit	2026-04-09	mctils12-arch	1701/0	fix: server-side audit — remove hardcoded keys, fix ML routes, input validation, session managemen
+NO-PR	-	data-backup	2026-04-05	VolTradeAI Bot	1801/2	Nightly backup 2026-04-05 04:37:10 — 8 files
+closed	1418	claude/beautiful-planck-o0wkor	2026-10-21	Claude	56/1	[PRODUCT] Bot page slice B: Watch panel — the last scan's names marked taken / blocked / not taken
+closed	1311	claude/eloquent-dijkstra-g5qtpk	2026-10-13	Claude	161/1	experiments: 2026-10-13 ~16:05Z [NO-ACTION] session log
+closed	1253	claude/funny-fermat-wdlgdr	2026-10-05	Claude	217/1	research: [PIPELINE] flightplan unplaced breakdown from live routeShape counters
+closed	1238	claude/eloquent-dijkstra-0x4jik	2026-10-03	Claude	231/2	research: 10-03 #4 update — gate-1 by routeKind: airway median 0 nm, rollback not hit
+closed	1186	claude/eloquent-dijkstra-3h0nhi	2026-09-27	Claude	281/1	research: re-diagnose STALE PR #817 re-queue item 1 (camera pole-crossing) — correct a mis-scoped 
+closed	1173	claude/beautiful-planck-5tw47l-furnace-units	2026-09-25	Claude	293/1	product: steel_units.json furnace-unit detail joined onto iron_steel_plants (v1.0.982)
+closed	1174	claude/eloquent-dijkstra-bqgxl3	2026-09-25	Claude	292/2	docs: session log for coal_terminals/iron_ore_mines/iron_steel_plants/chemicals visual-verification 
+closed	1092	claude/dazzling-planck-w4pcsa	2026-09-16	Claude	372/1	pipeline: edgar13f.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.916)
+closed	1038	claude/eloquent-dijkstra-zot6df	2026-09-09	Claude	424/1	repair: DD-halt visibility gap in Tier-2 scan handler + KNOWN BROKEN #42 re-investigation (v1.0.876)
+closed	999	claude/dazzling-planck-o6mzxz	2026-09-04	Claude	461/1	research: hazard-rate GATE 2 pooled idiosyncratic-onset follow-up (axis c/d), shipped and unit-teste
+closed	971	claude/beautiful-planck-x5431c	2026-08-31	Claude	488/1	product: OpenAPI response schemas gain the real v1Envelope shape + a hand-verified gnss-integrity-si
+closed	763	claude/lucid-keller-zftc8y	2026-08-20	Claude	571/1	docs: close superseded PR #763 (TIME MACHINE v2 T-1) — PROCESS GAP filed
+closed	834	claude/dazzling-planck-9dlpa6	2026-08-14	Claude	621/1	research: microcap cost-floor + LULD halt-band pricing for the illiquid MIN_PRICE/MIN_VOLUME thread 
+closed	794	claude/beautiful-planck-3b32bl	2026-08-12	Claude	658/1	product: submarine telecom/power cables — OSM ODbL raw overlay, corrected coverage number (v1.0.67
+closed	797	claude/eloquent-dijkstra-g82r0i	2026-08-12	Claude	655/2	docs: session log for the CSP $0-strike diagnostic fix (v1.0.684, PR #797)
+closed	767	claude/funny-fermat-16jzui	2026-08-11	Claude	687/1	research: TIER3-DIAG audit gains node uptime — distinguishes deploy-churn cache cold-start from a 
+closed	706	claude/eloquent-dijkstra-k128c1	2026-08-06	Claude	745/1	repair: fix OCC option-symbol parsing crash on adjusted-contract roots (v1.0.608)
+closed	707	claude/lucid-keller-eej0un	2026-08-06	Claude	745/1	product: macro regime series gets its /data UI (v1.0.608)
+closed	708	claude/funny-fermat-sdc1sx	2026-08-06	Claude	745/1	repair: CSP capital-check used wrong Alpaca field — acct.cash instead of acct.options_buying_power
+closed	638	claude/busy-fermi-v53jcs	2026-07-29	Claude	831/1	[REPAIR] KNOWN BROKEN #27: fix options sizer using blended overall Kelly bucket instead of +EV csp_o
+closed	640	claude/beautiful-planck-cwqv80	2026-07-29	Claude	826/2	docs: record visual-harness result for v1.0.538 (0 hard failures, no new warnings)
+closed	604	claude/beautiful-planck-odhs6x	2026-07-25	Claude	868/2	Docs: PR #604 opened successfully after advancing branch tip -- root cause was a stale ref on the ol
+closed	449	claude/palantir-platform-comparison-5wfrov	2026-07-12	Claude	1082/1	product: /api/v1/agent-tools — expose the data API as LLM/agent tool defs (v1.0.284)
+closed	415	claude/dazzling-planck-g1d293	2026-07-10	Claude	1109/3	research + version bump: log the gv-div4-ks orphan-pod + train_rc=1 repair (v1.0.262)
+closed	399	claude/busy-fermi-z6u5a9	2026-07-09	Claude	1123/1	globe: G2f MODIS flood/water-extent GIBS layer (v1.0.237)
+closed	420	claude/satellite-loading-perf-qaco5f	2026-07-09	Claude	1118/1	orbital: fix satellite layer "still retrying automatically…" — CSV fetch + res.ok (v1.0.252)
+closed	379	claude/globe-3d-terrain	2026-07-08	Claude	1142/1	globe: real 3D terrain relief (worldview-globe UI upgrade, step 1)
+closed	303	claude/quirky-hopper-932s7z	2026-07-07	mctils12-arch	1213/0	docs(research): verify confirmations for v1.0.167/168/169 — streams inventory + R14 packaging fix 
+closed	343	claude/eloquent-dijkstra-ngf8ct	2026-07-07	Claude	1177/1	[REPAIR] Audit manipulation-scan Tier-3 failures (KNOWN BROKEN #14, v1.0.194)
+closed	350	claude/lucid-keller-4o6t07	2026-07-07	Claude	1170/1	feat(console): W2 client half — satellite orbits map layer, SGP4 propagation (v1.0.199)
+closed	134	claude/dazzling-planck-64joy2	2026-07-04	Claude	1383/1	feat(pipeline): CFTC Commitments of Traders — free positioning-data pipeline (v1.0.58)
+closed	77	fix/tier2-full-scan-oom	2026-04-20	Claude Agent	1546/1	fix(tier2): gate inline ML retrain behind env var to stop full-scan SIGKILLs
+merged	1472	claude/dazzling-planck-v9uz3p	2026-10-27	Claude	3/1	[NO-ACTION] 2026-10-27 EDGE-DOCTRINE axis pick: gated, nothing startable (1.0.1168)
+merged	1473	claude/busy-fermi-29h7e1	2026-10-27	Claude	2/1	[NO-ACTION] 2026-10-27 daily-am: healthy, queue gated (1.0.1168)
+merged	1474	claude/eloquent-dijkstra-cl15t9	2026-10-27	Claude	1/1	[NO-ACTION] 2026-10-27 daily-midday: healthy, queue gated (1.0.1168)
+merged	807	claude/design-claude-implementation-ako7pb	2026-10-27	Claude	0/1	[RULE-REVIEW] New probe shadow_bands_dedup: one first-seen record per (ticker, ET entry day)
+merged	1460	claude/dazzling-planck-5xmbht	2026-10-26	Claude	14/1	[NO-ACTION] session log 2026-10-26 EDGE-DOCTRINE pick (docs only)
+merged	1461	claude/busy-fermi-c4scou	2026-10-26	Claude	13/1	[NO-ACTION] session log 2026-10-26 11:15Z daily-am (docs only)
+merged	1462	claude/eloquent-dijkstra-2xiepg	2026-10-26	Claude	12/1	[NO-ACTION] session log 2026-10-26 16:10Z market-hours (docs only)
+merged	1471	claude/zen-maxwell-yfhumd	2026-10-26	Claude	3/24	Reconcile branch with its pre-squash history (PR #1471 content already on main; tree unchanged)
+merged	1454	claude/dazzling-planck-bt7e03	2026-10-25	Claude	20/1	[NO-ACTION] session log 2026-10-25 (docs only)
+merged	1455	claude/busy-fermi-5tsxna	2026-10-25	Claude	19/1	[NO-ACTION] session log 2026-10-25 11:10Z (docs only)
+merged	1456	claude/beautiful-planck-kfa91r	2026-10-25	Claude	18/1	[NO-ACTION] session log 2026-10-25 13:00Z PRODUCT slot (docs only)
+merged	1457	claude/eloquent-dijkstra-harjxf	2026-10-25	Claude	17/1	[NO-ACTION] session log 2026-10-25 16:10Z (docs only)
+merged	1458	claude/lucid-keller-1hrlyd	2026-10-25	Claude	16/1	[NO-ACTION] session log 2026-10-25 18:00Z PRODUCT slot (docs only)
+merged	1459	claude/funny-fermat-mgh6i9	2026-10-25	Claude	15/1	[NO-ACTION] session log 2026-10-25 21:00Z (docs only)
+merged	1448	claude/quirky-hopper-i1uy9k	2026-10-24	Claude	26/2	Re-pin counters moved by the look-up ledger tests (tests 616->617, assertions 21814->21839)
+merged	1449	claude/dazzling-planck-s37kag	2026-10-24	Claude	25/1	[NO-ACTION] 2026-10-24 EDGE-DOCTRINE axis-pick session log
+merged	1450	claude/busy-fermi-nggmog	2026-10-24	Claude	24/1	[REPAIR] Bot page useFlip: measure slots in scroll-host content coordinates (v1.0.1157)
+merged	1451	claude/eloquent-dijkstra-av1b4z	2026-10-24	Claude	23/2	[REPAIR] Reword comment so order_post_sites counter stays at 6 (KB #46)
+merged	1452	claude/lucid-keller-e2itqt	2026-10-24	Claude	22/1	[PRODUCT] Look-up card: ledger line — past look-ups with this verdict, +5d vs SPY, thin buckets fl
+merged	1453	claude/funny-fermat-7tcnud	2026-10-24	Claude	21/1	[NO-ACTION] session log 2026-10-24 20:20Z (docs only)
+merged	1441	claude/quirky-hopper-nkyx3r	2026-10-23	Claude	33/1	[PRODUCT] keyed /api/v1/data/rail-traffic mirror (v1.0.1152)
+merged	1442	claude/dazzling-planck-m9hdke	2026-10-23	Claude	32/1	[REPAIR] raw rail-traffic gate note states the 2026-09-28 gate-2 rejection (v1.0.1153)
+merged	1443	claude/busy-fermi-tn7h7o	2026-10-23	Claude	31/1	[NO-ACTION] 2026-10-23 AM daily health session log
+merged	1444	claude/eloquent-dijkstra-8lcsw8	2026-10-23	Claude	30/1	[NO-ACTION] 2026-10-23 midday daily session log
+merged	1447	claude/funny-fermat-i5ti2d	2026-10-23	Claude	27/1	[NO-ACTION] 2026-10-23 after-close daily session log
+merged	1427	claude/quirky-hopper-l2gy2o	2026-10-22	Claude	47/1	[PIPELINE] Judged the v1.0.1130 index-chain pin live: SPY/QQQ/IWM series starts 2026-10-21 (docs onl
+merged	1428	claude/dazzling-planck-rvx8bm	2026-10-22	Claude	46/1	[NO-ACTION] session log: all four edge-doctrine axes date- or decision-gated; deploy stall persists 
+merged	1429	claude/busy-fermi-3sjrrm	2026-10-22	Claude	45/1	[NO-ACTION] session log: health ok, deploy stall unchanged, queue date/decision-gated (docs only)
+merged	1430	claude/beautiful-planck-ed2e7x	2026-10-22	Claude	44/1	[PRODUCT] keyed /api/v1/data/dts mirror (v1.0.1142)
+merged	1434	claude/eloquent-dijkstra-x5fdxz	2026-10-22	Claude	40/1	[NO-ACTION] session log: deploy stall resolved (live 1.0.1144), health ok, queue gated (docs only)
+merged	1438	claude/lucid-keller-1u09pg	2026-10-22	Claude	36/1	[PRODUCT] keyed /api/v1/data/border-waits mirror (v1.0.1149)
+merged	1440	claude/funny-fermat-1wgosq	2026-10-22	Claude	34/1	[PRODUCT] keyed /api/v1/data/fmcsa-oos mirror (v1.0.1151)
+merged	1412	claude/quirky-hopper-8b2txh	2026-10-21	Claude	61/1	[PRODUCT] keyed /api/v1/data/treasury-auctions mirror (v1.0.1132)
+merged	1413	claude/dazzling-planck-shrzfw	2026-10-21	Claude	60/1	[RESEARCH] COT carry OOS check: USO extreme_high never occurred since 2026-07-08 — untestable, rea
+merged	1414	claude/busy-fermi-qvb14p	2026-10-21	Claude	59/1	[RULE-REVIEW] Sleeve ledger: options hold-time buckets per close month (v1.0.1134)
+merged	1425	claude/lucid-keller-6sdu0d	2026-10-21	Claude	49/1	[PRODUCT] keyed /api/v1/data/tff mirror (v1.0.1141)
+merged	1426	claude/funny-fermat-vuzqqn	2026-10-21	Claude	48/1	[NO-ACTION] session log: health ok, deploy stall (live 1.0.1133 vs main 1.0.1141) is Railway GitHub 
+merged	1385	claude/quirky-hopper-m0i7ra	2026-10-20	Claude	88/1	[PRODUCT] /data clinical-trial date-drift view + clinical_trials layer (v1.0.1113)
+merged	1386	claude/busy-fermi-gdwmzm	2026-10-20	Claude	87/1	[NO-ACTION] session log 2026-10-20 AM routine
+merged	1387	claude/beautiful-planck-0xkark	2026-10-20	Claude	86/1	[PRODUCT] keyed /api/v1/data/clinical-trials mirror (v1.0.1114)
+merged	1388	claude/eloquent-dijkstra-e1zojj	2026-10-20	Claude	85/1	[NO-ACTION] session log 2026-10-20 midday routine
+merged	1393	claude/lucid-keller-fek9or	2026-10-20	Claude	80/1	[PRODUCT] keyed /api/v1/data/fda-events mirror (v1.0.1119)
+merged	1397	claude/funny-fermat-zhtfr9	2026-10-20	Claude	76/1	[NO-ACTION] session log 2026-10-20 16:15 ET: deploy stall flagged (live 1.0.1114 vs main 1.0.1122)
+merged	1377	claude/quirky-hopper-h4o4p9	2026-10-19	Claude	96/1	[PIPELINE] GNSS live signal reads the permanent daily fold for days missing locally (v1.0.1101)
+merged	1378	claude/dazzling-planck-5zozbw	2026-10-19	Claude	95/2	[PIPELINE] clinicalTrials: type the registry response, log gzip failures (counter ratchet)
+merged	1379	claude/busy-fermi-swbpnu	2026-10-19	Claude	94/1	[NO-ACTION] scheduled routine 2026-10-19 AM: system healthy, log only
+merged	1380	claude/beautiful-planck-3tshmf	2026-10-19	Claude	93/1	[PIPELINE] ClinicalTrials sponsor->ticker join with SIC sector lock (v1.0.1103)
+merged	1381	claude/eloquent-dijkstra-spjy0s	2026-10-19	Claude	92/1	[NO-ACTION] scheduled routine 2026-10-19 midday: system healthy, log only
+merged	1382	ccr-bafbe08e-0eqknl	2026-10-19	Claude	91/15	research: session log for the cockpit repairs and the bot page v2; stocks-bucket learning deadlock f
+merged	1383	claude/lucid-keller-0turlf	2026-10-19	Claude	90/2	[REPAIR] annotateWithTicker accepts null sponsor (fixes tsc ratchet TS2345)
+merged	1384	claude/funny-fermat-g7ch2z	2026-10-19	Claude	89/1	[NO-ACTION] session log 2026-10-19 slot #3
+merged	1371	claude/dazzling-planck-rordkz	2026-10-18	Claude	102/1	[NO-ACTION] scheduled EDGE routine 2026-10-18: nothing unblocked, log only
+merged	1372	claude/busy-fermi-ffi8tc	2026-10-18	Claude	101/1	[NO-ACTION] scheduled routine 2026-10-18 (Sun): system healthy, log only
+merged	1373	claude/beautiful-planck-o8qt3g	2026-10-18	Claude	100/1	[PIPELINE] Lazy Prices PR 3: gate-2 quintile-sort harness, synthetic-tested, pre-registered (v1.0.11
+merged	1374	claude/eloquent-dijkstra-12zx9r	2026-10-18	Claude	99/1	[NO-ACTION] scheduled routine 2026-10-18 #2: system healthy, log only
+merged	1375	claude/lucid-keller-dy87ze	2026-10-18	Claude	98/1	[PIPELINE] Lazy Prices: file PIT price-panel requirement with build-first analysis (docs only)
+merged	1376	claude/funny-fermat-m4drm8	2026-10-18	Claude	97/1	[NO-ACTION] scheduled routine 2026-10-18 #3: system healthy, log only
+merged	1364	claude/quirky-hopper-es20cv	2026-10-17	Claude	109/2	[PIPELINE] Lazy Prices PR 2d: log unreadable sections files instead of silent skip (counter ratchet)
+merged	1365	claude/dazzling-planck-h508e0	2026-10-17	Claude	108/1	[PIPELINE] Lazy Prices PR 2e: TF-IDF cosine variant + measurement (v1.0.1095)
+merged	1366	claude/busy-fermi-71s8sz	2026-10-17	Claude	107/1	[REPAIR] STALENESS AUDIT: remove 7 unused npm deps (v1.0.1096)
+merged	1367	claude/beautiful-planck-v9ize1	2026-10-17	Claude	106/1	[PIPELINE] Lazy Prices PR 2f: point-in-time idf for gate-2-safe tfidf cosine (v1.0.1097)
+merged	1368	claude/eloquent-dijkstra-ss0d47	2026-10-17	Claude	105/1	[REPAIR] tsc ratchet 11 -> 8: type QueuedTrade/signals to match fields already read (v1.0.1098)
+merged	1369	claude/lucid-keller-2hf2x4	2026-10-17	Claude	104/1	[PIPELINE] Lazy Prices PR 2g(i): min-corpus floor on point-in-time idf (v1.0.1099)
+merged	1370	claude/funny-fermat-3uxdxh	2026-10-17	Claude	103/1	[NO-ACTION] scheduled routine 2026-10-17: system healthy, log only
+merged	1357	claude/dazzling-planck-s8mu7v	2026-10-16	Claude	116/1	[REPAIR] Health payload names the kill-latch kind; liveness alarm line states the cause (v1.0.1089)
+merged	1359	claude/busy-fermi-lcd894	2026-10-16	Claude	114/1	[RESEARCH] QQQ/GLD intraday round-trip churn measured: real but economically trivial (docs only)
+merged	1360	claude/beautiful-planck-wcshc6	2026-10-16	Claude	113/1	[PIPELINE] Lazy Prices PR 2a: point-in-time filer universe from EDGAR form.idx (v1.0.1091)
+merged	1361	claude/eloquent-dijkstra-abov2v	2026-10-16	Claude	112/1	[NO-ACTION] Liveness alarm persists (26.6h), drawdown-kill latch, auto-resume pending (docs only)
+merged	1362	claude/lucid-keller-eyhfol	2026-10-16	Claude	111/1	[PIPELINE] Lazy Prices PR 2b: operating-vs-vehicle filer classifier + clean survivorship figure (v1.
+merged	1363	claude/funny-fermat-rjukuo	2026-10-16	Claude	110/1	[PIPELINE] Lazy Prices PR 2c: year-over-year section similarity (cosine-TF, Jaccard) (v1.0.1093)
+merged	1347	claude/quirky-hopper-hrbtc3	2026-10-15	Claude	125/2	Merge main into C2a; re-version to 1.0.1084
+merged	1349	claude/dazzling-planck-1f2b0o	2026-10-15	Claude	123/1	[NO-ACTION] Edge session 2026-10-15: all doctrine axes gated/blocked/compiled (docs only)
+merged	1351	claude/busy-fermi-tvqdpc	2026-10-15	Claude	121/1	[REPAIR] KB #45: CSP earnings gate fails closed (non-200/missing-key lookup, same-day dates, exclude
+merged	1352	claude/beautiful-planck-9456tx	2026-10-15	Claude	120/1	[PIPELINE] SWIM plan first-seen/amendment history persisted across restarts (v1.0.1086)
+merged	1353	claude/eloquent-dijkstra-atakbc	2026-10-15	Claude	119/1	[NO-ACTION] Routine 2026-10-15 midday: kill-switch liveness alarm observed, cause unconfirmed (docs 
+merged	1321	claude/quirky-hopper-q3q62c	2026-10-14	Claude	151/1	[PRODUCT] diag sanitizer: Unicode-aware email redaction (v1.0.1063)
+merged	1322	claude/dazzling-planck-h0iuq5	2026-10-14	Claude	150/1	[RESEARCH] Kuramoto sector-ETF phase synchronization probe: GATE 2 clean negative (foreign-field axi
+merged	1323	claude/busy-fermi-cmtnr4	2026-10-14	Claude	149/1	[NO-ACTION] session log: health green; queue head time-gated to 10-16
+merged	1324	claude/beautiful-planck-uaahqc	2026-10-14	Claude	148/1	[NO-ACTION] PRODUCT session log: health green; product queue time-gated
+merged	1325	ccr-d10290e6-vrwrtf	2026-10-14	mctils12-arch	142/0	[REPAIR] Fill airport-surface coverage gaps from adsb.fi (CLT: 0 → 12 ground aircraft) (v1.0.1068)
+merged	1326	claude/eloquent-dijkstra-v1k2p3	2026-10-14	Claude	146/1	[NO-ACTION] session log: health green; queue still time-gated to 10-16
+merged	1334	claude/funny-fermat-b8t6ub	2026-10-14	Claude	139/1	[NO-ACTION] Session log 2026-10-14 ~20:20Z: health green, queue time-gated to 10-16
+merged	1303	claude/quirky-hopper-0n68vx	2026-10-13	Claude	168/1	[RESEARCH] flightplan cross-track tail is general en-route, not 60-150nm/vectoring (docs only)
+merged	1304	claude/dazzling-planck-hqfew1	2026-10-13	Claude	167/1	[RESEARCH] flightplan gate1: compiled tail-by-amendment/age/kind diagnosis + run13 (tooling/docs onl
+merged	1308	claude/busy-fermi-5uxfc9	2026-10-13	Claude	163/1	[PIPELINE] flight-plan responses expose planHistory (amendments, first-seen, SWIM time) (v1.0.1053)
+merged	1319	claude/lucid-keller-dkdevv	2026-10-13	Claude	153/1	[RESEARCH] flightplan run 14: planHistory live, plan-age censored by container uptime (docs+data)
+merged	1320	claude/funny-fermat-5uict3	2026-10-13	Claude	152/1	[NO-ACTION] session log: health green; shadow-band step (a) data not yet mature
+merged	1296	claude/quirky-hopper-3n75jd	2026-10-12	Claude	175/2	[REPAIR] snapshotStreams: type stamp() param instead of any (counter_ratchet ts_any/boundary_any)
+merged	1297	claude/dazzling-planck-4a7nqc	2026-10-12	Claude	174/1	[PIPELINE] bundled snapshots refreshed; snapshot_refresh.py one-command refresher + staleness flag (
+merged	1298	claude/busy-fermi-aqs1zb	2026-10-12	Claude	173/1	experiments: 2026-10-12 ~11:05Z [NO-ACTION] session log
+merged	1299	claude/beautiful-planck-tpkcr7	2026-10-12	Claude	172/2	[PRODUCT] streams inventory: drop commented empty catch (counter ratchet)
+merged	1300	claude/eloquent-dijkstra-4df9rs	2026-10-12	Claude	171/1	[REPAIR] ADS-B sweep: hard deadline so one hung request cannot wedge the loop (v1.0.1049)
+merged	1301	claude/lucid-keller-miaa5v	2026-10-12	Claude	170/1	[RESEARCH] flightplan live radial run 12 (first weekday run) + pooled n=155 (docs/data only)
+merged	1302	claude/noaction-2026-10-12-2017	2026-10-12	Claude	169/1	experiments: 2026-10-12 ~20:17Z [NO-ACTION] session log
+merged	1289	claude/quirky-hopper-v5l9hy	2026-10-11	Claude	182/1	[RESEARCH] flightplan live radial run 11 + n>=100 pooled decision (docs/data only)
+merged	1290	claude/dazzling-planck-ae1q09	2026-10-11	Claude	181/2	[PIPELINE] sentinel2_refresh: narrow exception handlers (silent_py_handlers ratchet)
+merged	1291	claude/busy-fermi-yopg2n	2026-10-11	Claude	180/1	experiments: 2026-10-11 [NO-ACTION] session log
+merged	1292	claude/beautiful-planck-wijd63	2026-10-11	Claude	179/1	[REPAIR] freshness: done-marker/index sentinels no longer masquerade as newest data file (v1.0.1043)
+merged	1293	claude/eloquent-dijkstra-af7dka	2026-10-11	Claude	178/1	experiments: 2026-10-11 ~16:03Z [NO-ACTION] session log
+merged	1294	claude/lucid-keller-217hux	2026-10-11	Claude	177/3	[REPAIR] derivedSnapshot: honor DATA_DIR explicitly (durability ratchet)
+merged	1295	claude/funny-fermat-53tw60	2026-10-11	Claude	176/2	[REPAIR] counter ratchet: shutdown catch handlers log instead of commented-empty/any (v1.0.1045)
+merged	1282	claude/quirky-hopper-snwdyq	2026-10-10	Claude	189/1	[RESEARCH] flightplan live radial run 8 + port_dwell_weekly weeks 11-13 (docs/data only)
+merged	1283	claude/dazzling-planck-2idtpy	2026-10-10	Claude	188/1	[RULE-REVIEW] fix GNSS x ITA probe readiness trigger: 15d -> 128d to match pre-registered de-strided
+merged	1284	claude/busy-fermi-la8yy0	2026-10-10	Claude	187/1	[NO-ACTION] session log 2026-10-10 ~11:05Z
+merged	1285	claude/beautiful-planck-mr2m0g	2026-10-10	Claude	186/1	[RESEARCH] flightplan live radial run 9 (morning window) + experiments log (docs/data only)
+merged	1286	claude/eloquent-dijkstra-tn1c46	2026-10-10	Claude	185/1	[NO-ACTION] session log 2026-10-10 ~16:03Z
+merged	1287	claude/lucid-keller-vus3uq	2026-10-10	Claude	184/1	[RESEARCH] flightplan live radial run 10 (afternoon window) + experiments log (docs/data only)
+merged	1288	claude/funny-fermat-k5689c	2026-10-10	Claude	183/1	[NO-ACTION] session log 2026-10-10 ~20:16Z
+merged	1276	claude/quirky-hopper-idxret	2026-10-09	Claude	195/1	[RESEARCH] flightplan gate-1: radial shadow read, run 5 (hex-saved, docs-only)
+merged	1277	claude/dazzling-planck-vhotjv	2026-10-09	Claude	194/1	[RESEARCH] flightplan gate-1: radial shadow read, run 6 — n>=100 bar cleared (docs-only)
+merged	1278	claude/busy-fermi-mjnqkb	2026-10-09	Claude	193/1	[PIPELINE] flightplan: wire routeKind radial into placement (v1.0.1039)
+merged	1279	claude/beautiful-planck-yxpq15	2026-10-09	Claude	192/1	[RESEARCH] flightplan: live radial honesty check passes, run 7 (docs-only)
+merged	1280	claude/eloquent-dijkstra-r26bve	2026-10-09	Claude	191/1	[PIPELINE] flightplan gate-1: emit and pool live radial samples by hex (v1.0.1040)
+merged	1281	claude/funny-fermat-8w7t15	2026-10-09	Claude	190/1	[NO-ACTION] session log 2026-10-09 ~20:20Z
+merged	1271	claude/quirky-hopper-wt42ii	2026-10-08	Claude	200/1	[RESEARCH] flightplan gate-1: radial shadow read, run 2 (docs-only)
+merged	1272	claude/dazzling-planck-zdlfbj	2026-10-08	Claude	199/1	flightplan gate-1: hex-deduped pooling for the radial decision (v1.0.1038)
+merged	1273	claude/busy-fermi-ao0um6	2026-10-08	Claude	198/1	[RESEARCH] flightplan gate-1: radial shadow read, run 3 (first hex-saved, docs-only)
+merged	1274	claude/eloquent-dijkstra-p7e25o	2026-10-08	Claude	197/1	[NO-ACTION] scheduled session 2026-10-08 ~16:04Z: health green, queue time-gated
+merged	1275	claude/funny-fermat-eteg2d	2026-10-08	Claude	196/1	[RESEARCH] flightplan gate-1: radial shadow read, run 4 (hex-saved, docs-only)
+merged	1264	claude/quirky-hopper-bafvx1	2026-10-07	Claude	207/1	flightplan gate-1: report-only fewFixes profile counters (v1.0.1034)
+merged	1265	claude/dazzling-planck-pit1t8	2026-10-07	Claude	206/1	research: [PIPELINE] fewFixesProfile read live; radial resolver is the lever, lat/lon refuted (docs-
+merged	1266	claude/busy-fermi-s6r4zv	2026-10-07	Claude	205/1	flightplan gate-1: emit NASR navaid magVar for radial resolver (v1.0.1035)
+merged	1267	claude/beautiful-planck-uzf4my	2026-10-07	Claude	204/1	flightplan gate-1: radial-token resolver, shadow-only with counters (v1.0.1036)
+merged	1268	claude/eloquent-dijkstra-f9jro4	2026-10-07	Claude	203/1	research: [NO-ACTION] session log 2026-10-07 midday (health green, queue time-gated)
+merged	1269	claude/lucid-keller-zggmse	2026-10-07	Claude	202/1	flightplan gate-1: report-only radial-shadow cross-track for the harness (v1.0.1037)
+merged	1270	claude/funny-fermat-n6e0ex	2026-10-07	Claude	201/1	[RESEARCH] flightplan gate-1: radial shadow read, run 1 (docs-only)
+merged	1254	claude/quirky-hopper-if92ts	2026-10-06	Claude	217/1	[PIPELINE] flightplan: report-only unplaced-route reason counters (v1.0.1028)
+merged	1255	claude/busy-fermi-s0lxnf	2026-10-06	Claude	216/1	research: [PIPELINE] flightplan gate-1 unplaced-reason readout (fewFixes 72.5%)
+merged	1256	claude/beautiful-planck-s4q8c4	2026-10-06	Claude	215/1	[PIPELINE] flightplan gate-1: report-only unresolved-token census (v1.0.1029)
+merged	1259	claude/eloquent-dijkstra-naddiy	2026-10-06	Claude	212/1	research: [NO-ACTION] session log 2026-10-06 (DD-halt release verified live)
+merged	1261	claude/lucid-keller-38vqwn	2026-10-06	Claude	210/3	research: [PIPELINE] endpoint-aerodrome placement refuted by honesty contract — revert, log census
+merged	1262	claude/funny-fermat-pu05iz	2026-10-06	Claude	209/1	research: [NO-ACTION] session log 2026-10-06 evening (health green, shadow-band chain time-gated)
+merged	1263	claude/determined-davinci-4z55d6	2026-10-06	Claude	208/99	requirements-dev: declare boto3/botocore used by the FAA chart publish step
+merged	1247	claude/dazzling-planck-tpn4h2	2026-10-05	Claude	223/1	research: [NO-ACTION] session log 2026-10-05
+merged	1248	claude/busy-fermi-ezdqme	2026-10-05	Claude	222/1	research: [NO-ACTION] session log 2026-10-05 #2
+merged	1249	claude/beautiful-planck-nhggk1	2026-10-05	Claude	221/1	research: [PIPELINE] flightplan gate-1 re-run 2026-10-05 (n=6, too small to pool; yield varies with 
+merged	1250	claude/eloquent-dijkstra-bu8xtm	2026-10-05	Claude	220/1	research: [PIPELINE] flightplan gate-1 afternoon re-run 2026-10-05 (n=387, median 0 nm)
+merged	1252	claude/lucid-keller-lpkx9a	2026-10-05	Claude	218/2	research: put STARVED flag at line start so the state-check parser reads it
+merged	1241	claude/quirky-hopper-gy6ab9	2026-10-04	Claude	229/1	[PIPELINE] refresh NASR fixes/navaids to 2026-10-01 cycle (v1.0.1022)
+merged	1242	claude/dazzling-planck-5tv69l	2026-10-04	Claude	228/1	[PIPELINE] compile NASR 28-day refresh into scripts/refresh_nasr.py (v1.0.1023)
+merged	1243	claude/busy-fermi-163flt	2026-10-04	Claude	227/2	research: put STARVED flag at line start so state-check parser reads it
+merged	1244	claude/beautiful-planck-4uksld	2026-10-04	Claude	226/1	[PIPELINE] flightplan gate-1: split cross-track by distance-to-destination band (v1.0.1025)
+merged	1245	claude/eloquent-dijkstra-lhvcj2	2026-10-04	Claude	225/1	research: [NO-ACTION] session log 2026-10-04
+merged	1246	claude/funny-fermat-i54bm3	2026-10-04	Claude	224/1	research: [NO-ACTION] session log 2026-10-04 #2
+merged	1235	claude/dazzling-planck-wdqzct	2026-10-03	Claude	234/1	research: [NO-ACTION] session log 2026-10-03
+merged	1236	claude/busy-fermi-c08cms	2026-10-03	Claude	233/1	research: [NO-ACTION] session log 2026-10-03 #2
+merged	1237	claude/beautiful-planck-kmdlko	2026-10-03	Claude	232/1	[REPAIR] stage nasr_airways.json into dist/ (airway expansion was dead on prod) + ratchet path.join 
+merged	1239	claude/lucid-keller-qj6w5g	2026-10-03	Claude	231/1	research: [PIPELINE] post-deploy verification of v1.0.1021 airway staging (gate-1 split by routeKind
+merged	1240	claude/funny-fermat-xkce9w	2026-10-03	Claude	230/1	research: [NO-ACTION] session log 2026-10-03 #5
+merged	1229	claude/quirky-hopper-kdk7kg	2026-10-02	Claude	240/1	[PIPELINE] 8-K earnings-language gate-2 re-run: PASS mechanical, robustness FRAGILE, not promoted (v
+merged	1230	claude/dazzling-planck-1hw4qw	2026-10-02	Claude	239/1	[PIPELINE] Filed-route gate-1 split by routeKind: direct-fix PASS, rollback trigger not hit
+merged	1231	claude/busy-fermi-dzheq4	2026-10-02	Claude	238/1	[NO-ACTION] 2026-10-02 session #2 log: health green, queue unchanged
+merged	1232	claude/beautiful-planck-2p7izt	2026-10-02	Claude	237/1	[NO-ACTION] 2026-10-02 PRODUCT session #3: OFF_PLAN for placed plans already live; coverage gap note
+merged	1233	claude/eloquent-dijkstra-rzun8e	2026-10-02	Claude	236/1	[NO-ACTION] 2026-10-02 session log: health green, queue unchanged
+merged	1234	claude/funny-fermat-ignrtl	2026-10-02	Claude	235/1	research: [NO-ACTION] session log 2026-10-02 #3
+merged	1223	claude/quirky-hopper-afjpgi	2026-10-01	Claude	246/1	[PIPELINE] Filed-route vs ADS-B cross-track gate-1 script + result (median 0.1 nm, PASS)
+merged	1224	claude/dazzling-planck-jkir3n	2026-10-01	Claude	245/1	[NO-ACTION] 2026-10-01 scheduled session log: health green, no matured gate
+merged	1225	claude/busy-fermi-8ffgjh	2026-10-01	Claude	244/1	trips: per-hour-file id Bloom filter skips non-matching archive files (v1.0.1018)
+merged	1226	claude/beautiful-planck-eay77l	2026-10-01	Claude	243/1	[PIPELINE] Expose filed routeKind on plan response; gate-1 splits by kind (v1.0.1019)
+merged	1227	claude/eloquent-dijkstra-6emkny	2026-10-01	Claude	242/1	[NO-ACTION] 2026-10-01 session #2 log: health green, v1.0.1018 trips bloom verified live
+merged	1228	claude/funny-fermat-es4n69	2026-10-01	Claude	241/1	[NO-ACTION] 2026-10-01 session #3 log: health green, queue unchanged
+merged	1214	claude/quirky-hopper-suxe0w	2026-09-30	Claude	255/2	repair: navFixes catch uses unknown, not any (counter ratchet ts_any)
+merged	1217	claude/busy-fermi-74rtf4	2026-09-30	Claude	252/1	repair: /analyze no longer fabricates implied vol (v1.0.1010)
+merged	1218	claude/beautiful-planck-z0h5rq	2026-09-30	Claude	251/1	[PIPELINE] SFDPS airway expansion of filed route text from NASR AWY_BASE (v1.0.1011)
+merged	1219	claude/eloquent-dijkstra-wbk4fz	2026-09-30	Claude	250/1	repair: instrument_selector no longer fabricates IV for crush score (v1.0.1012)
+merged	1221	claude/funny-fermat-bybdqn	2026-09-30	Claude	248/2	fix: reuse EARTH_RADIUS_NM instead of restating the literal (dup_precise_literal ratchet)
+merged	1208	claude/dazzling-planck-3cxvfv	2026-09-29	Claude	261/1	docs: 2026-09-29 [NO-ACTION] EDGE session log — all doctrine axes blocked or duplicative, auto-res
+merged	1209	claude/busy-fermi-xf49x9	2026-09-29	Claude	260/1	[NO-ACTION] session log 2026-09-29 11:10Z: health unchanged, queue empty
+merged	1210	claude/beautiful-planck-61aa51	2026-09-29	Claude	259/1	repair: FILED plans with no parsed route fixes no longer report OFF_PLAN (v1.0.1005)
+merged	1211	claude/eloquent-dijkstra-k5hg1z	2026-09-29	Claude	258/1	[NO-ACTION] session log 2026-09-29 16:05Z: loop recovered, DD-HALT latch by design
+merged	1212	claude/lucid-keller-xos9z6	2026-09-29	Claude	257/2	research: link route-shape sampler status to the SFDPS routePoints open question
+merged	1213	claude/funny-fermat-8rj78r	2026-09-29	Claude	256/1	[NO-ACTION] session log 2026-09-29 20:16Z: health green, queue empty
+merged	1189	claude/beautiful-planck-z6r14g	2026-09-28	Claude	279/1	product: close a 22-layer /data visual-verification fixture gap; fix a real shadowstats crash found 
+merged	1190	claude/quirky-hopper-rn5jat	2026-09-28	Claude	278/2	Merge main into claude/quirky-hopper-rn5jat, resolve version + log conflict
+merged	1191	claude/dazzling-planck-nvzljd	2026-09-28	Claude	277/1	pipeline: D15 duplicate_route_registration detector ships, baseline 0 (v1.0.993)
+merged	1192	claude/busy-fermi-pvuacm	2026-09-28	Claude	276/1	pipeline: FMCSA Out-of-Service orders ships as a new RAW EDGE DOCTRINE root, axis (a) found via live
+merged	1194	claude/beautiful-planck-bu08gk	2026-09-28	Claude	274/1	docs: log PR #1193's mid-market auto-merge as another confirmed occurrence of the tracked automerge 
+merged	1199	claude/eloquent-dijkstra-eaajp3	2026-09-28	Claude	270/1	docs: log PR #1198's mid-market auto-merge as another confirmed occurrence of the tracked automerge 
+merged	1201	claude/lucid-keller-9pfqvu	2026-09-28	Claude	268/1	docs: log PR #1200's mid-market auto-merge as another confirmed occurrence of the tracked automerge 
+merged	1203	claude/funny-fermat-mjlbe4	2026-09-28	Claude	265/1	Fix Analyze Div. Yield shown 100x (derive from rate/price)
+merged	1183	claude/quirky-hopper-s93lfz	2026-09-27	Claude	284/1	research: BUILD-FIRST analysis resolves the GEM oil_ngl_pipelines/gas_pipelines "still blocked" loop
+merged	1184	claude/dazzling-planck-25hp7e	2026-09-27	Claude	283/1	pipeline: D14 param_shadows_outer_binding detector discharges the §0.7 DETECT duty (v1.0.988)
+merged	1185	claude/busy-fermi-mof8z1	2026-09-27	Claude	282/1	pipeline: Moon patch mosaic gives margin back before dropping a WAC zoom level (v1.0.989)
+merged	1187	claude/lucid-keller-zqee6t	2026-09-27	Claude	281/1	product: STB EP724 rail carload archive refreshed + GATE 1 PASS + RAW /data view (v1.0.990)
+merged	1188	claude/funny-fermat-20ae2k	2026-09-27	Claude	280/1	docs: close duplicate/stale KNOWN BROKEN #40 record (already fixed 2026-09-04)
+merged	1178	claude/quirky-hopper-hhdkqp	2026-09-26	Claude	289/1	product: gnss_integrity_daily diag probe ships the read path deferred from the 2026-09-22 archive-wr
+merged	1179	claude/dazzling-planck-wisucd	2026-09-26	Claude	288/1	pipeline: ladder_readiness_check.py widens to cover a gate2_pass root's follow-on-artifact readiness
+merged	1180	claude/busy-fermi-wmv6w9	2026-09-26	Claude	287/1	docs: close-marker doc-hygiene for KNOWN BROKEN #26/#34/#38 (v-unbumped)
+merged	1181	claude/beautiful-planck-y800d2	2026-09-26	Claude	286/1	product: close the stale WRI-vs-HIFLD power-plant layer consolidation debt (v1.0.986)
+merged	1182	claude/eloquent-dijkstra-ukpbaz	2026-09-26	Claude	285/2	fix: hardcoded_palette_hex avoids the silent-except-continue pattern CI's own counter blocks
+merged	1169	claude/quirky-hopper-jt3mwr	2026-09-25	Claude	296/2	fix: sync test_ts_code_only.py's own pinned expected value with ci/counter_baseline.txt
+merged	1170	claude/dazzling-planck-wznd1q	2026-09-25	Claude	295/1	pipeline: compile the kill-switch liveness re-notify judgment into code (v1.0.979)
+merged	1171	claude/busy-fermi-mgue4z	2026-09-25	Claude	294/1	product: steel_raw_materials gets its /api/v1/data/steel-raw-materials keyed mirror (v1.0.980)
+merged	1172	claude/beautiful-planck-5tw47l	2026-09-25	Claude	293/1	product: lng_shipyards/steel_raw_materials close their visual-verification debt (v1.0.981)
+merged	1176	claude/lucid-keller-s1oif6	2026-09-25	Claude	291/1	docs: log PR #1175's market-hours-hold auto-merge occurrence in experiments.md
+merged	1177	claude/funny-fermat-9uss6o	2026-09-25	Claude	290/1	pipeline: visual_check.mjs fixture gains coal_terminals/iron_ore_mines/iron_steel_plants/chemicals (
+merged	1160	claude/quirky-hopper-7xp4ke	2026-09-24	Claude	305/1	product: new chemicals GEM registry shipped end-to-end, closes the 3-item cheapest GEM-suite backlog
+merged	1161	claude/dazzling-planck-or1vna	2026-09-24	Claude	304/1	pipeline: sentinel2 tank-fill archive catch-up + S1 whole-file-rebuild shrink guard + compiled stale
+merged	1162	claude/busy-fermi-a3rr7i	2026-09-24	Claude	303/1	pipeline: research_state_check.py archive_freshness manifest extended to cover port_dwell_weekly.jso
+merged	1164	claude/beautiful-planck-7nydp7	2026-09-24	Claude	301/3	research: note chemicals /api/v1 mirror shipped in the GEM-suite backlog entry (v1.0.974)
+merged	1166	claude/eloquent-dijkstra-due3v6	2026-09-24	Claude	299/1	docs: log PR #1165's market-hours-hold auto-merge occurrence in experiments.md
+merged	1167	claude/lucid-keller-1q1txg	2026-09-24	Claude	298/2	docs: log the lng_shipyards session in experiments.md and open_questions.md
+merged	1168	claude/funny-fermat-rzjp50	2026-09-24	Claude	297/2	docs: log the lng-shipyards /api/v1 mirror PR in experiments.md
+merged	1152	claude/quirky-hopper-4ishsg	2026-09-23	Claude	313/1	product: coal_terminals gets its /api/v1/data/coal-terminals keyed mirror (v1.0.964)
+merged	1154	claude/dazzling-planck-kyp72u	2026-09-23	Claude	311/1	repair: LIVENESS ALARM gains periodic re-escalation reminder while dark (v1.0.965)
+merged	1155	claude/busy-fermi-t2e5oz	2026-09-23	Claude	310/1	product: coal_terminals's sibling coal-mine-features gets its /api/v1/data/coal-mine-features keyed 
+merged	1156	claude/beautiful-planck-qx2ua7	2026-09-23	Claude	309/1	product: new iron_ore_mines GEM registry shipped end-to-end — server/gemIronOreMines.ts, /api/data
+merged	1157	claude/repair-stale-pr-1148	2026-09-23	Claude	308/1	repair: close stale/unmergeable duplicate PR #1148, salvage its lost auto-merge/market-hours-hold oc
+merged	1158	claude/lucid-keller-h509t8	2026-09-23	Claude	307/2	docs: correct this session's own DEPLOY-COUPLING NOTE — PR #1158 opened during market hours, not b
+merged	1159	claude/funny-fermat-p28llp	2026-09-23	Claude	306/1	product: iron_ore_mines gets its /api/v1/data/iron-ore-mines keyed mirror (v1.0.969)
+merged	1143	claude/quirky-hopper-50kwvc	2026-09-22	Claude	321/1	product: settlement_stress_composite GATE 2 attempt — WAITING (8 episodes, 7 foreign-ADR confound)
+merged	1144	claude/dazzling-planck-rvnkkb	2026-09-22	Claude	320/1	repair: KNOWN BROKEN #44 — insider_cusum_gate2 500s in production, scripts/ never ships in the Doc
+merged	1145	claude/busy-fermi-1ojhhy	2026-09-22	Claude	319/1	research: FUSION HYPOTHESIS (b) SWPP solar residual - second, capacity-denominated BTM check (EIA-86
+merged	1146	claude/beautiful-planck-v17qz6	2026-09-22	Claude	318/1	repair: STALENESS AUDIT — remove self-labeled dead ThreadPoolExecutor block in bot_engine.py deep-
+merged	1147	claude/eloquent-dijkstra-x5mye2	2026-09-22	Claude	317/2	rule-review: 21st confirmed occurrence of the auto-merge/market-hours-hold gap (PR #1147), tallied
+merged	1150	claude/lucid-keller-n0dx03	2026-09-22	Claude	315/1	rule-review: 21st confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wis
+merged	1151	claude/funny-fermat-fpog76	2026-09-22	Claude	314/2	fix: PR #1151's own CI catch — commented_empty_catch ratchet regression (114 -> 113)
+merged	1135	claude/quirky-hopper-196b9e	2026-09-21	Claude	329/1	product: cboe_vix_term_structure gets an honest gate1_pass signal_ladder.json entry, second of PR #1
+merged	1136	claude/dazzling-planck-fejpr7	2026-09-21	Claude	328/1	research: insider_cusum_probe GATE 2 unblocked — new /api/diag/insider_cusum_gate2 probe (v1.0.951
+merged	1137	claude/busy-fermi-56h4f4	2026-09-21	Claude	327/1	ladder: add so2_column_gibs to signal_ladder.json (raw_only)
+merged	1138	claude/beautiful-planck-kx5j2s	2026-09-21	Claude	326/1	product: sec_ftd gets an honest signal_ladder.json entry (raw_only, not a pending gate) (v1.0.953)
+merged	1140	claude/eloquent-dijkstra-scjdg3	2026-09-21	Claude	324/1	rule-review: 20th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wis
+merged	1141	claude/lucid-keller-za3ca1	2026-09-21	Claude	323/1	product: entsoe_eu_power gets an honest signal_ladder.json entry, 6th of 7 ladder_registry_coverage_
+merged	1142	claude/funny-fermat-afidua	2026-09-21	Claude	322/2	research: append sixth 2026-09-21 session log entry (global_energy_monitor ladder backfill, PR #1142
+merged	1127	claude/quirky-hopper-n0b0pu	2026-09-20	Claude	337/1	research: BUILD-FIRST writeup for space_weather_swpc's OE-417 ground truth — dead subdomains, annu
+merged	1128	claude/dazzling-planck-6ttexl	2026-09-20	Claude	336/1	rule-review: third-ever CONSTITUTIONAL AUDIT (5d overdue) + stale registry-note fix (v1.0.945)
+merged	1129	claude/busy-fermi-i9gm8z	2026-09-20	Claude	335/1	research: re-derive routes.ts warming_up cold-cache thread from scratch — still 68 occurrences, ze
+merged	1130	claude/beautiful-planck-2f8v6k	2026-09-20	Claude	334/1	product: mechanically enforce the SPINOUT-READY DATA LAYER boundary for the first time (v1.0.946)
+merged	1132	claude/eloquent-dijkstra-1ias4g	2026-09-20	Claude	332/1	rule-review: 19th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied into the wis
+merged	1133	claude/lucid-keller-4zstfi	2026-09-20	Claude	331/1	product: new ladder_registry_coverage_check.py finds 8 built pipelines missing from signal_ladder.js
+merged	1134	claude/funny-fermat-nonu85	2026-09-20	Claude	330/1	product: usgs_volcano_alerts gets an honest signal_ladder.json entry, first of PR #1133's 7 queued l
+merged	1118	claude/quirky-hopper-lghcfc	2026-09-19	Claude	346/1	pipeline: fdicBanks.ts joins the cold-cache-no-disk-backfill fix thread — archive is keyed by fetc
+merged	1119	claude/dazzling-planck-phs4sp	2026-09-19	Claude	345/1	pipeline: fredMacro.ts joins the cold-cache-no-disk-backfill fix thread — a single series' own FRE
+merged	1120	claude/busy-fermi-202kt5	2026-09-19	Claude	344/1	pipeline: gdeltEvents.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.939)
+merged	1121	claude/beautiful-planck-xfe05o	2026-09-19	Claude	343/1	pipeline: gridDemand.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.940)
+merged	1123	claude/eloquent-dijkstra-tq11g7	2026-09-19	Claude	341/1	docs: 18th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied (no code change)
+merged	1125	claude/lucid-keller-wrt7ot	2026-09-19	Claude	339/1	pipeline: dtccSwaps.ts gets a compact seenIds boot-index and a crash-loop guard (KNOWN BROKEN #41 le
+merged	1126	claude/funny-fermat-qc6q2l	2026-09-19	Claude	338/1	pipeline: dtccSwaps.ts gets a disk backfill for a fully-blocked live lookback (v1.0.944)
+merged	1107	claude/quirky-hopper-db1sgj	2026-09-18	Claude	357/1	pipeline: treasuryAuctions.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.929)
+merged	1108	claude/dazzling-planck-sw0i19	2026-09-18	Claude	356/1	research: FOREIGN-FIELD IMPORT (axis c) — Page CUSUM on aggregate insider flow vs. forward SPY ret
+merged	1109	claude/busy-fermi-nu8phy	2026-09-18	Claude	355/1	pipeline: nhtsaComplaints.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.931)
+merged	1111	claude/tender-fermi-qu7thr	2026-09-18	mctils12-arch	352/0	repair: compute_outage_state keeps the last outage's record on healthy runs (it erased the 126.4h re
+merged	1112	claude/beautiful-planck-ymbwsy	2026-09-18	Claude	352/3	merge: bring in origin/main (PR #1111, REPAIR) before pushing PR #1112
+merged	1114	claude/eloquent-dijkstra-2miz99	2026-09-18	Claude	350/1	docs: 16th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied (no code change)
+merged	1116	claude/lucid-keller-brks5w	2026-09-18	Claude	348/1	docs: 17th confirmed occurrence of the auto-merge/market-hours-hold gap, tallied (no code change)
+merged	1117	claude/funny-fermat-evbgpt	2026-09-18	Claude	347/1	pipeline: euMacro.ts joins the cold-cache-no-disk-backfill fix thread — also fixes a partial-sourc
+merged	1100	claude/quirky-hopper-81ck68	2026-09-17	Claude	364/1	pipeline: space_weather_swpc gate-1 — Kp-implied G2 diverges from NOAA's declared G-scale, confirm
+merged	1101	claude/dazzling-planck-uuqwn2	2026-09-17	Claude	363/1	pipeline: usaSpending.ts joins the cold-cache-no-disk-backfill fix thread
+merged	1102	claude/busy-fermi-rsn8zx	2026-09-17	Claude	362/2	fix: missing STARVED flag in this session's experiments.md entry broke test_research_state_check's l
+merged	1103	claude/beautiful-planck-qb409o	2026-09-17	Claude	361/1	product: port_dwell_maritime_transit gets its dedicated /data page (v1.0.925)
+merged	1104	claude/eloquent-dijkstra-cs7ext	2026-09-17	Claude	360/2	docs: append censusImports.ts session log to research/experiments.md (no code change)
+merged	1105	claude/lucid-keller-cdfflb	2026-09-17	Claude	359/1	pipeline: faaStatus.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.927)
+merged	1106	claude/funny-fermat-f7bhw8	2026-09-17	Claude	358/2	fix: add the required STARVED: line to this session's experiments.md entry
+merged	1088	claude/quirky-hopper-0sotf1	2026-09-16	Claude	375/2	fix: add missing STARVED bookkeeping line to the 2026-09-16 experiments.md entry
+merged	1094	claude/busy-fermi-5azrdb	2026-09-16	Claude	370/1	repair: session_health_check.py ALARMs on checks.process crash-handler counts (v1.0.918)
+merged	1095	claude/beautiful-planck-3x8evd	2026-09-16	Claude	369/1	product: corrects stale "no dedicated page" finding for 2 gate1_pass roots + reconciles port-dwell w
+merged	1096	claude/staleness-audit-setup4-5-opensky-75272	2026-09-16	Claude	368/1	repair: STALENESS AUDIT — delete expired dead code, close expired review item (v1.0.919)
+merged	1097	claude/tally-15th-automerge-occurrence-75667	2026-09-16	Claude	367/1	docs: tally 15th automerge/market-hours-hold occurrence (PR #1096) into the wishlist.md thread (RULE
+merged	1098	claude/lucid-keller-b4e99x	2026-09-16	Claude	366/1	pipeline: edgar13f.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.920)
+merged	1099	claude/funny-fermat-3nhwle	2026-09-16	Claude	365/1	pipeline: finraQuery.ts closes the cold-cache-no-disk-backfill thread's cheap tier — a failed part
+merged	1081	claude/quirky-hopper-driv4b	2026-09-15	Claude	382/1	pipeline: appStoreRankings.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.907)
+merged	1082	claude/dazzling-planck-pk232h	2026-09-15	Claude	381/1	repair: compile KNOWN BROKEN #41 outage-duration bookkeeping into scripts/session_health_check.py (v
+merged	1083	claude/busy-fermi-doseld	2026-09-15	Claude	380/1	pipeline: fdaEvents.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.909)
+merged	1084	claude/beautiful-planck-v54ung	2026-09-15	Claude	379/1	pipeline: droughtMonitor.ts closes the cold-cache-no-disk-backfill fix thread's last byte-identical 
+merged	1085	claude/eloquent-dijkstra-j66e5d	2026-09-15	Claude	378/1	pipeline: cboeVix.ts closes the cold-cache-no-disk-backfill thread's remaining different-shape insta
+merged	1086	claude/lucid-keller-wcqhh2	2026-09-15	Claude	377/1	pipeline: sec8kEarnings.ts joins the cold-cache-no-disk-backfill fix thread; audit finds 20 more vul
+merged	1087	claude/funny-fermat-8dw1fg	2026-09-15	Claude	376/2	docs: log this session's cropConditions.ts fix to experiments.md (PR #1087)
+merged	1072	claude/quirky-hopper-h6vbgp	2026-09-14	Claude	391/1	pipeline: eia860m_add_brand_new_plants.py adds plants absent from EIA-860 ANNUAL entirely — ERCO s
+merged	1073	claude/dazzling-planck-5iuj6h	2026-09-14	Claude	390/1	pipeline: eia930_solar_exceedance_pattern.py — SWPP solar's residual gate-1 overshoot is a sustain
+merged	1074	claude/busy-fermi-4s81gk	2026-09-14	Claude	389/1	research: settle candidate mechanism (i) NEGATIVE for SWPP/ERCO solar gate-1 overshoot via EIA-860 p
+merged	1075	claude/beautiful-planck-6rvscj	2026-09-14	Claude	388/1	pipeline: grid_generation_fuel_mix / FUSION HYPOTHESIS (b) — real magnitude check for candidate me
+merged	1077	claude/eloquent-dijkstra-f7ps2d	2026-09-14	Claude	386/1	docs: file the auto-merge/market-hours-hold process gap found after PR #1076 merged mid-session (RUL
+merged	1079	claude/lucid-keller-5xkmt5	2026-09-14	Claude	384/1	docs: tally today's 13th/14th automerge market-hours-hold occurrences into the long-running wishlist
+merged	1080	claude/funny-fermat-qv9x3k	2026-09-14	Claude	383/1	pipeline: epaCamd.ts joins the cold-cache-no-disk-backfill fix thread (v1.0.906)
+merged	1065	claude/quirky-hopper-p2vba6	2026-09-13	Claude	398/1	pipeline: fix cold-cache-no-disk-backfill in fires/quakes/buoys, correcting a prior session's mistak
+merged	1066	claude/dazzling-planck-vww53z	2026-09-13	Claude	397/3	repair: fix missing STARVED: line in this session's own repair log entry
+merged	1067	claude/busy-fermi-br1v3n	2026-09-13	Claude	396/2	fix: CI red on PR #1067 — silent_py_handlers ratchet (255 -> 256)
+merged	1068	claude/beautiful-planck-5xe25l	2026-09-13	Claude	395/2	docs: add the missing STARVED: line to this PR's experiments.md entry (CI fix)
+merged	1069	claude/eloquent-dijkstra-4j9t3d	2026-09-13	Claude	394/1	research: trace wikiAttention/euLoad "no backfill on throw" gap — dead code, not a live bug
+merged	1070	claude/lucid-keller-n1fil8	2026-09-13	Claude	393/1	research: ISNE wind gate-1 FAIL closed — registry date staleness (v1.0.899)
+merged	1071	claude/funny-fermat-7omzn4	2026-09-13	Claude	392/1	pipeline: eia860_add_missing_plants.py missing-plant capacity refresh from EIA-860M — ERCO/SWPP so
+merged	1058	claude/dazzling-planck-rouf1u	2026-09-12	Claude	405/1	research: hydrology's Hurst exponent as a continuous trend-persistence probe (axis c) — GATE 2 not
+merged	1059	claude/busy-fermi-c4qpgn	2026-09-12	Claude	404/1	repair: fix time-bomb OCC-expiry literal in options entry-feedback test; re-confirm KNOWN BROKEN #41
+merged	1060	claude/beautiful-planck-2hsrjl	2026-09-12	Claude	403/1	product: close 3 more instances of the cold-cache-no-disk-backfill systemic bug (wikiAttention/satel
+merged	1062	claude/eloquent-dijkstra-0202l9	2026-09-12	Claude	401/1	docs: re-escalate the auto-merge/market-hours-note gap to wishlist.md (12th confirmed occurrence, PR
+merged	1063	claude/lucid-keller-b800ut	2026-09-12	Claude	400/1	pipeline: ERCO/SWPP solar gate-1 overshoot traced to registry date staleness (EIA-860M vs annual), n
+merged	1064	claude/funny-fermat-y12nkm	2026-09-12	Claude	399/2	chore: version bump + counter re-pin + research log for v1.0.895 (SHARED, minimal)
+merged	1049	claude/quirky-hopper-4xbpyq	2026-09-11	Claude	414/1	pipeline: FUSION HYPOTHESIS (b) GATE 1 attempted at US48 national level — 6/7 fuel buckets reconci
+merged	1050	claude/dazzling-planck-wd6bc1	2026-09-11	Claude	413/1	pipeline: EIA-860 2025 quantifies power-plant registry staleness — solar undercounted 4.12x, wind 
+merged	1051	claude/busy-fermi-rwllgl	2026-09-11	Claude	412/1	pipeline: per-plant GPPD<->EIA-860 join corrects registry-staleness cause from "stale capacity" to "
+merged	1052	claude/beautiful-planck-78rml2	2026-09-11	Claude	411/1	pipeline: adds the missing solar/wind plants to the registry (9,833 -> 14,172 rows), closing the reg
+merged	1054	claude/eloquent-dijkstra-72xlo8	2026-09-11	Claude	409/1	docs: addendum — PR #1053 auto-merged before the requested market-hours delay
+merged	1055	claude/lucid-keller-k266pb	2026-09-11	Claude	408/1	pipeline: FUSION HYPOTHESIS (b) per-region gate-1 re-run decides the ambiguous-BA-plant policy and f
+merged	1056	claude/funny-fermat-sgkbkz	2026-09-11	Claude	407/2	fix: CI's silent_py_handlers gate caught a swallowed exception in the new EIA-860 join
+merged	1041	claude/quirky-hopper-fz8azq	2026-09-10	Claude	422/1	pipeline: TREASURY DAILY STATEMENT GATE 2 (SIGNAL) — withheld-tax YoY growth vs BLS payroll growth
+merged	1042	claude/dazzling-planck-rb2ugi	2026-09-10	Claude	421/1	repair: DD-halt visibility gap in Tier-2 scan handler (v1.0.879)
+merged	1043	claude/busy-fermi-9shg7g	2026-09-10	Claude	420/1	repair: /api/diag/account + /api/diag/equity_curve — close KNOWN BROKEN #42's real-loss-vs-data-gl
+merged	1045	claude/beautiful-planck-8cc7je	2026-09-10	Claude	418/1	product: github_org_engineering_momentum cache backfill fix — cold in-memory cache never picked up
+merged	1046	claude/eloquent-dijkstra-sxmo77	2026-09-10	Claude	417/1	repair: independent P&L reconstruction settles KNOWN BROKEN #42 — 2026-09-09's reported -$12,059.7
+merged	1047	claude/lucid-keller-3hxniw	2026-09-10	Claude	416/1	product: 8 shipped /data pages had never been exercised by the visual harness — closed + a permane
+merged	1048	claude/funny-fermat-9f6c79	2026-09-10	Claude	415/1	repair: production is fully down (Railway edge 502, all endpoints) — escalates KNOWN BROKEN #41, h
+merged	1029	claude/beautiful-planck-3gvi8c	2026-09-09	Claude	425/3	docs: log this session's revival + merge of stranded PR #1029 (v1.0.875)
+merged	1035	claude/quirky-hopper-oxt7ft	2026-09-09	Claude	428/2	fix: gridGeneration.ts drops : any / empty-catch debt CI's counter ratchet caught
+merged	1036	claude/dazzling-planck-v8c5vd	2026-09-09	Claude	427/1	repair: KNOWN BROKEN #41 crash-loop bisection tooling — feature-flagged Tier 2/3 kill-switches, bo
+merged	1037	claude/busy-fermi-huupr8	2026-09-09	Claude	426/1	repair: validated-read guard for Tier-2 daily-loss halt + fix dead drawdownPct health metric (v1.0.8
+merged	1039	claude/lucid-keller-7459ru	2026-09-09	Claude	424/1	product: /data client page for grid-generation (EIA-930 fuel mix), v1.0.876
+merged	1040	claude/funny-fermat-kky0ps	2026-09-09	Claude	423/1	repair: restore the -10% drawdown kill switch to run on every Tier-1 cycle (v1.0.877)
+merged	1026	claude/quirky-hopper-ro2i3i	2026-09-08	Claude	435/1	product: space_weather_swpc gate-1 readiness instrumented via new spaceweather_storm diag probe (v1.
+merged	1027	claude/dazzling-planck-3eijgp	2026-09-08	Claude	434/1	repair: options entry feedback recorded on confirmed fill, not order submission (v1.0.867)
+merged	1028	claude/busy-fermi-dg5ee5	2026-09-08	Claude	433/2	research: log v1.0.868 session and close KNOWN BROKEN #31's options_manager.py scope note
+merged	1030	claude/eloquent-dijkstra-1oa4rf	2026-09-08	Claude	432/2	repair: generalize the crash-loop guard to routes.ts's shadowstats/portdwell dashboard refreshers �
+merged	1032	claude/lucid-keller-mozaei	2026-09-08	Claude	431/2	fix: CI-caught ts_any regression in treasury_dts_gate1.ts (PR #1032)
+merged	1034	claude/funny-fermat-45u9j1	2026-09-08	Claude	429/1	docs: crash-loop incident NOT resolved after both fixes deployed — escalate per RECURRENCE ESCALAT
+merged	1019	claude/quirky-hopper-a8nmk1	2026-09-07	Claude	442/1	product: port_dwell_maritime_transit weekly capture moved in-process, fixing the HTTP proxy-timeout 
+merged	1020	claude/dazzling-planck-yraykt	2026-09-07	Claude	441/1	pipeline: UN Comtrade USA bilateral goods-trade archive built end-to-end, GATE 1 (DATA) PASSED all 6
+merged	1021	claude/busy-fermi-d76vsv	2026-09-07	Claude	440/2	docs: session log entry for the UN Comtrade /data client page (v1.0.861, PR #1021)
+merged	1022	claude/beautiful-planck-4ryhgw	2026-09-07	Claude	439/1	product: UN Comtrade gets its /api/v1/data/un-comtrade keyed mirror (v1.0.862)
+merged	1023	claude/eloquent-dijkstra-gimxce	2026-09-07	Claude	438/1	product: portdwell_weekly_snapshot.ts prefers the cheap captured-state probe over the expensive per-
+merged	1024	claude/lucid-keller-wp2iuc	2026-09-07	Claude	437/1	product: nasa_gibs_nightlights gate-1 tile/date-alignment spot-check run — shipped layer fails a b
+merged	1025	claude/funny-fermat-1bjs02	2026-09-07	Claude	436/2	docs: session log entry for the nightlights archiver PIPELINE session (v1.0.865)
+merged	1012	claude/quirky-hopper-kg1heu	2026-09-06	Claude	449/1	product: close signal_ladder.json tracking gap for treasury_daily_statement + nhtsa_vehicle_complain
+merged	1013	claude/dazzling-planck-hunmoe	2026-09-06	Claude	448/1	pipeline: nhtsa_vehicle_complaints ROOT VALIDATION LADDER GATE 1 (DATA) passed, 3/3 cases (v1.0.853)
+merged	1014	claude/busy-fermi-p8u66r	2026-09-06	Claude	447/1	product: nhtsa_vehicle_complaints ROOT VALIDATION LADDER GATE 2 (SIGNAL) attempted, NOT PASSED (v1.0
+merged	1015	claude/beautiful-planck-xd8ljx	2026-09-06	Claude	446/1	product: crop_conditions_usda_nass gets a /history companion + v1 mirror (v1.0.855)
+merged	1016	claude/eloquent-dijkstra-c7r46d	2026-09-06	Claude	445/2	research: append 2026-09-06 fifth-session log entry (crop_conditions GATE 2 FAIL)
+merged	1017	claude/lucid-keller-wqrgi7	2026-09-06	Claude	444/1	product: port_dwell_maritime_transit weekly-capture timeout diagnosed, measure-first instrumentation
+merged	1018	claude/funny-fermat-a6yc27	2026-09-06	Claude	443/1	research: port_dwell_maritime_transit timeout diagnosed CPU-bound, not I/O-bound (v1.0.858)
+merged	1005	claude/quirky-hopper-9d6bd4	2026-09-05	Claude	456/1	product: wikimedia_pageviews_attention live SIGNAL surface (v1.0.846) — mirrors gnss_integrity_ads
+merged	1006	claude/dazzling-planck-2o7uc0	2026-09-05	Claude	455/1	research: permutation entropy (information theory) foreign-field import probe, built + unit-tested (
+merged	1007	claude/busy-fermi-df76lz	2026-09-05	Claude	454/1	research: permutation entropy GATE 2 result — NOT PASSED, plus significance-test fix + onset-scaff
+merged	1008	claude/beautiful-planck-5j8fg8	2026-09-05	Claude	453/1	product: wiki-attention-signal keyed v1 API mirror, completing the ladder's v1-mirror sweep (v1.0.84
+merged	1009	claude/eloquent-dijkstra-4b7fvd	2026-09-05	Claude	452/2	docs: record PR #1009 number in this session's experiments.md entry
+merged	1010	claude/lucid-keller-uqse0c	2026-09-05	Claude	451/1	product: appstore-rankings + github-activity get /history companion + v1 mirror (v1.0.851)
+merged	1011	claude/funny-fermat-v6ln56	2026-09-05	Claude	450/1	repair: close KNOWN BROKEN #18's second recurrence (v1.0.530 held 5+ weeks)
+merged	1000	claude/busy-fermi-kpdeil	2026-09-04	Claude	461/2	docs: append tagged session log for PR #1000 (options v134 test-determinism repair)
+merged	1001	claude/beautiful-planck-p8d2yt	2026-09-04	Claude	460/1	product: port-dwell weekly accumulator gains week 8 (v1.0.842, docs+data-only)
+merged	1002	claude/eloquent-dijkstra-o3xlbf	2026-09-04	Claude	459/2	research: hazard-rate GATE 2 pooled follow-up RUN against real data — GATE 2 NOT PASSED, underpowe
+merged	1003	claude/lucid-keller-vts7sj	2026-09-04	Claude	458/1	product: wikimedia_pageviews_attention GATE 2 (SIGNAL) — real-data run, volume-elevation finding s
+merged	1004	claude/funny-fermat-k3yqb6	2026-09-04	Claude	457/2	docs: session log entry for wikimedia_pageviews_attention news-free control (PR #1004)
+merged	998	claude/quirky-hopper-00qb06	2026-09-04	Claude	462/1	product: fdic_bank_failures GATE 2 (SIGNAL) event study run against production — GATE FAILED, hone
+merged	991	claude/quirky-hopper-d3s7qz	2026-09-03	Claude	469/1	product: gas_flare_candidates GATE 1 — Russia antimeridian query built+run, Iran zero-candidate ro
+merged	992	claude/dazzling-planck-klyofn	2026-09-03	Claude	468/1	rule-review: regime_series() VXX data-quality flag was silently masking multi-year coverage gaps (v1
+merged	993	claude/busy-fermi-i32psp	2026-09-03	Claude	467/1	research: hazard-rate GATE 2 "longer window" follow-up run bounded to VXX real coverage — validate
+merged	994	claude/beautiful-planck-cp1npz	2026-09-03	Claude	466/1	product: port_dwell_maritime_transit GATE 2 gets a durable weekly-snapshot accumulator (v1.0.838)
+merged	995	claude/eloquent-dijkstra-rnbnt8	2026-09-03	Claude	465/1	rendering: flight-track trail decimation enforces the FT_MAX_FEATURES GPU cap (v1.0.839)
+merged	996	claude/lucid-keller-0iy96k	2026-09-03	Claude	464/1	product: corporate-fleet aircraft utilization x earnings timing — join built, GATE 2 hand-check ho
+merged	997	claude/funny-fermat-sqfa8t	2026-09-03	Claude	463/2	docs: append 2026-09-03 fdic_bank_failures GATE 2 session log
+merged	983	claude/quirky-hopper-ivisod	2026-09-02	Claude	477/1	product: shadow-fleet GATE 1 (DATA) statistical test RUN against production — VERDICT: FAIL (docs-
+merged	984	claude/dazzling-planck-y1u402	2026-09-02	Claude	476/1	product: shadow-fleet identity-swap detector gets its own bounded-memory GATE 1 reduction (v1.0.833)
+merged	985	claude/busy-fermi-pbb7k6	2026-09-02	Claude	475/1	repair: track_fill's orphan-exit writes were silently dropping exit_reason (v1.0.834)
+merged	986	claude/beautiful-planck-qwqsbn	2026-09-02	Claude	474/1	product: shadow-fleet identity-swap detector GATE 1 (DATA) statistical test RUN against production �
+merged	987	claude/eloquent-dijkstra-ectmcs	2026-09-02	Claude	473/1	repair: KNOWN BROKEN #37 vessel-archive anomaly — rule out manual backfill, tie 08-05 spike to the
+merged	989	claude/lucid-keller-7l9jbj	2026-09-02	Claude	471/1	product: port-dwell rollup GATE 1 actually RUN against production — VERDICT: PASS (reader-validity
+merged	990	claude/funny-fermat-ie1zjk	2026-09-02	Claude	470/1	repair: KNOWN BROKEN #39 (2026-07-20..23 vessel-archive gap) — root cause diagnosed and closed, do
+merged	975	claude/quirky-hopper-lu1qkq	2026-09-01	Claude	485/1	product: gas flare candidates — BUILD-FIRST free alternative to VIIRS Nightfire over the existing 
+merged	976	claude/dazzling-planck-4mxzdf	2026-09-01	Claude	484/2	fix: use the STARVED: yes/no line format research_state_check.py's parser requires
+merged	977	claude/busy-fermi-qib4u3	2026-09-01	Claude	483/2	research: session log + KNOWN BROKEN #37 addendum for the fileRanges diag probe (v1.0.828)
+merged	978	claude/gasflare-gate1-69833	2026-09-01	Claude	481/2	Merge remote-tracking branch 'origin/main' into claude/gasflare-gate1-69833
+merged	979	claude/known-broken-37-retention-check-69887	2026-09-01	Claude	482/1	repair-adjacent: KNOWN BROKEN #37's urgent retention-window check run before evidence expiry, new ra
+merged	980	claude/eloquent-dijkstra-0vqnme	2026-09-01	Claude	480/1	pipeline: gas flare candidates gets a wildfire-discriminator refinement — GATE 1 clean negative pe
+merged	981	claude/lucid-keller-dxnadu	2026-09-01	Claude	479/1	product: shadow-fleet GATE 1 tanker-pool + case-control instrumentation, bounded-memory (v1.0.831)
+merged	982	claude/funny-fermat-1oh6lg	2026-09-01	Claude	478/1	rule-review: split rejected_masterkill's win rate by kill reason before acting on it (v1.0.832)
+merged	968	claude/quirky-hopper-2awvxb	2026-08-31	Claude	491/1	product: Wikimedia attention accumulated history gets its own /api/v1/data/attention-history keyed m
+merged	969	claude/dazzling-planck-8xo6vy	2026-08-31	Claude	490/1	research: renewal-process hazard rate follow-up — run against real data, GATE 2 provisional positi
+merged	970	claude/busy-fermi-zyfjdu	2026-08-31	Claude	489/1	fix(client): add missing powergrid_asia to the All Power Grids master switch
+merged	972	claude/eloquent-dijkstra-8edlvz	2026-08-31	Claude	488/1	research: renewal-process hazard rate broader-universe follow-up — CV<1 replicates in QQQ/IWM/AAPL
+merged	973	claude/lucid-keller-lzh8yj	2026-08-31	Claude	487/1	product: /api/v1 OpenAPI response bodies get hand-verified per-endpoint schemas for 32/37 tools (v1.
+merged	974	claude/funny-fermat-74nx6q	2026-08-31	Claude	486/1	product: finish the /api/v1 OpenAPI response-schema sweep — full 37/37 tool coverage (v1.0.825)
+merged	961	claude/quirky-hopper-t7f51j	2026-08-30	Claude	498/1	product: SEC 8-K earnings-language accumulated filing-history gets its /api/v1/data/earnings-languag
+merged	962	claude/dazzling-planck-ft88jj	2026-08-30	Claude	497/1	research: seismology's Omori-Utsu aftershock-decay law (power-law vs exponential shock-rate decay) a
+merged	963	claude/busy-fermi-1tfvri	2026-08-30	Claude	496/1	product: FINRA short-volume accumulated history gets its /api/v1/data/short-volume-history keyed mir
+merged	964	claude/beautiful-planck-stcfq8	2026-08-30	Claude	495/1	product: SEC 13F-HR institutional holdings gets its /api/v1/data/13f-holdings-history keyed mirror (
+merged	965	claude/eloquent-dijkstra-9axpsl	2026-08-30	Claude	494/1	research: judge the Omori-Utsu aftershock probe against real data — clean negative, gate 2 killed
+merged	966	claude/lucid-keller-s25e55	2026-08-30	Claude	493/1	product: correct the stale GEM methane-plume GATE 2(b)-(d) "unbuilt" claim to reflect the real gate 
+merged	967	claude/funny-fermat-2ke9xt	2026-08-30	Claude	492/1	pipeline: CSP capital-starved rejections get shadow_portfolio counterfactual logging (v1.0.820)
+merged	954	claude/quirky-hopper-89vsio	2026-08-29	Claude	505/1	product: FINRA consolidated short interest gets its /api/v1 keyed mirror (v1.0.808)
+merged	955	claude/dazzling-planck-6hp4io	2026-08-29	Claude	504/1	research: renewal-process hazard rate (aviation-maintenance foreign field) as a regime-transition ti
+merged	956	claude/busy-fermi-2uswj9	2026-08-29	Claude	503/1	product: FINRA ATS venue summaries get their /api/v1 keyed mirror (v1.0.810)
+merged	957	claude/beautiful-planck-pkmepd	2026-08-29	Claude	502/1	product: shadow-fleet signal gate 1 — OFAC SDN reference list (live) + case-control enrichment tes
+merged	958	claude/eloquent-dijkstra-rkron2	2026-08-29	Claude	501/2	research: log the shadow-fleet shiptype session to experiments.md
+merged	959	claude/lucid-keller-xln50g	2026-08-29	Claude	500/1	product: SEC Form 4 accumulated filing-history gets its own /api/v1 keyed mirror (v1.0.813)
+merged	960	claude/funny-fermat-085qzf	2026-08-29	Claude	499/1	product: CFTC COT accumulated weekly-archive gets its /api/v1/data/cot-history keyed mirror (v1.0.81
+merged	947	claude/quirky-hopper-btw1v6	2026-08-28	Claude	512/2	fix: research/experiments.md STARVED line must not be bold-markdown wrapped
+merged	948	claude/dazzling-planck-it3hd1	2026-08-28	Claude	511/1	rule-review: liquidity_cost_pct() gets a price-based Reg NMS tick floor (v1.0.802)
+merged	949	claude/busy-fermi-9xkw7h	2026-08-28	Claude	510/1	repair: PR #844 salvaged (Day/Night body-lighting control), PR #817 closed and re-queued — both or
+merged	950	claude/beautiful-planck-lgmqal	2026-08-28	Claude	509/1	product: fix stale dtcc_sbsdr entry in the compiled-knowledge data-stream registry (v1.0.804)
+merged	951	claude/eloquent-dijkstra-k31j5t	2026-08-28	Claude	508/1	repair: DEPLOY_TIMESTAMP no longer resets on every redeploy (v1.0.805)
+merged	952	claude/lucid-keller-gaj437	2026-08-28	Claude	507/1	product: FINRA consolidated short interest + threshold list gets its /data client view (v1.0.806)
+merged	953	claude/funny-fermat-msrbiz	2026-08-28	Claude	506/1	pipeline: visual-harness perf gate stops firing on its own noise (Q25, v1.0.807)
+merged	940	claude/quirky-hopper-hs3sb5	2026-08-27	Claude	519/1	product: GEM methane-plume proximity gets its /api/v1 keyed mirror (v1.0.795)
+merged	941	claude/dazzling-planck-uqblnz	2026-08-27	Claude	518/1	pipeline: research_state_check.py gets a STARVATION SIGNAL check (v1.0.796)
+merged	942	claude/busy-fermi-ylpwx0	2026-08-27	Claude	517/1	docs: land stale PR #877's unique delta — vessel-archive Aug 5-11 anomaly (KNOWN BROKEN #37), re-v
+merged	943	claude/beautiful-planck-b1lam6	2026-08-27	Claude	516/1	product: EPA CAMD power-plant utilization gets its /data client view (v1.0.797)
+merged	944	claude/eloquent-dijkstra-4qjq88	2026-08-27	Claude	515/2	fix: PR #944's session log entry was missing its required STARVED: line
+merged	945	claude/lucid-keller-lyz5h0	2026-08-27	Claude	514/1	product: /api/v1 gets an OpenAPI 3.0 spec, and both machine-readable specs get linked from /develope
+merged	946	claude/funny-fermat-sov40o	2026-08-27	Claude	513/1	pipeline: registry v2 renderKind + lod become a pinned, required gap check (v1.0.800)
+merged	933	claude/quirky-hopper-m1dlfb	2026-08-26	Claude	526/1	product: CFTC COT positioning gets its /api/v1 keyed mirror; corrects the sweep's own "no gaps remai
+merged	934	claude/dazzling-planck-06vff9	2026-08-26	Claude	525/1	research: epidemiological R_t contagion probe, foreign-field import (axis c) — clean negative, gat
+merged	935	claude/busy-fermi-vnhyn5	2026-08-26	Claude	524/1	research: microcap cost-floor + LULD halt-band pricing, reviving stale PR #834 (v1.0.791)
+merged	936	claude/beautiful-planck-w79445	2026-08-26	Claude	523/1	product: USAspending federal contract awards gets a dedicated /data client view (v1.0.792)
+merged	937	claude/eloquent-dijkstra-pb3d57	2026-08-26	Claude	522/1	docs: land PR #888's stranded paper trail — PR #763 closure/supersession finding
+merged	938	claude/lucid-keller-r3c3hl	2026-08-26	Claude	521/1	product: USAspending federal contract awards gets its /api/v1 keyed mirror (v1.0.793)
+merged	939	claude/funny-fermat-16wgxl	2026-08-26	Claude	520/1	product: FINRA Reg SHO short-volume gets its /api/v1 keyed mirror (v1.0.794)
+merged	926	claude/quirky-hopper-7n7lh6	2026-08-25	Claude	533/1	product: SEC MIDAS gets a gate-2 quarter-level aggregator + diag probe (v1.0.782)
+merged	927	claude/dazzling-planck-b3sf7t	2026-08-25	Claude	532/1	pipeline: consolidate the triple-duplicated Newey-West gate-2 test into gate2_stats.py (v1.0.783)
+merged	928	claude/busy-fermi-1d11mi	2026-08-25	Claude	531/1	repair: loop-health thrash-ratio instrument stops trusting physical file position (KNOWN BROKEN #36,
+merged	929	claude/beautiful-planck-pff3w2	2026-08-25	Claude	530/1	product: MIDAS HFT-colonization filter gate 2 — clean negative, sec_midas moves gate1_pass -> gate
+merged	930	claude/eloquent-dijkstra-j0jcry	2026-08-25	Claude	529/1	research: TIER3-DIAG gets node_uptime_s + tier2_ran_since_boot visibility, reviving stale PR #767 (v
+merged	931	claude/lucid-keller-7utrwm	2026-08-25	Claude	528/1	product: SEC EDGAR Form 4 insider transactions gets its /api/v1 keyed mirror (v1.0.787)
+merged	932	claude/funny-fermat-shdxkn	2026-08-25	Claude	527/1	product: Wikimedia pageviews attention proxy gets its /api/v1 keyed mirror
+merged	919	claude/quirky-hopper-1apk9g	2026-08-24	Claude	540/1	product: GNSS integrity signal gets its /api/v1 keyed mirror (v1.0.775)
+merged	920	claude/dazzling-planck-i9fiz6	2026-08-24	Claude	539/1	repair: POS-KILL forced-liquidation order stops being invisible to the stale-order sweeper (KNOWN BR
+merged	921	claude/busy-fermi-eb93zd	2026-08-24	Claude	538/1	repair: runUpgradeCandidates() upgrade-buy order stops being invisible to the stale-order sweeper (K
+merged	922	claude/beautiful-planck-8usi9m	2026-08-24	Claude	537/1	product: DTCC SBSDR equity swaps gets its /api/v1 keyed mirror (v1.0.778)
+merged	923	claude/eloquent-dijkstra-odehsm	2026-08-24	Claude	536/1	repair: POS-KILL forced liquidation stops resubmitting on every sync (KNOWN BROKEN #35 half one, v1.
+merged	924	claude/lucid-keller-cq2jxb	2026-08-24	Claude	535/1	product: corporate-fleet utilization gets its /api/v1 keyed mirror (v1.0.780)
+merged	925	claude/funny-fermat-nwfmgg	2026-08-24	Claude	534/1	repair: POS-KILL and WS exits record fills only on Alpaca confirmation (KNOWN BROKEN #35 half two, v
+merged	912	claude/quirky-hopper-w6ym19	2026-08-23	Claude	547/1	repair: DTCC SBSDR pipeline was fully dead in production — backward date-walk fix (v1.0.768)
+merged	913	claude/dazzling-planck-6805sw	2026-08-23	Claude	546/1	repair: stale-order sweeper's exit-side gap closed, plus replaceIfBetter safety guard (KNOWN BROKEN 
+merged	914	claude/busy-fermi-1u1tp7	2026-08-23	Claude	545/2	docs: session log for PR #914, KNOWN BROKEN #32 closed, two new same-shape gaps filed (#33, #34)
+merged	915	claude/beautiful-planck-tp7plm	2026-08-23	Claude	544/3	docs: record PR #915 in the session log
+merged	916	claude/eloquent-dijkstra-1lw3r4	2026-08-23	Claude	543/2	docs: record PR #916 in the session log
+merged	917	claude/lucid-keller-ss3i0o	2026-08-23	Claude	542/1	product: FDIC bank failures gets its /api/v1 keyed mirror (v1.0.773)
+merged	918	claude/funny-fermat-gir6xq	2026-08-23	Claude	541/1	repair: CSP no-affordable-puts error stops lying about a $0 strike (v1.0.774)
+merged	904	claude/quirky-hopper-j3rmx2	2026-08-22	Claude	555/1	docs: close PR #794 (submarine cables) as superseded by already-shipped work
+merged	905	claude/dazzling-planck-untavc	2026-08-22	Claude	554/2	fix: log the narrowed days_held exception, lock in improved counter pins
+merged	906	claude/busy-fermi-ez9i7z	2026-08-22	Claude	553/1	pipeline: spaceFrame.ts gets real Law IV maxFeatures/vramBudget (v1.0.763)
+merged	907	claude/beautiful-planck-qr9a7k	2026-08-22	Claude	552/2	fixup: clear counter_ratchet regressions from the DTCC swap pipeline
+merged	909	claude/eloquent-dijkstra-qd615j	2026-08-22	Claude	550/1	docs: log tenth occurrence of the market-hours auto-merge process gap
+merged	910	claude/lucid-keller-dcbv56	2026-08-22	Claude	549/1	pipeline: CUSIP/ISIN-to-ticker resolver built for the DTCC SBSDR root (v1.0.766)
+merged	911	claude/funny-fermat-dtj6dh	2026-08-22	Claude	548/1	repair: stale-order sweeper's stock/ETF entry-side gap closed (KNOWN BROKEN #32 continuation, v1.0.7
+merged	895	claude/quirky-hopper-owg0h2	2026-08-21	Claude	564/1	pipeline: fix archive-reader truncation bias for global streams, ship the gdelt_facility_events gate
+merged	896	claude/dazzling-planck-joox0q	2026-08-21	Claude	563/1	research: critical-slowing-down probe run against real SPY data — killed at n=7, ships a regime-ma
+merged	897	claude/busy-fermi-xuq9pi	2026-08-21	Claude	562/1	pipeline: Law IV predicate widened to context-acquiring modules, celestialSky.ts closed (v1.0.758)
+merged	898	claude/beautiful-planck-qj7gce	2026-08-21	Claude	561/1	product: JODI world oil closing-stock levels gets a live /data client view (v1.0.759)
+merged	900	claude/eloquent-dijkstra-s59v9f	2026-08-21	Claude	559/1	docs: market-hours auto-merge gap is at 9 occurrences, not 8
+merged	901	claude/lucid-keller-kpsypv	2026-08-21	Claude	558/1	docs: close PR #707 as superseded, correct the 2026-08-20 stale-PR audit's missing 11th PR
+merged	903	claude/funny-fermat-lmbdwr	2026-08-21	Claude	556/1	docs: close PR #708 as superseded by #902, note #706 independently resolved
+merged	885	claude/quirky-hopper-0my62p	2026-08-20	Claude	573/1	product: U.S. Drought Monitor gets a live /data client view (v1.0.750)
+merged	886	claude/dazzling-planck-0fx7f6	2026-08-20	Claude	572/1	pipeline: compile the manual KNOWN BROKEN/thrash-ratio/audits-register session-start check into a sc
+merged	887	claude/busy-fermi-pg4z47	2026-08-20	Claude	571/1	research: stale-PR backlog audit — 11/13 open claude/* PRs never merged
+merged	889	claude/lucid-keller-7wxz44	2026-08-20	Claude	570/1	docs: close PR #867 as a duplicate of already-merged #869, correct the stale-PR audit's record
+merged	890	claude/beautiful-planck-rcx8aw	2026-08-20	Claude	569/1	product: facilities-near-active-fires gets its /data client view (v1.0.752)
+merged	891	claude/eloquent-dijkstra-wmjh44	2026-08-20	Claude	568/1	product: air quality at strategic sites gets its /data client view (v1.0.753)
+merged	893	claude/lucid-keller-g9hy58	2026-08-20	Claude	566/1	docs: market-hours auto-merge gap is at 8 occurrences, not 6 — the record had drifted
+merged	894	claude/funny-fermat-eo3zoa	2026-08-20	Claude	565/1	product: GDELT facility events get a live /data client view (v1.0.755)
+merged	876	claude/quirky-hopper-89sta2	2026-08-19	Claude	581/2	research: port_dwell_maritime_transit GATE 1 vs July TEU is structurally impossible — RAW_RETENTIO
+merged	878	claude/dazzling-planck-5e2veu	2026-08-19	Claude	580/1	repair: port_dwell_maritime_transit GATE-1 re-attempt finds a genuine retention-history data gap, no
+merged	879	claude/busy-fermi-3jk9ns	2026-08-19	Claude	579/1	repair: per-decision backfill diagnostics unblock KNOWN BROKEN #20's stalled shadow evidence gate (v
+merged	880	claude/beautiful-planck-d7k1tj	2026-08-19	Claude	578/1	product: corporate/LLC aircraft fleet utilization gets a live /data client view (v1.0.746)
+merged	882	claude/eloquent-dijkstra-3ql4t2	2026-08-19	Claude	576/1	docs: log sixth PROCESS GAP occurrence — PR #881 auto-merged during market hours
+merged	883	claude/lucid-keller-scd4uc	2026-08-19	Claude	575/2	docs: log OCC options cleared volume client-view session (v1.0.748)
+merged	884	claude/funny-fermat-nx4iyh	2026-08-19	Claude	574/1	repair: two /api/data cross-tie routes 500'd on a bad powerplant cast (v1.0.749)
+merged	869	claude/quirky-hopper-019x4s	2026-08-18	Claude	588/1	product: vehicle complaints get a live /data layer + client view (v1.0.737)
+merged	870	claude/dazzling-planck-sp9fb0	2026-08-18	Claude	587/1	research: foreign-field import — critical slowing down (ecology) probe for regime-transition early
+merged	871	claude/bank-failures-data-view	2026-08-18	Claude	586/1	product: FDIC bank failures get a live /data layer + client view (v1.0.739)
+merged	873	claude/beautiful-planck-gvd9l0	2026-08-18	Claude	584/1	docs: log fifth occurrence of the unenforced market-hours automerge gap (PR #872)
+merged	874	claude/lucid-keller-so2uec	2026-08-18	Claude	583/2	fix: CI ts_any regression + counter mis-attribution from this PR's own first commit
+merged	875	claude/funny-fermat-86csz9	2026-08-18	Claude	582/1	pipeline: new /api/diag/portdwell_window probe unblocks port_dwell_maritime_transit GATE 1 (v1.0.742
+merged	862	claude/quirky-hopper-n18lmw	2026-08-17	Claude	594/1	product: US Treasury auctions (/api/data/treasury-auctions) gets a live /data map layer + client vie
+merged	863	claude/busy-fermi-2ugvkj	2026-08-17	Claude	593/1	product: Treasury Daily Statement (/api/data/dts) gets a live /data map layer + client view (v1.0.73
+merged	864	claude/beautiful-planck-fqzcag	2026-08-17	Claude	592/1	product: FDA binary events (/api/data/fda-events) gets a live /data client view (v1.0.734)
+merged	866	claude/eloquent-dijkstra-1j2ohq	2026-08-17	Claude	590/1	docs: log fourth occurrence of the unenforced market-hours automerge gap (PR #865)
+merged	868	claude/funny-fermat-o3aipt	2026-08-17	Claude	589/1	repair: fix shadow-backfill starvation blocking KNOWN BROKEN #20's evidence gate (v1.0.736)
+merged	799	claude/rendering-motion-overhaul-x0efmb	2026-08-16	Claude	655/20	merge: bring 61 commits of main into the rendering/grid branch (v1.0.732)
+merged	854	claude/quirky-hopper-fgehbr	2026-08-16	Claude	602/1	product: gnss_integrity_adsb gets a live /data SIGNAL surface, the first root at ladder gate 2 (v1.0
+merged	855	claude/dazzling-planck-wr5rb1	2026-08-16	Claude	601/1	research: STALENESS AUDIT run (42d overdue), clean bill of health; KNOWN BROKEN #30 live-verified cl
+merged	856	claude/busy-fermi-59mdlk	2026-08-16	Claude	600/2	research: log the gridTilesCoverage.test.ts repair session (PR #856)
+merged	857	claude/beautiful-planck-mwml5s	2026-08-16	Claude	599/1	product: EU power markets (ENTSO-E) get a live /data client view (v1.0.729)
+merged	859	claude/eloquent-dijkstra-1hamuh	2026-08-16	Claude	597/1	docs: log third occurrence of the unenforced market-hours merge-timing gap (PR #858)
+merged	860	claude/lucid-keller-w0d1u4	2026-08-16	Claude	596/1	product: CFTC Traders in Financial Futures (/api/data/tff) gets a live /data client view (v1.0.731)
+merged	861	claude/funny-fermat-c0lng4	2026-08-16	Claude	595/1	docs: second-ever CONSTITUTIONAL AUDIT — register created, 2 consolidation proposals filed
+merged	846	claude/quirky-hopper-ga6aec	2026-08-15	Claude	610/1	research: GNSS-integrity gate-2 re-confirmed at 4 days, gate-1 cross-reference attempted (partial); 
+merged	847	claude/dazzling-planck-joeted	2026-08-15	Claude	609/1	research: USAspending gate-2 final run — hypothesis rejected, wrong-signed candidate filed (v1.0.7
+merged	848	claude/busy-fermi-y9kc4p	2026-08-15	Claude	608/1	repair: satellite footprint/look-angle geometry uses the WGS-84 radius at each point's own latitude 
+merged	849	claude/beautiful-planck-566136	2026-08-15	Claude	607/1	research: finra_short_volume GATE 2 pre-registered follow-up retest — population baseline + regime
+merged	851	claude/eloquent-dijkstra-96vhm2	2026-08-15	Claude	605/1	docs: PR #850 auto-merged during market hours despite the requested wait — process gap filed
+merged	852	claude/lucid-keller-ejxn94	2026-08-15	Claude	604/1	product: European macro cluster gets its /api/v1 keyed mirror (v1.0.726)
+merged	853	claude/funny-fermat-yio8a0	2026-08-15	Claude	603/1	product: FRED macro cluster gets its /api/v1 keyed mirror (v1.0.727)
+merged	827	claude/quirky-hopper-mq1hbr	2026-08-14	Claude	627/1	product: submarine cables `submarine=yes` follow-up resolved — 85% pipelines, not activated (v1.0.
+merged	839	claude/voltradeai-master-program-dsbeve	2026-08-14	Claude	613/2	feat: the body-surface raycast, ported to the GPU (v1.0.721)
+merged	840	claude/busy-fermi-m10fxm	2026-08-14	Claude	615/1	fix: gated Python suite is now hermetic — a probe found the real yfinance call sites (v1.0.718)
+merged	841	claude/beautiful-planck-azlvb6	2026-08-14	Claude	614/1	research: GRID VISION A1 gate-2 v3 computed — FAIL, stress-index predictive line closed (v1.0.719)
+merged	843	claude/eloquent-dijkstra-w80447	2026-08-14	Claude	612/1	research: PR-body merge-timing notes don't gate automerge — filed as an open question
+merged	845	claude/lucid-keller-1r0w0q	2026-08-14	Claude	611/1	product: Time Machine T-4 — vessels parity for the window-replay endpoint (v1.0.721)
+merged	804	claude/quirky-hopper-fkqwv9	2026-08-13	Claude	649/1	pipeline: GNSS-integrity Phase 4 gate-2 statistical run — PASS (v1.0.689)
+merged	805	claude/dazzling-planck-dlx1ua	2026-08-13	Claude	648/1	pipeline: ladder readiness checker — compile "is this gate2_pending root unblocked yet" into code 
+merged	813	claude/busy-fermi-4fwma1	2026-08-13	Claude	640/2	docs: session log — CSP cash-budget race fix (v1.0.696, PR #813)
+merged	814	claude/beautiful-planck-vkmiwc	2026-08-13	Claude	639/1	product: submarine telecom cables — a new RAW OSM overlay (v1.0.697)
+merged	815	claude/eloquent-dijkstra-2b8za2	2026-08-13	Claude	638/1	research: shadow change_pct distribution — is over_threshold really zero, or broken? (v1.0.698)
+merged	816	claude/full-site-ui-audit-9biltz	2026-08-13	Claude	637/2	version bump + research log for the legend wheel repair (v1.0.699)
+merged	819	claude/lucid-keller-sq03do	2026-08-13	Claude	635/1	docs: log PR #818 auto-merge-vs-market-hours ops gotcha
+merged	820	claude/4d-earth-digital-twin-5e7nks	2026-08-13	Claude	634/1	moonTiles hardening: LRU cache, no supersede starvation, bounded retry (v1.0.701)
+merged	821	claude/funny-fermat-yxv26n	2026-08-13	Claude	633/1	research: OPTIONS-SLOT cap breached a 3rd time, 3rd root cause found — RECURRENCE ESCALATES, no co
+merged	561	claude/system-replacement-ah7v3u	2026-08-12	Claude	670/0	feat: archive ADS-B version as the equipage control for the integrity series (v1.0.666)
+merged	780	claude/quirky-hopper-pv0w1e	2026-08-12	Claude	672/1	research: GNSS integrity Phase 3 probe verified live in production post-merge (docs-only)
+merged	783	claude/dazzling-planck-m7ua1x	2026-08-12	Claude	668/2	Merge remote-tracking branch 'origin/main' into claude/dazzling-planck-m7ua1x
+merged	787	claude/previous-prompt-recovery-ngnnme	2026-08-12	Claude	665/1	product: Apollo landing sites get a celestial toggle and are reachable from the panel (v1.0.670)
+merged	792	claude/busy-fermi-w9tkne	2026-08-12	Claude	659/1	repair: fix the restart-grace fix — grace on Tier 2 completion, not a 30-min clock (v1.0.675)
+merged	800	claude/lucid-keller-ufjh45	2026-08-12	Claude	654/1	pipeline: GNSS-integrity Phase 4 blocker found + fixed — the archive reader starved bbox-scoped qu
+merged	803	claude/funny-fermat-vf8k1a	2026-08-12	Claude	650/2	docs: session log for GNSS-integrity Phase 4 bbox pushdown (v1.0.688, PR #803)
+merged	745	claude/dazzling-planck-46u5rx	2026-08-11	Claude	708/1	research: illiquid mean_reversion ladder step 5 — LOGIC-gate ablation finds 1/17 pinned candidates
+merged	752	claude/busy-fermi-g3nv6j	2026-08-11	Claude	701/2	docs: experiments.md — CSP earnings gate fail-open repair session log (v1.0.649)
+merged	755	claude/beautiful-planck-j8ebyj	2026-08-11	Claude	698/1	product: CDC/SEER county cancer-rate choropleth, closing the last hazard layer on the Location Conte
+merged	757	claude/eloquent-dijkstra-k2jxnp	2026-08-11	Claude	697/1	repair: BS put-delta branch — analyze.py's black_scholes near-expiry/zero-vol fallback used call-o
+merged	738	claude/quirky-hopper-dd85di	2026-08-10	Claude	715/1	product: Cboe VIX term structure gets its /api/v1 keyed mirror (v1.0.636)
+merged	739	claude/dazzling-planck-c8lp7d	2026-08-10	Claude	714/1	repair: alt_data.py's FRED/GDELT sequential HTTP loops blew deep_score's 15s enrichment budget (v1.0
+merged	740	claude/busy-fermi-hg7dk9	2026-08-10	Claude	713/1	repair: deep_score()'s enrichment-fetch TIMEOUT path was invisible to the diagnostic KNOWN BROKEN #2
+merged	741	claude/beautiful-planck-o2iuhk	2026-08-10	Claude	712/1	product: NRC reactor status gets its /api/v1 keyed mirror, closing the last of the three "shipped-da
+merged	742	claude/eloquent-dijkstra-m6iqb8	2026-08-10	Claude	711/1	repair: KNOWN BROKEN #29 judged RESOLVED PENDING MONITORING off live evidence, no code change (v1.0.
+merged	743	claude/lucid-keller-i4uudc	2026-08-10	Claude	710/1	product: SEC 13F-HR institutional holdings gets its /api/v1 keyed mirror, closing the last "shipped-
+merged	744	claude/funny-fermat-ob538v	2026-08-10	Claude	709/2	docs: append [REPAIR] session log for KNOWN BROKEN #10 change_pct query (v1.0.642)
+merged	731	claude/quirky-hopper-wo82e3	2026-08-09	Claude	722/1	pipeline: EIA-930 grid-demand GATE 2 killed — pre-registered weather-adjusted-residual vs XLI test
+merged	732	claude/dazzling-planck-0b2wq0	2026-08-09	Claude	721/1	pipeline: sea-state/shipping-lane hypothesis gate-2 join built, live-probed honesty finding: nearest
+merged	733	claude/busy-fermi-wn6ht0	2026-08-09	Claude	720/1	repair: /api/monitoring/overview drawdown status was permanently fabricated (v1.0.631)
+merged	734	claude/beautiful-planck-5qdynr	2026-08-09	Claude	719/1	product: NRC reactor status gets its standalone /data dashboard page (v1.0.632)
+merged	735	claude/eloquent-dijkstra-raxfsc	2026-08-09	Claude	718/1	repair: rollup was silently deleting unreadable/corrupt hour files (v1.0.633)
+merged	736	claude/lucid-keller-7l4t7k	2026-08-09	Claude	717/1	product: OCC options-volume closes the next "shipped-data-no-v1-API" gap (v1.0.634)
+merged	737	claude/funny-fermat-x01zd7	2026-08-09	Claude	716/1	repair: earnings-proximity position sizing fails OPEN on a data-lookup failure (v1.0.635)
+merged	725	claude/dazzling-planck-idgxzh	2026-08-08	Claude	728/1	research: illiquid mean_reversion re-thresholding ablation, LADDER PATH step 4 (v1.0.623)
+merged	726	claude/busy-fermi-496ln7	2026-08-08	Claude	727/1	research: STRICT_RSI mean_reversion variant's independent-re-draw check — spread-widening claim do
+merged	727	claude/beautiful-planck-gws5sk	2026-08-08	Claude	726/1	product: European macro cluster (ECB/Eurostat/Bundesbank) gets its /data UI (v1.0.625)
+merged	728	claude/eloquent-dijkstra-c4jx8c	2026-08-08	Claude	725/1	product: SEC 13F-HR institutional holdings gets its /data UI (v1.0.626)
+merged	729	claude/lucid-keller-acowf0	2026-08-08	Claude	724/1	product: US macro cluster (FRED, 28 series) gets its /data UI (v1.0.627)
+merged	730	claude/funny-fermat-255zt1	2026-08-08	Claude	723/2	docs: experiments.md — SectorHeatmap fabricated-100% repair session log (v1.0.628)
+merged	709	claude/quirky-hopper-8e6rlu	2026-08-07	Claude	745/1	product: github-activity gets its /api/v1 keyed mirror, closing the queued spinout-readiness gap (v1
+merged	710	claude/dazzling-planck-63zh04	2026-08-07	Claude	744/1	pipeline: Cboe VIX term structure built end-to-end after cboe_daily_stats census target found dead (
+merged	711	claude/busy-fermi-11hohu	2026-08-07	Claude	743/1	repair: shadow backfill batches Alpaca calls by window instead of one-per-ticker, unblocking KNOWN B
+merged	714	claude/beautiful-planck-n7rj8v	2026-08-07	Claude	737/3	merge: resolve second origin/main advance (v1.0.614 options-roll-basis + v1.0.615 options-convexity-
+merged	721	claude/eloquent-dijkstra-ou1rpf	2026-08-07	Claude	732/1	repair: remove trackClosedTrades' permanently-dead ML-feedback block (KNOWN BROKEN #12b, v1.0.619)
+merged	723	claude/lucid-keller-02wtc6	2026-08-07	Claude	730/1	product: USDA NASS crop conditions gets its /api/v1 keyed mirror (v1.0.621)
+merged	724	claude/funny-fermat-pzwvm2	2026-08-07	Claude	729/1	repair: daily-loss kill switch's input was fabricated zero, so it could never fire (v1.0.622)
+merged	702	claude/quirky-hopper-scjx9c	2026-08-06	Claude	749/1	pipeline: settlement-stress composite's readiness gate checked the wrong archive, permanently lockin
+merged	703	claude/dazzling-planck-md4esc	2026-08-06	Claude	748/1	pipeline: JODI oil-stocks GATE 1 workup closed — definitional gap was a wrong product-key bug (v1.
+merged	704	claude/busy-fermi-cz36fx	2026-08-06	Claude	747/1	pipeline: JODI oil-stocks GATE 2 run — non-OECD stock-build hypothesis killed (v1.0.606)
+merged	705	claude/beautiful-planck-yobfde	2026-08-06	Claude	746/1	pipeline: finra_short_volume GATE 2 first-pass run — pre-registered composite bar FAILS, U-shaped 
+merged	693	claude/dazzling-planck-ko1yya	2026-08-05	Claude	757/1	REPAIR: shadow_portfolio nightly backfill root cause — market-hours gate made it dead code since i
+merged	696	claude/busy-fermi-fx9rat	2026-08-05	Claude	754/1	research: TLT leveraged-money momentum candidate fails disjoint out-of-sample replication (v1.0.599)
+merged	697	claude/beautiful-planck-48q054	2026-08-05	Claude	753/1	product: App Store rankings watchlist gets its /data UI (v1.0.600)
+merged	698	claude/eloquent-dijkstra-fg5vvo	2026-08-05	Claude	752/1	research: OCC put-skew reversal candidate fails ladder-path step (2) disjoint replication (v1.0.601)
+merged	699	claude/lucid-keller-dzxprv	2026-08-05	Claude	751/1	product: GitHub engineering-momentum watchlist gets its /data UI (v1.0.602)
+merged	701	claude/funny-fermat-4olj31	2026-08-05	Claude	750/1	rule-review: MAX_TOTAL_OPTIONS_PCT revisit attempted (inconclusive), closes the visibility gap that 
+merged	686	claude/quirky-hopper-0tdjpc	2026-08-04	Claude	764/1	pipeline: crop_conditions_usda_nass GATE 1 PASSED — 10/10 exact match vs USDA's published Crop Pro
+merged	687	claude/dazzling-planck-ar78dv	2026-08-04	Claude	763/1	pipeline: nrc_outage_reports BUILT + GATE 1 PASSED (v1.0.590)
+merged	688	claude/busy-fermi-cslef6	2026-08-04	Claude	762/2	research: log SHADOW-BACKFILL session findings + update KNOWN BROKEN #10/#20
+merged	689	claude/beautiful-planck-k09zh4	2026-08-04	Claude	761/2	research: session log for PR #689 (NRC reactor status map layer)
+merged	690	claude/eloquent-dijkstra-iyaw2l	2026-08-04	Claude	760/1	repair: stale stop_state.json remaining_qty was making WS exits over-request shares (v1.0.593)
+merged	691	claude/lucid-keller-tqjay2	2026-08-04	Claude	759/1	product: crop_conditions_usda_nass /data chart view (v1.0.594)
+merged	692	claude/funny-fermat-5wg9mo	2026-08-04	Claude	758/1	research: day-clustered re-test of the OCC skew-reversal candidate — SPLIT verdict (v1.0.595)
+merged	677	claude/quirky-hopper-73yqyr	2026-08-03	Claude	775/1	occ_options_volume: GATE 1 PASSED, OCC's own June-2026 total matched exactly (v1.0.580)
+merged	679	claude/dazzling-planck-bu0nii	2026-08-03	Claude	771/1	data stream registry check: compile "is X already built" into code (v1.0.582)
+merged	681	claude/busy-fermi-6nldph	2026-08-03	Claude	769/1	repair: TIER3-DIAG audit line now logs the actual problem detail, not just a count (v1.0.584)
+merged	682	claude/beautiful-planck-5cluu4	2026-08-03	Claude	768/1	occ_options_volume: GATE 2 KILLED — customer call-skew hypothesis rejected, reversed candidate fil
+merged	683	claude/eloquent-dijkstra-mtvwbq	2026-08-03	Claude	767/2	research: session log for options-slot race repair (PR #683)
+merged	684	claude/lucid-keller-m3b1cy	2026-08-03	Claude	766/1	occ/cftc: cftc_tff_positioning GATE 2 KILLED, TLT momentum candidate filed unconfirmed (v1.0.587)
+merged	685	claude/funny-fermat-inbajt	2026-08-03	Claude	765/2	research: log session entry for the shadow diag probe (v1.0.588)
+merged	670	claude/quirky-hopper-6p3ahp	2026-08-02	Claude	782/1	SEC 8-K earnings-language keyed mirror: /api/v1/data/earnings-language (v1.0.573)
+merged	671	claude/dazzling-planck-ccu0id	2026-08-02	Claude	781/1	GitHub org engineering-momentum archiver: EDGE DOCTRINE axis (a), NEW DATA ROOTS #5 (v1.0.574)
+merged	672	claude/busy-fermi-gyt2jb	2026-08-02	Claude	780/1	App Store rankings keyed mirror: /api/v1/data/appstore-rankings (v1.0.575)
+merged	673	claude/beautiful-planck-i2jehy	2026-08-02	Claude	779/1	signal_ladder.json re-compiled: 2 missing gate-1-pass roots added (v1.0.576)
+merged	674	claude/eloquent-dijkstra-f49emo	2026-08-02	Claude	778/1	USGS volcano alert levels: /data raw overlay, GVP live coordinate join (v1.0.577)
+merged	675	claude/lucid-keller-02o6sg	2026-08-02	Claude	777/1	fleet-utilization: permanent weekly archive fixes a structural gate-2 blocker (v1.0.578)
+merged	676	claude/funny-fermat-wkm7xa	2026-08-02	Claude	776/1	repair: close stranded zero-CI PR #77, ratchet inline-train gate coverage
+merged	664	claude/dazzling-planck-4qtltb	2026-08-01	Claude	788/1	App Store rank + review-velocity archiver: EDGE DOCTRINE axis (a), NEW DATA ROOTS #3 (v1.0.568)
+merged	665	claude/busy-fermi-uvlzkm	2026-08-01	Claude	787/4	chore: sync package-lock.json version field to 1.0.569
+merged	666	claude/beautiful-planck-9o4zb5	2026-08-01	Claude	786/1	SO2 column (OMPS-NOAA20, GIBS) /data raw overlay: cheapest queued cross-tie (v1.0.570)
+merged	667	claude/eloquent-dijkstra-ts20c5	2026-08-01	Claude	785/2	research: log round-22 AIR-layer transition-band cull fix session (v1.0.571)
+merged	668	claude/lucid-keller-rijpz8	2026-08-01	Claude	784/1	held (ALTITUDE HOLD) flag now surfaces in the flight-profile chart (v1.0.572)
+merged	669	claude/funny-fermat-vooa1p	2026-08-01	Claude	783/1	research: illiquid mean_reversion edge — regime-conditioned check (Reasoning Standard #2)
+merged	655	claude/quirky-hopper-unlzqs	2026-07-31	Claude	809/1	product: CFTC TFF gate-1 accounting-identity validation, verified at 15k-record scale (v1.0.552, T-D
+merged	656	claude/dazzling-planck-r3yp7d	2026-07-31	Claude	808/2	product: EIA-930 grid demand gate-1 PASSED — live revision-stability evidence (v1.0.553, T-DATACOR
+merged	657	claude/busy-fermi-67pmaq	2026-07-31	Claude	807/1	repair: cap CSP sizing by real account cash, ending repeated Alpaca buying-power rejections (v1.0.55
+merged	658	claude/beautiful-planck-rf79t6	2026-07-31	Claude	806/1	product: MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard — /data/pipeline-health, closes the R6 das
+merged	659	claude/eloquent-dijkstra-2u1gn5	2026-07-31	Claude	802/1	fix: stop option OCC symbols from crashing the equity WS bars subscribe (v1.0.558)
+merged	661	claude/funny-fermat-qlb0wh	2026-07-31	Claude	791/1	fix: ETF entries never wrote a track_fill record, guaranteeing orphan_exit (v1.0.565)
+merged	644	claude/quirky-hopper-13mrre	2026-07-30	Claude	822/1	product: SEC MIDAS keyed mirror — /api/v1/stats/midas (v1.0.541)
+merged	645	claude/dazzling-planck-c1yeom	2026-07-30	Claude	821/3	docs: proper top-level session log entry for the KNOWN BROKEN #27 landing
+merged	646	claude/busy-fermi-8m4exn	2026-07-30	Claude	820/1	product: salvage PR #640's X-ray flux into merged spaceWeather.ts (v1.0.543)
+merged	649	claude/beautiful-planck-vz1e24	2026-07-30	Claude	819/1	product: MAP V2 ROADMAP R6(b) DATA-QUALITY dashboard — /data/quality (v1.0.544)
+merged	651	claude/eloquent-dijkstra-e7iujm	2026-07-30	Claude	813/1	fix: risk_kill_switch.py free-BP/correlation warnings divided by REMAINING buying_power instead of T
+merged	653	claude/lucid-keller-ri7ds0	2026-07-30	Claude	811/3	research: log R6(a) SIGNAL-STRENGTH session in experiments.md (v1.0.550, docs-only)
+merged	654	claude/funny-fermat-2hsz2k	2026-07-30	Claude	810/1	fix: options_scanner high-IV candidates sort alphabetically instead of by movement magnitude
+merged	634	claude/quirky-hopper-sm05x8	2026-07-29	Claude	834/1	product: /api/v1/stats/secftd — SEC CNS fails-to-deliver keyed mirror, closes another shipped-data
+merged	635	claude/dazzling-planck-d3k3u4	2026-07-29	Claude	833/1	[REPAIR] KNOWN BROKEN #18 continuation: scan-wide Setup 7 time budget ends ~2 days of near-100% Tier
+merged	642	claude/eloquent-dijkstra-buqo38	2026-07-29	Claude	824/1	docs: log PR #641's transient CI retry + market-hours merge-timing gap
+merged	643	claude/funny-fermat-zi307t	2026-07-29	Claude	823/1	fix: bot.ts's Tier-2-scanner options slot cap drifted stale at 3 vs system_config.py's canonical 6 (
+merged	623	claude/quirky-hopper-4vlijz	2026-07-28	Claude	845/1	product: ORF short-vol deep backfill (env-gated), live-verify 07-27 ORF fix stable + settlement-stre
+merged	624	claude/dazzling-planck-uun9j5	2026-07-28	Claude	844/1	research: independent NASDAQ re-draw reproduces the 07-24 illiquid mean_reversion edge finding (T-BO
+merged	625	claude/busy-fermi-8o9pbw	2026-07-28	Claude	843/1	research: illiquid-universe train/test split (LADDER PATH step 2) gives a MIXED result
+merged	626	claude/beautiful-planck-upt67c	2026-07-28	Claude	842/1	product: SEC MIDAS /data map-layer UI, closes last shipped-data-no-UI gap (v1.0.524)
+merged	627	claude/eloquent-dijkstra-9tunx9	2026-07-28	Claude	841/1	repair: KNOWN BROKEN #18 recurrence root-caused -- vol_surface's unthrottled per-candidate fetches, 
+merged	632	claude/lucid-keller-50yg5d	2026-07-28	Claude	837/1	product: /api/v1/stats/plant-operations — EPA CAMD keyed mirror, closing a shipped-data-no-v1-API 
+merged	633	claude/funny-fermat-41arzp	2026-07-28	Claude	835/1	research: illiquid-universe LADDER PATH step 3 — bootstrap CI + permutation test finds illiquid > 
+merged	605	claude/eloquent-dijkstra-5upg6j	2026-07-27	Claude	848/3	chore: sync package-lock.json version after merge (v1.0.521)
+merged	615	claude/quirky-hopper-pg34y2	2026-07-27	Claude	857/1	repair: settlement-stress composite had zero output since inception -- OTC threshold list joined aga
+merged	616	claude/dazzling-planck-h138mj	2026-07-27	Claude	856/1	repair: KNOWN BROKEN #18 continuation -- close run_tiers()'s remaining dark span, surfaced by a new 
+merged	617	claude/busy-fermi-rv4nvv	2026-07-27	Claude	855/1	research: MEASUREMENT-DEBT /data perf-gate repro doesn't reproduce today (3/3 clean); close two stal
+merged	619	claude/beautiful-planck-anq9n1	2026-07-27	Claude	853/1	docs: file OPS GOTCHA — a PR-body "wait for market close" note has no enforcement effect against t
+merged	621	claude/eloquent-dijkstra-bkxl2n	2026-07-27	Claude	848/2	docs: log KNOWN BROKEN #18's tier1-localization finding + PR #621 session log entry
+merged	622	claude/funny-fermat-jivotq	2026-07-27	Claude	846/1	repair: KNOWN BROKEN #18 continuation -- TIER2-ERROR audit line surfaces preamble total + slowest ph
+merged	608	claude/dazzling-planck-gjm2wv	2026-07-26	Claude	864/1	research: ATS job-postings GATE 0 probe -- killed at gate 0 for the broad-panel form (v1.0.500)
+merged	609	claude/busy-fermi-jj54as	2026-07-26	Claude	863/1	repair: split the 2026-05-04 unactioned deep_score->step6 timing gap (KNOWN BROKEN #18) (v1.0.501)
+merged	610	claude/beautiful-planck-4e704v	2026-07-26	Claude	862/2	docs: confirm GitHub Actions CI outage (tracked since 2026-07-22) has cleared
+merged	611	claude/eloquent-dijkstra-s6emui	2026-07-26	Claude	861/1	repair: KNOWN BROKEN #18 root-caused + fixed -- options scanner was burning the daemon budget on two
+merged	612	claude/lucid-keller-8qyi5w	2026-07-26	Claude	860/1	product: generic /api/diag/archive probe unblocks USAspending gate-2 (v1.0.504)
+merged	614	claude/funny-fermat-r2gl07	2026-07-26	Claude	858/1	docs: correct CLAUDE.md's stale PRODUCTION DEPLOY FROZEN paragraph -- CI outage already resolved
+merged	600	claude/quirky-hopper-o08p6s	2026-07-25	Claude	872/1	product: dossier hazard radius_km client toggle (v1.0.493)
+merged	601	claude/dazzling-planck-eb1qct	2026-07-25	Claude	871/1	pipeline: session_health_check.py gains a deploy_freshness check (v1.0.494)
+merged	603	claude/busy-fermi-vjwyqb	2026-07-25	Claude	869/1	Docs: session log for PR #602 (visual harness fixture gap + occlusion fix)
+merged	606	claude/lucid-keller-amkesb	2026-07-25	Claude	867/1	gridvision: recover orphaned PR #415 (train_rc=1 fail-fast fix + runpod_reap.py) + correct stale RUN
+merged	607	claude/funny-fermat-s4m9es	2026-07-25	Claude	866/1	repair: OPRA options-data entitlement fallback (KNOWN BROKEN #25) (v1.0.498)
+merged	572	claude/dazzling-planck-mi27yn	2026-07-24	Claude	912/0	Merge remote-tracking branch 'origin/main' into resolve-572
+merged	584	claude/eloquent-dijkstra-8vtjae	2026-07-24	Claude	909/0	Merge remote-tracking branch 'origin/main' into resolve-584
+merged	585	claude/lucid-keller-fbi62n	2026-07-24	Claude	905/0	Merge remote-tracking branch 'origin/main' into resolve-585
+merged	586	claude/funny-fermat-eb2fi7	2026-07-24	Claude	900/0	Merge remote-tracking branch 'origin/main' into resolve-586
+merged	590	claude/beautiful-planck-7jkycp	2026-07-24	Claude	897/0	Merge remote-tracking branch 'origin/main' into resolve-590
+merged	591	claude/eloquent-dijkstra-iipyr1	2026-07-24	Claude	893/0	Merge remote-tracking branch 'origin/main' into resolve-591
+merged	592	claude/lucid-keller-mse9ca	2026-07-24	Claude	889/0	fix drift-guard: add voltrade_get_graph tool for the new /api/v1/graph endpoint
+merged	593	claude/funny-fermat-85fwks	2026-07-24	Claude	886/0	Merge remote-tracking branch 'origin/main' into resolve-593
+merged	594	claude/quirky-hopper-i9t290	2026-07-24	Claude	883/0	Merge remote-tracking branch 'origin/main' into resolve-594
+merged	595	claude/dazzling-planck-ubvbyl	2026-07-24	Claude	916/1	[RESEARCH] Axis (b) illiquid-universe probe: mean_reversion shows a real edge in thin small-caps, mo
+merged	596	claude/busy-fermi-wkbhk1	2026-07-24	Claude	915/1	REPAIR: options-chain fetch failures were indistinguishable from genuine no-options-listed (v1.0.481
+merged	597	claude/beautiful-planck-ywo70p	2026-07-24	Claude	880/0	Merge remote-tracking branch 'origin/main' into resolve-597
+merged	598	claude/eloquent-dijkstra-x6dxxp	2026-07-24	Claude	877/0	Merge remote-tracking branch 'origin/main' into resolve-598
+merged	599	claude/funny-fermat-sk7saz	2026-07-24	Claude	873/0	globe: G2f MODIS flood/water-extent GIBS layer (v1.0.492)
+merged	587	claude/quirky-hopper-dmaypu	2026-07-23	Claude	919/2	Docs: confirm the CI 'changes' job outage is sustained + repo-wide, not two isolated incidents (no c
+merged	588	claude/dazzling-planck-bk5gf3	2026-07-23	Claude	918/1	[RULE-REVIEW] Volume-tiered execution cost in backtest_v2.py, replacing simulator-fiction flat 5bps 
+merged	589	claude/busy-fermi-v1544o	2026-07-23	Claude	917/1	[RESEARCH] GEM methane gate-2(c): widen operator name-match to Abbreviation field, verify null effec
+merged	578	claude/quirky-hopper-pmis98	2026-07-22	Claude	932/1	GEM coal-mine boundaries & infrastructure /data map layer (v1.0.470)
+merged	579	claude/dazzling-planck-brmmsz	2026-07-22	Claude	930/1	[RESEARCH] Form 4 insider-signal gate 2 KILLED: code-S mirror + full-8Q code-P re-run both reverse P
+merged	580	claude/busy-fermi-l4ky2j	2026-07-22	Claude	926/1	SCALE S-A2: fix vessels-delta TTL shorter than client poll (v1.0.474)
+merged	583	claude/beautiful-planck-w4gwcl	2026-07-22	mctils12-arch	920/0	Docs: addendum — CI's 'changes' job itself failed twice with no runner allocated (#583)
+merged	571	claude/quirky-hopper-mf81a8	2026-07-21	Claude	945/1	FAA airport-status /data map layer: the pipeline's own filed follow-up, shipped (v1.0.457)
+merged	573	claude/busy-fermi-dgu1qu	2026-07-21	Claude	942/2	Session log: SPEED WAVE 1 S-A1 aircraft SWR (v1.0.460)
+merged	574	claude/beautiful-planck-vkundj	2026-07-21	Claude	939/1	CBP border-wait times: /data map layer (v1.0.463)
+merged	575	claude/eloquent-dijkstra-ada3t2	2026-07-21	Claude	937/1	KNOWN BROKEN #18 continuation: refute zombie-pileup (4 live samples), surface layer2_prefetch in dae
+merged	576	claude/lucid-keller-k5d4ah	2026-07-21	Claude	936/1	GEM coal-mine geojson.gz server route: /api/data/coal-mine-features (v1.0.466)
+merged	577	claude/funny-fermat-hfwl7e	2026-07-21	Claude	934/1	KNOWN BROKEN #18: refute layer2_prefetch correlation, fix deep_score's ThreadPoolExecutor shutdown h
+merged	555	claude/quirky-hopper-d2ikk7	2026-07-20	Claude	972/1	GEM methane gate-2(b): repeat-detection rate per asset + /data hotspots view (v1.0.421)
+merged	565	claude/busy-fermi-0v01gl	2026-07-20	Claude	963/1	[REPAIR] GEM methane proximity join silently dead on prod since gate-2(a); fix + first real gate-2(c
+merged	568	claude/eloquent-dijkstra-8bpyl3	2026-07-20	Claude	955/1	[REPAIR] Live break: Tier2 scanning dead since 15:27 UTC, masked by RPC dispatch bug that overwrites
+merged	569	claude/lucid-keller-cij6q6	2026-07-20	Claude	951/1	EPA CAMD ground-truth utilization: new /data map layer (v1.0.452)
+merged	570	claude/funny-fermat-omwwxo	2026-07-20	Claude	949/1	KNOWN BROKEN #18: per-method active-dispatch detail on daemon timeouts (v1.0.454)
+merged	542	claude/quirky-hopper-wbc1to	2026-07-19	Claude	985/1	GEM methane-plume x extraction-registry proximity join + /data map layer (v1.0.409)
+merged	545	claude/dazzling-planck-9y3cif	2026-07-19	Claude	982/1	SEC bulk-historical Form 4 archive (gate 1 DATA) + insider-cluster gate-2 SIGNAL screen (v1.0.412)
+merged	549	claude/busy-fermi-efj8ys	2026-07-19	Claude	978/1	[REPAIR] Close KNOWN BROKEN #22: confirm floor-basket stop-exemption fix holds live
+merged	550	claude/eloquent-dijkstra-ces8xi	2026-07-19	Claude	977/1	[REPAIR] KNOWN BROKEN #18 fourth-mechanism: eliminate 2 confirmed-redundant Alpaca bars fetches (v1.
+merged	552	claude/funny-fermat-mccg8w	2026-07-19	Claude	975/1	[REPAIR] KNOWN BROKEN #18 continuation: instrument CSP Layer 2 prefetch throttle-overcommit theory (
+merged	517	claude/quirky-hopper-4bh33n	2026-07-18	Claude	1010/1	pipeline: EPA CAMD CEMS unit-level plant operations — TX pilot (v1.0.385)
+merged	524	claude/dazzling-planck-xl0s1o	2026-07-18	Claude	1003/1	pipeline: settlement-stress composite joins the three already-built FINRA/SEC streams (v1.0.392)
+merged	529	claude/busy-fermi-g8m1zy	2026-07-18	Claude	998/1	repair: bars_feed() fixes /v2/stocks/bars rejecting feed=delayed_sip with HTTP 400 (v1.0.397)
+merged	530	claude/eloquent-dijkstra-lvbk76	2026-07-18	Claude	997/1	repair: KNOWN BROKEN #18 recurrence — timings diag probe to confirm rate-limiter theory (v1.0.398)
+merged	533	claude/lucid-keller-cbyk8l	2026-07-18	Claude	994/1	pipeline: GMET methane-plume RAW API route (v1.0.401)
+merged	537	claude/funny-fermat-gnqdbk	2026-07-18	Claude	990/1	[REPAIR] KNOWN BROKEN #18 recurrence: confirm rate-limiter-contention hypothesis via live timings-pr
+merged	506	claude/quirky-hopper-ruiooq	2026-07-17	Claude	1021/1	Everything Graph: GEM ownership CIK join, new owns edge type (v1.0.374)
+merged	507	claude/dazzling-planck-c6yi3g	2026-07-17	Claude	1020/1	Everything Graph: owns broadened to any CIK-anchored edge via new institution node type (v1.0.375)
+merged	509	claude/busy-fermi-16via0	2026-07-17	Claude	1018/1	research: close KNOWN BROKEN #18 — shadowFleet O(n^2) fix confirmed live after 4 clean days
+merged	510	claude/beautiful-planck-w9icc3	2026-07-17	Claude	1017/1	grid-vision: fix build_power_tiles.sh osmium filter to keep power=tower nodes (v1.0.377)
+merged	514	claude/eloquent-dijkstra-352ak9	2026-07-17	Claude	1014/1	fix: floor-basket ETFs (SMH/KWEB/VXUS/GLD) were subject to active stop-loss/time-stop logic (v1.0.38
+merged	516	claude/funny-fermat-sr5bca	2026-07-17	Claude	1011/2	research: log session-4 [REPAIR] entry — ml_retrain throttle fix — and update KNOWN BROKEN #17 w
+merged	491	claude/quirky-hopper-335pdr	2026-07-16	Claude	1035/1	product: EARTH TWIN E3 follow-up — altitude-on-hover for 3D aircraft (v1.0.348)
+merged	497	claude/busy-fermi-wriuds	2026-07-16	Claude	1029/2	Log EARTH TWIN E2 v2 wiring session (experiments.md, earth_twin_program.md)
+merged	499	claude/beautiful-planck-12i2u7	2026-07-16	Claude	1028/1	EARTH TWIN E2 v2 remainder: blend the native GEBCO_2026 depth grid into the existing seafloor layer 
+merged	503	claude/eloquent-dijkstra-gaynqz	2026-07-16	Claude	1024/1	earth-twin round 10c: solar-view label collision fix (v1.0.371)
+merged	505	claude/funny-fermat-2tixsg	2026-07-16	Claude	1022/2	research: log SCALE S1(d) Legend memo-boundary session + RESUME STATE updates
+merged	479	claude/quirky-hopper-boz1mw	2026-07-15	Claude	1047/1	product: PFAS drinking-water detections — hazard layer #4, EPA UCMR 5 (v1.0.315)
+merged	480	claude/dazzling-planck-7szwk2	2026-07-15	Claude	1046/1	pipeline: compile the manual KNOWN BROKEN diagnostic dance into session_health_check.py (v1.0.316)
+merged	481	claude/busy-fermi-r3ksdo	2026-07-15	Claude	1045/1	repair: KNOWN BROKEN #17 resolved — TIER3-ML-ERROR's content-free "failed" now surfaces the real c
+merged	482	claude/beautiful-planck-7g92je	2026-07-15	Claude	1044/1	product: worldview_globe G2h biomass slice — GEDI L4B aboveground biomass density (v1.0.318)
+merged	483	claude/hotfix-midas-oom	2026-07-15	Claude	1043/1	OUTAGE FIX: secMidas boot archive OOM — stream the quarterly write, don't build a 189MB string (si
+merged	485	claude/eloquent-dijkstra-goqclx	2026-07-15	Claude	1041/1	product: EARTH TWIN E1 remainder — persistent LIVE/HISTORICAL badge outside the Time Machine panel
+merged	488	claude/funny-fermat-dmrgup	2026-07-15	Claude	1038/1	SCALE S1(c): skip the 1Hz orbital repaint when satellite motion is sub-pixel (v1.0.343)
+merged	473	claude/quirky-hopper-x95t88	2026-07-14	Claude	1053/1	product: Wikipedia attention proxy — #/data/attention full view (v1.0.309)
+merged	474	claude/dazzling-planck-7683n5	2026-07-14	Claude	1052/1	repair: KNOWN BROKEN #21 confirmed — get_stock_details() diag capture closes deep_score's silent e
+merged	475	claude/busy-fermi-bjmijm	2026-07-14	Claude	1051/1	repair: KNOWN BROKEN #21 resolved — _mem_rss_mb() read a monotonic peak, latching deep_score off a
+merged	476	claude/beautiful-planck-d7pjk0	2026-07-14	Claude	1050/1	product: HIFLD power-plants dossier-link parity; revise the filed layer-consolidation plan (v1.0.312
+merged	477	claude/eloquent-dijkstra-7h4yg0	2026-07-14	Claude	1049/1	product: CFTC COT disaggregated — #/data/cot full view, BUILD ORDER 5 closed 5/5 (v1.0.313)
+merged	478	claude/funny-fermat-lp6pbx	2026-07-14	Claude	1048/1	repair: KNOWN BROKEN #21 recurred + resolved — mem-guard thresholds re-tuned off live daemon RSS (
+merged	462	claude/quirky-hopper-xgu9mq	2026-07-13	Claude	1064/1	product: Location Context Engine — FEMA flood hazard zones, hazard layer #3 (v1.0.299)
+merged	465	claude/busy-fermi-lhu9fb	2026-07-13	Claude	1061/1	repair: KNOWN BROKEN #18 — tmpCleanup fix refuted; SQLite sync-write theory instrumented + WAL mod
+merged	470	claude/eloquent-dijkstra-gyr86x	2026-07-13	Claude	1056/1	repair: KNOWN BROKEN #18 root cause found + fixed — shadowFleet identity-candidate detection was O
+merged	471	claude/funny-fermat-1itvze	2026-07-13	Claude	1055/1	research: confirm KNOWN BROKEN #18's v1.0.307 fix live — zero EVENTLOOP-LAG recurrence 3h41m post-
+merged	472	claude/google-maps-api-railway-9d2wwg	2026-07-13	Claude	1054/1	site-wide imperial/metric unit setting — one preference, every card converts (v1.0.308)
+merged	439	claude/quirky-hopper-njpt2o	2026-07-12	Claude	1086/1	repair: fix vite base:"./" blanking multi-segment routes in prod (v1.0.280)
+merged	441	claude/dazzling-planck-798b7f	2026-07-12	Claude	1084/1	research: SEC 8-K earnings-language gate 2 first pilot — preliminary 1-day signal, N far too thin 
+merged	445	claude/busy-fermi-ud3aph	2026-07-12	Claude	1080/1	orbital O7: Starlink ground-site coverage query on satellite-click-miss (v1.0.286)
+merged	446	claude/beautiful-planck-t6dvgm	2026-07-12	Claude	1079/1	Location Context Engine: click-anywhere hazard dossier cross-join (v1.0.287)
+merged	447	claude/eloquent-dijkstra-ech9sl	2026-07-12	Claude	1078/1	KNOWN BROKEN #18 follow-up: event-loop lag monitor (v1.0.288)
+merged	448	claude/lucid-keller-vgye46	2026-07-12	Claude	1077/1	platform: P4 usage & billing-history UI for self-serve API keys (v1.0.289)
+merged	450	claude/platform-developers-p2	2026-07-12	Claude	1076/1	repair: /developers crashed whole-page on JSON error body / skewed meta (v1.0.290)
+merged	454	claude/funny-fermat-0vpcgl	2026-07-12	Claude	1072/1	repair: KNOWN BROKEN #18 event-loop-lag stall confirmed live, plausible root cause made non-blocking
+merged	424	claude/quirky-hopper-jrv2id	2026-07-11	Claude	1102/1	product: earthquakes (USGS) + ocean buoys (NDBC) map layers on /data (v1.0.267)
+merged	427	claude/dazzling-planck-72d6g4	2026-07-11	Claude	1098/1	repair: track_fill's code_version was hardcoded to "1.0.34" forever (v1.0.270)
+merged	432	claude/platform-integration-nav	2026-07-11	Claude	1096/1	platform: two-world nav (Trade / Data) + bring the API page into the app (v1.0.273)
+merged	434	claude/busy-fermi-yc7lg7	2026-07-11	Claude	1091/1	repair: CSP tier engine reused stock position cap, zeroing options in PANIC/BEAR/NEUTRAL for 5+ week
+merged	435	claude/beautiful-planck-ku48hm	2026-07-11	Claude	1090/1	platform: /developers endpoint explorer — live samples, copyable curl, freshness stamping (v1.0.27
+merged	436	claude/eloquent-dijkstra-qm8vp6	2026-07-11	Claude	1089/1	repair: KNOWN BROKEN #18's own visibility fix was broken — daemon-health envelope never unwrapped 
+merged	437	claude/lucid-keller-xq8tz7	2026-07-11	Claude	1088/1	platform: self-serve preview API key accounts (PLATFORM P3, v1.0.278)
+merged	438	claude/funny-fermat-oqio0o	2026-07-11	Claude	1087/1	rule-review: counterfactual logging for master_kill_switch's CSP blackout (v1.0.279)
+merged	417	claude/quirky-hopper-t6tnva	2026-07-10	Claude	1108/2	research: gv-div5-ks result — Duke diversity plateaued at 0.197, flat vs 0.200
+merged	418	claude/busy-fermi-6xk2if	2026-07-10	Claude	1107/1	fix: SPY floor rebalancer submitted live market orders around the clock
+merged	419	claude/beautiful-planck-0u0e3s	2026-07-10	Claude	1106/2	docs: add market-hours note to the G2b experiments.md entry
+merged	421	claude/eloquent-dijkstra-490la1	2026-07-10	Claude	1105/1	research: confirm R19 (WS-exit stream) and SPY-floor extended-hours fixes live in production
+merged	422	claude/lucid-keller-q2e8mt	2026-07-10	Claude	1104/1	datacore: SEC MIDAS individual-security market-structure metrics — census build #10 (v1.0.265)
+merged	423	claude/funny-fermat-724mip	2026-07-10	Claude	1103/1	repair: TIER2-ERROR daemon-timeout audit lines were content-free — add real daemon health probe + 
+merged	396	claude/quirky-hopper-keab5l	2026-07-09	Claude	1126/1	orbital: O3 satellite click-to-identify + close superseded PR #350 (v1.0.235)
+merged	398	claude/dazzling-planck-sxxjzu	2026-07-09	Claude	1124/1	repair: tiles3dBudget.ts durability classification (KNOWN BROKEN, v1.0.236)
+merged	402	claude/beautiful-planck-jj2wko	2026-07-09	Claude	1122/1	product: ANALYST CONSOLE W3 — time scrubber over our own archives (v1.0.250)
+merged	406	claude/eloquent-dijkstra-v8hiaa	2026-07-09	Claude	1118/1	research: Markov vs VXX-ratio regime detector — which predicts forward vol? (v1.0.252)
+merged	410	claude/lucid-keller-6hairf	2026-07-09	Claude	1113/1	product: ANALYST CONSOLE W5 — ENTITY DOSSIER v2 (v1.0.258)
+merged	412	claude/funny-fermat-c0oes1	2026-07-09	Claude	1111/1	fix: real-time position-exit monitor hardcoded /v2/sip, silently starved for 22h+ (R19, v1.0.260)
+merged	365	claude/quirky-hopper-bulkeb	2026-07-08	Claude	1155/1	feat(datacore): FINRA Query API part 2 — ATS venue summaries (census build #4, v1.0.208)
+merged	366	claude/dazzling-planck-bqt2j1	2026-07-08	Claude	1154/1	feat(datacore): USGS real-time earthquakes — free-data pipeline (v1.0.209)
+merged	368	claude/runpod-smoke-test-ledger-n2daip	2026-07-08	Claude	1152/1	runpod: prove smoke safety path live + fix ledger open/close double-count
+merged	369	claude/orbital-o2-satellite-globe	2026-07-08	Claude	1151/1	orbital O2: wire live satellites onto the /data globe
+merged	370	claude/gridvision-train-container	2026-07-08	Claude	1150/1	gridvision: on-pod tower-detector v0 training container (build only, no GPU spend)
+merged	371	claude/runpod-timeout-cap-fix	2026-07-08	Claude	1149/1	runpod: cost-cap timeout must bound the WHOLE command, not just its first segment
+merged	372	claude/layer-reliability-bug1	2026-07-08	Claude	1148/1	reliability [REPAIR]: single-shot map layers now time out + auto-retry (BUG 1)
+merged	373	claude/runpod-launch-env	2026-07-08	Claude	1147/1	runpod: --env KEY=VAL to pass a pod secret via env, not the command string
+merged	374	claude/layer-listener-leaks-bug4	2026-07-08	Claude	1146/1	reliability [REPAIR]: stop six map layers from stacking listeners across toggles (BUG 4)
+merged	375	claude/live-tracking-satellite-stability	2026-07-08	Claude	1145/1	reliability: satellites stay put across toggles (cache GP elements; longer timeout)
+merged	376	claude/live-point-caps	2026-07-08	Claude	1142/1	reliability: raise live-point caps + disclose vessel truncation honestly
+merged	377	claude/busy-fermi-0az29j	2026-07-08	Claude	1144/3	research: log fires-layer viewport/honesty fix session (PR #377)
+merged	378	claude/beautiful-planck-hkxa9i	2026-07-08	Claude	1143/1	feat(datacore): NDBC buoys — free-data pipeline (v1.0.220)
+merged	380	claude/eloquent-dijkstra-ex80r3	2026-07-08	Claude	1142/1	research [RESEARCH]: Newey-West HAC significance test resolves COT gate-2 overlap finding (v1.0.221)
+merged	381	claude/worldview-globe-charter	2026-07-08	Claude	1142/1	charter: file the worldview-class data globe build order
+merged	382	claude/globe-style-presets	2026-07-08	Claude	1139/1	globe: style presets + compass (worldview-globe G0b + G1) — visible UI
+merged	384	claude/lucid-keller-9uwqv9	2026-07-08	Claude	1138/1	feat(datacore): G2a — NASA GIBS factory + time-scrubber + night-lights layer (v1.0.224)
+merged	385	claude/gibs-layers	2026-07-08	Claude	1137/1	tiles3d: Google Photorealistic 3D Tiles cost guard (worldview-globe G3, step 1)
+merged	386	claude/funny-fermat-4dfmag	2026-07-08	Claude	1137/2	research: session log — dirty-PR-stall rescue (#386) + #350 follow-up note
+merged	387	claude/tiles3d-proxy	2026-07-08	Claude	1135/1	tiles3d: Google 3D Tiles root + child proxy (worldview-globe G3, step 2)
+merged	388	claude/fires-facilities	2026-07-08	Claude	1134/1	inference: fires × facilities cross-tie (worldview-globe Pillar 6)
+merged	389	claude/gibs-aerosol	2026-07-08	Claude	1133/1	globe: aerosol optical depth GIBS layer (worldview-globe G2c, v1.0.228)
+merged	390	claude/gibs-vegetation	2026-07-08	Claude	1132/1	globe: vegetation NDVI GIBS layer (worldview-globe G2e, v1.0.229)
+merged	391	claude/gibs-soilmoisture	2026-07-08	Claude	1131/1	globe: SMAP soil-moisture layer + latency-aware GIBS date default (worldview-globe G2d, v1.0.230)
+merged	392	claude/gibs-no2	2026-07-08	Claude	1130/1	globe: tropospheric NO2 GIBS layer — the charter's differentiated throughput nowcast (worldview-gl
+merged	393	claude/river-plants-crosstie	2026-07-08	Claude	1129/1	inference: plants × river-gauges cross-tie — low-water generation exposure (worldview-globe Pilla
+merged	394	claude/river-plants-map-surface	2026-07-08	Claude	1128/1	globe: surface plants×river-gauges cross-tie on gauge click — inference made visible (v1.0.233)
+merged	395	claude/plants-under-alerts	2026-07-08	Claude	1127/1	inference: plants × NWS severe-weather warnings cross-tie — storm generation-disruption exposure 
+merged	99	claude/new-session-iu72vf	2026-07-08	Claude	1153/1	feat(runpod): pod launcher (gate->create->watchdog->terminate->ledger) + no-native-TTL correction (v
+merged	313	claude/dazzling-planck-qntw9y	2026-07-07	Claude	1204/1	fix(client): --accent CSS custom-property collision breaks var(--accent) sitewide (v1.0.178)
+merged	327	claude/busy-fermi-69afid	2026-07-07	Claude	1190/2	docs: session log for v1.0.187 alpaca_feed stdout-corruption repair (PR #327)
+merged	332	claude/beautiful-planck-b0ym4x	2026-07-07	Claude	1186/1	feat(product): grid-stress descriptive dashboard surface — GRID VISION A1 gate-2 FAIL path (v1.0.1
+merged	351	claude/funny-fermat-jmcz41	2026-07-07	Claude	1169/2	docs: R18 session log — manipulation-scan audit-visibility repair (PR #351)
+merged	269	claude/quirky-hopper-dkgr83	2026-07-06	Claude	1247/1	feat(product): FINRA short-volume gets its /data full view (v1.0.145)
+merged	271	claude/dazzling-planck-hs0uy0	2026-07-06	Claude	1245/1	fix(repair): diag ml probe outcome breakdown — chasing the seeded/live finding (v1.0.147)
+merged	272	claude/busy-fermi-mnogie	2026-07-06	Claude	1244/1	fix(repair): Tier2 scan-failure blind spot — silent-except swallowed the real Alpaca error (v1.0.1
+merged	273	claude/beautiful-planck-m3t3jt	2026-07-06	Claude	1243/1	feat(datacore): Everything Graph build step 2 — server/entityGraph.ts + /api/data/graph (v1.0.149)
+merged	276	claude/eloquent-dijkstra-lk54m6	2026-07-06	Claude	1241/1	REPAIR: close deep_score's silent enrichment-fetch exception gap (v1.0.151)
+merged	288	claude/lucid-keller-40imte	2026-07-06	Claude	1228/1	feat(product): Everything Graph /data panel — R5 build step 3 (v1.0.160)
+merged	290	claude/funny-fermat-chiu2c	2026-07-06	Claude	1226/1	fix(repair): R13 CLOSED — SIGTERM restarts are deploy-driven, not a liveness bug (v1.0.162)
+merged	185	claude/quirky-hopper-i2aylt	2026-07-05	Claude	1331/1	feat(product): earnings-language full view (8-K Item 2.02) — v1.0.82
+merged	191	claude/dazzling-planck-gq7m9s	2026-07-05	Claude	1325/1	feat(pipeline): CFTC Commitments of Traders — rescued from a stalled dirty PR (v1.0.86)
+merged	245	claude/busy-fermi-q14jjs	2026-07-05	Claude	1271/2	docs(research): log the FILLS_PATH measurement-bug repair (v1.0.128)
+merged	246	claude/beautiful-planck-ybi2pt	2026-07-05	Claude	1270/1	feat(client): registry-native layer group/cost budgets + panel row-cap + scale harness (BUILD ORDER 
+merged	247	claude/eloquent-dijkstra-cvaa4e	2026-07-05	Claude	1269/1	fix(bot): counterfactual logger — correlation/spread rejections labeled truthfully (v1.0.130)
+merged	248	claude/lucid-keller-sssiv5	2026-07-05	Claude	1268/1	feat(datacore): Everything Graph R5 step 1 — entity_map.json operator->ticker table (v1.0.131)
+merged	261	claude/funny-fermat-ic1oms	2026-07-05	Claude	1258/1	docs(research): CFTC COT gate 2 (SIGNAL) screen — 5/7 symbols killed, SLV/USO carried with overlap
+merged	118	claude/quirky-hopper-u5pdl1	2026-07-04	Claude	1396/1	feat(datacore): SEC EDGAR Form 4 insider-transaction pipeline (v1.0.47)
+merged	151	claude/busy-fermi-tn2xdf	2026-07-04	Claude	1365/1	research: judge Dual-momentum SPY/QQQ out-of-sample — KILLED (v1.0.64 unaffected)
+merged	152	claude/beautiful-planck-l7uk2k	2026-07-04	Claude	1364/1	feat(product): NASA FIRMS active-fires layer, scaffolded awaiting_key (v1.0.65)
+merged	153	claude/eloquent-dijkstra-9zrm1m	2026-07-04	Claude	1363/1	fix(repair): KNOWN BROKEN #5 audit + close silent data-source blind spot (v1.0.66)
+merged	154	claude/lucid-keller-4kzoez	2026-07-04	Claude	1362/1	feat(datacore): SEC 8-K Item 2.02 earnings-language pipeline (v1.0.67)
+merged	164	claude/funny-fermat-fsmii7	2026-07-04	Claude	1352/2	Merge remote-tracking branch 'origin/main' into claude/funny-fermat-fsmii7
+merged	107	claude/lucid-keller-3hm9en	2026-07-03	Claude	1408/1	feat(datacore): position archive — MAP V2 ROADMAP R1 (PR 2/3)
+merged	113	claude/funny-fermat-8k56aw	2026-07-03	Claude	1401/1	fix(product): vessel stream eager boot connect (KNOWN BROKEN #9)
+merged	97	claude/busy-fermi-chq5ze	2026-07-03	Claude	1417/1	fix: set extended_hours flag on stock/ETF orders outside regular hours (KNOWN BROKEN #8)
+merged	78	release-2026-04-20	2026-04-20	Claude	1537/0	chore: enable daemon start command on Railway
+merged	64	feature/options-strategies-and-fixes	2026-04-16	Claude Code Agent	1569/2	feat: add bull put credit spreads, iron condors, covered calls + UI enhancements
+merged	65	fix/sector-correlation-stocks-only	2026-04-16	Claude	1568/1	fix: enforce sector concentration limit for unmapped tickers via yfinance + cache
+merged	66	fix/covered-calls-qqq	2026-04-16	Claude	1567/1	fix: wire shares_held for covered calls and add unwind safety
+merged	67	fix/python-scan-timeout	2026-04-16	Claude	1566/1	fix: prevent Python scan timeout by adding layered timeout guards
+merged	68	fix/scan-speed-and-partial-results	2026-04-16	VoltradeAI Agent	1565/1	fix: prevent Python scan timeout by speeding up scan and returning partial results
+merged	69	feature/alpaca-first-market-data	2026-04-16	VolTradeAI Bot	1558/0	feat: Alpaca-first market data with yfinance fallback
+merged	46	fix/memory-leaks-oom	2026-04-15	Claude	1606/0	fix: resolve OOM crashes with 11 memory leak fixes
+merged	47	fix/dataworldmap-dots-labels	2026-04-15	Claude	1600/0	fix: stop city dot pulsing and resolve label overlaps on DataWorldMap
+merged	48	fix/uniform-dot-sizes	2026-04-15	Claude	1598/0	fix: make all DataWorldMap node dots uniform and smaller
+merged	49	fix/tighten-label-offsets	2026-04-15	Claude	1596/0	fix: tighten label offsets in DataWorldMap collision detection
+merged	50	fix/positions-endpoint-resilience	2026-04-15	Claude	1594/0	fix: make positions endpoint resilient to Python mutex and Alpaca errors
+merged	51	feature/qqq-puts-convexity-overlay	2026-04-15	VolTradeAI Agent	1592/0	feat: switch convexity overlay from SQQQ shares to QQQ protective puts
+merged	52	optimized-convexity-puts	2026-04-15	Claude	1590/0	feat: optimize convexity overlay to 20% OTM puts, disable stock shorting
+merged	60	fix/block-stock-shorts-all-paths	2026-04-15	VolTradeAI Bot	1577/0	fix: hard-block stock shorting in ALL execution paths (PR #53)
+merged	45	fix/options-execution-v134	2026-04-14	mctils12-arch	1604/0	fix(v1.0.34): iron condor 50% max-loss exit + market calendar awareness
+merged	39	enable-ml-inference	2026-04-13	mctils12-arch	1617/0	feat: enable ML inference and auto-retrain
+merged	34	fix/remove-top-clip-line	2026-04-12	Claude Agent	1631/1	fix: remove clip inset and edge fades that cut off Greenland and top continents
+merged	35	fix/remove-lat-lines	2026-04-12	Claude Agent	1629/0	fix: remove all horizontal boundary lines from map polygons
+merged	36	fix/mobile-lock-screen-layout	2026-04-12	Claude	1628/0	fix: mobile lock screen layout to match desktop version
+merged	37	fix/greenland-map-edges	2026-04-12	Claude Agent	1624/0	fix: remove connection arc base lines + resolve merge conflict
+merged	38	feat/rewrite-dataworldmap-no-lines	2026-04-12	Claude Agent	1622/0	feat: rewrite DataWorldMap - clean map with Greenland, no line artifacts
+merged	10	revert-cleanup-cmd	2026-04-11	VolTradeAI	1673/0	chore: revert cleanup startup hook (cleanup already ran)
+merged	11	fix/performance-feedback-filter	2026-04-11	Claude	1671/0	fix: filter corrupt records from performance endpoint + startup cleanup
+merged	12	fix/diagnostic-false-positives	2026-04-11	Claude	1669/0	fix: resolve diagnostic false positives — ML criticality, macro path, feedback filter
+merged	13	fix/cache-criticality	2026-04-11	VolTradeAI	1667/0	fix: downgrade macro cache to non-critical (ephemeral /tmp, self-heals on scan)
+merged	15	feat/world-map-background	2026-04-11	Claude	1664/1	feat: add animated world map canvas background to Analyze tab
+merged	16	3d-globe-threejs	2026-04-11	Claude Agent	1663/1	Replace 2D world map with 3D Three.js globe
+merged	17	enhanced-2d-world-map	2026-04-11	Claude	1662/1	Enhanced 2D world map: detailed outlines, full-page, user location
+merged	18	fix/world-map-geojson	2026-04-11	Claude	1661/1	fix: replace hand-written continent outlines with real GeoJSON data
+merged	19	fix/map-colors	2026-04-11	Claude Agent	1660/1	fix: all particles/lines blue, YOU node red
+merged	22	feat/realistic-skyscrapers	2026-04-11	VoltradeAI Agent	1656/0	feat: realistic skyscraper skyline on AI Engine lock screen
+merged	23	fix/binary-rain-matrix-effect	2026-04-11	Claude	1654/0	fix: restore Matrix-style binary rain on AI Engine lock screen
+merged	24	revert/binary-rain-pr23	2026-04-11	Claude	1652/0	revert: restore pre-PR#23 binary rain on AI Engine lock screen
+merged	25	landing-page	2026-04-11	VolTradeAI	1643/0	Fix period to 2015-2025, swap column order: SPY first then VolTradeAI
+merged	26	fix/mobile-map-aspect	2026-04-11	Claude Agent	1639/1	fix: preserve map aspect ratio on mobile (no more stretching)
+merged	27	fix/map-mobile-position	2026-04-11	Claude Agent	1638/1	fix: expand lat range, remove Antarctica lines, position map higher on mobile
+merged	28	fix/map-top-lines	2026-04-11	Claude Agent	1637/1	fix: clip map boundaries and add edge fade to hide GeoJSON boundary artifacts
+merged	29	fix/map-fill-mobile	2026-04-11	Claude Agent	1636/1	fix: map fills entire viewport on mobile instead of tiny centered strip
+merged	30	fix/map-visibility-panel	2026-04-11	Claude Agent	1635/1	fix: brighter map outlines + dark panel behind empty state text
+merged	31	fix/scale-nodes-to-viewport	2026-04-11	Claude Agent	1634/1	fix: scale nodes, labels, particles, and outlines to viewport size
+merged	32	fix/map-fit-full	2026-04-11	Claude Agent	1633/1	fix: fit entire world map within viewport on all devices
+merged	33	fix/map-transparency	2026-04-11	Claude Agent	1632/1	fix: restore map canvas transparency
+merged	8	fix/edgar-path-feedback-cleanup	2026-04-11	Claude Agent	1677/0	fix: SEC EDGAR diagnostic path mismatch + feedback data cleanup
+merged	9	run-cleanup	2026-04-11	VolTradeAI	1675/0	chore: run feedback cleanup on startup (one-time)
+merged	6	fix/memory-optimizations-oom	2026-04-10	VolTradeAI Bot	1681/0	fix: memory optimizations to prevent Railway OOM
+merged	7	fix/stop-money-bleeding	2026-04-10	VoltradeAI Bot	1679/0	fix: stop money bleeding — 6 fixes for $3.9K/week loss
+merged	1	feature/search-tab	2026-04-04	Claude Code	1827/0	Add Search tab — Perplexity Finance-style landing page with market overview, news, and trending ti
+open	1466	claude/funny-fermat-lr1qls	2026-10-26	Claude	9/1	[NO-ACTION] session log 2026-10-26 evening (docs only)
