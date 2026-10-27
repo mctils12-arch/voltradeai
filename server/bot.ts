@@ -25,6 +25,7 @@ import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, 
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
+import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -3486,6 +3487,20 @@ print(json.dumps(insider_cusum_probe.run_probe()))
               computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
             rows: rows.map((x) => sanitizeDiag(x)),
           });
+        }
+        case "options_entitlements": {
+          // ADDED 2026-10-27 (Phase 6 part A, [PIPELINE]): one minimal READ-ONLY
+          // GET per Alpaca/Polygon options endpoint (contracts, snapshots opra vs
+          // indicative, historical trades/bars/quotes, Polygon snapshot OI) with
+          // this instance's own keys — see server/optionsEntitlements.ts. Only
+          // HTTP status, a verdict and field-name presence booleans leave; no
+          // prices, symbols, URLs or keys. Cached 10 min (Polygon Basic is
+          // 5 calls/min); ?fresh=1 bypasses, ?u= picks the underlying (default SPY).
+          const report = await cachedOptionsEntitlements({
+            env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch,
+            tradingBase: ALPACA_BASE, underlying: String(req.query.u || "SPY"),
+          }, { fresh: String(req.query.fresh || "") === "1" });
+          return res.json(sanitizeDiag(report));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
