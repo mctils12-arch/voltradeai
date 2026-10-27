@@ -110668,3 +110668,14 @@ HEALTH: voltradeai.com /api/health 200, status ok; bot active, liveness not dark
 QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, csp_manager_rule_sim OOS re-run ~2026-12-20, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups. Nothing startable without padding or fishing on an already-read sample.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time (no live-behavior change, so the after-4:00 PM ET note does not bind).
+
+
+## 2026-10-27 [RULE-REVIEW] — T-BOT (measurement only) — NEW PROBE shadow_bands_dedup: ONE FIRST-SEEN RECORD PER (TICKER, ET ENTRY DAY) (v1.0.1169)
+
+WHY: the shadow logger writes the same candidate on every scan, so shadow_bands' n counts per-scan COPIES, not events. 2026-10-20: 5,192 labeled 'taken' records covered only 148 ticker-entry-days, and every BUY cell read exactly -4.00% (0% win) — consistent with a few selloff ticker-days copied dozens of times. min_n=20 was therefore being cleared by copies. This blocked the BUY-only judgement (3b) twice (10/13, 10/20).
+WHAT: shadow_portfolio.shadow_band_report_deduped (+ get_ wrapper, diag probe "shadow_bands_dedup"): the same tables for BOTH rulers over one FIRST-SEEN record (earliest timestamp = the first scan where the system could have acted) per (ticker, ET entry session), deduped separately per ruler on that ruler's labels; score quintile edges from the FULL population so quintiles match shadow_bands. shadow_band_report gains an optional edges=None parameter (default = old behaviour, pinned by a test). shadow_bands output is byte-identical (an existing test pins its exact key set — not touched).
+BIAS DIRECTION: first-seen = earliest scan entry price; later same-day copies had different entry prices. Choosing the first is the honest "when could we have acted" convention; it neither favours wins nor losses by construction (mutation to last-seen is caught by a test).
+TESTS: test_shadow_band_dedup.py (7; fails on main — function absent; first-seen→last-seen mutation caught). Full pytest 2840 passed; diag.test.ts 31/31 (registry ⇄ case pin); ratchets OK.
+MERGE: after 20:00Z (deploy cancels open orders). Then: re-judge BUY-only on deduped counts (priors 60% / 50%, recorded 10/13).
+ACCOUNT 10/20 -> 10/27 17:20Z: $99,709 -> $98,498 (-1.21%) vs SPY +0.07%; 10/22 alone -3.45% vs SPY -1.18%. Bot active, kill switch off.
+STARVED: yes.

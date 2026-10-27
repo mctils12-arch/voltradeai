@@ -298,6 +298,13 @@ export const DIAG_PROBES = [
   // "where does the scan lose?" (taken candidates win LESS than rejected
   // ones). Aggregate-only like "shadow": no ticker, price or timestamp.
   "shadow_bands",
+  // ADDED 2026-10-27 [RULE-REVIEW]: shadow_portfolio.
+  // get_shadow_band_report_deduped() — the shadow_bands tables for both
+  // rulers over ONE first-seen record per (ticker, ET entry day). The logger
+  // writes a candidate on every scan (10/20: 5,192 labeled 'taken' records
+  // were only 148 ticker-days), so shadow_bands' n counts copies; this
+  // probe's n counts events. Aggregate-only, same posture as shadow_bands.
+  "shadow_bands_dedup",
   // ADDED 2026-10-13 (human-directed: "get back to me on who's visit[ed]
   // and signed up"): siteReport.ts's aggregateSiteReport() — signup and
   // waitlist COUNTS by day/tier/source, the API-key-holder count, and
