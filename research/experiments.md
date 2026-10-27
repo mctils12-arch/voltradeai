@@ -110800,3 +110800,46 @@ Tests: server/haltScope.test.ts (truth table {killed, breaker, paused} x
 pre-fix bot.ts (markers/gates absent), passes after.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Tier 2 keeps options_manager exits running during Node halts (audit N15) (v1.0.1174)
+
+What was wrong (server/bot.ts:scheduleTier2): while the kill latch, the
+circuit breaker or the weekly-loss pause held, scheduleTier2 re-armed its
+timer and returned before the Python scan, and options_manager's exits
+(DTE / profit target / loss limit / gamma / assignment / strategy-group
+closes) only ever run inside that scan (bot_engine step 8b). So a halt froze
+every options exit. The scan itself cannot simply run while halted: it also
+places entries (CSPs, floors, third leg, convexity overlay).
+
+What changed:
+- scheduleTier2: haltMode(currentHaltState()) (server/haltScope.ts, previous
+  commit). "full" -> scan as before (same condition as the old gate).
+  "exits_only" -> new tier2HaltedExits(). "off" (owner stop) -> idle.
+- tier2HaltedExits(): regular hours only (options_manager posts DAY limits),
+  holds the Tier 2 lock, calls options_manager.manage_options_positions with
+  allow_rolls=False via a new daemon route "manage_options_exits" (python3 -c
+  subprocess fallback), audits every close through formatOptionsMgmt.
+- options_manager.manage_options_positions(equity, allow_rolls=True): new
+  kwarg, default unchanged. When False, both roll points (assignment risk,
+  21-DTE) go through _roll_or_skip, which returns rolled=False ("roll
+  skipped: entries halted (exits only)"), so each takes its existing "roll
+  failed -> close" branch. A roll's sell-to-open half is a new entry.
+- voltrade_daemon.py: route registered (READ BEFORE WRITE #4).
+- Untouched: order transmission (_submit_close_order), the scan, all Python
+  entry paths.
+
+Downstream chain: (1) during a Node halt, options at their exit rules get
+close DAY limits -> premium-at-risk is released instead of riding into
+expiry/assignment; (2) a short option that would have been rolled is CLOSED
+instead -> fewer positions, less collateral; its options_state entry is
+dropped and exit feedback records dte_close/assignment_close.
+
+Rollback trigger: an OPTIONS-ROLL audit row or any to-open order while a
+Node halt is active; or "halted exits-only pass failed" OPTIONS-MGMT-ERROR
+repeating every Tier 2 cycle.
+
+Tests: test_options_halt_exits_only.py (all 6 fail before: kwarg, roll gate
+and daemon route absent); server/haltScope.test.ts +3 wiring tests (fail on
+the previous commit's bot.ts/daemon). Counter pins raised (tests + assertions).
+
+STARVED: no — master-plan queue in progress this session.

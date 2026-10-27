@@ -852,9 +852,27 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
 #  MAIN: manage_options_positions()
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def manage_options_positions(equity: float = 100000) -> dict:
+# HALT SCOPE (2026-10-27, audit N15/N9): a roll is close + SELL-TO-OPEN a new
+# contract — the open half is a new entry. While a halt blocks entries the
+# caller passes allow_rolls=False and every roll point takes its existing
+# "roll failed -> close" branch instead, so the position is exited, never
+# re-opened.
+ROLL_SKIPPED_HALTED_DETAIL = "roll skipped: entries halted (exits only)"
+
+
+def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: str,
+                  parsed: dict, equity: float) -> dict:
+    if not allow_rolls:
+        return {"rolled": False, "detail": ROLL_SKIPPED_HALTED_DETAIL}
+    return _attempt_roll(occ_symbol, qty, current_side, parsed, equity)
+
+
+def manage_options_positions(equity: float = 100000, allow_rolls: bool = True) -> dict:
     """
     Professional options position management. Called every scan cycle.
+
+    allow_rolls=False (exits-only mode, used while a halt blocks entries):
+    every roll point closes the position instead of rolling it.
 
     Checks every open options position for:
       1. DTE exit (21 DTE threshold)
@@ -1100,7 +1118,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 dte <= 10):
             # Deep ITM sold option near expiry — high assignment risk
             # Try to roll first
-            roll_result = _attempt_roll(occ_symbol, qty, "sell", parsed, equity)
+            roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity)
             if roll_result.get("rolled"):
                 actions.append({
                     "action": "ROLL",
@@ -1144,7 +1162,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
         if dte <= DTE_EXIT_THRESHOLD:
             if side == "short":
                 # Sold option at 21 DTE — try to roll
-                roll_result = _attempt_roll(occ_symbol, qty, "sell", parsed, equity)
+                roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity)
                 if roll_result.get("rolled"):
                     actions.append({
                         "action": "ROLL",
