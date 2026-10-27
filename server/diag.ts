@@ -313,6 +313,15 @@ export const DIAG_PROBES = [
   // /api/admin/site-report), so the "no user data" posture above holds.
   // No query parameters.
   "signups",
+  // ADDED 2026-10-27 (Phase 6 part A, human-directed): which historical
+  // options data (trades, quotes, bars, open interest) the production
+  // Alpaca and Polygon keys are entitled to. The repo only knows that
+  // Alpaca rejected feed=opra with 403 on 2026-07-25 and has never called a
+  // Polygon options endpoint (audit 2026-10-27 §2.4). One minimal GET per
+  // endpoint (server/optionsEntitlements.ts); the response carries HTTP
+  // status, a verdict and field-name presence booleans ONLY — no prices,
+  // symbols, URLs, bodies or keys. Keys ride in headers, never URLs.
+  "options_entitlements",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

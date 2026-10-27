@@ -110698,3 +110698,9 @@ DOWNSTREAM (2 steps): tie-break now reorders candidates within 3-point score buc
 PRIOR: small positive via fill quality; effect size unmeasurable at current n.
 STARVED: no (brain_inventory Phase 2 fixes still queued: DD-scalar key N13, N1 tier regime, slot counting).
 MERGE: after 20:00Z (deploy cancels open orders).
+
+## 2026-10-27 [PIPELINE] — T-DATACORE-adjacent server diag — OPTIONS ENTITLEMENTS PROBE (v1.0.1171)
+
+Master plan Phase 6 "options data check". New read-only probe /api/diag/options_entitlements (server/optionsEntitlements.ts): one minimal GET per endpoint — Alpaca contracts, snapshot feed=opra, snapshot feed=indicative, historical trades, historical bars (historical quotes: not offered by Alpaca, reported without a call); Polygon contracts reference, chain snapshot (carries open_interest), trades, quotes, daily aggs. Output = HTTP status + verdict + field-presence booleans only (no data, symbols, URLs or keys); 429/network = inconclusive; <=5 Polygon calls/run; 10-min cache; reports which Polygon env-var name is set (POLYGON_KEY vs POLYGON_API_KEY split).
+Prior: Alpaca OPRA still 403, indicative works, contracts endpoint carries open_interest (60%); Polygon key present but options not entitled beyond reference (55%).
+Tests: server/optionsEntitlements.test.ts (13, fake fetch). Next: read live once deployed; decide whether contracts open_interest can replace the quote-size x10 OI proxy (separate RULE-REVIEW).
