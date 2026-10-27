@@ -21,6 +21,7 @@ import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
+import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
@@ -2592,6 +2593,19 @@ print(json.dumps(result, default=str))
   // never re-activates a bot the owner stopped (ownerStopped is in-memory,
   // like state.active itself — a deploy boots active by design).
   let ownerStopped = false;
+  // HALT SCOPE (2026-10-27, audit N15 — server/haltScope.ts): the one place
+  // bot.ts reads its halt flags for a gating decision. A halt (kill latch,
+  // circuit breaker, weekly-loss pause) blocks ENTRIES only; protective exits
+  // keep running; only an explicit owner stop turns exits off.
+  function currentHaltState(): HaltState {
+    return haltStateFrom({
+      ownerStopped,
+      active: state.active,
+      killSwitch: state.killSwitch,
+      circuitBreakerUntil: state.circuitBreakerUntil,
+      nowMs: Date.now(),
+    });
+  }
   function startBotActivity(source: string): { ok: true } | { ok: false; error: string } {
     if (state.killSwitch) return { ok: false, error: "Kill switch is ON. Disable it first." };
     if (source && ownerStopped) return { ok: false, error: "Bot was stopped by the owner (/api/bot/stop) — not re-activated automatically." };
@@ -4547,6 +4561,66 @@ print(json.dumps(result[:20]))
   // Tier 1 only handles: stale orders, morning queue, trade tracking, and
   // syncing the position monitor's stop state.
 
+  // Tier 1 steps 1-3: the protective half of the reflex (stale-order sweep,
+  // stop-state refresh, position sync incl. TIME-EXIT / POS-KILL). Shared by
+  // tier1Reflex (normal operation) and tier1HaltedExits (a halt is active:
+  // audit N15 — server/haltScope.ts). Places no entry orders.
+  async function tier1ProtectiveSync() {
+    // 1. Sweep stale orders
+    await sweepStaleOrders();
+
+    // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
+    //    This keeps the WS monitor's levels accurate without blocking exits.
+    try {
+      const { stdout } = await execPythonSerialized(`python3 -c "
+from bot_engine import manage_positions
+import json
+result = manage_positions()
+print(json.dumps(result))
+"`, { timeout: 15000 });
+      const mgmt = JSON.parse(stdout.trim());
+      // Bot_engine may still compute actions — but we do NOT execute them here.
+      // The WS handler fires exits in real-time. We only use this to refresh
+      // the on-disk stop_state.json which syncMonitoredPositions() reads.
+      // Log if bot_engine found something the WS monitor should have caught
+      for (const action of (mgmt.actions || [])) {
+        if (monitoredPositions[action.ticker]) {
+          audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
+        }
+      }
+    } catch (err: any) {
+      console.error("[tier1-sync]", err?.message || err);
+    }
+
+    // 3. Refresh monitored positions from Alpaca + stop state
+    await syncMonitoredPositions();
+  }
+
+  // Tier 1 while a halt blocks entries (kill latch, circuit breaker,
+  // weekly-loss pause): the drawdown check (unless the kill is already
+  // latched — then the auto-resume tick owns it), the protective sync above
+  // and the closed-trade tracker. NEVER the morning queue (an entry path).
+  let tier1HaltedRunning = false;
+  async function tier1HaltedExits(gate: HaltState) {
+    if (tier1HaltedRunning) return;
+    tier1HaltedRunning = true;
+    try {
+      if (haltAllows(gate, "ddCheck")) {
+        try {
+          await checkDrawdownKillSwitch();
+        } catch (err) {
+          console.error("[tier1-halted-drawdown]", err instanceof Error ? err.message : err);
+        }
+      }
+      await tier1ProtectiveSync();
+      await trackClosedTrades();
+    } catch (err) {
+      console.error("[tier1-halted]", err instanceof Error ? err.message : err);
+    } finally {
+      tier1HaltedRunning = false;
+    }
+  }
+
   async function tier1Reflex() {
     try {
       // 0. Drawdown kill switch — must run on EVERY Tier 1 cycle (2026-09-09
@@ -4563,34 +4637,8 @@ print(json.dumps(result[:20]))
         console.error("[tier1-drawdown]", err instanceof Error ? err.message : err);
       }
 
-      // 1. Sweep stale orders
-      await sweepStaleOrders();
-
-      // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
-      //    This keeps the WS monitor's levels accurate without blocking exits.
-      try {
-        const { stdout } = await execPythonSerialized(`python3 -c "
-from bot_engine import manage_positions
-import json
-result = manage_positions()
-print(json.dumps(result))
-"`, { timeout: 15000 });
-        const mgmt = JSON.parse(stdout.trim());
-        // Bot_engine may still compute actions — but we do NOT execute them here.
-        // The WS handler fires exits in real-time. We only use this to refresh
-        // the on-disk stop_state.json which syncMonitoredPositions() reads.
-        // Log if bot_engine found something the WS monitor should have caught
-        for (const action of (mgmt.actions || [])) {
-          if (monitoredPositions[action.ticker]) {
-            audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
-          }
-        }
-      } catch (err: any) {
-        console.error("[tier1-sync]", err?.message || err);
-      }
-
-      // 3. Refresh monitored positions from Alpaca + stop state
-      await syncMonitoredPositions();
+      // 1-3. Sweep stale orders, refresh stop state, sync monitored positions
+      await tier1ProtectiveSync();
 
       // 4. Execute morning queue on first market-open cycle
       const clockT1 = await alpaca("/v2/clock");
@@ -7297,7 +7345,9 @@ except: print('{}')
     const pos = monitoredPositions[ticker];
     if (!pos || exitingTickers.has(ticker)) return;
     if (pos.pendingExit) return; // Exit order already placed, waiting for fill
-    if (!state.active || state.killSwitch) return;
+    // Protective exits run through every halt (audit N15, server/haltScope.ts);
+    // only an owner stop turns them off.
+    if (!haltAllows(currentHaltState(), "exit")) return;
 
     // Skip stock exit logic for options positions — options_manager.py handles those
     if (pos.positionType && pos.positionType !== 'stock') {
@@ -7800,8 +7850,10 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   // Sync monitored positions every 60 seconds to stay aligned with Alpaca + stop state
+  // Exit-gated, not entry-gated (audit N15): POS-KILL / TIME-EXIT live in the
+  // sync, so it keeps running through a halt.
   setInterval(async () => {
-    if (!state.active || state.killSwitch) return;
+    if (!haltAllows(currentHaltState(), "exit")) return;
     try { await syncMonitoredPositions(); } catch (_) {}
   }, 60000);
 
@@ -7891,7 +7943,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
             if (volRatio >= 2.5 && Math.abs(barChg) >= 0.8 && Math.abs(mom5) >= 0.3) {
               const cooldown = 10 * 60 * 1000;
               if (Date.now() - (streamLastSignal[ticker] || 0) < cooldown) continue;
-              if (!state.active || state.killSwitch || state.circuitBreakerUntil > Date.now()) continue;
+              if (!haltAllows(currentHaltState(), "entry")) continue;
 
               streamLastSignal[ticker] = Date.now();
               const dir = barChg > 0 ? "bullish" : "bearish";
@@ -7930,8 +7982,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("STREAM-DISCONNECT", wasConnected
         ? "Feed disconnected — reconnecting in 10s"
         : "Feed closed before ever reaching subscribed state — reconnecting in 10s");
-      // Auto-reconnect after 10 seconds if bot is still active
-      setTimeout(() => { if (state.active && !state.killSwitch) startStreaming(); }, 10000);
+      // Auto-reconnect after 10 seconds unless the owner stopped the bot — the
+      // feed drives the WS stops, which keep running through a halt (N15)
+      setTimeout(() => { if (haltAllows(currentHaltState(), "exit")) startStreaming(); }, 10000);
     });
   }
 
@@ -8179,9 +8232,25 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
+    // HALT SCOPE (2026-10-27, audit N15): a halt blocks ENTRIES only. While
+    // one is active (kill latch, circuit breaker, weekly-loss pause) the
+    // protective half of Tier 1 still runs — stops, POS-KILL, the stop-state
+    // refresh and, unless the kill is already latched, the -10% drawdown
+    // check itself (it used to go dark under the circuit breaker).
+    const t1Gate = currentHaltState();
+    const t1ExitsOnly = haltMode(t1Gate) === "exits_only";
+    if (t1ExitsOnly) {
+      try {
+        const clock = await alpaca("/v2/clock");
+        if (clock.is_open) await tier1HaltedExits(t1Gate);
+      } catch (err) {
+        console.error("[tier1-halted]", err instanceof Error ? err.message : err);
+      }
+    }
     // While the kill is latched this tick evaluates the paper auto-resume
     // instead (tier1Reflex never runs while killed — unchanged below).
     if (state.killSwitch) { await killSwitchAutoResumeTick(); return; }
+    if (t1ExitsOnly) return;
     if (!state.active || state.killSwitch) return;
     if (state.circuitBreakerUntil > Date.now()) return;
 

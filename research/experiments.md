@@ -110749,3 +110749,54 @@ longs) -> revert and re-propose as an explicit, ladder-validated
 "overbought-momentum BUY" rule rather than an accidental flip.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Node halts gate entries only; protective exits keep running (audit N15) (v1.0.1173)
+
+What was wrong (server/bot.ts): every Node halt also stopped every exit.
+- checkPositionOnTick (WS stops, scale-outs, trails, breakeven, time stop)
+  returned on `!state.active || state.killSwitch` — the drawdown kill writes
+  BOTH, so the moment the account hit -10% nothing protected positions.
+- the 60s syncMonitoredPositions interval (TIME-EXIT, POS-KILL -25%) had the
+  same gate.
+- the Tier 1 interval skipped tier1Reflex while killed, circuit-broken or
+  weekly-paused; under the circuit breaker that also suspended the -10%
+  drawdown check itself (it only ran if the UI polled /api/bot/account).
+- the WS feed did not reconnect after a drop while killed.
+The Python halts document the opposite contract ("only entries are gated").
+
+What changed:
+- server/haltScope.ts: pure haltAllows({ownerStopped, killed, circuitBreaker,
+  paused}, entry|exit|ddCheck) + haltMode. entry: nothing halted; exit: always
+  unless the owner pressed /api/bot/stop; ddCheck: unless the kill is already
+  latched (then the paper auto-resume tick owns that tick, unchanged).
+- bot.ts: currentHaltState() is the one reader of the raw flags.
+  checkPositionOnTick, the 60s sync and the WS reconnect are exit-gated; the
+  stream-signal queue (an entry path) is entry-gated (same semantics as
+  before). Tier 1 steps 1-3 (sweep, stop-state refresh, sync) extracted to
+  tier1ProtectiveSync(), shared by tier1Reflex and a new tier1HaltedExits()
+  that runs in exits_only mode during market hours: dd check (if not
+  latched) + protective sync + trackClosedTrades — never the morning queue.
+  tier1Reflex itself still never runs while killed (existing auto-resume
+  wiring test unchanged and passing).
+- Untouched: order transmission, the kill trip, its cancel-all, the -25%
+  VOLTRADE_LIQUIDATE_ON_KILL rule, the owner kill toggle, auto-resume.
+
+Downstream chain: (1) during a kill/breaker/pause, WS stops and POS-KILL now
+fire -> exit orders go out where before positions rode unmanaged -> realized
+losses are capped at the stop levels instead of floating; (2) exit fills
+during a halt reach trackClosedTrades / ML feedback / the stop-loss circuit
+breaker counter (circuit breaker can re-arm while already open: harmless);
+(3) under the circuit breaker the -10% dd check now runs, so a breaker period
+can now trip the drawdown kill (previously masked). Note the owner kill
+toggle now also keeps protective exits running; /api/bot/stop is the full
+freeze.
+
+Rollback trigger: any entry order (BUY / sell-to-open) observed in the audit
+log while killSwitch, circuitBreakerUntil>now, or a weekly pause is active;
+or duplicate exit orders on one ticker during a halt.
+
+Tests: server/haltScope.test.ts (truth table {killed, breaker, paused} x
+{entry, exit, ddCheck} + owner-stop rows + bot.ts wiring pins); fails on the
+pre-fix bot.ts (markers/gates absent), passes after.
+
+STARVED: no — master-plan queue in progress this session.
