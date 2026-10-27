@@ -110679,3 +110679,11 @@ TESTS: test_shadow_band_dedup.py (7; fails on main — function absent; first-se
 MERGE: after 20:00Z (deploy cancels open orders). Then: re-judge BUY-only on deduped counts (priors 60% / 50%, recorded 10/13).
 ACCOUNT 10/20 -> 10/27 17:20Z: $99,709 -> $98,498 (-1.21%) vs SPY +0.07%; 10/22 alone -3.45% vs SPY -1.18%. Bot active, kill switch off.
 STARVED: yes.
+
+## 2026-10-27 [RESEARCH] — docs only — PROMPT 1 TRADING-ENGINE AUDIT + MASTER-PLAN PHASE 0 BRAIN INVENTORY
+
+Human directives: "VolTradeAI Options Edge" Prompt 1 (read-only repo audit) and "VolTradeAI Master Prompt" Phase 0 (brain inventory before changing anything). Docs only, no version bump (no runtime behaviour changes).
+- docs/audits/trading-engine-audit.md: sections 1-10 + one-page executive summary; every claim cited by file/function; live numbers from read-only diag GETs. Headline: account -7.71% vs SPY +5.46% since 2026-05-06; Sharpe -0.40 vs 0.99; maxDD -18.6% vs -4.5%; options sleeve -$9,177 realized; expectancy ~-1.2%/trade (n=36). Three weaknesses: non-OOS ML validation + constant/mismatched features; conflicting/dead rules (N1-N21); measurement too weak to prove any edge.
+- research/brain_inventory.md: every input (incl. all 34 ML features) and every trade-influencing rule/model with live/constant/dead/broken status and action; fix order mapped to master-plan phases 2-6. Re-verified in code: 9/34 features constant at serve; tier regime always NEUTRAL; tie-break NameError; DD-scalar wrong key; 4am branch unreachable; backtest default exit model legacy.
+Prior: the inventory would confirm the audit; it did, no contradictions found.
+STARVED: no — master-plan Phase 2-8 work is queued and in progress this session.
