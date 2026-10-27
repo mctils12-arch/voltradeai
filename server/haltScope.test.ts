@@ -180,3 +180,33 @@ test("bot.ts: the kill trip, its order cancel and the -25% liquidate rule are un
   assert.ok(dd.includes('await alpaca("/v2/orders", { method: "DELETE" })'));
   assert.ok(/VOLTRADE_LIQUIDATE_ON_KILL/.test(dd) && /t1Drawdown <= -25\.0/.test(dd));
 });
+
+// ── Tier 2 (options_manager exits) while halted ─────────────────────────────
+test("bot.ts: scheduleTier2 runs the options exits-only pass while halted, the full scan only in full mode", () => {
+  const sched = slice("async function scheduleTier2() {", "let hitMutexTimeout = false;");
+  const mode = sched.indexOf("const t2Mode = haltMode(currentHaltState());");
+  const halted = sched.indexOf('if (t2Mode === "exits_only") {');
+  const call = sched.indexOf("await tier2HaltedExits();");
+  const full = sched.indexOf('if (t2Mode !== "full") {');
+  assert.ok(mode > 0 && halted > mode && call > halted && full > call);
+  assert.ok(!sched.includes("state.killSwitch"), "the kill latch must not skip the options exits");
+  assert.ok(!sched.includes("state.circuitBreakerUntil"), "the circuit breaker must not skip the options exits");
+});
+
+test("bot.ts: tier2HaltedExits = options_manager with rolls OFF, regular hours, audited — never the scan", () => {
+  const fn = slice("async function tier2HaltedExits(): Promise<void> {", "async function scheduleTier2() {");
+  assert.ok(fn.includes('"manage_options_exits"'), "daemon route");
+  assert.ok(fn.includes("{ allow_rolls: false }"), "daemon args disable rolls");
+  assert.ok(fn.includes("manage_options_positions(allow_rolls=False)"), "subprocess fallback disables rolls");
+  assert.ok(fn.indexOf("if (!clock.is_open) return;") < fn.indexOf("pythonCall("), "regular hours only");
+  assert.ok(fn.includes("formatOptionsMgmt(r.result)"), "every halted exit is audited like a scan's");
+  for (const entryPath of ["run_full_scan", "tier2Intelligence", "executeTrades", "select_contract", "placeOptionsOrder"]) {
+    assert.ok(!fn.includes(entryPath), `the halted pass must not reach ${entryPath}`);
+  }
+  assert.ok(fn.includes("tier2Running = true;") && fn.includes("tier2Running = false;"), "shares the Tier 2 lock");
+});
+
+test("voltrade_daemon.py registers manage_options_exits -> options_manager.manage_options_positions", () => {
+  const daemon = fs.readFileSync(path.join(here, "..", "voltrade_daemon.py"), "utf8");
+  assert.ok(daemon.includes('"manage_options_exits": ("options_manager", "manage_options_positions")'));
+});

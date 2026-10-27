@@ -8304,6 +8304,39 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     }, delayMs);
   }
 
+  // HALT SCOPE (2026-10-27, audit N15 — server/haltScope.ts): while a halt
+  // blocks entries (kill latch, circuit breaker, weekly-loss pause) the full
+  // scan stays off — it places entries, floors, the third leg and the
+  // convexity overlay — but the options manager's protective exits (DTE,
+  // profit target, loss limit, gamma, assignment, strategy-group exits) keep
+  // running. Rolls are disabled (allow_rolls=false): a roll's sell-to-open
+  // half is a new entry, so each roll point takes its existing close branch.
+  // Regular hours only: options_manager posts DAY limit orders. equity is not
+  // passed — manage_options_positions only uses it for rolls.
+  async function tier2HaltedExits(): Promise<void> {
+    tier2Running = true;
+    try {
+      const clock = await alpaca("/v2/clock");
+      if (!clock.is_open) return;
+      const r = await pythonCall(
+        "manage_options_exits",
+        { allow_rolls: false },
+        `python3 -c "import json; from options_manager import manage_options_positions; print(json.dumps(manage_options_positions(allow_rolls=False), default=str))"`,
+        { timeout: 90000 },
+        90000,
+      );
+      if (!r.success) {
+        audit("OPTIONS-MGMT-ERROR", `halted exits-only pass failed (via ${r.via}): ${String(r.result?.error || "unknown").slice(0, 200)}`);
+        return;
+      }
+      for (const row of formatOptionsMgmt(r.result)) audit(row.type, row.message);
+    } catch (err) {
+      console.error("[tier2-halted]", err instanceof Error ? err.message : err);
+    } finally {
+      tier2Running = false;
+    }
+  }
+
   async function scheduleTier2() {
     if (TIER2_DISABLED) {
       if (!tier2DisabledLogged) {
@@ -8312,11 +8345,18 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
       return; // deliberately do not re-arm: the whole Tier 2 timer chain stops
     }
-    if (!state.active || state.killSwitch || tier2Running) {
+    if (tier2Running) {
       armTier2Timer(getTier2Interval());
       return;
     }
-    if (state.circuitBreakerUntil > Date.now()) {
+    // A halt blocks the scan (entries) but not the options exits (audit N15).
+    const t2Mode = haltMode(currentHaltState());
+    if (t2Mode === "exits_only") {
+      await tier2HaltedExits();
+      armTier2Timer(getTier2Interval());
+      return;
+    }
+    if (t2Mode !== "full") {
       armTier2Timer(getTier2Interval());
       return;
     }
