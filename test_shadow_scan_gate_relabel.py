@@ -26,6 +26,7 @@ SITES = [
     ("rejected_dollar_volume", "continue"),
     ("rejected_blocked_ticker", "continue"),
     ("rejected_extreme_mover", "continue"),
+    ("rejected_bearish_stock_signal", "continue"),  # N3 fix 2026-10-27
     ("rejected_sizing_error", "continue"),
     ("rejected_zero_shares", "continue"),
     ("rejected_volume_share", "continue"),
