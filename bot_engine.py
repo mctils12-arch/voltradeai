@@ -2855,6 +2855,21 @@ def _scan_market_inner():
             logging.getLogger("bot_engine").warning(
                 f"[DD_HALT] scan_market returning empty — {_dd_state.get('halt_reason', '')}"
             )
+            # HALT SCOPE (2026-10-27, audit N9): this early return used to
+            # skip the options manager too, so an 18% drawdown froze every
+            # options exit (DTE / profit / loss / gamma / assignment) — the
+            # opposite of "only entries are gated" above. Run its exits
+            # before returning, with rolls OFF (a roll's sell-to-open half
+            # is an entry; each roll point takes its existing close branch).
+            # Stock exits are unaffected (Node's WS monitor owns them). The
+            # floors, third leg and convexity overlay stay skipped: they can
+            # BUY, and an exits-only mode for them is a separate decision.
+            _halt_options_mgmt = {"actions": [], "positions_checked": 0}
+            try:
+                from options_manager import manage_options_positions
+                _halt_options_mgmt = manage_options_positions(allow_rolls=False)
+            except Exception as _hoe:
+                _halt_options_mgmt["error"] = str(_hoe)[:200]
             return {
                 "trades": [], "new_trades": [], "top_10": [],
                 "halted": True,
@@ -2863,6 +2878,7 @@ def _scan_market_inner():
                 "current_equity": _dd_state.get("current_equity", 0),
                 "dd_pct": _dd_state.get("dd_pct", 0),
                 "regime": _regime,
+                "options_management": _halt_options_mgmt,
             }
     except Exception as _dd_e:
         # DD tracking must never break scanning — log and continue

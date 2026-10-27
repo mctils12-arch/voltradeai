@@ -110843,3 +110843,42 @@ and daemon route absent); server/haltScope.test.ts +3 wiring tests (fail on
 the previous commit's bot.ts/daemon). Counter pins raised (tests + assertions).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Python DD halt keeps options exits running (audit N9) (v1.0.1175)
+
+What was wrong (bot_engine.py:_scan_market_inner, portfolio DD halt): when
+update_equity_peak() reports halted (DD >= 18%), the scan returned before
+step 8b, so options_manager.manage_options_positions never ran: every
+options exit (DTE, profit target, loss limit, gamma, assignment) froze for
+the whole halt, although the block's own comment says "only entries are
+gated, not exits".
+
+What changed: the halted return first runs
+manage_options_positions(allow_rolls=False) (rolls off: a roll's
+sell-to-open half is an entry; each roll point closes instead) inside its
+own try, and returns its result as `options_management`. bot.ts already
+audits result.options_management before its DD-HALT line with no return in
+between (pinned by the new test), so no TS change. A manager crash is
+recorded in options_management.error and the halt is still returned (never
+falls through into the full entry scan).
+
+NOT changed (needs a decision): the floors (_manage_spy_floor,
+_manage_defensive_floor incl. the GLD rotation), the third leg and the
+convexity overlay stay skipped during the DD halt. They can BUY, so running
+them as-is would place entries; an exits-only mode for them is a separate
+change.
+
+Downstream chain: (1) during an 18%+ DD halt, options at their exit rules get
+close DAY limits on each Tier 2 scan cycle -> option risk is reduced while
+the halt holds; (2) halted scans now carry options_management -> OPTIONS-EXIT
+audit rows appear during a halt; options exit feedback is recorded as usual.
+
+Rollback trigger: an OPTIONS-ROLL row or any to-open options order while
+DD-HALT rows are being logged; or a halted scan that reports trade
+candidates.
+
+Tests: test_dd_halt_options_exits.py (2 of 3 fail before: no
+options_management key / manager not called; the third pins the existing
+bot.ts audit order). Counter pins raised.
+
+STARVED: no — master-plan queue in progress this session.
