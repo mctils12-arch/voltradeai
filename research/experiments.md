@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-27 (scheduled routine, ~00:15Z Tue = 20:15 ET Mon, [PRODUCT] slot, post-close) [NO-ACTION] — no code_version change (1.0.1168)
+
+HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals still unanswered; not re-run). thrash 0/10 REPAIR; STARVED streak 0. No critical KNOWN BROKEN. main == checkout (feaf47a, #1471 bot-side RULE-REVIEW work, outside the product territory).
+QUEUE: PRODUCT axes (a)-(d) unchanged since the 10-26 entry: 13F/8-K gate 2 wait 2026-11-16+, index-VRP ~2027-01-15, price-panel and archive-volume human decisions, look-up ledger report waits for >= 20 admitted look-ups. Watch item: sentinel2_tank_fill archive 17d old vs its 21d trigger (next session re-check).
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-26 (scheduled routine, EDGE-DOCTRINE axis pick, Mon) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). thrash 0/10 REPAIR; STARVED streak 0 per research_state_check. KNOWN BROKEN: no critical item open (#44/#48 lack a close marker, advisory, already filed with their human/frozen-path decisions). No REPAIR session warranted.
