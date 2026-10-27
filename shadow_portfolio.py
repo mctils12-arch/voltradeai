@@ -2141,13 +2141,22 @@ def _exit_aligned_tables(records: List[dict], edges: List[float], min_n: int) ->
     }
 
 
-def shadow_band_report(records: List[dict], min_n: int = 20) -> dict:
-    """Pure aggregation over shadow records (see block comment above)."""
-    horizons = [f"+{h}d" for h in FORWARD_HORIZONS_DAYS]
-    # score quintile edges over every labeled record that has a score
+def _score_quintile_edges(records: List[dict]) -> List[float]:
+    """Score quintile edges over every labeled record that has a score."""
     scores = sorted(float(r.get("score", 0) or 0) for r in records
                     if isinstance(r.get("outcomes"), dict))
-    edges = [scores[int(len(scores) * q / 5)] for q in range(1, 5)] if len(scores) >= 5 else []
+    return [scores[int(len(scores) * q / 5)] for q in range(1, 5)] if len(scores) >= 5 else []
+
+
+def shadow_band_report(records: List[dict], min_n: int = 20,
+                       edges: Optional[List[float]] = None) -> dict:
+    """Pure aggregation over shadow records (see block comment above).
+    edges=None computes the score quintile edges from these records (the
+    original behaviour); the deduped probe passes the FULL population's edges
+    so its quintiles are comparable."""
+    horizons = [f"+{h}d" for h in FORWARD_HORIZONS_DAYS]
+    if edges is None:
+        edges = _score_quintile_edges(records)
 
     def quint(s: float) -> str:
         return f"Q{1 + sum(1 for e in edges if s >= e)}" if edges else "Q?"
@@ -2198,6 +2207,65 @@ def shadow_band_report(records: List[dict], min_n: int = 20) -> dict:
         # every key above is the old ruler and keeps its exact values.
         "exit_aligned": _exit_aligned_tables(records, edges, min_n),
     }
+
+
+def _first_seen_per_ticker_day(records: List[dict], has_label) -> List[dict]:
+    """2026-10-27 [RULE-REVIEW]: the shadow logger writes the same candidate
+    on every scan, so one (ticker, ET entry day) can appear dozens of times
+    (2026-10-20: 5,192 labeled 'taken' records covered only 148 ticker-days),
+    and a cell's n counts copies, not events. Keep ONE record per (ticker, ET
+    entry session): the FIRST-SEEN one (earliest timestamp) — the first scan
+    at which the system could have acted — among records where
+    has_label(rec) is true. Pure; records are not modified."""
+    first: Dict[Tuple[str, Optional[str]], dict] = {}
+    for r in records:
+        if not has_label(r):
+            continue
+        k = (str(r.get("ticker") or ""), _xa_entry_date_et(r.get("timestamp", "")))
+        cur = first.get(k)
+        if cur is None or str(r.get("timestamp", "")) < str(cur.get("timestamp", "")):
+            first[k] = r
+    return list(first.values())
+
+
+def _has_old_label(r: dict) -> bool:
+    outs = r.get("outcomes")
+    return isinstance(outs, dict) and any(
+        isinstance(o, dict) and o.get("label") in (0, 1) for o in outs.values())
+
+
+def _has_xa_label(r: dict) -> bool:
+    out = r.get(XA_KEY)
+    return isinstance(out, dict) and out.get("label") in (0, 1) and out.get("return_pct") is not None
+
+
+def shadow_band_report_deduped(records: List[dict], min_n: int = 20) -> dict:
+    """2026-10-27 [RULE-REVIEW]: the shadow_bands tables for BOTH rulers over
+    one first-seen record per (ticker, ET entry day), so min_n counts distinct
+    events. Score quintile edges are the FULL population's (same as
+    shadow_bands), so quintiles are comparable across the two probes.
+    Aggregate-only, like shadow_band_report. Purely additive: shadow_bands is
+    unchanged."""
+    edges = _score_quintile_edges(records)
+    old_dd = _first_seen_per_ticker_day(records, _has_old_label)
+    xa_dd = _first_seen_per_ticker_day(records, _has_xa_label)
+    old_rep = shadow_band_report(old_dd, min_n=min_n, edges=edges)
+    old_rep.pop("exit_aligned", None)
+    xa_rep = _exit_aligned_tables(xa_dd, edges, min_n)
+    xa_rep.pop("labeling", None)
+    return {
+        "method": "first-seen record per (ticker, ET entry session) among records labeled by that ruler; "
+                  "score quintile edges from the full population",
+        "min_n": min_n,
+        "old": {"n_records": sum(1 for r in records if _has_old_label(r)),
+                "n_unique": len(old_dd), **old_rep},
+        "exit_aligned": {"n_records": sum(1 for r in records if _has_xa_label(r)),
+                         "n_unique": len(xa_dd), **xa_rep},
+    }
+
+
+def get_shadow_band_report_deduped() -> dict:
+    return shadow_band_report_deduped(_load_shadow_log())
 
 
 def get_shadow_band_report() -> dict:

@@ -3149,6 +3149,19 @@ print(json.dumps(get_shadow_band_report()))
 "`, { timeout: 20000 });
           return res.json(sanitizeDiag({ probe: "shadow_bands", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "shadow_bands_dedup": {
+          // ADDED 2026-10-27 [RULE-REVIEW] — see diag.ts. The shadow_bands
+          // tables for both rulers over one first-seen record per (ticker,
+          // ET entry day), so min_n counts distinct events, not per-scan
+          // copies. Aggregate-only (shadow_band_report_deduped).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from shadow_portfolio import get_shadow_band_report_deduped
+print(json.dumps(get_shadow_band_report_deduped()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "shadow_bands_dedup", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
           // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —
