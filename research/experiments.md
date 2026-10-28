@@ -111120,3 +111120,57 @@ Test: test_third_leg_vrp_risk.py::TestLeg3SizeCap (fails at 0.40).
 counter_baseline tests_run_in_ci/tests_gating_merge 626 -> 627 (new file).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — SVXY third leg: vol-spike + stop exits and buy/exit dwell (v1.0.1188)
+
+What was wrong (audit §6.8 N14 parts a/c, N20): bot_engine.py:_run_third_leg
+bought SVXY (short volatility) whenever the VXX ratio was 1.05-1.25 and
+declining, and exited ONLY when the regime was NEUTRAL/BULL. SVXY is in
+server/bot.ts FLOOR_AND_LEG_TICKERS (no WS stop, no POS-KILL) and Python
+manage_positions skips it, so a vol spike (the exact risk the leg is short)
+had no exit anywhere. The buy (VXX >= 1.05) and the exit (regime boundary
+at VXX 1.05) shared one threshold with no hysteresis: the flicker class F2
+fixed for the floors.
+
+(a) Protective exits, implemented in the existing third-leg exit loop:
+  * VOL SPIKE: VXX ratio > LEG3_VRP_VXX_BAND_HIGH (1.25, the buy band's
+    top) -> sell SVXY immediately, no dwell. New mechanism, no prior value.
+  * STOP: SVXY unrealized_plpc <= -LEG3_VRP_STOP_PCT (0.10) -> sell
+    immediately. New mechanism, no prior value.
+  * Either one starts a LEG3_VRP_REENTRY_COOLDOWN_HOURS (24) re-entry
+    cooldown so a stop-out cannot loop into an immediate re-buy.
+  Exits are tagged trigger=vol_spike|stop_loss|regime_recovery in the
+  third_leg_exit action.
+(b) Size cap shipped in the previous commit (LEG3_VRP_PCT 0.40 -> 0.15).
+(c) Dwell: new _resolve_third_leg_dwell() reuses F2's rules and helpers
+  (_floor_macro_observation_key, _floor_macro_vxx_is_fallback): zones
+  SPIKE/BAND/RECOVERY/OTHER; bootstrap adopts the raw zone; SPIKE applies at
+  once; a fallback macro holds the confirmed zone; any other change needs
+  LEG3_REGIME_CONFIRM_CYCLES (3) consecutive DISTINCT macro readings. The
+  buy needs a confirmed BAND (and the current reading in band); the
+  take-profit exit needs a confirmed RECOVERY. State persists in
+  DATA_DIR/voltrade_leg3_state.json (separate from the floor state file).
+  The buy band moved from hardcoded 1.05/1.25 to LEG3_VRP_VXX_BAND_LOW/HIGH
+  in system_config.py with the SAME values.
+
+Downstream chain: (1) SVXY is cut within one scan of a spike or a 10% loss,
+so the leg's worst case is ~10% x 15% = 1.5% of equity plus gap; the freed
+capacity flows to the floors / stock entries on the next scan; (2) the
+buy now lags a CAUTION onset by ~3 macro snapshots (~10-15 min), and the
+take-profit exit lags recovery by the same, so fewer SVXY round trips and
+fewer fills to attribute. Legacy ITA/XOM/LMT recovery exits also use the
+confirmed zone (they are not held today; LEG3_*_ASSETS are empty).
+
+Test isolation: test_third_leg_floor_ownership.py's _run now patches
+DATA_DIR to a fresh temp dir (the leg now persists state); no assertion
+changed.
+
+Rollback trigger: >=3 protective exits in 30 days each followed by SVXY
++5% within 5 sessions -> widen LEG3_VRP_STOP_PCT one step (0.10 -> 0.15).
+
+Tests: test_third_leg_vrp_risk.py TestProtectiveExits + TestDwell
+(9 fail on the old _run_third_leg, all pass now).
+counter_baseline: tests 627 -> 628 (pin lagged the tracked count by one
+after the previous commit), assertions 22139 -> 22164.
+
+STARVED: no — master-plan queue in progress this session.
