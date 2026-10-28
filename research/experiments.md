@@ -111315,3 +111315,21 @@ TESTS: flightPlans+navAirways 51 pass; test_flightplan_gate1 12 pass; tsc ratche
 Rollback trigger: any client or script reading `radialShadow` surfaces as a regression, or `lost` climbs above 0.5% of routes.
 
 STARVED: yes (other items date- and decision-gated).
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — N17 (calendar half): _is_regular_hours checks weekday/holiday/half-day (v1.0.1194)
+
+Territory: T-BOT (bot_engine.py, instrument_selector.py, options_scanner.py) + shared package.json / ci / research/*.
+
+Loop-health at start: last 10 tags = 6 REPAIR / 3 PIPELINE / 1 PRODUCT-or-RESEARCH mix (under 7). THIS entry makes the next window 7 REPAIR of 10 -> the NEXT session must treat "generator of breaks" (master-plan N-items surfacing from the audit, not new regressions) as Priority 1 and check whether the remaining queue should pause for a thrash diagnosis. /api/health 20:16Z: status ok, serving ok, liveness not dark, DD -0.9%, feeds/jobs ok. Mid-day: merge after 4:00 PM ET.
+
+What was wrong (audit §6.8 N17, verified in code): the three module-private `_is_regular_hours` helpers tested the ET hour only. The floors (bot_engine, Tier 2 runs 04-20 ET on weekends) and the options scanner/selector could therefore proceed on Saturdays, Sundays and holidays, and never closed at 13:00 on half-days.
+
+What changed: all three now return False on `market_calendar.is_market_holiday` (covers weekends) and close at 13:00 on `is_half_day`. market_calendar.py (FROZEN) is only read. Order-submission code untouched. NOT touched (remaining N17 items): options_manager has no hours check and pops state on unfilled DAY orders; the third leg has no hours check; Python orders are not registered in Node's openOrders.
+
+Prior: no effect on a weekday session; removes weekend/holiday queued-order loops for the floors and options entry. Downstream: fewer weekend scan-driven orders -> less cancel/resubmit churn; half-day afternoon entries (11-27, 12-24 after 13:00) stop. Backtest: n/a (live gating; backtest_v2 does not use these helpers).
+
+Tests: test_n17_regular_hours_calendar.py (24 cases x 3 modules; 12 fail on old code, all pass now). Related floor/options/selector suites 257 pass. ci/counter_baseline tests 650 -> 651.
+
+Rollback trigger: any weekday regular-session scan reporting not-regular-hours, or the floors failing to act on a normal trading day.
+
+STARVED: no — N1, N4, N6, N8, N10, N12, N16, N17 (remaining halves), N19, N21 still queued.
