@@ -48,3 +48,12 @@ Nothing here edits a kill switch, a drawdown halt, the floor schedule, or an ord
 - Any consumer: unset its flag — the baseline path is bit-identical (each step's tests pin this).
 - The engine: unset `VOLTRADE_REGIME_ENGINE`; delete nothing. If the state file is corrupt, remove `voltrade_regime_state.json` (the history is append-only and stays); the next scan rebuilds it.
 - A stale state never cuts size silently: sizing falls back to 1.0, counts the fallback (`sizing.stale_fallbacks` on `/api/diag/regime`, a `checks.regime` warning the same day) and audits `REGIME-STALE` once per new occurrence (step 6).
+
+## 6. Flag-flip order (the program's own recommendation; every flag is OFF at close)
+
+1. `VOLTRADE_REGIME_ENGINE=1` — shadow only: one state per scan, the report, the history. Wait fourteen trading days with `checks.regime.status` ok and no gap in `history_days`.
+2. Read 2026-11-16 (FINDINGS step 9): per-guard buckets `would_reject_regime_*` on `/api/diag/shadow` (+5/+20 d vs the taken bucket, n ≥ 30, ≥ 3 pp at +20 d to promote), the sleeve hold-time ledger, the engine's history vs the tool's replay (HONESTY METRIC).
+3. Promote one guard at a time: `VOLTRADE_REGIME_SELECTION=<guard>` / `VOLTRADE_REGIME_OPTIONS=<guard>` (any value of the options flag also turns on `crisis` and `vrp`).
+4. `VOLTRADE_REGIME_SIZING=<sleeve>` one sleeve at a time; 30 trading days with no sizing anomaly (`sizing.stale_fallbacks` stays 0 on trading days, no position above the absolute caps) before the next sleeve.
+5. `VOLTRADE_REGIME_LABELS=1` whenever the shadow records' `regime_label` vs `regime_label_markov` read says the engine's label is the better split — it changes labels, never a trade.
+Rollback at any step: unset the flag (RUNBOOK §5); the opposite sign at a read with n ≥ 30 turns a guard off and is logged.
