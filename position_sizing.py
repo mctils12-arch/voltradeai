@@ -970,6 +970,23 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         macro.get("vix") if macro else None,
         macro.get("vix_regime") if macro else None,
     )
+    # REGIME ENGINE step 6 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_SIZING=stock): ONE
+    # regime multiplier — the engine's exposure_multiplier replaces the VIX-level scalar here
+    # and the stress-index multiplier below (never alongside them). A stale state means 1.0,
+    # never a silent cut; exposure 0 means no new discretionary risk -> blocked (the same
+    # path a halt or negative expectancy takes). Flag off: this block is a no-op.
+    _rg_sizing = None
+    try:
+        import regime_engine as _re_sz
+        _rg_sizing = _re_sz.sizing_for("stock")
+    except Exception as _re_sz_err:
+        _rg_sizing = None
+        logging.getLogger("voltrade.position_sizing").debug(f"regime sizing unavailable: {_re_sz_err}")
+    if _rg_sizing is not None:
+        s_regime = float(_rg_sizing["multiplier"])
+        if s_regime <= 0.0:
+            return _blocked(ticker, price, f"regime engine: exposure 0 in {_rg_sizing.get('composite')} "
+                                           f"(as_of {_rg_sizing.get('as_of')}) — no new discretionary risk")
     s_earnings = _earnings_scalar(ticker)
     s_time = _time_scalar()
     s_heat = _portfolio_heat_scalar(
@@ -1030,7 +1047,9 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
     # leading macro indicators. Applied AFTER DD scaling so both stack.
     try:
         from stress_index import get_stress_multiplier, compute_stress_index
-        _stress_mult = get_stress_multiplier()
+        # REGIME ENGINE step 6: under the sizing flag the engine's multiplier already carries
+        # the stress inputs (VIX family, credit, breadth) — no second cut from the index.
+        _stress_mult = get_stress_multiplier() if _rg_sizing is None else 1.0
         if _stress_mult < 1.0:
             final_pct = final_pct * _stress_mult
             _si = compute_stress_index()
@@ -1039,7 +1058,7 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
             _stress_value = _si.get('index', 0)
         else:
             s_stress = 1.0
-            _stress_level = "calm"
+            _stress_level = "calm" if _rg_sizing is None else "regime_engine"
             _stress_value = 0
     except Exception:
         s_stress = 1.0
@@ -1141,6 +1160,10 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         "stress": round(s_stress, 3) if 's_stress' in dir() else 1.0,
         "stress_level": _stress_level if '_stress_level' in dir() else "unknown",
         "stress_value": _stress_value if '_stress_value' in dir() else 0,
+        # REGIME ENGINE step 6: the engine's multiplier when the sizing flag names this sleeve
+        # (then "regime" above IS this value and "stress" is 1.0), else None / the legacy source.
+        "regime_engine": round(float(_rg_sizing["multiplier"]), 3) if _rg_sizing else None,
+        "regime_source": (_rg_sizing.get("source") if _rg_sizing else "vix_scalar"),
         "combined": round(final_pct, 4),
     }
     
@@ -1150,7 +1173,8 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
     if s_confidence != 1.0:
         reasoning_parts.append(f"Confidence: {s_confidence:.0%}")
     if s_regime != 1.0:
-        reasoning_parts.append(f"Market: {s_regime:.0%}")
+        reasoning_parts.append(f"Regime engine: {s_regime:.0%} ({_rg_sizing.get('composite')})" if _rg_sizing
+                               else f"Market: {s_regime:.0%}")
     if s_earnings != 1.0:
         reasoning_parts.append(f"Earnings: {s_earnings:.0%}")
     if s_time != 1.0:

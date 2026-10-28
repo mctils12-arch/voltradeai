@@ -7,7 +7,7 @@ import os from "os";
 import path from "path";
 import {
   REGIME_STATE_FILE, REGIME_HISTORY_FILE, regimeEngineEnabled, readRegimeState, readRegimeHistory,
-  marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit,
+  marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit, readRegimeSizing, REGIME_SIZING_FILE,
 } from "./regimeReport";
 import { SERVING_CHECKS } from "./healthGate";
 
@@ -90,3 +90,23 @@ test("transition audit text: null without a transition, one line with it", () =>
   const line = regimeTransitionAudit(state({ transition: { from: "CALM_BULL", to: "BEAR", to_as_of: "2026-10-26" }, exposure_multiplier: 0.25 }));
   assert.match(line ?? "", /^CALM_BULL -> BEAR \(as_of 2026-10-26; exposure 0.25/);
 });
+
+test("sizing counters (step 6): missing file is null; today's stale fallbacks warn in health and ride the report", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "regime-sizing-"));
+  assert.equal(readRegimeSizing(dir), null);
+  const now = new Date("2026-10-28T15:00:00Z");
+  const sizing = { day: "2026-10-28", by_sleeve: { stock: { "0.75": 4 }, tier1: { "1.00": 2 } }, stale_fallbacks: 2, zero_blocks: 0, last: null };
+  fs.writeFileSync(path.join(dir, REGIME_SIZING_FILE), JSON.stringify(sizing));
+  assert.deepEqual(readRegimeSizing(dir)?.by_sleeve, sizing.by_sleeve);
+  const fresh = state({ as_of: "2026-10-28" });
+  const h = regimeHealth(fresh, now, true, sizing);
+  assert.equal(h.status, "warning");
+  assert.match(h.detail ?? "", /stale state 2x today/);
+  assert.equal(h.gates_top_level_status, false);
+  assert.equal(regimeHealth(fresh, now, true, { ...sizing, day: "2026-10-27" }).status, "ok");   // yesterday's counters do not warn today
+  assert.equal(regimeHealth(fresh, now, true, { ...sizing, stale_fallbacks: 0 }).status, "ok");
+  const body = regimeReportBody(fresh, [], now, true, sizing);
+  assert.deepEqual(body.sizing, sizing);
+  assert.equal(regimeReportBody(null, [], now, false).sizing, null);
+});
+

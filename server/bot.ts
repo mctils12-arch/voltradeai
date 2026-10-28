@@ -24,7 +24,8 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
-import { regimeEngineEnabled, regimeDataDir, readRegimeState, readRegimeHistory, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+import { regimeEngineEnabled, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
@@ -1812,7 +1813,7 @@ print(json.dumps(data))
     // failed, or the primary-flip alarm is set; never touches checks.status
     // and never a serving gate (healthGate.ts SERVING_CHECKS unchanged).
     try {
-      checks.checks.regime = regimeHealth(readRegimeState(regimeDataDir(process.env)), new Date(), regimeEngineEnabled(process.env));
+      checks.checks.regime = regimeHealth(readRegimeState(regimeDataDir(process.env)), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(regimeDataDir(process.env)));
     } catch (err: unknown) {
       checks.checks.regime = { status: "warning", detail: `regime report unreadable: ${String((err as Error)?.message || err).slice(0, 120)}`, gates_top_level_status: false };
     }
@@ -2187,7 +2188,7 @@ print(json.dumps({
   // "regime" serves. Shadow: no consumer acts on it until its own flag is set.
   function regimeBody(): Record<string, unknown> {
     const dir = regimeDataDir(process.env);
-    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env));
+    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(dir));
   }
   app.get("/api/bot/regime", requireOwner, (_req, res) => {
     res.json(regimeBody());
@@ -5784,6 +5785,13 @@ else:
       const regimeAuditLine = regimeTransitionAudit(result.regime);
       if (regimeAuditLine) audit("REGIME-TRANSITION", regimeAuditLine);
       if (result.regime?.error) audit("REGIME-STALE", `regime engine update failed: ${String(result.regime.error).slice(0, 160)}`);
+      // step 6: a sizer that fell back to 1.0 on a stale state (counted by regime_engine,
+      // reset daily) is audited once per new occurrence — never silently.
+      const staleFallbacks = Number(result.regime_sizing?.stale_fallbacks ?? 0);
+      if (staleFallbacks > lastRegimeStaleFallbacks) {
+        audit("REGIME-STALE", `sizing fell back to 1.0 on a stale regime state (${staleFallbacks} today; state as_of ${result.regime?.as_of ?? "?"})`);
+      }
+      lastRegimeStaleFallbacks = staleFallbacks;
 
     } catch (err: any) {
       tier2LastScanFailed = true;
