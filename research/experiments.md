@@ -111298,3 +111298,20 @@ Tests: test_n11_options_slot_cap.py (2; fails on the old literal). counter_basel
 Rollback trigger: options positions held ever exceed 6, or scanner stops producing options candidates with <6 open.
 
 STARVED: no — N1, N4, N6, N8, N10, N12, N16, N17, N19, N21 still queued.
+
+## 2026-10-28 [PRODUCT] — T-DATACORE (server/flightPlans.ts) + shared package.json / ci / research/* — RETIRE the radialShadow report-only field (staleness debt; v1.0.1193)
+
+HEALTH at start: session_health_check all OK except the known daemon-rss sawtooth (417MB vs trim_mb 400) and `regime=off` (shadow flags, by design). Run is mid-market (14:08 ET): merge after 4:00 PM ET — docs/data-path only, no trading code touched.
+
+QUEUE: every other PRODUCT item is date- or decision-gated (13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01, price panel / archive volume human decisions). The one startable item is the 2026-10-14 open_questions follow-up #2: remove `radialShadow` once live parserShadow `lost` ≈ 0.
+
+EVIDENCE (live /api/data/aircraft/plan-status, 18:15Z): parserShadow routes 70,619, placed 64,238, chain-placed 60,975, gained 3,316, lost 53 (0.075%); fewFixesProfile.radialShadowPlaced = 0. The parser (v1.0.1073) places every route the shadow could; the shadow was computed only for paths that stay estimated.
+
+CHANGE: removed `radialShadow` from Candidate/plan types, the build in filedCandidate, the response field and radialShadowXt (server/flightPlans.ts); removed measure_radial_shadow and its branch from scripts/flightplan_gate1.py (`--pool` still reads saved runs' radial_samples). Rewrote the superseded flightPlans.test assertion to pin the field's absence; replaced the removed gate1 unit test with a test pinning the removal and that saved-run pooling still works. `placeDirectFixesWithRadials` is kept (used by the swimSfdps profile counters and navAirways tests). The 53 `lost` routes are a separate open watch item, not hidden by this.
+
+Prior (stated before): no behavioural change to any placed path, deviation state or UI — the field was never drawn nor used for deviation; API consumers lose one additive optional field that no client reads (grep: only the gate1 script). Downstream: one fewer navAirways resolve per estimated plan request.
+
+TESTS: flightPlans+navAirways 51 pass; test_flightplan_gate1 12 pass; tsc ratchet 6 <= 6 (TS2304 0); counter ratchet OK 28 (tests 649 -> 650 re-pinned for this change only).
+Rollback trigger: any client or script reading `radialShadow` surfaces as a regression, or `lost` climbs above 0.5% of routes.
+
+STARVED: yes (other items date- and decision-gated).
