@@ -56,3 +56,19 @@ One entry per shipped change: what, why (with the evidence), measured effect, ro
 - **Measured effect:** none with the flag off (source pins: the override sits after the Markov call, the consumers are unchanged). With it on: the shadow records' `regime_label` distribution moves with the tape (the validation read in FINDINGS step 7).
 - **Rollback:** unset `VOLTRADE_REGIME_LABELS`.
 
+## Program close — 2026-10-28 (Stage B complete; what shipped, what did not)
+
+**Shipped (each its own PR, each behind its own flag, every flag default OFF):** Stage A docs (#1484); step 1 the index-level regime-layer tool + committed run (#1485, v1.0.1176); step 2 `regime_engine.py` (#1486, v1.0.1177); step 3 shadow run + observability (#1487, v1.0.1178); step 4 stock-selection guards (#1488, v1.0.1179); step 5 CSP guards (#1491, v1.0.1181); step 6 one sizing path (#1493, v1.0.1185); step 7 legacy-label subordination (#1496, v1.0.1186); step 8 handoffs filed (#1497); step 9 this close. Live today: nothing — every flag is off; `VOLTRADE_REGIME_ENGINE` is the first switch to flip (shadow: state + report + history), fourteen trading days of history before any consumer flag (RUNBOOK §4).
+
+**Not done, and why (the plan's own skip rule — evidence or inputs missing):**
+1. The Section-10 regime backtest over the bot's strategies — not buildable: `backtest_v2` runs an exit model the bot does not (KB #48), no options/CSP simulation, no point-in-time universe (AUDIT §4). The index-level regime-layer tool shipped instead; the forward measurement plan (reads 2026-11-16 / 2026-12-15 / 2027-01-27) is the validation path.
+2. Step 4 sector check — no evidence, no data path in `deep_score`.
+3. Step 5 LOW-vol premium floor and IV−HV ordering — Tier-1 decides with no premium, IV or quote at hand; both wait for the master plan's N8 (trade context into `select_contract`), where they become one-line chain filters. The step-5 size multipliers and the 0.15 delta bite only through the affordability cap and the metadata until N8 (AUDIT T7 — the tier's own VXX ladder has the same limitation).
+4. Cap-bucket reporting (small/mid vs large) — no market-cap field exists on any selection path (AUDIT §4); the EBP cut therefore applies to every CSP, labeled as such.
+5. Step 6 — the drawdown scalars stay separate factors (risk mechanisms; N13 is the master plan's); the floor sleeve's exposure schedule is not sized by the engine (step 8 handoff to the pre-registered 4-arm test).
+6. Step 7 — the Node exit geometry is not wired (it has never received a label; making it regime-aware is an exit-model change owned by KB #48's consolidation — filed).
+7. Spreads (no spread structures built), ML (none), any risk-limit change (none: no halt level, cap or kill switch moved).
+
+**Honesty ledger:** one Stage A prior was wrong and is recorded (the loose vol dial is CAGR-neutral, RESEARCH §5.4); two latent constants were found while wiring (the tier context's label and the Node position regime — both filed, neither silently fixed); one merge went in with conflict markers and was corrected in the next commit (#1491).
+
+**Forward measurement (FINDINGS step 9, unchanged):** baseline `BASELINE.md` (v1.0.1168). Reads 2026-11-16, 2026-12-15, 2027-01-27 — engine health, per-guard prevention-P&L from the `would_reject_regime_*` / `rejected_regime_*` buckets, sleeve hold-time ledger, rolling return vs SPY and max DD vs the baseline window, live-vs-tool exposure-path divergence (HONESTY METRIC). Promotion: a guard's blocked bucket underperforms the taken bucket by ≥ 3 pp at +20 d, n ≥ 30. Rollback: opposite sign at a read with n ≥ 30 → flag off; a stale-state incident → `VOLTRADE_REGIME_SIZING` off until fixed.
