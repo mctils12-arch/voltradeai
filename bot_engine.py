@@ -1991,6 +1991,21 @@ except Exception as e:
             for _g, _v in _regime_sel["flags"].items():
                 _score_breakdown[f"regime_{_g}"] = float(_v)
             _score_breakdown["regime_mr_delta"] = float(_regime_sel["mr_delta"])
+        # REGIME ENGINE ML snapshot (2026-10-28 live flip; logging only): the state's inputs,
+        # the engine and Markov labels, and the engine's gate decision vs legacy's for this
+        # candidate. None (key absent on the record) while the engine is off.
+        _regime_snapshot = None
+        try:
+            import regime_engine as _re_ml
+            if _re_ml.engine_allowed():
+                _regime_snapshot = _re_ml.ml_snapshot(
+                    _re_ml.cached_state(), kind="selection",
+                    markov_label=_markov_lbl if '_markov_lbl' in locals() else None,
+                    engine_label=_engine_lbl if '_engine_lbl' in locals() else None,
+                    verdict=_regime_sel, gates=_re_ml.selection_gates())
+        except Exception as _re_ml_err:
+            logging.getLogger("bot_engine").debug(f"regime ML snapshot skipped for {ticker}: {_re_ml_err}")
+            _regime_snapshot = None
 
         log_candidate(
             ticker=ticker,
@@ -2006,6 +2021,7 @@ except Exception as e:
             trade_type=trade_type,
             ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
             score_breakdown=_score_breakdown,
+            regime_snapshot=_regime_snapshot,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
@@ -4136,7 +4152,7 @@ def _scan_market_inner():
                 _rg_opt_state = _re_opt.cached_state()
                 if isinstance(_rg_opt_state, dict) and _rg_opt_state.get("as_of"):
                     _rg_opt = {"verdict": _re_opt.csp_verdict(_rg_opt_state, {}),
-                               "gates": _re_opt.options_gates(), "engine": _re_opt}
+                               "gates": _re_opt.options_gates(), "engine": _re_opt, "state": _rg_opt_state}
         except Exception:
             _rg_opt = {"verdict": None, "gates": set(), "engine": None}
         for ot in options_trades:
@@ -4164,6 +4180,8 @@ def _scan_market_inner():
                             vxx_ratio=float(_vxx_r_scan) if '_vxx_r_scan' in dir() else 1.0,
                             regime_label=str(_scan_regime) if '_scan_regime' in dir() else "unknown",
                             side="sell", action_label=str(ot.get("action_label") or "OPTIONS"), trade_type="options",
+                            regime_snapshot=_rg_opt["engine"].ml_snapshot(
+                                _rg_opt.get("state"), kind="options", verdict=_rg_opt["verdict"], gates=_rg_opt["gates"]),
                         )
                 except Exception as _rg_log_err:
                     logging.getLogger("bot_engine").debug(f"regime scanner-path shadow record failed for {ot.get('ticker')}: {_rg_log_err}")

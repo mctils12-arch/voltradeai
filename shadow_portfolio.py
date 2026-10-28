@@ -274,6 +274,25 @@ def _sanitize_score_breakdown(bd) -> dict | None:
     return out
 
 
+REGIME_SNAPSHOT_MAX_BYTES = 4096   # a regime_engine.ml_snapshot is ~0.8 KB; anything larger is not one
+
+
+def _sanitize_regime_snapshot(snap) -> dict | None:
+    """A JSON-safe copy of a regime_engine.ml_snapshot dict, or None (missing, not a
+    dict, or oversized — an absent snapshot is stored as absence, never as zeros)."""
+    if not isinstance(snap, dict) or not snap:
+        return None
+    try:
+        text = json.dumps(snap, default=str)
+    except (TypeError, ValueError) as e:
+        logger.debug(f"regime snapshot not serializable: {e}")
+        return None
+    if len(text) > REGIME_SNAPSHOT_MAX_BYTES:
+        logger.debug(f"regime snapshot dropped: {len(text)} bytes > {REGIME_SNAPSHOT_MAX_BYTES}")
+        return None
+    return json.loads(text)
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -288,6 +307,7 @@ def log_candidate(
     trade_type: str = "",
     ml: dict = None,
     score_breakdown: dict = None,
+    regime_snapshot: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -344,6 +364,13 @@ def log_candidate(
             "ml":              sanitize_ml_trace(ml),
             "score_breakdown": _sanitize_score_breakdown(score_breakdown),
         }
+        # REGIME ENGINE ML snapshot (2026-10-28 live flip; regime_engine.ml_snapshot):
+        # the regime state's inputs, both labels and the engine-vs-legacy gate
+        # decision for THIS candidate. Logging only; the key is ABSENT when the
+        # engine is off (no state) so pre-flip records keep their shape.
+        _rs = _sanitize_regime_snapshot(regime_snapshot)
+        if _rs is not None:
+            record["regime_snapshot"] = _rs
 
         # Load, append, rotate, save
         records = _load_shadow_log()
