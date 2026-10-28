@@ -111347,3 +111347,7 @@ Rollback trigger: none expected (logging only); revert if the AST ratchet
 misfires on a legitimate future binding pattern.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — research/* docs only — MASTER STATUS FILE (master plan deliverable)
+
+research/master_status.md: Done / In flight (built + tested, merging one PR at a time — routines must not re-implement) / Waiting on Mike / Parked in shadow. The voltrade-improve-close routine updates it daily from now on. Docs only, no version bump. STARVED: no.
