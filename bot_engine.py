@@ -1574,7 +1574,7 @@ except Exception as e:
                 _regime_ctx = {**_regime_ctx, "regime_label": _engine_lbl["label"], "regime_label_source": "engine",
                                "regime_label_markov": _regime_ctx.get("regime_label")}
         except Exception as _re_lbl_err:
-            logger.debug(f"regime label override unavailable: {_re_lbl_err}")
+            logging.getLogger("bot_engine").debug(f"regime label override unavailable: {_re_lbl_err}")
 
         # 34 features — ALL computed from real data
         _price = quick_result.get("price", 0) or 0
@@ -4147,7 +4147,7 @@ def _scan_market_inner():
                             side="sell", action_label=str(ot.get("action_label") or "OPTIONS"), trade_type="options",
                         )
                 except Exception as _rg_log_err:
-                    logger.debug(f"regime scanner-path shadow record failed for {ot.get('ticker')}: {_rg_log_err}")
+                    logging.getLogger("bot_engine").debug(f"regime scanner-path shadow record failed for {ot.get('ticker')}: {_rg_log_err}")
                 if _rg_g_on:
                     continue
             # Convert to bot_engine trade format

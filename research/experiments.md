@@ -111315,3 +111315,35 @@ TESTS: flightPlans+navAirways 51 pass; test_flightplan_gate1 12 pass; tsc ratche
 Rollback trigger: any client or script reading `radialShadow` surfaces as a regression, or `lost` climbs above 0.5% of routes.
 
 STARVED: yes (other items date- and decision-gated).
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — bot_engine: two regime except handlers called an unbound `logger` (NameError inside the handler) (v1.0.1194)
+
+What was wrong: bot_engine.py binds no module-level `logger`, but two
+except handlers added by the regime program used `logger.debug(...)`:
+- deep_score, step-7 label override (`except Exception as _re_lbl_err`):
+  a NameError there escapes into the ML block's outer
+  `except Exception as _ml_exc`, so the ML blend is silently skipped for
+  that candidate (_ml_trace.error records a NameError, not the cause).
+- _scan_market_inner, step-5 scanner-path shadow record
+  (`except Exception as _rg_log_err`): the NameError escapes into the
+  options scan's `except Exception as _oe2: pass`, dropping every remaining
+  options trade that scan.
+Both handlers are reachable only if the guarded call raises (today's
+callees swallow their own errors), so this is latent — but the regime
+flags went live today (prior commits), so the paths are now hot.
+
+Fix: logging.getLogger("bot_engine").debug(...) in both (the logger the
+neighbouring regime handlers already use). No behavior change otherwise.
+
+Downstream: a failure in the label override / scanner shadow logging now
+logs at debug and the candidate's ML blend / the rest of the options scan
+proceed, as the handlers intended.
+
+Test: test_bot_engine_logger_names.py — AST ratchet: every bare `logger`
+read in bot_engine resolves to a binding (fails on the parent: lines
+[1574, 4147] at the regime-merge base).
+
+Rollback trigger: none expected (logging only); revert if the AST ratchet
+misfires on a legitimate future binding pattern.
+
+STARVED: no — master-plan queue in progress this session.
