@@ -110970,3 +110970,10 @@ sessions while the in-hours re-scan does not pick those names up (the
 drop would then be losing real entries rather than deferring them).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — server (T-BOT shared) — JOB HEARTBEATS + `heartbeats` DIAG PROBE: NO SCHEDULED JOB CAN FAIL SILENTLY (v1.0.1181)
+
+Master plan Phase 3 (human directive 2026-10-27). server/jobHeartbeat.ts: beat()/noteJobError()/withJobBeat(), one atomic bounded JSON (voltrade_job_heartbeats.json, 12 runs x 64 jobs), stale open runs closed as error on reload; pure evaluate() -> ok|late|missing|errored|not_due per job using the market calendar (holidays + half days). Wired start/finish beats (try/finally) at every scheduled job entry in bot.ts + optionsChainArchive.ts; gated ticks beat "skipped" with reason; new 5-min read-only daemon liveness check. Probe /api/diag/heartbeats (verdict, failing jobs, unregistered jobs, last write error). /api/health gains informational checks.jobs — never changes status or HTTP code (healthGate.ts SERVING_CHECKS untouched).
+Registry: tier1_reflex 45s / tier2_scan 15m / tier3_strategic 1h / ml_retrain 24h / position_sync 60s / shadow + lookup-ledger + exit-aligned backfills daily 22Z / options_chain_archive daily 16:15 ET (trading days) / overnight_research 1h 20-04 ET / daily_reset daily 04 ET / daemon_liveness 5m. Restart warm-up capped at 30 min.
+EXPECTED: overnight_research + daily_reset read late/missing until the scheduler fix (D2) merges — that is the D2 defect surfacing, by design. The independent watchdog is the new voltrade-watchdog routine (claude.ai, outside bot.ts/daemon) polling this probe hourly in market hours + 21:23 ET.
+Tests: server/jobHeartbeat.test.ts (17). Rollback trigger: probe last-write-error set, event-loop lag coinciding with beats, or a job reading late while the audit shows it running. STARVED: no.
