@@ -5668,6 +5668,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                 _equity_b = float(_acct_b.get("equity", 0) or 0)
                 positions_b = get_alpaca_positions() or []
                 current_by_ticker = {p.get("symbol", ""): abs(float(p.get("market_value", 0) or 0)) for p in positions_b}
+                current_qty_by_ticker = {p.get("symbol", ""): int(float(p.get("qty", 0) or 0)) for p in positions_b}
 
                 drift_threshold = BASE_CONFIG.get("FLOOR_BASKET_DRIFT_THRESHOLD", 0.03)
 
@@ -5738,20 +5739,35 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                             "shares": _shares, "reason": "market_closed",
                                         })
                                     else:
-                                        alpaca_throttle.acquire()
-                                        requests.post(
-                                            f"{ALPACA_BASE_URL}/v2/orders",
-                                            headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                                            json={
-                                                "symbol": b_ticker, "qty": str(_shares),
-                                                "side": "sell", "type": "market",
-                                                "time_in_force": "day",
-                                            }, timeout=10)
-                                        basket_result["actions"].append({
-                                            "ticker": b_ticker, "action": "sell",
-                                            "shares": _shares, "price": _px,
-                                            "delta_dollars": delta_dollars,
-                                        })
+                                        # N18 2026-10-27: unwind covered calls first when the
+                                        # sale leaves < 100 shares — same rule as the
+                                        # single-ticker path (a failed buy-back blocks the sale).
+                                        _cc_blocked = False
+                                        if current_qty_by_ticker.get(b_ticker, 0) - _shares < 100:
+                                            try:
+                                                basket_result["actions"].extend(_unwind_covered_calls(b_ticker))
+                                            except RuntimeError as _uw_err:
+                                                import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {b_ticker}, blocking sale: {_uw_err}")
+                                                basket_result["actions"].append({
+                                                    "ticker": b_ticker, "action": "cc_unwind_blocked",
+                                                    "reason": str(_uw_err)[:200],
+                                                })
+                                                _cc_blocked = True
+                                        if not _cc_blocked:
+                                            alpaca_throttle.acquire()
+                                            requests.post(
+                                                f"{ALPACA_BASE_URL}/v2/orders",
+                                                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                                json={
+                                                    "symbol": b_ticker, "qty": str(_shares),
+                                                    "side": "sell", "type": "market",
+                                                    "time_in_force": "day",
+                                                }, timeout=10)
+                                            basket_result["actions"].append({
+                                                "ticker": b_ticker, "action": "sell",
+                                                "shares": _shares, "price": _px,
+                                                "delta_dollars": delta_dollars,
+                                            })
                         except Exception as _be:
                             basket_result["actions"].append({
                                 "ticker": b_ticker, "action": "sell_failed",
@@ -5773,8 +5789,23 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
 
         if target_pct <= 0:
             # No floor — sell any existing position (only on regime change to 0%)
+            #
+            # BASKET ORPHAN FIX 2026-10-27 (audit §6.8 N18): this branch sold
+            # only floor_ticker (QQQ), and the basket branch above requires
+            # target_pct > 0, so SMH/KWEB/VXUS (~28-36% of equity) were held
+            # with no exit through BEAR/PANIC (pushing invested % over the
+            # BEAR/PANIC caps -> master kill). A 0% target now exits EVERY
+            # floor-owned ticker (floor_ticker + non-CASH basket members),
+            # each after its own covered-call unwind. The pass also runs once
+            # per zero-target regime episode even without a regime change
+            # ("zero_target_exit_done"), so members already orphaned when
+            # this shipped are exited too.
             _exit_deferred = False
-            if regime_changed or last_regime is None:
+            _exit_blocked = False
+            _exit_tickers = [floor_ticker] + [t for t in basket_tickers if t != floor_ticker]
+            _needs_exit = (regime_changed or last_regime is None
+                           or _floor_state.get("zero_target_exit_done") != regime)
+            if _needs_exit:
                 if not _is_regular_hours():
                     # Deferred, not skipped: deliberately do NOT persist last_regime
                     # below, so regime_changed stays True and this retries next cycle
@@ -5783,35 +5814,54 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                     result["actions"].append({"type": "floor_exit_deferred",
                         "reason": "market_closed"})
                 else:
+                    import logging as _floor_log
                     try:
                         positions = get_alpaca_positions()
-                        floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
-                        if floor_pos:
-                            qty = abs(int(float(floor_pos[0].get("qty", 0))))
-                            if qty > 0:
-                                # Unwind any covered calls before selling stock
-                                try:
-                                    uw_actions = _unwind_covered_calls(floor_ticker)
-                                    result["actions"].extend(uw_actions)
-                                except RuntimeError as _uw_err:
-                                    import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
-                                    result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
-                                    return result
-                                alpaca_throttle.acquire()
-                                requests.post(f"{ALPACA_BASE_URL}/v2/orders",
-                                    json={"symbol": floor_ticker, "qty": str(qty),
-                                          "side": "sell", "type": "market",
-                                          "time_in_force": "day"},
-                                    headers=_alpaca_headers(), timeout=10)
-                                result["actions"].append({"type": "floor_exit",
-                                    "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
-                                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} (regime changed {last_regime}->{regime})")
-                    except Exception:
-                        pass
+                        positions = positions if isinstance(positions, list) else []
+                    except Exception as _pe:
+                        _floor_log.getLogger("bot_engine").warning(f"[FLOOR] zero-target exit: positions read failed: {_pe}")
+                        positions, _exit_blocked = [], True
+                    for _xt in _exit_tickers:
+                        try:
+                            _xpos = [p for p in positions if p.get("symbol") == _xt]
+                            if not _xpos:
+                                continue
+                            # qty_available excludes shares already held by an
+                            # open sell (a retry must not double-sell).
+                            _raw_qty = _xpos[0].get("qty_available", _xpos[0].get("qty", 0))
+                            qty = int(float(_raw_qty or 0))
+                            if qty <= 0:
+                                continue
+                            # Unwind any covered calls before selling stock
+                            try:
+                                uw_actions = _unwind_covered_calls(_xt)
+                                result["actions"].extend(uw_actions)
+                            except RuntimeError as _uw_err:
+                                _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {_xt}, blocking sale: {_uw_err}")
+                                result["actions"].append({"type": "cc_unwind_blocked", "ticker": _xt, "reason": str(_uw_err)})
+                                _exit_blocked = True
+                                continue
+                            alpaca_throttle.acquire()
+                            requests.post(f"{ALPACA_BASE_URL}/v2/orders",
+                                json={"symbol": _xt, "qty": str(qty),
+                                      "side": "sell", "type": "market",
+                                      "time_in_force": "day"},
+                                headers=_alpaca_headers(), timeout=10)
+                            result["actions"].append({"type": "floor_exit", "ticker": _xt,
+                                "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
+                            _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {_xt} (regime {last_regime}->{regime}, 0% target)")
+                        except Exception as _xe:
+                            _floor_log.getLogger("bot_engine").warning(f"[FLOOR] zero-target exit failed for {_xt}: {_xe}")
+                            _exit_blocked = True
             else:
                 result["status"] = "no_floor_no_change"
-            if _exit_deferred:
+            if _exit_deferred or _exit_blocked:
+                # Blocked (CC unwind / order error): same retry contract as a
+                # deferral — last_regime is not persisted, so the next cycle
+                # retries; qty_available keeps the retry from double-selling.
                 return result
+            if _needs_exit:
+                _floor_state["zero_target_exit_done"] = regime
             # Save regime state
             _floor_state["last_regime"] = regime
             _floor_state["last_rebalance"] = datetime.now().isoformat()
