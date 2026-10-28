@@ -265,3 +265,69 @@ test("total failure stages nothing and claims nothing (retry next tick)", async 
   assert.ok(!fs.existsSync(chainDayFile("2026-10-27", dir)));
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── [REPAIR 2026-10-27, audit §2.4 defect 2] full index chains (pagination) ──
+import { fetchChainPages, chainQueryWindow, CHAIN_MAX_PAGES } from "./optionsChainArchive";
+
+/** A paged chain like SPY's: `n` pages in OCC order (nearest expiry first),
+ *  one in-scope contract per page, each a later expiry than the last. */
+function pagedChain(n: number, calls: string[], repeatToken = false) {
+  return async (url: string) => {
+    calls.push(url);
+    const m = /page_token=p(\d+)/.exec(url);
+    const page = m ? Number(m[1]) : 0;
+    const exp = new Date(Date.UTC(2026, 9, 28 + page * 4)); // +4 days per page, all ≤ 60 DTE for 12 pages
+    const yymmdd = exp.toISOString().slice(2, 10).replace(/-/g, "");
+    const occ = `SPY${yymmdd}P00590000`;
+    const next = repeatToken ? "p1" : page + 1 < n ? `p${page + 1}` : undefined;
+    return { ok: true, status: 200, json: async () => ({ snapshots: { [occ]: { latestQuote: { bp: 1, ap: 1.1 } } }, ...(next ? { next_page_token: next } : {}) }) };
+  };
+}
+
+test("pagination: a chain longer than the old 5-page cap is fetched whole (SPY lost every expiry past ~39 DTE)", async () => {
+  const calls: string[] = [];
+  const got = await fetchChainPages("SPY", 600, {} as any, pagedChain(12, calls) as any, ET(16, 35));
+  assert.equal(calls.length, 12, "follows next_page_token to exhaustion");
+  assert.equal(got.pages, 12);
+  assert.equal(got.records.length, 12, "every page's contracts kept — the far expiries included");
+  assert.equal(got.truncated, false);
+  assert.ok(CHAIN_MAX_PAGES >= 20, "safety cap well above a ≤60-DTE index chain");
+});
+
+test("pagination: the documented scope is asked of the server (≤60 DTE, ±20% band when spot is known)", async () => {
+  const calls: string[] = [];
+  await fetchChainPages("SPY", 600, {} as any, pagedChain(2, calls) as any, ET(16, 35));
+  assert.ok(calls[0].includes("expiration_date_gte=2026-10-27"), "0DTE kept: from the ET capture date");
+  assert.ok(calls[0].includes("expiration_date_lte=2026-12-26"), "capture date + 60 calendar days");
+  assert.ok(calls[0].includes("strike_price_gte=480.00") && calls[0].includes("strike_price_lte=720.00"));
+  assert.ok(calls[1].includes("page_token=p1") && calls[1].includes("expiration_date_lte="), "bounds ride on every page");
+  assert.deepEqual(chainQueryWindow(ET(16, 35), null), { expGte: "2026-10-27", expLte: "2026-12-26" }, "unknown spot: no strike bound");
+});
+
+test("pagination: hitting the safety cap or a repeated token is flagged truncated, never silent", async () => {
+  const capped = await fetchChainPages("SPY", 600, {} as any, pagedChain(12, []) as any, ET(16, 35), 3);
+  assert.equal(capped.pages, 3);
+  assert.equal(capped.truncated, true);
+  const calls: string[] = [];
+  const looped = await fetchChainPages("SPY", 600, {} as any, pagedChain(99, calls, true) as any, ET(16, 35));
+  assert.equal(looped.truncated, true);
+  assert.ok(calls.length <= 3, "a repeated page token cannot loop the capture");
+});
+
+test("pagination: the run summary and the day sidecar name truncated underlyings", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-trunc-"));
+  // every underlying serves an endless chain → each one truncates at the cap
+  const endless = async (url: string) => {
+    const m = /page_token=p(\d+)/.exec(url);
+    const page = m ? Number(m[1]) : 0;
+    const u = /snapshots\/([A-Z]+)\?/.exec(url)?.[1] || "X";
+    return { ok: true, status: 200, json: async () => ({ snapshots: { [`${u}261120P00100000`]: { latestQuote: { bp: 1, ap: 1.1 } } }, next_page_token: `p${page + 1}` }) };
+  };
+  const r = await captureTradingDay({} as any, endless as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  assert.deepEqual(r.truncated, ["SPY", "QQQ", "IWM"]);
+  const side = JSON.parse(fs.readFileSync(chainCapturedFile("2026-10-27", dir), "utf8"));
+  assert.deepEqual(side.truncated, ["SPY", "QQQ", "IWM"]);
+  assert.equal(side.scope.max_dte_days, 60);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

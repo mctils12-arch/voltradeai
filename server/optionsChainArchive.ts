@@ -332,34 +332,97 @@ export function publishStagedDay(day: string, summary: Record<string, unknown>, 
   writeCapturedSidecar(day, summary, baseDir);
 }
 
-export function snapshotUrl(underlying: string, pageToken?: string): string {
-  const base = `https://data.alpaca.markets/v1beta1/options/snapshots/${encodeURIComponent(underlying)}?feed=indicative&limit=1000`;
-  return pageToken ? `${base}&page_token=${encodeURIComponent(pageToken)}` : base;
+// ── Full-chain pagination ([REPAIR 2026-10-27], audit §2.4 defect 2) ───────
+// Cause of the truncated index chains: the request carried NO server-side
+// expiry/strike bounds, pages come back in OCC-symbol order (nearest expiry
+// first), and the loop stopped at 5 pages × 1000. SPY on 2026-10-26 held
+// 4,151 rows across 15 expiries ending 2026-12-04 (~39 DTE) — every expiry
+// past the 5,000th contract (the 2026-12-18 monthly included) was never
+// fetched. Fix: ask Alpaca for exactly the archive's documented scope
+// (expiry ≤ CHAIN_MAX_DTE_DAYS = 60 calendar days; strikes ±20% when spot is
+// known), and follow next_page_token until it is exhausted, bounded only by
+// a safety cap that is LOGGED when hit (never silently short again).
+export const CHAIN_PAGE_LIMIT = 1000; // Alpaca's max page size
+/** Safety cap per underlying: 40 × 1000 contracts. A ≤60-DTE SPY chain is
+ *  on the order of 10-20k contracts (daily expiries), so the cap is ~2×
+ *  headroom; reaching it marks the underlying truncated in the run summary. */
+export const CHAIN_MAX_PAGES = 40;
+
+const ymdPlusDays = (ymd: string, days: number): string => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
+/** Server-side bounds for one underlying, matching withinFilters: expiries
+ *  from the ET capture date (0DTE kept, as before) to +CHAIN_MAX_DTE_DAYS;
+ *  strike band only when spot is known (rounded outward to the cent so the
+ *  exact client-side band, which still runs, is the binding one). */
+export function chainQueryWindow(nowMs: number, spot: number | null): {
+  expGte: string; expLte: string; strikeGte?: string; strikeLte?: string;
+} {
+  const day = etClock(nowMs).etDay;
+  const w: { expGte: string; expLte: string; strikeGte?: string; strikeLte?: string } =
+    { expGte: day, expLte: ymdPlusDays(day, CHAIN_MAX_DTE_DAYS) };
+  if (spot != null && spot > 0) {
+    w.strikeGte = (Math.floor(spot * (1 - CHAIN_STRIKE_BAND) * 100) / 100).toFixed(2);
+    w.strikeLte = (Math.ceil(spot * (1 + CHAIN_STRIKE_BAND) * 100) / 100).toFixed(2);
+  }
+  return w;
+}
+
+export function snapshotUrl(
+  underlying: string, pageToken?: string,
+  w?: { expGte: string; expLte: string; strikeGte?: string; strikeLte?: string },
+): string {
+  let url = `https://data.alpaca.markets/v1beta1/options/snapshots/${encodeURIComponent(underlying)}?feed=indicative&limit=${CHAIN_PAGE_LIMIT}`;
+  if (w) {
+    url += `&expiration_date_gte=${w.expGte}&expiration_date_lte=${w.expLte}`;
+    if (w.strikeGte && w.strikeLte) url += `&strike_price_gte=${w.strikeGte}&strike_price_lte=${w.strikeLte}`;
+  }
+  return pageToken ? `${url}&page_token=${encodeURIComponent(pageToken)}` : url;
 }
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 
-/** Fetch + filter + compact one underlying's chain (paginated, ≤5 pages). */
+/** Fetch + filter + compact one underlying's FULL in-scope chain. Follows
+ *  next_page_token to exhaustion; `truncated` is true only when the safety
+ *  cap stopped it with pages still outstanding (or the API repeated a
+ *  token, which would otherwise loop). */
+export async function fetchChainPages(
+  u: string, spot: number | null, env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: FetchFn = fetch as any, nowMs = Date.now(), maxPages = CHAIN_MAX_PAGES,
+): Promise<{ records: ChainRecord[]; pages: number; truncated: boolean }> {
+  const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" };
+  const w = chainQueryWindow(nowMs, spot);
+  const records: ChainRecord[] = [];
+  const seen = new Set<string>();
+  let token: string | undefined;
+  let pages = 0;
+  while (pages < maxPages) {
+    const r = await fetchImpl(snapshotUrl(u, token, w), { headers });
+    if (!r.ok) throw new Error(`alpaca chain ${u}: HTTP ${r.status}`);
+    const d = await r.json();
+    pages++;
+    for (const [occ, snap] of Object.entries(d?.snapshots || {})) {
+      if (!withinFilters(occ, spot, nowMs)) continue;
+      const rec = compactContract(occ, u, snap, nowMs);
+      if (rec) records.push(rec);
+    }
+    token = d?.next_page_token || undefined;
+    if (!token) return { records, pages, truncated: false };
+    if (seen.has(token)) break; // API repeated a page token: stop, flag it
+    seen.add(token);
+  }
+  console.error(`[optionchains] ${u}: chain TRUNCATED after ${pages} pages (cap ${maxPages}) — later expiries missing`);
+  return { records, pages, truncated: true };
+}
+
+/** Records only (see fetchChainPages for the truncation flag). */
 export async function fetchChainForUnderlying(
   u: string, spot: number | null, env: NodeJS.ProcessEnv = process.env,
   fetchImpl: FetchFn = fetch as any, nowMs = Date.now(),
 ): Promise<ChainRecord[]> {
-  const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" };
-  const out: ChainRecord[] = [];
-  let token: string | undefined;
-  for (let page = 0; page < 5; page++) {
-    const r = await fetchImpl(snapshotUrl(u, token), { headers });
-    if (!r.ok) throw new Error(`alpaca chain ${u}: HTTP ${r.status}`);
-    const d = await r.json();
-    for (const [occ, snap] of Object.entries(d?.snapshots || {})) {
-      if (!withinFilters(occ, spot, nowMs)) continue;
-      const rec = compactContract(occ, u, snap, nowMs);
-      if (rec) out.push(rec);
-    }
-    token = d?.next_page_token || undefined;
-    if (!token) break;
-  }
-  return out;
+  return (await fetchChainPages(u, spot, env, fetchImpl, nowMs)).records;
 }
 
 // ── runtime state + boot (FIRMS pattern) ────────────────────────────────────
@@ -390,7 +453,7 @@ export interface ChainRunOpts {
 export async function runDailyChainArchive(
   env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
   positionSymbols: string[] = [], nowMs = Date.now(), opts: ChainRunOpts = {},
-): Promise<{ day: string; underlyings: number; contracts: number; failures: number }> {
+): Promise<{ day: string; underlyings: number; contracts: number; failures: number; truncated: string[] }> {
   let cache: any = opts.cacheJson ?? null;
   if (opts.cacheJson === undefined) {
     const cp = universeCachePath();
@@ -404,18 +467,20 @@ export async function runDailyChainArchive(
   const unders = underlyingsFor(cache, positionSymbols);
   let contracts = 0;
   let failures = 0;
+  const truncated: string[] = [];
   for (const { sym, spot } of unders) {
     try {
-      const recs = await fetchChainForUnderlying(sym, spot, env, fetchImpl, nowMs);
-      contracts += archiveChainRecords(recs, opts.baseDir, nowMs, staged);
+      const got = await fetchChainPages(sym, spot, env, fetchImpl, nowMs);
+      if (got.truncated) truncated.push(sym);
+      contracts += archiveChainRecords(got.records, opts.baseDir, nowMs, staged);
     } catch (e: any) {
       failures++;
       console.error(`[optionchains] ${sym}:`, e?.message || e);
     }
     if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs)); // stay polite on the data API
   }
-  console.log(`[optionchains] ${day}: staged ${contracts} contracts across ${unders.length} underlyings (${failures} failed)`);
-  return { day, underlyings: unders.length, contracts, failures };
+  console.log(`[optionchains] ${day}: staged ${contracts} contracts across ${unders.length} underlyings (${failures} failed, ${truncated.length} truncated${truncated.length ? `: ${truncated.join(",")}` : ""})`);
+  return { day, underlyings: unders.length, contracts, failures, truncated };
 }
 
 /** Capture the ET trading date of nowMs exactly once: skip when already
@@ -425,9 +490,9 @@ export async function runDailyChainArchive(
 export async function captureTradingDay(
   env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
   positionSymbols: string[] = [], nowMs = Date.now(), opts: ChainRunOpts = {},
-): Promise<{ status: "skipped" | "published" | "unclaimed"; day: string; underlyings: number; contracts: number; failures: number }> {
+): Promise<{ status: "skipped" | "published" | "unclaimed"; day: string; underlyings: number; contracts: number; failures: number; truncated: string[] }> {
   const day = etClock(nowMs).etDay;
-  if (isDayCaptured(day, opts.baseDir)) return { status: "skipped", day, underlyings: 0, contracts: 0, failures: 0 };
+  if (isDayCaptured(day, opts.baseDir)) return { status: "skipped", day, underlyings: 0, contracts: 0, failures: 0, truncated: [] };
   const r = await runDailyChainArchive(env, fetchImpl, positionSymbols, nowMs, opts);
   if (!shouldClaimDay(r)) {
     const staged = chainStagingFile(day, opts.baseDir);
@@ -438,6 +503,8 @@ export async function captureTradingDay(
   publishStagedDay(day, {
     day, captured_at: new Date(nowMs).toISOString(), label: "ET trading date",
     underlyings: r.underlyings, contracts: r.contracts, failures: r.failures, feed: "indicative",
+    scope: { max_dte_days: CHAIN_MAX_DTE_DAYS, strike_band: CHAIN_STRIKE_BAND, max_pages: CHAIN_MAX_PAGES },
+    truncated: r.truncated, // underlyings whose chain hit the page cap — incomplete, by name
   }, opts.baseDir);
   return { status: "published", ...r };
 }
