@@ -223,6 +223,34 @@ BASE_CONFIG = {
     # ROLLBACK TRIGGER: none on risk grounds — revert only via a backtest
     # that models SVXY and shows 0.40 is not worse on max-drawdown.
     "LEG3_VRP_PCT":        0.15,  # % of equity for VRP harvest (was 0.40 until 2026-10-27)
+    # LEG3 VRP PROTECTION 2026-10-27 (audit §6.8 N14 + N20, human-ordered).
+    # Buy band: _run_third_leg buys SVXY only while VXX ratio is inside
+    # [LOW, HIGH] (unchanged values; were hardcoded 1.05 / 1.25 in
+    # bot_engine.py). SVXY is SHORT volatility and has no other stop
+    # (bot.ts FLOOR_AND_LEG_TICKERS skips WS stop + POS-KILL; Python
+    # manage_positions skips it), so two protective exits now apply, both
+    # immediately (de-risking never lags, same rule as the floor dwell):
+    #   * VOL SPIKE: VXX ratio rises ABOVE the buy band's top (HIGH) — the
+    #     exact spike the position is short. New mechanism, no prior value.
+    #   * STOP: SVXY unrealized loss from entry >= LEG3_VRP_STOP_PCT. New
+    #     mechanism, no prior value. 10% x the 15% leg = <=1.5% of equity
+    #     before gap risk.
+    # After either protective exit, re-entry waits
+    # LEG3_VRP_REENTRY_COOLDOWN_HOURS (stops a stop-out / re-buy loop).
+    # DWELL (N20): the buy (band) and the take-profit exit (regime
+    # NEUTRAL/BULL) shared the 1.05 boundary with no hysteresis. Both now
+    # act on a debounced third-leg zone that must be seen on
+    # LEG3_REGIME_CONFIRM_CYCLES consecutive DISTINCT macro readings — the
+    # FLOOR_REGIME_CONFIRM_CYCLES pattern (F2). Expected effect: no SVXY
+    # round trips from VXX-ratio flicker at 1.05; SVXY is cut within one
+    # scan of a vol spike or a 10% loss.
+    # ROLLBACK TRIGGER: >=3 protective exits in 30 days each followed by
+    # SVXY +5% within 5 sessions (stop too tight) -> widen STOP_PCT one step.
+    "LEG3_VRP_VXX_BAND_LOW":  1.05,
+    "LEG3_VRP_VXX_BAND_HIGH": 1.25,
+    "LEG3_VRP_STOP_PCT":      0.10,
+    "LEG3_VRP_REENTRY_COOLDOWN_HOURS": 24,
+    "LEG3_REGIME_CONFIRM_CYCLES": 3,
     #
     # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
     #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress

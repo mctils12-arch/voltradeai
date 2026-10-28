@@ -4641,6 +4641,143 @@ def _third_leg_exit_tickers(cfg: dict) -> set:
     return set(LEG3_LEGACY_EXIT_TICKERS) - _floor_owned_tickers(cfg)
 
 
+# ── Third-leg dwell + protective exits (2026-10-27, audit N14/N20) ──────────
+# SVXY is short volatility. Zones, from one macro reading:
+#   SPIKE    VXX ratio above the buy band's top -> protective exit, immediate
+#   BAND     VXX ratio inside the buy band       -> buy allowed once confirmed
+#   RECOVERY regime NEUTRAL/BULL                 -> take-profit exit once confirmed
+#   OTHER    anything else (e.g. SPY-trend BEAR with calm VXX) -> hold
+LEG3_STATE_FILE = "voltrade_leg3_state.json"
+LEG3_VRP_TICKER = "SVXY"
+
+
+def _leg3_zone(vxx_ratio: float, regime: str, band_low: float, band_high: float) -> str:
+    if vxx_ratio > band_high:
+        return "SPIKE"
+    if band_low <= vxx_ratio <= band_high:
+        return "BAND"
+    if regime in ("NEUTRAL", "BULL"):
+        return "RECOVERY"
+    return "OTHER"
+
+
+def _leg3_state_path() -> str:
+    return os.path.join(DATA_DIR, LEG3_STATE_FILE)
+
+
+def _leg3_load_state() -> dict:
+    import logging as _l3log
+    try:
+        with open(_leg3_state_path()) as f:
+            state = json.load(f)
+        return state if isinstance(state, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as _re:
+        _l3log.getLogger("voltrade.leg3").warning(f"[LEG3-DWELL] state read failed: {_re}")
+        return {}
+
+
+def _leg3_save_state(state: dict) -> None:
+    import logging as _l3log
+    try:
+        path = _leg3_state_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, path)
+    except Exception as _we:
+        _l3log.getLogger("voltrade.leg3").warning(f"[LEG3-DWELL] state write failed: {_we}")
+
+
+def _resolve_third_leg_dwell(macro: dict, vxx_ratio: float, regime: str, cfg: dict) -> dict:
+    """Advance the third-leg zone debounce by ONE macro reading.
+
+    Same rules as _resolve_floor_regime (F2), applied to the leg's zones:
+      * no confirmed zone yet -> adopt the raw zone (bootstrap).
+      * raw SPIKE -> confirmed immediately (de-risking never lags).
+      * fallback macro (no real VXX reading) -> hold the confirmed zone and
+        clear any pending candidate.
+      * any other change -> confirmed only after it is seen on
+        LEG3_REGIME_CONFIRM_CYCLES consecutive DISTINCT macro readings
+        (_floor_macro_observation_key); a repeat of an already-counted
+        reading neither advances nor resets the count.
+    buy_ok needs the confirmed AND the current zone to be BAND and no
+    protective-exit cooldown; recovery_exit_ok needs a confirmed RECOVERY.
+    """
+    cfg = cfg or {}
+    band_low = float(cfg.get("LEG3_VRP_VXX_BAND_LOW", 1.05))
+    band_high = float(cfg.get("LEG3_VRP_VXX_BAND_HIGH", 1.25))
+    try:
+        confirm_cycles = max(1, int(cfg.get("LEG3_REGIME_CONFIRM_CYCLES", 3) or 1))
+    except (TypeError, ValueError):
+        confirm_cycles = 3
+    try:
+        cooldown_s = float(cfg.get("LEG3_VRP_REENTRY_COOLDOWN_HOURS", 24) or 0) * 3600.0
+    except (TypeError, ValueError):
+        cooldown_s = 24 * 3600.0
+
+    raw = _leg3_zone(vxx_ratio, regime, band_low, band_high)
+    fallback = _floor_macro_vxx_is_fallback(macro)
+    obs_key = _floor_macro_observation_key(macro)
+
+    state = _leg3_load_state()
+    confirmed = state.get("zone")
+    pending = state.get("zone_pending")
+    pending_count = int(state.get("zone_pending_count", 0) or 0)
+    last_obs = state.get("zone_last_obs")
+
+    if not confirmed:
+        confirmed, how = raw, "bootstrap"
+        pending, pending_count = None, 0
+    elif raw == confirmed:
+        how = "unchanged"
+        pending, pending_count = None, 0
+    elif raw == "SPIKE":
+        confirmed, how = raw, "spike_immediate"
+        pending, pending_count = None, 0
+    elif fallback:
+        how = "held_vxx_fallback"
+        pending, pending_count = None, 0
+    elif pending == raw and pending_count > 0 and obs_key == last_obs:
+        how = "pending_repeat_observation"
+    else:
+        if pending == raw and pending_count > 0:
+            pending_count += 1
+        else:
+            pending, pending_count = raw, 1
+        if pending_count >= confirm_cycles:
+            confirmed, how = pending, "confirmed"
+            pending, pending_count = None, 0
+        else:
+            how = "pending"
+
+    state["zone"] = confirmed
+    state["zone_raw"] = raw
+    state["zone_pending"] = pending
+    state["zone_pending_count"] = pending_count
+    state["zone_last_obs"] = obs_key
+    _leg3_save_state(state)
+
+    last_exit = float(state.get("last_protective_exit_ts", 0) or 0)
+    in_cooldown = last_exit > 0 and (time.time() - last_exit) < cooldown_s
+    return {
+        "zone": confirmed, "raw_zone": raw, "confirmed_by": how,
+        "pending": pending, "pending_count": pending_count,
+        "vxx_fallback": fallback, "in_cooldown": in_cooldown,
+        "spike": raw == "SPIKE",
+        "buy_ok": confirmed == "BAND" and raw == "BAND" and not in_cooldown,
+        "recovery_exit_ok": confirmed == "RECOVERY",
+    }
+
+
+def _leg3_record_protective_exit() -> None:
+    """Start the re-entry cooldown after a protective (spike/stop) exit."""
+    state = _leg3_load_state()
+    state["last_protective_exit_ts"] = time.time()
+    _leg3_save_state(state)
+
+
 def _run_third_leg(macro: dict) -> dict:
     """
     Third leg: VRP harvest + Sector rotation.
@@ -4672,6 +4809,11 @@ def _run_third_leg(macro: dict) -> dict:
         regime          = get_market_regime(vxx_ratio, spy_vs_ma50,
                                             spy_below_200_days=spy_b200,
                                             spy_above_200d=spy_above_200d)
+        band_low  = float(BASE_CONFIG.get("LEG3_VRP_VXX_BAND_LOW",  1.05))
+        band_high = float(BASE_CONFIG.get("LEG3_VRP_VXX_BAND_HIGH", 1.25))
+        stop_pct  = float(BASE_CONFIG.get("LEG3_VRP_STOP_PCT",      0.10))
+        # N20 dwell + N14 spike detection — one observation per scan.
+        leg3_dwell = _resolve_third_leg_dwell(macro, vxx_ratio, regime, BASE_CONFIG)
 
         base_url = ALPACA_BASE_URL
         headers  = _alpaca_headers()
@@ -4705,7 +4847,9 @@ def _run_third_leg(macro: dict) -> dict:
         remaining_capacity = max(0.0, 1.0 - total_deployed)
         # Scale VRP allocation by remaining capacity (cap at 60% of remaining)
         vrp_pct = min(LEG3_VRP_PCT, remaining_capacity * 0.6)
-        if vrp_pct > 0 and 1.05 <= vxx_ratio <= 1.25:
+        # DWELL 2026-10-27 (N20): buy only on a CONFIRMED band zone (and
+        # never inside the post-stop/spike re-entry cooldown).
+        if vrp_pct > 0 and band_low <= vxx_ratio <= band_high and leg3_dwell["buy_ok"]:
             # Check VXX trend: fetch last 5 days
             vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
                 params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed": bars_feed()},
@@ -4756,27 +4900,52 @@ def _run_third_leg(macro: dict) -> dict:
         # allocator owns (GLD = DEFENSIVE_FLOOR_TICKER, always-on 8% in
         # BULL/NEUTRAL) — this exit used to market-sell all GLD every
         # NEUTRAL/BULL cycle and the defensive floor re-bought it.
+        #
+        # PROTECTIVE EXITS 2026-10-27 (N14): SVXY (short vol, no WS stop /
+        # POS-KILL anywhere else) is also exited IMMEDIATELY on a vol spike
+        # (VXX ratio above the buy band's top) or a LEG3_VRP_STOP_PCT loss
+        # from entry. The take-profit exit on recovery now waits for a
+        # CONFIRMED NEUTRAL/BULL zone (N20 dwell) instead of one reading.
         exit_tickers = _third_leg_exit_tickers(BASE_CONFIG)
-        if regime in ("NEUTRAL", "BULL"):
-            for pos in positions_raw:
-                sym = pos.get("symbol", "")
-                if sym in exit_tickers:  # Exit VRP + any legacy sector positions not owned by a floor
-                    qty = pos.get("qty", "0")
-                    try:
-                        o = _req.post(f"{base_url}/v2/orders",
-                            json={"symbol": sym, "qty": qty, "side": "sell",
-                                  "type": "market", "time_in_force": "day"},
-                            headers=headers, timeout=10)
-                        pnl = float(pos.get("unrealized_plpc", 0) or 0) * 100
-                        actions.append({
-                            "type": "third_leg_exit",
-                            "symbol": sym,
-                            "reason": f"Regime recovered to {regime} — exiting third leg",
-                            "pnl_pct": round(pnl, 2),
-                        })
-                        _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
-                    except Exception as e:
-                        _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
+        for pos in positions_raw:
+            sym = pos.get("symbol", "")
+            if sym not in exit_tickers:  # Exit VRP + any legacy sector positions not owned by a floor
+                continue
+            pnl_frac = float(pos.get("unrealized_plpc", 0) or 0)
+            trigger, reason = None, None
+            if sym == LEG3_VRP_TICKER and leg3_dwell["spike"]:
+                trigger = "vol_spike"
+                reason = (f"VXX ratio {vxx_ratio:.3f} > {band_high:.2f} (top of buy band) — "
+                          f"vol spike against short-vol leg")
+            elif sym == LEG3_VRP_TICKER and stop_pct > 0 and pnl_frac <= -stop_pct:
+                trigger = "stop_loss"
+                reason = f"SVXY {pnl_frac*100:.1f}% from entry <= -{stop_pct*100:.0f}% stop"
+            elif leg3_dwell["recovery_exit_ok"]:
+                trigger = "regime_recovery"
+                reason = f"Regime recovered to {regime} — exiting third leg"
+            if trigger is None:
+                continue
+            qty = pos.get("qty", "0")
+            try:
+                o = _req.post(f"{base_url}/v2/orders",
+                    json={"symbol": sym, "qty": qty, "side": "sell",
+                          "type": "market", "time_in_force": "day"},
+                    headers=headers, timeout=10)
+                pnl = pnl_frac * 100
+                actions.append({
+                    "type": "third_leg_exit",
+                    "trigger": trigger,
+                    "symbol": sym,
+                    "reason": reason,
+                    "pnl_pct": round(pnl, 2),
+                })
+                if trigger != "regime_recovery":
+                    _leg3_record_protective_exit()
+                    _log.warning(f"[LEG3-PROTECT] Sold {sym} ({trigger}: {reason})")
+                else:
+                    _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
+            except Exception as e:
+                _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
 
     except Exception as e:
         _log.debug(f"[LEG3] Third leg error: {e}")
@@ -4788,6 +4957,7 @@ def _run_third_leg(macro: dict) -> dict:
         "regime":    regime if 'regime' in locals() else "unknown",
         "vrp_on":    vrp_pct > 0 if 'vrp_pct' in locals() else False,
         "sector_on": bool(sector_assets) if 'sector_assets' in locals() else False,
+        "dwell":     leg3_dwell if 'leg3_dwell' in locals() else None,
     }
 
 
