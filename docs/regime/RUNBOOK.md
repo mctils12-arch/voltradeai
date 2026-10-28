@@ -62,3 +62,10 @@ Nothing here edits a kill switch, a drawdown halt, the floor schedule, or an ord
 4. `VOLTRADE_REGIME_SIZING=<sleeve>` one sleeve at a time; 30 trading days with no sizing anomaly (`sizing.stale_fallbacks` stays 0 on trading days, no position above the absolute caps) before the next sleeve.
 5. `VOLTRADE_REGIME_LABELS=1` whenever the shadow records' `regime_label` vs `regime_snapshot.label_markov` read (records from 2026-10-28 on) says the engine's label is the better split — it changes labels, never a trade.
 Rollback at any step: unset the flag (RUNBOOK §5); the opposite sign at a read with n ≥ 30 turns a guard off and is logged.
+
+## 7. Live since 2026-10-28 (paper; human directive)
+
+- **Flags on:** every flag is on by config default (`system_config.BASE_CONFIG` `REGIME_*`, PR #1508). To roll one back with no deploy, set its env var explicitly to `off` on Railway: `VOLTRADE_REGIME_ENGINE`, `_SELECTION`, `_OPTIONS`, `_SIZING` or `_LABELS`. Section 5 still applies.
+- **Daily counterfactual:** `GET /api/diag/regime_counterfactual` shows, per day and per decision kind (selection, options, sizing, label), what the legacy system would have done next to what the engine did. The blocked names' outcomes come from the `rejected_regime_*` buckets on `/api/diag/shadow`.
+- **Scheduled reads:** the routines `voltrade-regime-read-2026-11-16`, `-2026-12-15` and `-2027-01-27` run FINDINGS step 9's read and review the **ML gate** (FINDINGS F1). The ML gate stays closed until the run passes its promotion rules **and** the Section 10 strategy-level backtest exists. Each read also reviews follow-ups F2–F7.
+- **Daily check:** `voltrade-improve-close` checks `checks.regime` on `/api/health` and the counterfactual probe every trading day.
