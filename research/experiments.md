@@ -111455,3 +111455,56 @@ Tests: test_etf_max_hold_n6.py (3 fail before / pass after),
 server/etfSubstitution.test.ts (+3; file fails to import before).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Tier sizing reaches CSP execution; MAX_OPTIONS_PCT caps collateral (audit N8) (v1.0.1200)
+
+What was wrong:
+- server/bot.ts tier dispatcher SELL_CSP put size_pct and metadata in its
+  payload but called select_contract(ticker, "sell_cash_secured_put", 0,
+  equity, cash_available=...) without them. T1's stress (VXX 0.30-0.85x)
+  and drawdown (0.5-0.75x) de-risking, T2's leverage and T1's target delta
+  never reached execution; options_execution._dynamic_options_size ran on
+  a fabricated score of 70 instead. Same for the (disabled) T4 BUY_PUT.
+- options_execution._select_sell_put "stretch" let one CSP's collateral
+  reach 20% of equity (stretch_ceiling = equity * 0.20) despite the 8%
+  per-position cap (system_config MAX_OPTIONS_PCT = MAX_OPTIONS_PCT_CEILING).
+
+What changed:
+- select_contract(..., size_pct=None, metadata=None) — additive kwargs; the
+  daemon route (voltrade_daemon "select_contract") is the same callable, the
+  scanner path and evaluate_and_execute pass neither and are unchanged.
+  _resolve_options_size_pct: a caller size_pct is the sizing fraction,
+  else _dynamic_options_size; both clamped to MAX_OPTIONS_PCT_CEILING (8%).
+- metadata["target_delta"] (T1: 0.30) drives _select_sell_put's delta
+  target; the -0.30 default literal is kept for no-metadata callers (and
+  server/chainCspEntry.ts's mirror test).
+- Stretch ceiling: equity * 0.20 -> equity * MAX_OPTIONS_PCT_CEILING
+  (prior value 0.20). Stretch can lift a sub-cap budget to the cap, never
+  past it; cash_available cap unchanged.
+- bot.ts SELL_CSP and BUY_PUT subprocesses pass size_pct/metadata.
+
+Downstream chain (traced from the code, not measured):
+- Calm regime: T1 size = 8% x 1.0 -> budget 8% (was dynamic ~2-4% with a
+  2% floor, then stretch to 20%). Cheap underlyings can now get qty 2
+  instead of 1 (qty still <= 2); underlyings whose smallest put needs
+  8-20% of equity (~$80-$200 strikes at $100k) are now rejected with the
+  "exceed position budget" error -> logged rejected_capital -> T1 tries
+  the next name next cycle. Per-CSP collateral max drops 20% -> 8%, so the
+  6 options slots can no longer tie up >48% of equity in CSP collateral.
+- Stress (VXX >= 1.05/1.20/1.40) or DD <= -10%: budget now shrinks with
+  the tier scalars (e.g. 8% x 0.60 = 4.8%) -> fewer contracts / fewer
+  affordable names -> fewer slots used and less collateral in stress, as
+  T1 intended. Stretch can still lift a de-risked budget to 8% for the
+  single smallest strike (qty 1) — left as is (existing rule).
+- T2 (PM gate = Alpaca multiplier >= 4) can propose up to 16%; it is now
+  clamped to 8%, so T2 leverage is bounded by the cap.
+
+Rollback trigger: CSP fill count drops > 50% vs the prior 10 trading days
+with T2-FAIL "exceed position budget" dominating, or any CSP with
+cash_required > 8% of equity -> revert and review.
+
+Tests: test_options_tier_sizing_n8.py (7 fail before / pass after; 4
+controls pass both). Existing test_options_fixes / test_csp_entry_dte
+stretch tests still pass unchanged.
+
+STARVED: no — master-plan queue in progress this session.
