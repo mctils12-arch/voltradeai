@@ -287,6 +287,12 @@ class RPCDispatcher:
             # human-directed; server/killSwitchAutoResume.ts). Re-baselines the
             # Python DD halts through their EXISTING functions only.
             "paper_resume_sync": ("paper_resume_sync", "rebaseline_python_halts"),
+            # HALT SCOPE (2026-10-27, audit N15): while a Node halt blocks
+            # entries, Tier 2 skips the full scan but still runs the options
+            # manager's protective exits. args {"allow_rolls": false} (a
+            # roll's sell-to-open half is an entry); python3 -c fallback in
+            # bot.ts tier2HaltedExits.
+            "manage_options_exits": ("options_manager", "manage_options_positions"),
 
             # Regime / macro
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),

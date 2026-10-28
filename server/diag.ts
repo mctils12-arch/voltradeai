@@ -298,6 +298,13 @@ export const DIAG_PROBES = [
   // "where does the scan lose?" (taken candidates win LESS than rejected
   // ones). Aggregate-only like "shadow": no ticker, price or timestamp.
   "shadow_bands",
+  // ADDED 2026-10-27 [RULE-REVIEW]: shadow_portfolio.
+  // get_shadow_band_report_deduped() — the shadow_bands tables for both
+  // rulers over ONE first-seen record per (ticker, ET entry day). The logger
+  // writes a candidate on every scan (10/20: 5,192 labeled 'taken' records
+  // were only 148 ticker-days), so shadow_bands' n counts copies; this
+  // probe's n counts events. Aggregate-only, same posture as shadow_bands.
+  "shadow_bands_dedup",
   // ADDED 2026-10-13 (human-directed: "get back to me on who's visit[ed]
   // and signed up"): siteReport.ts's aggregateSiteReport() — signup and
   // waitlist COUNTS by day/tier/source, the API-key-holder count, and
@@ -306,6 +313,15 @@ export const DIAG_PROBES = [
   // /api/admin/site-report), so the "no user data" posture above holds.
   // No query parameters.
   "signups",
+  // ADDED 2026-10-27 (Phase 6 part A, human-directed): which historical
+  // options data (trades, quotes, bars, open interest) the production
+  // Alpaca and Polygon keys are entitled to. The repo only knows that
+  // Alpaca rejected feed=opra with 403 on 2026-07-25 and has never called a
+  // Polygon options endpoint (audit 2026-10-27 §2.4). One minimal GET per
+  // endpoint (server/optionsEntitlements.ts); the response carries HTTP
+  // status, a verdict and field-name presence booleans ONLY — no prices,
+  // symbols, URLs, bodies or keys. Keys ride in headers, never URLs.
+  "options_entitlements",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

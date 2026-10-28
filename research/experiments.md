@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-27 (scheduled routine, EDGE-DOCTRINE axis pick, Tue) [NO-ACTION] — no code_version change (1.0.1168)
+
+HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT. research_state_check: thrash 0/10 REPAIR, STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory, already filed).
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. main moved since the last NO-ACTION only by the 10-26 CSP rule-sim series (#1467-#1471, all measurement/research; their NEXT list is OOS re-run ~2026-12-20, gate 5 fills, IV-rank gate — dte_exit 10/14 variants deliberately NOT added now: a fifth in-sample variant on one tape is fishing, REASONING STANDARD #4). (a)/(b) 13F/8-K gate 2 and index-VRP (~2027-01-15) remain date-gated; price-panel and archive-volume remain human decisions; (c) foreign-field ideas already filed.
+AXIS (d) CONSIDERED AND REJECTED: a compiled "axis gate registry" (so scheduled sessions stop re-deriving this survey by hand) is the right shape, but the 2026-11-16 gate date appears in NO primary source (open_questions.md / wishlist.md) — only in earlier NO-ACTION log restatements of each other. Encoding it would launder an unverified date into a machine-readable gate. FILED AS CONDITION: the session that next opens a 13F/8-K gate-2 entry in open_questions.md writes the gate date and condition there first (primary text); only then does a registry have something true to read.
+FILED: nothing new beyond this entry. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-26 (scheduled routine, EDGE-DOCTRINE axis pick, Mon) [NO-ACTION] — no code_version change (1.0.1159)
 
 HEALTH: session_health_check all OK (live 1.0.1159 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 413MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). thrash 0/10 REPAIR; STARVED streak 0 per research_state_check. KNOWN BROKEN: no critical item open (#44/#48 lack a close marker, advisory, already filed with their human/frozen-path decisions). No REPAIR session warranted.
@@ -110644,3 +110652,233 @@ CSP-economics shadow labeler (filed 2026-10-26 under the gate-logging
 entry) so the live gates earn a premium-based prevention-P&L.
 Kill date: none (measurement). LOOP RATIO today: [RULE-REVIEW] ×6,
 [RESEARCH] ×2, [PIPELINE] ×1 — healthy. STARVED: no.
+
+## 2026-10-27 (scheduled routine, ~11:15Z Tue, voltrade-daily-am) [NO-ACTION] — no code_version change (1.0.1168)
+
+LOOP RATIO: last 10 tags = RULE-REVIEW x6 / RESEARCH x2 / PIPELINE x1 / NO-ACTION; zero REPAIR in the window, far under the 7+ thrash threshold.
+HEALTH: session_health_check 16 OK, 1 WARN. deploy_gate 2xx, liveness alive, subsystems OK, server_version == checkout (1.0.1168), archive 1.79 GiB free (human decision filed 2026-10-12), adsb.lol OK, /data p95 478 ms over 10 requests (small sample). WARN daemon rss 444MB: the armed 10-26 trigger ("still climbing after 10-27 or >= 600MB") is NOT met — 463 -> 444MB, back down inside the known 380-460MB sawtooth, well under the 1GB self-kill. No REPAIR opened.
+QUEUE: unchanged since the 10-27 early-AM NO-ACTION (#1472) — 13F/8-K gate 2 2026-11-16+, csp_manager_rule_sim out-of-sample re-run ~2026-12-20, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups. The csp_manager_rule_sim "middle variants" (dte_exit 10/14) would be a second look at the same 2026-07-06..10-23 sample before its OOS confirmation — extra variants on one sample is the fishing CLAUDE.md warns against; deliberately not run.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
+## 2026-10-27 (scheduled routine, ~16:30Z Tue, voltrade-daily-midday, market hours) [NO-ACTION] — no code_version change (1.0.1168)
+
+LOOP RATIO: last 10 tags = RULE-REVIEW x6 / RESEARCH x1 / NO-ACTION x3 (REPAIR 0) — far under the 7+ thrash threshold.
+HEALTH: voltradeai.com /api/health 200, status ok; bot active, liveness not dark, drawdown -1.5% (no halt latched), alpaca ACTIVE, scanner 0 consecutive failures, feeds none dead (silent 0.48h), 0 unhandled rejections/exceptions, cgroup headroom 19GB. main (4b49a88) unchanged since the 11:15Z NO-ACTION; no new commits to judge.
+QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, csp_manager_rule_sim OOS re-run ~2026-12-20, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups. Nothing startable without padding or fishing on an already-read sample.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time (no live-behavior change, so the after-4:00 PM ET note does not bind).
+
+
+## 2026-10-27 [RULE-REVIEW] — T-BOT (measurement only) — NEW PROBE shadow_bands_dedup: ONE FIRST-SEEN RECORD PER (TICKER, ET ENTRY DAY) (v1.0.1169)
+
+WHY: the shadow logger writes the same candidate on every scan, so shadow_bands' n counts per-scan COPIES, not events. 2026-10-20: 5,192 labeled 'taken' records covered only 148 ticker-entry-days, and every BUY cell read exactly -4.00% (0% win) — consistent with a few selloff ticker-days copied dozens of times. min_n=20 was therefore being cleared by copies. This blocked the BUY-only judgement (3b) twice (10/13, 10/20).
+WHAT: shadow_portfolio.shadow_band_report_deduped (+ get_ wrapper, diag probe "shadow_bands_dedup"): the same tables for BOTH rulers over one FIRST-SEEN record (earliest timestamp = the first scan where the system could have acted) per (ticker, ET entry session), deduped separately per ruler on that ruler's labels; score quintile edges from the FULL population so quintiles match shadow_bands. shadow_band_report gains an optional edges=None parameter (default = old behaviour, pinned by a test). shadow_bands output is byte-identical (an existing test pins its exact key set — not touched).
+BIAS DIRECTION: first-seen = earliest scan entry price; later same-day copies had different entry prices. Choosing the first is the honest "when could we have acted" convention; it neither favours wins nor losses by construction (mutation to last-seen is caught by a test).
+TESTS: test_shadow_band_dedup.py (7; fails on main — function absent; first-seen→last-seen mutation caught). Full pytest 2840 passed; diag.test.ts 31/31 (registry ⇄ case pin); ratchets OK.
+MERGE: after 20:00Z (deploy cancels open orders). Then: re-judge BUY-only on deduped counts (priors 60% / 50%, recorded 10/13).
+ACCOUNT 10/20 -> 10/27 17:20Z: $99,709 -> $98,498 (-1.21%) vs SPY +0.07%; 10/22 alone -3.45% vs SPY -1.18%. Bot active, kill switch off.
+STARVED: yes.
+
+## 2026-10-27 [RESEARCH] — docs only — PROMPT 1 TRADING-ENGINE AUDIT + MASTER-PLAN PHASE 0 BRAIN INVENTORY
+
+Human directives: "VolTradeAI Options Edge" Prompt 1 (read-only repo audit) and "VolTradeAI Master Prompt" Phase 0 (brain inventory before changing anything). Docs only, no version bump (no runtime behaviour changes).
+- docs/audits/trading-engine-audit.md: sections 1-10 + one-page executive summary; every claim cited by file/function; live numbers from read-only diag GETs. Headline: account -7.71% vs SPY +5.46% since 2026-05-06; Sharpe -0.40 vs 0.99; maxDD -18.6% vs -4.5%; options sleeve -$9,177 realized; expectancy ~-1.2%/trade (n=36). Three weaknesses: non-OOS ML validation + constant/mismatched features; conflicting/dead rules (N1-N21); measurement too weak to prove any edge.
+- research/brain_inventory.md: every input (incl. all 34 ML features) and every trade-influencing rule/model with live/constant/dead/broken status and action; fix order mapped to master-plan phases 2-6. Re-verified in code: 9/34 features constant at serve; tier regime always NEUTRAL; tie-break NameError; DD-scalar wrong key; 4am branch unreachable; backtest default exit model legacy.
+Prior: the inventory would confirm the audit; it did, no contradictions found.
+STARVED: no — master-plan Phase 2-8 work is queued and in progress this session.
+
+## 2026-10-27 (scheduled routine, ~20:20Z Tue) [REPAIR] — T-BOT — scan tie-break never ran: current_positions read before assignment (v1.0.1170)
+
+LOOP RATIO: last 10 tags = RULE-REVIEW x6 / RESEARCH x2 / NO-ACTION x2 (REPAIR 0 before this) — far under thrash threshold.
+HEALTH: voltradeai.com /api/health 200 ok; bot active, liveness not dark, drawdown -1.8%, alpaca ACTIVE, scanner 0 failures, feeds none dead.
+BREAK (brain_inventory.md, re-verified in code this session): `_scan_market_inner` read `current_positions` in the BATCH-11 tie-break (~3231) but assigned it only at Step 5 (~3336) -> UnboundLocalError, swallowed by the tie-break's own try/except (warning only). The within-3-points liquidity/factor/sector tie-break has therefore NEVER run. First occurrence of this break in experiments.md (not a recurrence).
+FIX: Step 5 (positions fetch + current_tickers + num_positions) moved above the tie-break; no logic change otherwise. Regression: test_scan_tiebreak_positions_order.py (AST ratchet; fails on main, passes on fix). Full pytest 2842 passed.
+DOWNSTREAM (2 steps): tie-break now reorders candidates within 3-point score buckets -> which names reach the slot-limited admission loop changes (more liquid, multi-factor, sector-diverse first) -> sector exposure / correlation-block frequency may shift slightly. Score-leading picks are unaffected. Backtest N/A: backtest_v2 does not call the live scan path; exploratory, attribution via code_version 1.0.1170. Rollback trigger: if admitted-name liquidity or sector concentration worsens vs the 1.0.1169 window in the shadow/fills probes, revert this commit.
+PRIOR: small positive via fill quality; effect size unmeasurable at current n.
+STARVED: no (brain_inventory Phase 2 fixes still queued: DD-scalar key N13, N1 tier regime, slot counting).
+MERGE: after 20:00Z (deploy cancels open orders).
+
+## 2026-10-27 [PIPELINE] — T-DATACORE-adjacent server diag — OPTIONS ENTITLEMENTS PROBE (v1.0.1171)
+
+Master plan Phase 6 "options data check". New read-only probe /api/diag/options_entitlements (server/optionsEntitlements.ts): one minimal GET per endpoint — Alpaca contracts, snapshot feed=opra, snapshot feed=indicative, historical trades, historical bars (historical quotes: not offered by Alpaca, reported without a call); Polygon contracts reference, chain snapshot (carries open_interest), trades, quotes, daily aggs. Output = HTTP status + verdict + field-presence booleans only (no data, symbols, URLs or keys); 429/network = inconclusive; <=5 Polygon calls/run; 10-min cache; reports which Polygon env-var name is set (POLYGON_KEY vs POLYGON_API_KEY split).
+Prior: Alpaca OPRA still 403, indicative works, contracts endpoint carries open_interest (60%); Polygon key present but options not entitled beyond reference (55%).
+Tests: server/optionsEntitlements.test.ts (13, fake fetch). Next: read live once deployed; decide whether contracts open_interest can replace the quote-size x10 OI proxy (separate RULE-REVIEW).
+
+## 2026-10-27 [RESEARCH] — research/* docs only — PHASE 6 EDGE PRE-REGISTRATION + FLOOR-BASKET DECISION MEMO
+
+Master plan Phase 6 research parts. research/edge_preregistration.md: 12 published edges reviewed, post-publication decay applied (McLean-Pontiff 2016: -26% OOS, -58% post-publication). Three pre-registered for shadow testing: P1 dealer gamma -> SPY realized-vs-implied vol beyond VIX (SqueezeMetrics free history 2011-05..2026-10; licence unchecked => research only; runnable now); P2 Cohen-Malloy-Pomorski opportunistic insider purchases (bar t>=2.8 after 8 prior Form-4 variants; blocked on the delisted-inclusive price panel shared with Lazy Prices); P3 Cremers-Weinbaum IV spread as a CSP put screen (forward-only, low power; read at 52 weeks). Nine rejected/deferred with reasons. Three open_questions.md entries appended.
+research/floor_basket_decision.md: KEEP the floor (only live-positive sleeve); no composition change on current evidence (variants within 1 Sharpe SE; live would need ~25y to resolve 2pp/yr); test the regime exposure schedule instead (SPY at floor exposure 7.41%/yr vs buy-hold 13.58% at ~equal Sharpe) — 4-arm pre-registered test.
+Prior: at most 3 of ~12 candidates would fit our data; that held. STARVED: no.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N3: RSI-overbought "SELL" no longer executed as a BUY (v1.0.1172)
+
+What was wrong: bot_engine.py deep_score (~1872) labels score>65 with
+RSI>70 (VRP<=5) as side="sell" / action_label="SELL" / trade_type="stock"
+-- an overbought exit/avoid signal on a name the scan only reaches when it
+is NOT held. _scan_market_inner (~3602) then rewrote every stock sell/short
+to side="buy" ("stock shorting disabled"), so the sell signal opened a long.
+No live, gated short-entry path exists (stock shorting disabled since the
+-$419K backtest; the deep_score SHORT branch is commented out).
+
+What changed: new pure helper _stock_short_entry_rejection(side,
+trade_type, action_label). In the scan loop a stock sell/short candidate is
+now dropped (continue) and noted as "rejected_bearish_stock_signal" via
+_note_gate, so the once-per-scan update_decisions_batch flush relabels its
+shadow record (it was logged "taken" by deep_score) and the rule earns a
+measurable prevention-P&L. Options-typed sells (SELL OPTIONS) keep side
+"sell" for the instrument selector exactly as before.
+
+Downstream chain: (1) fewer entry candidates per scan -> the slot loop
+continues to the next-ranked candidate, so a lower-ranked BUY may take the
+slot; the gate also runs before the spread-quote fetch, sizing and
+instrument selection, saving one quote call per dropped name. (2) The
+trades list reaching Node executeTrades / morningQueue no longer contains
+action "SELL" stock entries; nothing in Node depended on the conversion
+(executeTrades' own PR #52/#53 SHORT-BLOCKED net stays as a backstop and
+now never fires for this source).
+
+Tests: test_n3_overbought_sell_not_bought.py (helper + scan wiring,
+7 fail before / pass after); test_shadow_scan_gate_relabel.py SITES gains
+the new bucket (adds coverage; no assertion weakened).
+
+Rollback trigger: shadow prevention-P&L of rejected_bearish_stock_signal at
++5d/+20d strongly negative vs the taken-BUY base rate over >=30 records
+(i.e. the overbought names it now skips were systematically winners as
+longs) -> revert and re-propose as an explicit, ladder-validated
+"overbought-momentum BUY" rule rather than an accidental flip.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Node halts gate entries only; protective exits keep running (audit N15) (v1.0.1173)
+
+What was wrong (server/bot.ts): every Node halt also stopped every exit.
+- checkPositionOnTick (WS stops, scale-outs, trails, breakeven, time stop)
+  returned on `!state.active || state.killSwitch` — the drawdown kill writes
+  BOTH, so the moment the account hit -10% nothing protected positions.
+- the 60s syncMonitoredPositions interval (TIME-EXIT, POS-KILL -25%) had the
+  same gate.
+- the Tier 1 interval skipped tier1Reflex while killed, circuit-broken or
+  weekly-paused; under the circuit breaker that also suspended the -10%
+  drawdown check itself (it only ran if the UI polled /api/bot/account).
+- the WS feed did not reconnect after a drop while killed.
+The Python halts document the opposite contract ("only entries are gated").
+
+What changed:
+- server/haltScope.ts: pure haltAllows({ownerStopped, killed, circuitBreaker,
+  paused}, entry|exit|ddCheck) + haltMode. entry: nothing halted; exit: always
+  unless the owner pressed /api/bot/stop; ddCheck: unless the kill is already
+  latched (then the paper auto-resume tick owns that tick, unchanged).
+- bot.ts: currentHaltState() is the one reader of the raw flags.
+  checkPositionOnTick, the 60s sync and the WS reconnect are exit-gated; the
+  stream-signal queue (an entry path) is entry-gated (same semantics as
+  before). Tier 1 steps 1-3 (sweep, stop-state refresh, sync) extracted to
+  tier1ProtectiveSync(), shared by tier1Reflex and a new tier1HaltedExits()
+  that runs in exits_only mode during market hours: dd check (if not
+  latched) + protective sync + trackClosedTrades — never the morning queue.
+  tier1Reflex itself still never runs while killed (existing auto-resume
+  wiring test unchanged and passing).
+- Untouched: order transmission, the kill trip, its cancel-all, the -25%
+  VOLTRADE_LIQUIDATE_ON_KILL rule, the owner kill toggle, auto-resume.
+
+Downstream chain: (1) during a kill/breaker/pause, WS stops and POS-KILL now
+fire -> exit orders go out where before positions rode unmanaged -> realized
+losses are capped at the stop levels instead of floating; (2) exit fills
+during a halt reach trackClosedTrades / ML feedback / the stop-loss circuit
+breaker counter (circuit breaker can re-arm while already open: harmless);
+(3) under the circuit breaker the -10% dd check now runs, so a breaker period
+can now trip the drawdown kill (previously masked). Note the owner kill
+toggle now also keeps protective exits running; /api/bot/stop is the full
+freeze.
+
+Rollback trigger: any entry order (BUY / sell-to-open) observed in the audit
+log while killSwitch, circuitBreakerUntil>now, or a weekly pause is active;
+or duplicate exit orders on one ticker during a halt.
+
+Tests: server/haltScope.test.ts (truth table {killed, breaker, paused} x
+{entry, exit, ddCheck} + owner-stop rows + bot.ts wiring pins); fails on the
+pre-fix bot.ts (markers/gates absent), passes after.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Tier 2 keeps options_manager exits running during Node halts (audit N15) (v1.0.1174)
+
+What was wrong (server/bot.ts:scheduleTier2): while the kill latch, the
+circuit breaker or the weekly-loss pause held, scheduleTier2 re-armed its
+timer and returned before the Python scan, and options_manager's exits
+(DTE / profit target / loss limit / gamma / assignment / strategy-group
+closes) only ever run inside that scan (bot_engine step 8b). So a halt froze
+every options exit. The scan itself cannot simply run while halted: it also
+places entries (CSPs, floors, third leg, convexity overlay).
+
+What changed:
+- scheduleTier2: haltMode(currentHaltState()) (server/haltScope.ts, previous
+  commit). "full" -> scan as before (same condition as the old gate).
+  "exits_only" -> new tier2HaltedExits(). "off" (owner stop) -> idle.
+- tier2HaltedExits(): regular hours only (options_manager posts DAY limits),
+  holds the Tier 2 lock, calls options_manager.manage_options_positions with
+  allow_rolls=False via a new daemon route "manage_options_exits" (python3 -c
+  subprocess fallback), audits every close through formatOptionsMgmt.
+- options_manager.manage_options_positions(equity, allow_rolls=True): new
+  kwarg, default unchanged. When False, both roll points (assignment risk,
+  21-DTE) go through _roll_or_skip, which returns rolled=False ("roll
+  skipped: entries halted (exits only)"), so each takes its existing "roll
+  failed -> close" branch. A roll's sell-to-open half is a new entry.
+- voltrade_daemon.py: route registered (READ BEFORE WRITE #4).
+- Untouched: order transmission (_submit_close_order), the scan, all Python
+  entry paths.
+
+Downstream chain: (1) during a Node halt, options at their exit rules get
+close DAY limits -> premium-at-risk is released instead of riding into
+expiry/assignment; (2) a short option that would have been rolled is CLOSED
+instead -> fewer positions, less collateral; its options_state entry is
+dropped and exit feedback records dte_close/assignment_close.
+
+Rollback trigger: an OPTIONS-ROLL audit row or any to-open order while a
+Node halt is active; or "halted exits-only pass failed" OPTIONS-MGMT-ERROR
+repeating every Tier 2 cycle.
+
+Tests: test_options_halt_exits_only.py (all 6 fail before: kwarg, roll gate
+and daemon route absent); server/haltScope.test.ts +3 wiring tests (fail on
+the previous commit's bot.ts/daemon). Counter pins raised (tests + assertions).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Python DD halt keeps options exits running (audit N9) (v1.0.1175)
+
+What was wrong (bot_engine.py:_scan_market_inner, portfolio DD halt): when
+update_equity_peak() reports halted (DD >= 18%), the scan returned before
+step 8b, so options_manager.manage_options_positions never ran: every
+options exit (DTE, profit target, loss limit, gamma, assignment) froze for
+the whole halt, although the block's own comment says "only entries are
+gated, not exits".
+
+What changed: the halted return first runs
+manage_options_positions(allow_rolls=False) (rolls off: a roll's
+sell-to-open half is an entry; each roll point closes instead) inside its
+own try, and returns its result as `options_management`. bot.ts already
+audits result.options_management before its DD-HALT line with no return in
+between (pinned by the new test), so no TS change. A manager crash is
+recorded in options_management.error and the halt is still returned (never
+falls through into the full entry scan).
+
+NOT changed (needs a decision): the floors (_manage_spy_floor,
+_manage_defensive_floor incl. the GLD rotation), the third leg and the
+convexity overlay stay skipped during the DD halt. They can BUY, so running
+them as-is would place entries; an exits-only mode for them is a separate
+change.
+
+Downstream chain: (1) during an 18%+ DD halt, options at their exit rules get
+close DAY limits on each Tier 2 scan cycle -> option risk is reduced while
+the halt holds; (2) halted scans now carry options_management -> OPTIONS-EXIT
+audit rows appear during a halt; options exit feedback is recorded as usual.
+
+Rollback trigger: an OPTIONS-ROLL row or any to-open options order while
+DD-HALT rows are being logged; or a halted scan that reports trade
+candidates.
+
+Tests: test_dd_halt_options_exits.py (2 of 3 fail before: no
+options_management key / manager not called; the third pins the existing
+bot.ts audit order). Counter pins raised.
+
+STARVED: no — master-plan queue in progress this session.
