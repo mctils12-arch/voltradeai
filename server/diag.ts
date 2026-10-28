@@ -337,6 +337,15 @@ export const DIAG_PROBES = [
   // status, a verdict and field-name presence booleans ONLY — no prices,
   // symbols, URLs, bodies or keys. Keys ride in headers, never URLs.
   "options_entitlements",
+  // ADDED 2026-10-28 (human order: "Check whether Alpaca's free bars include
+  // delisted tickers since 2010. If they do, build the price panel from them.
+  // No paid data."): server/barsCoverage.ts — the earliest daily bar for
+  // SPY/AAPL/IWM on sip and iex, first/last bar date + count for a fixed list
+  // of delisted/renamed/reused tickers under default vs dated vs disabled
+  // (`asof=-`) symbol mapping, and /v2/assets inactive/active COUNTS (+ a few inactive symbols).
+  // GET only, keys in headers only; no URL, body, vendor message or key in
+  // the response. Self-paced and cached 6 h; ?fresh=1 bypasses.
+  "bars_coverage",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

@@ -31,6 +31,7 @@ import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRan
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
 import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
+import { cachedBarsCoverage } from "./barsCoverage";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -3706,6 +3707,22 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           const report = await cachedOptionsEntitlements({
             env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch,
             tradingBase: ALPACA_BASE, underlying: String(req.query.u || "SPY"),
+          }, { fresh: String(req.query.fresh || "") === "1" });
+          return res.json(sanitizeDiag(report));
+        }
+        case "bars_coverage": {
+          // ADDED 2026-10-28 ([PIPELINE], human order "check whether Alpaca's
+          // free bars include delisted tickers since 2010"): READ-ONLY GETs of
+          // daily stock bars (sip + iex, adjustment=all, start 2010-01-01) for
+          // SPY/AAPL/IWM, 17 known delisted/renamed/reused tickers (default vs
+          // dated vs disabled `asof` mapping) and a control, plus /v2/assets
+          // inactive/active COUNTS — see server/barsCoverage.ts. Only counts,
+          // first/last bar dates and closes, HTTP status and verdict tokens
+          // leave; no URL, body, vendor message or key. Self-paced (<= 4 in
+          // flight, 200 ms spacing, 18 s budget, ~61 calls), cached 6 h;
+          // ?fresh=1 bypasses.
+          const report = await cachedBarsCoverage({
+            env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch, tradingBase: ALPACA_BASE,
           }, { fresh: String(req.query.fresh || "") === "1" });
           return res.json(sanitizeDiag(report));
         }
