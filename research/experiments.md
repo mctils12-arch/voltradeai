@@ -110925,3 +110925,48 @@ PRIOR: zero trading effect with the flag off (pins: the combined-score expressio
 RESULT: local — full pytest 2926 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), counter ratchet OK (tests_run_in_ci 638→639, assertions 22594→22642; no non-increasing pin moved). Live effect: none until VOLTRADE_REGIME_ENGINE is on (labels) and VOLTRADE_REGIME_SELECTION names a guard (gates).
 NEXT: step 5 — CSP guards behind VOLTRADE_REGIME_OPTIONS (built, next PR).
 STARVED: no.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N2: morning queue can no longer open a naked stock short (v1.0.1180)
+
+What was wrong: server/bot.ts executeMorningQueue (~4403). deep_score
+"SELL OPTIONS" candidates carry trade_type="options", side="sell",
+shares>0 (bot_engine.py ~1862-1866). Off-hours Tier 2 pushes them into
+morningQueue verbatim (~5104). The PR #53 stock-short block converted
+sell/short only when trade_type !== "options", so the trade reached the
+STOCK order body with side:"sell" (a naked short) and was then monitored
+as "long" (~4509). Sibling shape: runOvernightResearch's extreme-mover
+queue (~6650) pushes bearish BUY PUT / SELL OPTIONS setups with
+side="sell", use_options=true and no trade_type, which the block flipped
+into a long stock BUY (opposite exposure).
+
+What changed: new pure helper server/morningQueueEntry.ts
+(decideMorningQueueEntry / isOptionsIntended). The morning queue has no
+options path, so an options-intended entry (trade_type "options", or a
+bearish use_options setup) is dropped with a MORNING-OPTIONS-SKIP audit
+line; the next in-hours Tier 2 scan re-scores the name and executeTrades
+routes it via the options path it takes in hours. Plain stock sell/short
+keeps PR #53's convert-to-BUY (same SHORT-BLOCKED audit). The order body
+side, the openOrders record side and the position-monitor side now all
+come from the verdict (never a hardcoded "long"). The decision runs before
+the snapshot gap check, so a dropped entry costs no subprocess. Order
+transmission (alpaca() POST, getOrderParams) is untouched -- only WHAT is
+submitted changed.
+
+Downstream chain: (1) fewer morning-queue submissions -> slotsUsed stays
+lower, so later queued stock BUYs may take the slot; no stock short can
+reach Alpaca from this path. (2) A dropped options entry is not lost: the
+in-hours scan re-emits it if it still qualifies and executeTrades'
+options branch (or its OPTIONS-SKIP/noteGate rejection) handles it, so
+fills/track_fill attribution for options comes from one path only.
+
+Tests: server/morningQueueEntry.test.ts (11 tests: 7 helper, 4 bot.ts
+wiring; the 4 wiring tests fail on the pre-fix bot.ts). counter pins
+raised for tests_run_in_ci/tests_gating_merge 627->628, assertions
+22139->22159 (improvements only).
+
+Rollback trigger: any MORNING-TRADE audit line with side SELL after this
+deploys, or MORNING-OPTIONS-SKIP firing on >50% of queued entries for 5
+sessions while the in-hours re-scan does not pick those names up (the
+drop would then be losing real entries rather than deferring them).
+
+STARVED: no — master-plan queue in progress this session.
