@@ -111564,3 +111564,48 @@ an HTTP 429 burst in [optionchains] logs, or a capture that does not finish
 inside the 16:30-18:30 ET window.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: store gamma, session volume and capture-time spot (schema v2) (v1.0.1204)
+
+What was wrong (audit 2026-10-27 §2.4 / §10.2, verified in code):
+- server/optionsChainArchive.ts:compactContract (~l.112) kept bid/ask/sizes/
+  iv/delta/oi only. greeks.gamma and dailyBar.v were fetched and dropped,
+  and no underlying price was stored (spot was null for the pinned index
+  names and position underlyings; the CSP-cache price for the rest is up to
+  a session stale). GEX / put-call volume / expected-move inputs (§10.2)
+  could not be derived from the archive.
+
+What changed:
+- ChainRecord v2 (optional fields, older rows lack them): gamma =
+  greeks.gamma; vol = dailyBar.v when the bar is dated the labelled ET
+  session, 0 when the latest bar is an earlier session, null when absent
+  (sessionVolume); spot = underlying latest trade at capture time, else the
+  quote mid, else null.
+- fetchSpots: ONE batched GET /v2/stocks/snapshots?symbols=...&feed=
+  resolveAlpacaFeed(ALPACA_DATA_FEED) (default delayed_sip) per capture;
+  any failure -> empty map, logged, never fails the chains.
+- The live spot also centres the server-side +/-20% strike band (cache spot
+  only as fallback), so SPY/QQQ/IWM finally get the documented band.
+- compactContract's number coercion now maps null -> null (was Number(null)
+  = 0), so a missing greek is never stored as 0.
+- Honest gaps stated in code + manifest: oi stays null (the indicative feed
+  has no openInterest); spot is a 15-min-delayed tape print that may be an
+  extended-hours trade, not the official close; gamma is Alpaca-computed
+  from indicative quotes. Manifest schema_version 1 -> 2; sidecar records
+  schema_version, spots_known, spot_feed.
+
+Volume impact (estimated, synthetic records): ~154 -> ~194 bytes/row raw
+(+26%). With the full index chains (commit 2) ~40-45k rows/day ~= 8-9 MB/day
+raw (kept raw 2 days) and ~1.2-1.4 MB/day gzipped -> ~0.3-0.35 GB/year on
+/data (was ~0.17-0.2 GB/year). Retention/gzip lifecycle unchanged.
+
+Downstream chain: (1) new rows carry gamma+spot+vol -> a future
+chainFeatures derived stream (GEX estimate, P/C volume, expected move) is
+computable server-side without Python; (2) SPY strike band now applies ->
+SPY rows per day are bounded (+/-20%) instead of every listed strike.
+No trading path reads the archive (research-only, diag probes).
+
+Rollback trigger: spots_known == 0 on consecutive trading days (spot feed
+broken), or day-file size > 20 MB raw.
+
+STARVED: no — master-plan queue in progress this session.
