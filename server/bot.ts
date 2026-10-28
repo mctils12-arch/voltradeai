@@ -24,7 +24,7 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
-import { regimeEngineEnabled, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
@@ -1808,7 +1808,8 @@ print(json.dumps(data))
     }
     
     // Check 7: REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3) —
-    // NON-GATING. "off" while VOLTRADE_REGIME_ENGINE is unset, "warning"
+    // NON-GATING. "off" while VOLTRADE_REGIME_ENGINE is set to off (unset =
+    // the system_config default, ON since 2026-10-28), "warning"
     // when the persisted state is older than 2 market days, the last update
     // failed, or the primary-flip alarm is set; never touches checks.status
     // and never a serving gate (healthGate.ts SERVING_CHECKS unchanged).
@@ -2185,10 +2186,11 @@ print(json.dumps({
   // 3). regime_engine.py (Python, behind VOLTRADE_REGIME_ENGINE) computes the
   // state once per scan and persists it under DATA_DIR; this route only READS
   // those files (server/regimeReport.ts) — the same body the diag probe
-  // "regime" serves. Shadow: no consumer acts on it until its own flag is set.
+  // "regime" serves, plus each VOLTRADE_REGIME_* flag's effective value (env
+  // when present, else the system_config default — all ON since 2026-10-28).
   function regimeBody(): Record<string, unknown> {
     const dir = regimeDataDir(process.env);
-    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(dir));
+    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(dir), regimeFlags(process.env));
   }
   app.get("/api/bot/regime", requireOwner, (_req, res) => {
     res.json(regimeBody());

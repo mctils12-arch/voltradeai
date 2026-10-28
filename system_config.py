@@ -408,14 +408,26 @@ BASE_CONFIG = {
     "T1_DYNAMIC_UNIVERSE_ENABLED": True,
 
     # ── REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md, Stage B step 2) ──
-    # Config mirror of the VOLTRADE_REGIME_ENGINE env flag (either turns the
-    # engine on; regime_engine.engine_allowed reads both). OFF by default:
-    # with it off, regime_engine.py is never imported on the scan path and the
-    # five existing regime vocabularies (docs/regime/AUDIT.md §2) run exactly
-    # as before. ON = shadow compute + persist + serve; consumers each have
-    # their own flag (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS).
-    # Expected effect while shadow: none on trading; one state per scan.
-    "REGIME_ENGINE_ENABLED": False,
+    # Defaults for the five regime flags. regime_engine.flag_raw reads the
+    # env var when it is PRESENT (any value — "off"/"0"/"" included — wins)
+    # and falls back to these ONLY when the env var is ABSENT, so a Railway
+    # env var of `off` rolls any one flag back without a deploy.
+    # 2026-10-28 HUMAN DIRECTIVE (paper account): engine ON live, all flags,
+    # RUNBOOK §6 order, shadow-only wait skipped; no risk-limit changes.
+    # Prior value of every default below: OFF (False / "").
+    # Rollback: set the env var to `off` (one flag) or revert this block.
+    # Expected effect: one RegimeState per scan; the engine's exposure_
+    # multiplier replaces the VIX scalar + stress multiplier (stock), the VIX
+    # scalar (options sizers) and the Tier-1 VXX ladder; the selection guards
+    # knife/panic/rs/breadth block and dip neutralizes mean reversion; CSP
+    # crisis/vrp/earnings block and inversion/elevated/ebp halve size; the
+    # engine's legacy label replaces the Markov label on records. Drawdown
+    # ladders, kill switches, halts and caps are untouched.
+    "REGIME_ENGINE_ENABLED": True,       # VOLTRADE_REGIME_ENGINE (prior False)
+    "REGIME_SELECTION_DEFAULT": "all",   # VOLTRADE_REGIME_SELECTION (prior "": shadow labels only)
+    "REGIME_OPTIONS_DEFAULT": "all",     # VOLTRADE_REGIME_OPTIONS (prior "": shadow labels only)
+    "REGIME_SIZING_DEFAULT": "all",      # VOLTRADE_REGIME_SIZING (prior "": legacy scalars)
+    "REGIME_LABELS_DEFAULT": True,       # VOLTRADE_REGIME_LABELS (prior False: Markov label)
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

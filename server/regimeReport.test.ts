@@ -8,6 +8,7 @@ import path from "path";
 import {
   REGIME_STATE_FILE, REGIME_HISTORY_FILE, regimeEngineEnabled, readRegimeState, readRegimeHistory,
   marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit, readRegimeSizing, REGIME_SIZING_FILE,
+  REGIME_FLAG_DEFAULTS, regimeFlags, regimeFlagRaw, regimeConsumersOn,
 } from "./regimeReport";
 import { SERVING_CHECKS } from "./healthGate";
 
@@ -21,11 +22,41 @@ function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "regime-report-"));
 }
 
-test("flag parsing mirrors the Python gate (1/true/on/yes; default off)", () => {
-  assert.equal(regimeEngineEnabled({}), false);
+test("flag parsing mirrors the Python gate (1/true/on/yes; default ON since 2026-10-28 when the env var is absent)", () => {
+  // 2026-10-28 human directive: the default flipped (was false) — an ABSENT env var now reads the
+  // system_config default (REGIME_ENGINE_ENABLED True); a PRESENT env var always wins.
+  assert.equal(regimeEngineEnabled({}), true);
   assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "0" }), false);
   assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "1" }), true);
   assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "TRUE" }), true);
+});
+
+test("an explicitly set env var always wins over the default (rollback without a deploy)", () => {
+  for (const v of ["off", "0", "", "false", " OFF "]) {
+    assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: v }), false, `engine env ${JSON.stringify(v)}`);
+  }
+  const all = regimeFlags({});
+  assert.deepEqual(Object.keys(all).sort(), Object.keys(REGIME_FLAG_DEFAULTS).sort());
+  for (const [name, f] of Object.entries(all)) {
+    assert.equal(f.source, "config", name);
+    assert.equal(f.value, REGIME_FLAG_DEFAULTS[name], name);
+  }
+  assert.deepEqual(regimeConsumersOn(all), ["VOLTRADE_REGIME_SELECTION", "VOLTRADE_REGIME_OPTIONS", "VOLTRADE_REGIME_SIZING", "VOLTRADE_REGIME_LABELS"]);
+  const off = regimeFlags({ VOLTRADE_REGIME_SELECTION: "off", VOLTRADE_REGIME_OPTIONS: "", VOLTRADE_REGIME_SIZING: "0", VOLTRADE_REGIME_LABELS: "false" });
+  assert.deepEqual(regimeConsumersOn(off), []);
+  assert.deepEqual(off.VOLTRADE_REGIME_OPTIONS, { value: "", source: "env" });
+  assert.deepEqual(regimeFlagRaw("VOLTRADE_REGIME_SIZING", { VOLTRADE_REGIME_SIZING: "stock" }), { value: "stock", source: "env" });
+});
+
+test("report body carries the effective flags and says live/shadow from them", () => {
+  const now = new Date("2026-10-27T15:00:00Z");
+  const live = regimeReportBody(state(), [], now, true, null, regimeFlags({}));
+  assert.equal(live.flags?.VOLTRADE_REGIME_SIZING.value, "all");
+  assert.match(live.note, /^live: VOLTRADE_REGIME_SELECTION, VOLTRADE_REGIME_OPTIONS, VOLTRADE_REGIME_SIZING, VOLTRADE_REGIME_LABELS act/);
+  const allOff = regimeFlags({ VOLTRADE_REGIME_SELECTION: "off", VOLTRADE_REGIME_OPTIONS: "off", VOLTRADE_REGIME_SIZING: "off", VOLTRADE_REGIME_LABELS: "off" });
+  assert.match(regimeReportBody(state(), [], now, true, null, allOff).note, /^shadow:/);
+  assert.match(regimeReportBody(state(), [], now, false, null, regimeFlags({ VOLTRADE_REGIME_ENGINE: "off" })).note, /^shadow:/);
+  assert.equal(regimeReportBody(state(), [], now, true).flags, null);
 });
 
 test("readers: missing files are null/[]; a torn last history line is skipped", () => {

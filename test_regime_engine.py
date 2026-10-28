@@ -463,10 +463,10 @@ class TestDaemonRoute(unittest.TestCase):
         mod = importlib.import_module("regime_engine")
         self.assertTrue(callable(getattr(mod, "regime_state_rpc")))
 
-    def test_config_mirror_exists_and_defaults_off(self):
+    def test_config_mirror_exists_and_defaults_on(self):
         from system_config import BASE_CONFIG
         self.assertIn("REGIME_ENGINE_ENABLED", BASE_CONFIG)
-        self.assertFalse(BASE_CONFIG["REGIME_ENGINE_ENABLED"])
+        self.assertTrue(BASE_CONFIG["REGIME_ENGINE_ENABLED"])   # 2026-10-28 human directive: default flipped ON (was False)
         from storage_config import REGIME_STATE_PATH, REGIME_HISTORY_PATH
         self.assertTrue(REGIME_STATE_PATH.endswith("voltrade_regime_state.json"))
         self.assertTrue(REGIME_HISTORY_PATH.endswith("voltrade_regime_history.jsonl"))

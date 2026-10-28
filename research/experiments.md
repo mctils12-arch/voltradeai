@@ -111351,3 +111351,8 @@ STARVED: no — master-plan queue in progress this session.
 ## 2026-10-28 [RESEARCH] — research/* docs only — MASTER STATUS FILE (master plan deliverable)
 
 research/master_status.md: Done / In flight (built + tested, merging one PR at a time — routines must not re-implement) / Waiting on Mike / Parked in shadow. The voltrade-improve-close routine updates it daily from now on. Docs only, no version bump. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime_engine.py, system_config.py, server/regimeReport.ts) — v1.0.1195 REGIME ENGINE LIVE (paper; human directive)
+
+Change: all five regime flags default ON via system_config BASE_CONFIG (REGIME_ENGINE_ENABLED False->True; REGIME_SELECTION/OPTIONS/SIZING_DEFAULT ""->"all"; REGIME_LABELS_DEFAULT False->True). An env var that is PRESENT always wins (`off`/`0`/"" disable), so Railway rollback needs no deploy. A missing or never-computed regime state keeps the legacy sizing scalars instead of a flat 1.0. Node health/report mirrors the same flag rule.
+Hypothesis/prior: per FINDINGS step 9, guards that block knife/panic/rs/breadth candidates improve +20d outcome of taken trades by >= 3 pp at n >= 30; expect fewer stock entries in stressed tapes and smaller options size in elevated/inverted states. No backtest re-run: the strategy-level backtest is deferred (Section 10), so this ships as a live paper experiment under the step-9 rules. Kill/rollback: a guard whose blocked bucket shows the opposite sign at a read with n >= 30 -> that guard off; stale state > 2 market days -> VOLTRADE_REGIME_SIZING=off; reads 2026-11-16, 2026-12-15, 2027-01-27. Risk limits untouched. STARVED: no.
