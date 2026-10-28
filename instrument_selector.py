@@ -176,7 +176,11 @@ def _is_regular_hours() -> bool:
         from zoneinfo import ZoneInfo
         now_et = datetime.now(ZoneInfo("America/New_York"))
         et_time = now_et.hour + now_et.minute / 60.0
-        return 9.5 <= et_time < 16.0
+        # N17 (2026-10-28): weekday/holiday/half-day aware, not hour-only.
+        from market_calendar import is_market_holiday, is_half_day
+        if is_market_holiday(now_et.date()):
+            return False
+        return 9.5 <= et_time < (13.0 if is_half_day(now_et.date()) else 16.0)
     except Exception:
         return False
 

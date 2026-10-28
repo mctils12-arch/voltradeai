@@ -5365,8 +5365,14 @@ def _is_regular_hours() -> bool:
     except ZoneInfoNotFoundError:
         # tzdata missing on this host — fail closed rather than guess.
         return False
+    # N17 (2026-10-28): the hour alone let floors/third leg queue orders on
+    # weekends and holidays (Tier 2 runs 04-20 ET on weekends) — gate on the
+    # NYSE calendar too, and close at 13:00 on half-days.
+    from market_calendar import is_market_holiday, is_half_day
+    if is_market_holiday(et_time.date()):
+        return False
     hour = et_time.hour + et_time.minute / 60.0
-    return 9.5 <= hour < 16.0
+    return 9.5 <= hour < (13.0 if is_half_day(et_time.date()) else 16.0)
 
 
 # ── Floor regime dwell (2026-10-13) ─────────────────────────────────────────

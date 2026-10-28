@@ -182,7 +182,12 @@ def _is_regular_hours() -> bool:
     """True if within 9:30am-4:00pm ET."""
     try:
         et_time = _et_now_hour()
-        return 9.5 <= et_time < 16.0
+        # N17 (2026-10-28): weekday/holiday/half-day aware, not hour-only.
+        from market_calendar import is_market_holiday, is_half_day
+        today = _et_now().date()
+        if is_market_holiday(today):
+            return False
+        return 9.5 <= et_time < (13.0 if is_half_day(today) else 16.0)
     except Exception:
         return False
 
