@@ -5682,6 +5682,15 @@ if contract.get('error'):
 else:
     result = submit_options_order(contract)
     result['cash_required'] = contract.get('cash_required', 0)
+    # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): this branch never registered
+    # the entry, so every later close of a tier CSP was an orphan_exit.
+    # Recording only (a pending marker resolved on the confirmed fill).
+    if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
+        try:
+            from options_manager import register_pending_entry_feedback
+            register_pending_entry_feedback(contract.get('occ_symbol', ''), data['ticker'], contract.get('side', 'sell'))
+        except Exception as _pe:
+            print(f'pending entry marker failed: {_pe}', file=sys.stderr)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
@@ -5797,6 +5806,13 @@ if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
     result = submit_options_order(contract)
+    # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): see the SELL_CSP branch.
+    if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
+        try:
+            from options_manager import register_pending_entry_feedback
+            register_pending_entry_feedback(contract.get('occ_symbol', ''), data['ticker'], contract.get('side', 'buy'))
+        except Exception as _pe:
+            print(f'pending entry marker failed: {_pe}', file=sys.stderr)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
