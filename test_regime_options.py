@@ -39,8 +39,8 @@ def ctx():
 
 
 class TestGateFlag(unittest.TestCase):
-    def test_default_is_shadow_only_and_any_value_turns_on_crisis_and_vrp(self):
-        self.assertEqual(re_.options_gates({}), set())
+    def test_default_is_all_and_any_value_turns_on_crisis_and_vrp(self):
+        self.assertEqual(re_.options_gates({}), set(re_.OPTIONS_GUARDS))   # 2026-10-28 human directive: env absent -> "all" (was shadow-only)
         self.assertEqual(re_.options_gates({"VOLTRADE_REGIME_OPTIONS": "off"}), set())
         self.assertEqual(re_.options_gates({"VOLTRADE_REGIME_OPTIONS": "all"}), set(re_.OPTIONS_GUARDS))
         self.assertEqual(re_.options_gates({"VOLTRADE_REGIME_OPTIONS": "elevated"}), {"elevated", "crisis", "vrp"})

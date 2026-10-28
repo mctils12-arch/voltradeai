@@ -41,9 +41,52 @@ export type RegimeStateFile = Record<string, unknown> & {
   transition?: { from?: string; to?: string; from_as_of?: string; to_as_of?: string } | null;
 };
 
+/**
+ * Defaults of the five regime flags — a MIRROR of system_config.py BASE_CONFIG
+ * (REGIME_ENGINE_ENABLED True -> "1", REGIME_SELECTION_DEFAULT / _OPTIONS_ / _SIZING_
+ * "all", REGIME_LABELS_DEFAULT True -> "1"; human directive 2026-10-28, prior: all off).
+ * Read exactly like regime_engine.flag_raw: the env var when it is PRESENT (any value —
+ * "off" / "0" / "" included — wins), the default only when it is ABSENT. The Node process
+ * and the daemon share one environment, so both sides agree on what is on.
+ * test_regime_flag_defaults.py pins this table against BASE_CONFIG.
+ */
+export const REGIME_FLAG_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
+  VOLTRADE_REGIME_ENGINE: "1",
+  VOLTRADE_REGIME_SELECTION: "all",
+  VOLTRADE_REGIME_OPTIONS: "all",
+  VOLTRADE_REGIME_SIZING: "all",
+  VOLTRADE_REGIME_LABELS: "1",
+});
+
+export type RegimeFlag = { value: string; source: "env" | "config" };
+
+export function regimeFlagRaw(name: string, env: NodeJS.ProcessEnv = process.env): RegimeFlag {
+  const v = env[name];
+  if (v !== undefined && v !== null) return { value: String(v), source: "env" };
+  return { value: REGIME_FLAG_DEFAULTS[name] ?? "", source: "config" };
+}
+
+/** Every regime flag's effective value and where it came from (served on the report). */
+export function regimeFlags(env: NodeJS.ProcessEnv = process.env): Record<string, RegimeFlag> {
+  const out: Record<string, RegimeFlag> = {};
+  for (const name of Object.keys(REGIME_FLAG_DEFAULTS)) out[name] = regimeFlagRaw(name, env);
+  return out;
+}
+
+function flagOn(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v.length > 0 && v !== "0" && v !== "off" && v !== "false" && v !== "none";
+}
+
 export function regimeEngineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = String(env.VOLTRADE_REGIME_ENGINE ?? "0").trim().toLowerCase();
+  const v = regimeFlagRaw("VOLTRADE_REGIME_ENGINE", env).value.trim().toLowerCase();
   return v === "1" || v === "true" || v === "on" || v === "yes";
+}
+
+/** The consumer flags that act (selection / options / sizing / labels), for the report note. */
+export function regimeConsumersOn(flags: Record<string, RegimeFlag>): string[] {
+  return ["VOLTRADE_REGIME_SELECTION", "VOLTRADE_REGIME_OPTIONS", "VOLTRADE_REGIME_SIZING", "VOLTRADE_REGIME_LABELS"]
+    .filter((n) => flags[n] !== undefined && flagOn(flags[n].value));
 }
 
 export function regimeDataDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -168,7 +211,7 @@ function num(v: unknown): number | null {
 }
 
 /** The daily regime report: latest state, the recent history, transitions, time at each exposure level. */
-export function regimeReportBody(state: RegimeStateFile | null, history: RegimeStateFile[], now: Date, enabled: boolean, sizing: RegimeSizingFile | null = null) {
+export function regimeReportBody(state: RegimeStateFile | null, history: RegimeStateFile[], now: Date, enabled: boolean, sizing: RegimeSizingFile | null = null, flags: Record<string, RegimeFlag> | null = null) {
   const rows = history.map((h) => ({
     as_of: h.as_of,
     composite: h.composite_regime,
@@ -193,6 +236,7 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     timeAtLevels[k] = (timeAtLevels[k] || 0) + 1;
   }
   const health = regimeHealth(state, now, enabled, sizing);
+  const consumersOn = flags ? regimeConsumersOn(flags) : [];
   return {
     enabled_env: enabled,
     state_present: Boolean(state),
@@ -203,7 +247,10 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     transitions: transitions.slice(-40),
     time_at_levels: timeAtLevels,
     sizing: sizing ?? null,   // step 6: today's applied multipliers by sleeve, stale fallbacks, zero blocks
-    note: "shadow: no consumer reads this state until its own VOLTRADE_REGIME_* flag is set (docs/regime/FINDINGS.md)",
+    flags: flags ?? null,     // every VOLTRADE_REGIME_* flag's effective value and source (env | config default)
+    note: consumersOn.length && enabled
+      ? `live: ${consumersOn.join(", ")} act on this state (docs/regime/RUNBOOK.md; rollback = set the env var to off)`
+      : "shadow: no consumer reads this state until its own VOLTRADE_REGIME_* flag is set (docs/regime/FINDINGS.md)",
   };
 }
 

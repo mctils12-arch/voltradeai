@@ -2,7 +2,9 @@
 
 For the operator and for later sessions. Program docs: `FINDINGS.md` (plan), `IMPACT.md` (what each flag touches), `CHANGELOG.md` (what shipped), `BASELINE.md` (the frozen reference every read compares against).
 
-## 1. Flags (all default OFF; each is independent)
+## 1. Flags (all default ON since 2026-10-28; each is independent)
+
+**2026-10-28 human directive (paper account):** every flag below defaults ON in code — `system_config.BASE_CONFIG` `REGIME_ENGINE_ENABLED=True`, `REGIME_SELECTION_DEFAULT="all"`, `REGIME_OPTIONS_DEFAULT="all"`, `REGIME_SIZING_DEFAULT="all"`, `REGIME_LABELS_DEFAULT=True` (prior: all off) — skipping the §6 shadow-only wait. The default is read ONLY when the env var is ABSENT; an env var that is present always wins, including `off` / `0` / an empty string (`regime_engine.flag_raw`; Node mirror `server/regimeReport.ts` `REGIME_FLAG_DEFAULTS`, pinned against BASE_CONFIG by `test_regime_flag_defaults.py`). So "unset the flag" in the rollback column below now means **set the env var to `off`** on Railway (no deploy); reverting the BASE_CONFIG block rolls every default back with a deploy. `/api/bot/regime` → `flags` shows each flag's effective value and whether it came from `env` or `config`. No risk limit moved: drawdown ladders, kill switches, halts and caps are untouched.
 
 | Flag | Where it is read | What ON does | Rollback |
 |---|---|---|---|
@@ -49,7 +51,9 @@ Nothing here edits a kill switch, a drawdown halt, the floor schedule, or an ord
 - The engine: unset `VOLTRADE_REGIME_ENGINE`; delete nothing. If the state file is corrupt, remove `voltrade_regime_state.json` (the history is append-only and stays); the next scan rebuilds it.
 - A stale state never cuts size silently: sizing falls back to 1.0, counts the fallback (`sizing.stale_fallbacks` on `/api/diag/regime`, a `checks.regime` warning the same day) and audits `REGIME-STALE` once per new occurrence (step 6).
 
-## 6. Flag-flip order (the program's own recommendation; every flag is OFF at close)
+## 6. Flag-flip order (the program's own recommendation; every flag was OFF at close)
+
+2026-10-28: the human directive applied steps 1, 3, 4 and 5 at once with every guard and sleeve named (`all`), skipping the fourteen-day shadow wait and the one-at-a-time promotion; the reads below (2026-11-16 onward) now judge live gates instead of shadow buckets, and the opposite-sign rule turns a single guard off by setting its env var to the remaining guards (e.g. `VOLTRADE_REGIME_SELECTION=knife,panic,rs,breadth`) or to `off`.
 
 1. `VOLTRADE_REGIME_ENGINE=1` — shadow only: one state per scan, the report, the history. Wait fourteen trading days with `checks.regime.status` ok and no gap in `history_days`.
 2. Read 2026-11-16 (FINDINGS step 9): per-guard buckets `would_reject_regime_*` on `/api/diag/shadow` (+5/+20 d vs the taken bucket, n ≥ 30, ≥ 3 pp at +20 d to promote), the sleeve hold-time ledger, the engine's history vs the tool's replay (HONESTY METRIC).

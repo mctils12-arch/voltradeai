@@ -10,10 +10,14 @@ below is a documented starting value from the research, not a tuned result;
 scripts/regime_backtest.py evaluates this module's exposure path on the
 repo's own index bars (same code, one implementation).
 
-FLAG: VOLTRADE_REGIME_ENGINE (env; "1"/"true"/"on"). OFF by default — the
-module is then never imported on the scan path. ON = SHADOW: the state is
-computed once per scan, persisted and served; no consumer reads it until its
-own flag (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS) is set.
+FLAGS: VOLTRADE_REGIME_ENGINE (env; "1"/"true"/"on") computes the state once
+per scan, persists and serves it; each consumer has its own flag
+(VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS). Since the
+2026-10-28 human directive every flag DEFAULTS ON through system_config
+BASE_CONFIG (REGIME_ENGINE_ENABLED, REGIME_SELECTION_DEFAULT,
+REGIME_OPTIONS_DEFAULT, REGIME_SIZING_DEFAULT, REGIME_LABELS_DEFAULT), read
+only when the env var is ABSENT; an env var that is present — "off", "0" or
+"" included — always wins (flag_raw), so rollback is an env var, no deploy.
 
 WHAT THE STATE IS
   trend_state   UP / NEUTRAL / DOWN from the SLOW ensemble only: the share
@@ -133,20 +137,65 @@ LEGACY_MAP = {"CALM_BULL": "BULL", "CHOPPY": "NEUTRAL", "VOLATILE_BULL": "CAUTIO
 TRUTHY = ("1", "true", "on", "yes")
 
 
-# ── flag ─────────────────────────────────────────────────────────────────────
-def engine_allowed(env=None, config=None) -> bool:
-    """Pure gate: VOLTRADE_REGIME_ENGINE env flag OR system_config
-    BASE_CONFIG["REGIME_ENGINE_ENABLED"] (default OFF — AUDIT.md's five
-    vocabularies keep running untouched until one of them is set)."""
+# ── flags ────────────────────────────────────────────────────────────────────
+# Every flag is read the same way (2026-10-28 human directive: engine ON live,
+# all flags, defaults in code because the sandbox has no Railway access): the
+# env var WHEN IT IS PRESENT — any value, including "", "0" and "off" — wins;
+# only an ABSENT env var falls back to the system_config BASE_CONFIG default.
+# So a Railway env var of `off` rolls a flag back without a deploy.
+FLAG_DEFAULTS = {   # env var -> BASE_CONFIG key holding its default
+    "VOLTRADE_REGIME_ENGINE": "REGIME_ENGINE_ENABLED",
+    "VOLTRADE_REGIME_SELECTION": "REGIME_SELECTION_DEFAULT",
+    "VOLTRADE_REGIME_OPTIONS": "REGIME_OPTIONS_DEFAULT",
+    "VOLTRADE_REGIME_SIZING": "REGIME_SIZING_DEFAULT",
+    "VOLTRADE_REGIME_LABELS": "REGIME_LABELS_DEFAULT",
+}
+
+
+def _base_config() -> dict:
+    try:
+        from system_config import BASE_CONFIG
+        return BASE_CONFIG
+    except Exception as e:
+        log.warning(f"[REGIME] system_config unavailable ({e}); every regime flag without an env var reads OFF")
+        return {}
+
+
+def flag_raw(name, env=None, config=None):
+    """(raw value, source) of one regime flag: ('<env value>', 'env') when the env var is
+    present (`env.get(name) is not None`), else the BASE_CONFIG default as a string
+    (True -> '1', False/None -> '') with source 'config'."""
     env = os.environ if env is None else env
-    if str(env.get("VOLTRADE_REGIME_ENGINE", "0")).strip().lower() in TRUTHY:
-        return True
-    if config is None:
+    v = env.get(name)
+    if v is not None:
+        return str(v), "env"
+    cfg = _base_config() if config is None else config
+    d = cfg.get(FLAG_DEFAULTS[name])
+    if d is True:
+        return "1", "config"
+    if d is None or d is False:
+        return "", "config"
+    return str(d), "config"
+
+
+def engine_allowed(env=None, config=None) -> bool:
+    """Pure gate: VOLTRADE_REGIME_ENGINE when the env var is set (any value; '0'/'off'/''
+    turn it off), else system_config BASE_CONFIG["REGIME_ENGINE_ENABLED"]."""
+    raw, _src = flag_raw("VOLTRADE_REGIME_ENGINE", env, config)
+    return raw.strip().lower() in TRUTHY
+
+
+def effective_flags(env=None, config=None) -> dict:
+    """{env var: {"value", "source"}} for every regime flag — what the consumers act on NOW
+    (logged on counterfactual rows and served by the report). Never raises."""
+    out = {}
+    for name in FLAG_DEFAULTS:
         try:
-            from system_config import BASE_CONFIG as config
-        except Exception:
-            config = {}
-    return bool(config.get("REGIME_ENGINE_ENABLED", False))
+            raw, src = flag_raw(name, env, config)
+        except Exception as e:
+            raw, src = "", f"error: {str(e)[:60]}"
+        out[name] = {"value": raw, "source": src}
+    return out
 
 
 def params_with(overrides=None) -> dict:
@@ -811,13 +860,12 @@ LEGACY_LABELS = ("BULL", "NEUTRAL", "CAUTION", "BEAR", "PANIC")   # the Node / s
 _STATE_CACHE = {"at": 0.0, "state": None}
 
 
-def selection_gates(env=None) -> set:
+def selection_gates(env=None, config=None) -> set:
     """VOLTRADE_REGIME_SELECTION: comma list of guards promoted from SHADOW (flags on the
     shadow record) to GATE (the candidate is blocked / the score changes); 'all' = every
-    guard. Default: none — every guard only labels (RULE REVIEW: no rule ships without
-    counterfactual data)."""
-    env = os.environ if env is None else env
-    raw = str(env.get("VOLTRADE_REGIME_SELECTION", "")).strip().lower()
+    guard. Env var absent -> BASE_CONFIG["REGIME_SELECTION_DEFAULT"] ("all" since the
+    2026-10-28 human directive); an explicit env value (incl. "off"/"") always wins."""
+    raw = flag_raw("VOLTRADE_REGIME_SELECTION", env, config)[0].strip().lower()
     if not raw or raw in ("0", "off", "false", "none"):
         return set()
     if raw in ("1", "all", "true", "on"):
@@ -902,12 +950,12 @@ OPTIONS_PARAMS = {
 }
 
 
-def options_gates(env=None) -> set:
+def options_gates(env=None, config=None) -> set:
     """VOLTRADE_REGIME_OPTIONS: comma list of guards promoted from SHADOW to GATE ('all' =
     every guard). Any non-empty value also turns on 'crisis' and 'vrp' — the two that only
-    PREVENT new short vol in the research's loss states (FINDINGS step 5 acceptance)."""
-    env = os.environ if env is None else env
-    raw = str(env.get("VOLTRADE_REGIME_OPTIONS", "")).strip().lower()
+    PREVENT new short vol in the research's loss states (FINDINGS step 5 acceptance).
+    Env var absent -> BASE_CONFIG["REGIME_OPTIONS_DEFAULT"] ("all" since 2026-10-28)."""
+    raw = flag_raw("VOLTRADE_REGIME_OPTIONS", env, config)[0].strip().lower()
     if not raw or raw in ("0", "off", "false", "none"):
         return set()
     if raw in ("1", "all", "true", "on"):
@@ -1007,11 +1055,11 @@ SIZING_PARAMS = {
 _SIZING_COUNTS = {"day": None, "by_sleeve": {}, "stale_fallbacks": 0, "zero_blocks": 0, "last": None}
 
 
-def sizing_sleeves(env=None) -> set:
+def sizing_sleeves(env=None, config=None) -> set:
     """VOLTRADE_REGIME_SIZING: comma list of sleeves (stock, options, tier1) or all/1/true/on;
-    empty/off = every sizer keeps its legacy scalars."""
-    env = os.environ if env is None else env
-    raw = str(env.get("VOLTRADE_REGIME_SIZING", "")).strip().lower()
+    empty/off = every sizer keeps its legacy scalars. Env var absent ->
+    BASE_CONFIG["REGIME_SIZING_DEFAULT"] ("all" since 2026-10-28)."""
+    raw = flag_raw("VOLTRADE_REGIME_SIZING", env, config)[0].strip().lower()
     if not raw or raw in ("0", "off", "false", "none"):
         return set()
     if raw in ("1", "all", "true", "on"):
@@ -1104,6 +1152,12 @@ def sizing_for(sleeve, env=None, loader=None, today=None):
         st = cached_state(loader=loader) if loader is not None else cached_state()
         res = sizing_multiplier(st, sleeve, today)
         note_sizing(res, sleeve, today)
+        # 2026-10-28 (flags default ON): with NO usable state yet (first update
+        # failed / no exposure_multiplier) the sizer keeps its LEGACY scalars
+        # instead of a flat 1.0 — turning the engine on must never remove the
+        # legacy VIX / stress cuts before the engine has a state to replace them.
+        if res.get("source") in ("none", "missing"):
+            return None
         return res
     except Exception as e:
         logger.debug(f"sizing_for({sleeve}) failed: {e}")
@@ -1111,11 +1165,11 @@ def sizing_for(sleeve, env=None, loader=None, today=None):
 
 
 # ── consumer: legacy label (docs/regime/FINDINGS.md step 7) ──────────────────
-def labels_enabled(env=None) -> bool:
+def labels_enabled(env=None, config=None) -> bool:
     """VOLTRADE_REGIME_LABELS (1/true/on/yes): the engine's legacy label (BULL / NEUTRAL /
-    CAUTION / BEAR / PANIC) replaces the Markov label wherever a LABEL is persisted or acted on."""
-    env = os.environ if env is None else env
-    return str(env.get("VOLTRADE_REGIME_LABELS", "")).strip().lower() in ("1", "true", "on", "yes")
+    CAUTION / BEAR / PANIC) replaces the Markov label wherever a LABEL is persisted or acted on.
+    Env var absent -> BASE_CONFIG["REGIME_LABELS_DEFAULT"] (True since 2026-10-28)."""
+    return flag_raw("VOLTRADE_REGIME_LABELS", env, config)[0].strip().lower() in ("1", "true", "on", "yes")
 
 
 def label_for(env=None, loader=None, today=None, params=None):

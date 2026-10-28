@@ -38,7 +38,7 @@ def eng(mult=0.5, **over):
 
 class TestFlag(unittest.TestCase):
     def test_sleeves(self):
-        self.assertEqual(re_.sizing_sleeves({}), set())
+        self.assertEqual(re_.sizing_sleeves({}), set(re_.SIZING_SLEEVES))   # 2026-10-28 human directive: env absent -> "all" (was legacy scalars)
         self.assertEqual(re_.sizing_sleeves({"VOLTRADE_REGIME_SIZING": "off"}), set())
         self.assertEqual(re_.sizing_sleeves({"VOLTRADE_REGIME_SIZING": "all"}), set(re_.SIZING_SLEEVES))
         self.assertEqual(re_.sizing_sleeves({"VOLTRADE_REGIME_SIZING": "stock, tier1, bogus"}), {"stock", "tier1"})

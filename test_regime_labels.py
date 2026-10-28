@@ -25,7 +25,7 @@ def state(**over):
 
 class TestFlag(unittest.TestCase):
     def test_flag_parsing(self):
-        self.assertFalse(re_.labels_enabled({}))
+        self.assertTrue(re_.labels_enabled({}))   # 2026-10-28 human directive: env absent -> BASE_CONFIG default ON (was off)
         self.assertFalse(re_.labels_enabled({"VOLTRADE_REGIME_LABELS": "0"}))
         for v in ("1", "true", "ON", "yes"):
             self.assertTrue(re_.labels_enabled({"VOLTRADE_REGIME_LABELS": v}))

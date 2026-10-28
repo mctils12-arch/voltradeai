@@ -32,8 +32,8 @@ def cand(**over):
 
 
 class TestGateFlag(unittest.TestCase):
-    def test_default_is_shadow_only(self):
-        self.assertEqual(re_.selection_gates({}), set())
+    def test_default_is_all_gates(self):
+        self.assertEqual(re_.selection_gates({}), set(re_.SELECTION_GUARDS))   # 2026-10-28 human directive: env absent -> "all" (was shadow-only)
         self.assertEqual(re_.selection_gates({"VOLTRADE_REGIME_SELECTION": "off"}), set())
         self.assertEqual(re_.selection_gates({"VOLTRADE_REGIME_SELECTION": "all"}), set(re_.SELECTION_GUARDS))
         self.assertEqual(re_.selection_gates({"VOLTRADE_REGIME_SELECTION": "knife, dip ,bogus"}), {"knife", "dip"})
