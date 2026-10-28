@@ -51,7 +51,10 @@ test("bot.ts ETF branch is wired to the plan (no underlying shares/2, no underly
   assert.ok(!/trade\.shares\s*\/\s*2/.test(branch), "ETF qty must not be derived from the underlying's share count");
   assert.ok(!/getOrderParams\(trade\.price/.test(branch), "ETF limit must not be priced off the underlying");
   assert.ok(branch.includes("getOrderParams(etfPrice)"), "ETF limit must be priced off the ETF plan price");
-  assert.ok(branch.includes("fillPrice: etfPrice"), "entry fill record must carry the ETF price");
+  // Since the real-broker-fills change the entry record is written from the
+  // confirmed ETF fill; its slippage baseline must be the ETF's own price.
+  assert.ok(branch.includes("expectedPrice: etfPrice"), "entry fill record must be measured against the ETF price");
+  assert.ok(!/expectedPrice:\s*trade\.price/.test(branch), "entry fill record must not use the underlying's price");
   assert.ok(branch.includes("totalDeployed += etfPlan.value"), "heat tracking must add the ETF dollars");
 });
 

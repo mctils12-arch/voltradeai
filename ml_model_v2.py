@@ -2525,6 +2525,25 @@ def track_fill(order_data: dict) -> None:
                     # callers that don't pass one, matching prior behavior.
                     "code_version":   str(order_data.get("code_version") or "1.0.34"),
                 }
+                # [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, server/entryFill.ts):
+                # bot.ts now sends fill_price = Alpaca's filled_avg_price and the
+                # prior random volume-tiered haircut separately as
+                # synthetic_fill_price. Keep the haircut beside the real fill
+                # (never in fill_price) so old and new rulers stay comparable.
+                # synthetic_slippage_pct is computed exactly like slippage_pct
+                # was before, so it is the old ruler's number for this trade.
+                # Records without fill_source were written before this change
+                # and carry the synthetic price in fill_price.
+                if order_data.get("fill_source"):
+                    record["fill_source"] = str(order_data.get("fill_source"))
+                _synth = order_data.get("synthetic_fill_price")
+                if isinstance(_synth, (int, float)) and not isinstance(_synth, bool):
+                    record["synthetic_fill_price"] = float(_synth)
+                    record["synthetic_slippage_pct"] = round(
+                        abs(float(_synth) - expected) / expected * 100 if expected > 0 else 0.0, 4)
+                for _k in ("qty_requested", "partial_fill", "order_status", "order_id"):
+                    if order_data.get(_k) is not None:
+                        record[_k] = order_data.get(_k)
                 # VERSION-AWARE-ML 2026-04-22: capture config fingerprint
                 try:
                     import hashlib as _ha
@@ -2635,6 +2654,17 @@ def fills_slippage_stats(feedback: list) -> dict:
         t for t in (feedback or [])
         if isinstance(t, dict) and t.get("expected_price", 0) and t.get("slippage_pct") is not None
     ]
+    # [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): records with
+    # fill_source == "broker" carry Alpaca's real filled_avg_price; older ones
+    # carry a random synthetic haircut in fill_price. Once any real-fill
+    # record exists, the average and cost come from real fills only, so the
+    # synthetic draw no longer leaks into realisticPnlPct. `count` stays the
+    # number of all entry-fill records (what /api/diag/ml fills_count means).
+    # See fills_slippage_basis() for which population was used.
+    fill_count = len(fills)
+    broker = [f for f in fills if f.get("fill_source") == "broker"]
+    if broker:
+        fills = broker
     total_slippage_cost = 0.0
     for f in fills:
         slip = f.get("slippage_pct", 0) or 0
@@ -2644,7 +2674,22 @@ def fills_slippage_stats(feedback: list) -> dict:
             total_slippage_cost += expected * qty * slip / 100
     avg_slippage_pct = (sum(f.get("slippage_pct", 0) or 0 for f in fills) / len(fills)) if fills else 0.0
     return {
-        "count": len(fills),
+        "count": fill_count,
         "avg_slippage_pct": avg_slippage_pct,
         "total_slippage_cost": total_slippage_cost,
     }
+
+
+def fills_slippage_basis(feedback: list) -> str:
+    """Which population fills_slippage_stats() averaged: "broker" (real
+    Alpaca fills), "legacy_synthetic" (pre-2026-10-27 records whose
+    fill_price carries a random haircut) or "none"."""
+    fills = [
+        t for t in (feedback or [])
+        if isinstance(t, dict) and t.get("expected_price", 0) and t.get("slippage_pct") is not None
+    ]
+    if not fills:
+        return "none"
+    if any(f.get("fill_source") == "broker" for f in fills):
+        return "broker"
+    return "legacy_synthetic"

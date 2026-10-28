@@ -111609,3 +111609,79 @@ Rollback trigger: spots_known == 0 on consecutive trading days (spot feed
 broken), or day-file size > 20 MB raw.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — record the broker's real entry fill, keep the synthetic haircut as a comparison field (v1.0.1205)
+
+What was wrong (audit §7.1 / §7.2.5):
+- server/bot.ts executeTrades batch fill confirmation (~6260): fill_price
+  sent to ml_model_v2.track_fill was filled_avg_price x (1 + random
+  volume-tiered haircut). When the order had not filled at the 2 s check,
+  filled_avg_price was null and the code fell back to trade.price, so an
+  unfilled (later cancelled) order still wrote an entry record.
+- server/bot.ts executeMorningQueue (~4474): never read a fill at all;
+  fill_price = trade.price x (1 + random 0.05-0.25%).
+- server/bot.ts ETF branch (~5930): fill_price = trade.price, the
+  UNDERLYING's price, not the leveraged ETF's.
+- ml_model_v2.track_fill stored only that synthetic fill_price (the
+  alpaca_fill_price key in the payload was dropped), so slippage_pct,
+  fills_slippage_stats() and /api/bot/performance realisticPnlPct measured
+  the bot's own random draw plus quote drift. ROOT LADDER gate 5 was not
+  measurable live.
+
+What changed:
+- server/entryFill.ts: syntheticSlippagePct() (the prior tier tables,
+  unchanged), confirmedEntryFill(order), isTerminalOrderStatus(),
+  buildEntryFillPayload() gains expectedPrice/qtyRequested/orderStatus/
+  orderId/entryFeatures and writes synthetic_fill_price beside the real
+  fill_price (fill_source "broker").
+- server/bot.ts: one recordEntryFill() writer. settleEntryFill() records
+  immediately when Alpaca already reports the order terminal, otherwise
+  attaches pendingEntryFill to the tracked openOrders entry;
+  resolvePendingEntryFill() (called from all three sweepStaleOrders drop
+  paths) records at the confirmed filled_avg_price/filled_qty once the
+  order is terminal. Unfilled orders record nothing. All three entry paths
+  (regular, morning queue, ETF) go through it. Read-only GETs only; no
+  order-POST code touched.
+- ml_model_v2.track_fill persists fill_source, synthetic_fill_price,
+  synthetic_slippage_pct (computed exactly like the old slippage_pct),
+  qty_requested, partial_fill, order_status, order_id.
+- fills_slippage_stats(): once any fill_source=="broker" record exists,
+  avg_slippage_pct/total_slippage_cost come from those only; count stays
+  all entry-fill records. New fills_slippage_basis() labels the
+  population; /api/bot/performance exposes it as slippageBasis.
+
+Metric before vs after on identical inputs (decision quote $100.00, Alpaca
+filled_avg_price $100.02, volume 3M, buy):
+- regular path: fill_price before $100.10-$100.17 (random), slippage_pct
+  0.10-0.17%; after fill_price $100.02, slippage_pct 0.02%,
+  synthetic_fill_price $100.10-$100.17 kept beside it.
+- morning queue, same inputs: before fill_price $100.15-$100.25
+  (trade.price based, fill never read); after $100.02.
+- unfilled-then-cancelled order: before one entry record at a made-up
+  price; after none.
+- fills_slippage_stats on the existing 56 live records (all legacy, no
+  fill_source): unchanged until the first broker record lands.
+Bias direction: measured slippage will DROP (paper fills at or near the
+quote), which makes realisticPnlPct look better. Suspect by default per
+MEASUREMENT INTEGRITY; justification is a named bug (a random number was
+recorded as an execution price) and the external ground truth is Alpaca's
+own filled_avg_price. Paper fills remain optimistic vs real execution;
+the synthetic estimate is kept so that haircut can still be applied
+explicitly. slippage_pct still uses abs() (favorable fills count as cost),
+not changed here.
+
+Downstream chain: entry fill_price -> track_fill exit pnl only when no
+exit_context pnl (bot exits always send one, so live win/loss labels are
+unchanged) -> fills_slippage_stats -> realisticPnlPct/avgSlippagePct on
+/api/bot/performance and fills_count on /api/diag/ml (count unchanged).
+Fewer phantom open entries -> fewer wrong _find_entry_record matches.
+Deploy note: a pending entry lives in the in-memory openOrders list; a
+deploy cancels all open orders (gracefulShutdown), so a lost pending entry
+is an order that was cancelled, except a fill racing the shutdown.
+
+Rollback trigger: revert if, after 5 market days, live entry records with
+fill_source "broker" number fewer than ~half of the TRADE/MORNING-TRADE/
+ETF-TRADE audit lines with a confirmed fill (pending entries being lost),
+or FILL-TRACK-WARN appears more than occasionally.
+
+STARVED: no — master-plan queue in progress this session.
