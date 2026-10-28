@@ -64,6 +64,7 @@ import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
+import { decideMorningQueueEntry } from "./morningQueueEntry";
 const _execRaw = promisify(exec);
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
@@ -4448,6 +4449,24 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // ══ ENTRY DECISION (audit §6.8 N2, 2026-10-27; replaces the PR #53
+      // inline block) ══ An options-intended entry (trade_type "options", or
+      // a bearish use_options setup) is dropped — the morning queue has no
+      // options path, and the old block let an options-typed SELL through to
+      // the stock order body as a naked short. Stock sell/short keeps PR
+      // #53's convert-to-BUY; the submitted and monitored sides come from
+      // the verdict. Decided before the gap check so a dropped entry costs
+      // no snapshot fetch.
+      const mqVerdict = decideMorningQueueEntry(trade);
+      if (!mqVerdict.submit) {
+        audit(mqVerdict.auditTag, mqVerdict.reason);
+        continue;
+      }
+      if (mqVerdict.convertedFrom) {
+        audit("SHORT-BLOCKED", `${trade.ticker}: side='${mqVerdict.convertedFrom}' blocked in morning queue — stock shorting disabled. Converting to BUY.`);
+      }
+      trade.side = mqVerdict.side;
+
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execPythonSerialized(
@@ -4473,12 +4492,6 @@ print(json.dumps(result[:20]))
         }
       } catch (err: any) { console.error("[bot]", err?.message || err); }
 
-      // ══ HARD BLOCK: No stock shorting in morning queue (PR #53) ══════════
-      if (trade.trade_type !== "options" && (trade.side === "short" || trade.side === "sell")) {
-        audit("SHORT-BLOCKED", `${trade.ticker}: side='${trade.side}' blocked in morning queue — stock shorting disabled. Converting to BUY.`);
-        trade.side = "buy";
-      }
-
       // ALPHA AUDIT 2026-05-04 batch 5: guard against qty=0 orders.
       // When trade.position_value is small (e.g. $50) and currentPrice is
       // high (e.g. QQQ at $500+), Math.floor produces 0 shares. Submitting
@@ -4503,7 +4516,7 @@ print(json.dumps(result[:20]))
           body: JSON.stringify({
             symbol: trade.ticker,
             qty: String(_qtyToSubmit),
-            side: trade.side || "buy",
+            side: mqVerdict.side,
             ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
@@ -4523,7 +4536,7 @@ print(json.dumps(result[:20]))
             ticker: trade.ticker,
             score: trade.score || 0,
             placedAt: Date.now(),
-            side: trade.side || "buy",
+            side: mqVerdict.side,
             qty: _qtyToSubmit,
             limitPrice: Number(order.limit_price) || 0,
           });
@@ -4566,7 +4579,7 @@ print(json.dumps(result[:20]))
 
         slotsUsed++;
         // Auto-subscribe for real-time exit monitoring
-        addPositionToMonitor(trade.ticker, "long", trade.price || 0, Math.floor(trade.shares));  // Always long (short blocked)
+        addPositionToMonitor(trade.ticker, mqVerdict.monitorSide, trade.price || 0, Math.floor(trade.shares));  // side from the verdict (N2)
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
       }
