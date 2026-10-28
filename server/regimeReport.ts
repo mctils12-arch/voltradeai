@@ -69,14 +69,20 @@ export function readRegimeHistory(dir: string, limit = REGIME_HISTORY_LIMIT): Re
   const lines = raw.split("\n").filter((l) => l.trim().length > 0);
   const out: RegimeStateFile[] = [];
   for (const line of lines) {
-    try {
-      const row = JSON.parse(line);
-      if (row && typeof row === "object") out.push(row as RegimeStateFile);
-    } catch {
-      // a torn line (the writer appends one row at a time; a partial last line is possible mid-write)
-    }
+    const row = parseHistoryLine(line);
+    if (row) out.push(row);
   }
   return out.slice(-limit);   // the last `limit` VALID rows (the file is a few hundred rows a year)
+}
+
+/** One history row, or null for a torn line (the writer appends one row at a time; a partial last line is possible mid-write). */
+export function parseHistoryLine(line: string): RegimeStateFile | null {
+  try {
+    const row = JSON.parse(line);
+    return row && typeof row === "object" ? (row as RegimeStateFile) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Weekdays strictly after `fromISO` (YYYY-MM-DD) up to and including `now`'s UTC date. */
