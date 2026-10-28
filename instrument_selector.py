@@ -543,6 +543,82 @@ def _score_stock(trade: dict, intelligence: dict) -> dict:
     }
 
 
+def _etf_block_reason(etf_ticker: str, etf_map: Optional[dict] = None) -> Optional[str]:
+    """Why a substitute ETF may not be bought, or None.
+
+    Applies system_config BASE_CONFIG["BLOCKED_TICKERS"] to the ETF symbol
+    itself, plus that list's stated category: funds at or above
+    BLOCKED_ETF_MIN_LEVERAGE (3x) per the "leverage" annotation in
+    analyze.LEVERAGED_ETFS. If system_config cannot be imported, the
+    leverage check still runs with the default 3x floor."""
+    sym = str(etf_ticker or "").strip().upper()
+    try:
+        from system_config import BASE_CONFIG as _BC
+        blocked = {str(t).upper() for t in _BC.get("BLOCKED_TICKERS", [])}
+        min_lev = float(_BC.get("BLOCKED_ETF_MIN_LEVERAGE", 3) or 3)
+    except Exception:
+        blocked, min_lev = set(), 3.0
+    if sym in blocked:
+        return f"{sym} is in BLOCKED_TICKERS"
+    try:
+        lev = float((etf_map or {}).get("leverage") or 0)
+    except (TypeError, ValueError):
+        lev = 0.0
+    if lev >= min_lev:
+        return (f"{sym} is a {lev:g}x ETF — BLOCKED_TICKERS bans "
+                f">={min_lev:g}x leveraged ETFs (22% WR)")
+    return None
+
+
+def plan_etf_execution(sizing: Optional[dict], stock_position_value: float,
+                       etf_quote: Optional[dict]) -> dict:
+    """Size and price a substitute-ETF entry. Pure — no I/O.
+
+    [REPAIR] 2026-10-27 (audit §6.8 N6): server/bot.ts used to buy
+    floor(trade.shares / 2) ETF shares — half the UNDERLYING's share count,
+    unrelated to dollars — at a limit derived from the UNDERLYING's price
+    (XLF→FAS never filled; most others were effectively market orders), and
+    _build_sizing's ETF dollars were discarded. Now:
+      dollars = the selector's ETF sizing (dollar_amount) when present, else
+                the stock trade's own notional; never above the stock
+                notional, because every Node gate (size cap, heat cap,
+                buying power) was evaluated against that figure.
+      price   = the ETF's own ask (getOrderParams adds the entry buffer).
+    Returns {"ok": True, etf_price, etf_shares, etf_position_value,
+    sizing_source} or {"ok": False, "reason": str}; the caller trades the
+    stock instead when not ok."""
+    stock_value = float(stock_position_value or 0)
+    sizing = sizing if isinstance(sizing, dict) else {}
+    if sizing.get("blocked"):
+        return {"ok": False, "reason": f"ETF sizing blocked: {sizing.get('block_reason') or 'unknown'}"}
+    sel_dollars = float(sizing.get("dollar_amount") or 0) if sizing.get("type") == "etf" else 0.0
+    if sel_dollars > 0:
+        dollars, source = sel_dollars, "selector"
+    else:
+        dollars, source = stock_value, "stock_notional"
+    if stock_value > 0 and dollars > stock_value:
+        dollars, source = stock_value, source + "_capped_at_stock_notional"
+    q = etf_quote if isinstance(etf_quote, dict) else {}
+    try:
+        ask = float(q.get("ap") or 0)
+    except (TypeError, ValueError):
+        ask = 0.0
+    if ask <= 0:
+        return {"ok": False, "reason": "no ETF ask quote — cannot price the ETF order"}
+    if dollars <= 0:
+        return {"ok": False, "reason": "no dollar sizing for the ETF"}
+    shares = int(dollars // ask)
+    if shares < 1:
+        return {"ok": False, "reason": f"${dollars:,.2f} buys 0 shares at ETF ask ${ask:.2f}"}
+    return {
+        "ok": True,
+        "etf_price": round(ask, 4),
+        "etf_shares": shares,
+        "etf_position_value": round(shares * ask, 2),
+        "sizing_source": source,
+    }
+
+
 def _score_etf(trade: dict, intelligence: dict, equity: float) -> Optional[dict]:
     """
     Score 2× leveraged ETF. Only scored if the ticker has an entry in LEVERAGED_ETFS.
@@ -570,6 +646,23 @@ def _score_etf(trade: dict, intelligence: dict, equity: float) -> Optional[dict]
 
     if not etf_ticker:
         return None  # No ETF for this direction
+
+    # BLOCKED_TICKERS ON THE SUBSTITUTE 2026-10-27 ([REPAIR], audit §6.8 N6):
+    # bot_engine checks BLOCKED_TICKERS on the UNDERLYING only, so the ETF
+    # this function substitutes was never checked — IWM→TNA and XLF→FAS are
+    # 3x funds, the exact class the list bans ("3x leveraged ETFs: 22% WR").
+    # Same blocked-dict shape as the 200MA gate below, so select_instrument
+    # rules the ETF out and the stock/options candidates compete instead.
+    _blk = _etf_block_reason(etf_ticker, etf_map)
+    if _blk:
+        return {
+            "etf_ticker": etf_ticker,
+            "score": 0.0,
+            "strategy": "etf_blocked",
+            "reasoning": f"BLOCKED_TICKERS gate: {_blk}",
+            "blocked": True,
+            "reason": _blk,
+        }
 
     # 200-DAY SMA GATE 2026-05-03 (alpha audit) ─────────────────────────────
     # Pro literature on leveraged ETF momentum (Gayed et al. 2018, CXO

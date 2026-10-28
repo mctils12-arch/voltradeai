@@ -111364,3 +111364,53 @@ Change: append-only `voltrade_regime_counterfactual.jsonl` recording, for every 
 ## 2026-10-28 [PIPELINE] — T-BOT (regime_engine.py, shadow_portfolio.py) — v1.0.1197 REGIME ML-READY SNAPSHOT (logging only; ML not built)
 
 Change: shadow records carry a compact `regime_snapshot` (~0.8 KB: engine states, stress inputs, composite, exposure, confidence, engine vs Markov label, engine vs legacy decision) whenever the engine is on; absent otherwise. Existing outcome backfills attach realized +5/+10/+20d returns. ML stays gated per FINDINGS F1 (live run passes step-9 promotion rules AND Section 10 backtest exists). No live decision changes. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — ETF substitution: dollar sizing, ETF's own price, BLOCKED_TICKERS on the ETF (audit N6, 1/2) (v1.0.1198)
+
+What was wrong:
+- server/bot.ts executeTrades ETF branch bought Math.floor(trade.shares / 2)
+  ETF shares: half the UNDERLYING's share count, unrelated to dollars.
+- Its limit came from getOrderParams(trade.price), the UNDERLYING's price:
+  XLF->FAS (~3x the price) could never fill; most others were effectively
+  market orders. The entry fill record, monitor entry price and heat
+  tracking used the underlying's price too.
+- instrument_selector._build_sizing's ETF dollar sizing was discarded
+  (bot_engine never forwarded it).
+- BLOCKED_TICKERS ("3x leveraged ETFs: 22% WR") was checked only on the
+  underlying (bot_engine ~3574); IWM->TNA/TZA and XLF->FAS/FAZ are 3x.
+
+What changed:
+- instrument_selector.plan_etf_execution (pure): dollars = selector ETF
+  sizing, else the stock notional, never above the stock notional (the
+  figure Node's size/heat/BP gates checked); shares = floor(dollars / ETF
+  ask). A blocked ETF sizing, no ETF quote, or 0 shares -> not ok.
+- bot_engine._resolve_etf_execution: fetches the ETF quote (same
+  quotes/latest endpoint/feed/throttle as the spread check), emits
+  etf_shares/etf_price/etf_position_value/etf_sizing_source on the trade,
+  or downgrades the choice to the stock (the branch's existing fallback).
+- server/etfSubstitution.ts planEtfOrder validates those fields; bot.ts
+  places qty/limit from them (order transmission unchanged), records the
+  fill and monitor entry at the ETF price, adds ETF dollars to heat. No
+  plan -> ETF-FALLBACK audit and the stock path.
+- instrument_selector._etf_block_reason in _score_etf: ETF in
+  BLOCKED_TICKERS, or leverage >= BASE_CONFIG BLOCKED_ETF_MIN_LEVERAGE (3,
+  the list's own stated class; new key) per a 'leverage': 3 annotation on
+  analyze.LEVERAGED_ETFS IWM/XLF -> ETF ruled out like the 200MA gate.
+
+Downstream chain: TNA/TZA/FAS/FAZ substitutions stop -> those candidates
+compete as stock/options (stock slots, sector caps apply as for any stock).
+Remaining ETF entries now fill at ~the intended dollar size (selector ETF
+sizing is 50% of the ETF-bucket Kelly size, capped at the stock notional)
+-> realized ETF exposure per entry changes from "underlying shares/2 x ETF
+price" (could be far above or below intent) to the sized dollars -> heat
+cap / totalDeployed now track real ETF dollars. Missing ETF quotes now
+trade the stock instead of a mispriced ETF limit.
+
+Rollback trigger: any ETF-TRADE whose dollar value exceeds the scan's
+position_value, or an ETF-FALLBACK rate > 50% of ETF choices over 5 days
+(quote fetch failing) -> revert and investigate.
+
+Tests: test_etf_substitution_n6.py (14 fail before / pass after; one
+2x-control passes both), server/etfSubstitution.test.ts.
+
+STARVED: no — master-plan queue in progress this session.
