@@ -463,6 +463,52 @@ def _option_underlying(position: Dict[str, Any]) -> str:
     return str(parsed.get("ticker") or symbol).upper()
 
 
+# ── REGIME ENGINE step 5 (docs/regime/FINDINGS.md): the CSP guards ──────────
+_T1_EARNINGS_CACHE = {"at": 0.0, "days_ahead": 0, "cal": {}, "ok": False}
+T1_EARNINGS_CACHE_S = 900.0   # csp_universe refreshes its layers every 15 min: same cadence, one Finnhub call
+
+
+def _t1_earnings_calendar(days_ahead: int):
+    """({ticker: days_to_earnings}, lookup_ok) from options_scanner's Finnhub calendar, cached
+    15 minutes per window. lookup_ok=False (outage, rate limit) means the earnings guard is
+    BLIND and fails open, flagged on the record — never a block on missing data."""
+    now = time.time()
+    c = _T1_EARNINGS_CACHE
+    if c["days_ahead"] == days_ahead and now - c["at"] < T1_EARNINGS_CACHE_S:
+        return c["cal"], c["ok"]
+    try:
+        from options_scanner import _fetch_earnings_calendar_with_status
+        cal, ok = _fetch_earnings_calendar_with_status(days_ahead=days_ahead)
+    except Exception as e:
+        logger.debug(f"T1 earnings calendar unavailable: {e}")
+        cal, ok = {}, False
+    c.update(at=now, days_ahead=days_ahead, cal=dict(cal or {}), ok=bool(ok))
+    return c["cal"], c["ok"]
+
+
+def _t1_regime_context() -> dict:
+    """The regime engine's state-level verdict on NEW cash-secured puts for this scan
+    (step 5), or an inert context when the engine is off or has no state. Never raises."""
+    out = {"engine": None, "state": None, "verdict": None, "gates": set(), "size_mult": 1.0,
+           "target_delta": None, "earnings": {}, "earnings_ok": False}
+    try:
+        import regime_engine as _re
+        if not _re.engine_allowed():
+            return out
+        state = _re.cached_state()
+        if not isinstance(state, dict) or not state.get("as_of"):
+            return out
+        gates = _re.options_gates()
+        verdict = _re.csp_verdict(state, {"dte_max": T1_TARGET_DTE_MAX})
+        acting = _re.apply_csp_gates(verdict, gates)
+        cal, ok = _t1_earnings_calendar(T1_TARGET_DTE_MAX + int(_re.OPTIONS_PARAMS["earnings_buffer_days"]))
+        out.update(engine=_re, state=state, verdict=verdict, gates=gates, size_mult=float(acting["size_mult"]),
+                   target_delta=acting["target_delta"], earnings=cal, earnings_ok=ok)
+    except Exception as e:
+        logger.debug(f"T1 regime context unavailable: {e}")
+    return out
+
+
 def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     """Sell cash-secured puts on Tier 1 universe, regime-scaled."""
     if not TIERS_ENABLED.get(1, False):
@@ -498,6 +544,22 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
         size_scalar *= 0.50
     elif dd <= -0.10:
         size_scalar *= 0.75
+
+    # REGIME ENGINE step 5 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_OPTIONS):
+    # the engine's verdict on NEW short puts. SHADOW by default — the flags ride
+    # the action metadata and every guard that WOULD act logs a
+    # would_reject_regime_<g> shadow record (prevention-P&L first); only the
+    # gates named in the flag block or scale for real. A blocked name is simply
+    # not proposed — nothing here touches an order path. The size multiplier
+    # rides size_scalar exactly like the VXX ladder above (the affordability
+    # cap + size_pct; the contract count itself is select_contract's until the
+    # master plan's N8 threads trade context through — AUDIT §2 T7).
+    _rg = _t1_regime_context()
+    if _rg["size_mult"] != 1.0:
+        size_scalar *= _rg["size_mult"]
+    _rg_target_delta = _rg["target_delta"] if _rg["target_delta"] is not None else T1_TARGET_DELTA
+    _rg_seen: Dict[str, int] = {}
+    _rg_rejections: List[Dict[str, Any]] = []
 
     # Current tickers already held (avoid doubling up)
     # BUG FIX 2026-10-13 (f5-t1-occ-dedupe): option positions carry OCC
@@ -562,6 +624,31 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
             )
             continue
 
+        # REGIME ENGINE step 5: this name's verdict (state flags + its earnings date).
+        _rg_meta = None
+        if _rg["engine"] is not None:
+            _rg_v = _rg["engine"].csp_verdict(
+                _rg["state"], {"days_to_earnings": _rg["earnings"].get(ticker), "dte_max": T1_TARGET_DTE_MAX})
+            _rg_act = _rg["engine"].apply_csp_gates(_rg_v, _rg["gates"])
+            _rg_meta = {"flags": _rg_v["flags"], "would_block": _rg_v["would_block"], "gates": sorted(_rg["gates"]),
+                        "size_mult": _rg_v["size_mult"], "target_delta": _rg_v["target_delta"],
+                        "earnings_lookup_ok": _rg["earnings_ok"], "composite": _rg_v["composite"],
+                        "vol_state": _rg_v["vol_state"], "as_of": _rg_v["as_of"]}
+            if _rg_v["would_block"]:
+                _g = (_rg_act["blocked_by"] or _rg_v["would_block"])[0]
+                _decision = f"rejected_regime_{_g}" if _rg_act["block"] else f"would_reject_regime_{_g}"
+                _rg_seen[_decision] = _rg_seen.get(_decision, 0) + 1
+                # bounded like the 3 actions a scan returns, once per name/guard/day
+                if _rg_seen[_decision] <= 3 and _rg["engine"].shadow_once_per_day(f"t1:{ticker}:{_decision}"):
+                    _rg_rejections.append({
+                        "ticker": ticker, "decision": _decision, "reason": str(_rg_v["reasons"].get(_g, _g)),
+                        "metadata": {"vxx_ratio": ctx.vxx_ratio, "regime_label": regime_label, "regime_guards": _rg_meta},
+                    })
+                if _rg_act["block"]:
+                    if _g in ("crisis", "vrp") and _rg_seen[_decision] >= 3:
+                        break      # state-level: every name is blocked; the 3 that would have been proposed are logged
+                    continue       # the name is removed, the slot is kept
+
         # Position sizing: respect MAX_OPTIONS_PCT from system_config (8%)
         base_size = max_per_position * size_scalar
         slots_available -= 1
@@ -577,7 +664,7 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
             metadata={
                 "target_dte_min": T1_TARGET_DTE_MIN,
                 "target_dte_max": T1_TARGET_DTE_MAX,
-                "target_delta": T1_TARGET_DELTA,
+                "target_delta": _rg_target_delta,
                 "take_profit_pct": T1_TAKE_PROFIT_PCT,
                 "stop_loss_mult": T1_STOP_LOSS_MULT,
                 "force_close_dte": T1_FORCE_CLOSE_DTE,
@@ -590,8 +677,17 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                 # to at the point options_execution.select_contract fails.
                 "vxx_ratio": ctx.vxx_ratio,
                 "regime_label": regime_label,
+                # REGIME ENGINE step 5: the engine's verdict on this name (None when the
+                # engine is off); regime_size_mult is what the gates applied to size_scalar.
+                "regime_guards": _rg_meta,
+                "regime_size_mult": _rg["size_mult"],
             },
         ))
+
+    # REGIME ENGINE step 5: the guards' shadow records — each guard earns a
+    # prevention-P&L (per-decision bucket on /api/diag/shadow) before promotion.
+    if _rg_rejections:
+        log_csp_gate_shadow(_rg_rejections)
 
     # Return at most 3 new CSP entries per scan cycle (avoid overconcentration)
     return actions[:3]
