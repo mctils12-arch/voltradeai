@@ -1,0 +1,92 @@
+// regimeReport — read-only shaping of the regime engine's persisted state
+// (docs/regime/FINDINGS.md step 3). Run: npx tsx --test server/regimeReport.test.ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  REGIME_STATE_FILE, REGIME_HISTORY_FILE, regimeEngineEnabled, readRegimeState, readRegimeHistory,
+  marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit,
+} from "./regimeReport";
+import { SERVING_CHECKS } from "./healthGate";
+
+const state = (over: Record<string, unknown> = {}) => ({
+  as_of: "2026-10-26", gating_index: "SPY", composite_regime: "CALM_BULL", legacy_label: "BULL",
+  trend_state: "UP", fast_state: "MIXED", vol_state: "LOW", breadth_state: "NARROW",
+  exposure_multiplier: 1, core_multiplier: 1, confidence: 1, flips_12m: 3, composite_changes_12m: 3, alarm: false, ...over,
+});
+
+function tmpDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "regime-report-"));
+}
+
+test("flag parsing mirrors the Python gate (1/true/on/yes; default off)", () => {
+  assert.equal(regimeEngineEnabled({}), false);
+  assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "0" }), false);
+  assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "1" }), true);
+  assert.equal(regimeEngineEnabled({ VOLTRADE_REGIME_ENGINE: "TRUE" }), true);
+});
+
+test("readers: missing files are null/[]; a torn last history line is skipped", () => {
+  const dir = tmpDir();
+  assert.equal(readRegimeState(dir), null);
+  assert.deepEqual(readRegimeHistory(dir), []);
+  fs.writeFileSync(path.join(dir, REGIME_STATE_FILE), JSON.stringify(state()));
+  fs.writeFileSync(path.join(dir, REGIME_HISTORY_FILE),
+    [JSON.stringify(state({ as_of: "2026-10-23" })), JSON.stringify(state({ as_of: "2026-10-24", composite_regime: "CHOPPY" })), '{"as_of": "2026-10-2'].join("\n"));
+  assert.equal(readRegimeState(dir)?.composite_regime, "CALM_BULL");
+  const hist = readRegimeHistory(dir);
+  assert.equal(hist.length, 2);
+  assert.equal(hist[1].composite_regime, "CHOPPY");
+  assert.equal(readRegimeHistory(dir, 1).length, 1);
+});
+
+test("market days between: weekdays only, strictly after as_of", () => {
+  assert.equal(marketDaysBetween("2026-10-23", new Date("2026-10-27T15:00:00Z")), 2);   // Fri -> Tue
+  assert.equal(marketDaysBetween("2026-10-26", new Date("2026-10-26T23:00:00Z")), 0);
+  assert.equal(marketDaysBetween(undefined, new Date()), null);
+  assert.equal(marketDaysBetween("garbage", new Date()), null);
+});
+
+test("health: off without state, warning when enabled but empty, ok when fresh, warning when stale/alarm/error; never gates serving", () => {
+  const now = new Date("2026-10-27T15:00:00Z");
+  assert.equal(regimeHealth(null, now, false).status, "off");
+  assert.equal(regimeHealth(null, now, true).status, "warning");
+  const fresh = regimeHealth(state(), now, true);
+  assert.equal(fresh.status, "ok");
+  assert.equal(fresh.age_market_days, 1);
+  assert.equal(fresh.gates_top_level_status, false);
+  assert.equal(regimeHealth(state(), new Date("2026-11-05T15:00:00Z"), true).status, "warning");
+  assert.match(regimeHealth(state({ alarm: true, flips_12m: 7 }), now, true).detail ?? "", /flip alarm/);
+  assert.match(regimeHealth(state({ error: "network" }), now, true).detail ?? "", /last update failed/);
+  assert.equal(regimeHealth(state(), now, false).status, "off");
+  assert.ok(!(SERVING_CHECKS as readonly string[]).includes("regime"), "the regime block must never be a serving gate");
+});
+
+test("report: history rows, transitions and time-at-levels are derived from the history file", () => {
+  const now = new Date("2026-10-27T15:00:00Z");
+  const hist = [
+    state({ as_of: "2026-10-20", exposure_multiplier: 1 }),
+    state({ as_of: "2026-10-21", exposure_multiplier: 0.75, composite_regime: "VOLATILE_BULL" }),
+    state({ as_of: "2026-10-22", exposure_multiplier: 0.75, composite_regime: "VOLATILE_BULL" }),
+    state({ as_of: "2026-10-23", exposure_multiplier: 1, composite_regime: "CALM_BULL" }),
+  ];
+  const body = regimeReportBody(state(), hist, now, true);
+  assert.equal(body.enabled_env, true);
+  assert.equal(body.state_present, true);
+  assert.equal(body.history_days, 4);
+  assert.deepEqual(body.transitions.map((t) => `${t.from}>${t.to}`), ["CALM_BULL>VOLATILE_BULL", "VOLATILE_BULL>CALM_BULL"]);
+  assert.deepEqual(body.time_at_levels, { "1.00": 2, "0.75": 2 });
+  assert.equal(body.health.status, "ok");
+  const empty = regimeReportBody(null, [], now, false);
+  assert.equal(empty.state_present, false);
+  assert.equal(empty.health.status, "off");
+});
+
+test("transition audit text: null without a transition, one line with it", () => {
+  assert.equal(regimeTransitionAudit(state()), null);
+  assert.equal(regimeTransitionAudit(null), null);
+  const line = regimeTransitionAudit(state({ transition: { from: "CALM_BULL", to: "BEAR", to_as_of: "2026-10-26" }, exposure_multiplier: 0.25 }));
+  assert.match(line ?? "", /^CALM_BULL -> BEAR \(as_of 2026-10-26; exposure 0.25/);
+});

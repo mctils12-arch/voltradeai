@@ -31,7 +31,7 @@ Invariant across all flags: `risk_kill_switch.py` mechanisms, the Node −10% ki
 |---|---|
 | Change | New module: `RegimeState` dataclass, pure `compute_state`, transition filter, input builder, persistence helpers, RPC wrapper `regime_state_rpc`; one line in `voltrade_daemon.py`'s method table; two paths in `storage_config.py`; one `BASE_CONFIG` comment/param block. |
 | Affected components | `voltrade_daemon.py` (method table only — the subprocess fallback uses the same function), `storage_config.py`, `system_config.py` (additive keys). Nothing reads the state yet. |
-| Expected effect | With the flag off: zero (module not imported on the scan path). With the flag on: one state computation per scan (cached per bar date), ~20 cached bar fetches per day, a few KB written per day. |
+| Expected effect | With the flag off: zero (the scan hook imports the pure-Python module and evaluates `engine_allowed()` only; no fetch, no write). With the flag on: one state computation per scan (cached per bar date), ~20 cached bar fetches per day, a few KB written per day. |
 | Risk | Bar fetch latency on a cold cache inside the scan (bounded: the builder has a 20 s budget and falls back to the last persisted state with `confidence` reduced and a `stale` flag). Daemon RSS: the module holds ~20 × 2,500 floats. |
 | Observed by | Step 3's route/probe; until then the state file in `DATA_DIR`. |
 
