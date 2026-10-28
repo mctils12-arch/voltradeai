@@ -111512,3 +111512,10 @@ STARVED: no — master-plan queue in progress this session.
 ## 2026-10-28 [RESEARCH] — research/docs only (docs/regime) — REGIME DOCS: live-run next steps, ML gate, follow-ups
 
 FINDINGS "Next steps after close": live run departure from the §6 shadow wait (human-ordered), step-9 rollback rules kept, counterfactual log, day-1 reading (CALM_BULL, exposure 0.75, state 1 market day old, health ok), and follow-ups F1 (ML, gated on step-9 pass AND Section 10 backtest; reviewed 2026-11-16 / 12-15 / 2027-01-27 by scheduled routines) through F7. RUNBOOK §7 added. Docs only, no version bump. STARVED: no.
+
+## 2026-10-28 [RESEARCH] — research/ + scripts/ (no trading code) — v1.0.1201 EDGE P1 DEALER GAMMA: gate 2 SIGNAL PASS (pre-registered)
+
+OLS log(RV_{t+1..t+5}/VIX_t^2) ~ GEX 252d rank + log IV, NW lag 5, SPY: full 2012-05→2026-10 b −0.858 t −9.61 (n 3640); holdout 2019-01→ b −0.904 t −7.25 (n 1962). Prior 70/45/35% — all three legs hit.
+Base rate: RV>IV in 15.2% of windows; GEX-rank bottom quintile 24.9% vs top 8.1%. Negative in every VIX tercile/regime (BEAR weakest, t −2.22). Post-hoc (not verdict): survives trailing-RV control; VIX9D as implied → b −0.56 (t −6.36), ~1/3 is horizon mismatch.
+Data: SqueezeMetrics DIX.csv (ESTIMATE, licence unverified, not committed), Cboe VIX/VIX9D, Yahoo SPY (no Alpaca keys in sandbox). Secondary (ii) 1-min intraday split NOT run.
+Next: gate 1 (own GEX from Alpaca OI vs SqueezeMetrics) before any trading; gate 3 rule sim "no new short premium when R_{t-1}<0.2". Nothing trades. STARVED: no.
