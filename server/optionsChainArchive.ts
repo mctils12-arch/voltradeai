@@ -21,6 +21,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { beat } from "./jobHeartbeat";
 
 export const CHAIN_MAX_UNDERLYINGS = 120;
 export const CHAIN_MAX_DTE_DAYS = 60;
@@ -149,9 +150,9 @@ const ET_FMT = new Intl.DateTimeFormat("en-US", {
 // so December's year-add flows through automatically). Parse failure
 // degrades to weekend-only gating, never to a crash. ──────────────────────
 
-export function parseMarketHolidays(pyText: string): Set<string> {
+export function parseMarketHolidays(pyText: string, setPrefix: "MARKET_HOLIDAYS" | "HALF_DAYS" = "MARKET_HOLIDAYS"): Set<string> {
   const out = new Set<string>();
-  const m = pyText.match(/MARKET_HOLIDAYS_\d{4}\s*=\s*\{([\s\S]*?)\}/g) || [];
+  const m = pyText.match(new RegExp(`${setPrefix}_\\d{4}\\s*=\\s*\\{([\\s\\S]*?)\\}`, "g")) || [];
   for (const block of m) {
     const dates = Array.from(block.matchAll(/date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)/g));
     for (const d of dates) {
@@ -170,6 +171,19 @@ export function marketHolidays(): Set<string> {
     holidayCache = new Set(); // degrade to weekend-only gating
   }
   return holidayCache;
+}
+
+/** 1:00 PM ET early closes (HALF_DAYS_<year> in market_calendar.py) — used by
+ *  server/jobHeartbeat.ts's market-hours window. Same degrade-to-empty rule. */
+let halfDayCache: Set<string> | null = null;
+export function marketHalfDays(): Set<string> {
+  if (halfDayCache) return halfDayCache;
+  try {
+    halfDayCache = parseMarketHolidays(fs.readFileSync(path.resolve(process.cwd(), "market_calendar.py"), "utf8"), "HALF_DAYS");
+  } catch {
+    halfDayCache = new Set();
+  }
+  return halfDayCache;
 }
 
 /** Once per ET trading day, after the close (16:15 ET). lastRunDay is the
@@ -305,14 +319,21 @@ export function bootChainArchive(
       const { run, etDay } = shouldRunNow(readLastRunDay());
       if (!run) return;
       running = true;
+      beat("options_chain_archive", "start");
       const result = await runDailyChainArchive(env, fetch as any, getPositions());
       // claim AFTER success: a crash/total failure leaves the marker
       // unwritten so the next hourly tick retries the same trading day
-      if (shouldClaimDay(result)) writeLastRunDay(etDay);
-      else console.error(`[optionchains] total failure (${result.failures}/${result.underlyings}) — day NOT claimed, retrying next tick`);
+      if (shouldClaimDay(result)) {
+        writeLastRunDay(etDay);
+        beat("options_chain_archive", "finish", "ok", `${etDay}: ${result.contracts} contracts, ${result.underlyings} underlyings, ${result.failures} failed`);
+      } else {
+        console.error(`[optionchains] total failure (${result.failures}/${result.underlyings}) — day NOT claimed, retrying next tick`);
+        beat("options_chain_archive", "finish", "error", `${etDay}: total failure ${result.failures}/${result.underlyings} underlyings — day not claimed`);
+      }
       try { gzipOldChainDays(); } catch {}
     } catch (e: any) {
       console.error("[optionchains] daily run failed (day not claimed):", e?.message || e);
+      beat("options_chain_archive", "finish", "error", `daily run failed (day not claimed): ${e?.message || e}`);
     } finally {
       running = false;
     }
