@@ -255,9 +255,39 @@ def current_schedule_proxy(dates, closes, vix_by_date, classify=classify_live,
     return expo, labels
 
 
+# ── the live engine as an arm (same implementation the bot runs) ─────────────
+def engine_arms():
+    """regime_engine.exposure_paths on the gating index: the quantized multiplier
+    consumers read, the continuous value, and the never-fully-out core multiplier.
+    Context arms receive the whole closes dict (basket + index family)."""
+    try:
+        import regime_engine as re_
+    except ImportError:
+        return {}
+
+    def _paths(dates, closes_by_symbol, gating_symbol, extra, which, **params):
+        basket = {s: closes_by_symbol[s] for s in re_.BREADTH_BASKET if s in closes_by_symbol and s != gating_symbol}
+        vix = extra.get("^VIX")
+        vix3m = extra.get("^VIX3M")
+        cont, quant, core, _comps = re_.exposure_paths(dates, closes_by_symbol[gating_symbol], basket, vix, vix3m, params or None)
+        return {"continuous": cont, "quantized": quant, "core": core}[which]
+
+    return {
+        "engine_quantized": (lambda d, c, g, x, **p: _paths(d, c, g, x, "quantized", **p), {"band": 0.01, "filter_days": 6, "vol_halflife": 20}, "context"),
+        "engine_continuous": (lambda d, c, g, x, **p: _paths(d, c, g, x, "continuous", **p), {}, "context"),
+        "engine_core": (lambda d, c, g, x, **p: _paths(d, c, g, x, "core", **p), {}, "context"),
+    }
+
+
+def engine_symbols():
+    try:
+        import regime_engine as re_
+        return list(re_.BREADTH_BASKET) + ["^VIX3M"]
+    except ImportError:
+        return []
+
+
 # ── arm registry (name -> (builder, parameters[, "context"])) ────────────────
-# "context" arms (added with the live regime_engine in Stage B step 2) receive the
-# whole closes dict (basket + index family) instead of the gating closes alone.
 def reference_arms():
     """Parametric arm table. Parameters listed here are the ones --sweep perturbs."""
     return {
@@ -517,6 +547,7 @@ def main(argv=None):
     ap.add_argument("--lag", type=int, default=2)
     ap.add_argument("--cost-bp", type=float, default=5.0)
     ap.add_argument("--sweep", action="store_true", help="±20%% single-parameter sensitivity + lag/cost variants")
+    ap.add_argument("--no-engine", action="store_true", help="skip the live regime_engine arms")
     ap.add_argument("--out", default=None, help="markdown path (default: print)")
     ap.add_argument("--json", default=None, help="JSON path for the raw results")
     args = ap.parse_args(argv)
@@ -524,10 +555,19 @@ def main(argv=None):
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     arms = reference_arms()
     arms["current_proxy"] = (None, {})
+    eng = {} if args.no_engine else engine_arms()
+    extra_symbols = engine_symbols() if eng else []
     series = {s: load_closes(s) for s in symbols}
+    for s in extra_symbols:
+        if s not in series:
+            try:
+                series[s] = load_closes(s)
+            except Exception as e:  # a basket member without history only weakens breadth; say so
+                print(f"warning: no bars for {s}: {e}")
     vix = load_closes("^VIX")
     series["^VIX"] = vix
     dates, closes = aligned(series, symbols[0])
+    arms.update(eng)
     results, levels = run_arms(dates, closes, arms, symbols, args.lag, args.cost_bp, args.start, args.end, vix_by_date=vix)
     sweep_rows = reversals = broken = None
     if args.sweep:
