@@ -111280,3 +111280,21 @@ Tests: test_n13_dd_sizing_peak_key.py (3; the Node-key test fails on the old cod
 Rollback trigger: sizing at DD < 5% differs from 1.0, or the scalar fires on a stale peak after the Node peak file is reset.
 
 STARVED: no — master-plan queue (N1, N4, N6, N8, N10-N12, N16, N17, N19, N21) still queued.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — N11 (options-slot half): Python's options cap reads system_config (v1.0.1192)
+
+Territory: T-BOT (bot_engine.py) + shared package.json / ci / research/*.
+
+Loop-health at start: last 10 tags = 6 REPAIR / 3 PIPELINE / 1 RESEARCH. This entry makes the next window 7 REPAIR of 10 -> the NEXT session must treat "generator of breaks" as Priority 1 before any further N-item repair. /api/health 16:14Z: status ok, serving ok, liveness not dark, DD -0.9%, feeds/jobs ok. Run is mid-market: merge after 4:00 PM ET (not a critical live break).
+
+What was wrong (audit §6.8 N11): bot_engine.MAX_OPTIONS_POSITIONS was a literal 8 (ALPHA-TUNE 2026-04-21) while system_config and Node executeTrades use 6, so the Python scanner was offered 2 more slots than Node would ever execute.
+
+What changed: the constant is read from BASE_CONFIG["MAX_OPTIONS_POSITIONS"] (6). Stock-slot half of N11 (CAUTION cap raise, floor ETFs counting as stock slots) NOT touched — separate change.
+
+Prior: no live P&L effect (Node's cap of 6 already bound execution); Python stops proposing candidates Node rejects. Downstream: fewer scanner candidates when 6-7 options are open -> less wasted rejected_node work; no change to sizing or exposure. Backtest: n/a (live slot plumbing).
+
+Tests: test_n11_options_slot_cap.py (2; fails on the old literal). counter_baseline: tests 648 -> 649, assertions 23093 -> 23096.
+
+Rollback trigger: options positions held ever exceed 6, or scanner stops producing options candidates with <6 open.
+
+STARVED: no — N1, N4, N6, N8, N10, N12, N16, N17, N19, N21 still queued.
