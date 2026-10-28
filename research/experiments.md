@@ -111360,3 +111360,7 @@ Hypothesis/prior: per FINDINGS step 9, guards that block knife/panic/rs/breadth 
 ## 2026-10-28 [RULE-REVIEW] — T-BOT measurement (regime_engine.py, server/regimeCounterfactual.ts) — v1.0.1196 REGIME COUNTERFACTUAL LOG (logging only)
 
 Change: append-only `voltrade_regime_counterfactual.jsonl` recording, for every regime-engine decision (selection, options, sizing, label), the legacy value next to the engine value, with the shadow bucket to join outcomes; diag probe `regime_counterfactual` aggregates per day per kind (no tickers). Measurement-integrity: a NEW metric, no before/after on identical inputs; cannot change a decision (sizer outputs pinned by test). Known bias: legacy sizing multiplier is logged pre-clamp, so it understates legacy size in crisis stress. Prior: engine sizing multiplier sits below legacy in elevated-VIX days and near 1.0 in calm tape. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime_engine.py, shadow_portfolio.py) — v1.0.1197 REGIME ML-READY SNAPSHOT (logging only; ML not built)
+
+Change: shadow records carry a compact `regime_snapshot` (~0.8 KB: engine states, stress inputs, composite, exposure, confidence, engine vs Markov label, engine vs legacy decision) whenever the engine is on; absent otherwise. Existing outcome backfills attach realized +5/+10/+20d returns. ML stays gated per FINDINGS F1 (live run passes step-9 promotion rules AND Section 10 backtest exists). No live decision changes. STARVED: no.

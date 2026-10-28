@@ -427,6 +427,7 @@ def log_csp_gate_shadow(rejections: list) -> dict:
                 vxx_ratio=float(meta.get("vxx_ratio", 1.0) or 1.0),
                 regime_label=str(meta.get("regime_label") or "unknown"),
                 side="sell", action_label="SELL CSP", trade_type="options",
+                regime_snapshot=meta.get("regime_snapshot"),   # regime engine ML snapshot when present (logging only)
             )
             out["logged"] += 1
         return out
@@ -662,7 +663,10 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                 if _rg_seen[_decision] <= 3 and _rg["engine"].shadow_once_per_day(f"t1:{ticker}:{_decision}"):
                     _rg_rejections.append({
                         "ticker": ticker, "decision": _decision, "reason": str(_rg_v["reasons"].get(_g, _g)),
-                        "metadata": {"vxx_ratio": ctx.vxx_ratio, "regime_label": regime_label, "regime_guards": _rg_meta},
+                        "metadata": {"vxx_ratio": ctx.vxx_ratio, "regime_label": regime_label, "regime_guards": _rg_meta,
+                                     # ML snapshot (2026-10-28 live flip; logging only) for the shadow record
+                                     "regime_snapshot": _rg["engine"].ml_snapshot(_rg["state"], kind="options",
+                                                                                  verdict=_rg_v, gates=_rg["gates"])},
                     })
                 if _rg_act["block"]:
                     if _g in ("crisis", "vrp") and _rg_seen[_decision] >= 3:

@@ -1415,6 +1415,79 @@ def counterfactual_label(key, markov_label, applied, source, env=None, loader=No
         return False
 
 
+# ── ML-ready snapshot on shadow records (logging only; no live effect) ────────
+# 2026-10-28 human directive: ML is NOT built or enabled, but every shadow
+# record carries what a future model needs from the regime engine — the state's
+# inputs at decision time, both labels, and the decision the engine made next to
+# the one legacy would have made at the same gate. Realized outcomes attach to the
+# same record through the existing backfills (+5/+10/+20 d and exit-aligned key on
+# ticker + entry_price + timestamp, never on these fields). Compact on purpose: the
+# shadow log is one JSON file rewritten per record (~20k records).
+ML_SNAPSHOT_VERSION = 1
+
+
+def _r4(v):
+    return round(float(v), 4) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v else None
+
+
+def ml_snapshot(state, kind="selection", markov_label=None, engine_label=None, verdict=None, gates=None):
+    """The compact regime snapshot persisted on a shadow record, or None without a state.
+
+    kind: 'selection' (a deep_score stock candidate; verdict = selection_verdict) or 'options'
+    (a new short put; verdict = csp_verdict). engine_label: the label_for() result the
+    record's regime_label used (None = the Markov label stood). engine_decision / legacy_decision:
+    the regime gate's verdict for this candidate vs legacy's (legacy has no regime gate: pass,
+    size x1). Never raises."""
+    try:
+        if not isinstance(state, dict) or not state.get("as_of"):
+            return None
+        sf = state.get("stress_flags") if isinstance(state.get("stress_flags"), dict) else {}
+        inp = state.get("inputs") if isinstance(state.get("inputs"), dict) else {}
+        ebp = state.get("ebp") if isinstance(state.get("ebp"), dict) else {}
+        gates = set(gates or ())
+        # Derivable fields are left out on purpose (allowed strategies, core multiplier,
+        # inversion / VRP-sign booleans, trend score, the gate list — each is a function of
+        # what is kept or of the flags on the counterfactual row): ~0.8 KB per record.
+        snap = {
+            "v": ML_SNAPSHOT_VERSION, "as_of": state.get("as_of"), "pv": state.get("params_version"),
+            "stale": bool(state.get("stale") or state.get("error")),
+            "composite": state.get("composite_regime"), "trend": state.get("trend_state"), "fast": state.get("fast_state"),
+            "vol": state.get("vol_state"), "breadth": state.get("breadth_state"), "panic": bool(state.get("panic_state")),
+            "exposure": _r4(state.get("exposure_multiplier")), "exposure_c": _r4(state.get("exposure_continuous")),
+            "vol_dial": _r4(state.get("vol_dial")), "confidence": _r4(state.get("confidence")),
+            "days_in_regime": state.get("days_in_regime"),
+            "stress": {"vix": _r4(sf.get("vix")), "vix_vix3m": _r4(sf.get("vix_vix3m")), "vrp": _r4(sf.get("vrp_points")),
+                       "vix_pct_1y": _r4(sf.get("vix_pct_1y")), "vvix": _r4(sf.get("vvix")),
+                       "rv21": _r4(sf.get("realized_vol_21d_pct")), "ewma_vol": _r4(sf.get("ewma_vol_pct")),
+                       "vol_pct": _r4(sf.get("vol_pct_own_history"))},
+            "inputs": {"f_slow": _r4(inp.get("f_slow")), "f_fast": _r4(inp.get("f_fast")), "breadth": _r4(inp.get("breadth")),
+                       "above_200d": inp.get("above_200d"), "dd52": _r4(inp.get("gating_dd52")),
+                       "mom24m": _r4(inp.get("mom24m")), "var126_pct": _r4(inp.get("var126_pct"))},
+            "ebp": _r4(ebp.get("ebp")),
+            "label_engine": state.get("legacy_label") or legacy_label(state.get("composite_regime")),
+            "label_markov": markov_label,
+            "label_used": "engine" if engine_label else "markov",
+        }
+        v = verdict if isinstance(verdict, dict) else {}
+        if kind == "options":
+            acting = apply_csp_gates(v, gates) if v else {"block": False, "blocked_by": [], "size_mult": 1.0, "target_delta": None}
+            snap["engine_decision"] = {"gate": "block" if acting["block"] else "pass", "blocked_by": acting["blocked_by"],
+                                       "would_block": list(v.get("would_block") or []),
+                                       "size_mult": acting["size_mult"], "target_delta": acting["target_delta"]}
+            snap["legacy_decision"] = {"gate": "pass", "size_mult": 1.0}
+        else:
+            blocked = [g for g in (v.get("would_block") or []) if g in gates]
+            snap["engine_decision"] = {"gate": "block" if blocked else "pass", "blocked_by": blocked,
+                                       "would_block": list(v.get("would_block") or []),
+                                       "dip_neutralized": bool(v.get("neutralize_mr")) and "dip" in gates and _num(v.get("mr_delta"), 0.0) > 0,
+                                       "mr_delta": _r4(v.get("mr_delta"))}
+            snap["legacy_decision"] = {"gate": "pass"}
+        return snap
+    except Exception as e:
+        logger.debug(f"ml_snapshot failed: {e}")
+        return None
+
+
 # ── entry points ─────────────────────────────────────────────────────────────
 def update_state(gating="SPY", force=False, params=None, build=None):
     """Compute (if the bar date advanced or `force`), persist, and return the state dict.
