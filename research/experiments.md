@@ -111069,3 +111069,10 @@ PRIOR: zero effect with the flag off (regression: the stock sizer's output is bi
 RESULT: local — full pytest 2962 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), node regimeReport 7 passed, tsc ratchet 6 ≤ 6, build OK, counter ratchet OK (test pins raised; no non-increasing pin moved). Live effect: none until VOLTRADE_REGIME_ENGINE is on and VOLTRADE_REGIME_SIZING names a sleeve.
 NEXT: step 7 — legacy-label subordination (built, next PR); step 8 — handoffs filed in open_questions.md (own PR); step 9 — closing docs + final summary.
 STARVED: no.
+
+## 2026-10-28 (scheduled routine, EDGE-DOCTRINE axis pick, Wed) [NO-ACTION] — no code_version change (1.0.1185)
+
+HEALTH: session_health_check all OK (live 1.0.1185 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK). WARN: overdue CONSTITUTIONAL AUDIT (unchanged, proposals await human); subsystems jobs=degraded (options_chain_archive, daily_reset "missing") on a container 100 s into uptime — expected right after the 1.0.1185 deploy, heartbeats (v1.0.1181) have had no time to fire; re-check next session, act only if it persists past one full job cadence. regime=off is the intended shadow default. thrash 3/10 REPAIR; STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory).
+AXIS SURVEY: PRIOR ~90% no startable axis item; confirmed. Today's main movement is the master-plan regime-engine series (T-BOT, other sessions' territory). (a)/(b) 13F/8-K gate 2: the "2026-11-16" date still appears in no primary source in open_questions.md/wishlist.md (re-grepped), so the 10-27 condition stands unmet; index-VRP ~2027-01-15; price-panel and archive-volume remain human decisions; (c) foreign-field ideas already filed; (d) nothing new recurs.
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
