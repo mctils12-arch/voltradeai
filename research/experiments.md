@@ -111328,7 +111328,7 @@ What changed: all three now return False on `market_calendar.is_market_holiday` 
 
 Prior: no effect on a weekday session; removes weekend/holiday queued-order loops for the floors and options entry. Downstream: fewer weekend scan-driven orders -> less cancel/resubmit churn; half-day afternoon entries (11-27, 12-24 after 13:00) stop. Backtest: n/a (live gating; backtest_v2 does not use these helpers).
 
-Tests: test_n17_regular_hours_calendar.py (24 cases x 3 modules; 12 fail on old code, all pass now). Related floor/options/selector suites 257 pass. ci/counter_baseline tests 650 -> 651.
+Tests: test_n17_regular_hours_calendar.py (24 cases x 3 modules; 12 fail on old code, all pass now). Related floor/options/selector suites 257 pass. ci/counter_baseline tests 650 -> 651, assertions 23096 -> 23097.
 
 Rollback trigger: any weekday regular-session scan reporting not-regular-hours, or the floors failing to act on a normal trading day.
 
