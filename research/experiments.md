@@ -111685,3 +111685,80 @@ ETF-TRADE audit lines with a confirmed fill (pending entries being lost),
 or FILL-TRACK-WARN appears more than occasionally.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — attribute option exits: register tier-dispatched entries, drop rejected-close and OCC-keyed orphans (v1.0.1206)
+
+What was wrong (audit §7.2.4: 342 of 398 live trade-feedback records are
+orphan_exit, 362 have pnl_pct None; 77 of the orphans carry an options
+exit_reason, 225 predate exit_reason logging and cannot be classified):
+1. server/bot.ts tier dispatcher, SELL_CSP (~5260) and BUY_PUT (~5397)
+   inline Python: submit_options_order() is called directly and the entry
+   is never registered. options_manager.manage_options_positions therefore
+   has no pending_entry_feedback to resolve, and every later close of those
+   positions (the CSP sleeve's main entry path) is written by
+   _record_options_exit_feedback as orphan_exit. The scanner path and
+   evaluate_and_execute both register; only the dispatcher did not.
+2. options_manager.py, all 8 single-leg close sites: the exit record is
+   written right after _submit_close_order() even when Alpaca REJECTED the
+   close. The position stays open, its state entry is popped, the next
+   cycle re-submits, and each rejected attempt appends one more orphan_exit
+   (the first one also closes the entry with a P&L for an exit that never
+   happened).
+3. server/bot.ts POS-KILL backstop exits option positions under the OCC
+   symbol (e.g. MUU261120P00010000); every options entry record is keyed by
+   the underlying, so ml_model_v2._find_entry_record can never match it.
+Not the cause (checked): trade_feedback lives on the /data volume and is
+not wiped by deploys; feedback_boot_cleanup keeps every record >= 1.0.34;
+the 5000-record rotation has not been reached (1724 records).
+
+What changed:
+- options_manager.register_pending_entry_feedback(occ, ticker, side):
+  writes only the pending marker (never overwrites a registered entry).
+- manage_options_positions: a marker-only state entry is initialized
+  exactly like an unregistered position (same entry_price/initial_credit
+  from Alpaca, strategy "unknown", entry_timestamp at first sight), keeping
+  the marker, which then resolves at Alpaca's avg_entry_price/qty. Exit
+  thresholds for these positions are therefore unchanged.
+- _record_options_exit_feedback(..., order_result=result): records only
+  when the close order was accepted ("submitted"). All 8 sites pass it.
+- server/exitFill.ts feedbackTickerFor(): exit payloads for an OCC symbol
+  key by the underlying.
+- bot.ts dispatcher (SELL_CSP, BUY_PUT): after a submitted order, call
+  register_pending_entry_feedback. Recording only; nothing about how the
+  order is built, sent or retried changes.
+Historical records are not rewritten.
+
+Metric before vs after on identical inputs:
+- tier CSP filled, later closed at profit_target: before 1 orphan_exit
+  (pnl None); after 1 entry record closed as win/loss with pnl_pct.
+- DTE-critical close rejected 3 scans running: before 3 orphan_exit
+  records; after 0.
+- POS-KILL of MUU261120P00010000: before an orphan under the OCC symbol;
+  after keyed "MUU" and matched to the open MUU entry when one exists.
+Bias direction: live_performance (win rate / expectancy, n=36 today) will
+start including option trades, mostly short puts with many small wins and
+rare large losses; that can move win rate UP and expectancy either way.
+The two populations (stock and option) should be read separately
+(options_outcome_breakdown already splits them by exit_reason). ML training
+is unaffected (option entries carry entry_features {} and are excluded by
+the schema gate).
+
+Downstream chain: more matched records -> /api/diag/ml live_outcome_breakdown
+and live_performance n rise -> risk_kill_switch.record_trade_outcome sees
+option outcomes (CONSECUTIVE_LOSS_KILL counts them, as it already did for
+the scanner-path options) -> /api/bot/performance totals include options.
+Residual (not fixed here): an accepted close that rests unfilled and is
+cancelled at EOD still records an exit, and a next-day re-close then
+orphans; fixing that needs a confirmed-fill contract for options exits
+(the bot.ts #35 pattern). An underlying traded as both stock and option
+can still cross-match (_find_entry_record keys by ticker only). If the
+account holds no options when a CSP is submitted, the manager's empty-book
+branch wipes options state (marker included) before the fill — the same
+pre-existing behavior register_options_entry entries have.
+
+Rollback trigger: revert if, after 5 market days, the live orphan_exit
+share of NEW records (code_version >= this version) is not lower than the
+pre-change 86%, or any manage_options_positions error appears in the audit
+log that traces to the marker-only state path.
+
+STARVED: no — master-plan queue in progress this session.

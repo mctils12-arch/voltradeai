@@ -35,6 +35,22 @@ export interface ExitFillArgs {
   codeVersion: string;
 }
 
+// [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS, audit §7.2.4): every options entry
+// record is keyed by the UNDERLYING (options_manager's pending entry, and its
+// own exit records via _parse_occ_symbol). The POS-KILL backstop exits option
+// positions under their OCC symbol (e.g. MUU261120P00010000), so
+// ml_model_v2._find_entry_record could never match one and each became an
+// orphan_exit. Exit records key by the underlying, like the entries do.
+const OCC_SYMBOL = /^([A-Z][A-Z0-9.]{0,5})(\d{6})([CP])(\d{8})$/;
+
+/** The ticker a feedback record is keyed by: the underlying for an OCC
+ *  option symbol, the symbol itself otherwise. */
+export function feedbackTickerFor(symbol: string): string {
+  const s = String(symbol || "").trim().toUpperCase();
+  const m = OCC_SYMBOL.exec(s);
+  return m ? m[1] : s;
+}
+
 export function buildExitFillPayload(a: ExitFillArgs) {
   const nowMs = a.nowMs ?? Date.now();
   let daysHeld = 0;
@@ -43,7 +59,7 @@ export function buildExitFillPayload(a: ExitFillArgs) {
     if (Number.isFinite(t)) daysHeld = Math.max(0, Math.round((nowMs - t) / 86400000));
   }
   return {
-    ticker: a.ticker,
+    ticker: feedbackTickerFor(a.ticker),
     side: a.exitSide,
     // v1.0.153's qty resolution accepts qty_filled — same contract as the
     // regular-hours entry payload.
