@@ -976,12 +976,26 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
     # never a silent cut; exposure 0 means no new discretionary risk -> blocked (the same
     # path a halt or negative expectancy takes). Flag off: this block is a no-op.
     _rg_sizing = None
+    _s_regime_legacy = s_regime
     try:
         import regime_engine as _re_sz
         _rg_sizing = _re_sz.sizing_for("stock")
     except Exception as _re_sz_err:
         _rg_sizing = None
         logging.getLogger("voltrade.position_sizing").debug(f"regime sizing unavailable: {_re_sz_err}")
+    # COUNTERFACTUAL (2026-10-28 live flip; regime_engine.log_counterfactual, logging only): the
+    # legacy regime scalars this sizer would have applied (VIX-level scalar x stress-index
+    # multiplier, pre-clamp) next to the engine's multiplier. Only while the engine is on.
+    try:
+        if _re_sz.engine_allowed():
+            _cf_stress = _re_sz.legacy_stress_multiplier()
+            _re_sz.counterfactual_sizing(
+                "stock", ticker,
+                {"multiplier": _s_regime_legacy * (_cf_stress if _cf_stress is not None else 1.0),
+                 "vix_scalar": _s_regime_legacy, "stress_mult": _cf_stress},
+                _rg_sizing, "position_sizing.calculate_position", ticker=ticker)
+    except Exception as _re_cf_err:
+        logging.getLogger("voltrade.position_sizing").debug(f"regime counterfactual skipped: {_re_cf_err}")
     if _rg_sizing is not None:
         s_regime = float(_rg_sizing["multiplier"])
         if s_regime <= 0.0:

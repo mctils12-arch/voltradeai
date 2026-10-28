@@ -1196,6 +1196,225 @@ def label_for(env=None, loader=None, today=None, params=None):
         return None
 
 
+# ── counterfactual log: legacy vs engine, one row per decision (MEASUREMENT) ──
+# 2026-10-28 live flip (human directive): every consumer writes, next to what the
+# ENGINE did, what the LEGACY system would have done at the same decision point,
+# so the switch is judged on the same decisions rather than on two different
+# periods. Append-only JSONL (storage_config.REGIME_COUNTERFACTUAL_PATH); one row
+# per (kind, key, source, content) per UTC day; rotated to <path>.1 above
+# max_bytes. Logging only — nothing here changes a decision. Read it with the
+# diag probe `regime_counterfactual` (server/regimeCounterfactual.ts, aggregates).
+#
+# Row schema (schema 1):
+#   ts, date (UTC day), kind (selection | options | sizing | label), key
+#   (ticker, sleeve or call-site name), ticker, sleeve, source (call site),
+#   legacy  {decision: "take", ...}            selection / options: what legacy
+#           would do AT THIS GATE (legacy has no regime gate here, so: take,
+#           size_mult 1.0, the default target delta); sizing: {multiplier =
+#           the product of the legacy regime scalars this sizer would have
+#           applied (pre-clamp), + the components}; label: {label = Markov}
+#   engine  {decision, blocked_by, would_block, gates, size_mult, ...} /
+#           {multiplier, source, stale, applied} / {label, applied}
+#           applied=False: the consumer's flag is off, the row records what the
+#           engine WOULD have done (the engine itself is on)
+#   differs (bool), shadow_decision (the rejected_regime_* / would_reject_
+#   regime_* bucket the decision's shadow record carries — join on ticker +
+#   date + decision for the shadow outcomes), regime (state_snapshot: as_of,
+#   composite, legacy_label, exposure_multiplier, params_version, stale),
+#   flags (effective VOLTRADE_REGIME_* values).
+COUNTERFACTUAL_KINDS = ("selection", "options", "sizing", "label")
+COUNTERFACTUAL_SCHEMA = 1
+COUNTERFACTUAL_PARAMS = {
+    "max_rows_per_day": 5000,           # per process; the per-day dedupe keeps a normal day in the hundreds
+    "max_bytes": 32 * 1024 * 1024,      # rotate to <path>.1 above this (one generation kept)
+}
+_CF = {"day": None, "keys": set(), "rows": 0, "dropped": 0}
+
+
+def _cf_path():
+    try:
+        from storage_config import REGIME_COUNTERFACTUAL_PATH
+        return REGIME_COUNTERFACTUAL_PATH
+    except Exception as e:
+        logger.debug(f"REGIME_COUNTERFACTUAL_PATH unavailable ({e}); using DATA_DIR")
+        from storage_config import DATA_DIR
+        return os.path.join(DATA_DIR, "voltrade_regime_counterfactual.jsonl")
+
+
+def state_snapshot(state):
+    """The compact id of the regime state a decision used (None without a state)."""
+    if not isinstance(state, dict) or not state.get("as_of"):
+        return None
+    return {"as_of": state.get("as_of"), "composite": state.get("composite_regime"),
+            "legacy_label": state.get("legacy_label"), "exposure_multiplier": state.get("exposure_multiplier"),
+            "params_version": state.get("params_version"), "stale": bool(state.get("stale") or state.get("error"))}
+
+
+def _cf_round(v):
+    if isinstance(v, float):
+        return round(v, 4)
+    if isinstance(v, dict):
+        return {k: _cf_round(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_cf_round(x) for x in v]
+    return v
+
+
+def _num(v, default=1.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def counterfactual_differs(kind, legacy, engine):
+    """Did the engine's decision differ from legacy's at this decision point?"""
+    legacy, engine = legacy or {}, engine or {}
+    if kind == "sizing":
+        return abs(_num(legacy.get("multiplier")) - _num(engine.get("multiplier"))) > 1e-9
+    if kind == "label":
+        return legacy.get("label") != engine.get("label")
+    if legacy.get("decision") != engine.get("decision"):
+        return True
+    if abs(_num(legacy.get("size_mult")) - _num(engine.get("size_mult"))) > 1e-9:
+        return True
+    return bool(engine.get("dip_neutralized"))
+
+
+def log_counterfactual(kind, key, legacy, engine, source, state=None, shadow_decision=None,
+                       ticker=None, sleeve=None, env=None, path=None, today=None) -> bool:
+    """Append one legacy-vs-engine row (schema above). Only while the engine is on (with it
+    off there is nothing to compare); once per (kind, key, source, content) per UTC day;
+    capped per day; rotated above max_bytes. Returns whether a row was written. Never raises."""
+    try:
+        if kind not in COUNTERFACTUAL_KINDS or not engine_allowed(env):
+            return False
+        d = today or time.strftime("%Y-%m-%d", time.gmtime())
+        c = _CF
+        if c["day"] != d:
+            c.update(day=d, keys=set(), rows=0, dropped=0)
+        legacy = _cf_round(dict(legacy or {}))
+        engine = _cf_round(dict(engine or {}))
+        dk = (kind, str(key), str(source), json.dumps([legacy, engine, shadow_decision], sort_keys=True, default=str))
+        if dk in c["keys"]:
+            return False
+        if c["rows"] >= COUNTERFACTUAL_PARAMS["max_rows_per_day"]:
+            c["dropped"] += 1
+            return False
+        if state is None:
+            state = cached_state()
+        row = {
+            "schema": COUNTERFACTUAL_SCHEMA, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "date": d,
+            "kind": kind, "key": str(key), "ticker": (str(ticker).upper() if ticker else None), "sleeve": sleeve,
+            "source": str(source), "legacy": legacy, "engine": engine,
+            "differs": counterfactual_differs(kind, legacy, engine), "shadow_decision": shadow_decision,
+            "regime": state_snapshot(state),
+            "flags": {k: v["value"] for k, v in effective_flags(env).items()},
+        }
+        p = path or _cf_path()
+        if os.path.exists(p) and os.path.getsize(p) > COUNTERFACTUAL_PARAMS["max_bytes"]:
+            os.replace(p, p + ".1")
+        with open(p, "a") as f:
+            f.write(json.dumps(row, default=str) + "\n")
+        c["keys"].add(dk)
+        c["rows"] += 1
+        return True
+    except Exception as e:
+        logger.debug(f"log_counterfactual({kind}, {key}) failed: {e}")
+        return False
+
+
+def legacy_stress_multiplier():
+    """The stress-index multiplier the legacy stock sizer applies (stress_index.get_stress_multiplier),
+    for the counterfactual only; None when it cannot be computed (logged)."""
+    try:
+        from stress_index import get_stress_multiplier
+        return float(get_stress_multiplier())
+    except Exception as e:
+        logger.debug(f"legacy stress multiplier unavailable for the counterfactual: {e}")
+        return None
+
+
+def counterfactual_sizing(sleeve, key, legacy, applied, source, ticker=None, env=None, loader=None, today=None, path=None) -> bool:
+    """A sizer's row: `legacy` = {multiplier (product of the legacy regime scalars it would have
+    applied), components...}; `applied` = the sizing_for() result it used, or None when the
+    sleeve's flag is off (then the engine's would-be multiplier is computed here — not counted
+    in the sizing report — and logged with applied=False). Never raises."""
+    try:
+        if not engine_allowed(env):
+            return False
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        res = applied if applied is not None else sizing_multiplier(st, sleeve, today)
+        eng = {"multiplier": res.get("multiplier"), "source": res.get("source"), "stale": bool(res.get("stale")),
+               "applied": applied is not None}
+        return log_counterfactual("sizing", key, legacy, eng, source, state=st, ticker=ticker, sleeve=sleeve,
+                                  env=env, path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_sizing({sleeve}) failed: {e}")
+        return False
+
+
+def counterfactual_selection(ticker, verdict, gates, source, env=None, path=None, today=None) -> bool:
+    """A stock candidate at the regime-guard point of the admission loop: legacy has no regime
+    guard there (take); the engine blocks on the gated guards and neutralizes mean reversion
+    when 'dip' is gated. Rows for passes too (the denominator). Never raises."""
+    try:
+        if not isinstance(verdict, dict) or not verdict.get("flags"):
+            return False
+        gates = set(gates or ())
+        blocked_by = [g for g in verdict.get("would_block", []) if g in gates]
+        dip = bool(verdict.get("neutralize_mr")) and "dip" in gates and _num(verdict.get("mr_delta"), 0.0) > 0
+        eng = {"decision": "block" if blocked_by else "take", "blocked_by": blocked_by,
+               "would_block": list(verdict.get("would_block") or []), "gates": sorted(gates),
+               "dip_neutralized": dip, "mr_delta_rule_points": _num(verdict.get("mr_delta"), 0.0)}
+        shadow = f"rejected_regime_{blocked_by[0]}" if blocked_by else None
+        return log_counterfactual("selection", ticker, {"decision": "take"}, eng, source, ticker=ticker,
+                                  shadow_decision=shadow, env=env, path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_selection({ticker}) failed: {e}")
+        return False
+
+
+def counterfactual_options(ticker, verdict, gates, source, legacy_delta=None, shadow_decision=None,
+                           env=None, path=None, today=None) -> bool:
+    """A new short put at a regime-guard point (Tier-1 or the scanner's sell-side setups): legacy
+    has no regime guard (take, size x1, its default delta); the engine blocks on the gated
+    crisis/vrp/earnings and scales size / delta on the gated cuts. Never raises."""
+    try:
+        if not isinstance(verdict, dict) or not verdict.get("flags"):
+            return False
+        acting = apply_csp_gates(verdict, gates)
+        eng = {"decision": "block" if acting["block"] else "take", "blocked_by": acting["blocked_by"],
+               "would_block": list(verdict.get("would_block") or []), "gates": sorted(set(gates or ())),
+               "size_mult": acting["size_mult"],
+               "target_delta": acting["target_delta"] if acting["target_delta"] is not None else legacy_delta}
+        return log_counterfactual("options", ticker, {"decision": "take", "size_mult": 1.0, "target_delta": legacy_delta},
+                                  eng, source, ticker=ticker, shadow_decision=shadow_decision, env=env, path=path,
+                                  today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_options({ticker}) failed: {e}")
+        return False
+
+
+def counterfactual_label(key, markov_label, applied, source, env=None, loader=None, path=None, today=None) -> bool:
+    """A label decision: legacy = the Markov label; engine = the label_for() result the consumer
+    used, or (flag off / stale) the state's legacy_label it WOULD have used, applied=False."""
+    try:
+        if not engine_allowed(env):
+            return False
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        if applied:
+            eng = {"label": applied.get("label"), "applied": True}
+        else:
+            would = st.get("legacy_label") if isinstance(st, dict) else None
+            eng = {"label": would, "applied": False}
+        return log_counterfactual("label", key, {"label": markov_label}, eng, source, state=st, env=env,
+                                  path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_label({key}) failed: {e}")
+        return False
+
+
 # ── entry points ─────────────────────────────────────────────────────────────
 def update_state(gating="SPY", force=False, params=None, build=None):
     """Compute (if the bar date advanced or `force`), persist, and return the state dict.

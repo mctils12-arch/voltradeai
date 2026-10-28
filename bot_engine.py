@@ -1569,10 +1569,13 @@ except Exception as e:
         # stands and nothing here changes.
         try:
             import regime_engine as _re_lbl
+            _markov_lbl = _regime_ctx.get("regime_label")
             _engine_lbl = _re_lbl.label_for()
             if _engine_lbl:
                 _regime_ctx = {**_regime_ctx, "regime_label": _engine_lbl["label"], "regime_label_source": "engine",
                                "regime_label_markov": _regime_ctx.get("regime_label")}
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): Markov label vs the engine's.
+            _re_lbl.counterfactual_label("deep_score", _markov_lbl, _engine_lbl, "bot_engine.deep_score")
         except Exception as _re_lbl_err:
             logging.getLogger("bot_engine").debug(f"regime label override unavailable: {_re_lbl_err}")
 
@@ -3612,6 +3615,15 @@ def _scan_market_inner():
         # VOLTRADE_REGIME_SELECTION names it — otherwise its flag stays on the
         # shadow record and the candidate proceeds (shadow measurement first).
         _rg = stock.get("regime_guards") or {}
+        if _rg:
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): legacy has no regime guard
+            # here (take); one row per candidate and engine decision per day, passes included.
+            try:
+                import regime_engine as _re_cf_sel
+                _re_cf_sel.counterfactual_selection(ticker, _rg, _re_cf_sel.selection_gates(),
+                                                    "bot_engine._scan_market_inner")
+            except Exception as _re_cf_sel_err:
+                logging.getLogger("bot_engine").debug(f"regime selection counterfactual skipped for {ticker}: {_re_cf_sel_err}")
         if _rg.get("would_block"):
             try:
                 import regime_engine as _re_gate
@@ -4130,10 +4142,17 @@ def _scan_market_inner():
         for ot in options_trades:
             if options_trade_count >= options_slots:
                 break
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): a sell-side setup both systems
+            # take; blocked / would-be-blocked ones are logged below with their shadow bucket.
+            if _rg_opt.get("verdict") and str(ot.get("side", "buy")) == "sell" and not _rg_opt["verdict"]["would_block"]:
+                _rg_opt["engine"].counterfactual_options(ot.get("ticker"), _rg_opt["verdict"], _rg_opt["gates"],
+                                                         "bot_engine.options_scanner")
             if _rg_opt.get("verdict") and str(ot.get("side", "buy")) == "sell" and _rg_opt["verdict"]["would_block"]:
                 _rg_g_on = [g for g in _rg_opt["verdict"]["would_block"] if g in _rg_opt["gates"]]
                 _rg_g = (_rg_g_on or _rg_opt["verdict"]["would_block"])[0]
                 _rg_decision = f"rejected_regime_{_rg_g}" if _rg_g_on else f"would_reject_regime_{_rg_g}"
+                _rg_opt["engine"].counterfactual_options(ot.get("ticker"), _rg_opt["verdict"], _rg_opt["gates"],
+                                                         "bot_engine.options_scanner", shadow_decision=_rg_decision)
                 try:
                     if _rg_opt["engine"].shadow_once_per_day(f"scanner:{ot.get('ticker')}:{_rg_decision}"):
                         import shadow_portfolio as _rg_sp
@@ -4319,7 +4338,13 @@ def _scan_market_inner():
                 _scan_engine_label = None
                 try:
                     import regime_engine as _re_lbl2
-                    _scan_engine_label = (_re_lbl2.label_for() or {}).get("label")
+                    _scan_engine_lbl_res = _re_lbl2.label_for()
+                    _scan_engine_label = (_scan_engine_lbl_res or {}).get("label")
+                    # COUNTERFACTUAL (2026-10-28 live flip, logging only): the tier context's legacy
+                    # label (the constant fallback below) vs the engine's.
+                    _re_lbl2.counterfactual_label(
+                        "tier_context", _regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                        _scan_engine_lbl_res, "bot_engine.tier_context")
                 except Exception as _re_lbl2_err:
                     _scan_engine_label = None
                 ctx = TierContext(

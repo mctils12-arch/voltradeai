@@ -57,3 +57,30 @@ def _hermetic_yfinance():
 
     with patch.object(yf, "Ticker", side_effect=_empty_yf_ticker):
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_regime_files(tmp_path_factory):
+    """2026-10-28 regime live flip: the regime flags now default ON, so any test
+    that reaches a sizer / deep_score / Tier-1 reads the engine's persisted
+    state and appends counterfactual rows. Point the four regime files at a
+    session temp dir (same file names) so the suite never reads a state left in
+    the real DATA_DIR by a CLI run and never appends to the real counterfactual
+    log. Tests that need their own paths still patch regime_engine._paths or
+    pass `path=` (they shadow this). A `with` stack, not `.start()`, for the
+    same patch.stopall() reason as above. Changes reachability, not behavior."""
+    import contextlib
+    import os
+    import storage_config
+
+    d = str(tmp_path_factory.mktemp("regime_files"))
+    names = {
+        "REGIME_STATE_PATH": "voltrade_regime_state.json",
+        "REGIME_HISTORY_PATH": "voltrade_regime_history.jsonl",
+        "REGIME_SIZING_PATH": "voltrade_regime_sizing.json",
+        "REGIME_COUNTERFACTUAL_PATH": "voltrade_regime_counterfactual.jsonl",
+    }
+    with contextlib.ExitStack() as stack:
+        for attr, fname in names.items():
+            stack.enter_context(patch.object(storage_config, attr, os.path.join(d, fname)))
+        yield
