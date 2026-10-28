@@ -213,7 +213,16 @@ BASE_CONFIG = {
     # Leg 3B: VRP Harvest -- 15% is the sweet spot
     #   Sell volatility when VXX ratio 1.05-1.25 (elevated but declining)
     #   Earns when fear bleeds out -- exactly the post-crash recovery window
-    "LEG3_VRP_PCT":        0.40,  # % of equity for VRP harvest (regime-adaptive sweep: 40%)
+    # LEG3 SIZE CAP 2026-10-27 (audit §6.8 N14, human-ordered risk-threshold
+    # change): prior value 0.40. SVXY is a short-volatility ETF with no
+    # websocket stop / POS-KILL (bot.ts FLOOR_AND_LEG_TICKERS) and was sized
+    # at up to 40% of equity, contradicting this block's own "15% sweet spot"
+    # (the 64-combo backtest winner). Expected effect: worst-case one-day
+    # SVXY gap costs ~0.15x the move instead of ~0.40x. backtest_v2 does not
+    # model the third leg, so there is no backtest delta to report.
+    # ROLLBACK TRIGGER: none on risk grounds — revert only via a backtest
+    # that models SVXY and shows 0.40 is not worse on max-drawdown.
+    "LEG3_VRP_PCT":        0.15,  # % of equity for VRP harvest (was 0.40 until 2026-10-27)
     #
     # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
     #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress

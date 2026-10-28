@@ -111092,3 +111092,31 @@ NOT DONE, said plainly (FINDINGS "doing nothing is a valid outcome"): the Sectio
 HONESTY LEDGER: one Stage A prior wrong and recorded (the loose vol dial is CAGR-neutral); two latent constants found and filed, not silently fixed (TierContext.regime; the Node position regime); one merge commit landed with conflict markers and was corrected in the next commit; the step-5 size multipliers bite only through the affordability cap until N8 (stated in CHANGELOG, IMPACT and RUNBOOK).
 NEXT: reads at 2026-11-16 / 2026-12-15 / 2027-01-27 per FINDINGS step 9 (engine health, per-guard prevention-P&L, hold-time ledger, return vs SPY, live-vs-tool divergence); the first operator action is VOLTRADE_REGIME_ENGINE=1 (shadow only).
 STARVED: no — the program's queue is empty; the remaining work is measurement.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Cap SVXY third-leg size at 15% (LEG3_VRP_PCT 0.40 -> 0.15) (v1.0.1187)
+
+What was wrong (audit §6.8 N14, part b): system_config.py LEG3_VRP_PCT was
+0.40, so bot_engine.py:_run_third_leg bought min(0.40, 0.6 x remaining
+capacity) of equity in SVXY, a short-volatility ETF that has no websocket
+stop and no POS-KILL (server/bot.ts FLOOR_AND_LEG_TICKERS) and is skipped
+by Python manage_positions. The config block's own comment names 15% as
+the 64-combo backtest sweet spot.
+
+Change: LEG3_VRP_PCT 0.40 -> 0.15 (PRIOR VALUE 0.40), dated comment with
+reason, expected effect and rollback trigger. Human-ordered risk-threshold
+change; one threshold only in this commit.
+
+Downstream chain: (1) a VRP buy now allocates <=15% of equity instead of
+<=40%, so a one-day SVXY gap costs ~0.15x the move; (2) total deployment
+after a buy is ~25 points lower, which leaves more remaining capacity for
+floors/stock entries and keeps invested % further from the BEAR/PANIC
+master-kill caps. backtest_v2 does not model the third leg, so there is no
+backtest delta.
+
+Rollback trigger: none on risk grounds; revert only with a backtest that
+models SVXY and shows 0.40 is not worse on max drawdown.
+
+Test: test_third_leg_vrp_risk.py::TestLeg3SizeCap (fails at 0.40).
+counter_baseline tests_run_in_ci/tests_gating_merge 626 -> 627 (new file).
+
+STARVED: no — master-plan queue in progress this session.
