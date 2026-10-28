@@ -111519,3 +111519,8 @@ OLS log(RV_{t+1..t+5}/VIX_t^2) ~ GEX 252d rank + log IV, NW lag 5, SPY: full 201
 Base rate: RV>IV in 15.2% of windows; GEX-rank bottom quintile 24.9% vs top 8.1%. Negative in every VIX tercile/regime (BEAR weakest, t −2.22). Post-hoc (not verdict): survives trailing-RV control; VIX9D as implied → b −0.56 (t −6.36), ~1/3 is horizon mismatch.
 Data: SqueezeMetrics DIX.csv (ESTIMATE, licence unverified, not committed), Cboe VIX/VIX9D, Yahoo SPY (no Alpaca keys in sandbox). Secondary (ii) 1-min intraday split NOT run.
 Next: gate 1 (own GEX from Alpaca OI vs SqueezeMetrics) before any trading; gate 3 rule sim "no new short premium when R_{t-1}<0.2". Nothing trades. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — server diag (no trading code) — v1.0.1202 bars_coverage PROBE: does Alpaca free daily-bar history reach 2010 and include delisted tickers?
+
+Human order: check whether Alpaca's free daily bars include delisted tickers since 2010; build the panel only if so, no paid data. Read-only token-gated probe (~61 GETs, cached 6h): earliest bar SPY/AAPL/IWM on sip/iex, 17 pre-registered delisted/renamed/reused tickers 2012-2023 under default/dated/disabled asof mapping, /v2/assets inactive/active counts.
+PRIOR (before the live read): history starts ~2016-01 on sip (not 2010); dated asof covers >=80% of post-2016 delistings to within 10 days; pre-2016 cases return nothing; default asof misses retired tickers and returns the NEW company for S/DELL. Result logged after deploy. STARVED: no.
