@@ -88,6 +88,8 @@ Downstream chain: fewer/lower CSPs in stress → lower options collateral → lo
 
 ## 7. Step 7 — legacy-label subordination behind `VOLTRADE_REGIME_LABELS`
 
+Shipped 2026-10-28 (CHANGELOG step 7): the swap happens once, in `deep_score` right after the Markov call, so the shadow record, `regime_at_entry` and the tier context follow without their own edits; `regime_label_markov` keeps the old label beside it for the comparison read. NOT wired: the Node exit geometry (`pos.regime` has never been refreshed from the scan — constant "NEUTRAL" since inception; making it regime-aware is an exit-model change owned by KB #48's consolidation, filed in open_questions.md).
+
 | Field | Content |
 |---|---|
 | Change | `_regime_ctx["regime_label"]` ← engine `legacy_label` on the three consumers (shadow record, `regime_at_entry`, `TierContext.regime`). |
