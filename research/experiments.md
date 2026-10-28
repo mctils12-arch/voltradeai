@@ -110994,7 +110994,75 @@ Downstream: (1) the morning queue now runs every trading day (was: only after a 
 Known: heartbeats `overnight_research` stays late/missing nightly — that window is still unreachable by design (reviving it re-enables unvalidated extreme-mover entries; human decision).
 Tests: server/dailyMaintenance.test.ts (10: window edges, DST, ET-vs-UTC date, persistence, 3 days x 5 restarts, catch-up boot, unwritable paths, wiring). Rollback trigger: "Daily reset" audit line twice for one ET date, any DAILY-MAINT-ERROR, or morning-queue order bursts >2x the median daily entry count in week 1. STARVED: no.
 
-## 2026-10-28 [PIPELINE] — T-BOT (regime engine) + shared server/bot.ts — STAGE B STEP 6: one sizing path behind VOLTRADE_REGIME_SIZING (per sleeve; default off; v1.0.1184 — read-and-increment at merge time: #1492 took 1.0.1183)
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — python exec: honour caller timeouts, retrain in long-job lane, group kill (v1.0.1184)
+
+What was wrong (server/bot.ts isTrivialPython / execPythonSerialized, audit
+D1): any command <= 150 chars without a literal `import numpy|pandas|...`
+was "trivial": no mutex and `Math.min(timeout, 10000)` + SIGKILL, silently
+overriding the caller's timeout. `python3 ml_retrain_safe.py` (26 chars,
+asks 900 s) was SIGKILLed at 10 s every hour (live TIER3-ML-ERROR
+"(code=? signal=SIGKILL)" 10 s after "triggering retrain"); same 10 s kill
+for backfill_outcomes (asks 120 s), /api/bot/insight (40 s), sec_form4
+(120 s), cftc (45 s), manipulation scan (30 s), EOD close_open_shorts
+(30 s), tier1 manage_positions (15 s) and others. The kill went to the
+`/bin/sh -c` child only, so a Python under a non-exec'd shell survived as
+an orphan.
+
+What changed:
+- server/pythonExec.ts (new): isTrivialPython(cmd, requestedTimeoutMs) —
+  the old text test AND the caller asked for <= 10 s (no timeout = old
+  text-only behaviour); planPythonExec -> {lane, timeoutMs, mutexWaitMs}:
+  trivial keeps 10 s/no mutex, mutex lane honours the caller's timeout up to
+  the unchanged 90 s ceiling (mutex wait unchanged). ML_RETRAIN_TIMEOUT_MS =
+  20 min (estimate in the file: <=200 s bars fetch + earnings + <=10k rows x
+  5 folds + 4 models; ~10 min pessimistic, 2x headroom). execGroupKill:
+  exec semantics/error shape, child spawned detached as process-group
+  leader, timeout/maxBuffer kill sent to the whole group.
+- bot.ts: _execRaw = execGroupKill (every execAsync/execPythonSerialized
+  kill is now a group kill; execAsync's pinned shape unchanged).
+  execPythonSerialized uses planPythonExec; the in-file isTrivialPython is
+  gone. New runLongPythonJob (single-flight per key, never takes the global
+  mutex, explicit budget) and startMlRetrain(trigger) (fire-and-forget;
+  existing TIER3 / TIER3-ML-ERROR outcome handling moved verbatim, plus
+  trigger + elapsed seconds and a "[exceeded the 1200s retrain budget —
+  process group killed]" class when our timer fired). Tier 3 and the daily
+  branch both call startMlRetrain without awaiting it.
+- Daemon RPC path unchanged; pythonCall's subprocess fallback goes through
+  execPythonSerialized, so it gets the same plan (e.g. run_full_scan
+  fallback with the daemon disabled: 90 s mutex instead of 10 s).
+- shadowBackfillExitAligned.test.ts harness now injects planPythonExec and
+  imports isTrivialPython; its ROUND1 check that pinned the defect
+  ([10000, false]) now asserts the fix ([90000, true]). Pins:
+  counter_baseline tests 627->628, ts_any 1225->1224, assertions
+  22139->22179; test_ts_code_only ts_any mirror 1225->1224.
+
+Downstream chain:
+1. ~15 short commands that asked for > 10 s move from no-mutex/10 s to the
+   mutex lane with their own timeout -> they now serialize with other mutex
+   jobs -> a mutex caller with a short wait (e.g. get_auto_fix_params 15 s,
+   tier1 manage_positions 15 s) can hit "mutex timeout" while e.g.
+   sec_form4 holds up to 90 s; those callers already catch and log it.
+2. The retrain can now finish (writes the model) -> ML scores in deep_score
+   come from a freshly trained model every ~24 h instead of a stale one;
+   its concurrency with one mutex-lane subprocess raises peak RSS by the
+   retrain's footprint (fast_mode sized for ~575 MB headroom).
+3. Timeouts now kill descendants -> fewer orphan Python processes holding
+   memory after timeouts.
+
+Rollback trigger: revert if Python subprocess "mutex timeout" errors in the
+audit log rise > 3x their prior daily rate, if any OOM/daemon self-kill
+coincides with a running retrain, or if TIER3-ML-ERROR shows the 1200 s
+budget exceeded on 2 consecutive days.
+
+Tests: server/pythonExec.test.ts (8: classification + plan tables on the
+real command strings, retrain budget, bot.ts wiring, a real-process test
+showing plain exec leaves the grandchild alive vs execGroupKill killing
+it, exec-compatible results/errors incl. maxBuffer code). The 2 wiring
+tests fail on the pre-fix bot.ts; the harness test fails on it too.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) + shared server/bot.ts — STAGE B STEP 6: one sizing path behind VOLTRADE_REGIME_SIZING (per sleeve; default off; v1.0.1185 — read-and-increment at merge time: #1492 took 1.0.1183, #1494 took 1.0.1184)
 
 docs/regime/FINDINGS.md step 6. ENGINE: `regime_engine.sizing_multiplier(state, sleeve)` (pure) — the ONE regime multiplier a sizer applies: exposure_multiplier as is for the stock sleeve (0 = no new discretionary risk → the stock sizer returns `blocked`, the path a halt or negative expectancy already takes); for the options sleeves (options, tier1) floored at 0.5 while the state allows csp, 0.25 while it allows csp_reduced, 0.25 otherwise (the sizer never zeroes an options position — CRISIS is step 5's gate); a stale state (> 2 market days, or flagged stale/error) → 1.0 and COUNTED, never a silent cut; `sizing_sleeves(env)` (stock,options,tier1 or all); `sizing_for(sleeve)` (None unless the engine is on and the flag names the sleeve — the caller keeps its legacy scalars); daily counters per sleeve/value → voltrade_regime_sizing.json once per scan. CONSUMERS: position_sizing.calculate_position — s_regime (the VIX-level scalar) becomes the engine multiplier and the stress-index multiplier is muted (scalars.stress 1.0, stress_level regime_engine; scalars.regime_engine / regime_source show which path sized); options_execution._dynamic_options_size and instrument_selector._dynamic_options_size — s_regime likewise; tiered_strategy.tier1_csp_core — the VXX ladder (1.0/0.85/0.60/0.30) replaced by the tier1 multiplier, the drawdown ladder kept. The scan result carries regime_sizing (the flushed counters); server/regimeReport.ts reads the file into the report (sizing) and the health block warns on the day's stale fallbacks; bot.ts audits REGIME-STALE once per NEW stale-state sizing fallback. Combined regime-related scalar before → after per composite state in CHANGELOG step 6 (e.g. STRESSED 0.65–0.50 × 0.5 ≈ 0.25–0.33 → 0.5–0.25; BEAR 0.25 then the 1% floor → 0.25–0 blocked). NOT BUILT: the drawdown scalars stay separate factors (risk mechanisms; N13 is the master plan's); the floor sleeve's schedule is step 8's handoff. test_regime_sizing.py (flag, multiplier truth table, counters, sizing_for, the stock sizer bit-identical off / engine-once on / exposure-0 block / stale, both options sizers, Tier-1 ladder replacement, scan pins) + one node:test case.
 PRIOR: zero effect with the flag off (regression: the stock sizer's output is bit-identical across two calls and reports regime_source vix_scalar; the options sizers equal kelly × VIX scalar × leverage discount; Tier-1 keeps its VXX rung). Pre-registered acceptance: 30 trading days with no sizing anomaly — no position above the absolute caps, no zero-size block caused by a stale state (sizing.stale_fallbacks on the report stays 0 on trading days); rollback trigger: a stale-state incident (> 2 market days) turns the flag off until fixed.

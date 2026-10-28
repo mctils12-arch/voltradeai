@@ -163,7 +163,7 @@ test("wiring: runDailyMaintenance holds every daily reset, the retrain and the b
     "(state as any).dailyBlockedTickers = [];", "state.consecutiveStopLosses = 0;",
     "state.morningQueueExecuted = false;", "orderAttemptCounts = {};", "sweptCspAt = {};",
   ]) assert.ok(daily.includes(reset), `missing daily reset: ${reset}`);
-  assert.ok(daily.includes("ml_retrain_safe.py"), "the daily retrain runs here");
+  assert.ok(/\n\s+startMlRetrain\("daily/.test(daily), "the daily retrain starts here (long-job lane, single-flight)");
   assert.ok(daily.includes('audit("BACKUP"'), "the nightly backup runs here");
   // grep-level guarantee there is no other (dead) copy of the reset left behind.
   assert.equal(bot.split("state.morningQueueExecuted = false;").length - 1, 1, "exactly one morningQueueExecuted reset");

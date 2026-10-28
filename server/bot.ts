@@ -1,7 +1,6 @@
 import { Express } from "express";
 import { requireAuth, requireOwner } from "./auth";
-import { exec, execFile, type ExecOptions } from "child_process";
-import { promisify } from "util";
+import { execFile, type ExecOptions } from "child_process";
 import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
@@ -20,6 +19,7 @@ import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
 import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS } from "./dailyMaintenance";
+import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
@@ -69,7 +69,12 @@ import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { decideMorningQueueEntry } from "./morningQueueEntry";
-const _execRaw = promisify(exec);
+// PROCESS-GROUP KILL (2026-10-27, trading-engine audit D1): child_process.exec
+// semantics (shell, env, maxBuffer, utf8, exec's error shape), but the child
+// leads its own process group and a timeout/maxBuffer kill takes every
+// descendant with it — a plain exec kill hit only `/bin/sh -c` and could
+// leave the Python under it running as an orphan. server/pythonExec.ts.
+const _execRaw = execGroupKill;
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
 const _pyEnv = {
@@ -247,21 +252,22 @@ let pythonRunning = false;
 let pythonLockedAt = 0;
 let pythonLockHardTimeout = 90000;  // tracks the hardTimeout of current holder
 
-// Trivial commands that don't import heavy libs — bypass mutex.
-// Pattern match: `python3 -c "print('ok')"` and similar <100-byte pings
-function isTrivialPython(cmd: string): boolean {
-  if (cmd.length > 150) return false;
-  if (/import\s+(numpy|pandas|sklearn|lightgbm|scipy|torch)/.test(cmd)) return false;
-  return true;
-}
-
+// Lane + kill timer come from server/pythonExec.ts planPythonExec (tested).
+// REPAIR 2026-10-27 (audit D1): the old text-only isTrivialPython() put any
+// command <= 150 chars without a literal heavy import in the no-mutex lane and
+// SIGKILLed it at 10 s, whatever timeout the caller asked for — the 26-char
+// ML retrain asking 900 s died at 10 s. Now a caller asking for more than the
+// 10 s trivial cap is never trivial, and the kill timer is the caller's own
+// timeout bounded by the lane ceiling (mutex lane: 90 s, unchanged). Jobs
+// that need longer than that use runLongPythonJob below, not this mutex.
 async function execPythonSerialized(cmd: string, opts?: ExecOptions) {
-  const maxWait = opts?.timeout || 30000;
-  const hardTimeout = Math.min(opts?.timeout || 90000, 90000);
+  const plan = planPythonExec(cmd, opts?.timeout);
+  const maxWait = plan.mutexWaitMs;
+  const hardTimeout = plan.timeoutMs;
 
-  // Bypass mutex for trivial pings (e.g., /api/health)
-  if (isTrivialPython(cmd)) {
-    return execAsync(cmd, { ...opts, timeout: Math.min(hardTimeout, 10000), killSignal: 'SIGKILL' });
+  // Trivial lane (short pings that asked for <= 10 s): no mutex.
+  if (plan.lane === "trivial") {
+    return execAsync(cmd, { ...opts, timeout: hardTimeout, killSignal: 'SIGKILL' });
   }
 
   const start = Date.now();
@@ -313,6 +319,122 @@ setInterval(() => {
     pythonLockHardTimeout = 90000;
   }
 }, 30000);
+
+// ─── Long-job lane (REPAIR 2026-10-27, trading-engine audit D1) ─────────────
+// For Python jobs that legitimately need longer than the mutex lane's 90 s
+// ceiling. Never takes the global Python mutex (a 20-minute holder would make
+// every other mutex caller time out), single-flight per job key (a second
+// trigger while one is running is skipped, not queued), explicit per-job
+// budget, and the kill goes to the whole process group via execAsync. Callers
+// do not await it on a scheduler path. Memory note: a long job may overlap one
+// mutex-lane subprocess; the retrain's fast_mode is sized for that headroom
+// (ml_model_v2._fetch_training_bars).
+const longPythonJobsInFlight = new Set<string>();
+
+async function runLongPythonJob(
+  key: string, cmd: string, timeoutMs: number,
+): Promise<{ skipped: true } | { skipped: false; stdout: string; stderr: string }> {
+  if (longPythonJobsInFlight.has(key)) return { skipped: true };
+  longPythonJobsInFlight.add(key);
+  try {
+    const { stdout, stderr } = await execAsync(cmd, { timeout: timeoutMs, killSignal: "SIGKILL" });
+    return { skipped: false, stdout, stderr };
+  } finally {
+    longPythonJobsInFlight.delete(key);
+  }
+}
+
+// The ML retrain, shared by Tier 3 (model > 24 h old) and the daily branch.
+// Fire-and-forget: returns at once; the outcome (with elapsed seconds and the
+// trigger) is audited as TIER3 / TIER3-ML-ERROR when the job ends.
+function startMlRetrain(trigger: string): void {
+  const startedAt = Date.now();
+  beat("ml_retrain", "start");
+  void (async () => {
+    try {
+      // History: batch 8 (2026-05-04) asked execPythonSerialized for 900 s
+      // here, but the "trivial" lane silently capped it at 10 s, so the
+      // SIGKILLs it attributed to OOM were that cap. The budget is now
+      // ML_RETRAIN_TIMEOUT_MS (server/pythonExec.ts: estimate + headroom)
+      // and the audit line carries elapsed seconds so it can be tightened
+      // from evidence.
+      const run = await runLongPythonJob("ml-retrain", "python3 ml_retrain_safe.py", ML_RETRAIN_TIMEOUT_MS);
+      const elapsedS = Math.round((Date.now() - startedAt) / 1000);
+      if (run.skipped) {
+        audit("TIER3", `ML retrain (${trigger}) not started — one is already running`);
+        beat("ml_retrain", "finish", "skipped", "already running");
+        return;
+      }
+      const trainResult = JSON.parse(run.stdout.trim());
+      // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
+      // status that starts with "error:", append error_location and
+      // traceback tail so we can actually diagnose the failure. The
+      // Python wrapper at ml_model_v2._train_model_impl already
+      // captures these fields — they were just being dropped on the
+      // floor at the audit boundary. Production logs were stuck
+      // showing "error: 'NoneType' object is not subscriptable"
+      // every hour with no file/line.
+      const _statusStr = String(trainResult.status || "");
+      // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
+      // "skipped", the wrapper's bare "error" and "fatal" all fell into
+      // the else-branch below and were audited as "ML retrain complete"
+      // although no model was written. Only "trained" is a success
+      // (server/mlRetrainStatus.ts, tested).
+      if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
+        // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
+        // _train_model_impl early returns use the plain shape
+        // {"status": "failed", "reason": "..."} (no error_location/
+        // traceback_tail — those only ever come from train_model()'s outer
+        // exception wrapper) which collapsed this line to the content-free
+        // "ML retrain failed: failed". `reason` carries the real cause
+        // (e.g. "Could not fetch training bars") and was being dropped.
+        const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
+        const _detailExtra = retrainFailureDetail(trainResult);
+        const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
+        const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
+        const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
+        audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${elapsedS}s): ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
+        beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
+      } else {
+        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+        beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
+      }
+    } catch (trainErr: any) {
+      // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
+      // which produced useless entries like "Command failed: python3
+      // ml_retrain_safe.py" with no signal/stderr/stdout context — so
+      // OOM kills, import failures, and silent Python crashes all
+      // looked identical. Mirror the Tier 2 scan classifier: grab
+      // stderr (Python traceback), stdout tail (ml_retrain_safe.py
+      // writes its JSON error payload here on caught exceptions),
+      // exit code and kill signal.
+      const _stderr = String(trainErr?.stderr || "");
+      const _stdout = String(trainErr?.stdout || "");
+      const _rawCode = trainErr?.code;
+      const _code: string | number =
+        _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
+      const _signal = trainErr?.signal || "none";
+      // Prefer stderr (Python traceback), fall back to stdout
+      // (ml_retrain_safe prints structured JSON errors there).
+      const _primary = _stderr.trim() ? _stderr : _stdout;
+      const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
+      let _cls = "";
+      if (trainErr?.killed) {
+        // Our own kill timer (execGroupKill sets killed only when it killed).
+        _cls = ` [exceeded the ${Math.round(ML_RETRAIN_TIMEOUT_MS / 1000)}s retrain budget — process group killed]`;
+      } else if (_signal === "SIGKILL" && !_stderr.trim()) {
+        _cls = " [likely OOM kill during import lightgbm/ml_model_v2]";
+      } else if (_signal === "SIGTERM") {
+        _cls = " [timed out or killed externally]";
+      } else if (_rawCode === "ETIMEDOUT") {
+        _cls = " [exec timeout exceeded]";
+      }
+      const _detail = _tail.trim() || String(trainErr?.message || trainErr);
+      audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${Math.round((Date.now() - startedAt) / 1000)}s, code=${_code} signal=${_signal})${_cls}: ${_detail}`);
+      beat("ml_retrain", "finish", "error", `code=${_code} signal=${_signal}${_cls}`);
+    }
+  })();
+}
 
 // ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
 // Orphaned temp files from fire-and-forget Python subprocesses that timed out
@@ -4850,6 +4972,11 @@ print(json.dumps(result))
   // 75s < 90s, and it checkpoints every 5 windows / 20s, so even a kill keeps
   // the work finished before it.
   //
+  // UPDATE 2026-10-27 (audit D1): classification is now server/pythonExec.ts
+  // planPythonExec — a caller asking for more than 10 s is never "trivial",
+  // so the old job's command (asks 120 s) now also runs behind the mutex
+  // with a 90 s kill; the mutex serializes the two jobs as well as the gate.
+  //
   // Not via the daemon RPC (the route is registered per READ BEFORE WRITE #4,
   // and deliberately unused here): a daemon dispatch thread cannot be killed,
   // so an RPC timeout has no hard cap behind it, and pythonCall's subprocess
@@ -6452,86 +6579,14 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model stale or missing — triggering retrain...");
-        beat("ml_retrain", "start");
-        try {
-          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
-          // Production SIGKILL events were classified as "likely OOM"
-          // by the heuristic below, but with 8GB available and only
-          // ~280MB used by the daemon, OOM is unlikely. Far more likely
-          // cause is THIS timeout firing on the heavy retrain (200
-          // tickers × 6 years of bars + 4 regime-conditional models +
-          // LightGBM training). Node.js sends SIGTERM then SIGKILL on
-          // exec timeout — looks identical to an OS OOM kill from
-          // outside the process. 15 minutes gives the retrain real
-          // headroom; if it still times out we'll get the new
-          // steps_completed diagnostic from ml_retrain_safe to tell us
-          // which step is actually slow.
-          const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 900000 });
-          const trainResult = JSON.parse(trainOut.trim());
-          // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
-          // status that starts with "error:", append error_location and
-          // traceback tail so we can actually diagnose the failure. The
-          // Python wrapper at ml_model_v2._train_model_impl already
-          // captures these fields — they were just being dropped on the
-          // floor at the audit boundary. Production logs were stuck
-          // showing "error: 'NoneType' object is not subscriptable"
-          // every hour with no file/line.
-          const _statusStr = String(trainResult.status || "");
-          // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
-          // "skipped", the wrapper's bare "error" and "fatal" all fell into
-          // the else-branch below and were audited as "ML retrain complete"
-          // although no model was written. Only "trained" is a success
-          // (server/mlRetrainStatus.ts, tested).
-          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
-            // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
-            // _train_model_impl early returns use the plain shape
-            // {"status": "failed", "reason": "..."} (no error_location/
-            // traceback_tail — those only ever come from train_model()'s outer
-            // exception wrapper) which collapsed this line to the content-free
-            // "ML retrain failed: failed". `reason` carries the real cause
-            // (e.g. "Could not fetch training bars") and was being dropped.
-            const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
-            const _detailExtra = retrainFailureDetail(trainResult);
-            const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
-            const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
-            const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
-            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
-            beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
-          } else {
-            audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
-            beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
-          }
-        } catch (trainErr: any) {
-          // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
-          // which produced useless entries like "Command failed: python3
-          // ml_retrain_safe.py" with no signal/stderr/stdout context — so
-          // OOM kills, import failures, and silent Python crashes all
-          // looked identical. Mirror the Tier 2 scan classifier: grab
-          // stderr (Python traceback), stdout tail (ml_retrain_safe.py
-          // writes its JSON error payload here on caught exceptions),
-          // exit code and kill signal.
-          const _stderr = String(trainErr?.stderr || "");
-          const _stdout = String(trainErr?.stdout || "");
-          const _rawCode = trainErr?.code;
-          const _code: string | number =
-            _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
-          const _signal = trainErr?.signal || "none";
-          // Prefer stderr (Python traceback), fall back to stdout
-          // (ml_retrain_safe prints structured JSON errors there).
-          const _primary = _stderr.trim() ? _stderr : _stdout;
-          const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
-          let _cls = "";
-          if (_signal === "SIGKILL" && !_stderr.trim()) {
-            _cls = " [likely OOM kill during import lightgbm/ml_model_v2]";
-          } else if (_signal === "SIGTERM") {
-            _cls = " [timed out or killed externally]";
-          } else if (_rawCode === "ETIMEDOUT") {
-            _cls = " [exec timeout exceeded]";
-          }
-          const _detail = _tail.trim() || String(trainErr?.message || trainErr);
-          audit("TIER3-ML-ERROR", `ML retrain failed (code=${_code} signal=${_signal})${_cls}: ${_detail}`);
-          beat("ml_retrain", "finish", "error", `code=${_code} signal=${_signal}${_cls}: ${_detail}`);
-        }
+        // REPAIR 2026-10-27 (audit D1): the retrain used to run here through
+        // execPythonSerialized, where its 26-char command was "trivial" and
+        // SIGKILLed at 10 s (live: TIER3-ML-ERROR "(code=? signal=SIGKILL)").
+        // It now runs in the long-job lane with an explicit budget
+        // (ML_RETRAIN_TIMEOUT_MS), not awaited, so Tier 3 and the scan loop
+        // are never held for the length of a retrain; startMlRetrain audits
+        // the outcome when the job ends.
+        startMlRetrain("tier3: model stale or missing");
       } else {
         audit("TIER3", `ML model fresh (${modelStatus.age_hours}h old) — skipping retrain`);
       }
@@ -6994,23 +7049,10 @@ print('cleared')
       orderAttemptCounts = {};
       sweptCspAt = {};
       audit("SYSTEM", `Daily reset (${etDate} ET): blocked tickers cleared, counters reset for new trading day`);
-      audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
-      beat("ml_retrain", "start");
-      try {
-        // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
-        // Same as the TIER3 retrain call earlier — see comment there.
-        const { stdout: trainOut } = await execPythonSerialized(
-          `python3 ml_retrain_safe.py`,
-          { timeout: 900000 }
-        );
-        const trainResult = JSON.parse(trainOut.trim());
-        audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
-        beat("ml_retrain", "finish", retrainStatusIsSuccess(String(trainResult.status || "")) ? "ok" : "error", `status ${trainResult.status}`);
-      } catch (err: any) {
-        audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
-        beat("ml_retrain", "finish", "error", err?.message || err);
-        noteJobError("daily_reset", `4am retrain: ${err?.message || err}`);
-      }
+      audit("RETRAIN", "Daily ML retrain started in the long-job lane — outcome audited as TIER3 / TIER3-ML-ERROR when it finishes");
+      // Not awaited: the backup below runs alongside; single-flight with the
+      // Tier-3 trigger (a retrain already running is not started twice).
+      startMlRetrain("daily 4am");
 
       // Nightly auto-backup at 4am alongside retrain
       try {
