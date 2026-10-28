@@ -19,6 +19,7 @@ import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_I
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
+import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS } from "./dailyMaintenance";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
@@ -6936,40 +6937,84 @@ print('cleared')
         } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
-      // 4am ET: Daily ML retrain + reset daily state
-      if (Math.floor(etHour) === 4) {
-        beat("daily_reset", "start");
-        // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
-        (state as any).dailyBlockedTickers = [];
-        state.consecutiveStopLosses = 0;
-        (state as any).recentStopTickers = [];
-        (state as any).lastStopTimes = {};
-        state.morningQueueExecuted = false;
-        // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
-        orderAttemptCounts = {};
-        sweptCspAt = {};
-        audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
-        audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
-        beat("ml_retrain", "start");
-        try {
-          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
-          // Same as the TIER3 retrain call earlier — see comment there.
-          const { stdout: trainOut } = await execPythonSerialized(
-            `python3 ml_retrain_safe.py`,
-            { timeout: 900000 }
-          );
-          const trainResult = JSON.parse(trainOut.trim());
-          audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
-          beat("ml_retrain", "finish", retrainStatusIsSuccess(String(trainResult.status || "")) ? "ok" : "error", `status ${trainResult.status}`);
-        } catch (err: any) {
-          audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
-          beat("ml_retrain", "finish", "error", err?.message || err);
-          noteJobError("daily_reset", `4am retrain: ${err?.message || err}`);
-        }
+      // The 4am daily branch (resets, retrain, backup) moved to
+      // runDailyMaintenance() below: this caller only runs when ET < 4
+      // or ET >= 20, so the old hour-4 check here could never be true
+      // (trading-engine audit D2; server/dailyMaintenance.ts).
 
-        // Nightly auto-backup at 4am alongside retrain
-        try {
-          const { stdout: backupOut } = await execPythonSerialized(`python3 -c "
+    } catch (e: any) {
+      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
+      noteJobError("overnight_research", e?.message || e);
+    }
+
+    autoRunning = false;
+    beat("overnight_research", "finish", "ok");
+  }
+
+  // ── Daily maintenance: the once-a-day "4am branch" ─────────────────────────
+  // REPAIR 2026-10-27 (trading-engine audit D2). Previously nested in
+  // runOvernightResearch behind gates that never pass together, so it never
+  // ran. Now driven by its own unconditional interval (below, next to the
+  // shadow backfill polls) through shouldRunDailyMaintenance(): once per ET
+  // calendar day inside [04:00, 09:30) ET, the claim persisted BEFORE the
+  // work so a deploy mid-window neither repeats nor skips it. No market-hours
+  // or kill-switch gate: these are bookkeeping resets, a model refresh and a
+  // backup, not trading actions (the original branch was gated only by
+  // accident of where it lived).
+  let dailyMaintenanceRunning = false;
+  let dailyMaintenanceLastRunEtDateMem: string | null = null;
+
+  async function checkDailyMaintenance() {
+    if (dailyMaintenanceRunning) return;
+    // Decide + persist the claim (before any work) in one tested step.
+    const { decision, persistedTo } = claimDailyMaintenance(Date.now(), dailyMaintenanceLastRunEtDateMem);
+    if (!decision.run) return;
+    dailyMaintenanceRunning = true;
+    dailyMaintenanceLastRunEtDateMem = decision.etDate;
+    try {
+      if (!persistedTo) {
+        audit("DAILY-MAINT-WARN", `could not persist the ${decision.etDate} run claim to any state path — a restart later in today's window would repeat the daily branch`);
+      }
+      await runDailyMaintenance(decision.etDate);
+    } finally {
+      dailyMaintenanceRunning = false;
+    }
+  }
+
+  async function runDailyMaintenance(etDate: string) {
+    beat("daily_reset", "start");
+    try {
+      // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
+      (state as any).dailyBlockedTickers = [];
+      state.consecutiveStopLosses = 0;
+      (state as any).recentStopTickers = [];
+      (state as any).lastStopTimes = {};
+      state.morningQueueExecuted = false;
+      // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
+      orderAttemptCounts = {};
+      sweptCspAt = {};
+      audit("SYSTEM", `Daily reset (${etDate} ET): blocked tickers cleared, counters reset for new trading day`);
+      audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
+      beat("ml_retrain", "start");
+      try {
+        // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
+        // Same as the TIER3 retrain call earlier — see comment there.
+        const { stdout: trainOut } = await execPythonSerialized(
+          `python3 ml_retrain_safe.py`,
+          { timeout: 900000 }
+        );
+        const trainResult = JSON.parse(trainOut.trim());
+        audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+        beat("ml_retrain", "finish", retrainStatusIsSuccess(String(trainResult.status || "")) ? "ok" : "error", `status ${trainResult.status}`);
+      } catch (err: any) {
+        audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
+        beat("ml_retrain", "finish", "error", err?.message || err);
+        noteJobError("daily_reset", `4am retrain: ${err?.message || err}`);
+      }
+
+      // Nightly auto-backup at 4am alongside retrain
+      try {
+        const { stdout: backupOut } = await execPythonSerialized(`python3 -c "
 import json, os, shutil, time
 try:
     from storage_config import DATA_DIR
@@ -6991,42 +7036,24 @@ while len(all_b) > 5:
     shutil.rmtree(os.path.join(backup_dir, all_b.pop(0)), ignore_errors=True)
 print(json.dumps({'files': count}))
 "`, { timeout: 30000 });
-          const bk = JSON.parse(backupOut.trim());
-          audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
+        const bk = JSON.parse(backupOut.trim());
+        audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
 
-          // Off-site backup: push data snapshot to GitHub data-backup branch
-          try {
-            const backupScript = path.resolve("backup_to_github.py");
-            const { stdout: gitBackup } = await execPythonSerialized(
-              `python3 "${backupScript}"`, { timeout: 60000 }
-            );
-            const gbResult = JSON.parse(gitBackup.trim());
-            if (gbResult.status === "success") {
-              audit("BACKUP", `Off-site: ${gbResult.count} files pushed to GitHub (data-backup branch)`);
-            } else if (gbResult.status === "no_changes") {
-              audit("BACKUP", `Off-site: data unchanged since last backup`);
-            } else if (gbResult.status === "skipped") {
-              audit("BACKUP-WARN", `Off-site skipped: ${gbResult.reason}`);
-            } else {
-              audit("BACKUP-ERROR", `Off-site failed: ${gbResult.reason || 'unknown'}`);
-            }
-          } catch (err: any) {
-            audit("BACKUP-WARN", `Off-site backup failed: ${err?.message || err}`);
-          }
-        } catch (err: any) {
-          audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
-          noteJobError("daily_reset", `nightly backup: ${err?.message || err}`);
-        }
-        beat("daily_reset", "finish", "ok");
+        // Off-site backup DISABLED 2026-10-27 (master plan): backup_to_github.py pushes every
+        // /data JSON + model file to the data-backup branch of mctils12-arch/voltradeai, which
+        // is a PUBLIC repository. This branch was unreachable before the scheduler fix, so the
+        // push had not run since 2026-04-05; reviving it would publish account/fill/state data.
+        // Local backups above are kept. Re-enable only with a private destination (human call).
+        audit("BACKUP", "Off-site backup disabled: destination repo is public (local copies kept)");
+      } catch (err: any) {
+        audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
+        noteJobError("daily_reset", `nightly backup: ${err?.message || err}`);
       }
-
-    } catch (e: any) {
-      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
-      noteJobError("overnight_research", e?.message || e);
+      beat("daily_reset", "finish", "ok");
+    } catch (e: unknown) {
+      audit("DAILY-MAINT-ERROR", `${etDate}: ${String(e instanceof Error ? e.message : e).slice(0, 300)}`);
+      beat("daily_reset", "finish", "error", String(e instanceof Error ? e.message : e));
     }
-
-    autoRunning = false;
-    beat("overnight_research", "finish", "ok");
   }
 
   // ── TIER 0: Real-Time Streaming ──────────────────────────────────────────────
@@ -8159,6 +8186,12 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // Exit-aligned shadow ruler: same unconditional 5-minute poll, its own job
   // (sequenced after the old one inside checkShadowBackfillExitAligned).
   setInterval(() => { checkShadowBackfillExitAligned().catch((e) => console.error("[SHADOW-XA]", e?.message || e)); }, 5 * 60 * 1000);
+  // Daily maintenance (the once-a-day "4am branch": resets, retrain, backup) —
+  // same unconditional poll pattern; shouldRunDailyMaintenance() decides, and
+  // the persisted claim makes it once per ET day across restarts. The boot
+  // check catches a process that starts inside the window.
+  setInterval(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, DAILY_MAINTENANCE_CHECK_MS);
+  setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
