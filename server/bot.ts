@@ -60,6 +60,8 @@ import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
+import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY } from "./jobHeartbeat";
+import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
@@ -782,6 +784,19 @@ function saveLiveness(v: LivenessFile) {
 }
 
 let livenessState: LivenessFile | null = loadLiveness();
+
+// JOB HEARTBEATS (Phase 3 "no silent failures", 2026-10-27): every scheduled
+// job's last runs vs its registered cadence (server/jobHeartbeat.ts). Read by
+// the token-gated `heartbeats` diag probe (the external watchdog polls it)
+// and, compact and informational only, by /api/health.
+const PROCESS_BOOT_AT_MS = Date.now() - Math.round(process.uptime() * 1000);
+function jobHeartbeatReport() {
+  return evaluateHeartbeats(Date.now(), heartbeatStore().snapshot(), JOB_REGISTRY, {
+    calendar: { holidays: marketHolidays(), halfDays: marketHalfDays() },
+    bootAtMs: PROCESS_BOOT_AT_MS,
+    env: process.env,
+  });
+}
 
 setInterval(() => {
   try {
@@ -1643,6 +1658,18 @@ print(json.dumps(data))
       ...(feedAir.detail ? { detail: feedAir.detail } : {}),
       gates_top_level_status: false,
     };
+
+    // Check 5d: JOB HEARTBEATS (Phase 3 "no silent failures", 2026-10-27).
+    // INFORMATIONAL ONLY, like `feeds`: it never flips the top-level
+    // `status` and never touches the HTTP code (healthGate.ts decides that
+    // from server+database alone). Names + counts only on this
+    // unauthenticated route; the per-job detail is behind the diag token
+    // (/api/diag/heartbeats). A failure to evaluate is reported, not thrown.
+    try {
+      checks.checks.jobs = healthJobsBlock(jobHeartbeatReport());
+    } catch (err: unknown) {
+      checks.checks.jobs = { status: "unknown", detail: err instanceof Error ? err.message : String(err), gates_top_level_status: false };
+    }
 
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
@@ -3548,6 +3575,15 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           }, { fresh: String(req.query.fresh || "") === "1" });
           return res.json(sanitizeDiag(report));
         }
+        case "heartbeats": {
+          // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled
+          // job's last start/finish/status vs its registered cadence, grace and
+          // window (server/jobHeartbeat.ts JOB_REGISTRY), the overall verdict
+          // and the failing jobs. Read-only (one JSON file on the volume); the
+          // external watchdog routine polls this. No query parameters.
+          const hb = jobHeartbeatReport();
+          return res.json(sanitizeDiag({ probe: "heartbeats", ...hb, persistError: heartbeatStore().lastWriteError() }));
+        }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
@@ -4634,6 +4670,7 @@ print(json.dumps(result))
       }
     } catch (err: any) {
       console.error("[tier1-sync]", err?.message || err);
+      noteJobError("tier1_reflex", `stop-state sync: ${err?.message || err}`);
     }
 
     // 3. Refresh monitored positions from Alpaca + stop state
@@ -4654,6 +4691,7 @@ print(json.dumps(result))
           await checkDrawdownKillSwitch();
         } catch (err) {
           console.error("[tier1-halted-drawdown]", err instanceof Error ? err.message : err);
+          noteJobError("tier1_reflex", `halted drawdown check: ${err instanceof Error ? err.message : err}`);
         }
       }
       await tier1ProtectiveSync();
@@ -4679,6 +4717,7 @@ print(json.dumps(result))
         t1Equity = dd.equity;
       } catch (err) {
         console.error("[tier1-drawdown]", err instanceof Error ? err.message : err);
+        noteJobError("tier1_reflex", `drawdown check: ${err instanceof Error ? err.message : err}`);
       }
 
       // 1-3. Sweep stale orders, refresh stop state, sync monitored positions
@@ -4696,6 +4735,7 @@ print(json.dumps(result))
 
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
+      noteJobError("tier1_reflex", err?.message || err);
     }
   }
 
@@ -4732,6 +4772,7 @@ print(json.dumps(result))
   async function checkShadowBackfill() {
     const nowHour = new Date().getUTCHours();
     if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
+      beat("shadow_backfill", "start");
       try {
         const result = await execPythonSerialized(
           `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(3000)))"`,
@@ -4750,26 +4791,32 @@ print(json.dumps(result))
         try {
           const stats = JSON.parse(result.stdout.trim());
           audit("SHADOW-BACKFILL", JSON.stringify(stats));
+          beat("shadow_backfill", "finish", "ok");
         } catch (parseErr: any) {
           audit("SHADOW-BACKFILL-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)}`);
+          beat("shadow_backfill", "finish", "error", "unparseable stdout");
         }
       } catch (e: any) {
         console.error("[SHADOW] Backfill failed:", e);
         audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
+        beat("shadow_backfill", "finish", "error", String(e?.message || e));
       }
     }
     // Look-up ledger outcomes ride the same nightly slot (its own try: a
     // shadow failure must not skip it, and it must not flip the shadow flag).
     if (nowHour === 22 && !_lookupLedgerFilledToday) {
       _lookupLedgerFilledToday = true;
+      beat("lookup_ledger_backfill", "start");
       try {
         const lr = await execPythonSerialized(
           `python3 -c "from lookup_ledger import backfill; import json; print(json.dumps(backfill(60)))"`,
           { timeout: 60000 }
         );
         audit("LOOKUP-LEDGER-BACKFILL", String(lr.stdout).trim().slice(0, 300));
+        beat("lookup_ledger_backfill", "finish", "ok");
       } catch (e: unknown) {
         audit("LOOKUP-LEDGER-BACKFILL-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        beat("lookup_ledger_backfill", "finish", "error", e instanceof Error ? e.message : String(e));
       }
     }
     if (nowHour === 0) {
@@ -4830,6 +4877,7 @@ print(json.dumps(result))
     if (((nowHour === 22 && oldRulerDone) || nowHour === 23) && !_shadowXaBackfilledToday
         && _shadowXaAttemptsToday < SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT) {
       _shadowXaAttemptsToday += 1;
+      beat("shadow_backfill_exit_aligned", "start");
       try {
         const result = await execPythonSerialized(
           `python3 -c "import json; from shadow_portfolio import backfill_exit_aligned; print(json.dumps(backfill_exit_aligned(max_records=3000, max_windows=40, time_budget_s=60)))"`,
@@ -4839,12 +4887,15 @@ print(json.dumps(result))
         try {
           const stats = JSON.parse(String(result.stdout).trim());
           audit("SHADOW-BACKFILL-XA", JSON.stringify(stats));
+          beat("shadow_backfill_exit_aligned", "finish", "ok");
         } catch (parseErr: unknown) {
           audit("SHADOW-BACKFILL-XA-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)} (${String(parseErr).slice(0, 100)})`);
+          beat("shadow_backfill_exit_aligned", "finish", "error", "unparseable stdout");
         }
       } catch (e: unknown) {
         audit("SHADOW-BACKFILL-XA-ERROR", `attempt ${_shadowXaAttemptsToday}/${SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT}: ` +
           String(e instanceof Error ? e.message : e).slice(0, 500));
+        beat("shadow_backfill_exit_aligned", "finish", "error", `attempt ${_shadowXaAttemptsToday}/${SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     if (nowHour === 0) {
@@ -6392,6 +6443,7 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model stale or missing — triggering retrain...");
+        beat("ml_retrain", "start");
         try {
           // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
           // Production SIGKILL events were classified as "likely OOM"
@@ -6435,8 +6487,10 @@ else:
             const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
             const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
             audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
+            beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
           } else {
             audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+            beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
           }
         } catch (trainErr: any) {
           // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
@@ -6467,11 +6521,12 @@ else:
           }
           const _detail = _tail.trim() || String(trainErr?.message || trainErr);
           audit("TIER3-ML-ERROR", `ML retrain failed (code=${_code} signal=${_signal})${_cls}: ${_detail}`);
+          beat("ml_retrain", "finish", "error", `code=${_code} signal=${_signal}${_cls}: ${_detail}`);
         }
       } else {
         audit("TIER3", `ML model fresh (${modelStatus.age_hours}h old) — skipping retrain`);
       }
-    } catch (err: any) { console.error("[tier3-ml]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-ml]", err?.message || err); noteJobError("tier3_strategic", `ml retrain check: ${err?.message || err}`); }
 
     // 2. Manipulation detection scan
     try {
@@ -6504,6 +6559,7 @@ print(json.dumps(scan_for_manipulation()))
       const _detail = _tail.trim() || String(err?.message || err);
       audit("TIER3-MANIP-ERROR", `Manipulation scan failed (code=${_code} signal=${_signal}): ${_detail}`);
       console.error("[tier3-manip]", err?.message || err);
+      noteJobError("tier3_strategic", `manipulation scan: ${_detail}`);
     }
 
     // 3. Run full diagnostics
@@ -6540,7 +6596,7 @@ print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())}
         // timestamps from git log. Surfacing both here closes that gap.
         audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues (node_uptime_s=${Math.round(process.uptime())}, tier2_ran_since_boot=${tier2CompletedSinceBoot}): ${detail}`);
       }
-    } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-diag]", err?.message || err); noteJobError("tier3_strategic", `diagnostics: ${err?.message || err}`); }
 
     // 4. Record daily equity
     recordDailyEquity();
@@ -6564,7 +6620,7 @@ print(json.dumps(run_daily_update()))
           audit("TIER3-COT", `COT update: ${errored.length} symbol(s) failed — ${errored.map(([s]) => s).join(", ")}`);
         }
       }
-    } catch (err: any) { console.error("[tier3-cot]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-cot]", err?.message || err); noteJobError("tier3_strategic", `COT: ${err?.message || err}`); }
 
     // 6. SEC bulk-historical Form 3/4/5 insider-transaction archive update
     // (EDGE DOCTRINE #1 free-data pipeline; DATA-LADDER GATE 1 ONLY — see
@@ -6587,7 +6643,7 @@ print(json.dumps(run_update()))
           audit("TIER3-FORM4BULK", `Form4 bulk update: ${errored.length} quarter(s) failed — ${errored.map(([q]) => q).join(", ")}`);
         }
       }
-    } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); noteJobError("tier3_strategic", `Form 4 bulk: ${err?.message || err}`); }
 
     // 7. Port-dwell weekly-snapshot IN-PROCESS capture (2026-09-07 PRODUCT
     // session; see server/portDwellCapture.ts's own header + research/
@@ -6619,7 +6675,7 @@ print(json.dumps(run_update()))
         // rendering: a degraded/backed-off path must say so loudly).
         audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} deferred — cooling down after a suspected crash on the prior attempt${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
       }
-    } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); }
+    } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); noteJobError("tier3_strategic", `port dwell: ${err instanceof Error ? err.message : err}`); }
 
     audit("TIER3", "Strategic scan complete");
   }
@@ -6688,6 +6744,7 @@ print(json.dumps(run_update()))
     if (Date.now() - lastResearchRun < 55 * 60 * 1000) return;
     lastResearchRun = Date.now();
     autoRunning = true;
+    beat("overnight_research", "start");
 
     try {
       // 8pm-10pm: Scan market, find tomorrow's opportunities + analyze today's extreme movers
@@ -6873,6 +6930,7 @@ print('cleared')
 
       // 4am ET: Daily ML retrain + reset daily state
       if (Math.floor(etHour) === 4) {
+        beat("daily_reset", "start");
         // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
         (state as any).dailyBlockedTickers = [];
         state.consecutiveStopLosses = 0;
@@ -6884,6 +6942,7 @@ print('cleared')
         sweptCspAt = {};
         audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
         audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
+        beat("ml_retrain", "start");
         try {
           // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
           // Same as the TIER3 retrain call earlier — see comment there.
@@ -6893,8 +6952,11 @@ print('cleared')
           );
           const trainResult = JSON.parse(trainOut.trim());
           audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+          beat("ml_retrain", "finish", retrainStatusIsSuccess(String(trainResult.status || "")) ? "ok" : "error", `status ${trainResult.status}`);
         } catch (err: any) {
           audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
+          beat("ml_retrain", "finish", "error", err?.message || err);
+          noteJobError("daily_reset", `4am retrain: ${err?.message || err}`);
         }
 
         // Nightly auto-backup at 4am alongside retrain
@@ -6945,14 +7007,18 @@ print(json.dumps({'files': count}))
           }
         } catch (err: any) {
           audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
+          noteJobError("daily_reset", `nightly backup: ${err?.message || err}`);
         }
+        beat("daily_reset", "finish", "ok");
       }
 
     } catch (e: any) {
       audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
+      noteJobError("overnight_research", e?.message || e);
     }
 
     autoRunning = false;
+    beat("overnight_research", "finish", "ok");
   }
 
   // ── TIER 0: Real-Time Streaming ──────────────────────────────────────────────
@@ -7905,8 +7971,10 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // Exit-gated, not entry-gated (audit N15): POS-KILL / TIME-EXIT live in the
   // sync, so it keeps running through a halt.
   setInterval(async () => {
+    if (!haltAllows(currentHaltState(), "exit")) beat("position_sync", "finish", "skipped", "owner stopped the bot");
     if (!haltAllows(currentHaltState(), "exit")) return;
-    try { await syncMonitoredPositions(); } catch (_) {}
+    // job heartbeat: withJobBeat records start/finish ("error" + message on a throw)
+    try { await withJobBeat("position_sync", async () => { await syncMonitoredPositions(); }); } catch (_) {}
   }, 60000);
 
   function startStreaming() {
@@ -8044,6 +8112,19 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     if (streamWs) { try { streamWs.close(); } catch (_) {} streamWs = null; }
     streamConnected = false;
   }
+
+  // PYTHON DAEMON LIVENESS (JOB HEARTBEAT, Phase 3 "no silent failures",
+  // 2026-10-27): nothing polled the daemon on a schedule — a dead daemon was
+  // only visible as subprocess fallbacks and slower scans. One health RPC
+  // every 5 minutes (read-only, the same call /api/diag/daemon makes) beats
+  // "daemon_liveness" ok / error so the external watchdog sees it.
+  setInterval(() => {
+    if (!DAEMON_ENABLED) { beat("daemon_liveness", "finish", "skipped", "VOLTRADE_DAEMON_ENABLED=false"); return; }
+    withJobBeat("daemon_liveness", async () => {
+      const r = await pythonRpc("health", {}, 10000);
+      if (r?.status !== "ok") throw new Error(`daemon health not ok: ${String(r?.error_message ?? r?.status ?? "no status").slice(0, 150)}`);
+    }).catch((e: unknown) => console.error("[daemon-liveness]", e instanceof Error ? e.message : e));
+  }, 5 * 60 * 1000);
 
   // EVENT-LOOP LAG MONITOR (REPAIR 2026-07-12, KNOWN BROKEN #18 follow-up —
   // see server/eventLoopLag.ts header for the full correlation this tests:
@@ -8283,7 +8364,15 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
+  // JOB HEARTBEAT (Phase 3 "no silent failures", 2026-10-27): every tick
+  // beats start + finish (server/jobHeartbeat.ts). The finish says what the
+  // tick did: "ok" when tier1Reflex ran, "skipped" + why when gated, "error"
+  // when a step noted one (noteJobError in the swallowing catches).
   setInterval(async () => {
+    beat("tier1_reflex", "start");
+    let t1Ran = false;
+    let t1MarketClosed = false;
+    try {
     // HALT SCOPE (2026-10-27, audit N15): a halt blocks ENTRIES only. While
     // one is active (kill latch, circuit breaker, weekly-loss pause) the
     // protective half of Tier 1 still runs — stops, POS-KILL, the stop-state
@@ -8297,6 +8386,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
         if (clock.is_open) await tier1HaltedExits(t1Gate);
       } catch (err) {
         console.error("[tier1-halted]", err instanceof Error ? err.message : err);
+        noteJobError("tier1_reflex", `halted exits: ${err instanceof Error ? err.message : err}`);
       }
     }
     // While the kill is latched this tick evaluates the paper auto-resume
@@ -8308,10 +8398,20 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
 
     try {
       const clock = await alpaca("/v2/clock");
-      if (!clock.is_open) return; // Only during market hours
+      if (!clock.is_open) { t1MarketClosed = true; return; } // Only during market hours
+      t1Ran = true;
       await tier1Reflex();
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
+      noteJobError("tier1_reflex", `tick: ${err?.message || err}`);
+    }
+    } finally {
+      const t1Why = t1Ran ? null
+        : state.killSwitch ? "kill switch latched (auto-resume evaluation ran)"
+        : t1MarketClosed ? "market closed"
+        : !state.active ? "bot inactive"
+        : "halt active (protective exits only) or circuit breaker";
+      beat("tier1_reflex", "finish", t1Why ? "skipped" : "ok", t1Why ?? undefined);
     }
   }, 45000);
 
@@ -8397,33 +8497,43 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
       return; // deliberately do not re-arm: the whole Tier 2 timer chain stops
     }
+    // JOB HEARTBEAT (Phase 3): a gated tick beats "skipped" + why; a scan beats
+    // start, and its finish (in the finally below) is "error" whenever the
+    // back-off counter counts it as a failure.
     if (tier2Running) {
+      beat("tier2_scan", "finish", "skipped", "previous scan still running");
       armTier2Timer(getTier2Interval());
       return;
     }
     // A halt blocks the scan (entries) but not the options exits (audit N15).
     const t2Mode = haltMode(currentHaltState());
     if (t2Mode === "exits_only") {
+      beat("tier2_scan", "finish", "skipped", "halt active: the options exits-only pass ran instead of the scan");
       await tier2HaltedExits();
       armTier2Timer(getTier2Interval());
       return;
     }
     if (t2Mode !== "full") {
+      beat("tier2_scan", "finish", "skipped", "bot stopped by the owner");
       armTier2Timer(getTier2Interval());
       return;
     }
 
     let hitMutexTimeout = false;
     let schedulerThrew = false;
+    let t2Started = false;
     try {
       const clock = await alpaca("/v2/clock");
       const etH = getETHour();
       const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
       if (!isAnyWindow) {
+        beat("tier2_scan", "finish", "skipped", "outside the scan window (market closed and outside 04:00-20:00 ET)");
         armTier2Timer(getTier2Interval());
         return;
       }
 
+      beat("tier2_scan", "start");
+      t2Started = true;
       tier2Running = true;
       const interval = getTier2Interval();
       audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
@@ -8445,6 +8555,11 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       // and errored (scheduler throw, Python scan JSON error, subprocess crash)
       // contributes; a clean run resets the counter.
       const failed = schedulerThrew || tier2LastScanFailed;
+      if (t2Started) {
+        beat("tier2_scan", "finish", failed ? "error" : "ok", failed ? (tier2LastFailureDetail || (schedulerThrew ? "scheduler threw (see TIER2-ERROR audit)" : "scan failed")) : undefined);
+      } else if (schedulerThrew) {
+        beat("tier2_scan", "finish", "error", "clock read failed before the scan started");
+      }
       if (failed) {
         tier2ConsecutiveFailures += 1;
       } else {
@@ -8482,11 +8597,14 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
       return;
     }
-    if (!state.active || tier3Running) return;
+    if (!state.active || tier3Running) {
+      beat("tier3_strategic", "finish", "skipped", !state.active ? "bot inactive" : "previous run still running");
+      return;
+    }
 
     try {
       tier3Running = true;
-      await tier3Strategic();
+      await withJobBeat("tier3_strategic", tier3Strategic);
     } catch (err: any) {
       console.error("[tier3]", err?.message || err);
       audit("TIER3-ERROR", String(err?.message || err).slice(0, 200));
@@ -8505,7 +8623,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("TIER3-DISABLED", "Startup Tier 3 run skipped via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection)");
     }
   } else {
-    setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+    setTimeout(() => { withJobBeat("tier3_strategic", tier3Strategic).catch(() => {}); }, 30000);
   }
 
   // Route: Get last scan result

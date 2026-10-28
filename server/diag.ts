@@ -329,6 +329,15 @@ export const DIAG_PROBES = [
   // status, a verdict and field-name presence booleans ONLY — no prices,
   // symbols, URLs, bodies or keys. Keys ride in headers, never URLs.
   "options_entitlements",
+  // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
+  // server side of the external job watchdog. server/jobHeartbeat.ts's
+  // evaluate() over the persisted heartbeat file — per scheduled job
+  // ok | late | missing | errored | not_due with its last start/finish/
+  // status/age, the overall verdict and the failing jobs. Job names,
+  // timestamps and short error messages only (already sanitized-class: the
+  // same text the audit log carries); read-only, no broker call, no
+  // query parameters.
+  "heartbeats",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

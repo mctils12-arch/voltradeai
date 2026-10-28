@@ -182,10 +182,14 @@ test("exit-aligned job: sequenced AFTER the old ruler's job, at most N attempts 
     runs.push(cmd);
     return fail ? Promise.reject(new Error("boom")) : Promise.resolve({ stdout: '{"updated": 1}' });
   };
-  const job = new Function("execPythonSerialized", "audit", "Date",
+  // job heartbeats (server/jobHeartbeat.ts, 2026-10-27): the function beats
+  // start/finish around each attempt — recorded here and asserted below.
+  const beats: string[] = [];
+  const job = new Function("execPythonSerialized", "audit", "Date", "beat",
     `let _shadowBackfilledToday = false;\n${transpile(src)}\n` +
     "return { run: checkShadowBackfillExitAligned, setOldDone: (v) => { _shadowBackfilledToday = v; } };")(
-    exec, (type: string, msg: string) => audits.push(`${type} ${msg}`), FakeDate) as {
+    exec, (type: string, msg: string) => audits.push(`${type} ${msg}`), FakeDate,
+    (job: string, phase: string, status?: string) => beats.push(`${job} ${phase}${status ? ` ${status}` : ""}`)) as {
     run: () => Promise<void>; setOldDone: (v: boolean) => void;
   };
 
@@ -208,6 +212,10 @@ test("exit-aligned job: sequenced AFTER the old ruler's job, at most N attempts 
   assert.ok(audits[audits.length - 1].startsWith('SHADOW-BACKFILL-XA {"updated":1}'));
   await job.run();
   assert.equal(runs.length, 4, "once a night on success");
+  // every attempt beats start + finish: 3 failed attempts then 1 success
+  assert.equal(beats.filter((b) => b === "shadow_backfill_exit_aligned start").length, 4);
+  assert.equal(beats.filter((b) => b === "shadow_backfill_exit_aligned finish error").length, 3);
+  assert.equal(beats[beats.length - 1], "shadow_backfill_exit_aligned finish ok");
 });
 
 test("exit-aligned job: success and both failure paths reach the persisted audit log", () => {
