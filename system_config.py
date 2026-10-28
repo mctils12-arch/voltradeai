@@ -369,6 +369,16 @@ BASE_CONFIG = {
     # Master switch for csp_universe module. If False, T1 reverts to
     # hardcoded T1_TICKERS_FALLBACK (17 liquid anchor names).
     "T1_DYNAMIC_UNIVERSE_ENABLED": True,
+
+    # ── REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md, Stage B step 2) ──
+    # Config mirror of the VOLTRADE_REGIME_ENGINE env flag (either turns the
+    # engine on; regime_engine.engine_allowed reads both). OFF by default:
+    # with it off, regime_engine.py is never imported on the scan path and the
+    # five existing regime vocabularies (docs/regime/AUDIT.md §2) run exactly
+    # as before. ON = shadow compute + persist + serve; consumers each have
+    # their own flag (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS).
+    # Expected effect while shadow: none on trading; one state per scan.
+    "REGIME_ENGINE_ENABLED": False,
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

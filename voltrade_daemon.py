@@ -335,6 +335,12 @@ class RPCDispatcher:
             # /api/bot/lookup/:symbol with the python3 -c subprocess fallback.
             "lookup_ticker": ("lookup_ticker", "lookup"),
             "lookup_ledger_report": ("lookup_ledger", "report"),
+
+            # REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md step 2): the
+            # single owner of regime state. args {"gating": "SPY", "force": false,
+            # "compute": true}; never raises; serves the last persisted state when
+            # VOLTRADE_REGIME_ENGINE is off. Subprocess fallback: the same function.
+            "regime_state": ("regime_engine", "regime_state_rpc"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:
