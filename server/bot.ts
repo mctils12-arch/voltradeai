@@ -56,7 +56,7 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
-import { buildEntryFillPayload } from "./entryFill";
+import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
@@ -226,6 +226,26 @@ async function pythonCall(
 function recordExitFill(payload: ReturnType<typeof buildExitFillPayload>) {
   try {
     const tmp = `/tmp/fill_x_${payload.ticker}_${Date.now()}.json`;
+    fs.writeFileSync(tmp, JSON.stringify(payload));
+    pythonCall(
+      "track_fill", payload,
+      `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${tmp}')); os.remove('${tmp}'); track_fill(d)"`,
+      { timeout: 5000 }
+    ).then((r) => {
+      if (r.via === "daemon") {
+        try { fs.unlinkSync(tmp); } catch {}
+      }
+    }).catch(() => {});
+  } catch (err: any) { console.error("[bot]", err?.message || err); }
+}
+
+// [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, see entryFill.ts): the one
+// writer of ENTRY feedback records. Callers pass a payload built from
+// Alpaca's confirmed filled_avg_price/filled_qty, never a submit-time quote.
+// Recording only — runs strictly AFTER the (frozen) order POST.
+function recordEntryFill(payload: ReturnType<typeof buildEntryFillPayload>) {
+  try {
+    const tmp = `/tmp/fill_e_${String(payload.ticker)}_${Date.now()}.json`;
     fs.writeFileSync(tmp, JSON.stringify(payload));
     pythonCall(
       "track_fill", payload,
@@ -1884,7 +1904,7 @@ try:
     from storage_config import TRADE_FEEDBACK_PATH
 except ImportError:
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-from ml_model_v2 import fills_slippage_stats
+from ml_model_v2 import fills_slippage_stats, fills_slippage_basis
 
 feedback_raw = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
@@ -1963,6 +1983,7 @@ print(json.dumps({
     'realisticPnlPct': round(realistic_total_pnl, 2),
     'avgSlippagePct': round(avg_slippage_pct, 4),
     'totalSlippageCost': round(total_slippage_cost, 2),
+    'slippageBasis': fills_slippage_basis(feedback),
     'slippageGapPct': round(total_pnl - realistic_total_pnl, 2),
     'bestTrade': {'ticker': best_trade.get('ticker', ''), 'pnlPct': round(best_trade.get('pnl_pct', 0), 2)} if best_trade else None,
     'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
@@ -4335,6 +4356,12 @@ print(json.dumps(result[:20]))
     // specifically. Absent on non-exit orders and anything not yet
     // migrated to this contract.
     pendingExitFill?: Omit<ExitFillArgs, "fillPrice" | "qty">;
+    // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): the entry-side twin of
+    // pendingExitFill. Everything buildEntryFillPayload() needs except the
+    // broker-confirmed fillPrice/qty; resolvePendingEntryFill() records the
+    // entry once Alpaca reports a fill. A resting limit that is later
+    // cancelled unfilled therefore writes no phantom entry record.
+    pendingEntryFill?: Omit<EntryFillArgs, "fillPrice" | "qty">;
     // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: set only by the tier
     // dispatcher's SELL_CSP branch — the underlying whose cash-secured put
     // this order opens. When sweepStaleOrders() confirms the cancel it
@@ -4378,6 +4405,53 @@ print(json.dumps(result[:20]))
   // from openOrders); returns false only when the status query itself
   // failed, so the caller can leave the entry tracked for the next sweep
   // instead of silently losing the fill.
+  // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): resolve a tracked ENTRY
+  // order. Records the entry feedback record at Alpaca's confirmed
+  // filled_avg_price/filled_qty once the order is terminal (a partial fill
+  // that was then cancelled records its filled part). Returns false while
+  // the order can still fill or the status query failed, so the caller keeps
+  // it tracked; true once its fate is known (recorded, or nothing filled).
+  async function resolvePendingEntryFill(tracked: TrackedOrder): Promise<boolean> {
+    if (!tracked.pendingEntryFill) return true;
+    try {
+      const final = await alpaca(`/v2/orders/${tracked.orderId}`);
+      if (!isTerminalOrderStatus(final?.status)) return false;
+      const fill = confirmedEntryFill(final);
+      if (fill) {
+        recordEntryFill(buildEntryFillPayload({
+          ...tracked.pendingEntryFill,
+          qty: fill.qty,
+          fillPrice: fill.price,
+          orderStatus: String(final.status),
+        }));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Record an entry now if Alpaca already reports it terminal (filled, or a
+  // partial fill then cancelled), else attach the payload to the tracked
+  // order so the sweep records it at the real fill. `order` is whatever
+  // order object the caller already holds (POST response or status GET).
+  function settleEntryFill(orderId: string, order: AlpacaOrderFill | null, args: Omit<EntryFillArgs, "fillPrice" | "qty">) {
+    const status = String(order?.status || "");
+    if (isTerminalOrderStatus(status)) {
+      const fill = confirmedEntryFill(order);
+      if (fill) {
+        recordEntryFill(buildEntryFillPayload({ ...args, qty: fill.qty, fillPrice: fill.price, orderStatus: status }));
+      }
+      return;
+    }
+    const tracked = openOrders.find(o => o.orderId === orderId);
+    if (tracked) {
+      tracked.pendingEntryFill = args;
+      return;
+    }
+    audit("FILL-TRACK-WARN", `${args.ticker}: order ${orderId} is not tracked — its entry fill cannot be recorded`);
+  }
+
   async function resolvePendingExitFill(tracked: TrackedOrder): Promise<boolean> {
     if (!tracked.pendingExitFill) return true;
     try {
@@ -4415,6 +4489,9 @@ print(json.dumps(result[:20]))
         await alpaca(`/v2/orders/${stale.orderId}`, { method: "DELETE" });
         audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}) — buying power freed`);
         if (stale.cspUnderlying) sweptCspAt[stale.cspUnderlying] = Date.now();
+        // A partly filled entry keeps its filled shares: record them before
+        // the order is dropped (REAL BROKER FILLS, 2026-10-27).
+        if (!(await resolvePendingEntryFill(stale))) continue;
         // Remove from tracked list
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
@@ -4440,6 +4517,7 @@ print(json.dumps(result[:20]))
         // a just-cancelled-in-race order isn't silently lost.
         const resolved = await resolvePendingExitFill(stale);
         if (!resolved) continue; // status unknown this cycle — retry next sweep
+        if (!(await resolvePendingEntryFill(stale))) continue;
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
         // Also clear pendingExit — if the order filled, the next sync will remove
@@ -4457,6 +4535,9 @@ print(json.dumps(result[:20]))
       for (let i = openOrders.length - 1; i >= 0; i--) {
         const tracked = openOrders[i];
         if (alpacaIds.has(tracked.orderId)) continue;
+        // REAL BROKER FILLS (2026-10-27): an entry is recorded at its
+        // confirmed fill before the order is dropped.
+        if (!(await resolvePendingEntryFill(tracked))) continue;
         // KNOWN BROKEN #35 half two: confirm fill/no-fill before dropping.
         const resolved = await resolvePendingExitFill(tracked);
         if (resolved) openOrders.splice(i, 1); // Filled or cancelled externally
@@ -4729,40 +4810,23 @@ print(json.dumps(result[:20]))
           });
         }
 
-        // Track fill with realistic slippage (morning queue = market open = wider slippage)
-        try {
+        // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, entryFill.ts): this
+        // path used to record trade.price x a random 0.05-0.25% as the fill
+        // and never read Alpaca's fill. The entry record now waits for the
+        // confirmed filled_avg_price/filled_qty (resolved by the sweep). The
+        // prior haircut on the queued quote is kept as synthetic_fill_price.
+        if (order?.id) {
           const mVol = trade.volume || 1000000;
-          let mSlip = 0.08; // Morning fills are worse (opening volatility)
-          if (mVol > 20000000) mSlip = 0.05 + Math.random() * 0.05;
-          else if (mVol > 5000000) mSlip = 0.08 + Math.random() * 0.07;
-          else mSlip = 0.15 + Math.random() * 0.10;
-          const mSide = trade.side || "buy";  // side already normalized above (short blocked)
-          const mDir = mSide === "buy" ? 1 : -1;
-          const mFillPrice = Math.round((trade.price * (1 + mDir * mSlip / 100)) * 100) / 100;
-
-          const morningFillPayload = {
-            ticker: trade.ticker, order_type: "market", side: mSide,
-            qty: Math.floor(trade.shares),
-            expected_price: trade.price, fill_price: mFillPrice,
-            slippage_applied_pct: mSlip,
-            time_placed: trade.queuedAt || new Date().toISOString(),
+          settleEntryFill(order.id, order, {
+            ticker: trade.ticker, side: trade.side || "buy",  // side already normalized above (short blocked)
+            expectedPrice: trade.price, qtyRequested: _qtyToSubmit,
+            syntheticSlippagePct: syntheticSlippagePct(mVol, "morning_queue"), syntheticBase: "expected",
+            orderId: order.id,
             session: "morning_queue", volume: mVol, score: trade.score,
             instrument: trade.instrument || "stock",
-            code_version: pkgVersion,
-          };
-          const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
-          fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
-          // OPT 2026-04-20: daemon first, subprocess fallback
-          pythonCall(
-            "track_fill", morningFillPayload,
-            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`,
-            { timeout: 5000 }
-          ).then((r) => {
-            if (r.via === "daemon") {
-              try { fs.unlinkSync(mfTmp); } catch {}
-            }
-          }).catch(() => {});
-        } catch (err: any) { console.error("[bot]", err?.message || err); }
+            codeVersion: pkgVersion,
+          });
+        }
 
         slotsUsed++;
         // Auto-subscribe for real-time exit monitoring
@@ -6283,25 +6347,20 @@ else:
             // became a permanent orphan_exit — see entryFill.ts for the full
             // trace. Record the entry the same way the regular/morning-queue
             // stock paths already do.
-            try {
-              const etfEntryPayload = buildEntryFillPayload({
-                ticker: etfTicker, side: "buy", qty: etfShares,
-                fillPrice: etfPrice, session: "regular",
-                volume: trade.volume, score: trade.score,
+            // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): the ETF entry
+            // used to be recorded at trade.price, which is the UNDERLYING's
+            // price, not the leveraged ETF's. It now waits for the confirmed
+            // ETF fill. expectedPrice = the ETF's own quote from the N6 sizing
+            // plan (etfPlan.price), so slippage is measured against the
+            // instrument actually traded.
+            if (etfOrderResult?.id) {
+              settleEntryFill(etfOrderResult.id, etfOrderResult, {
+                ticker: etfTicker, side: "buy", expectedPrice: etfPrice, qtyRequested: etfShares,
+                orderId: etfOrderResult.id,
+                session: "regular", volume: trade.volume, score: trade.score,
                 instrument: "etf", codeVersion: pkgVersion,
               });
-              const etfTmp = `/tmp/fill_etf_${etfTicker}_${Date.now()}.json`;
-              fs.writeFileSync(etfTmp, JSON.stringify(etfEntryPayload));
-              pythonCall(
-                "track_fill", etfEntryPayload,
-                `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${etfTmp}')); os.remove('${etfTmp}'); track_fill(d)"`,
-                { timeout: 5000 }
-              ).then((r) => {
-                if (r.via === "daemon") {
-                  try { fs.unlinkSync(etfTmp); } catch {}
-                }
-              }).catch(() => {});
-            } catch (err: any) { console.error("[bot]", err?.message || err); }
+            }
             addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", etfPrice, etfShares);
             continue;
           } catch (etfErr: any) {
@@ -6538,6 +6597,23 @@ else:
       await new Promise(r => setTimeout(r, 2000)); // Single 2-second wait for all fills
 
       for (const pending of pendingOrderIds) {
+        // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, entryFill.ts): the
+        // entry record carries Alpaca's filled_avg_price/filled_qty. The
+        // prior random haircut (applied to the broker fill on this path) is
+        // kept only as synthetic_fill_price. An order still working at this
+        // 2 s check, or whose status query fails, is recorded later by the
+        // sweep at its real fill; one that ends unfilled records nothing.
+        const entryVol = pending.trade.volume || 1000000;
+        const entryArgs: Omit<EntryFillArgs, "fillPrice" | "qty"> = {
+          ticker: pending.trade.ticker, side: pending.side,
+          expectedPrice: pending.trade.price, qtyRequested: pending.qty,
+          syntheticSlippagePct: syntheticSlippagePct(entryVol, "regular"), syntheticBase: "fill",
+          orderId: pending.orderId,
+          session: "regular", volume: entryVol, score: pending.trade.score,
+          instrument: pending.trade.instrument || "stock",
+          entryFeatures: pending.trade.entry_features || null,
+          codeVersion: pkgVersion,
+        };
         try {
           const orderStatus = await alpaca(`/v2/orders/${pending.orderId}`);
           const filledQty = parseInt(orderStatus?.filled_qty || "0");
@@ -6552,49 +6628,12 @@ else:
             audit("ORDER-REJECTED", `${pending.trade.ticker}: order ${status} — ${orderStatus?.reject_reason || 'unknown reason'}`);
           }
 
-          // Track fill with ACTUAL data (not assumed)
-          const vol = pending.trade.volume || 1000000;
-          let slippagePct = 0.03;
-          if (vol > 20000000) slippagePct = 0.02 + Math.random() * 0.03;
-          else if (vol > 5000000) slippagePct = 0.05 + Math.random() * 0.05;
-          else if (vol > 1000000) slippagePct = 0.08 + Math.random() * 0.07;
-          else slippagePct = 0.12 + Math.random() * 0.13;
-
-          const slippageDirection = (pending.side === "buy") ? 1 : -1;
-          const realisticFillPrice = Math.round((filledAvgPrice * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
-
-          const fillPayload = {
-            ticker: pending.trade.ticker, order_type: "market", side: pending.side,
-            qty_requested: requestedQty,
-            qty_filled: filledQty || requestedQty,
-            partial_fill: isPartial,
-            expected_price: pending.trade.price,
-            alpaca_fill_price: filledAvgPrice,
-            fill_price: realisticFillPrice,
-            slippage_applied_pct: slippagePct,
-            order_status: status,
-            time_placed: new Date().toISOString(),
-            session: "regular", volume: vol, score: pending.trade.score,
-            instrument: pending.trade.instrument || "stock",
-            entry_features: pending.trade.entry_features || null,
-            code_version: pkgVersion,
-          };
-          const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
-          fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
-          // OPT 2026-04-20: daemon first, subprocess fallback
-          pythonCall(
-            "track_fill", fillPayload,
-            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`,
-            { timeout: 5000 }
-          ).then((r) => {
-            // Clean up temp file if daemon handled it (subprocess removes its own)
-            if (r.via === "daemon") {
-              try { fs.unlinkSync(rfTmp); } catch {}
-            }
-          }).catch(() => {});
+          settleEntryFill(pending.orderId, orderStatus, entryArgs);
         } catch (cfErr: any) {
-          // Confirmation failed — record with best-guess data
-          audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
+          // Status check failed: attach to the tracked order so the sweep
+          // records the confirmed fill later.
+          settleEntryFill(pending.orderId, null, entryArgs);
+          audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — deferred to the stale-order sweep`);
         }
       }
     }
