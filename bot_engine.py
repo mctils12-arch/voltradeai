@@ -1275,6 +1275,39 @@ except Exception as e:
         news_adjustment -= 6
         reasons.append(f"News bearish ({news_sent.get('headline_count', 0)} articles)")
 
+    # ── REGIME ENGINE selection guards (2026-10-28, docs/regime/FINDINGS.md step 4) ──
+    # SHADOW by default: the verdict's flags ride the shadow record
+    # (score_breakdown regime_*) so each guard earns a prevention-P&L before it
+    # gates anything. Only a guard named in VOLTRADE_REGIME_SELECTION acts:
+    # 'dip' neutralizes the mean-reversion sub-score (> 50 -> 50) and the
+    # 'Buy the Dip' bonus when the engine's state does not allow dip-buying
+    # (RESEARCH.md §2.2: Connors above the 200-day; George-Hwang; Daniel-
+    # Moskowitz); knife/panic/rs/breadth block in the admission loop. Off, or
+    # no persisted state, or any error -> scores identical to the baseline.
+    _regime_sel = None
+    _regime_dip_gate = False
+    try:
+        import regime_engine as _re_sel
+        if _re_sel.engine_allowed():
+            _regime_state_sel = _re_sel.cached_state()
+            if _regime_state_sel:
+                _contrarian_flag = sentiment.get("contrarian_flag") if isinstance(sentiment, dict) else None
+                _regime_sel = _re_sel.selection_verdict(_regime_state_sel, {
+                    "price": quick_result.get("price"), "high_52w": quick_result.get("high_52w"),
+                    "closes": _deep_closes, "relative_strength_pct": edge.get("relative_strength"),
+                    "mean_reversion_score": mean_reversion_score,
+                    "dip_bonus": 8.0 if _contrarian_flag == "Buy the Dip" else 0.0,
+                })
+                _regime_dip_gate = "dip" in _re_sel.selection_gates()
+                if _regime_dip_gate and _regime_sel["neutralize_mr"] and mean_reversion_score > 50:
+                    reasons.append(f"Regime guard: mean-reversion neutralized ({_regime_sel['reasons'].get('dip', '')})")
+                    mean_reversion_score = 50.0
+    except Exception as _re_sel_err:
+        import logging as _re_sel_logging
+        _re_sel_logging.getLogger("bot_engine").debug(f"[REGIME] selection guard skipped: {_re_sel_err}")
+        _regime_sel = None
+        _regime_dip_gate = False
+
     # ── Combined score ───────────────────────────────────────────────────────
     combined_score = (
         momentum_score * 0.25 +
@@ -1480,6 +1513,8 @@ except Exception as e:
     if contrarian == "Squeeze Watch":
         combined_score += 10
         reasons.append("SQUEEZE WATCH — retail hype + high short interest")
+    elif contrarian == "Buy the Dip" and _regime_dip_gate and _regime_sel and _regime_sel.get("neutralize_mr"):
+        reasons.append("Regime guard: 'Buy the Dip' bonus withheld (dip-buying not allowed in this state)")
     elif contrarian == "Buy the Dip":
         combined_score += 8
         reasons.append("Buy the Dip signal — retail panic, institutions buying")
@@ -1868,6 +1903,9 @@ except Exception as e:
         quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
     except Exception:
         pass
+    # REGIME ENGINE selection guards (step 4): the verdict rides the candidate
+    # into _scan_market_inner's admission loop (knife / panic / rs / breadth).
+    quick_result["regime_guards"] = _regime_sel if '_regime_sel' in dir() else None
 
     # ── Determine trade SIDE ─────────────────────────────────────────────────
     momentum_is_negative = (momentum_score < 40 or change_pct < -2)
@@ -1925,6 +1963,13 @@ except Exception as e:
             "social": round(social_adjustment, 1),
             "fundamental": round(fundamental_adjustment, 1),
         }
+        # REGIME ENGINE selection guards (step 4, shadow): 0/1 per guard + the
+        # score points a live 'dip' neutralization would remove. None when the
+        # engine is off / has no state — absence, never zeros.
+        if _regime_sel:
+            for _g, _v in _regime_sel["flags"].items():
+                _score_breakdown[f"regime_{_g}"] = float(_v)
+            _score_breakdown["regime_mr_delta"] = float(_regime_sel["mr_delta"])
 
         log_candidate(
             ticker=ticker,
@@ -3542,6 +3587,24 @@ def _scan_market_inner():
         if _scan_regime in ("BEAR", "PANIC"):
             _note_gate(ticker, "rejected_regime_gate", f"no new stock longs in {_scan_regime}")
             continue  # No new stock longs in bear/panic — preserve capital
+
+        # REGIME ENGINE selection guards (2026-10-28, docs/regime/FINDINGS.md
+        # step 4): knife / panic / rs / breadth. The verdict was computed in
+        # deep_score (quick_result["regime_guards"]); a guard BLOCKS only when
+        # VOLTRADE_REGIME_SELECTION names it — otherwise its flag stays on the
+        # shadow record and the candidate proceeds (shadow measurement first).
+        _rg = stock.get("regime_guards") or {}
+        if _rg.get("would_block"):
+            try:
+                import regime_engine as _re_gate
+                _rg_gates_on = _re_gate.selection_gates()
+            except Exception:
+                _rg_gates_on = set()
+            _rg_blocked_by = [g for g in _rg["would_block"] if g in _rg_gates_on]
+            if _rg_blocked_by:
+                _note_gate(ticker, f"rejected_regime_{_rg_blocked_by[0]}",
+                           _rg.get("reasons", {}).get(_rg_blocked_by[0], "regime selection guard"))
+                continue
 
         # Skip if below minimum score — use regime-adaptive threshold from get_adaptive_params.
         # Previously this used a hardcoded MIN_SCORE=65 which conflicted with system_config
