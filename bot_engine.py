@@ -4386,6 +4386,17 @@ def _scan_market_inner():
         }, open(_TIMING_PATH, "w"))
     except Exception:
         pass
+    # REGIME ENGINE step 6 (docs/regime/FINDINGS.md): persist the day's sizing-multiplier
+    # counters for the report (/api/bot/regime) — one write per scan; the daemon keeps them
+    # in-process between scans. Only when the engine is on and a sleeve is flagged.
+    _regime_sizing_counts = None
+    try:
+        import regime_engine as _re_szc
+        if _re_szc.engine_allowed() and _re_szc.sizing_sleeves():
+            _regime_sizing_counts = _re_szc.flush_sizing_counts()
+    except Exception as _re_szc_err:
+        _regime_sizing_counts = {"error": str(_re_szc_err)[:120]}
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -4452,6 +4463,7 @@ def _scan_market_inner():
         # (None while VOLTRADE_REGIME_ENGINE is off). bot.ts audits its
         # transitions; no consumer acts on it until its own flag is set.
         "regime": _regime_state if '_regime_state' in dir() else None,
+        "regime_sizing": _regime_sizing_counts if '_regime_sizing_counts' in dir() else None,
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
         # so the UI can show "POSITION RULES" card. Read from _slots_params

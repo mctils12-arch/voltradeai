@@ -87,6 +87,8 @@ BREADTH_BASKET = SECTOR_ETFS + ["IWM", "MDY"]
 CREDIT_PAIR = ["HYG", "IEF"]
 INDEX_FAMILY = ["^VIX", "^VIX3M", "^VVIX"]
 
+logger = logging.getLogger("voltrade.regime_engine")
+
 DEFAULT_PARAMS = {
     # trend legs (RESEARCH §2.1, §4.3, §4.5: one vote per horizon, ensembled lookbacks)
     "slow_horizons": (120, 160, 200, 240),
@@ -785,6 +787,8 @@ def state_age_market_days(state, today=None):
     if not state or not state.get("as_of"):
         return None
     today = today or datetime.now(timezone.utc).date()
+    if isinstance(today, str):
+        today = datetime.strptime(today[:10], "%Y-%m-%d").date()
     d = datetime.strptime(state["as_of"][:10], "%Y-%m-%d").date()
     n = 0
     while d < today:
@@ -989,6 +993,120 @@ def apply_csp_gates(verdict, gates) -> dict:
         mult *= OPTIONS_PARAMS["ebp_size_mult"]
     delta = verdict.get("target_delta") if (f.get("elevated") and "elevated" in gates) else None
     return {"block": bool(block_by), "blocked_by": block_by, "size_mult": round(mult, 4), "target_delta": delta}
+
+
+# ── consumer: sizing (docs/regime/FINDINGS.md step 6) ───────────────────────
+SIZING_SLEEVES = ("stock", "options", "tier1")
+SIZING_PARAMS = {
+    "options_floor_csp": 0.5,           # an options sleeve the state still permits is never sized below half
+    "options_floor_csp_reduced": 0.25,  # 'csp_reduced' states (VOLATILE_BULL, STRESSED, BEAR): a quarter
+    "options_floor_none": 0.25,         # CRISIS: the sizer never zeroes an options position — step 5's crisis gate blocks
+    "stale_market_days": 2,             # = DEFAULT_PARAMS stale_market_days / regimeReport.REGIME_STALE_MARKET_DAYS
+}
+_SIZING_COUNTS = {"day": None, "by_sleeve": {}, "stale_fallbacks": 0, "zero_blocks": 0, "last": None}
+
+
+def sizing_sleeves(env=None) -> set:
+    """VOLTRADE_REGIME_SIZING: comma list of sleeves (stock, options, tier1) or all/1/true/on;
+    empty/off = every sizer keeps its legacy scalars."""
+    env = os.environ if env is None else env
+    raw = str(env.get("VOLTRADE_REGIME_SIZING", "")).strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(SIZING_SLEEVES)
+    return {x.strip() for x in raw.split(",") if x.strip() in SIZING_SLEEVES}
+
+
+def sizing_multiplier(state, sleeve, today=None, params=None) -> dict:
+    """Pure: the ONE regime multiplier a sizer applies — in place of the VIX-level scalar, the
+    stress-index multiplier and the Tier-1 VXX ladder, never alongside them.
+
+    stock: exposure_multiplier as is (0 = no new discretionary risk -> the stock sizer blocks).
+    options / tier1: exposure_multiplier floored at 0.5 while 'csp' is allowed, 0.25 while
+    'csp_reduced' is allowed, 0.25 otherwise (the sizer never zeroes an options position;
+    CRISIS is blocked upstream by the step-5 crisis gate).
+    A stale state (older than stale_market_days market days, or flagged stale / error) -> 1.0
+    with stale=True: never a silent cut. A state without exposure_multiplier -> 1.0 (missing)."""
+    p = dict(SIZING_PARAMS)
+    p.update(params or {})
+    out = {"multiplier": 1.0, "source": "none", "stale": False, "as_of": None, "composite": None, "sleeve": sleeve}
+    if not isinstance(state, dict) or not state.get("as_of"):
+        return out
+    out["as_of"], out["composite"] = state.get("as_of"), state.get("composite_regime")
+    age = state_age_market_days(state, today)
+    if state.get("error") or state.get("stale") or (age is not None and age > p["stale_market_days"]):
+        out.update(source="stale", stale=True)
+        return out
+    raw = state.get("exposure_multiplier")
+    if raw is None:
+        out["source"] = "missing"
+        return out
+    m = float(raw)
+    if sleeve in ("options", "tier1"):
+        allowed = state.get("allowed_strategies") or []
+        if "csp" in allowed:
+            floor = p["options_floor_csp"]
+        elif "csp_reduced" in allowed:
+            floor = p["options_floor_csp_reduced"]
+        else:
+            floor = p["options_floor_none"]
+        m = max(m, floor)
+    out.update(multiplier=round(max(0.0, min(1.0, m)), 4), source="engine")
+    return out
+
+
+def note_sizing(res, sleeve, today=None):
+    """Count one applied multiplier per sleeve and value for the daily report (in-process;
+    flushed once per scan by flush_sizing_counts). Never raises."""
+    try:
+        d = today or time.strftime("%Y-%m-%d", time.gmtime())
+        c = _SIZING_COUNTS
+        if c["day"] != d:
+            c.update(day=d, by_sleeve={}, stale_fallbacks=0, zero_blocks=0, last=None)
+        key = f"{float(res.get('multiplier', 1.0)):.2f}"
+        per = c["by_sleeve"].setdefault(sleeve, {})
+        per[key] = per.get(key, 0) + 1
+        if res.get("stale"):
+            c["stale_fallbacks"] += 1
+        if res.get("source") == "engine" and float(res.get("multiplier", 1.0)) <= 0.0:
+            c["zero_blocks"] += 1
+        c["last"] = {"sleeve": sleeve, **{k: res.get(k) for k in ("multiplier", "source", "stale", "as_of", "composite")}}
+    except Exception as e:
+        logger.debug(f"note_sizing failed: {e}")
+
+
+def sizing_counts() -> dict:
+    return json.loads(json.dumps(_SIZING_COUNTS))
+
+
+def flush_sizing_counts(path=None) -> dict:
+    """Persist the day's counters for the report (/api/bot/regime). Returns what was written."""
+    snap = sizing_counts()
+    snap["written_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        from storage_config import REGIME_SIZING_PATH
+        _write_json(path or REGIME_SIZING_PATH, snap)
+    except Exception as e:
+        logger.debug(f"flush_sizing_counts failed: {e}")
+        snap["error"] = str(e)[:120]
+    return snap
+
+
+def sizing_for(sleeve, env=None, loader=None, today=None):
+    """What a sizer applies NOW: the engine's multiplier when the engine is on and
+    VOLTRADE_REGIME_SIZING names the sleeve, else None (the caller keeps its legacy scalars).
+    Counted for the report. Never raises."""
+    try:
+        if not engine_allowed(env) or sleeve not in sizing_sleeves(env):
+            return None
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        res = sizing_multiplier(st, sleeve, today)
+        note_sizing(res, sleeve, today)
+        return res
+    except Exception as e:
+        logger.debug(f"sizing_for({sleeve}) failed: {e}")
+        return None
 
 
 # ── entry points ─────────────────────────────────────────────────────────────

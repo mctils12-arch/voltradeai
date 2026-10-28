@@ -20,6 +20,7 @@ export const REGIME_HISTORY_FILE = "voltrade_regime_history.jsonl";
 export const REGIME_STALE_MARKET_DAYS = 2;   // regime_engine DEFAULT_PARAMS.stale_market_days
 export const REGIME_FLIP_ALARM = 6;          // regime_engine DEFAULT_PARAMS.flip_alarm_12m
 export const REGIME_HISTORY_LIMIT = 400;
+export const REGIME_SIZING_FILE = "voltrade_regime_sizing.json";   // step 6: regime_engine.flush_sizing_counts
 
 export type RegimeStateFile = Record<string, unknown> & {
   as_of?: string;
@@ -54,6 +55,26 @@ export function readRegimeState(dir: string): RegimeStateFile | null {
     const raw = fs.readFileSync(path.join(dir, REGIME_STATE_FILE), "utf8");
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? (parsed as RegimeStateFile) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The day's sizing-multiplier counters written by regime_engine.flush_sizing_counts (step 6). */
+export type RegimeSizingFile = {
+  day?: string;
+  by_sleeve?: Record<string, Record<string, number>>;
+  stale_fallbacks?: number;
+  zero_blocks?: number;
+  last?: Record<string, unknown> | null;
+  written_at?: string;
+  error?: string;
+};
+
+export function readRegimeSizing(dir: string): RegimeSizingFile | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(dir, REGIME_SIZING_FILE), "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as RegimeSizingFile) : null;
   } catch {
     return null;
   }
@@ -113,7 +134,7 @@ export interface RegimeHealthBlock {
 }
 
 /** The /api/health block. NEVER gates serving (healthGate.ts decides the HTTP code from server+database only). */
-export function regimeHealth(state: RegimeStateFile | null, now: Date, enabled: boolean): RegimeHealthBlock {
+export function regimeHealth(state: RegimeStateFile | null, now: Date, enabled: boolean, sizing: RegimeSizingFile | null = null): RegimeHealthBlock {
   if (!enabled && !state) {
     return { status: "off", detail: "VOLTRADE_REGIME_ENGINE off; no persisted state", gates_top_level_status: false };
   }
@@ -125,6 +146,11 @@ export function regimeHealth(state: RegimeStateFile | null, now: Date, enabled: 
   if (age !== null && age > REGIME_STALE_MARKET_DAYS) problems.push(`state is ${age} market days old`);
   if (state.error) problems.push(`last update failed: ${String(state.error).slice(0, 100)}`);
   if (state.alarm) problems.push(`flip alarm: ${state.flips_12m} primary flips in 12 months (> ${REGIME_FLIP_ALARM})`);
+  // step 6: a sizer that fell back to 1.0 on a stale state is loud here too (today's counters only)
+  const today = now.toISOString().slice(0, 10);
+  if (sizing && sizing.day === today && (sizing.stale_fallbacks ?? 0) > 0) {
+    problems.push(`sizing fell back to 1.0 on a stale state ${sizing.stale_fallbacks}x today`);
+  }
   return {
     status: problems.length ? "warning" : enabled ? "ok" : "off",
     ...(problems.length ? { detail: problems.join("; ") } : enabled ? {} : { detail: "engine off; serving the last persisted state" }),
@@ -142,7 +168,7 @@ function num(v: unknown): number | null {
 }
 
 /** The daily regime report: latest state, the recent history, transitions, time at each exposure level. */
-export function regimeReportBody(state: RegimeStateFile | null, history: RegimeStateFile[], now: Date, enabled: boolean) {
+export function regimeReportBody(state: RegimeStateFile | null, history: RegimeStateFile[], now: Date, enabled: boolean, sizing: RegimeSizingFile | null = null) {
   const rows = history.map((h) => ({
     as_of: h.as_of,
     composite: h.composite_regime,
@@ -166,7 +192,7 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     const k = r.exposure_multiplier.toFixed(2);
     timeAtLevels[k] = (timeAtLevels[k] || 0) + 1;
   }
-  const health = regimeHealth(state, now, enabled);
+  const health = regimeHealth(state, now, enabled, sizing);
   return {
     enabled_env: enabled,
     state_present: Boolean(state),
@@ -176,6 +202,7 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     history: rows.slice(-60),
     transitions: transitions.slice(-40),
     time_at_levels: timeAtLevels,
+    sizing: sizing ?? null,   // step 6: today's applied multipliers by sleeve, stale fallbacks, zero blocks
     note: "shadow: no consumer reads this state until its own VOLTRADE_REGIME_* flag is set (docs/regime/FINDINGS.md)",
   };
 }

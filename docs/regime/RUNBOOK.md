@@ -9,14 +9,14 @@ For the operator and for later sessions. Program docs: `FINDINGS.md` (plan), `IM
 | `VOLTRADE_REGIME_ENGINE` (env `1/true/on`) or `BASE_CONFIG["REGIME_ENGINE_ENABLED"]` | `regime_engine.engine_allowed`; the scan hook in `bot_engine._scan_market_inner` | SHADOW: one `RegimeState` per scan, persisted and served; no consumer acts | unset the env var (no deploy needed; the next scan skips the engine); the state file is inert |
 | `VOLTRADE_REGIME_SELECTION` | stock-selection guards (step 4) | promotes the named guards from shadow labels to gates (`knife,dip,panic,rs,breadth`) | unset → scores identical to baseline |
 | `VOLTRADE_REGIME_OPTIONS` | Tier-1 CSP guards + the scanner's sell-side setups (step 5) | names the guards promoted to gates (`crisis,vrp,inversion,elevated,earnings,ebp` or `all`); ANY value turns on `crisis` and `vrp` (blocks); `inversion`/`elevated`/`ebp` halve `size_scalar` (contract count stays `select_contract`'s until N8); `earnings` skips the name. Not built: low-return floor, IV−HV ordering (no chain data at the decision point). Shadow buckets `would_reject_regime_<guard>` always on while the engine runs | unset (labels stay) |
-| `VOLTRADE_REGIME_SIZING` | `position_sizing`, options sizers, Tier-1 budget (step 6) | one regime multiplier; VIX-level scalar and stress multiplier → 1.0 | unset |
+| `VOLTRADE_REGIME_SIZING` | `position_sizing.calculate_position`, both options sizers, Tier-1 budget (step 6) | names the sleeves sized by the engine (`stock,options,tier1` or `all`): `exposure_multiplier` replaces the VIX-level scalar + stress multiplier (stock; 0 → the entry is blocked) and the Tier-1 VXX ladder; options sleeves floored at 0.5 (`csp`) / 0.25 (`csp_reduced`, CRISIS); drawdown ladders stay; stale state → 1.0 + counted + `REGIME-STALE` | unset (next call sizes the legacy way) |
 | `VOLTRADE_REGIME_LABELS` | `deep_score` label consumers (step 7) | engine `legacy_label` replaces the Markov label on shadow records / `regime_at_entry` / `TierContext.regime` | unset |
 
 Nothing here edits a kill switch, a drawdown halt, the floor schedule, or an order path.
 
 ## 2. Files and routes
 
-- State: `<DATA_DIR>/voltrade_regime_state.json` (latest), `<DATA_DIR>/voltrade_regime_history.jsonl` (one row per trading day or transition, append-only). `DATA_DIR` = `/data/voltrade` on Railway, `/tmp` locally.
+- State: `<DATA_DIR>/voltrade_regime_state.json` (latest), `<DATA_DIR>/voltrade_regime_history.jsonl` (one row per trading day or transition, append-only), `<DATA_DIR>/voltrade_regime_sizing.json` (today's sizing-multiplier counters, rewritten once per scan while a sleeve is flagged). `DATA_DIR` = `/data/voltrade` on Railway, `/tmp` locally.
 - Input cache: `<CACHE_DIR>/regime_bars_SPY.json` (closes, refreshed once per UTC day), `<CACHE_DIR>/regime_ebp.json` (Fed excess bond premium, 7-day cache). `CACHE_DIR` = `/tmp/voltrade_alt_cache`.
 - Read it: owner `GET /api/bot/regime`; sessions `GET /api/diag/regime` with `-H "x-diag-token: $DIAG_TOKEN"` (never print the token). Same body: `health`, `state`, `history` (last 60 rows), `transitions`, `time_at_levels`.
 - Health: `GET /api/health` → `checks.regime` = `off` / `ok` / `warning` (stale > 2 market days, last update failed, flip alarm). It never gates serving (`healthGate.ts` unchanged).
@@ -47,4 +47,4 @@ Nothing here edits a kill switch, a drawdown halt, the floor schedule, or an ord
 
 - Any consumer: unset its flag — the baseline path is bit-identical (each step's tests pin this).
 - The engine: unset `VOLTRADE_REGIME_ENGINE`; delete nothing. If the state file is corrupt, remove `voltrade_regime_state.json` (the history is append-only and stays); the next scan rebuilds it.
-- A stale state never cuts size silently: sizing falls back to 1.0 with a `REGIME-STALE` audit line (step 6).
+- A stale state never cuts size silently: sizing falls back to 1.0, counts the fallback (`sizing.stale_fallbacks` on `/api/diag/regime`, a `checks.regime` warning the same day) and audits `REGIME-STALE` once per new occurrence (step 6).

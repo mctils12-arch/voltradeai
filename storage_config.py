@@ -24,6 +24,7 @@ TRADE_FEEDBACK_PATH = os.path.join(DATA_DIR, "voltrade_trade_feedback.json")
 # REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md step 2): latest state + append-only daily history
 REGIME_STATE_PATH = os.path.join(DATA_DIR, "voltrade_regime_state.json")
 REGIME_HISTORY_PATH = os.path.join(DATA_DIR, "voltrade_regime_history.jsonl")
+REGIME_SIZING_PATH = os.path.join(DATA_DIR, "voltrade_regime_sizing.json")   # step 6: daily sizing-multiplier counters (regime_engine.flush_sizing_counts)
 EVENT_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_event_memory.json")
 EARNINGS_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_earnings_memory.json")
 FILLS_PATH = os.path.join(DATA_DIR, "voltrade_fills.json")

@@ -540,10 +540,20 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
 
     # Additional drawdown-based reduction
     dd = ctx.drawdown_pct
-    if dd <= -0.15:
-        size_scalar *= 0.50
-    elif dd <= -0.10:
-        size_scalar *= 0.75
+    _dd_factor = 0.50 if dd <= -0.15 else (0.75 if dd <= -0.10 else 1.00)
+    size_scalar *= _dd_factor
+
+    # REGIME ENGINE step 6 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_SIZING=tier1): the
+    # engine's options multiplier REPLACES the VXX ladder above (one regime multiplier, never
+    # two); the drawdown ladder stays (a risk mechanism, not a regime read). Stale state -> 1.0.
+    _rg_sz = None
+    try:
+        import regime_engine as _re_sz
+        _rg_sz = _re_sz.sizing_for("tier1")
+    except Exception as _re_sz_err:
+        logger.debug(f"T1 regime sizing unavailable: {_re_sz_err}")
+    if _rg_sz is not None:
+        size_scalar = float(_rg_sz["multiplier"]) * _dd_factor
 
     # REGIME ENGINE step 5 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_OPTIONS):
     # the engine's verdict on NEW short puts. SHADOW by default — the flags ride

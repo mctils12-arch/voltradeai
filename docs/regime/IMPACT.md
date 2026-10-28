@@ -81,10 +81,10 @@ Downstream chain: fewer/lower CSPs in stress → lower options collateral → lo
 
 | Field | Content |
 |---|---|
-| Change | `calculate_position`, the `instrument_selector` and `options_execution` options sizers, and the Tier-1 budget read `exposure_multiplier` once; `_regime_scalar` and the stress multiplier return 1.0 under the flag; Tier-1's VXX ladder is replaced. |
+| Change | `calculate_position`, the `instrument_selector` and `options_execution` options sizers, and the Tier-1 budget read `exposure_multiplier` once; `_regime_scalar` and the stress multiplier return 1.0 under the flag; Tier-1's VXX ladder is replaced. SHIPPED 2026-10-28 (CHANGELOG step 6): per-sleeve flag (`stock,options,tier1`/`all`); options sleeves floored at 0.5 (`csp`) / 0.25 (`csp_reduced`, CRISIS) — the sizer never zeroes an options position, the step-5 gate blocks; stock exposure 0 → `blocked` (the halt / negative-expectancy path); the drawdown ladders stay. |
 | Combined regime-related scalar per composite state (before → after) | CALM_BULL: 1.10×1.0×1.0 → 1.0. VOLATILE_BULL: 0.80–0.65 × 0.75 (stress elevated) → 0.75. CHOPPY: 1.0 × 1.0 → 0.75–1.0 (by votes). STRESSED: 0.65–0.50 × 0.5 → 0.5 × vol_dial. BEAR: 0.50 × 0.5 → 0.25–0.5. CRISIS: 0.30 × 0.0 (clamped to the 1% floor) → 0 for new risk (no new entries), `core_multiplier` ≥ 0.5 for the index sleeve. Exact numbers are recorded per state in CHANGELOG.md from the first live week. |
-| Risk | A stale state (> 2 market days) must not cut silently: the multiplier falls back to 1.0 with a `REGIME-STALE` audit line. Double application is prevented by a test that the product of regime scalars equals the multiplier. |
-| Observed by | `/api/diag/regime` (applied-multiplier counts), fills tracker position sizes, `/api/diag/sleeves`. |
+| Risk | A stale state (> 2 market days, or flagged stale/error) must not cut silently: the multiplier falls back to 1.0, is counted (`stale_fallbacks` on the report, a health warning the same day) and audited `REGIME-STALE` once per new occurrence. Double application is prevented by tests: under the flag the stock sizer's regime-related product equals the engine multiplier exactly (`scalars.regime` = engine, `scalars.stress` = 1.0), each options sizer equals kelly × engine × leverage discount, Tier-1 equals engine × drawdown ladder. |
+| Observed by | `/api/diag/regime` → `sizing` (today's applied multipliers by sleeve and value, `stale_fallbacks`, `zero_blocks`, the last call), `checks.regime` on `/api/health`, `REGIME-STALE` audit lines, `sizing_scalars.regime_engine` / `regime_source` on each trade, fills tracker position sizes, `/api/diag/sleeves`. |
 
 ## 7. Step 7 — legacy-label subordination behind `VOLTRADE_REGIME_LABELS`
 
