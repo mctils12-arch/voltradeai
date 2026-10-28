@@ -242,6 +242,8 @@ def signal_series(dates, gating, basket, vix=None, vix3m=None, params=None):
         f_slow = sum(votes) / len(votes)
         m200 = sma(gating, i, 200)
         above_200 = (c > m200) if (m200 is not None and c is not None) else None
+        hi_win = [x for x in gating[max(0, i - 251):i + 1] if x is not None]
+        dd52 = (c / max(hi_win) - 1.0) if (c is not None and hi_win) else None
         fv = []
         for h in p["fast_horizons"]:
             if i < h or c is None or gating[i - h] is None:
@@ -305,7 +307,7 @@ def signal_series(dates, gating, basket, vix=None, vix3m=None, params=None):
             "breadth": breadth, "breadth_bin": breadth_bin,
             "sigma": s_now, "sigma_target": sigma_target, "vol_pct": vol_pct, "m_vol": m_vol,
             "ts": ts, "rv": rv, "vrp": vrp, "vix": v, "vix_pct_1y": vix_pct_1y,
-            "mom24m": mom, "var126_pct": var_pct, "panic": panic, "above_200d": above_200,
+            "mom24m": mom, "var126_pct": var_pct, "panic": panic, "above_200d": above_200, "dd52": dd52,
         })
     return out
 
@@ -538,7 +540,7 @@ def state_from_series(dates, signals, states, gating="SPY", sources=None, ebp=No
         alarm=bool(r["flips_12m"] > p["flip_alarm_12m"]), panic_state=bool(s["panic"]),
         stress_flags=stress, ebp=ebp,
         inputs={"f_slow": s["f_slow"], "f_fast": s["f_fast"], "trend_score": round(s["trend_score"], 4),
-                "above_200d": s["above_200d"],
+                "above_200d": s["above_200d"], "gating_dd52": (round(s["dd52"], 4) if s["dd52"] is not None else None),
                 "breadth": s["breadth"], "breadth_bin": s["breadth_bin"], "mom24m": s["mom24m"],
                 "var126_pct": s["var126_pct"], "level": r["level"], "level_target": r["level_target"],
                 "raw_composite": r["raw_composite"], "sessions": len(dates), "first_date": dates[0],
@@ -790,6 +792,98 @@ def state_age_market_days(state, today=None):
         if d.weekday() < 5:
             n += 1
     return n
+
+
+# ── consumer: stock selection (docs/regime/FINDINGS.md step 4) ───────────────
+SELECTION_GUARDS = ("knife", "dip", "panic", "rs", "breadth")
+SELECTION_PARAMS = {
+    "knife_high_frac": 0.75,        # price below 75% of its 252-day high = momentum-crash fuel, not value (George & Hwang)
+    "knife_low_window": 20,         # a close at a new 20-day low is a falling knife (practitioner guard, counterfactual-logged)
+    "rs_block_pct": -10.0,          # 3-month return vs the gating index below -10 pp (placeholder, counterfactual-logged)
+    "breadth_high_proximity": 0.03, # index within 3% of its 52-week high AND breadth WEAK -> no net new stock exposure
+    "mr_weight": 0.20,              # deep_score's mean-reversion weight (bot_engine combined score)
+}
+_STATE_CACHE = {"at": 0.0, "state": None}
+
+
+def selection_gates(env=None) -> set:
+    """VOLTRADE_REGIME_SELECTION: comma list of guards promoted from SHADOW (flags on the
+    shadow record) to GATE (the candidate is blocked / the score changes); 'all' = every
+    guard. Default: none — every guard only labels (RULE REVIEW: no rule ships without
+    counterfactual data)."""
+    env = os.environ if env is None else env
+    raw = str(env.get("VOLTRADE_REGIME_SELECTION", "")).strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(SELECTION_GUARDS)
+    return {g.strip() for g in raw.split(",") if g.strip() in SELECTION_GUARDS}
+
+
+def cached_state(max_age_s=60.0, loader=None, now=None):
+    """The persisted state, re-read at most every `max_age_s` (deep_score runs per candidate)."""
+    t = time.time() if now is None else now
+    if _STATE_CACHE["state"] is not None and t - _STATE_CACHE["at"] < max_age_s:
+        return _STATE_CACHE["state"]
+    st = (loader or load_state)()
+    _STATE_CACHE["at"], _STATE_CACHE["state"] = t, st
+    return st
+
+
+def selection_verdict(state, candidate, params=None) -> dict:
+    """Pure: what the regime guards say about ONE stock candidate.
+
+    candidate: price, high_52w, closes (recent daily closes, oldest first),
+    relative_strength_pct (vs the gating index), mean_reversion_score (deep_score's
+    0-100 sub-score), dip_bonus (points the contrarian 'Buy the Dip' bonus adds).
+    Returns flags (0/1 per guard, persisted on the shadow record), reasons, the
+    guards that WOULD block the entry, and the score points the dip
+    neutralization would remove (mr_delta) — so the gate's prevention-P&L can be
+    read before it is ever turned on."""
+    p = dict(SELECTION_PARAMS)
+    p.update(params or {})
+    st = state if isinstance(state, dict) else {}
+    inputs = st.get("inputs") if isinstance(st.get("inputs"), dict) else {}
+    flags = {g: 0 for g in SELECTION_GUARDS}
+    reasons = {}
+    price = float(candidate.get("price") or 0.0)
+    hi = candidate.get("high_52w")
+    closes = [float(x) for x in (candidate.get("closes") or []) if x is not None]
+    if price > 0 and hi and float(hi) > 0 and price < p["knife_high_frac"] * float(hi):
+        flags["knife"] = 1
+        reasons["knife"] = f"price {price:.2f} below {p['knife_high_frac']:.0%} of its 52-week high {float(hi):.2f}"
+    if price > 0 and len(closes) >= p["knife_low_window"]:
+        lo = min(closes[-p["knife_low_window"]:])
+        if price <= lo:
+            flags["knife"] = 1
+            reasons["knife"] = (reasons.get("knife", "") + "; " if reasons.get("knife") else "") + f"new {p['knife_low_window']}-day low ({lo:.2f})"
+    allowed = set(st.get("allowed_strategies") or [])
+    above = inputs.get("above_200d")
+    dip_ok = ("dip_buy" in allowed) and (above is not False)
+    mr = float(candidate.get("mean_reversion_score") if candidate.get("mean_reversion_score") is not None else 50.0)
+    bonus = float(candidate.get("dip_bonus") or 0.0)
+    is_dip = mr > 50.0 or bonus > 0.0
+    if st and is_dip and not dip_ok:
+        flags["dip"] = 1
+        reasons["dip"] = (f"dip-buying not allowed: regime {st.get('composite_regime')}, breadth {st.get('breadth_state')}, "
+                          f"index above 200-day {above}")
+    if st.get("panic_state"):
+        flags["panic"] = 1
+        reasons["panic"] = "panic state (24-month return < 0 and top-quintile variance): no momentum longs"
+    rs = candidate.get("relative_strength_pct")
+    if rs is not None and float(rs) < p["rs_block_pct"]:
+        flags["rs"] = 1
+        reasons["rs"] = f"relative strength {float(rs):.1f}% vs the index, below {p['rs_block_pct']:.0f}%"
+    dd52 = inputs.get("gating_dd52")
+    if st.get("breadth_state") == "WEAK" and dd52 is not None and float(dd52) >= -p["breadth_high_proximity"]:
+        flags["breadth"] = 1
+        reasons["breadth"] = f"breadth WEAK with the index {float(dd52) * 100:.1f}% from its 52-week high: no net new stock exposure"
+    mr_delta = (max(0.0, mr - 50.0) * p["mr_weight"] + bonus) if flags["dip"] else 0.0
+    return {
+        "flags": flags, "reasons": reasons, "neutralize_mr": bool(flags["dip"]), "mr_delta": round(mr_delta, 2),
+        "would_block": [g for g in ("knife", "panic", "rs", "breadth") if flags[g]],
+        "composite": st.get("composite_regime"), "as_of": st.get("as_of"),
+    }
 
 
 # ── entry points ─────────────────────────────────────────────────────────────

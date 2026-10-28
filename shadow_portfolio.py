@@ -250,6 +250,13 @@ SCORE_BREAKDOWN_KEYS = (
     "vol_premium", "macro", "news", "adx", "obv",
     "intel", "alt", "social", "fundamental",
 )
+# REGIME ENGINE selection guards (2026-10-28, docs/regime/FINDINGS.md step 4):
+# 0/1 per guard (knife / dip / panic / rs / breadth) and the score points a
+# live 'dip' neutralization would remove — persisted beside the sub-scores so
+# each guard's prevention-P&L is readable BEFORE it gates (RULE REVIEW). Kept
+# as a separate tuple so the 14 sub-score keys above stay exactly what the
+# 2026-10-26 breakdown contract (test_shadow_score_breakdown.py) pins.
+REGIME_GUARD_KEYS = ("regime_knife", "regime_dip", "regime_panic", "regime_rs", "regime_breadth", "regime_mr_delta")
 
 
 def _sanitize_score_breakdown(bd) -> dict | None:
@@ -258,7 +265,7 @@ def _sanitize_score_breakdown(bd) -> dict | None:
     if not isinstance(bd, dict) or not bd:
         return None
     out = {}
-    for k in SCORE_BREAKDOWN_KEYS:
+    for k in SCORE_BREAKDOWN_KEYS + REGIME_GUARD_KEYS:
         v = bd.get(k)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
             out[k] = round(float(v), 1)

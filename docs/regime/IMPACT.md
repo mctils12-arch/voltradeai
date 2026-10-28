@@ -54,7 +54,9 @@ Invariant across all flags: `risk_kill_switch.py` mechanisms, the Node −10% ki
 | panic (no momentum longs in `panic_state`) | post-score gate | `rejected_regime_panic` | blocked | rare state (24-month return < 0 and top-quintile variance); zero effect in 2026 so far | shadow bucket |
 | relative strength (3-month return vs gating index < −10 pp) | post-score gate | `rejected_regime_rs` | blocked only after a positive read | placeholder threshold | shadow bucket |
 | breadth no-add (index within 3% of 52-week high and market breadth WEAK) | admission loop | `rejected_regime_breadth` | no net new stock exposure that scan | can idle the stock sleeve in narrow tapes (intended; the floor keeps exposure) | shadow bucket, `REGIME` report `breadth_state` |
-| sector check | — | logged in the breakdown only | — | none | breakdown |
+| sector check | — | NOT BUILT (Step 4 shipped 2026-10-28): the ±8 sector-momentum adjustment stays; a sector-ETF-above-50-day flag has no evidence and no data path in `deep_score`, so it is neither gated nor logged | — | none | — |
+
+Shipped 2026-10-28 (CHANGELOG step 4): the five guards above as `score_breakdown.regime_<guard>` labels whenever the engine is on; `regime_mr_delta` records the score points the dip guard would remove; gates only for guards named in `VOLTRADE_REGIME_SELECTION`.
 
 Downstream chain (CLAUDE.md reasoning standard 1): fewer admissions → fewer stock slots used → lower sector concentration and fewer correlation blocks → realized stock exposure falls in bear/narrow tapes and is unchanged in CALM_BULL; options and floor sleeves unaffected.
 
