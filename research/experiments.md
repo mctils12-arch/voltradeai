@@ -111414,3 +111414,44 @@ Tests: test_etf_substitution_n6.py (14 fail before / pass after; one
 2x-control passes both), server/etfSubstitution.test.ts.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Enforce ETF_MAX_HOLD_DAYS as a live exit for leveraged ETFs (audit N6, 2/2) (v1.0.1199)
+
+What was wrong: instrument_selector.ETF_MAX_HOLD_DAYS = 5 ("never hold
+leveraged ETF longer than 5 days" — daily-rebalance decay) only gated the
+ENTRY choice. No exit anywhere enforced it: the live executor (server/bot.ts
+checkPositionOnTick, audit §6.4) has only the 7-calendar-day time stop, and
+that fires only when |P&L| < 2%. A losing or winning leveraged ETF could be
+held indefinitely.
+
+What changed:
+- server/etfSubstitution.ts: ETF_MAX_HOLD_DAYS (5) and
+  SUBSTITUTE_LEVERAGED_ETFS (every bull/bear value of
+  analyze.LEVERAGED_ETFS), both pinned to their Python sources by
+  test_etf_max_hold_n6.py; etfMaxHoldExceeded() uses the time stop's own
+  calendar-day count, exceeded when daysHeld > 5.
+- checkPositionOnTick: when no stop/TP/time stop fired, a substitute ETF
+  past the limit exits the remaining qty with exitType 'etf_max_hold',
+  context 'stop_loss' (market in regular hours, limit in extended), reason
+  "WS ETF MAX HOLD: ...". Existing duplicate-order guards, covered-call
+  unwind, openOrders registration and fill recording apply unchanged.
+  entryDate comes from voltrade_stop_state.json (first date manage_positions
+  saw the position; pruned when it closes) or the add date.
+
+Downstream chain: leveraged ETF positions close on day 6 instead of riding
+until a stop/trail or the flat-only 7d time stop -> frees a stock slot and
+active-heat capacity sooner -> more stock-slot turnover; exits are not
+stop types, so no stop-cooldown or circuit-breaker increments.
+
+NOT mirrored in live_exit_policy.py (measurement code, separate
+[RULE-REVIEW] PR); backtest exit_model='live' does not model it, so it
+understates live churn on leveraged ETFs only.
+
+Rollback trigger: a WS ETF MAX HOLD exit on a ticker not in
+SUBSTITUTE_LEVERAGED_ETFS, or one firing on a position < 5 days old
+(entryDate drift) -> revert.
+
+Tests: test_etf_max_hold_n6.py (3 fail before / pass after),
+server/etfSubstitution.test.ts (+3; file fails to import before).
+
+STARVED: no — master-plan queue in progress this session.

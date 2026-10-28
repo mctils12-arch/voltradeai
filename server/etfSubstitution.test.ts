@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { planEtfOrder } from "./etfSubstitution";
+import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -53,4 +53,30 @@ test("bot.ts ETF branch is wired to the plan (no underlying shares/2, no underly
   assert.ok(branch.includes("getOrderParams(etfPrice)"), "ETF limit must be priced off the ETF plan price");
   assert.ok(branch.includes("fillPrice: etfPrice"), "entry fill record must carry the ETF price");
   assert.ok(branch.includes("totalDeployed += etfPlan.value"), "heat tracking must add the ETF dollars");
+});
+
+// ── ETF max hold (audit §6.8 N6 part 2) ──
+const NOW = Date.parse("2026-10-27T15:00:00Z");
+
+test("a substitute ETF held longer than ETF_MAX_HOLD_DAYS calendar days must exit", () => {
+  assert.equal(ETF_MAX_HOLD_DAYS, 5);
+  assert.deepEqual(etfMaxHoldExceeded("TSLL", "2026-10-21", NOW), { exceeded: true, daysHeld: 6 });
+  assert.equal(etfMaxHoldExceeded("tsll", "2026-10-21", NOW).exceeded, true, "case-insensitive");
+});
+
+test("at or under the limit, not a substitute ETF, or a bad date -> no max-hold exit", () => {
+  assert.deepEqual(etfMaxHoldExceeded("TSLL", "2026-10-22", NOW), { exceeded: false, daysHeld: 5 });
+  assert.equal(etfMaxHoldExceeded("TSLA", "2026-01-01", NOW).exceeded, false, "the underlying is a stock, not an ETF");
+  assert.equal(etfMaxHoldExceeded("SSO", "not-a-date", NOW).exceeded, false);
+});
+
+test("checkPositionOnTick wires the max-hold exit with its own reason", () => {
+  const start = bot.indexOf("async function checkPositionOnTick(");
+  const end = bot.indexOf("notify(\"exit\", `WS exit ${ticker}", start);
+  assert.ok(start > 0 && end > start, "checkPositionOnTick markers not found");
+  const fn = bot.slice(start, end);
+  assert.ok(fn.includes("etfMaxHoldExceeded(ticker, pos.entryDate, Date.now())"));
+  assert.ok(fn.includes("if (!shouldStop && !shouldTP && !shouldTimeStop && !shouldEtfMaxHold) return;"));
+  assert.ok(fn.includes("(shouldTimeStop ? 'time_stop' : 'etf_max_hold')"));
+  assert.ok(fn.includes("WS ETF MAX HOLD:"));
 });

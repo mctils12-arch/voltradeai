@@ -44,3 +44,32 @@ export function planEtfOrder(trade: EtfTradeFields): EtfOrderPlan {
     value: Number.isFinite(value) && value > 0 ? value : qty * price,
   };
 }
+
+// ── ETF max hold (audit §6.8 N6, [REPAIR] 2026-10-27) ──────────────────────
+// instrument_selector.ETF_MAX_HOLD_DAYS ("never hold leveraged ETF longer
+// than 5 days" — daily-rebalance decay) gated only the ENTRY choice; no exit
+// enforced it (the live time stop is 7 days and only when |P&L| < 2%).
+// checkPositionOnTick now exits any held substitute ETF past the limit.
+// Mirrors (pinned by test_etf_max_hold_n6.py): ETF_MAX_HOLD_DAYS =
+// instrument_selector.ETF_MAX_HOLD_DAYS; SUBSTITUTE_LEVERAGED_ETFS = every
+// bull/bear value of analyze.LEVERAGED_ETFS.
+export const ETF_MAX_HOLD_DAYS = 5;
+export const SUBSTITUTE_LEVERAGED_ETFS: ReadonlySet<string> = new Set([
+  "TSLL", "TSLS", "NVDL", "NVDS", "SSO", "SDS", "QLD", "QID", "AAPU", "AAPD",
+  "AMZU", "AMZD", "MSFU", "MSFD", "METU", "METD", "GGLL", "GGLS", "AMDU", "AMDS",
+  "MSTX", "MSTS", "TNA", "TZA", "UGL", "GLL", "UBT", "TBT", "ERX", "ERY", "FAS", "FAZ",
+]);
+
+/** Calendar days held (the live time stop's floor((now - entryDate) / 1 day))
+ *  and whether a substitute ETF is past ETF_MAX_HOLD_DAYS. */
+export function etfMaxHoldExceeded(
+  ticker: string, entryDate: string, nowMs: number,
+): { exceeded: boolean; daysHeld: number } {
+  if (!SUBSTITUTE_LEVERAGED_ETFS.has(String(ticker || "").toUpperCase())) {
+    return { exceeded: false, daysHeld: 0 };
+  }
+  const entryMs = new Date(entryDate).getTime();
+  if (!Number.isFinite(entryMs)) return { exceeded: false, daysHeld: 0 };
+  const daysHeld = Math.floor((nowMs - entryMs) / 86400000);
+  return { exceeded: daysHeld > ETF_MAX_HOLD_DAYS, daysHeld };
+}

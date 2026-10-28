@@ -56,7 +56,7 @@ import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { buildEntryFillPayload } from "./entryFill";
-import { planEtfOrder } from "./etfSubstitution";
+import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -7865,7 +7865,17 @@ if '${ticker}' in ss:
       } catch (_) {}
     }
 
-    if (!shouldStop && !shouldTP && !shouldTimeStop) return;
+    // ETF max hold (audit §6.8 N6, 2026-10-27): a leveraged substitute ETF
+    // held past ETF_MAX_HOLD_DAYS exits regardless of P&L (etfSubstitution.ts).
+    let shouldEtfMaxHold = false;
+    let etfDaysHeld = 0;
+    if (!shouldStop && !shouldTP && !shouldTimeStop) {
+      const mh = etfMaxHoldExceeded(ticker, pos.entryDate, Date.now());
+      shouldEtfMaxHold = mh.exceeded;
+      etfDaysHeld = mh.daysHeld;
+    }
+
+    if (!shouldStop && !shouldTP && !shouldTimeStop && !shouldEtfMaxHold) return;
 
     // ── FIRE EXIT ORDER (remaining position) ─────────────────────────────────
     exitingTickers.add(ticker);
@@ -7928,7 +7938,7 @@ if '${ticker}' in ss:
     try {
       const exitSide = pos.side === 'long' ? 'sell' : 'buy';
       const exitQty = pos.remainingQty;
-      const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'time_stop');
+      const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : (shouldTimeStop ? 'time_stop' : 'etf_max_hold'));
       const exitContext: OrderContext = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'stop_loss');
       const orderParams = getOrderParams(currentPrice, exitContext);
 
@@ -7981,7 +7991,8 @@ if '${ticker}' in ss:
       const scaleNote = pos.scalesCompleted > 0 ? ` (final ${exitQty}/${pos.originalQty} shares, ${pos.scalesCompleted} prior scale-outs)` : '';
       const reason = shouldStop ? stopReason + scaleNote
         : shouldTP ? `WS TAKE PROFIT: +${pnlPct.toFixed(1)}% hit target +${pos.tpPct.toFixed(1)}% (Phase ${pos.phase})${scaleNote}`
-        : `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%${scaleNote}`;
+        : shouldTimeStop ? `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%${scaleNote}`
+        : `WS ETF MAX HOLD: leveraged ETF held ${etfDaysHeld}d since ${pos.entryDate} > ${ETF_MAX_HOLD_DAYS}d limit, P&L ${pnlPct.toFixed(1)}%${scaleNote}`;
 
       audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
       notify("exit", `WS exit ${ticker}: ${reason}`);
