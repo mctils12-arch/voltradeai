@@ -220,9 +220,14 @@ def _dynamic_options_size(trade: dict, equity: float, existing_positions: list =
     # engine's multiplier replaces the VIX-level scalar (one regime read, never two). Flag off: no-op.
     try:
         import regime_engine as _re_sz
+        _s_regime_legacy = s_regime
         _rg_sizing = _re_sz.sizing_for("options")
         if _rg_sizing is not None:
             s_regime = float(_rg_sizing["multiplier"])
+        # COUNTERFACTUAL (2026-10-28 live flip, logging only): the legacy VIX scalar next to the engine's.
+        _re_sz.counterfactual_sizing("options", trade.get("ticker", ""),
+                                     {"multiplier": _s_regime_legacy, "vix_scalar": _s_regime_legacy},
+                                     _rg_sizing, "options_execution._dynamic_options_size", ticker=trade.get("ticker"))
     except Exception as _re_sz_err:
         import logging as _re_sz_log
         _re_sz_log.getLogger("voltrade.options_execution").debug(f"regime sizing unavailable: {_re_sz_err}")

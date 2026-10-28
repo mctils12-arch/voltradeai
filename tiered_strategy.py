@@ -541,6 +541,7 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     # Additional drawdown-based reduction
     dd = ctx.drawdown_pct
     _dd_factor = 0.50 if dd <= -0.15 else (0.75 if dd <= -0.10 else 1.00)
+    _vxx_rung = size_scalar
     size_scalar *= _dd_factor
 
     # REGIME ENGINE step 6 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_SIZING=tier1): the
@@ -550,6 +551,10 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     try:
         import regime_engine as _re_sz
         _rg_sz = _re_sz.sizing_for("tier1")
+        # COUNTERFACTUAL (2026-10-28 live flip, logging only): the legacy VXX rung next to the
+        # engine's multiplier (the drawdown factor multiplies both and is not part of either).
+        _re_sz.counterfactual_sizing("tier1", "tier1", {"multiplier": _vxx_rung, "vxx_rung": _vxx_rung},
+                                     _rg_sz, "tiered_strategy.tier1_csp_core")
     except Exception as _re_sz_err:
         logger.debug(f"T1 regime sizing unavailable: {_re_sz_err}")
     if _rg_sz is not None:
@@ -647,6 +652,11 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
             if _rg_v["would_block"]:
                 _g = (_rg_act["blocked_by"] or _rg_v["would_block"])[0]
                 _decision = f"rejected_regime_{_g}" if _rg_act["block"] else f"would_reject_regime_{_g}"
+                # COUNTERFACTUAL (2026-10-28 live flip, logging only): legacy would propose this
+                # name (no regime guard); the engine blocked or would block it. A name that passes
+                # is logged where its action is appended below.
+                _rg["engine"].counterfactual_options(ticker, _rg_v, _rg["gates"], "tiered_strategy.tier1_csp_core",
+                                                     legacy_delta=T1_TARGET_DELTA, shadow_decision=_decision)
                 _rg_seen[_decision] = _rg_seen.get(_decision, 0) + 1
                 # bounded like the 3 actions a scan returns, once per name/guard/day
                 if _rg_seen[_decision] <= 3 and _rg["engine"].shadow_once_per_day(f"t1:{ticker}:{_decision}"):
@@ -662,6 +672,11 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
         # Position sizing: respect MAX_OPTIONS_PCT from system_config (8%)
         base_size = max_per_position * size_scalar
         slots_available -= 1
+        # COUNTERFACTUAL (2026-10-28 live flip, logging only): a proposed name both systems take;
+        # the row carries the engine's size multiplier / delta vs legacy's x1 / default delta.
+        if _rg_meta is not None and not _rg_v["would_block"]:
+            _rg["engine"].counterfactual_options(ticker, _rg_v, _rg["gates"], "tiered_strategy.tier1_csp_core",
+                                                 legacy_delta=T1_TARGET_DELTA)
 
         # Action: sell CSP on this ticker with T1 parameters
         actions.append(TierAction(

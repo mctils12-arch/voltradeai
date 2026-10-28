@@ -40,6 +40,14 @@ export const DIAG_PROBES = [
   // Index-level inputs only (SPY/IWM/sector ETFs/VIX family); no account
   // values, no symbols beyond those ETFs, no keys.
   "regime",
+  // ADDED 2026-10-28 (regime engine live flip, human directive; [RULE-REVIEW]
+  // measurement): per day per kind (selection / options / sizing / label)
+  // AGGREGATES of the legacy-vs-engine counterfactual log
+  // (server/regimeCounterfactual.ts over regime_engine.log_counterfactual's
+  // JSONL) — counts, how many differ, mean legacy vs engine multiplier per
+  // sizing sleeve, blocks by guard, label pairs. No ticker, no account value,
+  // read-only; optional `days` (1..120, default 14).
+  "regime_counterfactual",
   // ADDED 2026-07-18 (scheduled-routine session, REPAIR — KNOWN BROKEN #18
   // recurrence investigation): scan_market's daemon-thread path already
   // persists per-phase wall-clock timings to survive a 300s daemon-timeout

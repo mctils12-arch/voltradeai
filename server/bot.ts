@@ -25,6 +25,7 @@ import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+import { regimeCounterfactualBody } from "./regimeCounterfactual";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
@@ -3028,6 +3029,12 @@ print(json.dumps(s))
           // engine's daily report — the SAME body as the owner's
           // /api/bot/regime (server/regimeReport.ts). Index-level only.
           return res.json(sanitizeDiag({ probe: "regime", ...regimeBody() }));
+        }
+        case "regime_counterfactual": {
+          // ADDED 2026-10-28 (regime engine live flip, human directive): per
+          // day per kind aggregates of the legacy-vs-engine counterfactual
+          // log (server/regimeCounterfactual.ts). Read-only; no tickers.
+          return res.json(sanitizeDiag({ probe: "regime_counterfactual", ...regimeCounterfactualBody(regimeDataDir(process.env), new Date(), req.query.days) }));
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
