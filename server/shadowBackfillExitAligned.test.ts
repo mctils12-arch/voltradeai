@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
+import { isTrivialPython, planPythonExec } from "./pythonExec";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -71,14 +72,16 @@ function transpile(ts: string): string {
 
 type ExecCall = { cmd: string; opts: { timeout?: number; killSignal?: string }; mutexHeld: boolean };
 
-/** bot.ts's own isTrivialPython + execPythonSerialized, run against a stub execAsync. */
+/**
+ * bot.ts's own execPythonSerialized, run against a stub execAsync, with the
+ * classifier/planner it calls (server/pythonExec.ts since 2026-10-27, audit D1).
+ */
 function pythonExecHarness() {
   for (const decl of ["let pythonRunning = false;", "let pythonLockedAt = 0;", "let pythonLockHardTimeout = 90000;"]) {
     assert.ok(bot.includes(`\n${decl}`), `mutex state declaration changed: ${decl}`);
   }
   const js = transpile([
     "let pythonRunning = false;", "let pythonLockedAt = 0;", "let pythonLockHardTimeout = 90000;",
-    functionSource("function isTrivialPython(cmd: string): boolean"),
     functionSource("async function execPythonSerialized(cmd: string, opts?: ExecOptions)"),
   ].join("\n"));
   const calls: ExecCall[] = [];
@@ -87,14 +90,13 @@ function pythonExecHarness() {
     calls.push({ cmd, opts, mutexHeld: mutexHeld() });
     return Promise.resolve({ stdout: "{}", stderr: "" });
   };
-  const api = new Function("execAsync",
-    `${js}\nreturn { isTrivialPython, execPythonSerialized, mutexHeld: () => pythonRunning };`)(execAsync) as {
-    isTrivialPython: (cmd: string) => boolean;
+  const api = new Function("execAsync", "planPythonExec",
+    `${js}\nreturn { execPythonSerialized, mutexHeld: () => pythonRunning };`)(execAsync, planPythonExec) as {
     execPythonSerialized: (cmd: string, opts?: { timeout?: number }) => Promise<unknown>;
     mutexHeld: () => boolean;
   };
   mutexHeld = api.mutexHeld;
-  return { ...api, calls };
+  return { ...api, isTrivialPython, calls };
 }
 
 /** The exact command string + options checkShadowBackfillExitAligned passes. */
@@ -131,12 +133,17 @@ test("exit-aligned job: unconditional 5-minute interval (no market-hours / kill-
 test("exit-aligned job: the REAL kill cap, from bot.ts's own isTrivialPython/execPythonSerialized on the real command", async () => {
   const h = pythonExecHarness();
 
-  // The harness reproduces the defect it exists for: the first version's
-  // 132-char command is "trivial" — no mutex, SIGKILL at 10s, not 90s.
+  // The harness reproduced the defect it exists for: the first version's
+  // 132-char command was "trivial" — no mutex, SIGKILL at 10s, not 90s.
   const ROUND1 = `python3 -c "from shadow_portfolio import backfill_exit_aligned; import json; print(json.dumps(backfill_exit_aligned(3000, 40, 60)))"`;
   assert.equal(h.isTrivialPython(ROUND1), true);
+  // 2026-10-27 (audit D1): text alone still reads "trivial", but the caller
+  // asked for 120 s, so it is no longer forced into the no-mutex 10 s lane:
+  // it holds the mutex and gets the mutex lane's 90 s ceiling.
+  assert.equal(h.isTrivialPython(ROUND1, 120000), false);
   await h.execPythonSerialized(ROUND1, { timeout: 120000 });
-  assert.deepEqual([h.calls[0].opts.timeout, h.calls[0].mutexHeld], [10000, false]);
+  // Was [10000, false] — the pinned defect itself (no mutex, SIGKILL at 10s).
+  assert.deepEqual([h.calls[0].opts.timeout, h.calls[0].mutexHeld], [90000, true]);
 
   const { cmd, timeout } = xaCall();
   assert.equal(h.isTrivialPython(cmd), false,

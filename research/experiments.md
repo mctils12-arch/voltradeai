@@ -110993,3 +110993,71 @@ SAFETY ADD (same PR): the off-site backup (backup_to_github.py) pushes every /da
 Downstream: (1) the morning queue now runs every trading day (was: only after a deploy) -> more pre-market entries reach executeTrades (N2 fix #1489 already blocks the naked-short path); (2) per-ticker attempt caps and the CSP sweep cooldown become per-day as designed; (3) a daily retrain is attempted at 04:00 ET (the 10s SIGKILL is fixed in the next PR).
 Known: heartbeats `overnight_research` stays late/missing nightly — that window is still unreachable by design (reviving it re-enables unvalidated extreme-mover entries; human decision).
 Tests: server/dailyMaintenance.test.ts (10: window edges, DST, ET-vs-UTC date, persistence, 3 days x 5 restarts, catch-up boot, unwritable paths, wiring). Rollback trigger: "Daily reset" audit line twice for one ET date, any DAILY-MAINT-ERROR, or morning-queue order bursts >2x the median daily entry count in week 1. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — python exec: honour caller timeouts, retrain in long-job lane, group kill (v1.0.1184)
+
+What was wrong (server/bot.ts isTrivialPython / execPythonSerialized, audit
+D1): any command <= 150 chars without a literal `import numpy|pandas|...`
+was "trivial": no mutex and `Math.min(timeout, 10000)` + SIGKILL, silently
+overriding the caller's timeout. `python3 ml_retrain_safe.py` (26 chars,
+asks 900 s) was SIGKILLed at 10 s every hour (live TIER3-ML-ERROR
+"(code=? signal=SIGKILL)" 10 s after "triggering retrain"); same 10 s kill
+for backfill_outcomes (asks 120 s), /api/bot/insight (40 s), sec_form4
+(120 s), cftc (45 s), manipulation scan (30 s), EOD close_open_shorts
+(30 s), tier1 manage_positions (15 s) and others. The kill went to the
+`/bin/sh -c` child only, so a Python under a non-exec'd shell survived as
+an orphan.
+
+What changed:
+- server/pythonExec.ts (new): isTrivialPython(cmd, requestedTimeoutMs) —
+  the old text test AND the caller asked for <= 10 s (no timeout = old
+  text-only behaviour); planPythonExec -> {lane, timeoutMs, mutexWaitMs}:
+  trivial keeps 10 s/no mutex, mutex lane honours the caller's timeout up to
+  the unchanged 90 s ceiling (mutex wait unchanged). ML_RETRAIN_TIMEOUT_MS =
+  20 min (estimate in the file: <=200 s bars fetch + earnings + <=10k rows x
+  5 folds + 4 models; ~10 min pessimistic, 2x headroom). execGroupKill:
+  exec semantics/error shape, child spawned detached as process-group
+  leader, timeout/maxBuffer kill sent to the whole group.
+- bot.ts: _execRaw = execGroupKill (every execAsync/execPythonSerialized
+  kill is now a group kill; execAsync's pinned shape unchanged).
+  execPythonSerialized uses planPythonExec; the in-file isTrivialPython is
+  gone. New runLongPythonJob (single-flight per key, never takes the global
+  mutex, explicit budget) and startMlRetrain(trigger) (fire-and-forget;
+  existing TIER3 / TIER3-ML-ERROR outcome handling moved verbatim, plus
+  trigger + elapsed seconds and a "[exceeded the 1200s retrain budget —
+  process group killed]" class when our timer fired). Tier 3 and the daily
+  branch both call startMlRetrain without awaiting it.
+- Daemon RPC path unchanged; pythonCall's subprocess fallback goes through
+  execPythonSerialized, so it gets the same plan (e.g. run_full_scan
+  fallback with the daemon disabled: 90 s mutex instead of 10 s).
+- shadowBackfillExitAligned.test.ts harness now injects planPythonExec and
+  imports isTrivialPython; its ROUND1 check that pinned the defect
+  ([10000, false]) now asserts the fix ([90000, true]). Pins:
+  counter_baseline tests 627->628, ts_any 1225->1224, assertions
+  22139->22179; test_ts_code_only ts_any mirror 1225->1224.
+
+Downstream chain:
+1. ~15 short commands that asked for > 10 s move from no-mutex/10 s to the
+   mutex lane with their own timeout -> they now serialize with other mutex
+   jobs -> a mutex caller with a short wait (e.g. get_auto_fix_params 15 s,
+   tier1 manage_positions 15 s) can hit "mutex timeout" while e.g.
+   sec_form4 holds up to 90 s; those callers already catch and log it.
+2. The retrain can now finish (writes the model) -> ML scores in deep_score
+   come from a freshly trained model every ~24 h instead of a stale one;
+   its concurrency with one mutex-lane subprocess raises peak RSS by the
+   retrain's footprint (fast_mode sized for ~575 MB headroom).
+3. Timeouts now kill descendants -> fewer orphan Python processes holding
+   memory after timeouts.
+
+Rollback trigger: revert if Python subprocess "mutex timeout" errors in the
+audit log rise > 3x their prior daily rate, if any OOM/daemon self-kill
+coincides with a running retrain, or if TIER3-ML-ERROR shows the 1200 s
+budget exceeded on 2 consecutive days.
+
+Tests: server/pythonExec.test.ts (8: classification + plan tables on the
+real command strings, retrain budget, bot.ts wiring, a real-process test
+showing plain exec leaves the grandchild alive vs execGroupKill killing
+it, exec-compatible results/errors incl. maxBuffer code). The 2 wiring
+tests fail on the pre-fix bot.ts; the harness test fails on it too.
+
+STARVED: no — master-plan queue in progress this session.
