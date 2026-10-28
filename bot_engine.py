@@ -197,7 +197,10 @@ def _alpaca_headers():
     return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 MAX_POSITIONS = 8          # SIZING-FIX 2026-04-22: was 5, shadowed regime-adaptive value from system_config. Now matches ABSOLUTE_MAX_POSITIONS in position_sizing.py and BULL regime cap.
-MAX_OPTIONS_POSITIONS = 8  # ALPHA-TUNE 2026-04-21: bump to allow more simultaneous options exposure
+# N11 (2026-10-28): one options-slot cap. Was a module constant 8 (ALPHA-TUNE
+# 2026-04-21) while system_config and Node's executeTrades cap use 6, so
+# Python admitted candidates Node then always rejected. Read the config value.
+MAX_OPTIONS_POSITIONS = int(BASE_CONFIG.get("MAX_OPTIONS_POSITIONS", 6))
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
