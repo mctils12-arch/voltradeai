@@ -5551,7 +5551,11 @@ print(json.dumps(check_weekly_loss(history)))
             // based on metadata (target_dte, target_delta).
             if (action.action === "SELL_CSP") {
               // Delegate to Python options_execution which handles strike/expiry
-              // selection based on target_delta and target_dte_min/max in metadata
+              // selection based on target_delta and target_dte_min/max in metadata.
+              // [REPAIR] 2026-10-27 (audit §6.8 N8): size_pct and metadata were
+              // in this payload but never handed to select_contract, so tier
+              // sizing (T1 stress/DD scalars, T2 leverage) never reached
+              // execution. Now passed; select_contract caps at MAX_OPTIONS_PCT.
               const cspPayload = {
                 ticker: action.ticker,
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
@@ -5570,7 +5574,7 @@ import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${cspTmpPath}'))
 import os; os.remove('${cspTmpPath}')
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'))
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'), size_pct=data.get('size_pct'), metadata=data.get('metadata'))
 if contract.get('error'):
     _err = contract['error']
     # CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
@@ -5707,7 +5711,7 @@ import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${hedgeTmpPath}'))
 import os; os.remove('${hedgeTmpPath}')
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], size_pct=data.get('size_pct'), metadata=data.get('metadata'))
 if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:

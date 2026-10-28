@@ -389,12 +389,37 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
 #  B. CONTRACT SELECTION — Pick the right strike + expiry
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _resolve_options_size_pct(size_pct, trade: dict, equity: float,
+                              positions: list = None, macro: dict = None) -> float:
+    """Sizing fraction for select_contract.
+
+    [REPAIR] 2026-10-27 (audit §6.8 N8): a caller-computed size_pct (the tier
+    engine's T1 stress/drawdown-scaled size, T2's leveraged size) is the
+    sizing; _dynamic_options_size is only the fallback for callers that pass
+    none. Either way the result never exceeds MAX_OPTIONS_PCT_CEILING
+    (= system_config MAX_OPTIONS_PCT, 8%), the per-position cap."""
+    try:
+        requested = float(size_pct) if size_pct is not None else 0.0
+    except (TypeError, ValueError):
+        requested = 0.0
+    if requested > 0:
+        return min(requested, MAX_OPTIONS_PCT_CEILING)
+    return min(_dynamic_options_size(trade, equity, positions, macro), MAX_OPTIONS_PCT_CEILING)
+
+
 def select_contract(ticker: str, strategy: str, price: float, equity: float,
                     trade: dict = None, positions: list = None, macro: dict = None,
-                    cash_available: float = None) -> dict:
+                    cash_available: float = None, size_pct: float = None,
+                    metadata: dict = None) -> dict:
     """
     Select the best options contract for the given strategy.
-    
+
+    size_pct / metadata (2026-10-27, audit §6.8 N8): the tier dispatcher's
+    computed position size (fraction of equity) and its TierAction metadata.
+    size_pct replaces the dynamic sizer (capped at MAX_OPTIONS_PCT_CEILING);
+    metadata["target_delta"] steers the cash-secured-put strike pick. Both
+    default to None = the previous behaviour.
+
     Returns: {
         "occ_symbol": str,         — Alpaca OCC format
         "strike": float,
@@ -498,10 +523,12 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
 
         # Select based on strategy
         # Calculate dynamic size using trade context
-        size_pct = _dynamic_options_size(
+        size_pct = _resolve_options_size_pct(
+            size_pct,
             trade or {"ticker": ticker, "price": price, "score": 70},
             equity, positions, macro
         )
+        _target_delta = (metadata or {}).get("target_delta") if isinstance(metadata, dict) else None
 
         # Select contract based on strategy
         result = None
@@ -510,7 +537,8 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         elif strategy == "buy_put":
             result = _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
-            result = _select_sell_put(liquid, price, equity, ticker, size_pct, cash_available=cash_available)
+            result = _select_sell_put(liquid, price, equity, ticker, size_pct, cash_available=cash_available,
+                                      target_delta=_target_delta)
         elif strategy == "bull_call_spread":
             result = _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
@@ -910,7 +938,7 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str, s
 
 
 def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05,
-                      cash_available: float = None) -> dict:
+                      cash_available: float = None, target_delta: float = None) -> dict:
     """
     Select a put to sell (cash-secured).
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
@@ -1000,7 +1028,8 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     # or the two disagree and every affordable candidate still gets rejected
     # at the capital check. Tracked separately from affordable_budget because
     # the "stretch" branch below picks a strike using a LARGER budget (up to
-    # 20% of equity) than affordable_budget reflects.
+    # MAX_OPTIONS_PCT_CEILING of equity; 20% before 2026-10-27) than
+    # affordable_budget reflects.
     effective_budget = affordable_budget
 
     if not affordable_puts:
@@ -1029,14 +1058,19 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         # _enforce_exposure_cap allocator at the tier-engine level will scale
         # back if we collectively exceed the total budget anyway.
         smallest_strike = min(p.get("strike", 0) for p in puts)
-        stretch_ceiling = equity * 0.20
+        # COLLATERAL CEILING 2026-10-27 ([REPAIR], audit §6.8 N8): was
+        # equity * 0.20 — one CSP could tie up 20% of equity in collateral
+        # despite the 8% per-position cap (MAX_OPTIONS_PCT /
+        # MAX_OPTIONS_PCT_CEILING). Prior value 0.20. Stretching now only
+        # lifts a budget below the cap up to the cap, never past it.
+        stretch_ceiling = equity * MAX_OPTIONS_PCT_CEILING
         # Same live-capital cap applied to the stretch ceiling — otherwise
         # stretch mode "succeeds" at picking a strike the account still
         # cannot secure, and Alpaca rejects it exactly the same as before.
         if cash_available is not None and cash_available >= 0:
             stretch_ceiling = min(stretch_ceiling, cash_available)
         if puts and smallest_strike > 0 and smallest_strike * 100 <= stretch_ceiling:
-            # Allow up to 20% of equity for a single CSP under "stretch" mode
+            # Allow up to MAX_OPTIONS_PCT_CEILING of equity for a single CSP under "stretch" mode
             # — but explicitly log and tag so the dispatcher knows.
             affordable_puts = [c for c in puts if c.get("strike", 0) == smallest_strike]
             # BUG FIX 2026-07-29: without this, max_contracts below divides by
@@ -1094,7 +1128,19 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     # HOTFIX R2 2026-04-22: prefer delta-based selection, fall back to
     # strike-distance if delta data not populated (some feeds return
     # puts without delta). Target: strike ~5% below current price.
+    _requested_delta = target_delta
     target_delta = -0.30
+    # TIER METADATA 2026-10-27 (audit §6.8 N8): T1 sends target_delta=0.30
+    # (a put delta magnitude) — honoured here; the -0.30 default above is the
+    # value for callers without metadata (server/chainCspEntry.ts mirrors it).
+    if _requested_delta is not None:
+        try:
+            _rd = abs(float(_requested_delta))
+            if 0 < _rd < 1:
+                target_delta = -_rd
+        except (TypeError, ValueError):
+            logging.getLogger("voltrade.options_execution").warning(
+                f"CSP {ticker}: ignoring non-numeric target_delta {_requested_delta!r}")
     puts_with_delta = [p for p in puts if p.get("delta") is not None and p.get("delta") != 0]
 
     if puts_with_delta:
