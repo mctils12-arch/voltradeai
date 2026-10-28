@@ -34,6 +34,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { beat } from "./jobHeartbeat";
+import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
 
 export const CHAIN_MAX_UNDERLYINGS = 120;
 export const CHAIN_MAX_DTE_DAYS = 60;
@@ -129,22 +130,55 @@ export interface ChainRecord {
   asz: number | null;
   iv: number | null;
   delta: number | null;
+  /** Open interest. NOT AVAILABLE on this feed: the Alpaca indicative
+   *  snapshot carries no openInterest (0 of 5,000 sampled prod rows, audit
+   *  2026-10-27 §2.4 defect 3). Kept for schema continuity; always null in
+   *  practice. Real OI needs OCC/OPRA-grade data (wishlist). */
   oi: number | null;
+  // ── schema v2 (2026-10-27, audit §10.2: GEX / P-C volume inputs) ──
+  /** greeks.gamma (Alpaca-computed from the indicative quote, not an
+   *  exchange value). Absent on older rows. */
+  gamma?: number | null;
+  /** Contract volume for the labelled session = dailyBar.v when dailyBar is
+   *  dated that ET session; 0 when the latest dailyBar is an EARLIER session
+   *  (no prints today on this feed); null when no dailyBar at all. Indicative
+   *  trades lag ~15 min, hence the 16:30 ET capture. Absent on older rows. */
+  vol?: number | null;
+  /** Underlying latest trade price at capture time (stock snapshot,
+   *  ALPACA_DATA_FEED / default delayed_sip = 15-min delayed consolidated
+   *  tape; may be an extended-hours print, NOT the official close). null
+   *  when the stock snapshot call failed. Absent on older rows. */
+  spot?: number | null;
   feed: "indicative";   // NEVER dropped — this is not NBBO
+}
+
+/** Session volume from an option snapshot's dailyBar (see ChainRecord.vol). */
+export function sessionVolume(dailyBar: unknown, nowMs: number): number | null {
+  if (!dailyBar || typeof dailyBar !== "object") return null;
+  const bar = dailyBar as { v?: unknown; t?: unknown };
+  const v = Number(bar.v);
+  if (!Number.isFinite(v) || v < 0) return null;
+  const barMs = Date.parse(String(bar.t ?? ""));
+  if (!Number.isFinite(barMs)) return null; // undated bar: cannot attribute to a session
+  const barDay = etClock(barMs).etDay, today = etClock(nowMs).etDay;
+  if (barDay === today) return v;
+  return barDay < today ? 0 : null;
 }
 
 /** Compact one Alpaca snapshot entry. Null when there is no quote at all
  *  (a chain row with no market is noise, not history). */
-export function compactContract(occ: string, u: string, snap: any, nowMs: number): ChainRecord | null {
+export function compactContract(occ: string, u: string, snap: any, nowMs: number, spot: number | null = null): ChainRecord | null {
   const q = snap?.latestQuote;
   const bid = Number(q?.bp), ask = Number(q?.ap);
   if (!q || (!Number.isFinite(bid) && !Number.isFinite(ask))) return null;
   const g = snap?.greeks;
-  const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const n = (v: any) => (v !== null && Number.isFinite(Number(v)) ? Number(v) : null);
   return {
     s: occ, u, t: nowMs,
     bid: n(q?.bp), ask: n(q?.ap), bsz: n(q?.bs), asz: n(q?.as),
     iv: n(snap?.impliedVolatility), delta: n(g?.delta), oi: n(snap?.openInterest),
+    gamma: n(g?.gamma), vol: sessionVolume(snap?.dailyBar, nowMs),
+    spot: spot != null && Number.isFinite(spot) && spot > 0 ? spot : null,
     feed: "indicative",
   };
 }
@@ -391,6 +425,9 @@ type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: numbe
 export async function fetchChainPages(
   u: string, spot: number | null, env: NodeJS.ProcessEnv = process.env,
   fetchImpl: FetchFn = fetch as any, nowMs = Date.now(), maxPages = CHAIN_MAX_PAGES,
+  /** capture-time underlying price stored on every record (null = unknown;
+   *  `spot` above may be the CSP cache's stale price, used only for the band) */
+  recordSpot: number | null = null,
 ): Promise<{ records: ChainRecord[]; pages: number; truncated: boolean }> {
   const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" };
   const w = chainQueryWindow(nowMs, spot);
@@ -405,7 +442,7 @@ export async function fetchChainPages(
     pages++;
     for (const [occ, snap] of Object.entries(d?.snapshots || {})) {
       if (!withinFilters(occ, spot, nowMs)) continue;
-      const rec = compactContract(occ, u, snap, nowMs);
+      const rec = compactContract(occ, u, snap, nowMs, recordSpot);
       if (rec) records.push(rec);
     }
     token = d?.next_page_token || undefined;
@@ -415,6 +452,37 @@ export async function fetchChainPages(
   }
   console.error(`[optionchains] ${u}: chain TRUNCATED after ${pages} pages (cap ${maxPages}) — later expiries missing`);
   return { records, pages, truncated: true };
+}
+
+/** Underlying spot at capture time for every chain underlying, in ONE
+ *  batched stock-snapshot call: latestTrade.p, else the latestQuote mid.
+ *  Feed = ALPACA_DATA_FEED (default delayed_sip, a 15-min delayed
+ *  consolidated tape; the account's SIP real-time is 403). Any failure →
+ *  empty map (records carry spot:null, the band falls back to the cache
+ *  spot); logged, never thrown — spot must not cost the day's chains. */
+export async function fetchSpots(
+  symbols: string[], env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!symbols.length) return out;
+  const feed = resolveAlpacaFeed(env.ALPACA_DATA_FEED);
+  const url = `https://data.alpaca.markets/v2/stocks/snapshots?symbols=${symbols.map(encodeURIComponent).join(",")}&feed=${encodeURIComponent(feed)}`;
+  try {
+    const r = await fetchImpl(url, { headers: { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" } });
+    const body = await r.json();
+    const err = alpacaErrorBody(r.status, body);
+    if (err) { console.error(`[optionchains] spot snapshot failed (${feed}): ${err}`); return out; }
+    for (const [sym, s] of Object.entries((body || {}) as Record<string, any>)) {
+      const p = Number(s?.latestTrade?.p);
+      const bp = Number(s?.latestQuote?.bp), ap = Number(s?.latestQuote?.ap);
+      const px = Number.isFinite(p) && p > 0 ? p
+        : Number.isFinite(bp) && Number.isFinite(ap) && bp > 0 && ap >= bp ? (bp + ap) / 2 : NaN;
+      if (Number.isFinite(px)) out.set(sym.toUpperCase(), px);
+    }
+  } catch (e) {
+    console.error("[optionchains] spot snapshot failed:", e instanceof Error ? e.message : String(e));
+  }
+  return out;
 }
 
 /** Records only (see fetchChainPages for the truncation flag). */
@@ -453,7 +521,7 @@ export interface ChainRunOpts {
 export async function runDailyChainArchive(
   env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
   positionSymbols: string[] = [], nowMs = Date.now(), opts: ChainRunOpts = {},
-): Promise<{ day: string; underlyings: number; contracts: number; failures: number; truncated: string[] }> {
+): Promise<{ day: string; underlyings: number; contracts: number; failures: number; truncated: string[]; spots: number }> {
   let cache: any = opts.cacheJson ?? null;
   if (opts.cacheJson === undefined) {
     const cp = universeCachePath();
@@ -468,9 +536,14 @@ export async function runDailyChainArchive(
   let contracts = 0;
   let failures = 0;
   const truncated: string[] = [];
+  // capture-time spot (stored on every record; also the strike band's
+  // centre — the CSP cache's price is up to a session stale and is null for
+  // the pinned index names, which is why SPY's band never applied)
+  const spots = await fetchSpots(unders.map((x) => x.sym), env, fetchImpl);
   for (const { sym, spot } of unders) {
     try {
-      const got = await fetchChainPages(sym, spot, env, fetchImpl, nowMs);
+      const live = spots.get(sym) ?? null;
+      const got = await fetchChainPages(sym, live ?? spot, env, fetchImpl, nowMs, CHAIN_MAX_PAGES, live);
       if (got.truncated) truncated.push(sym);
       contracts += archiveChainRecords(got.records, opts.baseDir, nowMs, staged);
     } catch (e: any) {
@@ -480,7 +553,7 @@ export async function runDailyChainArchive(
     if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs)); // stay polite on the data API
   }
   console.log(`[optionchains] ${day}: staged ${contracts} contracts across ${unders.length} underlyings (${failures} failed, ${truncated.length} truncated${truncated.length ? `: ${truncated.join(",")}` : ""})`);
-  return { day, underlyings: unders.length, contracts, failures, truncated };
+  return { day, underlyings: unders.length, contracts, failures, truncated, spots: spots.size };
 }
 
 /** Capture the ET trading date of nowMs exactly once: skip when already
@@ -490,9 +563,9 @@ export async function runDailyChainArchive(
 export async function captureTradingDay(
   env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
   positionSymbols: string[] = [], nowMs = Date.now(), opts: ChainRunOpts = {},
-): Promise<{ status: "skipped" | "published" | "unclaimed"; day: string; underlyings: number; contracts: number; failures: number; truncated: string[] }> {
+): Promise<{ status: "skipped" | "published" | "unclaimed"; day: string; underlyings: number; contracts: number; failures: number; truncated: string[]; spots: number }> {
   const day = etClock(nowMs).etDay;
-  if (isDayCaptured(day, opts.baseDir)) return { status: "skipped", day, underlyings: 0, contracts: 0, failures: 0, truncated: [] };
+  if (isDayCaptured(day, opts.baseDir)) return { status: "skipped", day, underlyings: 0, contracts: 0, failures: 0, truncated: [], spots: 0 };
   const r = await runDailyChainArchive(env, fetchImpl, positionSymbols, nowMs, opts);
   if (!shouldClaimDay(r)) {
     const staged = chainStagingFile(day, opts.baseDir);
@@ -505,6 +578,8 @@ export async function captureTradingDay(
     underlyings: r.underlyings, contracts: r.contracts, failures: r.failures, feed: "indicative",
     scope: { max_dte_days: CHAIN_MAX_DTE_DAYS, strike_band: CHAIN_STRIKE_BAND, max_pages: CHAIN_MAX_PAGES },
     truncated: r.truncated, // underlyings whose chain hit the page cap — incomplete, by name
+    schema_version: 2, // + gamma, vol, spot per record (oi stays null: not in the indicative feed)
+    spots_known: r.spots, spot_feed: resolveAlpacaFeed(env.ALPACA_DATA_FEED),
   }, opts.baseDir);
   return { status: "published", ...r };
 }

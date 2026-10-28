@@ -331,3 +331,78 @@ test("pagination: the run summary and the day sidecar name truncated underlyings
   assert.equal(side.scope.max_dte_days, 60);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── [2026-10-27, audit §10.2] stored fields: gamma, session volume, spot ──
+import { fetchSpots } from "./optionsChainArchive";
+
+test("stored fields: gamma, session volume and spot travel with each record; OI stays null (not in the feed)", () => {
+  const snap = (bar: Record<string, unknown> | null) => ({
+    latestQuote: { bp: 4.1, ap: 4.3, bs: 12, as: 9 }, impliedVolatility: 0.22,
+    greeks: { delta: -0.32, gamma: 0.0214, theta: -0.05, vega: 0.11 }, ...(bar ? { dailyBar: bar } : {}),
+  });
+  const now = ET(16, 35);
+  const today = compactContract("SPY261120P00590000", "SPY", snap({ t: "2026-10-27T04:00:00Z", v: 850, c: 4.2 }), now, 598.21)!;
+  assert.equal(today.gamma, 0.0214);
+  assert.equal(today.vol, 850, "dailyBar dated this ET session → its volume");
+  assert.equal(today.spot, 598.21);
+  assert.equal(today.oi, null, "indicative snapshots carry no openInterest");
+  assert.equal(today.feed, "indicative");
+  const stale = compactContract("SPY261120P00590000", "SPY", snap({ t: "2026-10-23T04:00:00Z", v: 300 }), now, 598.21)!;
+  assert.equal(stale.vol, 0, "latest bar is an earlier session → no prints today");
+  const none = compactContract("SPY261120P00590000", "SPY", snap(null), now)!;
+  assert.equal(none.vol, null, "no bar → unknown, not zero");
+  assert.equal(none.spot, null, "spot unknown → null");
+  const noGamma = compactContract("X261120P00010000", "X", { latestQuote: { bp: 1, ap: 1.1 }, greeks: { gamma: null } }, now)!;
+  assert.equal(noGamma.gamma, null, "a null greek is missing, not 0");
+});
+
+/** Chain + stock-snapshot fake: SPY last trade 600, QQQ quote-only 500/502, IWM absent. */
+function marketFake(calls: string[], stocksOk = true) {
+  return async (url: string) => {
+    calls.push(url);
+    if (url.includes("/v2/stocks/snapshots")) {
+      if (!stocksOk) return { ok: false, status: 403, json: async () => ({ message: "subscription does not permit" }) };
+      return { ok: true, status: 200, json: async () => ({
+        SPY: { latestTrade: { p: 600 } }, QQQ: { latestQuote: { bp: 500, ap: 502 } },
+      }) };
+    }
+    const u = /options\/snapshots\/([A-Z]+)\?/.exec(url)?.[1] || "X";
+    return { ok: true, status: 200, json: async () => ({ snapshots: {
+      [`${u}261120P00500000`]: { latestQuote: { bp: 1, ap: 1.1 }, greeks: { delta: -0.3, gamma: 0.01 }, dailyBar: { t: "2026-10-27T04:00:00Z", v: 42 } },
+    } }) };
+  };
+}
+
+test("capture: spot fetched once at capture time, stored on every record, and centres the server-side strike band", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-spot-"));
+  const calls: string[] = [];
+  const r = await captureTradingDay({} as any, marketFake(calls) as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  const stockCalls = calls.filter((c) => c.includes("/v2/stocks/snapshots"));
+  assert.equal(stockCalls.length, 1, "one batched spot call");
+  assert.ok(stockCalls[0].includes("symbols=SPY,QQQ,IWM") && stockCalls[0].includes("feed=delayed_sip"));
+  const spyCall = calls.find((c) => c.includes("options/snapshots/SPY"))!;
+  assert.ok(spyCall.includes("strike_price_gte=480.00") && spyCall.includes("strike_price_lte=720.00"), "pinned SPY now gets its band from the live spot");
+  const rows = lines(chainDayFile("2026-10-27", dir)).map((l) => JSON.parse(l));
+  const by = Object.fromEntries(rows.map((x) => [x.u, x]));
+  assert.equal(by.SPY.spot, 600);
+  assert.equal(by.QQQ.spot, 501, "quote mid when there is no trade");
+  assert.equal(by.IWM.spot, null, "unknown spot stays null, never guessed");
+  assert.equal(by.SPY.gamma, 0.01);
+  assert.equal(by.SPY.vol, 42);
+  const side = JSON.parse(fs.readFileSync(chainCapturedFile("2026-10-27", dir), "utf8"));
+  assert.equal(side.schema_version, 2);
+  assert.equal(side.spots_known, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("capture: a failed spot call never costs the day's chains (spot null, band falls back)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-nospot-"));
+  const r = await captureTradingDay({} as any, marketFake([], false) as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  assert.equal(r.contracts, 3);
+  const rows = lines(chainDayFile("2026-10-27", dir)).map((l) => JSON.parse(l));
+  assert.ok(rows.every((x) => x.spot === null));
+  assert.equal((await fetchSpots([], {} as any, marketFake([]) as any)).size, 0, "no symbols → no call");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
