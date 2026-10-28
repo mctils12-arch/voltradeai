@@ -23,6 +23,7 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
+import { regimeEngineEnabled, regimeDataDir, readRegimeState, readRegimeHistory, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
@@ -1654,6 +1655,17 @@ print(json.dumps(data))
       checks.status = "degraded";
     }
     
+    // Check 7: REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3) —
+    // NON-GATING. "off" while VOLTRADE_REGIME_ENGINE is unset, "warning"
+    // when the persisted state is older than 2 market days, the last update
+    // failed, or the primary-flip alarm is set; never touches checks.status
+    // and never a serving gate (healthGate.ts SERVING_CHECKS unchanged).
+    try {
+      checks.checks.regime = regimeHealth(readRegimeState(regimeDataDir(process.env)), new Date(), regimeEngineEnabled(process.env));
+    } catch (err: unknown) {
+      checks.checks.regime = { status: "warning", detail: `regime report unreadable: ${String((err as Error)?.message || err).slice(0, 120)}`, gates_top_level_status: false };
+    }
+
     // KNOWN BROKEN #41 (2026-09-16): how many times this process would have
     // died silently before crashVisibility.ts, and the last reason — a
     // restart loop with a non-zero count here names its own cause.
@@ -2015,6 +2027,19 @@ print(json.dumps({
     const rates = ratesFromQuery(req.query as Record<string, unknown>);
     if (Object.keys(rates).length) return res.json(await benchmarkBody(rates));
     res.json(await benchmarkBody());
+  });
+
+  // ── REGIME ENGINE daily report (2026-10-28, docs/regime/FINDINGS.md step
+  // 3). regime_engine.py (Python, behind VOLTRADE_REGIME_ENGINE) computes the
+  // state once per scan and persists it under DATA_DIR; this route only READS
+  // those files (server/regimeReport.ts) — the same body the diag probe
+  // "regime" serves. Shadow: no consumer acts on it until its own flag is set.
+  function regimeBody(): Record<string, unknown> {
+    const dir = regimeDataDir(process.env);
+    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env));
+  }
+  app.get("/api/bot/regime", requireOwner, (_req, res) => {
+    res.json(regimeBody());
   });
 
   // ── Look-up (2026-10-22, human-asked): what the bot thinks of ONE symbol
@@ -2843,6 +2868,12 @@ print(json.dumps(s))
           // /api/bot/benchmark serves, so a session reads the GOAL's own
           // yardstick itself. Carries no symbol but SPY.
           return res.json(sanitizeDiag({ probe: "benchmark", ...(await benchmarkBody()) }));
+        }
+        case "regime": {
+          // ADDED 2026-10-28 (regime engine program, step 3): the regime
+          // engine's daily report — the SAME body as the owner's
+          // /api/bot/regime (server/regimeReport.ts). Index-level only.
+          return res.json(sanitizeDiag({ probe: "regime", ...regimeBody() }));
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
@@ -5553,6 +5584,14 @@ else:
       if (result.tier_kill_status?.killed) {
         audit("TIER-KILL", `Tier engine blocked: ${result.tier_kill_status.kill_reason}`);
       }
+
+      // REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3): the scan
+      // carries the engine's state when VOLTRADE_REGIME_ENGINE is on. One
+      // audit line per composite transition and one when an update failed
+      // (a stale state must be loud, never silent). Shadow — nothing acts.
+      const regimeAuditLine = regimeTransitionAudit(result.regime);
+      if (regimeAuditLine) audit("REGIME-TRANSITION", regimeAuditLine);
+      if (result.regime?.error) audit("REGIME-STALE", `regime engine update failed: ${String(result.regime.error).slice(0, 160)}`);
 
     } catch (err: any) {
       tier2LastScanFailed = true;

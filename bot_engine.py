@@ -3401,6 +3401,25 @@ def _scan_market_inner():
     except Exception:
         _macro = {}
 
+    # REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3 — SHADOW).
+    # One state per scan from regime_engine.py when VOLTRADE_REGIME_ENGINE
+    # (or BASE_CONFIG REGIME_ENGINE_ENABLED) is on: computed from cached
+    # daily bars, persisted, and carried on the scan result for bot.ts's
+    # REGIME-TRANSITION / REGIME-STALE audit lines and the /api/bot/regime
+    # report. NOTHING below reads it yet — every consumer has its own flag
+    # (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS). With the
+    # flag off the module is not imported; a failure never touches the scan.
+    _regime_state = None
+    try:
+        import regime_engine as _regime_engine
+        if _regime_engine.engine_allowed():
+            _regime_state = _regime_engine.update_state(gating="SPY")
+    except Exception as _regime_err:
+        import logging as _regime_logging
+        _regime_logging.getLogger("bot_engine").warning(f"[REGIME] engine skipped: {_regime_err}")
+        _regime_state = {"error": str(_regime_err)[:200], "stale": True}
+    _timing_log("step6_regime_engine")
+
     # SIZING-FIX 2026-04-22: use regime-adaptive MAX_POSITIONS rather than
     # the module-level constant. NEUTRAL regime returns 0 (no new stock
     # longs), BULL returns 8, BEAR/PANIC return 0.
@@ -4330,6 +4349,10 @@ def _scan_market_inner():
         "kill_status": kill_status,
         "kill_suppressed_trades": kill_suppressed,
         "tier_kill_status": tier_kill_status,
+        # REGIME ENGINE (2026-10-28, shadow): the persisted RegimeState dict
+        # (None while VOLTRADE_REGIME_ENGINE is off). bot.ts audits its
+        # transitions; no consumer acts on it until its own flag is set.
+        "regime": _regime_state if '_regime_state' in dir() else None,
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
         # so the UI can show "POSITION RULES" card. Read from _slots_params
