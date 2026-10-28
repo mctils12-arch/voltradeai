@@ -111508,3 +111508,7 @@ controls pass both). Existing test_options_fixes / test_csp_entry_dte
 stretch tests still pass unchanged.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — research/docs only (docs/regime) — REGIME DOCS: live-run next steps, ML gate, follow-ups
+
+FINDINGS "Next steps after close": live run departure from the §6 shadow wait (human-ordered), step-9 rollback rules kept, counterfactual log, day-1 reading (CALM_BULL, exposure 0.75, state 1 market day old, health ok), and follow-ups F1 (ML, gated on step-9 pass AND Section 10 backtest; reviewed 2026-11-16 / 12-15 / 2027-01-27 by scheduled routines) through F7. RUNBOOK §7 added. Docs only, no version bump. STARVED: no.

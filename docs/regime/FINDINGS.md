@@ -126,3 +126,36 @@ Conventions for every step: one logical change per PR; feature flag default OFF 
 - It will not run a strategy-level backtest with delisted names and realistic small-cap fills, because the data to do it honestly does not exist in the repo.
 - It will not touch the floor schedule, the halt levels, the kill switches, order transmission, or the exit model.
 - It will not add a classifier, a VIX-level exit, a re-entry delay, or a fourth drawdown peak.
+
+## Next steps after close: live paper run and tracked follow-ups (human directive 2026-10-28)
+
+### Live run (departure from the §6 shadow wait, human-ordered)
+The account is paper-only, so on 2026-10-28 the human ordered every regime flag turned on at once, in RUNBOOK §6 order, skipping the 14-trading-day shadow wait. Flags are on by config default (PR #1508).
+- **Override:** an explicitly set env var always wins, so `VOLTRADE_REGIME_<X>=off` on Railway rolls back that consumer without a deploy.
+- **Why no step needed the 14 days:** `regime_engine.run_states` recomputes the majority-filtered state from about 3,800 days of daily bars on every update. No consumer depends on persisted history to work correctly. The 14 days was an observation window, not a data requirement.
+- **Rollback rules from step 9 stay in force:**
+  - A guard whose blocked bucket shows the opposite sign at a read with n ≥ 30 is turned off and logged.
+  - A stale-state incident (more than 2 market days) turns `VOLTRADE_REGIME_SIZING` off until fixed.
+  - Pass rules are unchanged: ≥ 3 pp at +20 days with n ≥ 30.
+- **Counterfactual log:** because gating starts live, `voltrade_regime_counterfactual.jsonl` (probe `regime_counterfactual`) records, for every engine decision, what the legacy system would have done next to what the engine did. The `rejected_regime_*` shadow records carry the blocked names' realized outcomes.
+
+### Day 1 reading (2026-10-28, live v1.0.1195, `/api/diag/regime` at 22:03Z)
+- **State:** composite CALM_BULL (legacy label BULL); trend UP, fast MIXED, vol LOW, breadth HEALTHY; confidence 1.0; 137 days in regime.
+- **Exposure:** multiplier 0.75 (Tier-1 sizing read 0.75 with source `engine`, not stale).
+- **Stress readings:** VIX 17.5; VIX/VIX3M 0.90, not inverted; VRP +8.0 pts; VVIX 96.6.
+- **Health:** state as_of 2026-10-27 (1 market day old, under the 2-day stale rule).
+- **Flags:** all five flags read from `config`, with no env overrides.
+- **Allowed strategies:** momentum_long, csp, dip_buy.
+- `/api/health`: `checks.regime` ok, alarm false; top-level ok; jobs 9 ok, 0 late or errored.
+
+### Tracked follow-ups (none built; each needs its own gate)
+
+| # | Item | Gate before any build | Reviewed at |
+|---|---|---|---|
+| F1 | **ML regime tuning.** Data an ML model would need is logged from day one: each shadow record's `regime_snapshot` (inputs, states, composite, multiplier, confidence), the engine vs Markov label, the engine vs legacy decision, and realized outcomes from the backfills. | Starts **only** when (a) the live paper run passes its step-9 promotion rules at a read, **and** (b) the deferred strategy-level backtest (Section 10) has been run. That needs a point-in-time universe with delisted names and realistic small-cap fills, which the repo does not have (wishlist, price-panel spend). Until both hold, decision 7 stands: no ML, HMM or jump-model switch. The jump model is the benchmark any proposal must beat on an honest holdout. | 2026-11-16, 2026-12-15, 2027-01-27 (scheduled routines) |
+| F2 | Sector concentration check inside the selection guards | Read 2026-12-15 (n ≥ 30 per guard first) | 2026-12-15 |
+| F3 | CSP premium floor (low-return floor) | N8 merged (tier sizing reaches `select_contract`) **and** chain data at the decision point | after N8 |
+| F4 | IV-minus-HV ordering of CSP candidates | Same as F3 (needs chain IV at the decision point; Alpaca indicative chains carry no greeks on many rows) | after N8 |
+| F5 | Cap-bucket (size) reporting of guard outcomes | Next read with n ≥ 30 | 2026-11-16 |
+| F6 | Floor sleeve exposure schedule and halt levels | The pre-registered 4-arm floor test (`research/floor_basket_decision.md`). Halt levels are risk limits: human call only. | 2027-01-27 |
+| F7 | Node exit geometry (`checkPositionOnTick`) driven by the engine label | KNOWN BROKEN #48 step 3 (which exit policy is intended) must land first | when KB #48 step 3 lands |
