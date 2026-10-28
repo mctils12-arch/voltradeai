@@ -380,6 +380,14 @@ BASE_CONFIG = {
         "ABNB", "DASH",                       # Travel: 20% WR
         "LYFT",                               # Ride-share: structural drag
     ],
+    # 2026-10-27 [REPAIR] (audit §6.8 N6): the category the "3x leveraged
+    # ETFs" entries above stand for, applied to the instrument selector's
+    # substitute ETF (instrument_selector._etf_block_reason reads it with the
+    # "leverage" annotation in analyze.LEVERAGED_ETFS). Not a new threshold:
+    # it is the list's own stated 3x class. Expected effect: IWM→TNA/TZA and
+    # XLF→FAS/FAZ substitutions are ruled out; those candidates trade as
+    # stock (or options) instead.
+    "BLOCKED_ETF_MIN_LEVERAGE": 3,
 
     # ── SLIPPAGE & COSTS ──────────────────────────────────────────────────────
     # Conservative estimates for realistic backtest

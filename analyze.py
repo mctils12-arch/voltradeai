@@ -1349,11 +1349,13 @@ LEVERAGED_ETFS = {
     'GOOGL':{'bull': 'GGLL',  'bear': 'GGLS'},     # Direxion 2x GOOGL (verify still live)
     'AMD':  {'bull': 'AMDU',  'bear': 'AMDS'},     # Direxion 2x AMD (verify still live)
     'MSTR': {'bull': 'MSTX',  'bear': 'MSTS'},     # T-Rex 2x MSTR
-    'IWM':  {'bull': 'TNA',   'bear': 'TZA'},      # Direxion 3x IWM
+    # 'leverage' (2026-10-27, audit §6.8 N6): only the 3x entries carry it;
+    # instrument_selector._etf_block_reason blocks >= BLOCKED_ETF_MIN_LEVERAGE.
+    'IWM':  {'bull': 'TNA',   'bear': 'TZA', 'leverage': 3},  # Direxion 3x IWM
     'GLD':  {'bull': 'UGL',   'bear': 'GLL'},      # ProShares 2x Gold
     'TLT':  {'bull': 'UBT',   'bear': 'TBT'},      # ProShares 2x 20+ Treasury
     'XLE':  {'bull': 'ERX',   'bear': 'ERY'},      # Direxion 2x Energy
-    'XLF':  {'bull': 'FAS',   'bear': 'FAZ'},      # Direxion 3x Financials
+    'XLF':  {'bull': 'FAS',   'bear': 'FAZ', 'leverage': 3},  # Direxion 3x Financials
 }
 
 

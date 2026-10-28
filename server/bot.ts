@@ -56,6 +56,7 @@ import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { buildEntryFillPayload } from "./entryFill";
+import { planEtfOrder } from "./etfSubstitution";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -6215,11 +6216,19 @@ else:
         audit("INSTRUMENT", `${trade.ticker} → ${(trade.instrument || 'stock').toUpperCase()} chosen | scores: stock=${sScore} etf=${eScore} options=${oScore} | ${(trade.instrument_reasoning || '').slice(0, 120)}`);
 
         // ── ETF execution (instrument selector chose 2x leveraged ETF) ──
+        // [REPAIR] 2026-10-27 (audit §6.8 N6): qty and price come from the
+        // scan's ETF plan (dollar-sized, priced off the ETF's own ask) — see
+        // etfSubstitution.ts. No plan → trade the stock (existing fallback).
         if (trade.instrument === "etf" && trade.instrument_ticker && trade.instrument_ticker !== trade.ticker) {
-          const etfTicker = trade.instrument_ticker;
-          const etfShares = Math.max(1, Math.floor(trade.shares / 2)); // Half shares for 2x leverage
+          const etfPlan = planEtfOrder(trade);
+          if (!etfPlan.ok) {
+            audit("ETF-FALLBACK", `${trade.instrument_ticker}: ${etfPlan.reason} — falling back to stock`);
+          } else {
+          const etfTicker = etfPlan.symbol;
+          const etfShares = etfPlan.qty;
+          const etfPrice = etfPlan.price;
           try {
-            const etfOrderParams = getOrderParams(trade.price || 0);
+            const etfOrderParams = getOrderParams(etfPrice);
             const etfOrderResult = await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
@@ -6227,10 +6236,10 @@ else:
                 ...etfOrderParams,
               }),
             });
-            audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} (2x ETF for ${trade.ticker}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
-            notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
+            audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} @ ~$${etfPrice.toFixed(2)} ($${etfPlan.value.toFixed(0)}, leveraged ETF for ${trade.ticker}, sizing=${trade.etf_sizing_source || "?"}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
+            notify("trade", `ETF: ${etfShares} ${etfTicker} (leveraged ${trade.ticker})`);
             slotsUsed++;
-            totalDeployed += etfShares * trade.price; // Approximate
+            totalDeployed += etfPlan.value;
             // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation): this ETF
             // entry is always a DAY limit order (getOrderParams' 'new_entry'
             // context never returns a market order) — register it so
@@ -6256,7 +6265,7 @@ else:
             try {
               const etfEntryPayload = buildEntryFillPayload({
                 ticker: etfTicker, side: "buy", qty: etfShares,
-                fillPrice: trade.price || 0, session: "regular",
+                fillPrice: etfPrice, session: "regular",
                 volume: trade.volume, score: trade.score,
                 instrument: "etf", codeVersion: pkgVersion,
               });
@@ -6272,12 +6281,13 @@ else:
                 }
               }).catch(() => {});
             } catch (err: any) { console.error("[bot]", err?.message || err); }
-            addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", trade.price || 0, etfShares);
+            addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", etfPrice, etfShares);
             continue;
           } catch (etfErr: any) {
             audit("ETF-FALLBACK", `${etfTicker} order failed: ${etfErr?.message?.slice(0, 100)} — falling back to stock`);
             // Fall through to stock/options execution
           }
+          } // end else (planEtfOrder ok)
         }
 
         // ── Options vs Stock execution ──

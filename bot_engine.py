@@ -2783,6 +2783,63 @@ def _record_sizing_block(blocks: list, ticker: str, score, sizing: dict, strateg
         _blk_log.getLogger("bot_engine").debug(f"_record_sizing_block failed for {ticker}: {_rec_err}")
 
 
+def _fetch_latest_quote(symbol: str):
+    """Latest NBBO quote {"bp", "ap"} for one equity symbol, or None.
+    Same endpoint, feed and throttle as the scan's spread check
+    (/v2/stocks/{sym}/quotes/latest); a fetch failure is logged and
+    returns None so the caller can choose its own fallback."""
+    try:
+        alpaca_throttle.acquire()
+        r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/quotes/latest",
+                         params={"feed": data_feed()}, headers=_alpaca_headers(), timeout=5)
+        q = (r.json() or {}).get("quote") or {}
+        return {"bp": float(q.get("bp", 0) or 0), "ap": float(q.get("ap", 0) or 0)}
+    except Exception as _q_err:
+        import logging as _q_log
+        _q_log.getLogger("bot_engine").warning(f"latest quote fetch failed for {symbol}: {_q_err}")
+        return None
+
+
+def _resolve_etf_execution(instrument_decision: dict, ticker: str,
+                           stock_position_value: float, fetch_quote=None):
+    """[REPAIR] 2026-10-27 (audit §6.8 N6): turn an "etf" instrument choice
+    into an executable ETF order (dollar sizing + the ETF's own price) or
+    downgrade it to the stock.
+
+    Returns (instrument_decision, etf_fields). etf_fields holds etf_shares /
+    etf_price / etf_position_value / etf_sizing_source for server/bot.ts's
+    ETF branch (all None when the stock is traded). A non-etf decision is
+    returned unchanged. When the ETF cannot be sized or priced
+    (instrument_selector.plan_etf_execution says why) the decision becomes
+    the stock — the same fallback bot.ts already takes when an ETF order
+    fails — with the reason appended to its reasoning."""
+    empty = {"etf_shares": None, "etf_price": None,
+             "etf_position_value": None, "etf_sizing_source": None}
+    if not isinstance(instrument_decision, dict) or instrument_decision.get("chosen") != "etf":
+        return instrument_decision, empty
+    etf_sym = str(instrument_decision.get("ticker") or "")
+    if not etf_sym or etf_sym.upper() == str(ticker).upper():
+        return instrument_decision, empty
+    from instrument_selector import plan_etf_execution
+    quote = (fetch_quote or _fetch_latest_quote)(etf_sym)
+    plan = plan_etf_execution(instrument_decision.get("sizing"), stock_position_value, quote)
+    if plan.get("ok"):
+        return instrument_decision, {
+            "etf_shares": plan["etf_shares"],
+            "etf_price": plan["etf_price"],
+            "etf_position_value": plan["etf_position_value"],
+            "etf_sizing_source": plan["sizing_source"],
+        }
+    downgraded = {
+        **instrument_decision,
+        "chosen": "stock",
+        "strategy": "buy_stock",
+        "ticker": ticker,
+        "reasoning": f"{instrument_decision.get('reasoning', '')} | ETF {etf_sym} -> STOCK: {plan.get('reason')}",
+    }
+    return downgraded, empty
+
+
 def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
     """Best-effort bucket name for a sizing block row (mirrors
     position_sizing._infer_strategy's vocabulary without importing it)."""
@@ -3925,6 +3982,11 @@ def _scan_market_inner():
             import logging as _vl2
             _vl2.getLogger("bot_engine").warning(f"vol_share check failed for {ticker}: {_vol_err}")
 
+        # ETF substitution: dollar-size and price the ETF itself, or trade the
+        # stock (audit §6.8 N6 — see _resolve_etf_execution).
+        instrument_decision, _etf_fields = _resolve_etf_execution(
+            instrument_decision, ticker, position_value)
+
         trades.append({
             "action": action_label,
             "side": side,
@@ -3955,6 +4017,8 @@ def _scan_market_inner():
             "instrument_reasoning": instrument_decision.get("reasoning", ""),
             "instrument_ticker": instrument_decision.get("ticker", ticker),  # Could be ETF ticker
             "instrument_scores": instrument_decision.get("scores", {}),
+            # ETF order inputs for server/bot.ts (None unless instrument=="etf")
+            **_etf_fields,
             "use_options": options_decision.get("use_options", False),
             "options_strategy": options_decision.get("strategy", "stock"),
             "options_reasoning": options_decision.get("reason", ""),
