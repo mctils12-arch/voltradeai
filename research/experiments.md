@@ -111174,3 +111174,48 @@ counter_baseline: tests 627 -> 628 (pin lagged the tracked count by one
 after the previous commit), assertions 22139 -> 22164.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Floor 0% target exits every basket member, with CC unwind (v1.0.1189)
+
+What was wrong (audit §6.8 N18): bot_engine.py:_manage_spy_floor's
+zero-target branch (BEAR/PANIC, SPY_FLOOR_* = 0) sold only FLOOR_TICKER
+(QQQ), and the basket branch requires target_pct > 0, so SMH/KWEB/VXUS
+(~28-36% of equity) were held with no exit through the whole bear phase.
+That pushed invested % over the BEAR/PANIC caps and fired the master kill
+(KB #20 chain). The basket rebalance sell also never unwound covered calls
+(the covered-call sweep writes them on any 100+ share holding), while the
+single-ticker path does. An exception in the zero-target exit was swallowed
+by `except: pass` and the regime was then persisted, so a failed exit was
+never retried.
+
+Change:
+  * At 0% target, exit EVERY floor-owned ticker: FLOOR_TICKER plus each
+    non-CASH FLOOR_BASKET member, full qty_available (falls back to qty),
+    each after its own _unwind_covered_calls(); a failed buy-back blocks
+    only that ticker's sale (same rule as the single-ticker path).
+  * Blocked/failed exits do not persist last_regime, so the next cycle
+    retries (same contract as the market-closed deferral); qty_available
+    keeps the retry from double-selling a pending sell.
+  * The pass runs on a regime change OR once per zero-target episode
+    (new floor state key "zero_target_exit_done" = regime), so members
+    already orphaned when this ships are exited once, not every cycle.
+  * Basket rebalance sells that leave < 100 shares unwind covered calls
+    first; a failed unwind records cc_unwind_blocked and skips that sale.
+  * Single-ticker mode (FLOOR_BASKET_ENABLED False) behaves as before.
+
+Downstream chain: (1) in BEAR/PANIC the floor now goes fully to cash
+(GLD defensive floor unaffected), so invested % drops ~28-36 points
+and stays under the BEAR/PANIC caps -> the master kill no longer fires
+from floor orphans; (2) the freed cash is what the defensive floor's
+GLD ramp (30-40%) and later regime-recovery re-buys draw on; no naked
+short calls are left behind when a member is sold.
+
+Rollback trigger: a zero-target exit selling a member that another
+allocator owns (N19 ownership clash) -> revert and fix ownership first.
+
+Tests: test_floor_basket_zero_target.py (6 of 7 fail on the old code;
+the single-ticker guard passes both). test_silent_except_ratchet.py pin
+bot_engine.py 71 -> 70 (one silent `pass` removed). counter_baseline:
+tests 628 -> 629, silent_py_handlers 254 -> 253, assertions -> 22178.
+
+STARVED: no — master-plan queue in progress this session.
