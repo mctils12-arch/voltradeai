@@ -110926,6 +110926,7 @@ RESULT: local — full pytest 2926 passed / 2 skipped (the known sandbox-only te
 NEXT: step 5 — CSP guards behind VOLTRADE_REGIME_OPTIONS (built, next PR).
 STARVED: no.
 
+<<<<<<< HEAD
 ## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 5: CSP guards behind VOLTRADE_REGIME_OPTIONS (shadow by default; v1.0.1180)
 
 docs/regime/FINDINGS.md step 5. ENGINE: `regime_engine.csp_verdict(state, candidate)` (pure) — crisis (vol_state CRISIS), vrp (the engine's vrp_negative stress flag), inversion (VIX/VIX3M > 1 → size × 0.5), elevated (vol_state ELEVATED → size × 0.5, target delta 0.15), earnings (the name reports inside the Tier-1 contract window, 45 DTE + 2 days), ebp (Fed excess bond premium > 0 → size × 0.5; cuts compound); `options_gates(env)` (comma list or all; ANY non-empty value also turns on crisis + vrp — the two that only prevent new short vol in the research's loss states); `apply_csp_gates` (the acting subset); `shadow_once_per_day` (one shadow record per name/guard/UTC day instead of one per scan). TIER-1 (`tier1_csp_core`): the state-level verdict scales size_scalar the way the VXX ladder already does (affordability cap + size_pct; the contract count stays select_contract's until the master plan's N8 — AUDIT §2 T7, said plainly in the CHANGELOG); the per-name verdict adds the earnings date (options_scanner's Finnhub calendar, cached 15 min; a failed lookup fails OPEN with earnings_lookup_ok=false on the record); a guard that would act logs `would_reject_regime_<g>` (flag off) or `rejected_regime_<g>` (gated: the name is removed and the slot kept; the state-level guards log the 3 names that would have been proposed and the scan proposes nothing) through log_csp_gate_shadow, bounded to 3 per guard per scan; the action metadata carries regime_guards + regime_size_mult; target_delta changes 0.30 → 0.15 only when `elevated` is gated. SCANNER PATH (`_scan_market_inner`, get_options_trades loop): a sell-side setup is dropped for crisis/vrp only when gated, shadow-logged otherwise; long-vol setups untouched. NOT BUILT: (f) LOW-vol premium floor and (g) IV−HV ordering — Tier-1 decides with no premium, IV or quote at hand (the chain is fetched inside select_contract after dispatch), and a chain fetch per candidate per scan is the OPRA cost the scan already struggles with (AUDIT §3); both wait for N8 where they become one-line chain filters. (h) the EBP cut applies to every CSP (no market-cap field on the selection path). Spreads not built; submit_options_order and the order POST paths untouched. test_regime_options.py (gate flag, verdict truth table, gate applier, once-a-day bound, Tier-1 wiring on a fixture context — engine off / shadow / gated per guard / calendar outage, scanner-path pins).
@@ -110933,3 +110934,49 @@ PRIOR: zero trading effect with the flag off (regression: the engine-off fixture
 RESULT: local — full pytest 2947 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), counter ratchet OK (tests_run_in_ci 639→640, assertions 22642→22728; no non-increasing pin moved; a `pass`-only handler in the scanner block was replaced by a debug log before commit — the silent-handler pin held at 254). Live effect: none until VOLTRADE_REGIME_ENGINE is on (shadow buckets) and VOLTRADE_REGIME_OPTIONS is set (gates).
 NEXT: step 6 — one sizing path behind VOLTRADE_REGIME_SIZING (built, next PR).
 STARVED: no.
+=======
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N2: morning queue can no longer open a naked stock short (v1.0.1180)
+
+What was wrong: server/bot.ts executeMorningQueue (~4403). deep_score
+"SELL OPTIONS" candidates carry trade_type="options", side="sell",
+shares>0 (bot_engine.py ~1862-1866). Off-hours Tier 2 pushes them into
+morningQueue verbatim (~5104). The PR #53 stock-short block converted
+sell/short only when trade_type !== "options", so the trade reached the
+STOCK order body with side:"sell" (a naked short) and was then monitored
+as "long" (~4509). Sibling shape: runOvernightResearch's extreme-mover
+queue (~6650) pushes bearish BUY PUT / SELL OPTIONS setups with
+side="sell", use_options=true and no trade_type, which the block flipped
+into a long stock BUY (opposite exposure).
+
+What changed: new pure helper server/morningQueueEntry.ts
+(decideMorningQueueEntry / isOptionsIntended). The morning queue has no
+options path, so an options-intended entry (trade_type "options", or a
+bearish use_options setup) is dropped with a MORNING-OPTIONS-SKIP audit
+line; the next in-hours Tier 2 scan re-scores the name and executeTrades
+routes it via the options path it takes in hours. Plain stock sell/short
+keeps PR #53's convert-to-BUY (same SHORT-BLOCKED audit). The order body
+side, the openOrders record side and the position-monitor side now all
+come from the verdict (never a hardcoded "long"). The decision runs before
+the snapshot gap check, so a dropped entry costs no subprocess. Order
+transmission (alpaca() POST, getOrderParams) is untouched -- only WHAT is
+submitted changed.
+
+Downstream chain: (1) fewer morning-queue submissions -> slotsUsed stays
+lower, so later queued stock BUYs may take the slot; no stock short can
+reach Alpaca from this path. (2) A dropped options entry is not lost: the
+in-hours scan re-emits it if it still qualifies and executeTrades'
+options branch (or its OPTIONS-SKIP/noteGate rejection) handles it, so
+fills/track_fill attribution for options comes from one path only.
+
+Tests: server/morningQueueEntry.test.ts (11 tests: 7 helper, 4 bot.ts
+wiring; the 4 wiring tests fail on the pre-fix bot.ts). counter pins
+raised for tests_run_in_ci/tests_gating_merge 627->628, assertions
+22139->22159 (improvements only).
+
+Rollback trigger: any MORNING-TRADE audit line with side SELL after this
+deploys, or MORNING-OPTIONS-SKIP firing on >50% of queued entries for 5
+sessions while the in-hours re-scan does not pick those names up (the
+drop would then be losing real entries rather than deferring them).
+
+STARVED: no — master-plan queue in progress this session.
+>>>>>>> origin/main
