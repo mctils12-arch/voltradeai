@@ -48,7 +48,7 @@ import {
   forwardJoinOnPlan, isTerminalVectoring, PRESENT_POSITION_ON_PLAN_NAME, TERMINAL_AREA_NM, VECTORING_MIN_XT_NM,
   type LatLon, type PlanPoint, type ReplanResult,
 } from "../shared/flightPlanGeometry";
-import { placeDirectFixesWithRadials, parseFiledRoute, type ParsedRoute, type ParsedProcedure, type RouteParseContext } from "./navAirways";
+import { parseFiledRoute, type ParsedRoute, type ParsedProcedure, type RouteParseContext } from "./navAirways";
 import { matchProcedure, procedureRouteFixes, enrouteTransitions, type CifpIndex } from "./cifp";
 import { sharedCifpStore } from "./cifpShared";
 
@@ -99,12 +99,6 @@ export interface FlightPlanResponse {
   /** additive (2026-10-14): "LADD" when FAA-sourced plan data was withheld
    *  for an FAA LADD privacy-program aircraft (server/laddRegistry.ts) */
   privacy?: "LADD";
-  /** additive, REPORT-ONLY (2026-10-07, gate-1 of the radial-token resolver): present only for a
-   *  FILED plan whose path is a great-circle estimate but whose route text the radial resolver
-   *  could place. crossTrackNm is the aircraft's distance from THAT shadow polyline (never drawn,
-   *  never drives deviation). scripts/flightplan_gate1.py compares it with the direct-fix baseline
-   *  before the resolver may be wired into placement. */
-  radialShadow?: { crossTrackNm: number | null; radialTokens: number; pointCount: number };
   /** additive (2026-10-13), FILED_FAA only: the plan's own history as SWIM reported it. `amendments`
    *  counts route/destination/cruise changes seen since we first held the plan; `planFirstSeenMs` is
    *  when we first saw it (a lower bound on plan age — `ageSec` above is the read age and carries no
@@ -903,9 +897,6 @@ interface Candidate {
   fetchedAt: number;
   pathEstimated: boolean;
   routeKind?: "expanded" | "airway" | "direct" | "radial" | "corridor";
-  /** REPORT-ONLY gate-1 shadow (v1.0.1037): the polyline the radial-token resolver WOULD place for a
-   *  route-text-only plan. Never drawn, never used for deviation state. */
-  radialShadow?: { points: LatLon[]; radialTokens: number };
   planHistory?: { amendments: number; planFirstSeenMs: number; swimMessageMs: number | null };
   filedRoute?: FiledRouteInfo;
   honesty: string;
@@ -1009,16 +1000,6 @@ export function filedCandidate(
   } else {
     return null; // a filed plan we cannot place: fall through to predictions
   }
-  let radialShadow: Candidate["radialShadow"];
-  if (pathEstimated && p.routeText) {
-    const sh = placeDirectFixesWithRadials(p.routeText);
-    if (sh.points.length && sh.radial > 0) {
-      const pts: LatLon[] = sh.points.map((r) => ({ lat: r.lat, lon: r.lon }));
-      if (origin && haversineNm(origin, pts[0]) > 2) pts.unshift({ lat: origin.lat, lon: origin.lon });
-      if (destination && haversineNm(destination, pts[pts.length - 1]) > 2) pts.push({ lat: destination.lat, lon: destination.lon });
-      radialShadow = { points: pts, radialTokens: sh.radial };
-    }
-  }
   if (raw.length < 2) return null;
   const len = polylineLengthNm(raw);
   const pair = `${p.departure || "?"}→${p.arrival || "?"}`;
@@ -1048,7 +1029,6 @@ export function filedCandidate(
     fetchedAt: p.updatedAt,
     pathEstimated,
     ...(!pathEstimated && kind ? { routeKind: kind } : {}),
-    ...(radialShadow ? { radialShadow } : {}),
     planHistory: { amendments: p.amendments, planFirstSeenMs: p.firstSeen, swimMessageMs: p.timestamp },
     ...(parsed && p.routeText ? {
       filedRoute: {
@@ -1303,18 +1283,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
     terminalVectoring,
     ...(cand.planHistory ? { planHistory: cand.planHistory } : {}),
     ...(cand.filedRoute ? { filedRoute: cand.filedRoute } : {}),
-    ...(cand.radialShadow ? {
-      radialShadow: {
-        crossTrackNm: pos ? radialShadowXt(pos, cand.radialShadow.points) : null,
-        radialTokens: cand.radialShadow.radialTokens, pointCount: cand.radialShadow.points.length,
-      },
-    } : {}),
   });
-}
-
-function radialShadowXt(pos: LatLon, pts: LatLon[]): number | null {
-  const xt = crossTrackNm(pos, pts);
-  return xt ? round1(xt.nm) : null;
 }
 
 /** "ATC vectors — not part of the filed route" (FILED) / "…predicted route" */
