@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-28 (scheduled routine, ~13:10Z Wed, voltrade-product-am) [NO-ACTION] — no code_version change (1.0.1191)
+
+HEALTH: session_health_check all OK (live 1.0.1191 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 426MB (trim mode, known), regime engine off (shadow program, flags default off by design) and the overdue CONSTITUTIONAL AUDIT (prior rounds' proposals unanswered). thrash 3/10 REPAIR; STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory).
+ARCHIVE: storage 1.72 GiB free, sweep archiving still auto-paused below its 2 GiB gate (known; human volume decision already filed in wishlist.md, nothing new to file).
+QUEUE: PRODUCT axes (a)-(d) re-surveyed. Today's main movement (#1475-#1503) is master-plan REPAIR/regime-engine work in T-BOT, outside this territory. 13F/8-K gate 2, index-VRP (~2027-01-15), price-panel and archive-volume remain date- or decision-gated; look-up ledger report waits for MIN_N = 20. Building anything would be padding (anti-churn).
+FILED: nothing new. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+
 ## 2026-10-27 (scheduled routine, EDGE-DOCTRINE axis pick, Tue) [NO-ACTION] — no code_version change (1.0.1168)
 
 HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT. research_state_check: thrash 0/10 REPAIR, STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory, already filed).
