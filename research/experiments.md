@@ -111524,3 +111524,43 @@ Next: gate 1 (own GEX from Alpaca OI vs SqueezeMetrics) before any trading; gate
 
 Human order: check whether Alpaca's free daily bars include delisted tickers since 2010; build the panel only if so, no paid data. Read-only token-gated probe (~61 GETs, cached 6h): earliest bar SPY/AAPL/IWM on sip/iex, 17 pre-registered delisted/renamed/reused tickers 2012-2023 under default/dated/disabled asof mapping, /v2/assets inactive/active counts.
 PRIOR (before the live read): history starts ~2016-01 on sip (not 2010); dated asof covers >=80% of post-2016 delistings to within 10 days; pre-2016 cases return nothing; default asof misses retired tickers and returns the NEW company for S/DELL. Result logged after deploy. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: fetch full in-scope chains (server-side bounds + pagination to exhaustion) (v1.0.1203)
+
+What was wrong (audit 2026-10-27 §2.4 defect 2, cause verified in code):
+- server/optionsChainArchive.ts:fetchChainForUnderlying (~l.196) stopped at
+  5 pages x 1000 and snapshotUrl sent NO expiry/strike bounds; Alpaca pages
+  come back in OCC order (nearest expiry first) and the <=60 DTE / +/-20%
+  filters ran only client-side AFTER the cap. Pinned index names have no
+  cached spot, so their strike band was skipped too. Result: prod SPY on
+  2026-10-26 = 4,151 rows, 15 expiries, last 2026-12-04 (~39 DTE); the
+  2026-12-18 monthly and everything after it were never fetched.
+
+What changed:
+- chainQueryWindow: server-side expiration_date_gte = ET capture date (0DTE
+  kept, as before), expiration_date_lte = capture date + 60 calendar days
+  (the archive's documented scope, CHAIN_MAX_DTE_DAYS, unchanged), and
+  strike_price_gte/lte = spot x (1 -/+ 0.20) when spot is known (rounded
+  outward; the exact client-side withinFilters still runs).
+- fetchChainPages follows next_page_token to exhaustion with a safety cap
+  CHAIN_MAX_PAGES = 40 (40k contracts/underlying, ~2x a <=60 DTE SPY chain);
+  hitting the cap or a repeated token logs loudly and flags the underlying
+  `truncated`. The run summary and _captured/<day>.json list truncated
+  underlyings by name and record the scope. fetchChainForUnderlying keeps
+  its signature (records only).
+- Same param names the Python callers already use (options_scanner.py,
+  vol_surface.py, options_execution.py).
+
+Downstream chain: (1) SPY/QQQ/IWM day files gain the 40-60 DTE expiries
+(incl. the monthlies) -> chainIv's IV30 interpolation for index names now
+brackets 30 DTE from both sides with full term structure; (2) more rows
+per day for the index names (est. +10-15k rows/day before commit 3's
+spot band narrows SPY strikes) and more API pages per run (SPY ~10-20
+pages vs 5), still well under Alpaca's per-minute limit with the 350 ms
+pause between underlyings.
+
+Rollback trigger: any _captured sidecar listing SPY/QQQ/IWM as truncated,
+an HTTP 429 burst in [optionchains] logs, or a capture that does not finish
+inside the 16:30-18:30 ET window.
+
+STARVED: no — master-plan queue in progress this session.
