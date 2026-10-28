@@ -1018,7 +1018,11 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         if _osdd.path.exists(_equity_peak_path):
             with open(_equity_peak_path) as _fdd:
                 _peak_data = _jsdd.load(_fdd)
-            _peak = _peak_data.get("peak_equity", equity)
+            # N13 2026-10-28: Node (server/bot.ts saveEquityPeak) writes the key
+            # "equityPeak"; this read used "peak_equity" and so always fell back to
+            # current equity -> the DD scalar was permanently 1.0. Read the real key
+            # first, keep the legacy key as a fallback.
+            _peak = _peak_data.get("equityPeak", _peak_data.get("peak_equity", equity))
             if _peak > equity:
                 _dd_pct = (equity - _peak) / _peak
                 if _dd_pct <= -0.15:
