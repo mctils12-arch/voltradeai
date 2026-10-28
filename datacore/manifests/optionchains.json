@@ -24,6 +24,7 @@
  "entity_key": "u (underlying ticker); s (contract)",
  "sentiment": null,
  "started": "2026-07-05",
- "cadence": "once per trading day after 16:15 ET; <=120 underlyings (CSP universe cache + open positions), exp <=60d, strikes +/-20% of spot; ~3-5MB/day raw, gzipped by the archive compressor",
+ "day_label": "file YYYY-MM-DD = the ET trading date of the session whose post-close quotes it holds (from 2026-10-27 fix). Files written before the fix were captured ~00:40 ET and hold the PREVIOUS session's close under the next date (audit 2026-10-27 §2.4 defect 1) — use each record's t to recover the session; a pre-fix file found under a day's label at capture time is moved to optionchains/_superseded/. Completed days carry optionchains/_captured/<day>.json; in-progress captures stage in optionchains/_staging/.",
+ "cadence": "once per NYSE trading day inside 16:30-18:30 ET (restart-safe, idempotent per ET trading date); <=120 underlyings (CSP universe cache + open positions), exp <=60d, strikes +/-20% of spot; ~3-5MB/day raw, gzipped by the archive compressor",
  "_note": "Universal archive envelope (approved 2026-07-04): forward-only history that can never be back-bought — the human's 'start now' mandate 2026-07-04."
 }

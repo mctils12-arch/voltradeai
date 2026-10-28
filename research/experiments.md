@@ -111219,3 +111219,46 @@ bot_engine.py 71 -> 70 (one silent `pass` removed). counter_baseline:
 tests 628 -> 629, silent_py_handlers 254 -> 253, assertions -> 22178.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: post-close capture window, ET trading-date label, idempotent per day (v1.0.1190)
+
+What was wrong (audit 2026-10-27 §2.4 defect 1, verified in code):
+- server/optionsChainArchive.ts:shouldRunNow (~l.177) parsed the ET hour from
+  Intl.DateTimeFormat({hour12:false}). Node 20 (prod image node:20-slim)
+  renders midnight as hour "24", so 00:40 ET parsed as minute 1480 >= 16:15
+  and the run fired ~00:40 ET, wrote .last_run_day = the new ET date, and
+  thereby blocked the real 16:15 run. File D held session D-1's close
+  (every sampled prod day 2026-10-20..27 has t ~04:40Z).
+- archiveChainRecords (~l.131) labelled the file with the UTC date of nowMs,
+  not the ET trading date (a capture after 20:00 EDT would land on tomorrow).
+- A restart mid-capture re-ran the day and appended a second copy (the
+  marker was written only after the run; records were appended live).
+
+What changed:
+- ET clock uses hourCycle:"h23" plus a `% 24` belt (etMinutesFromParts /
+  etClock). The capture is confined to 16:30-18:30 ET on NYSE trading days
+  (holidays still parsed from market_calendar.py). 16:30 because SPY/QQQ/IWM
+  options trade to 16:15 and indicative trades lag ~15 min; 18:30 keeps the
+  whole capture before 00:00 UTC in both EDT and EST. Tick 1h -> 5 min.
+- Label = ET trading date. Capture stages to optionchains/_staging/<day>.jsonl
+  (truncated at start, so a restart redoes the day whole), is renamed into
+  place, then optionchains/_captured/<day>.json is written. isDayCaptured
+  also accepts a published file whose first record is a post-close capture
+  for that day (crash between rename and sidecar). The pre-fix midnight file
+  under today's label is moved (never deleted) to optionchains/_superseded/.
+- .last_run_day is no longer read (it holds the buggy date).
+- Manifest documents the label semantics and the pre-fix shift.
+- empty_ts_catch 492 -> 491 (the removed writeLastRunDay `catch {}`):
+  pin + test_ts_code_only.py pin tightened together; assertions pin raised.
+
+Downstream chain: (1) day files now hold the labelled session's close ->
+chainIv/chainCspEntry joins of label D vs the day-D stock close become
+aligned for new days; (2) derived write-once caches for already-derived
+days keep the old (shifted) values -- historical files are NOT relabelled
+(needs a human/consumer decision, see report). Old files' `t` still
+identifies the true session.
+
+Rollback trigger: no _captured/<day>.json for a trading day by 18:30 ET, or
+any new day file whose records' t is outside 16:30-18:30 ET of its label.
+
+STARVED: no — master-plan queue in progress this session.
