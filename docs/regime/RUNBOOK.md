@@ -8,7 +8,7 @@ For the operator and for later sessions. Program docs: `FINDINGS.md` (plan), `IM
 |---|---|---|---|
 | `VOLTRADE_REGIME_ENGINE` (env `1/true/on`) or `BASE_CONFIG["REGIME_ENGINE_ENABLED"]` | `regime_engine.engine_allowed`; the scan hook in `bot_engine._scan_market_inner` | SHADOW: one `RegimeState` per scan, persisted and served; no consumer acts | unset the env var (no deploy needed; the next scan skips the engine); the state file is inert |
 | `VOLTRADE_REGIME_SELECTION` | stock-selection guards (step 4) | promotes the named guards from shadow labels to gates (`knife,dip,panic,rs,breadth`) | unset → scores identical to baseline |
-| `VOLTRADE_REGIME_OPTIONS` | Tier-1 CSP guards (step 5) | CRISIS / VRP-negative blocks, inversion and ELEVATED size cuts, earnings skip, low-return floor, IV−HV ordering | unset |
+| `VOLTRADE_REGIME_OPTIONS` | Tier-1 CSP guards + the scanner's sell-side setups (step 5) | names the guards promoted to gates (`crisis,vrp,inversion,elevated,earnings,ebp` or `all`); ANY value turns on `crisis` and `vrp` (blocks); `inversion`/`elevated`/`ebp` halve `size_scalar` (contract count stays `select_contract`'s until N8); `earnings` skips the name. Not built: low-return floor, IV−HV ordering (no chain data at the decision point). Shadow buckets `would_reject_regime_<guard>` always on while the engine runs | unset (labels stay) |
 | `VOLTRADE_REGIME_SIZING` | `position_sizing`, options sizers, Tier-1 budget (step 6) | one regime multiplier; VIX-level scalar and stress multiplier → 1.0 | unset |
 | `VOLTRADE_REGIME_LABELS` | `deep_score` label consumers (step 7) | engine `legacy_label` replaces the Markov label on shadow records / `regime_at_entry` / `TierContext.regime` | unset |
 

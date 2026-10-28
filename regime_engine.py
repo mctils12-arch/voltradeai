@@ -886,6 +886,111 @@ def selection_verdict(state, candidate, params=None) -> dict:
     }
 
 
+# ── consumer: cash-secured puts (docs/regime/FINDINGS.md step 5) ─────────────
+OPTIONS_GUARDS = ("crisis", "vrp", "inversion", "elevated", "earnings", "ebp")
+OPTIONS_PARAMS = {
+    "inversion_size_mult": 0.5,     # VIX/VIX3M > 1: halve new CSP notional (RESEARCH §3.3, Simon & Campasano: a 'stress now' state)
+    "elevated_size_mult": 0.5,      # vol ELEVATED: half the contracts and a farther strike (RESEARCH §3.6, I&N dispersion by VIX decile)
+    "elevated_target_delta": 0.15,  # the prompt's 0.15 delta in elevated vol (research: 16–30 delta; 2% OTM shallower drawdowns)
+    "earnings_buffer_days": 2,      # earnings inside the contract's DTE window + 2 days -> skip (hard version of csp_universe's soft score)
+    "ebp_size_mult": 0.5,           # Fed excess bond premium > 0: small/mid credit cap (RESEARCH §3.5, Perez-Quiros–Timmermann)
+}
+
+
+def options_gates(env=None) -> set:
+    """VOLTRADE_REGIME_OPTIONS: comma list of guards promoted from SHADOW to GATE ('all' =
+    every guard). Any non-empty value also turns on 'crisis' and 'vrp' — the two that only
+    PREVENT new short vol in the research's loss states (FINDINGS step 5 acceptance)."""
+    env = os.environ if env is None else env
+    raw = str(env.get("VOLTRADE_REGIME_OPTIONS", "")).strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(OPTIONS_GUARDS)
+    named = {g.strip() for g in raw.split(",") if g.strip() in OPTIONS_GUARDS}
+    return named | {"crisis", "vrp"}
+
+
+def csp_verdict(state, candidate, params=None) -> dict:
+    """Pure: what the regime says about ONE new cash-secured put.
+
+    candidate: days_to_earnings (int or None), dte_max (the contract window's far edge).
+    Returns flags (0/1 per guard, persisted on the shadow record), reasons, the guards
+    that WOULD block, the size multiplier and target delta the gates would apply, and
+    which of those act (gates) — the caller applies only the acting ones."""
+    p = dict(OPTIONS_PARAMS)
+    p.update(params or {})
+    st = state if isinstance(state, dict) else {}
+    stress = st.get("stress_flags") if isinstance(st.get("stress_flags"), dict) else {}
+    flags = {g: 0 for g in OPTIONS_GUARDS}
+    reasons = {}
+    size_mult = 1.0
+    target_delta = None
+    if st.get("vol_state") == "CRISIS":
+        flags["crisis"] = 1
+        reasons["crisis"] = "vol state CRISIS: no new short puts (PUT 2008 / I&N worst decile: premium is richest when the loss state is most likely)"
+    if stress.get("vrp_negative"):
+        flags["vrp"] = 1
+        reasons["vrp"] = f"VRP negative ({stress.get('vrp_points')} vol points): realized vol above implied — do not add short vol"
+    if stress.get("vix_vix3m_inverted"):
+        flags["inversion"] = 1
+        reasons["inversion"] = f"VIX/VIX3M {stress.get('vix_vix3m')} > 1: new notional x {p['inversion_size_mult']}"
+        size_mult *= p["inversion_size_mult"]
+    if st.get("vol_state") == "ELEVATED":
+        flags["elevated"] = 1
+        reasons["elevated"] = f"vol ELEVATED: contracts x {p['elevated_size_mult']}, target delta {p['elevated_target_delta']}"
+        size_mult *= p["elevated_size_mult"]
+        target_delta = p["elevated_target_delta"]
+    dte = candidate.get("days_to_earnings")
+    window = int(candidate.get("dte_max") or 45) + p["earnings_buffer_days"]
+    if dte is not None and 0 <= int(dte) <= window:
+        flags["earnings"] = 1
+        reasons["earnings"] = f"earnings in {int(dte)} days, inside the {window}-day window"
+    ebp = st.get("ebp") if isinstance(st.get("ebp"), dict) else {}
+    if ebp.get("ebp") is not None and float(ebp["ebp"]) > 0:
+        flags["ebp"] = 1
+        reasons["ebp"] = f"Fed excess bond premium {float(ebp['ebp']):.2f} > 0: credit cap x {p['ebp_size_mult']}"
+        size_mult *= p["ebp_size_mult"]
+    return {
+        "flags": flags, "reasons": reasons,
+        "would_block": [g for g in ("crisis", "vrp", "earnings") if flags[g]],
+        "size_mult": round(size_mult, 4), "target_delta": target_delta,
+        "composite": st.get("composite_regime"), "vol_state": st.get("vol_state"), "as_of": st.get("as_of"),
+    }
+
+
+_SHADOW_ONCE = {"day": None, "keys": set()}
+
+
+def shadow_once_per_day(key, today=None) -> bool:
+    """True the first time `key` is seen on a UTC day (resets on a new day). Bounds the
+    per-scan shadow records of the step-5 guards: one record per name, guard and day,
+    instead of one per scan (the tier engine runs dozens of times a day)."""
+    d = today or time.strftime("%Y-%m-%d", time.gmtime())
+    if _SHADOW_ONCE["day"] != d:
+        _SHADOW_ONCE["day"], _SHADOW_ONCE["keys"] = d, set()
+    if key in _SHADOW_ONCE["keys"]:
+        return False
+    _SHADOW_ONCE["keys"].add(key)
+    return True
+
+
+def apply_csp_gates(verdict, gates) -> dict:
+    """The acting subset of a verdict under the named gates: block?, size multiplier, target delta."""
+    gates = set(gates or ())
+    f = verdict.get("flags") or {}
+    block_by = [g for g in verdict.get("would_block", []) if g in gates]
+    mult = 1.0
+    if f.get("inversion") and "inversion" in gates:
+        mult *= OPTIONS_PARAMS["inversion_size_mult"]
+    if f.get("elevated") and "elevated" in gates:
+        mult *= OPTIONS_PARAMS["elevated_size_mult"]
+    if f.get("ebp") and "ebp" in gates:
+        mult *= OPTIONS_PARAMS["ebp_size_mult"]
+    delta = verdict.get("target_delta") if (f.get("elevated") and "elevated" in gates) else None
+    return {"block": bool(block_by), "blocked_by": block_by, "size_mult": round(mult, 4), "target_delta": delta}
+
+
 # ── entry points ─────────────────────────────────────────────────────────────
 def update_state(gating="SPY", force=False, params=None, build=None):
     """Compute (if the bar date advanced or `force`), persist, and return the state dict.

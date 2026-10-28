@@ -64,14 +64,16 @@ Downstream chain (CLAUDE.md reasoning standard 1): fewer admissions → fewer st
 
 | Guard | Affected code | Effect | Risk | Observed by |
 |---|---|---|---|---|
-| CRISIS → no new short puts | `tier1_csp_core`; scanner call site in `_scan_market_inner` | no new CSP/scanner short-vol actions while `vol_state == CRISIS` (ships ON with the flag) | the sleeve stops writing exactly when premium is richest and the loss state is most likely (intended per PUT 2008 / I&N worst decile) | `rejected_regime_crisis`, tier audit lines |
-| VRP < 0 → skip new short vol (ships ON with the flag) | same | skip | rare; coincides with crashes | `rejected_regime_vrp` |
-| `VIX/VIX3M > 1` → notional × 0.5 | `tier1_csp_core` budget | halves new collateral | fewer contracts in stress | action metadata `size_pct`, report `stress_flags` |
-| ELEVATED → contracts × 0.5, `target_delta −0.15` | budget + metadata | halves; delta honoured only once N8 threads trade context to `select_contract` | until N8: metadata only (honest) | metadata, report |
-| earnings inside DTE+2 → skip | `tier1_csp_core` using `options_scanner._fetch_earnings_calendar` | hard skip (today: soft score) | fewer candidates near earnings; calendar outage fails OPEN with a flag in the record (never blocks on missing data) | `rejected_regime_earnings` |
-| LOW vol → annualized premium/collateral ≥ 6% | candidate filter | skip thin premium | placeholder threshold | `rejected_regime_low_return` |
-| IV−HV ranking after a ≤ 2% quoted-spread filter | candidate ordering | re-orders Tier-1 candidates | depends on chain IV availability at selection time; falls back to today's order | metadata `iv_hv_rank` |
-| small/mid EBP cap (× 0.5 when `ebp > 0`) | budget | halves for small/mid names when the Fed series is stressed | monthly series; two documented false positives | metadata |
+| CRISIS → no new short puts | `tier1_csp_core`; scanner call site in `_scan_market_inner` (sell-side setups only) | no new CSP/scanner short-vol actions while `vol_state == CRISIS` (ON with ANY value of the flag) | the sleeve stops writing exactly when premium is richest and the loss state is most likely (intended per PUT 2008 / I&N worst decile) | `would_reject_regime_crisis` (shadow) / `rejected_regime_crisis` (gated) |
+| VRP < 0 → skip new short vol (ON with any value of the flag) | same | skip | rare; coincides with crashes | `would_reject_regime_vrp` / `rejected_regime_vrp` |
+| `VIX/VIX3M > 1` → notional × 0.5 | `tier1_csp_core` `size_scalar` (affordability cap + `size_pct`) | halves the budget; the contract count is `select_contract`'s until N8 (AUDIT T7 — same limitation as the VXX ladder) | fewer/cheaper names in stress | metadata `regime_size_mult`, report `stress_flags` |
+| ELEVATED → contracts × 0.5, `target_delta` 0.15 | `size_scalar` + metadata | halves the budget; `target_delta` 0.15 in the metadata (honoured by `select_contract` only once N8 threads trade context through) | until N8: metadata + affordability only (honest) | metadata `regime_guards`, report |
+| earnings inside DTE+2 → skip | `tier1_csp_core` using `options_scanner._fetch_earnings_calendar_with_status` (15-min cache) | hard skip (today: soft score) | fewer candidates near earnings; calendar outage fails OPEN with `earnings_lookup_ok: false` on the record (never blocks on missing data) | `would_reject_regime_earnings` / `rejected_regime_earnings` |
+| LOW vol → annualized premium/collateral ≥ 6% | NOT BUILT (Step 5 shipped 2026-10-28): no premium at hand where Tier-1 decides (the chain is fetched inside `select_contract`); waits for N8 | — | — | — |
+| IV−HV ranking after a ≤ 2% quoted-spread filter | NOT BUILT (same reason: no IV or quote at the decision point); waits for N8 | — | — | — |
+| EBP cap (× 0.5 when `ebp > 0`) — applies to EVERY CSP (no market-cap field exists on the selection path, AUDIT §4) | `size_scalar` | halves when the Fed series is stressed | monthly series; two documented false positives | metadata `regime_guards.flags.ebp` |
+
+Shipped 2026-10-28 (CHANGELOG step 5): shadow records are one per name, guard and day (`regime_engine.shadow_once_per_day`), bounded to 3 per guard per scan — the same 3 names a scan returns.
 
 Downstream chain: fewer/lower CSPs in stress → lower options collateral → lower whole-portfolio exposure → fewer `master_kill_switch` exposure kills (KB #20b) → fewer `rejected_masterkill` shadow records. In calm states: unchanged.
 

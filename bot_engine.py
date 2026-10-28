@@ -4093,9 +4093,45 @@ def _scan_market_inner():
             max_new=max(1, options_slots),
             min_score=60.0,  # ALPHA-TUNE 2026-04-21: 65→60 to surface more options candidates
         )
+        # REGIME ENGINE step 5 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_OPTIONS):
+        # no NEW short vol from the scanner while the engine says CRISIS or the
+        # variance risk premium is negative. Shadow by default (a
+        # would_reject_regime_<g> record, once per name/guard/day); the gate drops
+        # the trade only when the flag names it. Long-vol setups (side "buy") are
+        # never touched. Own try: a failure here must not cost the options scan.
+        _rg_opt = {"verdict": None, "gates": set(), "engine": None}
+        try:
+            import regime_engine as _re_opt
+            if _re_opt.engine_allowed():
+                _rg_opt_state = _re_opt.cached_state()
+                if isinstance(_rg_opt_state, dict) and _rg_opt_state.get("as_of"):
+                    _rg_opt = {"verdict": _re_opt.csp_verdict(_rg_opt_state, {}),
+                               "gates": _re_opt.options_gates(), "engine": _re_opt}
+        except Exception:
+            _rg_opt = {"verdict": None, "gates": set(), "engine": None}
         for ot in options_trades:
             if options_trade_count >= options_slots:
                 break
+            if _rg_opt.get("verdict") and str(ot.get("side", "buy")) == "sell" and _rg_opt["verdict"]["would_block"]:
+                _rg_g_on = [g for g in _rg_opt["verdict"]["would_block"] if g in _rg_opt["gates"]]
+                _rg_g = (_rg_g_on or _rg_opt["verdict"]["would_block"])[0]
+                _rg_decision = f"rejected_regime_{_rg_g}" if _rg_g_on else f"would_reject_regime_{_rg_g}"
+                try:
+                    if _rg_opt["engine"].shadow_once_per_day(f"scanner:{ot.get('ticker')}:{_rg_decision}"):
+                        import shadow_portfolio as _rg_sp
+                        _rg_sp.log_candidate(
+                            ticker=str(ot.get("ticker")), features={}, score=float(ot.get("score") or 0.0),
+                            decision=_rg_decision,
+                            decision_reason=str(_rg_opt["verdict"]["reasons"].get(_rg_g, _rg_g))[:200],
+                            entry_price=float(ot.get("price") or 0.0),
+                            vxx_ratio=float(_vxx_r_scan) if '_vxx_r_scan' in dir() else 1.0,
+                            regime_label=str(_scan_regime) if '_scan_regime' in dir() else "unknown",
+                            side="sell", action_label=str(ot.get("action_label") or "OPTIONS"), trade_type="options",
+                        )
+                except Exception as _rg_log_err:
+                    logger.debug(f"regime scanner-path shadow record failed for {ot.get('ticker')}: {_rg_log_err}")
+                if _rg_g_on:
+                    continue
             # Convert to bot_engine trade format
             trades.append({
                 "action":             ot.get("action_label", "OPTIONS"),
