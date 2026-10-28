@@ -111262,3 +111262,21 @@ Rollback trigger: no _captured/<day>.json for a trading day by 18:30 ET, or
 any new day file whose records' t is outside 16:30-18:30 ET of its label.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — N13: the drawdown sizing scalar now reads the peak Node actually writes (v1.0.1191)
+
+Territory: T-BOT (position_sizing.py) + shared package.json / research/*.
+
+Loop-health at start: last 10 tags = 6 REPAIR / 3 PIPELINE / 1 RESEARCH (under the 7 threshold, but one more REPAIR makes 7 — the next session must check the ratio first and, if 7+, treat "generator of breaks" as Priority 1). /api/health at 11:21Z: status ok, liveness not dark, DD -1.5%, all feeds/jobs ok.
+
+What was wrong (audit §6.8 N13, verified in code): position_sizing.calculate_position (~l.1021) read key `peak_equity` from voltrade_equity_peak.json; server/bot.ts saveEquityPeak writes `equityPeak`. The read always fell back to current equity, so the DD-SIZING 5/10/15% tiers (0.8/0.6/0.4) were permanently 1.0.
+
+What changed: read `equityPeak` first, legacy `peak_equity` as fallback. No threshold touched.
+
+Prior: no effect today (account DD -1.5%, inside the 0-5% full-size tier). Effect appears only when DD exceeds 5%: new entries shrink 20/40/60% — more conservative, and stacks with the stress multiplier and Node halts (downstream: fewer shares -> lower exposure -> fewer correlation/cap blocks). Backtest: not applicable (backtest_v2 does not use this file); live-only guard.
+
+Tests: test_n13_dd_sizing_peak_key.py (3; the Node-key test fails on the old code, passes now; legacy key and no-file cases pinned). counter_baseline: tests 646 -> 648, assertions 23020 -> 23093.
+
+Rollback trigger: sizing at DD < 5% differs from 1.0, or the scalar fires on a stale peak after the Node peak file is reset.
+
+STARVED: no — master-plan queue (N1, N4, N6, N8, N10-N12, N16, N17, N19, N21) still queued.
