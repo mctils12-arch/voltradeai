@@ -1558,6 +1558,21 @@ except Exception as e:
             except Exception:
                 pass
 
+        # REGIME ENGINE step 7 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_LABELS): the
+        # engine's legacy label (BULL / NEUTRAL / CAUTION / BEAR / PANIC) replaces the Markov
+        # label on everything that persists or acts on a LABEL (the shadow record,
+        # regime_at_entry, the Node exit geometry); markov_state / regime_score stay the
+        # ML's training definitions. Flag off, engine off or a stale state: the Markov label
+        # stands and nothing here changes.
+        try:
+            import regime_engine as _re_lbl
+            _engine_lbl = _re_lbl.label_for()
+            if _engine_lbl:
+                _regime_ctx = {**_regime_ctx, "regime_label": _engine_lbl["label"], "regime_label_source": "engine",
+                               "regime_label_markov": _regime_ctx.get("regime_label")}
+        except Exception as _re_lbl_err:
+            logger.debug(f"regime label override unavailable: {_re_lbl_err}")
+
         # 34 features — ALL computed from real data
         _price = quick_result.get("price", 0) or 0
         _high_52w = quick_result.get("high_52w", _price) or _price
@@ -4294,13 +4309,23 @@ def _scan_market_inner():
             )
 
             if not kill_status["killed"]:
+                # REGIME ENGINE step 7: under VOLTRADE_REGIME_LABELS the tier context's label is
+                # the engine's. (Found while wiring: `_regime_ctx` is deep_score's local, never
+                # this function's, so the fallback below has always read "NEUTRAL" — filed in
+                # research/open_questions.md, left as it is with the flag off.)
+                _scan_engine_label = None
+                try:
+                    import regime_engine as _re_lbl2
+                    _scan_engine_label = (_re_lbl2.label_for() or {}).get("label")
+                except Exception as _re_lbl2_err:
+                    _scan_engine_label = None
                 ctx = TierContext(
                     equity=equity, peak_equity=peak, buying_power=bp,
                     positions=positions,
                     macro=_macro if '_macro' in locals() else {},
                     portfolio_margin=get_portfolio_margin_status(),
                     daily_pnl_pct=daily_pnl,
-                    regime=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                    regime=_scan_engine_label or (_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL"),
                     vxx_ratio=vxx_r,
                     spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
                 )

@@ -807,6 +807,7 @@ SELECTION_PARAMS = {
     "breadth_high_proximity": 0.03, # index within 3% of its 52-week high AND breadth WEAK -> no net new stock exposure
     "mr_weight": 0.20,              # deep_score's mean-reversion weight (bot_engine combined score)
 }
+LEGACY_LABELS = ("BULL", "NEUTRAL", "CAUTION", "BEAR", "PANIC")   # the Node / system_config vocabulary
 _STATE_CACHE = {"at": 0.0, "state": None}
 
 
@@ -1106,6 +1107,38 @@ def sizing_for(sleeve, env=None, loader=None, today=None):
         return res
     except Exception as e:
         logger.debug(f"sizing_for({sleeve}) failed: {e}")
+        return None
+
+
+# ── consumer: legacy label (docs/regime/FINDINGS.md step 7) ──────────────────
+def labels_enabled(env=None) -> bool:
+    """VOLTRADE_REGIME_LABELS (1/true/on/yes): the engine's legacy label (BULL / NEUTRAL /
+    CAUTION / BEAR / PANIC) replaces the Markov label wherever a LABEL is persisted or acted on."""
+    env = os.environ if env is None else env
+    return str(env.get("VOLTRADE_REGIME_LABELS", "")).strip().lower() in ("1", "true", "on", "yes")
+
+
+def label_for(env=None, loader=None, today=None, params=None):
+    """The label a consumer should use NOW, or None (the caller keeps the Markov label):
+    None unless the engine is on, the flag is on and the state is fresh (a stale state never
+    drives a label silently). Never raises."""
+    try:
+        if not engine_allowed(env) or not labels_enabled(env):
+            return None
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        if not isinstance(st, dict) or not st.get("as_of") or st.get("error") or st.get("stale"):
+            return None
+        p = dict(SIZING_PARAMS)
+        p.update(params or {})
+        age = state_age_market_days(st, today)
+        if age is not None and age > p["stale_market_days"]:
+            return None
+        label = st.get("legacy_label") or legacy_label(st.get("composite_regime"))
+        if label not in LEGACY_LABELS:
+            return None
+        return {"label": label, "composite": st.get("composite_regime"), "as_of": st.get("as_of")}
+    except Exception as e:
+        logger.debug(f"label_for failed: {e}")
         return None
 
 
