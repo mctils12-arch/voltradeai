@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine, voltrade-product-am) [PIPELINE] — T-DATACORE — Edge P1 gate-1 enabler: daily REAL open-interest sidecar for SPY/QQQ/IWM (v1.0.1231)
+HEALTH: /api/health 200 ok (alarms none; regime CALM_BULL; shadow entries on); research_state_check all OK except the known overdue CONSTITUTIONAL AUDIT (unanswered proposals). thrash 3/10.
+PRIOR: ~85% Alpaca `/v2/options/contracts` returns populated `open_interest` for SPY/QQQ/IWM (master_status 2026-10-29 reports the entitlements probe saying so; I have no Alpaca keys in this session to re-verify). ~15% OI comes back null/stale, in which case the sidecar's `withOi` count in the heartbeat detail shows it on night one.
+WHY: gate 1 for dealer-gamma (squeeze_gex, gate-2 PASS) needs our own GEX = sum(gamma x OI x 100 x spot) vs SqueezeMetrics on >= 40 overlapping days. The chain archive's `oi` is always null, and OI history can never be back-filled, so accumulation starts now (BUILD-FIRST #2).
+CHANGE: `server/optionsOiArchive.ts` — post-close (same 16:30-18:30 ET window) paginated pull of contracts for CHAIN_ALWAYS, exp <= 60d; writes `optionchains/oi/<ET day>.jsonl` whole-day-or-nothing (a partial day would bias own-GEX low, so any underlying failing aborts and retries next tick). Row = {s,u,t,oi,oid}; absent OI stays null, never 0; `oid` (Alpaca's open_interest_date) is the truth, not the file label. Subdir keeps every existing chain reader blind to it. Heartbeat job `options_oi_archive`, boot line in routes.ts, manifest note. No trading path, no route, no /api/v1 (internal research only).
+TESTS: optionsOiArchive.test.ts (4: parse/null honesty, URL, pagination + repeated-token, idempotent capture + partial-day not claimed); chain/heartbeat/datacore/diag suites 126 pass; tsc errors unchanged (3, baseline).
+NEXT: (1) first night 10-29: check `options_oi_archive` heartbeat detail `withOi` > 0; (2) after >= 40 trading days (~2026-12-24) run gate 1: own BS-GEX (chain gamma x OI x spot) vs SqueezeMetrics sign agreement (kill > 30% disagreement) — script not written yet, written when data exists; (3) then T-BOT shadow fields.
+MERGE: new post-close background job; safe any time, preferably after the close.
+STARVED: no.
+
 ## 2026-10-29 (scheduled routine, EDGE-DOCTRINE axis pick) [REPAIR] — T-DATACORE (server/pricePanel.ts) — price panel first live build died HTTP 403: as_of was the UTC day before, not the ET day before (v1.0.1220)
 HEALTH: /api/health 200 ok; only alarm jobs=degraded -> `price_panel_build` errored "HTTP 403 (batch 0/466)" on its first-ever night (00:59Z). `bars_coverage` probe, run live, shows sip 403 `recent_sip_not_permitted` at end=2026-10-28 while iex 200 — and the same probe had sip 200 earlier that day with end=10-27.
 PRIOR: ~85% the cause is the as_of date rule (window opens 20:15 ET = 00:15 UTC, so UTC "yesterday" = the current ET date, which the free plan refuses as recent SIP); ~15% something batch-specific (multi-symbol, limit) that this does not fix.

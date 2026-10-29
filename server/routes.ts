@@ -132,6 +132,7 @@ import { firesNearFacilities } from "./firesFacilities";
 import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
+import { bootOiArchive } from "./optionsOiArchive";
 import { bootPricePanel } from "./pricePanel";
 import { bootWalkforward } from "./walkforward";
 import { platformStats } from "./platformStats";
@@ -2048,6 +2049,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // indicative honesty in every record + manifest). No-ops without Alpaca
   // creds; runs once per trading day after the close.
   bootChainArchive();
+  // Index-option open-interest sidecar (Edge P1 gate 1; optionsOiArchive.ts).
+  bootOiArchive();
 
   // Survivorship-reduced 2016+ daily price panel (human order 2026-10-28;
   // server/pricePanel.ts): nightly 20:15-04:00 ET, paced, resumable, disk-
