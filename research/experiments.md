@@ -111902,3 +111902,68 @@ Visual harness (bot, botidle) at 390/768/1440: 0 hard failures; Orders panel cli
 ## 2026-10-28 [PRODUCT] — T-CLIENT + server/scoreboard.ts — v1.0.1212 BOT PAGE: DAILY BOT-vs-SPY SCOREBOARD (human-ordered)
 
 GET /api/bot/scoreboard (server/scoreboard.ts, pure; owner-only, 10-min cache) over the SAME inputs as /api/bot/benchmark: daily equity curve + SPY dividend-adjusted closes (shared spyBenchBars cache). One row per SPY session; missed snapshots fold into a flagged multi-session row; cumulative compounds since first point; no lookahead (tested); today's row provisional; max drawdown both sides; no Sharpe (none exists to reuse). Not cash-flow-adjusted: journals/transfers surfaced as a caveat. Desktop opens via "daily →" on the vs-SPY tile (a grid slot collapsed the Model panel to 0px in the harness); phone/tablet inline. Visual harness bot/botidle at 390/768/1440: PASS, 0 hard failures (mocked data). Display only, no trading effect. STARVED: no.
+
+## 2026-10-28 [RESEARCH] — master plan (human directive 2026-10-27) — Source validation harness: every data source alone vs forward outcomes, BH-corrected (probe source_validation) (v1.0.1213)
+
+WHY
+The shadow log's score ranks backwards (2026-10-27 deduped population, 331
+ticker-days: +5d Q1 -1.07% ... Q5 -1.74%). deep_score adds news, social,
+insider/intel, alt-data, macro, fundamentals and options-derived terms that
+were never validated alone (ROOT VALIDATION LADDER gate 2). Before any
+ensemble is believed, each input gets its own gate-2 test with the
+multiple-testing correction its family size demands.
+
+WHAT
+- source_validation.py (repo root — scripts/ is not in the production
+  image; the Dockerfile copies *.py only): pure, read-only.
+  Population = deep-scored shadow records (non-empty features; the tier-1
+  masterkill CSP rows are excluded), deduped to the first-seen record per
+  (ticker, ET entry day) via shadow_portfolio._first_seen_per_ticker_day,
+  per outcome. Family = 14 persisted score components (score_breakdown) +
+  the 34 model features. Per source: n, Spearman IC with a DAY-CLUSTERED
+  bootstrap SE/95% CI (names scored the same day share one market move),
+  top-vs-bottom tercile spread, sign buckets for adjustments, IC by 5-level
+  regime, descriptive IC on +10d/+20d/exit-aligned. Benjamini-Hochberg at
+  FDR 0.10 across the family on the PRIMARY outcome (+5d). Verdicts
+  PASS / FAIL / FAIL_INVERTED (BH-significant negative IC on an adjustment
+  that is ADDED to the score) / INSUFFICIENT (n < 100) / CONSTANT (dead
+  input). Composite scores (final, rules-only, ML) are reference rows
+  outside the family. All thresholds pre-registered as module constants
+  (PREREG_VERSION v1) before any production run.
+- scripts/source_validation.py: local CLI over a copied log.
+- Diag probe source_validation (diag.ts whitelist + bot.ts case): runs the
+  harness read-only on the volume's shadow log; aggregate-only output (no
+  ticker/price/timestamp; depth and key counts within sanitizeDiag limits).
+  ~1.5 s on a 18k-record synthetic log.
+
+PRODUCTION-ONLY
+The sandbox has no shadow log; results exist only via the probe.
+score_breakdown is logged since 2026-10-26 (v1.0.1161), so the 14 adj.*
+sources read INSUFFICIENT until those records earn +5d labels (~11-02 on).
+The 34 features run on the full population now.
+
+BIAS / LIMITS
+Outcomes are LONG-stock path returns (old ruler capped +2%/-4%); market-
+wide features (vxx_ratio, ...) are timing signals in a pooled IC and are
+flagged; regime split uses record vxx/spy_vs_ma50 only (no 200d inputs on
+records). The replicate IC is the weighted Pearson of full-sample ranks
+(standard fast approximation to re-ranking each replicate).
+
+TESTS
+test_source_validation.py (21): registry pinned to ml_model_v2.FEATURE_COLS
+and shadow_portfolio.SCORE_BREAKDOWN_KEYS; BH known values; clustered SE
+wider than naive under shared day shocks; planted positive adjustment
+PASSes, planted inverted one reads FAIL_INVERTED, noise does not pass, a
+dead input reads CONSTANT; per-scan copies collapse (first-seen value
+used); masterkill rows excluded; aggregate-only + sanitizeDiag depth/key
+limits; CLI runs. diag.test.ts: probe wired read-only and sanitized.
+
+ROLLBACK TRIGGER
+Measurement only, nothing trades on it. Revert if the probe times out /
+starves the Python mutex (> 20 s) or the output ever carries a ticker.
+
+(cherry picked from commit e46df7d136d0f36d710fb46396a7f35f077c9e13)
+
+Ported onto main 2026-10-28; conflicts resolved: ci/counter_baseline.txt (max of test/assertion pins, min of silent_py_handlers, then re-pinned to the counter_ratchet measurement: tests 667, assertions 23609, empty_ts_catch 488, ts_any 1220 — test_ts_code_only.py's exact pins moved down with them), server/bot.ts + server/diag.ts + server/diag.test.ts (source_validation probe added beside main's probes; the base branch's regime_shadow probe was NOT carried — it is not on main)
+
+STARVED: no — master-plan queue in progress this session.

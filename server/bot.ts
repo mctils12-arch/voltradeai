@@ -3448,6 +3448,19 @@ print(json.dumps(get_shadow_band_report_deduped()))
 "`, { timeout: 20000 });
           return res.json(sanitizeDiag({ probe: "shadow_bands_dedup", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "source_validation": {
+          // ADDED 2026-10-27 [RESEARCH] — see diag.ts. Every data source
+          // tested alone against forward outcomes on the deduped shadow log,
+          // BH-corrected. Read-only, aggregate-only (source_validation.py at
+          // the repo root: scripts/ is not in the production image).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from source_validation import get_source_validation_report
+print(json.dumps(get_source_validation_report()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "source_validation", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
           // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —

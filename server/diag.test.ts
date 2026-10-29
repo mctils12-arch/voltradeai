@@ -598,3 +598,16 @@ test("2026-10-20: benchmark + sleeves probes are whitelisted, wired, sanitized, 
     assert.ok(bot.includes(`res.json(await ${body})`), `the owner route must serve ${body} too`);
   }
 });
+
+test("2026-10-27: source_validation probe is whitelisted, runs the root-level harness read-only, sanitized", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("source_validation"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const i = bot.indexOf('case "source_validation": {');
+  assert.ok(i > 0, 'case "source_validation" missing');
+  const block = bot.slice(i, bot.indexOf("case ", i + 10));
+  assert.ok(block.includes("from source_validation import get_source_validation_report"),
+    "must call the repo-root module (scripts/ is not shipped in the production image)");
+  assert.ok(!block.includes("sys.path.insert(0, 'scripts')"), "must not depend on scripts/ at runtime");
+  assert.ok(block.includes("sanitizeDiag"), "must pass the sanitizer like every other probe");
+  assert.ok(fs.existsSync(path.join(here, "..", "source_validation.py")), "source_validation.py must live at the repo root");
+});
