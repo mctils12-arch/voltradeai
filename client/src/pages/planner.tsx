@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { Target, TrendingUp, ShieldAlert, Crosshair, ArrowRight } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -18,7 +19,9 @@ const usd0 = (n: number) => n.toLocaleString("en-US", { style: "currency", curre
 const pct = (n: number) => `${n >= 0 ? "" : ""}${(n * 100).toFixed(1)}%`;
 
 export default function PlannerPage() {
-  const [ticker, setTicker] = useState("");
+  // One symbol across the Trade world (lib/activeTicker): the plan opens on
+  // the name the user was just analyzing, and a built plan writes it back.
+  const [ticker, setTicker] = useState(() => getActiveTicker() ?? "");
   const [account, setAccount] = useState("25000");
   const [riskPct, setRiskPct] = useState("1");
   const [entry, setEntry] = useState("");
@@ -33,6 +36,7 @@ export default function PlannerPage() {
 
   async function buildPlan() {
     if (!ticker.trim()) { setError("Enter a ticker."); return; }
+    setActiveTicker(ticker);
     setBusy(true); setError(null);
     try {
       const payload: any = {

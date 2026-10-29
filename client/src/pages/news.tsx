@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getActiveTicker } from "@/lib/activeTicker";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
@@ -69,8 +70,10 @@ function timeAgo(utcString: string): string {
 // ── News Page ─────────────────────────────────────────────────────────────────
 
 export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
-  const [tickerFilter, setTickerFilter] = useState("");
-  const [debouncedTicker, setDebouncedTicker] = useState("");
+  // One symbol across the Trade world (lib/activeTicker): the filter opens
+  // on the name the user was just analyzing; clearing it shows the market.
+  const [tickerFilter, setTickerFilter] = useState(() => getActiveTicker() ?? "");
+  const [debouncedTicker, setDebouncedTicker] = useState(() => getActiveTicker() ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce ticker input

@@ -112406,3 +112406,53 @@ Also fixed en route: help card painted one frame at (0,0) before positioning, re
 ## 2026-10-29 [PRODUCT] — T-CLIENT (client/src/pages/cockpit.tsx, forecast/brain/tickerDossier pages, index.css) — v1.0.1236 COCKPIT LAYOUT FOR FORECAST / BRAIN / DOSSIER
 
 Human (1920px monitor): "fill the page on these with how the UI looks on the bot instead of the strip". Finding: the cap was the app shell's 920px column (59% of 1440), not the pages; released for these three via `.page-container:has(> .vt-ck)` (home.tsx untouched). New shared primitives (KPI strip + auto-fit panel grid in the AI Engine's visual language): Forecast 3 cols at 1440 / 4 at 1920; Dossier 3 / 4 (range hero + trade plan 2-wide); Brain 2 / 3 (cards keep short/long evidence side by side); tablet 2, phone 1. No number, label, provenance line or input changed (lib KPI helpers tested). Harness: fill ≥ 92%, column counts, first-tile values; 1920 added for these pages; bot page re-rendered unchanged. Gates: tests 24/24, tsc 6≤6, counters 28/28, visual 0 failures. Rollback = revert. STARVED: no.
+
+## 2026-10-29 (interactive session, ~20:45Z) [PRODUCT] — Trade world preview: the moving map behind every Trade screen, cockpit chrome, one AI Engine menu, one active symbol (v1.0.1237, preview branch `ccr-5f668b84-lz6g69`)
+
+Territory T-CLIENT. Human directive in this session, verbatim: "the tabs trade
+data forecast brain ai engine what do we need it seem like a lot"; "i like
+the way the ui looks on the bot as it fill the page"; "i want this move map
+like this but more modern as well for some of the screens and just cleaned
+up"; "if you look for a ticker symbol and then you might want the stock vs.
+options info on it, and trade information"; "the map/live map tab can stay
+the same". Human chose "clickable on the real site" over a static mockup
+and "full-page backdrop, as today" for the map.
+
+What changed (one branch, previewed before any merge):
+1. NAV — the four owner-only direct buttons (Forecast, Brain, Dossier,
+   AI Engine) collapse into ONE owner-only drop-down, `ENGINE_MENU`, on the
+   same NavMenu machinery as Trade and Data. Six top-level items → three.
+   TABS, hash routes and the phone More sheet are untouched.
+2. BACKDROP — `DataWorldMap` (the moving world map) is mounted once by the
+   shell for every Trade tab (`components/TradeBackdrop.tsx`), driven by
+   `lib/tradeBackdrop.ts`; the Analyze page only reports loading / loaded /
+   ticker. Scanner, Research, News, Watchlist, Planner and Taxes now sit on
+   the same map, and it survives tab switches (no TopoJSON re-fetch).
+3. CHROME — `index.css` "TRADE WORLD CHROME" block: the cockpit's card
+   surface, radius, mono labels, tabular numbers and 44 px targets applied
+   to `.panel`, `.scanner-panel`, `.mini-metric`, the search form, chips and
+   the section switcher; Trade pages widen to 1320 px (`.page-container--trade`).
+4. ACTIVE SYMBOL — `lib/activeTicker.ts` (session-scoped): Analyze writes
+   the symbol, Research / Planner / News seed from it, the shell shows a
+   ticker bar with one-click jumps (Options & Vol, Smart Money, Structure,
+   Stock, Trade plan, News, Dossier for the owner), and
+   `#/analyze/<section>/<SYMBOL>` is a shareable link that opens loaded.
+
+Evidence: tsc ratchet 6/6 (no new errors); counter ratchet OK, four
+improved pins locked (tests 668→701, assertions 23661→25424, harness rules
+82→84); client suite 1418/1418; new tests `home.nav.test.ts` (6),
+`tradeBackdrop.test.ts` (4), `activeTicker.test.ts` (2). Visual harness
+(`node scripts/visual_check.mjs --page <p>`) at 390/768/1440 for nine new
+PAGES entries (analyze, analyzeloaded, analyzeowner, scanner, news,
+research, watchlist, planner, taxes): 0 hard failures each; fixtures are the
+real public API responses captured from voltradeai.com this day
+(`scripts/fixtures/trade_*.json`). Reviewed: the owner nav reads Trade ·
+Data · AI Engine; the map is visible behind Scanner and the loaded SPY
+Options view; the phone layout stacks without horizontal overflow.
+
+Not done here (filed in audit-2026-10-27/SITE_WORKFLOW_ASSESSMENT.md):
+the Data-world rework ("something else entirely"), retiring the duplicate
+scanners / ticker analyses, and the Research-vs-Analyze IV source conflict
+(37.8% vs 9.8% for SPY on the same day). Splitting this preview into the
+three merge PRs the one-change rule wants is the next step once the human
+has clicked through it. STARVED: no.

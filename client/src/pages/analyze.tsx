@@ -1,33 +1,13 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay, isTransientError } from "@/lib/queryClient";
 
-/**
- * Lazy-loaded DataWorldMap with chunk-error recovery.
- * If a deploy renames the bundle while a user has a stale tab open,
- * the dynamic import would normally fail with "Failed to fetch dynamically
- * imported module". We catch that, do a one-shot full page reload, and let
- * the new bundle load fresh.
- */
-const DataWorldMap = lazy(() =>
-  import("@/components/DataWorldMap").catch((err) => {
-    // Detect stale-chunk failure (the post-deploy 404 case)
-    const msg = String(err?.message || err);
-    const isStaleChunk =
-      msg.includes("Failed to fetch dynamically imported module") ||
-      msg.includes("Importing a module script failed") ||
-      msg.includes("error loading dynamically imported module");
-
-    if (isStaleChunk && !sessionStorage.getItem("__chunk_reloaded")) {
-      sessionStorage.setItem("__chunk_reloaded", "1");
-      window.location.reload();
-      // Return a stub so React doesn't render until the reload kicks in
-      return { default: () => null } as any;
-    }
-    // Already retried, or different error — re-throw so the boundary catches
-    throw err;
-  })
-);
+// The moving world map behind this page is the Trade world's shared backdrop
+// now (components/TradeBackdrop.tsx, mounted once by the app shell for every
+// Trade tab, stale-chunk recovery included); this page only reports
+// loading / loaded / ticker to it through lib/tradeBackdrop.
+import { setTradeBackdrop, resetTradeBackdrop } from "@/lib/tradeBackdrop";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import InsightsView from "./InsightsView";
 import ETFBuilderView from "./ETFBuilderView";
 import { spreadsEmptyMessage } from "@/lib/spreadsEmpty";
@@ -2056,8 +2036,12 @@ function LoadingSkeleton() {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps = {}) {
-  const [input, setInput] = useState(initialTicker ?? "");
-  const [ticker, setTicker] = useState<string | null>(initialTicker ?? null);
+  // Seed from the Trade world's active symbol (lib/activeTicker) so coming
+  // back from Research / Planner / News reopens the same name without a
+  // second search. An explicit initialTicker (Scanner, Watchlist, News
+  // click-through) still wins.
+  const [input, setInput] = useState(initialTicker ?? getActiveTicker() ?? "");
+  const [ticker, setTicker] = useState<string | null>(initialTicker ?? getActiveTicker());
   // SECTION 2026-05-23: was a two-way switcher ("options" vs "insights").
   // Now driven primarily by the `section` prop set by the top-nav dropdown.
   // Local state still allows in-page sub-tab switching on mobile (where the
@@ -2103,12 +2087,18 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
     }
   }, [data]);
 
-  // Make body transparent so the canvas map shows through on mobile
+  // Drive the shared moving-map backdrop (TradeBackdrop, mounted by the
+  // shell): loading burst while fetching, the ticker beacon once loaded,
+  // idle particles again when this page unmounts. The body-transparent
+  // effect that used to live here moved into TradeBackdrop.
   useEffect(() => {
-    const prev = document.body.style.background;
-    document.body.style.background = "transparent";
-    return () => { document.body.style.background = prev; };
-  }, []);
+    setTradeBackdrop({ isLoading, hasData: !!data && !data.error, ticker: ticker || null });
+  }, [isLoading, data, ticker]);
+  useEffect(() => () => { resetTradeBackdrop(); }, []);
+
+  // One symbol across the Trade world (lib/activeTicker): remember what the
+  // user is looking at so Research, Planner, News and the Dossier open on it.
+  useEffect(() => { if (ticker) setActiveTicker(ticker); }, [ticker]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2170,13 +2160,8 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
 
   return (
     <div style={{ position: "relative", minHeight: "100vh" }}>
-      {/* DataWorldMap background — shared across all sections (Options,
-          Smart Money, Structure, ETF Builder). 2026-05-23: was gated to
-          stock-ticker sections; ungated so ETF Builder gets the same
-          chrome as the rest of the analyze page. */}
-      <Suspense fallback={null}>
-        <DataWorldMap isLoading={isLoading} hasData={!!data && !data.error} ticker={ticker} />
-      </Suspense>
+      {/* The moving world map behind this page is mounted by the app shell
+          (TradeBackdrop) for every Trade tab; the effect above drives it. */}
       <div style={{ position: "relative", zIndex: 1 }}>
 
         {/* Page heading badge — changes color/text per section */}

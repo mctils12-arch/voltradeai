@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { useLocation } from "wouter";
 import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain, FileSearch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -15,6 +15,8 @@ import BotDashboard from "./bot";
 import ForecastPage from "./forecast";
 import BrainPage from "./brain";
 import TickerDossierPage from "./tickerDossier";
+import TradeBackdrop from "@/components/TradeBackdrop";
+import { getActiveTicker, setActiveTicker, subscribeActiveTicker } from "@/lib/activeTicker";
 import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
@@ -71,11 +73,21 @@ interface HomeProps {
   isOwner?: boolean;
 }
 
+// "#/analyze/<section>/<SYMBOL>" (2026-10-29): a shareable link to one
+// symbol's view. The third segment seeds lib/activeTicker before the Analyze
+// page mounts, so it opens loaded; the state→hash sync below writes it back.
+function tickerFromHash(hash: string): string | null {
+  const parts = hash.replace("#/", "").split("/");
+  return parts[0] === "analyze" && parts[2] ? parts[2] : null;
+}
+
 function getInitialTab(): TabId {
   const hash = window.location.hash.replace("#/", "");
-  // The hash can be either "analyze" or "analyze/<section>" — strip the
-  // subpath when matching against TabIds.
+  // The hash can be "analyze", "analyze/<section>" or
+  // "analyze/<section>/<SYMBOL>" — strip the subpath when matching TabIds.
   const root = hash.split("/")[0];
+  const sym = tickerFromHash(window.location.hash);
+  if (sym) setActiveTicker(sym); // invalid symbols are ignored by the store
   if (root && TABS.some(t => t.id === root)) return root as TabId;
   return "analyze";
 }
@@ -126,7 +138,8 @@ interface NavLeaf {
   soon?: boolean; // rendered disabled with a "soon" tag (honest, not clickable)
 }
 interface NavSubgroup { heading: string; items: NavLeaf[]; }
-interface NavMenu { id: "trade" | "data"; label: string; icon: React.ReactNode; groups: NavSubgroup[]; }
+type NavMenuId = "trade" | "data" | "engine";
+interface NavMenu { id: NavMenuId; label: string; icon: React.ReactNode; groups: NavSubgroup[]; }
 
 const NAV_MENUS: NavMenu[] = [
   {
@@ -184,9 +197,36 @@ const NAV_MENUS: NavMenu[] = [
 // Which top-level tabs belong to which menu — drives the menu button's active
 // underline (highlight "Data" while the map/overlays are open, "Trade" while any
 // trading tab is open). Derived once from the menu actions so it can't drift.
-const MENU_TABS: Record<"trade" | "data", Set<TabId>> = {
+const MENU_TABS: Record<NavMenuId, Set<TabId>> = {
   trade: new Set<TabId>(["analyze", "scanner", "watchlist", "research", "news", "planner", "taxes"]),
   data: new Set<TabId>(["data"]),
+  engine: new Set<TabId>(["bot", "dossier", "forecast", "brain"]),
+};
+
+// ONE AI ENGINE MENU (human 2026-10-29: "trade data forecast brain ai engine,
+// what do we need, it seems like a lot"): the four owner-only direct buttons
+// (Forecast, Brain, Dossier, AI Engine) collapse into one owner-only
+// drop-down beside Trade and Data, built on the same NavMenu machinery.
+// Every destination stays one hover + one click away; TABS, the hash
+// routes and the phone bar are untouched, so deep links keep working.
+const ENGINE_MENU: NavMenu = {
+  id: "engine", label: "AI Engine", icon: <Bot size={14} />,
+  groups: [
+    {
+      heading: "Operate",
+      items: [
+        { key: "engine-cockpit", label: "Cockpit", icon: <Bot size={14} />,        description: "Live bot: edge, book, orders, today",      accent: "var(--accent)",       action: { kind: "tab", tab: "bot" } },
+        { key: "engine-dossier", label: "Dossier", icon: <FileSearch size={14} />, description: "One ticker: market → stock → options → plan", accent: "var(--accent-green)", action: { kind: "tab", tab: "dossier" } },
+      ],
+    },
+    {
+      heading: "Evidence",
+      items: [
+        { key: "engine-forecast", label: "Forecast", icon: <Target size={14} />, description: "Weekly calls in shadow, with calibration", accent: "var(--accent-orange)", action: { kind: "tab", tab: "forecast" } },
+        { key: "engine-brain",    label: "Brain",    icon: <Brain size={14} />,  description: "What is live, shadow, off — and why",      accent: "var(--accent-purple)", action: { kind: "tab", tab: "brain" } },
+      ],
+    },
+  ],
 };
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
@@ -196,13 +236,16 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const [paneId] = useState(() => paneIdFromHash(window.location.hash));
   const [analyzeSection, setAnalyzeSection] = useState<AnalyzeSection>(getInitialAnalyzeSection);
   const [, navigate] = useLocation(); // wouter route nav (Developers/API page)
+  // The Trade world's active symbol (lib/activeTicker): read here, above the
+  // hash-sync effect that writes it into the URL. The ticker bar is below.
+  const activeTicker = useSyncExternalStore(subscribeActiveTicker, getActiveTicker, getActiveTicker);
   // Desktop hover dropdowns — which top-nav menu ("trade" | "data") is open, with
   // a small close delay so the pointer can travel button → menu without it
   // snapping shut. Only one menu is open at a time.
-  const [openMenuId, setOpenMenuId] = useState<null | "trade" | "data">(null);
+  const [openMenuId, setOpenMenuId] = useState<null | NavMenuId>(null);
   const menuCloseTimer = useRef<number | null>(null);
 
-  const openMenu = (id: "trade" | "data") => {
+  const openMenu = (id: NavMenuId) => {
     if (menuCloseTimer.current) {
       window.clearTimeout(menuCloseTimer.current);
       menuCloseTimer.current = null;
@@ -213,7 +256,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     if (menuCloseTimer.current) window.clearTimeout(menuCloseTimer.current);
     menuCloseTimer.current = window.setTimeout(() => setOpenMenuId(null), delay);
   };
-  const toggleMenu = (id: "trade" | "data") => setOpenMenuId(cur => (cur === id ? null : id));
+  const toggleMenu = (id: NavMenuId) => setOpenMenuId(cur => (cur === id ? null : id));
 
   // Execute a nav-menu leaf's action. Tab actions honor auth gating via
   // handleTabClick; hash actions open a datamap overlay (its hashchange listener
@@ -262,14 +305,16 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // links like /app#/analyze/etf-builder restore the dropdown selection.
   useEffect(() => {
     if (activeTab === "analyze") {
-      window.location.hash = `#/analyze/${analyzeSection}`;
+      // Carry the active symbol so the URL is a shareable link to this view.
+      const sym = getActiveTicker();
+      window.location.hash = sym ? `#/analyze/${analyzeSection}/${sym}` : `#/analyze/${analyzeSection}`;
     } else {
       // Only rewrite when the hash ROOT disagrees with the tab — tabs may own
       // subpaths (e.g. #/data/filings) that this sync must not stomp.
       const curRoot = window.location.hash.replace("#/", "").split("/")[0];
       if (curRoot !== activeTab) window.location.hash = "#/" + activeTab;
     }
-  }, [activeTab, analyzeSection]);
+  }, [activeTab, analyzeSection, activeTicker]);
 
   // Dark-only 2026-05-03: theme persistence effect removed (always dark).
 
@@ -308,6 +353,8 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     const onHash = () => {
       const hash = window.location.hash.replace("#/", "");
       const [root, sub] = hash.split("/");
+      const sym = tickerFromHash(window.location.hash); // "#/analyze/<section>/<SYMBOL>"
+      if (sym) setActiveTicker(sym);
       if (root && root !== activeTab && TABS.some(t => t.id === root)) {
         handleTabClick(root as TabId);
       }
@@ -334,6 +381,35 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     setActiveTab("analyze");
   };
+
+  // ── The Trade world (2026-10-29, human: "I want this moving map like this
+  // but more modern as well for some of the screens … if you look for a
+  // ticker symbol and then you might want the stock vs. options info on it,
+  // and trade information"). One backdrop (TradeBackdrop, mounted below for
+  // every Trade tab) and one active symbol (lib/activeTicker) with a context
+  // bar that jumps between the views of that symbol. Hooks stay above the
+  // early returns so their order never changes.
+  const isTradeTab = MENU_TABS.trade.has(activeTab);
+  const goAnalyze = (section: AnalyzeSection) => { setAnalyzeSection(section); handleTabClick("analyze"); };
+  const viewActive = (tab: TabId, section?: AnalyzeSection) =>
+    activeTab === tab && (section ? analyzeSection === section : true);
+  const tickerBar = activeTicker ? (
+    <nav className="trade-ticker-bar" aria-label={`Views of ${activeTicker}`} data-testid="trade-ticker-bar">
+      <span className="trade-ticker-bar-sym">{activeTicker}</span>
+      <span className="trade-ticker-bar-hint">one symbol, every view</span>
+      <div className="trade-ticker-bar-views">
+        <button className={`trade-view-btn ${viewActive("analyze", "options") ? "active" : ""}`} onClick={() => goAnalyze("options")} aria-current={viewActive("analyze", "options") ? "page" : undefined}><BarChart2 size={13} />Options &amp; Vol</button>
+        <button className={`trade-view-btn ${viewActive("analyze", "smart-money") ? "active" : ""}`} onClick={() => goAnalyze("smart-money")} aria-current={viewActive("analyze", "smart-money") ? "page" : undefined}><Eye size={13} />Smart Money</button>
+        <button className={`trade-view-btn ${viewActive("analyze", "structure") ? "active" : ""}`} onClick={() => goAnalyze("structure")} aria-current={viewActive("analyze", "structure") ? "page" : undefined}><Layers size={13} />Structure</button>
+        <button className={`trade-view-btn ${viewActive("research") ? "active" : ""}`} onClick={() => handleTabClick("research")} aria-current={viewActive("research") ? "page" : undefined}><Scale size={13} />Stock</button>
+        <button className={`trade-view-btn ${viewActive("planner") ? "active" : ""}`} onClick={() => handleTabClick("planner")} aria-current={viewActive("planner") ? "page" : undefined}><Crosshair size={13} />Trade plan</button>
+        <button className={`trade-view-btn ${viewActive("news") ? "active" : ""}`} onClick={() => handleTabClick("news")} aria-current={viewActive("news") ? "page" : undefined}><Newspaper size={13} />News</button>
+        {isOwner && (
+          <button className="trade-view-btn" onClick={() => { window.location.hash = `#/dossier/${activeTicker}`; handleTabClick("dossier"); }}><FileSearch size={13} />Dossier</button>
+        )}
+      </div>
+    </nav>
+  ) : null;
 
   // Login overlay
   if (showLogin) {
@@ -380,9 +456,11 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
         <div className="tab-nav-tabs">
           {/* TWO-WORLD NAV (P1, research/platform_program.md): Trade + Data
-              hover/click drop-downs replace the nine flat tabs; the owner-only
-              AI Engine stays a direct button. Menu leaves run NavActions. */}
-          {NAV_MENUS.map(menu => {
+              hover/click drop-downs replace the nine flat tabs. 2026-10-29:
+              the owner-only AI Engine is a third drop-down of the same kind
+              (ENGINE_MENU) instead of four direct buttons. Menu leaves run
+              NavActions. */}
+          {(isOwner ? [...NAV_MENUS, ENGINE_MENU] : NAV_MENUS).map(menu => {
             const menuActive = MENU_TABS[menu.id].has(activeTab);
             const isOpen = openMenuId === menu.id;
             return (
@@ -457,54 +535,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             );
           })}
 
-          {/* Forecast — owner-only weekly calls (SHADOW), direct button beside the AI Engine */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "forecast" ? "active" : ""}`}
-              onClick={() => handleTabClick("forecast")}
-              aria-current={activeTab === "forecast" ? "page" : undefined}
-            >
-              <Target size={14} />
-              Forecast
-            </button>
-          )}
-
-          {/* Brain — owner-only: what is live / shadow / off and the evidence behind each part */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "brain" ? "active" : ""}`}
-              onClick={() => handleTabClick("brain")}
-              aria-current={activeTab === "brain" ? "page" : undefined}
-            >
-              <Brain size={14} />
-              Brain
-            </button>
-          )}
-
-          {/* Dossier — owner-only: one ticker, market → sector → stock → options → events, ranges + trade plan.
-              Human 2026-10-29: it had no desktop button (only the AI Engine look-up box / phone More menu / URL). */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "dossier" ? "active" : ""}`}
-              onClick={() => handleTabClick("dossier")}
-              aria-current={activeTab === "dossier" ? "page" : undefined}
-            >
-              <FileSearch size={14} />
-              Dossier
-            </button>
-          )}
-
-          {/* AI Engine — owner-only, direct button (not part of either world) */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "bot" ? "active" : ""}`}
-              onClick={() => handleTabClick("bot")}
-              aria-current={activeTab === "bot" ? "page" : undefined}
-            >
-              <Bot size={14} />
-              AI Engine
-            </button>
-          )}
+          {/* Forecast, Brain, Dossier and the cockpit live in ENGINE_MENU above
+              (owner-only third drop-down, 2026-10-29). The phone keeps them as
+              tabs in the More sheet via TABS. */}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -573,8 +606,13 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         </div>
       </nav>
 
+      {/* ── Moving-map backdrop: one mount for the whole Trade world, so the
+          canvas and its particle field survive tab switches ── */}
+      {isTradeTab && <TradeBackdrop />}
+
       {/* ── Page content ── */}
-      <main className="page-container tab-page">
+      <main className={`page-container tab-page${isTradeTab ? " page-container--trade" : ""}`}>
+        {isTradeTab && tickerBar}
         {activeTab === "analyze" && (
           <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} section={analyzeSection} />
         )}

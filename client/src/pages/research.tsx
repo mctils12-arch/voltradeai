@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
@@ -157,8 +158,10 @@ function PillarCard({ pillar }: { pillar: Pillar }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: string) => void }) {
-  const [input, setInput] = useState("");
-  const [ticker, setTicker] = useState<string>("");
+  // One symbol across the Trade world (lib/activeTicker): open on whatever
+  // the user last searched in Options & Volatility, and write back on submit.
+  const [input, setInput] = useState(() => getActiveTicker() ?? "");
+  const [ticker, setTicker] = useState<string>(() => getActiveTicker() ?? "");
 
   const { data, isFetching, error, refetch } = useQuery<ResearchReport>({
     queryKey: ["/api/research", ticker],
@@ -177,7 +180,7 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const t = input.trim().toUpperCase();
-    if (t) setTicker(t);
+    if (t) { setTicker(t); setActiveTicker(t); }
   };
 
   return (

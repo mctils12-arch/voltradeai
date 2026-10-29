@@ -458,7 +458,29 @@ function brainFixture() {
   };
 }
 
+// TRADE WORLD fixtures (2026-10-29): real public API responses captured from
+// voltradeai.com that day, trimmed, so the screenshots show the moving-map
+// backdrop with loaded cards rather than empty states.
+const tradeFx = (name) => JSON.parse(readFileSync(path.join(ROOT, "scripts", "fixtures", name), "utf8"));
+const OWNER_ME = { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } };
+
 const PAGES = {
+  // TRADE WORLD (2026-10-29, human: "I want this moving map like this but
+  // more modern as well for some of the screens … if you look for a ticker
+  // symbol and then you might want the stock vs. options info on it, and
+  // trade information"): every Trade screen sits on the moving world map
+  // (TradeBackdrop), its cards wear the cockpit chrome, the owner's nav is
+  // one AI Engine drop-down, and "#/analyze/<section>/<SYMBOL>" opens a
+  // symbol loaded with the ticker bar above it. Visitor view by default.
+  analyze: { route: "/app#/analyze/options", map: false },
+  analyzeloaded: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json") } },
+  analyzeowner: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/auth/me": OWNER_ME, "/api/analyze/SPY": tradeFx("trade_analyze_spy.json") } },
+  scanner: { route: "/app#/scanner", map: false, fixtures: { "/api/market/scanner": tradeFx("trade_scanner.json") } },
+  news: { route: "/app#/news", map: false, fixtures: { "/api/market/news": tradeFx("trade_news.json") } },
+  research: { route: "/app#/research", map: false },
+  watchlist: { route: "/app#/watchlist", map: false },
+  planner: { route: "/app#/planner", map: false },
+  taxes: { route: "/app#/taxes", map: false },
   data: { route: "/app#/data", map: true },
   // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
   // registered here per the Phase 5 ratchet: every new view passes the
