@@ -38,7 +38,9 @@ export interface OiRecord {
   oid: string | null;   // open_interest_date reported by Alpaca (YYYY-MM-DD)
 }
 
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
+interface ContractRow { symbol?: unknown; open_interest?: unknown; open_interest_date?: unknown }
+interface ContractsPage { option_contracts?: ContractRow[]; next_page_token?: string }
+type FetchFn = (url: string, init?: { headers: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export function oiDir(baseDir?: string): string { return path.join(chainDir(baseDir), "oi"); }
 export function oiDayFile(day: string, baseDir?: string): string { return path.join(oiDir(baseDir), `${day}.jsonl`); }
@@ -53,7 +55,7 @@ export function contractsUrl(u: string, expGte: string, expLte: string, pageToke
 
 /** Compact one Alpaca contract row; null when it has no symbol. OI arrives as
  *  a string ("12345") or absent — absent stays null, never 0 (unknown ≠ none). */
-export function compactOi(row: any, u: string, nowMs: number): OiRecord | null {
+export function compactOi(row: ContractRow | null | undefined, u: string, nowMs: number): OiRecord | null {
   const s = String(row?.symbol || "");
   if (!s) return null;
   const raw = row?.open_interest;
@@ -63,7 +65,7 @@ export function compactOi(row: any, u: string, nowMs: number): OiRecord | null {
 }
 
 export async function fetchOiForUnderlying(
-  u: string, env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any,
+  u: string, env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as unknown as FetchFn,
   nowMs = Date.now(), maxPages = CHAIN_MAX_PAGES,
 ): Promise<{ records: OiRecord[]; pages: number; truncated: boolean }> {
   const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" };
@@ -75,7 +77,7 @@ export async function fetchOiForUnderlying(
   while (pages < maxPages) {
     const r = await fetchImpl(contractsUrl(u, w.expGte, w.expLte, token), { headers });
     if (!r.ok) throw new Error(`alpaca contracts ${u}: HTTP ${r.status}`);
-    const d = await r.json();
+    const d = (await r.json()) as ContractsPage | null;
     pages++;
     for (const row of d?.option_contracts || []) {
       const rec = compactOi(row, u, nowMs);
@@ -95,7 +97,7 @@ export async function fetchOiForUnderlying(
  *  aborts the day (retried next tick): a partial day would silently bias the
  *  own-GEX sum low. */
 export async function captureOpenInterest(
-  env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any, nowMs = Date.now(),
+  env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as unknown as FetchFn, nowMs = Date.now(),
   baseDir?: string, sleepMs = 350,
 ): Promise<{ status: "skipped" | "published" | "failed"; day: string; rows: number; withOi: number; truncated: string[] }> {
   const day = etClock(nowMs).etDay;
@@ -109,8 +111,8 @@ export async function captureOpenInterest(
       for (const r of got.records) all.push(r);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
     }
-  } catch (e: any) {
-    console.error("[optionoi] capture failed (day not claimed):", e?.message || e);
+  } catch (e) {
+    console.error("[optionoi] capture failed (day not claimed):", e instanceof Error ? e.message : String(e));
     return { status: "failed", day, rows: 0, withOi: 0, truncated };
   }
   if (!all.length) return { status: "failed", day, rows: 0, withOi: 0, truncated };
@@ -137,7 +139,9 @@ export function gzipOldOiDays(baseDir?: string, nowMs = Date.now()): number {
       fs.unlinkSync(fp);
       n++;
     }
-  } catch {}
+  } catch (e) {
+    console.error("[optionoi] gzip rollover failed:", e instanceof Error ? e.message : String(e));
+  }
   return n;
 }
 
@@ -155,12 +159,12 @@ export function bootOiArchive(env: NodeJS.ProcessEnv = process.env, intervalMs =
       if (!shouldRunNow(isOiCaptured(today) ? today : null, now).run) return;
       running = true;
       beat("options_oi_archive", "start");
-      const cap = await captureOpenInterest(env, fetch as any, now);
+      const cap = await captureOpenInterest(env, fetch as unknown as FetchFn, now);
       if (cap.status === "failed") beat("options_oi_archive", "finish", "error", `${cap.day}: capture failed — day not claimed`);
       else beat("options_oi_archive", "finish", "ok", `${cap.day} ${cap.status}: ${cap.rows} contracts, ${cap.withOi} with OI`);
-      try { gzipOldOiDays(); } catch {}
-    } catch (e: any) {
-      beat("options_oi_archive", "finish", "error", `tick failed: ${e?.message || e}`);
+      gzipOldOiDays();
+    } catch (e) {
+      beat("options_oi_archive", "finish", "error", `tick failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally { running = false; }
   };
   tick();
