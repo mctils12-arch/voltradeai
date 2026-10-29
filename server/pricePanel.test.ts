@@ -323,3 +323,90 @@ test("panelAsOf: ET date minus one, never the UTC day before (403 recent-SIP reg
   // 12:00Z mid-day: unchanged from the old rule.
   assert.equal(panelAsOf(Date.parse("2026-10-28T12:00:00Z")), "2026-10-27");
 });
+
+// ── 403 regression (first live night 2026-10-29: "HTTP 403 (batch 0/466)") ──
+
+const RECENT_SIP = { message: "subscription does not permit querying recent SIP data" };
+/** Wrap the mock API: bars requests matching `deny` answer 403 with `body`. */
+function deny403(inner: FetchLike, deny: (u: URL) => boolean, body: unknown = RECENT_SIP): FetchLike {
+  return async (url, init) => {
+    const u = new URL(url);
+    if (u.pathname === "/v2/stocks/bars" && deny(u)) return { status: 403, json: async () => body };
+    return inner(url, init);
+  };
+}
+const manifestOf = (root: string) => {
+  const ptr = fs.existsSync(path.join(root, "current.json")) ? "current.json" : "building.json";
+  const id = JSON.parse(fs.readFileSync(path.join(root, ptr), "utf8")).build_id;
+  return JSON.parse(fs.readFileSync(path.join(root, id, "manifest.json"), "utf8"));
+};
+
+test("403 recent-SIP on a batch: retried with an earlier end, build completes, class recorded, as_of lowered", async () => {
+  const root = tmpRoot();
+  const c = clockDeps();
+  const seen: Seen[] = [];
+  // The plan refuses any end after 2026-10-25 (as_of would be 2026-10-26).
+  const f = deny403(api({ seen }), (u) => String(u.searchParams.get("end")) > "2026-10-25");
+  const out = await runPanelSession({ env: ENV, fetch: f, root, now: c.now, sleep: c.sleep, freeBytes: () => null, inWindow: () => true });
+  assert.equal(out.status, "complete", out.detail);
+  const m = manifestOf(root);
+  assert.equal(m.as_of, "2026-10-25", "a not-yet-started build adopts the end date the plan accepts");
+  assert.equal(m.counts.end_fallbacks, 1);
+  assert.equal(m.last_403, "HTTP 403 (recent_sip_not_permitted)", "the 403's message class survives a later 422");
+  assert.equal(m.counts.symbols_with_bars, 5, "same panel as the clean run");
+  const ends = seen.map((s) => new URL(s.url)).filter((u) => u.pathname === "/v2/stocks/bars").map((u) => String(u.searchParams.get("end")));
+  // `seen` records requests that reached the inner API; the refused one was answered by the wrapper.
+  assert.equal(ends.filter((e) => e > "2026-10-25").length, 0, "after the fallback every request uses the accepted end");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("403 on one ticker: the batch is bisected, that ticker skipped (counted), the rest built", async () => {
+  const root = tmpRoot();
+  const c = clockDeps();
+  const f = deny403(api(), (u) => String(u.searchParams.get("symbols")).split(",").includes("ZZZ"), { message: "forbidden" });
+  const out = await runPanelSession({ env: ENV, fetch: f, root, now: c.now, sleep: c.sleep, freeBytes: () => null, inWindow: () => true });
+  assert.equal(out.status, "complete", out.detail);
+  const m = manifestOf(root);
+  assert.equal(m.counts.skipped_403, 1);
+  assert.equal(m.counts.skipped_symbols, 2, "ZZZ (403) + BAD (422)");
+  assert.equal(m.counts.symbols_with_bars, 4);
+  assert.equal(m.last_403, "HTTP 403 (forbidden)");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("403 on every symbol even alone: session stops (systemic), nothing committed, class in last_error, bounded cost", async () => {
+  const root = tmpRoot();
+  const c = clockDeps();
+  const seen: Seen[] = [];
+  const f = deny403(api({ seen }), () => true, { message: "subscription does not permit this request" });
+  const out = await runPanelSession({ env: ENV, fetch: f, root, now: c.now, sleep: c.sleep, freeBytes: () => null, inWindow: () => true });
+  assert.equal(out.status, "error");
+  assert.match(out.detail, /systemic HTTP 403 \(subscription_not_permitted\)/);
+  const m = manifestOf(root);
+  assert.equal(m.progress.next_batch, 0);
+  assert.equal(m.counts.lines, 0);
+  assert.equal(m.counts.skipped_symbols, 0, "a stopped batch commits no counters");
+  assert.match(m.last_error, /subscription_not_permitted/);
+  const bars = seen.filter((s) => s.url.includes("/v2/stocks/bars")).length;
+  assert.ok(bars <= 2 * 7 + 4, `bisect of a 7-symbol batch should cost ~2n requests, got ${bars}`);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("resumed build created with a refused as_of (b20261029 case) is repaired before its first batch", async () => {
+  const root = tmpRoot();
+  const c = clockDeps();
+  // Session 1 builds the universe then the window closes before any batch.
+  let n = 0;
+  await runPanelSession({ env: ENV, fetch: api(), root, now: c.now, sleep: c.sleep, freeBytes: () => null, inWindow: () => ++n <= 13 });
+  const ptr = JSON.parse(fs.readFileSync(path.join(root, "building.json"), "utf8"));
+  const mf = path.join(root, ptr.build_id, "manifest.json");
+  const m0 = JSON.parse(fs.readFileSync(mf, "utf8"));
+  assert.equal(m0.progress.next_batch, 0);
+  fs.writeFileSync(mf, JSON.stringify({ ...m0, as_of: "2026-10-27" }));   // the old UTC-yesterday value
+  const seen: Seen[] = [];
+  const out = await runPanelSession({ env: ENV, fetch: api({ seen }), root, now: c.now, sleep: c.sleep, freeBytes: () => null, inWindow: () => true });
+  assert.equal(out.status, "complete", out.detail);
+  assert.equal(manifestOf(root).as_of, "2026-10-26");
+  for (const s of seen.filter((x) => x.url.includes("/v2/stocks/bars"))) assert.ok(String(new URL(s.url).searchParams.get("end")) <= "2026-10-26");
+  fs.rmSync(root, { recursive: true, force: true });
+});
