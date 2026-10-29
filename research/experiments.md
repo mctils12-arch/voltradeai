@@ -112319,3 +112319,7 @@ Visual harness --page forecast at 390/768/1440: 0 hard failures (pre-existing na
 ## 2026-10-28 [PIPELINE] — scripts/ + ops/ (no trading code) — v1.0.1221 BRANCH CLEANUP PLAN + APPLY SCRIPT
 
 Human approved branch cleanup 2026-10-28. Classified 917 remote branches: 805 merged + data-backup → delete; 86 unique → tag archive/<name> then delete; 25 skipped (main, celestial-catalog-data, session branch, 2 open PRs, 7 tips <24h, 13 named in code). The agent proxy refuses pushes to other refs (403), so nothing was deleted; `scripts/branch_cleanup_apply.sh [--apply]` applies the plan from a human clone (tags verified before deletes; moved tips skipped). STARVED: no.
+
+## 2026-10-29 [REPAIR] — server/pricePanel.ts (T-DATACORE) — v1.0.1222 PRICE PANEL 403 ON FIRST LIVE NIGHT
+
+Symptom: v1.0.1219 build b20261029 — universe OK (23,252 symbols; 9,544 corp-action events), every session 403 at bars batch 0/466, nothing written. Root cause: as_of = UTC yesterday = the current ET date during the 20:15-24:00 ET window; free SIP refuses it ("recent SIP data"). #1534 fixed new builds; this repairs the in-progress manifest, caps each batch's end date, and makes any batch 403 recoverable (earlier end → bisect → skip) with a systemic stop and the vendor-message class in last_error/last_403. 4 regression tests. Rollback trigger: systemic-403 stops on 2 consecutive nights → VOLTRADE_PRICE_PANEL=0 and re-probe with bars_coverage. STARVED: no.

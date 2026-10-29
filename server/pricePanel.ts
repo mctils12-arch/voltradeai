@@ -57,6 +57,7 @@ import zlib from "zlib";
 import { promisify } from "util";
 import type { FetchLike } from "./optionsEntitlements";
 import { beat, zonedParts } from "./jobHeartbeat";
+import { vendorMsgClass } from "./barsCoverage";
 
 const gzip = promisify(zlib.gzip);
 
@@ -71,6 +72,8 @@ export const RETRY_OTHER_MS = 10_000;
 export const MAX_RETRIES_OTHER = 3;
 export const CALL_TIMEOUT_MS = 30_000;
 export const SEGMENT_GAP_DAYS = 30;
+/** On a batch 403, retry with an end date up to this many days earlier before bisecting. */
+export const END_FALLBACK_DAYS = 3;
 export const PRICE_PANEL_MIN_FREE_BYTES = 1.5 * 1_073_741_824;
 export const PRICE_PANEL_MAX_BYTES = 600 * 1_048_576;
 export const PRICE_PANEL_REFRESH_DAYS = 30;
@@ -321,11 +324,19 @@ export interface Manifest {
     bytes: number; earliest_bar: string | null;
     /** Symbols Alpaca refused (HTTP 400/404/422 even alone) — skipped, never retried forever. */
     skipped_symbols: number;
+    /** Of skipped_symbols, how many Alpaca answered 403 even alone. */
+    skipped_403?: number;
+    /** Batches that only succeeded with an earlier end date (403 fallback). */
+    end_fallbacks?: number;
     /** Active symbols whose default-mapping series ended > 30 days before as_of (a reused ticker mapped to the OLD company) — refetched unmapped. */
     stale_active: number;
   };
   blocked: string | null;
   last_error: string | null;
+  /** Last rejected request: "HTTP 403 (recent_sip_not_permitted)" — status + whitelisted vendor-message class only. */
+  last_rejection?: string | null;
+  /** Last 403 specifically (the 2026-10-29 failure class), kept even when a later 422 follows. */
+  last_403?: string | null;
   caveats: string[];
 }
 
@@ -369,7 +380,7 @@ class StopSession extends Error {
 
 /** A request Alpaca rejects as malformed (400/404/422): retrying cannot help. */
 class Rejected extends Error {
-  constructor(public http: number) { super(`HTTP ${http}`); }
+  constructor(public http: number, public cls: string | null) { super(`HTTP ${http}${cls ? ` (${cls})` : ""}`); }
 }
 
 export function readFreeBytes(dir: string): number | null {
@@ -418,7 +429,9 @@ function makeGetter(d: Required<Pick<SessionDeps, "fetch" | "now" | "sleep" | "i
         clearTimeout(timer);
       }
       if (status === 200) return body;
-      if (status === 400 || status === 404 || status === 422) throw new Rejected(status);
+      // 403 included (2026-10-29 live): a batch Alpaca refuses must reach the
+      // end-date fallback and the bisect, not end the night.
+      if (status === 400 || status === 403 || status === 404 || status === 422) throw new Rejected(status, vendorMsgClass(body));
       if (status === 429) {
         if (++n429 > MAX_429_IN_A_ROW) throw new StopSession({ status: "error", detail: `rate limited ${n429}x in a row` });
         m.progress.retries++;
@@ -431,7 +444,8 @@ function makeGetter(d: Required<Pick<SessionDeps, "fetch" | "now" | "sleep" | "i
         await d.sleep(RETRY_OTHER_MS);
         continue;
       }
-      throw new StopSession({ status: "error", detail: `HTTP ${status}` });
+      const cls = vendorMsgClass(body);
+      throw new StopSession({ status: "error", detail: `HTTP ${status}${cls ? ` (${cls})` : ""}` });
     }
   };
 }
@@ -469,26 +483,77 @@ const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 type BarMap = Map<string, Array<{ d: string; o: number; h: number; l: number; c: number; v: number }>>;
 
-/** Adjusted + raw bars for a batch; a batch Alpaca rejects is retried one
- *  symbol at a time and a symbol rejected alone is skipped (counted), so one
- *  bad ticker can never wedge the build on the same batch every night. */
-async function fetchWithFallback(get: Getter, dataBase: string, symbols: string[], m: Manifest, unmapped: boolean): Promise<{ adj: BarMap; rawc: BarMap }> {
+/** Per-batch fallback bookkeeping, folded into the manifest only when the batch commits. */
+interface BatchStats { skipped: number; skipped403: number; endFallbacks: number; rejected403Leaves: number; lastRejection: string | null; last403: string | null }
+interface FetchCtx {
+  get: Getter; dataBase: string; unmapped: boolean; stats: BatchStats;
+  /** Called when an earlier end date succeeded (lets a not-yet-started build lower its as_of). */
+  onEndFallback: (end: string) => void;
+}
+
+function note(stats: BatchStats, e: Rejected): void {
+  stats.lastRejection = e.message;
+  if (e.http === 403) stats.last403 = e.message;
+}
+
+async function fetchPair(ctx: FetchCtx, symbols: string[], end: string): Promise<{ adj: BarMap; rawc: BarMap }> {
+  return {
+    adj: await fetchBatchBars(ctx.get, ctx.dataBase, symbols, end, "all", ctx.unmapped),
+    rawc: await fetchBatchBars(ctx.get, ctx.dataBase, symbols, end, "raw", ctx.unmapped),
+  };
+}
+
+/** Adjusted + raw bars for a batch. A rejected batch (400/403/404/422) is
+ *  handled, never fatal for the night:
+ *   1. 403 only: retry with an end date 1..END_FALLBACK_DAYS earlier (the free
+ *      plan refuses "recent SIP data": first live night, 2026-10-29);
+ *   2. bisect the batch, so one bad ticker costs ~2·log2(n) requests;
+ *   3. a symbol rejected alone is skipped and counted.
+ *  The caller stops the session when EVERY symbol of a batch was 403'd alone
+ *  (systemic: the plan/keys, not the tickers). */
+async function fetchWithFallback(ctx: FetchCtx, symbols: string[], end: string, allowEndFallback = true): Promise<{ adj: BarMap; rawc: BarMap }> {
+  let rejected: Rejected;
   try {
-    return {
-      adj: await fetchBatchBars(get, dataBase, symbols, m.as_of, "all", unmapped),
-      rawc: await fetchBatchBars(get, dataBase, symbols, m.as_of, "raw", unmapped),
-    };
+    return await fetchPair(ctx, symbols, end);
   } catch (e) {
-    if (!(e instanceof Rejected) || symbols.length === 1) {
-      if (e instanceof Rejected) { m.counts.skipped_symbols++; return { adj: new Map(), rawc: new Map() }; }
-      throw e;
+    if (!(e instanceof Rejected)) throw e;
+    rejected = e;
+    note(ctx.stats, e);
+  }
+  if (rejected.http === 403 && allowEndFallback) {
+    for (let k = 1; k <= END_FALLBACK_DAYS; k++) {
+      const earlier = ymd(Date.parse(`${end}T00:00:00Z`) - k * DAY_MS);
+      try {
+        const r = await fetchPair(ctx, symbols, earlier);
+        ctx.stats.endFallbacks++;
+        ctx.onEndFallback(earlier);
+        return r;
+      } catch (e) {
+        if (!(e instanceof Rejected)) throw e;
+        note(ctx.stats, e);
+        if (e.http !== 403) {
+          // The earlier end got past the 403; what is left is a bad ticker
+          // (e.g. 422): bisect at the end date that works.
+          ctx.stats.endFallbacks++;
+          ctx.onEndFallback(earlier);
+          end = earlier;
+          rejected = e;
+          break;
+        }
+      }
     }
   }
+  if (symbols.length === 1) {
+    ctx.stats.skipped++;
+    if (rejected.http === 403) { ctx.stats.skipped403++; ctx.stats.rejected403Leaves++; }
+    return { adj: new Map(), rawc: new Map() };
+  }
+  const mid = Math.ceil(symbols.length / 2);
   const adj: BarMap = new Map(), rawc: BarMap = new Map();
-  for (const sym of symbols) {
-    const one = await fetchWithFallback(get, dataBase, [sym], m, unmapped);
-    for (const [k, v] of one.adj) adj.set(k, v);
-    for (const [k, v] of one.rawc) rawc.set(k, v);
+  for (const part of [symbols.slice(0, mid), symbols.slice(mid)]) {
+    const r = await fetchWithFallback(ctx, part, end, false);
+    for (const [k, v] of r.adj) adj.set(k, v);
+    for (const [k, v] of r.rawc) rawc.set(k, v);
   }
   return { adj, rawc };
 }
@@ -539,13 +604,18 @@ export async function runPanelSession(deps: SessionDeps): Promise<SessionOutcome
       asof_modes: { default: "all symbols", raw: "reuse_suspect symbols (asof=-)" },
       universe: { total: 0, active: 0, inactive: 0, corp_action_only: 0, excluded_otc: 0, reuse_suspect: 0, with_event: 0, corp_actions_http: null, corp_action_events: 0 },
       progress: { batches_total: 0, next_batch: 0, requests: 0, retries: 0, sessions: 0 },
-      counts: { symbols_with_bars: 0, delisted_with_bars: 0, lines: 0, bars: 0, clipped_bars: 0, bytes: 0, earliest_bar: null, skipped_symbols: 0, stale_active: 0 },
+      counts: { symbols_with_bars: 0, delisted_with_bars: 0, lines: 0, bars: 0, clipped_bars: 0, bytes: 0, earliest_bar: null, skipped_symbols: 0, skipped_403: 0, end_fallbacks: 0, stale_active: 0 },
       blocked: null, last_error: null, caveats: CAVEATS,
     };
     building = { build_id: buildId };
   }
   m.progress.sessions++;
   m.blocked = null;
+  // Repair a build started with an as_of the free plan refuses (b20261029 was
+  // created 20:59 ET with UTC-yesterday = the ET date itself). Safe only while
+  // no batch has been written: a started build keeps one as_of throughout.
+  const safeAsOf = panelAsOf(nowMs);
+  if (m.progress.next_batch === 0 && m.as_of > safeAsOf) m.as_of = safeAsOf;
   const save = () => writeJsonAtomic(path.join(dir, "manifest.json"), m);
   const get = makeGetter(d, headers, m);
 
@@ -609,11 +679,17 @@ export async function runPanelSession(deps: SessionDeps): Promise<SessionOutcome
       const batch = universe.slice(b * batchSymbols, (b + 1) * batchSymbols);
       const lines: PanelLine[] = [];
       let clippedBars = 0, withBars = 0, delistedWithBars = 0;
+      const end = m.as_of < panelAsOf(d.now()) ? m.as_of : panelAsOf(d.now());
+      const stats: BatchStats = { skipped: 0, skipped403: 0, endFallbacks: 0, rejected403Leaves: 0, lastRejection: null, last403: null };
+      const ctxFor = (unmapped: boolean): FetchCtx => ({
+        get, dataBase, unmapped, stats,
+        onEndFallback: (earlier) => { if (m.progress.next_batch === 0 && m.counts.lines === 0 && earlier < m.as_of) m.as_of = earlier; },
+      });
       const staleBefore = ymd(Date.parse(`${m.as_of}T00:00:00Z`) - SEGMENT_GAP_DAYS * DAY_MS);
       const runMode = async (mode: "default" | "raw", entries: UniverseEntry[]): Promise<Set<string>> => {
         const stale = new Set<string>();
         if (!entries.length) return stale;
-        const { adj, rawc } = await fetchWithFallback(get, dataBase, entries.map((u) => u.symbol), m, mode === "raw");
+        const { adj, rawc } = await fetchWithFallback(ctxFor(mode === "raw"), entries.map((u) => u.symbol), m.as_of < end ? m.as_of : end);
         for (const u of entries) {
           const a = adj.get(u.symbol);
           if (!a || !a.length) continue;
@@ -637,7 +713,14 @@ export async function runPanelSession(deps: SessionDeps): Promise<SessionOutcome
         return stale;
       };
       const stale = await runMode("default", batch);
-      m.counts.stale_active += stale.size;
+      if (stats.lastRejection) m.last_rejection = stats.lastRejection;
+      if (stats.last403) m.last_403 = stats.last403;
+      if (batch.length > 1 && stats.rejected403Leaves === batch.length) {
+        // Every symbol refused even alone, after the end-date fallback: the
+        // plan/keys, not the tickers. Stop (nothing committed for this batch)
+        // rather than skip the whole universe 50 symbols at a time.
+        throw new StopSession({ status: "error", detail: `systemic ${stats.lastRejection ?? "HTTP 403"}: every symbol of batch ${b} refused` });
+      }
       // Unmapped (asof=-) pass: reused tickers, plus active names the default
       // mapping tied to an older company (S -> Sprint, live 2026-10-28).
       await runMode("raw", batch.filter((u) => u.reuse_suspect || stale.has(u.symbol)));
@@ -653,6 +736,12 @@ export async function runPanelSession(deps: SessionDeps): Promise<SessionOutcome
       m.counts.clipped_bars += clippedBars;
       m.counts.symbols_with_bars += withBars;
       m.counts.delisted_with_bars += delistedWithBars;
+      m.counts.stale_active += stale.size;
+      m.counts.skipped_symbols += stats.skipped;
+      m.counts.skipped_403 = (m.counts.skipped_403 ?? 0) + stats.skipped403;
+      m.counts.end_fallbacks = (m.counts.end_fallbacks ?? 0) + stats.endFallbacks;
+      if (stats.lastRejection) m.last_rejection = stats.lastRejection;
+      if (stats.last403) m.last_403 = stats.last403;
       m.progress.next_batch = b + 1;
       save();
     }
@@ -687,7 +776,7 @@ export function pricePanelStatus(env: Record<string, string | undefined> = proce
     return {
       build_id: m.build_id, status: m.status, started_at: m.started_at, completed_at: m.completed_at, as_of: m.as_of,
       source: m.source, feed: m.feed, adjustment: m.adjustment, start: m.start, universe: m.universe,
-      progress: m.progress, counts: m.counts, blocked: m.blocked, last_error: m.last_error,
+      progress: m.progress, counts: m.counts, blocked: m.blocked, last_error: m.last_error, last_rejection: m.last_rejection ?? null, last_403: m.last_403 ?? null,
       bytes_on_disk: dirBytes(path.join(root, id, "bars")),
     };
   };
