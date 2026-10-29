@@ -112083,3 +112083,36 @@ Rollback trigger: none for live (no live path reads ml_cv); revert if the
 CV helpers are shown to drop rows they should keep.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML v2 training: remove earnings_surprise look-ahead (no PIT source) (v1.0.1216)
+
+What was wrong (ml_model_v2.py: _fetch_earnings_surprises / _train_model_impl
+/ _build_training_data): each retrain fetched Finnhub's LATEST EPS surprise
+for the first 30 tickers and stamped that single value on EVERY historical
+row of the ticker (and into intel_score = 0.3 * surprise) — a 2024 row
+carried the outcome of a 2026 report. Serving never had the value at all
+(intelligence.py never emits earnings_surprise -> always 0).
+
+Point-in-time is not buildable from available data: Finnhub's free
+/stock/earnings returns the last 4 quarters with a fiscal period but no
+report date. (A future PIT design: report date = the 8-K item 2.02 filing
+timestamp from the datacore EDGAR archive + Finnhub's per-period surprise;
+coverage would still be ~1 year.) So the feature is dropped: generic rows now
+carry 0.0, exactly the serve-time constant, and the 30 Finnhub calls per
+retrain are gone. The v3 candidate (next commits) excludes the feature.
+
+Live effect today: none on the current artifact — production fast_mode keeps
+the last 10,000 rows and shadow rows (11,948) fill all of them (audit §5.6),
+so generic rows never reach the fit. It only matters when shadow rows < 10k,
+and there it makes training match serving.
+
+Downstream: (1) v2 generic rows lose a leaked feature -> any honest CV on
+them can only get slightly worse; (2) intel_score on generic rows becomes 0
+(matches serve). Tests: test_ml_earnings_surprise_pit.py (fetch removed,
+builder has no per-ticker injection, column == serve constant; the first
+fails before). test_silent_except_ratchet pin for ml_model_v2.py 24 -> 23
+(the removed function had a silent except).
+Rollback trigger: revert if a PIT earnings source is built (then re-add it
+point-in-time, never as a latest value).
+
+STARVED: no — master-plan queue in progress this session.
