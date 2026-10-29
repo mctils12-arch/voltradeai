@@ -56,6 +56,7 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
+import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 import { aircraftProviderCompliance } from "./providerCompliance";
@@ -1316,14 +1317,15 @@ print(json.dumps(result))
 // ─── Routes ─────────────────────────────────────────────────────────────────
 // ─── Persistent Audit Log (survives deploys) ────────────────────────────────
 import { db } from "./auth";
+// [RULE-REVIEW] 2026-10-27: table + (time) and (type, id) indexes; retention
+// is time-based now — see server/auditRetention.ts for the window, the row
+// cap and the disk estimate.
 try {
-  db.prepare(`CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    time TEXT NOT NULL,
-    type TEXT NOT NULL,
-    message TEXT NOT NULL
-  )`).run();
-} catch {}
+  ensureAuditSchema(db);
+} catch (err: any) {
+  console.error("[audit] schema/index setup failed:", err?.message || err);
+}
+let auditInsertsSincePrune = 0;
 
 // REPAIR 2026-07-13 (KNOWN BROKEN #18 follow-up, see server/dbWriteTiming.ts
 // for the full evidence trail): `db` (from server/auth.ts, a FROZEN PATH —
@@ -1347,10 +1349,17 @@ function persistAudit(type: string, message: string) {
     );
     const insertMs = Date.now() - insertStart;
 
-    const deleteStart = Date.now();
-    // Keep last 2000 entries
-    db.prepare("DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 2000)").run();
-    const deleteMs = Date.now() - deleteStart;
+    // [RULE-REVIEW] 2026-10-27: was a per-insert "keep the newest 2000 rows"
+    // delete (~3 market hours of history). Now a periodic prune to the
+    // retention window / row cap (server/auditRetention.ts).
+    let deleteMs = 0;
+    auditInsertsSincePrune++;
+    if (auditInsertsSincePrune >= AUDIT_PRUNE_EVERY_INSERTS) {
+      auditInsertsSincePrune = 0;
+      const deleteStart = Date.now();
+      pruneAuditLog(db, Date.now());
+      deleteMs = Date.now() - deleteStart;
+    }
 
     // Guard on `type` to bound recursion to one level (the nested
     // audit("DB-SLOW-WRITE", ...) call below re-enters persistAudit with
@@ -1361,9 +1370,9 @@ function persistAudit(type: string, message: string) {
   } catch {}
 }
 
-function getPersistedAuditLog(limit = 100): any[] {
+function getPersistedAuditLog(limit = 100): AuditRow[] {
   try {
-    return db.prepare("SELECT time, type, message FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as any[];
+    return queryAuditLog(db, { limit });
   } catch { return []; }
 }
 
@@ -2906,18 +2915,18 @@ print(json.dumps(result, default=str))
           // 50-entry tail spans ~5 minutes of a chatty log and hid today's
           // recurring SIGTERM cycle. Same whitelist surface, same sanitize;
           // limit capped so the probe itself can't become a heap problem.
+          // [RULE-REVIEW] 2026-10-27: optional ?since= (ISO date or
+          // date-time, UTC) now that the log keeps 30 days; an invalid
+          // value is a 400, not a silently unfiltered answer.
           const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 500);
           const typeFilter = String(req.query.type || "").trim();
-          let entries: any[];
-          if (typeFilter) {
-            try {
-              entries = db.prepare(
-                "SELECT time, type, message FROM audit_log WHERE type = ? ORDER BY id DESC LIMIT ?"
-              ).all(typeFilter, limit) as any[];
-            } catch { entries = []; }
-          } else {
-            entries = getPersistedAuditLog(limit);
-          }
+          const sinceRaw = String(req.query.since || "").trim();
+          const since = parseAuditSince(req.query.since);
+          if (sinceRaw && !since) return res.status(400).json({ error: "since must be an ISO date or date-time" });
+          let entries: AuditRow[];
+          try {
+            entries = queryAuditLog(db, { limit, type: typeFilter || null, since });
+          } catch { entries = []; }
           return res.json(sanitizeDiag({
             probe: "audit",
             entries: entries.map((e: any) => ({ time: e.time, type: e.type, message: e.message })),

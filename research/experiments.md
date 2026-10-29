@@ -111762,3 +111762,52 @@ pre-change 86%, or any manage_options_positions error appears in the audit
 log that traces to the marker-only state path.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — audit log: 30-day retention with a row cap and indexes, ?since= on the diag probe (v1.0.1207)
+
+What was wrong (audit §7.2.9 / §1.4, KB #46): server/bot.ts persistAudit
+ran DELETE ... WHERE id NOT IN (SELECT id ... ORDER BY id DESC LIMIT 2000)
+after every insert. 2000 rows is ~3 market hours of this log, so "did X
+happen yesterday" could not be answered, and incident/counterfactual
+reviews that lean on audit lines (SKIP, SIZE-CAP, SWEEP, FILL-*) lost
+their evidence the same afternoon. The table had no index besides rowid.
+
+What changed:
+- server/auditRetention.ts (new, pure, tested on in-memory SQLite):
+  ensureAuditSchema (table + idx_audit_log_time + idx_audit_log_type_id),
+  pruneAuditLog (rows older than AUDIT_RETENTION_DAYS=30, then everything
+  at or below MAX(id)-AUDIT_MAX_ROWS=300,000; both index-driven),
+  parseAuditSince, queryAuditLog (type/since filters, limit capped at
+  2000).
+- persistAudit prunes every AUDIT_PRUNE_EVERY_INSERTS=200 inserts instead
+  of on every insert (DB-SLOW-WRITE timing still measured on the prune).
+- /api/diag/audit accepts ?since= (ISO date or date-time, UTC; invalid ->
+  400) alongside ?type= and ?limit= (still max 500 per call).
+- getPersistedAuditLog goes through queryAuditLog (same SQL as before
+  without filters).
+
+Disk estimate (Railway volume): ~650 rows/h while active (2000 rows ~ 3
+market hours), ~16 active h/day -> ~10k rows/day -> ~300k rows per 30 days.
+~200 B/row (ISO time 24 B, type ~12 B, message <=500 chars, typically
+100-200 B, record overhead) + ~70 B/row for the two indexes -> ~80 MB
+worst case at the cap. AUDIT_MAX_ROWS bounds it if the log gets chattier.
+Previously ~0.5 MB. Worth a human glance at the volume size before merge.
+
+Metric before vs after on identical inputs: a day with 10,000 audit
+lines -> before, rows kept 2,000 (the last ~3 h); after, 10,000 (all).
+/api/diag/audit?type=TRADE for yesterday -> before: nothing; after: the
+rows. getAuditLogCount (status auditLogCount) will grow from 2000 toward
+~300k. No trading metric reads this table's size. Bias direction: none on
+P&L metrics; any tool that counts audit lines per "recent window" without
+a time filter will now see more history (derive.ts filters by today, so
+the cockpit is unaffected).
+
+Downstream chain: larger table -> the existing ORDER BY id DESC LIMIT n
+reads stay O(n) via rowid; type-filtered reads use (type,id); the prune
+uses (time). Insert path is cheaper than before (no per-insert delete).
+
+Rollback trigger: revert (or lower AUDIT_RETENTION_DAYS) if DB-SLOW-WRITE
+audit lines appear more than a few times a day after the change, or the
+/data volume usage grows by more than ~150 MB.
+
+STARVED: no — master-plan queue in progress this session.
