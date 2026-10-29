@@ -203,7 +203,9 @@ test("full session: complete panel incl. delisted names, reuse split, clip, bad 
   assert.ok(!fs.existsSync(path.join(root, "building.json")));
   const m = JSON.parse(fs.readFileSync(path.join(root, cur.build_id, "manifest.json"), "utf8"));
   assert.equal(m.status, "complete");
-  assert.equal(m.as_of, "2026-10-27");
+  // T0 is 21:00 ET on 10-27: as_of is ET date minus one (10-26). The old expectation, 10-27, was the
+  // UTC-yesterday value Alpaca refuses as "recent SIP" (the 2026-10-29 live 403).
+  assert.equal(m.as_of, "2026-10-26");
   assert.equal(m.source, "alpaca");
   assert.deepEqual(m.universe, {
     total: 7, active: 3, inactive: 2, corp_action_only: 2, excluded_otc: 1, reuse_suspect: 0, with_event: 3,
@@ -310,4 +312,14 @@ test("wiring: booted from routes.ts, never builds on boot, GET-only source, stor
   assert.ok(!src.includes("/orders"));
   const sc = fs.readFileSync(path.join(repo, "storage_config.py"), "utf8");
   assert.ok(sc.includes(`PRICE_PANEL_DIR = os.path.join(DATA_DIR, "${PRICE_PANEL_SUBDIR}")`));
+});
+
+test("panelAsOf: ET date minus one, never the UTC day before (403 recent-SIP regression, 2026-10-29)", async () => {
+  const { panelAsOf } = await import("./pricePanel");
+  // 00:59Z on 10-29 is 20:59 ET on 10-28 (the failing live run): as_of must be 10-27, not 10-28.
+  assert.equal(panelAsOf(Date.parse("2026-10-29T00:59:25Z")), "2026-10-27");
+  // 05:00Z on 10-29 is 01:00 ET on 10-29: as_of 10-28.
+  assert.equal(panelAsOf(Date.parse("2026-10-29T05:00:00Z")), "2026-10-28");
+  // 12:00Z mid-day: unchanged from the old rule.
+  assert.equal(panelAsOf(Date.parse("2026-10-28T12:00:00Z")), "2026-10-27");
 });

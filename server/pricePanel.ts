@@ -111,6 +111,14 @@ export function pricePanelRoot(env: Record<string, string | undefined> = process
   return path.join(env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp"), PRICE_PANEL_SUBDIR);
 }
 
+/** Last bar date the free plan will serve: the day before the ET calendar date.
+ *  NOT the UTC day before: the build window opens 20:15 ET = 00:15 UTC, so UTC
+ *  "yesterday" is the current ET date there, and Alpaca answers 403
+ *  "recent SIP data" for it (first live night, 2026-10-29: HTTP 403, batch 0/466). */
+export function panelAsOf(nowMs: number): string {
+  return ymd(Date.parse(`${zonedParts(nowMs, ET).date}T00:00:00Z`) - DAY_MS);
+}
+
 /** 20:15-04:00 ET, every night. */
 export function inBuildWindow(nowMs: number): boolean {
   const m = zonedParts(nowMs, ET).minutes;
@@ -527,7 +535,7 @@ export async function runPanelSession(deps: SessionDeps): Promise<SessionOutcome
     dir = path.join(root, buildId);
     m = {
       version: 1, build_id: buildId, status: "building", started_at: new Date(nowMs).toISOString(), completed_at: null,
-      as_of: ymd(nowMs - DAY_MS), source: "alpaca", feed: "sip", adjustment: "all", start: PANEL_START,
+      as_of: panelAsOf(nowMs), source: "alpaca", feed: "sip", adjustment: "all", start: PANEL_START,
       asof_modes: { default: "all symbols", raw: "reuse_suspect symbols (asof=-)" },
       universe: { total: 0, active: 0, inactive: 0, corp_action_only: 0, excluded_otc: 0, reuse_suspect: 0, with_event: 0, corp_actions_http: null, corp_action_events: 0 },
       progress: { batches_total: 0, next_batch: 0, requests: 0, retries: 0, sessions: 0 },
