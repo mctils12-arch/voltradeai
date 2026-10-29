@@ -189,9 +189,9 @@ def test_v2_builder_return_meta_is_additive():
                  "c": float(x), "v": 2_000_000} for d, x in zip(ds, c)]
 
     bars = {"AAA": series(50), "BBB": series(20), "SPY": series(400), "VXX": series(30)}
-    plain = v2._build_training_data(bars, {})
+    plain = v2._build_training_data(bars)
     assert len(plain) == 3
-    X, y, reg, meta = v2._build_training_data(bars, {}, return_meta=True)
+    X, y, reg, meta = v2._build_training_data(bars, return_meta=True)
     assert np.array_equal(X, plain[0]) and np.array_equal(y, plain[1]) and reg == plain[2]
     assert len(meta["dates"]) == len(meta["tickers"]) == len(meta["label_end_dates"]) == len(y)
     assert all(e > d for d, e in zip(meta["dates"], meta["label_end_dates"]))

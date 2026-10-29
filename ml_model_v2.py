@@ -294,19 +294,15 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
     return all_bars, (None if all_bars else last_error)
 
 
-def _fetch_earnings_surprises(tickers: list) -> Dict[str, float]:
-    """Fetch last EPS surprise direction for a list of tickers."""
-    surprises = {}
-    for sym in tickers[:50]:  # Cap to avoid rate limits
-        try:
-            r = requests.get("https://finnhub.io/api/v1/stock/earnings",
-                params={"symbol": sym, "token": FINNHUB_KEY}, timeout=5)
-            data = r.json()
-            if data and len(data) > 0:
-                sp = data[0].get("surprisePercent", 0) or 0
-                surprises[sym] = 1.0 if sp > 2 else (-1.0 if sp < -2 else 0.0)
-        except Exception: pass
-    return surprises
+# [RULE-REVIEW] 2026-10-27: _fetch_earnings_surprises() was removed. It
+# fetched Finnhub's LATEST EPS surprise per ticker and _build_training_data
+# applied that one value to EVERY historical row of the ticker — a look-ahead
+# leak (a 2024 row "knew" the 2026 report). Finnhub's free /stock/earnings
+# returns only the last 4 quarters with no report date, so a point-in-time
+# version (surprise visible only once report_date < decision date) cannot be
+# built from available data; serving never had the value either (intelligence
+# never emits earnings_surprise -> always 0). Generic rows now carry 0.0, the
+# same constant serving uses. The v3 candidate (ml_features_v3) drops it.
 
 # ══════════════════════════════════════════════════════════════════
 # HELPER: Historical news sentiment via Alpaca news API
@@ -745,7 +741,6 @@ def _walk_forward_cv(X, y, n_splits=5, embargo_days=5, n_tickers_approx=50):
 # ══════════════════════════════════════════════════════════════════
 
 def _build_training_data(all_bars: dict,
-                          earnings_surprises: dict = None,
                           return_meta: bool = False) -> Tuple:
     """
     Build training data with:
@@ -848,7 +843,9 @@ def _build_training_data(all_bars: dict,
         closes = [b["c"] for b in bars]
         dates  = [_date_key(b) for b in bars]
 
-        earn_surp = (earnings_surprises or {}).get(ticker, 0.0)
+        # No point-in-time earnings source (see the note where
+        # _fetch_earnings_surprises used to be): 0.0 == the serve-time value.
+        earn_surp = 0.0
 
         # P0-3 FIX: pre-compute aligned VXX/SPY/TLT/HYG slices keyed to THIS
         # stock's calendar dates. _compute_features then just uses stock's idx
@@ -1339,15 +1336,15 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
             _reason += f" ({_bars_fetch_error})"
         return {"status": "failed", "reason": _reason}
 
-    # Fetch earnings surprises for the tickers we're training on
     ticker_list = [k for k in all_bars if k not in ("SPY","QQQ","IWM","VXX","GLD","TLT")]
-    earnings_surprises = _fetch_earnings_surprises(ticker_list[:30])
 
     # Step 2: Build generic training data with triple-barrier labels
-    X_gen, y_gen, reg_gen = _build_training_data(all_bars, earnings_surprises)
+    # (the EPS-surprise feature is 0.0 on every row: the latest-surprise look-ahead
+    # was removed 2026-10-27, see _build_training_data)
+    X_gen, y_gen, reg_gen = _build_training_data(all_bars)
 
     # Release raw bar data — features have been extracted into X_gen
-    del all_bars, earnings_surprises
+    del all_bars
     import gc; gc.collect()
 
     # Step 3: Load real trade feedback
