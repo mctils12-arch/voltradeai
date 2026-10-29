@@ -33,6 +33,22 @@ function readStored(): string | null {
 
 let current: string | null = readStored();
 const listeners = new Set<() => void>();
+let storageWarned = false;
+
+function writeStored(next: string | null): void {
+  try {
+    if (next) sessionStorage.setItem(ACTIVE_TICKER_KEY, next);
+    else sessionStorage.removeItem(ACTIVE_TICKER_KEY);
+  } catch (err) {
+    // Storage unavailable (private mode, disabled, no DOM): the in-memory
+    // value still works for this page load. Say so once instead of hiding it
+    // (ci counter commented_empty_catch: log, don't swallow).
+    if (!storageWarned) {
+      storageWarned = true;
+      console.debug("activeTicker: sessionStorage unavailable, symbol kept in memory only", err);
+    }
+  }
+}
 
 export function getActiveTicker(): string | null {
   return current;
@@ -44,12 +60,7 @@ export function setActiveTicker(t: string | null | undefined): void {
   if (t !== null && next === null) return; // garbage never replaces a good symbol
   if (next === current) return;
   current = next;
-  try {
-    if (next) sessionStorage.setItem(ACTIVE_TICKER_KEY, next);
-    else sessionStorage.removeItem(ACTIVE_TICKER_KEY);
-  } catch {
-    // storage unavailable: in-memory value still works for this page load
-  }
+  writeStored(next);
   listeners.forEach((fn) => fn());
 }
 
