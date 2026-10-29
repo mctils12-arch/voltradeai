@@ -81,11 +81,13 @@ export function Panel({ chrome, title, help, status, meta, ageMs, children, scro
 
 // ── KPI strip ───────────────────────────────────────────────────────────────
 export type KpiKey = "expectancy" | "winRate" | "vsSpy" | "equity";
-export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events }: {
+export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events, onScoreboard }: {
   perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined; bench: Benchmark | undefined;
   now: number; state: DerivedState; hold: boolean; onHold: () => void;
   /** values that changed since the last tick (live.ts flashes) and the latest decisions (newest first) */
   flash?: Partial<Record<KpiKey, Flash>>; events?: LiveEvent[];
+  /** desktop: open the daily bot-vs-SPY scoreboard (it has no grid slot there; the stack tiers show it inline) */
+  onScoreboard?: () => void;
 }) {
   const latest = events?.[0];
   const edge = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
@@ -159,6 +161,8 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
             </>
           )}
         </div>
+        {/* the tile's own corner, out of the text flow, so the tile keeps its height */}
+        {onScoreboard ? <button type="button" className="vt-bot-wbtn vt-score-open" onClick={onScoreboard} title="The same comparison one row per trading day since the start">daily {I.arrow}</button> : null}
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>

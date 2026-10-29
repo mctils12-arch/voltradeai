@@ -48,6 +48,7 @@ import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
 import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose, type Benchmark } from "./spyBenchmark";
+import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
@@ -2182,18 +2183,23 @@ print(json.dumps({
   // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are
   // dividend-adjusted (total return) and cached: the series moves once a day.
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
+  // the SPY series both the benchmark and the daily scoreboard read (one fetch, one cache)
+  async function spyBenchBars(oldest: string): Promise<NonNullable<typeof spyBenchCache>> {
+    if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
+      const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+      spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
+    }
+    return spyBenchCache;
+  }
   // One body for the owner route AND the "benchmark" diag probe (2026-10-20),
   // so what a session reads can never drift from what the page shows.
   async function benchmarkBody(rates: Partial<TaxRates> = {}): Promise<Record<string, unknown>> {
     const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
     try {
       if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null };
-      if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
-        const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
-        spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
-      }
-      const bench = benchmarkVsSpy(equityCurve, spyBenchCache.bars);
-      return { ...bench, fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
+      const spy = await spyBenchBars(oldest);
+      const bench = benchmarkVsSpy(equityCurve, spy.bars);
+      return { ...bench, fetchedAt: new Date(spy.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
     } catch (err) {
       return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
@@ -2221,6 +2227,36 @@ print(json.dumps({
     const rates = ratesFromQuery(req.query as Record<string, unknown>);
     if (Object.keys(rates).length) return res.json(await benchmarkBody(rates));
     res.json(await benchmarkBody());
+  });
+
+  // The same comparison ONE ROW PER TRADING DAY (server/scoreboard.ts; human-
+  // ordered 2026-10-28): the bot page's scoreboard. Same inputs as the
+  // benchmark (this equity curve + the shared SPY cache); the computed body is
+  // kept SCOREBOARD_CACHE_MS. cashFlows: the non-trade ledger's journals and
+  // transfers since the curve's start (null until the sleeve cache has
+  // loaded) — daily returns are NOT adjusted for them, the page says so.
+  let scoreCache: { at: number; body: Record<string, unknown> } | null = null;
+  async function scoreboardBody(): Promise<Record<string, unknown>> {
+    if (scoreCache && Date.now() - scoreCache.at < SCOREBOARD_CACHE_MS) return scoreCache.body;
+    const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
+    const today = new Date().toISOString().slice(0, 10);
+    const sources = { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" };
+    try {
+      if (!oldest) return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null };
+      const spy = await spyBenchBars(oldest);
+      const groups = sleeveCache ? (sleeveCache.body.nonTrade as { groups?: Record<string, number> } | undefined)?.groups : undefined;
+      if (!sleeveCache) void sleevesBody().catch(() => {});
+      const cashFlows = groups ? { journals: groups.journals ?? 0, transfers: groups.transfers ?? 0, since: sleeveCache?.body.since ?? null } : null;
+      const body = { ...buildScoreboard(equityCurve, spy.bars, today), fetchedAt: new Date(spy.at).toISOString(), computedAt: new Date().toISOString(), sources, cashFlows };
+      // a body without the ledger is not cached, so the caveat fills in on the next poll
+      if (cashFlows) scoreCache = { at: Date.now(), body };
+      return body;
+    } catch (err) {
+      return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+    }
+  }
+  app.get("/api/bot/scoreboard", requireOwner, async (_req, res) => {
+    res.json(await scoreboardBody());
   });
 
   // ── REGIME ENGINE daily report (2026-10-28, docs/regime/FINDINGS.md step

@@ -94,6 +94,18 @@ export interface AfterTaxBenchmark {
   account: { pct: number; taxPct: number; afterTaxPct: number; equityStart: number; realizedTax: number; liquidationTax: number; openPnl: number | null; openTaxIfSold: number | null };
   gapPp: number; notes: string[];
 }
+/** GET /api/bot/scoreboard (server/scoreboard.ts): the same comparison one
+ *  row per trading day, newest first. No rows / null summary = not enough
+ *  data on one side — never zeros. cashFlows: journals + transfers since the
+ *  start from the non-trade ledger (null until loaded); returns are NOT
+ *  adjusted for them. */
+export interface ScoreRow { date: string; prevDate: string; sessions: number; botPct: number; spyPct: number; diffPp: number; botCumPct: number; spyCumPct: number; cumDiffPp: number; provisional: boolean }
+export interface ScoreSummary { from: string; to: string; botCumPct: number; spyCumPct: number; cumDiffPp: number; daysBeat: number; daysCompared: number; gapRows: number; botMaxDdPct: number; spyMaxDdPct: number }
+export interface Scoreboard {
+  rows: ScoreRow[]; summary: ScoreSummary | null; barsThrough: string | null; curveThrough: string | null;
+  fetchedAt: string | null; computedAt?: string; sources?: { equity: string; spy: string };
+  cashFlows: { journals: number; transfers: number; since: string | null } | null; error?: string;
+}
 /** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
  *  Alpaca's fill ledger + open P&L from current positions. */
 export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
@@ -141,6 +153,7 @@ export interface BotData {
   orders: UseQueryResult<OpenOrder[]>;
   benchmark: UseQueryResult<Benchmark>;
   sleeves: UseQueryResult<Sleeves>;
+  scoreboard: UseQueryResult<Scoreboard>;
 }
 
 export function useBotData(): BotData {
@@ -159,7 +172,9 @@ export function useBotData(): BotData {
   const benchmark = useQuery<Benchmark>({ queryKey: ["/api/bot/benchmark"], queryFn: () => getJson("/api/bot/benchmark"), refetchInterval: 10 * 60_000 });
   // pending while the server's first ledger computation runs: poll sooner
   const sleeves = useQuery<Sleeves>({ queryKey: ["/api/bot/sleeves"], queryFn: () => getJson("/api/bot/sleeves"), refetchInterval: (q) => (q.state.data?.pending ? 20_000 : 10 * 60_000) });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves };
+  // the server caches the computed table 10 min; the page asks as often
+  const scoreboard = useQuery<Scoreboard>({ queryKey: ["/api/bot/scoreboard"], queryFn: () => getJson("/api/bot/scoreboard"), refetchInterval: 10 * 60_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {
