@@ -115,6 +115,7 @@ import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled, lookupCropConditionHistory, readConditionsAggregateHistory } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootCboeVixPoll, latestCboeVix } from "./cboeVix";
+import { bootSqueezeGexPoll } from "./squeezeGex";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
@@ -3751,6 +3752,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // out frozen/oversized, this is the live keyless replacement). Serves
   // the poller's cached latest day + a 30-day recent window.
   bootCboeVixPoll();
+  bootSqueezeGexPoll(); // Edge P1 internal shadow stream — no route, aggregates via diag probe "squeeze_gex"
   app.get("/api/data/vix-term-structure", (_req, res) => {
     const hit = latestCboeVix();
     if (!hit) {

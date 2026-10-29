@@ -355,6 +355,11 @@ export const DIAG_PROBES = [
   // same text the audit log carries); read-only, no broker call, no
   // query parameters.
   "heartbeats",
+  // ADDED 2026-10-29 (Edge P1 shadow stream, T-DATACORE): server/squeezeGex.ts
+  // report — archived-row count, first/latest date, latest trailing-252 rank R
+  // and negative-GEX flag, refresh status. Aggregates only (no raw gex/dix/
+  // price rows: DIX.csv licence unverified, gate 1 open). No query parameters.
+  "squeeze_gex",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

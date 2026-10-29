@@ -644,6 +644,16 @@
     "last_update_date": "2026-10-19",
     "note": "EDGE DOCTRINE axis (a), BUILD-FIRST rule 2 (accumulation substitutes for purchase): the registry serves only the CURRENT primary completion date; the history of how sponsors MOVE it is what paid catalyst-calendar vendors sell. SHIPPED: server/clinicalTrials.ts (12h poll of industry-sponsored Phase 2/3 trials with a primary completion date in -60d..+365d, ~3,240 trials; diff vs persisted snapshot; archives only change events pcd_shift/status/new/entered_window/left_window), server/clinicalTrials.test.ts (16 tests), datacore/manifests/clinical_trials.json, GET /api/data/clinical-trials (kind:'raw'). Live E2E 2026-10-19: 3,240 trials / 1,473 sponsors, 0 duplicate ids, 0 missing dates, 42% of dates month-only (shifts <~31d unresolvable for those, flagged coarse). RAW archive, no predictive claim. GATE 2 NOT ATTEMPTED: hypothesis pre-registered in open_questions.md (pcd delay >=90d at a small-cap sponsor -> negative excess return), needs >= 52 weeks of snapshots AND a sponsor->ticker join (not built) AND a point-in-time price panel (see wishlist 2026-10-18). Earliest honest gate-2 date: 2027-10-19.",
     "source_ref": "server/clinicalTrials.ts (module header); server/clinicalTrials.test.ts; datacore/manifests/clinical_trials.json; server/routes.ts /api/data/clinical-trials; scripts/data_stream_registry_check.py clinicaltrials_catalyst_drift entry; research/experiments.md 2026-10-19 entry; research/open_questions.md 2026-10-19 entry"
+  },
+  {
+   "id": "squeeze_gex_dealer_gamma",
+   "name": "SqueezeMetrics dealer gamma (GEX) rank -> SPY realized-vs-implied vol",
+   "category": "options_positioning",
+   "status": "gate1_pending",
+   "current_gate": 0,
+   "last_update_date": "2026-10-29",
+   "note": "Edge P1. SIGNAL result is in hand (research/edge_p1_dealer_gamma_result.md, 2026-10-28: pre-registered gate-2 PASS, full b=-0.858 t=-9.61, holdout t=-7.25) but gate 1 (DATA) is NOT passed, so by the ladder this root stays gate1_pending and may not reach gate-3 TRADING; gate-3 simulation may be prepared. GEX is a proprietary model estimate; the registered gate-1 check is our own Black-Scholes GEX from Alpaca open interest vs this series (kill: sign disagrees on >30% of >=40 overlapping days), which needs OI history we do not hold. 2026-10-29: server/squeezeGex.ts now archives the daily rows forward (shadow stream, internal only: licence unverified, no /data route, aggregate-only diag probe squeeze_gex). Not read by any trading path.",
+   "source_ref": "research/edge_preregistration.md P1; research/edge_p1_dealer_gamma_result.md; server/squeezeGex.ts; datacore/manifests/squeeze_gex.json"
   }
  ]
 }
