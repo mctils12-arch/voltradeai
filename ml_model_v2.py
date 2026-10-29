@@ -745,7 +745,8 @@ def _walk_forward_cv(X, y, n_splits=5, embargo_days=5, n_tickers_approx=50):
 # ══════════════════════════════════════════════════════════════════
 
 def _build_training_data(all_bars: dict,
-                          earnings_surprises: dict = None) -> Tuple:
+                          earnings_surprises: dict = None,
+                          return_meta: bool = False) -> Tuple:
     """
     Build training data with:
     1. Triple-barrier labels (volatility-adjusted, timeouts relabeled)
@@ -753,6 +754,13 @@ def _build_training_data(all_bars: dict,
     3. All 34 features including intel and new professional features
 
     Returns: X, y, regimes (array of 'bull'/'bear'/'neutral' per row)
+
+    return_meta=True ([RULE-REVIEW] 2026-10-27, ml_cv.py) appends a 4th
+    element {"dates", "tickers", "label_end_dates"}: each row's decision
+    date, ticker, and the date of the last bar its label reads (idx+5).
+    Rows are still emitted TICKER BY TICKER (that order is what the legacy
+    row-index CV leaks on); ml_cv.purged_walk_forward_splits keys folds on
+    these dates instead. The default return shape is unchanged.
     """
     vxx_bars_raw = all_bars.get("VXX", {})
     spy_bars_raw = all_bars.get("SPY", {})
@@ -786,6 +794,7 @@ def _build_training_data(all_bars: dict,
     hyg_date_idx = {_date_key(b): i for i, b in enumerate(hyg_list)}
 
     X_rows, y_labels, regimes_list = [], [], []
+    meta_dates, meta_tickers, meta_label_end = [], [], []
 
     # Compute cross-sectional ranks BY DATE (also previously used positional idx
     # which collides across tickers that start on different dates).
@@ -924,16 +933,24 @@ def _build_training_data(all_bars: dict,
             X_rows.append([float(feats.get(col, 0) or 0) for col in FEATURE_COLS])
             y_labels.append(binary_label)
             regimes_list.append(regime_label)
+            if return_meta:
+                meta_dates.append(dates[idx])
+                meta_tickers.append(ticker)
+                meta_label_end.append(dates[min(idx + 5, len(dates) - 1)])
 
     # Release large intermediate structures before converting to numpy
     del ticker_closes_map, ticker_dates_map, all_changes_by_date, breadth_by_date
 
     if len(X_rows) < 50:
-        return None, None, None
+        return (None, None, None, None) if return_meta else (None, None, None)
 
-    return (np.array(X_rows, dtype=np.float32),
-            np.array(y_labels, dtype=np.int8),
-            regimes_list)
+    out = (np.array(X_rows, dtype=np.float32),
+           np.array(y_labels, dtype=np.int8),
+           regimes_list)
+    if return_meta:
+        return out + ({"dates": meta_dates, "tickers": meta_tickers,
+                       "label_end_dates": meta_label_end},)
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════
