@@ -87,6 +87,7 @@ ALIASES = {
     # two registry rows, one ladder root.
     "nasdaq_finra_threshold_list": ["finra_short_volume"],
     "cboe_vix_term_structure": ["cboe_vix_term_structure"],
+    "squeezemetrics_gex": ["squeeze_gex_dealer_gamma"],
     "dtcc_sbsdr": ["dtcc_sbsdr_equity_swaps"],
     "un_comtrade": ["un_comtrade_bilateral_trade"],
     "fmcsa_oos_orders": ["fmcsa_oos_orders"],

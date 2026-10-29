@@ -196,6 +196,12 @@ CANDIDATES = [
              "matched FRED's independent VIXCLS series exactly for 3/3 dates checked. RAW/regime-feature "
              "framing only; candidate cleaner replacement for the VXX-ratio regime proxy behind KNOWN "
              "BROKEN #20, not wired into trading logic this session."},
+    {"id": "squeezemetrics_gex", "name": "SqueezeMetrics dealer gamma (GEX) / DIX daily",
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["squeeze_gex"], "layer_ids": [],
+     "note": "server/squeezeGex.ts, built 2026-10-29: Edge P1 shadow stream (research/edge_preregistration.md). "
+             "Gate 2 PASS 2026-10-28; gate 1 OPEN (GEX is a model estimate, own BS cross-check needs OI history). "
+             "INTERNAL ONLY: licence unverified, no /data route, diag probe squeeze_gex is aggregate-only."},
     {"id": "dtcc_sbsdr", "name": "DTCC swap data repository",
      "edge_doctrine_named": False, "status": "built",
      "manifest_keys": ["dtccswaps"], "layer_ids": [],

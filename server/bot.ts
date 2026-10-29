@@ -67,6 +67,7 @@ import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
 import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY } from "./jobHeartbeat";
+import { squeezeReport } from "./squeezeGex";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
@@ -3764,6 +3765,11 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // external watchdog routine polls this. No query parameters.
           const hb = jobHeartbeatReport();
           return res.json(sanitizeDiag({ probe: "heartbeats", ...hb, persistError: heartbeatStore().lastWriteError() }));
+        }
+        case "squeeze_gex": {
+          // ADDED 2026-10-29 (Edge P1 shadow stream): aggregates over the
+          // squeeze_gex archive — see server/squeezeGex.ts. Read-only.
+          return res.json(sanitizeDiag(squeezeReport()));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

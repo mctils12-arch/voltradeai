@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 [PRODUCT] — T-DATACORE — Edge P1 `squeeze_gex` shadow stream: daily SqueezeMetrics GEX/DIX archive + trailing-252 rank R, internal only (v1.0.1208)
+TERRITORY: T-DATACORE (server/squeezeGex.ts + test, datacore/manifests/squeeze_gex.json). SHARED, last-commit minimal: server/bot.ts + diag.ts (probe `squeeze_gex`), routes.ts (boot line), package.json, registry rows, signal_ladder.json. Health at start: all OK (live 1.0.1207 == checkout, deploy_gate 2xx); thrash 3/10; only WARN the overdue CONSTITUTIONAL AUDIT (unanswered proposals, not re-run).
+PRIOR: ~95% the stream archives cleanly (source probed live, last row 2026-10-28); no behavior change anywhere else.
+CHANGE: the T-DATACORE half of the P1 shadow-logging spec (edge_preregistration.md), the next ladder step after the 2026-10-28 gate-2 PASS. 6h poll, yearly JSONL under <archive>/squeeze_gex/, day-level dedup, first poll backfills full history. `trailingPctRank` is the registered definition; checked identical to the Python script's formula on random data. Diag probe `squeeze_gex` returns aggregates only (rows, first/latest date, latest R, negative-GEX flag, last refresh ok).
+HONESTY / LADDER: gate 2 passed but GATE 1 IS OPEN (GEX is a model estimate; own Black-Scholes cross-check needs OI history we lack), so the ladder root is recorded as gate1_pending, not gate2_pass. DIX.csv licence unverified: NO /data route, NO /api/v1, raw rows never leave the server. Not read by any trading path (T-BOT shadow fields remain a separate territory/PR).
+TESTS: server/squeezeGex.test.ts (5: parse, rank incl. burn-in/ties/no-lookahead, archive dedup + gz rollover, aggregate-only report, refresh failure modes); registry/ladder coverage checks pass; 53 node tests in touched areas green; tsc errors unchanged from baseline, none in touched files.
+NEXT: (1) T-BOT shadow fields on short-premium candidates (needs `squeeze_gex` R read via an internal API boundary); (2) gate 1 once Alpaca OI is confirmed populated (options_entitlements probe); (3) gate-3 sim run with/without R<0.2.
+MERGE: new background poll, no trading path; safe any time, preferably after the close.
+STARVED: no.
+
 ## 2026-10-27 (scheduled routine, EDGE-DOCTRINE axis pick, Tue) [NO-ACTION] — no code_version change (1.0.1168)
 
 HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT. research_state_check: thrash 0/10 REPAIR, STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory, already filed).
