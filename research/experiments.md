@@ -112158,3 +112158,42 @@ Downstream: (1) ml_model_v3 dataset/labels consume training_rows; (2) the
 shadow score in deep_score consumes serve_features. Rollback: no live path.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML v3 candidate label: one exit-aligned label matching the live exit policy (v1.0.1218)
+
+What was wrong (audit §5.2, KNOWN BROKEN #48): the v2 model learns from
+three label definitions, none of which a live exit implements — generic rows
+use a triple barrier (PT 1.5xATR, SL 1.0xATR, 5 bars, PT checked before SL
+on a double touch = optimistic), shadow rows +2%/-4% within 10 bars,
+feedback rows pnl > 1.5xATR. Live exits (server/bot.ts checkPositionOnTick)
+use a 2xATR R unit clamped stop 1.5-8%, thirds scaled out at 1R and the
+regime's 2nd R, breakeven, phase trails, a conditional TP and a 7-calendar-
+day flat time stop.
+
+What changed: new ml_model_v3.py (shadow candidate, not wired to trading).
+label_exit_aligned() walks each decision under live_exit_policy.LivePosition
+(the pure mirror of checkPositionOnTick, same policy as shadow_portfolio's
+exit_aligned_v1 ruler) bar by bar OPEN->LOW->HIGH->CLOSE (stop first on an
+ambiguous bar). Decision after bar i's close, entry at bar i+1's OPEN,
+ATR = the row's own decision-time Wilder ATR, regime class from the row's
+vxx_ratio/spy_vs_ma50 via system_config.get_market_regime. Censored at 20
+bars (= shadow XA_CAP_BARS) and marked to close; label = 1 iff the
+tranche-weighted return NET of the 0.10% round trip (= XA_ROUND_TRIP_COST_PCT)
+is > 0. build_dataset() joins it with ml_features_v3's training path, only
+for decisions whose full 20-bar window exists (keeping late rows that exited
+early would bias the tail toward fast stops), rows sorted by date.
+EMBARGO_DATES = cap + 1 for the CV.
+
+Measured on 97 tickers (Yahoo bars, 2023-12..2026-10): 68k rows, base rate
+0.51 (net), exits time_stop 51% / stop 25% / trail 21% / TP 3% / cap 1%.
+
+Tests (test_ml_model_v3.py, 5): constants drift-pinned to the shadow ruler;
+300 fuzzed paths give the same exit reason and return as
+shadow_portfolio._label_exit_aligned; a 2xATR stop is the live -4% (not v2's
+-2%), a +2-3% wander that fades is a time stop (v2-shadow would call it a
+win); truncated paths are dropped; dataset chronological, full-window, and
+X equals the serve path. Fail before: module absent.
+Downstream: (1) the v3 trainer/eval (next commit) fits on these labels;
+(2) nothing live reads them. Rollback: none needed (no live path).
+
+STARVED: no — master-plan queue in progress this session.
