@@ -196,3 +196,39 @@ export function insiderCluster(rows: InsiderSummary["rows"] | null | undefined):
   }
   return false;
 }
+
+// ── cockpit KPI strip (2026-10-29, human-asked: the page fills the screen like
+// the AI Engine): price & 5d, next-session ±%, next-5 ±%, options-implied vs
+// model, regime, bot score vs min. Every value is one the page shows below. ────
+export interface DossierKpi { label: string; value: string; sub?: string; subTone?: "g" | "r"; line: string; tone?: "g" | "r" | "t3" }
+
+export function dossierKpis(d: Dossier, bot: { score: number | null; minScore: number | null | undefined; verdict: string | null | undefined; busy: boolean }): DossierKpi[] {
+  const st = d.stock;
+  const t5 = st?.trend?.ret_5d_pct;
+  const range = (h: "1" | "5", label: string): DossierKpi => {
+    const r = st?.ranges?.[h];
+    const b = r?.bands;
+    return b
+      ? { label, value: `±${b.move68_pct.toFixed(1)}%`, line: `68% ${fmtPx(b.lo68)}–${fmtPx(b.hi68)} · 90% ±${b.move90_pct.toFixed(1)}% · ${r?.model === "har" ? "HAR-RV" : r?.model === "ewma" ? "EWMA" : "—"}` }
+      : { label, value: "—", line: r?.fallback_reason ?? "no range — not enough price history" };
+  };
+  const o = d.options;
+  const ivm = o?.implied_vs_model_5d, imp5 = o?.implied_move_5d_pct, mod5 = o?.model_move_5d_pct;
+  const m = d.market;
+  const vix = m?.stress?.vix, expo = m?.exposure;
+  const score = bot.score;
+  const min = fin(bot.minScore) ? bot.minScore : null;
+  return [
+    { label: "Price · 5 sessions", value: fmtPx(st?.price), sub: fin(t5) ? `${fmtPct(t5, 1, true)} 5d` : undefined, subTone: fin(t5) ? (t5 > 0 ? "g" : t5 < 0 ? "r" : undefined) : undefined,
+      line: `last close ${fmtPx(st?.base_close)}${st?.base_date ? ` (${st.base_date})` : ""}${st?.price_is_partial_session ? " · session in progress" : ""}` },
+    range("1", "Next session"),
+    range("5", "Next 5 sessions"),
+    { label: "Options-implied vs model", value: fin(ivm) ? `${ivm.toFixed(2)}×` : "—",
+      line: fin(imp5) && fin(mod5) ? `implied ±${fmtPct(imp5)} · model ±${fmtPct(mod5)} · 5 sessions` : (o?.reason ?? "options unavailable") },
+    { label: "Regime", value: m?.status === "live" ? (m.composite ?? "—") : "—",
+      line: m?.status === "live" ? `exposure ${fin(expo) ? `${Math.round(expo * 100)}%` : "—"} · ${m.days_in_regime ?? "—"} days · VIX ${fin(vix) ? vix.toFixed(1) : "—"}` : (m?.reason ?? "market layer unavailable") },
+    { label: "Bot score vs min", value: score !== null ? score.toFixed(1) : bot.busy ? "…" : "—", sub: min !== null ? `/ ${min}` : undefined,
+      line: score !== null ? (bot.verdict ?? "undecided") : bot.busy ? "scoring through the scan path…" : "no bot score (the look-up could not score this name)",
+      tone: score !== null && min !== null ? (score >= min ? "g" : "r") : score === null ? "t3" : undefined },
+  ];
+}
