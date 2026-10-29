@@ -3,6 +3,11 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine voltrade-daily-close, ~20:18Z Thu = 16:18 ET, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1236)
+HEALTH: voltradeai.com /api/health 200, status ok, serving.failing empty; live server_version 1.0.1236 == main (no deploy lag). Thrash 3/10.
+WHY NO-ACTION: the two open verifications (price_panel_build retry after the as_of repair; first options_oi_archive night, heartbeat `withOi` > 0) both run in the 20:15 ET window = 00:15Z, i.e. not yet judgeable. Next session after that: check /api/diag/price_panel progress.next_batch > 0 and the options_oi_archive heartbeat. Queue otherwise empty of unblocked items that would not duplicate filed work.
+STARVED: no.
+
 ## 2026-10-29 (scheduled routine voltrade-daily-midday, ~16:25Z Thu = 12:25 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1231)
 HEALTH: /api/health 200 ok; liveness not dark, drawdown -2.2%, jobs 8 ok / 0 late / 0 errored, feeds alive, scanner 0 failures, no unhandled rejections. Live server_version 1.0.1231 == main (no deploy lag). research_state_check: only WARN is the known overdue CONSTITUTIONAL AUDIT (awaiting human answers; audit never self-applies). thrash 3/10.
 WHY NO-ACTION: both open verifications are night-gated and cannot be judged at midday — (1) price_panel_build retry after the as_of repair (v1.0.1220) runs in the 20:15 ET window; next session checks /api/diag/price_panel progress.next_batch > 0 (diag is auth-gated, 401 from here); (2) first options_oi_archive night (v1.0.1231) — check heartbeat `withOi` > 0. Another build now would duplicate filed work or churn.
