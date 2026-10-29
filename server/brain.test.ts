@@ -12,7 +12,7 @@ import { planPythonExec } from "./pythonExec";
 import {
   BRAIN_COMPONENTS, LONG_EVIDENCE, LONG_COMBINATIONS, BRAIN_CONFIG_MIRROR, BRAIN_EVIDENCE_CMD, BRAIN_RULE,
   agreementOf, brainBody, deriveStatus, flagRaw, parseNamedSet, parseOptionsGates, readSwitches, shortTermFor, longTermFor,
-  SELECTION_GUARDS, type EvidencePayload, type BrainComponent,
+  SELECTION_GUARDS, WALKFORWARD_ITEM_FOR, type EvidencePayload, type BrainComponent, type LongItem,
 } from "./brain";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -161,7 +161,7 @@ test("honesty: a component with no long-horizon test says 'Not yet measured' wit
   assert.match(l.reason ?? "", /Not yet measured/);
   const news = longTermFor(comp("news"), null);
   assert.equal(news.measured, false);
-  assert.match(news.reason ?? "", /walk-forward panel harness is not built/);
+  assert.match(news.reason ?? "", /walk-forward harness, walkforward\.py, has not produced a result/);
 });
 
 const EV: EvidencePayload = {
@@ -241,6 +241,34 @@ test("long-term: ML v3 live eval is prepended from the volume file; doc evidence
   assert.equal(l.items[0].date, "2026-10-27");
   assert.equal(l.items[1].source_file, "research/ml_v3_eval.md");
   assert.equal(longTermFor(comp("forecast"), EV).items[0].id, "forecast_holdout");
+});
+
+test("long-term: the walk-forward result is prepended for the price inputs; not-measurable inputs say why; an error block changes nothing", () => {
+  const item = (id: string, sign: string) => ({ id: `walkforward_${id}`, live: true, title: `${id} — 2016+ point-in-time walk-forward`, source_file: "DATA_DIR/walkforward/latest.json",
+    date: "2026-10-31", horizon: "2017-01-06 → 2026-10-23, weekly", finding: "5d rank IC 0.004", compared_to: "random entry", sign, variants_tried: 18, quotes: [] });
+  const wf: EvidencePayload["walkforward"] = {
+    schema: "walkforward/v1", generated_at: "2026-10-31T15:00:00Z", panel: { build_id: "b20261030" }, universe: { n_symbols: 6100, delisted_symbol_share: 0.31, rows: 1400000 },
+    items: { momentum: item("momentum", "positive"), price_composite: item("price_composite", "null"), adx: item("adx", "bogus") } as unknown as Record<string, LongItem>,
+    not_measurable: { vrp: "Needs implied volatility.", news: "No archived news." },
+  };
+  const ev = { ...EV, walkforward: wf };
+  const m = longTermFor(comp("momentum"), ev);
+  assert.equal(m.items[0].id, "walkforward_momentum");
+  assert.equal(m.sign, "positive");
+  assert.equal(m.measured, true);
+  assert.equal(longTermFor(comp("final_score"), ev).items[0].id, "walkforward_price_composite");
+  for (const id of Object.keys(WALKFORWARD_ITEM_FOR)) assert.ok(BRAIN_COMPONENTS.some((c) => c.id === id), `mapping names a real component: ${id}`);
+  assert.equal(longTermFor(comp("adx"), ev).sign, "insufficient", "an unknown sign is never passed through");
+  const v = longTermFor(comp("vrp"), ev);
+  assert.equal(v.measured, false);
+  assert.match(v.reason ?? "", /Not measured long-term \(no point-in-time history\): Needs implied volatility/);
+  assert.equal(longTermFor(comp("obv"), ev).measured, false, "no item for an input -> not measured, never invented");
+  const body = brainBody(ev, {}, new Date("2026-10-31T16:00:00Z"));
+  assert.ok(body.long_term.sources.some((x) => x.file === "DATA_DIR/walkforward/latest.json" && x.date === "2026-10-31"));
+  assert.ok(body.long_term.gaps.some((g) => /panel b20261030, 6100 symbols/.test(g)));
+  const err = { ...EV, walkforward: { error: "no walk-forward result yet" } };
+  assert.equal(longTermFor(comp("momentum"), err).measured, false);
+  assert.ok(brainBody(err, {}, new Date()).long_term.gaps.some((g) => /has not produced a result yet \(no walk-forward result yet\)/.test(g)));
 });
 
 test("agreement: same sign agrees, opposite disagrees (live beats backtest), any insufficient is insufficient", () => {

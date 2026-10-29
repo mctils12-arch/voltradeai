@@ -359,6 +359,13 @@ export const DIAG_PROBES = [
   // reason, last error), free disk vs the floor, and the caveats. Manifests
   // only: no bar, price or URL leaves; no network call; no query parameters.
   "price_panel",
+  // ADDED 2026-10-29 ([RULE-REVIEW] measurement): read-only status of the
+  // weekly long-term walk-forward (server/walkforward.ts walkforwardStatus) —
+  // flag, schedule, current panel build, the last result's headline fields
+  // (per-input verdict, 5d/20d IC, Bonferroni p, top-N excess vs random entry,
+  // DSR, universe counts) and last_run.json. Derived statistics only: no
+  // ticker, price or URL; no network call; no Python; no query parameters.
+  "walkforward",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

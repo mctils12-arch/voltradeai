@@ -168,5 +168,44 @@ class TestEntryPoint(unittest.TestCase):
         self.assertIn("error", res)
 
 
+class TestWalkforward(unittest.TestCase):
+    """The long-term column reads walkforward.py's latest.json (research/walkforward.md)."""
+
+    def test_reads_the_harness_output_into_brain_items(self):
+        import tempfile
+        import walkforward as wf
+        import walkforward_synth as ws
+        with tempfile.TemporaryDirectory() as tmp:
+            ws.synthetic_panel(os.path.join(tmp, "p"), n_names=14, signal=0.003, seed=3)
+            self.assertEqual(wf.run(os.path.join(tmp, "p"), os.path.join(tmp, "o"), code_version="9.9.9")["status"], "ok")
+            out = be._walkforward_summary(os.path.join(tmp, "o", "latest.json"))
+        self.assertEqual(out["schema"], "walkforward/v1")
+        self.assertEqual(out["code_version"], "9.9.9")
+        self.assertEqual(set(out["items"]), set(wf.INPUTS))
+        it = out["items"]["momentum"]
+        for k in ("id", "title", "source_file", "date", "horizon", "finding", "compared_to", "sign", "variants_tried", "quotes"):
+            self.assertIn(k, it)
+        self.assertIn(it["sign"], ("positive", "negative", "null", "insufficient"))
+        self.assertEqual(it["sign"], out["verdicts"]["momentum"])
+        self.assertIn("vrp", out["not_measurable"])
+        self.assertGreater(out["universe"]["n_symbols"], 0)
+
+    def test_missing_or_foreign_file_is_an_error_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIn("no walk-forward result yet", be._walkforward_summary(os.path.join(tmp, "latest.json"))["error"])
+            p = os.path.join(tmp, "x.json")
+            with open(p, "w") as fh:
+                json.dump({"schema": "other/v9"}, fh)
+            self.assertIn("unexpected walk-forward schema", be._walkforward_summary(p)["error"])
+
+    def test_entry_point_carries_the_block(self):
+        with patch("shadow_portfolio._load_shadow_log", return_value=[]), \
+                patch.object(be, "_walkforward_summary", return_value={"error": "no walk-forward result yet"}):
+            out = be.brain_evidence(fetch_spy=False)
+        self.assertIn("walkforward", out)
+        self.assertIn("error", out["walkforward"])
+
+
 if __name__ == "__main__":
     unittest.main()

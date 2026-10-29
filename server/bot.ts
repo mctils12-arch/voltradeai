@@ -36,6 +36,7 @@ import { pricePanelStatus } from "./pricePanel";
 import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
 import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
+import { walkforwardStatus } from "./walkforward";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
@@ -3937,6 +3938,13 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // (server/pricePanel.ts pricePanelStatus) — manifests only, no bars,
           // no network call, no query parameters.
           return res.json(sanitizeDiag(pricePanelStatus()));
+        }
+        case "walkforward": {
+          // ADDED 2026-10-29 ([RULE-REVIEW] measurement): read-only status of
+          // the weekly long-term walk-forward (server/walkforward.ts) — the
+          // result files' headline fields only; no network, no Python, no
+          // query parameters.
+          return res.json(sanitizeDiag(walkforwardStatus()));
         }
         case "heartbeats": {
           // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled

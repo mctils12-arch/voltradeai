@@ -333,7 +333,7 @@ export interface BrainComponent {
   long: LongSpec;
 }
 
-const NO_LONG_SCORE = "Not yet measured: no multi-year test of the stock score or its inputs exists — no point-in-time universe (docs/regime/FINDINGS.md); a 2016+ walk-forward panel harness is not built yet.";
+const NO_LONG_SCORE = "Not yet measured: no multi-year test of this input exists yet — the 2016+ point-in-time walk-forward harness, walkforward.py, has not produced a result (research/walkforward.md).";
 const src = (name: string): ShortSpec => ({ kind: "source", name });
 const scored: StatusRule = { by: "scored" };
 const noLong: LongSpec = { items: [], reason: NO_LONG_SCORE };
@@ -417,6 +417,11 @@ export interface EvidencePayload {
   };
   ml_v3?: { error?: string; trained_at?: string; rows?: number; date_range?: [string, string]; auc_ci95_date_block?: [number, number]; pooled?: { n?: number; auc?: number; log_loss?: number; base_rate_log_loss?: number }; top_minus_bottom_pct?: number; base_rate_mean_net_return_pct?: number; variants_tried?: number; eval_age_days?: number; candidate_exists?: boolean };
   ml_v3_shadow_ic?: IcStats & { error?: string };
+  walkforward?: {
+    error?: string; schema?: string; generated_at?: string; as_of?: string; code_version?: string | null;
+    panel?: { build_id?: string | null }; universe?: { n_symbols?: number; delisted_symbol_share?: number | null; rows?: number };
+    items?: Record<string, LongItem & { live?: boolean }>; verdicts?: Record<string, string>; not_measurable?: Record<string, string>;
+  };
   forecast?: { error?: string; generated_at?: string; model_version?: string; accuracy?: { n?: number; thin?: boolean; hits?: number; hit_rate?: number | null; brier?: number | null; brier_skill_vs_coinflip?: number | null }; weeks?: number; holdout?: { split_date?: string; n_test?: number; n_train?: number; brier?: number; brier_climatology?: number; brier_skill?: number | null; hit_rate?: number } | null; fit_window?: [string | null, string | null] | null };
 }
 
@@ -540,8 +545,23 @@ export function shortTermFor(c: BrainComponent, ev: EvidencePayload | null): Sho
   };
 }
 
+/** Brain component id -> walkforward.py input id (research/walkforward.md). final_score maps to the
+ *  composite's price-measurable part only; its item title says so. */
+export const WALKFORWARD_ITEM_FOR: Readonly<Record<string, string>> = Object.freeze({
+  momentum: "momentum", mean_reversion: "mean_reversion", volume: "volume", vol_premium: "vol_premium",
+  adx: "adx", obv: "obv", rel_strength: "rel_strength", final_score: "price_composite",
+});
+const SIGNS: readonly Sign[] = ["positive", "negative", "null", "insufficient"];
+
 export function longTermFor(c: BrainComponent, ev: EvidencePayload | null): LongTerm {
   const items: LongTerm["items"] = c.long.items.map((id) => ({ ...LONG_EVIDENCE[id] }));
+  const wf = ev?.walkforward && !ev.walkforward.error && ev.walkforward.schema === "walkforward/v1" ? ev.walkforward : null;
+  const wfItem = wf?.items?.[WALKFORWARD_ITEM_FOR[c.id] ?? ""];
+  if (wfItem) {
+    const sign: Sign = SIGNS.includes(wfItem.sign) ? wfItem.sign : "insufficient";
+    items.unshift({ ...wfItem, sign, live: true, quotes: [] });
+  }
+  const notMeasurable = !wfItem ? wf?.not_measurable?.[c.id] : undefined;
   if (c.long.live === "ml_v3" && ev?.ml_v3 && !ev.ml_v3.error && ev.ml_v3.pooled?.auc !== undefined) {
     const m = ev.ml_v3;
     const ci = m.auc_ci95_date_block;
@@ -563,7 +583,10 @@ export function longTermFor(c: BrainComponent, ev: EvidencePayload | null): Long
     });
   }
   const primary = items[0];
-  if (!primary) return { measured: false, reason: c.long.reason ?? "Not yet measured.", items, sign: "insufficient", sign_note: "no long-horizon test exists" };
+  if (!primary) {
+    const reason = notMeasurable ? `Not measured long-term (no point-in-time history): ${notMeasurable}` : c.long.reason ?? "Not yet measured.";
+    return { measured: false, reason, items, sign: "insufficient", sign_note: "no long-horizon test exists" };
+  }
   const measured = items.some((i) => i.sign !== "insufficient");
   return {
     measured, ...(c.long.reason ? { reason: c.long.reason } : {}), items,
@@ -663,6 +686,8 @@ export function brainBody(ev: EvidencePayload | null, env: NodeJS.ProcessEnv, no
   for (const c of components) counts[c.status] += 1;
   const files = new Map<string, string>();
   for (const it of Object.values(LONG_EVIDENCE)) files.set(it.source_file, it.date);
+  const wf = ev?.walkforward && !ev.walkforward.error && ev.walkforward.schema === "walkforward/v1" ? ev.walkforward : null;
+  if (wf) files.set("DATA_DIR/walkforward/latest.json", String(wf.generated_at ?? "").slice(0, 10));
   const regime: Record<string, FlagValue> = {};
   for (const n of ["VOLTRADE_REGIME_ENGINE", "VOLTRADE_REGIME_SELECTION", "VOLTRADE_REGIME_OPTIONS", "VOLTRADE_REGIME_SIZING", "VOLTRADE_REGIME_LABELS"]) regime[n] = flagRaw(n, env, sw.config);
   return {
@@ -684,7 +709,9 @@ export function brainBody(ev: EvidencePayload | null, env: NodeJS.ProcessEnv, no
     long_term: {
       sources: [...files.entries()].map(([file, date]) => ({ file, date })),
       gaps: [
-        "No portfolio walk-forward harness on a 2016+ point-in-time panel exists yet: the stock score, its inputs and the stock sleeve have no multi-year test.",
+        wf
+          ? `The 2016+ point-in-time walk-forward (panel ${wf.panel?.build_id ?? "?"}, ${wf.universe?.n_symbols ?? "?"} symbols, ${wf.universe?.delisted_symbol_share ?? "?"} delisted share) covers only the price-derivable score inputs; news, intel, social, alt, fundamentals, VRP and squeeze have no point-in-time history, and the stock sleeve as traded has no multi-year test.`
+          : `The 2016+ point-in-time walk-forward (walkforward.py) has not produced a result yet${ev?.walkforward?.error ? ` (${ev.walkforward.error})` : ""}: the stock score, its inputs and the stock sleeve have no multi-year test.`,
         "No options simulator: options entries, CSP guards and the convexity overlay have no option-P&L test (KB #48).",
         "Kill-switch thresholds have no counterfactual logging.",
       ],

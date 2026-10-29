@@ -30,6 +30,11 @@ READ-ONLY. No order, no write, no trading input. One call returns:
                     the volume) and the IC of the logged v3 probability on the
                     shadow population (same ic_stats as source_validation).
   * forecast      — forecast.report()'s accuracy summary + latest holdout.
+  * walkforward   — the LONG-TERM test of the stock score's price inputs:
+                    walkforward.py's last good result (DATA_DIR/walkforward/
+                    latest.json, research/walkforward.md), trimmed to its
+                    provenance, the per-input Brain long-term items and the
+                    not-measurable reasons. Read from the file, never recomputed.
 
 Every block degrades to {"error": ...} on its own; the page shows the gap.
 Registered in voltrade_daemon.py as "brain_evidence"; bot.ts calls it through
@@ -306,6 +311,37 @@ def _ml_v3_summary() -> dict:
     }
 
 
+WALKFORWARD_SCHEMA = "walkforward/v1"
+
+
+def _walkforward_summary(path: Optional[str] = None) -> dict:
+    """walkforward.py's last good result, trimmed for the page (no ticker or
+    price is in that file: derived statistics only)."""
+    import json
+    import os
+    if path is None:
+        import storage_config
+        path = os.path.join(storage_config.WALKFORWARD_DIR, "latest.json")
+    if not os.path.exists(path):
+        return {"error": "no walk-forward result yet (walkforward.py has not completed a run on a complete price-panel build)"}
+    with open(path, "r", encoding="utf-8") as fh:
+        d = json.load(fh)
+    if not isinstance(d, dict) or d.get("schema") != WALKFORWARD_SCHEMA:
+        return {"error": f"unexpected walk-forward schema {d.get('schema') if isinstance(d, dict) else None!r}"}
+    u = d.get("universe") or {}
+    w = d.get("window") or {}
+    inputs = d.get("inputs") or {}
+    return {
+        "schema": d["schema"], "generated_at": d.get("generated_at"), "as_of": d.get("as_of"), "code_version": d.get("code_version"),
+        "panel": {"build_id": (d.get("panel") or {}).get("build_id")},
+        "window": {k: w.get(k) for k in ("first_rebalance", "last_rebalance", "n_rebalances_scored", "primary_horizon_days")},
+        "universe": {k: u.get(k) for k in ("n_symbols", "delisted_symbol_share", "rows")},
+        "items": d.get("brain_long_term") or {},
+        "verdicts": {k: (v or {}).get("verdict") for k, v in inputs.items()},
+        "not_measurable": d.get("not_measurable") or {},
+    }
+
+
 def _guard(fn, *a, **k) -> dict:
     try:
         out = fn(*a, **k)
@@ -338,6 +374,7 @@ def brain_evidence(fetch_spy: bool = True) -> dict:
     out["ml_v3"] = _guard(_ml_v3_summary)
     out["ml_v3_shadow_ic"] = _guard(v3_shadow_ic, records) if records else {"error": "shadow log empty"}
     out["forecast"] = _guard(_forecast_summary)
+    out["walkforward"] = _guard(_walkforward_summary)
     out["elapsed_s"] = round(time.time() - t0, 2)
     return out
 
