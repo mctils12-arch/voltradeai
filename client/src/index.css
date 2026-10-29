@@ -5233,3 +5233,106 @@ button.vt-ck-tile:focus-visible { outline: 2px solid var(--accent); outline-offs
   .vt-ck-tile { padding: 10px 12px; }
   .vt-ck-head h1 { white-space: normal; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TRADE WORLD CHROME (2026-10-29, human: "I like the way the UI looks on
+   the bot as it fills the page … I want it to look modern like the new UI
+   for the bot", "just cleaned up"). Every Trade screen (Options &
+   Volatility, Smart Money, Structure, ETF Builder, Scanner, Watchlist,
+   Research, News, Planner, Taxes) now shares the cockpit's panel chrome:
+   the same card surface, radius, mono labels, tabular numbers, 44 px
+   touch targets, and sits on the moving world map (TradeBackdrop). These
+   rules override the originals above by cascade order; the originals stay
+   until this ships and the dead ones are removed in the cleanup.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Cards: the cockpit's .vt-bot-panel surface (the Trade bodies keep these
+   classes inside their cockpit panels). */
+.panel, .error-card, .empty-state {
+  background: rgba(10, 22, 40, 0.78);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.panel { padding: 12px 14px 14px; }
+.panel-title {
+  font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--text-primary); margin-bottom: 10px; gap: 8px;
+}
+.panel-title > svg { color: var(--accent); }
+.fund-section, .best-stat, .mini-metric {
+  background: rgba(15, 29, 51, 0.6); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+}
+.mini-metric { padding: 8px 10px; }
+.mini-label, .live-label, .fund-section-title, .range-label {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary);
+}
+.mini-value, .live-value {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 500; color: var(--text-primary); margin-top: 2px;
+}
+.ticker-tag { border-radius: var(--radius-sm); }
+.spot-price { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Search: the cockpit's input and primary button. */
+.search-form { gap: 8px; margin-bottom: 10px; }
+.search-input {
+  height: 44px; padding-left: 2.5rem; border-radius: var(--radius-sm);
+  background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary);
+  letter-spacing: 0.08em; backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(77, 159, 255, 0.18); }
+.analyze-btn {
+  height: 44px; border-radius: var(--radius-sm); background: rgba(77, 159, 255, 0.12);
+  border: 1px solid var(--accent); letter-spacing: 0.08em;
+}
+.chip-row { gap: 6px; margin-bottom: 14px; }
+.chip {
+  min-height: 32px; display: inline-flex; align-items: center; padding: 4px 11px;
+  border-radius: 999px; background: transparent; border: 1px solid var(--border);
+  color: var(--text-secondary); letter-spacing: 0.06em;
+}
+.chip:hover { color: var(--text-primary); background: var(--bg-card-hover); border-color: var(--border); }
+
+/* Section switcher: pill tabs like the cockpit's layout tabs. */
+.analyze-section-switcher {
+  background: transparent; border: 0; padding: 0; gap: 4px; margin-bottom: 12px;
+}
+.analyze-section-btn {
+  min-height: 36px; padding: 6px 12px; border-radius: 999px; color: var(--text-secondary);
+}
+.analyze-section-btn.active {
+  background: var(--bg-card); border-color: var(--border);
+  color: var(--text-primary); font-weight: 600;
+}
+.analyze-section-btn.active svg { color: var(--section-accent, var(--accent)); }
+
+@media (max-width: 639px) {
+  .chip { min-height: 36px; }
+}
+
+/* ── Trade cockpit (client/src/trade/, 2026-10-29): the bot page's engine and
+   vocabulary (.vt-bot-*) for the Trade world. The page is transparent so the
+   moving world map (TradeBackdrop, fixed behind it) shows through the
+   panels' translucent surface; in-panel tab rows and the owner's dossier
+   jump are the only additions to the vocabulary. ── */
+.vt-bot-page[data-world="trade"] { background: transparent; }
+.vt-bot-tabs { display: flex; flex-wrap: wrap; gap: 4px; flex: 0 0 auto; padding-bottom: 2px; }
+.vt-bot-tab {
+  font: inherit; font-size: 11.5px; color: var(--text-secondary); padding: 4px 10px; min-height: 28px;
+  border-radius: 999px; border: 1px solid transparent; background: none; cursor: pointer; white-space: nowrap;
+}
+.vt-bot-tab:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+.vt-bot-tab[data-active="true"] { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
+.vt-bot-page[data-touch="true"] .vt-bot-tab { min-height: 44px; }
+.vt-trade-dossier {
+  position: absolute; right: 12px; bottom: 10px; z-index: 5; text-decoration: none;
+  background: var(--bg-secondary); border: 1px solid var(--border); min-height: 32px; padding: 4px 10px;
+}
+@media (max-width: 639px) { .vt-trade-dossier { bottom: 10px; } }
+/* the Trade bodies keep their own cards; inside a cockpit panel they lose
+   their page-level breathing room and blur so they read as panel content */
+.vt-bot-page[data-world="trade"] .panel {
+  backdrop-filter: none; -webkit-backdrop-filter: none; margin-bottom: 8px; padding: 10px 12px;
+}

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
+import { useQuery, useIsFetching } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
 
@@ -97,8 +98,8 @@ interface ResearchReport {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function verdictColor(verdict: string): string {
-  const v = verdict.toLowerCase();
+function verdictColor(verdict: string | undefined): string {
+  const v = (verdict ?? "").toLowerCase(); // a report without a verdict reads as neutral, never throws
   if (v.includes("strong buy")) return "#30d158";
   if (v.includes("buy")) return "#4ade80";
   if (v.includes("strong sell")) return "#ff453a";
@@ -154,16 +155,16 @@ function PillarCard({ pillar }: { pillar: Pillar }) {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Body ──────────────────────────────────────────────────────────────────────
+// 2026-10-29: the report is its own component with its own /api/research
+// query so the cockpit can place it in a panel; the page below is header +
+// input + body. No input here — the host owns the symbol.
 
-export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: string) => void }) {
-  const [input, setInput] = useState("");
-  const [ticker, setTicker] = useState<string>("");
-
-  const { data, isFetching, error, refetch } = useQuery<ResearchReport>({
+export function ResearchBody({ ticker }: { ticker: string | null }) {
+  const { data, isFetching, error } = useQuery<ResearchReport>({
     queryKey: ["/api/research", ticker],
     queryFn: async () => {
-      const r = await apiRequest("GET", `/api/research/${encodeURIComponent(ticker)}`);
+      const r = await apiRequest("GET", `/api/research/${encodeURIComponent(ticker ?? "")}`);
       const json = await r.json();
       if (!r.ok) throw new Error(json?.error || "Research failed");
       return json;
@@ -174,59 +175,20 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
     retryDelay: transientRetryDelay,
   });
 
-  const submit = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const t = input.trim().toUpperCase();
-    if (t) setTicker(t);
-  };
-
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "8px 0 48px" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ color: "#eef3fb", fontSize: 22, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
-          <Scale size={20} style={{ color: "#4d9fff" }} /> Research
-        </h1>
-        <p style={{ color: "#8a9bb3", fontSize: 13, margin: "6px 0 0" }}>
-          Explainable buy/sell verdict from six weighted pillars — fundamentals, valuation, supply/demand,
-          market context, SEC filings, and options — plus catalyst detection for special situations.
-        </p>
-      </div>
-
-      {/* Search */}
-      <form onSubmit={submit} style={{ display: "flex", gap: 8, marginBottom: 22 }}>
-        <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-          <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#5a6b82" }} />
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Enter a ticker (e.g. AAPL)"
-            style={{
-              width: "100%", padding: "10px 12px 10px 34px", background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(77,159,255,0.2)", borderRadius: 6, color: "#eef3fb", fontSize: 14,
-              fontFamily: "Geist, sans-serif", outline: "none",
-            }}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={isFetching}
-          style={{
-            padding: "10px 20px", background: "rgba(77,159,255,0.1)", border: "1px solid rgba(77,159,255,0.35)",
-            color: "#4d9fff", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: isFetching ? "default" : "pointer",
-            display: "flex", alignItems: "center", gap: 6, opacity: isFetching ? 0.6 : 1,
-          }}
-        >
-          {isFetching ? <RefreshCw size={14} className="spin" /> : <Search size={14} />}
-          {isFetching ? "Analyzing…" : "Research"}
-        </button>
-      </form>
-
+    <div>
       {/* Empty state */}
       {!ticker && !isFetching && (
         <div style={{ textAlign: "center", padding: "48px 0", color: "#5a6b82" }}>
           <Scale size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
           <p style={{ fontSize: 14 }}>Enter a ticker to generate an explainable research verdict.</p>
+        </div>
+      )}
+
+      {/* In flight — a panel has no submit button to spin, so say it here */}
+      {ticker && isFetching && !data && !error && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "24px 0", color: "#8a9bb3", fontSize: 13 }}>
+          <RefreshCw size={14} className="spin" /> Analyzing {ticker}…
         </div>
       )}
 
@@ -237,8 +199,15 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
         </div>
       )}
 
+      {/* A 200 without a verdict (an empty or partial report) is not a report:
+          say so instead of rendering fields that are not there (2026-10-29,
+          the cockpit renders this body for every symbol at once). */}
+      {data && !error && !data.verdict && !isFetching && (
+        <div style={{ color: "#8a9bb3", fontSize: 13 }}>No research report came back for {ticker}.</div>
+      )}
+
       {/* Report */}
-      {data && !error && (
+      {data && !error && data.verdict && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Special-situation / catalyst banner */}
           {data.catalyst && data.catalyst.catalyst.kind === "pending_acquisition" && (
@@ -378,6 +347,70 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: string) => void }) {
+  // One symbol across the Trade world (lib/activeTicker): open on whatever
+  // the user last searched in Options & Volatility, and write back on submit.
+  const [input, setInput] = useState(() => getActiveTicker() ?? "");
+  const [ticker, setTicker] = useState<string>(() => getActiveTicker() ?? "");
+  // The body owns the query; the button only needs to know it is in flight.
+  // useIsFetching observes the same key without a second fetch.
+  const isFetching = useIsFetching({ queryKey: ["/api/research", ticker] }) > 0;
+
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const t = input.trim().toUpperCase();
+    if (t) { setTicker(t); setActiveTicker(t); }
+  };
+
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "8px 0 48px" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ color: "#eef3fb", fontSize: 22, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          <Scale size={20} style={{ color: "#4d9fff" }} /> Research
+        </h1>
+        <p style={{ color: "#8a9bb3", fontSize: 13, margin: "6px 0 0" }}>
+          Explainable buy/sell verdict from six weighted pillars — fundamentals, valuation, supply/demand,
+          market context, SEC filings, and options — plus catalyst detection for special situations.
+        </p>
+      </div>
+
+      {/* Search */}
+      <form onSubmit={submit} style={{ display: "flex", gap: 8, marginBottom: 22 }}>
+        <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+          <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#5a6b82" }} />
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Enter a ticker (e.g. AAPL)"
+            style={{
+              width: "100%", padding: "10px 12px 10px 34px", background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(77,159,255,0.2)", borderRadius: 6, color: "#eef3fb", fontSize: 14,
+              fontFamily: "Geist, sans-serif", outline: "none",
+            }}
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isFetching}
+          style={{
+            padding: "10px 20px", background: "rgba(77,159,255,0.1)", border: "1px solid rgba(77,159,255,0.35)",
+            color: "#4d9fff", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: isFetching ? "default" : "pointer",
+            display: "flex", alignItems: "center", gap: 6, opacity: isFetching ? 0.6 : 1,
+          }}
+        >
+          {isFetching ? <RefreshCw size={14} className="spin" /> : <Search size={14} />}
+          {isFetching ? "Analyzing…" : "Research"}
+        </button>
+      </form>
+
+      <ResearchBody ticker={ticker || null} />
     </div>
   );
 }

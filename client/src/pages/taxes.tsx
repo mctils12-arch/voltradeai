@@ -94,8 +94,11 @@ const emptyTrade = (): TradeRow => ({
   symbol: "", account: "taxable", buy_date: "", sell_date: "", proceeds: "", cost_basis: "",
 });
 
-// ── Component ───────────────────────────────────────────────────────────────
-export default function TaxesPage() {
+// ── Body ────────────────────────────────────────────────────────────────────
+// 2026-10-29: the estimator (profile, trades, result) is its own component so
+// a cockpit panel can mount it without the page header; the page below is
+// header + body. The 1000px cap belongs to the page — the host sizes a body.
+export function TaxesBody() {
   const [status, setStatus] = useState("single");
   const [state, setState] = useState("");
   const [stateRate, setStateRate] = useState("0");
@@ -169,17 +172,7 @@ export default function TaxesPage() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 1000 }}>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#eef3fb", fontSize: 18, fontWeight: 700 }}>
-          <Calculator size={18} /> Tax Estimator
-        </div>
-        <p style={{ color: "#7e8ca0", fontSize: 12.5, margin: "6px 0 0", maxWidth: 720, lineHeight: 1.5 }}>
-          Estimate the tax on your realized trades — short vs long-term, NIIT, state, wash sales, and which
-          gains are sheltered in a Roth/IRA/HSA. Tax-year 2025 brackets. Estimate for planning only — not tax advice.
-        </p>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {/* Profile */}
       <section style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 18 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#b3c2d8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 14 }}>Your profile</div>
@@ -338,6 +331,24 @@ export default function TaxesPage() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+// ── Page ────────────────────────────────────────────────────────────────────
+export default function TaxesPage() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 1000 }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#eef3fb", fontSize: 18, fontWeight: 700 }}>
+          <Calculator size={18} /> Tax Estimator
+        </div>
+        <p style={{ color: "#7e8ca0", fontSize: 12.5, margin: "6px 0 0", maxWidth: 720, lineHeight: 1.5 }}>
+          Estimate the tax on your realized trades — short vs long-term, NIIT, state, wash sales, and which
+          gains are sheltered in a Roth/IRA/HSA. Tax-year 2025 brackets. Estimate for planning only — not tax advice.
+        </p>
+      </div>
+      <TaxesBody />
     </div>
   );
 }

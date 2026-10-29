@@ -18,38 +18,24 @@ import { num } from "./useBotData";
 import { ShadowChip } from "./shadow";
 import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, ledgerLine, type LookupResult, type LedgerReport } from "./lookup";
 import type { PanelId } from "./zoneModel";
+// the chrome's icon set and the chrome shape are the shared engine's
+// (client/src/cockpit, 2026-10-29); re-exported here so every call site stands
+import { ICONS as I } from "../cockpit/icons";
+import type { Chrome as CockpitChrome } from "../cockpit/useCockpitLayout";
 
 // ── chrome ──────────────────────────────────────────────────────────────────
-const I = {
-  hold: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>,
-  play: <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 4l12 8-12 8z" /></svg>,
-  pin: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M12 17v5M8 3h8l-1 7 3 3H6l3-3z" /></svg>,
-  win: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><rect x="3" y="8" width="13" height="13" rx="1.5" /><path d="M8 8V3h13v13h-5" /></svg>,
-  zoom: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7" /></svg>,
-  dock: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7" /></svg>,
-  close: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>,
-  pop: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M11 5H4v15h15v-7" /></svg>,
-  arrow: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>,
-};
-export const ICONS = I;
+export { ICONS } from "../cockpit/icons"; // one definition (cockpit/icons.tsx); importers of "@/bot/panels" keep the name
 
 export function St({ word, cls = "vt-bot-t3", out = false }: { word: string; cls?: string; out?: boolean }) {
   return <span className={`vt-bot-st ${cls}`}><span className="vt-bot-dot" data-out={out ? "true" : undefined} />{word}</span>;
 }
 export const NotRecorded = ({ what = "not recorded" }: { what?: string }) => <St word={what} out />;
 
-export interface Chrome {
-  id: PanelId; held: boolean; pinned: boolean; heldSince: number | null; ticksSinceHold: number; nowMs: number;
-  onHold: (id: PanelId) => void; onPin: (id: PanelId) => void; onFloat: (id: PanelId) => void;
-  /** open this panel in its own browser window (popout.ts) */
-  onPop: (id: PanelId) => void;
-  /** this panel IS its own browser window: nothing to pin to or float over */
-  pane: boolean;
-  /** the pop-out control is offered (not on touch / the phone tier) */
-  canPop: boolean;
-}
-export function Panel({ chrome, title, help, status, meta, ageMs, children, scroll, style, pulse }: {
-  chrome: Chrome; title: string; help?: GlossaryKey; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
+/** what a panel header renders from (useCockpitLayout's `chrome(id, now)`);
+ *  generic over the panel id, the bot's by default so no call site names it */
+export type Chrome<Id extends string = PanelId> = CockpitChrome<Id>;
+export function Panel<Id extends string = PanelId>({ chrome, title, help, status, meta, ageMs, children, scroll, style, pulse }: {
+  chrome: Chrome<Id>; title: string; help?: GlossaryKey; status?: ReactNode; meta?: ReactNode; ageMs: number | null; children: ReactNode; scroll?: boolean; style?: React.CSSProperties;
   /** a fresh loud event this panel concerns (live.ts): the frame pulses once */
   pulse?: EventKind;
 }) {

@@ -112411,3 +112411,93 @@ Also fixed en route: help card painted one frame at (0,0) before positioning, re
 ## 2026-10-29 [PRODUCT] — T-CLIENT (client/src/pages/cockpit.tsx, forecast/brain/tickerDossier pages, index.css) — v1.0.1236 COCKPIT LAYOUT FOR FORECAST / BRAIN / DOSSIER
 
 Human (1920px monitor): "fill the page on these with how the UI looks on the bot instead of the strip". Finding: the cap was the app shell's 920px column (59% of 1440), not the pages; released for these three via `.page-container:has(> .vt-ck)` (home.tsx untouched). New shared primitives (KPI strip + auto-fit panel grid in the AI Engine's visual language): Forecast 3 cols at 1440 / 4 at 1920; Dossier 3 / 4 (range hero + trade plan 2-wide); Brain 2 / 3 (cards keep short/long evidence side by side); tablet 2, phone 1. No number, label, provenance line or input changed (lib KPI helpers tested). Harness: fill ≥ 92%, column counts, first-tile values; 1920 added for these pages; bot page re-rendered unchanged. Gates: tests 24/24, tsc 6≤6, counters 28/28, visual 0 failures. Rollback = revert. STARVED: no.
+
+## 2026-10-29 (interactive session, ~20:45Z) [PRODUCT] — Trade world preview: the moving map behind every Trade screen, cockpit chrome, one AI Engine menu, one active symbol (v1.0.1237, preview branch `ccr-5f668b84-lz6g69`)
+
+Territory T-CLIENT. Human directive in this session, verbatim: "the tabs trade
+data forecast brain ai engine what do we need it seem like a lot"; "i like
+the way the ui looks on the bot as it fill the page"; "i want this move map
+like this but more modern as well for some of the screens and just cleaned
+up"; "if you look for a ticker symbol and then you might want the stock vs.
+options info on it, and trade information"; "the map/live map tab can stay
+the same". Human chose "clickable on the real site" over a static mockup
+and "full-page backdrop, as today" for the map.
+
+What changed (one branch, previewed before any merge):
+1. NAV — the four owner-only direct buttons (Forecast, Brain, Dossier,
+   AI Engine) collapse into ONE owner-only drop-down, `ENGINE_MENU`, on the
+   same NavMenu machinery as Trade and Data. Six top-level items → three.
+   TABS, hash routes and the phone More sheet are untouched.
+2. BACKDROP — `DataWorldMap` (the moving world map) is mounted once by the
+   shell for every Trade tab (`components/TradeBackdrop.tsx`), driven by
+   `lib/tradeBackdrop.ts`; the Analyze page only reports loading / loaded /
+   ticker. Scanner, Research, News, Watchlist, Planner and Taxes now sit on
+   the same map, and it survives tab switches (no TopoJSON re-fetch).
+3. CHROME — `index.css` "TRADE WORLD CHROME" block: the cockpit's card
+   surface, radius, mono labels, tabular numbers and 44 px targets applied
+   to `.panel`, `.scanner-panel`, `.mini-metric`, the search form, chips and
+   the section switcher; Trade pages widen to 1320 px (`.page-container--trade`).
+4. ACTIVE SYMBOL — `lib/activeTicker.ts` (session-scoped): Analyze writes
+   the symbol, Research / Planner / News seed from it, the shell shows a
+   ticker bar with one-click jumps (Options & Vol, Smart Money, Structure,
+   Stock, Trade plan, News, Dossier for the owner), and
+   `#/analyze/<section>/<SYMBOL>` is a shareable link that opens loaded.
+
+Evidence: tsc ratchet 6/6 (no new errors); counter ratchet OK, four
+improved pins locked (tests 668→701, assertions 23661→25424, harness rules
+82→84); client suite 1418/1418; new tests `home.nav.test.ts` (6),
+`tradeBackdrop.test.ts` (4), `activeTicker.test.ts` (2). Visual harness
+(`node scripts/visual_check.mjs --page <p>`) at 390/768/1440 for nine new
+PAGES entries (analyze, analyzeloaded, analyzeowner, scanner, news,
+research, watchlist, planner, taxes): 0 hard failures each; fixtures are the
+real public API responses captured from voltradeai.com this day
+(`scripts/fixtures/trade_*.json`). Reviewed: the owner nav reads Trade ·
+Data · AI Engine; the map is visible behind Scanner and the loaded SPY
+Options view; the phone layout stacks without horizontal overflow.
+
+Not done here (filed in audit-2026-10-27/SITE_WORKFLOW_ASSESSMENT.md):
+the Data-world rework ("something else entirely"), retiring the duplicate
+scanners / ticker analyses, and the Research-vs-Analyze IV source conflict
+(37.8% vs 9.8% for SPY on the same day). Splitting this preview into the
+three merge PRs the one-change rule wants is the next step once the human
+has clicked through it. STARVED: no.
+
+## 2026-10-29 (interactive session, ~21:20Z) [PRODUCT] — Trade cockpit: the Trade world rebuilt on the bot page's own engine, one panel per feature, no duplicates (v1.0.1237, preview branch `ccr-5f668b84-lz6g69`, PR #1556)
+
+Territory T-CLIENT. Human, on the first preview (CSS over the old pages):
+"i dont like it, it need to look like the bot ui but have the functionally
+of whats there and no duplicates". So the old pages are gone from the
+shell and the Trade world is ONE cockpit page:
+
+1. ENGINE SHARED, NOT COPIED — `client/src/cockpit/` (zoneModel, popout,
+   useCockpitLayout, useFlip, useTier, useNow, FloatWin, icons) is the bot
+   page's panel engine made generic over the panel id; `client/src/bot/*`
+   binds it (same DOM, classes and data-attributes, 17 bot tests unchanged,
+   BotPage 483 → 311 lines). 19 new engine tests.
+2. ONE PAGE, ONE SYMBOL — `client/src/trade/TradePage.tsx` + `zones.ts`:
+   KPI strip (price, ATM IV / RV, VRP, put/call, verdict, 52-week range),
+   panels options · stock (Research / Fundamentals / Earnings & sentiment
+   tabs) · smart money · structure · screener · watchlist · news · plan
+   (Trade plan / Taxes tabs) · ETF builder (loads on request). One look-up
+   box (`lib/activeTicker`, "/" focuses it) feeds every panel; the old
+   tabs stay as hash routes and phone tabs and only choose which panel to
+   zoom (`panelForTab`). Hold / pin / float / zoom work on every panel;
+   pop-out is off until the shell routes a Trade pane.
+3. NO DUPLICATES — every Trade page became a BODY component
+   (ScannerBody, NewsBody, WatchlistBody, ResearchBody, PlannerBody,
+   TaxesBody; analyze.tsx exports useAnalyze + its pieces +
+   AnalyzeEmptyState). The second scanner (`MarketScanner` inside
+   analyze.tsx, never rendered) is deleted; the four separate ticker
+   inputs collapse to one. The default page exports remain as thin
+   wrappers (header + body) and are no longer routed — removal rides the
+   dead-code PR.
+4. The moving world map stays the backdrop (TradeBackdrop): the cockpit
+   page is transparent (`.vt-bot-page[data-world="trade"]`).
+
+Evidence: tsc 6/6; counter ratchet OK with four improved pins locked
+(tests 701→709, assertions 25424→25658, ts_any 1220→1219) after one real
+regression fixed (`conflicting_const`: `ICONS` was defined twice — now a
+re-export); build OK; cockpit/nav/body tests 23/23 + engine 19 + bot 17;
+full suites and the visual harness (bot, botidle, botpane + nine Trade
+pages at 390/768/1440) running at the time of this entry — results and
+any fix follow in the next commit on the branch. STARVED: no.

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getActiveTicker } from "@/lib/activeTicker";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
@@ -66,15 +67,31 @@ function timeAgo(utcString: string): string {
   return `${days}d ago`;
 }
 
-// ── News Page ─────────────────────────────────────────────────────────────────
+// ── News Body ─────────────────────────────────────────────────────────────────
+// 2026-10-29: the list is its own component so the cockpit can place it in a
+// panel. A `ticker` from the host is the filter (the cockpit's one look-up
+// box owns the symbol); `showFilter` adds the typed, debounced filter the
+// page always had, seeded from `ticker`. The body owns the fetch, so the
+// story count, data age and Refresh live in its status row.
 
-export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
-  const [tickerFilter, setTickerFilter] = useState("");
-  const [debouncedTicker, setDebouncedTicker] = useState("");
+export function NewsBody({ ticker, onSelectTicker, showFilter }: {
+  ticker: string | null;
+  onSelectTicker: (ticker: string) => void;
+  showFilter?: boolean;
+}) {
+  const [tickerFilter, setTickerFilter] = useState(ticker ?? "");
+  const [debouncedTicker, setDebouncedTicker] = useState(ticker ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounce ticker input
+  // A new symbol from the host replaces whatever was typed here.
   useEffect(() => {
+    setTickerFilter(ticker ?? "");
+    setDebouncedTicker(ticker ?? "");
+  }, [ticker]);
+
+  // Debounce ticker input (only the typed filter needs it)
+  useEffect(() => {
+    if (!showFilter) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setDebouncedTicker(tickerFilter.trim().toUpperCase());
@@ -82,13 +99,15 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [tickerFilter]);
+  }, [tickerFilter, showFilter]);
+
+  const activeFilter = showFilter ? debouncedTicker : (ticker ?? "");
 
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery<NewsResponse>({
-    queryKey: ["/api/market/news", debouncedTicker],
+    queryKey: ["/api/market/news", activeFilter],
     queryFn: async () => {
-      const url = debouncedTicker
-        ? `/api/market/news?ticker=${encodeURIComponent(debouncedTicker)}`
+      const url = activeFilter
+        ? `/api/market/news?ticker=${encodeURIComponent(activeFilter)}`
         : `/api/market/news`;
       const res = await apiRequest("GET", url);
       return res.json();
@@ -103,24 +122,13 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
 
   return (
     <div>
-      {/* Page header */}
+      {/* Status + refresh */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1 }}>
-          <h1 style={{
-            fontSize: '1.4rem',
-            fontWeight: 700,
-            letterSpacing: '-0.02em',
-            color: 'var(--text-primary)',
-            marginBottom: '0.25rem'
-          }}>
-            Market News
-          </h1>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            {articles.length > 0 ? `${articles.length} stories` : 'Loading…'}
-            {lastUpdate && ` • Updated ${lastUpdate}`}
-            {' • Auto-refreshes every 5 min'}
-          </p>
-        </div>
+        <p style={{ flex: 1, margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          {isLoading ? 'Loading…' : `${articles.length} stories`}
+          {lastUpdate && ` • Updated ${lastUpdate}`}
+          {' • Auto-refreshes every 5 min'}
+        </p>
         <button
           onClick={() => refetch()}
           disabled={isFetching}
@@ -141,7 +149,8 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
         </button>
       </div>
 
-      {/* Ticker filter */}
+      {/* Ticker filter — only when this body owns the symbol */}
+      {showFilter && (
       <div style={{ position: 'relative', maxWidth: '320px', marginBottom: '1.25rem' }}>
         <Search
           size={15}
@@ -186,6 +195,7 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
           </button>
         )}
       </div>
+      )}
 
       {/* Content */}
       {isLoading && (
@@ -224,7 +234,7 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
 
       {!isLoading && !isError && articles.length === 0 && (
         <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-          {tickerFilter ? `No news found for ${tickerFilter}.` : 'No news available at this time.'}
+          {activeFilter ? `No news found for ${activeFilter}.` : 'No news available at this time.'}
         </div>
       )}
 
@@ -252,6 +262,35 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
       }}>
         News powered by Alpaca Markets · Sentiment derived from keywords · Not financial advice
       </p>
+    </div>
+  );
+}
+
+// ── News Page ─────────────────────────────────────────────────────────────────
+
+export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
+  // One symbol across the Trade world (lib/activeTicker): the filter opens
+  // on the name the user was just analyzing; clearing it shows the market.
+  const [seed] = useState(() => getActiveTicker() ?? "");
+
+  return (
+    <div>
+      {/* Page header */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <h1 style={{
+          fontSize: '1.4rem',
+          fontWeight: 700,
+          letterSpacing: '-0.02em',
+          color: 'var(--text-primary)',
+          marginBottom: '0.25rem'
+        }}>
+          Market News
+        </h1>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          Headlines across the market or for one symbol, with keyword-derived sentiment.
+        </p>
+      </div>
+      <NewsBody ticker={seed || null} onSelectTicker={onSelectTicker} showFilter />
     </div>
   );
 }
