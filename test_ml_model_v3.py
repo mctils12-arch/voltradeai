@@ -89,3 +89,81 @@ def test_dataset_is_chronological_point_in_time_and_full_window():
     d = data["dates"][k]
     served = f3.serve_features(stock, refs, ds[ds.index(d) + 1])
     assert np.allclose(np.array(f3.row_vector(served), dtype=np.float32), data["X"][k], equal_nan=True)
+
+
+# ── train/eval job, artifact, shadow score ─────────────────────────────────
+
+@pytest.fixture
+def v3_paths(tmp_path, monkeypatch):
+    d = tmp_path / "ml_v3"
+    for name, fn in (("CANDIDATE_MODEL_PATH", "cand.pkl"), ("EVAL_PATH", "eval.json"),
+                     ("STATE_PATH", "state.json"), ("BARS_PATH", "bars.json"),
+                     ("DATASET_PATH", "ds.pkl"), ("CV_PATH", "cv.pkl")):
+        monkeypatch.setattr(m3, name, str(d / fn))
+    monkeypatch.setattr(m3, "V3_DIR", str(d))
+    monkeypatch.setattr(m3, "_cache", {"bundle": None, "mtime": 0.0, "refs": None,
+                                       "refs_at": 0.0, "refs_err_at": 0.0})
+    return d
+
+
+def _universe_fixture():
+    ds, stock, refs = _fixture(n=560, seed=21)
+    bars = {"AAA": stock, "BBB": _series(ds, 30, 0.03, 31), "CCC": _series(ds, 120, 0.015, 41),
+            "DDD": _series(ds, 15, 0.035, 51), **refs}
+    return ds, bars
+
+
+def test_shadow_score_is_inert_without_a_candidate(v3_paths, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("no network call may happen without a candidate artifact")
+    monkeypatch.setattr(m3, "_alpaca_daily_bars", boom)
+    _, bars = _universe_fixture()
+    assert m3.shadow_score("AAA", bars["AAA"]) is None
+
+
+def test_staged_job_trains_evaluates_and_feeds_the_shadow_score(v3_paths):
+    pytest.importorskip("lightgbm")
+    pytest.importorskip("sklearn")
+    ds, bars = _universe_fixture()
+    fetched = []
+
+    def fake_fetch(symbols, start):
+        fetched.extend(symbols)
+        return {s: bars[s] for s in symbols if s in bars}
+
+    out = None
+    for _ in range(60):  # small budgets force the fetch/build/cv/final checkpoints
+        out = m3.run_job(time_budget_s=26, fetch=fake_fetch, symbols=["AAA", "BBB", "CCC", "DDD"])
+        assert "error" not in out, out
+        if out["done"]:
+            break
+    assert out["done"] and out["stage"] == "done"
+    assert set(fetched) >= {"SPY", "VXX", "TLT", "HYG", "AAA"}
+    rep = m3._load_json(m3.EVAL_PATH, None)
+    assert rep["role"] == "shadow_candidate" and rep["label_method"] == m3.LABEL_METHOD
+    assert rep["embargo_dates"] == m3.EMBARGO_DATES
+    assert rep["folds"]
+    for f in rep["folds"]:
+        assert f["early_stopping"] in ("inner_validation", "none_fixed_rounds")
+    for k in ("auc", "log_loss", "brier", "base_rate", "base_rate_log_loss"):
+        assert k in rep["pooled"]
+    assert rep["quintiles_net_return"]["quantiles"]
+    assert rep["variants_tried"] >= 1
+    # weekly cadence: a second call right after is idle
+    assert m3.run_job(time_budget_s=26, fetch=fake_fetch, symbols=["AAA"])["stage"] == "idle"
+    # the serve path scores a live-shaped request (today's partial bar present)
+    today = ds[-1]
+    sc = m3.shadow_score("AAA", bars["AAA"], ref_bars=bars, today_et=today)
+    assert sc is not None and 0.0 <= sc["v3_win_probability"] <= 1.0
+    assert sc["v3_model"] == m3.MODEL_NAME and sc["v3_asof"] == ds[-2]
+    st = m3.status()
+    assert st["candidate_exists"] and st["promoted"] is False and st["job_stage"] == "done"
+
+
+def test_shadow_trace_persists_the_v3_keys():
+    sp = pytest.importorskip("shadow_portfolio")
+    tr = sp.sanitize_ml_trace({"model_type": "lightgbm_neutral", "v3_win_probability": 0.512345,
+                               "v3_model": m3.MODEL_NAME, "v3_asof": "2026-10-26", "v3_error": None})
+    assert tr["v3_win_probability"] == 0.5123
+    assert tr["v3_model"] == m3.MODEL_NAME and tr["v3_asof"] == "2026-10-26"
+    assert tr["v3_error"] is None

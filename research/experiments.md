@@ -112197,3 +112197,59 @@ Downstream: (1) the v3 trainer/eval (next commit) fits on these labels;
 (2) nothing live reads them. Rollback: none needed (no live path).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — master plan (human directive 2026-10-27) — ML v3 candidate: train + honest OOS eval, shadow score, nightly job, diag probe (v1.0.1219)
+
+Human Phase 4 "Fix the model", step 5. The v3 candidate (honest CV,
+no earnings look-ahead, one PIT feature definition, exit-aligned label) is
+trained and evaluated SIDE BY SIDE with v2 and stays SHADOW ONLY: nothing
+that feeds the trading score reads it.
+
+What changed:
+- ml_model_v3.py: evaluate()/summarize() (pooled + per-fold + per-regime
+  AUC/log-loss/Brier vs base rate, raw calibration, net-return quintiles vs
+  the random-entry base rate, date-block bootstrap CIs, VARIANTS_TRIED
+  Bonferroni), train_final() (inner-validation early stopping on all rows +
+  isotonic calibrator fitted on the honest OOS probabilities), artifact at
+  DATA_DIR/ml_v3/voltrade_ml_v3_candidate.pkl ("promoted": False; never
+  ml_model_v2.MODEL_PATH); shadow_score() (serve path; returns None with no
+  network call until a candidate exists; SPY/VXX/TLT/HYG fetched once per
+  30 min); run_job(): staged + checkpointed fetch -> build -> cv (per fold)
+  -> final, each call <= time_budget_s, weekly (ML_V3_RETRAIN_DAYS).
+- bot_engine.deep_score: after v2's ml_score, the v3 probability is added
+  to _ml_trace (v3_win_probability / v3_model / v3_asof / v3_error) — it is
+  logged on the shadow record and read by nothing else; combined_score is
+  untouched. shadow_portfolio.sanitize_ml_trace persists those keys.
+- server/bot.ts checkMlV3CandidateJob: 5-min poll, 03-04 UTC, <= 20 calls a
+  night, command imports numpy so it holds the Python mutex with the 90s
+  cap (time_budget_s=60); audits ML-V3-JOB / ML-V3-JOB-ERROR.
+- diag probe "ml_v3": read-only passthrough of the eval report + job state
+  (Node reads the files; no Python, aggregate metrics only).
+- voltrade_daemon: ml_v3_job / ml_v3_status registered (not used by the
+  nightly path, same reasoning as shadow_backfill_exit_aligned).
+- system_config: ML_V3_RETRAIN_DAYS 7, ML_V3_LOOKBACK_DAYS 1400,
+  ML_V3_CV_SPLITS 5 (new keys, read only by ml_model_v3).
+- scripts/ml_v3_eval.py: session CLI (Alpaca if keys, else Yahoo, or --bars).
+- research/ml_v3_eval.md: the report.
+
+Result (Yahoo bars, 97 tickers, 66,833 rows, 55,775 OOS): AUC 0.499
+(CI 0.479-0.516), log-loss 0.6949 vs base-rate 0.6928, top-minus-bottom
+quintile -0.13 pts net (CI -0.79..+0.55), early stopping at 1-29 trees per
+fold. No out-of-sample skill; do not promote. Production numbers on Alpaca
+bars arrive via /api/diag/ml_v3 after the first nightly run.
+
+Downstream: (1) shadow records gain ml.v3_* keys (~60 bytes/record) for a
+forward test vs the exit-aligned outcome; (2) one extra Alpaca multi-symbol
+bars call per 30 min once a candidate exists, plus the nightly job's ~11
+calls a week. Scoring, sizing, orders: unchanged.
+Tests: test_ml_model_v3.py (+3: inert without a candidate — no network;
+staged job end-to-end under small budgets reaches done, writes report and
+artifact, then idles, and the serve path scores a live-shaped request;
+trace keys persist), server/mlV3CandidateJob.test.ts (4: real kill cap via
+bot.ts's own isTrivialPython/execPythonSerialized, interval, audits, v3
+never read by bot_engine, probe read-only). All fail before (absent).
+Rollback trigger: ML-V3-JOB-ERROR on 3 consecutive nights, any scan-latency
+regression attributable to the reference-bar fetch, or v3_error on > 5% of
+shadow records -> revert this commit (no live state depends on it).
+
+STARVED: no — master-plan queue in progress this session.

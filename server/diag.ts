@@ -373,6 +373,13 @@ export const DIAG_PROBES = [
   // and negative-GEX flag, refresh status. Aggregates only (no raw gex/dix/
   // price rows: DIX.csv licence unverified, gate 1 open). No query parameters.
   "squeeze_gex",
+  // ADDED 2026-10-27 (human Phase 4 "Fix the model"): the v3 CANDIDATE
+  // model's honest out-of-sample report + job state, read straight from the
+  // files ml_model_v3.py writes (DATA_DIR/ml_v3). The candidate is SHADOW
+  // ONLY; this is how a session judges it without the Railway volume.
+  // Aggregate metrics only (AUC, log-loss, quintile returns) — no ticker,
+  // no price. No query parameters.
+  "ml_v3",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
