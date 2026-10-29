@@ -43,5 +43,10 @@ FORM4_BULK_CHECKPOINT_PATH = os.path.join(DATA_DIR, "voltrade_form4_bulk_checkpo
 # load <PRICE_PANEL_DIR>/current.json -> <build_id>/bars/*.jsonl.gz). Not created here.
 PRICE_PANEL_DIR = os.path.join(DATA_DIR, "price_panel")
 
+# Weekly forecast screen (forecast.py, 2026-10-27, SHADOW): append-only JSONL
+# — the calls (+ one batch line per week) and, separately, their scores.
+FORECASTS_PATH = os.path.join(DATA_DIR, "voltrade_forecasts.jsonl")
+FORECAST_SCORES_PATH = os.path.join(DATA_DIR, "voltrade_forecast_scores.jsonl")
+
 # v2 ML model (clean 25-feature, self-learning)
 ML_MODEL_V2_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")

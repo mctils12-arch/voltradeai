@@ -33,6 +33,7 @@ import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry
 import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
+import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -2331,6 +2332,21 @@ print(json.dumps({
       );
       if (!r.success || !r.result || typeof r.result !== "object") return res.status(502).json({ error: "ledger report failed" });
       res.json(r.result);
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+  });
+
+  // Weekly forecast screen (2026-10-27, SHADOW): this week's calls for SPY,
+  // the open positions and the top scan candidates, their accuracy and their
+  // calibration — forecast.report() over the append-only store. Owner only
+  // (the calls name the open positions), read-only, daemon-first with the
+  // python3 -c fallback.
+  app.get("/api/forecast", requireOwner, async (_req, res) => {
+    try {
+      const r = await pythonCall("forecast_report", {}, FORECAST_REPORT_CMD, { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }, 15_000);
+      if (!r.success || !r.result || typeof r.result !== "object") return res.status(502).json({ error: "forecast report failed" });
+      res.json({ ...(r.result as Record<string, unknown>), via: r.via });
     } catch (e: unknown) {
       res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
     }
@@ -5309,6 +5325,66 @@ print(json.dumps(result))
     if (nowHour === 0) {
       _mlV3DoneToday = false;  // reset at midnight UTC
       _mlV3AttemptsToday = 0;
+    }
+  }
+
+  // Weekly forecast screen (2026-10-27, SHADOW — forecast.py, server/
+  // forecast.ts). Display + track only: nothing here feeds a trade. Like the
+  // shadow backfills it runs on its own unconditional poll, not inside Tier 3
+  // (Tier 3 needs state.active, and a latched kill switch must not blank the
+  // page's weekly calls). Generate: at most hourly; forecast.py returns
+  // "skipped" without any network call while this week's batch exists, so in
+  // practice one batch lands at the first poll after Friday's close (or the
+  // first run of a week, flagged late). Score: once per UTC day after 22:00.
+  // Both run as subprocesses behind execPythonSerialized's 90 s hard kill
+  // (their commands are pinned above the trivial-command cutoff).
+  let _forecastLastGenAttempt: number | null = null;
+  let _forecastLastScoredDay: string | null = null;
+  let _forecastRunning = false;
+  let _forecastIv: { day: string; rows: Array<{ u: string; iv30: number | null }> } | null = null;
+  async function checkForecasts() {
+    if (_forecastRunning) return;
+    _forecastRunning = true;
+    try {
+      const now = Date.now();
+      if (shouldAttemptGenerate(now, _forecastLastGenAttempt)) {
+        _forecastLastGenAttempt = now;
+        const tmp = forecastPayloadPath(now);
+        try {
+          const positions = await alpaca("/v2/positions");
+          if (!Array.isArray(positions)) throw new Error("positions unreadable — retrying next hour");
+          const top = Array.isArray(lastScanResult?.top_10) ? lastScanResult.top_10 : [];
+          const tickers = forecastUniverse(positions, top);
+          // chain IV30 for the newest archived day, derived once per day (chainIv.ts)
+          const days = listChainDays();
+          const ivDay = days.length ? days[days.length - 1] : null;
+          if (ivDay && _forecastIv?.day !== ivDay) _forecastIv = { day: ivDay, rows: (await iv30ForDays([ivDay], undefined, now, 1)).rows };
+          const payload: ForecastPayload = {
+            tickers, iv: ivDay && _forecastIv ? ivMapFrom(_forecastIv.rows, tickers.map((t) => t.symbol)) : {}, iv_day: ivDay,
+            candidates_available: top.length > 0, candidates_scan_at: lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null,
+            time_budget_s: FORECAST_TIME_BUDGET_S,
+          };
+          fs.writeFileSync(tmp, JSON.stringify(payload));
+          const r = await execPythonSerialized(forecastGenerateCmd(tmp), { timeout: FORECAST_JOB_TIMEOUT_MS });
+          const out = String(r.stdout).trim();
+          const parsed: { status?: string } = JSON.parse(out);
+          if (parsed.status !== "skipped") audit(parsed.status === "ok" ? "FORECAST-GENERATE" : "FORECAST-GENERATE-ERROR", out.slice(0, 300));
+        } catch (e: unknown) {
+          fs.rmSync(tmp, { force: true });
+          audit("FORECAST-GENERATE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+      }
+      if (shouldScore(now, _forecastLastScoredDay)) {
+        _forecastLastScoredDay = new Date(now).toISOString().slice(0, 10);
+        try {
+          const r = await execPythonSerialized(forecastScoreCmd(), { timeout: FORECAST_JOB_TIMEOUT_MS });
+          audit("FORECAST-SCORE", String(r.stdout).trim().slice(0, 300));
+        } catch (e: unknown) {
+          audit("FORECAST-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+      }
+    } finally {
+      _forecastRunning = false;
     }
   }
 
@@ -8640,6 +8716,10 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
   // v3 candidate model job (shadow only): same unconditional 5-minute poll.
   setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
+  // Weekly forecast screen (SHADOW): same unconditional poll pattern; the
+  // first check 2 minutes after boot so a fresh deploy's page is not empty.
+  setInterval(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 15 * 60 * 1000);
+  setTimeout(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 2 * 60 * 1000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;

@@ -355,6 +355,15 @@ class RPCDispatcher:
             # "compute": true}; never raises; serves the last persisted state when
             # VOLTRADE_REGIME_ENGINE is off. Subprocess fallback: the same function.
             "regime_state": ("regime_engine", "regime_state_rpc"),
+            # Weekly forecast screen (2026-10-27, SHADOW — forecast.py).
+            # bot.ts serves forecast_report on /api/forecast daemon-first with
+            # the python3 -c fallback. generate/score are registered so an RPC
+            # caller resolves the same entry points (READ BEFORE WRITE #4), but
+            # bot.ts runs them as subprocesses behind execPythonSerialized's
+            # hard kill (they fetch bars; a dispatch thread can't be killed).
+            "forecast_report": ("forecast", "report"),
+            "forecast_generate": ("forecast", "generate_weekly"),
+            "forecast_score": ("forecast", "score_matured"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:
