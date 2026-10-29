@@ -112116,3 +112116,45 @@ Rollback trigger: revert if a PIT earnings source is built (then re-add it
 point-in-time, never as a latest value).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — ML v3 candidate features: one point-in-time definition for train and serve (v1.0.1217)
+
+What was wrong (audit 2026-10-27 §4.1; ml_model_v2._compute_features vs
+bot_engine.deep_score ml_features): 9 of 34 features are constant/dead at
+serve (price_vs_52w_high and range_pct always 0 — quick_result never sets
+high_52w/range_pct; ewma_vol always 2 — analyze emits ewma_rv; the
+earnings/intel/news/insider/days_to_earnings constants; cross_sec_rank ~0.5),
+trend_strength is distorted by the constant ewma_vol, and 8+ features share a
+NAME but not a definition between paths (rsi_14, adx, change_pct_today partial
+day, volume_ratio 20d vs 5d/90d, idiosyncratic_ret, sector_momentum,
+vrp/iv_rank_proxy/put_call_proxy market-wide vs per-stock, iv_rank_stock,
+market_breadth proxy).
+
+What changed: new ml_features_v3.py (pure; numpy + live_exit_policy). ONE
+function (features_at) computes 24 features from COMPLETED daily bars and
+completed SPY/VXX/TLT/HYG bars; training_rows() calls it at every historical
+index, serve_features() calls it at the last completed bar after stripping the
+in-progress session from stock AND reference bars. Every feature has a fixed
+lookback (<= 252 bars; RSI/ADX/EWMA on fixed 100-bar windows) so a serve fetch
+of >= 253 bars reproduces the training value exactly. V2_FEATURE_DISPOSITION
+records, for each of the 34 v2 features, fixed / replaced / dropped and why
+(dropped: vrp, put_call_proxy, regime_score, cross_sec_rank, earnings_surprise,
+intel_score, news_sentiment, insider_signal, days_to_earnings, market_breadth,
+put_call_ratio — no PIT source on both paths, or redundant/non-stationary).
+
+LIVE v2 serving is untouched: deep_score's ml_features dict still feeds v2,
+which was trained on those values; changing them would move live scores. This
+module only feeds the shadow v3 candidate (later commits).
+
+Tests (test_ml_features_v3.py, 7): serving path == training path on the same
+fixture (stock calendar gap + VXX gap, today's partial bar present and
+stripped) bit-for-bit for every feature; no feature constant across a fixture
+batch; no row changes when later bars are removed (no look-ahead); serve
+returns None below 253 bars; frac_diff drift-pinned to v2._frac_diff; every v2
+feature has a disposition and dropped ones are absent. All fail before
+(module absent); the v2 serve dict would fail the zero-variance test by design.
+Measured: 7,100 real rows in 2.2s.
+Downstream: (1) ml_model_v3 dataset/labels consume training_rows; (2) the
+shadow score in deep_score consumes serve_features. Rollback: no live path.
+
+STARVED: no — master-plan queue in progress this session.
