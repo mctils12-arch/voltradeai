@@ -320,6 +320,11 @@ class RPCDispatcher:
             # actions get a shadow record (they never had one to relabel).
             # args {"rejections": [{ticker, decision, reason, metadata}]}.
             "csp_gate_shadow": ("tiered_strategy", "log_csp_gate_shadow"),
+            # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): bot.ts's
+            # would-be stock/ETF entries (executeTrades, morning queue, Tier-3
+            # BUY), ONE call per loop. args {"entries": [NodeShadowEntry]};
+            # python3 -c fallback reads the same payload from a temp file.
+            "entry_shadow_record": ("entry_shadow", "record_node_entries"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),

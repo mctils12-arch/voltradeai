@@ -72,6 +72,10 @@ class ScannerDirectStateTest(unittest.TestCase):
             json.dump({"ticker": "TSLA", "strategy": "iron_condor", "price": 445.0,
                        "equity": 100000, "setup": "high_iv_premium_sale"}, f)
         self.patches = [
+            # ENTRY SHADOW MODE (2026-10-28): this pins the LIVE submit path's
+            # state writes, so the options sleeve is explicitly live here
+            # (the shadowed path is test_entry_shadow.py's).
+            patch.dict(os.environ, {"VOLTRADE_SHADOW_ENTRIES": "off"}),
             patch.object(options_manager, "OPTIONS_STATE_PATH", self.state_path),
             # production: storage_config.DATA_DIR is the directory both
             # writers resolve, so the bot.ts block sees the same file

@@ -871,21 +871,27 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
 # "roll failed -> close" branch instead, so the position is exited, never
 # re-opened.
 ROLL_SKIPPED_HALTED_DETAIL = "roll skipped: entries halted (exits only)"
+# ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the same close-only path
+# while the options sleeve is shadowed — the close stays live, the would-be
+# re-open is logged by the caller (entry_shadow.roll_skip_entries).
+ROLL_SKIPPED_SHADOW_DETAIL = "roll skipped: options entries in shadow mode (close only)"
 
 
 def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: str,
-                  parsed: dict, equity: float) -> dict:
+                  parsed: dict, equity: float, skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     if not allow_rolls:
-        return {"rolled": False, "detail": ROLL_SKIPPED_HALTED_DETAIL}
+        return {"rolled": False, "detail": skip_detail}
     return _attempt_roll(occ_symbol, qty, current_side, parsed, equity)
 
 
-def manage_options_positions(equity: float = 100000, allow_rolls: bool = True) -> dict:
+def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
+                             roll_skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     """
     Professional options position management. Called every scan cycle.
 
-    allow_rolls=False (exits-only mode, used while a halt blocks entries):
-    every roll point closes the position instead of rolling it.
+    allow_rolls=False (exits-only mode, used while a halt blocks entries, and
+    while entry_shadow shadows the options sleeve): every roll point closes
+    the position instead of rolling it; roll_skip_detail names why.
 
     Checks every open options position for:
       1. DTE exit (21 DTE threshold)
@@ -1138,7 +1144,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True) -
                 dte <= 10):
             # Deep ITM sold option near expiry — high assignment risk
             # Try to roll first
-            roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity)
+            roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
             if roll_result.get("rolled"):
                 actions.append({
                     "action": "ROLL",
@@ -1182,7 +1188,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True) -
         if dte <= DTE_EXIT_THRESHOLD:
             if side == "short":
                 # Sold option at 21 DTE — try to roll
-                roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity)
+                roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
                 if roll_result.get("rolled"):
                     actions.append({
                         "action": "ROLL",
