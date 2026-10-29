@@ -74,7 +74,13 @@ export const CALL_TIMEOUT_MS = 30_000;
 export const SEGMENT_GAP_DAYS = 30;
 /** On a batch 403, retry with an end date up to this many days earlier before bisecting. */
 export const END_FALLBACK_DAYS = 3;
-export const PRICE_PANEL_MIN_FREE_BYTES = 1.5 * 1_073_741_824;
+// 2026-10-29 (human-ordered "lower the panel disk floor so it finishes"): was
+// 1.5 GiB, which paused the first build at 62% (288/466 batches, ~208 MB on
+// disk) with 1.53 GiB free. 1.25 GiB still leaves the archives their 1 GiB
+// margin plus 256 MiB; the remaining ~130 MB fits. The 30-day rebuild briefly
+// holds two builds (~2 x 340 MB) — grow the volume before then (wishlist
+// VOLUME CAPACITY). Env VOLTRADE_PRICE_PANEL_MIN_FREE_BYTES still overrides.
+export const PRICE_PANEL_MIN_FREE_BYTES = 1.25 * 1_073_741_824;
 export const PRICE_PANEL_MAX_BYTES = 600 * 1_048_576;
 export const PRICE_PANEL_REFRESH_DAYS = 30;
 export const WINDOW_START_MIN = 20 * 60 + 15;   // = the heartbeat dueMin, so every session counts for that night

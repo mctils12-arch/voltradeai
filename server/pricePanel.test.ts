@@ -410,3 +410,9 @@ test("resumed build created with a refused as_of (b20261029 case) is repaired be
   for (const s of seen.filter((x) => x.url.includes("/v2/stocks/bars"))) assert.ok(String(new URL(s.url).searchParams.get("end")) <= "2026-10-26");
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("disk floor: 1.25 GiB default (human-lowered 2026-10-29) keeps the archives' 1 GiB margin", async () => {
+  const { PRICE_PANEL_MIN_FREE_BYTES } = await import("./pricePanel");
+  assert.equal(PRICE_PANEL_MIN_FREE_BYTES, 1.25 * 1_073_741_824);
+  assert.ok(PRICE_PANEL_MIN_FREE_BYTES > 1_073_741_824, "never below the archives' 1 GiB margin");
+});

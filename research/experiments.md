@@ -112380,3 +112380,7 @@ The pre-registered event-reaction study (#1542) found no event type with tradeab
 ## 2026-10-29 [RESEARCH] — research/* docs only — MASTER STATUS: overnight push recorded
 
 research/master_status.md updated: overnight PR table (#1502–#1545), in-flight empty, waiting-on-Mike (old routines + Gmail, branch cleanup apply script, pre-2016 prices, shadow-mode switch, rule calls, 5.02 choice), parked-in-shadow table with read dates. Docs only, no version bump. STARVED: no.
+
+## 2026-10-29 [REPAIR] — server/pricePanel.ts (T-DATACORE) — v1.0.1232 PANEL DISK FLOOR 1.5 → 1.25 GiB (human-ordered)
+
+First 2016+ build paused at 62% (288/466 batches, ~208 MB, 12,514 symbols incl. 4,452 delisted) by its disk guard: 1.53 GiB free vs a 1.5 GiB floor. Human: "lower the panel disk floor so it finishes". 1.25 GiB keeps the archives' 1 GiB margin + 256 MiB; ~130 MB remains to write. Rollback trigger: free space under 1.25 GiB from other archives, or any archive write failure → revert / env override. The 30-day rebuild holds two builds briefly — grow the volume before ~2026-11-28. STARVED: no.
