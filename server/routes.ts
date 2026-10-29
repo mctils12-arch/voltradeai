@@ -132,6 +132,7 @@ import { firesNearFacilities } from "./firesFacilities";
 import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
+import { bootPricePanel } from "./pricePanel";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -2046,6 +2047,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // indicative honesty in every record + manifest). No-ops without Alpaca
   // creds; runs once per trading day after the close.
   bootChainArchive();
+
+  // Survivorship-reduced 2016+ daily price panel (human order 2026-10-28;
+  // server/pricePanel.ts): nightly 20:15-04:00 ET, paced, resumable, disk-
+  // guarded. VOLTRADE_PRICE_PANEL=0 disables; no-ops without Alpaca creds.
+  bootPricePanel();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side
