@@ -481,6 +481,19 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             </button>
           )}
 
+          {/* Dossier — owner-only: one ticker, market → sector → stock → options → events, ranges + trade plan.
+              Human 2026-10-29: it had no desktop button (only the AI Engine look-up box / phone More menu / URL). */}
+          {isOwner && (
+            <button
+              className={`tab-btn ${activeTab === "dossier" ? "active" : ""}`}
+              onClick={() => handleTabClick("dossier")}
+              aria-current={activeTab === "dossier" ? "page" : undefined}
+            >
+              <FileSearch size={14} />
+              Dossier
+            </button>
+          )}
+
           {/* AI Engine — owner-only, direct button (not part of either world) */}
           {isOwner && (
             <button
