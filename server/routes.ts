@@ -133,6 +133,7 @@ import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
 import { bootPricePanel } from "./pricePanel";
+import { bootWalkforward } from "./walkforward";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -2052,6 +2053,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // server/pricePanel.ts): nightly 20:15-04:00 ET, paced, resumable, disk-
   // guarded. VOLTRADE_PRICE_PANEL=0 disables; no-ops without Alpaca creds.
   bootPricePanel();
+
+  // Weekly long-term walk-forward of the stock score's price inputs over that
+  // panel (server/walkforward.ts; [RULE-REVIEW] measurement): Sat/Sun
+  // 06:00-16:00 ET, once per ISO week, own long-job lane (never the Python
+  // mutex or the daemon). VOLTRADE_WALKFORWARD=0 disables.
+  bootWalkforward();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side

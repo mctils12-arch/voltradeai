@@ -42,6 +42,10 @@ FORM4_BULK_CHECKPOINT_PATH = os.path.join(DATA_DIR, "voltrade_form4_bulk_checkpo
 # 2026-10-28 price panel (server/pricePanel.ts writes it nightly; Python readers
 # load <PRICE_PANEL_DIR>/current.json -> <build_id>/bars/*.jsonl.gz). Not created here.
 PRICE_PANEL_DIR = os.path.join(DATA_DIR, "price_panel")
+# 2026-10-29 long-term walk-forward of the stock score's price inputs over that
+# panel (walkforward.py, weekly via server/walkforward.ts): latest.json (last
+# success, read by the Brain page) + last_run.json (every run). Not created here.
+WALKFORWARD_DIR = os.path.join(DATA_DIR, "walkforward")
 
 # Weekly forecast screen (forecast.py, 2026-10-27, SHADOW): append-only JSONL
 # — the calls (+ one batch line per week) and, separately, their scores.

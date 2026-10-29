@@ -224,6 +224,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     },
     disabledReason: "VOLTRADE_PRICE_PANEL off or ALPACA_KEY/ALPACA_SECRET unset",
   },
+  {
+    // walkforward.ts bootWalkforward: 30-min tick, acts Sat/Sun 06:00-16:00 ET
+    // once per ISO week — a run (walkforward.py, up to 3 h) or, with no
+    // complete panel / a fresh result, one "skipped" beat. Either way a start
+    // lands every ~7 days; the 2-day grace covers a Saturday deploy gap.
+    id: "walkforward_weekly", label: "Long-term walk-forward of the stock score (weekly, Sat/Sun 06:00-16:00 ET)",
+    source: "server/walkforward.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 4 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_WALKFORWARD;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_WALKFORWARD off",
+  },
 ];
 
 // ── calendar ────────────────────────────────────────────────────────────────
