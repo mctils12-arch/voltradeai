@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine, EDGE-DOCTRINE axis pick) [REPAIR] — T-DATACORE (server/pricePanel.ts) — price panel first live build died HTTP 403: as_of was the UTC day before, not the ET day before (v1.0.1220)
+HEALTH: /api/health 200 ok; only alarm jobs=degraded -> `price_panel_build` errored "HTTP 403 (batch 0/466)" on its first-ever night (00:59Z). `bars_coverage` probe, run live, shows sip 403 `recent_sip_not_permitted` at end=2026-10-28 while iex 200 — and the same probe had sip 200 earlier that day with end=10-27.
+PRIOR: ~85% the cause is the as_of date rule (window opens 20:15 ET = 00:15 UTC, so UTC "yesterday" = the current ET date, which the free plan refuses as recent SIP); ~15% something batch-specific (multi-symbol, limit) that this does not fix.
+CHANGE: `panelAsOf(now)` = ET calendar date minus one; used for new builds' as_of. Test added (00:59Z -> 10-27, 05:00Z -> 10-28, midday unchanged). One existing assertion corrected, not weakened: the full-session test expected as_of 10-27 at 21:00 ET on 10-27 — i.e. it encoded the bug.
+RECOVERY: the pending building.json already carries as_of 2026-10-28; from tomorrow's 20:15 ET attempt that is ET-1 and valid, so no manual reset needed. VERIFY: next session checks /api/diag/price_panel `progress.next_batch` > 0 after the 10-29 night; if still 403, the cause is batch-specific — capture the vendor message class (do not re-patch the date rule; recurrence escalates).
+TESTS: pricePanel.test.ts 11/11; tsc errors 3 (baseline pin 12).
+AXIS: repair outranked axis pick (Repair Mandate); no axis item started. STARVED: no.
+MERGE: background job only, no trading path; safe any time.
+
 ## 2026-10-29 [PRODUCT] — T-DATACORE — Edge P1 `squeeze_gex` shadow stream: daily SqueezeMetrics GEX/DIX archive + trailing-252 rank R, internal only (v1.0.1208)
 TERRITORY: T-DATACORE (server/squeezeGex.ts + test, datacore/manifests/squeeze_gex.json). SHARED, last-commit minimal: server/bot.ts + diag.ts (probe `squeeze_gex`), routes.ts (boot line), package.json, registry rows, signal_ladder.json. Health at start: all OK (live 1.0.1207 == checkout, deploy_gate 2xx); thrash 3/10; only WARN the overdue CONSTITUTIONAL AUDIT (unanswered proposals, not re-run).
 PRIOR: ~95% the stream archives cleanly (source probed live, last row 2026-10-28); no behavior change anywhere else.
