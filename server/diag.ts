@@ -320,6 +320,13 @@ export const DIAG_PROBES = [
   // were only 148 ticker-days), so shadow_bands' n counts copies; this
   // probe's n counts events. Aggregate-only, same posture as shadow_bands.
   "shadow_bands_dedup",
+  // ADDED 2026-10-27 [RESEARCH] (Phase 5 "the brain"): source_validation.
+  // get_source_validation_report() — every data source (14 persisted score
+  // components + 34 model features) tested ALONE against +5d outcomes on the
+  // deduped first-seen (ticker, ET day) shadow population: Spearman IC with
+  // a day-clustered bootstrap CI, tercile spread, by regime, PASS/FAIL under
+  // Benjamini-Hochberg. Aggregate-only (no ticker, price or timestamp).
+  "source_validation",
   // ADDED 2026-10-13 (human-directed: "get back to me on who's visit[ed]
   // and signed up"): siteReport.ts's aggregateSiteReport() — signup and
   // waitlist COUNTS by day/tier/source, the API-key-holder count, and
