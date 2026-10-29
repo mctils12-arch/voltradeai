@@ -1,0 +1,1539 @@
+#!/usr/bin/env python3
+"""
+regime_engine.py — the single owner of market-regime state.
+
+PROGRAM: docs/regime/FINDINGS.md (AlphaDesk Market Regime & Volatility Engine,
+human directive 2026-10-27), Stage B step 2. Evidence: docs/regime/RESEARCH.md
+(§1.6, §2.1, §3.1, §4.3, §5, §6 ranks 1–12); what it replaces: docs/regime/
+AUDIT.md §2 (five regime vocabularies, none of them owned). Every number
+below is a documented starting value from the research, not a tuned result;
+scripts/regime_backtest.py evaluates this module's exposure path on the
+repo's own index bars (same code, one implementation).
+
+FLAGS: VOLTRADE_REGIME_ENGINE (env; "1"/"true"/"on") computes the state once
+per scan, persists and serves it; each consumer has its own flag
+(VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS). Since the
+2026-10-28 human directive every flag DEFAULTS ON through system_config
+BASE_CONFIG (REGIME_ENGINE_ENABLED, REGIME_SELECTION_DEFAULT,
+REGIME_OPTIONS_DEFAULT, REGIME_SIZING_DEFAULT, REGIME_LABELS_DEFAULT), read
+only when the env var is ABSENT; an env var that is present — "off", "0" or
+"" included — always wins (flag_raw), so rollback is an env var, no deploy.
+
+WHAT THE STATE IS
+  trend_state   UP / NEUTRAL / DOWN from the SLOW ensemble only: the share
+                of 120/160/200/240-day price-vs-SMA votes that are positive
+                (each vote has a ±1% band so it cannot flip on noise); UP at
+                >= 3 of 4, DOWN at <= 1 of 4, passed through the same 6-day
+                majority filter as the composite. This is the primary regime
+                and the flip budget (research: 0.5–2 changes a year; measured
+                2.7/yr on SPY 2007–2026 after the filter, 4.7 raw; alarm > 6).
+  fast_state    UP / MIXED / DOWN from the 22- and 65-day return signs (one
+                vote per horizon — never TSMOM and MA-cross on the same
+                horizon). Fast legs only DOWNGRADE exposure; they never set
+                the regime label (RESEARCH §4.3a).
+  vol_state     LOW / NORMAL / ELEVATED / CRISIS from the EWMA realized vol
+                of the gating index (20-day half-life) ranked against its own
+                history (LOW < 20th pct, ELEVATED ≥ 80th, CRISIS = ELEVATED
+                and (VIX/VIX3M > 1 or ≥ 95th pct)), each state left only 10
+                percentile points below its entry level (hysteresis).
+  vol_dial      min(1, σ_target / σ̂), σ_target = the index's own long-run
+                realized vol fixed ex ante (mean of σ̂ over the prior 2–10
+                years) — de-risk only, never levers up.
+  breadth_state HEALTHY / NARROW / WEAK = share of a fixed basket (11 sector
+                SPDRs + IWM + MDY) above its 200-day SMA; a caution flag and a
+                selection guard, never a sell trigger.
+  panic_state   gating index 24-month return < 0 AND 126-day variance in its
+                top quintile (Daniel–Moskowitz) — conditions stock selection.
+  composite     CALM_BULL / VOLATILE_BULL / CHOPPY / STRESSED / BEAR / CRISIS
+                by the decode table; passed through a 6-day majority filter.
+  exposure      exposure_multiplier ∈ {0, .25, .5, .75, 1} for NEW
+                discretionary risk = quarter-quantized
+                (0.5·f_slow + 0.25·f_fast + 0.25·breadth_bin) × vol_dial;
+                downgrades apply as soon as the filter clears, upgrades glide
+                +0.25 per 5 sessions (tranched, no calendar-day luck);
+                core_multiplier = max(0.5, exposure_continuous) for the index
+                floor sleeve — never fully out (RESEARCH §5.5).
+  plus          legacy_label (BULL/NEUTRAL/CAUTION/BEAR/PANIC for consumers
+                that only know the old vocabulary), allowed_strategies,
+                confidence, days_in_regime, pending_transition, flips_12m and
+                an alarm above 6 flips a year, stress_flags (VIX/VIX3M
+                inversion, VRP sign, 1-year VIX percentile, VVIX), the Fed
+                excess bond premium, and every input with its date and source.
+
+DATA. Daily closes via etf_data_sources.fetch_bars_alpaca (one batched call)
+with the Yahoo chart endpoint as the fallback and for the index family
+(^VIX, ^VIX3M, ^VVIX); the Fed EBP CSV monthly. Everything is cached for the
+day under storage_config.CACHE_DIR; the state and its history live in
+DATA_DIR (storage_config.REGIME_STATE_PATH / REGIME_HISTORY_PATH).
+
+NEVER: trades, places orders, edits a risk limit, or raises into the scan —
+regime_state_rpc / update_state return an error dict instead.
+"""
+from __future__ import annotations
+
+import collections
+import json
+import logging
+import math
+import os
+import statistics as st
+import time
+import urllib.request
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
+
+log = logging.getLogger("voltrade.regime")
+
+PARAMS_VERSION = "2026-10-28.1"
+
+SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLC", "XLRE"]
+BREADTH_BASKET = SECTOR_ETFS + ["IWM", "MDY"]
+CREDIT_PAIR = ["HYG", "IEF"]
+INDEX_FAMILY = ["^VIX", "^VIX3M", "^VVIX"]
+
+logger = logging.getLogger("voltrade.regime_engine")
+
+DEFAULT_PARAMS = {
+    # trend legs (RESEARCH §2.1, §4.3, §4.5: one vote per horizon, ensembled lookbacks)
+    "slow_horizons": (120, 160, 200, 240),
+    "fast_horizons": (22, 65),
+    "band": 0.01,                 # ±1% hysteresis band on every trend vote (STW/BLL; churn control only)
+    "trend_up": 0.75,             # trend_score >= -> UP
+    "trend_down": 0.25,           # trend_score <= -> DOWN
+    # volatility (RESEARCH §3.1: EWMA ~20-day half-life, act in the extreme quintile, cap 1)
+    "vol_halflife": 20,
+    "vol_warmup": 270,            # sessions before the dial may act (Harvey et al.)
+    "vol_pct_min_obs": 504,       # history needed before a percentile means anything
+    "vol_pct_window": 2520,       # ≤ 10 years of own history for the percentile
+    "vol_low_pct": 0.20,
+    "vol_elevated_pct": 0.80,
+    "vol_crisis_pct": 0.95,
+    "vol_exit_margin": 0.10,      # hysteresis: leave a vol state 10 percentile points below its entry level
+    "vol_target_min_obs": 504,    # σ_target = mean σ̂ over the prior [min_obs, window] sessions
+    "vol_target_window": 2520,
+    # breadth (RESEARCH §2.3: flag + guard, never a throttle)
+    "breadth_healthy": 0.60,
+    "breadth_weak": 0.40,
+    "breadth_min_members": 6,
+    # transitions (RESEARCH §4.3: 6-day majority filter; fast out, tranched in)
+    "filter_days": 6,
+    "upgrade_step": 0.25,
+    "upgrade_every": 5,
+    # panic state (RESEARCH §2.2, Daniel–Moskowitz)
+    "panic_lookback": 504,
+    "panic_var_window": 126,
+    "panic_var_pct": 0.80,
+    "panic_min_obs": 504,
+    # outputs
+    "core_floor": 0.50,           # never fully out on the index sleeve (RESEARCH §5.5)
+    "flip_alarm_12m": 6,          # ≈ the daily-200-day artefact rate (RESEARCH §4.3e)
+    "stale_market_days": 2,
+    "rv_window": 21,              # realized vol window for the VRP gauge
+}
+
+COMPOSITES = ("CALM_BULL", "VOLATILE_BULL", "CHOPPY", "STRESSED", "BEAR", "CRISIS")
+LEGACY_MAP = {"CALM_BULL": "BULL", "CHOPPY": "NEUTRAL", "VOLATILE_BULL": "CAUTION",
+              "STRESSED": "CAUTION", "BEAR": "BEAR", "CRISIS": "PANIC"}
+TRUTHY = ("1", "true", "on", "yes")
+
+
+# ── flags ────────────────────────────────────────────────────────────────────
+# Every flag is read the same way (2026-10-28 human directive: engine ON live,
+# all flags, defaults in code because the sandbox has no Railway access): the
+# env var WHEN IT IS PRESENT — any value, including "", "0" and "off" — wins;
+# only an ABSENT env var falls back to the system_config BASE_CONFIG default.
+# So a Railway env var of `off` rolls a flag back without a deploy.
+FLAG_DEFAULTS = {   # env var -> BASE_CONFIG key holding its default
+    "VOLTRADE_REGIME_ENGINE": "REGIME_ENGINE_ENABLED",
+    "VOLTRADE_REGIME_SELECTION": "REGIME_SELECTION_DEFAULT",
+    "VOLTRADE_REGIME_OPTIONS": "REGIME_OPTIONS_DEFAULT",
+    "VOLTRADE_REGIME_SIZING": "REGIME_SIZING_DEFAULT",
+    "VOLTRADE_REGIME_LABELS": "REGIME_LABELS_DEFAULT",
+}
+
+
+def _base_config() -> dict:
+    try:
+        from system_config import BASE_CONFIG
+        return BASE_CONFIG
+    except Exception as e:
+        log.warning(f"[REGIME] system_config unavailable ({e}); every regime flag without an env var reads OFF")
+        return {}
+
+
+def flag_raw(name, env=None, config=None):
+    """(raw value, source) of one regime flag: ('<env value>', 'env') when the env var is
+    present (`env.get(name) is not None`), else the BASE_CONFIG default as a string
+    (True -> '1', False/None -> '') with source 'config'."""
+    env = os.environ if env is None else env
+    v = env.get(name)
+    if v is not None:
+        return str(v), "env"
+    cfg = _base_config() if config is None else config
+    d = cfg.get(FLAG_DEFAULTS[name])
+    if d is True:
+        return "1", "config"
+    if d is None or d is False:
+        return "", "config"
+    return str(d), "config"
+
+
+def engine_allowed(env=None, config=None) -> bool:
+    """Pure gate: VOLTRADE_REGIME_ENGINE when the env var is set (any value; '0'/'off'/''
+    turn it off), else system_config BASE_CONFIG["REGIME_ENGINE_ENABLED"]."""
+    raw, _src = flag_raw("VOLTRADE_REGIME_ENGINE", env, config)
+    return raw.strip().lower() in TRUTHY
+
+
+def effective_flags(env=None, config=None) -> dict:
+    """{env var: {"value", "source"}} for every regime flag — what the consumers act on NOW
+    (logged on counterfactual rows and served by the report). Never raises."""
+    out = {}
+    for name in FLAG_DEFAULTS:
+        try:
+            raw, src = flag_raw(name, env, config)
+        except Exception as e:
+            raw, src = "", f"error: {str(e)[:60]}"
+        out[name] = {"value": raw, "source": src}
+    return out
+
+
+def params_with(overrides=None) -> dict:
+    p = dict(DEFAULT_PARAMS)
+    if overrides:
+        p.update(overrides)
+    return p
+
+
+# ── pure arithmetic ──────────────────────────────────────────────────────────
+def sma(values, i, n):
+    """Average of values[i-n+1..i]; None when there is not enough (non-None) history."""
+    if i < n - 1:
+        return None
+    window = values[i - n + 1:i + 1]
+    if any(v is None for v in window):
+        return None
+    return sum(window) / n
+
+
+def ewma_vol_series(closes, halflife):
+    """Annualized EWMA volatility of log returns, one value per close (None at index 0 and while closes are missing)."""
+    lam = 0.5 ** (1.0 / float(halflife))
+    var = None
+    out = [None] * len(closes)
+    for i in range(1, len(closes)):
+        a, b = closes[i], closes[i - 1]
+        if a is None or b is None or a <= 0 or b <= 0:
+            out[i] = math.sqrt(var * 252) if var else None
+            continue
+        r = math.log(a / b)
+        var = r * r if var is None else lam * var + (1 - lam) * r * r
+        out[i] = math.sqrt(var * 252)
+    return out
+
+
+def percentile_rank(history, x):
+    """Share of `history` values <= x (0..1); None when history is empty."""
+    vals = [h for h in history if h is not None]
+    if not vals or x is None:
+        return None
+    return sum(1 for h in vals if h <= x) / len(vals)
+
+
+def quantize_quarter(x):
+    return max(0.0, min(1.0, round(float(x) * 4) / 4))
+
+
+def majority(window, current):
+    """The label that > half of `window` agrees on, else `current` (hold)."""
+    if not window:
+        return current
+    counts = collections.Counter(window)
+    label, n = counts.most_common(1)[0]
+    return label if n * 2 > len(window) else current
+
+
+# ── signals ──────────────────────────────────────────────────────────────────
+def signal_series(dates, gating, basket, vix=None, vix3m=None, params=None):
+    """Per-day signal dicts for a gating index.
+
+    dates    : ascending trading dates
+    gating   : closes of the gating index aligned to `dates` (None allowed before inception)
+    basket   : {symbol: closes aligned to dates} for the breadth basket (None before inception)
+    vix/vix3m: closes aligned to dates (or None lists) — the index family may be absent
+    """
+    p = params_with(params)
+    n = len(dates)
+    if len(gating) != n:
+        raise ValueError("gating closes must align to dates")
+    vix = vix or [None] * n
+    vix3m = vix3m or [None] * n
+    sig = ewma_vol_series(gating, p["vol_halflife"])
+    slow_state = {h: 1 for h in p["slow_horizons"]}
+    fast_state = {h: 1 for h in p["fast_horizons"]}
+    var_hist = []
+    out = []
+    for i in range(n):
+        c = gating[i]
+        # ── trend votes with a hysteresis band ──
+        votes = []
+        for h in p["slow_horizons"]:
+            m = sma(gating, i, h)
+            if m is None or c is None:
+                votes.append(slow_state[h])
+                continue
+            x = c / m - 1.0
+            s = slow_state[h]
+            if s == 1 and x < -p["band"]:
+                s = 0
+            elif s == 0 and x > p["band"]:
+                s = 1
+            slow_state[h] = s
+            votes.append(s)
+        f_slow = sum(votes) / len(votes)
+        m200 = sma(gating, i, 200)
+        above_200 = (c > m200) if (m200 is not None and c is not None) else None
+        hi_win = [x for x in gating[max(0, i - 251):i + 1] if x is not None]
+        dd52 = (c / max(hi_win) - 1.0) if (c is not None and hi_win) else None
+        fv = []
+        for h in p["fast_horizons"]:
+            if i < h or c is None or gating[i - h] is None:
+                fv.append(fast_state[h])
+                continue
+            x = c / gating[i - h] - 1.0
+            s = fast_state[h]
+            if s == 1 and x < -p["band"]:
+                s = 0
+            elif s == 0 and x > p["band"]:
+                s = 1
+            fast_state[h] = s
+            fv.append(s)
+        f_fast = sum(fv) / len(fv)
+        trend_score = 0.5 * f_slow + 0.25 * fv[0] + 0.25 * fv[1] if len(fv) == 2 else 0.5 * f_slow + 0.5 * f_fast
+        # ── breadth ──
+        up = tot = 0
+        for sym, closes in basket.items():
+            m = sma(closes, i, 200)
+            if m is None or closes[i] is None:
+                continue
+            tot += 1
+            up += 1 if closes[i] > m else 0
+        breadth = (up / tot) if tot >= p["breadth_min_members"] else None
+        breadth_bin = quantize_quarter(breadth) if breadth is not None else 1.0
+        # ── volatility state and dial ──
+        s_now = sig[i]
+        lo = max(0, i - p["vol_pct_window"])
+        hist = [v for v in sig[lo:i] if v is not None]
+        vol_pct = percentile_rank(hist, s_now) if (s_now is not None and len(hist) >= p["vol_pct_min_obs"]) else None
+        t_hist = [v for v in sig[max(0, i - p["vol_target_window"]):i] if v is not None]
+        sigma_target = (sum(t_hist) / len(t_hist)) if len(t_hist) >= p["vol_target_min_obs"] else None
+        if s_now and sigma_target and i >= p["vol_warmup"]:
+            m_vol = min(1.0, sigma_target / s_now)
+        else:
+            m_vol = 1.0
+        # ── VIX family ──
+        v, v3 = vix[i], vix3m[i]
+        ts = (v / v3) if (v and v3) else None
+        rv = None
+        w = p["rv_window"]
+        if i >= w and all(gating[t] is not None for t in range(i - w, i + 1)):
+            rets = [math.log(gating[t] / gating[t - 1]) for t in range(i - w + 1, i + 1)]
+            rv = st.pstdev(rets) * math.sqrt(252) * 100.0
+        vrp = (v - rv) if (v is not None and rv is not None) else None
+        vix_hist = [x for x in vix[max(0, i - 251):i + 1] if x is not None]
+        vix_pct_1y = percentile_rank(vix_hist, v) if (v is not None and len(vix_hist) >= 126) else None
+        # ── panic state ──
+        lb, vw = p["panic_lookback"], p["panic_var_window"]
+        mom = (c / gating[i - lb] - 1.0) if (i >= lb and c is not None and gating[i - lb]) else None
+        var126 = None
+        if i >= vw and all(gating[t] is not None for t in range(i - vw, i + 1)):
+            rets = [math.log(gating[t] / gating[t - 1]) for t in range(i - vw + 1, i + 1)]
+            var126 = st.pvariance(rets)
+        var_pct = percentile_rank(var_hist, var126) if (var126 is not None and len(var_hist) >= p["panic_min_obs"]) else None
+        if var126 is not None:
+            var_hist.append(var126)
+        panic = bool(mom is not None and mom < 0 and var_pct is not None and var_pct >= p["panic_var_pct"])
+        out.append({
+            "f_slow": f_slow, "f_fast": f_fast, "trend_score": trend_score,
+            "breadth": breadth, "breadth_bin": breadth_bin,
+            "sigma": s_now, "sigma_target": sigma_target, "vol_pct": vol_pct, "m_vol": m_vol,
+            "ts": ts, "rv": rv, "vrp": vrp, "vix": v, "vix_pct_1y": vix_pct_1y,
+            "mom24m": mom, "var126_pct": var_pct, "panic": panic, "above_200d": above_200, "dd52": dd52,
+        })
+    return out
+
+
+def trend_state_of(f_slow, params=None):
+    """PRIMARY trend from the slow ensemble only (share of 120–240-day votes positive):
+    UP at >= 3 of 4, DOWN at <= 1 of 4. The fast legs never set the regime label —
+    they downgrade EXPOSURE (RESEARCH §4.3a: fast out as signal speed, slow leg re-enters)."""
+    p = params_with(params)
+    if f_slow >= p["trend_up"]:
+        return "UP"
+    if f_slow <= p["trend_down"]:
+        return "DOWN"
+    return "NEUTRAL"
+
+
+def fast_state_of(f_fast):
+    """The 22/65-day legs: DOWN when both are negative, UP when both positive, else MIXED."""
+    if f_fast <= 0.0:
+        return "DOWN"
+    if f_fast >= 1.0:
+        return "UP"
+    return "MIXED"
+
+
+def vol_state_of(vol_pct, ts, prev=None, params=None):
+    """Volatility state with hysteresis: a state is entered at its threshold and left
+    only `vol_exit_margin` below it (LOW is the mirror), so a percentile hovering at a
+    boundary does not flip the label every few days."""
+    p = params_with(params)
+    if vol_pct is None:
+        return "NORMAL"
+    m = p["vol_exit_margin"]
+    inverted = bool(ts is not None and ts > 1.0)
+    crisis_in = vol_pct >= p["vol_elevated_pct"] and (inverted or vol_pct >= p["vol_crisis_pct"])
+    crisis_hold = prev == "CRISIS" and vol_pct >= p["vol_elevated_pct"] - m and (inverted or vol_pct >= p["vol_crisis_pct"] - m)
+    if crisis_in or crisis_hold:
+        return "CRISIS"
+    elevated_in = vol_pct >= p["vol_elevated_pct"]
+    elevated_hold = prev in ("ELEVATED", "CRISIS") and vol_pct >= p["vol_elevated_pct"] - m
+    if elevated_in or elevated_hold:
+        return "ELEVATED"
+    low_in = vol_pct < p["vol_low_pct"]
+    low_hold = prev == "LOW" and vol_pct < p["vol_low_pct"] + m
+    if low_in or low_hold:
+        return "LOW"
+    return "NORMAL"
+
+
+def breadth_state_of(breadth, params=None):
+    p = params_with(params)
+    if breadth is None:
+        return None
+    if breadth >= p["breadth_healthy"]:
+        return "HEALTHY"
+    if breadth < p["breadth_weak"]:
+        return "WEAK"
+    return "NARROW"
+
+
+def decode(trend_state, vol_state):
+    """The documented decode table (docs/regime/FINDINGS.md step 2)."""
+    if vol_state == "CRISIS":
+        return "CRISIS"
+    if trend_state == "UP":
+        return "VOLATILE_BULL" if vol_state == "ELEVATED" else "CALM_BULL"
+    if trend_state == "NEUTRAL":
+        return "STRESSED" if vol_state == "ELEVATED" else "CHOPPY"
+    return "BEAR"
+
+
+def legacy_label(composite):
+    return LEGACY_MAP.get(composite, "NEUTRAL")
+
+
+def allowed_strategies(composite, breadth_state, panic):
+    """What the state permits to OPEN (nothing here closes anything)."""
+    if composite == "CALM_BULL":
+        out = ["momentum_long", "csp"]
+        if breadth_state == "HEALTHY":
+            out.append("dip_buy")
+    elif composite == "VOLATILE_BULL":
+        out = ["momentum_long", "csp_reduced"]
+    elif composite == "CHOPPY":
+        out = ["momentum_long", "csp"]
+        if breadth_state == "HEALTHY":
+            out.append("dip_buy")
+    elif composite == "STRESSED":
+        out = ["csp_reduced"]
+    elif composite == "BEAR":
+        out = ["csp_reduced"]
+    else:
+        out = []
+    if panic and "momentum_long" in out:
+        out.remove("momentum_long")
+    return out
+
+
+# ── transitions ──────────────────────────────────────────────────────────────
+def run_states(signals, params=None):
+    """Daily state machine over a signal series: majority-filtered composite and
+    exposure level, downgrade-fast / upgrade-glide exposure, flips and dwell."""
+    p = params_with(params)
+    k = max(1, int(p["filter_days"]))
+    comp_win = collections.deque(maxlen=k)
+    lvl_win = collections.deque(maxlen=k)
+    trend_win = collections.deque(maxlen=k)
+    trend_f = None         # the majority-filtered PRIMARY trend label (the flip budget counts this)
+    composite = None
+    level = 1.0
+    target = 1.0
+    last_upgrade_i = -10 ** 9
+    days_in = 0
+    changes = []           # indices where the (filtered) composite changed
+    trend_changes = []     # indices where the PRIMARY trend state changed (the flip budget)
+    prev_trend = None
+    prev_vs = None
+    out = []
+    for i, s in enumerate(signals):
+        ts_raw = trend_state_of(s["f_slow"], p)
+        trend_win.append(ts_raw)
+        ts_ = ts_raw if trend_f is None else majority(list(trend_win), trend_f)
+        trend_f = ts_
+        vs = vol_state_of(s["vol_pct"], s["ts"], prev_vs, p)
+        prev_vs = vs
+        raw = decode(ts_raw, vs)
+        comp_win.append(raw)
+        new_comp = raw if composite is None else majority(list(comp_win), composite)
+        if composite is None:
+            composite, days_in = new_comp, 1
+        elif new_comp != composite:
+            composite, days_in = new_comp, 1
+            changes.append(i)
+        else:
+            days_in += 1
+        if prev_trend is not None and ts_ != prev_trend:
+            trend_changes.append(i)
+        prev_trend = ts_
+        raw_level = quantize_quarter(0.5 * s["f_slow"] + 0.25 * s["f_fast"] + 0.25 * s["breadth_bin"])
+        lvl_win.append(raw_level)
+        agreed = majority(list(lvl_win), target) if i >= k - 1 else raw_level
+        if agreed < level:                      # fast out: once the filter clears
+            level, target = agreed, agreed
+        elif agreed > level:                    # slow in: glide a quarter every `upgrade_every` sessions
+            target = agreed
+            if i - last_upgrade_i >= p["upgrade_every"]:
+                level = min(target, level + p["upgrade_step"])
+                last_upgrade_i = i
+        else:
+            target = agreed
+        exposure_c = level * s["m_vol"]
+        exposure_q = quantize_quarter(exposure_c)
+        core = max(p["core_floor"], exposure_c)
+        flips_12m = sum(1 for c in trend_changes if c > i - 252)
+        composite_changes_12m = sum(1 for c in changes if c > i - 252)
+        votes_agree = sum(1 for c in comp_win if c == composite) / len(comp_win)
+        pending = None
+        if raw != composite:
+            pending = {"candidate": raw, "votes": sum(1 for c in comp_win if c == raw), "needed": k // 2 + 1, "window": len(comp_win)}
+        out.append({
+            "trend_state": ts_, "trend_state_raw": ts_raw, "fast_state": fast_state_of(s["f_fast"]), "vol_state": vs,
+            "raw_composite": raw, "composite": composite,
+            "level": level, "level_target": target, "exposure_continuous": exposure_c,
+            "exposure_multiplier": exposure_q, "core_multiplier": core, "days_in_regime": days_in,
+            "flips_12m": flips_12m, "composite_changes_12m": composite_changes_12m,
+            "votes_agree": votes_agree, "pending_transition": pending,
+        })
+    return out
+
+
+# ── state object ─────────────────────────────────────────────────────────────
+@dataclass
+class RegimeState:
+    as_of: str
+    gating_index: str
+    trend_state: str
+    fast_state: str
+    vol_state: str
+    breadth_state: str | None
+    breadth_universe: float | None
+    composite_regime: str
+    legacy_label: str
+    exposure_multiplier: float
+    exposure_continuous: float
+    core_multiplier: float
+    vol_dial: float
+    allowed_strategies: list
+    confidence: float
+    days_in_regime: int
+    pending_transition: dict | None
+    flips_12m: int
+    composite_changes_12m: int
+    alarm: bool
+    panic_state: bool
+    stress_flags: dict
+    ebp: dict | None
+    inputs: dict
+    data_quality: dict
+    params_version: str = PARAMS_VERSION
+    computed_at: str = ""
+    stale: bool = False
+    engine: str = "regime_engine"
+
+
+def state_from_series(dates, signals, states, gating="SPY", sources=None, ebp=None,
+                      breadth_universe=None, params=None, quality_factor=1.0):
+    """The RegimeState for the last day of a computed series."""
+    p = params_with(params)
+    i = len(dates) - 1
+    s, r = signals[i], states[i]
+    breadth_state = breadth_state_of(s["breadth"], p)
+    comp = r["composite"]
+    stress = {
+        "vix": s["vix"], "vix_vix3m": s["ts"], "vix_vix3m_inverted": bool(s["ts"] is not None and s["ts"] > 1.0),
+        "vrp_points": s["vrp"], "vrp_negative": bool(s["vrp"] is not None and s["vrp"] < 0),
+        "vix_pct_1y": s["vix_pct_1y"], "vvix": (sources or {}).get("vvix_latest"),
+        "realized_vol_21d_pct": s["rv"], "ewma_vol_pct": (s["sigma"] * 100.0) if s["sigma"] else None,
+        "vol_pct_own_history": s["vol_pct"], "sigma_target_pct": (s["sigma_target"] * 100.0) if s["sigma_target"] else None,
+    }
+    conf = round(min(1.0, max(0.0, r["votes_agree"] * quality_factor)), 3)
+    return RegimeState(
+        as_of=dates[i], gating_index=gating,
+        trend_state=r["trend_state"], fast_state=r["fast_state"], vol_state=r["vol_state"], breadth_state=breadth_state,
+        breadth_universe=breadth_universe, composite_regime=comp, legacy_label=legacy_label(comp),
+        exposure_multiplier=r["exposure_multiplier"], exposure_continuous=round(r["exposure_continuous"], 4),
+        core_multiplier=round(r["core_multiplier"], 4), vol_dial=round(s["m_vol"], 4),
+        allowed_strategies=allowed_strategies(comp, breadth_state, s["panic"]),
+        confidence=conf, days_in_regime=r["days_in_regime"], pending_transition=r["pending_transition"],
+        flips_12m=r["flips_12m"], composite_changes_12m=r["composite_changes_12m"],
+        alarm=bool(r["flips_12m"] > p["flip_alarm_12m"]), panic_state=bool(s["panic"]),
+        stress_flags=stress, ebp=ebp,
+        inputs={"f_slow": s["f_slow"], "f_fast": s["f_fast"], "trend_score": round(s["trend_score"], 4),
+                "above_200d": s["above_200d"], "gating_dd52": (round(s["dd52"], 4) if s["dd52"] is not None else None),
+                "breadth": s["breadth"], "breadth_bin": s["breadth_bin"], "mom24m": s["mom24m"],
+                "var126_pct": s["var126_pct"], "level": r["level"], "level_target": r["level_target"],
+                "raw_composite": r["raw_composite"], "sessions": len(dates), "first_date": dates[0],
+                "sources": sources or {}},
+        data_quality={"quality_factor": quality_factor, "votes_agree": round(r["votes_agree"], 3)},
+        computed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+
+
+def compute_state(dates, gating_closes, basket, vix=None, vix3m=None, gating="SPY", sources=None,
+                  ebp=None, breadth_universe=None, params=None, quality_factor=1.0):
+    """Pure: inputs in, RegimeState out (no I/O)."""
+    signals = signal_series(dates, gating_closes, basket, vix, vix3m, params)
+    states = run_states(signals, params)
+    return state_from_series(dates, signals, states, gating, sources, ebp, breadth_universe, params, quality_factor)
+
+
+def exposure_paths(dates, gating_closes, basket, vix=None, vix3m=None, params=None):
+    """For scripts/regime_backtest.py: (continuous, quantized, core, composites) aligned to dates."""
+    signals = signal_series(dates, gating_closes, basket, vix, vix3m, params)
+    states = run_states(signals, params)
+    return ([r["exposure_continuous"] for r in states], [r["exposure_multiplier"] for r in states],
+            [r["core_multiplier"] for r in states], [r["composite"] for r in states])
+
+
+# ── inputs (I/O) ─────────────────────────────────────────────────────────────
+def _cache_dir():
+    try:
+        from storage_config import CACHE_DIR
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        return CACHE_DIR
+    except Exception as e:
+        log.debug(f"storage_config CACHE_DIR unavailable ({e}); using /tmp")
+        return "/tmp"
+
+
+def _read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError) as e:
+        log.debug(f"read {path}: {e}")
+        return None
+
+
+def _write_json(path, payload):
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(payload, f, default=str)
+    os.replace(tmp, path)
+
+
+def _yahoo_closes(symbol, days, timeout=20):
+    """{date: close} from the Yahoo chart endpoint (the same path backtest_v2 falls back to)."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.request.quote(symbol)}"
+           f"?period1={int(start.timestamp())}&period2={int(end.timestamp())}&interval=1d")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    raw = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+    res = raw["chart"]["result"][0]
+    stamps = res["timestamp"]
+    closes = res["indicators"]["quote"][0]["close"]
+    out = {}
+    for t, c in zip(stamps, closes):
+        if c is None:
+            continue
+        out[datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")] = float(c)
+    return out
+
+
+def fetch_closes(symbols, days=3800, fetch_alpaca=None, fetch_yahoo=None):
+    """{symbol: {date: close}} plus {symbol: source}. Alpaca batch first (equities),
+    Yahoo for anything missing and for the index family. Pure w.r.t. the injected fetchers."""
+    sources = {}
+    out = {}
+    equities = [s for s in symbols if not s.startswith("^")]
+    if fetch_alpaca is None:
+        def fetch_alpaca(syms, d):
+            from etf_data_sources import fetch_bars_alpaca
+            return fetch_bars_alpaca(syms, d)
+    if fetch_yahoo is None:
+        fetch_yahoo = _yahoo_closes
+    got = {}
+    if equities:
+        try:
+            got = fetch_alpaca(equities, days) or {}
+        except Exception as e:
+            log.warning(f"[REGIME] alpaca bars failed: {e}")
+            got = {}
+    for sym in equities:
+        rows = got.get(sym)
+        if rows:
+            out[sym] = {d: float(c) for d, c in rows}
+            sources[sym] = "alpaca"
+    for sym in symbols:
+        if sym in out:
+            continue
+        try:
+            out[sym] = fetch_yahoo(sym, days)
+            sources[sym] = "yahoo"
+        except Exception as e:
+            log.warning(f"[REGIME] yahoo closes failed for {sym}: {e}")
+            sources[sym] = "missing"
+    return out, sources
+
+
+def fetch_ebp(timeout=10, fetch=None):
+    """Latest Fed excess-bond-premium row ({date, ebp, est_prob}) or None. Cached 7 days."""
+    cache = os.path.join(_cache_dir(), "regime_ebp.json")
+    cached = _read_json(cache)
+    if cached and time.time() - float(cached.get("fetched_at", 0)) < 7 * 86400:
+        return cached.get("row")
+    url = "https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv"
+    try:
+        if fetch is None:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            text = urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
+        else:
+            text = fetch(url)
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        header = [h.strip().lower() for h in lines[0].split(",")]
+        last = [x.strip() for x in lines[-1].split(",")]
+        row = dict(zip(header, last))
+        out = {"date": row.get("date"), "ebp": float(row["ebp"]) if row.get("ebp") else None,
+               "est_prob": float(row["est_prob"]) if row.get("est_prob") else None, "source": "federalreserve.gov"}
+        _write_json(cache, {"fetched_at": time.time(), "row": out})
+        return out
+    except Exception as e:
+        log.warning(f"[REGIME] EBP fetch failed: {e}")
+        return cached.get("row") if cached else None
+
+
+def align(series_by_symbol, anchor):
+    """Dates of the anchor series; every series forward-filled onto them (None before inception)."""
+    dates = sorted(series_by_symbol[anchor])
+    out = {}
+    for sym, s in series_by_symbol.items():
+        vals = []
+        last = None
+        for d in dates:
+            v = s.get(d)
+            if v is not None:
+                last = v
+            vals.append(last)
+        out[sym] = vals
+    return dates, out
+
+
+def build_inputs(gating="SPY", days=3800, fetch_alpaca=None, fetch_yahoo=None, use_cache=True, ebp=True):
+    """Everything compute_state needs, fetched once per day and cached.
+    Returns dict(dates, gating, basket, vix, vix3m, sources, ebp, vvix_latest, cache_hit)."""
+    symbols = [gating] + [s for s in BREADTH_BASKET if s != gating] + CREDIT_PAIR + INDEX_FAMILY
+    cache = os.path.join(_cache_dir(), f"regime_bars_{gating}.json")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cached = _read_json(cache) if use_cache else None
+    if cached and cached.get("day") == today and cached.get("closes", {}).get(gating):
+        closes, sources, hit = cached["closes"], cached.get("sources", {}), True
+    else:
+        closes, sources = fetch_closes(symbols, days, fetch_alpaca, fetch_yahoo)
+        hit = False
+        if use_cache and closes.get(gating):
+            try:
+                _write_json(cache, {"day": today, "closes": closes, "sources": sources})
+            except OSError as e:
+                log.debug(f"[REGIME] bars cache write failed: {e}")
+    if not closes.get(gating):
+        raise RuntimeError(f"no closes for the gating index {gating}")
+    dates, aligned = align(closes, gating)
+    basket = {s: aligned[s] for s in BREADTH_BASKET if s in aligned and s != gating}
+    vvix = closes.get("^VVIX") or {}
+    return {
+        "dates": dates, "gating": aligned[gating], "basket": basket,
+        "vix": aligned.get("^VIX"), "vix3m": aligned.get("^VIX3M"),
+        "sources": dict(sources, vvix_latest=(vvix[max(vvix)] if vvix else None)),
+        "ebp": fetch_ebp() if ebp else None, "cache_hit": hit,
+    }
+
+
+def quality_factor_of(sources, dates, today=None):
+    """1.0 when everything is fresh; lower when the index family is missing or the bars are stale."""
+    q = 1.0
+    if sources.get("^VIX") == "missing" or sources.get("^VIX3M") == "missing":
+        q *= 0.7
+    if dates:
+        today = today or datetime.now(timezone.utc).date()
+        last = datetime.strptime(dates[-1], "%Y-%m-%d").date()
+        if (today - last).days > 5:
+            q *= 0.5
+    return q
+
+
+# ── persistence ──────────────────────────────────────────────────────────────
+def _paths():
+    try:
+        from storage_config import REGIME_STATE_PATH, REGIME_HISTORY_PATH
+        return REGIME_STATE_PATH, REGIME_HISTORY_PATH
+    except Exception:
+        from storage_config import DATA_DIR
+        return (os.path.join(DATA_DIR, "voltrade_regime_state.json"),
+                os.path.join(DATA_DIR, "voltrade_regime_history.jsonl"))
+
+
+def load_state(path=None):
+    path = path or _paths()[0]
+    return _read_json(path)
+
+
+def save_state(state_dict, path=None, history_path=None):
+    """Persist the latest state; append one history line per NEW as_of date. Returns {'saved', 'appended'}."""
+    sp, hp = _paths()
+    path = path or sp
+    history_path = history_path or hp
+    prev = _read_json(path)
+    _write_json(path, state_dict)
+    appended = False
+    if not prev or prev.get("as_of") != state_dict.get("as_of") or prev.get("composite_regime") != state_dict.get("composite_regime"):
+        with open(history_path, "a") as f:
+            f.write(json.dumps(state_dict, default=str) + "\n")
+        appended = True
+    return {"saved": True, "appended": appended, "previous": prev}
+
+
+def read_history(history_path=None, limit=400):
+    hp = history_path or _paths()[1]
+    try:
+        with open(hp) as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    rows = []
+    for ln in lines[-limit:]:
+        try:
+            rows.append(json.loads(ln))
+        except ValueError:
+            log.debug("[REGIME] skipping a malformed history line")
+    return rows
+
+
+def state_age_market_days(state, today=None):
+    """Approximate market days between the state's as_of and today (weekdays only)."""
+    if not state or not state.get("as_of"):
+        return None
+    today = today or datetime.now(timezone.utc).date()
+    if isinstance(today, str):
+        today = datetime.strptime(today[:10], "%Y-%m-%d").date()
+    d = datetime.strptime(state["as_of"][:10], "%Y-%m-%d").date()
+    n = 0
+    while d < today:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n += 1
+    return n
+
+
+# ── consumer: stock selection (docs/regime/FINDINGS.md step 4) ───────────────
+SELECTION_GUARDS = ("knife", "dip", "panic", "rs", "breadth")
+SELECTION_PARAMS = {
+    "knife_high_frac": 0.75,        # price below 75% of its 252-day high = momentum-crash fuel, not value (George & Hwang)
+    "knife_low_window": 20,         # a close at a new 20-day low is a falling knife (practitioner guard, counterfactual-logged)
+    "rs_block_pct": -10.0,          # 3-month return vs the gating index below -10 pp (placeholder, counterfactual-logged)
+    "breadth_high_proximity": 0.03, # index within 3% of its 52-week high AND breadth WEAK -> no net new stock exposure
+    "mr_weight": 0.20,              # deep_score's mean-reversion weight (bot_engine combined score)
+}
+LEGACY_LABELS = ("BULL", "NEUTRAL", "CAUTION", "BEAR", "PANIC")   # the Node / system_config vocabulary
+_STATE_CACHE = {"at": 0.0, "state": None}
+
+
+def selection_gates(env=None, config=None) -> set:
+    """VOLTRADE_REGIME_SELECTION: comma list of guards promoted from SHADOW (flags on the
+    shadow record) to GATE (the candidate is blocked / the score changes); 'all' = every
+    guard. Env var absent -> BASE_CONFIG["REGIME_SELECTION_DEFAULT"] ("all" since the
+    2026-10-28 human directive); an explicit env value (incl. "off"/"") always wins."""
+    raw = flag_raw("VOLTRADE_REGIME_SELECTION", env, config)[0].strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(SELECTION_GUARDS)
+    return {g.strip() for g in raw.split(",") if g.strip() in SELECTION_GUARDS}
+
+
+def cached_state(max_age_s=60.0, loader=None, now=None):
+    """The persisted state, re-read at most every `max_age_s` (deep_score runs per candidate)."""
+    t = time.time() if now is None else now
+    if _STATE_CACHE["state"] is not None and t - _STATE_CACHE["at"] < max_age_s:
+        return _STATE_CACHE["state"]
+    st = (loader or load_state)()
+    _STATE_CACHE["at"], _STATE_CACHE["state"] = t, st
+    return st
+
+
+def selection_verdict(state, candidate, params=None) -> dict:
+    """Pure: what the regime guards say about ONE stock candidate.
+
+    candidate: price, high_52w, closes (recent daily closes, oldest first),
+    relative_strength_pct (vs the gating index), mean_reversion_score (deep_score's
+    0-100 sub-score), dip_bonus (points the contrarian 'Buy the Dip' bonus adds).
+    Returns flags (0/1 per guard, persisted on the shadow record), reasons, the
+    guards that WOULD block the entry, and the score points the dip
+    neutralization would remove (mr_delta) — so the gate's prevention-P&L can be
+    read before it is ever turned on."""
+    p = dict(SELECTION_PARAMS)
+    p.update(params or {})
+    st = state if isinstance(state, dict) else {}
+    inputs = st.get("inputs") if isinstance(st.get("inputs"), dict) else {}
+    flags = {g: 0 for g in SELECTION_GUARDS}
+    reasons = {}
+    price = float(candidate.get("price") or 0.0)
+    hi = candidate.get("high_52w")
+    closes = [float(x) for x in (candidate.get("closes") or []) if x is not None]
+    if price > 0 and hi and float(hi) > 0 and price < p["knife_high_frac"] * float(hi):
+        flags["knife"] = 1
+        reasons["knife"] = f"price {price:.2f} below {p['knife_high_frac']:.0%} of its 52-week high {float(hi):.2f}"
+    if price > 0 and len(closes) >= p["knife_low_window"]:
+        lo = min(closes[-p["knife_low_window"]:])
+        if price <= lo:
+            flags["knife"] = 1
+            reasons["knife"] = (reasons.get("knife", "") + "; " if reasons.get("knife") else "") + f"new {p['knife_low_window']}-day low ({lo:.2f})"
+    allowed = set(st.get("allowed_strategies") or [])
+    above = inputs.get("above_200d")
+    dip_ok = ("dip_buy" in allowed) and (above is not False)
+    mr = float(candidate.get("mean_reversion_score") if candidate.get("mean_reversion_score") is not None else 50.0)
+    bonus = float(candidate.get("dip_bonus") or 0.0)
+    is_dip = mr > 50.0 or bonus > 0.0
+    if st and is_dip and not dip_ok:
+        flags["dip"] = 1
+        reasons["dip"] = (f"dip-buying not allowed: regime {st.get('composite_regime')}, breadth {st.get('breadth_state')}, "
+                          f"index above 200-day {above}")
+    if st.get("panic_state"):
+        flags["panic"] = 1
+        reasons["panic"] = "panic state (24-month return < 0 and top-quintile variance): no momentum longs"
+    rs = candidate.get("relative_strength_pct")
+    if rs is not None and float(rs) < p["rs_block_pct"]:
+        flags["rs"] = 1
+        reasons["rs"] = f"relative strength {float(rs):.1f}% vs the index, below {p['rs_block_pct']:.0f}%"
+    dd52 = inputs.get("gating_dd52")
+    if st.get("breadth_state") == "WEAK" and dd52 is not None and float(dd52) >= -p["breadth_high_proximity"]:
+        flags["breadth"] = 1
+        reasons["breadth"] = f"breadth WEAK with the index {float(dd52) * 100:.1f}% from its 52-week high: no net new stock exposure"
+    mr_delta = (max(0.0, mr - 50.0) * p["mr_weight"] + bonus) if flags["dip"] else 0.0
+    return {
+        "flags": flags, "reasons": reasons, "neutralize_mr": bool(flags["dip"]), "mr_delta": round(mr_delta, 2),
+        "would_block": [g for g in ("knife", "panic", "rs", "breadth") if flags[g]],
+        "composite": st.get("composite_regime"), "as_of": st.get("as_of"),
+    }
+
+
+# ── consumer: cash-secured puts (docs/regime/FINDINGS.md step 5) ─────────────
+OPTIONS_GUARDS = ("crisis", "vrp", "inversion", "elevated", "earnings", "ebp")
+OPTIONS_PARAMS = {
+    "inversion_size_mult": 0.5,     # VIX/VIX3M > 1: halve new CSP notional (RESEARCH §3.3, Simon & Campasano: a 'stress now' state)
+    "elevated_size_mult": 0.5,      # vol ELEVATED: half the contracts and a farther strike (RESEARCH §3.6, I&N dispersion by VIX decile)
+    "elevated_target_delta": 0.15,  # the prompt's 0.15 delta in elevated vol (research: 16–30 delta; 2% OTM shallower drawdowns)
+    "earnings_buffer_days": 2,      # earnings inside the contract's DTE window + 2 days -> skip (hard version of csp_universe's soft score)
+    "ebp_size_mult": 0.5,           # Fed excess bond premium > 0: small/mid credit cap (RESEARCH §3.5, Perez-Quiros–Timmermann)
+}
+
+
+def options_gates(env=None, config=None) -> set:
+    """VOLTRADE_REGIME_OPTIONS: comma list of guards promoted from SHADOW to GATE ('all' =
+    every guard). Any non-empty value also turns on 'crisis' and 'vrp' — the two that only
+    PREVENT new short vol in the research's loss states (FINDINGS step 5 acceptance).
+    Env var absent -> BASE_CONFIG["REGIME_OPTIONS_DEFAULT"] ("all" since 2026-10-28)."""
+    raw = flag_raw("VOLTRADE_REGIME_OPTIONS", env, config)[0].strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(OPTIONS_GUARDS)
+    named = {g.strip() for g in raw.split(",") if g.strip() in OPTIONS_GUARDS}
+    return named | {"crisis", "vrp"}
+
+
+def csp_verdict(state, candidate, params=None) -> dict:
+    """Pure: what the regime says about ONE new cash-secured put.
+
+    candidate: days_to_earnings (int or None), dte_max (the contract window's far edge).
+    Returns flags (0/1 per guard, persisted on the shadow record), reasons, the guards
+    that WOULD block, the size multiplier and target delta the gates would apply, and
+    which of those act (gates) — the caller applies only the acting ones."""
+    p = dict(OPTIONS_PARAMS)
+    p.update(params or {})
+    st = state if isinstance(state, dict) else {}
+    stress = st.get("stress_flags") if isinstance(st.get("stress_flags"), dict) else {}
+    flags = {g: 0 for g in OPTIONS_GUARDS}
+    reasons = {}
+    size_mult = 1.0
+    target_delta = None
+    if st.get("vol_state") == "CRISIS":
+        flags["crisis"] = 1
+        reasons["crisis"] = "vol state CRISIS: no new short puts (PUT 2008 / I&N worst decile: premium is richest when the loss state is most likely)"
+    if stress.get("vrp_negative"):
+        flags["vrp"] = 1
+        reasons["vrp"] = f"VRP negative ({stress.get('vrp_points')} vol points): realized vol above implied — do not add short vol"
+    if stress.get("vix_vix3m_inverted"):
+        flags["inversion"] = 1
+        reasons["inversion"] = f"VIX/VIX3M {stress.get('vix_vix3m')} > 1: new notional x {p['inversion_size_mult']}"
+        size_mult *= p["inversion_size_mult"]
+    if st.get("vol_state") == "ELEVATED":
+        flags["elevated"] = 1
+        reasons["elevated"] = f"vol ELEVATED: contracts x {p['elevated_size_mult']}, target delta {p['elevated_target_delta']}"
+        size_mult *= p["elevated_size_mult"]
+        target_delta = p["elevated_target_delta"]
+    dte = candidate.get("days_to_earnings")
+    window = int(candidate.get("dte_max") or 45) + p["earnings_buffer_days"]
+    if dte is not None and 0 <= int(dte) <= window:
+        flags["earnings"] = 1
+        reasons["earnings"] = f"earnings in {int(dte)} days, inside the {window}-day window"
+    ebp = st.get("ebp") if isinstance(st.get("ebp"), dict) else {}
+    if ebp.get("ebp") is not None and float(ebp["ebp"]) > 0:
+        flags["ebp"] = 1
+        reasons["ebp"] = f"Fed excess bond premium {float(ebp['ebp']):.2f} > 0: credit cap x {p['ebp_size_mult']}"
+        size_mult *= p["ebp_size_mult"]
+    return {
+        "flags": flags, "reasons": reasons,
+        "would_block": [g for g in ("crisis", "vrp", "earnings") if flags[g]],
+        "size_mult": round(size_mult, 4), "target_delta": target_delta,
+        "composite": st.get("composite_regime"), "vol_state": st.get("vol_state"), "as_of": st.get("as_of"),
+    }
+
+
+_SHADOW_ONCE = {"day": None, "keys": set()}
+
+
+def shadow_once_per_day(key, today=None) -> bool:
+    """True the first time `key` is seen on a UTC day (resets on a new day). Bounds the
+    per-scan shadow records of the step-5 guards: one record per name, guard and day,
+    instead of one per scan (the tier engine runs dozens of times a day)."""
+    d = today or time.strftime("%Y-%m-%d", time.gmtime())
+    if _SHADOW_ONCE["day"] != d:
+        _SHADOW_ONCE["day"], _SHADOW_ONCE["keys"] = d, set()
+    if key in _SHADOW_ONCE["keys"]:
+        return False
+    _SHADOW_ONCE["keys"].add(key)
+    return True
+
+
+def apply_csp_gates(verdict, gates) -> dict:
+    """The acting subset of a verdict under the named gates: block?, size multiplier, target delta."""
+    gates = set(gates or ())
+    f = verdict.get("flags") or {}
+    block_by = [g for g in verdict.get("would_block", []) if g in gates]
+    mult = 1.0
+    if f.get("inversion") and "inversion" in gates:
+        mult *= OPTIONS_PARAMS["inversion_size_mult"]
+    if f.get("elevated") and "elevated" in gates:
+        mult *= OPTIONS_PARAMS["elevated_size_mult"]
+    if f.get("ebp") and "ebp" in gates:
+        mult *= OPTIONS_PARAMS["ebp_size_mult"]
+    delta = verdict.get("target_delta") if (f.get("elevated") and "elevated" in gates) else None
+    return {"block": bool(block_by), "blocked_by": block_by, "size_mult": round(mult, 4), "target_delta": delta}
+
+
+# ── consumer: sizing (docs/regime/FINDINGS.md step 6) ───────────────────────
+SIZING_SLEEVES = ("stock", "options", "tier1")
+SIZING_PARAMS = {
+    "options_floor_csp": 0.5,           # an options sleeve the state still permits is never sized below half
+    "options_floor_csp_reduced": 0.25,  # 'csp_reduced' states (VOLATILE_BULL, STRESSED, BEAR): a quarter
+    "options_floor_none": 0.25,         # CRISIS: the sizer never zeroes an options position — step 5's crisis gate blocks
+    "stale_market_days": 2,             # = DEFAULT_PARAMS stale_market_days / regimeReport.REGIME_STALE_MARKET_DAYS
+}
+_SIZING_COUNTS = {"day": None, "by_sleeve": {}, "stale_fallbacks": 0, "zero_blocks": 0, "last": None}
+
+
+def sizing_sleeves(env=None, config=None) -> set:
+    """VOLTRADE_REGIME_SIZING: comma list of sleeves (stock, options, tier1) or all/1/true/on;
+    empty/off = every sizer keeps its legacy scalars. Env var absent ->
+    BASE_CONFIG["REGIME_SIZING_DEFAULT"] ("all" since 2026-10-28)."""
+    raw = flag_raw("VOLTRADE_REGIME_SIZING", env, config)[0].strip().lower()
+    if not raw or raw in ("0", "off", "false", "none"):
+        return set()
+    if raw in ("1", "all", "true", "on"):
+        return set(SIZING_SLEEVES)
+    return {x.strip() for x in raw.split(",") if x.strip() in SIZING_SLEEVES}
+
+
+def sizing_multiplier(state, sleeve, today=None, params=None) -> dict:
+    """Pure: the ONE regime multiplier a sizer applies — in place of the VIX-level scalar, the
+    stress-index multiplier and the Tier-1 VXX ladder, never alongside them.
+
+    stock: exposure_multiplier as is (0 = no new discretionary risk -> the stock sizer blocks).
+    options / tier1: exposure_multiplier floored at 0.5 while 'csp' is allowed, 0.25 while
+    'csp_reduced' is allowed, 0.25 otherwise (the sizer never zeroes an options position;
+    CRISIS is blocked upstream by the step-5 crisis gate).
+    A stale state (older than stale_market_days market days, or flagged stale / error) -> 1.0
+    with stale=True: never a silent cut. A state without exposure_multiplier -> 1.0 (missing)."""
+    p = dict(SIZING_PARAMS)
+    p.update(params or {})
+    out = {"multiplier": 1.0, "source": "none", "stale": False, "as_of": None, "composite": None, "sleeve": sleeve}
+    if not isinstance(state, dict) or not state.get("as_of"):
+        return out
+    out["as_of"], out["composite"] = state.get("as_of"), state.get("composite_regime")
+    age = state_age_market_days(state, today)
+    if state.get("error") or state.get("stale") or (age is not None and age > p["stale_market_days"]):
+        out.update(source="stale", stale=True)
+        return out
+    raw = state.get("exposure_multiplier")
+    if raw is None:
+        out["source"] = "missing"
+        return out
+    m = float(raw)
+    if sleeve in ("options", "tier1"):
+        allowed = state.get("allowed_strategies") or []
+        if "csp" in allowed:
+            floor = p["options_floor_csp"]
+        elif "csp_reduced" in allowed:
+            floor = p["options_floor_csp_reduced"]
+        else:
+            floor = p["options_floor_none"]
+        m = max(m, floor)
+    out.update(multiplier=round(max(0.0, min(1.0, m)), 4), source="engine")
+    return out
+
+
+def note_sizing(res, sleeve, today=None):
+    """Count one applied multiplier per sleeve and value for the daily report (in-process;
+    flushed once per scan by flush_sizing_counts). Never raises."""
+    try:
+        d = today or time.strftime("%Y-%m-%d", time.gmtime())
+        c = _SIZING_COUNTS
+        if c["day"] != d:
+            c.update(day=d, by_sleeve={}, stale_fallbacks=0, zero_blocks=0, last=None)
+        key = f"{float(res.get('multiplier', 1.0)):.2f}"
+        per = c["by_sleeve"].setdefault(sleeve, {})
+        per[key] = per.get(key, 0) + 1
+        if res.get("stale"):
+            c["stale_fallbacks"] += 1
+        if res.get("source") == "engine" and float(res.get("multiplier", 1.0)) <= 0.0:
+            c["zero_blocks"] += 1
+        c["last"] = {"sleeve": sleeve, **{k: res.get(k) for k in ("multiplier", "source", "stale", "as_of", "composite")}}
+    except Exception as e:
+        logger.debug(f"note_sizing failed: {e}")
+
+
+def sizing_counts() -> dict:
+    return json.loads(json.dumps(_SIZING_COUNTS))
+
+
+def flush_sizing_counts(path=None) -> dict:
+    """Persist the day's counters for the report (/api/bot/regime). Returns what was written."""
+    snap = sizing_counts()
+    snap["written_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        from storage_config import REGIME_SIZING_PATH
+        _write_json(path or REGIME_SIZING_PATH, snap)
+    except Exception as e:
+        logger.debug(f"flush_sizing_counts failed: {e}")
+        snap["error"] = str(e)[:120]
+    return snap
+
+
+def sizing_for(sleeve, env=None, loader=None, today=None):
+    """What a sizer applies NOW: the engine's multiplier when the engine is on and
+    VOLTRADE_REGIME_SIZING names the sleeve, else None (the caller keeps its legacy scalars).
+    Counted for the report. Never raises."""
+    try:
+        if not engine_allowed(env) or sleeve not in sizing_sleeves(env):
+            return None
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        res = sizing_multiplier(st, sleeve, today)
+        note_sizing(res, sleeve, today)
+        # 2026-10-28 (flags default ON): with NO usable state yet (first update
+        # failed / no exposure_multiplier) the sizer keeps its LEGACY scalars
+        # instead of a flat 1.0 — turning the engine on must never remove the
+        # legacy VIX / stress cuts before the engine has a state to replace them.
+        if res.get("source") in ("none", "missing"):
+            return None
+        return res
+    except Exception as e:
+        logger.debug(f"sizing_for({sleeve}) failed: {e}")
+        return None
+
+
+# ── consumer: legacy label (docs/regime/FINDINGS.md step 7) ──────────────────
+def labels_enabled(env=None, config=None) -> bool:
+    """VOLTRADE_REGIME_LABELS (1/true/on/yes): the engine's legacy label (BULL / NEUTRAL /
+    CAUTION / BEAR / PANIC) replaces the Markov label wherever a LABEL is persisted or acted on.
+    Env var absent -> BASE_CONFIG["REGIME_LABELS_DEFAULT"] (True since 2026-10-28)."""
+    return flag_raw("VOLTRADE_REGIME_LABELS", env, config)[0].strip().lower() in ("1", "true", "on", "yes")
+
+
+def label_for(env=None, loader=None, today=None, params=None):
+    """The label a consumer should use NOW, or None (the caller keeps the Markov label):
+    None unless the engine is on, the flag is on and the state is fresh (a stale state never
+    drives a label silently). Never raises."""
+    try:
+        if not engine_allowed(env) or not labels_enabled(env):
+            return None
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        if not isinstance(st, dict) or not st.get("as_of") or st.get("error") or st.get("stale"):
+            return None
+        p = dict(SIZING_PARAMS)
+        p.update(params or {})
+        age = state_age_market_days(st, today)
+        if age is not None and age > p["stale_market_days"]:
+            return None
+        label = st.get("legacy_label") or legacy_label(st.get("composite_regime"))
+        if label not in LEGACY_LABELS:
+            return None
+        return {"label": label, "composite": st.get("composite_regime"), "as_of": st.get("as_of")}
+    except Exception as e:
+        logger.debug(f"label_for failed: {e}")
+        return None
+
+
+# ── counterfactual log: legacy vs engine, one row per decision (MEASUREMENT) ──
+# 2026-10-28 live flip (human directive): every consumer writes, next to what the
+# ENGINE did, what the LEGACY system would have done at the same decision point,
+# so the switch is judged on the same decisions rather than on two different
+# periods. Append-only JSONL (storage_config.REGIME_COUNTERFACTUAL_PATH); one row
+# per (kind, key, source, content) per UTC day; rotated to <path>.1 above
+# max_bytes. Logging only — nothing here changes a decision. Read it with the
+# diag probe `regime_counterfactual` (server/regimeCounterfactual.ts, aggregates).
+#
+# Row schema (schema 1):
+#   ts, date (UTC day), kind (selection | options | sizing | label), key
+#   (ticker, sleeve or call-site name), ticker, sleeve, source (call site),
+#   legacy  {decision: "take", ...}            selection / options: what legacy
+#           would do AT THIS GATE (legacy has no regime gate here, so: take,
+#           size_mult 1.0, the default target delta); sizing: {multiplier =
+#           the product of the legacy regime scalars this sizer would have
+#           applied (pre-clamp), + the components}; label: {label = Markov}
+#   engine  {decision, blocked_by, would_block, gates, size_mult, ...} /
+#           {multiplier, source, stale, applied} / {label, applied}
+#           applied=False: the consumer's flag is off, the row records what the
+#           engine WOULD have done (the engine itself is on)
+#   differs (bool), shadow_decision (the rejected_regime_* / would_reject_
+#   regime_* bucket the decision's shadow record carries — join on ticker +
+#   date + decision for the shadow outcomes), regime (state_snapshot: as_of,
+#   composite, legacy_label, exposure_multiplier, params_version, stale),
+#   flags (effective VOLTRADE_REGIME_* values).
+COUNTERFACTUAL_KINDS = ("selection", "options", "sizing", "label")
+COUNTERFACTUAL_SCHEMA = 1
+COUNTERFACTUAL_PARAMS = {
+    "max_rows_per_day": 5000,           # per process; the per-day dedupe keeps a normal day in the hundreds
+    "max_bytes": 32 * 1024 * 1024,      # rotate to <path>.1 above this (one generation kept)
+}
+_CF = {"day": None, "keys": set(), "rows": 0, "dropped": 0}
+
+
+def _cf_path():
+    try:
+        from storage_config import REGIME_COUNTERFACTUAL_PATH
+        return REGIME_COUNTERFACTUAL_PATH
+    except Exception as e:
+        logger.debug(f"REGIME_COUNTERFACTUAL_PATH unavailable ({e}); using DATA_DIR")
+        from storage_config import DATA_DIR
+        return os.path.join(DATA_DIR, "voltrade_regime_counterfactual.jsonl")
+
+
+def state_snapshot(state):
+    """The compact id of the regime state a decision used (None without a state)."""
+    if not isinstance(state, dict) or not state.get("as_of"):
+        return None
+    return {"as_of": state.get("as_of"), "composite": state.get("composite_regime"),
+            "legacy_label": state.get("legacy_label"), "exposure_multiplier": state.get("exposure_multiplier"),
+            "params_version": state.get("params_version"), "stale": bool(state.get("stale") or state.get("error"))}
+
+
+def _cf_round(v):
+    if isinstance(v, float):
+        return round(v, 4)
+    if isinstance(v, dict):
+        return {k: _cf_round(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_cf_round(x) for x in v]
+    return v
+
+
+def _num(v, default=1.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def counterfactual_differs(kind, legacy, engine):
+    """Did the engine's decision differ from legacy's at this decision point?"""
+    legacy, engine = legacy or {}, engine or {}
+    if kind == "sizing":
+        return abs(_num(legacy.get("multiplier")) - _num(engine.get("multiplier"))) > 1e-9
+    if kind == "label":
+        return legacy.get("label") != engine.get("label")
+    if legacy.get("decision") != engine.get("decision"):
+        return True
+    if abs(_num(legacy.get("size_mult")) - _num(engine.get("size_mult"))) > 1e-9:
+        return True
+    return bool(engine.get("dip_neutralized"))
+
+
+def log_counterfactual(kind, key, legacy, engine, source, state=None, shadow_decision=None,
+                       ticker=None, sleeve=None, env=None, path=None, today=None) -> bool:
+    """Append one legacy-vs-engine row (schema above). Only while the engine is on (with it
+    off there is nothing to compare); once per (kind, key, source, content) per UTC day;
+    capped per day; rotated above max_bytes. Returns whether a row was written. Never raises."""
+    try:
+        if kind not in COUNTERFACTUAL_KINDS or not engine_allowed(env):
+            return False
+        d = today or time.strftime("%Y-%m-%d", time.gmtime())
+        c = _CF
+        if c["day"] != d:
+            c.update(day=d, keys=set(), rows=0, dropped=0)
+        legacy = _cf_round(dict(legacy or {}))
+        engine = _cf_round(dict(engine or {}))
+        dk = (kind, str(key), str(source), json.dumps([legacy, engine, shadow_decision], sort_keys=True, default=str))
+        if dk in c["keys"]:
+            return False
+        if c["rows"] >= COUNTERFACTUAL_PARAMS["max_rows_per_day"]:
+            c["dropped"] += 1
+            return False
+        if state is None:
+            state = cached_state()
+        row = {
+            "schema": COUNTERFACTUAL_SCHEMA, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "date": d,
+            "kind": kind, "key": str(key), "ticker": (str(ticker).upper() if ticker else None), "sleeve": sleeve,
+            "source": str(source), "legacy": legacy, "engine": engine,
+            "differs": counterfactual_differs(kind, legacy, engine), "shadow_decision": shadow_decision,
+            "regime": state_snapshot(state),
+            "flags": {k: v["value"] for k, v in effective_flags(env).items()},
+        }
+        p = path or _cf_path()
+        if os.path.exists(p) and os.path.getsize(p) > COUNTERFACTUAL_PARAMS["max_bytes"]:
+            os.replace(p, p + ".1")
+        with open(p, "a") as f:
+            f.write(json.dumps(row, default=str) + "\n")
+        c["keys"].add(dk)
+        c["rows"] += 1
+        return True
+    except Exception as e:
+        logger.debug(f"log_counterfactual({kind}, {key}) failed: {e}")
+        return False
+
+
+def legacy_stress_multiplier():
+    """The stress-index multiplier the legacy stock sizer applies (stress_index.get_stress_multiplier),
+    for the counterfactual only; None when it cannot be computed (logged)."""
+    try:
+        from stress_index import get_stress_multiplier
+        return float(get_stress_multiplier())
+    except Exception as e:
+        logger.debug(f"legacy stress multiplier unavailable for the counterfactual: {e}")
+        return None
+
+
+def counterfactual_sizing(sleeve, key, legacy, applied, source, ticker=None, env=None, loader=None, today=None, path=None) -> bool:
+    """A sizer's row: `legacy` = {multiplier (product of the legacy regime scalars it would have
+    applied), components...}; `applied` = the sizing_for() result it used, or None when the
+    sleeve's flag is off (then the engine's would-be multiplier is computed here — not counted
+    in the sizing report — and logged with applied=False). Never raises."""
+    try:
+        if not engine_allowed(env):
+            return False
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        res = applied if applied is not None else sizing_multiplier(st, sleeve, today)
+        eng = {"multiplier": res.get("multiplier"), "source": res.get("source"), "stale": bool(res.get("stale")),
+               "applied": applied is not None}
+        return log_counterfactual("sizing", key, legacy, eng, source, state=st, ticker=ticker, sleeve=sleeve,
+                                  env=env, path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_sizing({sleeve}) failed: {e}")
+        return False
+
+
+def counterfactual_selection(ticker, verdict, gates, source, env=None, path=None, today=None) -> bool:
+    """A stock candidate at the regime-guard point of the admission loop: legacy has no regime
+    guard there (take); the engine blocks on the gated guards and neutralizes mean reversion
+    when 'dip' is gated. Rows for passes too (the denominator). Never raises."""
+    try:
+        if not isinstance(verdict, dict) or not verdict.get("flags"):
+            return False
+        gates = set(gates or ())
+        blocked_by = [g for g in verdict.get("would_block", []) if g in gates]
+        dip = bool(verdict.get("neutralize_mr")) and "dip" in gates and _num(verdict.get("mr_delta"), 0.0) > 0
+        eng = {"decision": "block" if blocked_by else "take", "blocked_by": blocked_by,
+               "would_block": list(verdict.get("would_block") or []), "gates": sorted(gates),
+               "dip_neutralized": dip, "mr_delta_rule_points": _num(verdict.get("mr_delta"), 0.0)}
+        shadow = f"rejected_regime_{blocked_by[0]}" if blocked_by else None
+        return log_counterfactual("selection", ticker, {"decision": "take"}, eng, source, ticker=ticker,
+                                  shadow_decision=shadow, env=env, path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_selection({ticker}) failed: {e}")
+        return False
+
+
+def counterfactual_options(ticker, verdict, gates, source, legacy_delta=None, shadow_decision=None,
+                           env=None, path=None, today=None) -> bool:
+    """A new short put at a regime-guard point (Tier-1 or the scanner's sell-side setups): legacy
+    has no regime guard (take, size x1, its default delta); the engine blocks on the gated
+    crisis/vrp/earnings and scales size / delta on the gated cuts. Never raises."""
+    try:
+        if not isinstance(verdict, dict) or not verdict.get("flags"):
+            return False
+        acting = apply_csp_gates(verdict, gates)
+        eng = {"decision": "block" if acting["block"] else "take", "blocked_by": acting["blocked_by"],
+               "would_block": list(verdict.get("would_block") or []), "gates": sorted(set(gates or ())),
+               "size_mult": acting["size_mult"],
+               "target_delta": acting["target_delta"] if acting["target_delta"] is not None else legacy_delta}
+        return log_counterfactual("options", ticker, {"decision": "take", "size_mult": 1.0, "target_delta": legacy_delta},
+                                  eng, source, ticker=ticker, shadow_decision=shadow_decision, env=env, path=path,
+                                  today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_options({ticker}) failed: {e}")
+        return False
+
+
+def counterfactual_label(key, markov_label, applied, source, env=None, loader=None, path=None, today=None) -> bool:
+    """A label decision: legacy = the Markov label; engine = the label_for() result the consumer
+    used, or (flag off / stale) the state's legacy_label it WOULD have used, applied=False."""
+    try:
+        if not engine_allowed(env):
+            return False
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        if applied:
+            eng = {"label": applied.get("label"), "applied": True}
+        else:
+            would = st.get("legacy_label") if isinstance(st, dict) else None
+            eng = {"label": would, "applied": False}
+        return log_counterfactual("label", key, {"label": markov_label}, eng, source, state=st, env=env,
+                                  path=path, today=today)
+    except Exception as e:
+        logger.debug(f"counterfactual_label({key}) failed: {e}")
+        return False
+
+
+# ── ML-ready snapshot on shadow records (logging only; no live effect) ────────
+# 2026-10-28 human directive: ML is NOT built or enabled, but every shadow
+# record carries what a future model needs from the regime engine — the state's
+# inputs at decision time, both labels, and the decision the engine made next to
+# the one legacy would have made at the same gate. Realized outcomes attach to the
+# same record through the existing backfills (+5/+10/+20 d and exit-aligned key on
+# ticker + entry_price + timestamp, never on these fields). Compact on purpose: the
+# shadow log is one JSON file rewritten per record (~20k records).
+ML_SNAPSHOT_VERSION = 1
+
+
+def _r4(v):
+    return round(float(v), 4) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v else None
+
+
+def ml_snapshot(state, kind="selection", markov_label=None, engine_label=None, verdict=None, gates=None):
+    """The compact regime snapshot persisted on a shadow record, or None without a state.
+
+    kind: 'selection' (a deep_score stock candidate; verdict = selection_verdict) or 'options'
+    (a new short put; verdict = csp_verdict). engine_label: the label_for() result the
+    record's regime_label used (None = the Markov label stood). engine_decision / legacy_decision:
+    the regime gate's verdict for this candidate vs legacy's (legacy has no regime gate: pass,
+    size x1). Never raises."""
+    try:
+        if not isinstance(state, dict) or not state.get("as_of"):
+            return None
+        sf = state.get("stress_flags") if isinstance(state.get("stress_flags"), dict) else {}
+        inp = state.get("inputs") if isinstance(state.get("inputs"), dict) else {}
+        ebp = state.get("ebp") if isinstance(state.get("ebp"), dict) else {}
+        gates = set(gates or ())
+        # Derivable fields are left out on purpose (allowed strategies, core multiplier,
+        # inversion / VRP-sign booleans, trend score, the gate list — each is a function of
+        # what is kept or of the flags on the counterfactual row): ~0.8 KB per record.
+        snap = {
+            "v": ML_SNAPSHOT_VERSION, "as_of": state.get("as_of"), "pv": state.get("params_version"),
+            "stale": bool(state.get("stale") or state.get("error")),
+            "composite": state.get("composite_regime"), "trend": state.get("trend_state"), "fast": state.get("fast_state"),
+            "vol": state.get("vol_state"), "breadth": state.get("breadth_state"), "panic": bool(state.get("panic_state")),
+            "exposure": _r4(state.get("exposure_multiplier")), "exposure_c": _r4(state.get("exposure_continuous")),
+            "vol_dial": _r4(state.get("vol_dial")), "confidence": _r4(state.get("confidence")),
+            "days_in_regime": state.get("days_in_regime"),
+            "stress": {"vix": _r4(sf.get("vix")), "vix_vix3m": _r4(sf.get("vix_vix3m")), "vrp": _r4(sf.get("vrp_points")),
+                       "vix_pct_1y": _r4(sf.get("vix_pct_1y")), "vvix": _r4(sf.get("vvix")),
+                       "rv21": _r4(sf.get("realized_vol_21d_pct")), "ewma_vol": _r4(sf.get("ewma_vol_pct")),
+                       "vol_pct": _r4(sf.get("vol_pct_own_history"))},
+            "inputs": {"f_slow": _r4(inp.get("f_slow")), "f_fast": _r4(inp.get("f_fast")), "breadth": _r4(inp.get("breadth")),
+                       "above_200d": inp.get("above_200d"), "dd52": _r4(inp.get("gating_dd52")),
+                       "mom24m": _r4(inp.get("mom24m")), "var126_pct": _r4(inp.get("var126_pct"))},
+            "ebp": _r4(ebp.get("ebp")),
+            "label_engine": state.get("legacy_label") or legacy_label(state.get("composite_regime")),
+            "label_markov": markov_label,
+            "label_used": "engine" if engine_label else "markov",
+        }
+        v = verdict if isinstance(verdict, dict) else {}
+        if kind == "options":
+            acting = apply_csp_gates(v, gates) if v else {"block": False, "blocked_by": [], "size_mult": 1.0, "target_delta": None}
+            snap["engine_decision"] = {"gate": "block" if acting["block"] else "pass", "blocked_by": acting["blocked_by"],
+                                       "would_block": list(v.get("would_block") or []),
+                                       "size_mult": acting["size_mult"], "target_delta": acting["target_delta"]}
+            snap["legacy_decision"] = {"gate": "pass", "size_mult": 1.0}
+        else:
+            blocked = [g for g in (v.get("would_block") or []) if g in gates]
+            snap["engine_decision"] = {"gate": "block" if blocked else "pass", "blocked_by": blocked,
+                                       "would_block": list(v.get("would_block") or []),
+                                       "dip_neutralized": bool(v.get("neutralize_mr")) and "dip" in gates and _num(v.get("mr_delta"), 0.0) > 0,
+                                       "mr_delta": _r4(v.get("mr_delta"))}
+            snap["legacy_decision"] = {"gate": "pass"}
+        return snap
+    except Exception as e:
+        logger.debug(f"ml_snapshot failed: {e}")
+        return None
+
+
+# ── entry points ─────────────────────────────────────────────────────────────
+def update_state(gating="SPY", force=False, params=None, build=None):
+    """Compute (if the bar date advanced or `force`), persist, and return the state dict.
+    Never raises: returns {'error': ...} with the last persisted state when it fails."""
+    prev = load_state()
+    try:
+        inputs = (build or build_inputs)(gating=gating)
+        last_date = inputs["dates"][-1]
+        if (prev and not force and prev.get("as_of") == last_date and prev.get("gating_index") == gating
+                and prev.get("params_version") == PARAMS_VERSION):
+            prev["cache_hit"] = True
+            return prev
+        qf = quality_factor_of(inputs["sources"], inputs["dates"])
+        state = compute_state(inputs["dates"], inputs["gating"], inputs["basket"], inputs["vix"], inputs["vix3m"],
+                              gating=gating, sources=inputs["sources"], ebp=inputs.get("ebp"), params=params,
+                              quality_factor=qf)
+        d = asdict(state)
+        d["transition"] = None
+        if prev and prev.get("composite_regime") and prev.get("composite_regime") != d["composite_regime"]:
+            d["transition"] = {"from": prev.get("composite_regime"), "to": d["composite_regime"],
+                               "from_as_of": prev.get("as_of"), "to_as_of": d["as_of"]}
+        saved = save_state(d)
+        d["persisted"] = {"appended": saved["appended"]}
+        return d
+    except Exception as e:
+        log.warning(f"[REGIME] update_state failed: {e}")
+        out = dict(prev or {})
+        out["error"] = str(e)[:300]
+        out["stale"] = True
+        return out
+
+
+def regime_state_rpc(gating="SPY", force=False, compute=True):
+    """Daemon method `regime_state` (voltrade_daemon.py). Never raises."""
+    try:
+        enabled = engine_allowed()
+        if not enabled:
+            return {"enabled": False, "state": load_state(), "note": "VOLTRADE_REGIME_ENGINE is off; serving the last persisted state if any"}
+        if not compute:
+            return {"enabled": True, "state": load_state()}
+        return {"enabled": True, "state": update_state(gating=gating, force=bool(force))}
+    except Exception as e:
+        return {"enabled": engine_allowed(), "state": None, "error": str(e)[:300]}
+
+
+if __name__ == "__main__":
+    import sys
+    g = sys.argv[1] if len(sys.argv) > 1 else "SPY"
+    print(json.dumps(regime_state_rpc(gating=g, force=True), indent=1, default=str))

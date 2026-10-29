@@ -15,6 +15,7 @@ import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
+import { ShadowChip } from "./shadow";
 import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, ledgerLine, type LookupResult, type LedgerReport } from "./lookup";
 import type { PanelId } from "./zoneModel";
 
@@ -81,11 +82,15 @@ export function Panel({ chrome, title, help, status, meta, ageMs, children, scro
 
 // ── KPI strip ───────────────────────────────────────────────────────────────
 export type KpiKey = "expectancy" | "winRate" | "vsSpy" | "equity";
-export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events }: {
+export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events, onScoreboard, onShadow }: {
   perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined; bench: Benchmark | undefined;
   now: number; state: DerivedState; hold: boolean; onHold: () => void;
   /** values that changed since the last tick (live.ts flashes) and the latest decisions (newest first) */
   flash?: Partial<Record<KpiKey, Flash>>; events?: LiveEvent[];
+  /** desktop: open the daily bot-vs-SPY scoreboard (it has no grid slot there; the stack tiers show it inline) */
+  onScoreboard?: () => void;
+  /** entry shadow mode on (shadow.tsx): the Now tile's eyebrow chip opens the would-be entries */
+  onShadow?: () => void;
 }) {
   const latest = events?.[0];
   const edge = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
@@ -159,6 +164,8 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
             </>
           )}
         </div>
+        {/* the tile's own corner, out of the text flow, so the tile keeps its height */}
+        {onScoreboard ? <button type="button" className="vt-bot-wbtn vt-score-open" onClick={onScoreboard} title="The same comparison one row per trading day since the start">daily {I.arrow}</button> : null}
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
@@ -184,7 +191,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-          <div className="vt-bot-eb">Now<Help k="now" /></div>
+          <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Now<Help k="now" /><ShadowChip status={status} onOpen={onShadow} label="short" /></div>
           <div className="vt-bot-row" style={{ gap: 8 }}>
             <span className={`vt-bot-st ${stateCls}`} style={{ fontSize: 15, fontWeight: 600 }}><span className="vt-bot-dot" />{stateWord}</span>
             {hold ? <span className="vt-bot-st vt-bot-t1"><span className="vt-bot-dot" />layout held · bot live</span> : null}

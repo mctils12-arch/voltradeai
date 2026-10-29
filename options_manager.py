@@ -105,7 +105,8 @@ def _code_version() -> str:
 
 def _record_options_exit_feedback(ticker: str, side: str, qty: int, entry_price: float,
                                    exit_price: float, unrealized_pnl: float,
-                                   exit_reason: str, entry_timestamp: str = None) -> None:
+                                   exit_reason: str, entry_timestamp: str = None,
+                                   order_result: dict = None) -> None:
     """Record a standalone single-leg options CLOSE into trade_feedback so
     it becomes a real win/open/loss/flat record instead of the permanent
     silence KNOWN BROKEN #12(c) documented — options_manager.py's exits
@@ -119,7 +120,19 @@ def _record_options_exit_feedback(ticker: str, side: str, qty: int, entry_price:
     /api/diag/ml's outcome breakdown but correctly excluded from ML
     training by ml_model_v2's own entry_features schema gate (honest, not
     fabricated). Best-effort: any failure is logged and swallowed, never
-    raised — this must not affect position management."""
+    raised — this must not affect position management.
+
+    [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS, audit §7.2.4): `order_result` is
+    the _submit_close_order() return value. A close Alpaca REJECTED is not an
+    exit: the position stays open, its state entry is popped anyway, and the
+    next cycle re-submits — each rejected attempt used to write one more
+    exit record, and every one after the first found no open entry and
+    became a permanent orphan_exit. Only an accepted close records now.
+    Callers that pass no order_result (tests, legacy) keep the old behavior."""
+    if order_result is not None and str(order_result.get("status", "")) != "submitted":
+        logger.info(f"options exit feedback skipped for {ticker} ({exit_reason}): "
+                    f"close order not accepted ({str(order_result.get('detail', ''))[:120]})")
+        return
     try:
         from ml_model_v2 import track_fill
         cost_basis = abs(float(entry_price or 0)) * qty * 100
@@ -852,9 +865,33 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
 #  MAIN: manage_options_positions()
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def manage_options_positions(equity: float = 100000) -> dict:
+# HALT SCOPE (2026-10-27, audit N15/N9): a roll is close + SELL-TO-OPEN a new
+# contract — the open half is a new entry. While a halt blocks entries the
+# caller passes allow_rolls=False and every roll point takes its existing
+# "roll failed -> close" branch instead, so the position is exited, never
+# re-opened.
+ROLL_SKIPPED_HALTED_DETAIL = "roll skipped: entries halted (exits only)"
+# ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the same close-only path
+# while the options sleeve is shadowed — the close stays live, the would-be
+# re-open is logged by the caller (entry_shadow.roll_skip_entries).
+ROLL_SKIPPED_SHADOW_DETAIL = "roll skipped: options entries in shadow mode (close only)"
+
+
+def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: str,
+                  parsed: dict, equity: float, skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
+    if not allow_rolls:
+        return {"rolled": False, "detail": skip_detail}
+    return _attempt_roll(occ_symbol, qty, current_side, parsed, equity)
+
+
+def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
+                             roll_skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     """
     Professional options position management. Called every scan cycle.
+
+    allow_rolls=False (exits-only mode, used while a halt blocks entries, and
+    while entry_shadow shadows the options sleeve): every roll point closes
+    the position instead of rolling it; roll_skip_detail names why.
 
     Checks every open options position for:
       1. DTE exit (21 DTE threshold)
@@ -1008,7 +1045,12 @@ def manage_options_positions(equity: float = 100000) -> dict:
 
         # Load or initialize state for this position
         pos_state = state.get(occ_symbol, {})
-        if not pos_state:
+        # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): an occ_symbol opened by the
+        # Node tier dispatcher carries ONLY a pending_entry_feedback marker
+        # (register_pending_entry_feedback) — initialize it exactly like an
+        # unregistered position, keeping the marker so the entry resolves.
+        _pending_marker = pos_state.get("pending_entry_feedback") if pos_state else None
+        if not pos_state or "entry_price" not in pos_state:
             pos_state = {
                 "entry_price": entry_price,
                 "entry_delta": current_delta,
@@ -1021,6 +1063,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 "side": side,
                 "qty": qty,
             }
+            if _pending_marker:
+                pos_state["pending_entry_feedback"] = _pending_marker
         else:
             # Update high water mark
             pos_state["highest_value"] = max(
@@ -1074,7 +1118,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 limit_px = current_price
             result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
             _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                           unrealized_pnl, "dte_critical", pos_state.get("entry_timestamp"))
+                                           unrealized_pnl, "dte_critical", pos_state.get("entry_timestamp"), order_result=result)
             actions.append({
                 "action": "CLOSE",
                 "ticker": parsed["ticker"],
@@ -1100,7 +1144,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 dte <= 10):
             # Deep ITM sold option near expiry — high assignment risk
             # Try to roll first
-            roll_result = _attempt_roll(occ_symbol, qty, "sell", parsed, equity)
+            roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
             if roll_result.get("rolled"):
                 actions.append({
                     "action": "ROLL",
@@ -1125,7 +1169,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 limit_px = snap.get("ask", current_price) if snap else current_price
                 result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                 _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                               unrealized_pnl, "assignment_close", pos_state.get("entry_timestamp"))
+                                               unrealized_pnl, "assignment_close", pos_state.get("entry_timestamp"), order_result=result)
                 actions.append({
                     "action": "CLOSE",
                     "ticker": parsed["ticker"],
@@ -1144,7 +1188,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
         if dte <= DTE_EXIT_THRESHOLD:
             if side == "short":
                 # Sold option at 21 DTE — try to roll
-                roll_result = _attempt_roll(occ_symbol, qty, "sell", parsed, equity)
+                roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
                 if roll_result.get("rolled"):
                     actions.append({
                         "action": "ROLL",
@@ -1166,7 +1210,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     limit_px = snap.get("ask", current_price) if snap else current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                     _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                                   unrealized_pnl, "dte_close", pos_state.get("entry_timestamp"))
+                                                   unrealized_pnl, "dte_close", pos_state.get("entry_timestamp"), order_result=result)
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1186,7 +1230,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     limit_px = current_price
                 result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                 _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                               unrealized_pnl, "dte_close_bought", pos_state.get("entry_timestamp"))
+                                               unrealized_pnl, "dte_close_bought", pos_state.get("entry_timestamp"), order_result=result)
                 actions.append({
                     "action": "CLOSE",
                     "ticker": parsed["ticker"],
@@ -1213,7 +1257,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                         limit_px = current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                     _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                                   unrealized_pnl, "profit_target", pos_state.get("entry_timestamp"))
+                                                   unrealized_pnl, "profit_target", pos_state.get("entry_timestamp"), order_result=result)
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1239,7 +1283,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     limit_px = snap.get("ask", current_price) if snap else current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                     _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                                   unrealized_pnl, "loss_limit", pos_state.get("entry_timestamp"))
+                                                   unrealized_pnl, "loss_limit", pos_state.get("entry_timestamp"), order_result=result)
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1264,7 +1308,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                         limit_px = current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
                     _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                                   unrealized_pnl, "bought_loss_limit", pos_state.get("entry_timestamp"))
+                                                   unrealized_pnl, "bought_loss_limit", pos_state.get("entry_timestamp"), order_result=result)
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1286,7 +1330,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 limit_px = current_price
             result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
             _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
-                                           unrealized_pnl, "gamma_risk", pos_state.get("entry_timestamp"))
+                                           unrealized_pnl, "gamma_risk", pos_state.get("entry_timestamp"), order_result=result)
             actions.append({
                 "action": "CLOSE",
                 "ticker": parsed["ticker"],
@@ -1409,6 +1453,36 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
             "entry_features": {},
             "code_version": _code_version(),
         }
+    _save_options_state(state)
+
+
+def register_pending_entry_feedback(occ_symbol: str, ticker: str, side: str) -> None:
+    """[RULE-REVIEW] 2026-10-27 (ORPHAN EXITS, audit §7.2.4): stash the
+    trade_feedback ENTRY marker for a single-leg option opened OUTSIDE
+    register_options_entry() — the Node tier dispatcher's SELL_CSP / BUY_PUT
+    branches call submit_options_order() directly and never registered, so
+    manage_options_positions() had no pending entry to resolve and every
+    later close of those positions (the bulk of the CSP sleeve) was written
+    as an orphan_exit. Only the marker is written (merged, never replacing
+    an existing state entry): the manager initializes the rest exactly as it
+    already did for these positions, so exit thresholds are unchanged. The
+    marker resolves on the first scan that sees the occ_symbol as a real,
+    filled Alpaca position, at Alpaca's avg_entry_price/qty; a cancelled
+    order never appears, so it never writes a phantom entry."""
+    if not occ_symbol or not ticker:
+        return
+    state = _load_options_state()
+    entry = state.get(occ_symbol) or {}
+    if "pending_entry_feedback" in entry or "entry_price" in entry:
+        return  # already registered by register_options_entry or a prior call
+    entry["pending_entry_feedback"] = {
+        "ticker": str(ticker).upper(),
+        "side": side,
+        "session": "regular",
+        "entry_features": {},
+        "code_version": _code_version(),
+    }
+    state[occ_symbol] = entry
     _save_options_state(state)
 
 

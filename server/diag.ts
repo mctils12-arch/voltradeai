@@ -33,6 +33,21 @@ export const DIAG_PROBES = [
   // underlying root (symbols, per the 2026-07-07 widening), the non-trade
   // cash ledger and the equity reconciliation; no per-fill/activity rows.
   "benchmark", "sleeves",
+  // ADDED 2026-10-28 (regime & volatility engine program, docs/regime/
+  // FINDINGS.md step 3): the regime engine's daily report — the SAME body
+  // the owner's /api/bot/regime serves (server/regimeReport.ts): latest
+  // RegimeState, recent history, transitions, time at each exposure level.
+  // Index-level inputs only (SPY/IWM/sector ETFs/VIX family); no account
+  // values, no symbols beyond those ETFs, no keys.
+  "regime",
+  // ADDED 2026-10-28 (regime engine live flip, human directive; [RULE-REVIEW]
+  // measurement): per day per kind (selection / options / sizing / label)
+  // AGGREGATES of the legacy-vs-engine counterfactual log
+  // (server/regimeCounterfactual.ts over regime_engine.log_counterfactual's
+  // JSONL) — counts, how many differ, mean legacy vs engine multiplier per
+  // sizing sleeve, blocks by guard, label pairs. No ticker, no account value,
+  // read-only; optional `days` (1..120, default 14).
+  "regime_counterfactual",
   // ADDED 2026-07-18 (scheduled-routine session, REPAIR — KNOWN BROKEN #18
   // recurrence investigation): scan_market's daemon-thread path already
   // persists per-phase wall-clock timings to survive a 300s daemon-timeout
@@ -298,6 +313,20 @@ export const DIAG_PROBES = [
   // "where does the scan lose?" (taken candidates win LESS than rejected
   // ones). Aggregate-only like "shadow": no ticker, price or timestamp.
   "shadow_bands",
+  // ADDED 2026-10-27 [RULE-REVIEW]: shadow_portfolio.
+  // get_shadow_band_report_deduped() — the shadow_bands tables for both
+  // rulers over ONE first-seen record per (ticker, ET entry day). The logger
+  // writes a candidate on every scan (10/20: 5,192 labeled 'taken' records
+  // were only 148 ticker-days), so shadow_bands' n counts copies; this
+  // probe's n counts events. Aggregate-only, same posture as shadow_bands.
+  "shadow_bands_dedup",
+  // ADDED 2026-10-27 [RESEARCH] (Phase 5 "the brain"): source_validation.
+  // get_source_validation_report() — every data source (14 persisted score
+  // components + 34 model features) tested ALONE against +5d outcomes on the
+  // deduped first-seen (ticker, ET day) shadow population: Spearman IC with
+  // a day-clustered bootstrap CI, tercile spread, by regime, PASS/FAIL under
+  // Benjamini-Hochberg. Aggregate-only (no ticker, price or timestamp).
+  "source_validation",
   // ADDED 2026-10-13 (human-directed: "get back to me on who's visit[ed]
   // and signed up"): siteReport.ts's aggregateSiteReport() — signup and
   // waitlist COUNTS by day/tier/source, the API-key-holder count, and
@@ -306,6 +335,58 @@ export const DIAG_PROBES = [
   // /api/admin/site-report), so the "no user data" posture above holds.
   // No query parameters.
   "signups",
+  // ADDED 2026-10-27 (Phase 6 part A, human-directed): which historical
+  // options data (trades, quotes, bars, open interest) the production
+  // Alpaca and Polygon keys are entitled to. The repo only knows that
+  // Alpaca rejected feed=opra with 403 on 2026-07-25 and has never called a
+  // Polygon options endpoint (audit 2026-10-27 §2.4). One minimal GET per
+  // endpoint (server/optionsEntitlements.ts); the response carries HTTP
+  // status, a verdict and field-name presence booleans ONLY — no prices,
+  // symbols, URLs, bodies or keys. Keys ride in headers, never URLs.
+  "options_entitlements",
+  // ADDED 2026-10-28 (human order: "Check whether Alpaca's free bars include
+  // delisted tickers since 2010. If they do, build the price panel from them.
+  // No paid data."): server/barsCoverage.ts — the earliest daily bar for
+  // SPY/AAPL/IWM on sip and iex, first/last bar date + count for a fixed list
+  // of delisted/renamed/reused tickers under default vs dated vs disabled
+  // (`asof=-`) symbol mapping, and /v2/assets inactive/active COUNTS (+ a few inactive symbols).
+  // GET only, keys in headers only; no URL, body, vendor message or key in
+  // the response. Self-paced and cached 6 h; ?fresh=1 bypasses.
+  "bars_coverage",
+  // ADDED 2026-10-28 (price panel build, same human order): read-only status
+  // of server/pricePanel.ts — flag, the current and in-progress builds'
+  // manifests (universe counts, progress checkpoint, bar/byte counts, blocked
+  // reason, last error), free disk vs the floor, and the caveats. Manifests
+  // only: no bar, price or URL leaves; no network call; no query parameters.
+  "price_panel",
+  // ADDED 2026-10-29 ([RULE-REVIEW] measurement): read-only status of the
+  // weekly long-term walk-forward (server/walkforward.ts walkforwardStatus) —
+  // flag, schedule, current panel build, the last result's headline fields
+  // (per-input verdict, 5d/20d IC, Bonferroni p, top-N excess vs random entry,
+  // DSR, universe counts) and last_run.json. Derived statistics only: no
+  // ticker, price or URL; no network call; no Python; no query parameters.
+  "walkforward",
+  // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
+  // server side of the external job watchdog. server/jobHeartbeat.ts's
+  // evaluate() over the persisted heartbeat file — per scheduled job
+  // ok | late | missing | errored | not_due with its last start/finish/
+  // status/age, the overall verdict and the failing jobs. Job names,
+  // timestamps and short error messages only (already sanitized-class: the
+  // same text the audit log carries); read-only, no broker call, no
+  // query parameters.
+  "heartbeats",
+  // ADDED 2026-10-29 (Edge P1 shadow stream, T-DATACORE): server/squeezeGex.ts
+  // report — archived-row count, first/latest date, latest trailing-252 rank R
+  // and negative-GEX flag, refresh status. Aggregates only (no raw gex/dix/
+  // price rows: DIX.csv licence unverified, gate 1 open). No query parameters.
+  "squeeze_gex",
+  // ADDED 2026-10-27 (human Phase 4 "Fix the model"): the v3 CANDIDATE
+  // model's honest out-of-sample report + job state, read straight from the
+  // files ml_model_v3.py writes (DATA_DIR/ml_v3). The candidate is SHADOW
+  // ONLY; this is how a session judges it without the Railway volume.
+  // Aggregate metrics only (AUC, log-loss, quintile returns) — no ticker,
+  // no price. No query parameters.
+  "ml_v3",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

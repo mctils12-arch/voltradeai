@@ -3,6 +3,7 @@
 // hook result carries dataUpdatedAt so every panel can print its own age.
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { unwrapOpenOrders } from "./orders";
 import type { PositionLevels } from "../../../shared/positionLevels";
 
 /** Every Bot page read is polled, so none may hang forever (a hung request
@@ -22,7 +23,13 @@ export interface BotStatus {
   autoResume?: unknown; mode?: string; circuitBreakerActive?: boolean; consecutiveStopLosses?: number;
   /** the Node admission threshold a scanner trade must clear */
   minScoreThreshold?: number;
+  /** ENTRY SHADOW MODE (server/entryShadow.ts): sleeves whose new entries are logged, not ordered */
+  entry_shadow?: EntryShadow;
+  /** today's (ET) would-be entries from the in-memory day book, newest first (capped; count exact) */
+  shadow_entries_today?: { day: string; count: number; entries: ShadowEntryRow[] };
 }
+export interface EntryShadow { stocks: boolean; options: boolean; source: "env" | "config" }
+export interface ShadowEntryRow { time: string; sleeve: "stocks" | "options"; ticker: string; side: string | null; notional: number | null; source: string; instrument: string | null }
 export interface BotAccount {
   equity: number; lastEquity?: number; cash?: number; buyingPower?: number; dailyPnL?: number; dailyPnLPct?: number;
   drawdownPct?: number; equityPeak?: number;
@@ -93,6 +100,18 @@ export interface AfterTaxBenchmark {
   account: { pct: number; taxPct: number; afterTaxPct: number; equityStart: number; realizedTax: number; liquidationTax: number; openPnl: number | null; openTaxIfSold: number | null };
   gapPp: number; notes: string[];
 }
+/** GET /api/bot/scoreboard (server/scoreboard.ts): the same comparison one
+ *  row per trading day, newest first. No rows / null summary = not enough
+ *  data on one side — never zeros. cashFlows: journals + transfers since the
+ *  start from the non-trade ledger (null until loaded); returns are NOT
+ *  adjusted for them. */
+export interface ScoreRow { date: string; prevDate: string; sessions: number; botPct: number; spyPct: number; diffPp: number; botCumPct: number; spyCumPct: number; cumDiffPp: number; provisional: boolean }
+export interface ScoreSummary { from: string; to: string; botCumPct: number; spyCumPct: number; cumDiffPp: number; daysBeat: number; daysCompared: number; gapRows: number; botMaxDdPct: number; spyMaxDdPct: number }
+export interface Scoreboard {
+  rows: ScoreRow[]; summary: ScoreSummary | null; barsThrough: string | null; curveThrough: string | null;
+  fetchedAt: string | null; computedAt?: string; sources?: { equity: string; spy: string };
+  cashFlows: { journals: number; transfers: number; since: string | null } | null; error?: string;
+}
 /** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
  *  Alpaca's fill ledger + open P&L from current positions. */
 export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
@@ -140,6 +159,7 @@ export interface BotData {
   orders: UseQueryResult<OpenOrder[]>;
   benchmark: UseQueryResult<Benchmark>;
   sleeves: UseQueryResult<Sleeves>;
+  scoreboard: UseQueryResult<Scoreboard>;
 }
 
 export function useBotData(): BotData {
@@ -153,11 +173,14 @@ export function useBotData(): BotData {
   const ml = useQuery<MlStatus>({ queryKey: ["/api/ml/status"], queryFn: () => getJson("/api/ml/status"), refetchInterval: 60_000 });
   const insight = useQuery<Insight>({ queryKey: ["/api/bot/insight"], queryFn: () => getJson("/api/bot/insight", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 5 * 60_000, staleTime: 2 * 60_000 });
   const lastScan = useQuery<LastScan>({ queryKey: ["/api/bot/last-scan"], queryFn: () => getJson("/api/bot/last-scan"), refetchInterval: 60_000 });
-  const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson("/api/orders/open"), refetchInterval: 30_000 });
+  // /api/orders/open answers { orders } — unwrap it (orders.ts, audit §8.2 D4)
+  const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson<unknown>("/api/orders/open").then(unwrapOpenOrders<OpenOrder>), refetchInterval: 30_000 });
   const benchmark = useQuery<Benchmark>({ queryKey: ["/api/bot/benchmark"], queryFn: () => getJson("/api/bot/benchmark"), refetchInterval: 10 * 60_000 });
   // pending while the server's first ledger computation runs: poll sooner
   const sleeves = useQuery<Sleeves>({ queryKey: ["/api/bot/sleeves"], queryFn: () => getJson("/api/bot/sleeves"), refetchInterval: (q) => (q.state.data?.pending ? 20_000 : 10 * 60_000) });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves };
+  // the server caches the computed table 10 min; the page asks as often
+  const scoreboard = useQuery<Scoreboard>({ queryKey: ["/api/bot/scoreboard"], queryFn: () => getJson("/api/bot/scoreboard"), refetchInterval: 10 * 60_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {

@@ -294,19 +294,15 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
     return all_bars, (None if all_bars else last_error)
 
 
-def _fetch_earnings_surprises(tickers: list) -> Dict[str, float]:
-    """Fetch last EPS surprise direction for a list of tickers."""
-    surprises = {}
-    for sym in tickers[:50]:  # Cap to avoid rate limits
-        try:
-            r = requests.get("https://finnhub.io/api/v1/stock/earnings",
-                params={"symbol": sym, "token": FINNHUB_KEY}, timeout=5)
-            data = r.json()
-            if data and len(data) > 0:
-                sp = data[0].get("surprisePercent", 0) or 0
-                surprises[sym] = 1.0 if sp > 2 else (-1.0 if sp < -2 else 0.0)
-        except Exception: pass
-    return surprises
+# [RULE-REVIEW] 2026-10-27: _fetch_earnings_surprises() was removed. It
+# fetched Finnhub's LATEST EPS surprise per ticker and _build_training_data
+# applied that one value to EVERY historical row of the ticker — a look-ahead
+# leak (a 2024 row "knew" the 2026 report). Finnhub's free /stock/earnings
+# returns only the last 4 quarters with no report date, so a point-in-time
+# version (surprise visible only once report_date < decision date) cannot be
+# built from available data; serving never had the value either (intelligence
+# never emits earnings_surprise -> always 0). Generic rows now carry 0.0, the
+# same constant serving uses. The v3 candidate (ml_features_v3) drops it.
 
 # ══════════════════════════════════════════════════════════════════
 # HELPER: Historical news sentiment via Alpaca news API
@@ -745,7 +741,7 @@ def _walk_forward_cv(X, y, n_splits=5, embargo_days=5, n_tickers_approx=50):
 # ══════════════════════════════════════════════════════════════════
 
 def _build_training_data(all_bars: dict,
-                          earnings_surprises: dict = None) -> Tuple:
+                          return_meta: bool = False) -> Tuple:
     """
     Build training data with:
     1. Triple-barrier labels (volatility-adjusted, timeouts relabeled)
@@ -753,6 +749,13 @@ def _build_training_data(all_bars: dict,
     3. All 34 features including intel and new professional features
 
     Returns: X, y, regimes (array of 'bull'/'bear'/'neutral' per row)
+
+    return_meta=True ([RULE-REVIEW] 2026-10-27, ml_cv.py) appends a 4th
+    element {"dates", "tickers", "label_end_dates"}: each row's decision
+    date, ticker, and the date of the last bar its label reads (idx+5).
+    Rows are still emitted TICKER BY TICKER (that order is what the legacy
+    row-index CV leaks on); ml_cv.purged_walk_forward_splits keys folds on
+    these dates instead. The default return shape is unchanged.
     """
     vxx_bars_raw = all_bars.get("VXX", {})
     spy_bars_raw = all_bars.get("SPY", {})
@@ -786,6 +789,7 @@ def _build_training_data(all_bars: dict,
     hyg_date_idx = {_date_key(b): i for i, b in enumerate(hyg_list)}
 
     X_rows, y_labels, regimes_list = [], [], []
+    meta_dates, meta_tickers, meta_label_end = [], [], []
 
     # Compute cross-sectional ranks BY DATE (also previously used positional idx
     # which collides across tickers that start on different dates).
@@ -839,7 +843,9 @@ def _build_training_data(all_bars: dict,
         closes = [b["c"] for b in bars]
         dates  = [_date_key(b) for b in bars]
 
-        earn_surp = (earnings_surprises or {}).get(ticker, 0.0)
+        # No point-in-time earnings source (see the note where
+        # _fetch_earnings_surprises used to be): 0.0 == the serve-time value.
+        earn_surp = 0.0
 
         # P0-3 FIX: pre-compute aligned VXX/SPY/TLT/HYG slices keyed to THIS
         # stock's calendar dates. _compute_features then just uses stock's idx
@@ -924,16 +930,24 @@ def _build_training_data(all_bars: dict,
             X_rows.append([float(feats.get(col, 0) or 0) for col in FEATURE_COLS])
             y_labels.append(binary_label)
             regimes_list.append(regime_label)
+            if return_meta:
+                meta_dates.append(dates[idx])
+                meta_tickers.append(ticker)
+                meta_label_end.append(dates[min(idx + 5, len(dates) - 1)])
 
     # Release large intermediate structures before converting to numpy
     del ticker_closes_map, ticker_dates_map, all_changes_by_date, breadth_by_date
 
     if len(X_rows) < 50:
-        return None, None, None
+        return (None, None, None, None) if return_meta else (None, None, None)
 
-    return (np.array(X_rows, dtype=np.float32),
-            np.array(y_labels, dtype=np.int8),
-            regimes_list)
+    out = (np.array(X_rows, dtype=np.float32),
+           np.array(y_labels, dtype=np.int8),
+           regimes_list)
+    if return_meta:
+        return out + ({"dates": meta_dates, "tickers": meta_tickers,
+                       "label_end_dates": meta_label_end},)
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1322,15 +1336,15 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
             _reason += f" ({_bars_fetch_error})"
         return {"status": "failed", "reason": _reason}
 
-    # Fetch earnings surprises for the tickers we're training on
     ticker_list = [k for k in all_bars if k not in ("SPY","QQQ","IWM","VXX","GLD","TLT")]
-    earnings_surprises = _fetch_earnings_surprises(ticker_list[:30])
 
     # Step 2: Build generic training data with triple-barrier labels
-    X_gen, y_gen, reg_gen = _build_training_data(all_bars, earnings_surprises)
+    # (the EPS-surprise feature is 0.0 on every row: the latest-surprise look-ahead
+    # was removed 2026-10-27, see _build_training_data)
+    X_gen, y_gen, reg_gen = _build_training_data(all_bars)
 
     # Release raw bar data — features have been extracted into X_gen
-    del all_bars, earnings_surprises
+    del all_bars
     import gc; gc.collect()
 
     # Step 3: Load real trade feedback
@@ -2525,6 +2539,25 @@ def track_fill(order_data: dict) -> None:
                     # callers that don't pass one, matching prior behavior.
                     "code_version":   str(order_data.get("code_version") or "1.0.34"),
                 }
+                # [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, server/entryFill.ts):
+                # bot.ts now sends fill_price = Alpaca's filled_avg_price and the
+                # prior random volume-tiered haircut separately as
+                # synthetic_fill_price. Keep the haircut beside the real fill
+                # (never in fill_price) so old and new rulers stay comparable.
+                # synthetic_slippage_pct is computed exactly like slippage_pct
+                # was before, so it is the old ruler's number for this trade.
+                # Records without fill_source were written before this change
+                # and carry the synthetic price in fill_price.
+                if order_data.get("fill_source"):
+                    record["fill_source"] = str(order_data.get("fill_source"))
+                _synth = order_data.get("synthetic_fill_price")
+                if isinstance(_synth, (int, float)) and not isinstance(_synth, bool):
+                    record["synthetic_fill_price"] = float(_synth)
+                    record["synthetic_slippage_pct"] = round(
+                        abs(float(_synth) - expected) / expected * 100 if expected > 0 else 0.0, 4)
+                for _k in ("qty_requested", "partial_fill", "order_status", "order_id"):
+                    if order_data.get(_k) is not None:
+                        record[_k] = order_data.get(_k)
                 # VERSION-AWARE-ML 2026-04-22: capture config fingerprint
                 try:
                     import hashlib as _ha
@@ -2635,6 +2668,17 @@ def fills_slippage_stats(feedback: list) -> dict:
         t for t in (feedback or [])
         if isinstance(t, dict) and t.get("expected_price", 0) and t.get("slippage_pct") is not None
     ]
+    # [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): records with
+    # fill_source == "broker" carry Alpaca's real filled_avg_price; older ones
+    # carry a random synthetic haircut in fill_price. Once any real-fill
+    # record exists, the average and cost come from real fills only, so the
+    # synthetic draw no longer leaks into realisticPnlPct. `count` stays the
+    # number of all entry-fill records (what /api/diag/ml fills_count means).
+    # See fills_slippage_basis() for which population was used.
+    fill_count = len(fills)
+    broker = [f for f in fills if f.get("fill_source") == "broker"]
+    if broker:
+        fills = broker
     total_slippage_cost = 0.0
     for f in fills:
         slip = f.get("slippage_pct", 0) or 0
@@ -2644,7 +2688,22 @@ def fills_slippage_stats(feedback: list) -> dict:
             total_slippage_cost += expected * qty * slip / 100
     avg_slippage_pct = (sum(f.get("slippage_pct", 0) or 0 for f in fills) / len(fills)) if fills else 0.0
     return {
-        "count": len(fills),
+        "count": fill_count,
         "avg_slippage_pct": avg_slippage_pct,
         "total_slippage_cost": total_slippage_cost,
     }
+
+
+def fills_slippage_basis(feedback: list) -> str:
+    """Which population fills_slippage_stats() averaged: "broker" (real
+    Alpaca fills), "legacy_synthetic" (pre-2026-10-27 records whose
+    fill_price carries a random haircut) or "none"."""
+    fills = [
+        t for t in (feedback or [])
+        if isinstance(t, dict) and t.get("expected_price", 0) and t.get("slippage_pct") is not None
+    ]
+    if not fills:
+        return "none"
+    if any(f.get("fill_source") == "broker" for f in fills):
+        return "broker"
+    return "legacy_synthetic"

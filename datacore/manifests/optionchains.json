@@ -5,7 +5,8 @@
  "source": "Alpaca Market Data v1beta1 options snapshots, feed=indicative (paper account)",
  "license": "Alpaca market data terms; INDICATIVE feed — NOT consolidated NBBO; internal research use",
  "attribution": "Alpaca Markets (indicative feed)",
- "schema_version": 1,
+ "schema_version": 2,
+ "schema_history": "v1 2026-07-05: s,u,t,bid,ask,bsz,asz,iv,delta,oi,feed. v2 2026-10-27: + gamma, vol, spot (forward-only; older rows lack them).",
  "field_map": {
   "s": "OCC option symbol",
   "u": "underlying ticker",
@@ -16,7 +17,10 @@
   "asz": "ask size",
   "iv": "implied volatility (Alpaca-computed)",
   "delta": "greeks.delta (Alpaca-computed)",
-  "oi": "open interest",
+  "oi": "open interest — NOT AVAILABLE on the indicative feed (always null in practice; 0 of 5,000 sampled prod rows had it)",
+  "gamma": "greeks.gamma (Alpaca-computed from the indicative quote; v2+)",
+  "vol": "contract volume for the labelled ET session: dailyBar.v when the bar is dated that session, 0 when the latest bar is an earlier session, null when there is no bar (indicative trades, ~15-min lag; v2+)",
+  "spot": "underlying latest trade at capture (else quote mid), one batched /v2/stocks/snapshots call, feed ALPACA_DATA_FEED (default delayed_sip, 15-min delayed); may be an extended-hours print, not the official close; null when unavailable (v2+)",
   "feed": "always 'indicative' — the honesty label travels with every record"
  },
  "confidence_model": "quotes are INDICATIVE (single-source), never NBBO; Databento cbbo-1m (2013->present) is the ground-truth complement per the options-data decision 2026-07-04",
@@ -24,6 +28,9 @@
  "entity_key": "u (underlying ticker); s (contract)",
  "sentiment": null,
  "started": "2026-07-05",
- "cadence": "once per trading day after 16:15 ET; <=120 underlyings (CSP universe cache + open positions), exp <=60d, strikes +/-20% of spot; ~3-5MB/day raw, gzipped by the archive compressor",
+ "day_label": "file YYYY-MM-DD = the ET trading date of the session whose post-close quotes it holds (from 2026-10-27 fix). Files written before the fix were captured ~00:40 ET and hold the PREVIOUS session's close under the next date (audit 2026-10-27 §2.4 defect 1) — use each record's t to recover the session; a pre-fix file found under a day's label at capture time is moved to optionchains/_superseded/. Completed days carry optionchains/_captured/<day>.json; in-progress captures stage in optionchains/_staging/.",
+ "chain_completeness": "From 2026-10-27: each underlying's chain is requested with server-side bounds (expiration_date <= capture date + 60d, strikes +/-20% of spot when known) and paginated to exhaustion (safety cap 40 x 1000 contracts; an underlying that hits it is named in _captured/<day>.json 'truncated'). Before: 5-page cap with no server bounds — heavy chains (SPY/QQQ/IWM) lost every expiry past ~39 DTE.",
+ "cadence": "once per NYSE trading day inside 16:30-18:30 ET (restart-safe, idempotent per ET trading date); <=120 underlyings (CSP universe cache + open positions), exp <=60d, strikes +/-20% of spot; ~3-5MB/day raw, gzipped by the archive compressor",
+ "oi_sidecar": "From 2026-10-29: optionchains/oi/YYYY-MM-DD.jsonl(.gz) holds REAL open interest for SPY/QQQ/IWM (exp <=60d) from Alpaca Trading API /v2/options/contracts: {s, u, t, oi, oid}. oid = open_interest_date reported by Alpaca (OCC publishes OI as of the prior close) — the row date, not the file label, is the truth. Written by server/optionsOiArchive.ts; whole-day-or-nothing; internal research only (Edge P1 gate 1 own-GEX).",
  "_note": "Universal archive envelope (approved 2026-07-04): forward-only history that can never be back-bought — the human's 'start now' mandate 2026-07-04."
 }

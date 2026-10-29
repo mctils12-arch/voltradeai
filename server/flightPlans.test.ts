@@ -754,9 +754,8 @@ test("filedCandidate: radial-resolvable route text adds a REPORT-ONLY shadow, pl
   const c = filedCandidate(mk("KBOS..ILC..SNS285053..MLF..KATL"), resolve)!;
   assert.equal(c.pathEstimated, false, "the parser places the radial route");
   assert.equal(c.routeKind, "radial");
-  assert.equal(c.radialShadow, undefined, "no shadow beside a placed path");
-  // no radial token => no shadow (pure-direct plans are already placed elsewhere)
-  assert.equal(filedCandidate(mk("KBOS..KATL"), resolve)!.radialShadow, undefined);
+  assert.equal("radialShadow" in c, false, "the retired report-only shadow field is gone");
+  assert.equal("radialShadow" in filedCandidate(mk("KBOS..KATL"), resolve)!, false);
 });
 
 test("filedCandidate: planHistory exposes amendments, first-seen and SWIM message time (additive, FILED only)", () => {

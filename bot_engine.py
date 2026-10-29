@@ -197,7 +197,10 @@ def _alpaca_headers():
     return {"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET}
 
 MAX_POSITIONS = 8          # SIZING-FIX 2026-04-22: was 5, shadowed regime-adaptive value from system_config. Now matches ABSOLUTE_MAX_POSITIONS in position_sizing.py and BULL regime cap.
-MAX_OPTIONS_POSITIONS = 8  # ALPHA-TUNE 2026-04-21: bump to allow more simultaneous options exposure
+# N11 (2026-10-28): one options-slot cap. Was a module constant 8 (ALPHA-TUNE
+# 2026-04-21) while system_config and Node's executeTrades cap use 6, so
+# Python admitted candidates Node then always rejected. Read the config value.
+MAX_OPTIONS_POSITIONS = int(BASE_CONFIG.get("MAX_OPTIONS_POSITIONS", 6))
 MAX_POSITION_PCT = 0.05    # 5% of portfolio per position
 STOP_LOSS_PCT = 0.02       # 2% stop loss
 TAKE_PROFIT_PCT = 0.06     # 6% take profit (3:1 reward/risk)
@@ -804,6 +807,26 @@ def _shadow_label_for(combined_score, min_score=None):
     return "rejected_score", f"score {combined_score:.1f} < MIN_SCORE {_t:g}"
 
 
+def _stock_short_entry_rejection(side, trade_type, action_label=None):
+    """Why a bearish STOCK candidate must not become an entry, else None.
+
+    [REPAIR] 2026-10-27 (audit §6.8 N3): deep_score labels a score>65,
+    RSI>70 candidate side="sell" / "SELL" (an overbought exit/avoid
+    signal on a name the scan only reaches when it is NOT held), and
+    _scan_market_inner used to rewrite every stock sell/short to BUY —
+    so the overbought signal bought the stock. Stock shorting is disabled
+    (backtest -$419K) and no gated short-entry path exists, so a stock
+    sell/short is dropped from entry candidates instead of flipped to a
+    long. Options-typed sells (SELL OPTIONS) are unaffected: they keep
+    their side for the instrument selector. Pure; tested directly.
+    """
+    if side not in ("sell", "short") or trade_type == "options":
+        return None
+    _lbl = str(action_label or side).upper()
+    return (f"bearish stock signal '{_lbl}' (side={side}) — stock shorting "
+            f"disabled and no long entry on a sell signal; not traded")
+
+
 def deep_score(ticker, quick_result, _diag=None, min_score=None):
     """
     Deep analysis on a pre-filtered stock using analyze.py.
@@ -1010,6 +1033,7 @@ except Exception as e:
     obv_signal = 0  # -1 = distribution, 0 = neutral, +1 = accumulation
     _deep_atr14 = None   # captured for ml_features atr_pct
     _deep_closes = []    # captured for ml_features above_ma10
+    _deep_bars = []      # raw daily bars, for the SHADOW v3 candidate score (ml_model_v3)
     try:
         end_d = datetime.now().strftime("%Y-%m-%d")
         # MOMENTUM FIX 2026-04-20: widened from 40d/limit=30 to 400d/limit=300
@@ -1026,6 +1050,7 @@ except Exception as e:
             lows = [b["l"] for b in bars_data]
             closes = [b["c"] for b in bars_data]
             _deep_closes = closes  # capture for ML features
+            _deep_bars = bars_data
             volumes = [b.get("v", 0) for b in bars_data]
 
             plus_dm_list = []
@@ -1255,6 +1280,39 @@ except Exception as e:
         news_adjustment -= 6
         reasons.append(f"News bearish ({news_sent.get('headline_count', 0)} articles)")
 
+    # ── REGIME ENGINE selection guards (2026-10-28, docs/regime/FINDINGS.md step 4) ──
+    # SHADOW by default: the verdict's flags ride the shadow record
+    # (score_breakdown regime_*) so each guard earns a prevention-P&L before it
+    # gates anything. Only a guard named in VOLTRADE_REGIME_SELECTION acts:
+    # 'dip' neutralizes the mean-reversion sub-score (> 50 -> 50) and the
+    # 'Buy the Dip' bonus when the engine's state does not allow dip-buying
+    # (RESEARCH.md §2.2: Connors above the 200-day; George-Hwang; Daniel-
+    # Moskowitz); knife/panic/rs/breadth block in the admission loop. Off, or
+    # no persisted state, or any error -> scores identical to the baseline.
+    _regime_sel = None
+    _regime_dip_gate = False
+    try:
+        import regime_engine as _re_sel
+        if _re_sel.engine_allowed():
+            _regime_state_sel = _re_sel.cached_state()
+            if _regime_state_sel:
+                _contrarian_flag = sentiment.get("contrarian_flag") if isinstance(sentiment, dict) else None
+                _regime_sel = _re_sel.selection_verdict(_regime_state_sel, {
+                    "price": quick_result.get("price"), "high_52w": quick_result.get("high_52w"),
+                    "closes": _deep_closes, "relative_strength_pct": edge.get("relative_strength"),
+                    "mean_reversion_score": mean_reversion_score,
+                    "dip_bonus": 8.0 if _contrarian_flag == "Buy the Dip" else 0.0,
+                })
+                _regime_dip_gate = "dip" in _re_sel.selection_gates()
+                if _regime_dip_gate and _regime_sel["neutralize_mr"] and mean_reversion_score > 50:
+                    reasons.append(f"Regime guard: mean-reversion neutralized ({_regime_sel['reasons'].get('dip', '')})")
+                    mean_reversion_score = 50.0
+    except Exception as _re_sel_err:
+        import logging as _re_sel_logging
+        _re_sel_logging.getLogger("bot_engine").debug(f"[REGIME] selection guard skipped: {_re_sel_err}")
+        _regime_sel = None
+        _regime_dip_gate = False
+
     # ── Combined score ───────────────────────────────────────────────────────
     combined_score = (
         momentum_score * 0.25 +
@@ -1293,6 +1351,9 @@ except Exception as e:
 
     # ── Intelligence-based scoring ────────────────────────────────────────────
     intel_adjustment = 0
+    # [RESEARCH] 2026-10-27, shadow-only: the MSPR part of intel_adjustment,
+    # persisted separately on the shadow record (score_breakdown.insider_mspr).
+    insider_mspr_adjustment = 0
     if intel:
         intel_score = intel.get("intel_score", 0)
         
@@ -1316,9 +1377,11 @@ except Exception as e:
             mspr = finnhub["insider_mspr"]
             if mspr > 30:
                 intel_adjustment += 5
+                insider_mspr_adjustment = 5
                 reasons.append(f"Finnhub insider sentiment: bullish (MSPR {mspr:.0f})")
             elif mspr < -30:
                 intel_adjustment -= 5
+                insider_mspr_adjustment = -5
                 reasons.append(f"Finnhub insider sentiment: bearish (MSPR {mspr:.0f})")
         if finnhub.get("analyst_consensus") == "buy":
             intel_adjustment += 3
@@ -1445,6 +1508,10 @@ except Exception as e:
 
     combined_score += fundamental_adjustment
 
+    # [RESEARCH] 2026-10-27, shadow-only: snapshot the running total around
+    # the three boosts below so each one's contribution (and the pre-clamp
+    # rules total) is persisted on the shadow record. Scoring is unchanged.
+    _pre_rec_boost = combined_score
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -1455,22 +1522,30 @@ except Exception as e:
             combined_score += 6
             reasons.append(f"AI recommends: {action}")
 
+    recommendation_adjustment = combined_score - _pre_rec_boost
+    _pre_contrarian = combined_score
     # Sentiment boost / penalty
     contrarian = sentiment.get("contrarian_flag")
     if contrarian == "Squeeze Watch":
         combined_score += 10
         reasons.append("SQUEEZE WATCH — retail hype + high short interest")
+    elif contrarian == "Buy the Dip" and _regime_dip_gate and _regime_sel and _regime_sel.get("neutralize_mr"):
+        reasons.append("Regime guard: 'Buy the Dip' bonus withheld (dip-buying not allowed in this state)")
     elif contrarian == "Buy the Dip":
         combined_score += 8
         reasons.append("Buy the Dip signal — retail panic, institutions buying")
     elif sent_score_val > 75:
         combined_score += 4
 
+    contrarian_adjustment = combined_score - _pre_contrarian
+    _pre_rel_strength = combined_score
     # Edge factors
     rs = edge.get("relative_strength", 0)
     if rs and rs > 5:
         combined_score += 6
         reasons.append(f"Outperforming SPY by {rs:.1f}%")
+    rel_strength_adjustment = combined_score - _pre_rel_strength
+    rules_raw_score = combined_score  # pre-clamp rules total (shadow record only)
 
     combined_score = max(0, min(100, combined_score))
     rules_only_score = round(combined_score, 1)  # Capture BEFORE ML blend for attribution
@@ -1502,6 +1577,24 @@ except Exception as e:
                 _regime_ctx = _get_markov_regime(_ri["spy_returns"], float(_ri["vxx_ratio"]), float(_ri["spy_vs_ma50"]))
             except Exception:
                 pass
+
+        # REGIME ENGINE step 7 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_LABELS): the
+        # engine's legacy label (BULL / NEUTRAL / CAUTION / BEAR / PANIC) replaces the Markov
+        # label on everything that persists or acts on a LABEL (the shadow record,
+        # regime_at_entry, the Node exit geometry); markov_state / regime_score stay the
+        # ML's training definitions. Flag off, engine off or a stale state: the Markov label
+        # stands and nothing here changes.
+        try:
+            import regime_engine as _re_lbl
+            _markov_lbl = _regime_ctx.get("regime_label")
+            _engine_lbl = _re_lbl.label_for()
+            if _engine_lbl:
+                _regime_ctx = {**_regime_ctx, "regime_label": _engine_lbl["label"], "regime_label_source": "engine",
+                               "regime_label_markov": _regime_ctx.get("regime_label")}
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): Markov label vs the engine's.
+            _re_lbl.counterfactual_label("deep_score", _markov_lbl, _engine_lbl, "bot_engine.deep_score")
+        except Exception as _re_lbl_err:
+            logging.getLogger("bot_engine").debug(f"regime label override unavailable: {_re_lbl_err}")
 
         # 34 features — ALL computed from real data
         _price = quick_result.get("price", 0) or 0
@@ -1792,6 +1885,16 @@ except Exception as e:
                 "ml_signal": ml_result.get("ml_signal"),
                 "vxx_source": _ri.get("vxx_source") if isinstance(_ri, dict) else None,
             })
+        # SHADOW v3 candidate (ml_model_v3, 2026-10-27 Phase 4): logged on the
+        # shadow record next to v2's probability, NEVER blended — nothing
+        # below reads these keys. No network call until a candidate exists.
+        try:
+            from ml_model_v3 import shadow_score as _v3_shadow_score
+            _v3 = _v3_shadow_score(ticker, _deep_bars)
+            if _v3:
+                _ml_trace.update(_v3)
+        except Exception as _v3_exc:
+            _ml_trace["v3_error"] = f"{type(_v3_exc).__name__}: {_v3_exc}"[:200]
 
         # Blend: dynamic ratio loaded from tracker, default 60/40
         # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).
@@ -1848,6 +1951,9 @@ except Exception as e:
         quick_result["regime_label"] = _regime_ctx.get("regime_label", "NEUTRAL")
     except Exception:
         pass
+    # REGIME ENGINE selection guards (step 4): the verdict rides the candidate
+    # into _scan_market_inner's admission loop (knife / panic / rs / breadth).
+    quick_result["regime_guards"] = _regime_sel if '_regime_sel' in dir() else None
 
     # ── Determine trade SIDE ─────────────────────────────────────────────────
     momentum_is_negative = (momentum_score < 40 or change_pct < -2)
@@ -1904,7 +2010,35 @@ except Exception as e:
             "alt": round(alt_adjustment, 1),
             "social": round(social_adjustment, 1),
             "fundamental": round(fundamental_adjustment, 1),
+            # [RESEARCH] 2026-10-27 (shadow_portfolio.SCORE_BREAKDOWN_EXTRA_KEYS)
+            "recommendation": round(recommendation_adjustment, 1),
+            "contrarian": round(contrarian_adjustment, 1),
+            "rel_strength": round(rel_strength_adjustment, 1),
+            "insider_mspr": round(insider_mspr_adjustment, 1),
+            "rules_raw": round(rules_raw_score, 1),
         }
+        # REGIME ENGINE selection guards (step 4, shadow): 0/1 per guard + the
+        # score points a live 'dip' neutralization would remove. None when the
+        # engine is off / has no state — absence, never zeros.
+        if _regime_sel:
+            for _g, _v in _regime_sel["flags"].items():
+                _score_breakdown[f"regime_{_g}"] = float(_v)
+            _score_breakdown["regime_mr_delta"] = float(_regime_sel["mr_delta"])
+        # REGIME ENGINE ML snapshot (2026-10-28 live flip; logging only): the state's inputs,
+        # the engine and Markov labels, and the engine's gate decision vs legacy's for this
+        # candidate. None (key absent on the record) while the engine is off.
+        _regime_snapshot = None
+        try:
+            import regime_engine as _re_ml
+            if _re_ml.engine_allowed():
+                _regime_snapshot = _re_ml.ml_snapshot(
+                    _re_ml.cached_state(), kind="selection",
+                    markov_label=_markov_lbl if '_markov_lbl' in locals() else None,
+                    engine_label=_engine_lbl if '_engine_lbl' in locals() else None,
+                    verdict=_regime_sel, gates=_re_ml.selection_gates())
+        except Exception as _re_ml_err:
+            logging.getLogger("bot_engine").debug(f"regime ML snapshot skipped for {ticker}: {_re_ml_err}")
+            _regime_snapshot = None
 
         log_candidate(
             ticker=ticker,
@@ -1920,6 +2054,7 @@ except Exception as e:
             trade_type=trade_type,
             ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
             score_breakdown=_score_breakdown,
+            regime_snapshot=_regime_snapshot,
         )
     except Exception:
         pass  # Shadow logging must never break the trading loop
@@ -2681,6 +2816,63 @@ def _record_sizing_block(blocks: list, ticker: str, score, sizing: dict, strateg
         _blk_log.getLogger("bot_engine").debug(f"_record_sizing_block failed for {ticker}: {_rec_err}")
 
 
+def _fetch_latest_quote(symbol: str):
+    """Latest NBBO quote {"bp", "ap"} for one equity symbol, or None.
+    Same endpoint, feed and throttle as the scan's spread check
+    (/v2/stocks/{sym}/quotes/latest); a fetch failure is logged and
+    returns None so the caller can choose its own fallback."""
+    try:
+        alpaca_throttle.acquire()
+        r = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/quotes/latest",
+                         params={"feed": data_feed()}, headers=_alpaca_headers(), timeout=5)
+        q = (r.json() or {}).get("quote") or {}
+        return {"bp": float(q.get("bp", 0) or 0), "ap": float(q.get("ap", 0) or 0)}
+    except Exception as _q_err:
+        import logging as _q_log
+        _q_log.getLogger("bot_engine").warning(f"latest quote fetch failed for {symbol}: {_q_err}")
+        return None
+
+
+def _resolve_etf_execution(instrument_decision: dict, ticker: str,
+                           stock_position_value: float, fetch_quote=None):
+    """[REPAIR] 2026-10-27 (audit §6.8 N6): turn an "etf" instrument choice
+    into an executable ETF order (dollar sizing + the ETF's own price) or
+    downgrade it to the stock.
+
+    Returns (instrument_decision, etf_fields). etf_fields holds etf_shares /
+    etf_price / etf_position_value / etf_sizing_source for server/bot.ts's
+    ETF branch (all None when the stock is traded). A non-etf decision is
+    returned unchanged. When the ETF cannot be sized or priced
+    (instrument_selector.plan_etf_execution says why) the decision becomes
+    the stock — the same fallback bot.ts already takes when an ETF order
+    fails — with the reason appended to its reasoning."""
+    empty = {"etf_shares": None, "etf_price": None,
+             "etf_position_value": None, "etf_sizing_source": None}
+    if not isinstance(instrument_decision, dict) or instrument_decision.get("chosen") != "etf":
+        return instrument_decision, empty
+    etf_sym = str(instrument_decision.get("ticker") or "")
+    if not etf_sym or etf_sym.upper() == str(ticker).upper():
+        return instrument_decision, empty
+    from instrument_selector import plan_etf_execution
+    quote = (fetch_quote or _fetch_latest_quote)(etf_sym)
+    plan = plan_etf_execution(instrument_decision.get("sizing"), stock_position_value, quote)
+    if plan.get("ok"):
+        return instrument_decision, {
+            "etf_shares": plan["etf_shares"],
+            "etf_price": plan["etf_price"],
+            "etf_position_value": plan["etf_position_value"],
+            "etf_sizing_source": plan["sizing_source"],
+        }
+    downgraded = {
+        **instrument_decision,
+        "chosen": "stock",
+        "strategy": "buy_stock",
+        "ticker": ticker,
+        "reasoning": f"{instrument_decision.get('reasoning', '')} | ETF {etf_sym} -> STOCK: {plan.get('reason')}",
+    }
+    return downgraded, empty
+
+
 def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
     """Best-effort bucket name for a sizing block row (mirrors
     position_sizing._infer_strategy's vocabulary without importing it)."""
@@ -2835,6 +3027,21 @@ def _scan_market_inner():
             logging.getLogger("bot_engine").warning(
                 f"[DD_HALT] scan_market returning empty — {_dd_state.get('halt_reason', '')}"
             )
+            # HALT SCOPE (2026-10-27, audit N9): this early return used to
+            # skip the options manager too, so an 18% drawdown froze every
+            # options exit (DTE / profit / loss / gamma / assignment) — the
+            # opposite of "only entries are gated" above. Run its exits
+            # before returning, with rolls OFF (a roll's sell-to-open half
+            # is an entry; each roll point takes its existing close branch).
+            # Stock exits are unaffected (Node's WS monitor owns them). The
+            # floors, third leg and convexity overlay stay skipped: they can
+            # BUY, and an exits-only mode for them is a separate decision.
+            _halt_options_mgmt = {"actions": [], "positions_checked": 0}
+            try:
+                from options_manager import manage_options_positions
+                _halt_options_mgmt = manage_options_positions(allow_rolls=False)
+            except Exception as _hoe:
+                _halt_options_mgmt["error"] = str(_hoe)[:200]
             return {
                 "trades": [], "new_trades": [], "top_10": [],
                 "halted": True,
@@ -2843,6 +3050,7 @@ def _scan_market_inner():
                 "current_equity": _dd_state.get("current_equity", 0),
                 "dd_pct": _dd_state.get("dd_pct", 0),
                 "regime": _regime,
+                "options_management": _halt_options_mgmt,
             }
     except Exception as _dd_e:
         # DD tracking must never break scanning — log and continue
@@ -3216,6 +3424,26 @@ def _scan_market_inner():
     # Sort by deep score (or quick score if no deep)
     deep_scored.sort(key=lambda x: x.get("deep_score", x.get("quick_score", 0)), reverse=True)
 
+    # Step 5 (moved above the tie-break 2026-10-27): the tie-break reads
+    # current_positions; it used to be assigned ~120 lines later, so the tie-break
+    # always died on UnboundLocalError (caught, logged) and never ran.
+    # Step 5: Check current positions
+    try:
+        current_positions = get_alpaca_positions()
+        current_tickers = (
+            [p.get("symbol") for p in current_positions]
+            if isinstance(current_positions, list) else []
+        )
+        # Count only stock positions for stock slot limit (options have separate slots)
+        num_positions = sum(
+            1 for p in (current_positions if isinstance(current_positions, list) else [])
+            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
+        )
+    except Exception:
+        current_positions = []
+        current_tickers = []
+        num_positions = 0
+
     # ── TIE-BREAKING REFINEMENT (BATCH 11 2026-05-06) ─────────────────────────
     # When 2+ stocks score within 3 points of each other, the score itself is
     # below the model's noise floor — we can't tell which is actually better.
@@ -3331,22 +3559,6 @@ def _scan_market_inner():
         portfolio_value = 100000
         cash = 100000
 
-    # Step 5: Check current positions
-    try:
-        current_positions = get_alpaca_positions()
-        current_tickers = (
-            [p.get("symbol") for p in current_positions]
-            if isinstance(current_positions, list) else []
-        )
-        # Count only stock positions for stock slot limit (options have separate slots)
-        num_positions = sum(
-            1 for p in (current_positions if isinstance(current_positions, list) else [])
-            if len(str(p.get("symbol", ""))) <= 8 and p.get("asset_class", "us_equity") != "us_option"
-        )
-    except Exception:
-        current_positions = []
-        current_tickers = []
-        num_positions = 0
 
     # Step 6: Generate trade recommendations using DYNAMIC POSITION SIZING
     trades = []
@@ -3360,6 +3572,25 @@ def _scan_market_inner():
         _macro = get_macro_snapshot()
     except Exception:
         _macro = {}
+
+    # REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3 — SHADOW).
+    # One state per scan from regime_engine.py when VOLTRADE_REGIME_ENGINE
+    # (or BASE_CONFIG REGIME_ENGINE_ENABLED) is on: computed from cached
+    # daily bars, persisted, and carried on the scan result for bot.ts's
+    # REGIME-TRANSITION / REGIME-STALE audit lines and the /api/bot/regime
+    # report. NOTHING below reads it yet — every consumer has its own flag
+    # (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS). With the
+    # flag off the module is not imported; a failure never touches the scan.
+    _regime_state = None
+    try:
+        import regime_engine as _regime_engine
+        if _regime_engine.engine_allowed():
+            _regime_state = _regime_engine.update_state(gating="SPY")
+    except Exception as _regime_err:
+        import logging as _regime_logging
+        _regime_logging.getLogger("bot_engine").warning(f"[REGIME] engine skipped: {_regime_err}")
+        _regime_state = {"error": str(_regime_err)[:200], "stale": True}
+    _timing_log("step6_regime_engine")
 
     # SIZING-FIX 2026-04-22: use regime-adaptive MAX_POSITIONS rather than
     # the module-level constant. NEUTRAL regime returns 0 (no new stock
@@ -3484,6 +3715,33 @@ def _scan_market_inner():
             _note_gate(ticker, "rejected_regime_gate", f"no new stock longs in {_scan_regime}")
             continue  # No new stock longs in bear/panic — preserve capital
 
+        # REGIME ENGINE selection guards (2026-10-28, docs/regime/FINDINGS.md
+        # step 4): knife / panic / rs / breadth. The verdict was computed in
+        # deep_score (quick_result["regime_guards"]); a guard BLOCKS only when
+        # VOLTRADE_REGIME_SELECTION names it — otherwise its flag stays on the
+        # shadow record and the candidate proceeds (shadow measurement first).
+        _rg = stock.get("regime_guards") or {}
+        if _rg:
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): legacy has no regime guard
+            # here (take); one row per candidate and engine decision per day, passes included.
+            try:
+                import regime_engine as _re_cf_sel
+                _re_cf_sel.counterfactual_selection(ticker, _rg, _re_cf_sel.selection_gates(),
+                                                    "bot_engine._scan_market_inner")
+            except Exception as _re_cf_sel_err:
+                logging.getLogger("bot_engine").debug(f"regime selection counterfactual skipped for {ticker}: {_re_cf_sel_err}")
+        if _rg.get("would_block"):
+            try:
+                import regime_engine as _re_gate
+                _rg_gates_on = _re_gate.selection_gates()
+            except Exception:
+                _rg_gates_on = set()
+            _rg_blocked_by = [g for g in _rg["would_block"] if g in _rg_gates_on]
+            if _rg_blocked_by:
+                _note_gate(ticker, f"rejected_regime_{_rg_blocked_by[0]}",
+                           _rg.get("reasons", {}).get(_rg_blocked_by[0], "regime selection guard"))
+                continue
+
         # Skip if below minimum score — use regime-adaptive threshold from get_adaptive_params.
         # Previously this used a hardcoded MIN_SCORE=65 which conflicted with system_config
         # values (63 in BULL, 67 in CAUTION, 75 in BEAR/PANIC). Now uses the adaptive value.
@@ -3599,9 +3857,14 @@ def _scan_market_inner():
             continue  # Skip — will be analyzed tonight for tomorrow
 
         # Stock shorting disabled (backtest: -$419K). Bearish plays use options scanner.
-        if side in ("sell", "short") and stock.get("trade_type") != "options":
-            side = "buy"
-            action_label = "BUY"
+        # [REPAIR] 2026-10-27 (N3): a bearish stock signal (the RSI-overbought
+        # "SELL") was rewritten to BUY here — the sell signal bought the stock.
+        # It is now dropped and relabelled so its prevention-P&L is measurable.
+        _short_reject = _stock_short_entry_rejection(
+            side, stock.get("trade_type"), action_label)
+        if _short_reject:
+            _note_gate(ticker, "rejected_bearish_stock_signal", _short_reject)
+            continue
 
         # ── Spread awareness check (Fix 2026-04-10) ───────────────────
         # Reject equities with bid-ask spread > 0.5% of price.
@@ -3752,6 +4015,11 @@ def _scan_market_inner():
             import logging as _vl2
             _vl2.getLogger("bot_engine").warning(f"vol_share check failed for {ticker}: {_vol_err}")
 
+        # ETF substitution: dollar-size and price the ETF itself, or trade the
+        # stock (audit §6.8 N6 — see _resolve_etf_execution).
+        instrument_decision, _etf_fields = _resolve_etf_execution(
+            instrument_decision, ticker, position_value)
+
         trades.append({
             "action": action_label,
             "side": side,
@@ -3782,6 +4050,8 @@ def _scan_market_inner():
             "instrument_reasoning": instrument_decision.get("reasoning", ""),
             "instrument_ticker": instrument_decision.get("ticker", ticker),  # Could be ETF ticker
             "instrument_scores": instrument_decision.get("scores", {}),
+            # ETF order inputs for server/bot.ts (None unless instrument=="etf")
+            **_etf_fields,
             "use_options": options_decision.get("use_options", False),
             "options_strategy": options_decision.get("strategy", "stock"),
             "options_reasoning": options_decision.get("reason", ""),
@@ -3966,9 +4236,54 @@ def _scan_market_inner():
             max_new=max(1, options_slots),
             min_score=60.0,  # ALPHA-TUNE 2026-04-21: 65→60 to surface more options candidates
         )
+        # REGIME ENGINE step 5 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_OPTIONS):
+        # no NEW short vol from the scanner while the engine says CRISIS or the
+        # variance risk premium is negative. Shadow by default (a
+        # would_reject_regime_<g> record, once per name/guard/day); the gate drops
+        # the trade only when the flag names it. Long-vol setups (side "buy") are
+        # never touched. Own try: a failure here must not cost the options scan.
+        _rg_opt = {"verdict": None, "gates": set(), "engine": None}
+        try:
+            import regime_engine as _re_opt
+            if _re_opt.engine_allowed():
+                _rg_opt_state = _re_opt.cached_state()
+                if isinstance(_rg_opt_state, dict) and _rg_opt_state.get("as_of"):
+                    _rg_opt = {"verdict": _re_opt.csp_verdict(_rg_opt_state, {}),
+                               "gates": _re_opt.options_gates(), "engine": _re_opt, "state": _rg_opt_state}
+        except Exception:
+            _rg_opt = {"verdict": None, "gates": set(), "engine": None}
         for ot in options_trades:
             if options_trade_count >= options_slots:
                 break
+            # COUNTERFACTUAL (2026-10-28 live flip, logging only): a sell-side setup both systems
+            # take; blocked / would-be-blocked ones are logged below with their shadow bucket.
+            if _rg_opt.get("verdict") and str(ot.get("side", "buy")) == "sell" and not _rg_opt["verdict"]["would_block"]:
+                _rg_opt["engine"].counterfactual_options(ot.get("ticker"), _rg_opt["verdict"], _rg_opt["gates"],
+                                                         "bot_engine.options_scanner")
+            if _rg_opt.get("verdict") and str(ot.get("side", "buy")) == "sell" and _rg_opt["verdict"]["would_block"]:
+                _rg_g_on = [g for g in _rg_opt["verdict"]["would_block"] if g in _rg_opt["gates"]]
+                _rg_g = (_rg_g_on or _rg_opt["verdict"]["would_block"])[0]
+                _rg_decision = f"rejected_regime_{_rg_g}" if _rg_g_on else f"would_reject_regime_{_rg_g}"
+                _rg_opt["engine"].counterfactual_options(ot.get("ticker"), _rg_opt["verdict"], _rg_opt["gates"],
+                                                         "bot_engine.options_scanner", shadow_decision=_rg_decision)
+                try:
+                    if _rg_opt["engine"].shadow_once_per_day(f"scanner:{ot.get('ticker')}:{_rg_decision}"):
+                        import shadow_portfolio as _rg_sp
+                        _rg_sp.log_candidate(
+                            ticker=str(ot.get("ticker")), features={}, score=float(ot.get("score") or 0.0),
+                            decision=_rg_decision,
+                            decision_reason=str(_rg_opt["verdict"]["reasons"].get(_rg_g, _rg_g))[:200],
+                            entry_price=float(ot.get("price") or 0.0),
+                            vxx_ratio=float(_vxx_r_scan) if '_vxx_r_scan' in dir() else 1.0,
+                            regime_label=str(_scan_regime) if '_scan_regime' in dir() else "unknown",
+                            side="sell", action_label=str(ot.get("action_label") or "OPTIONS"), trade_type="options",
+                            regime_snapshot=_rg_opt["engine"].ml_snapshot(
+                                _rg_opt.get("state"), kind="options", verdict=_rg_opt["verdict"], gates=_rg_opt["gates"]),
+                        )
+                except Exception as _rg_log_err:
+                    logging.getLogger("bot_engine").debug(f"regime scanner-path shadow record failed for {ot.get('ticker')}: {_rg_log_err}")
+                if _rg_g_on:
+                    continue
             # Convert to bot_engine trade format
             trades.append({
                 "action":             ot.get("action_label", "OPTIONS"),
@@ -4041,9 +4356,28 @@ def _scan_market_inner():
     # Step 8b: Options Position Manager (pro-grade exit management) ─────────
     # Runs every cycle: DTE exits, 50% profit targets, Greeks monitoring, rolling
     options_mgmt_result = {"actions": [], "positions_checked": 0}
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): while the options sleeve
+    # is shadowed a roll's sell-to-open half is a new entry — the manager takes
+    # its existing close-only path (the N15 halt mechanism, allow_rolls=False);
+    # every close/exit rule still runs live. The skipped re-opens are logged.
+    _scan_shadow_rows = []
     try:
-        from options_manager import manage_options_positions
-        options_mgmt_result = manage_options_positions(equity=portfolio_value)
+        import entry_shadow as _es
+        _es_options = _es.is_shadowed("options")
+    except Exception as _es_err:
+        _es, _es_options = None, False
+        import logging as _es_logging
+        _es_logging.getLogger("bot_engine").warning(f"[ENTRY-SHADOW] unavailable, options entries live: {_es_err}")
+    try:
+        from options_manager import manage_options_positions, ROLL_SKIPPED_SHADOW_DETAIL
+        if _es_options:
+            options_mgmt_result = manage_options_positions(equity=portfolio_value, allow_rolls=False,
+                                                           roll_skip_detail=ROLL_SKIPPED_SHADOW_DETAIL)
+            _roll_entries = _es.roll_skip_entries(options_mgmt_result.get("actions", []))
+            if _roll_entries:
+                _scan_shadow_rows.extend(_es.record_entries(_roll_entries).get("results", []))
+        else:
+            options_mgmt_result = manage_options_positions(equity=portfolio_value)
     except Exception as _ome:
         options_mgmt_result["error"] = str(_ome)[:200]
 
@@ -4131,13 +4465,29 @@ def _scan_market_inner():
             )
 
             if not kill_status["killed"]:
+                # REGIME ENGINE step 7: under VOLTRADE_REGIME_LABELS the tier context's label is
+                # the engine's. (Found while wiring: `_regime_ctx` is deep_score's local, never
+                # this function's, so the fallback below has always read "NEUTRAL" — filed in
+                # research/open_questions.md, left as it is with the flag off.)
+                _scan_engine_label = None
+                try:
+                    import regime_engine as _re_lbl2
+                    _scan_engine_lbl_res = _re_lbl2.label_for()
+                    _scan_engine_label = (_scan_engine_lbl_res or {}).get("label")
+                    # COUNTERFACTUAL (2026-10-28 live flip, logging only): the tier context's legacy
+                    # label (the constant fallback below) vs the engine's.
+                    _re_lbl2.counterfactual_label(
+                        "tier_context", _regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                        _scan_engine_lbl_res, "bot_engine.tier_context")
+                except Exception as _re_lbl2_err:
+                    _scan_engine_label = None
                 ctx = TierContext(
                     equity=equity, peak_equity=peak, buying_power=bp,
                     positions=positions,
                     macro=_macro if '_macro' in locals() else {},
                     portfolio_margin=get_portfolio_margin_status(),
                     daily_pnl_pct=daily_pnl,
-                    regime=_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL",
+                    regime=_scan_engine_label or (_regime_ctx.get("regime_label", "NEUTRAL") if '_regime_ctx' in locals() else "NEUTRAL"),
                     vxx_ratio=vxx_r,
                     spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
                 )
@@ -4223,6 +4573,17 @@ def _scan_market_inner():
         }, open(_TIMING_PATH, "w"))
     except Exception:
         pass
+    # REGIME ENGINE step 6 (docs/regime/FINDINGS.md): persist the day's sizing-multiplier
+    # counters for the report (/api/bot/regime) — one write per scan; the daemon keeps them
+    # in-process between scans. Only when the engine is on and a sleeve is flagged.
+    _regime_sizing_counts = None
+    try:
+        import regime_engine as _re_szc
+        if _re_szc.engine_allowed() and _re_szc.sizing_sleeves():
+            _regime_sizing_counts = _re_szc.flush_sizing_counts()
+    except Exception as _re_szc_err:
+        _regime_sizing_counts = {"error": str(_re_szc_err)[:120]}
+
     return {
         "timestamp": datetime.now().isoformat(),
         "scanned": len(all_tickers),
@@ -4270,6 +4631,12 @@ def _scan_market_inner():
         } for _rank_idx, s in enumerate(deep_scored[:10])],
         "third_leg": third_leg_result,
         "convexity_overlay": convexity_result,
+        # ENTRY SHADOW MODE (2026-10-28): the flag as the scan read it and the
+        # would-be entries Python logged instead of ordering (third leg,
+        # convexity overlay, roll opens). bot.ts audits each NEW one.
+        "entry_shadow": _scan_entry_shadow(
+            _scan_shadow_rows if '_scan_shadow_rows' in dir() else [],
+            third_leg_result, convexity_result),
         "intraday_shorts": intraday_short_result,
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
@@ -4285,6 +4652,11 @@ def _scan_market_inner():
         "kill_status": kill_status,
         "kill_suppressed_trades": kill_suppressed,
         "tier_kill_status": tier_kill_status,
+        # REGIME ENGINE (2026-10-28, shadow): the persisted RegimeState dict
+        # (None while VOLTRADE_REGIME_ENGINE is off). bot.ts audits its
+        # transitions; no consumer acts on it until its own flag is set.
+        "regime": _regime_state if '_regime_state' in dir() else None,
+        "regime_sizing": _regime_sizing_counts if '_regime_sizing_counts' in dir() else None,
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
         # so the UI can show "POSITION RULES" card. Read from _slots_params
@@ -4437,6 +4809,159 @@ def _third_leg_exit_tickers(cfg: dict) -> set:
     return set(LEG3_LEGACY_EXIT_TICKERS) - _floor_owned_tickers(cfg)
 
 
+# ── Third-leg dwell + protective exits (2026-10-27, audit N14/N20) ──────────
+# SVXY is short volatility. Zones, from one macro reading:
+#   SPIKE    VXX ratio above the buy band's top -> protective exit, immediate
+#   BAND     VXX ratio inside the buy band       -> buy allowed once confirmed
+#   RECOVERY regime NEUTRAL/BULL                 -> take-profit exit once confirmed
+#   OTHER    anything else (e.g. SPY-trend BEAR with calm VXX) -> hold
+LEG3_STATE_FILE = "voltrade_leg3_state.json"
+LEG3_VRP_TICKER = "SVXY"
+
+
+def _leg3_zone(vxx_ratio: float, regime: str, band_low: float, band_high: float) -> str:
+    if vxx_ratio > band_high:
+        return "SPIKE"
+    if band_low <= vxx_ratio <= band_high:
+        return "BAND"
+    if regime in ("NEUTRAL", "BULL"):
+        return "RECOVERY"
+    return "OTHER"
+
+
+def _leg3_state_path() -> str:
+    return os.path.join(DATA_DIR, LEG3_STATE_FILE)
+
+
+def _leg3_load_state() -> dict:
+    import logging as _l3log
+    try:
+        with open(_leg3_state_path()) as f:
+            state = json.load(f)
+        return state if isinstance(state, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as _re:
+        _l3log.getLogger("voltrade.leg3").warning(f"[LEG3-DWELL] state read failed: {_re}")
+        return {}
+
+
+def _leg3_save_state(state: dict) -> None:
+    import logging as _l3log
+    try:
+        path = _leg3_state_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, path)
+    except Exception as _we:
+        _l3log.getLogger("voltrade.leg3").warning(f"[LEG3-DWELL] state write failed: {_we}")
+
+
+def _resolve_third_leg_dwell(macro: dict, vxx_ratio: float, regime: str, cfg: dict) -> dict:
+    """Advance the third-leg zone debounce by ONE macro reading.
+
+    Same rules as _resolve_floor_regime (F2), applied to the leg's zones:
+      * no confirmed zone yet -> adopt the raw zone (bootstrap).
+      * raw SPIKE -> confirmed immediately (de-risking never lags).
+      * fallback macro (no real VXX reading) -> hold the confirmed zone and
+        clear any pending candidate.
+      * any other change -> confirmed only after it is seen on
+        LEG3_REGIME_CONFIRM_CYCLES consecutive DISTINCT macro readings
+        (_floor_macro_observation_key); a repeat of an already-counted
+        reading neither advances nor resets the count.
+    buy_ok needs the confirmed AND the current zone to be BAND and no
+    protective-exit cooldown; recovery_exit_ok needs a confirmed RECOVERY.
+    """
+    cfg = cfg or {}
+    band_low = float(cfg.get("LEG3_VRP_VXX_BAND_LOW", 1.05))
+    band_high = float(cfg.get("LEG3_VRP_VXX_BAND_HIGH", 1.25))
+    try:
+        confirm_cycles = max(1, int(cfg.get("LEG3_REGIME_CONFIRM_CYCLES", 3) or 1))
+    except (TypeError, ValueError):
+        confirm_cycles = 3
+    try:
+        cooldown_s = float(cfg.get("LEG3_VRP_REENTRY_COOLDOWN_HOURS", 24) or 0) * 3600.0
+    except (TypeError, ValueError):
+        cooldown_s = 24 * 3600.0
+
+    raw = _leg3_zone(vxx_ratio, regime, band_low, band_high)
+    fallback = _floor_macro_vxx_is_fallback(macro)
+    obs_key = _floor_macro_observation_key(macro)
+
+    state = _leg3_load_state()
+    confirmed = state.get("zone")
+    pending = state.get("zone_pending")
+    pending_count = int(state.get("zone_pending_count", 0) or 0)
+    last_obs = state.get("zone_last_obs")
+
+    if not confirmed:
+        confirmed, how = raw, "bootstrap"
+        pending, pending_count = None, 0
+    elif raw == confirmed:
+        how = "unchanged"
+        pending, pending_count = None, 0
+    elif raw == "SPIKE":
+        confirmed, how = raw, "spike_immediate"
+        pending, pending_count = None, 0
+    elif fallback:
+        how = "held_vxx_fallback"
+        pending, pending_count = None, 0
+    elif pending == raw and pending_count > 0 and obs_key == last_obs:
+        how = "pending_repeat_observation"
+    else:
+        if pending == raw and pending_count > 0:
+            pending_count += 1
+        else:
+            pending, pending_count = raw, 1
+        if pending_count >= confirm_cycles:
+            confirmed, how = pending, "confirmed"
+            pending, pending_count = None, 0
+        else:
+            how = "pending"
+
+    state["zone"] = confirmed
+    state["zone_raw"] = raw
+    state["zone_pending"] = pending
+    state["zone_pending_count"] = pending_count
+    state["zone_last_obs"] = obs_key
+    _leg3_save_state(state)
+
+    last_exit = float(state.get("last_protective_exit_ts", 0) or 0)
+    in_cooldown = last_exit > 0 and (time.time() - last_exit) < cooldown_s
+    return {
+        "zone": confirmed, "raw_zone": raw, "confirmed_by": how,
+        "pending": pending, "pending_count": pending_count,
+        "vxx_fallback": fallback, "in_cooldown": in_cooldown,
+        "spike": raw == "SPIKE",
+        "buy_ok": confirmed == "BAND" and raw == "BAND" and not in_cooldown,
+        "recovery_exit_ok": confirmed == "RECOVERY",
+    }
+
+
+def _leg3_record_protective_exit() -> None:
+    """Start the re-entry cooldown after a protective (spike/stop) exit."""
+    state = _leg3_load_state()
+    state["last_protective_exit_ts"] = time.time()
+    _leg3_save_state(state)
+
+
+def _scan_entry_shadow(roll_rows: list, *leg_results) -> dict:
+    """scan_market's `entry_shadow` field: the flag status + every shadow row
+    (entry_shadow.record_entries result rows) Python produced this scan."""
+    rows = list(roll_rows or [])
+    for res in leg_results:
+        for a in (res or {}).get("actions", []) if isinstance(res, dict) else []:
+            if isinstance(a, dict) and a.get("type") == "shadow_entry":
+                rows.append({k: a.get(k) for k in ("ticker", "sleeve", "source", "new")})
+    try:
+        import entry_shadow as _es
+        st = _es.status()
+    except Exception as e:
+        st = {"error": str(e)[:120]}
+    return {"status": st, "entries": rows}
+
+
 def _run_third_leg(macro: dict) -> dict:
     """
     Third leg: VRP harvest + Sector rotation.
@@ -4468,6 +4993,11 @@ def _run_third_leg(macro: dict) -> dict:
         regime          = get_market_regime(vxx_ratio, spy_vs_ma50,
                                             spy_below_200_days=spy_b200,
                                             spy_above_200d=spy_above_200d)
+        band_low  = float(BASE_CONFIG.get("LEG3_VRP_VXX_BAND_LOW",  1.05))
+        band_high = float(BASE_CONFIG.get("LEG3_VRP_VXX_BAND_HIGH", 1.25))
+        stop_pct  = float(BASE_CONFIG.get("LEG3_VRP_STOP_PCT",      0.10))
+        # N20 dwell + N14 spike detection — one observation per scan.
+        leg3_dwell = _resolve_third_leg_dwell(macro, vxx_ratio, regime, BASE_CONFIG)
 
         base_url = ALPACA_BASE_URL
         headers  = _alpaca_headers()
@@ -4501,7 +5031,9 @@ def _run_third_leg(macro: dict) -> dict:
         remaining_capacity = max(0.0, 1.0 - total_deployed)
         # Scale VRP allocation by remaining capacity (cap at 60% of remaining)
         vrp_pct = min(LEG3_VRP_PCT, remaining_capacity * 0.6)
-        if vrp_pct > 0 and 1.05 <= vxx_ratio <= 1.25:
+        # DWELL 2026-10-27 (N20): buy only on a CONFIRMED band zone (and
+        # never inside the post-stop/spike re-entry cooldown).
+        if vrp_pct > 0 and band_low <= vxx_ratio <= band_high and leg3_dwell["buy_ok"]:
             # Check VXX trend: fetch last 5 days
             vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
                 params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed": bars_feed()},
@@ -4518,7 +5050,22 @@ def _run_third_leg(macro: dict) -> dict:
                 if svxy_price > 0:
                     alloc  = equity * vrp_pct
                     shares = int(alloc / svxy_price)
+                    _es_stocks = False
                     if shares > 0 and alloc > 100:
+                        try:
+                            import entry_shadow as _es
+                            _es_stocks = _es.is_shadowed("stocks")
+                        except Exception as _es_err:
+                            _log.warning(f"[LEG3-VRP] entry shadow flag unavailable, entry live: {_es_err}")
+                    if shares > 0 and alloc > 100 and _es_stocks:
+                        # ENTRY SHADOW MODE (2026-10-28): the SVXY buy is a new
+                        # stock/ETF entry (not the floor basket) — log, don't order.
+                        _row = _es.record_entry(
+                            sleeve="stocks", ticker="SVXY", source="bot_engine._run_third_leg",
+                            side="buy", qty=shares, price=svxy_price, notional=round(shares * svxy_price, 2),
+                            reason=f"VXX ratio {vxx_ratio:.3f} (elevated+declining) — VRP harvest (shadow)")
+                        actions.append({"type": "shadow_entry", **_row})
+                    elif shares > 0 and alloc > 100:
                         order = {
                             "symbol":       "SVXY",
                             "qty":          str(shares),
@@ -4552,27 +5099,52 @@ def _run_third_leg(macro: dict) -> dict:
         # allocator owns (GLD = DEFENSIVE_FLOOR_TICKER, always-on 8% in
         # BULL/NEUTRAL) — this exit used to market-sell all GLD every
         # NEUTRAL/BULL cycle and the defensive floor re-bought it.
+        #
+        # PROTECTIVE EXITS 2026-10-27 (N14): SVXY (short vol, no WS stop /
+        # POS-KILL anywhere else) is also exited IMMEDIATELY on a vol spike
+        # (VXX ratio above the buy band's top) or a LEG3_VRP_STOP_PCT loss
+        # from entry. The take-profit exit on recovery now waits for a
+        # CONFIRMED NEUTRAL/BULL zone (N20 dwell) instead of one reading.
         exit_tickers = _third_leg_exit_tickers(BASE_CONFIG)
-        if regime in ("NEUTRAL", "BULL"):
-            for pos in positions_raw:
-                sym = pos.get("symbol", "")
-                if sym in exit_tickers:  # Exit VRP + any legacy sector positions not owned by a floor
-                    qty = pos.get("qty", "0")
-                    try:
-                        o = _req.post(f"{base_url}/v2/orders",
-                            json={"symbol": sym, "qty": qty, "side": "sell",
-                                  "type": "market", "time_in_force": "day"},
-                            headers=headers, timeout=10)
-                        pnl = float(pos.get("unrealized_plpc", 0) or 0) * 100
-                        actions.append({
-                            "type": "third_leg_exit",
-                            "symbol": sym,
-                            "reason": f"Regime recovered to {regime} — exiting third leg",
-                            "pnl_pct": round(pnl, 2),
-                        })
-                        _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
-                    except Exception as e:
-                        _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
+        for pos in positions_raw:
+            sym = pos.get("symbol", "")
+            if sym not in exit_tickers:  # Exit VRP + any legacy sector positions not owned by a floor
+                continue
+            pnl_frac = float(pos.get("unrealized_plpc", 0) or 0)
+            trigger, reason = None, None
+            if sym == LEG3_VRP_TICKER and leg3_dwell["spike"]:
+                trigger = "vol_spike"
+                reason = (f"VXX ratio {vxx_ratio:.3f} > {band_high:.2f} (top of buy band) — "
+                          f"vol spike against short-vol leg")
+            elif sym == LEG3_VRP_TICKER and stop_pct > 0 and pnl_frac <= -stop_pct:
+                trigger = "stop_loss"
+                reason = f"SVXY {pnl_frac*100:.1f}% from entry <= -{stop_pct*100:.0f}% stop"
+            elif leg3_dwell["recovery_exit_ok"]:
+                trigger = "regime_recovery"
+                reason = f"Regime recovered to {regime} — exiting third leg"
+            if trigger is None:
+                continue
+            qty = pos.get("qty", "0")
+            try:
+                o = _req.post(f"{base_url}/v2/orders",
+                    json={"symbol": sym, "qty": qty, "side": "sell",
+                          "type": "market", "time_in_force": "day"},
+                    headers=headers, timeout=10)
+                pnl = pnl_frac * 100
+                actions.append({
+                    "type": "third_leg_exit",
+                    "trigger": trigger,
+                    "symbol": sym,
+                    "reason": reason,
+                    "pnl_pct": round(pnl, 2),
+                })
+                if trigger != "regime_recovery":
+                    _leg3_record_protective_exit()
+                    _log.warning(f"[LEG3-PROTECT] Sold {sym} ({trigger}: {reason})")
+                else:
+                    _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
+            except Exception as e:
+                _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
 
     except Exception as e:
         _log.debug(f"[LEG3] Third leg error: {e}")
@@ -4584,6 +5156,7 @@ def _run_third_leg(macro: dict) -> dict:
         "regime":    regime if 'regime' in locals() else "unknown",
         "vrp_on":    vrp_pct > 0 if 'vrp_pct' in locals() else False,
         "sector_on": bool(sector_assets) if 'sector_assets' in locals() else False,
+        "dwell":     leg3_dwell if 'leg3_dwell' in locals() else None,
     }
 
 
@@ -4872,7 +5445,27 @@ def _run_convexity_overlay(macro: dict) -> dict:
         num_contracts = max(1, int(budget_dollars / cost_per_contract))
 
         # ── Place limit order for puts ───────────────────────────────────────
-        if occ_symbol not in pending_syms:
+        # ENTRY SHADOW MODE (2026-10-28): buy-to-open is an options entry —
+        # logged instead of ordered while the options sleeve is shadowed (the
+        # roll's sell-to-close above stays live).
+        _es_cvx = False
+        try:
+            import entry_shadow as _es
+            _es_cvx = _es.is_shadowed("options")
+        except Exception as _es_err:
+            _log.warning(f"[CONVEXITY] entry shadow flag unavailable, entry live: {_es_err}")
+        if occ_symbol not in pending_syms and _es_cvx:
+            _row = _es.record_entry(
+                sleeve="options", ticker="QQQ", source="bot_engine._run_convexity_overlay",
+                side="buy", qty=num_contracts, price=qqq_price, notional=round(num_contracts * mid_price * 100, 2),
+                instrument=occ_symbol, instrument_price=mid_price, trade_type="options",
+                action_label="SHADOW CONVEXITY PUT",
+                contract={"occ_symbol": occ_symbol, "strike": contract_strike, "expiry": contract_exp,
+                          "option_type": "put", "side": "buy_to_open", "qty": num_contracts,
+                          "limit_price": mid_price, "strategy": "convexity_hedge"},
+                reason=f"convexity hedge (shadow): {num_contracts}x {occ_symbol}, regime={regime}")
+            actions.append({"type": "shadow_entry", **_row})
+        elif occ_symbol not in pending_syms:
             order = {
                 "symbol":        occ_symbol,
                 "qty":           str(num_contracts),
@@ -5294,6 +5887,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                 _equity_b = float(_acct_b.get("equity", 0) or 0)
                 positions_b = get_alpaca_positions() or []
                 current_by_ticker = {p.get("symbol", ""): abs(float(p.get("market_value", 0) or 0)) for p in positions_b}
+                current_qty_by_ticker = {p.get("symbol", ""): int(float(p.get("qty", 0) or 0)) for p in positions_b}
 
                 drift_threshold = BASE_CONFIG.get("FLOOR_BASKET_DRIFT_THRESHOLD", 0.03)
 
@@ -5364,20 +5958,35 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                             "shares": _shares, "reason": "market_closed",
                                         })
                                     else:
-                                        alpaca_throttle.acquire()
-                                        requests.post(
-                                            f"{ALPACA_BASE_URL}/v2/orders",
-                                            headers={**_alpaca_headers(), "Content-Type": "application/json"},
-                                            json={
-                                                "symbol": b_ticker, "qty": str(_shares),
-                                                "side": "sell", "type": "market",
-                                                "time_in_force": "day",
-                                            }, timeout=10)
-                                        basket_result["actions"].append({
-                                            "ticker": b_ticker, "action": "sell",
-                                            "shares": _shares, "price": _px,
-                                            "delta_dollars": delta_dollars,
-                                        })
+                                        # N18 2026-10-27: unwind covered calls first when the
+                                        # sale leaves < 100 shares — same rule as the
+                                        # single-ticker path (a failed buy-back blocks the sale).
+                                        _cc_blocked = False
+                                        if current_qty_by_ticker.get(b_ticker, 0) - _shares < 100:
+                                            try:
+                                                basket_result["actions"].extend(_unwind_covered_calls(b_ticker))
+                                            except RuntimeError as _uw_err:
+                                                import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {b_ticker}, blocking sale: {_uw_err}")
+                                                basket_result["actions"].append({
+                                                    "ticker": b_ticker, "action": "cc_unwind_blocked",
+                                                    "reason": str(_uw_err)[:200],
+                                                })
+                                                _cc_blocked = True
+                                        if not _cc_blocked:
+                                            alpaca_throttle.acquire()
+                                            requests.post(
+                                                f"{ALPACA_BASE_URL}/v2/orders",
+                                                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                                                json={
+                                                    "symbol": b_ticker, "qty": str(_shares),
+                                                    "side": "sell", "type": "market",
+                                                    "time_in_force": "day",
+                                                }, timeout=10)
+                                            basket_result["actions"].append({
+                                                "ticker": b_ticker, "action": "sell",
+                                                "shares": _shares, "price": _px,
+                                                "delta_dollars": delta_dollars,
+                                            })
                         except Exception as _be:
                             basket_result["actions"].append({
                                 "ticker": b_ticker, "action": "sell_failed",
@@ -5399,8 +6008,23 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
 
         if target_pct <= 0:
             # No floor — sell any existing position (only on regime change to 0%)
+            #
+            # BASKET ORPHAN FIX 2026-10-27 (audit §6.8 N18): this branch sold
+            # only floor_ticker (QQQ), and the basket branch above requires
+            # target_pct > 0, so SMH/KWEB/VXUS (~28-36% of equity) were held
+            # with no exit through BEAR/PANIC (pushing invested % over the
+            # BEAR/PANIC caps -> master kill). A 0% target now exits EVERY
+            # floor-owned ticker (floor_ticker + non-CASH basket members),
+            # each after its own covered-call unwind. The pass also runs once
+            # per zero-target regime episode even without a regime change
+            # ("zero_target_exit_done"), so members already orphaned when
+            # this shipped are exited too.
             _exit_deferred = False
-            if regime_changed or last_regime is None:
+            _exit_blocked = False
+            _exit_tickers = [floor_ticker] + [t for t in basket_tickers if t != floor_ticker]
+            _needs_exit = (regime_changed or last_regime is None
+                           or _floor_state.get("zero_target_exit_done") != regime)
+            if _needs_exit:
                 if not _is_regular_hours():
                     # Deferred, not skipped: deliberately do NOT persist last_regime
                     # below, so regime_changed stays True and this retries next cycle
@@ -5409,35 +6033,54 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                     result["actions"].append({"type": "floor_exit_deferred",
                         "reason": "market_closed"})
                 else:
+                    import logging as _floor_log
                     try:
                         positions = get_alpaca_positions()
-                        floor_pos = [p for p in positions if p.get("symbol") == floor_ticker]
-                        if floor_pos:
-                            qty = abs(int(float(floor_pos[0].get("qty", 0))))
-                            if qty > 0:
-                                # Unwind any covered calls before selling stock
-                                try:
-                                    uw_actions = _unwind_covered_calls(floor_ticker)
-                                    result["actions"].extend(uw_actions)
-                                except RuntimeError as _uw_err:
-                                    import logging as _floor_log; _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {floor_ticker}, blocking sale: {_uw_err}")
-                                    result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
-                                    return result
-                                alpaca_throttle.acquire()
-                                requests.post(f"{ALPACA_BASE_URL}/v2/orders",
-                                    json={"symbol": floor_ticker, "qty": str(qty),
-                                          "side": "sell", "type": "market",
-                                          "time_in_force": "day"},
-                                    headers=_alpaca_headers(), timeout=10)
-                                result["actions"].append({"type": "floor_exit",
-                                    "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
-                                import logging as _floor_log; _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {floor_ticker} (regime changed {last_regime}->{regime})")
-                    except Exception:
-                        pass
+                        positions = positions if isinstance(positions, list) else []
+                    except Exception as _pe:
+                        _floor_log.getLogger("bot_engine").warning(f"[FLOOR] zero-target exit: positions read failed: {_pe}")
+                        positions, _exit_blocked = [], True
+                    for _xt in _exit_tickers:
+                        try:
+                            _xpos = [p for p in positions if p.get("symbol") == _xt]
+                            if not _xpos:
+                                continue
+                            # qty_available excludes shares already held by an
+                            # open sell (a retry must not double-sell).
+                            _raw_qty = _xpos[0].get("qty_available", _xpos[0].get("qty", 0))
+                            qty = int(float(_raw_qty or 0))
+                            if qty <= 0:
+                                continue
+                            # Unwind any covered calls before selling stock
+                            try:
+                                uw_actions = _unwind_covered_calls(_xt)
+                                result["actions"].extend(uw_actions)
+                            except RuntimeError as _uw_err:
+                                _floor_log.getLogger("bot_engine").error(f"[FLOOR] CC unwind failed for {_xt}, blocking sale: {_uw_err}")
+                                result["actions"].append({"type": "cc_unwind_blocked", "ticker": _xt, "reason": str(_uw_err)})
+                                _exit_blocked = True
+                                continue
+                            alpaca_throttle.acquire()
+                            requests.post(f"{ALPACA_BASE_URL}/v2/orders",
+                                json={"symbol": _xt, "qty": str(qty),
+                                      "side": "sell", "type": "market",
+                                      "time_in_force": "day"},
+                                headers=_alpaca_headers(), timeout=10)
+                            result["actions"].append({"type": "floor_exit", "ticker": _xt,
+                                "shares": qty, "reason": f"{regime} regime (was {last_regime})"})
+                            _floor_log.getLogger("bot_engine").info(f"[FLOOR] Sold {qty} {_xt} (regime {last_regime}->{regime}, 0% target)")
+                        except Exception as _xe:
+                            _floor_log.getLogger("bot_engine").warning(f"[FLOOR] zero-target exit failed for {_xt}: {_xe}")
+                            _exit_blocked = True
             else:
                 result["status"] = "no_floor_no_change"
-            if _exit_deferred:
+            if _exit_deferred or _exit_blocked:
+                # Blocked (CC unwind / order error): same retry contract as a
+                # deferral — last_regime is not persisted, so the next cycle
+                # retries; qty_available keeps the retry from double-selling.
                 return result
+            if _needs_exit:
+                _floor_state["zero_target_exit_done"] = regime
             # Save regime state
             _floor_state["last_regime"] = regime
             _floor_state["last_rebalance"] = datetime.now().isoformat()

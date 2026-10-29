@@ -147,3 +147,262 @@ test("gzipOldChainDays compresses 2-day-old files (the manifest's promised lifec
   assert.equal(zlibT.gunzipSync(fs.readFileSync(path.join(sub, "2026-07-01.jsonl.gz"))).toString(), '{"s":"X"}\n');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── [REPAIR 2026-10-27, audit §2.4 defect 1] day label + window + idempotency ──
+import {
+  etMinutesFromParts, etClock, captureTradingDay, isDayCaptured,
+  chainDayFile, chainStagingFile, chainCapturedFile,
+  CHAIN_RUN_AFTER_ET_MINUTES, CHAIN_RUN_BEFORE_ET_MINUTES,
+} from "./optionsChainArchive";
+
+// Tue 2026-10-27 (EDT, UTC-4)
+const ET = (h: number, m: number) => Date.UTC(2026, 9, 27, h + 4, m);
+const NO_HOLIDAYS = new Set<string>();
+
+test("ET clock: an h24 runtime's '24' hour is midnight, not minute 1440 (the Node 20 misparse)", () => {
+  // exactly what Node 20's hour12:false formatter produced for 2026-10-21T04:46Z
+  const node20Midnight = [
+    { type: "weekday", value: "Wed" }, { type: "literal", value: " " },
+    { type: "hour", value: "24" }, { type: "literal", value: ":" }, { type: "minute", value: "46" },
+  ];
+  assert.equal(etMinutesFromParts(node20Midnight), 46);
+  const c = etClock(Date.UTC(2026, 9, 21, 4, 46));
+  assert.equal(c.mins, 46, "00:46 ET");
+  assert.equal(c.etDay, "2026-10-21");
+  assert.equal(c.dow, "Wed");
+});
+
+test("window: runs only inside 16:30–18:30 ET on a trading day — never at midnight, never late evening", () => {
+  assert.equal(CHAIN_RUN_AFTER_ET_MINUTES, 16 * 60 + 30);
+  assert.equal(CHAIN_RUN_BEFORE_ET_MINUTES, 18 * 60 + 30);
+  assert.equal(shouldRunNow(null, Date.UTC(2026, 9, 21, 4, 46), NO_HOLIDAYS).run, false, "00:46 ET — the prod misfire");
+  assert.equal(shouldRunNow(null, ET(16, 20), NO_HOLIDAYS).run, false, "16:20 ET — index options still trading");
+  const ok = shouldRunNow(null, ET(16, 45), NO_HOLIDAYS);
+  assert.deepEqual(ok, { run: true, etDay: "2026-10-27" });
+  assert.equal(shouldRunNow(null, ET(18, 29), NO_HOLIDAYS).run, true, "catch-up inside the window");
+  assert.equal(shouldRunNow(null, ET(20, 30), NO_HOLIDAYS).run, false, "20:30 ET = 00:30Z tomorrow — outside the window");
+});
+
+test("day label is the ET trading date, never the UTC date", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-et-"));
+  const late = Date.UTC(2026, 9, 28, 0, 30); // 20:30 ET Tue 2026-10-27
+  archiveChainRecords([compactContract("F261120P00011000", "F", { latestQuote: { bp: 0.5, ap: 0.6 } }, late)!], dir, late);
+  assert.ok(fs.existsSync(path.join(dir, "optionchains", "2026-10-27.jsonl")), "labelled with the ET session");
+  assert.ok(!fs.existsSync(path.join(dir, "optionchains", "2026-10-28.jsonl")), "not the UTC date");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function chainFake(calls: string[]) {
+  return async (url: string) => {
+    calls.push(url);
+    const u = /snapshots\/([A-Z]+)\?/.exec(url)?.[1] || "X";
+    return { ok: true, status: 200, json: async () => ({
+      snapshots: { [`${u}261120P00100000`]: { latestQuote: { bp: 1, ap: 1.1 } } },
+    }) };
+  };
+}
+const lines = (fp: string) => fs.readFileSync(fp, "utf8").trim().split("\n").filter(Boolean);
+
+test("idempotent per ET trading date: a second capture (restart / extra tick) is skipped, not appended", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-idem-"));
+  const calls: string[] = [];
+  const opts = { baseDir: dir, sleepMs: 0, cacheJson: null };
+  const a = await captureTradingDay({} as any, chainFake(calls) as any, [], ET(16, 35), opts);
+  assert.equal(a.status, "published");
+  assert.equal(a.day, "2026-10-27");
+  const fp = chainDayFile("2026-10-27", dir);
+  assert.equal(lines(fp).length, 3, "SPY/QQQ/IWM one contract each");
+  assert.ok(fs.existsSync(chainCapturedFile("2026-10-27", dir)), "sidecar marks the day");
+  assert.ok(!fs.existsSync(chainStagingFile("2026-10-27", dir)), "staging consumed");
+  const n = calls.length;
+  const b = await captureTradingDay({} as any, chainFake(calls) as any, [], ET(16, 40), opts);
+  assert.equal(b.status, "skipped");
+  assert.equal(calls.length, n, "no API calls on a captured day");
+  assert.equal(lines(fp).length, 3, "no duplicate rows");
+  // crash between publish and sidecar: the published file's post-close t repairs the sidecar
+  fs.unlinkSync(chainCapturedFile("2026-10-27", dir));
+  assert.equal(isDayCaptured("2026-10-27", dir), true);
+  assert.ok(fs.existsSync(chainCapturedFile("2026-10-27", dir)));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("restart mid-capture: a leftover partial stage is discarded, the day is written once", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-restart-"));
+  const staged = chainStagingFile("2026-10-27", dir);
+  fs.mkdirSync(path.dirname(staged), { recursive: true });
+  fs.writeFileSync(staged, '{"s":"SPY261120P00100000","u":"SPY","t":1}\n{"s":"QQ'); // crashed mid-write
+  const r = await captureTradingDay({} as any, chainFake([]) as any, [], ET(16, 50), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  const rows = lines(chainDayFile("2026-10-27", dir)).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((x) => x.t === ET(16, 50)), "only the fresh capture");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("a pre-fix midnight file under today's label does not block the real capture and is kept aside", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-legacy-"));
+  const fp = chainDayFile("2026-10-27", dir);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  const legacyT = ET(0, 40); // 00:40 ET — previous session's close
+  fs.writeFileSync(fp, JSON.stringify({ s: "SPY261120P00100000", u: "SPY", t: legacyT, feed: "indicative" }) + "\n");
+  assert.equal(isDayCaptured("2026-10-27", dir), false, "midnight capture is not a post-close capture for the day");
+  const r = await captureTradingDay({} as any, chainFake([]) as any, [], ET(16, 31), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  const rows = lines(fp).map((l) => JSON.parse(l));
+  assert.ok(rows.every((x) => x.t === ET(16, 31)), "the day file holds only the post-close capture");
+  const aside = path.join(dir, "optionchains", "_superseded", "2026-10-27.jsonl");
+  assert.ok(fs.existsSync(aside), "legacy rows moved, never deleted");
+  assert.equal(JSON.parse(lines(aside)[0]).t, legacyT);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("total failure stages nothing and claims nothing (retry next tick)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-fail-"));
+  const bad = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  const r = await captureTradingDay({} as any, bad as any, [], ET(16, 31), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "unclaimed");
+  assert.equal(isDayCaptured("2026-10-27", dir), false);
+  assert.ok(!fs.existsSync(chainDayFile("2026-10-27", dir)));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── [REPAIR 2026-10-27, audit §2.4 defect 2] full index chains (pagination) ──
+import { fetchChainPages, chainQueryWindow, CHAIN_MAX_PAGES } from "./optionsChainArchive";
+
+/** A paged chain like SPY's: `n` pages in OCC order (nearest expiry first),
+ *  one in-scope contract per page, each a later expiry than the last. */
+function pagedChain(n: number, calls: string[], repeatToken = false) {
+  return async (url: string) => {
+    calls.push(url);
+    const m = /page_token=p(\d+)/.exec(url);
+    const page = m ? Number(m[1]) : 0;
+    const exp = new Date(Date.UTC(2026, 9, 28 + page * 4)); // +4 days per page, all ≤ 60 DTE for 12 pages
+    const yymmdd = exp.toISOString().slice(2, 10).replace(/-/g, "");
+    const occ = `SPY${yymmdd}P00590000`;
+    const next = repeatToken ? "p1" : page + 1 < n ? `p${page + 1}` : undefined;
+    return { ok: true, status: 200, json: async () => ({ snapshots: { [occ]: { latestQuote: { bp: 1, ap: 1.1 } } }, ...(next ? { next_page_token: next } : {}) }) };
+  };
+}
+
+test("pagination: a chain longer than the old 5-page cap is fetched whole (SPY lost every expiry past ~39 DTE)", async () => {
+  const calls: string[] = [];
+  const got = await fetchChainPages("SPY", 600, {} as any, pagedChain(12, calls) as any, ET(16, 35));
+  assert.equal(calls.length, 12, "follows next_page_token to exhaustion");
+  assert.equal(got.pages, 12);
+  assert.equal(got.records.length, 12, "every page's contracts kept — the far expiries included");
+  assert.equal(got.truncated, false);
+  assert.ok(CHAIN_MAX_PAGES >= 20, "safety cap well above a ≤60-DTE index chain");
+});
+
+test("pagination: the documented scope is asked of the server (≤60 DTE, ±20% band when spot is known)", async () => {
+  const calls: string[] = [];
+  await fetchChainPages("SPY", 600, {} as any, pagedChain(2, calls) as any, ET(16, 35));
+  assert.ok(calls[0].includes("expiration_date_gte=2026-10-27"), "0DTE kept: from the ET capture date");
+  assert.ok(calls[0].includes("expiration_date_lte=2026-12-26"), "capture date + 60 calendar days");
+  assert.ok(calls[0].includes("strike_price_gte=480.00") && calls[0].includes("strike_price_lte=720.00"));
+  assert.ok(calls[1].includes("page_token=p1") && calls[1].includes("expiration_date_lte="), "bounds ride on every page");
+  assert.deepEqual(chainQueryWindow(ET(16, 35), null), { expGte: "2026-10-27", expLte: "2026-12-26" }, "unknown spot: no strike bound");
+});
+
+test("pagination: hitting the safety cap or a repeated token is flagged truncated, never silent", async () => {
+  const capped = await fetchChainPages("SPY", 600, {} as any, pagedChain(12, []) as any, ET(16, 35), 3);
+  assert.equal(capped.pages, 3);
+  assert.equal(capped.truncated, true);
+  const calls: string[] = [];
+  const looped = await fetchChainPages("SPY", 600, {} as any, pagedChain(99, calls, true) as any, ET(16, 35));
+  assert.equal(looped.truncated, true);
+  assert.ok(calls.length <= 3, "a repeated page token cannot loop the capture");
+});
+
+test("pagination: the run summary and the day sidecar name truncated underlyings", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-trunc-"));
+  // every underlying serves an endless chain → each one truncates at the cap
+  const endless = async (url: string) => {
+    const m = /page_token=p(\d+)/.exec(url);
+    const page = m ? Number(m[1]) : 0;
+    const u = /snapshots\/([A-Z]+)\?/.exec(url)?.[1] || "X";
+    return { ok: true, status: 200, json: async () => ({ snapshots: { [`${u}261120P00100000`]: { latestQuote: { bp: 1, ap: 1.1 } } }, next_page_token: `p${page + 1}` }) };
+  };
+  const r = await captureTradingDay({} as any, endless as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  assert.deepEqual(r.truncated, ["SPY", "QQQ", "IWM"]);
+  const side = JSON.parse(fs.readFileSync(chainCapturedFile("2026-10-27", dir), "utf8"));
+  assert.deepEqual(side.truncated, ["SPY", "QQQ", "IWM"]);
+  assert.equal(side.scope.max_dte_days, 60);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── [2026-10-27, audit §10.2] stored fields: gamma, session volume, spot ──
+import { fetchSpots } from "./optionsChainArchive";
+
+test("stored fields: gamma, session volume and spot travel with each record; OI stays null (not in the feed)", () => {
+  const snap = (bar: Record<string, unknown> | null) => ({
+    latestQuote: { bp: 4.1, ap: 4.3, bs: 12, as: 9 }, impliedVolatility: 0.22,
+    greeks: { delta: -0.32, gamma: 0.0214, theta: -0.05, vega: 0.11 }, ...(bar ? { dailyBar: bar } : {}),
+  });
+  const now = ET(16, 35);
+  const today = compactContract("SPY261120P00590000", "SPY", snap({ t: "2026-10-27T04:00:00Z", v: 850, c: 4.2 }), now, 598.21)!;
+  assert.equal(today.gamma, 0.0214);
+  assert.equal(today.vol, 850, "dailyBar dated this ET session → its volume");
+  assert.equal(today.spot, 598.21);
+  assert.equal(today.oi, null, "indicative snapshots carry no openInterest");
+  assert.equal(today.feed, "indicative");
+  const stale = compactContract("SPY261120P00590000", "SPY", snap({ t: "2026-10-23T04:00:00Z", v: 300 }), now, 598.21)!;
+  assert.equal(stale.vol, 0, "latest bar is an earlier session → no prints today");
+  const none = compactContract("SPY261120P00590000", "SPY", snap(null), now)!;
+  assert.equal(none.vol, null, "no bar → unknown, not zero");
+  assert.equal(none.spot, null, "spot unknown → null");
+  const noGamma = compactContract("X261120P00010000", "X", { latestQuote: { bp: 1, ap: 1.1 }, greeks: { gamma: null } }, now)!;
+  assert.equal(noGamma.gamma, null, "a null greek is missing, not 0");
+});
+
+/** Chain + stock-snapshot fake: SPY last trade 600, QQQ quote-only 500/502, IWM absent. */
+function marketFake(calls: string[], stocksOk = true) {
+  return async (url: string) => {
+    calls.push(url);
+    if (url.includes("/v2/stocks/snapshots")) {
+      if (!stocksOk) return { ok: false, status: 403, json: async () => ({ message: "subscription does not permit" }) };
+      return { ok: true, status: 200, json: async () => ({
+        SPY: { latestTrade: { p: 600 } }, QQQ: { latestQuote: { bp: 500, ap: 502 } },
+      }) };
+    }
+    const u = /options\/snapshots\/([A-Z]+)\?/.exec(url)?.[1] || "X";
+    return { ok: true, status: 200, json: async () => ({ snapshots: {
+      [`${u}261120P00500000`]: { latestQuote: { bp: 1, ap: 1.1 }, greeks: { delta: -0.3, gamma: 0.01 }, dailyBar: { t: "2026-10-27T04:00:00Z", v: 42 } },
+    } }) };
+  };
+}
+
+test("capture: spot fetched once at capture time, stored on every record, and centres the server-side strike band", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-spot-"));
+  const calls: string[] = [];
+  const r = await captureTradingDay({} as any, marketFake(calls) as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  const stockCalls = calls.filter((c) => c.includes("/v2/stocks/snapshots"));
+  assert.equal(stockCalls.length, 1, "one batched spot call");
+  assert.ok(stockCalls[0].includes("symbols=SPY,QQQ,IWM") && stockCalls[0].includes("feed=delayed_sip"));
+  const spyCall = calls.find((c) => c.includes("options/snapshots/SPY"))!;
+  assert.ok(spyCall.includes("strike_price_gte=480.00") && spyCall.includes("strike_price_lte=720.00"), "pinned SPY now gets its band from the live spot");
+  const rows = lines(chainDayFile("2026-10-27", dir)).map((l) => JSON.parse(l));
+  const by = Object.fromEntries(rows.map((x) => [x.u, x]));
+  assert.equal(by.SPY.spot, 600);
+  assert.equal(by.QQQ.spot, 501, "quote mid when there is no trade");
+  assert.equal(by.IWM.spot, null, "unknown spot stays null, never guessed");
+  assert.equal(by.SPY.gamma, 0.01);
+  assert.equal(by.SPY.vol, 42);
+  const side = JSON.parse(fs.readFileSync(chainCapturedFile("2026-10-27", dir), "utf8"));
+  assert.equal(side.schema_version, 2);
+  assert.equal(side.spots_known, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("capture: a failed spot call never costs the day's chains (spot null, band falls back)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chains-nospot-"));
+  const r = await captureTradingDay({} as any, marketFake([], false) as any, [], ET(16, 35), { baseDir: dir, sleepMs: 0, cacheJson: null });
+  assert.equal(r.status, "published");
+  assert.equal(r.contracts, 3);
+  const rows = lines(chainDayFile("2026-10-27", dir)).map((l) => JSON.parse(l));
+  assert.ok(rows.every((x) => x.spot === null));
+  assert.equal((await fetchSpots([], {} as any, marketFake([]) as any)).size, 0, "no symbols → no call");
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -19,8 +19,11 @@ import { watchModel } from "./watch";
 import { Help } from "./help";
 import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
-import { parseLookupInput, pushHistory, type LookupResult, type LedgerReport } from "./lookup";
+import { parseLookupInput } from "./lookup";
 import { fmtAge, edgeStats } from "./format";
+import { ScoreBody } from "./scoreboard";
+import { fmtDay } from "./scoreView";
+import { ShadowBlock, ShadowChip } from "./shadow";
 
 function useNow(periodMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -38,7 +41,7 @@ function reducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today" };
+const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY" };
 /** this window on the pane channel (popout.ts): a sender ignores its own echoes */
 const WIN_ID = windowId();
 
@@ -170,27 +173,17 @@ export default function BotPage() {
   const tickCount = useRef(0); const lastUpdates = useRef(updates);
   if (updates !== lastUpdates.current) { lastUpdates.current = updates; tickCount.current += 1; }
 
-  // look-up (2026-10-22, human-asked): one symbol through the scan's own path — the server
-  // does the walking (/api/bot/lookup/:symbol); "/" focuses the box like a search field
+  // look-up (2026-10-22, human-asked) -> ticker dossier (2026-10-29, human-asked): the same
+  // box now opens the dossier page (#/dossier/<SYM>), which folds the look-up card into its
+  // stock layer alongside the market, sector, range, options and events layers; "/" still
+  // focuses the box like a search field
   const [lookupInput, setLookupInput] = useState("");
-  const [lookupBusy, setLookupBusy] = useState(false);
-  const [lookupRes, setLookupRes] = useState<LookupResult | null>(null);
-  const [lookupHist, setLookupHist] = useState<LookupResult[]>([]);
   const lookupRef = useRef<HTMLInputElement | null>(null);
-  const [lookupLedger, setLookupLedger] = useState<LedgerReport | null>(null);
-  const runLookup = useCallback(async (raw: string) => {
+  const runLookup = useCallback((raw: string) => {
     const parsed = parseLookupInput(raw);
     if (!parsed) return;
-    setLookupInput(parsed.symbol); setLookupBusy(true);
-    try {
-      const res = await apiRequest("GET", `/api/bot/lookup/${encodeURIComponent(parsed.underlying)}`, undefined, { timeoutMs: 120_000 });
-      const body = (await res.json()) as LookupResult;
-      setLookupRes(body); setLookupHist((h) => pushHistory(h, body));
-      // the ledger line is garnish: a failed read leaves the card without it, never with an error
-      apiRequest("GET", "/api/bot/lookup-ledger", undefined, { timeoutMs: 20_000 }).then((l) => l.json()).then((l) => setLookupLedger(l && l.by_verdict ? (l as LedgerReport) : null)).catch(() => setLookupLedger(null));
-    } catch (e) {
-      setLookupRes({ symbol: parsed.underlying, at: new Date().toISOString(), errors: { lookup: String(e instanceof Error ? e.message : e).slice(0, 160) } });
-    } finally { setLookupBusy(false); }
+    setLookupInput(parsed.symbol);
+    window.location.hash = `#/dossier/${parsed.underlying}`;
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -297,18 +290,24 @@ export default function BotPage() {
   }, [flags, now, onHold, onPin, onFloat, onPop, pane, touch, tier]);
 
   // bodies (fresh), then hold snapshots
-  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null };
+  const tpl = TEMPLATES[tier];
+  const ordersRoomy = flags.zoomed === "orders" || flags.floating.includes("orders") || pane === "orders";
+  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null };
   const freshBody: Record<PanelId, ReactNode> = {
     kpi: null,
     stages: <StagesBody rows={stages} />,
     issues: <IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} />,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
-    watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} lookup={lookupRes} lookupBusy={lookupBusy} lookupHistory={lookupHist} onLookupPick={(sym) => { void runLookup(sym); }} onLookupClear={() => setLookupRes(null)} lookupLedger={lookupLedger} />,
+    watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
     chart: <ChartBody positions={d.positions.data} candidates={watch.candidates} focus={focusSym} onFocus={focus} paused={flags.held.includes("chart")} />,
     book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />,
-    orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
+    // entry shadow mode (shadow.tsx): the full block where Orders has room (zoomed, a window, its own
+    // window) or folded in the phone/tablet stack; in the desktop grid only the header chip, so the
+    // one-line Orders slot never grows and squeezes the chart
+    orders: <>{ordersRoomy || tpl.scrolls ? <ShadowBlock status={status} mode={ordersRoomy ? "full" : "fold"} /> : null}<OrdersBody orders={d.orders.data} deploysToday={deploysToday} /></>,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
+    score: <ScoreBody q={d.scoreboard} nowMs={now} />,
   };
   for (const id of flags.held) { if (!held.current.has(id)) held.current.set(id, { since: now, body: freshBody[id], ticks: tickCount.current }); }
   for (const id of [...held.current.keys()]) { if (!flags.held.includes(id)) held.current.delete(id); }
@@ -320,12 +319,17 @@ export default function BotPage() {
   const hasState = shown !== "idle";
   // chart room (2026-10-21, "I'd rather have a larger chart"): while nothing is
   // working the Orders panel is one line at its natural height and the chart
-  // takes the room; with real orders it grows back into a share of the column
-  const ordersFlex = d.orders.data && d.orders.data.length ? "0.65 1 0" : "0 0 auto";
+  // takes the room; with real orders it grows to its rows' natural height
+  // (OrdersBody shows at most 8). 2026-10-27 (audit D4): the old "0.65 1 0"
+  // share had a 0 basis against the chart's auto basis, so with orders the
+  // panel shrank to its header and clipped its rows (and, grow 0.65 inside its
+  // own slot, left a strip of the slot blank). Unseen until /api/orders/open
+  // was unwrapped and real orders reached this panel (harness bot @1440).
+  const ordersFlex = "0 0 auto";
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
-    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" ? ages.score : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share and the cap (maxHeight); the panel
@@ -336,11 +340,13 @@ export default function BotPage() {
       // the slot carries the column share (maxHeight); the panel fills its
       // slot — applying the cap to both halved the body to a strip (harness
       // 2026-10-21)
-      case "watch": return <Panel {...common} title="Watch" help="watch" status={<LookupBox value={lookupInput} onChange={setLookupInput} onSubmit={() => { void runLookup(lookupInput); }} busy={lookupBusy} inputRef={lookupRef} />} meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
+      case "watch": return <Panel {...common} title="Watch" help="watch" status={<LookupBox value={lookupInput} onChange={setLookupInput} onSubmit={() => runLookup(lookupInput)} busy={false} inputRef={lookupRef} />} meta={watch.candidates.length ? `${watch.candidates.length} candidates · ${watch.decided.length} decided · ${watch.refused.length} refused` : "what the last scan looked at"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "model": return <Panel {...common} title="Model" help="model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
       case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "2.4 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.1 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "orders": return <Panel {...common} title="Orders" help="orders" style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
+      case "orders": return <Panel {...common} title="Orders" help="orders" status={ordersRoomy || tpl.scrolls ? undefined : <ShadowChip status={status} onOpen={() => onZoom("orders")} label="count" />} scroll={ordersRoomy} style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
+      // the daily bot-vs-SPY scoreboard (2026-10-28, human-ordered): the slot carries the column share; the table scrolls inside
+      case "score": return <Panel {...common} title="Daily vs SPY" help="scoreboard" meta={d.scoreboard.data?.summary ? `${d.scoreboard.data.rows.length} days · through ${fmtDay(d.scoreboard.data.summary.to)}` : "bot vs buy-and-hold SPY, per trading day"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
       default: return null;
     }
@@ -359,8 +365,7 @@ export default function BotPage() {
 
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
-  const tpl = TEMPLATES[tier];
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} />;
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped
@@ -391,6 +396,7 @@ export default function BotPage() {
           {hasState ? slot("state", { flex: "0 0 auto" }) : null}
           {slot("issues", { flex: "0 0 auto" })}
           {slot("chart", { flex: "0 0 auto" })}
+          {slot("score", { flex: "0 0 auto" })}
           {slot("watch", { flex: "0 0 auto" })}
           {slot("model", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("stages", { flex: "0 0 auto" })}<div className="vt-bot-col">{slot("book", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</div></div> : <>{slot("book", { flex: "0 0 auto" })}{slot("stages", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</>}
@@ -399,6 +405,7 @@ export default function BotPage() {
       ) : (
         <div className="vt-bot-grid" style={gridStyle(tier)}>
           {kpi}
+          {/* the daily scoreboard has no desktop slot (the three columns are full): the vs-SPY tile's "daily" control zooms it */}
           {/* DEAD SPACE (2026-10-22, human-approved): no column leaves a blank — Issues takes only its content
               (capped, scrolls when long), the Book takes the rest of the left column, the chart the whole right
               column; Orders is one line while nothing works and grows back with real orders */}

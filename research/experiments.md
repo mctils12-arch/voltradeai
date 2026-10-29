@@ -3,6 +3,40 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine voltrade-daily-midday, ~16:25Z Thu = 12:25 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1231)
+HEALTH: /api/health 200 ok; liveness not dark, drawdown -2.2%, jobs 8 ok / 0 late / 0 errored, feeds alive, scanner 0 failures, no unhandled rejections. Live server_version 1.0.1231 == main (no deploy lag). research_state_check: only WARN is the known overdue CONSTITUTIONAL AUDIT (awaiting human answers; audit never self-applies). thrash 3/10.
+WHY NO-ACTION: both open verifications are night-gated and cannot be judged at midday — (1) price_panel_build retry after the as_of repair (v1.0.1220) runs in the 20:15 ET window; next session checks /api/diag/price_panel progress.next_batch > 0 (diag is auth-gated, 401 from here); (2) first options_oi_archive night (v1.0.1231) — check heartbeat `withOi` > 0. Another build now would duplicate filed work or churn.
+STARVED: no.
+
+## 2026-10-29 (scheduled routine, voltrade-product-am) [PIPELINE] — T-DATACORE — Edge P1 gate-1 enabler: daily REAL open-interest sidecar for SPY/QQQ/IWM (v1.0.1231)
+HEALTH: /api/health 200 ok (alarms none; regime CALM_BULL; shadow entries on); research_state_check all OK except the known overdue CONSTITUTIONAL AUDIT (unanswered proposals). thrash 3/10.
+PRIOR: ~85% Alpaca `/v2/options/contracts` returns populated `open_interest` for SPY/QQQ/IWM (master_status 2026-10-29 reports the entitlements probe saying so; I have no Alpaca keys in this session to re-verify). ~15% OI comes back null/stale, in which case the sidecar's `withOi` count in the heartbeat detail shows it on night one.
+WHY: gate 1 for dealer-gamma (squeeze_gex, gate-2 PASS) needs our own GEX = sum(gamma x OI x 100 x spot) vs SqueezeMetrics on >= 40 overlapping days. The chain archive's `oi` is always null, and OI history can never be back-filled, so accumulation starts now (BUILD-FIRST #2).
+CHANGE: `server/optionsOiArchive.ts` — post-close (same 16:30-18:30 ET window) paginated pull of contracts for CHAIN_ALWAYS, exp <= 60d; writes `optionchains/oi/<ET day>.jsonl` whole-day-or-nothing (a partial day would bias own-GEX low, so any underlying failing aborts and retries next tick). Row = {s,u,t,oi,oid}; absent OI stays null, never 0; `oid` (Alpaca's open_interest_date) is the truth, not the file label. Subdir keeps every existing chain reader blind to it. Heartbeat job `options_oi_archive`, boot line in routes.ts, manifest note. No trading path, no route, no /api/v1 (internal research only).
+TESTS: optionsOiArchive.test.ts (4: parse/null honesty, URL, pagination + repeated-token, idempotent capture + partial-day not claimed); chain/heartbeat/datacore/diag suites 126 pass; tsc errors unchanged (3, baseline).
+NEXT: (1) first night 10-29: check `options_oi_archive` heartbeat detail `withOi` > 0; (2) after >= 40 trading days (~2026-12-24) run gate 1: own BS-GEX (chain gamma x OI x spot) vs SqueezeMetrics sign agreement (kill > 30% disagreement) — script not written yet, written when data exists; (3) then T-BOT shadow fields.
+MERGE: new post-close background job; safe any time, preferably after the close.
+STARVED: no.
+
+## 2026-10-29 (scheduled routine, EDGE-DOCTRINE axis pick) [REPAIR] — T-DATACORE (server/pricePanel.ts) — price panel first live build died HTTP 403: as_of was the UTC day before, not the ET day before (v1.0.1220)
+HEALTH: /api/health 200 ok; only alarm jobs=degraded -> `price_panel_build` errored "HTTP 403 (batch 0/466)" on its first-ever night (00:59Z). `bars_coverage` probe, run live, shows sip 403 `recent_sip_not_permitted` at end=2026-10-28 while iex 200 — and the same probe had sip 200 earlier that day with end=10-27.
+PRIOR: ~85% the cause is the as_of date rule (window opens 20:15 ET = 00:15 UTC, so UTC "yesterday" = the current ET date, which the free plan refuses as recent SIP); ~15% something batch-specific (multi-symbol, limit) that this does not fix.
+CHANGE: `panelAsOf(now)` = ET calendar date minus one; used for new builds' as_of. Test added (00:59Z -> 10-27, 05:00Z -> 10-28, midday unchanged). One existing assertion corrected, not weakened: the full-session test expected as_of 10-27 at 21:00 ET on 10-27 — i.e. it encoded the bug.
+RECOVERY: the pending building.json already carries as_of 2026-10-28; from tomorrow's 20:15 ET attempt that is ET-1 and valid, so no manual reset needed. VERIFY: next session checks /api/diag/price_panel `progress.next_batch` > 0 after the 10-29 night; if still 403, the cause is batch-specific — capture the vendor message class (do not re-patch the date rule; recurrence escalates).
+TESTS: pricePanel.test.ts 11/11; tsc errors 3 (baseline pin 12).
+AXIS: repair outranked axis pick (Repair Mandate); no axis item started. STARVED: no.
+MERGE: background job only, no trading path; safe any time.
+
+## 2026-10-29 [PRODUCT] — T-DATACORE — Edge P1 `squeeze_gex` shadow stream: daily SqueezeMetrics GEX/DIX archive + trailing-252 rank R, internal only (v1.0.1208)
+TERRITORY: T-DATACORE (server/squeezeGex.ts + test, datacore/manifests/squeeze_gex.json). SHARED, last-commit minimal: server/bot.ts + diag.ts (probe `squeeze_gex`), routes.ts (boot line), package.json, registry rows, signal_ladder.json. Health at start: all OK (live 1.0.1207 == checkout, deploy_gate 2xx); thrash 3/10; only WARN the overdue CONSTITUTIONAL AUDIT (unanswered proposals, not re-run).
+PRIOR: ~95% the stream archives cleanly (source probed live, last row 2026-10-28); no behavior change anywhere else.
+CHANGE: the T-DATACORE half of the P1 shadow-logging spec (edge_preregistration.md), the next ladder step after the 2026-10-28 gate-2 PASS. 6h poll, yearly JSONL under <archive>/squeeze_gex/, day-level dedup, first poll backfills full history. `trailingPctRank` is the registered definition; checked identical to the Python script's formula on random data. Diag probe `squeeze_gex` returns aggregates only (rows, first/latest date, latest R, negative-GEX flag, last refresh ok).
+HONESTY / LADDER: gate 2 passed but GATE 1 IS OPEN (GEX is a model estimate; own Black-Scholes cross-check needs OI history we lack), so the ladder root is recorded as gate1_pending, not gate2_pass. DIX.csv licence unverified: NO /data route, NO /api/v1, raw rows never leave the server. Not read by any trading path (T-BOT shadow fields remain a separate territory/PR).
+TESTS: server/squeezeGex.test.ts (5: parse, rank incl. burn-in/ties/no-lookahead, archive dedup + gz rollover, aggregate-only report, refresh failure modes); registry/ladder coverage checks pass; 53 node tests in touched areas green; tsc errors unchanged from baseline, none in touched files.
+NEXT: (1) T-BOT shadow fields on short-premium candidates (needs `squeeze_gex` R read via an internal API boundary); (2) gate 1 once Alpaca OI is confirmed populated (options_entitlements probe); (3) gate-3 sim run with/without R<0.2.
+MERGE: new background poll, no trading path; safe any time, preferably after the close.
+STARVED: no.
+
 ## 2026-10-27 (scheduled routine, EDGE-DOCTRINE axis pick, Tue) [NO-ACTION] — no code_version change (1.0.1168)
 
 HEALTH: session_health_check all OK (live 1.0.1168 == checkout, deploy_gate 2xx, liveness alive, SWIM/adsb OK); WARN only daemon rss 410MB (trim mode, known) and the overdue CONSTITUTIONAL AUDIT. research_state_check: thrash 0/10 REPAIR, STARVED streak 0. KNOWN BROKEN: no critical item open (#44/#48 advisory, already filed).
@@ -110668,3 +110702,1685 @@ HEALTH: voltradeai.com /api/health 200, status ok; bot active, liveness not dark
 QUEUE: unchanged — 13F/8-K gate 2 2026-11-16+, csp_manager_rule_sim OOS re-run ~2026-12-20, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups. Nothing startable without padding or fishing on an already-read sample.
 FILED: nothing new. STARVED: yes (date- and decision-gated).
 MERGE: docs-only log; safe any time (no live-behavior change, so the after-4:00 PM ET note does not bind).
+
+
+## 2026-10-27 [RULE-REVIEW] — T-BOT (measurement only) — NEW PROBE shadow_bands_dedup: ONE FIRST-SEEN RECORD PER (TICKER, ET ENTRY DAY) (v1.0.1169)
+
+WHY: the shadow logger writes the same candidate on every scan, so shadow_bands' n counts per-scan COPIES, not events. 2026-10-20: 5,192 labeled 'taken' records covered only 148 ticker-entry-days, and every BUY cell read exactly -4.00% (0% win) — consistent with a few selloff ticker-days copied dozens of times. min_n=20 was therefore being cleared by copies. This blocked the BUY-only judgement (3b) twice (10/13, 10/20).
+WHAT: shadow_portfolio.shadow_band_report_deduped (+ get_ wrapper, diag probe "shadow_bands_dedup"): the same tables for BOTH rulers over one FIRST-SEEN record (earliest timestamp = the first scan where the system could have acted) per (ticker, ET entry session), deduped separately per ruler on that ruler's labels; score quintile edges from the FULL population so quintiles match shadow_bands. shadow_band_report gains an optional edges=None parameter (default = old behaviour, pinned by a test). shadow_bands output is byte-identical (an existing test pins its exact key set — not touched).
+BIAS DIRECTION: first-seen = earliest scan entry price; later same-day copies had different entry prices. Choosing the first is the honest "when could we have acted" convention; it neither favours wins nor losses by construction (mutation to last-seen is caught by a test).
+TESTS: test_shadow_band_dedup.py (7; fails on main — function absent; first-seen→last-seen mutation caught). Full pytest 2840 passed; diag.test.ts 31/31 (registry ⇄ case pin); ratchets OK.
+MERGE: after 20:00Z (deploy cancels open orders). Then: re-judge BUY-only on deduped counts (priors 60% / 50%, recorded 10/13).
+ACCOUNT 10/20 -> 10/27 17:20Z: $99,709 -> $98,498 (-1.21%) vs SPY +0.07%; 10/22 alone -3.45% vs SPY -1.18%. Bot active, kill switch off.
+STARVED: yes.
+
+## 2026-10-27 [RESEARCH] — docs only — PROMPT 1 TRADING-ENGINE AUDIT + MASTER-PLAN PHASE 0 BRAIN INVENTORY
+
+Human directives: "VolTradeAI Options Edge" Prompt 1 (read-only repo audit) and "VolTradeAI Master Prompt" Phase 0 (brain inventory before changing anything). Docs only, no version bump (no runtime behaviour changes).
+- docs/audits/trading-engine-audit.md: sections 1-10 + one-page executive summary; every claim cited by file/function; live numbers from read-only diag GETs. Headline: account -7.71% vs SPY +5.46% since 2026-05-06; Sharpe -0.40 vs 0.99; maxDD -18.6% vs -4.5%; options sleeve -$9,177 realized; expectancy ~-1.2%/trade (n=36). Three weaknesses: non-OOS ML validation + constant/mismatched features; conflicting/dead rules (N1-N21); measurement too weak to prove any edge.
+- research/brain_inventory.md: every input (incl. all 34 ML features) and every trade-influencing rule/model with live/constant/dead/broken status and action; fix order mapped to master-plan phases 2-6. Re-verified in code: 9/34 features constant at serve; tier regime always NEUTRAL; tie-break NameError; DD-scalar wrong key; 4am branch unreachable; backtest default exit model legacy.
+Prior: the inventory would confirm the audit; it did, no contradictions found.
+STARVED: no — master-plan Phase 2-8 work is queued and in progress this session.
+
+## 2026-10-27 (scheduled routine, ~20:20Z Tue) [REPAIR] — T-BOT — scan tie-break never ran: current_positions read before assignment (v1.0.1170)
+
+LOOP RATIO: last 10 tags = RULE-REVIEW x6 / RESEARCH x2 / NO-ACTION x2 (REPAIR 0 before this) — far under thrash threshold.
+HEALTH: voltradeai.com /api/health 200 ok; bot active, liveness not dark, drawdown -1.8%, alpaca ACTIVE, scanner 0 failures, feeds none dead.
+BREAK (brain_inventory.md, re-verified in code this session): `_scan_market_inner` read `current_positions` in the BATCH-11 tie-break (~3231) but assigned it only at Step 5 (~3336) -> UnboundLocalError, swallowed by the tie-break's own try/except (warning only). The within-3-points liquidity/factor/sector tie-break has therefore NEVER run. First occurrence of this break in experiments.md (not a recurrence).
+FIX: Step 5 (positions fetch + current_tickers + num_positions) moved above the tie-break; no logic change otherwise. Regression: test_scan_tiebreak_positions_order.py (AST ratchet; fails on main, passes on fix). Full pytest 2842 passed.
+DOWNSTREAM (2 steps): tie-break now reorders candidates within 3-point score buckets -> which names reach the slot-limited admission loop changes (more liquid, multi-factor, sector-diverse first) -> sector exposure / correlation-block frequency may shift slightly. Score-leading picks are unaffected. Backtest N/A: backtest_v2 does not call the live scan path; exploratory, attribution via code_version 1.0.1170. Rollback trigger: if admitted-name liquidity or sector concentration worsens vs the 1.0.1169 window in the shadow/fills probes, revert this commit.
+PRIOR: small positive via fill quality; effect size unmeasurable at current n.
+STARVED: no (brain_inventory Phase 2 fixes still queued: DD-scalar key N13, N1 tier regime, slot counting).
+MERGE: after 20:00Z (deploy cancels open orders).
+
+## 2026-10-27 [PIPELINE] — T-DATACORE-adjacent server diag — OPTIONS ENTITLEMENTS PROBE (v1.0.1171)
+
+Master plan Phase 6 "options data check". New read-only probe /api/diag/options_entitlements (server/optionsEntitlements.ts): one minimal GET per endpoint — Alpaca contracts, snapshot feed=opra, snapshot feed=indicative, historical trades, historical bars (historical quotes: not offered by Alpaca, reported without a call); Polygon contracts reference, chain snapshot (carries open_interest), trades, quotes, daily aggs. Output = HTTP status + verdict + field-presence booleans only (no data, symbols, URLs or keys); 429/network = inconclusive; <=5 Polygon calls/run; 10-min cache; reports which Polygon env-var name is set (POLYGON_KEY vs POLYGON_API_KEY split).
+Prior: Alpaca OPRA still 403, indicative works, contracts endpoint carries open_interest (60%); Polygon key present but options not entitled beyond reference (55%).
+Tests: server/optionsEntitlements.test.ts (13, fake fetch). Next: read live once deployed; decide whether contracts open_interest can replace the quote-size x10 OI proxy (separate RULE-REVIEW).
+
+## 2026-10-27 [RESEARCH] — research/* docs only — PHASE 6 EDGE PRE-REGISTRATION + FLOOR-BASKET DECISION MEMO
+
+Master plan Phase 6 research parts. research/edge_preregistration.md: 12 published edges reviewed, post-publication decay applied (McLean-Pontiff 2016: -26% OOS, -58% post-publication). Three pre-registered for shadow testing: P1 dealer gamma -> SPY realized-vs-implied vol beyond VIX (SqueezeMetrics free history 2011-05..2026-10; licence unchecked => research only; runnable now); P2 Cohen-Malloy-Pomorski opportunistic insider purchases (bar t>=2.8 after 8 prior Form-4 variants; blocked on the delisted-inclusive price panel shared with Lazy Prices); P3 Cremers-Weinbaum IV spread as a CSP put screen (forward-only, low power; read at 52 weeks). Nine rejected/deferred with reasons. Three open_questions.md entries appended.
+research/floor_basket_decision.md: KEEP the floor (only live-positive sleeve); no composition change on current evidence (variants within 1 Sharpe SE; live would need ~25y to resolve 2pp/yr); test the regime exposure schedule instead (SPY at floor exposure 7.41%/yr vs buy-hold 13.58% at ~equal Sharpe) — 4-arm pre-registered test.
+Prior: at most 3 of ~12 candidates would fit our data; that held. STARVED: no.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N3: RSI-overbought "SELL" no longer executed as a BUY (v1.0.1172)
+
+What was wrong: bot_engine.py deep_score (~1872) labels score>65 with
+RSI>70 (VRP<=5) as side="sell" / action_label="SELL" / trade_type="stock"
+-- an overbought exit/avoid signal on a name the scan only reaches when it
+is NOT held. _scan_market_inner (~3602) then rewrote every stock sell/short
+to side="buy" ("stock shorting disabled"), so the sell signal opened a long.
+No live, gated short-entry path exists (stock shorting disabled since the
+-$419K backtest; the deep_score SHORT branch is commented out).
+
+What changed: new pure helper _stock_short_entry_rejection(side,
+trade_type, action_label). In the scan loop a stock sell/short candidate is
+now dropped (continue) and noted as "rejected_bearish_stock_signal" via
+_note_gate, so the once-per-scan update_decisions_batch flush relabels its
+shadow record (it was logged "taken" by deep_score) and the rule earns a
+measurable prevention-P&L. Options-typed sells (SELL OPTIONS) keep side
+"sell" for the instrument selector exactly as before.
+
+Downstream chain: (1) fewer entry candidates per scan -> the slot loop
+continues to the next-ranked candidate, so a lower-ranked BUY may take the
+slot; the gate also runs before the spread-quote fetch, sizing and
+instrument selection, saving one quote call per dropped name. (2) The
+trades list reaching Node executeTrades / morningQueue no longer contains
+action "SELL" stock entries; nothing in Node depended on the conversion
+(executeTrades' own PR #52/#53 SHORT-BLOCKED net stays as a backstop and
+now never fires for this source).
+
+Tests: test_n3_overbought_sell_not_bought.py (helper + scan wiring,
+7 fail before / pass after); test_shadow_scan_gate_relabel.py SITES gains
+the new bucket (adds coverage; no assertion weakened).
+
+Rollback trigger: shadow prevention-P&L of rejected_bearish_stock_signal at
++5d/+20d strongly negative vs the taken-BUY base rate over >=30 records
+(i.e. the overbought names it now skips were systematically winners as
+longs) -> revert and re-propose as an explicit, ladder-validated
+"overbought-momentum BUY" rule rather than an accidental flip.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Node halts gate entries only; protective exits keep running (audit N15) (v1.0.1173)
+
+What was wrong (server/bot.ts): every Node halt also stopped every exit.
+- checkPositionOnTick (WS stops, scale-outs, trails, breakeven, time stop)
+  returned on `!state.active || state.killSwitch` — the drawdown kill writes
+  BOTH, so the moment the account hit -10% nothing protected positions.
+- the 60s syncMonitoredPositions interval (TIME-EXIT, POS-KILL -25%) had the
+  same gate.
+- the Tier 1 interval skipped tier1Reflex while killed, circuit-broken or
+  weekly-paused; under the circuit breaker that also suspended the -10%
+  drawdown check itself (it only ran if the UI polled /api/bot/account).
+- the WS feed did not reconnect after a drop while killed.
+The Python halts document the opposite contract ("only entries are gated").
+
+What changed:
+- server/haltScope.ts: pure haltAllows({ownerStopped, killed, circuitBreaker,
+  paused}, entry|exit|ddCheck) + haltMode. entry: nothing halted; exit: always
+  unless the owner pressed /api/bot/stop; ddCheck: unless the kill is already
+  latched (then the paper auto-resume tick owns that tick, unchanged).
+- bot.ts: currentHaltState() is the one reader of the raw flags.
+  checkPositionOnTick, the 60s sync and the WS reconnect are exit-gated; the
+  stream-signal queue (an entry path) is entry-gated (same semantics as
+  before). Tier 1 steps 1-3 (sweep, stop-state refresh, sync) extracted to
+  tier1ProtectiveSync(), shared by tier1Reflex and a new tier1HaltedExits()
+  that runs in exits_only mode during market hours: dd check (if not
+  latched) + protective sync + trackClosedTrades — never the morning queue.
+  tier1Reflex itself still never runs while killed (existing auto-resume
+  wiring test unchanged and passing).
+- Untouched: order transmission, the kill trip, its cancel-all, the -25%
+  VOLTRADE_LIQUIDATE_ON_KILL rule, the owner kill toggle, auto-resume.
+
+Downstream chain: (1) during a kill/breaker/pause, WS stops and POS-KILL now
+fire -> exit orders go out where before positions rode unmanaged -> realized
+losses are capped at the stop levels instead of floating; (2) exit fills
+during a halt reach trackClosedTrades / ML feedback / the stop-loss circuit
+breaker counter (circuit breaker can re-arm while already open: harmless);
+(3) under the circuit breaker the -10% dd check now runs, so a breaker period
+can now trip the drawdown kill (previously masked). Note the owner kill
+toggle now also keeps protective exits running; /api/bot/stop is the full
+freeze.
+
+Rollback trigger: any entry order (BUY / sell-to-open) observed in the audit
+log while killSwitch, circuitBreakerUntil>now, or a weekly pause is active;
+or duplicate exit orders on one ticker during a halt.
+
+Tests: server/haltScope.test.ts (truth table {killed, breaker, paused} x
+{entry, exit, ddCheck} + owner-stop rows + bot.ts wiring pins); fails on the
+pre-fix bot.ts (markers/gates absent), passes after.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Tier 2 keeps options_manager exits running during Node halts (audit N15) (v1.0.1174)
+
+What was wrong (server/bot.ts:scheduleTier2): while the kill latch, the
+circuit breaker or the weekly-loss pause held, scheduleTier2 re-armed its
+timer and returned before the Python scan, and options_manager's exits
+(DTE / profit target / loss limit / gamma / assignment / strategy-group
+closes) only ever run inside that scan (bot_engine step 8b). So a halt froze
+every options exit. The scan itself cannot simply run while halted: it also
+places entries (CSPs, floors, third leg, convexity overlay).
+
+What changed:
+- scheduleTier2: haltMode(currentHaltState()) (server/haltScope.ts, previous
+  commit). "full" -> scan as before (same condition as the old gate).
+  "exits_only" -> new tier2HaltedExits(). "off" (owner stop) -> idle.
+- tier2HaltedExits(): regular hours only (options_manager posts DAY limits),
+  holds the Tier 2 lock, calls options_manager.manage_options_positions with
+  allow_rolls=False via a new daemon route "manage_options_exits" (python3 -c
+  subprocess fallback), audits every close through formatOptionsMgmt.
+- options_manager.manage_options_positions(equity, allow_rolls=True): new
+  kwarg, default unchanged. When False, both roll points (assignment risk,
+  21-DTE) go through _roll_or_skip, which returns rolled=False ("roll
+  skipped: entries halted (exits only)"), so each takes its existing "roll
+  failed -> close" branch. A roll's sell-to-open half is a new entry.
+- voltrade_daemon.py: route registered (READ BEFORE WRITE #4).
+- Untouched: order transmission (_submit_close_order), the scan, all Python
+  entry paths.
+
+Downstream chain: (1) during a Node halt, options at their exit rules get
+close DAY limits -> premium-at-risk is released instead of riding into
+expiry/assignment; (2) a short option that would have been rolled is CLOSED
+instead -> fewer positions, less collateral; its options_state entry is
+dropped and exit feedback records dte_close/assignment_close.
+
+Rollback trigger: an OPTIONS-ROLL audit row or any to-open order while a
+Node halt is active; or "halted exits-only pass failed" OPTIONS-MGMT-ERROR
+repeating every Tier 2 cycle.
+
+Tests: test_options_halt_exits_only.py (all 6 fail before: kwarg, roll gate
+and daemon route absent); server/haltScope.test.ts +3 wiring tests (fail on
+the previous commit's bot.ts/daemon). Counter pins raised (tests + assertions).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — Python DD halt keeps options exits running (audit N9) (v1.0.1175)
+
+What was wrong (bot_engine.py:_scan_market_inner, portfolio DD halt): when
+update_equity_peak() reports halted (DD >= 18%), the scan returned before
+step 8b, so options_manager.manage_options_positions never ran: every
+options exit (DTE, profit target, loss limit, gamma, assignment) froze for
+the whole halt, although the block's own comment says "only entries are
+gated, not exits".
+
+What changed: the halted return first runs
+manage_options_positions(allow_rolls=False) (rolls off: a roll's
+sell-to-open half is an entry; each roll point closes instead) inside its
+own try, and returns its result as `options_management`. bot.ts already
+audits result.options_management before its DD-HALT line with no return in
+between (pinned by the new test), so no TS change. A manager crash is
+recorded in options_management.error and the halt is still returned (never
+falls through into the full entry scan).
+
+NOT changed (needs a decision): the floors (_manage_spy_floor,
+_manage_defensive_floor incl. the GLD rotation), the third leg and the
+convexity overlay stay skipped during the DD halt. They can BUY, so running
+them as-is would place entries; an exits-only mode for them is a separate
+change.
+
+Downstream chain: (1) during an 18%+ DD halt, options at their exit rules get
+close DAY limits on each Tier 2 scan cycle -> option risk is reduced while
+the halt holds; (2) halted scans now carry options_management -> OPTIONS-EXIT
+audit rows appear during a halt; options exit feedback is recorded as usual.
+
+Rollback trigger: an OPTIONS-ROLL row or any to-open options order while
+DD-HALT rows are being logged; or a halted scan that reports trade
+candidates.
+
+Tests: test_dd_halt_options_exits.py (2 of 3 fail before: no
+options_management key / manager not called; the third pins the existing
+bot.ts audit order). Counter pins raised.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — T-BOT (regime engine) — MARKET REGIME & VOLATILITY ENGINE PROGRAM, STAGE A: BASELINE + AUDIT + RESEARCH + FINDINGS + IMPACT (docs only, no version bump)
+
+Human directive (2026-10-27, "AlphaDesk — Market Regime & Volatility Engine: Master Build Prompt"): Stage A = read-only research + full code audit, then one plain-English verdict and an exact plan; Stage B executes the plan behind feature flags, one change per PR. TERRITORY DECLARED: T-BOT (regime engine) — new module `regime_engine.py` + `scripts/regime_backtest.py`, flagged hooks in bot_engine/position_sizing/tiered_strategy/instrument_selector/options_execution, one route + probe + health block in server/bot.ts (shared, last). Coordinates with the master-plan session (#1476/#1479 and the N-numbered repairs): N1/N8/N10/N11/N12/N13, KB #48 and the floor exposure-schedule test stay theirs; the engine is built so those fixes consume it.
+PRIOR (stated before the audit): the live VXX-ratio classifier would prove to be a stress-coincident, in-sample-tuned gate with no dwell, and the research would favour a slow index trend leg plus a realized-vol dial over anything VIX-level — 80%. Expected the regime layer could not add CAGR at the index level — 70%.
+RESULT: both held. docs/regime/BASELINE.md (frozen reference, v1.0.1168, live diag reads 2026-10-27), AUDIT.md (13 producers, 15 throttles, decision-flow map, universe, data gaps, falling-knife and whipsaw code paths, dead/duplicate code, history constraints, research-vs-code gap table), RESEARCH.md (four reconciled literature reviews with verification tags + our own pre-registered index-level replication), FINDINGS.md (verdict + 9-step plan), IMPACT.md (change → components → effect → risk per step). Headline numbers (SPY 2007-08-28 → 2026-10-26, lag 2, 5 bp): buy-and-hold 11.05% CAGR / −55.2% DD; the current exposure schedule replayed 4.43% / −20.0% with 27.9 flips/yr and 39% of days fully out; Faber monthly 7.93% / −27.7% / 1.6 flips; never-fully-out composite with a 20% vol target 8.53% / −27.7% / Sh 0.73. ±20% sweeps reverse no ordering. Section-10 strategy backtest: NOT buildable (no point-in-time universe, no delisted names, no realistic small-cap fills) — regime-layer tool + forward measurement instead.
+NEXT (Stage B, in order): scripts/regime_backtest.py → regime_engine.py (VOLTRADE_REGIME_ENGINE, shadow) → observability (/api/bot/regime, diag `regime`, health block, REGIME-TRANSITION audit) → selection guards (shadow-first) → options guards → one sizing path → legacy-label subordination; reads 2026-11-16 / 2026-12-15 / 2027-01-27 against BASELINE.md.
+STARVED: no (Stage B queued and starting this session).
+
+## 2026-10-28 [RESEARCH] — T-BOT (regime engine) — STAGE B STEP 1: scripts/regime_backtest.py, the isolated regime-layer tool, and its first committed run (v1.0.1176)
+
+docs/regime/FINDINGS.md step 1. Promotes the Stage A scratchpad harness into the repo so RESEARCH.md §5 is reproducible from the repo's own bars: `scripts/regime_backtest.py` (pure `evaluate`: exposure decided at close t applied to the return t+lag-1 -> t+lag, cost per unit of turnover, leverage capped at 1; reference arms buy_and_hold / sma200_daily / faber_monthly / vol_target_10,15,20 / Faber×vol-target with floor 0 and 0.5 / the CURRENT exposure-schedule proxy built on regime_util.classify_regime_5level with ^VIX/30-day mean as the VXX stand-in and the SPY_FLOOR_* schedule normalised to BULL=1 with the 3-reading dwell; episodes 2008 / 2015–16 / late 2018 / 2020 / 2022 / 2023–26; `--sweep` = ±20% on every parameter of every parametric arm plus lag 1 and doubled cost, judged on FOUR PRE-REGISTERED CLAIMS rather than on pairwise rank swaps between near-tied arms). 20 tests (`test_regime_backtest.py`): lag semantics, turnover cost, drawdown, flips, month-end Faber, capped vol target, the proxy's escalation-immediate / calming-needs-3-readings dwell, the claims checker, the reversal detector. NOT a strategy backtest (no universe, no fills, no options) — stated in the file and in every output.
+PRIOR (RESEARCH.md §5.2): every gated arm trails buy-and-hold CAGR with leverage capped at 1; never-fully-out beats fully-out; the current schedule proxy is the worst arm.
+RESULT (research/regime_backtest_2026-10-28.md, SPY 2007-08-28 → 2026-10-26, lag 2, 5 bp): buy_and_hold 11.05% / −55.2% / Sh 0.63; sma200_daily 8.26% / −24.2% / 0.71 (4.8 flips/yr); faber_monthly 7.93% / −27.7% / 0.66 (1.6); vol_target_10 8.03% / −25.4% / 0.78; vol_target_15 10.13% / −34.7% / 0.78; vol_target_20 11.05% / −40.2% / 0.76; faber×vt15 floor 0 7.05% / −24.3% / 0.65 vs floor 0.5 8.64% / −26.4% / 0.75; current_proxy 4.30% / −20.2% / 0.56 with 22.9 flips/yr and 1,895 of 4,821 sessions fully out. Three claims held as stated; ONE PRIOR WAS WRONG and is recorded as such: the loose vol dial (20% target ≈ SPY's long-run realized vol) is CAGR-NEUTRAL (11.05% vs 11.05%; 11.3% in two sweep variants) while cutting max DD to −39…−43% — the dial costs CAGR only when its target is tight (10%: −3 pp). The claim set now reads: trend-gated arms trail B&H; the loose dial is CAGR-neutral within 1 pp; every gated arm cuts max DD; never-fully-out beats fully-out; the current proxy has the lowest CAGR — all five hold under all 34 ±20%/lag/cost variants. RESEARCH.md §5.2/§5.4/§5.5 corrected accordingly (the engine's σ_target is therefore the index's own long-run vol, not 10%).
+Small deltas vs the Stage A scratchpad numbers (current proxy 4.43% → 4.30%, sma200 8.59% → 8.26%): the tool aligns every series onto SPY's dates and forward-fills the VIX family, the scratchpad intersected dates across eight series — the committed tool is the reproducible source from here.
+Ratchet: tests_run_in_ci / tests_gating_merge / assertions pins raised to the measured tree (main had drifted above its pins). No runtime path touched; version bumped for attribution only.
+NEXT: step 2 — regime_engine.py behind VOLTRADE_REGIME_ENGINE (shadow), whose exposure path this tool evaluates as `engine_*` arms (same implementation).
+STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 2: regime_engine.py, the single owner of regime state, behind VOLTRADE_REGIME_ENGINE (shadow; v1.0.1177)
+
+docs/regime/FINDINGS.md step 2; evidence RESEARCH.md §1.6/§2.1/§3.1/§4.3/§5/§6; what it replaces AUDIT.md §2 (five regime vocabularies, no owner). NEW `regime_engine.py`: RegimeState = primary trend from the SLOW 120/160/200/240-day ensemble (±1% band per vote, UP ≥ 3 of 4, DOWN ≤ 1 of 4, 6-day majority filter) + fast 22/65-day legs that only DOWNGRADE exposure; EWMA-vol (20-day half-life) state vs the index's own history with hysteresis (LOW < 20th pct, ELEVATED ≥ 80th, CRISIS = ELEVATED and VIX/VIX3M > 1 or ≥ 95th; left 10 points below entry); vol_dial = min(1, σ_target/σ̂) with σ_target = the index's own long-run realized vol (ex ante, 2–10 y); basket breadth (11 SPDRs + IWM + MDY above their 200-day); Daniel–Moskowitz panic state; composite CALM_BULL/VOLATILE_BULL/CHOPPY/STRESSED/BEAR/CRISIS + legacy BULL/NEUTRAL/CAUTION/BEAR/PANIC; exposure_multiplier ∈ {0,.25,.5,.75,1} for new risk (fast out once the filter clears, +0.25 per 5 sessions in), core_multiplier ≥ 0.5 for the index sleeve (never fully out); allowed_strategies, confidence, days_in_regime, pending_transition, flips_12m (alarm > 6), composite_changes_12m, stress flags (VIX, VIX/VIX3M, VRP, 1-y VIX pct, VVIX), Fed EBP. Inputs: etf_data_sources.fetch_bars_alpaca batch → Yahoo chart fallback, cached per UTC day under CACHE_DIR; persisted to DATA_DIR voltrade_regime_state.json + append-only voltrade_regime_history.jsonl (storage_config). Daemon method `regime_state` (subprocess fallback = same function); config mirror BASE_CONFIG REGIME_ENGINE_ENABLED (False). 33 tests. The engine's exposure paths are the `engine_*` arms of scripts/regime_backtest.py (one implementation; artifact regenerated).
+FLAG OFF (default): regime_engine is not imported on any path; zero behaviour change. FLAG ON: shadow only — no consumer reads the state until its own flag (VOLTRADE_REGIME_SELECTION / _OPTIONS / _SIZING / _LABELS) is set.
+PRIOR (FINDINGS step 2 acceptance): on SPY 2007–2026 the engine's quantized path lands inside the never-fully-out band — CAGR ≥ 7.5%, max DD ≤ 30%, primary flips ≤ 2/yr; today's state CALM_BULL on SPY.
+RESULT (research/regime_backtest_2026-10-28.md, lag 2, 5 bp): engine_quantized SPY 8.34% / −20.5% / Sh 0.76, 9.4 exposure-level changes/yr, 89% time in market; episodes 2008 DD −17.1%, 2020 −15.2%, 2022 −11.0%; IWM 5.43% / −28.1%; engine_core 9.26% / −36.7% / 0.72. Primary flips: 4.7/yr RAW, 2.7/yr after the 6-day filter — ABOVE the 2/yr prior but far under the alarm; a pre-registered three-variant band ablation (1/2/3%) cut raw flips to 3.1/2.2 at −0.3 pp CAGR and was REJECTED (documented 1% kept; three variants tried → discount). Composite changes 3.2/yr (vol leg = fast out by design). Today (2026-10-26, live Yahoo path, 7.6 s cold / 0 s cached): CALM_BULL, trend UP, fast MIXED, vol LOW (own-history pct 0.22), breadth NARROW, exposure 1.0, VIX 18.4, VIX/VIX3M 0.92, VRP +8.7, EBP −0.39 (Sep 2026). Acceptance met on CAGR/DD, missed on flips (2.7 vs 2) — recorded, not tuned.
+NEXT: step 3 — the scan hook (shadow compute once per scan), /api/bot/regime + diag `regime` + non-gating health block + REGIME-TRANSITION audit (built, in the next PR).
+STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) + shared server/bot.ts — STAGE B STEP 3: shadow run + observability (v1.0.1178)
+
+docs/regime/FINDINGS.md step 3. SCAN HOOK: `_scan_market_inner` calls `regime_engine.update_state("SPY")` once per scan right after the macro snapshot, only when `engine_allowed()` (VOLTRADE_REGIME_ENGINE env or the config mirror) — guarded, never raises (a failure rides the result as {error, stale: True}); the state is carried on the scan result as `regime`. NODE: `server/regimeReport.ts` (pure readers of the persisted state/history + health block + report body + transition audit text; 6 node:test cases), owner `GET /api/bot/regime`, token-gated `/api/diag/regime` (same body; whitelist entry in diag.ts), NON-GATING `checks.regime` on /api/health (off / ok / warning: stale > 2 market days, last update failed, flip alarm — never touches checks.status; healthGate.SERVING_CHECKS untouched), audit lines REGIME-TRANSITION (one per composite change) and REGIME-STALE (an update failed). `test_regime_scan_hook.py` pins the hook (one guarded hook with alias _regime_engine, after the macro snapshot and before slot sizing, result key present). RUNBOOK.md written (flags, files, routes, reads, rollback). Shared-file edits (bot.ts route + diag case + health block + audit; diag.ts whitelist; bot_engine.py hook) kept minimal and committed last. One ratchet lesson recorded: a comment-only `catch {}` trips commented_empty_catch — the history reader now uses a parse helper that returns null.
+PRIOR: zero trading effect with the flag off (the hook imports the pure-Python module and evaluates the flag only); with it on, one state per scan and a readable report within one scan cycle.
+RESULT: local — full pytest 1430 passed (known sandbox-only failure aside), node 37 passed (regimeReport + diag whitelist), tsc ratchet 6 ≤ 6, build OK, counter ratchet OK (test pins raised to the measured tree). Live effect: none until VOLTRADE_REGIME_ENGINE is set; acceptance for step 4's gates = 14 consecutive trading days of persisted history with no gap (RUNBOOK §4).
+NEXT: step 4 — stock-selection guards (shadow flags on the shadow record by default; gates per VOLTRADE_REGIME_SELECTION) — built, next PR.
+STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 4: stock-selection guards behind VOLTRADE_REGIME_SELECTION (shadow by default; v1.0.1179)
+
+docs/regime/FINDINGS.md step 4. ENGINE: `regime_engine.selection_verdict(state, candidate)` (pure) — knife (price < 75% of the 52-week high, or at/below the last 20 closes), dip (a mean-reversion bet — sub-score > 50 or the "Buy the Dip" bonus — while the state does not allow dip_buy or the gating index is below its 200-day), panic (the engine's panic state), rs (3-month relative strength < −10 pp), breadth (market breadth WEAK with the index within 3% of its 52-week high); `selection_gates(env)` parses the flag (comma list / all / empty = shadow); `cached_state()` re-reads the persisted state at most once a minute (deep_score runs per candidate). WIRING: deep_score computes the verdict before the combined score — flag off: nothing changes and the flags ride the shadow record as score_breakdown.regime_<guard> (0/1) + regime_mr_delta (the points the dip guard would remove); `dip` named in the flag: the mean-reversion sub-score is neutralized to 50 and the +8 bonus withheld; the admission loop in _scan_market_inner blocks (rejected_regime_<guard>, the same relabel batch as the other post-score gates) only the guards named in the flag. shadow_portfolio.REGIME_GUARD_KEYS extends the persisted breakdown without touching the 14-key contract. NOT BUILT: the sector check — no evidence and no data path in deep_score, so it is neither gated nor logged (CHANGELOG step 4). test_regime_selection.py (gate flag, cache, verdict truth table, sanitizer, wiring pins on the source).
+PRIOR: zero trading effect with the flag off (pins: the combined-score expression and the dip-bonus branch are reached unchanged; the guard block is wrapped so it can never break scoring). Pre-registered promotion rule: a guard is named in the flag only when its blocked bucket underperforms the taken bucket by ≥ 3 pp at +20 d with n ≥ 30 (first read 2026-11-16, alongside the rejected_regime_gate read).
+RESULT: local — full pytest 2926 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), counter ratchet OK (tests_run_in_ci 638→639, assertions 22594→22642; no non-increasing pin moved). Live effect: none until VOLTRADE_REGIME_ENGINE is on (labels) and VOLTRADE_REGIME_SELECTION names a guard (gates).
+NEXT: step 5 — CSP guards behind VOLTRADE_REGIME_OPTIONS (built, next PR).
+STARVED: no.
+
+## 2026-10-27 [REPAIR] — master plan (human directive 2026-10-27) — N2: morning queue can no longer open a naked stock short (v1.0.1180)
+
+What was wrong: server/bot.ts executeMorningQueue (~4403). deep_score
+"SELL OPTIONS" candidates carry trade_type="options", side="sell",
+shares>0 (bot_engine.py ~1862-1866). Off-hours Tier 2 pushes them into
+morningQueue verbatim (~5104). The PR #53 stock-short block converted
+sell/short only when trade_type !== "options", so the trade reached the
+STOCK order body with side:"sell" (a naked short) and was then monitored
+as "long" (~4509). Sibling shape: runOvernightResearch's extreme-mover
+queue (~6650) pushes bearish BUY PUT / SELL OPTIONS setups with
+side="sell", use_options=true and no trade_type, which the block flipped
+into a long stock BUY (opposite exposure).
+
+What changed: new pure helper server/morningQueueEntry.ts
+(decideMorningQueueEntry / isOptionsIntended). The morning queue has no
+options path, so an options-intended entry (trade_type "options", or a
+bearish use_options setup) is dropped with a MORNING-OPTIONS-SKIP audit
+line; the next in-hours Tier 2 scan re-scores the name and executeTrades
+routes it via the options path it takes in hours. Plain stock sell/short
+keeps PR #53's convert-to-BUY (same SHORT-BLOCKED audit). The order body
+side, the openOrders record side and the position-monitor side now all
+come from the verdict (never a hardcoded "long"). The decision runs before
+the snapshot gap check, so a dropped entry costs no subprocess. Order
+transmission (alpaca() POST, getOrderParams) is untouched -- only WHAT is
+submitted changed.
+
+Downstream chain: (1) fewer morning-queue submissions -> slotsUsed stays
+lower, so later queued stock BUYs may take the slot; no stock short can
+reach Alpaca from this path. (2) A dropped options entry is not lost: the
+in-hours scan re-emits it if it still qualifies and executeTrades'
+options branch (or its OPTIONS-SKIP/noteGate rejection) handles it, so
+fills/track_fill attribution for options comes from one path only.
+
+Tests: server/morningQueueEntry.test.ts (11 tests: 7 helper, 4 bot.ts
+wiring; the 4 wiring tests fail on the pre-fix bot.ts). counter pins
+raised for tests_run_in_ci/tests_gating_merge 627->628, assertions
+22139->22159 (improvements only).
+
+Rollback trigger: any MORNING-TRADE audit line with side SELL after this
+deploys, or MORNING-OPTIONS-SKIP firing on >50% of queued entries for 5
+sessions while the in-hours re-scan does not pick those names up (the
+drop would then be losing real entries rather than deferring them).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — server (T-BOT shared) — JOB HEARTBEATS + `heartbeats` DIAG PROBE: NO SCHEDULED JOB CAN FAIL SILENTLY (v1.0.1181)
+
+Master plan Phase 3 (human directive 2026-10-27). server/jobHeartbeat.ts: beat()/noteJobError()/withJobBeat(), one atomic bounded JSON (voltrade_job_heartbeats.json, 12 runs x 64 jobs), stale open runs closed as error on reload; pure evaluate() -> ok|late|missing|errored|not_due per job using the market calendar (holidays + half days). Wired start/finish beats (try/finally) at every scheduled job entry in bot.ts + optionsChainArchive.ts; gated ticks beat "skipped" with reason; new 5-min read-only daemon liveness check. Probe /api/diag/heartbeats (verdict, failing jobs, unregistered jobs, last write error). /api/health gains informational checks.jobs — never changes status or HTTP code (healthGate.ts SERVING_CHECKS untouched).
+Registry: tier1_reflex 45s / tier2_scan 15m / tier3_strategic 1h / ml_retrain 24h / position_sync 60s / shadow + lookup-ledger + exit-aligned backfills daily 22Z / options_chain_archive daily 16:15 ET (trading days) / overnight_research 1h 20-04 ET / daily_reset daily 04 ET / daemon_liveness 5m. Restart warm-up capped at 30 min.
+EXPECTED: overnight_research + daily_reset read late/missing until the scheduler fix (D2) merges — that is the D2 defect surfacing, by design. The independent watchdog is the new voltrade-watchdog routine (claude.ai, outside bot.ts/daemon) polling this probe hourly in market hours + 21:23 ET.
+Tests: server/jobHeartbeat.test.ts (17). Rollback trigger: probe last-write-error set, event-loop lag coinciding with beats, or a job reading late while the audit shows it running. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 5: CSP guards behind VOLTRADE_REGIME_OPTIONS (shadow by default; v1.0.1182 — read-and-increment at merge time: #1489 took 1.0.1180, #1490 took 1.0.1181)
+
+docs/regime/FINDINGS.md step 5. ENGINE: `regime_engine.csp_verdict(state, candidate)` (pure) — crisis (vol_state CRISIS), vrp (the engine's vrp_negative stress flag), inversion (VIX/VIX3M > 1 → size × 0.5), elevated (vol_state ELEVATED → size × 0.5, target delta 0.15), earnings (the name reports inside the Tier-1 contract window, 45 DTE + 2 days), ebp (Fed excess bond premium > 0 → size × 0.5; cuts compound); `options_gates(env)` (comma list or all; ANY non-empty value also turns on crisis + vrp — the two that only prevent new short vol in the research's loss states); `apply_csp_gates` (the acting subset); `shadow_once_per_day` (one shadow record per name/guard/UTC day instead of one per scan). TIER-1 (`tier1_csp_core`): the state-level verdict scales size_scalar the way the VXX ladder already does (affordability cap + size_pct; the contract count stays select_contract's until the master plan's N8 — AUDIT §2 T7, said plainly in the CHANGELOG); the per-name verdict adds the earnings date (options_scanner's Finnhub calendar, cached 15 min; a failed lookup fails OPEN with earnings_lookup_ok=false on the record); a guard that would act logs `would_reject_regime_<g>` (flag off) or `rejected_regime_<g>` (gated: the name is removed and the slot kept; the state-level guards log the 3 names that would have been proposed and the scan proposes nothing) through log_csp_gate_shadow, bounded to 3 per guard per scan; the action metadata carries regime_guards + regime_size_mult; target_delta changes 0.30 → 0.15 only when `elevated` is gated. SCANNER PATH (`_scan_market_inner`, get_options_trades loop): a sell-side setup is dropped for crisis/vrp only when gated, shadow-logged otherwise; long-vol setups untouched. NOT BUILT: (f) LOW-vol premium floor and (g) IV−HV ordering — Tier-1 decides with no premium, IV or quote at hand (the chain is fetched inside select_contract after dispatch), and a chain fetch per candidate per scan is the OPRA cost the scan already struggles with (AUDIT §3); both wait for N8 where they become one-line chain filters. (h) the EBP cut applies to every CSP (no market-cap field on the selection path). Spreads not built; submit_options_order and the order POST paths untouched. test_regime_options.py (gate flag, verdict truth table, gate applier, once-a-day bound, Tier-1 wiring on a fixture context — engine off / shadow / gated per guard / calendar outage, scanner-path pins).
+PRIOR: zero trading effect with the flag off (regression: the engine-off fixture run and the shadow run propose the same names at the same size_pct). Pre-registered promotion: crisis and vrp come on with ANY value of the flag; each other guard after its shadow read (first read 2026-11-16, with the CSP shadow proxy's caveat: price-path labeler, not premium economics).
+RESULT: local — full pytest 2947 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), counter ratchet OK (tests_run_in_ci 639→640, assertions 22642→22728; no non-increasing pin moved; a `pass`-only handler in the scanner block was replaced by a debug log before commit — the silent-handler pin held at 254). Live effect: none until VOLTRADE_REGIME_ENGINE is on (shadow buckets) and VOLTRADE_REGIME_OPTIONS is set (gates).
+NEXT: step 6 — one sizing path behind VOLTRADE_REGIME_SIZING (built, next PR).
+STARVED: no.
+
+## 2026-10-28 [REPAIR] — server/bot.ts scheduler — THE DAILY 4AM BRANCH NOW FIRES ONCE PER ET DAY; OFF-SITE BACKUP TO THE PUBLIC REPO DISABLED (v1.0.1183)
+
+Master plan Phase 2 "scheduler" (audit D2). The daily branch (resets of dailyBlockedTickers / consecutiveStopLosses / morningQueueExecuted / orderAttemptCounts / sweptCspAt, the 4am ML retrain, the nightly backup) sat inside runOvernightResearch behind `Math.floor(etHour) === 4`, but its only caller requires ET<4 or ET>=20 and Tier 2 never runs 20:00-04:00 ET — so it never ran; morningQueueExecuted/orderAttemptCounts only reset on restarts. Now runDailyMaintenance() on its own 5-min poll (+60s after boot), once per ET calendar day in [04:00, 09:30) ET via the pure shouldRunDailyMaintenance(); the run date is persisted to voltrade_daily_maintenance.json BEFORE the work (restart-safe, no double, no skip). Heartbeats (#1490) re-wired into the moved block (daily_reset start/finish, ml_retrain, noteJobError).
+SAFETY ADD (same PR): the off-site backup (backup_to_github.py) pushes every /data JSON + model file to the data-backup branch of mctils12-arch/voltradeai, which is a PUBLIC repository; it last ran 2026-04-05 only because this branch was dead. Reviving the branch would have resumed publishing account/fill/state files — the push is removed from the execution path (local backups kept; audit line says why). Human decision filed in master_status.md (delete the existing data-backup branch / private destination).
+Downstream: (1) the morning queue now runs every trading day (was: only after a deploy) -> more pre-market entries reach executeTrades (N2 fix #1489 already blocks the naked-short path); (2) per-ticker attempt caps and the CSP sweep cooldown become per-day as designed; (3) a daily retrain is attempted at 04:00 ET (the 10s SIGKILL is fixed in the next PR).
+Known: heartbeats `overnight_research` stays late/missing nightly — that window is still unreachable by design (reviving it re-enables unvalidated extreme-mover entries; human decision).
+Tests: server/dailyMaintenance.test.ts (10: window edges, DST, ET-vs-UTC date, persistence, 3 days x 5 restarts, catch-up boot, unwritable paths, wiring). Rollback trigger: "Daily reset" audit line twice for one ET date, any DAILY-MAINT-ERROR, or morning-queue order bursts >2x the median daily entry count in week 1. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — python exec: honour caller timeouts, retrain in long-job lane, group kill (v1.0.1184)
+
+What was wrong (server/bot.ts isTrivialPython / execPythonSerialized, audit
+D1): any command <= 150 chars without a literal `import numpy|pandas|...`
+was "trivial": no mutex and `Math.min(timeout, 10000)` + SIGKILL, silently
+overriding the caller's timeout. `python3 ml_retrain_safe.py` (26 chars,
+asks 900 s) was SIGKILLed at 10 s every hour (live TIER3-ML-ERROR
+"(code=? signal=SIGKILL)" 10 s after "triggering retrain"); same 10 s kill
+for backfill_outcomes (asks 120 s), /api/bot/insight (40 s), sec_form4
+(120 s), cftc (45 s), manipulation scan (30 s), EOD close_open_shorts
+(30 s), tier1 manage_positions (15 s) and others. The kill went to the
+`/bin/sh -c` child only, so a Python under a non-exec'd shell survived as
+an orphan.
+
+What changed:
+- server/pythonExec.ts (new): isTrivialPython(cmd, requestedTimeoutMs) —
+  the old text test AND the caller asked for <= 10 s (no timeout = old
+  text-only behaviour); planPythonExec -> {lane, timeoutMs, mutexWaitMs}:
+  trivial keeps 10 s/no mutex, mutex lane honours the caller's timeout up to
+  the unchanged 90 s ceiling (mutex wait unchanged). ML_RETRAIN_TIMEOUT_MS =
+  20 min (estimate in the file: <=200 s bars fetch + earnings + <=10k rows x
+  5 folds + 4 models; ~10 min pessimistic, 2x headroom). execGroupKill:
+  exec semantics/error shape, child spawned detached as process-group
+  leader, timeout/maxBuffer kill sent to the whole group.
+- bot.ts: _execRaw = execGroupKill (every execAsync/execPythonSerialized
+  kill is now a group kill; execAsync's pinned shape unchanged).
+  execPythonSerialized uses planPythonExec; the in-file isTrivialPython is
+  gone. New runLongPythonJob (single-flight per key, never takes the global
+  mutex, explicit budget) and startMlRetrain(trigger) (fire-and-forget;
+  existing TIER3 / TIER3-ML-ERROR outcome handling moved verbatim, plus
+  trigger + elapsed seconds and a "[exceeded the 1200s retrain budget —
+  process group killed]" class when our timer fired). Tier 3 and the daily
+  branch both call startMlRetrain without awaiting it.
+- Daemon RPC path unchanged; pythonCall's subprocess fallback goes through
+  execPythonSerialized, so it gets the same plan (e.g. run_full_scan
+  fallback with the daemon disabled: 90 s mutex instead of 10 s).
+- shadowBackfillExitAligned.test.ts harness now injects planPythonExec and
+  imports isTrivialPython; its ROUND1 check that pinned the defect
+  ([10000, false]) now asserts the fix ([90000, true]). Pins:
+  counter_baseline tests 627->628, ts_any 1225->1224, assertions
+  22139->22179; test_ts_code_only ts_any mirror 1225->1224.
+
+Downstream chain:
+1. ~15 short commands that asked for > 10 s move from no-mutex/10 s to the
+   mutex lane with their own timeout -> they now serialize with other mutex
+   jobs -> a mutex caller with a short wait (e.g. get_auto_fix_params 15 s,
+   tier1 manage_positions 15 s) can hit "mutex timeout" while e.g.
+   sec_form4 holds up to 90 s; those callers already catch and log it.
+2. The retrain can now finish (writes the model) -> ML scores in deep_score
+   come from a freshly trained model every ~24 h instead of a stale one;
+   its concurrency with one mutex-lane subprocess raises peak RSS by the
+   retrain's footprint (fast_mode sized for ~575 MB headroom).
+3. Timeouts now kill descendants -> fewer orphan Python processes holding
+   memory after timeouts.
+
+Rollback trigger: revert if Python subprocess "mutex timeout" errors in the
+audit log rise > 3x their prior daily rate, if any OOM/daemon self-kill
+coincides with a running retrain, or if TIER3-ML-ERROR shows the 1200 s
+budget exceeded on 2 consecutive days.
+
+Tests: server/pythonExec.test.ts (8: classification + plan tables on the
+real command strings, retrain budget, bot.ts wiring, a real-process test
+showing plain exec leaves the grandchild alive vs execGroupKill killing
+it, exec-compatible results/errors incl. maxBuffer code). The 2 wiring
+tests fail on the pre-fix bot.ts; the harness test fails on it too.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) + shared server/bot.ts — STAGE B STEP 6: one sizing path behind VOLTRADE_REGIME_SIZING (per sleeve; default off; v1.0.1185 — read-and-increment at merge time: #1492 took 1.0.1183, #1494 took 1.0.1184)
+
+docs/regime/FINDINGS.md step 6. ENGINE: `regime_engine.sizing_multiplier(state, sleeve)` (pure) — the ONE regime multiplier a sizer applies: exposure_multiplier as is for the stock sleeve (0 = no new discretionary risk → the stock sizer returns `blocked`, the path a halt or negative expectancy already takes); for the options sleeves (options, tier1) floored at 0.5 while the state allows csp, 0.25 while it allows csp_reduced, 0.25 otherwise (the sizer never zeroes an options position — CRISIS is step 5's gate); a stale state (> 2 market days, or flagged stale/error) → 1.0 and COUNTED, never a silent cut; `sizing_sleeves(env)` (stock,options,tier1 or all); `sizing_for(sleeve)` (None unless the engine is on and the flag names the sleeve — the caller keeps its legacy scalars); daily counters per sleeve/value → voltrade_regime_sizing.json once per scan. CONSUMERS: position_sizing.calculate_position — s_regime (the VIX-level scalar) becomes the engine multiplier and the stress-index multiplier is muted (scalars.stress 1.0, stress_level regime_engine; scalars.regime_engine / regime_source show which path sized); options_execution._dynamic_options_size and instrument_selector._dynamic_options_size — s_regime likewise; tiered_strategy.tier1_csp_core — the VXX ladder (1.0/0.85/0.60/0.30) replaced by the tier1 multiplier, the drawdown ladder kept. The scan result carries regime_sizing (the flushed counters); server/regimeReport.ts reads the file into the report (sizing) and the health block warns on the day's stale fallbacks; bot.ts audits REGIME-STALE once per NEW stale-state sizing fallback. Combined regime-related scalar before → after per composite state in CHANGELOG step 6 (e.g. STRESSED 0.65–0.50 × 0.5 ≈ 0.25–0.33 → 0.5–0.25; BEAR 0.25 then the 1% floor → 0.25–0 blocked). NOT BUILT: the drawdown scalars stay separate factors (risk mechanisms; N13 is the master plan's); the floor sleeve's schedule is step 8's handoff. test_regime_sizing.py (flag, multiplier truth table, counters, sizing_for, the stock sizer bit-identical off / engine-once on / exposure-0 block / stale, both options sizers, Tier-1 ladder replacement, scan pins) + one node:test case.
+PRIOR: zero effect with the flag off (regression: the stock sizer's output is bit-identical across two calls and reports regime_source vix_scalar; the options sizers equal kelly × VIX scalar × leverage discount; Tier-1 keeps its VXX rung). Pre-registered acceptance: 30 trading days with no sizing anomaly — no position above the absolute caps, no zero-size block caused by a stale state (sizing.stale_fallbacks on the report stays 0 on trading days); rollback trigger: a stale-state incident (> 2 market days) turns the flag off until fixed.
+RESULT: local — full pytest 2962 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), node regimeReport 7 passed, tsc ratchet 6 ≤ 6, build OK, counter ratchet OK (test pins raised; no non-increasing pin moved). Live effect: none until VOLTRADE_REGIME_ENGINE is on and VOLTRADE_REGIME_SIZING names a sleeve.
+NEXT: step 7 — legacy-label subordination (built, next PR); step 8 — handoffs filed in open_questions.md (own PR); step 9 — closing docs + final summary.
+STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 7: legacy-label subordination behind VOLTRADE_REGIME_LABELS (default off; v1.0.1186)
+
+docs/regime/FINDINGS.md step 7 (KNOWN BROKEN #48 step 3 has not landed, so the step is not superseded). ENGINE: `labels_enabled(env)`, `label_for()` — the engine's legacy_label (BULL / NEUTRAL / CAUTION / BEAR / PANIC, the Node and system_config vocabulary) only while the engine is on, the flag is on and the state is fresh; stale / failed / missing → None and the Markov label stands; an unknown label is never passed through. deep_score: right after the Markov call the flag swaps _regime_ctx["regime_label"] for the engine's (the Markov label kept beside it as regime_label_markov for the comparison read); the consumers are unchanged and follow — the shadow record's regime_label, the candidate's regime_label → regime_at_entry, the tier context's regime. markov_state / regime_score (ML training definitions) untouched. test_regime_labels.py (flag, fresh-state label, decode fallback, stale/failed/missing, vocabulary, source pins). TWO FINDINGS FILED in research/open_questions.md (regime program handoffs 4–5), neither fixed outside the flag: (a) the Node exit geometry has never received a label — pos.regime is "NEUTRAL" at entry and the monitor sync never refines it, so the regime-adaptive scale-out/trail branches in checkPositionOnTick have run the NEUTRAL branch since inception (an exit-model matter: KB #48's consolidation decides); (b) `_regime_ctx` is deep_score's local, never _scan_market_inner's, so TierContext.regime has always read "NEUTRAL" with the flag off (only the masterkill shadow record's label depends on it).
+PRIOR: zero effect with the flag off (pins: the override sits after the Markov call; every consumer line unchanged). With it on, the shadow records' regime_label distribution moves with the tape instead of sitting at NEUTRAL_BULL (AUDIT §9 units bug) — the validation read at 2026-11-16 compares regime_label vs regime_label_markov on the same records.
+RESULT: local — full pytest 2971 passed / 2 skipped (the known sandbox-only test_insider_cusum_probe failure aside), counter ratchet OK (test pins raised; no non-increasing pin moved). Live effect: none until VOLTRADE_REGIME_ENGINE and VOLTRADE_REGIME_LABELS are on.
+NEXT: step 8 — handoffs filed (own PR); step 9 — closing docs + final summary.
+STARVED: no.
+
+## 2026-10-28 [RESEARCH] — T-BOT (regime engine) + shared research/open_questions.md — STAGE B STEP 8: handoffs filed, nothing built (docs only, no version bump)
+
+docs/regime/FINDINGS.md step 8. FILED in research/open_questions.md: (1) into the 2026-10-20 floor EXPOSURE SCHEDULE question — the program's index-level numbers (schedule proxy 4.43% / −20.0% / 27.9 flips / 39% of sessions at zero vs never-fully-out 8.64% / −26.4%; engine_quantized 8.34% / −20.5% / 9.4 level changes; floors 0 → 0.25 → 0.5 lift CAGR 4.88 → 7.84 → 8.53% at max DD −16.9 → −21.6 → −27.7%) and the proposal of arm (c) (SPY_FLOOR_BEAR 0.35 / PANIC 0.20) as the first threshold to test under that question's pass rule, with core_multiplier named as the one-flag replacement if (c) passes; no floor constant changed. (2) a new OPEN RESEARCH QUESTIONS section "REGIME ENGINE PROGRAM — handoffs": drawdown halt levels (RESEARCH §5.3's per-arm GFC / 2020 / 2022 drawdowns read against the −10 / −18 / −20% halts; prior 60% that the Node and Python levels overlap, 70% that the resume rule, not the level, is the expensive part; gate-3 ablation named; mechanisms frozen, constants only through RULE REVIEW); the convexity overlay's `enabled: False` that nothing reads (a live protective-put budget; measure before touching; [REPAIR] wire-or-delete); the data the engine's fields wait for (universe breadth, delisted-inclusive universes, ≥ 1 year of options history); plus the two step-7 findings (the Node exit geometry has never seen a regime; TierContext.regime has always read NEUTRAL).
+PRIOR / RESULT: docs only — no code, no constant, no risk limit changed; the kill switches and halts stay exactly as they are.
+NEXT: step 9 — closing docs + final summary (last PR of the program).
+STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime engine) — STAGE B STEP 9: program close — CHANGELOG close section, RUNBOOK flag-flip order, final summary (docs only, no version bump)
+
+docs/regime/FINDINGS.md step 9. The AlphaDesk Market Regime & Volatility Engine program ran as one continuous build this session: Stage A (#1484: BASELINE, AUDIT, RESEARCH, FINDINGS, IMPACT) and Stage B steps 1–8 as separate PRs (#1485 tool v1.0.1176; #1486 engine v1.0.1177; #1487 shadow run + observability v1.0.1178; #1488 stock-selection guards v1.0.1179; #1491 CSP guards v1.0.1182; step 6 one sizing path v1.0.1183; step 7 legacy-label subordination; step 8 handoffs filed). Every change is behind its own flag and every flag is OFF: nothing trades differently today. CHANGELOG.md carries the close section (what shipped, what did not and why, the honesty ledger, the forward measurement plan); RUNBOOK.md the flag-flip order (engine first, fourteen trading days of history, then per-guard promotion after each read).
+NOT DONE, said plainly (FINDINGS "doing nothing is a valid outcome"): the Section-10 strategy-level regime backtest (not buildable on this repo's evidence — KB #48 exit models, no options simulation, no point-in-time universe; the index-level tool + forward reads replace it); the step-4 sector check; the step-5 LOW-vol premium floor and IV−HV ordering (wait for N8); cap-bucket reporting (no market-cap field); the floor sleeve's schedule (handed to the pre-registered 4-arm test); the Node exit geometry's regime input (KB #48 owns it); spreads; ML; any risk-limit change.
+HONESTY LEDGER: one Stage A prior wrong and recorded (the loose vol dial is CAGR-neutral); two latent constants found and filed, not silently fixed (TierContext.regime; the Node position regime); one merge commit landed with conflict markers and was corrected in the next commit; the step-5 size multipliers bite only through the affordability cap until N8 (stated in CHANGELOG, IMPACT and RUNBOOK).
+NEXT: reads at 2026-11-16 / 2026-12-15 / 2027-01-27 per FINDINGS step 9 (engine health, per-guard prevention-P&L, hold-time ledger, return vs SPY, live-vs-tool divergence); the first operator action is VOLTRADE_REGIME_ENGINE=1 (shadow only).
+STARVED: no — the program's queue is empty; the remaining work is measurement.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Cap SVXY third-leg size at 15% (LEG3_VRP_PCT 0.40 -> 0.15) (v1.0.1187)
+
+What was wrong (audit §6.8 N14, part b): system_config.py LEG3_VRP_PCT was
+0.40, so bot_engine.py:_run_third_leg bought min(0.40, 0.6 x remaining
+capacity) of equity in SVXY, a short-volatility ETF that has no websocket
+stop and no POS-KILL (server/bot.ts FLOOR_AND_LEG_TICKERS) and is skipped
+by Python manage_positions. The config block's own comment names 15% as
+the 64-combo backtest sweet spot.
+
+Change: LEG3_VRP_PCT 0.40 -> 0.15 (PRIOR VALUE 0.40), dated comment with
+reason, expected effect and rollback trigger. Human-ordered risk-threshold
+change; one threshold only in this commit.
+
+Downstream chain: (1) a VRP buy now allocates <=15% of equity instead of
+<=40%, so a one-day SVXY gap costs ~0.15x the move; (2) total deployment
+after a buy is ~25 points lower, which leaves more remaining capacity for
+floors/stock entries and keeps invested % further from the BEAR/PANIC
+master-kill caps. backtest_v2 does not model the third leg, so there is no
+backtest delta.
+
+Rollback trigger: none on risk grounds; revert only with a backtest that
+models SVXY and shows 0.40 is not worse on max drawdown.
+
+Test: test_third_leg_vrp_risk.py::TestLeg3SizeCap (fails at 0.40).
+counter_baseline tests_run_in_ci/tests_gating_merge 626 -> 627 (new file).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — SVXY third leg: vol-spike + stop exits and buy/exit dwell (v1.0.1188)
+
+What was wrong (audit §6.8 N14 parts a/c, N20): bot_engine.py:_run_third_leg
+bought SVXY (short volatility) whenever the VXX ratio was 1.05-1.25 and
+declining, and exited ONLY when the regime was NEUTRAL/BULL. SVXY is in
+server/bot.ts FLOOR_AND_LEG_TICKERS (no WS stop, no POS-KILL) and Python
+manage_positions skips it, so a vol spike (the exact risk the leg is short)
+had no exit anywhere. The buy (VXX >= 1.05) and the exit (regime boundary
+at VXX 1.05) shared one threshold with no hysteresis: the flicker class F2
+fixed for the floors.
+
+(a) Protective exits, implemented in the existing third-leg exit loop:
+  * VOL SPIKE: VXX ratio > LEG3_VRP_VXX_BAND_HIGH (1.25, the buy band's
+    top) -> sell SVXY immediately, no dwell. New mechanism, no prior value.
+  * STOP: SVXY unrealized_plpc <= -LEG3_VRP_STOP_PCT (0.10) -> sell
+    immediately. New mechanism, no prior value.
+  * Either one starts a LEG3_VRP_REENTRY_COOLDOWN_HOURS (24) re-entry
+    cooldown so a stop-out cannot loop into an immediate re-buy.
+  Exits are tagged trigger=vol_spike|stop_loss|regime_recovery in the
+  third_leg_exit action.
+(b) Size cap shipped in the previous commit (LEG3_VRP_PCT 0.40 -> 0.15).
+(c) Dwell: new _resolve_third_leg_dwell() reuses F2's rules and helpers
+  (_floor_macro_observation_key, _floor_macro_vxx_is_fallback): zones
+  SPIKE/BAND/RECOVERY/OTHER; bootstrap adopts the raw zone; SPIKE applies at
+  once; a fallback macro holds the confirmed zone; any other change needs
+  LEG3_REGIME_CONFIRM_CYCLES (3) consecutive DISTINCT macro readings. The
+  buy needs a confirmed BAND (and the current reading in band); the
+  take-profit exit needs a confirmed RECOVERY. State persists in
+  DATA_DIR/voltrade_leg3_state.json (separate from the floor state file).
+  The buy band moved from hardcoded 1.05/1.25 to LEG3_VRP_VXX_BAND_LOW/HIGH
+  in system_config.py with the SAME values.
+
+Downstream chain: (1) SVXY is cut within one scan of a spike or a 10% loss,
+so the leg's worst case is ~10% x 15% = 1.5% of equity plus gap; the freed
+capacity flows to the floors / stock entries on the next scan; (2) the
+buy now lags a CAUTION onset by ~3 macro snapshots (~10-15 min), and the
+take-profit exit lags recovery by the same, so fewer SVXY round trips and
+fewer fills to attribute. Legacy ITA/XOM/LMT recovery exits also use the
+confirmed zone (they are not held today; LEG3_*_ASSETS are empty).
+
+Test isolation: test_third_leg_floor_ownership.py's _run now patches
+DATA_DIR to a fresh temp dir (the leg now persists state); no assertion
+changed.
+
+Rollback trigger: >=3 protective exits in 30 days each followed by SVXY
++5% within 5 sessions -> widen LEG3_VRP_STOP_PCT one step (0.10 -> 0.15).
+
+Tests: test_third_leg_vrp_risk.py TestProtectiveExits + TestDwell
+(9 fail on the old _run_third_leg, all pass now).
+counter_baseline: tests 627 -> 628 (pin lagged the tracked count by one
+after the previous commit), assertions 22139 -> 22164.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Floor 0% target exits every basket member, with CC unwind (v1.0.1189)
+
+What was wrong (audit §6.8 N18): bot_engine.py:_manage_spy_floor's
+zero-target branch (BEAR/PANIC, SPY_FLOOR_* = 0) sold only FLOOR_TICKER
+(QQQ), and the basket branch requires target_pct > 0, so SMH/KWEB/VXUS
+(~28-36% of equity) were held with no exit through the whole bear phase.
+That pushed invested % over the BEAR/PANIC caps and fired the master kill
+(KB #20 chain). The basket rebalance sell also never unwound covered calls
+(the covered-call sweep writes them on any 100+ share holding), while the
+single-ticker path does. An exception in the zero-target exit was swallowed
+by `except: pass` and the regime was then persisted, so a failed exit was
+never retried.
+
+Change:
+  * At 0% target, exit EVERY floor-owned ticker: FLOOR_TICKER plus each
+    non-CASH FLOOR_BASKET member, full qty_available (falls back to qty),
+    each after its own _unwind_covered_calls(); a failed buy-back blocks
+    only that ticker's sale (same rule as the single-ticker path).
+  * Blocked/failed exits do not persist last_regime, so the next cycle
+    retries (same contract as the market-closed deferral); qty_available
+    keeps the retry from double-selling a pending sell.
+  * The pass runs on a regime change OR once per zero-target episode
+    (new floor state key "zero_target_exit_done" = regime), so members
+    already orphaned when this ships are exited once, not every cycle.
+  * Basket rebalance sells that leave < 100 shares unwind covered calls
+    first; a failed unwind records cc_unwind_blocked and skips that sale.
+  * Single-ticker mode (FLOOR_BASKET_ENABLED False) behaves as before.
+
+Downstream chain: (1) in BEAR/PANIC the floor now goes fully to cash
+(GLD defensive floor unaffected), so invested % drops ~28-36 points
+and stays under the BEAR/PANIC caps -> the master kill no longer fires
+from floor orphans; (2) the freed cash is what the defensive floor's
+GLD ramp (30-40%) and later regime-recovery re-buys draw on; no naked
+short calls are left behind when a member is sold.
+
+Rollback trigger: a zero-target exit selling a member that another
+allocator owns (N19 ownership clash) -> revert and fix ownership first.
+
+Tests: test_floor_basket_zero_target.py (6 of 7 fail on the old code;
+the single-ticker guard passes both). test_silent_except_ratchet.py pin
+bot_engine.py 71 -> 70 (one silent `pass` removed). counter_baseline:
+tests 628 -> 629, silent_py_handlers 254 -> 253, assertions -> 22178.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: post-close capture window, ET trading-date label, idempotent per day (v1.0.1190)
+
+What was wrong (audit 2026-10-27 §2.4 defect 1, verified in code):
+- server/optionsChainArchive.ts:shouldRunNow (~l.177) parsed the ET hour from
+  Intl.DateTimeFormat({hour12:false}). Node 20 (prod image node:20-slim)
+  renders midnight as hour "24", so 00:40 ET parsed as minute 1480 >= 16:15
+  and the run fired ~00:40 ET, wrote .last_run_day = the new ET date, and
+  thereby blocked the real 16:15 run. File D held session D-1's close
+  (every sampled prod day 2026-10-20..27 has t ~04:40Z).
+- archiveChainRecords (~l.131) labelled the file with the UTC date of nowMs,
+  not the ET trading date (a capture after 20:00 EDT would land on tomorrow).
+- A restart mid-capture re-ran the day and appended a second copy (the
+  marker was written only after the run; records were appended live).
+
+What changed:
+- ET clock uses hourCycle:"h23" plus a `% 24` belt (etMinutesFromParts /
+  etClock). The capture is confined to 16:30-18:30 ET on NYSE trading days
+  (holidays still parsed from market_calendar.py). 16:30 because SPY/QQQ/IWM
+  options trade to 16:15 and indicative trades lag ~15 min; 18:30 keeps the
+  whole capture before 00:00 UTC in both EDT and EST. Tick 1h -> 5 min.
+- Label = ET trading date. Capture stages to optionchains/_staging/<day>.jsonl
+  (truncated at start, so a restart redoes the day whole), is renamed into
+  place, then optionchains/_captured/<day>.json is written. isDayCaptured
+  also accepts a published file whose first record is a post-close capture
+  for that day (crash between rename and sidecar). The pre-fix midnight file
+  under today's label is moved (never deleted) to optionchains/_superseded/.
+- .last_run_day is no longer read (it holds the buggy date).
+- Manifest documents the label semantics and the pre-fix shift.
+- empty_ts_catch 492 -> 491 (the removed writeLastRunDay `catch {}`):
+  pin + test_ts_code_only.py pin tightened together; assertions pin raised.
+
+Downstream chain: (1) day files now hold the labelled session's close ->
+chainIv/chainCspEntry joins of label D vs the day-D stock close become
+aligned for new days; (2) derived write-once caches for already-derived
+days keep the old (shifted) values -- historical files are NOT relabelled
+(needs a human/consumer decision, see report). Old files' `t` still
+identifies the true session.
+
+Rollback trigger: no _captured/<day>.json for a trading day by 18:30 ET, or
+any new day file whose records' t is outside 16:30-18:30 ET of its label.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — N13: the drawdown sizing scalar now reads the peak Node actually writes (v1.0.1191)
+
+Territory: T-BOT (position_sizing.py) + shared package.json / research/*.
+
+Loop-health at start: last 10 tags = 6 REPAIR / 3 PIPELINE / 1 RESEARCH (under the 7 threshold, but one more REPAIR makes 7 — the next session must check the ratio first and, if 7+, treat "generator of breaks" as Priority 1). /api/health at 11:21Z: status ok, liveness not dark, DD -1.5%, all feeds/jobs ok.
+
+What was wrong (audit §6.8 N13, verified in code): position_sizing.calculate_position (~l.1021) read key `peak_equity` from voltrade_equity_peak.json; server/bot.ts saveEquityPeak writes `equityPeak`. The read always fell back to current equity, so the DD-SIZING 5/10/15% tiers (0.8/0.6/0.4) were permanently 1.0.
+
+What changed: read `equityPeak` first, legacy `peak_equity` as fallback. No threshold touched.
+
+Prior: no effect today (account DD -1.5%, inside the 0-5% full-size tier). Effect appears only when DD exceeds 5%: new entries shrink 20/40/60% — more conservative, and stacks with the stress multiplier and Node halts (downstream: fewer shares -> lower exposure -> fewer correlation/cap blocks). Backtest: not applicable (backtest_v2 does not use this file); live-only guard.
+
+Tests: test_n13_dd_sizing_peak_key.py (3; the Node-key test fails on the old code, passes now; legacy key and no-file cases pinned). counter_baseline: tests 646 -> 648, assertions 23020 -> 23093.
+
+Rollback trigger: sizing at DD < 5% differs from 1.0, or the scalar fires on a stale peak after the Node peak file is reset.
+
+STARVED: no — master-plan queue (N1, N4, N6, N8, N10-N12, N16, N17, N19, N21) still queued.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — N11 (options-slot half): Python's options cap reads system_config (v1.0.1192)
+
+Territory: T-BOT (bot_engine.py) + shared package.json / ci / research/*.
+
+Loop-health at start: last 10 tags = 6 REPAIR / 3 PIPELINE / 1 RESEARCH. This entry makes the next window 7 REPAIR of 10 -> the NEXT session must treat "generator of breaks" as Priority 1 before any further N-item repair. /api/health 16:14Z: status ok, serving ok, liveness not dark, DD -0.9%, feeds/jobs ok. Run is mid-market: merge after 4:00 PM ET (not a critical live break).
+
+What was wrong (audit §6.8 N11): bot_engine.MAX_OPTIONS_POSITIONS was a literal 8 (ALPHA-TUNE 2026-04-21) while system_config and Node executeTrades use 6, so the Python scanner was offered 2 more slots than Node would ever execute.
+
+What changed: the constant is read from BASE_CONFIG["MAX_OPTIONS_POSITIONS"] (6). Stock-slot half of N11 (CAUTION cap raise, floor ETFs counting as stock slots) NOT touched — separate change.
+
+Prior: no live P&L effect (Node's cap of 6 already bound execution); Python stops proposing candidates Node rejects. Downstream: fewer scanner candidates when 6-7 options are open -> less wasted rejected_node work; no change to sizing or exposure. Backtest: n/a (live slot plumbing).
+
+Tests: test_n11_options_slot_cap.py (2; fails on the old literal). counter_baseline: tests 648 -> 649, assertions 23093 -> 23096.
+
+Rollback trigger: options positions held ever exceed 6, or scanner stops producing options candidates with <6 open.
+
+STARVED: no — N1, N4, N6, N8, N10, N12, N16, N17, N19, N21 still queued.
+
+## 2026-10-28 [PRODUCT] — T-DATACORE (server/flightPlans.ts) + shared package.json / ci / research/* — RETIRE the radialShadow report-only field (staleness debt; v1.0.1193)
+
+HEALTH at start: session_health_check all OK except the known daemon-rss sawtooth (417MB vs trim_mb 400) and `regime=off` (shadow flags, by design). Run is mid-market (14:08 ET): merge after 4:00 PM ET — docs/data-path only, no trading code touched.
+
+QUEUE: every other PRODUCT item is date- or decision-gated (13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01, price panel / archive volume human decisions). The one startable item is the 2026-10-14 open_questions follow-up #2: remove `radialShadow` once live parserShadow `lost` ≈ 0.
+
+EVIDENCE (live /api/data/aircraft/plan-status, 18:15Z): parserShadow routes 70,619, placed 64,238, chain-placed 60,975, gained 3,316, lost 53 (0.075%); fewFixesProfile.radialShadowPlaced = 0. The parser (v1.0.1073) places every route the shadow could; the shadow was computed only for paths that stay estimated.
+
+CHANGE: removed `radialShadow` from Candidate/plan types, the build in filedCandidate, the response field and radialShadowXt (server/flightPlans.ts); removed measure_radial_shadow and its branch from scripts/flightplan_gate1.py (`--pool` still reads saved runs' radial_samples). Rewrote the superseded flightPlans.test assertion to pin the field's absence; replaced the removed gate1 unit test with a test pinning the removal and that saved-run pooling still works. `placeDirectFixesWithRadials` is kept (used by the swimSfdps profile counters and navAirways tests). The 53 `lost` routes are a separate open watch item, not hidden by this.
+
+Prior (stated before): no behavioural change to any placed path, deviation state or UI — the field was never drawn nor used for deviation; API consumers lose one additive optional field that no client reads (grep: only the gate1 script). Downstream: one fewer navAirways resolve per estimated plan request.
+
+TESTS: flightPlans+navAirways 51 pass; test_flightplan_gate1 12 pass; tsc ratchet 6 <= 6 (TS2304 0); counter ratchet OK 28 (tests 649 -> 650 re-pinned for this change only).
+Rollback trigger: any client or script reading `radialShadow` surfaces as a regression, or `lost` climbs above 0.5% of routes.
+
+STARVED: yes (other items date- and decision-gated).
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — bot_engine: two regime except handlers called an unbound `logger` (NameError inside the handler) (v1.0.1194)
+
+What was wrong: bot_engine.py binds no module-level `logger`, but two
+except handlers added by the regime program used `logger.debug(...)`:
+- deep_score, step-7 label override (`except Exception as _re_lbl_err`):
+  a NameError there escapes into the ML block's outer
+  `except Exception as _ml_exc`, so the ML blend is silently skipped for
+  that candidate (_ml_trace.error records a NameError, not the cause).
+- _scan_market_inner, step-5 scanner-path shadow record
+  (`except Exception as _rg_log_err`): the NameError escapes into the
+  options scan's `except Exception as _oe2: pass`, dropping every remaining
+  options trade that scan.
+Both handlers are reachable only if the guarded call raises (today's
+callees swallow their own errors), so this is latent — but the regime
+flags went live today (prior commits), so the paths are now hot.
+
+Fix: logging.getLogger("bot_engine").debug(...) in both (the logger the
+neighbouring regime handlers already use). No behavior change otherwise.
+
+Downstream: a failure in the label override / scanner shadow logging now
+logs at debug and the candidate's ML blend / the rest of the options scan
+proceed, as the handlers intended.
+
+Test: test_bot_engine_logger_names.py — AST ratchet: every bare `logger`
+read in bot_engine resolves to a binding (fails on the parent: lines
+[1574, 4147] at the regime-merge base).
+
+Rollback trigger: none expected (logging only); revert if the AST ratchet
+misfires on a legitimate future binding pattern.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — research/* docs only — MASTER STATUS FILE (master plan deliverable)
+
+research/master_status.md: Done / In flight (built + tested, merging one PR at a time — routines must not re-implement) / Waiting on Mike / Parked in shadow. The voltrade-improve-close routine updates it daily from now on. Docs only, no version bump. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime_engine.py, system_config.py, server/regimeReport.ts) — v1.0.1195 REGIME ENGINE LIVE (paper; human directive)
+
+Change: all five regime flags default ON via system_config BASE_CONFIG (REGIME_ENGINE_ENABLED False->True; REGIME_SELECTION/OPTIONS/SIZING_DEFAULT ""->"all"; REGIME_LABELS_DEFAULT False->True). An env var that is PRESENT always wins (`off`/`0`/"" disable), so Railway rollback needs no deploy. A missing or never-computed regime state keeps the legacy sizing scalars instead of a flat 1.0. Node health/report mirrors the same flag rule.
+Hypothesis/prior: per FINDINGS step 9, guards that block knife/panic/rs/breadth candidates improve +20d outcome of taken trades by >= 3 pp at n >= 30; expect fewer stock entries in stressed tapes and smaller options size in elevated/inverted states. No backtest re-run: the strategy-level backtest is deferred (Section 10), so this ships as a live paper experiment under the step-9 rules. Kill/rollback: a guard whose blocked bucket shows the opposite sign at a read with n >= 30 -> that guard off; stale state > 2 market days -> VOLTRADE_REGIME_SIZING=off; reads 2026-11-16, 2026-12-15, 2027-01-27. Risk limits untouched. STARVED: no.
+
+## 2026-10-28 [RULE-REVIEW] — T-BOT measurement (regime_engine.py, server/regimeCounterfactual.ts) — v1.0.1196 REGIME COUNTERFACTUAL LOG (logging only)
+
+Change: append-only `voltrade_regime_counterfactual.jsonl` recording, for every regime-engine decision (selection, options, sizing, label), the legacy value next to the engine value, with the shadow bucket to join outcomes; diag probe `regime_counterfactual` aggregates per day per kind (no tickers). Measurement-integrity: a NEW metric, no before/after on identical inputs; cannot change a decision (sizer outputs pinned by test). Known bias: legacy sizing multiplier is logged pre-clamp, so it understates legacy size in crisis stress. Prior: engine sizing multiplier sits below legacy in elevated-VIX days and near 1.0 in calm tape. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (regime_engine.py, shadow_portfolio.py) — v1.0.1197 REGIME ML-READY SNAPSHOT (logging only; ML not built)
+
+Change: shadow records carry a compact `regime_snapshot` (~0.8 KB: engine states, stress inputs, composite, exposure, confidence, engine vs Markov label, engine vs legacy decision) whenever the engine is on; absent otherwise. Existing outcome backfills attach realized +5/+10/+20d returns. ML stays gated per FINDINGS F1 (live run passes step-9 promotion rules AND Section 10 backtest exists). No live decision changes. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — ETF substitution: dollar sizing, ETF's own price, BLOCKED_TICKERS on the ETF (audit N6, 1/2) (v1.0.1198)
+
+What was wrong:
+- server/bot.ts executeTrades ETF branch bought Math.floor(trade.shares / 2)
+  ETF shares: half the UNDERLYING's share count, unrelated to dollars.
+- Its limit came from getOrderParams(trade.price), the UNDERLYING's price:
+  XLF->FAS (~3x the price) could never fill; most others were effectively
+  market orders. The entry fill record, monitor entry price and heat
+  tracking used the underlying's price too.
+- instrument_selector._build_sizing's ETF dollar sizing was discarded
+  (bot_engine never forwarded it).
+- BLOCKED_TICKERS ("3x leveraged ETFs: 22% WR") was checked only on the
+  underlying (bot_engine ~3574); IWM->TNA/TZA and XLF->FAS/FAZ are 3x.
+
+What changed:
+- instrument_selector.plan_etf_execution (pure): dollars = selector ETF
+  sizing, else the stock notional, never above the stock notional (the
+  figure Node's size/heat/BP gates checked); shares = floor(dollars / ETF
+  ask). A blocked ETF sizing, no ETF quote, or 0 shares -> not ok.
+- bot_engine._resolve_etf_execution: fetches the ETF quote (same
+  quotes/latest endpoint/feed/throttle as the spread check), emits
+  etf_shares/etf_price/etf_position_value/etf_sizing_source on the trade,
+  or downgrades the choice to the stock (the branch's existing fallback).
+- server/etfSubstitution.ts planEtfOrder validates those fields; bot.ts
+  places qty/limit from them (order transmission unchanged), records the
+  fill and monitor entry at the ETF price, adds ETF dollars to heat. No
+  plan -> ETF-FALLBACK audit and the stock path.
+- instrument_selector._etf_block_reason in _score_etf: ETF in
+  BLOCKED_TICKERS, or leverage >= BASE_CONFIG BLOCKED_ETF_MIN_LEVERAGE (3,
+  the list's own stated class; new key) per a 'leverage': 3 annotation on
+  analyze.LEVERAGED_ETFS IWM/XLF -> ETF ruled out like the 200MA gate.
+
+Downstream chain: TNA/TZA/FAS/FAZ substitutions stop -> those candidates
+compete as stock/options (stock slots, sector caps apply as for any stock).
+Remaining ETF entries now fill at ~the intended dollar size (selector ETF
+sizing is 50% of the ETF-bucket Kelly size, capped at the stock notional)
+-> realized ETF exposure per entry changes from "underlying shares/2 x ETF
+price" (could be far above or below intent) to the sized dollars -> heat
+cap / totalDeployed now track real ETF dollars. Missing ETF quotes now
+trade the stock instead of a mispriced ETF limit.
+
+Rollback trigger: any ETF-TRADE whose dollar value exceeds the scan's
+position_value, or an ETF-FALLBACK rate > 50% of ETF choices over 5 days
+(quote fetch failing) -> revert and investigate.
+
+Tests: test_etf_substitution_n6.py (14 fail before / pass after; one
+2x-control passes both), server/etfSubstitution.test.ts.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Enforce ETF_MAX_HOLD_DAYS as a live exit for leveraged ETFs (audit N6, 2/2) (v1.0.1199)
+
+What was wrong: instrument_selector.ETF_MAX_HOLD_DAYS = 5 ("never hold
+leveraged ETF longer than 5 days" — daily-rebalance decay) only gated the
+ENTRY choice. No exit anywhere enforced it: the live executor (server/bot.ts
+checkPositionOnTick, audit §6.4) has only the 7-calendar-day time stop, and
+that fires only when |P&L| < 2%. A losing or winning leveraged ETF could be
+held indefinitely.
+
+What changed:
+- server/etfSubstitution.ts: ETF_MAX_HOLD_DAYS (5) and
+  SUBSTITUTE_LEVERAGED_ETFS (every bull/bear value of
+  analyze.LEVERAGED_ETFS), both pinned to their Python sources by
+  test_etf_max_hold_n6.py; etfMaxHoldExceeded() uses the time stop's own
+  calendar-day count, exceeded when daysHeld > 5.
+- checkPositionOnTick: when no stop/TP/time stop fired, a substitute ETF
+  past the limit exits the remaining qty with exitType 'etf_max_hold',
+  context 'stop_loss' (market in regular hours, limit in extended), reason
+  "WS ETF MAX HOLD: ...". Existing duplicate-order guards, covered-call
+  unwind, openOrders registration and fill recording apply unchanged.
+  entryDate comes from voltrade_stop_state.json (first date manage_positions
+  saw the position; pruned when it closes) or the add date.
+
+Downstream chain: leveraged ETF positions close on day 6 instead of riding
+until a stop/trail or the flat-only 7d time stop -> frees a stock slot and
+active-heat capacity sooner -> more stock-slot turnover; exits are not
+stop types, so no stop-cooldown or circuit-breaker increments.
+
+NOT mirrored in live_exit_policy.py (measurement code, separate
+[RULE-REVIEW] PR); backtest exit_model='live' does not model it, so it
+understates live churn on leveraged ETFs only.
+
+Rollback trigger: a WS ETF MAX HOLD exit on a ticker not in
+SUBSTITUTE_LEVERAGED_ETFS, or one firing on a position < 5 days old
+(entryDate drift) -> revert.
+
+Tests: test_etf_max_hold_n6.py (3 fail before / pass after),
+server/etfSubstitution.test.ts (+3; file fails to import before).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — Tier sizing reaches CSP execution; MAX_OPTIONS_PCT caps collateral (audit N8) (v1.0.1200)
+
+What was wrong:
+- server/bot.ts tier dispatcher SELL_CSP put size_pct and metadata in its
+  payload but called select_contract(ticker, "sell_cash_secured_put", 0,
+  equity, cash_available=...) without them. T1's stress (VXX 0.30-0.85x)
+  and drawdown (0.5-0.75x) de-risking, T2's leverage and T1's target delta
+  never reached execution; options_execution._dynamic_options_size ran on
+  a fabricated score of 70 instead. Same for the (disabled) T4 BUY_PUT.
+- options_execution._select_sell_put "stretch" let one CSP's collateral
+  reach 20% of equity (stretch_ceiling = equity * 0.20) despite the 8%
+  per-position cap (system_config MAX_OPTIONS_PCT = MAX_OPTIONS_PCT_CEILING).
+
+What changed:
+- select_contract(..., size_pct=None, metadata=None) — additive kwargs; the
+  daemon route (voltrade_daemon "select_contract") is the same callable, the
+  scanner path and evaluate_and_execute pass neither and are unchanged.
+  _resolve_options_size_pct: a caller size_pct is the sizing fraction,
+  else _dynamic_options_size; both clamped to MAX_OPTIONS_PCT_CEILING (8%).
+- metadata["target_delta"] (T1: 0.30) drives _select_sell_put's delta
+  target; the -0.30 default literal is kept for no-metadata callers (and
+  server/chainCspEntry.ts's mirror test).
+- Stretch ceiling: equity * 0.20 -> equity * MAX_OPTIONS_PCT_CEILING
+  (prior value 0.20). Stretch can lift a sub-cap budget to the cap, never
+  past it; cash_available cap unchanged.
+- bot.ts SELL_CSP and BUY_PUT subprocesses pass size_pct/metadata.
+
+Downstream chain (traced from the code, not measured):
+- Calm regime: T1 size = 8% x 1.0 -> budget 8% (was dynamic ~2-4% with a
+  2% floor, then stretch to 20%). Cheap underlyings can now get qty 2
+  instead of 1 (qty still <= 2); underlyings whose smallest put needs
+  8-20% of equity (~$80-$200 strikes at $100k) are now rejected with the
+  "exceed position budget" error -> logged rejected_capital -> T1 tries
+  the next name next cycle. Per-CSP collateral max drops 20% -> 8%, so the
+  6 options slots can no longer tie up >48% of equity in CSP collateral.
+- Stress (VXX >= 1.05/1.20/1.40) or DD <= -10%: budget now shrinks with
+  the tier scalars (e.g. 8% x 0.60 = 4.8%) -> fewer contracts / fewer
+  affordable names -> fewer slots used and less collateral in stress, as
+  T1 intended. Stretch can still lift a de-risked budget to 8% for the
+  single smallest strike (qty 1) — left as is (existing rule).
+- T2 (PM gate = Alpaca multiplier >= 4) can propose up to 16%; it is now
+  clamped to 8%, so T2 leverage is bounded by the cap.
+
+Rollback trigger: CSP fill count drops > 50% vs the prior 10 trading days
+with T2-FAIL "exceed position budget" dominating, or any CSP with
+cash_required > 8% of equity -> revert and review.
+
+Tests: test_options_tier_sizing_n8.py (7 fail before / pass after; 4
+controls pass both). Existing test_options_fixes / test_csp_entry_dte
+stretch tests still pass unchanged.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — research/docs only (docs/regime) — REGIME DOCS: live-run next steps, ML gate, follow-ups
+
+FINDINGS "Next steps after close": live run departure from the §6 shadow wait (human-ordered), step-9 rollback rules kept, counterfactual log, day-1 reading (CALM_BULL, exposure 0.75, state 1 market day old, health ok), and follow-ups F1 (ML, gated on step-9 pass AND Section 10 backtest; reviewed 2026-11-16 / 12-15 / 2027-01-27 by scheduled routines) through F7. RUNBOOK §7 added. Docs only, no version bump. STARVED: no.
+
+## 2026-10-28 [RESEARCH] — research/ + scripts/ (no trading code) — v1.0.1201 EDGE P1 DEALER GAMMA: gate 2 SIGNAL PASS (pre-registered)
+
+OLS log(RV_{t+1..t+5}/VIX_t^2) ~ GEX 252d rank + log IV, NW lag 5, SPY: full 2012-05→2026-10 b −0.858 t −9.61 (n 3640); holdout 2019-01→ b −0.904 t −7.25 (n 1962). Prior 70/45/35% — all three legs hit.
+Base rate: RV>IV in 15.2% of windows; GEX-rank bottom quintile 24.9% vs top 8.1%. Negative in every VIX tercile/regime (BEAR weakest, t −2.22). Post-hoc (not verdict): survives trailing-RV control; VIX9D as implied → b −0.56 (t −6.36), ~1/3 is horizon mismatch.
+Data: SqueezeMetrics DIX.csv (ESTIMATE, licence unverified, not committed), Cboe VIX/VIX9D, Yahoo SPY (no Alpaca keys in sandbox). Secondary (ii) 1-min intraday split NOT run.
+Next: gate 1 (own GEX from Alpaca OI vs SqueezeMetrics) before any trading; gate 3 rule sim "no new short premium when R_{t-1}<0.2". Nothing trades. STARVED: no.
+
+## 2026-10-28 [PIPELINE] — server diag (no trading code) — v1.0.1202 bars_coverage PROBE: does Alpaca free daily-bar history reach 2010 and include delisted tickers?
+
+Human order: check whether Alpaca's free daily bars include delisted tickers since 2010; build the panel only if so, no paid data. Read-only token-gated probe (~61 GETs, cached 6h): earliest bar SPY/AAPL/IWM on sip/iex, 17 pre-registered delisted/renamed/reused tickers 2012-2023 under default/dated/disabled asof mapping, /v2/assets inactive/active counts.
+PRIOR (before the live read): history starts ~2016-01 on sip (not 2010); dated asof covers >=80% of post-2016 delistings to within 10 days; pre-2016 cases return nothing; default asof misses retired tickers and returns the NEW company for S/DELL. Result logged after deploy. STARVED: no.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: fetch full in-scope chains (server-side bounds + pagination to exhaustion) (v1.0.1203)
+
+What was wrong (audit 2026-10-27 §2.4 defect 2, cause verified in code):
+- server/optionsChainArchive.ts:fetchChainForUnderlying (~l.196) stopped at
+  5 pages x 1000 and snapshotUrl sent NO expiry/strike bounds; Alpaca pages
+  come back in OCC order (nearest expiry first) and the <=60 DTE / +/-20%
+  filters ran only client-side AFTER the cap. Pinned index names have no
+  cached spot, so their strike band was skipped too. Result: prod SPY on
+  2026-10-26 = 4,151 rows, 15 expiries, last 2026-12-04 (~39 DTE); the
+  2026-12-18 monthly and everything after it were never fetched.
+
+What changed:
+- chainQueryWindow: server-side expiration_date_gte = ET capture date (0DTE
+  kept, as before), expiration_date_lte = capture date + 60 calendar days
+  (the archive's documented scope, CHAIN_MAX_DTE_DAYS, unchanged), and
+  strike_price_gte/lte = spot x (1 -/+ 0.20) when spot is known (rounded
+  outward; the exact client-side withinFilters still runs).
+- fetchChainPages follows next_page_token to exhaustion with a safety cap
+  CHAIN_MAX_PAGES = 40 (40k contracts/underlying, ~2x a <=60 DTE SPY chain);
+  hitting the cap or a repeated token logs loudly and flags the underlying
+  `truncated`. The run summary and _captured/<day>.json list truncated
+  underlyings by name and record the scope. fetchChainForUnderlying keeps
+  its signature (records only).
+- Same param names the Python callers already use (options_scanner.py,
+  vol_surface.py, options_execution.py).
+
+Downstream chain: (1) SPY/QQQ/IWM day files gain the 40-60 DTE expiries
+(incl. the monthlies) -> chainIv's IV30 interpolation for index names now
+brackets 30 DTE from both sides with full term structure; (2) more rows
+per day for the index names (est. +10-15k rows/day before commit 3's
+spot band narrows SPY strikes) and more API pages per run (SPY ~10-20
+pages vs 5), still well under Alpaca's per-minute limit with the 350 ms
+pause between underlyings.
+
+Rollback trigger: any _captured sidecar listing SPY/QQQ/IWM as truncated,
+an HTTP 429 burst in [optionchains] logs, or a capture that does not finish
+inside the 16:30-18:30 ET window.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — options chain archive: store gamma, session volume and capture-time spot (schema v2) (v1.0.1204)
+
+What was wrong (audit 2026-10-27 §2.4 / §10.2, verified in code):
+- server/optionsChainArchive.ts:compactContract (~l.112) kept bid/ask/sizes/
+  iv/delta/oi only. greeks.gamma and dailyBar.v were fetched and dropped,
+  and no underlying price was stored (spot was null for the pinned index
+  names and position underlyings; the CSP-cache price for the rest is up to
+  a session stale). GEX / put-call volume / expected-move inputs (§10.2)
+  could not be derived from the archive.
+
+What changed:
+- ChainRecord v2 (optional fields, older rows lack them): gamma =
+  greeks.gamma; vol = dailyBar.v when the bar is dated the labelled ET
+  session, 0 when the latest bar is an earlier session, null when absent
+  (sessionVolume); spot = underlying latest trade at capture time, else the
+  quote mid, else null.
+- fetchSpots: ONE batched GET /v2/stocks/snapshots?symbols=...&feed=
+  resolveAlpacaFeed(ALPACA_DATA_FEED) (default delayed_sip) per capture;
+  any failure -> empty map, logged, never fails the chains.
+- The live spot also centres the server-side +/-20% strike band (cache spot
+  only as fallback), so SPY/QQQ/IWM finally get the documented band.
+- compactContract's number coercion now maps null -> null (was Number(null)
+  = 0), so a missing greek is never stored as 0.
+- Honest gaps stated in code + manifest: oi stays null (the indicative feed
+  has no openInterest); spot is a 15-min-delayed tape print that may be an
+  extended-hours trade, not the official close; gamma is Alpaca-computed
+  from indicative quotes. Manifest schema_version 1 -> 2; sidecar records
+  schema_version, spots_known, spot_feed.
+
+Volume impact (estimated, synthetic records): ~154 -> ~194 bytes/row raw
+(+26%). With the full index chains (commit 2) ~40-45k rows/day ~= 8-9 MB/day
+raw (kept raw 2 days) and ~1.2-1.4 MB/day gzipped -> ~0.3-0.35 GB/year on
+/data (was ~0.17-0.2 GB/year). Retention/gzip lifecycle unchanged.
+
+Downstream chain: (1) new rows carry gamma+spot+vol -> a future
+chainFeatures derived stream (GEX estimate, P/C volume, expected move) is
+computable server-side without Python; (2) SPY strike band now applies ->
+SPY rows per day are bounded (+/-20%) instead of every listed strike.
+No trading path reads the archive (research-only, diag probes).
+
+Rollback trigger: spots_known == 0 on consecutive trading days (spot feed
+broken), or day-file size > 20 MB raw.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — record the broker's real entry fill, keep the synthetic haircut as a comparison field (v1.0.1205)
+
+What was wrong (audit §7.1 / §7.2.5):
+- server/bot.ts executeTrades batch fill confirmation (~6260): fill_price
+  sent to ml_model_v2.track_fill was filled_avg_price x (1 + random
+  volume-tiered haircut). When the order had not filled at the 2 s check,
+  filled_avg_price was null and the code fell back to trade.price, so an
+  unfilled (later cancelled) order still wrote an entry record.
+- server/bot.ts executeMorningQueue (~4474): never read a fill at all;
+  fill_price = trade.price x (1 + random 0.05-0.25%).
+- server/bot.ts ETF branch (~5930): fill_price = trade.price, the
+  UNDERLYING's price, not the leveraged ETF's.
+- ml_model_v2.track_fill stored only that synthetic fill_price (the
+  alpaca_fill_price key in the payload was dropped), so slippage_pct,
+  fills_slippage_stats() and /api/bot/performance realisticPnlPct measured
+  the bot's own random draw plus quote drift. ROOT LADDER gate 5 was not
+  measurable live.
+
+What changed:
+- server/entryFill.ts: syntheticSlippagePct() (the prior tier tables,
+  unchanged), confirmedEntryFill(order), isTerminalOrderStatus(),
+  buildEntryFillPayload() gains expectedPrice/qtyRequested/orderStatus/
+  orderId/entryFeatures and writes synthetic_fill_price beside the real
+  fill_price (fill_source "broker").
+- server/bot.ts: one recordEntryFill() writer. settleEntryFill() records
+  immediately when Alpaca already reports the order terminal, otherwise
+  attaches pendingEntryFill to the tracked openOrders entry;
+  resolvePendingEntryFill() (called from all three sweepStaleOrders drop
+  paths) records at the confirmed filled_avg_price/filled_qty once the
+  order is terminal. Unfilled orders record nothing. All three entry paths
+  (regular, morning queue, ETF) go through it. Read-only GETs only; no
+  order-POST code touched.
+- ml_model_v2.track_fill persists fill_source, synthetic_fill_price,
+  synthetic_slippage_pct (computed exactly like the old slippage_pct),
+  qty_requested, partial_fill, order_status, order_id.
+- fills_slippage_stats(): once any fill_source=="broker" record exists,
+  avg_slippage_pct/total_slippage_cost come from those only; count stays
+  all entry-fill records. New fills_slippage_basis() labels the
+  population; /api/bot/performance exposes it as slippageBasis.
+
+Metric before vs after on identical inputs (decision quote $100.00, Alpaca
+filled_avg_price $100.02, volume 3M, buy):
+- regular path: fill_price before $100.10-$100.17 (random), slippage_pct
+  0.10-0.17%; after fill_price $100.02, slippage_pct 0.02%,
+  synthetic_fill_price $100.10-$100.17 kept beside it.
+- morning queue, same inputs: before fill_price $100.15-$100.25
+  (trade.price based, fill never read); after $100.02.
+- unfilled-then-cancelled order: before one entry record at a made-up
+  price; after none.
+- fills_slippage_stats on the existing 56 live records (all legacy, no
+  fill_source): unchanged until the first broker record lands.
+Bias direction: measured slippage will DROP (paper fills at or near the
+quote), which makes realisticPnlPct look better. Suspect by default per
+MEASUREMENT INTEGRITY; justification is a named bug (a random number was
+recorded as an execution price) and the external ground truth is Alpaca's
+own filled_avg_price. Paper fills remain optimistic vs real execution;
+the synthetic estimate is kept so that haircut can still be applied
+explicitly. slippage_pct still uses abs() (favorable fills count as cost),
+not changed here.
+
+Downstream chain: entry fill_price -> track_fill exit pnl only when no
+exit_context pnl (bot exits always send one, so live win/loss labels are
+unchanged) -> fills_slippage_stats -> realisticPnlPct/avgSlippagePct on
+/api/bot/performance and fills_count on /api/diag/ml (count unchanged).
+Fewer phantom open entries -> fewer wrong _find_entry_record matches.
+Deploy note: a pending entry lives in the in-memory openOrders list; a
+deploy cancels all open orders (gracefulShutdown), so a lost pending entry
+is an order that was cancelled, except a fill racing the shutdown.
+
+Rollback trigger: revert if, after 5 market days, live entry records with
+fill_source "broker" number fewer than ~half of the TRADE/MORNING-TRADE/
+ETF-TRADE audit lines with a confirmed fill (pending entries being lost),
+or FILL-TRACK-WARN appears more than occasionally.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — attribute option exits: register tier-dispatched entries, drop rejected-close and OCC-keyed orphans (v1.0.1206)
+
+What was wrong (audit §7.2.4: 342 of 398 live trade-feedback records are
+orphan_exit, 362 have pnl_pct None; 77 of the orphans carry an options
+exit_reason, 225 predate exit_reason logging and cannot be classified):
+1. server/bot.ts tier dispatcher, SELL_CSP (~5260) and BUY_PUT (~5397)
+   inline Python: submit_options_order() is called directly and the entry
+   is never registered. options_manager.manage_options_positions therefore
+   has no pending_entry_feedback to resolve, and every later close of those
+   positions (the CSP sleeve's main entry path) is written by
+   _record_options_exit_feedback as orphan_exit. The scanner path and
+   evaluate_and_execute both register; only the dispatcher did not.
+2. options_manager.py, all 8 single-leg close sites: the exit record is
+   written right after _submit_close_order() even when Alpaca REJECTED the
+   close. The position stays open, its state entry is popped, the next
+   cycle re-submits, and each rejected attempt appends one more orphan_exit
+   (the first one also closes the entry with a P&L for an exit that never
+   happened).
+3. server/bot.ts POS-KILL backstop exits option positions under the OCC
+   symbol (e.g. MUU261120P00010000); every options entry record is keyed by
+   the underlying, so ml_model_v2._find_entry_record can never match it.
+Not the cause (checked): trade_feedback lives on the /data volume and is
+not wiped by deploys; feedback_boot_cleanup keeps every record >= 1.0.34;
+the 5000-record rotation has not been reached (1724 records).
+
+What changed:
+- options_manager.register_pending_entry_feedback(occ, ticker, side):
+  writes only the pending marker (never overwrites a registered entry).
+- manage_options_positions: a marker-only state entry is initialized
+  exactly like an unregistered position (same entry_price/initial_credit
+  from Alpaca, strategy "unknown", entry_timestamp at first sight), keeping
+  the marker, which then resolves at Alpaca's avg_entry_price/qty. Exit
+  thresholds for these positions are therefore unchanged.
+- _record_options_exit_feedback(..., order_result=result): records only
+  when the close order was accepted ("submitted"). All 8 sites pass it.
+- server/exitFill.ts feedbackTickerFor(): exit payloads for an OCC symbol
+  key by the underlying.
+- bot.ts dispatcher (SELL_CSP, BUY_PUT): after a submitted order, call
+  register_pending_entry_feedback. Recording only; nothing about how the
+  order is built, sent or retried changes.
+Historical records are not rewritten.
+
+Metric before vs after on identical inputs:
+- tier CSP filled, later closed at profit_target: before 1 orphan_exit
+  (pnl None); after 1 entry record closed as win/loss with pnl_pct.
+- DTE-critical close rejected 3 scans running: before 3 orphan_exit
+  records; after 0.
+- POS-KILL of MUU261120P00010000: before an orphan under the OCC symbol;
+  after keyed "MUU" and matched to the open MUU entry when one exists.
+Bias direction: live_performance (win rate / expectancy, n=36 today) will
+start including option trades, mostly short puts with many small wins and
+rare large losses; that can move win rate UP and expectancy either way.
+The two populations (stock and option) should be read separately
+(options_outcome_breakdown already splits them by exit_reason). ML training
+is unaffected (option entries carry entry_features {} and are excluded by
+the schema gate).
+
+Downstream chain: more matched records -> /api/diag/ml live_outcome_breakdown
+and live_performance n rise -> risk_kill_switch.record_trade_outcome sees
+option outcomes (CONSECUTIVE_LOSS_KILL counts them, as it already did for
+the scanner-path options) -> /api/bot/performance totals include options.
+Residual (not fixed here): an accepted close that rests unfilled and is
+cancelled at EOD still records an exit, and a next-day re-close then
+orphans; fixing that needs a confirmed-fill contract for options exits
+(the bot.ts #35 pattern). An underlying traded as both stock and option
+can still cross-match (_find_entry_record keys by ticker only). If the
+account holds no options when a CSP is submitted, the manager's empty-book
+branch wipes options state (marker included) before the fill — the same
+pre-existing behavior register_options_entry entries have.
+
+Rollback trigger: revert if, after 5 market days, the live orphan_exit
+share of NEW records (code_version >= this version) is not lower than the
+pre-change 86%, or any manage_options_positions error appears in the audit
+log that traces to the marker-only state path.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — audit log: 30-day retention with a row cap and indexes, ?since= on the diag probe (v1.0.1207)
+
+What was wrong (audit §7.2.9 / §1.4, KB #46): server/bot.ts persistAudit
+ran DELETE ... WHERE id NOT IN (SELECT id ... ORDER BY id DESC LIMIT 2000)
+after every insert. 2000 rows is ~3 market hours of this log, so "did X
+happen yesterday" could not be answered, and incident/counterfactual
+reviews that lean on audit lines (SKIP, SIZE-CAP, SWEEP, FILL-*) lost
+their evidence the same afternoon. The table had no index besides rowid.
+
+What changed:
+- server/auditRetention.ts (new, pure, tested on in-memory SQLite):
+  ensureAuditSchema (table + idx_audit_log_time + idx_audit_log_type_id),
+  pruneAuditLog (rows older than AUDIT_RETENTION_DAYS=30, then everything
+  at or below MAX(id)-AUDIT_MAX_ROWS=300,000; both index-driven),
+  parseAuditSince, queryAuditLog (type/since filters, limit capped at
+  2000).
+- persistAudit prunes every AUDIT_PRUNE_EVERY_INSERTS=200 inserts instead
+  of on every insert (DB-SLOW-WRITE timing still measured on the prune).
+- /api/diag/audit accepts ?since= (ISO date or date-time, UTC; invalid ->
+  400) alongside ?type= and ?limit= (still max 500 per call).
+- getPersistedAuditLog goes through queryAuditLog (same SQL as before
+  without filters).
+
+Disk estimate (Railway volume): ~650 rows/h while active (2000 rows ~ 3
+market hours), ~16 active h/day -> ~10k rows/day -> ~300k rows per 30 days.
+~200 B/row (ISO time 24 B, type ~12 B, message <=500 chars, typically
+100-200 B, record overhead) + ~70 B/row for the two indexes -> ~80 MB
+worst case at the cap. AUDIT_MAX_ROWS bounds it if the log gets chattier.
+Previously ~0.5 MB. Worth a human glance at the volume size before merge.
+
+Metric before vs after on identical inputs: a day with 10,000 audit
+lines -> before, rows kept 2,000 (the last ~3 h); after, 10,000 (all).
+/api/diag/audit?type=TRADE for yesterday -> before: nothing; after: the
+rows. getAuditLogCount (status auditLogCount) will grow from 2000 toward
+~300k. No trading metric reads this table's size. Bias direction: none on
+P&L metrics; any tool that counts audit lines per "recent window" without
+a time filter will now see more history (derive.ts filters by today, so
+the cockpit is unaffected).
+
+Downstream chain: larger table -> the existing ORDER BY id DESC LIMIT n
+reads stay O(n) via rowid; type-filtered reads use (type,id); the prune
+uses (time). Insert path is cheaper than before (no per-insert delete).
+
+Rollback trigger: revert (or lower AUDIT_RETENTION_DAYS) if DB-SLOW-WRITE
+audit lines appear more than a few times a day after the change, or the
+/data volume usage grows by more than ~150 MB.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — server datacore-style module (no trading code) — v1.0.1209 2016+ SURVIVORSHIP-REDUCED PRICE PANEL (nightly builder)
+
+Human order: check whether Alpaca's free daily bars include delisted tickers since 2010; if so build the panel; no paid data.
+PRIOR: sip history ~2016-01; dated-asof covers >=80% of post-2016 delistings; pre-2016 cases return nothing; default asof misses retired tickers / returns new company for S, DELL.
+RESULT (bars_coverage, prod v1.0.1203): earliest bar sip 2016-01-04, iex 2018-11-01 (no 2010). 17 delisted probed: 14 with bars, 12 reach event (default asof 12, raw 13); the 4 pre-2016 nothing; all 12 post-2016 reach event; YHOO via dated asof runs to 2019-10-02 (AABA). Assets: inactive 18,676, active 14,403, 236 overlap; only 3/17 probed delisted names in inactive -> universe supplemented from corporate actions (endpoint shape unverified until first build).
+DECISION: built server/pricePanel.ts (nightly 20:15-04:00 ET, one request at a time <=100/min, resumable, memory-bounded, disk-guarded at 1.5 GiB free — may stay blocked on the current volume; probe `price_panel` shows status). 2010-2015 unavailable free (research/price_panel_coverage.md). STARVED: no.
+
+## 2026-10-28 [PIPELINE] — T-BOT (entry_shadow.py, server/entryShadow.ts, bot.ts, bot_engine.py, options_execution.py, options_manager.py) — v1.0.1210 ENTRY SHADOW MODE: stock entries + options sleeve (human directive)
+
+Change: new stock/ETF entries (executeTrades, morning queue, ETF substitution, Tier-3 BUY, SVXY third leg) and every options open (tier SELL_CSP/BUY_PUT, scanner setups, evaluate_and_execute CSPs/covered calls/spreads, convexity QQQ puts, roll re-opens → close-only) are logged as `shadow_mode_entry` instead of ordered. Floor basket (QQQ/SMH/KWEB/VXUS + GLD defensive floor) and every exit (stops, trails, time stops, scale-outs, N6b, options_manager closes, assignment, kill-switch liquidation) stay live. Flag SHADOW_ENTRY_SLEEVES="stocks,options"; env VOLTRADE_SHADOW_ENTRIES wins when present (`off` = rollback, no deploy). Found: CONVEXITY_OVERLAY.enabled=False had no reader, so the overlay was live before this change.
+Prior: shadow records accrue at the live entry rate (once per ticker per day); stock/options P&L flattens as existing positions close (options within ~one DTE cycle); account beta comes from the floor alone. Judge at +20 trading days: shadow_mode_entry outcomes vs the pre-switch taken bucket and vs SPY. The human decides kill/extend. Risk limits untouched. STARVED: no.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — cockpit numbers: unwrap /api/orders/open, read both peak-equity shapes, report the enforced daily-loss limit (v1.0.1211)
+
+What was wrong:
+- D4 (audit §8.2): server/routes.ts /api/orders/open answers
+  { orders: [...] }; client/src/bot/useBotData.ts typed it as OpenOrder[]
+  and passed the wrapper through. panels.tsx OrdersBody checks
+  orders.length (undefined -> "none working" always) and BotPage
+  openOrders = data.length (undefined -> stage row "? open"). Working
+  orders never showed in the cockpit. scripts/visual_check.mjs mocked the
+  route as a bare [] so the harness could not see it.
+- D3 (audit §1.x): server/bot.ts /api/monitoring/drawdown read
+  peakCall.result.peak. Through the daemon get_peak_equity returns a bare
+  float, so .peak was undefined, peak fell back to current equity and the
+  endpoint reported ~0% drawdown whenever the daemon was up.
+- D7 / N21: /api/bot/status reported dailyLossLimitPct: 5, copied from
+  system_config DAILY_LOSS_LIMIT_PCT, a key nothing reads. The halts that
+  fire are Node DAILY_LOSS_LIMIT -3% and risk_kill_switch -0.03.
+  (maxPositionPct 8 / maxExposurePct 95 match system_config BASE_CONFIG
+  and are left as is; the MAX_POSITIONS 8-vs-6 and minScoreThreshold
+  65-vs-63 differences D7 lists are real rule conflicts, not display
+  errors, so they are not touched here.)
+
+What changed:
+- client/src/bot/orders.ts unwrapOpenOrders(): accepts { orders } or a bare
+  array; any other shape throws, so the query shows "orders not loaded"
+  instead of a confident "none working". useBotData uses it.
+- server/peakEquityRpc.ts peakEquityFromRpc(): accepts the float or
+  { peak }; 0/missing -> null. The drawdown route uses it and adds
+  peak_known (false when the peak file is missing; drawdown then reads 0
+  as before but is labeled).
+- /api/bot/status dailyLossLimitPct = Math.abs(DAILY_LOSS_LIMIT) (3).
+- visual_check.mjs fixture for /api/orders/open now uses the real server
+  shape with one working order.
+
+Metric before vs after on identical inputs:
+- 2 working orders at Alpaca: Orders panel before "none working", stage
+  row "? open"; after the 2 rows and "2 open".
+- daemon up, equity $98,590, risk_kill_switch peak $111,613: drawdown
+  before 0.00% / OK; after -11.67% / WARNING (kill threshold -20%).
+  Subprocess path: unchanged.
+- /api/bot/status dailyLossLimitPct: 5 -> 3.
+Bias direction: the drawdown endpoint now reports a larger (worse)
+drawdown; nothing trades on this endpoint or on dailyLossLimitPct (no
+consumer in client/src; the cockpit's drawdown comes from
+/api/bot/account). The orders fix only makes existing orders visible.
+
+Downstream chain: openOrders -> derive.ts stage row and BotPage orders
+flex sizing (the Orders panel grows when orders exist) -> visual layout
+at 390/768/1440 (harness fixture now exercises it).
+
+Rollback trigger: revert the client half if the Orders panel shows
+"orders not loaded" while /api/orders/open returns 200 (an unexpected
+shape), or the layout regresses in the visual harness.
+
+(cherry picked from commit c20400adaf956a9ac505e1f6e10138f2538639fc)
+
+Ported onto main 2026-10-28; conflicts resolved: none (server/bot.ts auto-merged cleanly).
+Port follow-up (visual harness, bot @1440): with real orders the desktop
+Orders panel flex "0.65 1 0" (0 basis vs the chart's auto basis) shrank to
+its header and clipped its rows; client/src/bot/BotPage.tsx ordersFlex is now
+"0 0 auto" (natural height, <= 8 rows) in both states.
+
+STARVED: no — master-plan queue in progress this session.
+Visual harness (bot, botidle) at 390/768/1440: 0 hard failures; Orders panel clipping fixed.
+
+## 2026-10-28 [PRODUCT] — T-CLIENT + server/scoreboard.ts — v1.0.1212 BOT PAGE: DAILY BOT-vs-SPY SCOREBOARD (human-ordered)
+
+GET /api/bot/scoreboard (server/scoreboard.ts, pure; owner-only, 10-min cache) over the SAME inputs as /api/bot/benchmark: daily equity curve + SPY dividend-adjusted closes (shared spyBenchBars cache). One row per SPY session; missed snapshots fold into a flagged multi-session row; cumulative compounds since first point; no lookahead (tested); today's row provisional; max drawdown both sides; no Sharpe (none exists to reuse). Not cash-flow-adjusted: journals/transfers surfaced as a caveat. Desktop opens via "daily →" on the vs-SPY tile (a grid slot collapsed the Model panel to 0px in the harness); phone/tablet inline. Visual harness bot/botidle at 390/768/1440: PASS, 0 hard failures (mocked data). Display only, no trading effect. STARVED: no.
+
+## 2026-10-28 [RESEARCH] — master plan (human directive 2026-10-27) — Source validation harness: every data source alone vs forward outcomes, BH-corrected (probe source_validation) (v1.0.1213)
+
+WHY
+The shadow log's score ranks backwards (2026-10-27 deduped population, 331
+ticker-days: +5d Q1 -1.07% ... Q5 -1.74%). deep_score adds news, social,
+insider/intel, alt-data, macro, fundamentals and options-derived terms that
+were never validated alone (ROOT VALIDATION LADDER gate 2). Before any
+ensemble is believed, each input gets its own gate-2 test with the
+multiple-testing correction its family size demands.
+
+WHAT
+- source_validation.py (repo root — scripts/ is not in the production
+  image; the Dockerfile copies *.py only): pure, read-only.
+  Population = deep-scored shadow records (non-empty features; the tier-1
+  masterkill CSP rows are excluded), deduped to the first-seen record per
+  (ticker, ET entry day) via shadow_portfolio._first_seen_per_ticker_day,
+  per outcome. Family = 14 persisted score components (score_breakdown) +
+  the 34 model features. Per source: n, Spearman IC with a DAY-CLUSTERED
+  bootstrap SE/95% CI (names scored the same day share one market move),
+  top-vs-bottom tercile spread, sign buckets for adjustments, IC by 5-level
+  regime, descriptive IC on +10d/+20d/exit-aligned. Benjamini-Hochberg at
+  FDR 0.10 across the family on the PRIMARY outcome (+5d). Verdicts
+  PASS / FAIL / FAIL_INVERTED (BH-significant negative IC on an adjustment
+  that is ADDED to the score) / INSUFFICIENT (n < 100) / CONSTANT (dead
+  input). Composite scores (final, rules-only, ML) are reference rows
+  outside the family. All thresholds pre-registered as module constants
+  (PREREG_VERSION v1) before any production run.
+- scripts/source_validation.py: local CLI over a copied log.
+- Diag probe source_validation (diag.ts whitelist + bot.ts case): runs the
+  harness read-only on the volume's shadow log; aggregate-only output (no
+  ticker/price/timestamp; depth and key counts within sanitizeDiag limits).
+  ~1.5 s on a 18k-record synthetic log.
+
+PRODUCTION-ONLY
+The sandbox has no shadow log; results exist only via the probe.
+score_breakdown is logged since 2026-10-26 (v1.0.1161), so the 14 adj.*
+sources read INSUFFICIENT until those records earn +5d labels (~11-02 on).
+The 34 features run on the full population now.
+
+BIAS / LIMITS
+Outcomes are LONG-stock path returns (old ruler capped +2%/-4%); market-
+wide features (vxx_ratio, ...) are timing signals in a pooled IC and are
+flagged; regime split uses record vxx/spy_vs_ma50 only (no 200d inputs on
+records). The replicate IC is the weighted Pearson of full-sample ranks
+(standard fast approximation to re-ranking each replicate).
+
+TESTS
+test_source_validation.py (21): registry pinned to ml_model_v2.FEATURE_COLS
+and shadow_portfolio.SCORE_BREAKDOWN_KEYS; BH known values; clustered SE
+wider than naive under shared day shocks; planted positive adjustment
+PASSes, planted inverted one reads FAIL_INVERTED, noise does not pass, a
+dead input reads CONSTANT; per-scan copies collapse (first-seen value
+used); masterkill rows excluded; aggregate-only + sanitizeDiag depth/key
+limits; CLI runs. diag.test.ts: probe wired read-only and sanitized.
+
+ROLLBACK TRIGGER
+Measurement only, nothing trades on it. Revert if the probe times out /
+starves the Python mutex (> 20 s) or the output ever carries a ticker.
+
+(cherry picked from commit e46df7d136d0f36d710fb46396a7f35f077c9e13)
+
+Ported onto main 2026-10-28; conflicts resolved: ci/counter_baseline.txt (max of test/assertion pins, min of silent_py_handlers, then re-pinned to the counter_ratchet measurement: tests 667, assertions 23609, empty_ts_catch 488, ts_any 1220 — test_ts_code_only.py's exact pins moved down with them), server/bot.ts + server/diag.ts + server/diag.test.ts (source_validation probe added beside main's probes; the base branch's regime_shadow probe was NOT carried — it is not on main)
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — master plan (human directive 2026-10-27) — Source validation step 2: forward selection + deep_score ablation; shadow-only logging of the missing score components (v1.0.1214)
+
+WHY
+2026-10-27 deduped shadow population (331 ticker-days): score quintiles are
+roughly INVERSE to +5d outcome (Q1 -1.07% ... Q5 -1.74%), every candidate
+negative on average. Two questions the per-source tests alone cannot
+answer: (1) which combination of sources adds OUT-OF-SAMPLE value, with the
+fishing discount the number of tries demands; (2) does removing the
+unvalidated intel/alt/social/news/fundamental adjustments un-invert the
+score-vs-outcome relationship.
+
+WHAT
+- source_validation.py (same harness; PREREG v2, set before any production
+  run):
+  * forward_selection: deduped primary-outcome rows split BY ENTRY DAY into
+    fit/select/holdout = 50/25/25% (time-ordered, no day straddles two
+    blocks). Ridge (lambda 1) on fit-standardized values; greedy adds the
+    candidate with the best SELECT IC; kept only if IC gain >= 0.02 AND the
+    day-clustered paired-bootstrap p, Bonferroni-multiplied by the number
+    of candidates tried at that step, <= 0.05. The selected set is refit on
+    fit+select and scored ONCE on holdout beside the live score (paired IC
+    gain). Arms: "features" (all non-constant model features, all rows) and
+    "breakdown" (adjustments + features, rows with score_breakdown).
+  * ablation: deep_score recomputed from the logged components with the
+    unvalidated group removed (and each one alone, and with the analyze/
+    contrarian/RS boosts too once those are logged): clamp(rules_raw -
+    removed), then the logged ML blend (rule/ml weights, 50 when gated).
+    rules_raw falls back to the ML trace's rules_only_score on older rows
+    (exact unless clamped at 0/100 — counted as approx_clamped). Rows whose
+    reconstructed baseline differs from the logged score by > 0.6 are
+    dropped and counted. Per variant: IC + CI, paired IC change vs
+    baseline, quintile means, and un_inverts / improvement_significant.
+  * the diag probe source_validation now returns selection + ablation too.
+  * the four new components join the per-source family (INSUFFICIENT until
+    labeled).
+- SHADOW-ONLY logging (deep_score + shadow_portfolio.
+  SCORE_BREAKDOWN_EXTRA_KEYS): recommendation boost, contrarian flag,
+  relative-strength boost, the Finnhub insider-MSPR part of intel, and the
+  pre-clamp rules total (rules_raw). Captured by snapshotting the running
+  total around each block; combined_score is untouched (AST-pinned test).
+
+PRODUCTION-ONLY / TIMING
+score_breakdown exists since 2026-10-26 and the extras since this deploy;
++5d labels lag ~1 week, so the ablation and the breakdown selection arm
+read INSUFFICIENT until ~2026-11-02 (>= 100 deduped rows). The features
+selection arm runs on the full population now.
+
+DOWNSTREAM
+None on trading: measurement + two extra floats per shadow record (~60
+bytes x 20k-record cap).
+
+TESTS
+test_source_validation_selection.py (18; fails on the previous commit —
+the functions and the logging do not exist): exact score reconstruction
+(rules_raw, gated/ungated blend, not-blended, clamp fallback flagged,
+missing component -> None); planted inverted adjustments -> baseline IC < 0,
+drop_unvalidated IC > 0, un_inverts + significant; honest null when not
+inverted; mismatch rows dropped/counted; day split time-ordered/disjoint;
+selection picks the planted feature and beats an inverted live score on
+holdout; pure noise selects nothing (Bonferroni); logging pinned and
+proven not to feed combined_score. test_source_validation.py: registry pin
+now includes the extras; PREREG v2.
+
+ROLLBACK TRIGGER
+Revert if the probe exceeds its 20 s budget or a shadow record write ever
+fails because of the new keys.
+
+(cherry picked from commit 1df15fd2ee452412dc2efa0beec6b16e3d49adbe)
+
+Ported onto main 2026-10-28; conflicts resolved: shadow_portfolio.py (_sanitize_score_breakdown persists SCORE_BREAKDOWN_KEYS + main's REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS; log_candidate's regime_snapshot kwarg untouched), ci/counter_baseline.txt (re-pinned to the counter_ratchet measurement: tests 668, assertions 23661); bot_engine.py auto-merged (the contrarian snapshot wraps main's regime 'Buy the Dip' withhold branch, so the logged delta is what was actually added)
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML CV: date-ordered purged walk-forward + inner-validation early stopping (v1.0.1215)
+
+What was wrong (ml_model_v2.py): _build_training_data emits rows ticker by
+ticker and nothing sorts them by date; _walk_forward_cv and
+_purged_train_test_split split by ROW INDEX, so each "walk-forward" test fold
+is a block of whole tickers over the SAME calendar window as training; the
+"5-day embargo" is 5*n_tickers rows; _train_single_lgbm early-stops (and picks
+LGB vs GB) on the test fold. With 11/34 features pure functions of the date the
+model memorises "these dates hit PT" and is credited for it out of sample.
+
+What changed:
+- new ml_cv.py (pure numpy + LightGBM in one fit helper): folds keyed on
+  DECISION DATE, expanding walk-forward, a trading-date embargo
+  (callers pass >= label horizon) plus a purge of training rows whose label
+  window reaches the test block; early stopping on an inner validation slice
+  carved from the last dates of the TRAINING window (same embargo/purge), tree
+  count refit on the whole window; metric suite (AUC, log-loss, Brier, base
+  rate, calibration table, quantile realized returns, date-block bootstrap CI);
+  legacy_cv() reproduces the v2 procedure for before/after on identical input.
+- ml_model_v2._build_training_data(return_meta=True) also returns each row's
+  decision date / ticker / label end date. Default return shape unchanged.
+- The LIVE v2 production fit is NOT changed (its early stopping and isotonic
+  calibrator would move live scores); the honest CV is used by the shadow v3
+  candidate and by the measurement report. Switching v2 is a promotion decision.
+
+Before/after on identical inputs (v2 generic builder, 97 tickers, Yahoo daily
+bars 2023-03..2026-10, 90,210 rows, base rate 0.427):
+  legacy : pooled AUC 0.658, log-loss 0.648, accuracy 61.9%
+  honest : pooled AUC 0.515, log-loss 0.690 (constant base-rate forecast 0.684)
+The honest number is WORSE, as expected: the v2 generic dataset has ~no
+out-of-time skill. Bias direction: this change can only lower reported skill.
+
+Downstream: (1) research/ml_v3_eval.md and the v3 candidate use these numbers;
+(2) v2's bundle accuracy / /api/ml/status are unchanged and remain upper bounds.
+Tests: test_ml_cv.py (8) — fold dates disjoint with embargo+purge, legacy
+splitter shown overlapping on ticker-major rows, inner slice never touches the
+test fold, test labels never read by the fit, synthetic date-only signal:
+legacy AUC 0.75 vs honest 0.47. All fail before (module/kwarg absent).
+Rollback trigger: none for live (no live path reads ml_cv); revert if the
+CV helpers are shown to drop rows they should keep.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML v2 training: remove earnings_surprise look-ahead (no PIT source) (v1.0.1216)
+
+What was wrong (ml_model_v2.py: _fetch_earnings_surprises / _train_model_impl
+/ _build_training_data): each retrain fetched Finnhub's LATEST EPS surprise
+for the first 30 tickers and stamped that single value on EVERY historical
+row of the ticker (and into intel_score = 0.3 * surprise) — a 2024 row
+carried the outcome of a 2026 report. Serving never had the value at all
+(intelligence.py never emits earnings_surprise -> always 0).
+
+Point-in-time is not buildable from available data: Finnhub's free
+/stock/earnings returns the last 4 quarters with a fiscal period but no
+report date. (A future PIT design: report date = the 8-K item 2.02 filing
+timestamp from the datacore EDGAR archive + Finnhub's per-period surprise;
+coverage would still be ~1 year.) So the feature is dropped: generic rows now
+carry 0.0, exactly the serve-time constant, and the 30 Finnhub calls per
+retrain are gone. The v3 candidate (next commits) excludes the feature.
+
+Live effect today: none on the current artifact — production fast_mode keeps
+the last 10,000 rows and shadow rows (11,948) fill all of them (audit §5.6),
+so generic rows never reach the fit. It only matters when shadow rows < 10k,
+and there it makes training match serving.
+
+Downstream: (1) v2 generic rows lose a leaked feature -> any honest CV on
+them can only get slightly worse; (2) intel_score on generic rows becomes 0
+(matches serve). Tests: test_ml_earnings_surprise_pit.py (fetch removed,
+builder has no per-ticker injection, column == serve constant; the first
+fails before). test_silent_except_ratchet pin for ml_model_v2.py 24 -> 23
+(the removed function had a silent except).
+Rollback trigger: revert if a PIT earnings source is built (then re-add it
+point-in-time, never as a latest value).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [REPAIR] — master plan (human directive 2026-10-27) — ML v3 candidate features: one point-in-time definition for train and serve (v1.0.1217)
+
+What was wrong (audit 2026-10-27 §4.1; ml_model_v2._compute_features vs
+bot_engine.deep_score ml_features): 9 of 34 features are constant/dead at
+serve (price_vs_52w_high and range_pct always 0 — quick_result never sets
+high_52w/range_pct; ewma_vol always 2 — analyze emits ewma_rv; the
+earnings/intel/news/insider/days_to_earnings constants; cross_sec_rank ~0.5),
+trend_strength is distorted by the constant ewma_vol, and 8+ features share a
+NAME but not a definition between paths (rsi_14, adx, change_pct_today partial
+day, volume_ratio 20d vs 5d/90d, idiosyncratic_ret, sector_momentum,
+vrp/iv_rank_proxy/put_call_proxy market-wide vs per-stock, iv_rank_stock,
+market_breadth proxy).
+
+What changed: new ml_features_v3.py (pure; numpy + live_exit_policy). ONE
+function (features_at) computes 24 features from COMPLETED daily bars and
+completed SPY/VXX/TLT/HYG bars; training_rows() calls it at every historical
+index, serve_features() calls it at the last completed bar after stripping the
+in-progress session from stock AND reference bars. Every feature has a fixed
+lookback (<= 252 bars; RSI/ADX/EWMA on fixed 100-bar windows) so a serve fetch
+of >= 253 bars reproduces the training value exactly. V2_FEATURE_DISPOSITION
+records, for each of the 34 v2 features, fixed / replaced / dropped and why
+(dropped: vrp, put_call_proxy, regime_score, cross_sec_rank, earnings_surprise,
+intel_score, news_sentiment, insider_signal, days_to_earnings, market_breadth,
+put_call_ratio — no PIT source on both paths, or redundant/non-stationary).
+
+LIVE v2 serving is untouched: deep_score's ml_features dict still feeds v2,
+which was trained on those values; changing them would move live scores. This
+module only feeds the shadow v3 candidate (later commits).
+
+Tests (test_ml_features_v3.py, 7): serving path == training path on the same
+fixture (stock calendar gap + VXX gap, today's partial bar present and
+stripped) bit-for-bit for every feature; no feature constant across a fixture
+batch; no row changes when later bars are removed (no look-ahead); serve
+returns None below 253 bars; frac_diff drift-pinned to v2._frac_diff; every v2
+feature has a disposition and dropped ones are absent. All fail before
+(module absent); the v2 serve dict would fail the zero-variance test by design.
+Measured: 7,100 real rows in 2.2s.
+Downstream: (1) ml_model_v3 dataset/labels consume training_rows; (2) the
+shadow score in deep_score consumes serve_features. Rollback: no live path.
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML v3 candidate label: one exit-aligned label matching the live exit policy (v1.0.1218)
+
+What was wrong (audit §5.2, KNOWN BROKEN #48): the v2 model learns from
+three label definitions, none of which a live exit implements — generic rows
+use a triple barrier (PT 1.5xATR, SL 1.0xATR, 5 bars, PT checked before SL
+on a double touch = optimistic), shadow rows +2%/-4% within 10 bars,
+feedback rows pnl > 1.5xATR. Live exits (server/bot.ts checkPositionOnTick)
+use a 2xATR R unit clamped stop 1.5-8%, thirds scaled out at 1R and the
+regime's 2nd R, breakeven, phase trails, a conditional TP and a 7-calendar-
+day flat time stop.
+
+What changed: new ml_model_v3.py (shadow candidate, not wired to trading).
+label_exit_aligned() walks each decision under live_exit_policy.LivePosition
+(the pure mirror of checkPositionOnTick, same policy as shadow_portfolio's
+exit_aligned_v1 ruler) bar by bar OPEN->LOW->HIGH->CLOSE (stop first on an
+ambiguous bar). Decision after bar i's close, entry at bar i+1's OPEN,
+ATR = the row's own decision-time Wilder ATR, regime class from the row's
+vxx_ratio/spy_vs_ma50 via system_config.get_market_regime. Censored at 20
+bars (= shadow XA_CAP_BARS) and marked to close; label = 1 iff the
+tranche-weighted return NET of the 0.10% round trip (= XA_ROUND_TRIP_COST_PCT)
+is > 0. build_dataset() joins it with ml_features_v3's training path, only
+for decisions whose full 20-bar window exists (keeping late rows that exited
+early would bias the tail toward fast stops), rows sorted by date.
+EMBARGO_DATES = cap + 1 for the CV.
+
+Measured on 97 tickers (Yahoo bars, 2023-12..2026-10): 68k rows, base rate
+0.51 (net), exits time_stop 51% / stop 25% / trail 21% / TP 3% / cap 1%.
+
+Tests (test_ml_model_v3.py, 5): constants drift-pinned to the shadow ruler;
+300 fuzzed paths give the same exit reason and return as
+shadow_portfolio._label_exit_aligned; a 2xATR stop is the live -4% (not v2's
+-2%), a +2-3% wander that fades is a time stop (v2-shadow would call it a
+win); truncated paths are dropped; dataset chronological, full-window, and
+X equals the serve path. Fail before: module absent.
+Downstream: (1) the v3 trainer/eval (next commit) fits on these labels;
+(2) nothing live reads them. Rollback: none needed (no live path).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — master plan (human directive 2026-10-27) — ML v3 candidate: train + honest OOS eval, shadow score, nightly job, diag probe (v1.0.1219)
+
+Human Phase 4 "Fix the model", step 5. The v3 candidate (honest CV,
+no earnings look-ahead, one PIT feature definition, exit-aligned label) is
+trained and evaluated SIDE BY SIDE with v2 and stays SHADOW ONLY: nothing
+that feeds the trading score reads it.
+
+What changed:
+- ml_model_v3.py: evaluate()/summarize() (pooled + per-fold + per-regime
+  AUC/log-loss/Brier vs base rate, raw calibration, net-return quintiles vs
+  the random-entry base rate, date-block bootstrap CIs, VARIANTS_TRIED
+  Bonferroni), train_final() (inner-validation early stopping on all rows +
+  isotonic calibrator fitted on the honest OOS probabilities), artifact at
+  DATA_DIR/ml_v3/voltrade_ml_v3_candidate.pkl ("promoted": False; never
+  ml_model_v2.MODEL_PATH); shadow_score() (serve path; returns None with no
+  network call until a candidate exists; SPY/VXX/TLT/HYG fetched once per
+  30 min); run_job(): staged + checkpointed fetch -> build -> cv (per fold)
+  -> final, each call <= time_budget_s, weekly (ML_V3_RETRAIN_DAYS).
+- bot_engine.deep_score: after v2's ml_score, the v3 probability is added
+  to _ml_trace (v3_win_probability / v3_model / v3_asof / v3_error) — it is
+  logged on the shadow record and read by nothing else; combined_score is
+  untouched. shadow_portfolio.sanitize_ml_trace persists those keys.
+- server/bot.ts checkMlV3CandidateJob: 5-min poll, 03-04 UTC, <= 20 calls a
+  night, command imports numpy so it holds the Python mutex with the 90s
+  cap (time_budget_s=60); audits ML-V3-JOB / ML-V3-JOB-ERROR.
+- diag probe "ml_v3": read-only passthrough of the eval report + job state
+  (Node reads the files; no Python, aggregate metrics only).
+- voltrade_daemon: ml_v3_job / ml_v3_status registered (not used by the
+  nightly path, same reasoning as shadow_backfill_exit_aligned).
+- system_config: ML_V3_RETRAIN_DAYS 7, ML_V3_LOOKBACK_DAYS 1400,
+  ML_V3_CV_SPLITS 5 (new keys, read only by ml_model_v3).
+- scripts/ml_v3_eval.py: session CLI (Alpaca if keys, else Yahoo, or --bars).
+- research/ml_v3_eval.md: the report.
+
+Result (Yahoo bars, 97 tickers, 66,833 rows, 55,775 OOS): AUC 0.499
+(CI 0.479-0.516), log-loss 0.6949 vs base-rate 0.6928, top-minus-bottom
+quintile -0.13 pts net (CI -0.79..+0.55), early stopping at 1-29 trees per
+fold. No out-of-sample skill; do not promote. Production numbers on Alpaca
+bars arrive via /api/diag/ml_v3 after the first nightly run.
+
+Downstream: (1) shadow records gain ml.v3_* keys (~60 bytes/record) for a
+forward test vs the exit-aligned outcome; (2) one extra Alpaca multi-symbol
+bars call per 30 min once a candidate exists, plus the nightly job's ~11
+calls a week. Scoring, sizing, orders: unchanged.
+Tests: test_ml_model_v3.py (+3: inert without a candidate — no network;
+staged job end-to-end under small budgets reaches done, writes report and
+artifact, then idles, and the serve path scores a live-shaped request;
+trace keys persist), server/mlV3CandidateJob.test.ts (4: real kill cap via
+bot.ts's own isTrivialPython/execPythonSerialized, interval, audits, v3
+never read by bot_engine, probe read-only). All fail before (absent).
+Rollback trigger: ML-V3-JOB-ERROR on 3 consecutive nights, any scan-latency
+regression attributable to the reference-bar fetch, or v3_error on > 5% of
+shadow records -> revert this commit (no live state depends on it).
+
+STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PRODUCT] — master plan (human directive 2026-10-27) — Weekly forecast screen: SHADOW calls for SPY, positions, scan candidates + accuracy/calibration (v1.0.1220)
+
+Human's Phase 7 ask (2026-10-27): a weekly call for SPY, every open position
+and the top scan candidates - direction, probability and a 5-trading-day
+expected range - with accuracy and calibration tracked on the same page.
+SHADOW: display and tracking only; nothing in the trading loop reads it.
+
+What ships
+- forecast.py (new): P(up) from a ridge logistic regression (numpy IRLS) on
+  four point-in-time, vol-scaled features (5/20-session momentum, 1-session
+  reversal, SPY distance from its 50-day average), fit weekly on 3y of daily
+  bars (15 index/sector ETFs + the week's names, one sample per 5 sessions),
+  validated on a purged time-ordered 30% holdout (holdout Brier vs
+  climatology ships with every batch). A call is always emitted (up iff
+  P(up) >= 0.5) with the model's own probability - never neutral, never
+  inflated. Range = 68% zero-drift lognormal band from chain IV30 (options
+  archive via server/chainIv.ts) when fresh, else 20-session realized vol.
+  Append-only JSONL store (storage_config FORECASTS_PATH /
+  FORECAST_SCORES_PATH); one batch per ISO week of the first horizon session,
+  checked on disk before any network call; late batches flagged on_time=false.
+  Scorer settles on the 5th actual completed bar after d0 using a close RATIO
+  (split-robust): hit/miss, inside/outside range, Brier; fetch failures are
+  never strikes; no-data gives up 30 days past horizon.
+- voltrade_daemon.py: forecast_report / forecast_generate / forecast_score.
+- server/forecast.ts (new, pure) + bot.ts: GET /api/forecast (requireOwner,
+  read-only, daemon-first + python3 -c fallback); checkForecasts() on its own
+  15-min unconditional poll (+2 min after boot): generate at most hourly
+  (Python skips cheaply when the week exists), score once per UTC day from
+  22:00. Both jobs run as subprocesses behind execPythonSerialized's 90s hard
+  kill; commands pinned above the 150-char trivial cutoff. Bars come from the
+  existing shadow_portfolio._fetch_bars_paginated (shared 180/min bucket).
+- client: Forecast tab (owner-only; desktop nav button + phone More sheet),
+  pages/forecast.tsx + lib/forecast.ts, styles in index.css (tokens only).
+  Every call shows batch age, base close, horizon end, model version, vol
+  source; calibration chart = live + fit-time holdout reliability dots vs the
+  diagonal, with counts and a table view.
+- scripts/visual_check.mjs: `forecast` page + fixture (390/768/1440 pass).
+
+Downstream chain (two steps): bot.ts poll -> one Alpaca /v2/positions read +
+one paginated bars fetch per week (~30 symbols, <=3 pages) through the shared
+token bucket -> negligible quota share; the subprocess holds the Python mutex
+up to 90s once a week (+ a daily scorer run), which can delay another heavy
+python3 -c by that long. No trading input changes.
+
+Rollback trigger: any FORECAST-GENERATE-ERROR / FORECAST-SCORE-ERROR audit
+row recurring 3 days running, a python-mutex timeout coincident with a
+forecast run, or the page showing a batch whose holdout Brier skill is
+negative for 4 straight weeks (then the model is relabeled/retired, not
+tuned in place).
+
+STARVED: no — master-plan queue in progress this session.
+Visual harness --page forecast at 390/768/1440: 0 hard failures (pre-existing nav touch-target warnings only). Kill-cap tests ported to server/pythonExec.ts planPythonExec (helper moved by the 2026-10-27 timeouts repair).
+
+## 2026-10-28 [PIPELINE] — scripts/ + ops/ (no trading code) — v1.0.1221 BRANCH CLEANUP PLAN + APPLY SCRIPT
+
+Human approved branch cleanup 2026-10-28. Classified 917 remote branches: 805 merged + data-backup → delete; 86 unique → tag archive/<name> then delete; 25 skipped (main, celestial-catalog-data, session branch, 2 open PRs, 7 tips <24h, 13 named in code). The agent proxy refuses pushes to other refs (403), so nothing was deleted; `scripts/branch_cleanup_apply.sh [--apply]` applies the plan from a human clone (tags verified before deletes; moved tips skipped). STARVED: no.
+
+## 2026-10-29 [REPAIR] — server/pricePanel.ts (T-DATACORE) — v1.0.1222 PRICE PANEL 403 ON FIRST LIVE NIGHT
+
+Symptom: v1.0.1219 build b20261029 — universe OK (23,252 symbols; 9,544 corp-action events), every session 403 at bars batch 0/466, nothing written. Root cause: as_of = UTC yesterday = the current ET date during the 20:15-24:00 ET window; free SIP refuses it ("recent SIP data"). #1534 fixed new builds; this repairs the in-progress manifest, caps each batch's end date, and makes any batch 403 recoverable (earlier end → bisect → skip) with a systemic stop and the vendor-message class in last_error/last_403. 4 regression tests. Rollback trigger: systemic-403 stops on 2 consecutive nights → VOLTRADE_PRICE_PANEL=0 and re-probe with bars_coverage. STARVED: no.
+
+## 2026-10-29 [PRODUCT] — T-CLIENT + /api/bot/status — v1.0.1223 BOT PAGE SHOWS ENTRY SHADOW MODE
+
+/api/bot/status returns entry_shadow and shadow_entries_today (from the in-memory ShadowEntryBook, ET day, 50-row cap, exact count, null size instead of a fake $0); Now-tile and Orders-header chips open the zoomed Orders list ("New entries: SHADOW — stocks · options (logged, not traded). Floor + exits live."); phone/tablet show it folded inline. Why: shadow mode (v1.0.1210) stopped new stock/options orders and the page showed nothing, so a quiet book looked broken (human: "will the UI be updated to reflect the new changes"). Display only. Visual harness bot/botidle at 390/768/1440: PASS, new no-growth/no-overflow assertions. Caveat: the list empties on a mid-day deploy and refills as candidates are re-scanned. STARVED: no.
+
+## 2026-10-29 [REPAIR] — T-CLIENT (client/src/lib/authExpiry.ts, queryClient, App/home/login/forecast) — v1.0.1224 EXPIRED SESSION → SIGN-IN, NOT A FAKE OUTAGE
+
+Field bug (human screenshot 2026-10-28 23:16 ET): an expired 24h session made the forecast page show "service unavailable 401" while the header still read signed in. Fix: lib/authExpiry is one central 401 check in queryClient (app /api/ calls only, /api/auth/* excluded — no loop), clears the cached /api/auth/me and sends the owner to sign-in with "Your session expired — sign in again", returning to the same tab; forecast page 401 → sign-in prompt, 403 → "Owner only", polling stops. Ratchets: 6 unit tests + a forecastexpired harness page at 390/768/1440 (no outage banner). Server auth unchanged (frozen). Watch: an owner bounced while their session is valid would mean a 401 body matched wrongly. STARVED: no.
+
+## 2026-10-29 [PRODUCT] — owner tab + GET /api/bot/brain (server/brain.ts, brain_evidence.py) — v1.0.1225 BRAIN PAGE: WHAT IS LIVE/SHADOW/OFF + SHORT- vs LONG-TERM EVIDENCE
+
+Human ask: "how would I know what is being used at the moment and what combinations could have produced better results … short term vs long term". 49 components from research/brain_inventory.md with live/shadow/off computed from the real switches (env wins, else system_config): currently 6 live, 38 shadow, 5 off. Short-term = shadow-log buckets vs SPY with day-clustered CIs + source_validation; long-term = documented multi-year evidence (regime backtest, ml_v3_eval, floor simulation, edge P1) with dates; agreement flag ("live beats backtest when they disagree"); best combinations with their multiple-testing discount (forward selection, ablation). Read-only; no metric definitions changed. Gaps shown, not hidden: no 2016+ walk-forward harness for the stock score/inputs/sleeves/guards, no options simulator. Visual harness --page brain at 390/768/1440: PASS. STARVED: yes (walk-forward harness is the next high-value build).
+
+## 2026-10-29 [PRODUCT] — owner GET /api/ticker-dossier/:symbol (ticker_dossier.py, dossier_ranges.py, server/tickerDossier.ts) + dossier page — v1.0.1226 TICKER DOSSIER v1 + TRADE PLAN
+
+Human ask: replace the look-up with an in-depth per-ticker view (market → sector → stock → options → events), honest about accuracy, usable to buy manually elsewhere: range bands, stop-loss, target, direction probability. Built: HAR-RV/EWMA 68%/90% bands for 1 and 5 sessions (hero), regime-engine market layer, sector/industry ETF RS, options implied move vs our range + skew (Alpaca indicative), SEC/news events with a static credibility tier (UNVALIDATED "possibly not priced in"), direction only from fc-logit-v1 with its measured record (else "near a coin flip"), the bot's own score bucket → outcome record and guard verdict, a vol-only trade plan (stop = 90% 5d low, target = 68% 5d high, reward:risk, P(target before stop) from driftless simulation, EV≈0 before costs stated) and a client-side position-size helper. Served ranges/plans logged once per ticker/day and scored nightly (dossier_ledger_score).
+PRIOR: 68% band contains ~68% (fat tails → ~70-75%), 90% band ~86-89%; plan outcomes match simulated odds, expectancy ≈ 0. Judge at n ≥ 100 per horizon; recalibrate if 68% coverage outside 60-80% or 90% below 83%. Visual harness dossier/dossierempty/bot/botidle at 390/768/1440: PASS. STARVED: no.
+
+## 2026-10-29 [RESEARCH] — research/ + scripts/ (no trading code) — v1.0.1227 EVENT-REACTION STUDY (pre-registered): no "not yet priced in" signal
+
+4 EDGAR event types, 4,511 survivor issuers, 2016-01..2026-09, SPY-adj CAR minus same-ticker random-date control, week-clustered t, Bonferroni 12 cells (E1 +8 prior Form 4 cells → t≥3.02).
+RESULT: no gate-2 candidate. Fast reactions: insider clusters +2.16% [0,1] (t 21.8, n 10,090; late share 26%), 4.02 restatements -1.51% (t -3.4, n 715, MDE~3-4%), CEO/CFO exits -1.16% (t -7.2, n 3,155; [2,20] -1.00% t -2.45 below bar; labels ~68% precise). 1.01: no day-0 move; small-cap [2,20] -1.23% t -3.85 fails halves (all 2021+) and cost (spread 1.45%).
+PRIOR vs OUTCOME: E1 drift share below the 50% prior; E3 day-0 half the -3% prior (survivors); E2 negative drift not anticipated (post-hoc dilution hypothesis filed, needs its own pre-reg). Dossier may show event facts + historical day-0-1 context only, never a "not yet priced in" flag. Lawsuits: no clean EDGAR form — CourtListener/RECAP proposed.
+NEXT: E4 replication on the untouched 61% of 5.02 filings; E2 1.01+(3.02|2.03) pre-reg with 2016-20 holdout; rerun on the delisting-inclusive price panel. STARVED: no.
+
+## 2026-10-29 [RULE-REVIEW] — measurement (price_panel.py) — v1.0.1228 PYTHON READER OF THE 2016+ PRICE PANEL
+
+Streaming decoder mirroring server/pricePanel.ts decodeSegment (exact TS↔Python parity on a fixture + a 40-series fuzz panel encoded by the TS encoder), point-in-time universe (bar ON date, raw-close $5 floor, trailing 20d $-volume), raw-line preference + corporate-action split for reused tickers. New reader — nothing read the panel before, so no before/after. Bias: $-volume uses adjusted close × served volume → floor slightly stricter than nominal. STARVED: no.
+
+## 2026-10-29 [RULE-REVIEW] — measurement (walkforward.py, server/walkforward.ts) — v1.0.1229 2016+ POINT-IN-TIME WALK-FORWARD OF THE STOCK SCORE'S PRICE INPUTS (feeds the Brain long-term column)
+
+Weekly rebalance 2017+, 9 inputs reconstructed exactly as live computes them (quick_score, momentum, mean_reversion, volume, vol_premium, adx, obv, rel_strength, price composite; pinned by tests to analyze.py / bot_engine.py lines); next-open entry, 5d/20d net-of-cost outcomes + live exit ladder for each top-10; IC/quintiles/top-10 vs SPY and vs random entry; regime / SPY-200d / year / liquidity splits; Bonferroni (18 IC tests), Deflated Sharpe (18). Weekly job walkforward_weekly (Sat/Sun 06-16 ET, own lane, 3h kill, low priority, 900 MB cap), diag probe `walkforward`, Brain long-term column wired.
+PRIOR (before any real run): |mean IC| < 0.02 for most inputs, none surviving Bonferroni; momentum slightly + in the least liquid tercile outside crashes; quick_score/volume/rel_strength flat-to-negative at 5d; composite top-10 does not beat random entry net of costs.
+Bias: survivorship-reduced (optimistic); delisting return assumed (0 merger / −30% other); no market impact (optimistic for thin names); live intraday partial bar not reproducible. Not measurable long-term: VRP, squeeze, news, intel, MSPR, social, Trends, alt, fundamentals, contrarian, macro_adj, ML blend. VERIFY: /api/diag/walkforward after the first weekend with a complete panel. STARVED: no.
+
+## 2026-10-29 [PRODUCT] — dossier events (ticker_dossier.py, tickerDossier page) — v1.0.1230 REPLACE THE UNVALIDATED "NOT PRICED IN" FLAG WITH MEASURED EVENT HISTORY
+
+The pre-registered event-reaction study (#1542) found no event type with tradeable post-event drift, so the dossier's "small reaction — possibly not priced in" flag is removed (harness now fails if it reappears). Original 8-Ks with Item 4.02 (n=715, −1.51% day 0-1) or 1.01 (n=42,956, +0.14%) and Form 4 insider-purchase clusters meeting the study definition (n=10,090, +2.16%) show a "history" line with n, t and "no reliable drift after", sourced and dated; Item 5.02 is deliberately NOT mapped (the −1.16% applies only to text-classified sudden CEO/CFO exits; 5.02 also covers routine appointments). Lawsuits/other items/news: no context line. Also removed a wrong after-close timing guess (EDGAR acceptance times are true UTC). Visual harness dossier/dossierempty at 390/768/1440: PASS. STARVED: no.
+
+## 2026-10-29 [RESEARCH] — research/* docs only — MASTER STATUS: overnight push recorded
+
+research/master_status.md updated: overnight PR table (#1502–#1545), in-flight empty, waiting-on-Mike (old routines + Gmail, branch cleanup apply script, pre-2016 prices, shadow-mode switch, rule calls, 5.02 choice), parked-in-shadow table with read dates. Docs only, no version bump. STARVED: no.
+
+## 2026-10-29 [REPAIR] — server/pricePanel.ts (T-DATACORE) — v1.0.1232 PANEL DISK FLOOR 1.5 → 1.25 GiB (human-ordered)
+
+First 2016+ build paused at 62% (288/466 batches, ~208 MB, 12,514 symbols incl. 4,452 delisted) by its disk guard: 1.53 GiB free vs a 1.5 GiB floor. Human: "lower the panel disk floor so it finishes". 1.25 GiB keeps the archives' 1 GiB margin + 256 MiB; ~130 MB remains to write. Rollback trigger: free space under 1.25 GiB from other archives, or any archive write failure → revert / env override. The 30-day rebuild holds two builds briefly — grow the volume before ~2026-11-28. STARVED: no.

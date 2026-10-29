@@ -44,16 +44,6 @@ def test_reject_reason_mirrors_measure_and_is_none_when_measurable():
     for p in (plan(), plan(pathEstimated=True), plan(deviation={"crossTrackNm": None}), near, None):
         assert (g1.reject_reason(p, ROW) is None) == (g1.measure(p, ROW) is not None)
 
-def test_measure_radial_shadow_reads_report_only_field_with_same_filters():
-    sh = {"radialShadow": {"crossTrackNm": 4.5, "radialTokens": 1, "pointCount": 5}}
-    assert g1.measure_radial_shadow(plan(pathEstimated=True, **sh), ROW) == 4.5
-    assert g1.measure_radial_shadow(plan(**{}), ROW) is None                       # no shadow field
-    assert g1.measure_radial_shadow(plan(source="X", **sh), ROW) is None           # not filed
-    assert g1.measure_radial_shadow(plan(radialShadow={"crossTrackNm": None}), ROW) is None
-    near = [{"lat": 40, "lon": -100}, {"lat": 40.1, "lon": -100}]
-    assert g1.measure_radial_shadow(plan(points=near, **sh), ROW) is None          # terminal area
-    assert g1.measure_radial_shadow(None, ROW) is None
-
 def test_pool_unique_dedupes_by_hex_first_observation_wins():
     r1 = {"radial_samples": [["a", 1.0], ["b", 2.0]]}
     r2 = {"radial_samples": [["b", 9.0], ["c", 3.0]]}   # b re-sampled: 9.0 must be ignored
@@ -88,3 +78,12 @@ def test_plan_meta_prefers_planhistory_for_real_plan_age():
     plan = {"honesty": "x", "ageSec": 0, "fetchedAt": 1_700_000_600_000,
             "planHistory": {"amendments": 2, "planFirstSeenMs": 1_700_000_000_000, "swimMessageMs": None}}
     assert g1.plan_meta(plan) == (2, 600)
+
+def test_retired_radial_shadow_is_gone_and_pool_still_reads_saved_runs():
+    # radialShadow retired 2026-10-28 (parser places every route; live parserShadow lost 53/70,619)
+    assert not hasattr(g1, "measure_radial_shadow")
+    assert "radialShadow" not in open(g1.__file__).read().replace("`radialShadow`", "")  # no reader of the server field
+    assert g1.measure(plan(radialShadow={"crossTrackNm": 4.5}), ROW) == g1.measure(plan(), ROW)  # field is ignored
+    # historical saved runs keep pooling
+    s, n_raw = g1.pool_unique([{"radial_samples": [["a", 1.0], ["a", 2.0]]}])
+    assert n_raw == 2 and s["n"] == 1

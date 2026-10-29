@@ -108,6 +108,36 @@ function botFixtures({ latched }) {
     return out;
   })();
   const curve = Array.from({ length: 30 }, (_, k) => { const d = new Date(now - (29 - k) * 86400_000); const v = [101068, 101988, 102661, 102560, 102560, 104467, 104964, 104103, 103929, 104390, 104306, 104306, 103811, 103997, 104064, 104239, 104883, 104879, 104879, 105593, 105774, 104847, 103182, 103563, 103553, 103553, 102593, 102181, 99810, 99655][k]; return { date: d.toISOString().slice(0, 10), value: v, pnl: 0 }; });
+  // GET /api/bot/scoreboard (server/scoreboard.ts shape): one row per weekday
+  // since the account's 2026-05-06 start, a deterministic walk for both legs
+  // (fixture numbers, real shape) — one missed snapshot (a row spanning two
+  // sessions) and today's row provisional, so both markers render
+  const scoreboard = (() => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const days = [];
+    for (let t = Date.parse("2026-05-06T00:00:00Z"); t <= now; t += 86400_000) { const d = new Date(t); if (d.getUTCDay() % 6) days.push(d.toISOString().slice(0, 10)); }
+    let eq = 106742.68, px = 730.13;
+    const pts = days.map((date, k) => { if (k) { eq *= 1 + (rnd() - 0.52) * 0.012; px *= 1 + (rnd() - 0.47) * 0.009; } return { date, eq, px }; });
+    const r2 = (x) => Math.round(x * 100) / 100;
+    const kept = pts.filter((_, k) => k !== pts.length - 9);
+    const rows = [];
+    let beat = 0, peakB = 0, peakS = 0, ddB = 0, ddS = 0;
+    for (let k = 0; k < kept.length; k++) {
+      const b = kept[k];
+      peakB = Math.max(peakB, b.eq); peakS = Math.max(peakS, b.px); ddB = Math.min(ddB, (b.eq / peakB - 1) * 100); ddS = Math.min(ddS, (b.px / peakS - 1) * 100);
+      if (!k) continue;
+      const a = kept[k - 1], bot = (b.eq / a.eq - 1) * 100, spy = (b.px / a.px - 1) * 100;
+      const bc = (b.eq / kept[0].eq - 1) * 100, sc = (b.px / kept[0].px - 1) * 100;
+      if (bot > spy) beat++;
+      rows.push({ date: b.date, prevDate: a.date, sessions: days.indexOf(b.date) - days.indexOf(a.date), botPct: r2(bot), spyPct: r2(spy), diffPp: r2(bot - spy), botCumPct: r2(bc), spyCumPct: r2(sc), cumDiffPp: r2(bc - sc), provisional: k === kept.length - 1 });
+    }
+    const last = rows[rows.length - 1];
+    return { rows: rows.reverse(), summary: { from: kept[0].date, to: last.date, botCumPct: last.botCumPct, spyCumPct: last.spyCumPct, cumDiffPp: last.cumDiffPp, daysBeat: beat, daysCompared: rows.length, gapRows: 1, botMaxDdPct: r2(ddB), spyMaxDdPct: r2(ddS) },
+      barsThrough: last.date, curveThrough: last.date, fetchedAt: new Date(now).toISOString(), computedAt: new Date(now).toISOString(),
+      sources: { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" },
+      cashFlows: { journals: 0, transfers: 0, since: "2026-05-07T00:00:00.000Z" } };
+  })();
   const feats = ["momentum_1m", "momentum_3m", "rsi_14", "price_vs_52w_high", "volume_ratio", "ewma_vol", "atr_pct", "vrp", "iv_rank_proxy", "vwap_position", "adx", "range_pct", "vxx_ratio", "spy_vs_ma50", "markov_state", "regime_score", "sector_momentum", "cross_sec_rank", "earnings_surprise", "put_call_proxy", "vol_of_vol", "frac_diff_price", "idiosyncratic_ret", "change_pct_today", "above_ma10", "trend_strength", "intel_score", "news_sentiment", "insider_signal", "iv_rank_stock", "days_to_earnings", "credit_spread", "market_breadth", "put_call_ratio"];
   const constant = new Set(["price_vs_52w_high", "ewma_vol", "range_pct", "vxx_ratio", "markov_state", "cross_sec_rank", "earnings_surprise", "intel_score", "news_sentiment", "insider_signal", "days_to_earnings"]);
   const features = feats.map((name, k) => constant.has(name) ? { name, n: 300, mode: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : name === "days_to_earnings" || name === "cross_sec_rank" ? 0.5 : 0, mode_fraction: 1, variance: 0, constant: true, last: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : 0 } : { name, n: 300, mode: 0, mode_fraction: 0.05 + (k % 7) * 0.04, variance: 1.2 + k, constant: false, last: Math.round(((k * 7) % 13) * 10) / 10 });
@@ -127,7 +157,17 @@ function botFixtures({ latched }) {
   const nextClose = new Date(now + 2 * 3600_000 + 2 * 60_000).toISOString();
   return {
     "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } },
-    "/api/bot/status": { active: !latched, killSwitch: latched, dailyLossLimit: 3, mode: "paper", equityPeak: 110727.04, maxDrawdownPct: 10, minScoreThreshold: 65, autoResume: latched ? { status: "UNRECONCILED", drawdownPct: -9.65, resumeAbovePct: -8, marketHoursSoFar: 2.8, marketHoursRequired: 13, reconciled: 0, required: 3 } : null, unreadNotifications: 0, circuitBreakerActive: false, consecutiveStopLosses: 0 },
+    "/api/bot/status": { active: !latched, killSwitch: latched, dailyLossLimit: 3, mode: "paper", equityPeak: 110727.04, maxDrawdownPct: 10, minScoreThreshold: 65, autoResume: latched ? { status: "UNRECONCILED", drawdownPct: -9.65, resumeAbovePct: -8, marketHoursSoFar: 2.8, marketHoursRequired: 13, reconciled: 0, required: 3 } : null, unreadNotifications: 0, circuitBreakerActive: false, consecutiveStopLosses: 0,
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): both sleeves shadowed. The idle
+      // moment carries four would-be entries (one Python-side with no size, one ETF instrument);
+      // the latched page none — the designed "no would-be entries yet today" state.
+      entry_shadow: { stocks: true, options: true, source: latched ? "config" : "env" },
+      shadow_entries_today: latched ? { day: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), count: 0, entries: [] } : { day: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), count: 4, entries: [
+        { time: ago(3), sleeve: "options", ticker: "SVXY", side: null, notional: null, source: "bot_engine.third_leg", instrument: null },
+        { time: ago(9), sleeve: "options", ticker: "AMD", side: "sell", notional: 15500, source: "tier_dispatcher.SELL_CSP", instrument: "AMD261120P00155000" },
+        { time: ago(21), sleeve: "stocks", ticker: "NVDA", side: "buy", notional: 4210.5, source: "executeTrades.etf", instrument: "NVDL" },
+        { time: ago(40), sleeve: "stocks", ticker: "KWEB", side: "buy", notional: 2980, source: "executeMorningQueue", instrument: null },
+      ] } },
     "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0 },
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
@@ -144,7 +184,9 @@ function botFixtures({ latched }) {
         { ticker: "XLE", score: 66.1, price: 91.3, change_pct: -0.6, side: "buy", action_label: "BUY", reasons: ["Mean reversion: RSI 28", "Sector momentum"], rank: 4, sector: "Energy", sector_clash: false, factors: { momentum: 38, mean_reversion: 82, vrp: 45, squeeze: 20, volume: 55 } },
         { ticker: "PFE", score: 58, price: 27.1, change_pct: 0.4, side: "buy", action_label: "WATCH", reasons: ["Dividend support"], rank: 5, sector: "Pharma", sector_clash: false, factors: { momentum: 22, mean_reversion: 61, vrp: 40, squeeze: 15, volume: 33 } },
       ], sizing_blocks: [{ ticker: "AMD", reason: "Negative expectancy for strategy 'stocks' (WR=28%); refusing to size", score: 74.3, strategy: "stocks" }], scan_phase_times: [{ phase: "universe_load", duration_sec: 0.93 }, { phase: "snapshot_fetch", duration_sec: 3.76 }, { phase: "quick_scan", duration_sec: 0.11 }, { phase: "deep_score", duration_sec: 41.44 }, { phase: "step6a_trade_loop_and_covered_calls", duration_sec: 0.39 }, { phase: "step7_manage_positions", duration_sec: 0.04 }, { phase: "step8b_options_manager", duration_sec: 0.3 }, { phase: "step9_third_leg", duration_sec: 0.12 }, { phase: "step9b_convexity_overlay", duration_sec: 0.31 }, { phase: "step10_spy_floor", duration_sec: 0.14 }] },
-    "/api/orders/open": [],
+    // the real server shape (routes.ts): { orders } — a bare [] here hid the
+    // Orders-panel shape bug (audit §8.2 D4) from this harness.
+    "/api/orders/open": { orders: [{ id: "ord-1", symbol: "NVDA", side: "buy", qty: "12", type: "limit", limit_price: "181.20", status: "new", submitted_at: ago(4) }] },
     "/api/bot/notifications": [],
     // look-up (2026-10-22): what the scan would do with NVDA right now — a name down big on bad news that scores on mean
     // reversion, stopped at admission (prefix fixture: /api/bot/lookup/<symbol>)
@@ -159,12 +201,16 @@ function botFixtures({ latched }) {
         csp: { occ: "NVDA261121P00170000", strike: 170, exp_date: "2026-11-21", days_out: 30, bid: 2.4, ask: 2.6, delta: -0.22, delta_real: true, iv: 0.61, oi: 12_400, premium_pct: 1.31 },
         cc: { occ: "NVDA261121C00200000", strike: 200, exp_date: "2026-11-21", days_out: 30, bid: 1.9, ask: 2.0, delta: 0.25, delta_real: true, iv: 0.58, oi: 9_800, premium_pct: 1.04 },
         scanner_setup: null } },
+    // the look-up box now opens the ticker dossier (2026-10-29): prefix fixture /api/ticker-dossier/<symbol>
+    "/api/ticker-dossier": dossierFixture("NVDA", 183.2),
     // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
     "/api/bot/benchmark": latched
       ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all",
           // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold 2026-10-20 at the default rates — a net realized loss (no tax, carried forward), open losses, SPY's one short-term sale
           afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its whole total return taxed once at the short-term rate; the dividends inside it would really be taxed each year at the qualified rate, so SPY's tax is slightly overstated (about (short − long) × yield), which flatters the account by that much", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
+    // the daily scoreboard (fixture walk above) / not enough history on the idle page
+    "/api/bot/scoreboard": latched ? scoreboard : { rows: [], summary: null, barsThrough: null, curveThrough: null, fetchedAt: null, cashFlows: null },
     // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
     "/api/bot/sleeves": latched
       ? { since: "2026-05-07T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-03-12T14:02:11.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
@@ -193,6 +239,195 @@ function botFixtures({ latched }) {
           afterTax: { realizedNet: -2961.4, taxDrag: 0, afterTaxNet: -2961.4 },
           notes: ["estimate at the assumed rates shown; the paper account pays no tax"] } }
       : { pending: true },
+  };
+}
+
+// Ticker dossier (2026-10-29, human-asked): GET /api/ticker-dossier/<SYM>
+// (ticker_dossier.py). An RKLB-like space name: live market/sector/stock
+// layers, the range bands with backtest + a thin live ledger, no direction
+// call (not in the weekly set — the honest coin-flip state), a trade plan,
+// options with implied vs model, events across three credibility tiers.
+function dossierFixture(sym = "RKLB", px = 27.42, opts = {}) {
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const day = (d) => new Date(now - d * 86400_000).toISOString().slice(0, 10);
+  const band = (s) => { const r = (z) => +(px * Math.exp(z * s)).toFixed(2); return { lo68: r(-1), hi68: r(1), lo90: r(-1.6449), hi90: r(1.6449), move68_pct: +((Math.exp(s) - 1) * 100).toFixed(2), move90_pct: +((Math.exp(1.6449 * s) - 1) * 100).toFixed(2) }; };
+  const s1 = 0.0452, s5 = 0.0981;
+  // measured event-reaction history (research/event_reaction_study.md, 2026-10-29) — history, never a flag
+  const STUDY = { path: "research/event_reaction_study.md", date: "2026-10-29", window: "2016–2026", caveat: "survivor panel (delisted names missing); history, not a prediction" };
+  const H101 = { label: "8-K Item 1.01 (material agreement)", n: 42956, car01_pct: 0.14, t01: 2.3, drift: "no reliable day-0–1 move; later drift failed the robustness and cost checks" };
+  const trend = (a, b, c, d) => ({ label: a > 0 && b > 0 ? "up" : a < 0 && b < 0 ? "down" : "mixed", sma20: px * 0.97, sma50: px * 0.9, sma200: px * 0.72, vs_sma50_pct: 11.1, vs_sma200_pct: 38.6, ret_5d_pct: a, ret_20d_pct: b, ret_60d_pct: c, ret_250d_pct: d });
+  const touch = (t, sp) => ({ p_target_first: t, p_stop_first: sp, p_neither: +(1 - t - sp).toFixed(4), paths: 4000, steps_per_session: 78, seed: 20261029, drift_daily: 0 });
+  const stop = +(px * Math.exp(-1.6449 * s5)).toFixed(4), tgt = +(px * Math.exp(s5)).toFixed(4), str = +(px * Math.exp(1.6449 * s5)).toFixed(4);
+  const dec = (k, lo, hi, n, pos, mean) => ({ decile: k, lo, hi, count: n, d5: { n, pos_rate: pos, mean_pct: mean, rule_win_rate: pos - 0.12 }, d20: { n: Math.round(n * 0.7), pos_rate: pos + 0.01, mean_pct: mean * 2.4, rule_win_rate: null }, decisions: { rejected_score: Math.round(n * 0.8), taken: Math.round(n * 0.05) } });
+  return {
+    symbol: sym, generated_at: iso(95_000), errors: opts.optionsDown ? { options: "HTTPError: 403 options feed" } : {}, timings: { bars_s: 1.4, ranges_s: 0.3, options_s: 2.1, events_s: 1.2, total_s: 5.6 }, via: "daemon", research_not_advice: true,
+    credibility_tiers: { 1: "primary — the issuer's own legal filing (SEC EDGAR)", 2: "wire / major outlet — newsroom with editorial standards, or an issuer press release carried by a wire", 3: "aggregator / financial blog — rewrites, summaries, opinion", 4: "social / unclassified — unverified or unknown source" },
+    market: { status: "live", source: "regime engine (regime_engine.py persisted state, gating index SPY)", as_of: day(1), reason: null, composite: "RISK_ON", legacy_label: "BULL", exposure: 1.0, exposure_continuous: 0.94, trend: "UP", fast: "UP", vol: "NORMAL", breadth: "STRONG", confidence: 0.82, days_in_regime: 37, panic: false, allowed: ["momentum", "dip_buy"],
+      stress: { vix: 16.4, vix_vix3m: 0.88, vix_vix3m_inverted: false, vrp_points: 3.1 }, spy: { close: 682.1, trend: trend(0.8, 2.1, 5.6, 17.9) } },
+    sector: { status: "live", source: "static industry map (ticker_dossier.INDUSTRY_MAP)", as_of: day(1), reason: null, key: "space", label: "Space / aerospace", etf: "UFO", tried: ["UFO", "ARKX", "ITA"], trend: trend(2.4, 6.8, 14.2, 41.0), rs_vs_spy_20d: 4.7, rs_vs_spy_60d: 8.6, stock_vs_sector_20d: 9.3, stock_vs_sector_60d: 21.4 },
+    stock: { status: "live", source: "Alpaca daily bars (split-adjusted) · dossier_ranges dr-har-ewma-v1", as_of: day(1), reason: null, price: px, price_day: day(0), price_is_partial_session: true, base_close: +(px / 1.012).toFixed(2), base_date: day(1),
+      trend: trend(5.2, 16.1, 35.6, 212.4), realized_vol_20d_pct: 71, realized_vol_60d_pct: 78, high_52w: +(px * 1.08).toFixed(2), low_52w: +(px * 0.31).toFixed(2), vs_spy_20d: 14.0, vs_spy_60d: 30.0, sessions: 792,
+      ranges: { "1": { h: 1, model: "har", fallback_reason: null, sigma_pct: s1 * 100, bands: band(s1), backtest: { h: 1, n: 250, in68: 178, in90: 221, rate68: 0.712, rate90: 0.884, target68: 0.6827, target90: 0.9, overlapping: false, models_used: { har: 250, ewma: 0 } } },
+                "5": { h: 5, model: "har", fallback_reason: null, sigma_pct: s5 * 100, bands: band(s5), backtest: { h: 5, n: 250, in68: 171, in90: 219, rate68: 0.684, rate90: 0.876, target68: 0.6827, target90: 0.9, overlapping: true, models_used: { har: 250, ewma: 0 } } } },
+      expected_move: { sigma_1d_pct: 4.52, median_abs_move_pct: 3.1, ratio_vs_median: 1.46, sigma_pctile_1y: 0.41, lookback_sessions: 252 },
+      range_method: "68% and 90% bands of a zero-drift lognormal around the last close, sigma from a HAR-RV model on daily squared returns (EWMA lambda 0.94 when HAR is unavailable or implausible). Daily returns are fat-tailed: the backtest and the live ledger show how often the bands actually held." },
+    bot_guards: { flags: { knife: 0, dip: 0, panic: 0, rs: 0, breadth: 0 }, reasons: {}, would_block: [], composite: "RISK_ON", as_of: day(1), source: "regime_engine.selection_verdict (read-only)" },
+    direction: { status: "none", call: null, statement: "No validated direction signal for this ticker — over a day or a week, direction is close to a coin flip.", model_version: "fc-logit-v1", source: "weekly forecast screen (forecast.py, SHADOW, experimental)",
+      model_accuracy: { n: 84, thin: false, hits: 45, hit_rate: 0.5357, brier: 0.2471, brier_skill_vs_coinflip: 0.0116, in_range_rate: 0.69 } },
+    bot_track: { n: 11840, thin: false, source: "shadow portfolio (every scanned candidate, all decisions; +5d/+20d outcomes, nightly backfill)", base: { d5: { n: 11840, pos_rate: 0.507, mean_pct: 0.18, rule_win_rate: 0.39 }, d20: { n: 8210, pos_rate: 0.523, mean_pct: 0.61, rule_win_rate: null } },
+      buckets: [dec(1, 20, 41, 1184, 0.49, -0.12), dec(2, 41, 47, 1184, 0.5, 0.05), dec(3, 47, 51, 1184, 0.5, 0.1), dec(4, 51, 54, 1184, 0.51, 0.14), dec(5, 54, 57, 1184, 0.5, 0.2), dec(6, 57, 60, 1184, 0.51, 0.22), dec(7, 60, 63, 1184, 0.52, 0.27), dec(8, 63, 66, 1184, 0.51, 0.3), dec(9, 66, 71, 1184, 0.52, 0.33), dec(10, 71, 92, 1184, 0.53, 0.41)] },
+    plan: { entry_ref: px, horizon_sessions: 5, sigma_h: s5, stop, target: tgt, stretch_target: str, risk_per_share: +(px - stop).toFixed(4), reward_per_share: +(tgt - px).toFixed(4), reward_risk: +((tgt - px) / (px - stop)).toFixed(3), stretch_reward_risk: +((str - px) / (px - stop)).toFixed(3),
+      stop_pct: +((stop / px - 1) * 100).toFixed(2), target_pct: +((tgt / px - 1) * 100).toFixed(2), stretch_pct: +((str / px - 1) * 100).toFixed(2), touch: touch(0.3612, 0.1083), touch_stretch: touch(0.0962, 0.1271),
+      rules: { stop: "the 90% band's lower edge for the next 5 sessions, from the entry reference price — outside ~95% of driftless 5-session closes", target: "the 68% band's upper edge for the next 5 sessions (stretch: the 90% band's upper edge)", probabilities: "Monte Carlo of 4,000 driftless paths at 5-minute steps on the fitted daily vol; no drift assumed (no validated direction signal)" } },
+    options: opts.optionsDown ? { status: "unavailable", source: "Alpaca options chain", as_of: null, reason: "HTTPError: 403 options feed", earnings: { status: "unavailable", reason: "no Finnhub key configured" } } : { status: "live", source: "Alpaca options chain (indicative feed; options_scanner)", as_of: iso(95_000), reason: null, contracts: 684, atm_iv: 82.4, atm_iv_30d: 76.9, front: { exp_date: day(-8), days_out: 8 },
+      implied_move_1d_pct: 5.33, implied_move_5d_pct: 12.31, model_move_5d_pct: 10.31, model_move_1d_pct: 4.62, implied_vs_model_5d: 1.18, skew_put_minus_call_pts: 3.4, skew_strikes: "OTM puts at 88–95% of spot vs OTM calls at 105–112%, expiry nearest 30 days",
+      earnings: { status: "live", date: day(-9), hour: "amc", source: "Finnhub earnings calendar" } },
+    events: { status: "live", source: "SEC EDGAR submissions + Alpaca news", as_of: iso(95_000), reason: null, form4_count: 7, window_days: 60,
+      history_note: "Event facts are raw. Where a filing type was measured (event-reaction study, 2016–2026), its average day-0–1 move is shown as history: every measured type was priced in on day 0–1 with no reliable drift after, so nothing here says an event is 'not yet priced in'. Lawsuits, other 8-K items and news were not measured.",
+      event_study: STUDY, event_history: { insider_cluster: { label: "insider purchase clusters (≥2 officers/directors buying within 10 days)", n: 10090, car01_pct: 2.16, t01: 21.8, drift: "no reliable drift after (days 2–20 +0.8%, below the bar)" }, "8k_1.01": H101, "8k_4.02": { label: "8-K Item 4.02 (restatement)", n: 715, car01_pct: -1.51, t01: -3.4, drift: "no reliable drift after (the sample can only rule out drifts above ~3–4%)" } },
+      items: [
+        { kind: "news", title: `${sym} awarded launch contract for a constellation deployment`, time: iso(26 * 3600_000), date: day(1), source: "benzinga", tier: 3, url: "https://example.com/a", material: true },
+        { kind: "filing", form: "8-K", title: "Entry into a material definitive agreement", items: [{ item: "1.01", label: "Entry into a material definitive agreement" }, { item: "9.01", label: "Financial statements and exhibits" }], time: iso(3 * 86400_000), date: day(3), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, history: { key: "8k_1.01", ...H101, study_path: STUDY.path, study_date: STUDY.date, study_window: STUDY.window, study_caveat: STUDY.caveat } },
+        { kind: "news", title: `${sym} shares rise as analysts lift targets`, time: iso(4 * 86400_000), date: day(4), source: "Reuters", tier: 2, url: "https://example.com/b", material: true },
+        { kind: "filing", form: "4", title: "Insider transaction (Form 4)", items: [], time: iso(6 * 86400_000), date: day(6), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: false },
+        { kind: "filing", form: "424B5", title: "Prospectus supplement (offering)", items: [], time: iso(20 * 86400_000), date: day(20), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true },
+      ] },
+    insiders: { windowDays: 30, filings: 7, buys: 0, sells: 5, buyShares: 0, sellShares: 412000, rows: [], source: "SEC EDGAR Form 4 archive", note: "Raw insider transactions. Form 4 buy-clustering failed ladder gate 2 in this system — not a signal." },
+    ledger: { model_version: "dr-har-ewma-v1", open: 14, min_n: 30,
+      all: { range: { "1": { n: 41, in68: 30, in90: 37, rate68: 0.7317, rate90: 0.9024 }, "5": { n: 12, in68: 8, in90: 11, rate68: 0.6667, rate90: 0.9167 } }, plan: { n: 9, target_first: 4, stop_first: 1, neither: 4, ambiguous: 0, target_first_rate: 0.4444, stop_first_rate: 0.1111, neither_rate: 0.4444, ambiguous_rate: 0 } },
+      ticker: { range: { "1": { n: 2, in68: 1, in90: 2, rate68: 0.5, rate90: 1 }, "5": { n: 0, in68: 0, in90: 0, rate68: null, rate90: null } }, plan: { n: 0, target_first: 0, stop_first: 0, neither: 0, ambiguous: 0, target_first_rate: null, stop_first_rate: null, neither_rate: null, ambiguous_rate: null } } },
+  };
+}
+
+// Weekly forecast screen (2026-10-27, SHADOW): GET /api/forecast in forecast.py
+// report()'s real shape — this week's open calls (SPY, three positions, four
+// candidates; two on chain IV30) and six earlier weeks resolved, so the track
+// record, the live calibration dots and the week table all render. Fixture
+// numbers only; deterministic.
+function forecastFixture() {
+  const rnd = (() => { let s = 7; return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648; })();
+  const mk = (week, base, end, sym, group, spot, pUp, sigma, iv, score) => {
+    const p = Math.round(pUp * 10000) / 10000;
+    return { id: `${week}:${sym}`, week_key: week, symbol: sym, group, made_at: `${base}T20:21:00+00:00`, base_date: base, horizon_end: end,
+      spot, p_up: p, direction: p >= 0.5 ? "up" : "down", p_call: Math.max(p, 1 - p),
+      range_lo: Math.round(spot * Math.exp(-sigma) * 100) / 100, range_hi: Math.round(spot * Math.exp(sigma) * 100) / 100, band_coverage: 0.6827,
+      sigma_h: sigma, vol_source: iv ? "chain_iv30" : "realized_20d", vol_annual: iv ?? Math.round(sigma / Math.sqrt(5) * Math.sqrt(252) * 1e4) / 1e4,
+      features: { mom5_z: 0.4, mom20_z: 0.9, rev1_z: -0.3, spy_trend_z: 1.1 }, model_version: "fc-logit-v1", score };
+  };
+  const cur = [
+    ["SPY", "index", 671.3, 0.561, 0.0201, 0.142], ["XLE", "position", 91.42, 0.472, 0.0312, null], ["KWEB", "position", 24.54, 0.538, 0.0455, 0.33],
+    ["VXUS", "position", 71.4, 0.553, 0.0208, null], ["NVDA", "candidate", 184.2, 0.612, 0.0611, null], ["AMD", "candidate", 162.7, 0.587, 0.0702, null],
+    ["PFE", "candidate", 27.1, 0.447, 0.0298, null], ["CRWV", "candidate", 98.6, 0.524, 0.1043, null],
+  ].map(([s, g, spot, p, sig, iv]) => mk("2026-W44", "2026-10-23", "2026-10-30", s, g, spot, p, sig, iv, null));
+  const past = [];
+  const weeks = [["2026-W38", "2026-09-11", "2026-09-18"], ["2026-W39", "2026-09-18", "2026-09-25"], ["2026-W40", "2026-09-25", "2026-10-02"], ["2026-W41", "2026-10-02", "2026-10-09"], ["2026-W42", "2026-10-09", "2026-10-16"], ["2026-W43", "2026-10-16", "2026-10-23"]];
+  for (const [w, base, end] of weeks) for (const [s, g] of [["SPY", "index"], ["XLE", "position"], ["KWEB", "position"], ["VXUS", "position"], ["NVDA", "candidate"], ["AMD", "candidate"], ["XLF", "candidate"]]) {
+    const p = 0.38 + rnd() * 0.3, up = rnd() < p ? 1 : 0, sig = 0.02 + rnd() * 0.05, ret = (up ? 1 : -1) * rnd() * sig * 1.4;
+    const f = mk(w, base, end, s, g, 100, p, sig, null, null);
+    f.score = { kind: "score", id: f.id, status: "resolved", resolved_date: end, realized_close: Math.round(100 * Math.exp(ret) * 100) / 100, realized_ret_pct: Math.round((Math.exp(ret) - 1) * 1e4) / 100,
+      outcome_up: up, hit: (f.direction === "up") === (up === 1) ? 1 : 0, in_range: Math.abs(ret) <= sig ? 1 : 0, brier: Math.round((p - up) ** 2 * 1e6) / 1e6 };
+    past.push(f);
+  }
+  const acc = (rows) => { const n = rows.length, hits = rows.reduce((a, f) => a + f.score.hit, 0), inr = rows.reduce((a, f) => a + f.score.in_range, 0), b = n ? Math.round(rows.reduce((a, f) => a + f.score.brier, 0) / n * 1e5) / 1e5 : null;
+    return { n, thin: n < 30, hits, hit_rate: n ? Math.round(hits / n * 1e4) / 1e4 : null, brier: b, brier_coinflip: 0.25, brier_skill_vs_coinflip: b === null ? null : Math.round((1 - b / 0.25) * 1e4) / 1e4, in_range: inr, in_range_rate: n ? Math.round(inr / n * 1e4) / 1e4 : null, in_range_target: 0.6827, up_rate: n ? Math.round(rows.reduce((a, f) => a + f.score.outcome_up, 0) / n * 1e4) / 1e4 : null }; };
+  const edges = [0, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 1];
+  const bins = (pairs) => edges.slice(0, -1).map((lo, k) => { const inb = pairs.filter(([p]) => p >= lo && p < edges[k + 1]); const n = inb.length;
+    return { lo, hi: edges[k + 1], n, mean_p: n ? Math.round(inb.reduce((a, [p]) => a + p, 0) / n * 1e4) / 1e4 : null, freq: n ? Math.round(inb.reduce((a, [, o]) => a + o, 0) / n * 1e4) / 1e4 : null }; });
+  const holdout = []; for (let k = 0; k < 640; k++) { const p = 0.42 + rnd() * 0.22; holdout.push([p, rnd() < p + (rnd() - 0.5) * 0.06 ? 1 : 0]); }
+  const a = acc(past);
+  const byGroup = Object.fromEntries(["index", "position", "candidate"].map((g) => [g, acc(past.filter((f) => f.group === g))]));
+  return {
+    generated_at: new Date(Date.now() - 40_000).toISOString(), model_version: "fc-logit-v1", experimental: true, shadow: true, horizon_days: 5, band_coverage: 0.6827,
+    latest: { week_key: "2026-W44", made_at: new Date(Date.now() - 2 * 86400_000).toISOString(), base_date: "2026-10-23", horizon_end: "2026-10-30", on_time: true, model_version: "fc-logit-v1",
+      model: { coef: [0.1412, -0.0331, 0.0198, -0.0254, 0.0412], features: ["mom5_z", "mom20_z", "rev1_z", "spy_trend_z"], n_samples: 3120, first_date: "2023-10-20", last_date: "2026-10-16",
+        validation: { split_date: "2025-12-04", n_train: 2160, n_test: 940, train_base_rate: 0.5532, test_base_rate: 0.5617, brier: 0.24511, brier_climatology: 0.24622, brier_skill: 0.0045, log_loss: 0.68321, hit_rate: 0.5574, calibration: bins(holdout) } },
+      train_tickers: ["AMD", "CRWV", "DIA", "IWM", "KWEB", "NVDA", "PFE", "QQQ", "SPY", "VXUS", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"],
+      n_forecasts: cur.length, skipped: [], candidates_available: true,
+      candidates_scan_at: new Date(Date.now() - 2 * 86400_000 - 3600_000).toISOString(), iv_day: "2026-10-23", iv_names: 2,
+      forecasts: cur.map(({ features, ...f }) => f) },
+    accuracy: { ...a, on_time: a, by_group: byGroup, by_vol_source: { chain_iv30: acc([]), realized_20d: a } },
+    calibration: { edges, bins: bins(past.map((f) => [f.p_up, f.score.outcome_up])) },
+    weeks: weeks.slice().reverse().map(([w, base, end]) => { const rs = past.filter((f) => f.week_key === w); const x = acc(rs);
+      return { week_key: w, made_at: `${base}T20:21:00+00:00`, base_date: base, horizon_end: end, on_time: true, model_version: "fc-logit-v1", n: rs.length, resolved: x.n, hits: x.hits, hit_rate: x.hit_rate, brier: x.brier, in_range_rate: x.in_range_rate }; }),
+    open: cur.length,
+    method: "P(up) = ridge logistic regression on vol-scaled 5- and 20-session momentum, 1-session reversal and SPY's distance from its 50-day average, fit weekly on 3 years of daily bars (15 index/sector ETFs + the week's names, one sample per 5 sessions), validated on a time-ordered 30% holdout. Range = 68% band of a zero-drift lognormal from chain IV30 when archived, else 20-session realized vol.",
+    caveats: ["Experimental model, shadow only: nothing trades on these calls.", "Training names exist today (survivorship bias); edges at a 1-week horizon are small, so most probabilities sit near the base rate — read the holdout Brier skill before trusting any call.", "Accuracy figures under 30 resolved calls are marked thin."],
+    via: "daemon",
+  };
+}
+
+// Brain page (2026-10-29): GET /api/bot/brain in server/brain.ts brainBody()'s
+// real shape — components across every kind and status, each short-term kind
+// (bucket vs SPY, source IC with its BH verdict, not-measured), long-term doc
+// evidence and gaps, all three agreement flags, forward selection (nothing
+// selected + insufficient arm) and an ablation table. Fixture numbers only.
+function brainFixture() {
+  const now = Date.now();
+  const iso = (ms) => new Date(now - ms).toISOString();
+  const evAt = iso(4 * 60_000);
+  const noShort = (reason) => ({ measured: false, reason, what: "—", source: "brain_evidence.py over the shadow log", as_of: evAt, sign: "insufficient", sign_note: "not measured" });
+  const svShort = (name, n, ic, ci, q, verdict, reason, sign) => ({ measured: true, what: `rank IC of ${name} vs the +5d outcome`, metric: "ic", n, n_days: 74, ic, ci95: ci, q_bh: q, verdict, verdict_reason: reason, outcome: "+5d", window: { first: "2026-06-02", last: "2026-10-21" }, source: "source_validation.py (source_validation_v2 (2026-10-27)), primary outcome +5d, BH FDR 0.10", as_of: evAt, sign, sign_note: `${verdict}: ${reason}` });
+  const bucketShort = (label, bucket, n, mean, ci, ex, exci, sign, note) => ({ measured: true, what: label, metric: "mean_return", bucket, outcome: "xa (exit-aligned: the live exit ladder, long stock)", n, n_days: 61, mean_pct: mean, hit_rate: 0.44, ci95: ci, vs_spy: { n, mean_excess_pct: ex, ci95: exci, beat_rate: 0.41 }, horizons: { xa: { n, mean_pct: mean }, "+5d": { n: Math.round(n * 0.95), mean_pct: mean / 2 }, "+20d": { n: Math.round(n * 0.8), mean_pct: mean * 1.4 } }, window: { first: "2026-06-03", last: "2026-10-02" }, source: "brain_evidence.py over the shadow log", as_of: evAt, sign, sign_note: note });
+  const noLong = { measured: false, reason: "Not yet measured: no multi-year test of the stock score or its inputs exists — no point-in-time universe (docs/regime/FINDINGS.md); a 2016+ walk-forward panel harness is not built yet.", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" };
+  const c = (id, name, kind, group, does, status, status_source, detail, short_term, long_term, flag, note) => ({ id, name, kind, group, does, inventory_ref: null, status, status_source, detail, short_term, long_term, agreement: { flag, note } });
+  const components = [
+    c("stock_entries", "Stock entries", "sleeve", "Sleeves", "New stock/ETF positions from the scan (executeTrades, morning queue, Tier-3).", "shadow", "config", 'VOLTRADE_SHADOW_ENTRIES="stocks,options" (config): would-be entries are logged, no order',
+      bucketShort("would-be stock entries (shadow) — or taken, when live", "shadow_mode_entry:stocks", 18, 0.42, null, 0.1, null, "insufficient", "n=18 (< 30 or no clustered CI)"), noLong, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("floor_basket", "Floor basket (QQQ/SMH/KWEB/VXUS)", "sleeve", "Sleeves", "Regime-scheduled passive core: 70% BULL / 90% NEUTRAL / 35% CAUTION / 0% BEAR-PANIC.", "live", "config", "FLOOR_BASKET_ENABLED=true; never gated by entry shadow (entry_shadow.py)",
+      noShort("Not measured here: the sleeve ledger reports dollars, not a daily return series vs same-exposure SPY (research/floor_basket_decision.md)."),
+      { measured: true, items: [{ id: "floor_composition", title: "Floor basket vs same-exposure SPY (simulation)", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10, 2,990 days, 5 bp/side", finding: "Basket CAGR 7.82%, max DD -21.6%, Sharpe 0.733 ± 0.291; Sharpe minus same-exposure SPY -0.109 [95% -0.375, +0.156].", compared_to: "SPY held at the floor's own exposure", sign: "null", variants_tried: 4 }, { id: "floor_schedule", title: "The floor's regime exposure schedule (simulation)", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10", finding: "SPY at the floor's regime-driven exposure made 7.41%/yr vs 13.58% buy-and-hold at Sharpe 0.843 vs 0.816.", compared_to: "buy-and-hold SPY", sign: "negative" }], sign: "null", sign_note: "vs same-exposure SPY" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("convexity", "QQQ-put convexity overlay", "sleeve", "Sleeves", "Far-OTM QQQ puts, 60 DTE, rolled at 21 DTE, 2–4% of equity.", "shadow", "config", "runs every scan (CONVEXITY_OVERLAY.enabled=false is never read); buy-to-open is logged, not ordered (options sleeve shadowed)",
+      noShort("Not measured: option P&L (no options simulator)."), { measured: true, items: [{ id: "convexity_10yr", title: "QQQ-put convexity overlay, 10-year backtest", source_file: "system_config.py", date: "2026-04-17", horizon: "10 years", finding: "The overlay bled $307K-$508K in annual premium against 1-2 crash payoffs that did not recoup it.", compared_to: "no overlay", sign: "negative" }], sign: "negative", sign_note: "vs no overlay" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("ml_v2", "ML v2 (LightGBM) blend", "model", "Models", "Win probability blended into the score at ~0.28–0.40 weight.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      { ...svShort("ml_only_score", 912, 0.012, [-0.031, 0.054], undefined, undefined, "", "null"), verdict: undefined, sign_note: "IC 95% CI includes 0 (reference row, outside the BH family)" },
+      { measured: true, items: [{ id: "ml_v2_honest", title: "ML v2 procedure with the CV leak removed", source_file: "research/ml_v3_eval.md", date: "2026-10-27", horizon: "2023-02-02 → 2026-10-16, 97 tickers", finding: "Reported AUC 0.658 falls to 0.515 with date folds and an honest embargo — the reported skill is the leak.", compared_to: "a constant base-rate forecast", sign: "null" }], sign: "null", sign_note: "vs base rate" }, "agree", "both say no measurable effect"),
+    c("strategy_weights", "\"LEARN\" strategy-weight loop", "model", "Models", "Shifts momentum/VRP weights from recent win rate — written and audited, never read.", "off", "code", "server/bot.ts strategyWeights is write-only: the score uses hard-coded weights (bot_engine.py)",
+      noShort("Off (dead code): reads nothing, changes nothing."), { measured: false, reason: "Not measured (dead).", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "neither horizon has a usable test"),
+    c("min_score", "Minimum score gate", "rule", "Entry gates", "Adaptive MIN_SCORE 63/63/67/75 (Node floor 65): candidates below it are rejected.", "shadow", "config", 'VOLTRADE_SHADOW_ENTRIES="stocks,options" (config): would-be entries are logged, no order',
+      bucketShort("candidates it rejected", "rejected_score", 1240, -0.61, [-0.92, -0.33], -0.74, [-1.05, -0.44], "positive", "blocked names did worse (excess vs SPY CI < 0): the rule earns its keep"), noLong, "insufficient", "no long-horizon test exists"),
+    c("sel_knife", "Regime selection guard: knife", "rule", "Regime engine", "Blocks names below 75% of their 52-week high or at a new 20-day low.", "shadow", "config", "gate on, but stock entries are shadowed: it blocks would-be entries only",
+      bucketShort("candidates it blocked (or would have)", "rejected_regime_knife", 64, 0.88, [0.21, 1.6], 0.71, [0.08, 1.33], "negative", "blocked names did better (excess vs SPY CI > 0): the rule blocks winners"),
+      { measured: false, reason: "Not yet measured in our data: the guards cite published research, but the stock sleeve cannot be backtested here; first forward read is due 2026-11-16.", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "no long-horizon test exists"),
+    c("regime_sizing", "Regime exposure multiplier (sizing)", "rule", "Regime engine", "One exposure multiplier replaces the VIX scalar, the stress multiplier and the Tier-1 VXX ladder.", "shadow", "config", "sleeves stock, options, tier1 (VOLTRADE_REGIME_SIZING, config); nothing it touches is ordered while both entry sleeves are shadowed",
+      noShort("Not measured from the shadow log: outcomes are per-candidate returns, not position sizes."), { measured: true, items: [{ id: "regime_backtest", title: "Regime-layer backtest (index level, 12 arms)", source_file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28", horizon: "2007-08-28 → 2026-10-26, SPY", finding: "engine_quantized: CAGR 8.34%, max DD -20.5%, Sharpe 0.76 vs the old schedule 4.30% / -20.2% / 0.56; buy-and-hold 11.05% / -55.2% / 0.63.", compared_to: "the regime schedule it replaced (current_proxy)", sign: "positive", variants_tried: 12 }], sign: "positive", sign_note: "vs current_proxy" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("news", "Headline sentiment", "input", "News & social", "Alpaca news keyword score: +10/+5/-6/-12 points on the stock score.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      svShort("adj.news", 912, -0.087, [-0.139, -0.035], 0.012, "FAIL_INVERTED", "BH-significant NEGATIVE IC: the + this adjustment adds predicts WORSE outcomes", "negative"), noLong, "insufficient", "no long-horizon test exists"),
+    c("alt", "Alt-data composite", "input", "Alternative data", "Wikipedia attention, short-volume proxy, FTD, GDELT, FRED flags: ±20 points.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      svShort("adj.alt", 912, 0.011, [-0.04, 0.063], 0.81, "FAIL", "no BH-significant positive IC above the floor", "null"), noLong, "insufficient", "no long-horizon test exists"),
+    c("google_trends", "Google Trends", "input", "News & social", "Would weight 35% of the social score; hard-coded to 0 (rate limits).", "off", "code", "disabled in social_data.py (signal fixed at 0); its 35% weight slot still exists",
+      noShort("Off: constant 0, nothing to measure."), { measured: false, reason: "Not measured (off).", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "neither horizon has a usable test"),
+  ];
+  const counts = { live: 0, shadow: 0, off: 0 };
+  for (const x of components) counts[x.status] += 1;
+  return {
+    generated_at: iso(3_000), evidence_generated_at: evAt, evidence_via: "daemon", evidence_error: null, evidence_cache_age_s: 240,
+    explainer: "Short-term = live shadow outcomes (what the bot's own candidates did after it scored them); long-term = multi-year tests. A component is promoted only when both agree.",
+    rule: "Live beats backtest when they disagree: a component is promoted only when short-term (live shadow) and long-term (multi-year) evidence agree; when they disagree, the live result wins and the gap is itself the next question.",
+    status_counts: counts,
+    switches: { config_source: "python", entry_shadow: { stocks: true, options: true, value: "stocks,options", source: "config" }, regime: { VOLTRADE_REGIME_ENGINE: { value: "1", source: "config" } } },
+    short_term: { window: { first: "2026-04-20", last: "2026-10-28" }, records: 19874, spy: { ok: true, first_day: "2026-04-13", last_day: "2026-10-28" }, primary_outcome: "xa = exit-aligned ruler (the live exit ladder) for buckets; +5d path ruler for source ICs (source_validation's pre-registered primary)", note: "One first-seen record per (ticker, ET entry day). Long-stock returns of the scored name — never option P&L. 95% CIs are day-clustered bootstraps." },
+    long_term: { sources: [{ file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28" }, { file: "research/ml_v3_eval.md", date: "2026-10-27" }, { file: "research/floor_basket_decision.md", date: "2026-10-27" }], gaps: ["No portfolio walk-forward harness on a 2016+ point-in-time panel exists yet: the stock score, its inputs and the stock sleeve have no multi-year test.", "No options simulator: options entries, CSP guards and the convexity overlay have no option-P&L test (KB #48).", "Kill-switch thresholds have no counterfactual logging."] },
+    components,
+    combinations: {
+      short_term: {
+        available: true, reason: null, as_of: evAt, source: "source_validation.py forward selection (day-split fit/select/holdout; each step's p-value Bonferroni-multiplied by the candidates tried) + ablation", family: "Benjamini-Hochberg across 52 sources at FDR 0.1",
+        summary: { PASS: [], FAIL_INVERTED: ["adj.news"], FAIL: ["adj.alt"], INSUFFICIENT: [], CONSTANT: [] },
+        arms: [
+          { arm: "features", label: "ML features only (all deduped rows)", status: "NOTHING_SELECTED", reason: "no source added significant out-of-sample IC on the SELECT block", n_rows: 884, candidates: 25, variants_tried: 25, selected: [], weights: null, steps: [{ candidate: "feat.price_vs_52w_high", select_ic: 0.061, gain: 0.061, se: 0.034, p_bonferroni: 0.906, tried: 25, accepted: false }], holdout_selected: null, holdout_live_score: { n: 221, n_days: 19, ic: -0.044, ci95: [-0.12, 0.03] }, holdout_vs_live_score: null, holdout_window: { first: "2026-09-12", last: "2026-10-21" } },
+          { arm: "breakdown", label: "score adjustments + features (rows with a logged breakdown)", status: "INSUFFICIENT", reason: "212 rows < MIN_SELECT_ROWS=300", n_rows: 212, candidates: 39, variants_tried: 0, selected: [], weights: null, steps: [], holdout_selected: null, holdout_live_score: null, holdout_vs_live_score: null, holdout_window: null },
+        ],
+        ablation: { status: "OK", reason: null, n_rows: 341, baseline_inverted: true, un_inverts: true, improvement_significant: false, rows: [
+          { name: "baseline", removed: [], n: 341, ic: -0.052, ci95: [-0.11, 0.004], ic_change_vs_baseline: null, ic_change_se: null, q5_minus_q1_pct: -0.67, status: null },
+          { name: "drop_unvalidated", removed: ["intel", "alt", "social", "news", "fundamental"], n: 341, ic: 0.018, ci95: [-0.04, 0.07], ic_change_vs_baseline: 0.07, ic_change_se: 0.041, q5_minus_q1_pct: 0.12, status: null },
+          { name: "drop_news", removed: ["news"], n: 341, ic: -0.021, ci95: [-0.08, 0.035], ic_change_vs_baseline: 0.031, ic_change_se: 0.02, q5_minus_q1_pct: -0.31, status: null },
+        ] },
+      },
+      long_term: [
+        { id: "regime_arms", title: "Regime-layer arms (SPY, full window)", source_file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28", horizon: "2007-08-28 → 2026-10-26", variants_tried: 12, discount: "No deflated Sharpe in the source: 12 arms on one history, so the best arm's edge is optimistic.", columns: ["Arm", "CAGR", "Max DD", "Sharpe"], rows: [["vol_target_15", "10.13%", "-34.7%", "0.78"], ["engine_quantized (live)", "8.34%", "-20.5%", "0.76"], ["buy_and_hold", "11.05%", "-55.2%", "0.63"], ["current_proxy (old)", "4.30%", "-20.2%", "0.56"]] },
+        { id: "floor_arms", title: "Floor composition arms", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10", variants_tried: 4, discount: "Deflated-Sharpe bar for 4 arms is 0.08 — cleared only by qqq_only.", columns: ["Arm", "CAGR", "Max DD", "Sharpe ± SE"], rows: [["qqq_only", "9.76%", "-23.6%", "0.838 ± 0.291"], ["basket (live)", "7.82%", "-21.6%", "0.733 ± 0.291"]] },
+      ],
+    },
   };
 }
 
@@ -394,6 +629,30 @@ const PAGES = {
   // browser window — the same app at /app#/bot/pane/<id>, rendered alone
   // (no shell), the window IS the panel. Same fixtures as `bot`.
   botpane: { route: "/app#/bot/pane/chart", map: false, fixtures: botFixtures({ latched: true }) },
+  // Weekly forecast screen (2026-10-27, SHADOW) — owner tab; one open week +
+  // six resolved weeks (fixture above), so every section renders.
+  forecast: { route: "/app#/forecast", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
+  // EXPIRED SESSION (field bug 2026-10-28): the owner's cached /api/auth/me
+  // still says signed in, but the 24h session is gone — /api/forecast answers
+  // 401 "Not authenticated" exactly as server/auth.ts does, and from then on
+  // /api/auth/me answers signed-out (the server deleted the session row; a
+  // per-context cookie models that). Must render the sign-in view with the
+  // expiry notice, never "Forecast service unavailable".
+  forecastexpired: { route: "/app#/forecast", map: false, fixtures: {
+    "/api/auth/me": (req) => (/vt_fx_expired=1/.test(req.headers.cookie || "")
+      ? { authenticated: false }
+      : { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }),
+    "/api/forecast": { __status: 401, __setCookie: "vt_fx_expired=1; Path=/", __body: { error: "Not authenticated" } },
+  } },
+  // Brain page (2026-10-29) — owner tab; every status, panel kind and agreement flag (fixture above).
+  brain: { route: "/app#/brain", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
+  // Ticker dossier (2026-10-29, human-asked) — owner tab opened from the AI
+  // Engine's look-up box; an RKLB-like space name with every layer live, plus
+  // the look-up card folded into its stock layer (fixtures above).
+  dossier: { route: "/app#/dossier/RKLB", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
+    "/api/bot/lookup": { ...botFixtures({ latched: true })["/api/bot/lookup"], symbol: "RKLB", quick: { price: 27.42, change_pct: 1.2, volume: 21_000_000, dollar_volume: 575_820_000, quick_score: 31.2, above_open: true }, deep: { score: 58.2, side: "buy", action_label: "BUY", sector: "Unknown", reasons: ["Momentum 1m +16%", "Volume 1.4× average"], factors: { momentum: 22, mean_reversion: -6, vrp: 3, squeeze: 4, volume: 1.4, sentiment: 2 } } } } },
+  // the empty state (no symbol yet) and a name whose options feed is down
+  dossierempty: { route: "/app#/dossier", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -2464,8 +2723,20 @@ function startServer() {
       const pfx = Object.keys(PAGE_FIXTURES).find((k) => u === k) ||
                   Object.keys(PAGE_FIXTURES).find((k) => u.startsWith(k + "/"));
       if (pfx) {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify(PAGE_FIXTURES[pfx]));
+        // a fixture may be a function of the request, or carry its own
+        // status/cookie ({ __status, __setCookie, __body }) — the expired-
+        // session page answers 401 the way server/auth.ts does
+        let body = PAGE_FIXTURES[pfx];
+        if (typeof body === "function") body = body(req);
+        const head = { "content-type": "application/json" };
+        let status = 200;
+        if (body && typeof body === "object" && "__status" in body) {
+          status = body.__status;
+          if (body.__setCookie) head["set-cookie"] = body.__setCookie;
+          body = body.__body;
+        }
+        res.writeHead(status, head);
+        return res.end(JSON.stringify(body));
       }
       const fx = Object.keys(FIXTURES).find((k) => u === k) ||
                  Object.keys(FIXTURES).find((k) => u.startsWith(k + "/"));
@@ -2890,6 +3161,20 @@ async function main() {
       // the window, the chart paints there, a "?" opens its card inside THIS
       // window (the directive: "it should function even if it's detached"),
       // "Back to the page" is the one way-back control and pin is gone.
+      // ── EXPIRED SESSION (field bug 2026-10-28): a 401 from an app call
+      // opens the sign-in view with the expiry notice; the forecast page's
+      // outage banner (and the raw 401 text) must never show.
+      if (name === "forecastexpired") {
+        const fail = (m) => checks.failures.push("session-expired: " + m);
+        const notice = page.locator("[data-vt-session-expired]");
+        if (!(await notice.count()) || !(await notice.first().isVisible())) fail("sign-in view with the expiry notice did not render");
+        else if (!/session expired/i.test(await notice.first().innerText())) fail("expiry notice text missing");
+        if (!(await page.locator('input[type="password"]').count())) fail("no sign-in form");
+        const txt = await page.evaluate(() => document.body.innerText);
+        if (/service unavailable/i.test(txt)) fail("outage banner rendered for a 401");
+        if (/Not authenticated/.test(txt)) fail("raw 401 body shown to the user");
+        if (!/#\/forecast/.test(page.url())) fail(`hash left the forecast tab (${page.url()}) — sign-in would not return there`);
+      }
       if (name === "botpane") {
         const fail = (m) => checks.failures.push("bot-pane: " + m);
         const ids = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => e.getAttribute("data-panel")));
@@ -2928,6 +3213,54 @@ async function main() {
           const card = await page.evaluate(() => { const c = document.querySelector(".vt-help-card"); if (!c) return null; const r = c.getBoundingClientRect(); return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, text: (c.textContent || "").trim().length }; });
           if (!card) fail("the help glyph opened no card in the pane"); else if (!card.inside) fail("the pane's help card leaves its window");
           await page.keyboard.press("Escape");
+        }
+      }
+      // ── TICKER DOSSIER (2026-10-29, human-asked): the range band is the
+      // hero, every layer carries a status pill and provenance, the trade
+      // plan draws its ladder and sizes from a typed dollar risk, and the
+      // look-up card sits in the stock layer. Full-page shot for review.
+      if (name === "dossier" || name === "dossierempty") {
+        const fail = (m) => checks.failures.push("dossier: " + m);
+        try {
+          if (name === "dossier") {
+            for (let i = 0; i < 60; i++) { await page.waitForTimeout(100); if (await page.locator(".vt-ds-hero .vt-ds-bandviz").count()) break; }
+            const st = await page.evaluate(() => {
+              const q = (sel) => document.querySelectorAll(sel).length;
+              const vis = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+              return { bands: q(".vt-ds-hero .vt-ds-bandviz"), b68: vis(document.querySelector(".vt-ds-b68")), px: q(".vt-ds-bpx"), pills: [...document.querySelectorAll(".vt-ds-status")].map((e) => e.getAttribute("data-s")),
+                prov: q(".vt-ds-prov"), ladder: q(".vt-ds-ladder .vt-ds-lline"), card: !!document.querySelector("[data-vt-dossier] .vt-lookup[data-symbol='RKLB']"),
+                dir: (document.querySelector(".vt-ds-dirword")?.textContent || "").trim(), advice: /Research, not advice/.test(document.body.textContent || ""), tiers: q(".vt-ds-tier"),
+                decile: /n=1184: up after 5 sessions/.test(document.body.textContent || ""), coin: /coin flip/.test(document.body.textContent || ""),
+                history: [...document.querySelectorAll(".vt-ds-ev [data-history]")].map((e) => e.textContent || ""), notPriced: /possibly not priced in|small reaction|UNVALIDATED/i.test(document.querySelector(".vt-ds-evs")?.textContent || "") };
+            });
+            if (st.bands !== 2 || !st.b68) fail(`range hero: ${st.bands} bands drawn`);
+            if (st.px !== 2) fail("the live price is not marked on both bands");
+            if (st.pills.length !== 5 || st.pills.some((p) => p !== "live")) fail(`layer pills read ${st.pills.join(",")}`);
+            if (st.prov < 5) fail(`only ${st.prov} provenance lines`);
+            if (st.ladder !== 4) fail(`trade-plan ladder has ${st.ladder} lines`);
+            if (!st.card) fail("the look-up card is not in the stock layer");
+            if (st.dir !== "no validated direction" || !st.coin) fail(`direction reads "${st.dir}" without the coin-flip statement`);
+            if (!st.decile) fail("the bot's score-band record is missing (lookup score 58.2 -> decile 6, n=1184)");
+            if (!st.advice) fail("no 'Research, not advice' line");
+            if (st.tiers < 3) fail(`only ${st.tiers} credibility-tier chips`);
+            // event-reaction study (2026-10-29): measured types show history with n; nothing is flagged "not priced in"
+            if (st.history.length !== 1 || !/^history Historically \(2016–2026, n=42,956\)/.test(st.history[0])) fail(`event history lines read ${JSON.stringify(st.history)}`);
+            if (st.notPriced) fail("an event still carries a 'not priced in' / reaction flag");
+            const risk = page.locator("#vt-ds-risk");
+            await risk.fill("250"); await page.waitForTimeout(100);
+            const sized = await page.evaluate(() => (document.querySelector(".vt-ds-size .vt-ds-m")?.textContent || ""));
+            if (!/^\d+ shares · /.test(sized)) fail(`size helper reads "${sized}"`);
+            if (vp.touch) {
+              const small = await page.evaluate(() => [...document.querySelectorAll(".vt-ds button, .vt-ds input, .vt-ds a, .vt-ds summary")].filter((e) => !e.closest(".vt-lookup") && !e.classList.contains("vt-help")).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 44; }).map((e) => e.className || e.tagName).slice(0, 5));
+              if (small.length) fail(`touch targets under 44px: ${small.join(", ")}`);
+            }
+          } else {
+            const st = await page.evaluate(() => ({ state: !!document.querySelector(".vt-ds-state"), input: !!document.querySelector(".vt-ds-search input") }));
+            if (!st.state || !st.input) fail("the empty state or the search box is missing");
+          }
+          await page.screenshot({ path: path.join(OUT, `${name}-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
       if (name === "bot" || name === "botidle") {
@@ -3212,46 +3545,165 @@ async function main() {
           if (!ds.book) fail("dead space: the Book is not in the left column");
           if (ds.chartFrac !== null && ds.chartFrac < 0.7) fail(`dead space: the chart is only ${Math.round(ds.chartFrac * 100)} % of the right column`);
         }
-        // ── LOOK-UP (2026-10-22, human-asked): type a symbol in the Watch
-        // header's box, Enter → the card above the candidates names the
-        // verdict, the six gates in the scan's order and the factors; "/"
-        // focuses the box. The fixture answers NVDA stopped at admission.
+        // ── LOOK-UP -> TICKER DOSSIER (2026-10-22 look-up; 2026-10-29 the
+        // same box opens the dossier, human-asked): "/" focuses the box in
+        // the Watch header; type a symbol, Enter -> #/dossier/NVDA, where the
+        // look-up card (folded into the dossier's stock layer) still names
+        // the verdict, the six gates in the scan's order and the factors.
+        // The fixture answers NVDA stopped at admission. Then back to #/bot
+        // for the checks below.
         {
           const box = page.locator('.vt-lookup-box input').first();
           if (!(await box.count())) fail("lookup: no box in the Watch header");
           else {
             try {
-              await box.fill("nvda"); await box.press("Enter");
-              let card = null;
-              for (let i = 0; i < 40 && !card; i++) {
-                await page.waitForTimeout(100);
-                card = await page.evaluate(() => {
-                  const c = document.querySelector('.vt-lookup[data-symbol]');
-                  if (!c || c.getAttribute('data-busy')) return null;
-                  return { sym: c.getAttribute('data-symbol'), verdict: (c.querySelector('.verdict')?.textContent || '').trim(), gates: [...c.querySelectorAll('.vt-lookup-gates span[data-status]')].map((g) => g.getAttribute('data-status')), bars: c.querySelectorAll('.vt-lookup-bars > span').length, chain: /ATM IV/.test(c.textContent || '') };
-                });
-              }
-              // the card as drawn, for the PR's visual review (.visual/<page>-lookup-<w>.png)
-              await page.screenshot({ path: path.join(OUT, `${name}-lookup-${vp.w}.png`), animations: "disabled" });
-              if (!card) fail("lookup: no card within 4 s of Enter");
-              else {
-                if (card.sym !== "NVDA") fail(`lookup: the card is for ${card.sym}`);
-                if (!/stopped at admission/.test(card.verdict)) fail(`lookup: the verdict reads "${card.verdict}"`);
-                if (card.gates.join(",") !== "pass,pass,pass,fail,skipped,skipped") fail(`lookup: the gates read ${card.gates.join(",")}`);
-                if (card.bars < 4) fail(`lookup: only ${card.bars} factor bars`);
-                if (!card.chain) fail("lookup: no chain line");
-              }
               if (!vp.touch) {
                 await page.mouse.click(2, 2); await page.keyboard.press("/"); await page.waitForTimeout(80);
                 const focused = await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('.vt-lookup-box'));
                 if (!focused) fail("lookup: '/' did not focus the box");
                 await page.keyboard.press("Escape"); await page.mouse.click(2, 2);
               }
-              const close = page.locator('.vt-lookup button[aria-label="Close the look-up"]').first();
-              if (await close.count()) { await press(close); await page.waitForTimeout(200); }
+              await box.fill("nvda"); await box.press("Enter");
+              let card = null;
+              for (let i = 0; i < 60 && !card; i++) {
+                await page.waitForTimeout(100);
+                card = await page.evaluate(() => {
+                  if (!/^#\/dossier\/NVDA$/.test(location.hash) || !document.querySelector('[data-vt-dossier]')) return null;
+                  const c = document.querySelector('[data-vt-dossier] .vt-lookup[data-symbol]');
+                  if (!c || c.getAttribute('data-busy')) return null;
+                  return { sym: c.getAttribute('data-symbol'), verdict: (c.querySelector('.verdict')?.textContent || '').trim(), gates: [...c.querySelectorAll('.vt-lookup-gates span[data-status]')].map((g) => g.getAttribute('data-status')), bars: c.querySelectorAll('.vt-lookup-bars > span').length, chain: /ATM IV/.test(c.textContent || ''), hero: !!document.querySelector('.vt-ds-hero .vt-ds-bandviz') };
+                });
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-lookup-${vp.w}.png`), animations: "disabled" });
+              if (!card) fail("lookup: Enter did not open the dossier with the look-up card within 6 s");
+              else {
+                if (card.sym !== "NVDA") fail(`lookup: the card is for ${card.sym}`);
+                if (!/stopped at admission/.test(card.verdict)) fail(`lookup: the verdict reads "${card.verdict}"`);
+                if (card.gates.join(",") !== "pass,pass,pass,fail,skipped,skipped") fail(`lookup: the gates read ${card.gates.join(",")}`);
+                if (card.bars < 4) fail(`lookup: only ${card.bars} factor bars`);
+                if (!card.chain) fail("lookup: no chain line");
+                if (!card.hero) fail("lookup: the dossier opened without its range band");
+              }
             } catch (e) {
               fail(`lookup: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
             }
+            // back to the AI Engine for the checks that follow
+            await page.evaluate(() => { location.hash = "#/bot"; });
+            for (let i = 0; i < 40; i++) { await page.waitForTimeout(100); if (await page.locator('.vt-lookup-box input').count()) break; }
+            await page.waitForTimeout(300);
+          }
+        }
+        // ── DAILY vs SPY SCOREBOARD (2026-10-28, human-ordered): one row per
+        // trading day from /api/bot/scoreboard. Phone/tablet: a panel in the
+        // stack; desktop: no grid slot (the columns are full) — the vs-SPY
+        // tile's "daily" control zooms it. Latched fixture: 30 rows visible of
+        // the walk, the summary and the provenance line; idle fixture: the
+        // designed "not enough history" state, no table, never zeros.
+        {
+          try {
+            const opener = page.locator(".vt-score-open").first();
+            const zoomed = (await opener.count()) > 0;
+            if (zoomed) { await press(opener); await settle(); }
+            const panel = page.locator('section.vt-bot-panel[data-panel="score"]').first();
+            if (!(await panel.count())) fail(`scoreboard: no panel${zoomed ? " after the vs-SPY tile's 'daily' control" : " in the stack"}`);
+            else {
+              await panel.scrollIntoViewIfNeeded();
+              let sb = null;
+              for (let i = 0; i < 40; i++) {
+                sb = await page.evaluate(() => {
+                  const p = document.querySelector('section.vt-bot-panel[data-panel="score"]');
+                  if (!p) return null;
+                  const pb = p.querySelector(".vt-bot-pb");
+                  return { rows: p.querySelectorAll(".vt-score-t tbody tr").length, hero: !!p.querySelector(".vt-score-hero"), src: /dividend-adjusted/.test(p.querySelector(".vt-score-src")?.textContent || ""), skel: !!p.querySelector('[aria-busy="true"]'), empty: !!p.querySelector(".vt-bot-empty"), h: Math.round(p.getBoundingClientRect().height), over: pb ? pb.scrollWidth - pb.clientWidth : 0 };
+                });
+                if (sb && !sb.skel) break;
+                await page.waitForTimeout(100);
+              }
+              // the panel as drawn, for the PR's visual review (.visual/<page>-score-<w>.png)
+              await page.screenshot({ path: path.join(OUT, `${name}-score-${vp.w}.png`), animations: "disabled" });
+              if (!sb || sb.skel) fail("scoreboard: still a skeleton after 4 s");
+              else {
+                if (sb.h < 120) fail(`scoreboard: panel is ${sb.h}px tall`);
+                if (sb.over > 1) fail(`scoreboard: the table overflows its panel by ${sb.over}px`);
+                if (name === "bot") {
+                  if (sb.rows !== 30) fail(`scoreboard: ${sb.rows} rows visible (expected the last 30 days)`);
+                  if (!sb.hero) fail("scoreboard: no since-start summary");
+                  if (!sb.src) fail("scoreboard: no provenance line");
+                } else if (sb.rows || !sb.empty) fail(`scoreboard: the empty fixture shows ${sb.rows} rows${sb.empty ? "" : " and no designed empty state"}`);
+              }
+            }
+            if (zoomed) {
+              const back = page.locator("button.vt-bot-wbtn", { hasText: "back to the page" });
+              if (await back.count()) { await press(back); await settle(); } else fail("scoreboard: no way back from the zoomed scoreboard");
+            } else await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
+          } catch (e) {
+            fail(`scoreboard: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+          }
+        }
+        // ── ENTRY SHADOW MODE (2026-10-28, human directive): new stock + options
+        // entries are logged, not traded. The Now tile's eyebrow carries an
+        // inline chip that must not grow its line; it opens the Orders panel
+        // zoomed, where the sentence, the source and today's would-be entries
+        // render without overflow (idle fixture: 4 rows; latched: the designed
+        // empty state). Desktop: the Orders header carries a count chip and the
+        // one-line slot does not grow. Phone/tablet: the block sits in the stack.
+        {
+          try {
+            const chip = page.locator('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]').first();
+            if (!(await chip.count())) fail("shadow: no 'entries: shadow' chip in the Now tile");
+            else {
+              // the Now eyebrow keeps the height of a chip-less KPI eyebrow (Session's)
+              const eb = await page.evaluate(() => { const c = document.querySelector('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]'); const e = c?.closest(".vt-bot-eb"); const ref = [...document.querySelectorAll(".vt-bot-kpi .vt-bot-eb")].find((x) => /^Session/i.test((x.textContent || "").trim())); const r = c?.getBoundingClientRect(); const er = e?.getBoundingClientRect(); return r && er && ref ? { inside: r.left >= 0 && r.right <= innerWidth + 0.5, ebH: er.height, refH: ref.getBoundingClientRect().height, title: c.getAttribute("title") || "" } : null; });
+              if (!eb) fail("shadow: the chip is not inside the Now eyebrow");
+              else {
+                if (!eb.inside) fail("shadow: the Now chip leaves the viewport");
+                if (eb.ebH > eb.refH + 0.5) fail(`shadow: the chip grew the Now eyebrow to ${eb.ebH.toFixed(1)}px (Session's is ${eb.refH.toFixed(1)}px)`);
+                if (!/logged, not traded/.test(eb.title)) fail("shadow: the chip's title does not say 'logged, not traded'");
+              }
+              const tpl = await page.evaluate(() => !!document.querySelector(".vt-bot-stack"));
+              if (tpl) {
+                const inStack = await page.evaluate(() => !!document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-shadow[data-shadow="on"]'));
+                if (!inStack) fail("shadow: no shadow block in the stacked Orders panel");
+              } else {
+                // the Orders header keeps the height of a chip-less panel header (the Book's)
+                const hd = await page.evaluate(() => { const c = document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-bot-ph .vt-shadow-chip[data-shadow-chip="count"]'); const ph = c?.closest(".vt-bot-ph"); const ref = document.querySelector('section.vt-bot-panel[data-panel="book"] .vt-bot-ph'); return c && ph && ref ? { h: ph.getBoundingClientRect().height, refH: ref.getBoundingClientRect().height, clipped: c.scrollWidth - c.clientWidth > 1, block: !!document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-shadow') } : null; });
+                if (!hd) fail("shadow: no count chip in the desktop Orders header");
+                else { if (hd.h > hd.refH + 0.5) fail(`shadow: the Orders header grew to ${hd.h.toFixed(1)}px (the Book's is ${hd.refH.toFixed(1)}px)`); if (hd.clipped) fail("shadow: the Orders header chip is clipped"); if (hd.block) fail("shadow: the desktop grid's one-line Orders slot carries the full block"); }
+              }
+              await press(chip); await settle();
+              // wait for the block AND for the zoom's FLIP spring to settle (no transform left on the slot)
+              let sh = null;
+              for (let i = 0; i < 40; i++) {
+                sh = await page.evaluate(() => {
+                  const p = document.querySelector('section.vt-bot-panel[data-panel="orders"]');
+                  const b = p?.querySelector('.vt-shadow[data-shadow="on"]');
+                  if (!p || !b || (p.parentElement && p.parentElement.style.transform)) return null;
+                  const pb = p.querySelector(".vt-bot-pb"); const br = b.getBoundingClientRect();
+                  const rowsOver = [...b.querySelectorAll(".vt-bot-trow")].some((r) => r.scrollWidth - r.clientWidth > 1);
+                  return { text: b.textContent || "", rows: b.querySelectorAll(".vt-shadow-list .vt-bot-trow").length, empty: !!b.querySelector(".vt-shadow-empty"), over: pb ? pb.scrollWidth - pb.clientWidth : 0, rowsOver, inside: br.left >= 0 && br.right <= innerWidth + 0.5 };
+                });
+                if (sh) break;
+                await page.waitForTimeout(100);
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-shadow-${vp.w}.png`), animations: "disabled" });
+              if (!sh) fail("shadow: the chip did not open the Orders panel with the shadow block");
+              else {
+                if (!/New entries: SHADOW — stocks · options \(logged, not traded\)\. Floor \+ exits live\./.test(sh.text)) fail("shadow: the block does not carry the headline");
+                if (sh.over > 1) fail(`shadow: the Orders body overflows by ${sh.over}px`);
+                if (sh.rowsOver) fail("shadow: a would-be entry row overflows");
+                if (!sh.inside) fail("shadow: the block leaves the viewport");
+                if (name === "botidle") {
+                  if (sh.rows !== 4) fail(`shadow: ${sh.rows} would-be rows (expected 4)`);
+                  if (!/size not reported/.test(sh.text)) fail("shadow: an unsized entry is not labelled 'size not reported'");
+                  if (!/VOLTRADE_SHADOW_ENTRIES/.test(sh.text)) fail("shadow: the env override is not named");
+                } else if (sh.rows || !sh.empty || !/no would-be entries yet today/.test(sh.text)) fail("shadow: the empty day shows no designed empty state");
+              }
+              const back = page.locator("button.vt-bot-wbtn", { hasText: "back to the page" });
+              if (await back.count()) { await press(back); await settle(); } else fail("shadow: no way back from the zoomed Orders panel");
+              await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
+            }
+          } catch (e) {
+            fail(`shadow: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
           }
         }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's

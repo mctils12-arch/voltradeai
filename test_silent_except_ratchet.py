@@ -52,7 +52,7 @@ BASELINE = {
     "analyze.py": 32,
     "backtest_v2.py": 1,
     "backup_to_github.py": 2,
-    "bot_engine.py": 71,  # 2026-10-16 v1.0.1093: the ML block records its exception instead of `pass`
+    "bot_engine.py": 70,  # 2026-10-27 N18: zero-target floor exit logs instead of `pass`; 2026-10-16 v1.0.1093: the ML block records its exception instead of `pass`
     "csp_universe.py": 7,
     "diagnostics.py": 7,
     "etf_analyzer.py": 13,
@@ -66,7 +66,7 @@ BASELINE = {
     "macro_data.py": 4,
     "ml_diagnostics.py": 3,
     "ml_model.py": 12,
-    "ml_model_v2.py": 24,
+    "ml_model_v2.py": 23,
     "ml_retrain_safe.py": 1,
     "ml_status.py": 2,
     "ml_toggle.py": 1,

@@ -287,6 +287,12 @@ class RPCDispatcher:
             # human-directed; server/killSwitchAutoResume.ts). Re-baselines the
             # Python DD halts through their EXISTING functions only.
             "paper_resume_sync": ("paper_resume_sync", "rebaseline_python_halts"),
+            # HALT SCOPE (2026-10-27, audit N15): while a Node halt blocks
+            # entries, Tier 2 skips the full scan but still runs the options
+            # manager's protective exits. args {"allow_rolls": false} (a
+            # roll's sell-to-open half is an entry); python3 -c fallback in
+            # bot.ts tier2HaltedExits.
+            "manage_options_exits": ("options_manager", "manage_options_positions"),
 
             # Regime / macro
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),
@@ -314,6 +320,20 @@ class RPCDispatcher:
             # actions get a shadow record (they never had one to relabel).
             # args {"rejections": [{ticker, decision, reason, metadata}]}.
             "csp_gate_shadow": ("tiered_strategy", "log_csp_gate_shadow"),
+            # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): bot.ts's
+            # would-be stock/ETF entries (executeTrades, morning queue, Tier-3
+            # BUY), ONE call per loop. args {"entries": [NodeShadowEntry]};
+            # python3 -c fallback reads the same payload from a temp file.
+            "entry_shadow_record": ("entry_shadow", "record_node_entries"),
+            # v3 CANDIDATE model (2026-10-27, SHADOW ONLY — ml_model_v3.py).
+            # Registered so an RPC caller resolves the same entry points
+            # (READ BEFORE WRITE #4). Like shadow_backfill_exit_aligned, bot.ts
+            # runs the job as a python3 -c subprocess under
+            # execPythonSerialized's 90s kill (checkMlV3CandidateJob), never
+            # through this dispatcher: an RPC thread cannot be killed, and
+            # training inside the daemon would raise its ru_maxrss peak.
+            "ml_v3_job": ("ml_model_v3", "run_job"),
+            "ml_v3_status": ("ml_model_v3", "status"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),
@@ -329,6 +349,34 @@ class RPCDispatcher:
             # /api/bot/lookup/:symbol with the python3 -c subprocess fallback.
             "lookup_ticker": ("lookup_ticker", "lookup"),
             "lookup_ledger_report": ("lookup_ledger", "report"),
+            # Ticker dossier (2026-10-29, human-asked; replaces the look-up's
+            # entry point): market -> sector -> stock -> options -> events,
+            # calibrated ranges + trade plan — ticker_dossier.py. args
+            # {"symbol": "RKLB"}; bot.ts serves it on /api/ticker-dossier/:symbol
+            # with the python3 -c fallback. The scorer runs nightly as a
+            # subprocess (it fetches bars); registered so an RPC caller resolves it.
+            "ticker_dossier": ("ticker_dossier", "build"),
+            "ticker_dossier_score": ("ticker_dossier", "score_ledger"),
+
+            # REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md step 2): the
+            # single owner of regime state. args {"gating": "SPY", "force": false,
+            # "compute": true}; never raises; serves the last persisted state when
+            # VOLTRADE_REGIME_ENGINE is off. Subprocess fallback: the same function.
+            "regime_state": ("regime_engine", "regime_state_rpc"),
+            # Weekly forecast screen (2026-10-27, SHADOW — forecast.py).
+            # bot.ts serves forecast_report on /api/forecast daemon-first with
+            # the python3 -c fallback. generate/score are registered so an RPC
+            # caller resolves the same entry points (READ BEFORE WRITE #4), but
+            # bot.ts runs them as subprocesses behind execPythonSerialized's
+            # hard kill (they fetch bars; a dispatch thread can't be killed).
+            "forecast_report": ("forecast", "report"),
+            "forecast_generate": ("forecast", "generate_weekly"),
+            "forecast_score": ("forecast", "score_matured"),
+            # Brain page (2026-10-29, read-only — brain_evidence.py): switches,
+            # shadow-log decision buckets vs SPY, source_validation, ML v3 and
+            # forecast summaries. bot.ts serves it on /api/bot/brain through
+            # pythonCall (daemon first, python3 -c fallback), cached 10 min.
+            "brain_evidence": ("brain_evidence", "brain_evidence"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:

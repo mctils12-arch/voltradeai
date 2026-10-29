@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain, FileSearch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
 import ResearchPage from "./research";
@@ -11,10 +12,13 @@ import PlannerPage from "./planner";
 import DataMapPage from "./datamap";
 import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
+import ForecastPage from "./forecast";
+import BrainPage from "./brain";
+import TickerDossierPage from "./tickerDossier";
 import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
-type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "bot";
+type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "forecast" | "brain" | "dossier" | "bot";
 
 interface Tab {
   id: TabId;
@@ -35,6 +39,12 @@ const TABS: Tab[] = [
   { id: "data",      label: "Data",      icon: <Globe size={14} />,     mobileIcon: <Globe size={20} />,     requiresAuth: false },
   { id: "planner",   label: "Planner",   icon: <Crosshair size={14} />, mobileIcon: <Crosshair size={20} />, requiresAuth: false },
   { id: "taxes",     label: "Taxes",     icon: <Calculator size={14} />, mobileIcon: <Calculator size={20} />, requiresAuth: false },
+  // Weekly forecast screen (2026-10-27, SHADOW): owner-only — its calls name the open positions
+  { id: "forecast",  label: "Forecast",  icon: <Target size={14} />,    mobileIcon: <Target size={20} />,    requiresAuth: true, requiresOwner: true },
+  // Brain page (2026-10-29): what the bot uses now (live/shadow/off) + short- vs long-term evidence — owner-only
+  { id: "brain",     label: "Brain",     icon: <Brain size={14} />,     mobileIcon: <Brain size={20} />,     requiresAuth: true, requiresOwner: true },
+  // Ticker dossier (2026-10-29): owner-only — opened from the AI Engine's look-up box (#/dossier/<SYM>); it folds the look-up in
+  { id: "dossier",   label: "Dossier",   icon: <FileSearch size={14} />, mobileIcon: <FileSearch size={20} />, requiresAuth: true, requiresOwner: true },
   { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
 ];
 
@@ -229,6 +239,23 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
+  // Expired session (field bug 2026-10-28): any app API call answering 401
+  // "Not authenticated"/"Session expired" (lib/authExpiry, reported from
+  // queryClient) while this shell still believes it is signed in opens the
+  // sign-in view with a notice and returns to the same tab after sign-in.
+  // Guarded on the signed-in belief so a signed-out visitor is never bounced.
+  const authRef = useRef(authenticated);
+  authRef.current = authenticated;
+  const tabRef = useRef(activeTab);
+  tabRef.current = activeTab;
+  useEffect(() => onSessionExpired(() => {
+    if (!authRef.current) return;
+    setPendingTab(tabRef.current);
+    setSessionNotice(SESSION_EXPIRED_NOTICE);
+    setShowLogin(true);
+  }), []);
 
   // Sync hash with active tab (Bug 1)
   // 2026-05-23: when on the analyze tab, also encode the active section so
@@ -294,6 +321,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
   const handleLoginSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    // after an expiry, every cached answer was a 401 — refetch the lot
+    if (sessionNotice) void queryClient.invalidateQueries();
+    setSessionNotice(null);
     setShowLogin(false);
     setActiveTab(pendingTab || "bot");
     setPendingTab(null);
@@ -311,7 +341,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a13" : "#e8ecf1" }}>
         <div style={{ position: "fixed", top: 16, left: 16, zIndex: 9990 }}>
           <button
-            onClick={() => setShowLogin(false)}
+            onClick={() => { setShowLogin(false); setSessionNotice(null); }}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 3,
@@ -326,7 +356,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             <X size={14} /> BACK
           </button>
         </div>
-        <LoginPage onLogin={handleLoginSuccess} />
+        <LoginPage onLogin={handleLoginSuccess} notice={sessionNotice} />
       </div>
     );
   }
@@ -426,6 +456,30 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               </div>
             );
           })}
+
+          {/* Forecast — owner-only weekly calls (SHADOW), direct button beside the AI Engine */}
+          {isOwner && (
+            <button
+              className={`tab-btn ${activeTab === "forecast" ? "active" : ""}`}
+              onClick={() => handleTabClick("forecast")}
+              aria-current={activeTab === "forecast" ? "page" : undefined}
+            >
+              <Target size={14} />
+              Forecast
+            </button>
+          )}
+
+          {/* Brain — owner-only: what is live / shadow / off and the evidence behind each part */}
+          {isOwner && (
+            <button
+              className={`tab-btn ${activeTab === "brain" ? "active" : ""}`}
+              onClick={() => handleTabClick("brain")}
+              aria-current={activeTab === "brain" ? "page" : undefined}
+            >
+              <Brain size={14} />
+              Brain
+            </button>
+          )}
 
           {/* AI Engine — owner-only, direct button (not part of either world) */}
           {isOwner && (
@@ -531,6 +585,45 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         )}
         {activeTab === "taxes" && (
           <TaxesPage />
+        )}
+        {activeTab === "forecast" && (
+          authenticated && isOwner ? <ForecastPage /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <Target size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "The weekly forecast is restricted to the account owner" : "Sign in to see the weekly forecast"}
+              </p>
+              {!authenticated && (
+                <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>
+              )}
+            </div>
+          )
+        )}
+        {activeTab === "brain" && (
+          authenticated && isOwner ? <BrainPage /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <Brain size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "The Brain page is restricted to the account owner" : "Sign in to see what the bot is using"}
+              </p>
+              {!authenticated && (
+                <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>
+              )}
+            </div>
+          )
+        )}
+        {activeTab === "dossier" && (
+          authenticated && isOwner ? <TickerDossierPage /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <FileSearch size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "The ticker dossier is restricted to the account owner" : "Sign in to open the ticker dossier"}
+              </p>
+              {!authenticated && (
+                <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>
+              )}
+            </div>
+          )
         )}
         {activeTab === "bot" && (
           authenticated && isOwner ? <BotDashboard /> : (

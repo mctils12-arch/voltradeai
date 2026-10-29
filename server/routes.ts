@@ -115,6 +115,7 @@ import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled, lookupCropConditionHistory, readConditionsAggregateHistory } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootCboeVixPoll, latestCboeVix } from "./cboeVix";
+import { bootSqueezeGexPoll } from "./squeezeGex";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
@@ -131,6 +132,9 @@ import { firesNearFacilities } from "./firesFacilities";
 import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
+import { bootOiArchive } from "./optionsOiArchive";
+import { bootPricePanel } from "./pricePanel";
+import { bootWalkforward } from "./walkforward";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -2045,6 +2049,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // indicative honesty in every record + manifest). No-ops without Alpaca
   // creds; runs once per trading day after the close.
   bootChainArchive();
+  // Index-option open-interest sidecar (Edge P1 gate 1; optionsOiArchive.ts).
+  bootOiArchive();
+
+  // Survivorship-reduced 2016+ daily price panel (human order 2026-10-28;
+  // server/pricePanel.ts): nightly 20:15-04:00 ET, paced, resumable, disk-
+  // guarded. VOLTRADE_PRICE_PANEL=0 disables; no-ops without Alpaca creds.
+  bootPricePanel();
+
+  // Weekly long-term walk-forward of the stock score's price inputs over that
+  // panel (server/walkforward.ts; [RULE-REVIEW] measurement): Sat/Sun
+  // 06:00-16:00 ET, once per ISO week, own long-job lane (never the Python
+  // mutex or the daemon). VOLTRADE_WALKFORWARD=0 disables.
+  bootWalkforward();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side
@@ -3751,6 +3768,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // out frozen/oversized, this is the live keyless replacement). Serves
   // the poller's cached latest day + a 30-day recent window.
   bootCboeVixPoll();
+  bootSqueezeGexPoll(); // Edge P1 internal shadow stream — no route, aggregates via diag probe "squeeze_gex"
   app.get("/api/data/vix-term-structure", (_req, res) => {
     const hit = latestCboeVix();
     if (!hit) {

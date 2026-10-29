@@ -213,7 +213,44 @@ BASE_CONFIG = {
     # Leg 3B: VRP Harvest -- 15% is the sweet spot
     #   Sell volatility when VXX ratio 1.05-1.25 (elevated but declining)
     #   Earns when fear bleeds out -- exactly the post-crash recovery window
-    "LEG3_VRP_PCT":        0.40,  # % of equity for VRP harvest (regime-adaptive sweep: 40%)
+    # LEG3 SIZE CAP 2026-10-27 (audit §6.8 N14, human-ordered risk-threshold
+    # change): prior value 0.40. SVXY is a short-volatility ETF with no
+    # websocket stop / POS-KILL (bot.ts FLOOR_AND_LEG_TICKERS) and was sized
+    # at up to 40% of equity, contradicting this block's own "15% sweet spot"
+    # (the 64-combo backtest winner). Expected effect: worst-case one-day
+    # SVXY gap costs ~0.15x the move instead of ~0.40x. backtest_v2 does not
+    # model the third leg, so there is no backtest delta to report.
+    # ROLLBACK TRIGGER: none on risk grounds — revert only via a backtest
+    # that models SVXY and shows 0.40 is not worse on max-drawdown.
+    "LEG3_VRP_PCT":        0.15,  # % of equity for VRP harvest (was 0.40 until 2026-10-27)
+    # LEG3 VRP PROTECTION 2026-10-27 (audit §6.8 N14 + N20, human-ordered).
+    # Buy band: _run_third_leg buys SVXY only while VXX ratio is inside
+    # [LOW, HIGH] (unchanged values; were hardcoded 1.05 / 1.25 in
+    # bot_engine.py). SVXY is SHORT volatility and has no other stop
+    # (bot.ts FLOOR_AND_LEG_TICKERS skips WS stop + POS-KILL; Python
+    # manage_positions skips it), so two protective exits now apply, both
+    # immediately (de-risking never lags, same rule as the floor dwell):
+    #   * VOL SPIKE: VXX ratio rises ABOVE the buy band's top (HIGH) — the
+    #     exact spike the position is short. New mechanism, no prior value.
+    #   * STOP: SVXY unrealized loss from entry >= LEG3_VRP_STOP_PCT. New
+    #     mechanism, no prior value. 10% x the 15% leg = <=1.5% of equity
+    #     before gap risk.
+    # After either protective exit, re-entry waits
+    # LEG3_VRP_REENTRY_COOLDOWN_HOURS (stops a stop-out / re-buy loop).
+    # DWELL (N20): the buy (band) and the take-profit exit (regime
+    # NEUTRAL/BULL) shared the 1.05 boundary with no hysteresis. Both now
+    # act on a debounced third-leg zone that must be seen on
+    # LEG3_REGIME_CONFIRM_CYCLES consecutive DISTINCT macro readings — the
+    # FLOOR_REGIME_CONFIRM_CYCLES pattern (F2). Expected effect: no SVXY
+    # round trips from VXX-ratio flicker at 1.05; SVXY is cut within one
+    # scan of a vol spike or a 10% loss.
+    # ROLLBACK TRIGGER: >=3 protective exits in 30 days each followed by
+    # SVXY +5% within 5 sessions (stop too tight) -> widen STOP_PCT one step.
+    "LEG3_VRP_VXX_BAND_LOW":  1.05,
+    "LEG3_VRP_VXX_BAND_HIGH": 1.25,
+    "LEG3_VRP_STOP_PCT":      0.10,
+    "LEG3_VRP_REENTRY_COOLDOWN_HOURS": 24,
+    "LEG3_REGIME_CONFIRM_CYCLES": 3,
     #
     # Leg 3C: Sector Rotation -- 12% into XOM+LMT in BEAR/CAUTION
     #   XOM: -0.04 corr to SPY, +45% last 6mo, earns in geopolitical stress
@@ -283,6 +320,13 @@ BASE_CONFIG = {
     "ML_TARGET_RETURN":     2.0,   # Label = 1 if stock returns 2%+ in horizon
     "ML_CONFIDENCE_THRESH": 0.60,  # Minimum ML confidence to trade
     "ML_MAX_AGE_HOURS":     24,    # Retrain if model is older than 24 hours
+    # v3 CANDIDATE model (ml_model_v3.py) — SHADOW ONLY, never blended into the
+    # score. 2026-10-27, human Phase 4 "Fix the model". Expected effect: none on
+    # trading; a weekly honest OOS evaluation + a v3 probability on every shadow
+    # record so promotion can be judged forward.
+    "ML_V3_RETRAIN_DAYS":   7,     # refit/re-evaluate the candidate weekly
+    "ML_V3_LOOKBACK_DAYS":  1400,  # calendar days of daily bars (~3.8y; 1y is feature warm-up)
+    "ML_V3_CV_SPLITS":      5,     # date-block walk-forward folds (ml_cv)
 
     # ── MARKET REGIME ─────────────────────────────────────────────────────────
     # Regime detection uses VXX ratio + SPY MA + Markov state
@@ -343,6 +387,14 @@ BASE_CONFIG = {
         "ABNB", "DASH",                       # Travel: 20% WR
         "LYFT",                               # Ride-share: structural drag
     ],
+    # 2026-10-27 [REPAIR] (audit §6.8 N6): the category the "3x leveraged
+    # ETFs" entries above stand for, applied to the instrument selector's
+    # substitute ETF (instrument_selector._etf_block_reason reads it with the
+    # "leverage" annotation in analyze.LEVERAGED_ETFS). Not a new threshold:
+    # it is the list's own stated 3x class. Expected effect: IWM→TNA/TZA and
+    # XLF→FAS/FAZ substitutions are ruled out; those candidates trade as
+    # stock (or options) instead.
+    "BLOCKED_ETF_MIN_LEVERAGE": 3,
 
     # ── SLIPPAGE & COSTS ──────────────────────────────────────────────────────
     # Conservative estimates for realistic backtest
@@ -369,6 +421,40 @@ BASE_CONFIG = {
     # Master switch for csp_universe module. If False, T1 reverts to
     # hardcoded T1_TICKERS_FALLBACK (17 liquid anchor names).
     "T1_DYNAMIC_UNIVERSE_ENABLED": True,
+
+    # ── REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md, Stage B step 2) ──
+    # Defaults for the five regime flags. regime_engine.flag_raw reads the
+    # env var when it is PRESENT (any value — "off"/"0"/"" included — wins)
+    # and falls back to these ONLY when the env var is ABSENT, so a Railway
+    # env var of `off` rolls any one flag back without a deploy.
+    # 2026-10-28 HUMAN DIRECTIVE (paper account): engine ON live, all flags,
+    # RUNBOOK §6 order, shadow-only wait skipped; no risk-limit changes.
+    # Prior value of every default below: OFF (False / "").
+    # Rollback: set the env var to `off` (one flag) or revert this block.
+    # Expected effect: one RegimeState per scan; the engine's exposure_
+    # multiplier replaces the VIX scalar + stress multiplier (stock), the VIX
+    # scalar (options sizers) and the Tier-1 VXX ladder; the selection guards
+    # knife/panic/rs/breadth block and dip neutralizes mean reversion; CSP
+    # crisis/vrp/earnings block and inversion/elevated/ebp halve size; the
+    # engine's legacy label replaces the Markov label on records. Drawdown
+    # ladders, kill switches, halts and caps are untouched.
+    "REGIME_ENGINE_ENABLED": True,       # VOLTRADE_REGIME_ENGINE (prior False)
+    "REGIME_SELECTION_DEFAULT": "all",   # VOLTRADE_REGIME_SELECTION (prior "": shadow labels only)
+    "REGIME_OPTIONS_DEFAULT": "all",     # VOLTRADE_REGIME_OPTIONS (prior "": shadow labels only)
+    "REGIME_SIZING_DEFAULT": "all",      # VOLTRADE_REGIME_SIZING (prior "": legacy scalars)
+    "REGIME_LABELS_DEFAULT": True,       # VOLTRADE_REGIME_LABELS (prior False: Markov label)
+    # ENTRY SHADOW MODE (human directive 2026-10-28, paper account: "move the
+    # options sleeve and stock entries to shadow mode. Keep the floor basket
+    # and all exits live."). Sleeves named here compute and LOG every new
+    # entry (shadow_portfolio decision "shadow_mode_entry") but place no
+    # order; exits, rolls' closing legs, kill switches and the floor basket
+    # (_manage_spy_floor / _manage_defensive_floor) are untouched. Values:
+    # "stocks", "options", "stocks,options"; "off"/"0"/""/"none" = nothing
+    # shadowed. Env VOLTRADE_SHADOW_ENTRIES wins whenever it is PRESENT
+    # (entry_shadow.flag_raw; Node mirror server/entryShadow.ts).
+    # Prior behaviour: every entry live (no key). Expected effect: no new
+    # stock/ETF/option positions; buying power stays in cash + floor.
+    "SHADOW_ENTRY_SLEEVES": "stocks,options",
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

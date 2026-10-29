@@ -1,7 +1,6 @@
 import { Express } from "express";
 import { requireAuth, requireOwner } from "./auth";
-import { exec, execFile, type ExecOptions } from "child_process";
-import { promisify } from "util";
+import { execFile, type ExecOptions } from "child_process";
 import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
@@ -19,12 +18,26 @@ import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_I
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
+import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS } from "./dailyMaintenance";
+import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
+import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
+import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+import { regimeCounterfactualBody } from "./regimeCounterfactual";
+let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
+import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
+import { cachedBarsCoverage } from "./barsCoverage";
+import { pricePanelStatus } from "./pricePanel";
+import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
+import { readFilingHistory } from "./edgarForm4";
+import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
+import { walkforwardStatus } from "./walkforward";
+import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -40,6 +53,7 @@ import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
 import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose, type Benchmark } from "./spyBenchmark";
+import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
@@ -49,7 +63,11 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
-import { buildEntryFillPayload } from "./entryFill";
+import { peakEquityFromRpc } from "./peakEquityRpc";
+import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
+import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
+import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
+import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLine, SHADOW_ORDER_STATUS, SHADOW_REPEAT_DECISION, type NodeShadowEntry, type EntrySleeve } from "./entryShadow";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -57,11 +75,20 @@ import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
+import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY } from "./jobHeartbeat";
+import { squeezeReport } from "./squeezeGex";
+import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
-const _execRaw = promisify(exec);
+import { decideMorningQueueEntry } from "./morningQueueEntry";
+// PROCESS-GROUP KILL (2026-10-27, trading-engine audit D1): child_process.exec
+// semantics (shell, env, maxBuffer, utf8, exec's error shape), but the child
+// leads its own process group and a timeout/maxBuffer kill takes every
+// descendant with it — a plain exec kill hit only `/bin/sh -c` and could
+// leave the Python under it running as an orphan. server/pythonExec.ts.
+const _execRaw = execGroupKill;
 // Force-cap OpenBLAS/MKL threads for ALL child Python processes
 // (Railway's container can't handle 32 threads per numpy import)
 const _pyEnv = {
@@ -223,6 +250,26 @@ function recordExitFill(payload: ReturnType<typeof buildExitFillPayload>) {
   } catch (err: any) { console.error("[bot]", err?.message || err); }
 }
 
+// [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, see entryFill.ts): the one
+// writer of ENTRY feedback records. Callers pass a payload built from
+// Alpaca's confirmed filled_avg_price/filled_qty, never a submit-time quote.
+// Recording only — runs strictly AFTER the (frozen) order POST.
+function recordEntryFill(payload: ReturnType<typeof buildEntryFillPayload>) {
+  try {
+    const tmp = `/tmp/fill_e_${String(payload.ticker)}_${Date.now()}.json`;
+    fs.writeFileSync(tmp, JSON.stringify(payload));
+    pythonCall(
+      "track_fill", payload,
+      `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${tmp}')); os.remove('${tmp}'); track_fill(d)"`,
+      { timeout: 5000 }
+    ).then((r) => {
+      if (r.via === "daemon") {
+        try { fs.unlinkSync(tmp); } catch {}
+      }
+    }).catch(() => {});
+  } catch (err: any) { console.error("[bot]", err?.message || err); }
+}
+
 
 
 // ─── Python Subprocess Serialization (OOM fix) ─────────────────────────────
@@ -239,21 +286,22 @@ let pythonRunning = false;
 let pythonLockedAt = 0;
 let pythonLockHardTimeout = 90000;  // tracks the hardTimeout of current holder
 
-// Trivial commands that don't import heavy libs — bypass mutex.
-// Pattern match: `python3 -c "print('ok')"` and similar <100-byte pings
-function isTrivialPython(cmd: string): boolean {
-  if (cmd.length > 150) return false;
-  if (/import\s+(numpy|pandas|sklearn|lightgbm|scipy|torch)/.test(cmd)) return false;
-  return true;
-}
-
+// Lane + kill timer come from server/pythonExec.ts planPythonExec (tested).
+// REPAIR 2026-10-27 (audit D1): the old text-only isTrivialPython() put any
+// command <= 150 chars without a literal heavy import in the no-mutex lane and
+// SIGKILLed it at 10 s, whatever timeout the caller asked for — the 26-char
+// ML retrain asking 900 s died at 10 s. Now a caller asking for more than the
+// 10 s trivial cap is never trivial, and the kill timer is the caller's own
+// timeout bounded by the lane ceiling (mutex lane: 90 s, unchanged). Jobs
+// that need longer than that use runLongPythonJob below, not this mutex.
 async function execPythonSerialized(cmd: string, opts?: ExecOptions) {
-  const maxWait = opts?.timeout || 30000;
-  const hardTimeout = Math.min(opts?.timeout || 90000, 90000);
+  const plan = planPythonExec(cmd, opts?.timeout);
+  const maxWait = plan.mutexWaitMs;
+  const hardTimeout = plan.timeoutMs;
 
-  // Bypass mutex for trivial pings (e.g., /api/health)
-  if (isTrivialPython(cmd)) {
-    return execAsync(cmd, { ...opts, timeout: Math.min(hardTimeout, 10000), killSignal: 'SIGKILL' });
+  // Trivial lane (short pings that asked for <= 10 s): no mutex.
+  if (plan.lane === "trivial") {
+    return execAsync(cmd, { ...opts, timeout: hardTimeout, killSignal: 'SIGKILL' });
   }
 
   const start = Date.now();
@@ -305,6 +353,122 @@ setInterval(() => {
     pythonLockHardTimeout = 90000;
   }
 }, 30000);
+
+// ─── Long-job lane (REPAIR 2026-10-27, trading-engine audit D1) ─────────────
+// For Python jobs that legitimately need longer than the mutex lane's 90 s
+// ceiling. Never takes the global Python mutex (a 20-minute holder would make
+// every other mutex caller time out), single-flight per job key (a second
+// trigger while one is running is skipped, not queued), explicit per-job
+// budget, and the kill goes to the whole process group via execAsync. Callers
+// do not await it on a scheduler path. Memory note: a long job may overlap one
+// mutex-lane subprocess; the retrain's fast_mode is sized for that headroom
+// (ml_model_v2._fetch_training_bars).
+const longPythonJobsInFlight = new Set<string>();
+
+async function runLongPythonJob(
+  key: string, cmd: string, timeoutMs: number,
+): Promise<{ skipped: true } | { skipped: false; stdout: string; stderr: string }> {
+  if (longPythonJobsInFlight.has(key)) return { skipped: true };
+  longPythonJobsInFlight.add(key);
+  try {
+    const { stdout, stderr } = await execAsync(cmd, { timeout: timeoutMs, killSignal: "SIGKILL" });
+    return { skipped: false, stdout, stderr };
+  } finally {
+    longPythonJobsInFlight.delete(key);
+  }
+}
+
+// The ML retrain, shared by Tier 3 (model > 24 h old) and the daily branch.
+// Fire-and-forget: returns at once; the outcome (with elapsed seconds and the
+// trigger) is audited as TIER3 / TIER3-ML-ERROR when the job ends.
+function startMlRetrain(trigger: string): void {
+  const startedAt = Date.now();
+  beat("ml_retrain", "start");
+  void (async () => {
+    try {
+      // History: batch 8 (2026-05-04) asked execPythonSerialized for 900 s
+      // here, but the "trivial" lane silently capped it at 10 s, so the
+      // SIGKILLs it attributed to OOM were that cap. The budget is now
+      // ML_RETRAIN_TIMEOUT_MS (server/pythonExec.ts: estimate + headroom)
+      // and the audit line carries elapsed seconds so it can be tightened
+      // from evidence.
+      const run = await runLongPythonJob("ml-retrain", "python3 ml_retrain_safe.py", ML_RETRAIN_TIMEOUT_MS);
+      const elapsedS = Math.round((Date.now() - startedAt) / 1000);
+      if (run.skipped) {
+        audit("TIER3", `ML retrain (${trigger}) not started — one is already running`);
+        beat("ml_retrain", "finish", "skipped", "already running");
+        return;
+      }
+      const trainResult = JSON.parse(run.stdout.trim());
+      // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
+      // status that starts with "error:", append error_location and
+      // traceback tail so we can actually diagnose the failure. The
+      // Python wrapper at ml_model_v2._train_model_impl already
+      // captures these fields — they were just being dropped on the
+      // floor at the audit boundary. Production logs were stuck
+      // showing "error: 'NoneType' object is not subscriptable"
+      // every hour with no file/line.
+      const _statusStr = String(trainResult.status || "");
+      // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
+      // "skipped", the wrapper's bare "error" and "fatal" all fell into
+      // the else-branch below and were audited as "ML retrain complete"
+      // although no model was written. Only "trained" is a success
+      // (server/mlRetrainStatus.ts, tested).
+      if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
+        // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
+        // _train_model_impl early returns use the plain shape
+        // {"status": "failed", "reason": "..."} (no error_location/
+        // traceback_tail — those only ever come from train_model()'s outer
+        // exception wrapper) which collapsed this line to the content-free
+        // "ML retrain failed: failed". `reason` carries the real cause
+        // (e.g. "Could not fetch training bars") and was being dropped.
+        const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
+        const _detailExtra = retrainFailureDetail(trainResult);
+        const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
+        const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
+        const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
+        audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${elapsedS}s): ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
+        beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
+      } else {
+        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+        beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
+      }
+    } catch (trainErr: any) {
+      // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
+      // which produced useless entries like "Command failed: python3
+      // ml_retrain_safe.py" with no signal/stderr/stdout context — so
+      // OOM kills, import failures, and silent Python crashes all
+      // looked identical. Mirror the Tier 2 scan classifier: grab
+      // stderr (Python traceback), stdout tail (ml_retrain_safe.py
+      // writes its JSON error payload here on caught exceptions),
+      // exit code and kill signal.
+      const _stderr = String(trainErr?.stderr || "");
+      const _stdout = String(trainErr?.stdout || "");
+      const _rawCode = trainErr?.code;
+      const _code: string | number =
+        _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
+      const _signal = trainErr?.signal || "none";
+      // Prefer stderr (Python traceback), fall back to stdout
+      // (ml_retrain_safe prints structured JSON errors there).
+      const _primary = _stderr.trim() ? _stderr : _stdout;
+      const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
+      let _cls = "";
+      if (trainErr?.killed) {
+        // Our own kill timer (execGroupKill sets killed only when it killed).
+        _cls = ` [exceeded the ${Math.round(ML_RETRAIN_TIMEOUT_MS / 1000)}s retrain budget — process group killed]`;
+      } else if (_signal === "SIGKILL" && !_stderr.trim()) {
+        _cls = " [likely OOM kill during import lightgbm/ml_model_v2]";
+      } else if (_signal === "SIGTERM") {
+        _cls = " [timed out or killed externally]";
+      } else if (_rawCode === "ETIMEDOUT") {
+        _cls = " [exec timeout exceeded]";
+      }
+      const _detail = _tail.trim() || String(trainErr?.message || trainErr);
+      audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${Math.round((Date.now() - startedAt) / 1000)}s, code=${_code} signal=${_signal})${_cls}: ${_detail}`);
+      beat("ml_retrain", "finish", "error", `code=${_code} signal=${_signal}${_cls}`);
+    }
+  })();
+}
 
 // ─── Temp File Cleanup (OOM fix) ────────────────────────────────────────────
 // Orphaned temp files from fire-and-forget Python subprocesses that timed out
@@ -779,6 +943,19 @@ function saveLiveness(v: LivenessFile) {
 
 let livenessState: LivenessFile | null = loadLiveness();
 
+// JOB HEARTBEATS (Phase 3 "no silent failures", 2026-10-27): every scheduled
+// job's last runs vs its registered cadence (server/jobHeartbeat.ts). Read by
+// the token-gated `heartbeats` diag probe (the external watchdog polls it)
+// and, compact and informational only, by /api/health.
+const PROCESS_BOOT_AT_MS = Date.now() - Math.round(process.uptime() * 1000);
+function jobHeartbeatReport() {
+  return evaluateHeartbeats(Date.now(), heartbeatStore().snapshot(), JOB_REGISTRY, {
+    calendar: { holidays: marketHolidays(), halfDays: marketHalfDays() },
+    bootAtMs: PROCESS_BOOT_AT_MS,
+    env: process.env,
+  });
+}
+
 setInterval(() => {
   try {
     // active → fresh stamp (new object) → saved each minute; inactive →
@@ -1150,14 +1327,15 @@ print(json.dumps(result))
 // ─── Routes ─────────────────────────────────────────────────────────────────
 // ─── Persistent Audit Log (survives deploys) ────────────────────────────────
 import { db } from "./auth";
+// [RULE-REVIEW] 2026-10-27: table + (time) and (type, id) indexes; retention
+// is time-based now — see server/auditRetention.ts for the window, the row
+// cap and the disk estimate.
 try {
-  db.prepare(`CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    time TEXT NOT NULL,
-    type TEXT NOT NULL,
-    message TEXT NOT NULL
-  )`).run();
-} catch {}
+  ensureAuditSchema(db);
+} catch (err: any) {
+  console.error("[audit] schema/index setup failed:", err?.message || err);
+}
+let auditInsertsSincePrune = 0;
 
 // REPAIR 2026-07-13 (KNOWN BROKEN #18 follow-up, see server/dbWriteTiming.ts
 // for the full evidence trail): `db` (from server/auth.ts, a FROZEN PATH —
@@ -1181,10 +1359,17 @@ function persistAudit(type: string, message: string) {
     );
     const insertMs = Date.now() - insertStart;
 
-    const deleteStart = Date.now();
-    // Keep last 2000 entries
-    db.prepare("DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 2000)").run();
-    const deleteMs = Date.now() - deleteStart;
+    // [RULE-REVIEW] 2026-10-27: was a per-insert "keep the newest 2000 rows"
+    // delete (~3 market hours of history). Now a periodic prune to the
+    // retention window / row cap (server/auditRetention.ts).
+    let deleteMs = 0;
+    auditInsertsSincePrune++;
+    if (auditInsertsSincePrune >= AUDIT_PRUNE_EVERY_INSERTS) {
+      auditInsertsSincePrune = 0;
+      const deleteStart = Date.now();
+      pruneAuditLog(db, Date.now());
+      deleteMs = Date.now() - deleteStart;
+    }
 
     // Guard on `type` to bound recursion to one level (the nested
     // audit("DB-SLOW-WRITE", ...) call below re-enters persistAudit with
@@ -1195,9 +1380,9 @@ function persistAudit(type: string, message: string) {
   } catch {}
 }
 
-function getPersistedAuditLog(limit = 100): any[] {
+function getPersistedAuditLog(limit = 100): AuditRow[] {
   try {
-    return db.prepare("SELECT time, type, message FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as any[];
+    return queryAuditLog(db, { limit });
   } catch { return []; }
 }
 
@@ -1557,6 +1742,10 @@ print(json.dumps(data))
       liveness: lv.dark
         ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
         : { dark: false },
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): which sleeves'
+      // entries are logged instead of ordered. Informational ONLY — never
+      // flips `status`, never reaches the HTTP code (healthGate.ts unchanged).
+      entry_shadow: entryShadowStatus(process.env),
       // Paper drawdown-kill auto-resume (server/killSwitchAutoResume.ts).
       // Informational ONLY: it never flips `status` and never reaches the
       // HTTP code (healthGate.ts SERVING_CHECKS stay server + database).
@@ -1640,6 +1829,18 @@ print(json.dumps(data))
       gates_top_level_status: false,
     };
 
+    // Check 5d: JOB HEARTBEATS (Phase 3 "no silent failures", 2026-10-27).
+    // INFORMATIONAL ONLY, like `feeds`: it never flips the top-level
+    // `status` and never touches the HTTP code (healthGate.ts decides that
+    // from server+database alone). Names + counts only on this
+    // unauthenticated route; the per-job detail is behind the diag token
+    // (/api/diag/heartbeats). A failure to evaluate is reported, not thrown.
+    try {
+      checks.checks.jobs = healthJobsBlock(jobHeartbeatReport());
+    } catch (err: unknown) {
+      checks.checks.jobs = { status: "unknown", detail: err instanceof Error ? err.message : String(err), gates_top_level_status: false };
+    }
+
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
     // aircraft chain before billing activates; degrade health so the next
@@ -1652,6 +1853,18 @@ print(json.dumps(data))
       checks.status = "degraded";
     }
     
+    // Check 7: REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3) —
+    // NON-GATING. "off" while VOLTRADE_REGIME_ENGINE is set to off (unset =
+    // the system_config default, ON since 2026-10-28), "warning"
+    // when the persisted state is older than 2 market days, the last update
+    // failed, or the primary-flip alarm is set; never touches checks.status
+    // and never a serving gate (healthGate.ts SERVING_CHECKS unchanged).
+    try {
+      checks.checks.regime = regimeHealth(readRegimeState(regimeDataDir(process.env)), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(regimeDataDir(process.env)));
+    } catch (err: unknown) {
+      checks.checks.regime = { status: "warning", detail: `regime report unreadable: ${String((err as Error)?.message || err).slice(0, 120)}`, gates_top_level_status: false };
+    }
+
     // KNOWN BROKEN #41 (2026-09-16): how many times this process would have
     // died silently before crashVisibility.ts, and the last reason — a
     // restart loop with a non-zero count here names its own cause.
@@ -1714,7 +1927,7 @@ try:
     from storage_config import TRADE_FEEDBACK_PATH
 except ImportError:
     TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-from ml_model_v2 import fills_slippage_stats
+from ml_model_v2 import fills_slippage_stats, fills_slippage_basis
 
 feedback_raw = []
 if os.path.exists(TRADE_FEEDBACK_PATH):
@@ -1793,6 +2006,7 @@ print(json.dumps({
     'realisticPnlPct': round(realistic_total_pnl, 2),
     'avgSlippagePct': round(avg_slippage_pct, 4),
     'totalSlippageCost': round(total_slippage_cost, 2),
+    'slippageBasis': fills_slippage_basis(feedback),
     'slippageGapPct': round(total_pnl - realistic_total_pnl, 2),
     'bestTrade': {'ticker': best_trade.get('ticker', ''), 'pnlPct': round(best_trade.get('pnl_pct', 0), 2)} if best_trade else None,
     'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
@@ -1974,18 +2188,23 @@ print(json.dumps({
   // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are
   // dividend-adjusted (total return) and cached: the series moves once a day.
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
+  // the SPY series both the benchmark and the daily scoreboard read (one fetch, one cache)
+  async function spyBenchBars(oldest: string): Promise<NonNullable<typeof spyBenchCache>> {
+    if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
+      const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+      spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
+    }
+    return spyBenchCache;
+  }
   // One body for the owner route AND the "benchmark" diag probe (2026-10-20),
   // so what a session reads can never drift from what the page shows.
   async function benchmarkBody(rates: Partial<TaxRates> = {}): Promise<Record<string, unknown>> {
     const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
     try {
       if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null };
-      if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
-        const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
-        spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
-      }
-      const bench = benchmarkVsSpy(equityCurve, spyBenchCache.bars);
-      return { ...bench, fetchedAt: new Date(spyBenchCache.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
+      const spy = await spyBenchBars(oldest);
+      const bench = benchmarkVsSpy(equityCurve, spy.bars);
+      return { ...bench, fetchedAt: new Date(spy.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
     } catch (err) {
       return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
@@ -2013,6 +2232,88 @@ print(json.dumps({
     const rates = ratesFromQuery(req.query as Record<string, unknown>);
     if (Object.keys(rates).length) return res.json(await benchmarkBody(rates));
     res.json(await benchmarkBody());
+  });
+
+  // The same comparison ONE ROW PER TRADING DAY (server/scoreboard.ts; human-
+  // ordered 2026-10-28): the bot page's scoreboard. Same inputs as the
+  // benchmark (this equity curve + the shared SPY cache); the computed body is
+  // kept SCOREBOARD_CACHE_MS. cashFlows: the non-trade ledger's journals and
+  // transfers since the curve's start (null until the sleeve cache has
+  // loaded) — daily returns are NOT adjusted for them, the page says so.
+  let scoreCache: { at: number; body: Record<string, unknown> } | null = null;
+  async function scoreboardBody(): Promise<Record<string, unknown>> {
+    if (scoreCache && Date.now() - scoreCache.at < SCOREBOARD_CACHE_MS) return scoreCache.body;
+    const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
+    const today = new Date().toISOString().slice(0, 10);
+    const sources = { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" };
+    try {
+      if (!oldest) return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null };
+      const spy = await spyBenchBars(oldest);
+      const groups = sleeveCache ? (sleeveCache.body.nonTrade as { groups?: Record<string, number> } | undefined)?.groups : undefined;
+      if (!sleeveCache) void sleevesBody().catch(() => {});
+      const cashFlows = groups ? { journals: groups.journals ?? 0, transfers: groups.transfers ?? 0, since: sleeveCache?.body.since ?? null } : null;
+      const body = { ...buildScoreboard(equityCurve, spy.bars, today), fetchedAt: new Date(spy.at).toISOString(), computedAt: new Date().toISOString(), sources, cashFlows };
+      // a body without the ledger is not cached, so the caveat fills in on the next poll
+      if (cashFlows) scoreCache = { at: Date.now(), body };
+      return body;
+    } catch (err) {
+      return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+    }
+  }
+  app.get("/api/bot/scoreboard", requireOwner, async (_req, res) => {
+    res.json(await scoreboardBody());
+  });
+
+  // ── REGIME ENGINE daily report (2026-10-28, docs/regime/FINDINGS.md step
+  // 3). regime_engine.py (Python, behind VOLTRADE_REGIME_ENGINE) computes the
+  // state once per scan and persists it under DATA_DIR; this route only READS
+  // those files (server/regimeReport.ts) — the same body the diag probe
+  // "regime" serves, plus each VOLTRADE_REGIME_* flag's effective value (env
+  // when present, else the system_config default — all ON since 2026-10-28).
+  function regimeBody(): Record<string, unknown> {
+    const dir = regimeDataDir(process.env);
+    return regimeReportBody(readRegimeState(dir), readRegimeHistory(dir), new Date(), regimeEngineEnabled(process.env), readRegimeSizing(dir), regimeFlags(process.env));
+  }
+  app.get("/api/bot/regime", requireOwner, (_req, res) => {
+    res.json(regimeBody());
+  });
+
+  // ── BRAIN page (2026-10-29, human-asked: "what is being used at the moment
+  // and what combinations could have produced better results ... the short
+  // term is one thing but the long term is different"). server/brain.ts shapes
+  // it: every input/rule/model/sleeve with a status derived NOW from the env +
+  // system_config switches, short-term evidence (brain_evidence.py over the
+  // shadow log: decision buckets vs SPY, source_validation, forward selection +
+  // ablation), long-term evidence (the multi-year tests that exist, quoted
+  // from their files) and the agreement flag. The Python evidence is cached
+  // 10 min (it loads the shadow log and bootstraps); status is recomputed on
+  // every request. Owner only, read-only, daemon-first + python3 -c fallback
+  // (85 s: above the 10 s trivial cap, inside the 90 s mutex lane).
+  let brainCache: { at: number; ev: EvidencePayload | null; via: string | null; error: string | null } | null = null;
+  let brainInflight: Promise<void> | null = null;
+  async function refreshBrainEvidence(): Promise<void> {
+    const r = await pythonCall("brain_evidence", {}, BRAIN_EVIDENCE_CMD, { timeout: 85_000, maxBuffer: 8 * 1024 * 1024 }, 60_000);
+    const ok = r.success && r.result && typeof r.result === "object" && !(r.result as Record<string, unknown>).error;
+    if (ok) brainCache = { at: Date.now(), ev: r.result as EvidencePayload, via: r.via, error: null };
+    else {
+      const err = String((r.result as Record<string, unknown> | null)?.error ?? r.error ?? "brain_evidence failed").slice(0, 200);
+      console.warn(`[brain] evidence call failed via ${r.via}: ${err}`);
+      // keep the last good payload (stale beats empty); record the failure
+      brainCache = { at: Date.now(), ev: brainCache?.ev ?? null, via: brainCache?.via ?? r.via, error: err };
+    }
+  }
+  app.get("/api/bot/brain", requireOwner, async (_req, res) => {
+    try {
+      if (!brainCache || Date.now() - brainCache.at > BRAIN_CACHE_MS) {
+        if (!brainInflight) brainInflight = refreshBrainEvidence().finally(() => { brainInflight = null; });
+        await brainInflight;
+      }
+      const c = brainCache;
+      const body = brainBody(c?.ev ?? null, process.env, new Date(), c?.via ?? null, c?.error ?? null);
+      res.json({ ...body, evidence_cache_age_s: c ? Math.round((Date.now() - c.at) / 1000) : null });
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
   });
 
   // ── Look-up (2026-10-22, human-asked): what the bot thinks of ONE symbol
@@ -2073,6 +2374,56 @@ print(json.dumps({
       );
       if (!r.success || !r.result || typeof r.result !== "object") return res.status(502).json({ error: "ledger report failed" });
       res.json(r.result);
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+  });
+
+  // Ticker dossier (2026-10-29, human-asked; replaces the look-up's entry
+  // point — the look-up itself is kept and folded into the dossier's stock
+  // layer): market -> sector -> stock -> options -> events, calibrated range
+  // bands, an honest direction section and a trade plan. ticker_dossier.py via
+  // the daemon ("ticker_dossier") with the python3 -c fallback; Node adds the
+  // Form 4 archive detail (server/tickerDossier.ts). Owner only, like the
+  // look-up; 5-minute cache per symbol; letters only reach a command line.
+  const tickerDossierCache = new DossierCache();
+  app.get("/api/ticker-dossier/:symbol", requireOwner, async (req, res) => {
+    const symbol = parseDossierSymbol(req.params.symbol);
+    if (!symbol) return res.status(400).json({ error: "a symbol is 1–6 letters, or an OCC option code" });
+    try {
+      const body = await tickerDossierCache.get(symbol, async () => {
+        const r = await pythonCall("ticker_dossier", { symbol }, dossierSubprocessCmd(symbol),
+          { timeout: TICKER_DOSSIER_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 }, 100_000);
+        if (!r.success || !r.result || typeof r.result !== "object") {
+          return { ok: false, body: { symbol, generated_at: new Date().toISOString(), errors: { dossier: String((r.result as { error?: unknown } | null)?.error || "dossier failed").slice(0, 200) }, via: r.via } };
+        }
+        const out: Record<string, unknown> = { ...(r.result as Record<string, unknown>), via: r.via };
+        try {
+          out.insiders = insiderSummary(readFilingHistory(INSIDER_WINDOW_DAYS, undefined, undefined, 4000), symbol, Date.now());
+        } catch (e: unknown) {
+          out.insiders = null;
+          const errs = (out.errors && typeof out.errors === "object" ? out.errors : {}) as Record<string, string>;
+          errs.insiders = String(e instanceof Error ? e.message : e).slice(0, 160);
+          out.errors = errs;
+        }
+        return { ok: true, body: out };
+      });
+      res.json(body);
+    } catch (e: unknown) {
+      res.status(500).json({ symbol, generated_at: new Date().toISOString(), errors: { dossier: String(e instanceof Error ? e.message : e).slice(0, 200) } });
+    }
+  });
+
+  // Weekly forecast screen (2026-10-27, SHADOW): this week's calls for SPY,
+  // the open positions and the top scan candidates, their accuracy and their
+  // calibration — forecast.report() over the append-only store. Owner only
+  // (the calls name the open positions), read-only, daemon-first with the
+  // python3 -c fallback.
+  app.get("/api/forecast", requireOwner, async (_req, res) => {
+    try {
+      const r = await pythonCall("forecast_report", {}, FORECAST_REPORT_CMD, { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }, 15_000);
+      if (!r.success || !r.result || typeof r.result !== "object") return res.status(502).json({ error: "forecast report failed" });
+      res.json({ ...(r.result as Record<string, unknown>), via: r.via });
     } catch (e: unknown) {
       res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
     }
@@ -2156,9 +2507,9 @@ print(json.dumps({
       // the same trades in a TAXABLE account: terms, wash sales, an estimated
       // tax at the caller's rates (?st&lt&state&niit, fractions) — an ESTIMATE
       // the UI labels as such; the paper account pays no tax
-      return { ...sleeveCache.body, tax: taxLedger(events, fills, { windowStartMs, rates }), stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError };
+      return { ...sleeveCache.body, tax: taxLedger(events, fills, { windowStartMs, rates }), stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError, entry_shadow: entryShadowStatus(process.env) };
     }
-    return sleeveError ? { error: sleeveError } : { pending: true };
+    return sleeveError ? { error: sleeveError, entry_shadow: entryShadowStatus(process.env) } : { pending: true, entry_shadow: entryShadowStatus(process.env) };
   }
   app.get("/api/bot/sleeves", requireOwner, async (req, res) => {
     // ?st&lt&state&niit (fractions) recompute only the tax estimate at those
@@ -2579,7 +2930,16 @@ print(json.dumps(result, default=str))
       // Pro-level security controls from system_config.py
       maxPositionPct: 8,      // MAX_POSITION_PCT 0.08 — hard cap per position
       maxExposurePct: 95,     // MAX_TOTAL_EXPOSURE 0.95 — max portfolio invested (regime engine controls actual)
-      dailyLossLimitPct: 5,   // DAILY_LOSS_LIMIT_PCT 5.0 — halts trading
+      // 2026-10-27 (audit D7/N21): was a hardcoded 5 from system_config's
+      // DAILY_LOSS_LIMIT_PCT, a key nothing reads. The halts that actually
+      // fire are Node DAILY_LOSS_LIMIT (-3%) and risk_kill_switch -0.03.
+      dailyLossLimitPct: Math.abs(DAILY_LOSS_LIMIT),
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): which sleeves'
+      // entries are logged instead of ordered + today's (ET) would-be entries
+      // from the in-memory day book, newest first (SHADOW_ROWS_CAP), so the
+      // Bot page can say why no new trades appear.
+      entry_shadow: entryShadowStatus(process.env),
+      shadow_entries_today: shadowEntryBook.today(),
     });
   });
 
@@ -2591,6 +2951,19 @@ print(json.dumps(result, default=str))
   // never re-activates a bot the owner stopped (ownerStopped is in-memory,
   // like state.active itself — a deploy boots active by design).
   let ownerStopped = false;
+  // HALT SCOPE (2026-10-27, audit N15 — server/haltScope.ts): the one place
+  // bot.ts reads its halt flags for a gating decision. A halt (kill latch,
+  // circuit breaker, weekly-loss pause) blocks ENTRIES only; protective exits
+  // keep running; only an explicit owner stop turns exits off.
+  function currentHaltState(): HaltState {
+    return haltStateFrom({
+      ownerStopped,
+      active: state.active,
+      killSwitch: state.killSwitch,
+      circuitBreakerUntil: state.circuitBreakerUntil,
+      nowMs: Date.now(),
+    });
+  }
   function startBotActivity(source: string): { ok: true } | { ok: false; error: string } {
     if (state.killSwitch) return { ok: false, error: "Kill switch is ON. Disable it first." };
     if (source && ownerStopped) return { ok: false, error: "Bot was stopped by the owner (/api/bot/stop) — not re-activated automatically." };
@@ -2688,18 +3061,18 @@ print(json.dumps(result, default=str))
           // 50-entry tail spans ~5 minutes of a chatty log and hid today's
           // recurring SIGTERM cycle. Same whitelist surface, same sanitize;
           // limit capped so the probe itself can't become a heap problem.
+          // [RULE-REVIEW] 2026-10-27: optional ?since= (ISO date or
+          // date-time, UTC) now that the log keeps 30 days; an invalid
+          // value is a 400, not a silently unfiltered answer.
           const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 500);
           const typeFilter = String(req.query.type || "").trim();
-          let entries: any[];
-          if (typeFilter) {
-            try {
-              entries = db.prepare(
-                "SELECT time, type, message FROM audit_log WHERE type = ? ORDER BY id DESC LIMIT ?"
-              ).all(typeFilter, limit) as any[];
-            } catch { entries = []; }
-          } else {
-            entries = getPersistedAuditLog(limit);
-          }
+          const sinceRaw = String(req.query.since || "").trim();
+          const since = parseAuditSince(req.query.since);
+          if (sinceRaw && !since) return res.status(400).json({ error: "since must be an ISO date or date-time" });
+          let entries: AuditRow[];
+          try {
+            entries = queryAuditLog(db, { limit, type: typeFilter || null, since });
+          } catch { entries = []; }
           return res.json(sanitizeDiag({
             probe: "audit",
             entries: entries.map((e: any) => ({ time: e.time, type: e.type, message: e.message })),
@@ -2828,6 +3201,18 @@ print(json.dumps(s))
           // /api/bot/benchmark serves, so a session reads the GOAL's own
           // yardstick itself. Carries no symbol but SPY.
           return res.json(sanitizeDiag({ probe: "benchmark", ...(await benchmarkBody()) }));
+        }
+        case "regime": {
+          // ADDED 2026-10-28 (regime engine program, step 3): the regime
+          // engine's daily report — the SAME body as the owner's
+          // /api/bot/regime (server/regimeReport.ts). Index-level only.
+          return res.json(sanitizeDiag({ probe: "regime", ...regimeBody() }));
+        }
+        case "regime_counterfactual": {
+          // ADDED 2026-10-28 (regime engine live flip, human directive): per
+          // day per kind aggregates of the legacy-vs-engine counterfactual
+          // log (server/regimeCounterfactual.ts). Read-only; no tickers.
+          return res.json(sanitizeDiag({ probe: "regime_counterfactual", ...regimeCounterfactualBody(regimeDataDir(process.env), new Date(), req.query.days) }));
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
@@ -3137,6 +3522,24 @@ print(json.dumps(get_shadow_stats()))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "ml_v3": {
+          // ADDED 2026-10-27 — see the "ml_v3" entry in diag.ts's
+          // DIAG_PROBES. Read-only passthrough of the v3 CANDIDATE model's
+          // own files (ml_model_v3.py writes them; no Python is spawned):
+          // the honest OOS evaluation report and the job state. Aggregate
+          // metrics only — no ticker, no price.
+          const v3Dir = fs.existsSync("/data/voltrade") ? "/data/voltrade/ml_v3" : "/tmp/ml_v3";
+          const readJson = (name: string): unknown => {
+            const p = `${v3Dir}/${name}`;
+            return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+          };
+          try {
+            return res.json(sanitizeDiag({ probe: "ml_v3", role: "shadow_candidate", promoted: false,
+              job_state: readJson("job_state.json"), eval: readJson("ml_v3_eval.json") }));
+          } catch (e: unknown) {
+            return res.json({ probe: "ml_v3", error: sanitizeDiag(e instanceof Error ? e.message : String(e)) });
+          }
+        }
         case "shadow_bands": {
           // ADDED 2026-10-06 — see the "shadow_bands" entry in diag.ts's
           // DIAG_PROBES. Same execPythonSerialized pattern as "shadow";
@@ -3148,6 +3551,32 @@ from shadow_portfolio import get_shadow_band_report
 print(json.dumps(get_shadow_band_report()))
 "`, { timeout: 20000 });
           return res.json(sanitizeDiag({ probe: "shadow_bands", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
+        case "shadow_bands_dedup": {
+          // ADDED 2026-10-27 [RULE-REVIEW] — see diag.ts. The shadow_bands
+          // tables for both rulers over one first-seen record per (ticker,
+          // ET entry day), so min_n counts distinct events, not per-scan
+          // copies. Aggregate-only (shadow_band_report_deduped).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from shadow_portfolio import get_shadow_band_report_deduped
+print(json.dumps(get_shadow_band_report_deduped()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "shadow_bands_dedup", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
+        case "source_validation": {
+          // ADDED 2026-10-27 [RESEARCH] — see diag.ts. Every data source
+          // tested alone against forward outcomes on the deduped shadow log,
+          // BH-corrected. Read-only, aggregate-only (source_validation.py at
+          // the repo root: scripts/ is not in the production image).
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from source_validation import get_source_validation_report
+print(json.dumps(get_source_validation_report()))
+"`, { timeout: 20000 });
+          return res.json(sanitizeDiag({ probe: "source_validation", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
@@ -3473,6 +3902,63 @@ print(json.dumps(insider_cusum_probe.run_probe()))
               computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
             rows: rows.map((x) => sanitizeDiag(x)),
           });
+        }
+        case "options_entitlements": {
+          // ADDED 2026-10-27 (Phase 6 part A, [PIPELINE]): one minimal READ-ONLY
+          // GET per Alpaca/Polygon options endpoint (contracts, snapshots opra vs
+          // indicative, historical trades/bars/quotes, Polygon snapshot OI) with
+          // this instance's own keys — see server/optionsEntitlements.ts. Only
+          // HTTP status, a verdict and field-name presence booleans leave; no
+          // prices, symbols, URLs or keys. Cached 10 min (Polygon Basic is
+          // 5 calls/min); ?fresh=1 bypasses, ?u= picks the underlying (default SPY).
+          const report = await cachedOptionsEntitlements({
+            env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch,
+            tradingBase: ALPACA_BASE, underlying: String(req.query.u || "SPY"),
+          }, { fresh: String(req.query.fresh || "") === "1" });
+          return res.json(sanitizeDiag(report));
+        }
+        case "bars_coverage": {
+          // ADDED 2026-10-28 ([PIPELINE], human order "check whether Alpaca's
+          // free bars include delisted tickers since 2010"): READ-ONLY GETs of
+          // daily stock bars (sip + iex, adjustment=all, start 2010-01-01) for
+          // SPY/AAPL/IWM, 17 known delisted/renamed/reused tickers (default vs
+          // dated vs disabled `asof` mapping) and a control, plus /v2/assets
+          // inactive/active COUNTS — see server/barsCoverage.ts. Only counts,
+          // first/last bar dates and closes, HTTP status and verdict tokens
+          // leave; no URL, body, vendor message or key. Self-paced (<= 4 in
+          // flight, 200 ms spacing, 18 s budget, ~61 calls), cached 6 h;
+          // ?fresh=1 bypasses.
+          const report = await cachedBarsCoverage({
+            env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch, tradingBase: ALPACA_BASE,
+          }, { fresh: String(req.query.fresh || "") === "1" });
+          return res.json(sanitizeDiag(report));
+        }
+        case "price_panel": {
+          // ADDED 2026-10-28: read-only status of the nightly price-panel build
+          // (server/pricePanel.ts pricePanelStatus) — manifests only, no bars,
+          // no network call, no query parameters.
+          return res.json(sanitizeDiag(pricePanelStatus()));
+        }
+        case "walkforward": {
+          // ADDED 2026-10-29 ([RULE-REVIEW] measurement): read-only status of
+          // the weekly long-term walk-forward (server/walkforward.ts) — the
+          // result files' headline fields only; no network, no Python, no
+          // query parameters.
+          return res.json(sanitizeDiag(walkforwardStatus()));
+        }
+        case "heartbeats": {
+          // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled
+          // job's last start/finish/status vs its registered cadence, grace and
+          // window (server/jobHeartbeat.ts JOB_REGISTRY), the overall verdict
+          // and the failing jobs. Read-only (one JSON file on the volume); the
+          // external watchdog routine polls this. No query parameters.
+          const hb = jobHeartbeatReport();
+          return res.json(sanitizeDiag({ probe: "heartbeats", ...hb, persistError: heartbeatStore().lastWriteError() }));
+        }
+        case "squeeze_gex": {
+          // ADDED 2026-10-29 (Edge P1 shadow stream): aggregates over the
+          // squeeze_gex archive — see server/squeezeGex.ts. Read-only.
+          return res.json(sanitizeDiag(squeezeReport()));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
@@ -3852,11 +4338,16 @@ print(json.dumps(result))
         `python3 -c "from risk_kill_switch import get_peak_equity; import json; print(json.dumps({'peak': get_peak_equity()}))"`,
         { timeout: 5000 }
       );
-      const peak = peakCall.success ? (peakCall.result.peak || equity) : equity;
+      // 2026-10-27 (audit D3): the daemon answers a bare float, the
+      // subprocess {peak}; reading only .peak fell back to equity whenever the
+      // daemon was up, so drawdown read ~0%. Unknown peak -> peak_known false.
+      const knownPeak = peakCall.success ? peakEquityFromRpc(peakCall.result) : null;
+      const peak = knownPeak ?? equity;
       const dd = peak > 0 ? ((equity - peak) / peak) : 0;
       res.json({
         equity,
         peak,
+        peak_known: knownPeak !== null,
         drawdown_pct: Math.round(dd * 10000) / 100,  // in basis points, 2 decimals
         kill_threshold_pct: -20,
         status: dd <= -0.20 ? "KILLED" :
@@ -4074,6 +4565,12 @@ print(json.dumps(result[:20]))
     // specifically. Absent on non-exit orders and anything not yet
     // migrated to this contract.
     pendingExitFill?: Omit<ExitFillArgs, "fillPrice" | "qty">;
+    // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): the entry-side twin of
+    // pendingExitFill. Everything buildEntryFillPayload() needs except the
+    // broker-confirmed fillPrice/qty; resolvePendingEntryFill() records the
+    // entry once Alpaca reports a fill. A resting limit that is later
+    // cancelled unfilled therefore writes no phantom entry record.
+    pendingEntryFill?: Omit<EntryFillArgs, "fillPrice" | "qty">;
     // CSP SWEEP/RESUBMIT LOOP FIX 2026-10-13: set only by the tier
     // dispatcher's SELL_CSP branch — the underlying whose cash-secured put
     // this order opens. When sweepStaleOrders() confirms the cancel it
@@ -4082,6 +4579,38 @@ print(json.dumps(result[:20]))
     cspUnderlying?: string;
   }
   const openOrders: TrackedOrder[] = [];
+
+  // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts + entry_shadow.py):
+  // sleeve+ticker pairs shadow-entered today (emulates "already holding" and
+  // rate-limits the SHADOW-ENTRY audit line to one per ticker per day).
+  const shadowEntryBook = new ShadowEntryBook();
+  function noteShadowEntry(e: NodeShadowEntry, sink: NodeShadowEntry[] | null): void {
+    if (sink) sink.push(e);
+    if (shadowEntryBook.add(e.sleeve, e.ticker, Date.now(), e)) audit("SHADOW-ENTRY", shadowEntryAuditLine(e));
+  }
+  // One shadow-log write per loop for the would-be stock/ETF entries Node
+  // gated (options opens are recorded by the Python gate they pass through).
+  // Measurement only: no order is placed either way, and a failure is audited.
+  async function flushShadowEntries(entries: NodeShadowEntry[], where: string): Promise<void> {
+    if (entries.length === 0) return;
+    const shadowTmpPath = `/tmp/entry_shadow_${Date.now()}.json`;
+    try {
+      fs.writeFileSync(shadowTmpPath, JSON.stringify({ entries }));
+      const logged = await pythonCall(
+        "entry_shadow_record",
+        { entries },
+        `python3 -c "import json, sys; sys.path.insert(0, '.'); from entry_shadow import record_node_entries; d = json.load(open('${shadowTmpPath}')); print(json.dumps(record_node_entries(d['entries'])))"`,
+        { timeout: 20000 }
+      );
+      if (!logged.success || logged.result?.error) {
+        audit("SHADOW-ENTRY", `${where}: ${entries.length} would-be entr${entries.length === 1 ? "y" : "ies"} not recorded (no order placed either way): ${String(logged.result?.error || "failed").slice(0, 120)}`);
+      }
+    } catch (shadowErr) {
+      audit("SHADOW-ENTRY", `${where}: shadow record failed (no order placed either way): ${(shadowErr instanceof Error ? shadowErr.message : String(shadowErr)).slice(0, 120)}`);
+    } finally {
+      try { fs.unlinkSync(shadowTmpPath); } catch (unlinkErr) { console.warn(`[entry-shadow] temp file not removed: ${shadowTmpPath}`); }
+    }
+  }
 
   // ── Per-Ticker Order Attempt Counter (Fix 2026-04-10, relaxed 2026-04-13) ─
   // Originally set to 3 to prevent the ELAB retry-loop bug (10 canceled orders
@@ -4117,6 +4646,53 @@ print(json.dumps(result[:20]))
   // from openOrders); returns false only when the status query itself
   // failed, so the caller can leave the entry tracked for the next sweep
   // instead of silently losing the fill.
+  // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): resolve a tracked ENTRY
+  // order. Records the entry feedback record at Alpaca's confirmed
+  // filled_avg_price/filled_qty once the order is terminal (a partial fill
+  // that was then cancelled records its filled part). Returns false while
+  // the order can still fill or the status query failed, so the caller keeps
+  // it tracked; true once its fate is known (recorded, or nothing filled).
+  async function resolvePendingEntryFill(tracked: TrackedOrder): Promise<boolean> {
+    if (!tracked.pendingEntryFill) return true;
+    try {
+      const final = await alpaca(`/v2/orders/${tracked.orderId}`);
+      if (!isTerminalOrderStatus(final?.status)) return false;
+      const fill = confirmedEntryFill(final);
+      if (fill) {
+        recordEntryFill(buildEntryFillPayload({
+          ...tracked.pendingEntryFill,
+          qty: fill.qty,
+          fillPrice: fill.price,
+          orderStatus: String(final.status),
+        }));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Record an entry now if Alpaca already reports it terminal (filled, or a
+  // partial fill then cancelled), else attach the payload to the tracked
+  // order so the sweep records it at the real fill. `order` is whatever
+  // order object the caller already holds (POST response or status GET).
+  function settleEntryFill(orderId: string, order: AlpacaOrderFill | null, args: Omit<EntryFillArgs, "fillPrice" | "qty">) {
+    const status = String(order?.status || "");
+    if (isTerminalOrderStatus(status)) {
+      const fill = confirmedEntryFill(order);
+      if (fill) {
+        recordEntryFill(buildEntryFillPayload({ ...args, qty: fill.qty, fillPrice: fill.price, orderStatus: status }));
+      }
+      return;
+    }
+    const tracked = openOrders.find(o => o.orderId === orderId);
+    if (tracked) {
+      tracked.pendingEntryFill = args;
+      return;
+    }
+    audit("FILL-TRACK-WARN", `${args.ticker}: order ${orderId} is not tracked — its entry fill cannot be recorded`);
+  }
+
   async function resolvePendingExitFill(tracked: TrackedOrder): Promise<boolean> {
     if (!tracked.pendingExitFill) return true;
     try {
@@ -4154,6 +4730,9 @@ print(json.dumps(result[:20]))
         await alpaca(`/v2/orders/${stale.orderId}`, { method: "DELETE" });
         audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}) — buying power freed`);
         if (stale.cspUnderlying) sweptCspAt[stale.cspUnderlying] = Date.now();
+        // A partly filled entry keeps its filled shares: record them before
+        // the order is dropped (REAL BROKER FILLS, 2026-10-27).
+        if (!(await resolvePendingEntryFill(stale))) continue;
         // Remove from tracked list
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
@@ -4179,6 +4758,7 @@ print(json.dumps(result[:20]))
         // a just-cancelled-in-race order isn't silently lost.
         const resolved = await resolvePendingExitFill(stale);
         if (!resolved) continue; // status unknown this cycle — retry next sweep
+        if (!(await resolvePendingEntryFill(stale))) continue;
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
         // Also clear pendingExit — if the order filled, the next sync will remove
@@ -4196,6 +4776,9 @@ print(json.dumps(result[:20]))
       for (let i = openOrders.length - 1; i >= 0; i--) {
         const tracked = openOrders[i];
         if (alpacaIds.has(tracked.orderId)) continue;
+        // REAL BROKER FILLS (2026-10-27): an entry is recorded at its
+        // confirmed fill before the order is dropped.
+        if (!(await resolvePendingEntryFill(tracked))) continue;
         // KNOWN BROKEN #35 half two: confirm fill/no-fill before dropping.
         const resolved = await resolvePendingExitFill(tracked);
         if (resolved) openOrders.splice(i, 1); // Filled or cancelled externally
@@ -4345,6 +4928,7 @@ print(json.dumps(result[:20]))
     morningQueue.sort((a, b) => b.score - a.score);
 
     let slotsUsed = 0;
+    const mqShadowEntries: NodeShadowEntry[] = [];
 
     try {
       const positions = await alpaca("/v2/positions");
@@ -4375,6 +4959,24 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // ══ ENTRY DECISION (audit §6.8 N2, 2026-10-27; replaces the PR #53
+      // inline block) ══ An options-intended entry (trade_type "options", or
+      // a bearish use_options setup) is dropped — the morning queue has no
+      // options path, and the old block let an options-typed SELL through to
+      // the stock order body as a naked short. Stock sell/short keeps PR
+      // #53's convert-to-BUY; the submitted and monitored sides come from
+      // the verdict. Decided before the gap check so a dropped entry costs
+      // no snapshot fetch.
+      const mqVerdict = decideMorningQueueEntry(trade);
+      if (!mqVerdict.submit) {
+        audit(mqVerdict.auditTag, mqVerdict.reason);
+        continue;
+      }
+      if (mqVerdict.convertedFrom) {
+        audit("SHORT-BLOCKED", `${trade.ticker}: side='${mqVerdict.convertedFrom}' blocked in morning queue — stock shorting disabled. Converting to BUY.`);
+      }
+      trade.side = mqVerdict.side;
+
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execPythonSerialized(
@@ -4400,12 +5002,6 @@ print(json.dumps(result[:20]))
         }
       } catch (err: any) { console.error("[bot]", err?.message || err); }
 
-      // ══ HARD BLOCK: No stock shorting in morning queue (PR #53) ══════════
-      if (trade.trade_type !== "options" && (trade.side === "short" || trade.side === "sell")) {
-        audit("SHORT-BLOCKED", `${trade.ticker}: side='${trade.side}' blocked in morning queue — stock shorting disabled. Converting to BUY.`);
-        trade.side = "buy";
-      }
-
       // ALPHA AUDIT 2026-05-04 batch 5: guard against qty=0 orders.
       // When trade.position_value is small (e.g. $50) and currentPrice is
       // high (e.g. QQQ at $500+), Math.floor produces 0 shares. Submitting
@@ -4424,13 +5020,25 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // ENTRY SHADOW MODE (2026-10-28): a queued stock entry is logged, not
+      // ordered, while the stocks sleeve is shadowed (gate before the POST).
+      if (isEntryShadowed("stocks")) {
+        noteShadowEntry({
+          sleeve: "stocks", ticker: trade.ticker, source: "executeMorningQueue", side: mqVerdict.side,
+          qty: _qtyToSubmit, price: trade.price || 0, notional: _qtyToSubmit * (trade.price || 0),
+          score: trade.score || 0, relabel: false,
+        }, mqShadowEntries);
+        slotsUsed++;
+        continue;
+      }
+
       try {
         const order = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: trade.ticker,
             qty: String(_qtyToSubmit),
-            side: trade.side || "buy",
+            side: mqVerdict.side,
             ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
@@ -4450,56 +5058,41 @@ print(json.dumps(result[:20]))
             ticker: trade.ticker,
             score: trade.score || 0,
             placedAt: Date.now(),
-            side: trade.side || "buy",
+            side: mqVerdict.side,
             qty: _qtyToSubmit,
             limitPrice: Number(order.limit_price) || 0,
           });
         }
 
-        // Track fill with realistic slippage (morning queue = market open = wider slippage)
-        try {
+        // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, entryFill.ts): this
+        // path used to record trade.price x a random 0.05-0.25% as the fill
+        // and never read Alpaca's fill. The entry record now waits for the
+        // confirmed filled_avg_price/filled_qty (resolved by the sweep). The
+        // prior haircut on the queued quote is kept as synthetic_fill_price.
+        if (order?.id) {
           const mVol = trade.volume || 1000000;
-          let mSlip = 0.08; // Morning fills are worse (opening volatility)
-          if (mVol > 20000000) mSlip = 0.05 + Math.random() * 0.05;
-          else if (mVol > 5000000) mSlip = 0.08 + Math.random() * 0.07;
-          else mSlip = 0.15 + Math.random() * 0.10;
-          const mSide = trade.side || "buy";  // side already normalized above (short blocked)
-          const mDir = mSide === "buy" ? 1 : -1;
-          const mFillPrice = Math.round((trade.price * (1 + mDir * mSlip / 100)) * 100) / 100;
-
-          const morningFillPayload = {
-            ticker: trade.ticker, order_type: "market", side: mSide,
-            qty: Math.floor(trade.shares),
-            expected_price: trade.price, fill_price: mFillPrice,
-            slippage_applied_pct: mSlip,
-            time_placed: trade.queuedAt || new Date().toISOString(),
+          settleEntryFill(order.id, order, {
+            ticker: trade.ticker, side: trade.side || "buy",  // side already normalized above (short blocked)
+            expectedPrice: trade.price, qtyRequested: _qtyToSubmit,
+            syntheticSlippagePct: syntheticSlippagePct(mVol, "morning_queue"), syntheticBase: "expected",
+            orderId: order.id,
             session: "morning_queue", volume: mVol, score: trade.score,
             instrument: trade.instrument || "stock",
-            code_version: pkgVersion,
-          };
-          const mfTmp = `/tmp/fill_m_${trade.ticker}_${Date.now()}.json`;
-          fs.writeFileSync(mfTmp, JSON.stringify(morningFillPayload));
-          // OPT 2026-04-20: daemon first, subprocess fallback
-          pythonCall(
-            "track_fill", morningFillPayload,
-            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${mfTmp}')); os.remove('${mfTmp}'); track_fill(d)"`,
-            { timeout: 5000 }
-          ).then((r) => {
-            if (r.via === "daemon") {
-              try { fs.unlinkSync(mfTmp); } catch {}
-            }
-          }).catch(() => {});
-        } catch (err: any) { console.error("[bot]", err?.message || err); }
+            codeVersion: pkgVersion,
+          });
+        }
 
         slotsUsed++;
         // Auto-subscribe for real-time exit monitoring
-        addPositionToMonitor(trade.ticker, "long", trade.price || 0, Math.floor(trade.shares));  // Always long (short blocked)
+        addPositionToMonitor(trade.ticker, mqVerdict.monitorSide, trade.price || 0, Math.floor(trade.shares));  // side from the verdict (N2)
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
       }
 
       await new Promise(r => setTimeout(r, 500));
     }
+
+    await flushShadowEntries(mqShadowEntries, "morning queue");
 
     // Clear the queue
     morningQueue.length = 0;
@@ -4512,12 +5105,75 @@ print(json.dumps(result[:20]))
   let lastScanResult: any = null;
   let _shadowBackfilledToday = false;
   let _lookupLedgerFilledToday = false;
+  let _dossierLedgerScoredToday = false;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
   // moved to the WebSocket handler for real-time, event-driven exits.
   // Tier 1 only handles: stale orders, morning queue, trade tracking, and
   // syncing the position monitor's stop state.
+
+  // Tier 1 steps 1-3: the protective half of the reflex (stale-order sweep,
+  // stop-state refresh, position sync incl. TIME-EXIT / POS-KILL). Shared by
+  // tier1Reflex (normal operation) and tier1HaltedExits (a halt is active:
+  // audit N15 — server/haltScope.ts). Places no entry orders.
+  async function tier1ProtectiveSync() {
+    // 1. Sweep stale orders
+    await sweepStaleOrders();
+
+    // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
+    //    This keeps the WS monitor's levels accurate without blocking exits.
+    try {
+      const { stdout } = await execPythonSerialized(`python3 -c "
+from bot_engine import manage_positions
+import json
+result = manage_positions()
+print(json.dumps(result))
+"`, { timeout: 15000 });
+      const mgmt = JSON.parse(stdout.trim());
+      // Bot_engine may still compute actions — but we do NOT execute them here.
+      // The WS handler fires exits in real-time. We only use this to refresh
+      // the on-disk stop_state.json which syncMonitoredPositions() reads.
+      // Log if bot_engine found something the WS monitor should have caught
+      for (const action of (mgmt.actions || [])) {
+        if (monitoredPositions[action.ticker]) {
+          audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
+        }
+      }
+    } catch (err: any) {
+      console.error("[tier1-sync]", err?.message || err);
+      noteJobError("tier1_reflex", `stop-state sync: ${err?.message || err}`);
+    }
+
+    // 3. Refresh monitored positions from Alpaca + stop state
+    await syncMonitoredPositions();
+  }
+
+  // Tier 1 while a halt blocks entries (kill latch, circuit breaker,
+  // weekly-loss pause): the drawdown check (unless the kill is already
+  // latched — then the auto-resume tick owns it), the protective sync above
+  // and the closed-trade tracker. NEVER the morning queue (an entry path).
+  let tier1HaltedRunning = false;
+  async function tier1HaltedExits(gate: HaltState) {
+    if (tier1HaltedRunning) return;
+    tier1HaltedRunning = true;
+    try {
+      if (haltAllows(gate, "ddCheck")) {
+        try {
+          await checkDrawdownKillSwitch();
+        } catch (err) {
+          console.error("[tier1-halted-drawdown]", err instanceof Error ? err.message : err);
+          noteJobError("tier1_reflex", `halted drawdown check: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      await tier1ProtectiveSync();
+      await trackClosedTrades();
+    } catch (err) {
+      console.error("[tier1-halted]", err instanceof Error ? err.message : err);
+    } finally {
+      tier1HaltedRunning = false;
+    }
+  }
 
   async function tier1Reflex() {
     try {
@@ -4533,36 +5189,11 @@ print(json.dumps(result[:20]))
         t1Equity = dd.equity;
       } catch (err) {
         console.error("[tier1-drawdown]", err instanceof Error ? err.message : err);
+        noteJobError("tier1_reflex", `drawdown check: ${err instanceof Error ? err.message : err}`);
       }
 
-      // 1. Sweep stale orders
-      await sweepStaleOrders();
-
-      // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
-      //    This keeps the WS monitor's levels accurate without blocking exits.
-      try {
-        const { stdout } = await execPythonSerialized(`python3 -c "
-from bot_engine import manage_positions
-import json
-result = manage_positions()
-print(json.dumps(result))
-"`, { timeout: 15000 });
-        const mgmt = JSON.parse(stdout.trim());
-        // Bot_engine may still compute actions — but we do NOT execute them here.
-        // The WS handler fires exits in real-time. We only use this to refresh
-        // the on-disk stop_state.json which syncMonitoredPositions() reads.
-        // Log if bot_engine found something the WS monitor should have caught
-        for (const action of (mgmt.actions || [])) {
-          if (monitoredPositions[action.ticker]) {
-            audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
-          }
-        }
-      } catch (err: any) {
-        console.error("[tier1-sync]", err?.message || err);
-      }
-
-      // 3. Refresh monitored positions from Alpaca + stop state
-      await syncMonitoredPositions();
+      // 1-3. Sweep stale orders, refresh stop state, sync monitored positions
+      await tier1ProtectiveSync();
 
       // 4. Execute morning queue on first market-open cycle
       const clockT1 = await alpaca("/v2/clock");
@@ -4576,6 +5207,7 @@ print(json.dumps(result))
 
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
+      noteJobError("tier1_reflex", err?.message || err);
     }
   }
 
@@ -4612,6 +5244,7 @@ print(json.dumps(result))
   async function checkShadowBackfill() {
     const nowHour = new Date().getUTCHours();
     if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
+      beat("shadow_backfill", "start");
       try {
         const result = await execPythonSerialized(
           `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(3000)))"`,
@@ -4630,31 +5263,56 @@ print(json.dumps(result))
         try {
           const stats = JSON.parse(result.stdout.trim());
           audit("SHADOW-BACKFILL", JSON.stringify(stats));
+          beat("shadow_backfill", "finish", "ok");
         } catch (parseErr: any) {
           audit("SHADOW-BACKFILL-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)}`);
+          beat("shadow_backfill", "finish", "error", "unparseable stdout");
         }
       } catch (e: any) {
         console.error("[SHADOW] Backfill failed:", e);
         audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
+        beat("shadow_backfill", "finish", "error", String(e?.message || e));
       }
     }
     // Look-up ledger outcomes ride the same nightly slot (its own try: a
     // shadow failure must not skip it, and it must not flip the shadow flag).
     if (nowHour === 22 && !_lookupLedgerFilledToday) {
       _lookupLedgerFilledToday = true;
+      beat("lookup_ledger_backfill", "start");
       try {
         const lr = await execPythonSerialized(
           `python3 -c "from lookup_ledger import backfill; import json; print(json.dumps(backfill(60)))"`,
           { timeout: 60000 }
         );
         audit("LOOKUP-LEDGER-BACKFILL", String(lr.stdout).trim().slice(0, 300));
+        beat("lookup_ledger_backfill", "finish", "ok");
       } catch (e: unknown) {
         audit("LOOKUP-LEDGER-BACKFILL-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        beat("lookup_ledger_backfill", "finish", "error", e instanceof Error ? e.message : String(e));
+      }
+    }
+    // Ticker dossier calibration ledger (2026-10-29): every served range band
+    // and trade plan is scored once its horizon passes — same slot, own flag,
+    // own try, so neither neighbour can skip it.
+    if (nowHour === 22 && !_dossierLedgerScoredToday) {
+      _dossierLedgerScoredToday = true;
+      beat("dossier_ledger_score", "start");
+      try {
+        const dr = await execPythonSerialized(
+          `python3 -c "from ticker_dossier import score_ledger; import json; print(json.dumps(score_ledger()))"`,
+          { timeout: 90000 }
+        );
+        audit("DOSSIER-LEDGER-SCORE", String(dr.stdout).trim().slice(0, 300));
+        beat("dossier_ledger_score", "finish", "ok");
+      } catch (e: unknown) {
+        audit("DOSSIER-LEDGER-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        beat("dossier_ledger_score", "finish", "error", e instanceof Error ? e.message : String(e));
       }
     }
     if (nowHour === 0) {
       _shadowBackfilledToday = false;  // reset at midnight UTC
       _lookupLedgerFilledToday = false;
+      _dossierLedgerScoredToday = false;
     }
   }
 
@@ -4680,6 +5338,11 @@ print(json.dumps(result))
   // request starts unless it fits) + one merge-save (XA_SAVE_RESERVE_S=15) =
   // 75s < 90s, and it checkpoints every 5 windows / 20s, so even a kill keeps
   // the work finished before it.
+  //
+  // UPDATE 2026-10-27 (audit D1): classification is now server/pythonExec.ts
+  // planPythonExec — a caller asking for more than 10 s is never "trivial",
+  // so the old job's command (asks 120 s) now also runs behind the mutex
+  // with a 90 s kill; the mutex serializes the two jobs as well as the gate.
   //
   // Not via the daemon RPC (the route is registered per READ BEFORE WRITE #4,
   // and deliberately unused here): a daemon dispatch thread cannot be killed,
@@ -4710,6 +5373,7 @@ print(json.dumps(result))
     if (((nowHour === 22 && oldRulerDone) || nowHour === 23) && !_shadowXaBackfilledToday
         && _shadowXaAttemptsToday < SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT) {
       _shadowXaAttemptsToday += 1;
+      beat("shadow_backfill_exit_aligned", "start");
       try {
         const result = await execPythonSerialized(
           `python3 -c "import json; from shadow_portfolio import backfill_exit_aligned; print(json.dumps(backfill_exit_aligned(max_records=3000, max_windows=40, time_budget_s=60)))"`,
@@ -4719,17 +5383,118 @@ print(json.dumps(result))
         try {
           const stats = JSON.parse(String(result.stdout).trim());
           audit("SHADOW-BACKFILL-XA", JSON.stringify(stats));
+          beat("shadow_backfill_exit_aligned", "finish", "ok");
         } catch (parseErr: unknown) {
           audit("SHADOW-BACKFILL-XA-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)} (${String(parseErr).slice(0, 100)})`);
+          beat("shadow_backfill_exit_aligned", "finish", "error", "unparseable stdout");
         }
       } catch (e: unknown) {
         audit("SHADOW-BACKFILL-XA-ERROR", `attempt ${_shadowXaAttemptsToday}/${SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT}: ` +
           String(e instanceof Error ? e.message : e).slice(0, 500));
+        beat("shadow_backfill_exit_aligned", "finish", "error", `attempt ${_shadowXaAttemptsToday}/${SHADOW_XA_MAX_ATTEMPTS_PER_NIGHT}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     if (nowHour === 0) {
       _shadowXaBackfilledToday = false;  // reset at midnight UTC
       _shadowXaAttemptsToday = 0;
+    }
+  }
+
+  // ── v3 CANDIDATE model job (SHADOW ONLY; 2026-10-27 human Phase 4) ───────
+  // ml_model_v3.run_job() refits and honestly re-evaluates the v3 candidate
+  // weekly (system_config ML_V3_RETRAIN_DAYS). It is STAGED and checkpointed
+  // (fetch -> build -> cv fold by fold -> final), each call doing at most
+  // time_budget_s=60 of work, because execPythonSerialized SIGKILLs at 90s.
+  // The command imports numpy, so isTrivialPython() is false: it holds the
+  // Python mutex and gets the 90s cap, not the 10s trivial cap. Runs 03-04
+  // UTC (23:00-00:59 ET; after the 22-23 UTC shadow backfills, market
+  // closed), at most ML_V3_MAX_ATTEMPTS_PER_NIGHT calls, until a call
+  // reports done. Nothing it writes is read by scoring: the live blend keeps
+  // ml_model_v2 until a promotion decision.
+  let _mlV3DoneToday = false;
+  let _mlV3AttemptsToday = 0;
+  const ML_V3_MAX_ATTEMPTS_PER_NIGHT = 20;
+  async function checkMlV3CandidateJob() {
+    const nowHour = new Date().getUTCHours();
+    if ((nowHour === 3 || nowHour === 4) && !_mlV3DoneToday
+        && _mlV3AttemptsToday < ML_V3_MAX_ATTEMPTS_PER_NIGHT) {
+      _mlV3AttemptsToday += 1;
+      try {
+        const result = await execPythonSerialized(
+          `python3 -c "import numpy, json; from ml_model_v3 import run_job; print(json.dumps(run_job(time_budget_s=60), default=str))"`,
+          { timeout: 90000 }
+        );
+        const out = JSON.parse(String(result.stdout).trim().split("\n").pop() || "{}");
+        if (out.done) _mlV3DoneToday = true;
+        audit(out.error ? "ML-V3-JOB-ERROR" : "ML-V3-JOB", JSON.stringify(out).slice(0, 500));
+      } catch (e: unknown) {
+        audit("ML-V3-JOB-ERROR", `attempt ${_mlV3AttemptsToday}/${ML_V3_MAX_ATTEMPTS_PER_NIGHT}: ` +
+          String(e instanceof Error ? e.message : e).slice(0, 500));
+      }
+    }
+    if (nowHour === 0) {
+      _mlV3DoneToday = false;  // reset at midnight UTC
+      _mlV3AttemptsToday = 0;
+    }
+  }
+
+  // Weekly forecast screen (2026-10-27, SHADOW — forecast.py, server/
+  // forecast.ts). Display + track only: nothing here feeds a trade. Like the
+  // shadow backfills it runs on its own unconditional poll, not inside Tier 3
+  // (Tier 3 needs state.active, and a latched kill switch must not blank the
+  // page's weekly calls). Generate: at most hourly; forecast.py returns
+  // "skipped" without any network call while this week's batch exists, so in
+  // practice one batch lands at the first poll after Friday's close (or the
+  // first run of a week, flagged late). Score: once per UTC day after 22:00.
+  // Both run as subprocesses behind execPythonSerialized's 90 s hard kill
+  // (their commands are pinned above the trivial-command cutoff).
+  let _forecastLastGenAttempt: number | null = null;
+  let _forecastLastScoredDay: string | null = null;
+  let _forecastRunning = false;
+  let _forecastIv: { day: string; rows: Array<{ u: string; iv30: number | null }> } | null = null;
+  async function checkForecasts() {
+    if (_forecastRunning) return;
+    _forecastRunning = true;
+    try {
+      const now = Date.now();
+      if (shouldAttemptGenerate(now, _forecastLastGenAttempt)) {
+        _forecastLastGenAttempt = now;
+        const tmp = forecastPayloadPath(now);
+        try {
+          const positions = await alpaca("/v2/positions");
+          if (!Array.isArray(positions)) throw new Error("positions unreadable — retrying next hour");
+          const top = Array.isArray(lastScanResult?.top_10) ? lastScanResult.top_10 : [];
+          const tickers = forecastUniverse(positions, top);
+          // chain IV30 for the newest archived day, derived once per day (chainIv.ts)
+          const days = listChainDays();
+          const ivDay = days.length ? days[days.length - 1] : null;
+          if (ivDay && _forecastIv?.day !== ivDay) _forecastIv = { day: ivDay, rows: (await iv30ForDays([ivDay], undefined, now, 1)).rows };
+          const payload: ForecastPayload = {
+            tickers, iv: ivDay && _forecastIv ? ivMapFrom(_forecastIv.rows, tickers.map((t) => t.symbol)) : {}, iv_day: ivDay,
+            candidates_available: top.length > 0, candidates_scan_at: lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null,
+            time_budget_s: FORECAST_TIME_BUDGET_S,
+          };
+          fs.writeFileSync(tmp, JSON.stringify(payload));
+          const r = await execPythonSerialized(forecastGenerateCmd(tmp), { timeout: FORECAST_JOB_TIMEOUT_MS });
+          const out = String(r.stdout).trim();
+          const parsed: { status?: string } = JSON.parse(out);
+          if (parsed.status !== "skipped") audit(parsed.status === "ok" ? "FORECAST-GENERATE" : "FORECAST-GENERATE-ERROR", out.slice(0, 300));
+        } catch (e: unknown) {
+          fs.rmSync(tmp, { force: true });
+          audit("FORECAST-GENERATE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+      }
+      if (shouldScore(now, _forecastLastScoredDay)) {
+        _forecastLastScoredDay = new Date(now).toISOString().slice(0, 10);
+        try {
+          const r = await execPythonSerialized(forecastScoreCmd(), { timeout: FORECAST_JOB_TIMEOUT_MS });
+          audit("FORECAST-SCORE", String(r.stdout).trim().slice(0, 300));
+        } catch (e: unknown) {
+          audit("FORECAST-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+      }
+    } finally {
+      _forecastRunning = false;
     }
   }
 
@@ -4909,6 +5674,15 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       if (result.shadow_gate_relabels && result.shadow_gate_relabels.received > 0) {
         const g = result.shadow_gate_relabels;
         audit("SHADOW-GATES", `scan: ${g.received} gate rejection(s) ${JSON.stringify(g.by_decision || {})} → relabelled ${g.updated}, skipped ${g.skipped}${g.saved ? "" : " (not saved)"}`);
+      }
+      // ENTRY SHADOW MODE (2026-10-28): would-be entries Python logged instead
+      // of ordering this scan (third leg SVXY, convexity puts, roll opens) —
+      // one audit line per NEW sleeve+ticker per day.
+      for (const e of (Array.isArray(result.entry_shadow?.entries) ? result.entry_shadow.entries : [])) {
+        if (!e || !e.new || !e.ticker || (e.sleeve !== "stocks" && e.sleeve !== "options")) continue;
+        if (shadowEntryBook.add(e.sleeve, String(e.ticker), Date.now(), { source: e.source || "bot_engine", side: e.side, notional: e.notional, instrument: e.instrument })) {
+          audit("SHADOW-ENTRY", `${e.sleeve}: ${e.ticker} via ${e.source || "bot_engine"} — logged, no order (VOLTRADE_SHADOW_ENTRIES)`);
+        }
       }
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
         ? result.data_source_errors : {};
@@ -5199,6 +5973,10 @@ print(json.dumps(check_weekly_loss(history)))
             cspGateRejections.push({ ticker: String(a.ticker), decision, reason: String(reason).slice(0, 200), metadata: a.metadata ?? {} });
           }
         };
+        // ENTRY SHADOW MODE (2026-10-28): Tier-3 BUYs the stocks gate logs
+        // instead of ordering (SELL_CSP / BUY_PUT are recorded by their
+        // Python gate); one shadow-log write after the loop.
+        const tierShadowEntries: NodeShadowEntry[] = [];
         for (const action of result.tier_actions) {
           if (state.killSwitch) {
             for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
@@ -5234,6 +6012,13 @@ print(json.dumps(check_weekly_loss(history)))
               continue;
             }
           }
+          // ENTRY SHADOW MODE (2026-10-28): an entry already shadow-logged
+          // today is not re-dispatched — emulates the open position.
+          const tierSleeve: EntrySleeve | null = action.action === "BUY" ? "stocks"
+            : (action.action === "SELL_CSP" || action.action === "BUY_PUT") ? "options" : null;
+          if (tierSleeve && isEntryShadowed(tierSleeve) && shadowEntryBook.has(tierSleeve, String(action.ticker))) {
+            continue;
+          }
           try {
             // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
             // CSPs are options trades — use the Python options_execution path
@@ -5241,7 +6026,11 @@ print(json.dumps(check_weekly_loss(history)))
             // based on metadata (target_dte, target_delta).
             if (action.action === "SELL_CSP") {
               // Delegate to Python options_execution which handles strike/expiry
-              // selection based on target_delta and target_dte_min/max in metadata
+              // selection based on target_delta and target_dte_min/max in metadata.
+              // [REPAIR] 2026-10-27 (audit §6.8 N8): size_pct and metadata were
+              // in this payload but never handed to select_contract, so tier
+              // sizing (T1 stress/DD scalars, T2 leverage) never reached
+              // execution. Now passed; select_contract caps at MAX_OPTIONS_PCT.
               const cspPayload = {
                 ticker: action.ticker,
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
@@ -5260,7 +6049,7 @@ import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${cspTmpPath}'))
 import os; os.remove('${cspTmpPath}')
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'))
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'), size_pct=data.get('size_pct'), metadata=data.get('metadata'))
 if contract.get('error'):
     _err = contract['error']
     # CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
@@ -5285,14 +6074,39 @@ if contract.get('error'):
             pass
     print(json.dumps({'status': 'error', 'reason': _err}))
 else:
-    result = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.SELL_CSP', strategy=data['strategy'])
+    else:
+        result = submit_options_order(contract)
     result['cash_required'] = contract.get('cash_required', 0)
+    # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): this branch never registered
+    # the entry, so every later close of a tier CSP was an orphan_exit.
+    # Recording only (a pending marker resolved on the confirmed fill).
+    if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
+        try:
+            from options_manager import register_pending_entry_feedback
+            register_pending_entry_feedback(contract.get('occ_symbol', ''), data['ticker'], contract.get('side', 'sell'))
+        except Exception as _pe:
+            print(f'pending entry marker failed: {_pe}', file=sys.stderr)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
-                if (r.status === "submitted" || r.status === "filled") {
+                if (r.status === SHADOW_ORDER_STATUS) {
+                  // Shadowed open: the slot and cash it WOULD have used are
+                  // consumed in this loop so the rest of the batch sees the
+                  // book live would have seen; nothing rests at the broker.
+                  noteShadowEntry({
+                    sleeve: "options", ticker: String(action.ticker), source: "tier_dispatcher.SELL_CSP", side: r.side || "sell",
+                    qty: Number(r.qty) || 1, price: 0, notional: parseFloat(r.cash_required) || 0, score: 0,
+                    instrument: r.occ_symbol || String(action.ticker),
+                  }, null);
+                  tierOptionsSlotsUsed++;
+                  tierCashAvailable -= (parseFloat(r.cash_required) || 0);
+                } else if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
                   tierCashAvailable -= (parseFloat(r.cash_required) || 0);
@@ -5338,7 +6152,13 @@ else:
               const currentPrice = parseFloat(snap?.latestTrade?.p || snap?.dailyBar?.c || 0);
               if (currentPrice > 0 && targetDollars <= buyingPower) {
                 const shares = Math.floor(targetDollars / currentPrice);
-                if (shares > 0) {
+                if (shares > 0 && isEntryShadowed("stocks")) {
+                  // ENTRY SHADOW MODE (2026-10-28): logged, not ordered.
+                  noteShadowEntry({
+                    sleeve: "stocks", ticker: String(action.ticker), source: "tier_dispatcher.T3_BUY", side: "buy",
+                    qty: shares, price: currentPrice, notional: shares * currentPrice, score: 0,
+                  }, tierShadowEntries);
+                } else if (shares > 0) {
                   const orderParams = getOrderParams(currentPrice);
                   try {
                     const t3OrderResult = await alpaca("/v2/orders", {
@@ -5397,17 +6217,34 @@ import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${hedgeTmpPath}'))
 import os; os.remove('${hedgeTmpPath}')
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], size_pct=data.get('size_pct'), metadata=data.get('metadata'))
 if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
-    result = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.BUY_PUT', strategy=data['strategy'])
+    else:
+        result = submit_options_order(contract)
+    # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): see the SELL_CSP branch.
+    if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
+        try:
+            from options_manager import register_pending_entry_feedback
+            register_pending_entry_feedback(contract.get('occ_symbol', ''), data['ticker'], contract.get('side', 'buy'))
+        except Exception as _pe:
+            print(f'pending entry marker failed: {_pe}', file=sys.stderr)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
-                if (r.status === "submitted" || r.status === "filled") {
+                if (r.status === SHADOW_ORDER_STATUS) {
+                  noteShadowEntry({
+                    sleeve: "options", ticker: String(action.ticker), source: "tier_dispatcher.BUY_PUT", side: r.side || "buy",
+                    qty: Number(r.qty) || 1, price: 0, notional: 0, score: 0, instrument: r.occ_symbol || String(action.ticker),
+                  }, null);
+                } else if (r.status === "submitted" || r.status === "filled") {
                   audit("T4", `BUY_PUT ${action.ticker} hedge | ${action.reason}`);
                   // STALE-ORDER-SWEEP FIX 2026-08-22: same gap as the SELL_CSP
                   // branch above — register the resting DAY limit order so
@@ -5434,6 +6271,7 @@ else:
             audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
           }
         }
+        await flushShadowEntries(tierShadowEntries, "tier dispatcher");
         // One shadow-log call per dispatcher loop (see cspGateRejections above).
         if (cspGateRejections.length > 0) {
           const cspGateTmpPath = `/tmp/csp_gate_shadow_${Date.now()}.json`;
@@ -5477,6 +6315,21 @@ else:
       if (result.tier_kill_status?.killed) {
         audit("TIER-KILL", `Tier engine blocked: ${result.tier_kill_status.kill_reason}`);
       }
+
+      // REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3): the scan
+      // carries the engine's state when VOLTRADE_REGIME_ENGINE is on. One
+      // audit line per composite transition and one when an update failed
+      // (a stale state must be loud, never silent). Shadow — nothing acts.
+      const regimeAuditLine = regimeTransitionAudit(result.regime);
+      if (regimeAuditLine) audit("REGIME-TRANSITION", regimeAuditLine);
+      if (result.regime?.error) audit("REGIME-STALE", `regime engine update failed: ${String(result.regime.error).slice(0, 160)}`);
+      // step 6: a sizer that fell back to 1.0 on a stale state (counted by regime_engine,
+      // reset daily) is audited once per new occurrence — never silently.
+      const staleFallbacks = Number(result.regime_sizing?.stale_fallbacks ?? 0);
+      if (staleFallbacks > lastRegimeStaleFallbacks) {
+        audit("REGIME-STALE", `sizing fell back to 1.0 on a stale regime state (${staleFallbacks} today; state as_of ${result.regime?.as_of ?? "?"})`);
+      }
+      lastRegimeStaleFallbacks = staleFallbacks;
 
     } catch (err: any) {
       tier2LastScanFailed = true;
@@ -5735,6 +6588,10 @@ else:
         }, 0)
       : 0;
     const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
+    // ENTRY SHADOW MODE (2026-10-28): would-be stock/ETF entries gated below
+    // (one shadow-log write after the loop; options opens are recorded by the
+    // Python gate in select_contract's caller / evaluate_and_execute).
+    const shadowEntries: NodeShadowEntry[] = [];
 
     // [RULE-REVIEW] 2026-10-26: every gate below that drops a candidate
     // notes it here, and ONE RPC after the loop relabels the candidate's
@@ -5786,6 +6643,14 @@ else:
       }
       if (held.includes(trade.ticker)) { noteGate(trade, "rejected_held", "already holding"); continue; }
       if ((trade as any)._consumed) continue;
+      // ENTRY SHADOW MODE: a candidate already shadow-entered today is treated
+      // like a held one (no re-evaluation, no second record) — its deep_score
+      // record is relabelled shadow_mode_repeat instead of staying "taken".
+      const tradeSleeve: EntrySleeve = isOptionsTrade ? "options" : "stocks";
+      if (isEntryShadowed(tradeSleeve) && shadowEntryBook.has(tradeSleeve, trade.ticker)) {
+        noteGate(trade, SHADOW_REPEAT_DECISION, `shadow entry already logged today (${tradeSleeve}) — emulates an open position`);
+        continue;
+      }
       // Skip tickers blocked after 3 same-ticker stops today
       if (Array.isArray((state as any).dailyBlockedTickers) && (state as any).dailyBlockedTickers.includes(trade.ticker)) {
         audit("SKIP", `${trade.ticker}: blocked for today after repeated stop-losses`);
@@ -5891,11 +6756,30 @@ else:
         audit("INSTRUMENT", `${trade.ticker} → ${(trade.instrument || 'stock').toUpperCase()} chosen | scores: stock=${sScore} etf=${eScore} options=${oScore} | ${(trade.instrument_reasoning || '').slice(0, 120)}`);
 
         // ── ETF execution (instrument selector chose 2x leveraged ETF) ──
+        // [REPAIR] 2026-10-27 (audit §6.8 N6): qty and price come from the
+        // scan's ETF plan (dollar-sized, priced off the ETF's own ask) — see
+        // etfSubstitution.ts. No plan → trade the stock (existing fallback).
         if (trade.instrument === "etf" && trade.instrument_ticker && trade.instrument_ticker !== trade.ticker) {
-          const etfTicker = trade.instrument_ticker;
-          const etfShares = Math.max(1, Math.floor(trade.shares / 2)); // Half shares for 2x leverage
+          const etfPlan = planEtfOrder(trade);
+          if (!etfPlan.ok) {
+            audit("ETF-FALLBACK", `${trade.instrument_ticker}: ${etfPlan.reason} — falling back to stock`);
+          } else {
+          const etfTicker = etfPlan.symbol;
+          const etfShares = etfPlan.qty;
+          const etfPrice = etfPlan.price;
+          if (isEntryShadowed("stocks")) {
+            // ENTRY SHADOW MODE (2026-10-28): logged, not ordered (gate before the POST).
+            noteShadowEntry({
+              sleeve: "stocks", ticker: trade.ticker, source: "executeTrades.etf", side: "buy", qty: etfShares,
+              price: trade.price || 0, notional: etfPlan.value, score: trade.score || 0,
+              instrument: etfTicker, instrument_price: etfPrice, relabel: true,
+            }, shadowEntries);
+            slotsUsed++;
+            totalDeployed += etfPlan.value;
+            continue;
+          }
           try {
-            const etfOrderParams = getOrderParams(trade.price || 0);
+            const etfOrderParams = getOrderParams(etfPrice);
             const etfOrderResult = await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
@@ -5903,10 +6787,10 @@ else:
                 ...etfOrderParams,
               }),
             });
-            audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} (2x ETF for ${trade.ticker}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
-            notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
+            audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} @ ~$${etfPrice.toFixed(2)} ($${etfPlan.value.toFixed(0)}, leveraged ETF for ${trade.ticker}, sizing=${trade.etf_sizing_source || "?"}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
+            notify("trade", `ETF: ${etfShares} ${etfTicker} (leveraged ${trade.ticker})`);
             slotsUsed++;
-            totalDeployed += etfShares * trade.price; // Approximate
+            totalDeployed += etfPlan.value;
             // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation): this ETF
             // entry is always a DAY limit order (getOrderParams' 'new_entry'
             // context never returns a market order) — register it so
@@ -5929,31 +6813,27 @@ else:
             // became a permanent orphan_exit — see entryFill.ts for the full
             // trace. Record the entry the same way the regular/morning-queue
             // stock paths already do.
-            try {
-              const etfEntryPayload = buildEntryFillPayload({
-                ticker: etfTicker, side: "buy", qty: etfShares,
-                fillPrice: trade.price || 0, session: "regular",
-                volume: trade.volume, score: trade.score,
+            // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS): the ETF entry
+            // used to be recorded at trade.price, which is the UNDERLYING's
+            // price, not the leveraged ETF's. It now waits for the confirmed
+            // ETF fill. expectedPrice = the ETF's own quote from the N6 sizing
+            // plan (etfPlan.price), so slippage is measured against the
+            // instrument actually traded.
+            if (etfOrderResult?.id) {
+              settleEntryFill(etfOrderResult.id, etfOrderResult, {
+                ticker: etfTicker, side: "buy", expectedPrice: etfPrice, qtyRequested: etfShares,
+                orderId: etfOrderResult.id,
+                session: "regular", volume: trade.volume, score: trade.score,
                 instrument: "etf", codeVersion: pkgVersion,
               });
-              const etfTmp = `/tmp/fill_etf_${etfTicker}_${Date.now()}.json`;
-              fs.writeFileSync(etfTmp, JSON.stringify(etfEntryPayload));
-              pythonCall(
-                "track_fill", etfEntryPayload,
-                `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${etfTmp}')); os.remove('${etfTmp}'); track_fill(d)"`,
-                { timeout: 5000 }
-              ).then((r) => {
-                if (r.via === "daemon") {
-                  try { fs.unlinkSync(etfTmp); } catch {}
-                }
-              }).catch(() => {});
-            } catch (err: any) { console.error("[bot]", err?.message || err); }
-            addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", trade.price || 0, etfShares);
+            }
+            addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", etfPrice, etfShares);
             continue;
           } catch (etfErr: any) {
             audit("ETF-FALLBACK", `${etfTicker} order failed: ${etfErr?.message?.slice(0, 100)} — falling back to stock`);
             // Fall through to stock/options execution
           }
+          } // end else (planEtfOrder ok)
         }
 
         // ── Options vs Stock execution ──
@@ -5980,7 +6860,12 @@ contract = select_contract(data['ticker'], data['strategy'], data['price'], data
 if contract.get('error'):
     print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
 else:
-    order = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        order = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='executeTrades.options_scanner', strategy=data['strategy'], reason='scanner setup ' + str(data.get('setup','')))
+    else:
+        order = submit_options_order(contract)
     if order.get('status') in ('submitted','filled','pending_new','accepted'):
         # P0-9 FIX: previous call passed delta as the 4th positional arg,
         # but register_options_entry's signature is
@@ -6063,6 +6948,21 @@ else:
               }
             }
 
+            if (optExec.instrument === "options" && optExec.order?.status === SHADOW_ORDER_STATUS) {
+              // ENTRY SHADOW MODE (2026-10-28): the Python options gate logged
+              // the would-be open and placed nothing — never fall back to a
+              // stock buy for it. Slot/heat consumed as live would have.
+              noteShadowEntry({
+                sleeve: "options", ticker: trade.ticker,
+                source: trade.regime_at_entry === "OPTIONS_SCANNER" ? "executeTrades.options_scanner" : "executeTrades.evaluate_and_execute",
+                side: optExec.contract?.side || trade.side || "sell", qty: Number(optExec.order?.qty) || 1, price: trade.price || 0,
+                notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0,
+                score: trade.score || 0, instrument: optExec.order?.occ_symbol || trade.ticker,
+              }, null);
+              optionsSlotsUsed++;
+              totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              continue;
+            }
             if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
               audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
@@ -6105,6 +7005,18 @@ else:
           trade.action_label = "BUY";
         }
         const side = trade.side || "buy";
+
+        if (isEntryShadowed("stocks")) {
+          // ENTRY SHADOW MODE (2026-10-28): logged, not ordered (gate before the POST).
+          noteShadowEntry({
+            sleeve: "stocks", ticker: trade.ticker, source: "executeTrades.stock", side, qty,
+            price: trade.price || 0, notional: trade.position_value || qty * (trade.price || 0),
+            score: trade.score || 0, relabel: true,
+          }, shadowEntries);
+          slotsUsed++;
+          totalDeployed += trade.position_value;
+          continue;
+        }
 
         const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {
@@ -6157,6 +7069,8 @@ else:
       await new Promise(r => setTimeout(r, 500));
     }
 
+    await flushShadowEntries(shadowEntries, "executeTrades");
+
     // One relabel call per admission loop (see gateRejections above).
     if (gateRejections.length > 0) {
       const gateTmpPath = `/tmp/shadow_gates_${Date.now()}.json`;
@@ -6183,6 +7097,23 @@ else:
       await new Promise(r => setTimeout(r, 2000)); // Single 2-second wait for all fills
 
       for (const pending of pendingOrderIds) {
+        // [RULE-REVIEW] 2026-10-27 (REAL BROKER FILLS, entryFill.ts): the
+        // entry record carries Alpaca's filled_avg_price/filled_qty. The
+        // prior random haircut (applied to the broker fill on this path) is
+        // kept only as synthetic_fill_price. An order still working at this
+        // 2 s check, or whose status query fails, is recorded later by the
+        // sweep at its real fill; one that ends unfilled records nothing.
+        const entryVol = pending.trade.volume || 1000000;
+        const entryArgs: Omit<EntryFillArgs, "fillPrice" | "qty"> = {
+          ticker: pending.trade.ticker, side: pending.side,
+          expectedPrice: pending.trade.price, qtyRequested: pending.qty,
+          syntheticSlippagePct: syntheticSlippagePct(entryVol, "regular"), syntheticBase: "fill",
+          orderId: pending.orderId,
+          session: "regular", volume: entryVol, score: pending.trade.score,
+          instrument: pending.trade.instrument || "stock",
+          entryFeatures: pending.trade.entry_features || null,
+          codeVersion: pkgVersion,
+        };
         try {
           const orderStatus = await alpaca(`/v2/orders/${pending.orderId}`);
           const filledQty = parseInt(orderStatus?.filled_qty || "0");
@@ -6197,49 +7128,12 @@ else:
             audit("ORDER-REJECTED", `${pending.trade.ticker}: order ${status} — ${orderStatus?.reject_reason || 'unknown reason'}`);
           }
 
-          // Track fill with ACTUAL data (not assumed)
-          const vol = pending.trade.volume || 1000000;
-          let slippagePct = 0.03;
-          if (vol > 20000000) slippagePct = 0.02 + Math.random() * 0.03;
-          else if (vol > 5000000) slippagePct = 0.05 + Math.random() * 0.05;
-          else if (vol > 1000000) slippagePct = 0.08 + Math.random() * 0.07;
-          else slippagePct = 0.12 + Math.random() * 0.13;
-
-          const slippageDirection = (pending.side === "buy") ? 1 : -1;
-          const realisticFillPrice = Math.round((filledAvgPrice * (1 + slippageDirection * slippagePct / 100)) * 100) / 100;
-
-          const fillPayload = {
-            ticker: pending.trade.ticker, order_type: "market", side: pending.side,
-            qty_requested: requestedQty,
-            qty_filled: filledQty || requestedQty,
-            partial_fill: isPartial,
-            expected_price: pending.trade.price,
-            alpaca_fill_price: filledAvgPrice,
-            fill_price: realisticFillPrice,
-            slippage_applied_pct: slippagePct,
-            order_status: status,
-            time_placed: new Date().toISOString(),
-            session: "regular", volume: vol, score: pending.trade.score,
-            instrument: pending.trade.instrument || "stock",
-            entry_features: pending.trade.entry_features || null,
-            code_version: pkgVersion,
-          };
-          const rfTmp = `/tmp/fill_r_${pending.trade.ticker}_${Date.now()}.json`;
-          fs.writeFileSync(rfTmp, JSON.stringify(fillPayload));
-          // OPT 2026-04-20: daemon first, subprocess fallback
-          pythonCall(
-            "track_fill", fillPayload,
-            `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${rfTmp}')); os.remove('${rfTmp}'); track_fill(d)"`,
-            { timeout: 5000 }
-          ).then((r) => {
-            // Clean up temp file if daemon handled it (subprocess removes its own)
-            if (r.via === "daemon") {
-              try { fs.unlinkSync(rfTmp); } catch {}
-            }
-          }).catch(() => {});
+          settleEntryFill(pending.orderId, orderStatus, entryArgs);
         } catch (cfErr: any) {
-          // Confirmation failed — record with best-guess data
-          audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — recording expected values`);
+          // Status check failed: attach to the tracked order so the sweep
+          // records the confirmed fill later.
+          settleEntryFill(pending.orderId, null, entryArgs);
+          audit("FILL-CHECK-WARN", `${pending.trade.ticker}: could not confirm fill — deferred to the stale-order sweep`);
         }
       }
     }
@@ -6264,86 +7158,18 @@ else:
       const modelStatus = JSON.parse(modelCheck.trim());
       if (modelStatus.needs_retrain) {
         audit("TIER3", "ML model stale or missing — triggering retrain...");
-        try {
-          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
-          // Production SIGKILL events were classified as "likely OOM"
-          // by the heuristic below, but with 8GB available and only
-          // ~280MB used by the daemon, OOM is unlikely. Far more likely
-          // cause is THIS timeout firing on the heavy retrain (200
-          // tickers × 6 years of bars + 4 regime-conditional models +
-          // LightGBM training). Node.js sends SIGTERM then SIGKILL on
-          // exec timeout — looks identical to an OS OOM kill from
-          // outside the process. 15 minutes gives the retrain real
-          // headroom; if it still times out we'll get the new
-          // steps_completed diagnostic from ml_retrain_safe to tell us
-          // which step is actually slow.
-          const { stdout: trainOut } = await execPythonSerialized("python3 ml_retrain_safe.py", { timeout: 900000 });
-          const trainResult = JSON.parse(trainOut.trim());
-          // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
-          // status that starts with "error:", append error_location and
-          // traceback tail so we can actually diagnose the failure. The
-          // Python wrapper at ml_model_v2._train_model_impl already
-          // captures these fields — they were just being dropped on the
-          // floor at the audit boundary. Production logs were stuck
-          // showing "error: 'NoneType' object is not subscriptable"
-          // every hour with no file/line.
-          const _statusStr = String(trainResult.status || "");
-          // REPAIR 2026-10-16 (cockpit audit S4): "insufficient_data",
-          // "skipped", the wrapper's bare "error" and "fatal" all fell into
-          // the else-branch below and were audited as "ML retrain complete"
-          // although no model was written. Only "trained" is a success
-          // (server/mlRetrainStatus.ts, tested).
-          if (_statusStr.startsWith("error:") || _statusStr.startsWith("failed") || !retrainStatusIsSuccess(_statusStr)) {
-            // KNOWN BROKEN #17 (open_questions.md, found 2026-07-09): several
-            // _train_model_impl early returns use the plain shape
-            // {"status": "failed", "reason": "..."} (no error_location/
-            // traceback_tail — those only ever come from train_model()'s outer
-            // exception wrapper) which collapsed this line to the content-free
-            // "ML retrain failed: failed". `reason` carries the real cause
-            // (e.g. "Could not fetch training bars") and was being dropped.
-            const _reason = trainResult.reason ? ` — ${trainResult.reason}` : "";
-            const _detailExtra = retrainFailureDetail(trainResult);
-            const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
-            const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
-            const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
-            audit("TIER3-ML-ERROR", `ML retrain failed: ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
-          } else {
-            audit("TIER3", `ML retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
-          }
-        } catch (trainErr: any) {
-          // DIAGNOSTIC FIX 2026-04-22: previously logged only err.message
-          // which produced useless entries like "Command failed: python3
-          // ml_retrain_safe.py" with no signal/stderr/stdout context — so
-          // OOM kills, import failures, and silent Python crashes all
-          // looked identical. Mirror the Tier 2 scan classifier: grab
-          // stderr (Python traceback), stdout tail (ml_retrain_safe.py
-          // writes its JSON error payload here on caught exceptions),
-          // exit code and kill signal.
-          const _stderr = String(trainErr?.stderr || "");
-          const _stdout = String(trainErr?.stdout || "");
-          const _rawCode = trainErr?.code;
-          const _code: string | number =
-            _rawCode === undefined || _rawCode === null || _rawCode === "" ? "?" : _rawCode;
-          const _signal = trainErr?.signal || "none";
-          // Prefer stderr (Python traceback), fall back to stdout
-          // (ml_retrain_safe prints structured JSON errors there).
-          const _primary = _stderr.trim() ? _stderr : _stdout;
-          const _tail = _primary.length > 500 ? "…" + _primary.slice(-500) : _primary;
-          let _cls = "";
-          if (_signal === "SIGKILL" && !_stderr.trim()) {
-            _cls = " [likely OOM kill during import lightgbm/ml_model_v2]";
-          } else if (_signal === "SIGTERM") {
-            _cls = " [timed out or killed externally]";
-          } else if (_rawCode === "ETIMEDOUT") {
-            _cls = " [exec timeout exceeded]";
-          }
-          const _detail = _tail.trim() || String(trainErr?.message || trainErr);
-          audit("TIER3-ML-ERROR", `ML retrain failed (code=${_code} signal=${_signal})${_cls}: ${_detail}`);
-        }
+        // REPAIR 2026-10-27 (audit D1): the retrain used to run here through
+        // execPythonSerialized, where its 26-char command was "trivial" and
+        // SIGKILLed at 10 s (live: TIER3-ML-ERROR "(code=? signal=SIGKILL)").
+        // It now runs in the long-job lane with an explicit budget
+        // (ML_RETRAIN_TIMEOUT_MS), not awaited, so Tier 3 and the scan loop
+        // are never held for the length of a retrain; startMlRetrain audits
+        // the outcome when the job ends.
+        startMlRetrain("tier3: model stale or missing");
       } else {
         audit("TIER3", `ML model fresh (${modelStatus.age_hours}h old) — skipping retrain`);
       }
-    } catch (err: any) { console.error("[tier3-ml]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-ml]", err?.message || err); noteJobError("tier3_strategic", `ml retrain check: ${err?.message || err}`); }
 
     // 2. Manipulation detection scan
     try {
@@ -6376,6 +7202,7 @@ print(json.dumps(scan_for_manipulation()))
       const _detail = _tail.trim() || String(err?.message || err);
       audit("TIER3-MANIP-ERROR", `Manipulation scan failed (code=${_code} signal=${_signal}): ${_detail}`);
       console.error("[tier3-manip]", err?.message || err);
+      noteJobError("tier3_strategic", `manipulation scan: ${_detail}`);
     }
 
     // 3. Run full diagnostics
@@ -6412,7 +7239,7 @@ print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())}
         // timestamps from git log. Surfacing both here closes that gap.
         audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues (node_uptime_s=${Math.round(process.uptime())}, tier2_ran_since_boot=${tier2CompletedSinceBoot}): ${detail}`);
       }
-    } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-diag]", err?.message || err); noteJobError("tier3_strategic", `diagnostics: ${err?.message || err}`); }
 
     // 4. Record daily equity
     recordDailyEquity();
@@ -6436,7 +7263,7 @@ print(json.dumps(run_daily_update()))
           audit("TIER3-COT", `COT update: ${errored.length} symbol(s) failed — ${errored.map(([s]) => s).join(", ")}`);
         }
       }
-    } catch (err: any) { console.error("[tier3-cot]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-cot]", err?.message || err); noteJobError("tier3_strategic", `COT: ${err?.message || err}`); }
 
     // 6. SEC bulk-historical Form 3/4/5 insider-transaction archive update
     // (EDGE DOCTRINE #1 free-data pipeline; DATA-LADDER GATE 1 ONLY — see
@@ -6459,7 +7286,7 @@ print(json.dumps(run_update()))
           audit("TIER3-FORM4BULK", `Form4 bulk update: ${errored.length} quarter(s) failed — ${errored.map(([q]) => q).join(", ")}`);
         }
       }
-    } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); }
+    } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); noteJobError("tier3_strategic", `Form 4 bulk: ${err?.message || err}`); }
 
     // 7. Port-dwell weekly-snapshot IN-PROCESS capture (2026-09-07 PRODUCT
     // session; see server/portDwellCapture.ts's own header + research/
@@ -6491,7 +7318,7 @@ print(json.dumps(run_update()))
         // rendering: a degraded/backed-off path must say so loudly).
         audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} deferred — cooling down after a suspected crash on the prior attempt${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
       }
-    } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); }
+    } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); noteJobError("tier3_strategic", `port dwell: ${err instanceof Error ? err.message : err}`); }
 
     audit("TIER3", "Strategic scan complete");
   }
@@ -6560,6 +7387,7 @@ print(json.dumps(run_update()))
     if (Date.now() - lastResearchRun < 55 * 60 * 1000) return;
     lastResearchRun = Date.now();
     autoRunning = true;
+    beat("overnight_research", "start");
 
     try {
       // 8pm-10pm: Scan market, find tomorrow's opportunities + analyze today's extreme movers
@@ -6743,35 +7571,71 @@ print('cleared')
         } catch (err: any) { console.error("[bot]", err?.message || err); }
       }
 
-      // 4am ET: Daily ML retrain + reset daily state
-      if (Math.floor(etHour) === 4) {
-        // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
-        (state as any).dailyBlockedTickers = [];
-        state.consecutiveStopLosses = 0;
-        (state as any).recentStopTickers = [];
-        (state as any).lastStopTimes = {};
-        state.morningQueueExecuted = false;
-        // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
-        orderAttemptCounts = {};
-        sweptCspAt = {};
-        audit("SYSTEM", "Daily reset: blocked tickers cleared, counters reset for new trading day");
-        audit("RETRAIN", "4am daily ML retrain — training on yesterday's data before market open");
-        try {
-          // batch 8 REVISED 2026-05-04: bumped timeout 300s → 900s.
-          // Same as the TIER3 retrain call earlier — see comment there.
-          const { stdout: trainOut } = await execPythonSerialized(
-            `python3 ml_retrain_safe.py`,
-            { timeout: 900000 }
-          );
-          const trainResult = JSON.parse(trainOut.trim());
-          audit("RETRAIN", `Daily retrain complete — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
-        } catch (err: any) {
-          audit("RETRAIN-ERROR", `Daily retrain failed: ${err?.message || err}`);
-        }
+      // The 4am daily branch (resets, retrain, backup) moved to
+      // runDailyMaintenance() below: this caller only runs when ET < 4
+      // or ET >= 20, so the old hour-4 check here could never be true
+      // (trading-engine audit D2; server/dailyMaintenance.ts).
 
-        // Nightly auto-backup at 4am alongside retrain
-        try {
-          const { stdout: backupOut } = await execPythonSerialized(`python3 -c "
+    } catch (e: any) {
+      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
+      noteJobError("overnight_research", e?.message || e);
+    }
+
+    autoRunning = false;
+    beat("overnight_research", "finish", "ok");
+  }
+
+  // ── Daily maintenance: the once-a-day "4am branch" ─────────────────────────
+  // REPAIR 2026-10-27 (trading-engine audit D2). Previously nested in
+  // runOvernightResearch behind gates that never pass together, so it never
+  // ran. Now driven by its own unconditional interval (below, next to the
+  // shadow backfill polls) through shouldRunDailyMaintenance(): once per ET
+  // calendar day inside [04:00, 09:30) ET, the claim persisted BEFORE the
+  // work so a deploy mid-window neither repeats nor skips it. No market-hours
+  // or kill-switch gate: these are bookkeeping resets, a model refresh and a
+  // backup, not trading actions (the original branch was gated only by
+  // accident of where it lived).
+  let dailyMaintenanceRunning = false;
+  let dailyMaintenanceLastRunEtDateMem: string | null = null;
+
+  async function checkDailyMaintenance() {
+    if (dailyMaintenanceRunning) return;
+    // Decide + persist the claim (before any work) in one tested step.
+    const { decision, persistedTo } = claimDailyMaintenance(Date.now(), dailyMaintenanceLastRunEtDateMem);
+    if (!decision.run) return;
+    dailyMaintenanceRunning = true;
+    dailyMaintenanceLastRunEtDateMem = decision.etDate;
+    try {
+      if (!persistedTo) {
+        audit("DAILY-MAINT-WARN", `could not persist the ${decision.etDate} run claim to any state path — a restart later in today's window would repeat the daily branch`);
+      }
+      await runDailyMaintenance(decision.etDate);
+    } finally {
+      dailyMaintenanceRunning = false;
+    }
+  }
+
+  async function runDailyMaintenance(etDate: string) {
+    beat("daily_reset", "start");
+    try {
+      // Clear daily blocked tickers, stop counters, and order attempt counts for new trading day
+      (state as any).dailyBlockedTickers = [];
+      state.consecutiveStopLosses = 0;
+      (state as any).recentStopTickers = [];
+      (state as any).lastStopTimes = {};
+      state.morningQueueExecuted = false;
+      // OOM fix: reassign instead of for...delete (V8 keeps hidden class slots with delete)
+      orderAttemptCounts = {};
+      sweptCspAt = {};
+      audit("SYSTEM", `Daily reset (${etDate} ET): blocked tickers cleared, counters reset for new trading day`);
+      audit("RETRAIN", "Daily ML retrain started in the long-job lane — outcome audited as TIER3 / TIER3-ML-ERROR when it finishes");
+      // Not awaited: the backup below runs alongside; single-flight with the
+      // Tier-3 trigger (a retrain already running is not started twice).
+      startMlRetrain("daily 4am");
+
+      // Nightly auto-backup at 4am alongside retrain
+      try {
+        const { stdout: backupOut } = await execPythonSerialized(`python3 -c "
 import json, os, shutil, time
 try:
     from storage_config import DATA_DIR
@@ -6793,38 +7657,24 @@ while len(all_b) > 5:
     shutil.rmtree(os.path.join(backup_dir, all_b.pop(0)), ignore_errors=True)
 print(json.dumps({'files': count}))
 "`, { timeout: 30000 });
-          const bk = JSON.parse(backupOut.trim());
-          audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
+        const bk = JSON.parse(backupOut.trim());
+        audit("BACKUP", `Nightly auto-backup: ${bk.files} files saved (local)`);
 
-          // Off-site backup: push data snapshot to GitHub data-backup branch
-          try {
-            const backupScript = path.resolve("backup_to_github.py");
-            const { stdout: gitBackup } = await execPythonSerialized(
-              `python3 "${backupScript}"`, { timeout: 60000 }
-            );
-            const gbResult = JSON.parse(gitBackup.trim());
-            if (gbResult.status === "success") {
-              audit("BACKUP", `Off-site: ${gbResult.count} files pushed to GitHub (data-backup branch)`);
-            } else if (gbResult.status === "no_changes") {
-              audit("BACKUP", `Off-site: data unchanged since last backup`);
-            } else if (gbResult.status === "skipped") {
-              audit("BACKUP-WARN", `Off-site skipped: ${gbResult.reason}`);
-            } else {
-              audit("BACKUP-ERROR", `Off-site failed: ${gbResult.reason || 'unknown'}`);
-            }
-          } catch (err: any) {
-            audit("BACKUP-WARN", `Off-site backup failed: ${err?.message || err}`);
-          }
-        } catch (err: any) {
-          audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
-        }
+        // Off-site backup DISABLED 2026-10-27 (master plan): backup_to_github.py pushes every
+        // /data JSON + model file to the data-backup branch of mctils12-arch/voltradeai, which
+        // is a PUBLIC repository. This branch was unreachable before the scheduler fix, so the
+        // push had not run since 2026-04-05; reviving it would publish account/fill/state data.
+        // Local backups above are kept. Re-enable only with a private destination (human call).
+        audit("BACKUP", "Off-site backup disabled: destination repo is public (local copies kept)");
+      } catch (err: any) {
+        audit("BACKUP-ERROR", `Nightly backup failed: ${err?.message || err}`);
+        noteJobError("daily_reset", `nightly backup: ${err?.message || err}`);
       }
-
-    } catch (e: any) {
-      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
+      beat("daily_reset", "finish", "ok");
+    } catch (e: unknown) {
+      audit("DAILY-MAINT-ERROR", `${etDate}: ${String(e instanceof Error ? e.message : e).slice(0, 300)}`);
+      beat("daily_reset", "finish", "error", String(e instanceof Error ? e.message : e));
     }
-
-    autoRunning = false;
   }
 
   // ── TIER 0: Real-Time Streaming ──────────────────────────────────────────────
@@ -7269,7 +8119,9 @@ except: print('{}')
     const pos = monitoredPositions[ticker];
     if (!pos || exitingTickers.has(ticker)) return;
     if (pos.pendingExit) return; // Exit order already placed, waiting for fill
-    if (!state.active || state.killSwitch) return;
+    // Protective exits run through every halt (audit N15, server/haltScope.ts);
+    // only an owner stop turns them off.
+    if (!haltAllows(currentHaltState(), "exit")) return;
 
     // Skip stock exit logic for options positions — options_manager.py handles those
     if (pos.positionType && pos.positionType !== 'stock') {
@@ -7573,7 +8425,17 @@ if '${ticker}' in ss:
       } catch (_) {}
     }
 
-    if (!shouldStop && !shouldTP && !shouldTimeStop) return;
+    // ETF max hold (audit §6.8 N6, 2026-10-27): a leveraged substitute ETF
+    // held past ETF_MAX_HOLD_DAYS exits regardless of P&L (etfSubstitution.ts).
+    let shouldEtfMaxHold = false;
+    let etfDaysHeld = 0;
+    if (!shouldStop && !shouldTP && !shouldTimeStop) {
+      const mh = etfMaxHoldExceeded(ticker, pos.entryDate, Date.now());
+      shouldEtfMaxHold = mh.exceeded;
+      etfDaysHeld = mh.daysHeld;
+    }
+
+    if (!shouldStop && !shouldTP && !shouldTimeStop && !shouldEtfMaxHold) return;
 
     // ── FIRE EXIT ORDER (remaining position) ─────────────────────────────────
     exitingTickers.add(ticker);
@@ -7636,7 +8498,7 @@ if '${ticker}' in ss:
     try {
       const exitSide = pos.side === 'long' ? 'sell' : 'buy';
       const exitQty = pos.remainingQty;
-      const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'time_stop');
+      const exitType = shouldStop ? stopType : (shouldTP ? 'take_profit' : (shouldTimeStop ? 'time_stop' : 'etf_max_hold'));
       const exitContext: OrderContext = shouldStop ? stopType : (shouldTP ? 'take_profit' : 'stop_loss');
       const orderParams = getOrderParams(currentPrice, exitContext);
 
@@ -7689,7 +8551,8 @@ if '${ticker}' in ss:
       const scaleNote = pos.scalesCompleted > 0 ? ` (final ${exitQty}/${pos.originalQty} shares, ${pos.scalesCompleted} prior scale-outs)` : '';
       const reason = shouldStop ? stopReason + scaleNote
         : shouldTP ? `WS TAKE PROFIT: +${pnlPct.toFixed(1)}% hit target +${pos.tpPct.toFixed(1)}% (Phase ${pos.phase})${scaleNote}`
-        : `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%${scaleNote}`;
+        : shouldTimeStop ? `WS TIME STOP: held since ${pos.entryDate}, P&L only ${pnlPct.toFixed(1)}%${scaleNote}`
+        : `WS ETF MAX HOLD: leveraged ETF held ${etfDaysHeld}d since ${pos.entryDate} > ${ETF_MAX_HOLD_DAYS}d limit, P&L ${pnlPct.toFixed(1)}%${scaleNote}`;
 
       audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
       notify("exit", `WS exit ${ticker}: ${reason}`);
@@ -7772,9 +8635,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   // Sync monitored positions every 60 seconds to stay aligned with Alpaca + stop state
+  // Exit-gated, not entry-gated (audit N15): POS-KILL / TIME-EXIT live in the
+  // sync, so it keeps running through a halt.
   setInterval(async () => {
-    if (!state.active || state.killSwitch) return;
-    try { await syncMonitoredPositions(); } catch (_) {}
+    if (!haltAllows(currentHaltState(), "exit")) beat("position_sync", "finish", "skipped", "owner stopped the bot");
+    if (!haltAllows(currentHaltState(), "exit")) return;
+    // job heartbeat: withJobBeat records start/finish ("error" + message on a throw)
+    try { await withJobBeat("position_sync", async () => { await syncMonitoredPositions(); }); } catch (_) {}
   }, 60000);
 
   function startStreaming() {
@@ -7863,7 +8730,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
             if (volRatio >= 2.5 && Math.abs(barChg) >= 0.8 && Math.abs(mom5) >= 0.3) {
               const cooldown = 10 * 60 * 1000;
               if (Date.now() - (streamLastSignal[ticker] || 0) < cooldown) continue;
-              if (!state.active || state.killSwitch || state.circuitBreakerUntil > Date.now()) continue;
+              if (!haltAllows(currentHaltState(), "entry")) continue;
 
               streamLastSignal[ticker] = Date.now();
               const dir = barChg > 0 ? "bullish" : "bearish";
@@ -7902,8 +8769,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("STREAM-DISCONNECT", wasConnected
         ? "Feed disconnected — reconnecting in 10s"
         : "Feed closed before ever reaching subscribed state — reconnecting in 10s");
-      // Auto-reconnect after 10 seconds if bot is still active
-      setTimeout(() => { if (state.active && !state.killSwitch) startStreaming(); }, 10000);
+      // Auto-reconnect after 10 seconds unless the owner stopped the bot — the
+      // feed drives the WS stops, which keep running through a halt (N15)
+      setTimeout(() => { if (haltAllows(currentHaltState(), "exit")) startStreaming(); }, 10000);
     });
   }
 
@@ -7911,6 +8779,19 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     if (streamWs) { try { streamWs.close(); } catch (_) {} streamWs = null; }
     streamConnected = false;
   }
+
+  // PYTHON DAEMON LIVENESS (JOB HEARTBEAT, Phase 3 "no silent failures",
+  // 2026-10-27): nothing polled the daemon on a schedule — a dead daemon was
+  // only visible as subprocess fallbacks and slower scans. One health RPC
+  // every 5 minutes (read-only, the same call /api/diag/daemon makes) beats
+  // "daemon_liveness" ok / error so the external watchdog sees it.
+  setInterval(() => {
+    if (!DAEMON_ENABLED) { beat("daemon_liveness", "finish", "skipped", "VOLTRADE_DAEMON_ENABLED=false"); return; }
+    withJobBeat("daemon_liveness", async () => {
+      const r = await pythonRpc("health", {}, 10000);
+      if (r?.status !== "ok") throw new Error(`daemon health not ok: ${String(r?.error_message ?? r?.status ?? "no status").slice(0, 150)}`);
+    }).catch((e: unknown) => console.error("[daemon-liveness]", e instanceof Error ? e.message : e));
+  }, 5 * 60 * 1000);
 
   // EVENT-LOOP LAG MONITOR (REPAIR 2026-07-12, KNOWN BROKEN #18 follow-up —
   // see server/eventLoopLag.ts header for the full correlation this tests:
@@ -7937,6 +8818,18 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // Exit-aligned shadow ruler: same unconditional 5-minute poll, its own job
   // (sequenced after the old one inside checkShadowBackfillExitAligned).
   setInterval(() => { checkShadowBackfillExitAligned().catch((e) => console.error("[SHADOW-XA]", e?.message || e)); }, 5 * 60 * 1000);
+  // Daily maintenance (the once-a-day "4am branch": resets, retrain, backup) —
+  // same unconditional poll pattern; shouldRunDailyMaintenance() decides, and
+  // the persisted claim makes it once per ET day across restarts. The boot
+  // check catches a process that starts inside the window.
+  setInterval(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, DAILY_MAINTENANCE_CHECK_MS);
+  setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
+  // v3 candidate model job (shadow only): same unconditional 5-minute poll.
+  setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
+  // Weekly forecast screen (SHADOW): same unconditional poll pattern; the
+  // first check 2 minutes after boot so a fresh deploy's page is not empty.
+  setInterval(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 15 * 60 * 1000);
+  setTimeout(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 2 * 60 * 1000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
@@ -8150,19 +9043,54 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }
 
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
+  // JOB HEARTBEAT (Phase 3 "no silent failures", 2026-10-27): every tick
+  // beats start + finish (server/jobHeartbeat.ts). The finish says what the
+  // tick did: "ok" when tier1Reflex ran, "skipped" + why when gated, "error"
+  // when a step noted one (noteJobError in the swallowing catches).
   setInterval(async () => {
+    beat("tier1_reflex", "start");
+    let t1Ran = false;
+    let t1MarketClosed = false;
+    try {
+    // HALT SCOPE (2026-10-27, audit N15): a halt blocks ENTRIES only. While
+    // one is active (kill latch, circuit breaker, weekly-loss pause) the
+    // protective half of Tier 1 still runs — stops, POS-KILL, the stop-state
+    // refresh and, unless the kill is already latched, the -10% drawdown
+    // check itself (it used to go dark under the circuit breaker).
+    const t1Gate = currentHaltState();
+    const t1ExitsOnly = haltMode(t1Gate) === "exits_only";
+    if (t1ExitsOnly) {
+      try {
+        const clock = await alpaca("/v2/clock");
+        if (clock.is_open) await tier1HaltedExits(t1Gate);
+      } catch (err) {
+        console.error("[tier1-halted]", err instanceof Error ? err.message : err);
+        noteJobError("tier1_reflex", `halted exits: ${err instanceof Error ? err.message : err}`);
+      }
+    }
     // While the kill is latched this tick evaluates the paper auto-resume
     // instead (tier1Reflex never runs while killed — unchanged below).
     if (state.killSwitch) { await killSwitchAutoResumeTick(); return; }
+    if (t1ExitsOnly) return;
     if (!state.active || state.killSwitch) return;
     if (state.circuitBreakerUntil > Date.now()) return;
 
     try {
       const clock = await alpaca("/v2/clock");
-      if (!clock.is_open) return; // Only during market hours
+      if (!clock.is_open) { t1MarketClosed = true; return; } // Only during market hours
+      t1Ran = true;
       await tier1Reflex();
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
+      noteJobError("tier1_reflex", `tick: ${err?.message || err}`);
+    }
+    } finally {
+      const t1Why = t1Ran ? null
+        : state.killSwitch ? "kill switch latched (auto-resume evaluation ran)"
+        : t1MarketClosed ? "market closed"
+        : !state.active ? "bot inactive"
+        : "halt active (protective exits only) or circuit breaker";
+      beat("tier1_reflex", "finish", t1Why ? "skipped" : "ok", t1Why ?? undefined);
     }
   }, 45000);
 
@@ -8207,6 +9135,39 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     }, delayMs);
   }
 
+  // HALT SCOPE (2026-10-27, audit N15 — server/haltScope.ts): while a halt
+  // blocks entries (kill latch, circuit breaker, weekly-loss pause) the full
+  // scan stays off — it places entries, floors, the third leg and the
+  // convexity overlay — but the options manager's protective exits (DTE,
+  // profit target, loss limit, gamma, assignment, strategy-group exits) keep
+  // running. Rolls are disabled (allow_rolls=false): a roll's sell-to-open
+  // half is a new entry, so each roll point takes its existing close branch.
+  // Regular hours only: options_manager posts DAY limit orders. equity is not
+  // passed — manage_options_positions only uses it for rolls.
+  async function tier2HaltedExits(): Promise<void> {
+    tier2Running = true;
+    try {
+      const clock = await alpaca("/v2/clock");
+      if (!clock.is_open) return;
+      const r = await pythonCall(
+        "manage_options_exits",
+        { allow_rolls: false },
+        `python3 -c "import json; from options_manager import manage_options_positions; print(json.dumps(manage_options_positions(allow_rolls=False), default=str))"`,
+        { timeout: 90000 },
+        90000,
+      );
+      if (!r.success) {
+        audit("OPTIONS-MGMT-ERROR", `halted exits-only pass failed (via ${r.via}): ${String(r.result?.error || "unknown").slice(0, 200)}`);
+        return;
+      }
+      for (const row of formatOptionsMgmt(r.result)) audit(row.type, row.message);
+    } catch (err) {
+      console.error("[tier2-halted]", err instanceof Error ? err.message : err);
+    } finally {
+      tier2Running = false;
+    }
+  }
+
   async function scheduleTier2() {
     if (TIER2_DISABLED) {
       if (!tier2DisabledLogged) {
@@ -8215,26 +9176,43 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
       return; // deliberately do not re-arm: the whole Tier 2 timer chain stops
     }
-    if (!state.active || state.killSwitch || tier2Running) {
+    // JOB HEARTBEAT (Phase 3): a gated tick beats "skipped" + why; a scan beats
+    // start, and its finish (in the finally below) is "error" whenever the
+    // back-off counter counts it as a failure.
+    if (tier2Running) {
+      beat("tier2_scan", "finish", "skipped", "previous scan still running");
       armTier2Timer(getTier2Interval());
       return;
     }
-    if (state.circuitBreakerUntil > Date.now()) {
+    // A halt blocks the scan (entries) but not the options exits (audit N15).
+    const t2Mode = haltMode(currentHaltState());
+    if (t2Mode === "exits_only") {
+      beat("tier2_scan", "finish", "skipped", "halt active: the options exits-only pass ran instead of the scan");
+      await tier2HaltedExits();
+      armTier2Timer(getTier2Interval());
+      return;
+    }
+    if (t2Mode !== "full") {
+      beat("tier2_scan", "finish", "skipped", "bot stopped by the owner");
       armTier2Timer(getTier2Interval());
       return;
     }
 
     let hitMutexTimeout = false;
     let schedulerThrew = false;
+    let t2Started = false;
     try {
       const clock = await alpaca("/v2/clock");
       const etH = getETHour();
       const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
       if (!isAnyWindow) {
+        beat("tier2_scan", "finish", "skipped", "outside the scan window (market closed and outside 04:00-20:00 ET)");
         armTier2Timer(getTier2Interval());
         return;
       }
 
+      beat("tier2_scan", "start");
+      t2Started = true;
       tier2Running = true;
       const interval = getTier2Interval();
       audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
@@ -8256,6 +9234,11 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       // and errored (scheduler throw, Python scan JSON error, subprocess crash)
       // contributes; a clean run resets the counter.
       const failed = schedulerThrew || tier2LastScanFailed;
+      if (t2Started) {
+        beat("tier2_scan", "finish", failed ? "error" : "ok", failed ? (tier2LastFailureDetail || (schedulerThrew ? "scheduler threw (see TIER2-ERROR audit)" : "scan failed")) : undefined);
+      } else if (schedulerThrew) {
+        beat("tier2_scan", "finish", "error", "clock read failed before the scan started");
+      }
       if (failed) {
         tier2ConsecutiveFailures += 1;
       } else {
@@ -8293,11 +9276,14 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       }
       return;
     }
-    if (!state.active || tier3Running) return;
+    if (!state.active || tier3Running) {
+      beat("tier3_strategic", "finish", "skipped", !state.active ? "bot inactive" : "previous run still running");
+      return;
+    }
 
     try {
       tier3Running = true;
-      await tier3Strategic();
+      await withJobBeat("tier3_strategic", tier3Strategic);
     } catch (err: any) {
       console.error("[tier3]", err?.message || err);
       audit("TIER3-ERROR", String(err?.message || err).slice(0, 200));
@@ -8316,7 +9302,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("TIER3-DISABLED", "Startup Tier 3 run skipped via VOLTRADE_DISABLE_TIER3 (KNOWN BROKEN #41 crash-loop bisection)");
     }
   } else {
-    setTimeout(() => { tier3Strategic().catch(() => {}); }, 30000);
+    setTimeout(() => { withJobBeat("tier3_strategic", tier3Strategic).catch(() => {}); }, 30000);
   }
 
   // Route: Get last scan result

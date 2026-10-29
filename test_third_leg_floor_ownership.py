@@ -20,6 +20,7 @@ No live Alpaca/network connectivity — every requests call is mocked.
 """
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -70,7 +71,11 @@ def _run(held_syms, regime="NEUTRAL"):
         return _resp({})
 
     post = MagicMock(return_value=_resp({"id": "test-order"}))
-    with patch("requests.get", side_effect=fake_get), \
+    # Hermetic third-leg dwell state (2026-10-27): _run_third_leg now persists
+    # a debounced zone in DATA_DIR/voltrade_leg3_state.json; a fresh dir means
+    # each call bootstraps, so a leftover file can't leak between tests.
+    with patch.object(bot_engine, "DATA_DIR", tempfile.mkdtemp(prefix="vt_leg3_own_")), \
+         patch("requests.get", side_effect=fake_get), \
          patch("requests.post", post), \
          patch("system_config.get_market_regime", return_value=regime):
         result = bot_engine._run_third_leg(dict(_MACRO))
