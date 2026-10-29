@@ -121,8 +121,8 @@ export function archiveSqueezeRows(rows: SqueezeRow[], baseDir?: string): number
       fs.appendFileSync(plain, rs.map((r) => JSON.stringify(r)).join("\n") + "\n");
     });
     return fresh.length;
-  } catch (e: any) {
-    console.error("[datacore] squeeze_gex archive:", e?.message || e);
+  } catch (e) {
+    console.error("[datacore] squeeze_gex archive:", e instanceof Error ? e.message : e);
     return 0;
   }
 }
@@ -140,7 +140,9 @@ export function gzipPastSqueezeYears(baseDir?: string, nowMs = Date.now()): numb
       fs.unlinkSync(fp);
       n++;
     }
-  } catch {}
+  } catch (e) {
+    console.error("[datacore] squeeze_gex gzip:", e instanceof Error ? e.message : e);
+  }
   return n;
 }
 
@@ -181,7 +183,7 @@ export function squeezeReport(baseDir?: string, nowMs = Date.now()): SqueezeRepo
 
 // ── Fetch + poll ─────────────────────────────────────────────────────────────
 
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+type FetchFn = (url: string, init?: unknown) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 let lastRefreshOk: boolean | null = null;
 let polling = false;
 
@@ -200,8 +202,8 @@ export async function refreshSqueezeGex(fetchImpl: FetchFn = fetch as any, baseD
     gzipPastSqueezeYears(baseDir, nowMs);
     lastRefreshOk = true;
     return n;
-  } catch (e: any) {
-    console.error("[datacore] squeeze_gex refresh:", e?.message || e);
+  } catch (e) {
+    console.error("[datacore] squeeze_gex refresh:", e instanceof Error ? e.message : e);
     lastRefreshOk = false;
     return 0;
   }
