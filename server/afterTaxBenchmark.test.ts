@@ -7,7 +7,7 @@ import type { BenchWindow } from "./spyBenchmark";
 
 const D = 86_400_000;
 const T0 = Date.parse("2026-05-06T00:00:00Z");
-const ev = (symbol: string, closeDay: number, pnl: number, openDay: number | null, qty = 10, closeDir: 1 | -1 = -1): RealizedEvent => ({ symbol, t: T0 + closeDay * D, pnl, openedAt: openDay === null ? null : T0 + openDay * D, qty, closeDir });
+const ev = (symbol: string, closeDay: number, pnl: number, openDay: number | null, qty = 10, closeDir: 1 | -1 = -1): RealizedEvent => ({ symbol, t: T0 + closeDay * D, pnl, openedAt: openDay === null ? null : T0 + openDay * D, qty, closeDir, basis: qty * 100 });
 const win = (o: Partial<BenchWindow> = {}): BenchWindow => ({ from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.14, ...o });
 const ledger = (events: RealizedEvent[], rates?: Partial<TaxRates>) => taxLedger(events, [], { windowStartMs: T0, rates });
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≠ ${b}`);

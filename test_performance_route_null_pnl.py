@@ -62,6 +62,34 @@ class TestPerformanceRouteNullPnl(unittest.TestCase):
         self.assertEqual({t["ticker"] for t in out["recentTrades"]}, {"SMH", "KWEB", "QQQ"})
         self.assertTrue(all(t.get("pnl_pct") is not None for t in out["recentTrades"]))
 
+    def test_the_bot_log_number_says_what_it_excludes_and_when_it_last_moved(self):
+        # [RULE-REVIEW] 2026-10-29 (the Expectancy tile): beside the number, the records the
+        # filter dropped (orphan exits, open entries — never the seed), the last counted close
+        # (exit_time first, the entry fill time for a record without one; naive and offset
+        # timestamps ordered on their yyyy-mm-ddThh:mm:ss prefix) and the basis caption.
+        records = [
+            {"ticker": "NVDA", "pnl_pct": None, "outcome": None, "time_filled": "2026-10-28T14:00:00"},               # open entry
+            {"ticker": "AMD", "pnl_pct": None, "outcome": "orphan_exit", "time_filled": "2026-10-27T19:00:00Z"},      # orphan exit
+            {"ticker": "CRWV261120P00055000", "pnl_pct": None, "outcome": "orphan_exit", "time_filled": "2026-10-26T19:00:00Z"},
+            {"ticker": "SMH", "pnl_pct": 4.0, "outcome": "win", "time_filled": "2026-09-30T14:00:00", "exit_time": "2026-10-14T19:59:02.123456"},
+            {"ticker": "KWEB", "pnl_pct": -2.0, "outcome": "loss", "time_filled": "2026-10-01T14:00:00+00:00", "exit_time": "2026-10-09T15:30:00+00:00"},
+            {"ticker": "PENG", "pnl_pct": -5.0, "outcome": "loss", "time_filled": "2026-10-20T14:00:00"},                 # closed, no exit_time recorded: its fill time stands in
+            {"ticker": "GLD", "pnl_pct": 9.0, "outcome": "win", "_seed": True, "exit_time": "2026-10-28T19:00:00"},     # seed: neither counted nor excluded
+        ]
+        proc = _run(records)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-800:])
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["totalTrades"], 3)
+        self.assertEqual(out["excluded"], {"orphanExits": 2, "openEntries": 1})
+        self.assertEqual(out["lastClosedAt"], "2026-10-20T14:00:00", "PENG's fill time outranks SMH's 10-14 exit")
+        self.assertEqual(out["basis"], "trigger price, not fill")
+        # every pre-existing field is still there for the other consumers
+        for key in ("winRate", "avgGain", "avgLoss", "totalPnlPct", "profitFactor", "byStrategy", "recentTrades", "realisticPnlPct", "avgSlippagePct", "totalSlippageCost", "slippageBasis", "slippageGapPct", "bestTrade", "worstTrade", "seededTrades", "totalFills"):
+            self.assertIn(key, out)
+        # no counted record carries a close time -> null, never a made-up date
+        bare = _run([{"ticker": "SMH", "pnl_pct": 4.0, "outcome": "win"}])
+        self.assertIsNone(json.loads(bare.stdout.strip().splitlines()[-1])["lastClosedAt"])
+
     def test_the_old_filter_did_crash_on_the_same_fixture(self):
         # the regression this pins: the pre-2026-10-22 filter kept the null records and the
         # next comparison raised — kept here so the fallback path can never again be the KPI

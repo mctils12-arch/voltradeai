@@ -7,7 +7,7 @@ import type { FillRow } from "./killSwitchAutoResume";
 const D = 86_400_000;
 const T0 = Date.parse("2026-01-05T15:00:00Z");
 const fill = (symbol: string, dir: 1 | -1, qty: number, price: number, day: number): FillRow => ({ symbol, dir, qty, price, t: T0 + day * D });
-const ev = (symbol: string, closeDay: number, pnl: number, openDay: number | null, qty = 10, closeDir: 1 | -1 = -1): RealizedEvent => ({ symbol, t: T0 + closeDay * D, pnl, openedAt: openDay === null ? null : T0 + openDay * D, qty, closeDir });
+const ev = (symbol: string, closeDay: number, pnl: number, openDay: number | null, qty = 10, closeDir: 1 | -1 = -1): RealizedEvent => ({ symbol, t: T0 + closeDay * D, pnl, openedAt: openDay === null ? null : T0 + openDay * D, qty, closeDir, basis: qty * 100 });
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≠ ${b}`);
 
 test("term: more than one year is long, a year to the day is short, an unknown-age lot is unknown", () => {

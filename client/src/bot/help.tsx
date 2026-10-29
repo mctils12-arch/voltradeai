@@ -7,7 +7,7 @@
 // and pop-out browser windows alike; it is positioned from the anchor's
 // rectangle and clamped to that window, never covering the anchor (Standing
 // UI Law). Positioning is pure (placeCard) and pinned by help.test.ts.
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { GLOSSARY, type GlossaryKey } from "./glossary";
 
@@ -51,9 +51,15 @@ export function Help({ k, title }: { k: GlossaryKey; title?: ReactNode }) {
     setPlace(placeCard({ left: r.left, top: r.top, width: r.width, height: r.height }, c.offsetHeight || 80, { w: view.innerWidth, h: view.innerHeight }));
   }, []);
 
+  // Placed BEFORE the first paint ([RULE-REVIEW] 2026-10-29, found by the
+  // Expectancy tile): positioned in a plain effect, the card painted one frame
+  // at its initial (0, 0) — a 272 px card over any glyph in the top-left corner
+  // — so Chromium's synthetic boundary events saw the pointer leave the glyph
+  // on open and re-enter it on close, and the hover path reopened the card
+  // the user had just closed with Escape (the harness's glyph-0 check).
+  useLayoutEffect(() => { if (open) position(); }, [open, position]);
   useEffect(() => {
     if (!open) return;
-    position();
     const b = btnRef.current;
     const doc = b?.ownerDocument;
     const view = doc?.defaultView;

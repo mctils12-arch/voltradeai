@@ -172,7 +172,21 @@ function botFixtures({ latched }) {
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
     "/api/bot/audit": audit,
-    "/api/bot/performance": { totalTrades: 36, totalFills: 55, winRate: 27.8, avgGain: 9.08, avgLoss: -5.16, totalPnlPct: -14.1, profitFactor: 0.68, byStrategy: {}, recentTrades: [], equityCurve: curve.slice().reverse(), realisticPnlPct: -15.2, avgSlippagePct: 0.12 },
+    // the bot-log number (36 trigger-price records, frozen since 2026-10-14, 351 orphan exits dropped) and, on the latched
+    // page, the BROKER's expectancy per closed lot ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts shape; realistic negative
+    // numbers — n 1,902 active lots, −3.1 % per lot, last close today); the idle page's sleeve ledger has not loaded (broker null)
+    "/api/bot/performance": { totalTrades: 36, totalFills: 55, winRate: 27.8, avgGain: 9.08, avgLoss: -5.16, totalPnlPct: -14.1, profitFactor: 0.68, byStrategy: {}, recentTrades: [], equityCurve: curve.slice().reverse(), realisticPnlPct: -15.2, avgSlippagePct: 0.12,
+      lastClosedAt: "2026-10-14T19:59:02.123456", excluded: { orphanExits: 351, openEntries: 20 }, basis: "trigger price, not fill",
+      broker: latched ? (() => {
+        const row = (n, wins, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, lastCloseAt, unpriced) => ({ n, wins, losses: n - wins, winRate: Math.round((wins / n) * 10000) / 100, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, firstCloseAt: "2026-05-07T14:31:04.000Z", lastCloseAt, unpriced });
+        return { windowStart: "2026-05-07T00:00:00.000Z",
+          active: row(1902, 760, 24.1, -21.2, -3.1, -6.76, -12863, 0.62, ago(31), 71),
+          options: row(1724, 690, 25.4, -22.6, -3.4, -7.17, -12364, 0.6, ago(31), 0),
+          stocks: row(178, 70, 6.2, -5.9, -1.1, -2.8, -499, 0.81, "2026-10-14T19:59:02.000Z", 71),
+          floor: row(96, 61, 3.1, -2.4, 1.1, 16.19, 1554, 2.1, ago(190), 0),
+          asOf: ago(4), source: "alpaca fills via sleeve ledger", cached_s: 240, stale: false, lastError: null };
+      })() : null,
+      brokerReason: latched ? null : "sleeve ledger not loaded yet; the next poll fills it" },
     "/api/bot/market-status": { isOpen: true, nextOpen: new Date(now + 20 * 3600_000).toISOString(), nextClose, timestamp: new Date(now).toISOString() },
     "/api/bot/calendar": { earlyCloses: [], holidays: [], tomorrowStatus: "open" },
     "/api/ml/status": { model_exists: true, enabled: true, model_age_hours: 9.7, last_accuracy: 58, last_samples: 10000, last_status: "trained" },
@@ -3303,6 +3317,55 @@ async function main() {
         // and its controls sit under the next panel)
         for (const [id, h] of await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => [e.getAttribute("data-panel"), Math.round(e.getBoundingClientRect().height)]))) {
           if (h < 40) fail(`${id}: panel is ${h}px tall`);
+        }
+        // ── KPI STRIP ([RULE-REVIEW] 2026-10-29, the Expectancy tile): the
+        // first tile's headline is the BROKER expectancy per closed lot (the
+        // sleeve ledger's fill walk, all sleeves the bot trades) and the bot-
+        // log number sits under it with its staleness and exclusions. The
+        // strip may not grow for it: its height is pinned per width to the
+        // pre-change readings (the fixed 86 px grid row at the desktop tier,
+        // content height in the stack) and no tile may clip its own content.
+        // Re-pin only with a deliberate layout change, never to pass.
+        {
+          // the pre-change readings (2026-10-29 baseline): the idle page's first row at 768 sits on the 72 px tile minimum;
+          // its 390 pair row read 319 before and 310 after — the win-rate tile's "—" (no broker ledger yet) takes one line
+          // where "27.8% / 36.2%" wrapped to two; nothing grew
+          const KPI_STRIP_PX = name === "bot" ? { 390: 319, 768: 166, 1440: 86 } : { 390: 310, 768: 156, 1440: 86 };
+          const kpi = await page.evaluate(() => {
+            const strip = document.querySelector(".vt-bot-kpi");
+            if (!strip) return null;
+            const tiles = [...strip.querySelectorAll(":scope > .vt-bot-panel")].map((t) => ({ h: Math.round(t.getBoundingClientRect().height), over: Math.max(0, t.scrollHeight - t.clientHeight) }));
+            const first = strip.querySelector(":scope > .vt-bot-panel");
+            const second = strip.querySelectorAll(":scope > .vt-bot-panel")[1];
+            const lines = first ? [...first.querySelectorAll(".vt-kpi-edge-cap > span, .vt-kpi-edge-log > span")].map((s) => ({ text: s.textContent || "", cut: s.scrollWidth - s.clientWidth > 1 })) : [];
+            const eb = first ? first.querySelector(".vt-bot-eb") : null;
+            return { h: Math.round(strip.getBoundingClientRect().height), tiles, first: first ? first.textContent || "" : "", second: second ? second.textContent || "" : "", eyebrow: eb ? eb.textContent || "" : "", eyebrowLines: eb ? Math.round(eb.getBoundingClientRect().height / 13.2) : 0, lines };
+          });
+          if (!kpi) fail("kpi: no strip rendered");
+          else {
+            console.log(`  kpi strip ${vp.w}px: ${kpi.h}px (tiles ${kpi.tiles.map((t) => t.h).join("/")}; eyebrow ${kpi.eyebrowLines} line(s))`);
+            const want = KPI_STRIP_PX[vp.w];
+            if (want && Math.abs(kpi.h - want) > 1) fail(`kpi: the strip is ${kpi.h}px tall at ${vp.w} (pinned ${want}px — the Expectancy tile may not grow the strip)`);
+            // the two tiles this change touches may not clip their own content (the vs-SPY tile's 768 overflow predates it)
+            kpi.tiles.slice(0, 2).forEach((t, i) => { if (t.over > 1) fail(`kpi: tile ${i + 1} clips ${t.over}px of its own content`); });
+            // the Expectancy tile: broker headline, its own n / last close, and the demoted bot-log number with its exclusions —
+            // every caption line whole (an ellipsis would hide a fact, and the title is no help on touch)
+            if (!/^Expectancy \/ closed lot · broker/.test(kpi.eyebrow)) fail(`kpi: the first tile's eyebrow reads "${kpi.eyebrow}"`);
+            for (const l of kpi.lines) if (l.cut) fail(`kpi: a caption line is cut short — "${l.text}"`);
+            if (kpi.lines.length !== 4) fail(`kpi: ${kpi.lines.length} caption lines (expected n / last close + the two bot-log lines)`);
+            if (!/bot log −1\.20% · n 36 · since Oct 14\s*excludes 351 unattributed exits/.test(kpi.first)) fail(`kpi: the bot-log line is missing or not from the fields — "${kpi.first.slice(0, 160)}"`);
+            if (name === "bot") {
+              if (!/−3\.10%/.test(kpi.first)) fail(`kpi: the broker expectancy (fixture −3.1 %) is not the headline — "${kpi.first.slice(0, 120)}"`);
+              if (!/n 1,902\s*last close [A-Z][a-z]{2} \d{1,2}/.test(kpi.first)) fail(`kpi: no "n · last close" caption for the broker number — "${kpi.first.slice(0, 160)}"`);
+              if (!/payoff \d+\.\d{2} · pf \d+\.\d{2}/.test(kpi.second)) fail(`kpi: the win-rate tile shows no payoff / pf from the broker figures — "${kpi.second.slice(0, 120)}"`);
+              if (!/40\.0% \/ 46\.8%/.test(kpi.second)) fail(`kpi: the win-rate tile is not the broker's 40.0 % against its 46.8 % breakeven — "${kpi.second.slice(0, 120)}"`);
+            } else {
+              // broker null (the ledger not loaded yet): a dash and the warming-up words, never the stale bot-log number as the headline
+              if (!/broker ledger\s*warming up/.test(kpi.first)) fail(`kpi: broker null shows no "warming up" state — "${kpi.first.slice(0, 160)}"`);
+              if (/[−+]\d+\.\d{2}%/.test(kpi.first.replace(/bot log −1\.20%[\s\S]*$/, ""))) fail(`kpi: broker null still shows a percent headline — "${kpi.first.slice(0, 120)}"`);
+              if (!/broker ledger warming up/.test(kpi.second)) fail(`kpi: the win-rate tile shows a number without the broker ledger — "${kpi.second.slice(0, 120)}"`);
+            }
+          }
         }
         // CHART (2026-10-21, our own canvas engine): the chart panel holds a
         // canvas with real size that has actually painted — the regression
