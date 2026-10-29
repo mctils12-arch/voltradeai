@@ -112361,3 +112361,7 @@ Bias: survivorship-reduced (optimistic); delisting return assumed (0 merger / �
 ## 2026-10-29 [PRODUCT] — dossier events (ticker_dossier.py, tickerDossier page) — v1.0.1230 REPLACE THE UNVALIDATED "NOT PRICED IN" FLAG WITH MEASURED EVENT HISTORY
 
 The pre-registered event-reaction study (#1542) found no event type with tradeable post-event drift, so the dossier's "small reaction — possibly not priced in" flag is removed (harness now fails if it reappears). Original 8-Ks with Item 4.02 (n=715, −1.51% day 0-1) or 1.01 (n=42,956, +0.14%) and Form 4 insider-purchase clusters meeting the study definition (n=10,090, +2.16%) show a "history" line with n, t and "no reliable drift after", sourced and dated; Item 5.02 is deliberately NOT mapped (the −1.16% applies only to text-classified sudden CEO/CFO exits; 5.02 also covers routine appointments). Lawsuits/other items/news: no context line. Also removed a wrong after-close timing guess (EDGAR acceptance times are true UTC). Visual harness dossier/dossierempty at 390/768/1440: PASS. STARVED: no.
+
+## 2026-10-29 [RESEARCH] — research/* docs only — MASTER STATUS: overnight push recorded
+
+research/master_status.md updated: overnight PR table (#1502–#1545), in-flight empty, waiting-on-Mike (old routines + Gmail, branch cleanup apply script, pre-2016 prices, shadow-mode switch, rule calls, 5.02 choice), parked-in-shadow table with read dates. Docs only, no version bump. STARVED: no.
