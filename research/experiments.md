@@ -112040,3 +112040,46 @@ fails because of the new keys.
 Ported onto main 2026-10-28; conflicts resolved: shadow_portfolio.py (_sanitize_score_breakdown persists SCORE_BREAKDOWN_KEYS + main's REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS; log_candidate's regime_snapshot kwarg untouched), ci/counter_baseline.txt (re-pinned to the counter_ratchet measurement: tests 668, assertions 23661); bot_engine.py auto-merged (the contrarian snapshot wraps main's regime 'Buy the Dip' withhold branch, so the logged delta is what was actually added)
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — ML CV: date-ordered purged walk-forward + inner-validation early stopping (v1.0.1215)
+
+What was wrong (ml_model_v2.py): _build_training_data emits rows ticker by
+ticker and nothing sorts them by date; _walk_forward_cv and
+_purged_train_test_split split by ROW INDEX, so each "walk-forward" test fold
+is a block of whole tickers over the SAME calendar window as training; the
+"5-day embargo" is 5*n_tickers rows; _train_single_lgbm early-stops (and picks
+LGB vs GB) on the test fold. With 11/34 features pure functions of the date the
+model memorises "these dates hit PT" and is credited for it out of sample.
+
+What changed:
+- new ml_cv.py (pure numpy + LightGBM in one fit helper): folds keyed on
+  DECISION DATE, expanding walk-forward, a trading-date embargo
+  (callers pass >= label horizon) plus a purge of training rows whose label
+  window reaches the test block; early stopping on an inner validation slice
+  carved from the last dates of the TRAINING window (same embargo/purge), tree
+  count refit on the whole window; metric suite (AUC, log-loss, Brier, base
+  rate, calibration table, quantile realized returns, date-block bootstrap CI);
+  legacy_cv() reproduces the v2 procedure for before/after on identical input.
+- ml_model_v2._build_training_data(return_meta=True) also returns each row's
+  decision date / ticker / label end date. Default return shape unchanged.
+- The LIVE v2 production fit is NOT changed (its early stopping and isotonic
+  calibrator would move live scores); the honest CV is used by the shadow v3
+  candidate and by the measurement report. Switching v2 is a promotion decision.
+
+Before/after on identical inputs (v2 generic builder, 97 tickers, Yahoo daily
+bars 2023-03..2026-10, 90,210 rows, base rate 0.427):
+  legacy : pooled AUC 0.658, log-loss 0.648, accuracy 61.9%
+  honest : pooled AUC 0.515, log-loss 0.690 (constant base-rate forecast 0.684)
+The honest number is WORSE, as expected: the v2 generic dataset has ~no
+out-of-time skill. Bias direction: this change can only lower reported skill.
+
+Downstream: (1) research/ml_v3_eval.md and the v3 candidate use these numbers;
+(2) v2's bundle accuracy / /api/ml/status are unchanged and remain upper bounds.
+Tests: test_ml_cv.py (8) — fold dates disjoint with embargo+purge, legacy
+splitter shown overlapping on ticker-major rows, inner slice never touches the
+test fold, test labels never read by the fit, synthetic date-only signal:
+legacy AUC 0.75 vs honest 0.47. All fail before (module/kwarg absent).
+Rollback trigger: none for live (no live path reads ml_cv); revert if the
+CV helpers are shown to drop rows they should keep.
+
+STARVED: no — master-plan queue in progress this session.
