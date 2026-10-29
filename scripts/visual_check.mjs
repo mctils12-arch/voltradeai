@@ -108,6 +108,36 @@ function botFixtures({ latched }) {
     return out;
   })();
   const curve = Array.from({ length: 30 }, (_, k) => { const d = new Date(now - (29 - k) * 86400_000); const v = [101068, 101988, 102661, 102560, 102560, 104467, 104964, 104103, 103929, 104390, 104306, 104306, 103811, 103997, 104064, 104239, 104883, 104879, 104879, 105593, 105774, 104847, 103182, 103563, 103553, 103553, 102593, 102181, 99810, 99655][k]; return { date: d.toISOString().slice(0, 10), value: v, pnl: 0 }; });
+  // GET /api/bot/scoreboard (server/scoreboard.ts shape): one row per weekday
+  // since the account's 2026-05-06 start, a deterministic walk for both legs
+  // (fixture numbers, real shape) — one missed snapshot (a row spanning two
+  // sessions) and today's row provisional, so both markers render
+  const scoreboard = (() => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const days = [];
+    for (let t = Date.parse("2026-05-06T00:00:00Z"); t <= now; t += 86400_000) { const d = new Date(t); if (d.getUTCDay() % 6) days.push(d.toISOString().slice(0, 10)); }
+    let eq = 106742.68, px = 730.13;
+    const pts = days.map((date, k) => { if (k) { eq *= 1 + (rnd() - 0.52) * 0.012; px *= 1 + (rnd() - 0.47) * 0.009; } return { date, eq, px }; });
+    const r2 = (x) => Math.round(x * 100) / 100;
+    const kept = pts.filter((_, k) => k !== pts.length - 9);
+    const rows = [];
+    let beat = 0, peakB = 0, peakS = 0, ddB = 0, ddS = 0;
+    for (let k = 0; k < kept.length; k++) {
+      const b = kept[k];
+      peakB = Math.max(peakB, b.eq); peakS = Math.max(peakS, b.px); ddB = Math.min(ddB, (b.eq / peakB - 1) * 100); ddS = Math.min(ddS, (b.px / peakS - 1) * 100);
+      if (!k) continue;
+      const a = kept[k - 1], bot = (b.eq / a.eq - 1) * 100, spy = (b.px / a.px - 1) * 100;
+      const bc = (b.eq / kept[0].eq - 1) * 100, sc = (b.px / kept[0].px - 1) * 100;
+      if (bot > spy) beat++;
+      rows.push({ date: b.date, prevDate: a.date, sessions: days.indexOf(b.date) - days.indexOf(a.date), botPct: r2(bot), spyPct: r2(spy), diffPp: r2(bot - spy), botCumPct: r2(bc), spyCumPct: r2(sc), cumDiffPp: r2(bc - sc), provisional: k === kept.length - 1 });
+    }
+    const last = rows[rows.length - 1];
+    return { rows: rows.reverse(), summary: { from: kept[0].date, to: last.date, botCumPct: last.botCumPct, spyCumPct: last.spyCumPct, cumDiffPp: last.cumDiffPp, daysBeat: beat, daysCompared: rows.length, gapRows: 1, botMaxDdPct: r2(ddB), spyMaxDdPct: r2(ddS) },
+      barsThrough: last.date, curveThrough: last.date, fetchedAt: new Date(now).toISOString(), computedAt: new Date(now).toISOString(),
+      sources: { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" },
+      cashFlows: { journals: 0, transfers: 0, since: "2026-05-07T00:00:00.000Z" } };
+  })();
   const feats = ["momentum_1m", "momentum_3m", "rsi_14", "price_vs_52w_high", "volume_ratio", "ewma_vol", "atr_pct", "vrp", "iv_rank_proxy", "vwap_position", "adx", "range_pct", "vxx_ratio", "spy_vs_ma50", "markov_state", "regime_score", "sector_momentum", "cross_sec_rank", "earnings_surprise", "put_call_proxy", "vol_of_vol", "frac_diff_price", "idiosyncratic_ret", "change_pct_today", "above_ma10", "trend_strength", "intel_score", "news_sentiment", "insider_signal", "iv_rank_stock", "days_to_earnings", "credit_spread", "market_breadth", "put_call_ratio"];
   const constant = new Set(["price_vs_52w_high", "ewma_vol", "range_pct", "vxx_ratio", "markov_state", "cross_sec_rank", "earnings_surprise", "intel_score", "news_sentiment", "insider_signal", "days_to_earnings"]);
   const features = feats.map((name, k) => constant.has(name) ? { name, n: 300, mode: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : name === "days_to_earnings" || name === "cross_sec_rank" ? 0.5 : 0, mode_fraction: 1, variance: 0, constant: true, last: name === "ewma_vol" ? 2 : name === "vxx_ratio" ? 1 : 0 } : { name, n: 300, mode: 0, mode_fraction: 0.05 + (k % 7) * 0.04, variance: 1.2 + k, constant: false, last: Math.round(((k * 7) % 13) * 10) / 10 });
@@ -167,6 +197,8 @@ function botFixtures({ latched }) {
           // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold 2026-10-20 at the default rates — a net realized loss (no tax, carried forward), open losses, SPY's one short-term sale
           afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its whole total return taxed once at the short-term rate; the dividends inside it would really be taxed each year at the qualified rate, so SPY's tax is slightly overstated (about (short − long) × yield), which flatters the account by that much", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
+    // the daily scoreboard (fixture walk above) / not enough history on the idle page
+    "/api/bot/scoreboard": latched ? scoreboard : { rows: [], summary: null, barsThrough: null, curveThrough: null, fetchedAt: null, cashFlows: null },
     // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
     "/api/bot/sleeves": latched
       ? { since: "2026-05-07T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-03-12T14:02:11.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
@@ -3254,6 +3286,53 @@ async function main() {
             } catch (e) {
               fail(`lookup: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
             }
+          }
+        }
+        // ── DAILY vs SPY SCOREBOARD (2026-10-28, human-ordered): one row per
+        // trading day from /api/bot/scoreboard. Phone/tablet: a panel in the
+        // stack; desktop: no grid slot (the columns are full) — the vs-SPY
+        // tile's "daily" control zooms it. Latched fixture: 30 rows visible of
+        // the walk, the summary and the provenance line; idle fixture: the
+        // designed "not enough history" state, no table, never zeros.
+        {
+          try {
+            const opener = page.locator(".vt-score-open").first();
+            const zoomed = (await opener.count()) > 0;
+            if (zoomed) { await press(opener); await settle(); }
+            const panel = page.locator('section.vt-bot-panel[data-panel="score"]').first();
+            if (!(await panel.count())) fail(`scoreboard: no panel${zoomed ? " after the vs-SPY tile's 'daily' control" : " in the stack"}`);
+            else {
+              await panel.scrollIntoViewIfNeeded();
+              let sb = null;
+              for (let i = 0; i < 40; i++) {
+                sb = await page.evaluate(() => {
+                  const p = document.querySelector('section.vt-bot-panel[data-panel="score"]');
+                  if (!p) return null;
+                  const pb = p.querySelector(".vt-bot-pb");
+                  return { rows: p.querySelectorAll(".vt-score-t tbody tr").length, hero: !!p.querySelector(".vt-score-hero"), src: /dividend-adjusted/.test(p.querySelector(".vt-score-src")?.textContent || ""), skel: !!p.querySelector('[aria-busy="true"]'), empty: !!p.querySelector(".vt-bot-empty"), h: Math.round(p.getBoundingClientRect().height), over: pb ? pb.scrollWidth - pb.clientWidth : 0 };
+                });
+                if (sb && !sb.skel) break;
+                await page.waitForTimeout(100);
+              }
+              // the panel as drawn, for the PR's visual review (.visual/<page>-score-<w>.png)
+              await page.screenshot({ path: path.join(OUT, `${name}-score-${vp.w}.png`), animations: "disabled" });
+              if (!sb || sb.skel) fail("scoreboard: still a skeleton after 4 s");
+              else {
+                if (sb.h < 120) fail(`scoreboard: panel is ${sb.h}px tall`);
+                if (sb.over > 1) fail(`scoreboard: the table overflows its panel by ${sb.over}px`);
+                if (name === "bot") {
+                  if (sb.rows !== 30) fail(`scoreboard: ${sb.rows} rows visible (expected the last 30 days)`);
+                  if (!sb.hero) fail("scoreboard: no since-start summary");
+                  if (!sb.src) fail("scoreboard: no provenance line");
+                } else if (sb.rows || !sb.empty) fail(`scoreboard: the empty fixture shows ${sb.rows} rows${sb.empty ? "" : " and no designed empty state"}`);
+              }
+            }
+            if (zoomed) {
+              const back = page.locator("button.vt-bot-wbtn", { hasText: "back to the page" });
+              if (await back.count()) { await press(back); await settle(); } else fail("scoreboard: no way back from the zoomed scoreboard");
+            } else await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
+          } catch (e) {
+            fail(`scoreboard: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
           }
         }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's

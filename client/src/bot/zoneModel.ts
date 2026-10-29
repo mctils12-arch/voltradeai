@@ -3,8 +3,8 @@
 // what the centre column holds (pageState) and the per-panel flags
 // (held / pinned / floating / zoomed) the user sets.
 export type Tier = "xl" | "l" | "m" | "s";
-export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline";
-export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline"];
+export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline" | "score";
+export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score"];
 
 export function tierFor(width: number): Tier {
   if (!Number.isFinite(width)) return "l";

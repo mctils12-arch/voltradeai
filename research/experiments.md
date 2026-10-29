@@ -111898,3 +111898,7 @@ its header and clipped its rows; client/src/bot/BotPage.tsx ordersFlex is now
 
 STARVED: no — master-plan queue in progress this session.
 Visual harness (bot, botidle) at 390/768/1440: 0 hard failures; Orders panel clipping fixed.
+
+## 2026-10-28 [PRODUCT] — T-CLIENT + server/scoreboard.ts — v1.0.1212 BOT PAGE: DAILY BOT-vs-SPY SCOREBOARD (human-ordered)
+
+GET /api/bot/scoreboard (server/scoreboard.ts, pure; owner-only, 10-min cache) over the SAME inputs as /api/bot/benchmark: daily equity curve + SPY dividend-adjusted closes (shared spyBenchBars cache). One row per SPY session; missed snapshots fold into a flagged multi-session row; cumulative compounds since first point; no lookahead (tested); today's row provisional; max drawdown both sides; no Sharpe (none exists to reuse). Not cash-flow-adjusted: journals/transfers surfaced as a caveat. Desktop opens via "daily →" on the vs-SPY tile (a grid slot collapsed the Model panel to 0px in the harness); phone/tablet inline. Visual harness bot/botidle at 390/768/1440: PASS, 0 hard failures (mocked data). Display only, no trading effect. STARVED: no.

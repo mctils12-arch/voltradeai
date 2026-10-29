@@ -21,6 +21,8 @@ import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
 import { parseLookupInput, pushHistory, type LookupResult, type LedgerReport } from "./lookup";
 import { fmtAge, edgeStats } from "./format";
+import { ScoreBody } from "./scoreboard";
+import { fmtDay } from "./scoreView";
 
 function useNow(periodMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -38,7 +40,7 @@ function reducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today" };
+const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY" };
 /** this window on the pane channel (popout.ts): a sender ignores its own echoes */
 const WIN_ID = windowId();
 
@@ -297,7 +299,7 @@ export default function BotPage() {
   }, [flags, now, onHold, onPin, onFloat, onPop, pane, touch, tier]);
 
   // bodies (fresh), then hold snapshots
-  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null };
+  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null };
   const freshBody: Record<PanelId, ReactNode> = {
     kpi: null,
     stages: <StagesBody rows={stages} />,
@@ -309,6 +311,7 @@ export default function BotPage() {
     book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />,
     orders: <OrdersBody orders={d.orders.data} deploysToday={deploysToday} />,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
+    score: <ScoreBody q={d.scoreboard} nowMs={now} />,
   };
   for (const id of flags.held) { if (!held.current.has(id)) held.current.set(id, { since: now, body: freshBody[id], ticks: tickCount.current }); }
   for (const id of [...held.current.keys()]) { if (!flags.held.includes(id)) held.current.delete(id); }
@@ -330,7 +333,7 @@ export default function BotPage() {
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
-    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" ? ages.score : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share and the cap (maxHeight); the panel
@@ -346,6 +349,8 @@ export default function BotPage() {
       case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "2.4 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.1 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "orders": return <Panel {...common} title="Orders" help="orders" style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
+      // the daily bot-vs-SPY scoreboard (2026-10-28, human-ordered): the slot carries the column share; the table scrolls inside
+      case "score": return <Panel {...common} title="Daily vs SPY" help="scoreboard" meta={d.scoreboard.data?.summary ? `${d.scoreboard.data.rows.length} days · through ${fmtDay(d.scoreboard.data.summary.to)}` : "bot vs buy-and-hold SPY, per trading day"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
       default: return null;
     }
@@ -365,7 +370,7 @@ export default function BotPage() {
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
   const tpl = TEMPLATES[tier];
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} />;
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped
@@ -396,6 +401,7 @@ export default function BotPage() {
           {hasState ? slot("state", { flex: "0 0 auto" }) : null}
           {slot("issues", { flex: "0 0 auto" })}
           {slot("chart", { flex: "0 0 auto" })}
+          {slot("score", { flex: "0 0 auto" })}
           {slot("watch", { flex: "0 0 auto" })}
           {slot("model", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("stages", { flex: "0 0 auto" })}<div className="vt-bot-col">{slot("book", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</div></div> : <>{slot("book", { flex: "0 0 auto" })}{slot("stages", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</>}
@@ -404,6 +410,7 @@ export default function BotPage() {
       ) : (
         <div className="vt-bot-grid" style={gridStyle(tier)}>
           {kpi}
+          {/* the daily scoreboard has no desktop slot (the three columns are full): the vs-SPY tile's "daily" control zooms it */}
           {/* DEAD SPACE (2026-10-22, human-approved): no column leaves a blank — Issues takes only its content
               (capped, scrolls when long), the Book takes the rest of the left column, the chart the whole right
               column; Orders is one line while nothing works and grows back with real orders */}
