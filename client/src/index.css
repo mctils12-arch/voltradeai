@@ -4746,6 +4746,25 @@ section.vt-bot-panel[data-panel="score"] { container-type: inline-size; }
 .vt-score-skelrow { height: 24px; }
 @container (max-width: 519px) { .vt-score-t .cum { display: none; } .vt-score-t .d { width: 30%; } }
 .vt-bot-stack [data-panel="score"] .vt-bot-pb { max-height: 560px; overflow-y: auto; }
+/* ENTRY SHADOW MODE (2026-10-28, client/src/bot/shadow.tsx): new entries logged, not traded.
+   The chip sits inline in a text line (Now eyebrow, Orders header) at that line's height — the
+   tap area grows through ::after, never the box — so turning it on never shifts the layout. */
+.vt-shadow-chip { position: relative; display: inline-flex; align-items: center; box-sizing: border-box; height: 14px; margin: -2px 0 -2px 8px; padding: 0 5px; border: 1px solid currentColor; border-radius: var(--radius-sm); font: inherit; font-size: 10px; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-orange); background: none; white-space: nowrap; vertical-align: middle; cursor: default; flex: 0 0 auto; }
+button.vt-shadow-chip { cursor: pointer; }
+button.vt-shadow-chip::after { content: ""; position: absolute; inset: -8px 0; }
+button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--text-primary); }
+.vt-bot-ph .vt-shadow-chip { margin-left: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.vt-shadow { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border); min-width: 0; }
+.vt-shadow-msg { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; line-height: 1.4; color: var(--text-primary); min-width: 0; }
+.vt-shadow-msg > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.vt-shadow-src { font-size: 11px; line-height: 1.4; color: var(--text-tertiary); overflow-wrap: anywhere; }
+.vt-shadow-empty, .vt-shadow-count { font-size: 11.5px; color: var(--text-secondary); }
+.vt-shadow-fold summary { font-size: 11.5px; color: var(--accent); cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.vt-shadow-list .vt-shadow-t { flex: 0 0 auto; width: 38px; font-size: 11px; }
+.vt-shadow-list .sym { flex: 0 0 auto; min-width: 48px; }
+.vt-shadow-list .vt-shadow-what { flex: 1 1 auto; min-width: 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-shadow-list .vt-shadow-sl { flex: 0 1 auto; min-width: 0; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 639px) { .vt-shadow-pre { display: none; } .vt-shadow-list .vt-shadow-sl { display: none; } .vt-shadow-fold summary { min-height: 44px; } }
 @media (max-width: 639px) { .vt-score-more { min-height: 44px; } .vt-score-t td { height: 30px; } .vt-score-skelrow { height: 30px; } }
 .vt-bot-page[data-touch="true"] .vt-score-more { min-height: 44px; }
 @media (prefers-reduced-motion: reduce) { .vt-score-skel { animation: none; } }

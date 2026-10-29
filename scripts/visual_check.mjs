@@ -157,7 +157,17 @@ function botFixtures({ latched }) {
   const nextClose = new Date(now + 2 * 3600_000 + 2 * 60_000).toISOString();
   return {
     "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } },
-    "/api/bot/status": { active: !latched, killSwitch: latched, dailyLossLimit: 3, mode: "paper", equityPeak: 110727.04, maxDrawdownPct: 10, minScoreThreshold: 65, autoResume: latched ? { status: "UNRECONCILED", drawdownPct: -9.65, resumeAbovePct: -8, marketHoursSoFar: 2.8, marketHoursRequired: 13, reconciled: 0, required: 3 } : null, unreadNotifications: 0, circuitBreakerActive: false, consecutiveStopLosses: 0 },
+    "/api/bot/status": { active: !latched, killSwitch: latched, dailyLossLimit: 3, mode: "paper", equityPeak: 110727.04, maxDrawdownPct: 10, minScoreThreshold: 65, autoResume: latched ? { status: "UNRECONCILED", drawdownPct: -9.65, resumeAbovePct: -8, marketHoursSoFar: 2.8, marketHoursRequired: 13, reconciled: 0, required: 3 } : null, unreadNotifications: 0, circuitBreakerActive: false, consecutiveStopLosses: 0,
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): both sleeves shadowed. The idle
+      // moment carries four would-be entries (one Python-side with no size, one ETF instrument);
+      // the latched page none — the designed "no would-be entries yet today" state.
+      entry_shadow: { stocks: true, options: true, source: latched ? "config" : "env" },
+      shadow_entries_today: latched ? { day: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), count: 0, entries: [] } : { day: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), count: 4, entries: [
+        { time: ago(3), sleeve: "options", ticker: "SVXY", side: null, notional: null, source: "bot_engine.third_leg", instrument: null },
+        { time: ago(9), sleeve: "options", ticker: "AMD", side: "sell", notional: 15500, source: "tier_dispatcher.SELL_CSP", instrument: "AMD261120P00155000" },
+        { time: ago(21), sleeve: "stocks", ticker: "NVDA", side: "buy", notional: 4210.5, source: "executeTrades.etf", instrument: "NVDL" },
+        { time: ago(40), sleeve: "stocks", ticker: "KWEB", side: "buy", notional: 2980, source: "executeMorningQueue", instrument: null },
+      ] } },
     "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0 },
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
@@ -3393,6 +3403,72 @@ async function main() {
             } else await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
           } catch (e) {
             fail(`scoreboard: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+          }
+        }
+        // ── ENTRY SHADOW MODE (2026-10-28, human directive): new stock + options
+        // entries are logged, not traded. The Now tile's eyebrow carries an
+        // inline chip that must not grow its line; it opens the Orders panel
+        // zoomed, where the sentence, the source and today's would-be entries
+        // render without overflow (idle fixture: 4 rows; latched: the designed
+        // empty state). Desktop: the Orders header carries a count chip and the
+        // one-line slot does not grow. Phone/tablet: the block sits in the stack.
+        {
+          try {
+            const chip = page.locator('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]').first();
+            if (!(await chip.count())) fail("shadow: no 'entries: shadow' chip in the Now tile");
+            else {
+              // the Now eyebrow keeps the height of a chip-less KPI eyebrow (Session's)
+              const eb = await page.evaluate(() => { const c = document.querySelector('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]'); const e = c?.closest(".vt-bot-eb"); const ref = [...document.querySelectorAll(".vt-bot-kpi .vt-bot-eb")].find((x) => /^Session/i.test((x.textContent || "").trim())); const r = c?.getBoundingClientRect(); const er = e?.getBoundingClientRect(); return r && er && ref ? { inside: r.left >= 0 && r.right <= innerWidth + 0.5, ebH: er.height, refH: ref.getBoundingClientRect().height, title: c.getAttribute("title") || "" } : null; });
+              if (!eb) fail("shadow: the chip is not inside the Now eyebrow");
+              else {
+                if (!eb.inside) fail("shadow: the Now chip leaves the viewport");
+                if (eb.ebH > eb.refH + 0.5) fail(`shadow: the chip grew the Now eyebrow to ${eb.ebH.toFixed(1)}px (Session's is ${eb.refH.toFixed(1)}px)`);
+                if (!/logged, not traded/.test(eb.title)) fail("shadow: the chip's title does not say 'logged, not traded'");
+              }
+              const tpl = await page.evaluate(() => !!document.querySelector(".vt-bot-stack"));
+              if (tpl) {
+                const inStack = await page.evaluate(() => !!document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-shadow[data-shadow="on"]'));
+                if (!inStack) fail("shadow: no shadow block in the stacked Orders panel");
+              } else {
+                // the Orders header keeps the height of a chip-less panel header (the Book's)
+                const hd = await page.evaluate(() => { const c = document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-bot-ph .vt-shadow-chip[data-shadow-chip="count"]'); const ph = c?.closest(".vt-bot-ph"); const ref = document.querySelector('section.vt-bot-panel[data-panel="book"] .vt-bot-ph'); return c && ph && ref ? { h: ph.getBoundingClientRect().height, refH: ref.getBoundingClientRect().height, clipped: c.scrollWidth - c.clientWidth > 1, block: !!document.querySelector('section.vt-bot-panel[data-panel="orders"] .vt-shadow') } : null; });
+                if (!hd) fail("shadow: no count chip in the desktop Orders header");
+                else { if (hd.h > hd.refH + 0.5) fail(`shadow: the Orders header grew to ${hd.h.toFixed(1)}px (the Book's is ${hd.refH.toFixed(1)}px)`); if (hd.clipped) fail("shadow: the Orders header chip is clipped"); if (hd.block) fail("shadow: the desktop grid's one-line Orders slot carries the full block"); }
+              }
+              await press(chip); await settle();
+              // wait for the block AND for the zoom's FLIP spring to settle (no transform left on the slot)
+              let sh = null;
+              for (let i = 0; i < 40; i++) {
+                sh = await page.evaluate(() => {
+                  const p = document.querySelector('section.vt-bot-panel[data-panel="orders"]');
+                  const b = p?.querySelector('.vt-shadow[data-shadow="on"]');
+                  if (!p || !b || (p.parentElement && p.parentElement.style.transform)) return null;
+                  const pb = p.querySelector(".vt-bot-pb"); const br = b.getBoundingClientRect();
+                  const rowsOver = [...b.querySelectorAll(".vt-bot-trow")].some((r) => r.scrollWidth - r.clientWidth > 1);
+                  return { text: b.textContent || "", rows: b.querySelectorAll(".vt-shadow-list .vt-bot-trow").length, empty: !!b.querySelector(".vt-shadow-empty"), over: pb ? pb.scrollWidth - pb.clientWidth : 0, rowsOver, inside: br.left >= 0 && br.right <= innerWidth + 0.5 };
+                });
+                if (sh) break;
+                await page.waitForTimeout(100);
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-shadow-${vp.w}.png`), animations: "disabled" });
+              if (!sh) fail("shadow: the chip did not open the Orders panel with the shadow block");
+              else {
+                if (!/New entries: SHADOW — stocks · options \(logged, not traded\)\. Floor \+ exits live\./.test(sh.text)) fail("shadow: the block does not carry the headline");
+                if (sh.over > 1) fail(`shadow: the Orders body overflows by ${sh.over}px`);
+                if (sh.rowsOver) fail("shadow: a would-be entry row overflows");
+                if (!sh.inside) fail("shadow: the block leaves the viewport");
+                if (name === "botidle") {
+                  if (sh.rows !== 4) fail(`shadow: ${sh.rows} would-be rows (expected 4)`);
+                  if (!/size not reported/.test(sh.text)) fail("shadow: an unsized entry is not labelled 'size not reported'");
+                  if (!/VOLTRADE_SHADOW_ENTRIES/.test(sh.text)) fail("shadow: the env override is not named");
+                } else if (sh.rows || !sh.empty || !/no would-be entries yet today/.test(sh.text)) fail("shadow: the empty day shows no designed empty state");
+              }
+              const back = page.locator("button.vt-bot-wbtn", { hasText: "back to the page" });
+              if (await back.count()) { await press(back); await settle(); } else fail("shadow: no way back from the zoomed Orders panel");
+              await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
+            }
+          } catch (e) {
+            fail(`shadow: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
           }
         }
         // ── AFTER-TAX LEG ([RULE-REVIEW] 2026-10-22): the latched page's
