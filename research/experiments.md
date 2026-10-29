@@ -112347,3 +112347,7 @@ PRIOR: 68% band contains ~68% (fat tails → ~70-75%), 90% band ~86-89%; plan ou
 RESULT: no gate-2 candidate. Fast reactions: insider clusters +2.16% [0,1] (t 21.8, n 10,090; late share 26%), 4.02 restatements -1.51% (t -3.4, n 715, MDE~3-4%), CEO/CFO exits -1.16% (t -7.2, n 3,155; [2,20] -1.00% t -2.45 below bar; labels ~68% precise). 1.01: no day-0 move; small-cap [2,20] -1.23% t -3.85 fails halves (all 2021+) and cost (spread 1.45%).
 PRIOR vs OUTCOME: E1 drift share below the 50% prior; E3 day-0 half the -3% prior (survivors); E2 negative drift not anticipated (post-hoc dilution hypothesis filed, needs its own pre-reg). Dossier may show event facts + historical day-0-1 context only, never a "not yet priced in" flag. Lawsuits: no clean EDGAR form — CourtListener/RECAP proposed.
 NEXT: E4 replication on the untouched 61% of 5.02 filings; E2 1.01+(3.02|2.03) pre-reg with 2016-20 holdout; rerun on the delisting-inclusive price panel. STARVED: no.
+
+## 2026-10-29 [RULE-REVIEW] — measurement (price_panel.py) — v1.0.1228 PYTHON READER OF THE 2016+ PRICE PANEL
+
+Streaming decoder mirroring server/pricePanel.ts decodeSegment (exact TS↔Python parity on a fixture + a 40-series fuzz panel encoded by the TS encoder), point-in-time universe (bar ON date, raw-close $5 floor, trailing 20d $-volume), raw-line preference + corporate-action split for reused tickers. New reader — nothing read the panel before, so no before/after. Bias: $-volume uses adjusted close × served volume → floor slightly stricter than nominal. STARVED: no.
