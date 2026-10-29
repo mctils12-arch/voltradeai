@@ -5325,7 +5325,7 @@ button.vt-ck-tile:focus-visible { outline: 2px solid var(--accent); outline-offs
 }
 .vt-bot-tab:hover { color: var(--text-primary); background: var(--bg-card-hover); }
 .vt-bot-tab[data-active="true"] { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
-.vt-bot-page[data-touch="true"] .vt-bot-tab { min-height: 40px; }
+.vt-bot-page[data-touch="true"] .vt-bot-tab { min-height: 44px; }
 .vt-trade-dossier {
   position: absolute; right: 12px; bottom: 10px; z-index: 5; text-decoration: none;
   background: var(--bg-secondary); border: 1px solid var(--border); min-height: 32px; padding: 4px 10px;

@@ -69,6 +69,7 @@ test("every Trade tab renders the one cockpit page; the old pages are no longer 
   }
   assert.match(trade, /className="vt-bot-page" data-world="trade"/, "same page root as the bot cockpit");
   assert.match(trade, /useCockpitLayout</, "same layout engine as the bot cockpit");
+  assert.match(trade, /<PanelBoundary resetKey=\{sym \?\? ""\}>\{body\(id\)\}<\/PanelBoundary>/, "one panel's render error stays in its panel");
 });
 
 test("#/analyze/<section>/<SYMBOL> is a shareable link to one symbol's view", () => {

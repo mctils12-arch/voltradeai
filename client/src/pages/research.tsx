@@ -98,8 +98,8 @@ interface ResearchReport {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function verdictColor(verdict: string): string {
-  const v = verdict.toLowerCase();
+function verdictColor(verdict: string | undefined): string {
+  const v = (verdict ?? "").toLowerCase(); // a report without a verdict reads as neutral, never throws
   if (v.includes("strong buy")) return "#30d158";
   if (v.includes("buy")) return "#4ade80";
   if (v.includes("strong sell")) return "#ff453a";
@@ -199,8 +199,15 @@ export function ResearchBody({ ticker }: { ticker: string | null }) {
         </div>
       )}
 
+      {/* A 200 without a verdict (an empty or partial report) is not a report:
+          say so instead of rendering fields that are not there (2026-10-29,
+          the cockpit renders this body for every symbol at once). */}
+      {data && !error && !data.verdict && !isFetching && (
+        <div style={{ color: "#8a9bb3", fontSize: 13 }}>No research report came back for {ticker}.</div>
+      )}
+
       {/* Report */}
-      {data && !error && (
+      {data && !error && data.verdict && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Special-situation / catalyst banner */}
           {data.catalyst && data.catalyst.catalyst.kind === "pending_acquisition" && (

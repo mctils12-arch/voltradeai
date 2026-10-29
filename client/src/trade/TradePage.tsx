@@ -22,6 +22,7 @@ import { useTier } from "@/cockpit/useTier";
 import { useNow } from "@/cockpit/useNow";
 import { useFlip } from "@/cockpit/useFlip";
 import { FloatWin } from "@/cockpit/FloatWin";
+import { PanelBoundary } from "@/cockpit/PanelBoundary";
 import { Panel, LookupBox, NotRecorded, ICONS } from "@/bot/panels";
 import { getActiveTicker, normalizeTicker, setActiveTicker, subscribeActiveTicker } from "@/lib/activeTicker";
 import { resetTradeBackdrop, setTradeBackdrop } from "@/lib/tradeBackdrop";
@@ -92,6 +93,9 @@ export default function TradePage({ tab, section, authenticated, isOwner }: { ta
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const tpl = TRADE_TEMPLATES[tier];
+  const lookupBox = <LookupBox value={lookup} onChange={setLookup} onSubmit={() => runLookup(lookup)} busy={q.isFetching} inputRef={lookupRef} />;
 
   // data ticks: the analyze query is the page's pulse (bodies fetch on their own)
   const tickCount = useRef(0); const lastUpdated = useRef(q.dataUpdatedAt);
@@ -205,16 +209,20 @@ export default function TradePage({ tab, section, authenticated, isOwner }: { ta
     if (id === "kpi") return null;
     // no pane route for the Trade world yet (the shell renders #/bot/pane/* only), so no pop-out control
     const c = { ...L.chrome(id, now), canPop: false };
-    const common = { chrome: c, ageMs: id === "options" || id === "stock" || id === "smart" || id === "structure" ? ageMs : null, style: { flex: "1 1 auto", ...extraStyle } };
+    // the SLOT carries the column share and any cap (maxHeight); the panel fills its slot — a cap on
+    // both left a hole under the panel (the bot page found the same, harness 2026-10-21/22)
+    const common = { chrome: c, ageMs: id === "options" || id === "stock" || id === "smart" || id === "structure" ? ageMs : null, style: { ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined } };
     const title = id === "options" && sym ? `${TRADE_TITLES[id]} · ${sym}` : TRADE_TITLES[id];
-    const status = id === "options" ? <LookupBox value={lookup} onChange={setLookup} onSubmit={() => runLookup(lookup)} busy={q.isFetching} inputRef={lookupRef} /> : undefined;
-    return <Panel {...common} title={title} status={status} meta={metaFor(id)} scroll>{body(id)}</Panel>;
+    // the look-up box lives in the hero panel's header on the desktop tiers; the phone stack gives it
+    // its own row above the panels (the header there has the touch-size controls and no room)
+    const status = id === "options" && !tpl.scrolls ? lookupBox : undefined;
+    // one body's render error stays in its panel (PanelBoundary); a new symbol retries
+    return <Panel {...common} title={title} status={status} meta={metaFor(id)} scroll><PanelBoundary resetKey={sym ?? ""}>{body(id)}</PanelBoundary></Panel>;
   };
   const slot = (id: TradePanelId, extraStyle?: React.CSSProperties): ReactNode => L.flags.floating.includes(id)
     ? <div key={id} ref={L.slotRef(id)} className="vt-bot-ghost" role="button" tabIndex={0} onClick={() => L.onDock(id)} onKeyDown={(e) => { if (e.key === "Enter") L.onDock(id); }} style={extraStyle}>{TRADE_TITLES[id]} · open as a window · click to dock</div>
     : <div key={id} ref={L.slotRef(id)} style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, ...extraStyle }}>{panelEl(id, extraStyle)}</div>;
 
-  const tpl = TRADE_TEMPLATES[tier];
   const layoutKey = `${tier}|${L.flags.zoomed ?? ""}|${L.flags.floating.join(",")}`;
   useFlip(layoutKey, L.slots);
 
@@ -245,6 +253,7 @@ export default function TradePage({ tab, section, authenticated, isOwner }: { ta
       ) : tpl.scrolls ? (
         <div className="vt-bot-stack" data-tier={tier}>
           {kpi}
+          <div className="vt-bot-panel vt-bot-row" style={{ padding: "8px 12px", gap: 10 }}><span className="vt-bot-eb">Look up</span>{lookupBox}</div>
           {slot("options", { flex: "0 0 auto" })}
           {slot("stock", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("smart", { flex: "0 0 auto" })}{slot("structure", { flex: "0 0 auto" })}</div> : <>{slot("smart", { flex: "0 0 auto" })}{slot("structure", { flex: "0 0 auto" })}</>}

@@ -473,8 +473,10 @@ const PAGES = {
   // one AI Engine drop-down, and "#/analyze/<section>/<SYMBOL>" opens a
   // symbol loaded with the ticker bar above it. Visitor view by default.
   analyze: { route: "/app#/analyze/options", map: false },
-  analyzeloaded: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json") } },
-  analyzeowner: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/auth/me": OWNER_ME, "/api/analyze/SPY": tradeFx("trade_analyze_spy.json") } },
+  // the loaded cockpit: every panel's endpoint answered with a real capture, so
+  // the render shows content, not nine "loading" frames
+  analyzeloaded: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/api/research/SPY": tradeFx("trade_research_spy.json"), "/api/insights/SPY": tradeFx("trade_insights_spy.json"), "/api/market/scanner": tradeFx("trade_scanner.json"), "/api/market/news": tradeFx("trade_news.json"), "/api/watchlist": tradeFx("trade_watchlist_empty.json") } },
+  analyzeowner: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/auth/me": OWNER_ME, "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/api/research/SPY": tradeFx("trade_research_spy.json"), "/api/insights/SPY": tradeFx("trade_insights_spy.json"), "/api/market/scanner": tradeFx("trade_scanner.json"), "/api/market/news": tradeFx("trade_news.json"), "/api/watchlist": tradeFx("trade_watchlist_empty.json") } },
   scanner: { route: "/app#/scanner", map: false, fixtures: { "/api/market/scanner": tradeFx("trade_scanner.json") } },
   news: { route: "/app#/news", map: false, fixtures: { "/api/market/news": tradeFx("trade_news.json") } },
   research: { route: "/app#/research", map: false },
