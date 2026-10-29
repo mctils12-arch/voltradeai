@@ -188,6 +188,15 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "ALPACA_KEY/ALPACA_SECRET unset (bootChainArchive no-ops)",
   },
   {
+    // optionsOiArchive.ts bootOiArchive: same post-close window as the chain
+    // archive; Alpaca /v2/options/contracts open interest for SPY/QQQ/IWM.
+    id: "options_oi_archive", label: "Options open-interest archive (trading days, after 16:30 ET)",
+    source: "server/optionsOiArchive.ts", kind: "daily", tz: "America/New_York", dueMin: 16 * 60 + 30,
+    graceMs: 135 * MIN, maxRunMs: 30 * MIN, tradingDaysOnly: true,
+    enabledWhen: (env) => Boolean(env.ALPACA_KEY && env.ALPACA_SECRET),
+    disabledReason: "ALPACA_KEY/ALPACA_SECRET unset (bootOiArchive no-ops)",
+  },
+  {
     // bot.ts runOvernightResearch: "once per hour" inside 20:00-04:00 ET.
     id: "overnight_research", label: "Overnight research (hourly, 20:00-04:00 ET)",
     source: "server/bot.ts", kind: "interval", window: { kind: "et_range", startMin: 20 * 60, endMin: 4 * 60 },
