@@ -34,6 +34,8 @@ import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch }
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
 import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
+import { readFilingHistory } from "./edgarForm4";
+import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
@@ -2373,6 +2375,41 @@ print(json.dumps({
       res.json(r.result);
     } catch (e: unknown) {
       res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+  });
+
+  // Ticker dossier (2026-10-29, human-asked; replaces the look-up's entry
+  // point — the look-up itself is kept and folded into the dossier's stock
+  // layer): market -> sector -> stock -> options -> events, calibrated range
+  // bands, an honest direction section and a trade plan. ticker_dossier.py via
+  // the daemon ("ticker_dossier") with the python3 -c fallback; Node adds the
+  // Form 4 archive detail (server/tickerDossier.ts). Owner only, like the
+  // look-up; 5-minute cache per symbol; letters only reach a command line.
+  const tickerDossierCache = new DossierCache();
+  app.get("/api/ticker-dossier/:symbol", requireOwner, async (req, res) => {
+    const symbol = parseDossierSymbol(req.params.symbol);
+    if (!symbol) return res.status(400).json({ error: "a symbol is 1–6 letters, or an OCC option code" });
+    try {
+      const body = await tickerDossierCache.get(symbol, async () => {
+        const r = await pythonCall("ticker_dossier", { symbol }, dossierSubprocessCmd(symbol),
+          { timeout: TICKER_DOSSIER_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 }, 100_000);
+        if (!r.success || !r.result || typeof r.result !== "object") {
+          return { ok: false, body: { symbol, generated_at: new Date().toISOString(), errors: { dossier: String((r.result as { error?: unknown } | null)?.error || "dossier failed").slice(0, 200) }, via: r.via } };
+        }
+        const out: Record<string, unknown> = { ...(r.result as Record<string, unknown>), via: r.via };
+        try {
+          out.insiders = insiderSummary(readFilingHistory(INSIDER_WINDOW_DAYS, undefined, undefined, 4000), symbol, Date.now());
+        } catch (e: unknown) {
+          out.insiders = null;
+          const errs = (out.errors && typeof out.errors === "object" ? out.errors : {}) as Record<string, string>;
+          errs.insiders = String(e instanceof Error ? e.message : e).slice(0, 160);
+          out.errors = errs;
+        }
+        return { ok: true, body: out };
+      });
+      res.json(body);
+    } catch (e: unknown) {
+      res.status(500).json({ symbol, generated_at: new Date().toISOString(), errors: { dossier: String(e instanceof Error ? e.message : e).slice(0, 200) } });
     }
   });
 
@@ -5060,6 +5097,7 @@ print(json.dumps(result[:20]))
   let lastScanResult: any = null;
   let _shadowBackfilledToday = false;
   let _lookupLedgerFilledToday = false;
+  let _dossierLedgerScoredToday = false;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
@@ -5245,9 +5283,28 @@ print(json.dumps(result))
         beat("lookup_ledger_backfill", "finish", "error", e instanceof Error ? e.message : String(e));
       }
     }
+    // Ticker dossier calibration ledger (2026-10-29): every served range band
+    // and trade plan is scored once its horizon passes — same slot, own flag,
+    // own try, so neither neighbour can skip it.
+    if (nowHour === 22 && !_dossierLedgerScoredToday) {
+      _dossierLedgerScoredToday = true;
+      beat("dossier_ledger_score", "start");
+      try {
+        const dr = await execPythonSerialized(
+          `python3 -c "from ticker_dossier import score_ledger; import json; print(json.dumps(score_ledger()))"`,
+          { timeout: 90000 }
+        );
+        audit("DOSSIER-LEDGER-SCORE", String(dr.stdout).trim().slice(0, 300));
+        beat("dossier_ledger_score", "finish", "ok");
+      } catch (e: unknown) {
+        audit("DOSSIER-LEDGER-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        beat("dossier_ledger_score", "finish", "error", e instanceof Error ? e.message : String(e));
+      }
+    }
     if (nowHour === 0) {
       _shadowBackfilledToday = false;  // reset at midnight UTC
       _lookupLedgerFilledToday = false;
+      _dossierLedgerScoredToday = false;
     }
   }
 

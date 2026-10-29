@@ -201,6 +201,8 @@ function botFixtures({ latched }) {
         csp: { occ: "NVDA261121P00170000", strike: 170, exp_date: "2026-11-21", days_out: 30, bid: 2.4, ask: 2.6, delta: -0.22, delta_real: true, iv: 0.61, oi: 12_400, premium_pct: 1.31 },
         cc: { occ: "NVDA261121C00200000", strike: 200, exp_date: "2026-11-21", days_out: 30, bid: 1.9, ask: 2.0, delta: 0.25, delta_real: true, iv: 0.58, oi: 9_800, premium_pct: 1.04 },
         scanner_setup: null } },
+    // the look-up box now opens the ticker dossier (2026-10-29): prefix fixture /api/ticker-dossier/<symbol>
+    "/api/ticker-dossier": dossierFixture("NVDA", 183.2),
     // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
     "/api/bot/benchmark": latched
       ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all",
@@ -237,6 +239,60 @@ function botFixtures({ latched }) {
           afterTax: { realizedNet: -2961.4, taxDrag: 0, afterTaxNet: -2961.4 },
           notes: ["estimate at the assumed rates shown; the paper account pays no tax"] } }
       : { pending: true },
+  };
+}
+
+// Ticker dossier (2026-10-29, human-asked): GET /api/ticker-dossier/<SYM>
+// (ticker_dossier.py). An RKLB-like space name: live market/sector/stock
+// layers, the range bands with backtest + a thin live ledger, no direction
+// call (not in the weekly set — the honest coin-flip state), a trade plan,
+// options with implied vs model, events across three credibility tiers.
+function dossierFixture(sym = "RKLB", px = 27.42, opts = {}) {
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const day = (d) => new Date(now - d * 86400_000).toISOString().slice(0, 10);
+  const band = (s) => { const r = (z) => +(px * Math.exp(z * s)).toFixed(2); return { lo68: r(-1), hi68: r(1), lo90: r(-1.6449), hi90: r(1.6449), move68_pct: +((Math.exp(s) - 1) * 100).toFixed(2), move90_pct: +((Math.exp(1.6449 * s) - 1) * 100).toFixed(2) }; };
+  const s1 = 0.0452, s5 = 0.0981;
+  const trend = (a, b, c, d) => ({ label: a > 0 && b > 0 ? "up" : a < 0 && b < 0 ? "down" : "mixed", sma20: px * 0.97, sma50: px * 0.9, sma200: px * 0.72, vs_sma50_pct: 11.1, vs_sma200_pct: 38.6, ret_5d_pct: a, ret_20d_pct: b, ret_60d_pct: c, ret_250d_pct: d });
+  const touch = (t, sp) => ({ p_target_first: t, p_stop_first: sp, p_neither: +(1 - t - sp).toFixed(4), paths: 4000, steps_per_session: 78, seed: 20261029, drift_daily: 0 });
+  const stop = +(px * Math.exp(-1.6449 * s5)).toFixed(4), tgt = +(px * Math.exp(s5)).toFixed(4), str = +(px * Math.exp(1.6449 * s5)).toFixed(4);
+  const dec = (k, lo, hi, n, pos, mean) => ({ decile: k, lo, hi, count: n, d5: { n, pos_rate: pos, mean_pct: mean, rule_win_rate: pos - 0.12 }, d20: { n: Math.round(n * 0.7), pos_rate: pos + 0.01, mean_pct: mean * 2.4, rule_win_rate: null }, decisions: { rejected_score: Math.round(n * 0.8), taken: Math.round(n * 0.05) } });
+  return {
+    symbol: sym, generated_at: iso(95_000), errors: opts.optionsDown ? { options: "HTTPError: 403 options feed" } : {}, timings: { bars_s: 1.4, ranges_s: 0.3, options_s: 2.1, events_s: 1.2, total_s: 5.6 }, via: "daemon", research_not_advice: true,
+    credibility_tiers: { 1: "primary — the issuer's own legal filing (SEC EDGAR)", 2: "wire / major outlet — newsroom with editorial standards, or an issuer press release carried by a wire", 3: "aggregator / financial blog — rewrites, summaries, opinion", 4: "social / unclassified — unverified or unknown source" },
+    market: { status: "live", source: "regime engine (regime_engine.py persisted state, gating index SPY)", as_of: day(1), reason: null, composite: "RISK_ON", legacy_label: "BULL", exposure: 1.0, exposure_continuous: 0.94, trend: "UP", fast: "UP", vol: "NORMAL", breadth: "STRONG", confidence: 0.82, days_in_regime: 37, panic: false, allowed: ["momentum", "dip_buy"],
+      stress: { vix: 16.4, vix_vix3m: 0.88, vix_vix3m_inverted: false, vrp_points: 3.1 }, spy: { close: 682.1, trend: trend(0.8, 2.1, 5.6, 17.9) } },
+    sector: { status: "live", source: "static industry map (ticker_dossier.INDUSTRY_MAP)", as_of: day(1), reason: null, key: "space", label: "Space / aerospace", etf: "UFO", tried: ["UFO", "ARKX", "ITA"], trend: trend(2.4, 6.8, 14.2, 41.0), rs_vs_spy_20d: 4.7, rs_vs_spy_60d: 8.6, stock_vs_sector_20d: 9.3, stock_vs_sector_60d: 21.4 },
+    stock: { status: "live", source: "Alpaca daily bars (split-adjusted) · dossier_ranges dr-har-ewma-v1", as_of: day(1), reason: null, price: px, price_day: day(0), price_is_partial_session: true, base_close: +(px / 1.012).toFixed(2), base_date: day(1),
+      trend: trend(5.2, 16.1, 35.6, 212.4), realized_vol_20d_pct: 71, realized_vol_60d_pct: 78, high_52w: +(px * 1.08).toFixed(2), low_52w: +(px * 0.31).toFixed(2), vs_spy_20d: 14.0, vs_spy_60d: 30.0, sessions: 792,
+      ranges: { "1": { h: 1, model: "har", fallback_reason: null, sigma_pct: s1 * 100, bands: band(s1), backtest: { h: 1, n: 250, in68: 178, in90: 221, rate68: 0.712, rate90: 0.884, target68: 0.6827, target90: 0.9, overlapping: false, models_used: { har: 250, ewma: 0 } } },
+                "5": { h: 5, model: "har", fallback_reason: null, sigma_pct: s5 * 100, bands: band(s5), backtest: { h: 5, n: 250, in68: 171, in90: 219, rate68: 0.684, rate90: 0.876, target68: 0.6827, target90: 0.9, overlapping: true, models_used: { har: 250, ewma: 0 } } } },
+      expected_move: { sigma_1d_pct: 4.52, median_abs_move_pct: 3.1, ratio_vs_median: 1.46, sigma_pctile_1y: 0.41, lookback_sessions: 252 },
+      range_method: "68% and 90% bands of a zero-drift lognormal around the last close, sigma from a HAR-RV model on daily squared returns (EWMA lambda 0.94 when HAR is unavailable or implausible). Daily returns are fat-tailed: the backtest and the live ledger show how often the bands actually held." },
+    bot_guards: { flags: { knife: 0, dip: 0, panic: 0, rs: 0, breadth: 0 }, reasons: {}, would_block: [], composite: "RISK_ON", as_of: day(1), source: "regime_engine.selection_verdict (read-only)" },
+    direction: { status: "none", call: null, statement: "No validated direction signal for this ticker — over a day or a week, direction is close to a coin flip.", model_version: "fc-logit-v1", source: "weekly forecast screen (forecast.py, SHADOW, experimental)",
+      model_accuracy: { n: 84, thin: false, hits: 45, hit_rate: 0.5357, brier: 0.2471, brier_skill_vs_coinflip: 0.0116, in_range_rate: 0.69 } },
+    bot_track: { n: 11840, thin: false, source: "shadow portfolio (every scanned candidate, all decisions; +5d/+20d outcomes, nightly backfill)", base: { d5: { n: 11840, pos_rate: 0.507, mean_pct: 0.18, rule_win_rate: 0.39 }, d20: { n: 8210, pos_rate: 0.523, mean_pct: 0.61, rule_win_rate: null } },
+      buckets: [dec(1, 20, 41, 1184, 0.49, -0.12), dec(2, 41, 47, 1184, 0.5, 0.05), dec(3, 47, 51, 1184, 0.5, 0.1), dec(4, 51, 54, 1184, 0.51, 0.14), dec(5, 54, 57, 1184, 0.5, 0.2), dec(6, 57, 60, 1184, 0.51, 0.22), dec(7, 60, 63, 1184, 0.52, 0.27), dec(8, 63, 66, 1184, 0.51, 0.3), dec(9, 66, 71, 1184, 0.52, 0.33), dec(10, 71, 92, 1184, 0.53, 0.41)] },
+    plan: { entry_ref: px, horizon_sessions: 5, sigma_h: s5, stop, target: tgt, stretch_target: str, risk_per_share: +(px - stop).toFixed(4), reward_per_share: +(tgt - px).toFixed(4), reward_risk: +((tgt - px) / (px - stop)).toFixed(3), stretch_reward_risk: +((str - px) / (px - stop)).toFixed(3),
+      stop_pct: +((stop / px - 1) * 100).toFixed(2), target_pct: +((tgt / px - 1) * 100).toFixed(2), stretch_pct: +((str / px - 1) * 100).toFixed(2), touch: touch(0.3612, 0.1083), touch_stretch: touch(0.0962, 0.1271),
+      rules: { stop: "the 90% band's lower edge for the next 5 sessions, from the entry reference price — outside ~95% of driftless 5-session closes", target: "the 68% band's upper edge for the next 5 sessions (stretch: the 90% band's upper edge)", probabilities: "Monte Carlo of 4,000 driftless paths at 5-minute steps on the fitted daily vol; no drift assumed (no validated direction signal)" } },
+    options: opts.optionsDown ? { status: "unavailable", source: "Alpaca options chain", as_of: null, reason: "HTTPError: 403 options feed", earnings: { status: "unavailable", reason: "no Finnhub key configured" } } : { status: "live", source: "Alpaca options chain (indicative feed; options_scanner)", as_of: iso(95_000), reason: null, contracts: 684, atm_iv: 82.4, atm_iv_30d: 76.9, front: { exp_date: day(-8), days_out: 8 },
+      implied_move_1d_pct: 5.33, implied_move_5d_pct: 12.31, model_move_5d_pct: 10.31, model_move_1d_pct: 4.62, implied_vs_model_5d: 1.18, skew_put_minus_call_pts: 3.4, skew_strikes: "OTM puts at 88–95% of spot vs OTM calls at 105–112%, expiry nearest 30 days",
+      earnings: { status: "live", date: day(-9), hour: "amc", source: "Finnhub earnings calendar" } },
+    events: { status: "live", source: "SEC EDGAR submissions + Alpaca news", as_of: iso(95_000), reason: null, form4_count: 7, window_days: 60,
+      reaction_note: "Reaction check: the move since the last close before the event vs the stock's typical move over the same sessions. UNVALIDATED — a small reaction is NOT evidence the news is unpriced until the event-reaction study passes gate 2. Form 4 clusters and contract awards failed gate 2 here: raw events, not signals.",
+      items: [
+        { kind: "news", title: `${sym} awarded launch contract for a constellation deployment`, time: iso(26 * 3600_000), date: day(1), source: "benzinga", tier: 3, url: "https://example.com/a", material: true, reaction: { base_date: day(2), sessions_since: 1, move_since_pct: 1.2, typical_move_pct: 4.6, z: 0.26, small_reaction: true, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
+        { kind: "filing", form: "8-K", title: "Entry into a material definitive agreement", items: [{ item: "1.01", label: "Entry into a material definitive agreement" }, { item: "9.01", label: "Financial statements and exhibits" }], time: iso(3 * 86400_000), date: day(3), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, reaction: { base_date: day(4), sessions_since: 3, move_since_pct: 9.8, typical_move_pct: 8.1, z: 1.2, small_reaction: false, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
+        { kind: "news", title: `${sym} shares rise as analysts lift targets`, time: iso(4 * 86400_000), date: day(4), source: "Reuters", tier: 2, url: "https://example.com/b", material: true, reaction: null },
+        { kind: "filing", form: "4", title: "Insider transaction (Form 4)", items: [], time: iso(6 * 86400_000), date: day(6), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: false },
+        { kind: "filing", form: "424B5", title: "Prospectus supplement (offering)", items: [], time: iso(20 * 86400_000), date: day(20), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, reaction: { base_date: day(21), sessions_since: 14, move_since_pct: 18.2, typical_move_pct: 17.4, z: 1.04, small_reaction: false, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
+      ] },
+    insiders: { windowDays: 30, filings: 7, buys: 0, sells: 5, buyShares: 0, sellShares: 412000, rows: [], source: "SEC EDGAR Form 4 archive", note: "Raw insider transactions. Form 4 buy-clustering failed ladder gate 2 in this system — not a signal." },
+    ledger: { model_version: "dr-har-ewma-v1", open: 14, min_n: 30,
+      all: { range: { "1": { n: 41, in68: 30, in90: 37, rate68: 0.7317, rate90: 0.9024 }, "5": { n: 12, in68: 8, in90: 11, rate68: 0.6667, rate90: 0.9167 } }, plan: { n: 9, target_first: 4, stop_first: 1, neither: 4, ambiguous: 0, target_first_rate: 0.4444, stop_first_rate: 0.1111, neither_rate: 0.4444, ambiguous_rate: 0 } },
+      ticker: { range: { "1": { n: 2, in68: 1, in90: 2, rate68: 0.5, rate90: 1 }, "5": { n: 0, in68: 0, in90: 0, rate68: null, rate90: null } }, plan: { n: 0, target_first: 0, stop_first: 0, neither: 0, ambiguous: 0, target_first_rate: null, stop_first_rate: null, neither_rate: null, ambiguous_rate: null } } },
   };
 }
 
@@ -586,6 +642,13 @@ const PAGES = {
   } },
   // Brain page (2026-10-29) — owner tab; every status, panel kind and agreement flag (fixture above).
   brain: { route: "/app#/brain", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
+  // Ticker dossier (2026-10-29, human-asked) — owner tab opened from the AI
+  // Engine's look-up box; an RKLB-like space name with every layer live, plus
+  // the look-up card folded into its stock layer (fixtures above).
+  dossier: { route: "/app#/dossier/RKLB", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
+    "/api/bot/lookup": { ...botFixtures({ latched: true })["/api/bot/lookup"], symbol: "RKLB", quick: { price: 27.42, change_pct: 1.2, volume: 21_000_000, dollar_volume: 575_820_000, quick_score: 31.2, above_open: true }, deep: { score: 58.2, side: "buy", action_label: "BUY", sector: "Unknown", reasons: ["Momentum 1m +16%", "Volume 1.4× average"], factors: { momentum: 22, mean_reversion: -6, vrp: 3, squeeze: 4, volume: 1.4, sentiment: 2 } } } } },
+  // the empty state (no symbol yet) and a name whose options feed is down
+  dossierempty: { route: "/app#/dossier", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -3148,6 +3211,50 @@ async function main() {
           await page.keyboard.press("Escape");
         }
       }
+      // ── TICKER DOSSIER (2026-10-29, human-asked): the range band is the
+      // hero, every layer carries a status pill and provenance, the trade
+      // plan draws its ladder and sizes from a typed dollar risk, and the
+      // look-up card sits in the stock layer. Full-page shot for review.
+      if (name === "dossier" || name === "dossierempty") {
+        const fail = (m) => checks.failures.push("dossier: " + m);
+        try {
+          if (name === "dossier") {
+            for (let i = 0; i < 60; i++) { await page.waitForTimeout(100); if (await page.locator(".vt-ds-hero .vt-ds-bandviz").count()) break; }
+            const st = await page.evaluate(() => {
+              const q = (sel) => document.querySelectorAll(sel).length;
+              const vis = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+              return { bands: q(".vt-ds-hero .vt-ds-bandviz"), b68: vis(document.querySelector(".vt-ds-b68")), px: q(".vt-ds-bpx"), pills: [...document.querySelectorAll(".vt-ds-status")].map((e) => e.getAttribute("data-s")),
+                prov: q(".vt-ds-prov"), ladder: q(".vt-ds-ladder .vt-ds-lline"), card: !!document.querySelector("[data-vt-dossier] .vt-lookup[data-symbol='RKLB']"),
+                dir: (document.querySelector(".vt-ds-dirword")?.textContent || "").trim(), advice: /Research, not advice/.test(document.body.textContent || ""), tiers: q(".vt-ds-tier"),
+                decile: /n=1184: up after 5 sessions/.test(document.body.textContent || ""), coin: /coin flip/.test(document.body.textContent || "") };
+            });
+            if (st.bands !== 2 || !st.b68) fail(`range hero: ${st.bands} bands drawn`);
+            if (st.px !== 2) fail("the live price is not marked on both bands");
+            if (st.pills.length !== 5 || st.pills.some((p) => p !== "live")) fail(`layer pills read ${st.pills.join(",")}`);
+            if (st.prov < 5) fail(`only ${st.prov} provenance lines`);
+            if (st.ladder !== 4) fail(`trade-plan ladder has ${st.ladder} lines`);
+            if (!st.card) fail("the look-up card is not in the stock layer");
+            if (st.dir !== "no validated direction" || !st.coin) fail(`direction reads "${st.dir}" without the coin-flip statement`);
+            if (!st.decile) fail("the bot's score-band record is missing (lookup score 58.2 -> decile 6, n=1184)");
+            if (!st.advice) fail("no 'Research, not advice' line");
+            if (st.tiers < 3) fail(`only ${st.tiers} credibility-tier chips`);
+            const risk = page.locator("#vt-ds-risk");
+            await risk.fill("250"); await page.waitForTimeout(100);
+            const sized = await page.evaluate(() => (document.querySelector(".vt-ds-size .vt-ds-m")?.textContent || ""));
+            if (!/^\d+ shares · /.test(sized)) fail(`size helper reads "${sized}"`);
+            if (vp.touch) {
+              const small = await page.evaluate(() => [...document.querySelectorAll(".vt-ds button, .vt-ds input, .vt-ds a, .vt-ds summary")].filter((e) => !e.closest(".vt-lookup") && !e.classList.contains("vt-help")).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 44; }).map((e) => e.className || e.tagName).slice(0, 5));
+              if (small.length) fail(`touch targets under 44px: ${small.join(", ")}`);
+            }
+          } else {
+            const st = await page.evaluate(() => ({ state: !!document.querySelector(".vt-ds-state"), input: !!document.querySelector(".vt-ds-search input") }));
+            if (!st.state || !st.input) fail("the empty state or the search box is missing");
+          }
+          await page.screenshot({ path: path.join(OUT, `${name}-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
+      }
       if (name === "bot" || name === "botidle") {
         const fail = (m) => checks.failures.push("bot-ui: " + m);
         const winCount = () => page.locator(".vt-bot-win").count();
@@ -3430,46 +3537,52 @@ async function main() {
           if (!ds.book) fail("dead space: the Book is not in the left column");
           if (ds.chartFrac !== null && ds.chartFrac < 0.7) fail(`dead space: the chart is only ${Math.round(ds.chartFrac * 100)} % of the right column`);
         }
-        // ── LOOK-UP (2026-10-22, human-asked): type a symbol in the Watch
-        // header's box, Enter → the card above the candidates names the
-        // verdict, the six gates in the scan's order and the factors; "/"
-        // focuses the box. The fixture answers NVDA stopped at admission.
+        // ── LOOK-UP -> TICKER DOSSIER (2026-10-22 look-up; 2026-10-29 the
+        // same box opens the dossier, human-asked): "/" focuses the box in
+        // the Watch header; type a symbol, Enter -> #/dossier/NVDA, where the
+        // look-up card (folded into the dossier's stock layer) still names
+        // the verdict, the six gates in the scan's order and the factors.
+        // The fixture answers NVDA stopped at admission. Then back to #/bot
+        // for the checks below.
         {
           const box = page.locator('.vt-lookup-box input').first();
           if (!(await box.count())) fail("lookup: no box in the Watch header");
           else {
             try {
-              await box.fill("nvda"); await box.press("Enter");
-              let card = null;
-              for (let i = 0; i < 40 && !card; i++) {
-                await page.waitForTimeout(100);
-                card = await page.evaluate(() => {
-                  const c = document.querySelector('.vt-lookup[data-symbol]');
-                  if (!c || c.getAttribute('data-busy')) return null;
-                  return { sym: c.getAttribute('data-symbol'), verdict: (c.querySelector('.verdict')?.textContent || '').trim(), gates: [...c.querySelectorAll('.vt-lookup-gates span[data-status]')].map((g) => g.getAttribute('data-status')), bars: c.querySelectorAll('.vt-lookup-bars > span').length, chain: /ATM IV/.test(c.textContent || '') };
-                });
-              }
-              // the card as drawn, for the PR's visual review (.visual/<page>-lookup-<w>.png)
-              await page.screenshot({ path: path.join(OUT, `${name}-lookup-${vp.w}.png`), animations: "disabled" });
-              if (!card) fail("lookup: no card within 4 s of Enter");
-              else {
-                if (card.sym !== "NVDA") fail(`lookup: the card is for ${card.sym}`);
-                if (!/stopped at admission/.test(card.verdict)) fail(`lookup: the verdict reads "${card.verdict}"`);
-                if (card.gates.join(",") !== "pass,pass,pass,fail,skipped,skipped") fail(`lookup: the gates read ${card.gates.join(",")}`);
-                if (card.bars < 4) fail(`lookup: only ${card.bars} factor bars`);
-                if (!card.chain) fail("lookup: no chain line");
-              }
               if (!vp.touch) {
                 await page.mouse.click(2, 2); await page.keyboard.press("/"); await page.waitForTimeout(80);
                 const focused = await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('.vt-lookup-box'));
                 if (!focused) fail("lookup: '/' did not focus the box");
                 await page.keyboard.press("Escape"); await page.mouse.click(2, 2);
               }
-              const close = page.locator('.vt-lookup button[aria-label="Close the look-up"]').first();
-              if (await close.count()) { await press(close); await page.waitForTimeout(200); }
+              await box.fill("nvda"); await box.press("Enter");
+              let card = null;
+              for (let i = 0; i < 60 && !card; i++) {
+                await page.waitForTimeout(100);
+                card = await page.evaluate(() => {
+                  if (!/^#\/dossier\/NVDA$/.test(location.hash) || !document.querySelector('[data-vt-dossier]')) return null;
+                  const c = document.querySelector('[data-vt-dossier] .vt-lookup[data-symbol]');
+                  if (!c || c.getAttribute('data-busy')) return null;
+                  return { sym: c.getAttribute('data-symbol'), verdict: (c.querySelector('.verdict')?.textContent || '').trim(), gates: [...c.querySelectorAll('.vt-lookup-gates span[data-status]')].map((g) => g.getAttribute('data-status')), bars: c.querySelectorAll('.vt-lookup-bars > span').length, chain: /ATM IV/.test(c.textContent || ''), hero: !!document.querySelector('.vt-ds-hero .vt-ds-bandviz') };
+                });
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-lookup-${vp.w}.png`), animations: "disabled" });
+              if (!card) fail("lookup: Enter did not open the dossier with the look-up card within 6 s");
+              else {
+                if (card.sym !== "NVDA") fail(`lookup: the card is for ${card.sym}`);
+                if (!/stopped at admission/.test(card.verdict)) fail(`lookup: the verdict reads "${card.verdict}"`);
+                if (card.gates.join(",") !== "pass,pass,pass,fail,skipped,skipped") fail(`lookup: the gates read ${card.gates.join(",")}`);
+                if (card.bars < 4) fail(`lookup: only ${card.bars} factor bars`);
+                if (!card.chain) fail("lookup: no chain line");
+                if (!card.hero) fail("lookup: the dossier opened without its range band");
+              }
             } catch (e) {
               fail(`lookup: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
             }
+            // back to the AI Engine for the checks that follow
+            await page.evaluate(() => { location.hash = "#/bot"; });
+            for (let i = 0; i < 40; i++) { await page.waitForTimeout(100); if (await page.locator('.vt-lookup-box input').count()) break; }
+            await page.waitForTimeout(300);
           }
         }
         // ── DAILY vs SPY SCOREBOARD (2026-10-28, human-ordered): one row per
