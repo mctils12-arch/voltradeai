@@ -30,8 +30,10 @@ Layers, top-down, each {status: live|partial|unavailable, reason, as_of, source}
              earnings when a Finnhub key is configured; implied vs our model
   events     SEC EDGAR submissions (8-K items decoded, Form 4 counts, offerings,
              periodic reports) + Alpaca news, each with a SOURCE CREDIBILITY
-             TIER (static, documented — a tier, not a score) and an UNVALIDATED
-             "possibly not priced in" reaction check
+             TIER (static, documented — a tier, not a score) and, for the event
+             types research/event_reaction_study.md measured, their historical
+             day-0-1 reaction as labelled CONTEXT (never a "not priced in" flag:
+             no event type passed gate 2 — the market prices them in on day 0-1)
   plan       dossier_ranges.trade_plan from the live price
   ledger     the dossier's own running record (dossier_ranges.ledger_report)
 
@@ -60,8 +62,40 @@ NEWS_LIMIT = 15
 SEC_TICKERS_TTL_S = 24 * 3600
 SEC_SUBMISSIONS_TTL_S = 15 * 60
 SHADOW_TTL_S = 30 * 60
-REACTION_SMALL_Z = 0.5            # |move since| / expected move under this = "small reaction"
-REACTION_MAX_SESSIONS = 10
+
+# ── measured event-reaction history (static; research/event_reaction_study.md,
+# 2026-10-29, §3.1 pooled rows + §7 display rules) ─────────────────────────
+# Excess CAR vs SPY minus a same-ticker random-date control, 2016-2026, a
+# SURVIVOR panel. Shown as HISTORY, never as a prediction; no type passed gate
+# 2, so no drift claim and no "not yet priced in" flag exists for any of them.
+# Types the study did not measure (lawsuits, other 8-K items, news) get no line.
+EVENT_STUDY = {"path": "research/event_reaction_study.md", "date": "2026-10-29", "window": "2016–2026",
+               "caveat": "survivor panel (delisted names missing); history, not a prediction"}
+EVENT_HISTORY: Dict[str, dict] = {
+    "insider_cluster": {"label": "insider purchase clusters (≥2 officers/directors buying within 10 days)", "n": 10090,
+                        "car01_pct": 2.16, "t01": 21.8, "drift": "no reliable drift after (days 2–20 +0.8%, below the bar)"},
+    "8k_1.01": {"label": "8-K Item 1.01 (material agreement)", "n": 42956, "car01_pct": 0.14, "t01": 2.3,
+                "drift": "no reliable day-0–1 move; later drift failed the robustness and cost checks"},
+    "8k_4.02": {"label": "8-K Item 4.02 (restatement)", "n": 715, "car01_pct": -1.51, "t01": -3.4,
+                "drift": "no reliable drift after (the sample can only rule out drifts above ~3–4%)"},
+    "8k_5.02_exit": {"label": "sudden CEO/CFO exits (8-K Item 5.02, detected from filing text)", "n": 3155, "car01_pct": -1.16, "t01": -7.2,
+                     "drift": "no reliable drift after", "conditional": "applies only if this 5.02 is a sudden CEO/CFO exit — not classified here; open the filing"},
+}
+
+
+def event_history_for(ev: dict) -> Optional[dict]:
+    """The measured history for a filing event, or None for unmeasured types."""
+    if ev.get("kind") != "filing" or str(ev.get("form", "")).upper() != "8-K":
+        return None  # the study measured original 8-Ks only (not 8-K/A, not 6-K)
+    items = {it.get("item") for it in ev.get("items") or []}
+    # 5.02 is deliberately NOT mapped (2026-10-29): the study's -1.16% applies to
+    # SUDDEN CEO/CFO exits detected from filing text, and Item 5.02 also covers
+    # routine appointments; until that text classifier is ported, no history
+    # line beats a number attached to filings it does not describe.
+    for item, key in (("4.02", "8k_4.02"), ("1.01", "8k_1.01")):
+        if item in items:
+            return {"key": key, **EVENT_HISTORY[key], **{f"study_{k}": v for k, v in EVENT_STUDY.items()}}
+    return None
 
 # ── sector map (documented, static) ─────────────────────────────────────────
 # Thematic industries a broad SPDR sector misdescribes. ETFs are tried in order;
@@ -210,28 +244,6 @@ def realized_vol(closes: Sequence[float], n: int = 20) -> Optional[float]:
     return round(sd * math.sqrt(252) * 100, 2)
 
 
-def reaction_check(event_day: str, after_close: bool, bars: Sequence[dict], live_price: float, sigma_1d: Optional[float]) -> Optional[dict]:
-    """UNVALIDATED: the stock's move since the last close BEFORE the event vs its
-    typical move over the same number of sessions (sigma_1d * sqrt(n))."""
-    if not sigma_1d or live_price <= 0:
-        return None
-    days = [str(b.get("t", ""))[:10] for b in bars]
-    # reaction starts on the event day, or the next session when filed after the close
-    prior = [i for i, d in enumerate(days) if (d <= event_day if after_close else d < event_day)]
-    if not prior:
-        return None
-    i0 = prior[-1]
-    base = float(bars[i0]["c"])
-    n = max(1, len(bars) - 1 - i0)
-    move = math.log(live_price / base)
-    exp_move = sigma_1d * math.sqrt(n)
-    z = move / exp_move if exp_move > 0 else None
-    return {"base_date": days[i0], "sessions_since": n, "move_since_pct": round((math.exp(move) - 1) * 100, 2),
-            "typical_move_pct": round((math.exp(exp_move) - 1) * 100, 2), "z": round(z, 2) if z is not None else None,
-            "small_reaction": bool(z is not None and abs(z) < REACTION_SMALL_Z and n <= REACTION_MAX_SESSIONS),
-            "label": "UNVALIDATED — gate-2 pending (event-reaction study)"}
-
-
 def parse_submissions(sub: dict, since: str) -> List[dict]:
     """EDGAR submissions JSON -> filings on/after `since`, newest first."""
     rec = ((sub or {}).get("filings") or {}).get("recent") or {}
@@ -260,16 +272,9 @@ def filing_event(f: dict) -> dict:
     if base in ("8-K", "6-K") and items:
         material = any(ITEM_8K.get(it["item"], ("", False))[1] for it in items)
         label = "; ".join(it["label"] for it in items if it["item"] != "9.01") or label
-    accepted = f.get("accepted") or ""
-    after_close = False
-    try:
-        # EDGAR acceptance times are US Eastern wall clock; after 16:00 ET the market reacts next session
-        hh = int(accepted[11:13]) if len(accepted) >= 13 else 0
-        after_close = hh >= 16
-    except ValueError:
-        after_close = False
+    accepted = f.get("accepted") or ""   # EDGAR acceptanceDateTime is true UTC (event_reaction_study.md §1)
     return {"kind": "filing", "form": f["form"], "title": label, "items": items, "material": material,
-            "time": accepted or f["filing_date"], "date": f["filing_date"], "after_close": after_close,
+            "time": accepted or f["filing_date"], "date": f["filing_date"],
             "source": "SEC EDGAR", "tier": 1, "url": f.get("url")}
 
 
@@ -277,7 +282,6 @@ def news_event(a: dict) -> dict:
     src = a.get("source") or "unknown"
     ts = str(a.get("created_at") or a.get("updated_at") or "")
     return {"kind": "news", "title": str(a.get("headline") or "")[:220], "time": ts, "date": ts[:10],
-            "after_close": len(ts) >= 13 and ts[11:13].isdigit() and int(ts[11:13]) >= 20,  # UTC 20:00 ~= 16:00 ET (EDT); approximate
             "source": src, "tier": credibility_tier(src), "url": a.get("url"), "author": a.get("author"), "material": True}
 
 
@@ -689,16 +693,18 @@ def build(symbol: str, now: Optional[datetime] = None, io: Optional[Dict[str, Ca
     except Exception as e:
         out["errors"]["news"] = _err(e)
     for ev in events:
-        if ev.get("material"):
-            ev["reaction"] = reaction_check(ev["date"], bool(ev.get("after_close")), sb, live_price, h1.get("sigma"))
+        h = event_history_for(ev)
+        if h:
+            ev["history"] = h
     events.sort(key=lambda e: str(e.get("time") or ""), reverse=True)
     out["events"] = _layer("live" if len(ev_status) == 2 else ("partial" if ev_status else "unavailable"),
                            "SEC EDGAR submissions + Alpaca news", _now_iso(now),
                            reason=None if len(ev_status) == 2 else "; ".join(f"{k}: {out['errors'][k]}" for k in ("edgar", "news") if k in out["errors"]),
                            items=events[:40], form4_count=form4, window_days=EVENT_WINDOW_DAYS,
-                           reaction_note=("Reaction check: the move since the last close before the event vs the stock's typical move over "
-                                          "the same sessions. UNVALIDATED — a small reaction is NOT evidence the news is unpriced until the "
-                                          "event-reaction study passes gate 2. Form 4 clusters and contract awards failed gate 2 here: raw events, not signals."))
+                           event_history=EVENT_HISTORY, event_study=EVENT_STUDY,
+                           history_note=("Event facts are raw. Where a filing type was measured (event-reaction study, 2016–2026), its average "
+                                         "day-0–1 move is shown as history: every measured type was priced in on day 0–1 with no reliable drift "
+                                         "after, so nothing here says an event is 'not yet priced in'. Lawsuits, other 8-K items and news were not measured."))
     out["timings"]["events_s"] = round(time.time() - t3, 2)
 
     # TRADE PLAN

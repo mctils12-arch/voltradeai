@@ -253,6 +253,9 @@ function dossierFixture(sym = "RKLB", px = 27.42, opts = {}) {
   const day = (d) => new Date(now - d * 86400_000).toISOString().slice(0, 10);
   const band = (s) => { const r = (z) => +(px * Math.exp(z * s)).toFixed(2); return { lo68: r(-1), hi68: r(1), lo90: r(-1.6449), hi90: r(1.6449), move68_pct: +((Math.exp(s) - 1) * 100).toFixed(2), move90_pct: +((Math.exp(1.6449 * s) - 1) * 100).toFixed(2) }; };
   const s1 = 0.0452, s5 = 0.0981;
+  // measured event-reaction history (research/event_reaction_study.md, 2026-10-29) — history, never a flag
+  const STUDY = { path: "research/event_reaction_study.md", date: "2026-10-29", window: "2016–2026", caveat: "survivor panel (delisted names missing); history, not a prediction" };
+  const H101 = { label: "8-K Item 1.01 (material agreement)", n: 42956, car01_pct: 0.14, t01: 2.3, drift: "no reliable day-0–1 move; later drift failed the robustness and cost checks" };
   const trend = (a, b, c, d) => ({ label: a > 0 && b > 0 ? "up" : a < 0 && b < 0 ? "down" : "mixed", sma20: px * 0.97, sma50: px * 0.9, sma200: px * 0.72, vs_sma50_pct: 11.1, vs_sma200_pct: 38.6, ret_5d_pct: a, ret_20d_pct: b, ret_60d_pct: c, ret_250d_pct: d });
   const touch = (t, sp) => ({ p_target_first: t, p_stop_first: sp, p_neither: +(1 - t - sp).toFixed(4), paths: 4000, steps_per_session: 78, seed: 20261029, drift_daily: 0 });
   const stop = +(px * Math.exp(-1.6449 * s5)).toFixed(4), tgt = +(px * Math.exp(s5)).toFixed(4), str = +(px * Math.exp(1.6449 * s5)).toFixed(4);
@@ -281,13 +284,14 @@ function dossierFixture(sym = "RKLB", px = 27.42, opts = {}) {
       implied_move_1d_pct: 5.33, implied_move_5d_pct: 12.31, model_move_5d_pct: 10.31, model_move_1d_pct: 4.62, implied_vs_model_5d: 1.18, skew_put_minus_call_pts: 3.4, skew_strikes: "OTM puts at 88–95% of spot vs OTM calls at 105–112%, expiry nearest 30 days",
       earnings: { status: "live", date: day(-9), hour: "amc", source: "Finnhub earnings calendar" } },
     events: { status: "live", source: "SEC EDGAR submissions + Alpaca news", as_of: iso(95_000), reason: null, form4_count: 7, window_days: 60,
-      reaction_note: "Reaction check: the move since the last close before the event vs the stock's typical move over the same sessions. UNVALIDATED — a small reaction is NOT evidence the news is unpriced until the event-reaction study passes gate 2. Form 4 clusters and contract awards failed gate 2 here: raw events, not signals.",
+      history_note: "Event facts are raw. Where a filing type was measured (event-reaction study, 2016–2026), its average day-0–1 move is shown as history: every measured type was priced in on day 0–1 with no reliable drift after, so nothing here says an event is 'not yet priced in'. Lawsuits, other 8-K items and news were not measured.",
+      event_study: STUDY, event_history: { insider_cluster: { label: "insider purchase clusters (≥2 officers/directors buying within 10 days)", n: 10090, car01_pct: 2.16, t01: 21.8, drift: "no reliable drift after (days 2–20 +0.8%, below the bar)" }, "8k_1.01": H101, "8k_4.02": { label: "8-K Item 4.02 (restatement)", n: 715, car01_pct: -1.51, t01: -3.4, drift: "no reliable drift after (the sample can only rule out drifts above ~3–4%)" } },
       items: [
-        { kind: "news", title: `${sym} awarded launch contract for a constellation deployment`, time: iso(26 * 3600_000), date: day(1), source: "benzinga", tier: 3, url: "https://example.com/a", material: true, reaction: { base_date: day(2), sessions_since: 1, move_since_pct: 1.2, typical_move_pct: 4.6, z: 0.26, small_reaction: true, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
-        { kind: "filing", form: "8-K", title: "Entry into a material definitive agreement", items: [{ item: "1.01", label: "Entry into a material definitive agreement" }, { item: "9.01", label: "Financial statements and exhibits" }], time: iso(3 * 86400_000), date: day(3), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, reaction: { base_date: day(4), sessions_since: 3, move_since_pct: 9.8, typical_move_pct: 8.1, z: 1.2, small_reaction: false, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
-        { kind: "news", title: `${sym} shares rise as analysts lift targets`, time: iso(4 * 86400_000), date: day(4), source: "Reuters", tier: 2, url: "https://example.com/b", material: true, reaction: null },
+        { kind: "news", title: `${sym} awarded launch contract for a constellation deployment`, time: iso(26 * 3600_000), date: day(1), source: "benzinga", tier: 3, url: "https://example.com/a", material: true },
+        { kind: "filing", form: "8-K", title: "Entry into a material definitive agreement", items: [{ item: "1.01", label: "Entry into a material definitive agreement" }, { item: "9.01", label: "Financial statements and exhibits" }], time: iso(3 * 86400_000), date: day(3), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, history: { key: "8k_1.01", ...H101, study_path: STUDY.path, study_date: STUDY.date, study_window: STUDY.window, study_caveat: STUDY.caveat } },
+        { kind: "news", title: `${sym} shares rise as analysts lift targets`, time: iso(4 * 86400_000), date: day(4), source: "Reuters", tier: 2, url: "https://example.com/b", material: true },
         { kind: "filing", form: "4", title: "Insider transaction (Form 4)", items: [], time: iso(6 * 86400_000), date: day(6), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: false },
-        { kind: "filing", form: "424B5", title: "Prospectus supplement (offering)", items: [], time: iso(20 * 86400_000), date: day(20), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true, reaction: { base_date: day(21), sessions_since: 14, move_since_pct: 18.2, typical_move_pct: 17.4, z: 1.04, small_reaction: false, label: "UNVALIDATED — gate-2 pending (event-reaction study)" } },
+        { kind: "filing", form: "424B5", title: "Prospectus supplement (offering)", items: [], time: iso(20 * 86400_000), date: day(20), source: "SEC EDGAR", tier: 1, url: "https://www.sec.gov/", material: true },
       ] },
     insiders: { windowDays: 30, filings: 7, buys: 0, sells: 5, buyShares: 0, sellShares: 412000, rows: [], source: "SEC EDGAR Form 4 archive", note: "Raw insider transactions. Form 4 buy-clustering failed ladder gate 2 in this system — not a signal." },
     ledger: { model_version: "dr-har-ewma-v1", open: 14, min_n: 30,
@@ -3226,7 +3230,8 @@ async function main() {
               return { bands: q(".vt-ds-hero .vt-ds-bandviz"), b68: vis(document.querySelector(".vt-ds-b68")), px: q(".vt-ds-bpx"), pills: [...document.querySelectorAll(".vt-ds-status")].map((e) => e.getAttribute("data-s")),
                 prov: q(".vt-ds-prov"), ladder: q(".vt-ds-ladder .vt-ds-lline"), card: !!document.querySelector("[data-vt-dossier] .vt-lookup[data-symbol='RKLB']"),
                 dir: (document.querySelector(".vt-ds-dirword")?.textContent || "").trim(), advice: /Research, not advice/.test(document.body.textContent || ""), tiers: q(".vt-ds-tier"),
-                decile: /n=1184: up after 5 sessions/.test(document.body.textContent || ""), coin: /coin flip/.test(document.body.textContent || "") };
+                decile: /n=1184: up after 5 sessions/.test(document.body.textContent || ""), coin: /coin flip/.test(document.body.textContent || ""),
+                history: [...document.querySelectorAll(".vt-ds-ev [data-history]")].map((e) => e.textContent || ""), notPriced: /possibly not priced in|small reaction|UNVALIDATED/i.test(document.querySelector(".vt-ds-evs")?.textContent || "") };
             });
             if (st.bands !== 2 || !st.b68) fail(`range hero: ${st.bands} bands drawn`);
             if (st.px !== 2) fail("the live price is not marked on both bands");
@@ -3238,6 +3243,9 @@ async function main() {
             if (!st.decile) fail("the bot's score-band record is missing (lookup score 58.2 -> decile 6, n=1184)");
             if (!st.advice) fail("no 'Research, not advice' line");
             if (st.tiers < 3) fail(`only ${st.tiers} credibility-tier chips`);
+            // event-reaction study (2026-10-29): measured types show history with n; nothing is flagged "not priced in"
+            if (st.history.length !== 1 || !/^history Historically \(2016–2026, n=42,956\)/.test(st.history[0])) fail(`event history lines read ${JSON.stringify(st.history)}`);
+            if (st.notPriced) fail("an event still carries a 'not priced in' / reaction flag");
             const risk = page.locator("#vt-ds-risk");
             await risk.fill("250"); await page.waitForTimeout(100);
             const sized = await page.evaluate(() => (document.querySelector(".vt-ds-size .vt-ds-m")?.textContent || ""));

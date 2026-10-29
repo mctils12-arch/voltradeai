@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  fmtPx, parseSymbol, symbolFromHash, bandGeometry, ladderGeometry, positionSize, decileFor, decileLine, coverageLine,
+  fmtPx, historyLine, insiderCluster, parseSymbol, symbolFromHash, bandGeometry, ladderGeometry, positionSize, decileFor, decileLine, coverageLine,
   ledgerRangeLine, ledgerPlanLine, directionHeadline, trackRecordLine, layerGaps, pushRecent, DOSSIER_RECENT_MAX,
   type BotTrack, type Plan, type Ledger, type Direction, type Dossier,
 } from "./tickerDossier";
@@ -96,4 +96,26 @@ test("money reads as money: cents under $1,000, thousands separated above", () =
   assert.equal(fmtPx(249.3), "$249.30");
   assert.equal(fmtPx(1673.2), "$1,673");
   assert.equal(fmtPx(null), "—");
+});
+
+const STUDY = { path: "research/event_reaction_study.md", date: "2026-10-29", window: "2016–2026" };
+
+test("event history: measured day-0–1 average with n and t, labelled history; nothing says 'not priced in'", () => {
+  const line = historyLine({ label: "8-K Item 4.02 (restatement)", n: 715, car01_pct: -1.51, t01: -3.4, drift: "no reliable drift after" }, STUDY);
+  assert.equal(line, "Historically (2016–2026, n=715): after 8-K Item 4.02 (restatement), stocks moved -1.51% vs SPY on average over the filing day and the next (t -3.4); no reliable drift after. Source: research/event_reaction_study.md, 2026-10-29.");
+  assert.match(historyLine({ label: "insider purchase clusters", n: 10090, car01_pct: 2.16, t01: 21.8, drift: "no reliable drift after" }, STUDY) ?? "", /n=10,090\): .* \+2\.16% .*\(t \+21\.8\)/);
+  assert.equal(historyLine(null, STUDY), null);
+  assert.equal(historyLine({ label: "x", n: 1, car01_pct: 1, t01: 1, drift: "d" }, null), null);
+  assert.doesNotMatch(line ?? "", /priced in/i);
+  assert.match(historyLine({ label: "sudden CEO/CFO exits", n: 3155, car01_pct: -1.16, t01: -7.2, drift: "no reliable drift after", conditional: "applies only if this 5.02 is a sudden CEO/CFO exit — not classified here; open the filing" }, STUDY) ?? "", /This applies only if this 5\.02 is a sudden CEO\/CFO exit/);
+});
+
+test("insider cluster: two distinct officer/director buyers within 10 days; 10%-only holders and sales do not count", () => {
+  const row = (owner: string, date: string, kind = "buy", role = "CFO") => ({ filedAt: date, owner, role, kind, shares: 100, price: 10, date, url: "" });
+  assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-09")]), true);
+  assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-20")]), false);
+  assert.equal(insiderCluster([row("A", "2026-10-01"), row("A", "2026-10-03")]), false);
+  assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-02", "sell")]), false);
+  assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-02", "buy", "10% owner")]), false);
+  assert.equal(insiderCluster(null), false);
 });
