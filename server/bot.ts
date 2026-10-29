@@ -2857,6 +2857,12 @@ print(json.dumps(result, default=str))
       // DAILY_LOSS_LIMIT_PCT, a key nothing reads. The halts that actually
       // fire are Node DAILY_LOSS_LIMIT (-3%) and risk_kill_switch -0.03.
       dailyLossLimitPct: Math.abs(DAILY_LOSS_LIMIT),
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): which sleeves'
+      // entries are logged instead of ordered + today's (ET) would-be entries
+      // from the in-memory day book, newest first (SHADOW_ROWS_CAP), so the
+      // Bot page can say why no new trades appear.
+      entry_shadow: entryShadowStatus(process.env),
+      shadow_entries_today: shadowEntryBook.today(),
     });
   });
 
@@ -4496,7 +4502,7 @@ print(json.dumps(result[:20]))
   const shadowEntryBook = new ShadowEntryBook();
   function noteShadowEntry(e: NodeShadowEntry, sink: NodeShadowEntry[] | null): void {
     if (sink) sink.push(e);
-    if (shadowEntryBook.add(e.sleeve, e.ticker)) audit("SHADOW-ENTRY", shadowEntryAuditLine(e));
+    if (shadowEntryBook.add(e.sleeve, e.ticker, Date.now(), e)) audit("SHADOW-ENTRY", shadowEntryAuditLine(e));
   }
   // One shadow-log write per loop for the would-be stock/ETF entries Node
   // gated (options opens are recorded by the Python gate they pass through).
@@ -5570,7 +5576,7 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // one audit line per NEW sleeve+ticker per day.
       for (const e of (Array.isArray(result.entry_shadow?.entries) ? result.entry_shadow.entries : [])) {
         if (!e || !e.new || !e.ticker || (e.sleeve !== "stocks" && e.sleeve !== "options")) continue;
-        if (shadowEntryBook.add(e.sleeve, String(e.ticker))) {
+        if (shadowEntryBook.add(e.sleeve, String(e.ticker), Date.now(), { source: e.source || "bot_engine", side: e.side, notional: e.notional, instrument: e.instrument })) {
           audit("SHADOW-ENTRY", `${e.sleeve}: ${e.ticker} via ${e.source || "bot_engine"} — logged, no order (VOLTRADE_SHADOW_ENTRIES)`);
         }
       }

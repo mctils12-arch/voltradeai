@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ENTRY_SHADOW_DEFAULTS, entryShadowRaw, parseShadowSleeves, isEntryShadowed, entryShadowStatus,
-  ShadowEntryBook, etDay, shadowEntryAuditLine,
+  ShadowEntryBook, etDay, shadowEntryAuditLine, shadowEntryRow, SHADOW_ROWS_CAP,
 } from "./entryShadow";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -62,6 +62,47 @@ test("the day book is per sleeve+ticker and resets on a new ET day", () => {
   assert.equal(book.has("stocks", "NVDA", Date.parse("2026-10-29T03:30:00Z")), true, "23:30 ET is still 10-28");
   assert.equal(book.has("stocks", "NVDA", Date.parse("2026-10-29T14:00:00Z")), false, "next ET day");
   assert.equal(etDay(t0), "2026-10-28");
+});
+
+// ── Bot page: today's would-be entries (GET /api/bot/status) ────────────────
+test("shadowEntryRow shapes partial input honestly (null, never a fake zero)", () => {
+  const t0 = Date.parse("2026-10-28T15:00:00Z");
+  assert.deepEqual(shadowEntryRow("stocks", "nvda", t0, { side: "BUY", notional: 1500.456, source: "executeTrades.etf", instrument: "nvdl" }), {
+    time: "2026-10-28T15:00:00.000Z", sleeve: "stocks", ticker: "NVDA", side: "buy", notional: 1500.46, source: "executeTrades.etf", instrument: "NVDL",
+  });
+  const bare = shadowEntryRow("options", "SVXY", t0, { source: "bot_engine" });
+  assert.equal(bare.side, null);
+  assert.equal(bare.notional, null, "Python reported no size -> null, not $0");
+  assert.equal(shadowEntryRow("options", "SPY", t0, { notional: 0 }).notional, null);
+  assert.equal(shadowEntryRow("options", "SPY", t0, { notional: "x" }).notional, null);
+  assert.equal(shadowEntryRow("stocks", "AAPL", t0, { instrument: "aapl" }).instrument, null, "same as ticker -> null");
+  assert.equal(shadowEntryRow("stocks", "AAPL", t0).source, "unknown");
+});
+
+test("the day book lists today's first-time entries newest first, capped, exact count, ET reset", () => {
+  const book = new ShadowEntryBook();
+  const t0 = Date.parse("2026-10-28T14:00:00Z");
+  assert.deepEqual(book.today(t0), { day: "2026-10-28", count: 0, entries: [] });
+  book.add("stocks", "NVDA", t0, { side: "buy", notional: 1000, source: "executeTrades.stock" });
+  book.add("stocks", "NVDA", t0 + 1000, { side: "buy", notional: 9999, source: "dup" }); // repeat: not a new row
+  book.add("options", "NVDA", t0 + 2000, { side: "sell", notional: 5000, source: "tier_dispatcher.SELL_CSP" });
+  const t = book.today(t0 + 3000);
+  assert.equal(t.count, 2);
+  assert.deepEqual(t.entries.map(e => `${e.sleeve}:${e.ticker}:${e.notional}`), ["options:NVDA:5000", "stocks:NVDA:1000"]);
+  for (let i = 0; i < SHADOW_ROWS_CAP + 10; i++) book.add("stocks", `T${i}`, t0 + 10_000 + i);
+  const big = book.today(t0 + 100_000);
+  assert.equal(big.count, SHADOW_ROWS_CAP + 12, "count stays exact past the cap");
+  assert.equal(big.entries.length, SHADOW_ROWS_CAP);
+  assert.equal(big.entries[0].ticker, `T${SHADOW_ROWS_CAP + 9}`, "newest first");
+  assert.deepEqual(book.today(Date.parse("2026-10-29T14:00:00Z")), { day: "2026-10-29", count: 0, entries: [] });
+});
+
+test("/api/bot/status carries entry_shadow + today's would-be entries; both book writers pass detail", () => {
+  const route = slice('app.get("/api/bot/status"', "});");
+  assert.ok(route.includes("entry_shadow: entryShadowStatus(process.env),"));
+  assert.ok(route.includes("shadow_entries_today: shadowEntryBook.today(),"));
+  assert.ok(bot.includes("shadowEntryBook.add(e.sleeve, e.ticker, Date.now(), e)"), "noteShadowEntry passes the full entry");
+  assert.ok(/shadowEntryBook\.add\(e\.sleeve, String\(e\.ticker\), Date\.now\(\), \{ source:/.test(bot), "Python-side entries pass their source");
 });
 
 test("audit line names sleeve, size, instrument and the source, and says no order", () => {

@@ -23,7 +23,13 @@ export interface BotStatus {
   autoResume?: unknown; mode?: string; circuitBreakerActive?: boolean; consecutiveStopLosses?: number;
   /** the Node admission threshold a scanner trade must clear */
   minScoreThreshold?: number;
+  /** ENTRY SHADOW MODE (server/entryShadow.ts): sleeves whose new entries are logged, not ordered */
+  entry_shadow?: EntryShadow;
+  /** today's (ET) would-be entries from the in-memory day book, newest first (capped; count exact) */
+  shadow_entries_today?: { day: string; count: number; entries: ShadowEntryRow[] };
 }
+export interface EntryShadow { stocks: boolean; options: boolean; source: "env" | "config" }
+export interface ShadowEntryRow { time: string; sleeve: "stocks" | "options"; ticker: string; side: string | null; notional: number | null; source: string; instrument: string | null }
 export interface BotAccount {
   equity: number; lastEquity?: number; cash?: number; buyingPower?: number; dailyPnL?: number; dailyPnLPct?: number;
   drawdownPct?: number; equityPeak?: number;

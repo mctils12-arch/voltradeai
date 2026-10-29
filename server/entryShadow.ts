@@ -80,24 +80,69 @@ export function etDay(nowMs: number): string {
  * same decision), and the per-ticker-per-day audit rate limit is the same set.
  * Python's shadow log is the persistent dedupe across restarts.
  */
+/** What the Bot page shows for one would-be entry (GET /api/bot/status
+ *  `shadow_entries_today`). side/notional are null when the Python half
+ *  reported only the ticker (scan-side third leg, convexity puts, rolls). */
+export interface ShadowEntryRow {
+  time: string;            // ISO, when first shadowed today
+  sleeve: EntrySleeve;
+  ticker: string;
+  side: string | null;
+  notional: number | null; // USD the entry would have used; null = not reported
+  source: string;
+  instrument: string | null; // set only when it differs from ticker (ETF / OCC symbol)
+}
+/** Max rows the status route carries (newest first); `count` stays exact. */
+export const SHADOW_ROWS_CAP = 50;
+
+/** Shape one book entry for the page — pure, never throws on partial input. */
+export function shadowEntryRow(
+  sleeve: EntrySleeve, ticker: string, nowMs: number,
+  detail?: { side?: unknown; notional?: unknown; source?: unknown; instrument?: unknown },
+): ShadowEntryRow {
+  const t = String(ticker).toUpperCase();
+  const n = Number(detail?.notional);
+  const inst = detail?.instrument ? String(detail.instrument).toUpperCase() : "";
+  return {
+    time: new Date(nowMs).toISOString(),
+    sleeve,
+    ticker: t,
+    side: detail?.side ? String(detail.side).toLowerCase() : null,
+    notional: Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null,
+    source: detail?.source ? String(detail.source) : "unknown",
+    instrument: inst && inst !== t ? inst : null,
+  };
+}
+
 export class ShadowEntryBook {
   private day = "";
   private keys = new Set<string>();
+  private rows: ShadowEntryRow[] = [];
   private roll(nowMs: number): void {
     const d = etDay(nowMs);
-    if (d !== this.day) { this.day = d; this.keys = new Set(); }
+    if (d !== this.day) { this.day = d; this.keys = new Set(); this.rows = []; }
   }
   has(sleeve: EntrySleeve, ticker: string, nowMs: number = Date.now()): boolean {
     this.roll(nowMs);
     return this.keys.has(`${sleeve}|${String(ticker).toUpperCase()}`);
   }
-  /** true the first time this sleeve+ticker is added today (=> audit it). */
-  add(sleeve: EntrySleeve, ticker: string, nowMs: number = Date.now()): boolean {
+  /** true the first time this sleeve+ticker is added today (=> audit it).
+   *  `detail` (side/notional/source/instrument) feeds the Bot page row. */
+  add(sleeve: EntrySleeve, ticker: string, nowMs: number = Date.now(),
+      detail?: { side?: unknown; notional?: unknown; source?: unknown; instrument?: unknown }): boolean {
     this.roll(nowMs);
     const k = `${sleeve}|${String(ticker).toUpperCase()}`;
     if (this.keys.has(k)) return false;
     this.keys.add(k);
+    this.rows.push(shadowEntryRow(sleeve, ticker, nowMs, detail));
+    // memory bound: the book's key set stays exact, rows keep the newest cap
+    if (this.rows.length > SHADOW_ROWS_CAP) this.rows.splice(0, this.rows.length - SHADOW_ROWS_CAP);
     return true;
+  }
+  /** Today's (ET) would-be entries, newest first, capped; count is exact. */
+  today(nowMs: number = Date.now()): { day: string; count: number; entries: ShadowEntryRow[] } {
+    this.roll(nowMs);
+    return { day: this.day, count: this.keys.size, entries: this.rows.slice().reverse() };
   }
 }
 
