@@ -148,7 +148,8 @@ def test_the_two_catch_counters_are_disjoint_on_the_real_tree():
 
 @pytest.mark.parametrize(
     "counter,pattern,expected",
-    [("empty_ts_catch", EMPTY_CATCH, 488), ("ts_any", TS_ANY, 1220)],
+    # ts_any 1220 -> 1219 on 2026-10-29: the cockpit engine extraction removed one `any`
+    [("empty_ts_catch", EMPTY_CATCH, 488), ("ts_any", TS_ANY, 1219)],
 )
 def test_the_pinned_values_are_what_the_module_measures(counter, pattern, expected):
     """Ties the module to ci/counter_baseline.txt.
