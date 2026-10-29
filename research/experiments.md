@@ -111821,3 +111821,10 @@ audit lines appear more than a few times a day after the change, or the
 /data volume usage grows by more than ~150 MB.
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PIPELINE] — server datacore-style module (no trading code) — v1.0.1209 2016+ SURVIVORSHIP-REDUCED PRICE PANEL (nightly builder)
+
+Human order: check whether Alpaca's free daily bars include delisted tickers since 2010; if so build the panel; no paid data.
+PRIOR: sip history ~2016-01; dated-asof covers >=80% of post-2016 delistings; pre-2016 cases return nothing; default asof misses retired tickers / returns new company for S, DELL.
+RESULT (bars_coverage, prod v1.0.1203): earliest bar sip 2016-01-04, iex 2018-11-01 (no 2010). 17 delisted probed: 14 with bars, 12 reach event (default asof 12, raw 13); the 4 pre-2016 nothing; all 12 post-2016 reach event; YHOO via dated asof runs to 2019-10-02 (AABA). Assets: inactive 18,676, active 14,403, 236 overlap; only 3/17 probed delisted names in inactive -> universe supplemented from corporate actions (endpoint shape unverified until first build).
+DECISION: built server/pricePanel.ts (nightly 20:15-04:00 ET, one request at a time <=100/min, resumable, memory-bounded, disk-guarded at 1.5 GiB free — may stay blocked on the current volume; probe `price_panel` shows status). 2010-2015 unavailable free (research/price_panel_coverage.md). STARVED: no.

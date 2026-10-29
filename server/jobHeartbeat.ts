@@ -201,6 +201,22 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     enabledWhen: (env) => env.VOLTRADE_DAEMON_ENABLED !== "false",
     disabledReason: "VOLTRADE_DAEMON_ENABLED=false",
   },
+  {
+    // pricePanel.ts bootPricePanel: 15-min tick, works 20:15-04:00 ET only
+    // (dueMin = the window start). A session runs until the build completes
+    // or the window closes; afterwards one "skipped" beat per night while the
+    // build is fresh (< 30 days). Disk-floor / window pauses beat "skipped",
+    // API failures "error"; one attempt per night.
+    id: "price_panel_build", label: "Price panel build (2016+ daily bars incl. delisted, 20:15-04:00 ET)",
+    source: "server/pricePanel.ts", kind: "daily", tz: "America/New_York", dueMin: 20 * 60 + 15,
+    graceMs: 45 * MIN, maxRunMs: 8 * HOUR, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_PRICE_PANEL;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return (v === "1" || v === "true" || v === "on" || v === "yes") && Boolean(env.ALPACA_KEY && env.ALPACA_SECRET);
+    },
+    disabledReason: "VOLTRADE_PRICE_PANEL off or ALPACA_KEY/ALPACA_SECRET unset",
+  },
 ];
 
 // ── calendar ────────────────────────────────────────────────────────────────

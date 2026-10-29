@@ -346,6 +346,12 @@ export const DIAG_PROBES = [
   // GET only, keys in headers only; no URL, body, vendor message or key in
   // the response. Self-paced and cached 6 h; ?fresh=1 bypasses.
   "bars_coverage",
+  // ADDED 2026-10-28 (price panel build, same human order): read-only status
+  // of server/pricePanel.ts — flag, the current and in-progress builds'
+  // manifests (universe counts, progress checkpoint, bar/byte counts, blocked
+  // reason, last error), free disk vs the floor, and the caveats. Manifests
+  // only: no bar, price or URL leaves; no network call; no query parameters.
+  "price_panel",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

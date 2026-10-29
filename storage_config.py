@@ -39,6 +39,9 @@ COT_CHECKPOINT_PATH = os.path.join(DATA_DIR, "voltrade_cot_checkpoint.json")
 FORM4_BULK_DIR = os.path.join(DATA_DIR, "form4_bulk")
 os.makedirs(FORM4_BULK_DIR, exist_ok=True)
 FORM4_BULK_CHECKPOINT_PATH = os.path.join(DATA_DIR, "voltrade_form4_bulk_checkpoint.json")
+# 2026-10-28 price panel (server/pricePanel.ts writes it nightly; Python readers
+# load <PRICE_PANEL_DIR>/current.json -> <build_id>/bars/*.jsonl.gz). Not created here.
+PRICE_PANEL_DIR = os.path.join(DATA_DIR, "price_panel")
 
 # v2 ML model (clean 25-feature, self-learning)
 ML_MODEL_V2_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")

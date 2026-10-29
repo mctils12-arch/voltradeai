@@ -32,6 +32,7 @@ import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
 import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { cachedBarsCoverage } from "./barsCoverage";
+import { pricePanelStatus } from "./pricePanel";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -3756,6 +3757,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
             env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch, tradingBase: ALPACA_BASE,
           }, { fresh: String(req.query.fresh || "") === "1" });
           return res.json(sanitizeDiag(report));
+        }
+        case "price_panel": {
+          // ADDED 2026-10-28: read-only status of the nightly price-panel build
+          // (server/pricePanel.ts pricePanelStatus) — manifests only, no bars,
+          // no network call, no query parameters.
+          return res.json(sanitizeDiag(pricePanelStatus()));
         }
         case "heartbeats": {
           // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled
