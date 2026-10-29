@@ -112262,3 +112262,56 @@ regression attributable to the reference-bar fetch, or v3_error on > 5% of
 shadow records -> revert this commit (no live state depends on it).
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [PRODUCT] — master plan (human directive 2026-10-27) — Weekly forecast screen: SHADOW calls for SPY, positions, scan candidates + accuracy/calibration (v1.0.1220)
+
+Human's Phase 7 ask (2026-10-27): a weekly call for SPY, every open position
+and the top scan candidates - direction, probability and a 5-trading-day
+expected range - with accuracy and calibration tracked on the same page.
+SHADOW: display and tracking only; nothing in the trading loop reads it.
+
+What ships
+- forecast.py (new): P(up) from a ridge logistic regression (numpy IRLS) on
+  four point-in-time, vol-scaled features (5/20-session momentum, 1-session
+  reversal, SPY distance from its 50-day average), fit weekly on 3y of daily
+  bars (15 index/sector ETFs + the week's names, one sample per 5 sessions),
+  validated on a purged time-ordered 30% holdout (holdout Brier vs
+  climatology ships with every batch). A call is always emitted (up iff
+  P(up) >= 0.5) with the model's own probability - never neutral, never
+  inflated. Range = 68% zero-drift lognormal band from chain IV30 (options
+  archive via server/chainIv.ts) when fresh, else 20-session realized vol.
+  Append-only JSONL store (storage_config FORECASTS_PATH /
+  FORECAST_SCORES_PATH); one batch per ISO week of the first horizon session,
+  checked on disk before any network call; late batches flagged on_time=false.
+  Scorer settles on the 5th actual completed bar after d0 using a close RATIO
+  (split-robust): hit/miss, inside/outside range, Brier; fetch failures are
+  never strikes; no-data gives up 30 days past horizon.
+- voltrade_daemon.py: forecast_report / forecast_generate / forecast_score.
+- server/forecast.ts (new, pure) + bot.ts: GET /api/forecast (requireOwner,
+  read-only, daemon-first + python3 -c fallback); checkForecasts() on its own
+  15-min unconditional poll (+2 min after boot): generate at most hourly
+  (Python skips cheaply when the week exists), score once per UTC day from
+  22:00. Both jobs run as subprocesses behind execPythonSerialized's 90s hard
+  kill; commands pinned above the 150-char trivial cutoff. Bars come from the
+  existing shadow_portfolio._fetch_bars_paginated (shared 180/min bucket).
+- client: Forecast tab (owner-only; desktop nav button + phone More sheet),
+  pages/forecast.tsx + lib/forecast.ts, styles in index.css (tokens only).
+  Every call shows batch age, base close, horizon end, model version, vol
+  source; calibration chart = live + fit-time holdout reliability dots vs the
+  diagonal, with counts and a table view.
+- scripts/visual_check.mjs: `forecast` page + fixture (390/768/1440 pass).
+
+Downstream chain (two steps): bot.ts poll -> one Alpaca /v2/positions read +
+one paginated bars fetch per week (~30 symbols, <=3 pages) through the shared
+token bucket -> negligible quota share; the subprocess holds the Python mutex
+up to 90s once a week (+ a daily scorer run), which can delay another heavy
+python3 -c by that long. No trading input changes.
+
+Rollback trigger: any FORECAST-GENERATE-ERROR / FORECAST-SCORE-ERROR audit
+row recurring 3 days running, a python-mutex timeout coincident with a
+forecast run, or the page showing a batch whose holdout Brier skill is
+negative for 4 straight weeks (then the model is relabeled/retired, not
+tuned in place).
+
+STARVED: no — master-plan queue in progress this session.
+Visual harness --page forecast at 390/768/1440: 0 hard failures (pre-existing nav touch-target warnings only). Kill-cap tests ported to server/pythonExec.ts planPythonExec (helper moved by the 2026-10-27 timeouts repair).

@@ -230,6 +230,63 @@ function botFixtures({ latched }) {
   };
 }
 
+// Weekly forecast screen (2026-10-27, SHADOW): GET /api/forecast in forecast.py
+// report()'s real shape — this week's open calls (SPY, three positions, four
+// candidates; two on chain IV30) and six earlier weeks resolved, so the track
+// record, the live calibration dots and the week table all render. Fixture
+// numbers only; deterministic.
+function forecastFixture() {
+  const rnd = (() => { let s = 7; return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648; })();
+  const mk = (week, base, end, sym, group, spot, pUp, sigma, iv, score) => {
+    const p = Math.round(pUp * 10000) / 10000;
+    return { id: `${week}:${sym}`, week_key: week, symbol: sym, group, made_at: `${base}T20:21:00+00:00`, base_date: base, horizon_end: end,
+      spot, p_up: p, direction: p >= 0.5 ? "up" : "down", p_call: Math.max(p, 1 - p),
+      range_lo: Math.round(spot * Math.exp(-sigma) * 100) / 100, range_hi: Math.round(spot * Math.exp(sigma) * 100) / 100, band_coverage: 0.6827,
+      sigma_h: sigma, vol_source: iv ? "chain_iv30" : "realized_20d", vol_annual: iv ?? Math.round(sigma / Math.sqrt(5) * Math.sqrt(252) * 1e4) / 1e4,
+      features: { mom5_z: 0.4, mom20_z: 0.9, rev1_z: -0.3, spy_trend_z: 1.1 }, model_version: "fc-logit-v1", score };
+  };
+  const cur = [
+    ["SPY", "index", 671.3, 0.561, 0.0201, 0.142], ["XLE", "position", 91.42, 0.472, 0.0312, null], ["KWEB", "position", 24.54, 0.538, 0.0455, 0.33],
+    ["VXUS", "position", 71.4, 0.553, 0.0208, null], ["NVDA", "candidate", 184.2, 0.612, 0.0611, null], ["AMD", "candidate", 162.7, 0.587, 0.0702, null],
+    ["PFE", "candidate", 27.1, 0.447, 0.0298, null], ["CRWV", "candidate", 98.6, 0.524, 0.1043, null],
+  ].map(([s, g, spot, p, sig, iv]) => mk("2026-W44", "2026-10-23", "2026-10-30", s, g, spot, p, sig, iv, null));
+  const past = [];
+  const weeks = [["2026-W38", "2026-09-11", "2026-09-18"], ["2026-W39", "2026-09-18", "2026-09-25"], ["2026-W40", "2026-09-25", "2026-10-02"], ["2026-W41", "2026-10-02", "2026-10-09"], ["2026-W42", "2026-10-09", "2026-10-16"], ["2026-W43", "2026-10-16", "2026-10-23"]];
+  for (const [w, base, end] of weeks) for (const [s, g] of [["SPY", "index"], ["XLE", "position"], ["KWEB", "position"], ["VXUS", "position"], ["NVDA", "candidate"], ["AMD", "candidate"], ["XLF", "candidate"]]) {
+    const p = 0.38 + rnd() * 0.3, up = rnd() < p ? 1 : 0, sig = 0.02 + rnd() * 0.05, ret = (up ? 1 : -1) * rnd() * sig * 1.4;
+    const f = mk(w, base, end, s, g, 100, p, sig, null, null);
+    f.score = { kind: "score", id: f.id, status: "resolved", resolved_date: end, realized_close: Math.round(100 * Math.exp(ret) * 100) / 100, realized_ret_pct: Math.round((Math.exp(ret) - 1) * 1e4) / 100,
+      outcome_up: up, hit: (f.direction === "up") === (up === 1) ? 1 : 0, in_range: Math.abs(ret) <= sig ? 1 : 0, brier: Math.round((p - up) ** 2 * 1e6) / 1e6 };
+    past.push(f);
+  }
+  const acc = (rows) => { const n = rows.length, hits = rows.reduce((a, f) => a + f.score.hit, 0), inr = rows.reduce((a, f) => a + f.score.in_range, 0), b = n ? Math.round(rows.reduce((a, f) => a + f.score.brier, 0) / n * 1e5) / 1e5 : null;
+    return { n, thin: n < 30, hits, hit_rate: n ? Math.round(hits / n * 1e4) / 1e4 : null, brier: b, brier_coinflip: 0.25, brier_skill_vs_coinflip: b === null ? null : Math.round((1 - b / 0.25) * 1e4) / 1e4, in_range: inr, in_range_rate: n ? Math.round(inr / n * 1e4) / 1e4 : null, in_range_target: 0.6827, up_rate: n ? Math.round(rows.reduce((a, f) => a + f.score.outcome_up, 0) / n * 1e4) / 1e4 : null }; };
+  const edges = [0, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 1];
+  const bins = (pairs) => edges.slice(0, -1).map((lo, k) => { const inb = pairs.filter(([p]) => p >= lo && p < edges[k + 1]); const n = inb.length;
+    return { lo, hi: edges[k + 1], n, mean_p: n ? Math.round(inb.reduce((a, [p]) => a + p, 0) / n * 1e4) / 1e4 : null, freq: n ? Math.round(inb.reduce((a, [, o]) => a + o, 0) / n * 1e4) / 1e4 : null }; });
+  const holdout = []; for (let k = 0; k < 640; k++) { const p = 0.42 + rnd() * 0.22; holdout.push([p, rnd() < p + (rnd() - 0.5) * 0.06 ? 1 : 0]); }
+  const a = acc(past);
+  const byGroup = Object.fromEntries(["index", "position", "candidate"].map((g) => [g, acc(past.filter((f) => f.group === g))]));
+  return {
+    generated_at: new Date(Date.now() - 40_000).toISOString(), model_version: "fc-logit-v1", experimental: true, shadow: true, horizon_days: 5, band_coverage: 0.6827,
+    latest: { week_key: "2026-W44", made_at: new Date(Date.now() - 2 * 86400_000).toISOString(), base_date: "2026-10-23", horizon_end: "2026-10-30", on_time: true, model_version: "fc-logit-v1",
+      model: { coef: [0.1412, -0.0331, 0.0198, -0.0254, 0.0412], features: ["mom5_z", "mom20_z", "rev1_z", "spy_trend_z"], n_samples: 3120, first_date: "2023-10-20", last_date: "2026-10-16",
+        validation: { split_date: "2025-12-04", n_train: 2160, n_test: 940, train_base_rate: 0.5532, test_base_rate: 0.5617, brier: 0.24511, brier_climatology: 0.24622, brier_skill: 0.0045, log_loss: 0.68321, hit_rate: 0.5574, calibration: bins(holdout) } },
+      train_tickers: ["AMD", "CRWV", "DIA", "IWM", "KWEB", "NVDA", "PFE", "QQQ", "SPY", "VXUS", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"],
+      n_forecasts: cur.length, skipped: [], candidates_available: true,
+      candidates_scan_at: new Date(Date.now() - 2 * 86400_000 - 3600_000).toISOString(), iv_day: "2026-10-23", iv_names: 2,
+      forecasts: cur.map(({ features, ...f }) => f) },
+    accuracy: { ...a, on_time: a, by_group: byGroup, by_vol_source: { chain_iv30: acc([]), realized_20d: a } },
+    calibration: { edges, bins: bins(past.map((f) => [f.p_up, f.score.outcome_up])) },
+    weeks: weeks.slice().reverse().map(([w, base, end]) => { const rs = past.filter((f) => f.week_key === w); const x = acc(rs);
+      return { week_key: w, made_at: `${base}T20:21:00+00:00`, base_date: base, horizon_end: end, on_time: true, model_version: "fc-logit-v1", n: rs.length, resolved: x.n, hits: x.hits, hit_rate: x.hit_rate, brier: x.brier, in_range_rate: x.in_range_rate }; }),
+    open: cur.length,
+    method: "P(up) = ridge logistic regression on vol-scaled 5- and 20-session momentum, 1-session reversal and SPY's distance from its 50-day average, fit weekly on 3 years of daily bars (15 index/sector ETFs + the week's names, one sample per 5 sessions), validated on a time-ordered 30% holdout. Range = 68% band of a zero-drift lognormal from chain IV30 when archived, else 20-session realized vol.",
+    caveats: ["Experimental model, shadow only: nothing trades on these calls.", "Training names exist today (survivorship bias); edges at a 1-week horizon are small, so most probabilities sit near the base rate — read the holdout Brier skill before trusting any call.", "Accuracy figures under 30 resolved calls are marked thin."],
+    via: "daemon",
+  };
+}
+
 const PAGES = {
   data: { route: "/app#/data", map: true },
   // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
@@ -428,6 +485,9 @@ const PAGES = {
   // browser window — the same app at /app#/bot/pane/<id>, rendered alone
   // (no shell), the window IS the panel. Same fixtures as `bot`.
   botpane: { route: "/app#/bot/pane/chart", map: false, fixtures: botFixtures({ latched: true }) },
+  // Weekly forecast screen (2026-10-27, SHADOW) — owner tab; one open week +
+  // six resolved weeks (fixture above), so every section renders.
+  forecast: { route: "/app#/forecast", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
