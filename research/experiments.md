@@ -111967,3 +111967,76 @@ starves the Python mutex (> 20 s) or the output ever carries a ticker.
 Ported onto main 2026-10-28; conflicts resolved: ci/counter_baseline.txt (max of test/assertion pins, min of silent_py_handlers, then re-pinned to the counter_ratchet measurement: tests 667, assertions 23609, empty_ts_catch 488, ts_any 1220 — test_ts_code_only.py's exact pins moved down with them), server/bot.ts + server/diag.ts + server/diag.test.ts (source_validation probe added beside main's probes; the base branch's regime_shadow probe was NOT carried — it is not on main)
 
 STARVED: no — master-plan queue in progress this session.
+
+## 2026-10-28 [RESEARCH] — master plan (human directive 2026-10-27) — Source validation step 2: forward selection + deep_score ablation; shadow-only logging of the missing score components (v1.0.1214)
+
+WHY
+2026-10-27 deduped shadow population (331 ticker-days): score quintiles are
+roughly INVERSE to +5d outcome (Q1 -1.07% ... Q5 -1.74%), every candidate
+negative on average. Two questions the per-source tests alone cannot
+answer: (1) which combination of sources adds OUT-OF-SAMPLE value, with the
+fishing discount the number of tries demands; (2) does removing the
+unvalidated intel/alt/social/news/fundamental adjustments un-invert the
+score-vs-outcome relationship.
+
+WHAT
+- source_validation.py (same harness; PREREG v2, set before any production
+  run):
+  * forward_selection: deduped primary-outcome rows split BY ENTRY DAY into
+    fit/select/holdout = 50/25/25% (time-ordered, no day straddles two
+    blocks). Ridge (lambda 1) on fit-standardized values; greedy adds the
+    candidate with the best SELECT IC; kept only if IC gain >= 0.02 AND the
+    day-clustered paired-bootstrap p, Bonferroni-multiplied by the number
+    of candidates tried at that step, <= 0.05. The selected set is refit on
+    fit+select and scored ONCE on holdout beside the live score (paired IC
+    gain). Arms: "features" (all non-constant model features, all rows) and
+    "breakdown" (adjustments + features, rows with score_breakdown).
+  * ablation: deep_score recomputed from the logged components with the
+    unvalidated group removed (and each one alone, and with the analyze/
+    contrarian/RS boosts too once those are logged): clamp(rules_raw -
+    removed), then the logged ML blend (rule/ml weights, 50 when gated).
+    rules_raw falls back to the ML trace's rules_only_score on older rows
+    (exact unless clamped at 0/100 — counted as approx_clamped). Rows whose
+    reconstructed baseline differs from the logged score by > 0.6 are
+    dropped and counted. Per variant: IC + CI, paired IC change vs
+    baseline, quintile means, and un_inverts / improvement_significant.
+  * the diag probe source_validation now returns selection + ablation too.
+  * the four new components join the per-source family (INSUFFICIENT until
+    labeled).
+- SHADOW-ONLY logging (deep_score + shadow_portfolio.
+  SCORE_BREAKDOWN_EXTRA_KEYS): recommendation boost, contrarian flag,
+  relative-strength boost, the Finnhub insider-MSPR part of intel, and the
+  pre-clamp rules total (rules_raw). Captured by snapshotting the running
+  total around each block; combined_score is untouched (AST-pinned test).
+
+PRODUCTION-ONLY / TIMING
+score_breakdown exists since 2026-10-26 and the extras since this deploy;
++5d labels lag ~1 week, so the ablation and the breakdown selection arm
+read INSUFFICIENT until ~2026-11-02 (>= 100 deduped rows). The features
+selection arm runs on the full population now.
+
+DOWNSTREAM
+None on trading: measurement + two extra floats per shadow record (~60
+bytes x 20k-record cap).
+
+TESTS
+test_source_validation_selection.py (18; fails on the previous commit —
+the functions and the logging do not exist): exact score reconstruction
+(rules_raw, gated/ungated blend, not-blended, clamp fallback flagged,
+missing component -> None); planted inverted adjustments -> baseline IC < 0,
+drop_unvalidated IC > 0, un_inverts + significant; honest null when not
+inverted; mismatch rows dropped/counted; day split time-ordered/disjoint;
+selection picks the planted feature and beats an inverted live score on
+holdout; pure noise selects nothing (Bonferroni); logging pinned and
+proven not to feed combined_score. test_source_validation.py: registry pin
+now includes the extras; PREREG v2.
+
+ROLLBACK TRIGGER
+Revert if the probe exceeds its 20 s budget or a shadow record write ever
+fails because of the new keys.
+
+(cherry picked from commit 1df15fd2ee452412dc2efa0beec6b16e3d49adbe)
+
+Ported onto main 2026-10-28; conflicts resolved: shadow_portfolio.py (_sanitize_score_breakdown persists SCORE_BREAKDOWN_KEYS + main's REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS; log_candidate's regime_snapshot kwarg untouched), ci/counter_baseline.txt (re-pinned to the counter_ratchet measurement: tests 668, assertions 23661); bot_engine.py auto-merged (the contrarian snapshot wraps main's regime 'Buy the Dip' withhold branch, so the logged delta is what was actually added)
+
+STARVED: no — master-plan queue in progress this session.
