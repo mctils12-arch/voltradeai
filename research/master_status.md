@@ -1,8 +1,8 @@
 # VolTradeAI master status
 
-Last updated: 2026-10-28 (master-plan session). The daily after-close routine (`voltrade-improve-close`) updates this file from now on.
+Last updated: 2026-10-29 ~06:00 UTC (master-plan session, overnight push). The daily after-close routine (`voltrade-improve-close`) updates this file from now on.
 
-**Where the bot stands.** The account is down 7.71% since May 6 while SPY is up 5.46% (Sharpe −0.40 vs 0.99; max drawdown −18.6% vs −4.5%). The options sleeve has lost $9,177 realized, and the floor basket is the only sleeve making money. Today's work made the bot safer and more honest; it did not add a proven edge. With the leaks removed, nothing the bot currently scores with shows out-of-sample skill.
+**Where the bot stands.** Since May 6 the account is −7.73% while SPY is +5.78% (gap −13.5 pp, `/api/diag/benchmark`, 2026-10-29). Since 2026-10-28 evening, **new stock entries and every options open are in SHADOW MODE** (human directive): the bot logs what it would buy instead of buying. The floor basket (QQQ/SMH/KWEB/VXUS + GLD) and every exit stay live. The regime engine is live (CALM_BULL, exposure 0.75 on day 1). Nothing the bot scores with has shown out-of-sample skill yet; the new Brain page and the 2016+ walk-forward exist to find out honestly.
 
 ## Done (merged to main)
 
@@ -42,74 +42,56 @@ Last updated: 2026-10-28 (master-plan session). The daily after-close routine (`
 - **New routines:** `voltrade-improve-midday` (12:37 ET) and `voltrade-improve-close` (16:47 ET). Each run watches the bot, fixes bugs through PRs (bug fixes auto-merge on green), ships strategy, sizing and model changes in shadow only, and sends one daily summary.
 - **No more empty log PRs:** the new routines never open a PR just to log "[NO-ACTION]".
 
+### Overnight 2026-10-28 → 29 (human: "merge freely tonight")
+| PR | What |
+|---|---|
+| #1502, #1508–#1510, #1514 | **Regime engine live** (flags on by config, env wins), legacy-vs-engine counterfactual log, ML-ready regime snapshot (ML not built), FINDINGS next steps + RUNBOOK §7 |
+| #1511, #1512 | **N6:** ETF substitution sized by the ETF's own price; leveraged ETFs force-exit after 5 days |
+| #1513 | **N8:** tier sizing reaches CSP execution; collateral capped at 8% |
+| #1524 | **Shadow mode:** stock entries + whole options sleeve logged, not traded (`VOLTRADE_SHADOW_ENTRIES=off` on Railway rolls back without a deploy). Found: the QQQ-put convexity overlay was live despite `enabled=False` (no reader) — now shadowed |
+| #1538 | Bot page shows the shadow state + today's would-be entries |
+| #1517, #1518 | Options archive: full chains, gamma/volume/spot (schema v2) |
+| #1519–#1521, #1525 | Measurement: real broker fills, orphan option exits attributed, 30-day audit retention, cockpit numbers |
+| #1526 | **Daily bot-vs-SPY scoreboard** on the bot page (`/api/bot/scoreboard`) |
+| #1527, #1528 | Source-validation harness + forward selection + ablation (shadow) |
+| #1529–#1533 | ML honesty: purged CV, earnings look-ahead removed, v3 PIT features + exit-aligned label, v3 candidate (shadow; AUC ≈ 0.50) |
+| #1535 | Weekly forecast screen (shadow) |
+| #1515 | **Edge P1 dealer gamma: gate-2 PASS** (t −9.6 full, −7.3 holdout); nothing trades — gate 1 (own GEX from Alpaca OI) open |
+| #1516, #1523, #1534, #1537 | Alpaca free bars: history starts **2016-01-04, not 2010**; delisted names covered from 2016 → nightly **2016+ survivorship-reduced price panel** (first build running) |
+| #1536 | Branch-cleanup plan + apply script (agent proxy can't delete branches — human runs it) |
+| #1539 | Expired login now sends you to sign-in instead of a fake "service unavailable" |
+| #1540 | **Brain page** (owner tab): every input/rule/model live/shadow/off, short- vs long-term evidence, best combinations discounted for N tried |
+| #1541 | **Ticker dossier v1** (replaces the AI-Engine look-up): market → sector → stock → options → events, calibrated 68%/90% range bands, trade plan (stop/target/reward:risk/P(target first), position-size helper), direction only with a measured record; every served range/plan graded nightly |
+| #1542 | **Event-reaction study** (pre-registered, 4,511 issuers 2016–2026): insider clusters, 8-K 1.01/4.02/5.02 — reactions happen on day 0–1; **no "not yet priced in" signal** passes |
+| #1543, #1544 | `price_panel.py` (Python reader, TS parity) + **2016+ point-in-time walk-forward** of the score's price inputs vs SPY and random entry (weekly job; feeds the Brain long-term column) |
+| #1545 | Dossier events: the unvalidated "not priced in" flag replaced by measured event history (5.02 deliberately not mapped) |
+| (other session) #1522 | Edge P1 GEX/DIX shadow archive stream |
+
 ### Findings
 - **Shadow dedup (#1475):** taken candidates are no better than rejected ones; the whole candidate pool loses money on average (−1.45% at +5 days); score quintiles run roughly backwards. So I did not build the BUY-only filter.
 - **ML honesty:** with the leaks removed, AUC is about 0.50 for both the current model and the v3 candidate. The current "58% accuracy" comes from the leak.
 
-## In flight (master-plan session; built and tested, being merged one PR at a time — routines: do NOT re-implement these)
-
-Each item has a finished commit and passing tests; they are merged in this order:
-2. Regime engine flags ON by config default, env var wins (human directive 2026-10-28); a missing regime state keeps legacy sizing
-3. Regime legacy-vs-engine counterfactual log + `regime_counterfactual` probe
-4. Regime ML-ready `regime_snapshot` on shadow records (logging only; ML stays gated, FINDINGS F1)
-5. Regime docs: FINDINGS "Next steps after close" (F1 ML gate, F2–F7 follow-ups) and RUNBOOK §7
-6. Options archive part 2: full in-scope SPY/QQQ/IWM chains (server-side bounds, pagination to the end)
-7. Options archive part 3: store gamma, session volume and capture-time spot (schema v2)
-8. N6a: ETF substitution sized and priced by the ETF's own quote; 3x leverage blocked
-9. N6b: leveraged substitute ETFs exit after 5 days in `checkPositionOnTick`
-10. N8: tier size and metadata reach `select_contract`; CSP collateral capped at 8% (was 20% by stretch)
-11. Measurement: real broker entry fills, with the synthetic haircut kept as a comparison field
-12. Measurement: orphan option exits attributed
-13. Measurement: audit log kept 30 days (300k-row cap), plus `?since=`
-14. Measurement: dashboard numbers (orders-panel shape, drawdown peak, daily-loss limit shown)
-15. ML Phase 4: date-ordered purged CV, earnings look-ahead removed, v3 point-in-time features, exit-aligned label, v3 candidate (shadow only; holdout AUC ≈ 0.50, so not promoted)
-16. Phase 7 weekly forecast screen (shadow)
-17. Phase 5 source-validation harness + forward selection + ablation (probe `source_validation`)
+## In flight
+Nothing queued from the master-plan session (as of 2026-10-29 ~06:10 UTC). Routines: new work starts from the "Waiting on me" and "Parked" lists below.
 
 ## Waiting on me (Mike)
 
-1. **Old routines: disable them, plus email access.** I can't edit routines you created yourself; the system only lets me change routines I made.
-   - **Overlap:** five old routines duplicate the new ones and each opens a "[NO-ACTION]" PR. Those PRs are the GitHub emails you get. Please turn them off at claude.ai/code/routines:
-     - voltrade-daily-am
-     - voltrade-daily-midday
-     - voltrade-daily-close
-     - voltrade-edge
-     - voltrade-edge-late
-     - optionally voltrade-product-am / -pm / -eve
-   - **New routines I made:**
-     - voltrade-watchdog
-     - voltrade-preopen-health
-     - voltrade-improve-midday
-     - voltrade-improve-close
-   - **Gmail:** I can't attach Gmail to routines I create. Until you add it in the routines page, alerts and the daily summary arrive as push notifications in the Claude app. Once Gmail is attached, they email you.
-2. **The repo is public, so off-site backups are off.** The nightly backup used to push every /data state file (fills, account and model files) to the `data-backup` branch of this public repo. It last ran 2026-04-05, and that branch is still public.
-   - I disabled the push; local backups continue.
-   - Your call: delete the `data-backup` branch, make the repo private, or give me a private backup destination.
-3. **About 900 old remote branches.** Most are squash-merged routine branches or leftovers from the history rewrite. I can bulk-delete the merged ones if you say yes.
-4. **Data spend (optional).** The live check shows Alpaca gives free real open interest, historical options trades and daily bars. OPRA real-time and Polygon options (snapshot, trades, quotes) are refused. Two options:
-   - A price panel that includes delisted stocks (wishlist 2026-10-18, $20–199) unblocks Lazy Prices and the insider-purchase test.
-   - Historical chain data (~$2.2k) only if the implied-volatility put-screen test is inconclusive at 52 weeks.
-5. **Regime engine (your 2026-10-28 request):**
-   - All flags are on by config, because this sandbox has no Railway access.
-   - **Optional:** to keep any flag off, set its env var to `off` on Railway, e.g. `VOLTRADE_REGIME_SIZING=off`.
-   - The ML follow-up stays closed until the live run passes its promotion rules **and** the Section 10 strategy-level backtest exists. That backtest needs the delisted-inclusive price panel (item 4).
-   - Optional decision: the old options-archive history (07-06 to 10-27) is shifted by one day, and the cached results derived from it keep that shift. Should it be relabeled?
-6. **Rule calls the agents flagged:**
-   - **Kill toggle scope:** the owner kill toggle now keeps protective exits running; only `/api/bot/stop` freezes everything. Confirm that's the meaning you want.
-   - **N3 overbought signal:** RSI>70 overbought candidates are now dropped instead of bought. Turning them into an explicit momentum-buy rule would need validation first.
-   - **SVXY limits:** the stop is 10% with a 24-hour re-entry cooldown. You ordered "a stop and/or spike exit" without levels, so these are my choices.
-   - **N8 put sizing:** each put's cash collateral is now capped at 8% of equity (was up to 20%). But in calm markets a typical put sale may now be larger than the old ~2–4% sizing.
-   - **Regime v2:** flipping it live waits on Tier-3 exits being implemented and the SPY/QQQ ownership clash being fixed.
-   - **Overnight research window (8pm–4am):** still unreachable. Reviving it would re-enable unvalidated extreme-mover entries, so I left it off.
+1. **Old routines + email.** I can't edit routines you created. Please disable voltrade-daily-am / -midday / -close, voltrade-edge / -edge-late (they open "[NO-ACTION]" PRs = the GitHub emails), optionally voltrade-product-am/-pm/-eve. Attach Gmail to the new routines (watchdog, preopen-health, improve-midday, improve-close, regime reads) if you want email instead of push notifications.
+2. **Branch cleanup (approved, needs your hands).** The agent proxy refuses branch deletes/tag pushes. From any clone with push access: `bash scripts/branch_cleanup_apply.sh` (dry run) then `--apply` — tags 86 unique branches `archive/<name>`, deletes 805 merged + `data-backup`; skips main, celestial-catalog-data, open PRs, <24h tips, branches named in code. Also: turn on GitHub "Automatically delete head branches".
+3. **Price history before 2016** is not free (Alpaca starts 2016-01-04). EODHD ≈ $20 would extend the panel; no-paid-data rule means it waits for your call.
+4. **Shadow mode is your switch.** To re-enable entries: Railway env `VOLTRADE_SHADOW_ENTRIES=off` (or `stocks` / `options` to keep one sleeve shadowed). The routines are told never to flip it.
+5. **Rule calls (unchanged from 10-28):** kill-toggle scope, N3 overbought drop, SVXY 10% stop/24h cooldown, N8 8% collateral cap, overnight research window off. Options-archive day-shift relabel (07-06→10-27) still open.
+6. **Dossier choice made for you:** 8-K Item 5.02 (officer changes) shows no history line, because the study's −1.16% applies only to text-classified sudden CEO/CFO exits. Say if you'd rather see it with a caveat.
 
-## Parked in shadow mode (built; they log only and never trade until they pass their test)
-| Item | What it would do | Test it must pass | Read date |
+## Parked in shadow mode (built; log only; never trade until they pass)
+| Item | What it would do | Test it must pass | Read |
 |---|---|---|---|
-| ML v3 candidate (`ml_model_v3.py`) | Replace the leaky v2 model | Beat random entry under the live exits (+0.36%/trade) and a constant base rate on an honest holdout. **Today: AUC ≈ 0.50, no skill.** | weekly nightly job; probe `ml_v3` |
-| Weekly forecast screen | Direction, probability and range calls for SPY, positions and candidates (display only) | Positive Brier skill vs base rate after 8 weekly batches | ~2026-12-25 |
-| Source-validation harness and ablation | Tells which data sources and score adjustments help or hurt | Benjamini-Hochberg pass per source; ablation un-inverts the score | from ~2026-11-02 (needs labeled components) |
-| Regime v2 (master-plan version) | Superseded by the regime engine; **dropped** | — | — |
-| Dealer-gamma volatility timing (P1) | SPY realized vs implied vol, beyond what VIX already says | Pre-registered in `research/edge_preregistration.md` | runnable now |
-| Opportunistic insider purchases (P2) | Cohen-Malloy-Pomorski insider-buying signal | t ≥ 2.8 on a universe that includes delisted names | blocked on the price panel |
-| IV-spread put-selling screen (P3) | Rank puts to sell by implied-volatility spread | 52-week forward read | 2027-10 |
-| BUY-only band filter (3b) | — | Evidence did not hold (n = 25–31, not significant); **not built** | — |
+| Stock entries + options sleeve (shadow mode) | Everything the bot would have bought | `shadow_mode_entry` outcomes vs the pre-switch taken bucket and vs SPY | +20 trading days (~2026-11-27); human decides |
+| Ticker dossier ranges + trade plans | Calibrated ranges and stop/target plans | 68% band contains 60–80%, 90% band ≥ 83%, plan outcomes ≈ simulated odds (n ≥ 100) | nightly ledger, on the dossier |
+| 2016+ walk-forward of score inputs | Long-term evidence for the stock score | IC/top-10 vs random entry after Bonferroni/DSR | first weekend after a complete panel |
+| ML v3 candidate | Replace the leaky v2 | Beat random entry + base rate on an honest holdout (today AUC ≈ 0.50) | weekly job; probe `ml_v3` |
+| Weekly forecast screen | Direction/range calls | Positive Brier skill after 8 weekly batches | ~2026-12-25 |
+| Source-validation + ablation | Which sources help/hurt | BH pass per source; ablation un-inverts the score | needs ~100 labelled rows |
+| Edge P1 dealer gamma | Hold short premium when gamma is low | Gate 1: own GEX (Alpaca OI) vs SqueezeMetrics; then gate 3 rule sim | after gate 1 |
+| Event history (dossier) | Context only — no signal | E4 replication on the untouched 61% of 5.02; E2 1.01+(3.02/2.03) pre-reg; rerun on the delisting-inclusive panel | open questions |
+| IV-spread put screen (P3) | Rank puts to sell | 52-week forward read | 2027-10 |
