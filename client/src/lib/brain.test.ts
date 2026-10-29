@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { signedPct, frac, ciText, icText, windowText, groupByKind, filterComponents, headlineArm, type BrainComponent, type SelectionArm } from "./brain";
+import { signedPct, frac, ciText, icText, windowText, groupByKind, filterComponents, headlineArm, brainKpis, type BrainComponent, type SelectionArm, type BrainReport, type BrainStatus, type AgreementFlag } from "./brain";
 
 const comp = (id: string, kind: BrainComponent["kind"], status: BrainComponent["status"], flag: BrainComponent["agreement"]["flag"] = "insufficient"): BrainComponent => ({
   id, name: id, kind, group: "g", does: "does a thing", inventory_ref: null, status, status_source: "config", detail: "",
@@ -34,4 +34,21 @@ test("headlineArm: a SELECTED arm wins; else the larger arm; none -> null", () =
   assert.equal(headlineArm([arm("features", "NOTHING_SELECTED", 900), arm("breakdown", "SELECTED", 300)])?.arm, "breakdown");
   assert.equal(headlineArm([arm("features", "INSUFFICIENT", 100), arm("breakdown", "INSUFFICIENT", 300)])?.arm, "breakdown");
   assert.equal(headlineArm([]), null);
+});
+
+test("brainKpis: six tiles — the five filters with the real counts, then the evidence age", () => {
+  const comp = (status: BrainStatus, flag: AgreementFlag): BrainComponent => ({ id: status + flag, name: "x", kind: "input", group: "g", does: "", inventory_ref: null, status, status_source: "config", detail: "",
+    short_term: { measured: false, what: "—", source: "", as_of: null, sign: "insufficient", sign_note: "" }, long_term: { measured: false, items: [], sign: "insufficient", sign_note: "" }, agreement: { flag, note: "" } });
+  const rep: BrainReport = { generated_at: "2026-10-29T12:00:00Z", evidence_generated_at: "2026-10-29T11:56:00Z", evidence_via: "daemon", evidence_error: null, explainer: "", rule: "",
+    status_counts: { live: 1, shadow: 2, off: 1 }, switches: { config_source: "python", entry_shadow: { stocks: true, options: true, value: "stocks,options", source: "config" }, regime: {} },
+    short_term: { window: { first: null, last: null }, records: 19874, spy: null, primary_outcome: "", note: "" }, long_term: { sources: [], gaps: [] },
+    components: [comp("live", "agree"), comp("shadow", "disagree"), comp("shadow", "insufficient"), comp("off", "insufficient")],
+    combinations: { short_term: { available: false, reason: null, as_of: null, source: "", family: null, summary: null, arms: [], ablation: null }, long_term: [] } };
+  const k = brainKpis(rep, Date.parse("2026-10-29T12:00:00Z"));
+  assert.deepEqual(k.map((t) => t.key), ["all", "live", "shadow", "off", "disagree", "evidence"]);
+  assert.deepEqual(k.map((t) => t.value), ["4", "1", "2", "1", "1", "4m"]);
+  assert.equal(k[4].tone, "r");
+  assert.equal(k[5].line, "via daemon · 19,874 shadow records");
+  const noEv = brainKpis({ ...rep, evidence_generated_at: null, components: rep.components.filter((c) => c.agreement.flag !== "disagree") }, 0);
+  assert.equal(noEv[5].value, "—"); assert.equal(noEv[4].value, "0"); assert.equal(noEv[4].tone, undefined);
 });

@@ -101,3 +101,33 @@ export function headlineArm(arms: SelectionArm[]): SelectionArm | null {
   if (!arms.length) return null;
   return arms.find((a) => a.status === "SELECTED") ?? [...arms].sort((a, b) => (b.n_rows ?? 0) - (a.n_rows ?? 0))[0];
 }
+
+// ── cockpit KPI strip (2026-10-29, human-asked: the page fills the screen like
+// the AI Engine). The first five tiles are the status filters; the sixth is the
+// evidence age. ───────────────────────────────────────────────────────────────
+export interface BrainKpi { key: StatusFilter | "evidence"; label: string; value: string; line: string; tone?: "g" | "r" | "o" | "t3" }
+
+/** Seconds/minutes/hours/days since an ISO time, or "—" (the forecast lib's
+ *  ageText, duplicated here so the Brain lib stays import-free). */
+function age(iso: string | null | undefined, nowMs: number): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return "—";
+  const s = Math.max(0, Math.round((nowMs - t) / 1000));
+  if (s < 90) return `${s}s`;
+  if (s < 90 * 60) return `${Math.round(s / 60)}m`;
+  if (s < 36 * 3600) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+
+export function brainKpis(rep: BrainReport, nowMs: number): BrainKpi[] {
+  const disagree = rep.components.filter((c) => c.agreement.flag === "disagree").length;
+  const records = rep.short_term.records !== null ? `${rep.short_term.records.toLocaleString("en-US")} shadow records` : "shadow log";
+  return [
+    { key: "all", label: "All parts", value: String(rep.components.length), line: "inputs · rules · models · sleeves" },
+    { key: "live", label: BRAIN_STATUS_LABEL.live, value: String(rep.status_counts.live), line: STATUS_HINT.live, tone: rep.status_counts.live > 0 ? "g" : "t3" },
+    { key: "shadow", label: BRAIN_STATUS_LABEL.shadow, value: String(rep.status_counts.shadow), line: STATUS_HINT.shadow, tone: rep.status_counts.shadow > 0 ? "o" : "t3" },
+    { key: "off", label: BRAIN_STATUS_LABEL.off, value: String(rep.status_counts.off), line: STATUS_HINT.off, tone: "t3" },
+    { key: "disagree", label: "Short vs long disagree", value: String(disagree), line: disagree ? "live result wins; the gap is the next question" : "no component where the horizons disagree", tone: disagree > 0 ? "r" : undefined },
+    { key: "evidence", label: "Evidence age", value: rep.evidence_generated_at ? age(rep.evidence_generated_at, nowMs) : "—", line: rep.evidence_generated_at ? `${rep.evidence_via ? `via ${rep.evidence_via} · ` : ""}${records}` : "evidence unavailable" },
+  ];
+}

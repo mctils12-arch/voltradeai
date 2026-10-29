@@ -41,6 +41,19 @@ const WIDTHS = [
   { w: 768, h: 1024, label: "tablet", touch: true },
   { w: 1440, h: 900, label: "desktop", touch: false },
 ];
+// A page entry may add widths of its own (`widths`): the cockpit pages
+// (2026-10-29) also render at the human's 1920px monitor, where the ask was made.
+const WIDE = [{ w: 1920, h: 1080, label: "wide", touch: false }];
+// COCKPIT LAYOUT pages (2026-10-29) and what their strip and grid must show:
+// tiles in the KPI strip, grid panels sharing a row at 1440 / 1920.
+const COCKPIT_PAGES = new Map([
+  // (innerText carries the eyebrow's CSS uppercase, hence /i)
+  // cols = distinct panel left edges (a 2-wide + 1-wide row is 3 columns)
+  ["forecast", { tiles: 5, cols1440: 3, cols1920: 4, first: /^Calls this week 8 1 index · 3 positions · 4 candidates$/i }],
+  ["brain", { tiles: 6, cols1440: 2, cols1920: 3, first: /^All parts 11 /i, filter: { status: "shadow", cards: 8 } }],
+  ["dossier", { tiles: 6, cols1440: 3, cols1920: 4, first: /^Price · 5 sessions \$27\.42\+5\.2% 5d last close \$27\.09/i }],
+  ["dossierempty", { tiles: 0, cols1440: 0, cols1920: 0, empty: true }],
+]);
 
 // Pages under test: name -> app hash route
 // Pages under test: map pages get the full map/perf/self-see battery;
@@ -645,7 +658,7 @@ const PAGES = {
   botpane: { route: "/app#/bot/pane/chart", map: false, fixtures: botFixtures({ latched: true }) },
   // Weekly forecast screen (2026-10-27, SHADOW) — owner tab; one open week +
   // six resolved weeks (fixture above), so every section renders.
-  forecast: { route: "/app#/forecast", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
+  forecast: { route: "/app#/forecast", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
   // EXPIRED SESSION (field bug 2026-10-28): the owner's cached /api/auth/me
   // still says signed in, but the 24h session is gone — /api/forecast answers
   // 401 "Not authenticated" exactly as server/auth.ts does, and from then on
@@ -659,14 +672,14 @@ const PAGES = {
     "/api/forecast": { __status: 401, __setCookie: "vt_fx_expired=1; Path=/", __body: { error: "Not authenticated" } },
   } },
   // Brain page (2026-10-29) — owner tab; every status, panel kind and agreement flag (fixture above).
-  brain: { route: "/app#/brain", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
+  brain: { route: "/app#/brain", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
   // Ticker dossier (2026-10-29, human-asked) — owner tab opened from the AI
   // Engine's look-up box; an RKLB-like space name with every layer live, plus
   // the look-up card folded into its stock layer (fixtures above).
-  dossier: { route: "/app#/dossier/RKLB", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
+  dossier: { route: "/app#/dossier/RKLB", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
     "/api/bot/lookup": { ...botFixtures({ latched: true })["/api/bot/lookup"], symbol: "RKLB", quick: { price: 27.42, change_pct: 1.2, volume: 21_000_000, dollar_volume: 575_820_000, quick_score: 31.2, above_open: true }, deep: { score: 58.2, side: "buy", action_label: "BUY", sector: "Unknown", reasons: ["Momentum 1m +16%", "Volume 1.4× average"], factors: { momentum: 22, mean_reversion: -6, vrp: 3, squeeze: 4, volume: 1.4, sentiment: 2 } } } } },
   // the empty state (no symbol yet) and a name whose options feed is down
-  dossierempty: { route: "/app#/dossier", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
+  dossierempty: { route: "/app#/dossier", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -3071,7 +3084,7 @@ async function main() {
     const route = cfg.route;
     if (only && only !== name) continue;
     PAGE_FIXTURES = cfg.fixtures || {};
-    for (const vp of WIDTHS) {
+    for (const vp of (cfg.widths ? [...WIDTHS, ...cfg.widths] : WIDTHS)) {
       const ctx = await browser.newContext({
         viewport: { width: vp.w, height: vp.h },
         hasTouch: vp.touch,
@@ -3273,6 +3286,81 @@ async function main() {
             if (!st.state || !st.input) fail("the empty state or the search box is missing");
           }
           await page.screenshot({ path: path.join(OUT, `${name}-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
+      }
+      // ── COCKPIT LAYOUT (2026-10-29, human-asked on a 1920 monitor: "fill
+      // the page … how the UI looks on the bot instead of the strip").
+      // Forecast, Brain and the dossier render as the AI Engine does: the page
+      // fills the content width (the shell's 920px reading column was 59% of
+      // 1440), a KPI strip across the top with every tile in one row, then
+      // columns of panels — at 1440 the grid runs 3 columns (2 for the Brain's
+      // wide evidence cards) and at least 3 panels share a row (the strip
+      // always), at 1920 one column more, at 768 two, at 390 a single column —
+      // nothing past the right edge. The first tile carries the page's own
+      // headline number from the fixture (every number is the page's), and
+      // the Brain's tiles still filter the cards. The dossier's empty state
+      // has no data: it proves the shell, the search and the state alone.
+      if (COCKPIT_PAGES.has(name)) {
+        const fail = (m) => checks.failures.push("cockpit: " + m);
+        const expect = COCKPIT_PAGES.get(name);
+        try {
+          for (let i = 0; i < 60; i++) { if (await page.locator(".vt-ck-grid > .vt-ck-panel, .vt-ck > .vt-ds-state, .vt-ck > .vt-fc-state").count()) break; await page.waitForTimeout(100); }
+          const read = () => page.evaluate(() => {
+            const shell = document.querySelector(".vt-ck");
+            if (!shell) return null;
+            const box = (el) => el.getBoundingClientRect();
+            const rowMax = (els) => { const m = new Map(); for (const el of els) { const r = box(el); if (r.width <= 0 || r.height <= 0) continue; const k = Math.round(r.top); m.set(k, (m.get(k) || 0) + 1); } return Math.max(0, ...m.values()); };
+            const panels = [...document.querySelectorAll(".vt-ck-grid > .vt-ck-panel, .vt-ck-grid > .vt-ds-side > .vt-ck-panel")];
+            const tiles = [...document.querySelectorAll(".vt-ck-kpi > .vt-ck-tile")];
+            const cols = new Set(panels.map((p) => Math.round(box(p).left))).size;
+            // a wide table inside an overflow-x: auto wrapper (the by-week / ablation tables) scrolls within it — only the wrapper must stay inside
+            const scroller = (el) => { for (let p = el.parentElement; p && p !== shell; p = p.parentElement) { const ox = getComputedStyle(p).overflowX; if (ox === "auto" || ox === "scroll" || ox === "hidden") return p; } return null; };
+            const over = [...shell.querySelectorAll("*")].filter((el) => { const r = box(el); if (r.width <= 0 || r.right <= innerWidth + 1 || getComputedStyle(el).position === "fixed") return false; const s = scroller(el); return !(s && box(s).right <= innerWidth + 1); }).map((el) => (el.className || el.tagName).toString().slice(0, 40)).slice(0, 3);
+            const cards = [...document.querySelectorAll(".vt-ck-grid > .vt-br-card")];
+            return { fill: box(shell).width / innerWidth, panels: panels.length, panelRow: rowMax(panels), cols, tiles: tiles.length, tileRow: rowMax(tiles), over,
+              tileText: tiles.map((t) => (t.innerText || "").replace(/\s+/g, " ").trim()), state: !!document.querySelector(".vt-ck > .vt-ds-state, .vt-ck > .vt-fc-state"),
+              cards: cards.length, cardStatus: [...new Set(cards.map((c) => c.getAttribute("data-status")))], h1: !!shell.querySelector("h1"), h2s: shell.querySelectorAll("h2").length };
+          });
+          const lay = await read();
+          if (!lay) fail("no .vt-ck cockpit shell rendered");
+          else {
+            if (lay.fill < 0.92) fail(`the page fills ${Math.round(lay.fill * 100)}% of the ${vp.w}px viewport (needs ≥ 92%; the old column was 59%)`);
+            if (lay.over.length) fail(`past the right edge of the viewport: ${lay.over.join(", ")}`);
+            if (!lay.h1) fail("no h1");
+            if (lay.tiles !== expect.tiles) fail(`KPI strip has ${lay.tiles} tiles (expected ${expect.tiles})`);
+            if (expect.first && !expect.first.test(lay.tileText[0] || "")) fail(`first KPI tile reads "${lay.tileText[0]}"`);
+            if (lay.tiles && lay.tileRow < Math.min(lay.tiles, vp.w >= 640 ? 3 : 2)) fail(`KPI strip: only ${lay.tileRow} of ${lay.tiles} tiles share a row at ${vp.w}`);
+            if (expect.empty) {
+              if (!lay.state || lay.panels) fail(`empty state: state ${lay.state}, ${lay.panels} panels`);
+            } else {
+              if (!lay.panels || lay.h2s < 3) fail(`${lay.panels} grid panels, ${lay.h2s} h2s`);
+              const need = vp.w >= 1920 ? expect.cols1920 : vp.w >= 1440 ? expect.cols1440 : vp.w >= 768 ? 2 : 1;
+              if (vp.w >= 768) {
+                if (lay.cols < need) fail(`the grid runs ${lay.cols} columns at ${vp.w} (expected ≥ ${need}: columns, not a strip)`);
+                if (lay.panelRow < 2) fail(`no two grid panels share a row at ${vp.w}`);
+                if (vp.w >= 1440 && Math.max(lay.panelRow, lay.tileRow) < 3) fail(`fewer than 3 panels share a row at ${vp.w}`);
+              } else if (lay.cols !== 1 || lay.panelRow !== 1) fail(`phone: ${lay.cols} columns, ${lay.panelRow} panels on one row (expected a single column)`);
+            }
+            // the Brain's status tiles are the filters: Shadow shows only shadow cards, All parts brings every card back
+            if (expect.filter) {
+              const tile = page.locator(`.vt-ck-kpi > button.vt-ck-tile[data-status="${expect.filter.status}"]`);
+              if (!(await tile.count())) fail(`no "${expect.filter.status}" filter tile`);
+              else {
+                if (vp.touch) await tile.tap(); else await tile.click();
+                await page.waitForTimeout(150);
+                const f = await read();
+                if (!f || f.cards !== expect.filter.cards || f.cardStatus.join() !== expect.filter.status) fail(`filter "${expect.filter.status}": ${f?.cards} cards, status ${f?.cardStatus.join(",")}`);
+                const all = page.locator('.vt-ck-kpi > button.vt-ck-tile[data-status="all"]');
+                if (vp.touch) await all.tap(); else await all.click();
+                await page.waitForTimeout(150);
+                const back = await read();
+                if (!back || back.cards !== lay.cards) fail(`"All parts" did not restore the ${lay.cards} cards (${back?.cards})`);
+              }
+            }
+          }
+          if (name === "forecast" || name === "brain") await page.screenshot({ path: path.join(OUT, `${name}-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
         } catch (e) {
           fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }

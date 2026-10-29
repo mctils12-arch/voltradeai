@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   fmtPx, historyLine, insiderCluster, parseSymbol, symbolFromHash, bandGeometry, ladderGeometry, positionSize, decileFor, decileLine, coverageLine,
-  ledgerRangeLine, ledgerPlanLine, directionHeadline, trackRecordLine, layerGaps, pushRecent, DOSSIER_RECENT_MAX,
+  ledgerRangeLine, ledgerPlanLine, directionHeadline, trackRecordLine, layerGaps, pushRecent, dossierKpis, DOSSIER_RECENT_MAX,
   type BotTrack, type Plan, type Ledger, type Direction, type Dossier,
 } from "./tickerDossier";
 
@@ -118,4 +118,26 @@ test("insider cluster: two distinct officer/director buyers within 10 days; 10%-
   assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-02", "sell")]), false);
   assert.equal(insiderCluster([row("A", "2026-10-01"), row("B", "2026-10-02", "buy", "10% owner")]), false);
   assert.equal(insiderCluster(null), false);
+});
+
+test("dossierKpis: six tiles from the layers the page already shows; dashes where a layer is missing", () => {
+  const bands = { lo68: 26.2, hi68: 28.7, lo90: 25.4, hi90: 29.6, move68_pct: 4.62, move90_pct: 7.71 };
+  const d = { symbol: "RKLB", generated_at: "2026-10-29T12:00:00Z", errors: {},
+    stock: { status: "live", source: "", as_of: null, reason: null, price: 27.42, base_close: 27.09, base_date: "2026-10-28", price_is_partial_session: true,
+      trend: { label: "up", sma20: null, sma50: null, sma200: null, vs_sma50_pct: null, vs_sma200_pct: null, ret_5d_pct: 5.2, ret_20d_pct: null, ret_60d_pct: null, ret_250d_pct: null },
+      ranges: { "1": { h: 1, model: "har", fallback_reason: null, sigma_pct: 4.5, bands, backtest: null }, "5": { h: 5, model: "ewma", fallback_reason: null, sigma_pct: 9.8, bands: null, backtest: null } } },
+    options: { status: "live", source: "", as_of: null, reason: null, implied_move_5d_pct: 12.31, model_move_5d_pct: 10.31, implied_vs_model_5d: 1.18 },
+    market: { status: "live", source: "", as_of: null, reason: null, composite: "RISK_ON", exposure: 0.94, days_in_regime: 37, stress: { vix: 16.4 } } } as unknown as Parameters<typeof dossierKpis>[0];
+  const k = dossierKpis(d, { score: 58.2, minScore: 65, verdict: "BUY · watch", busy: false });
+  assert.deepEqual(k.map((t) => t.label), ["Price · 5 sessions", "Next session", "Next 5 sessions", "Options-implied vs model", "Regime", "Bot score vs min"]);
+  assert.deepEqual(k.map((t) => t.value), ["$27.42", "±4.6%", "—", "1.18×", "RISK_ON", "58.2"]);
+  assert.equal(k[0].sub, "+5.2% 5d"); assert.equal(k[0].subTone, "g");
+  assert.match(k[0].line, /last close \$27\.09 \(2026-10-28\) · session in progress/);
+  assert.match(k[1].line, /68% \$26\.20–\$28\.70 · 90% ±7\.7% · HAR-RV/);
+  assert.equal(k[3].line, "implied ±12.3% · model ±10.3% · 5 sessions");
+  assert.equal(k[4].line, "exposure 94% · 37 days · VIX 16.4");
+  assert.equal(k[5].sub, "/ 65"); assert.equal(k[5].tone, "r"); assert.equal(k[5].line, "BUY · watch");
+  const busy = dossierKpis({ symbol: "X", generated_at: "", errors: {} }, { score: null, minScore: null, verdict: null, busy: true });
+  assert.deepEqual(busy.map((t) => t.value), ["—", "—", "—", "—", "—", "…"]);
+  assert.equal(busy[4].line, "market layer unavailable");
 });

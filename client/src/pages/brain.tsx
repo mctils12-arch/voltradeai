@@ -7,16 +7,21 @@
 // agreement flag, and the best combinations with their multiple-testing
 // discount. Every number carries its window, source and age; gaps say so.
 // Data: GET /api/bot/brain (server/brain.ts; owner only).
+// Layout (2026-10-29, human-asked): the AI Engine's cockpit — the status
+// counts are the KPI strip (and still the filters), the component cards flow
+// into a full-width grid (short/long evidence side by side inside a card where
+// it is wide enough), combinations and known gaps are wide panels.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Brain, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { ageText } from "@/lib/forecast";
 import {
-  type BrainReport, type BrainComponent, type ShortTerm, type LongTerm, type SelectionArm, type StatusFilter, type BrainStatus,
+  type BrainReport, type BrainComponent, type ShortTerm, type LongTerm, type SelectionArm, type StatusFilter,
   BRAIN_KIND_LABEL, BRAIN_STATUS_LABEL, STATUS_HINT, AGREE_LABEL, SIGN_LABEL,
-  signedPct, frac, ciText, icText, windowText, groupByKind, filterComponents, headlineArm,
+  signedPct, frac, ciText, icText, windowText, groupByKind, filterComponents, headlineArm, brainKpis,
 } from "@/lib/brain";
+import { Bar, KpiStrip, KpiTile, Panel } from "./cockpit";
 
 const POLL_MS = 5 * 60_000;
 
@@ -31,21 +36,14 @@ export default function BrainPage() {
   const rep = q.data;
   const now = Date.now();
   const shown = useMemo(() => groupByKind(filterComponents(rep?.components ?? [], filter)), [rep, filter]);
-  const disagree = rep?.components.filter((c) => c.agreement.flag === "disagree").length ?? 0;
+  const kpis = useMemo(() => (rep ? brainKpis(rep, now) : []), [rep, now]);
 
   return (
-    <div className="vt-fc vt-br" data-vt-brain>
-      <header className="vt-fc-head">
-        <div className="vt-fc-title">
-          <Brain size={18} aria-hidden="true" />
-          <h1>Brain</h1>
-          <span className="vt-fc-chip" title="Read-only: this page changes nothing">What the bot uses, and the evidence</span>
-        </div>
-        <p className="vt-br-explainer">
-          {rep?.explainer ?? "Short-term = live shadow outcomes, long-term = multi-year tests; a component is promoted only when both agree."}
-        </p>
-        <p className="vt-fc-sub">{rep?.rule ?? "Live beats backtest when they disagree."}</p>
-        <div className="vt-fc-fresh" aria-live="polite">
+    <div className="vt-ck vt-br" data-vt-brain>
+      <header className="vt-ck-head">
+        <h1><Brain size={16} aria-hidden="true" /> Brain</h1>
+        <span className="vt-fc-chip" title="Read-only: this page changes nothing">What the bot uses, and the evidence</span>
+        <div className="vt-ck-fresh" aria-live="polite">
           {rep ? (
             <>
               <span>status computed <b>{ageText(rep.generated_at, now)}</b> ago</span>
@@ -59,56 +57,45 @@ export default function BrainPage() {
             <RefreshCw size={13} aria-hidden="true" className={q.isFetching ? "vt-fc-spin" : undefined} /> {q.isFetching ? "refreshing" : "refresh"}
           </button>
         </div>
+        <p className="vt-br-explainer">
+          {rep?.explainer ?? "Short-term = live shadow outcomes, long-term = multi-year tests; a component is promoted only when both agree."}
+        </p>
+        <p className="vt-ck-sub">{rep?.rule ?? "Live beats backtest when they disagree."}</p>
         {rep?.evidence_error ? (
-          <div className="vt-fc-state" data-tone="orange" role="status">
+          <div className="vt-fc-state" data-tone="orange" role="status" style={{ flex: "1 1 100%" }}>
             <b>Evidence call failed:</b> {rep.evidence_error}. Status below is still live (env + config); {rep.evidence_generated_at ? "evidence shown is the last good copy." : "short-term numbers are missing until the next refresh."}
           </div>
         ) : null}
       </header>
+
+      {rep ? (
+        <KpiStrip n={6} label="Filter by status">
+          {kpis.map((k) => k.key === "evidence"
+            ? <KpiTile key={k.key} label={k.label} value={k.value} line={k.line} tone={k.tone} status={k.key} />
+            : <KpiTile key={k.key} label={k.label} value={k.value} line={k.line} tone={k.tone} status={k.key} onClick={() => setFilter(k.key as StatusFilter)} pressed={filter === k.key} />)}
+        </KpiStrip>
+      ) : null}
 
       {q.isLoading ? <Skeleton /> : q.isError && !rep ? (
         <div className="vt-fc-state" data-tone="red" role="alert">
           <b>Brain service unavailable.</b> {String(q.error instanceof Error ? q.error.message : q.error).slice(0, 160)} — the page retries every 5 minutes.
         </div>
       ) : rep ? (
-        <>
-          <section className="vt-fc-sec" aria-labelledby="vt-br-now">
-            <div className="vt-fc-sechead">
-              <h2 id="vt-br-now">What is running right now</h2>
-              <span className="vt-fc-meta">entries {rep.switches.entry_shadow.value ? `VOLTRADE_SHADOW_ENTRIES=${rep.switches.entry_shadow.value}` : "VOLTRADE_SHADOW_ENTRIES off"} ({rep.switches.entry_shadow.source})</span>
-            </div>
-            <div className="vt-br-counts" role="group" aria-label="Filter by status">
-              {(["all", "live", "shadow", "off", "disagree"] as StatusFilter[]).map((f) => {
-                const n = f === "all" ? rep.components.length : f === "disagree" ? disagree : rep.status_counts[f as BrainStatus];
-                return (
-                  <button key={f} type="button" className="vt-br-count" data-status={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-                    <span className="vt-br-count-n vt-fc-m">{n}</span>
-                    <span className="vt-br-count-l">{f === "all" ? "All parts" : f === "disagree" ? "Short vs long disagree" : BRAIN_STATUS_LABEL[f as BrainStatus]}</span>
-                    {f !== "all" && f !== "disagree" ? <span className="vt-fc-meta">{STATUS_HINT[f as BrainStatus]}</span> : null}
-                  </button>
-                );
-              })}
-            </div>
+        <div className="vt-ck-grid" data-basis="wide">
+          <Bar id="vt-br-now" title="What is running right now" meta={`entries ${rep.switches.entry_shadow.value ? `VOLTRADE_SHADOW_ENTRIES=${rep.switches.entry_shadow.value}` : "VOLTRADE_SHADOW_ENTRIES off"} (${rep.switches.entry_shadow.source})`}>
             <p className="vt-fc-note">{rep.short_term.note} {rep.short_term.primary_outcome}.</p>
-          </section>
-
-          {shown.length === 0 ? <div className="vt-fc-state">No component matches this filter.</div> : shown.map((g) => (
-            <section key={g.kind} className="vt-fc-sec" aria-labelledby={`vt-br-k-${g.kind}`}>
-              <div className="vt-fc-sechead"><h2 id={`vt-br-k-${g.kind}`}>{BRAIN_KIND_LABEL[g.kind]}</h2><span className="vt-fc-meta">{g.items.length}</span></div>
-              <div className="vt-br-list">
-                {g.items.map((c) => <ComponentCard key={c.id} c={c} now={now} />)}
-              </div>
-            </section>
-          ))}
+          </Bar>
+          {shown.length === 0 ? <div className="vt-fc-state vt-ck-full">No component matches this filter.</div> : shown.map((g) => g.items.map((c) => <ComponentCard key={c.id} c={c} now={now} />))}
 
           <Combinations rep={rep} now={now} />
 
-          <footer className="vt-fc-foot vt-br-foot">
-            <p><b>Known gaps.</b></p>
-            {rep.long_term.gaps.map((g) => <p key={g}>{g}</p>)}
-            <p>Long-term sources: {rep.long_term.sources.map((s) => `${s.file} (${s.date})`).join(" · ")}.</p>
-          </footer>
-        </>
+          <Panel id="vt-br-gaps" title="Known gaps" span="full" meta={`${rep.long_term.gaps.length} listed`}>
+            <div className="vt-br-gaps">
+              {rep.long_term.gaps.map((g) => <p key={g}>{g}</p>)}
+            </div>
+            <p className="vt-br-prov">Long-term sources: {rep.long_term.sources.map((s) => `${s.file} (${s.date})`).join(" · ")}.</p>
+          </Panel>
+        </div>
       ) : null}
     </div>
   );
@@ -116,29 +103,31 @@ export default function BrainPage() {
 
 function Skeleton() {
   return (
-    <div className="vt-br-list" aria-busy="true" aria-label="Loading the Brain page">
-      {Array.from({ length: 5 }, (_, k) => <div key={k} className="vt-fc-card vt-fc-skel" />)}
+    <div className="vt-ck-grid" data-basis="wide" aria-busy="true" aria-label="Loading the Brain page">
+      {Array.from({ length: 4 }, (_, k) => <div key={k} className="vt-ck-panel vt-fc-skel" />)}
     </div>
   );
 }
 
 function ComponentCard({ c, now }: { c: BrainComponent; now: number }) {
   return (
-    <article className="vt-br-card" data-status={c.status} aria-label={`${c.name}: ${BRAIN_STATUS_LABEL[c.status]}`}>
-      <div className="vt-br-cardtop">
-        <span className="vt-br-name">{c.name}</span>
+    <article className="vt-ck-panel vt-br-card" data-status={c.status} aria-label={`${c.name}: ${BRAIN_STATUS_LABEL[c.status]}`}>
+      <div className="vt-ck-ph">
+        <span className="vt-bot-eb">{BRAIN_KIND_LABEL[c.kind]}{c.group !== BRAIN_KIND_LABEL[c.kind] ? ` · ${c.group}` : ""}</span>
+        <h3 className="vt-ck-ti">{c.name}</h3>
         <span className="vt-br-status" data-status={c.status} title={STATUS_HINT[c.status]}>{BRAIN_STATUS_LABEL[c.status]}</span>
-        <span className="vt-fc-chip" data-small="true">{c.group}</span>
       </div>
-      <p className="vt-br-does">{c.does}</p>
-      <p className="vt-fc-meta">why {BRAIN_STATUS_LABEL[c.status].toLowerCase()}: {c.detail} <span className="vt-br-src">[{c.status_source}]</span></p>
-      <div className="vt-br-sides">
-        <ShortPanel s={c.short_term} now={now} />
-        <LongPanel l={c.long_term} />
-      </div>
-      <div className="vt-br-agree" data-flag={c.agreement.flag}>
-        <span className="vt-br-agree-l">{AGREE_LABEL[c.agreement.flag]}</span>
-        <span className="vt-fc-meta">{c.agreement.note}</span>
+      <div className="vt-ck-pb">
+        <p className="vt-br-does">{c.does}</p>
+        <p className="vt-fc-meta">why {BRAIN_STATUS_LABEL[c.status].toLowerCase()}: {c.detail} <span className="vt-br-src">[{c.status_source}]</span></p>
+        <div className="vt-br-sides">
+          <ShortPanel s={c.short_term} now={now} />
+          <LongPanel l={c.long_term} />
+        </div>
+        <div className="vt-br-agree" data-flag={c.agreement.flag}>
+          <span className="vt-br-agree-l">{AGREE_LABEL[c.agreement.flag]}</span>
+          <span className="vt-fc-meta">{c.agreement.note}</span>
+        </div>
       </div>
     </article>
   );
@@ -219,11 +208,7 @@ function Combinations({ rep, now }: { rep: BrainReport; now: number }) {
   const tried = st.arms.reduce((t, a) => t + a.variants_tried, 0);
   const head = headlineArm(st.arms);
   return (
-    <section className="vt-fc-sec" aria-labelledby="vt-br-combos">
-      <div className="vt-fc-sechead">
-        <h2 id="vt-br-combos">Best combinations (discounted for {tried} tried)</h2>
-        <span className="vt-fc-meta">{st.as_of ? `evidence ${ageText(st.as_of, now)} old` : "no evidence"}</span>
-      </div>
+    <Panel id="vt-br-combos" title={`Best combinations (discounted for ${tried} tried)`} span="full" meta={st.as_of ? `evidence ${ageText(st.as_of, now)} old` : "no evidence"}>
       <p className="vt-fc-note">{st.source}. {st.family ? `Single sources: ${st.family}.` : ""}</p>
       {!st.available ? <div className="vt-fc-state">{st.reason ?? "Forward selection has not run."}</div> : (
         <>
@@ -278,7 +263,7 @@ function Combinations({ rep, now }: { rep: BrainReport; now: number }) {
           </div>
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }
 

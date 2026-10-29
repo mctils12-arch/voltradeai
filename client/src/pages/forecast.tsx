@@ -5,6 +5,9 @@
 // calibrated. Every number carries its batch time, base close and model
 // version; the model is labeled experimental and nothing trades on it.
 // Data: GET /api/forecast (forecast.py report(); owner only).
+// Layout (2026-10-29, human-asked): the AI Engine's cockpit — a KPI strip,
+// then the calls, track record and calibration as panels in one full-width
+// grid (pages/cockpit.tsx); phone and tablet stack the same panels.
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownRight, ArrowUpRight, FlaskConical, LogIn, RefreshCw, Target } from "lucide-react";
@@ -12,12 +15,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { authErrorKind, notifySessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import {
   type ForecastReport, type ForecastCall, type CalBin, type Accuracy,
-  GROUP_LABEL, VOL_LABEL, pct, usd, bandPct, ageText, callState, skillText, calChart, dotRadius,
+  GROUP_LABEL, VOL_LABEL, pct, usd, bandPct, ageText, callState, skillText, calChart, dotRadius, forecastKpis,
 } from "@/lib/forecast";
+import { Bar, KpiStrip, KpiTile, Panel } from "./cockpit";
 
 const POLL_MS = 5 * 60_000;
 type Filter = "all" | "index" | "position" | "candidate";
 const FILTER_LABEL: Record<Filter, string> = { all: "All", index: "Index", position: "Positions", candidate: "Candidates" };
+/** SPY and the positions first, then the scan's candidates (stable within a group). */
+const GROUP_ORDER: Record<string, number> = { index: 0, position: 1, candidate: 2 };
 
 async function fetchForecast(): Promise<ForecastReport> {
   const r = await apiRequest("GET", "/api/forecast", undefined, { timeoutMs: 30_000 });
@@ -36,33 +42,28 @@ export default function ForecastPage() {
   const now = Date.now();
   const rep = q.data;
   const latest = rep?.latest ?? null;
-  const calls = useMemo(() => (latest?.forecasts ?? []).filter((c) => filter === "all" || c.group === filter), [latest, filter]);
+  const calls = useMemo(() => (latest?.forecasts ?? []).filter((c) => filter === "all" || c.group === filter)
+    .sort((a, b) => (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)), [latest, filter]);
   const counts = useMemo(() => {
     const out: Record<Filter, number> = { all: 0, index: 0, position: 0, candidate: 0 };
     for (const c of latest?.forecasts ?? []) { out.all += 1; out[c.group as Filter] = (out[c.group as Filter] ?? 0) + 1; }
     return out;
   }, [latest]);
+  const kpis = useMemo(() => forecastKpis(rep), [rep]);
 
   return (
-    <div className="vt-fc" data-vt-forecast>
-      <header className="vt-fc-head">
-        <div className="vt-fc-title">
-          <Target size={18} aria-hidden="true" />
-          <h1>Weekly forecast</h1>
-          <span className="vt-fc-chip" data-tone="orange" title="A simple statistical model under evaluation — read its skill numbers before trusting a call"><FlaskConical size={12} aria-hidden="true" /> Experimental model</span>
-          <span className="vt-fc-chip" title="Display and tracking only: no order, size or threshold reads these calls">Shadow · nothing trades on these</span>
-        </div>
-        <p className="vt-fc-sub">
-          Direction, probability and a 68% price range for the next {rep?.horizon_days ?? 5} trading sessions — SPY, every open position and the
-          last scan's top candidates. A call is always made (up when P(up) ≥ 50%), and its probability is the model's, never rounded up.
-        </p>
-        <div className="vt-fc-fresh" aria-live="polite">
+    <div className="vt-ck vt-fc" data-vt-forecast>
+      <header className="vt-ck-head">
+        <h1><Target size={16} aria-hidden="true" /> Weekly forecast</h1>
+        <span className="vt-fc-chip" data-tone="orange" title="A simple statistical model under evaluation — read its skill numbers before trusting a call"><FlaskConical size={12} aria-hidden="true" /> Experimental model</span>
+        <span className="vt-fc-chip" title="Display and tracking only: no order, size or threshold reads these calls">Shadow · nothing trades on these</span>
+        <div className="vt-ck-fresh" aria-live="polite">
           {latest ? (
             <>
               <span>made <b>{ageText(latest.made_at, now)}</b> ago</span>
               <span>base close <b>{latest.base_date}</b></span>
               <span>horizon → <b>{latest.horizon_end}</b></span>
-              <span>model <b className="vt-fc-m">{latest.model_version}</b></span>
+              <span>model <b>{latest.model_version}</b></span>
               {!latest.on_time ? <span className="vt-fc-warn">late batch — made after the first horizon session opened</span> : null}
             </>
           ) : null}
@@ -71,7 +72,17 @@ export default function ForecastPage() {
             <RefreshCw size={13} aria-hidden="true" className={q.isFetching ? "vt-fc-spin" : undefined} /> {q.isFetching ? "refreshing" : "refresh"}
           </button>
         </div>
+        <p className="vt-ck-sub">
+          Direction, probability and a 68% price range for the next {rep?.horizon_days ?? 5} trading sessions — SPY, every open position and the
+          last scan's top candidates. A call is always made (up when P(up) ≥ 50%), and its probability is the model's, never rounded up.
+        </p>
       </header>
+
+      {rep && latest ? (
+        <KpiStrip n={5} label="Forecast summary">
+          {kpis.map((k) => <KpiTile key={k.label} label={k.label} value={k.value} line={k.line} tone={k.tone} />)}
+        </KpiStrip>
+      ) : null}
 
       {q.isLoading ? <Skeleton /> : authErr === "unauthorized" ? (
         <div className="vt-fc-state" data-vt-fc-auth="signin" role="status">
@@ -95,9 +106,8 @@ export default function ForecastPage() {
         </div>
       ) : rep && latest ? (
         <>
-          <section className="vt-fc-sec" aria-labelledby="vt-fc-calls">
-            <div className="vt-fc-sechead">
-              <h2 id="vt-fc-calls">This week's calls</h2>
+          <div className="vt-ck-grid">
+            <Bar id="vt-fc-calls" title="This week's calls">
               <div className="vt-fc-filters" role="group" aria-label="Filter calls">
                 {(["all", "index", "position", "candidate"] as Filter[]).map((f) => (
                   <button key={f} type="button" className="vt-fc-btn" aria-pressed={filter === f} onClick={() => setFilter(f)} disabled={f !== "all" && !counts[f]}>
@@ -105,57 +115,46 @@ export default function ForecastPage() {
                   </button>
                 ))}
               </div>
-            </div>
-            {!latest.candidates_available ? <p className="vt-fc-note">No scan candidates were available when this batch was made (the scan had not run since the last restart) — positions and SPY only.</p> : null}
-            <div className="vt-fc-grid">
-              {calls.map((c) => <CallCard key={c.id} c={c} />)}
-            </div>
-            {latest.skipped.length ? <p className="vt-fc-note">Not forecast: {latest.skipped.map((s) => `${s.symbol} (${s.reason.replace(/_/g, " ")})`).join(", ")}.</p> : null}
-            <p className="vt-fc-note">
-              Range = 68% band of a zero-drift lognormal; {latest.iv_names} of {latest.n_forecasts} use chain IV30{latest.iv_day ? ` (options archive, ${latest.iv_day})` : ""}, the rest 20-day realized vol.
-              {latest.candidates_scan_at ? ` Candidates from the scan at ${new Date(latest.candidates_scan_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET.` : ""}
-            </p>
-          </section>
+              {!latest.candidates_available ? <p className="vt-fc-note">No scan candidates were available when this batch was made (the scan had not run since the last restart) — positions and SPY only.</p> : null}
+              {latest.skipped.length ? <p className="vt-fc-note">Not forecast: {latest.skipped.map((s) => `${s.symbol} (${s.reason.replace(/_/g, " ")})`).join(", ")}.</p> : null}
+              <p className="vt-fc-note">
+                Range = 68% band of a zero-drift lognormal; {latest.iv_names} of {latest.n_forecasts} use chain IV30{latest.iv_day ? ` (options archive, ${latest.iv_day})` : ""}, the rest 20-day realized vol.
+                {latest.candidates_scan_at ? ` Candidates from the scan at ${new Date(latest.candidates_scan_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET.` : ""}
+              </p>
+            </Bar>
+            {calls.map((c) => <CallCard key={c.id} c={c} />)}
 
-          <section className="vt-fc-sec" aria-labelledby="vt-fc-acc">
-            <div className="vt-fc-sechead">
-              <h2 id="vt-fc-acc">Track record</h2>
-              <span className="vt-fc-meta">{rep.accuracy.n} resolved · {rep.open} open · as of {ageText(rep.generated_at, now)} ago</span>
-            </div>
-            <AccuracyTiles a={rep.accuracy} />
-            {rep.accuracy.n > 0 && rep.accuracy.on_time.n !== rep.accuracy.n ? <p className="vt-fc-note">On-time batches only: {rep.accuracy.on_time.n} calls, {pct(rep.accuracy.on_time.hit_rate)} direction hits.</p> : null}
-          </section>
+            <Panel id="vt-fc-acc" title="Track record" meta={`${rep.accuracy.n} resolved · ${rep.open} open · as of ${ageText(rep.generated_at, now)} ago`}>
+              <AccuracyTiles a={rep.accuracy} />
+              {rep.accuracy.n > 0 && rep.accuracy.on_time.n !== rep.accuracy.n ? <p className="vt-fc-note">On-time batches only: {rep.accuracy.on_time.n} calls, {pct(rep.accuracy.on_time.hit_rate)} direction hits.</p> : null}
+            </Panel>
 
-          <section className="vt-fc-sec" aria-labelledby="vt-fc-cal">
-            <div className="vt-fc-sechead">
-              <h2 id="vt-fc-cal">Calibration</h2>
-              <span className="vt-fc-meta">predicted P(up) vs how often the price actually rose</span>
-            </div>
-            <CalibrationChart live={rep.calibration.bins} holdout={latest.model.validation.calibration} />
-            <ModelCard latest={latest} />
-          </section>
+            <Panel id="vt-fc-cal" title="Calibration" meta="predicted P(up) vs how often the price actually rose">
+              <CalibrationChart live={rep.calibration.bins} holdout={latest.model.validation.calibration} />
+              <ModelCard latest={latest} />
+            </Panel>
 
-          {rep.weeks.length ? (
-            <section className="vt-fc-sec" aria-labelledby="vt-fc-weeks">
-              <div className="vt-fc-sechead"><h2 id="vt-fc-weeks">By week</h2><span className="vt-fc-meta">newest first</span></div>
-              <div className="vt-fc-tablewrap">
-                <table className="vt-fc-table">
-                  <thead><tr><th>Week</th><th>Base close</th><th>Calls</th><th>Resolved</th><th>Hits</th><th>Brier</th><th>In range</th><th>Model</th></tr></thead>
-                  <tbody>
-                    {rep.weeks.map((w) => (
-                      <tr key={w.week_key}>
-                        <td className="vt-fc-m">{w.week_key}{w.on_time ? "" : " · late"}</td><td className="vt-fc-m">{w.base_date}</td><td className="vt-fc-m">{w.n}</td>
-                        <td className="vt-fc-m">{w.resolved}</td><td className="vt-fc-m">{w.resolved ? `${w.hits} (${pct(w.hit_rate)})` : "—"}</td>
-                        <td className="vt-fc-m">{w.brier ?? "—"}</td><td className="vt-fc-m">{pct(w.in_range_rate)}</td><td className="vt-fc-m">{w.model_version}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
+            {rep.weeks.length ? (
+              <Panel id="vt-fc-weeks" title="By week" meta="newest first" span={2}>
+                <div className="vt-fc-tablewrap">
+                  <table className="vt-fc-table">
+                    <thead><tr><th>Week</th><th>Base close</th><th>Calls</th><th>Resolved</th><th>Hits</th><th>Brier</th><th>In range</th><th>Model</th></tr></thead>
+                    <tbody>
+                      {rep.weeks.map((w) => (
+                        <tr key={w.week_key}>
+                          <td className="vt-fc-m">{w.week_key}{w.on_time ? "" : " · late"}</td><td className="vt-fc-m">{w.base_date}</td><td className="vt-fc-m">{w.n}</td>
+                          <td className="vt-fc-m">{w.resolved}</td><td className="vt-fc-m">{w.resolved ? `${w.hits} (${pct(w.hit_rate)})` : "—"}</td>
+                          <td className="vt-fc-m">{w.brier ?? "—"}</td><td className="vt-fc-m">{pct(w.in_range_rate)}</td><td className="vt-fc-m">{w.model_version}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            ) : null}
+          </div>
 
-          <footer className="vt-fc-foot">
+          <footer className="vt-ck-foot">
             <p>{rep.method}</p>
             {rep.caveats.map((c) => <p key={c}>{c}</p>)}
           </footer>
@@ -167,8 +166,8 @@ export default function ForecastPage() {
 
 function Skeleton() {
   return (
-    <div className="vt-fc-grid" aria-busy="true" aria-label="Loading forecast">
-      {Array.from({ length: 6 }, (_, k) => <div key={k} className="vt-fc-card vt-fc-skel" />)}
+    <div className="vt-ck-grid" aria-busy="true" aria-label="Loading forecast">
+      {Array.from({ length: 6 }, (_, k) => <div key={k} className="vt-ck-panel vt-fc-skel" />)}
     </div>
   );
 }
@@ -178,27 +177,29 @@ function CallCard({ c }: { c: ForecastCall }) {
   const b = bandPct(c);
   const st = callState(c);
   return (
-    <article className="vt-fc-card" data-dir={c.direction} aria-label={`${c.symbol}: ${c.direction}, ${pct(c.p_call)}`}>
-      <div className="vt-fc-cardtop">
+    <article className="vt-ck-panel vt-fc-call" data-dir={c.direction} aria-label={`${c.symbol}: ${c.direction}, ${pct(c.p_call)}`}>
+      <div className="vt-ck-ph">
         <span className="vt-fc-sym">{c.symbol}</span>
         <span className="vt-fc-chip" data-small="true">{GROUP_LABEL[c.group] ?? c.group}</span>
         <span className="vt-fc-state-badge" data-state={st}>{st === "open" ? `open → ${c.horizon_end}` : st === "no-data" ? "no price data" : st}</span>
       </div>
-      <div className="vt-fc-call">
-        <span className="vt-fc-dir" data-dir={c.direction}>{up ? <ArrowUpRight size={18} aria-hidden="true" /> : <ArrowDownRight size={18} aria-hidden="true" />}{up ? "Up" : "Down"}</span>
-        <span className="vt-fc-prob vt-fc-m" title={`P(up) = ${pct(c.p_up, 1)}`}>{pct(c.p_call, 1)}</span>
-        <span className="vt-fc-meta">P(up) {pct(c.p_up, 1)}</span>
+      <div className="vt-ck-pb">
+        <div className="vt-fc-call">
+          <span className="vt-fc-dir" data-dir={c.direction}>{up ? <ArrowUpRight size={18} aria-hidden="true" /> : <ArrowDownRight size={18} aria-hidden="true" />}{up ? "Up" : "Down"}</span>
+          <span className="vt-fc-prob vt-fc-m" title={`P(up) = ${pct(c.p_up, 1)}`}>{pct(c.p_call, 1)}</span>
+          <span className="vt-fc-meta">P(up) {pct(c.p_up, 1)}</span>
+        </div>
+        <div className="vt-fc-range" title={`${pct(c.band_coverage, 0)} band, ${VOL_LABEL[c.vol_source] ?? c.vol_source}`}>
+          <span className="vt-fc-m">{usd(c.range_lo)}</span>
+          <span className="vt-fc-bar" aria-hidden="true"><span /></span>
+          <span className="vt-fc-m">{usd(c.range_hi)}</span>
+        </div>
+        <div className="vt-fc-meta vt-fc-m">spot {usd(c.spot)} · {b.down.toFixed(1)}% / +{b.up.toFixed(1)}% · {VOL_LABEL[c.vol_source] ?? c.vol_source}</div>
+        {c.score?.status === "resolved" ? (
+          <div className="vt-fc-meta vt-fc-m">closed {usd(c.score.realized_close)} on {c.score.resolved_date} ({(c.score.realized_ret_pct ?? 0) >= 0 ? "+" : ""}{(c.score.realized_ret_pct ?? 0).toFixed(2)}%) · {c.score.in_range ? "inside" : "outside"} range · Brier {c.score.brier?.toFixed(3)}</div>
+        ) : null}
+        <div className="vt-fc-meta">base {c.base_date} · {c.model_version}</div>
       </div>
-      <div className="vt-fc-range" title={`${pct(c.band_coverage, 0)} band, ${VOL_LABEL[c.vol_source] ?? c.vol_source}`}>
-        <span className="vt-fc-m">{usd(c.range_lo)}</span>
-        <span className="vt-fc-bar" aria-hidden="true"><span /></span>
-        <span className="vt-fc-m">{usd(c.range_hi)}</span>
-      </div>
-      <div className="vt-fc-meta vt-fc-m">spot {usd(c.spot)} · {b.down.toFixed(1)}% / +{b.up.toFixed(1)}% · {VOL_LABEL[c.vol_source] ?? c.vol_source}</div>
-      {c.score?.status === "resolved" ? (
-        <div className="vt-fc-meta vt-fc-m">closed {usd(c.score.realized_close)} on {c.score.resolved_date} ({(c.score.realized_ret_pct ?? 0) >= 0 ? "+" : ""}{(c.score.realized_ret_pct ?? 0).toFixed(2)}%) · {c.score.in_range ? "inside" : "outside"} range · Brier {c.score.brier?.toFixed(3)}</div>
-      ) : null}
-      <div className="vt-fc-meta">base {c.base_date} · {c.model_version}</div>
     </article>
   );
 }
