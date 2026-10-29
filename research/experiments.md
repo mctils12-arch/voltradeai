@@ -111833,3 +111833,68 @@ DECISION: built server/pricePanel.ts (nightly 20:15-04:00 ET, one request at a t
 
 Change: new stock/ETF entries (executeTrades, morning queue, ETF substitution, Tier-3 BUY, SVXY third leg) and every options open (tier SELL_CSP/BUY_PUT, scanner setups, evaluate_and_execute CSPs/covered calls/spreads, convexity QQQ puts, roll re-opens → close-only) are logged as `shadow_mode_entry` instead of ordered. Floor basket (QQQ/SMH/KWEB/VXUS + GLD defensive floor) and every exit (stops, trails, time stops, scale-outs, N6b, options_manager closes, assignment, kill-switch liquidation) stay live. Flag SHADOW_ENTRY_SLEEVES="stocks,options"; env VOLTRADE_SHADOW_ENTRIES wins when present (`off` = rollback, no deploy). Found: CONVEXITY_OVERLAY.enabled=False had no reader, so the overlay was live before this change.
 Prior: shadow records accrue at the live entry rate (once per ticker per day); stock/options P&L flattens as existing positions close (options within ~one DTE cycle); account beta comes from the floor alone. Judge at +20 trading days: shadow_mode_entry outcomes vs the pre-switch taken bucket and vs SPY. The human decides kill/extend. Risk limits untouched. STARVED: no.
+
+## 2026-10-28 [RULE-REVIEW] — master plan (human directive 2026-10-27) — cockpit numbers: unwrap /api/orders/open, read both peak-equity shapes, report the enforced daily-loss limit (v1.0.1211)
+
+What was wrong:
+- D4 (audit §8.2): server/routes.ts /api/orders/open answers
+  { orders: [...] }; client/src/bot/useBotData.ts typed it as OpenOrder[]
+  and passed the wrapper through. panels.tsx OrdersBody checks
+  orders.length (undefined -> "none working" always) and BotPage
+  openOrders = data.length (undefined -> stage row "? open"). Working
+  orders never showed in the cockpit. scripts/visual_check.mjs mocked the
+  route as a bare [] so the harness could not see it.
+- D3 (audit §1.x): server/bot.ts /api/monitoring/drawdown read
+  peakCall.result.peak. Through the daemon get_peak_equity returns a bare
+  float, so .peak was undefined, peak fell back to current equity and the
+  endpoint reported ~0% drawdown whenever the daemon was up.
+- D7 / N21: /api/bot/status reported dailyLossLimitPct: 5, copied from
+  system_config DAILY_LOSS_LIMIT_PCT, a key nothing reads. The halts that
+  fire are Node DAILY_LOSS_LIMIT -3% and risk_kill_switch -0.03.
+  (maxPositionPct 8 / maxExposurePct 95 match system_config BASE_CONFIG
+  and are left as is; the MAX_POSITIONS 8-vs-6 and minScoreThreshold
+  65-vs-63 differences D7 lists are real rule conflicts, not display
+  errors, so they are not touched here.)
+
+What changed:
+- client/src/bot/orders.ts unwrapOpenOrders(): accepts { orders } or a bare
+  array; any other shape throws, so the query shows "orders not loaded"
+  instead of a confident "none working". useBotData uses it.
+- server/peakEquityRpc.ts peakEquityFromRpc(): accepts the float or
+  { peak }; 0/missing -> null. The drawdown route uses it and adds
+  peak_known (false when the peak file is missing; drawdown then reads 0
+  as before but is labeled).
+- /api/bot/status dailyLossLimitPct = Math.abs(DAILY_LOSS_LIMIT) (3).
+- visual_check.mjs fixture for /api/orders/open now uses the real server
+  shape with one working order.
+
+Metric before vs after on identical inputs:
+- 2 working orders at Alpaca: Orders panel before "none working", stage
+  row "? open"; after the 2 rows and "2 open".
+- daemon up, equity $98,590, risk_kill_switch peak $111,613: drawdown
+  before 0.00% / OK; after -11.67% / WARNING (kill threshold -20%).
+  Subprocess path: unchanged.
+- /api/bot/status dailyLossLimitPct: 5 -> 3.
+Bias direction: the drawdown endpoint now reports a larger (worse)
+drawdown; nothing trades on this endpoint or on dailyLossLimitPct (no
+consumer in client/src; the cockpit's drawdown comes from
+/api/bot/account). The orders fix only makes existing orders visible.
+
+Downstream chain: openOrders -> derive.ts stage row and BotPage orders
+flex sizing (the Orders panel grows when orders exist) -> visual layout
+at 390/768/1440 (harness fixture now exercises it).
+
+Rollback trigger: revert the client half if the Orders panel shows
+"orders not loaded" while /api/orders/open returns 200 (an unexpected
+shape), or the layout regresses in the visual harness.
+
+(cherry picked from commit c20400adaf956a9ac505e1f6e10138f2538639fc)
+
+Ported onto main 2026-10-28; conflicts resolved: none (server/bot.ts auto-merged cleanly).
+Port follow-up (visual harness, bot @1440): with real orders the desktop
+Orders panel flex "0.65 1 0" (0 basis vs the chart's auto basis) shrank to
+its header and clipped its rows; client/src/bot/BotPage.tsx ordersFlex is now
+"0 0 auto" (natural height, <= 8 rows) in both states.
+
+STARVED: no — master-plan queue in progress this session.
+Visual harness (bot, botidle) at 390/768/1440: 0 hard failures; Orders panel clipping fixed.

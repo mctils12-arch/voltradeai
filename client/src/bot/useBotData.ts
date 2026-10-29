@@ -3,6 +3,7 @@
 // hook result carries dataUpdatedAt so every panel can print its own age.
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { unwrapOpenOrders } from "./orders";
 import type { PositionLevels } from "../../../shared/positionLevels";
 
 /** Every Bot page read is polled, so none may hang forever (a hung request
@@ -153,7 +154,8 @@ export function useBotData(): BotData {
   const ml = useQuery<MlStatus>({ queryKey: ["/api/ml/status"], queryFn: () => getJson("/api/ml/status"), refetchInterval: 60_000 });
   const insight = useQuery<Insight>({ queryKey: ["/api/bot/insight"], queryFn: () => getJson("/api/bot/insight", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 5 * 60_000, staleTime: 2 * 60_000 });
   const lastScan = useQuery<LastScan>({ queryKey: ["/api/bot/last-scan"], queryFn: () => getJson("/api/bot/last-scan"), refetchInterval: 60_000 });
-  const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson("/api/orders/open"), refetchInterval: 30_000 });
+  // /api/orders/open answers { orders } — unwrap it (orders.ts, audit §8.2 D4)
+  const orders = useQuery<OpenOrder[]>({ queryKey: ["/api/orders/open"], queryFn: () => getJson<unknown>("/api/orders/open").then(unwrapOpenOrders<OpenOrder>), refetchInterval: 30_000 });
   const benchmark = useQuery<Benchmark>({ queryKey: ["/api/bot/benchmark"], queryFn: () => getJson("/api/bot/benchmark"), refetchInterval: 10 * 60_000 });
   // pending while the server's first ledger computation runs: poll sooner
   const sleeves = useQuery<Sleeves>({ queryKey: ["/api/bot/sleeves"], queryFn: () => getJson("/api/bot/sleeves"), refetchInterval: (q) => (q.state.data?.pending ? 20_000 : 10 * 60_000) });
