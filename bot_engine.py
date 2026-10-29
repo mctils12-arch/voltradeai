@@ -1349,6 +1349,9 @@ except Exception as e:
 
     # ── Intelligence-based scoring ────────────────────────────────────────────
     intel_adjustment = 0
+    # [RESEARCH] 2026-10-27, shadow-only: the MSPR part of intel_adjustment,
+    # persisted separately on the shadow record (score_breakdown.insider_mspr).
+    insider_mspr_adjustment = 0
     if intel:
         intel_score = intel.get("intel_score", 0)
         
@@ -1372,9 +1375,11 @@ except Exception as e:
             mspr = finnhub["insider_mspr"]
             if mspr > 30:
                 intel_adjustment += 5
+                insider_mspr_adjustment = 5
                 reasons.append(f"Finnhub insider sentiment: bullish (MSPR {mspr:.0f})")
             elif mspr < -30:
                 intel_adjustment -= 5
+                insider_mspr_adjustment = -5
                 reasons.append(f"Finnhub insider sentiment: bearish (MSPR {mspr:.0f})")
         if finnhub.get("analyst_consensus") == "buy":
             intel_adjustment += 3
@@ -1501,6 +1506,10 @@ except Exception as e:
 
     combined_score += fundamental_adjustment
 
+    # [RESEARCH] 2026-10-27, shadow-only: snapshot the running total around
+    # the three boosts below so each one's contribution (and the pre-clamp
+    # rules total) is persisted on the shadow record. Scoring is unchanged.
+    _pre_rec_boost = combined_score
     # Recommendation boost
     if rec:
         action = rec.get("action", "")
@@ -1511,6 +1520,8 @@ except Exception as e:
             combined_score += 6
             reasons.append(f"AI recommends: {action}")
 
+    recommendation_adjustment = combined_score - _pre_rec_boost
+    _pre_contrarian = combined_score
     # Sentiment boost / penalty
     contrarian = sentiment.get("contrarian_flag")
     if contrarian == "Squeeze Watch":
@@ -1524,11 +1535,15 @@ except Exception as e:
     elif sent_score_val > 75:
         combined_score += 4
 
+    contrarian_adjustment = combined_score - _pre_contrarian
+    _pre_rel_strength = combined_score
     # Edge factors
     rs = edge.get("relative_strength", 0)
     if rs and rs > 5:
         combined_score += 6
         reasons.append(f"Outperforming SPY by {rs:.1f}%")
+    rel_strength_adjustment = combined_score - _pre_rel_strength
+    rules_raw_score = combined_score  # pre-clamp rules total (shadow record only)
 
     combined_score = max(0, min(100, combined_score))
     rules_only_score = round(combined_score, 1)  # Capture BEFORE ML blend for attribution
@@ -1983,6 +1998,12 @@ except Exception as e:
             "alt": round(alt_adjustment, 1),
             "social": round(social_adjustment, 1),
             "fundamental": round(fundamental_adjustment, 1),
+            # [RESEARCH] 2026-10-27 (shadow_portfolio.SCORE_BREAKDOWN_EXTRA_KEYS)
+            "recommendation": round(recommendation_adjustment, 1),
+            "contrarian": round(contrarian_adjustment, 1),
+            "rel_strength": round(rel_strength_adjustment, 1),
+            "insider_mspr": round(insider_mspr_adjustment, 1),
+            "rules_raw": round(rules_raw_score, 1),
         }
         # REGIME ENGINE selection guards (step 4, shadow): 0/1 per guard + the
         # score points a live 'dip' neutralization would remove. None when the

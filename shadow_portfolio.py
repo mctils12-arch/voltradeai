@@ -259,13 +259,24 @@ SCORE_BREAKDOWN_KEYS = (
 REGIME_GUARD_KEYS = ("regime_knife", "regime_dip", "regime_panic", "regime_rs", "regime_breadth", "regime_mr_delta")
 
 
+# 2026-10-27 [RESEARCH] (shadow-only logging, source_validation ablation):
+# the deep_score terms the 14 keys above miss — the analyze.py
+# recommendation boost (+8/+6), the contrarian flag (+10/+8/+4), relative
+# strength (+6), the Finnhub insider-MSPR part of `intel` (+-5, also inside
+# `intel`) — and rules_raw, the PRE-CLAMP rules total, so the score can be
+# recomputed exactly with any adjustment removed. None on older records.
+SCORE_BREAKDOWN_EXTRA_KEYS = (
+    "recommendation", "contrarian", "rel_strength", "insider_mspr", "rules_raw",
+)
+
+
 def _sanitize_score_breakdown(bd) -> dict | None:
     """Coerce a deep_score sub-score breakdown into the persisted shape.
     Returns None for a missing breakdown (older callers)."""
     if not isinstance(bd, dict) or not bd:
         return None
     out = {}
-    for k in SCORE_BREAKDOWN_KEYS + REGIME_GUARD_KEYS:
+    for k in SCORE_BREAKDOWN_KEYS + REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS:
         v = bd.get(k)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
             out[k] = round(float(v), 1)

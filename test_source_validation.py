@@ -87,14 +87,16 @@ class TestRegistryPins(unittest.TestCase):
         self.assertEqual([f for f, _ in sv.FEATURE_SOURCES], _feature_cols_from_source())
 
     def test_adjustment_sources_match_persisted_breakdown(self):
-        from shadow_portfolio import SCORE_BREAKDOWN_KEYS
-        self.assertEqual(tuple(k for k, _ in sv.ADJUSTMENT_SOURCES), tuple(SCORE_BREAKDOWN_KEYS))
+        from shadow_portfolio import SCORE_BREAKDOWN_EXTRA_KEYS, SCORE_BREAKDOWN_KEYS
+        # every persisted component except rules_raw (a total, not a source)
+        want = tuple(SCORE_BREAKDOWN_KEYS) + tuple(k for k in SCORE_BREAKDOWN_EXTRA_KEYS if k != "rules_raw")
+        self.assertEqual(tuple(k for k, _ in sv.ADJUSTMENT_SOURCES), want)
 
     def test_prereg_constants(self):
         # Pre-registered before any production run; a change is a new PREREG_VERSION.
         self.assertEqual(sv.PRIMARY_OUTCOME, "+5d")
         self.assertEqual((sv.MIN_N, sv.FDR_Q, sv.IC_MIN), (100, 0.10, 0.05))
-        self.assertIn("v1", sv.PREREG_VERSION)
+        self.assertIn("v2", sv.PREREG_VERSION)
 
 
 class TestStatsPrimitives(unittest.TestCase):

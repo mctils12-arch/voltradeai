@@ -67,7 +67,9 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-PREREG_VERSION = "source_validation_v1 (2026-10-27)"
+# v2 (same day, before any production run): + the four deep_score terms the
+# breakdown did not persist (logged from 2026-10-27), + selection/ablation.
+PREREG_VERSION = "source_validation_v2 (2026-10-27)"
 PRIMARY_OUTCOME = "+5d"
 SECONDARY_OUTCOMES = ("+10d", "+20d", "xa")
 MIN_N = 100            # unique ticker-days for a verdict
@@ -98,6 +100,12 @@ ADJUSTMENT_SOURCES: Tuple[Tuple[str, str], ...] = (
     ("alt", "alt_data"),
     ("social", "social"),
     ("fundamental", "fundamentals"),
+    # shadow_portfolio.SCORE_BREAKDOWN_EXTRA_KEYS (logged since 2026-10-27;
+    # INSUFFICIENT until labeled). insider_mspr is also inside `intel`.
+    ("recommendation", "analyze_recommendation"),
+    ("contrarian", "sentiment"),
+    ("rel_strength", "technical"),
+    ("insider_mspr", "insider"),
 )
 
 # The ML feature vector persisted on every shadow record
@@ -485,8 +493,329 @@ def validate_sources(records: Sequence[dict]) -> dict:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# 2026-10-27 [RESEARCH] step 2: forward selection + ablation (same harness)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# FORWARD SELECTION (pre-registered): rows of the primary population sorted
+# by time and split by ENTRY DAY into FIT (first 50% of days), SELECT (next
+# 25%) and HOLDOUT (last 25%) — no day straddles two blocks. A model is a
+# ridge regression (RIDGE_LAMBDA) on FIT-standardized source values. Greedy:
+# at each step every remaining candidate is added in turn, fit on FIT and
+# scored by Spearman IC on SELECT; the best one is kept only if its IC gain
+# is >= MIN_GAIN and its day-clustered paired-bootstrap p-value, BONFERRONI-
+# multiplied by the number of candidates tried at that step (the winner of
+# m tries is the max of m), is <= SELECT_ALPHA. The selected set is refit on
+# FIT+SELECT and scored ONCE on HOLDOUT, beside the live score on the same
+# rows. Two arms: "features" (every non-constant model feature, all rows)
+# and "breakdown" (adjustments + features, rows that carry score_breakdown).
+#
+# ABLATION: recompute deep_score with groups of score adjustments removed,
+# from the logged components: rules = clamp(rules_raw - removed) where
+# rules_raw is the logged pre-clamp total (score_breakdown.rules_raw, logged
+# since 2026-10-27) or else the ML trace's rules_only_score (exact unless
+# the rules score was clamped at 0/100 — counted as `approx_clamped`); then
+# the logged ML blend (rule_weight/ml_weight, 50 when gated) is re-applied.
+# Rows whose reconstructed baseline differs from the logged score by more
+# than RECON_TOL are dropped and counted. Reported per variant: IC with CI,
+# the paired IC change vs baseline, score-quintile mean outcomes, and
+# whether removing the adjustments un-inverts the score-vs-outcome relation.
+
+SPLIT_FRACTIONS = (0.50, 0.25, 0.25)
+RIDGE_LAMBDA = 1.0
+MIN_GAIN = 0.02
+SELECT_ALPHA = 0.05
+MAX_SELECT_STEPS = 8
+MIN_SELECT_ROWS = 300
+MIN_SPLIT_ROWS = 50
+RECON_TOL = 0.6
+UNVALIDATED_ADJUSTMENTS = ("intel", "alt", "social", "news", "fundamental")
+
+
+def _day_split(rows: List[dict]) -> Tuple[List[dict], List[dict], List[dict]]:
+    days = sorted({r["day"] for r in rows})
+    n = len(days)
+    a = int(round(n * SPLIT_FRACTIONS[0]))
+    b = int(round(n * (SPLIT_FRACTIONS[0] + SPLIT_FRACTIONS[1])))
+    fit_d, sel_d = set(days[:a]), set(days[a:b])
+    fit = [r for r in rows if r["day"] in fit_d]
+    sel = [r for r in rows if r["day"] in sel_d]
+    hold = [r for r in rows if r["day"] not in fit_d and r["day"] not in sel_d]
+    return fit, sel, hold
+
+
+def _matrix(rows: List[dict], getters: List[Callable]) -> np.ndarray:
+    return np.array([[g(r["rec"]) for g in getters] for r in rows], dtype=float)
+
+
+def _fit_ridge(X: np.ndarray, y: np.ndarray):
+    mu = X.mean(axis=0)
+    sd = X.std(axis=0)
+    sd[sd == 0] = 1.0
+    Z = np.clip((X - mu) / sd, -5, 5)
+    yc = y - y.mean()
+    k = Z.shape[1]
+    beta = np.linalg.solve(Z.T @ Z + RIDGE_LAMBDA * np.eye(k), Z.T @ yc)
+    return mu, sd, beta
+
+
+def _predict(model, X: np.ndarray) -> np.ndarray:
+    mu, sd, beta = model
+    return np.clip((X - mu) / sd, -5, 5) @ beta
+
+
+def _paired_gain(pred_new: np.ndarray, pred_old: Optional[np.ndarray], y: np.ndarray,
+                 days: List[str], boot: DayBootstrap) -> Tuple[float, float, Optional[float]]:
+    """IC(pred_new) - IC(pred_old) on these rows, with its day-clustered
+    bootstrap SE (same replicates for both, so the difference is paired)."""
+    ry = _rankdata(y)
+    W = boot.weights(days)
+    rn = _rankdata(pred_new)
+    ic_new = float(np.corrcoef(rn, ry)[0, 1]) if np.std(rn) > 0 else 0.0
+    reps = _weighted_corr_rows(W, rn, ry)
+    ic_old = 0.0
+    if pred_old is not None:
+        ro = _rankdata(pred_old)
+        if np.std(ro) > 0:
+            ic_old = float(np.corrcoef(ro, ry)[0, 1])
+            reps = reps - _weighted_corr_rows(W, ro, ry)
+    reps = reps[np.isfinite(reps)]
+    se = float(np.std(reps, ddof=1)) if len(reps) > 50 else None
+    return ic_new, ic_old, se
+
+
+def forward_selection(rows: List[dict], candidates: List[dict]) -> dict:
+    """See the block comment above. `candidates`: registry entries."""
+    out = {"n_rows": len(rows), "candidates": len(candidates)}
+    if len(rows) < MIN_SELECT_ROWS or not candidates:
+        out["status"] = "INSUFFICIENT"
+        out["reason"] = f"{len(rows)} rows < MIN_SELECT_ROWS={MIN_SELECT_ROWS}" if candidates else "no candidates"
+        return out
+    fit, sel, hold = _day_split(rows)
+    out["split"] = {nm: {"n": len(p), "days": len({r['day'] for r in p}),
+                         "first_day": min((r["day"] for r in p), default=None),
+                         "last_day": max((r["day"] for r in p), default=None)}
+                    for nm, p in (("fit", fit), ("select", sel), ("holdout", hold))}
+    if min(len(fit), len(sel), len(hold)) < MIN_SPLIT_ROWS or \
+            min(out["split"][k]["days"] for k in out["split"]) < MIN_DAYS:
+        out["status"] = "INSUFFICIENT"
+        out["reason"] = f"a split has < {MIN_SPLIT_ROWS} rows or < {MIN_DAYS} days"
+        return out
+
+    getters = {c["name"]: c["get"] for c in candidates}
+    y_fit = np.array([r["y"] for r in fit])
+    y_sel = np.array([r["y"] for r in sel])
+    sel_days = [r["day"] for r in sel]
+    sel_boot = DayBootstrap(sel_days, seed=SEED + 1)
+    X_fit = {nm: _matrix(fit, [g])[:, 0] for nm, g in getters.items()}
+    X_sel = {nm: _matrix(sel, [g])[:, 0] for nm, g in getters.items()}
+
+    chosen: List[str] = []
+    pred_old: Optional[np.ndarray] = None
+    steps = []
+    for _step in range(MAX_SELECT_STEPS):
+        remaining = [nm for nm in getters if nm not in chosen]
+        if not remaining:
+            break
+        best = None
+        for nm in remaining:
+            cols = chosen + [nm]
+            model = _fit_ridge(np.column_stack([X_fit[c] for c in cols]), y_fit)
+            pred = _predict(model, np.column_stack([X_sel[c] for c in cols]))
+            r = _rankdata(pred)
+            ic = float(np.corrcoef(r, _rankdata(y_sel))[0, 1]) if np.std(r) > 0 else 0.0
+            if best is None or ic > best[1]:
+                best = (nm, ic, pred)
+        nm, _ic, pred = best
+        ic_new, ic_old, se = _paired_gain(pred, pred_old, y_sel, sel_days, sel_boot)
+        gain = ic_new - ic_old
+        p_one = 0.5 * math.erfc(gain / se / math.sqrt(2)) if se else 1.0
+        p_adj = min(1.0, p_one * len(remaining))
+        accepted = gain >= MIN_GAIN and p_adj <= SELECT_ALPHA
+        steps.append({"candidate": nm, "select_ic": round(ic_new, 4), "gain": round(gain, 4),
+                      "se": round(se, 4) if se else None, "p_bonferroni": round(p_adj, 5),
+                      "tried": len(remaining), "accepted": accepted})
+        if not accepted:
+            break
+        chosen.append(nm)
+        pred_old = pred
+    out["steps"] = steps
+    out["selected"] = chosen
+
+    # One look at HOLDOUT.
+    trainval = fit + sel
+    y_hold = np.array([r["y"] for r in hold])
+    hold_days = [r["day"] for r in hold]
+    hold_boot = DayBootstrap(hold_days, seed=SEED + 2)
+    live = np.array([_num(r["rec"].get("score")) or 0.0 for r in hold])
+    out["holdout_live_score"] = ic_stats(live, y_hold, hold_days, hold_boot)
+    if not chosen:
+        out["status"] = "NOTHING_SELECTED"
+        out["reason"] = "no source added significant out-of-sample IC on the SELECT block"
+        return out
+    model = _fit_ridge(_matrix(trainval, [getters[c] for c in chosen]),
+                       np.array([r["y"] for r in trainval]))
+    pred = _predict(model, _matrix(hold, [getters[c] for c in chosen]))
+    out["holdout_selected"] = ic_stats(pred, y_hold, hold_days, hold_boot)
+    ic_n, ic_l, se = _paired_gain(pred, live, y_hold, hold_days, hold_boot)
+    out["holdout_vs_live_score"] = {"ic_gain": round(ic_n - ic_l, 4), "se": round(se, 4) if se else None}
+    out["weights"] = {c: round(float(b), 4) for c, b in zip(chosen, model[2])}
+    out["status"] = "SELECTED"
+    return out
+
+
+def _clamp(v: float) -> float:
+    return max(0.0, min(100.0, v))
+
+
+def ablated_score(rec: dict, remove: Sequence[str]) -> Tuple[Optional[float], bool]:
+    """deep_score's final score with `remove` adjustments taken out, from the
+    logged components. Returns (score, approx) — approx=True when the pre-
+    clamp rules total was not logged and the rules score sat at a clamp
+    bound. None when the record lacks what the reconstruction needs (a
+    removed component that was never logged also counts as missing)."""
+    bd = rec.get("score_breakdown")
+    if not isinstance(bd, dict):
+        return None, False
+    removed = 0.0
+    for k in remove:
+        v = _num(bd.get(k))
+        if v is None:
+            return None, False
+        removed += v
+    ml = rec.get("ml") if isinstance(rec.get("ml"), dict) else {}
+    blended = ml.get("blended") is True
+    raw = _num(bd.get("rules_raw"))
+    approx = False
+    if raw is None:
+        raw = _num(ml.get("rules_only_score")) if blended else _num(rec.get("score"))
+        if raw is None:
+            return None, False
+        approx = raw <= 0.0 or raw >= 100.0
+    rules = _clamp(raw - removed)
+    if not blended:
+        return _clamp(rules), approx
+    rw, mw = _num(ml.get("rule_weight")), _num(ml.get("ml_weight"))
+    mls = 50.0 if ml.get("gated") else _num(ml.get("ml_only_score"))
+    if rw is None or mw is None or mls is None:
+        return None, False
+    return _clamp(rules * rw + mls * mw), approx
+
+
+def ablation_variants(extra_logged: bool) -> Dict[str, Tuple[str, ...]]:
+    v: Dict[str, Tuple[str, ...]] = {"baseline": (), "drop_unvalidated": UNVALIDATED_ADJUSTMENTS}
+    for k in UNVALIDATED_ADJUSTMENTS:
+        v[f"drop_{k}"] = (k,)
+    if extra_logged:
+        v["drop_unvalidated_and_boosts"] = UNVALIDATED_ADJUSTMENTS + ("recommendation", "contrarian", "rel_strength")
+    return v
+
+
+def _quintiles(x: np.ndarray, y: np.ndarray) -> dict:
+    if len(x) < 5:
+        return {}
+    edges = np.quantile(x, [0.2, 0.4, 0.6, 0.8])
+    q = np.searchsorted(edges, x, side="right")
+    out = {}
+    for i in range(5):
+        m = q == i
+        out[f"Q{i + 1}"] = {"n": int(m.sum()), "mean_pct": round(float(y[m].mean()), 3) if m.any() else None}
+    if out["Q1"]["mean_pct"] is not None and out["Q5"]["mean_pct"] is not None:
+        out["Q5_minus_Q1"] = round(out["Q5"]["mean_pct"] - out["Q1"]["mean_pct"], 3)
+    return out
+
+
+def ablation_report(rows: List[dict]) -> dict:
+    """Score-vs-outcome under each ablation variant, on rows that carry the
+    components (see the block comment above)."""
+    usable, dropped_recon, n_approx = [], 0, 0
+    for r in rows:
+        base, approx = ablated_score(r["rec"], ())
+        logged = _num(r["rec"].get("score"))
+        if base is None or logged is None:
+            continue
+        if abs(base - logged) > RECON_TOL:
+            dropped_recon += 1
+            continue
+        usable.append(r)
+        n_approx += 1 if approx else 0
+    extra_logged = any(isinstance(r["rec"].get("score_breakdown"), dict) and
+                       _num(r["rec"]["score_breakdown"].get("recommendation")) is not None for r in usable)
+    out = {"n_rows_with_components": len(usable), "dropped_reconstruction_mismatch": dropped_recon,
+           "approx_clamped": n_approx, "removed_groups": list(UNVALIDATED_ADJUSTMENTS)}
+    if len(usable) < MIN_N:
+        out["status"] = "INSUFFICIENT"
+        out["reason"] = (f"{len(usable)} deduped rows with logged components < MIN_N={MIN_N} "
+                         "(score_breakdown is logged since 2026-10-26; +5d labels lag ~1 week)")
+        return out
+    days = [r["day"] for r in usable]
+    boot = DayBootstrap(days, seed=SEED + 3)
+    y = np.array([r["y"] for r in usable])
+    variants = {}
+    base_scores = np.array([ablated_score(r["rec"], ())[0] for r in usable])
+    for name, remove in ablation_variants(extra_logged).items():
+        sc = [ablated_score(r["rec"], remove)[0] for r in usable]
+        keep = np.array([s is not None for s in sc])
+        if int(keep.sum()) < MIN_N:
+            variants[name] = {"n": int(keep.sum()), "status": "INSUFFICIENT"}
+            continue
+        x = np.array([s for s in sc if s is not None])
+        yk, dk = y[keep], [d for d, k in zip(days, keep) if k]
+        st = ic_stats(x, yk, dk, boot)
+        st["quintiles"] = _quintiles(x, yk)
+        if name != "baseline":
+            ic_n, ic_b, se = _paired_gain(x, base_scores[keep], yk, dk, boot)
+            st["ic_change_vs_baseline"] = round(ic_n - ic_b, 4)
+            st["ic_change_se"] = round(se, 4) if se else None
+        st["removed"] = list(remove)
+        variants[name] = st
+    out["variants"] = variants
+    b = variants.get("baseline", {})
+    d = variants.get("drop_unvalidated", {})
+    if "ic" in b and "ic" in d:
+        out["baseline_inverted"] = b["ic"] < 0
+        out["un_inverts"] = bool(b["ic"] < 0 <= d["ic"])
+        ch, se = d.get("ic_change_vs_baseline"), d.get("ic_change_se")
+        out["improvement_significant"] = bool(ch is not None and se and ch / se > 1.96)
+    out["status"] = "OK"
+    return out
+
+
+def selection_and_ablation(records: Sequence[dict], validation: Optional[dict] = None) -> dict:
+    rows = build_population(records, PRIMARY_OUTCOME)
+    verdicts = (validation or {}).get("sources", {})
+    reg = [s for s in source_registry() if verdicts.get(s["name"], {}).get("verdict") != "CONSTANT"]
+    feats = [s for s in reg if s["kind"] == "feature"]
+
+    def complete(rws, cands):
+        return [r for r in rws if all(c["get"](r["rec"]) is not None for c in cands)]
+
+    feat_rows = complete(rows, feats)
+    bd_rows = [r for r in rows if isinstance(r["rec"].get("score_breakdown"), dict)]
+    # adjustments enter the breakdown arm only where (almost) every breakdown
+    # row carries them — the 2026-10-27 extras are absent on older rows.
+    bd_cands = [s for s in reg if s["kind"] == "feature" or (
+        bd_rows and sum(1 for r in bd_rows if s["get"](r["rec"]) is not None) >= 0.95 * len(bd_rows))]
+    bd_rows = complete(bd_rows, bd_cands)
+    return {
+        "selection": {
+            "method": {"split": "by entry day: fit/select/holdout = " + "/".join(str(f) for f in SPLIT_FRACTIONS),
+                       "model": f"ridge (lambda {RIDGE_LAMBDA}) on fit-standardized values",
+                       "accept": f"gain >= {MIN_GAIN} and Bonferroni(paired day-bootstrap p) <= {SELECT_ALPHA}",
+                       "max_steps": MAX_SELECT_STEPS},
+            "features": forward_selection(feat_rows, feats),
+            "breakdown": forward_selection(bd_rows, bd_cands),
+        },
+        "ablation": ablation_report(rows),
+    }
+
+
 def get_source_validation_report() -> dict:
     """Production entry point (diag probe source_validation): the shadow log
-    on the volume, read-only."""
+    on the volume, read-only. Per-source validation + forward selection +
+    ablation, one load of the log."""
     from shadow_portfolio import _load_shadow_log
-    return validate_sources(_load_shadow_log())
+    records = _load_shadow_log()
+    rep = validate_sources(records)
+    rep.update(selection_and_ablation(records, rep))
+    return rep
