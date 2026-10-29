@@ -60,6 +60,7 @@ import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
+import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLine, SHADOW_ORDER_STATUS, SHADOW_REPEAT_DECISION, type NodeShadowEntry, type EntrySleeve } from "./entryShadow";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -1734,6 +1735,10 @@ print(json.dumps(data))
       liveness: lv.dark
         ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
         : { dark: false },
+      // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts): which sleeves'
+      // entries are logged instead of ordered. Informational ONLY — never
+      // flips `status`, never reaches the HTTP code (healthGate.ts unchanged).
+      entry_shadow: entryShadowStatus(process.env),
       // Paper drawdown-kill auto-resume (server/killSwitchAutoResume.ts).
       // Informational ONLY: it never flips `status` and never reaches the
       // HTTP code (healthGate.ts SERVING_CHECKS stay server + database).
@@ -2372,9 +2377,9 @@ print(json.dumps({
       // the same trades in a TAXABLE account: terms, wash sales, an estimated
       // tax at the caller's rates (?st&lt&state&niit, fractions) — an ESTIMATE
       // the UI labels as such; the paper account pays no tax
-      return { ...sleeveCache.body, tax: taxLedger(events, fills, { windowStartMs, rates }), stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError };
+      return { ...sleeveCache.body, tax: taxLedger(events, fills, { windowStartMs, rates }), stale: Date.now() - sleeveCache.at > SLEEVE_CACHE_MS, lastError: sleeveError, entry_shadow: entryShadowStatus(process.env) };
     }
-    return sleeveError ? { error: sleeveError } : { pending: true };
+    return sleeveError ? { error: sleeveError, entry_shadow: entryShadowStatus(process.env) } : { pending: true, entry_shadow: entryShadowStatus(process.env) };
   }
   app.get("/api/bot/sleeves", requireOwner, async (req, res) => {
     // ?st&lt&state&niit (fractions) recompute only the tax estimate at those
@@ -4393,6 +4398,38 @@ print(json.dumps(result[:20]))
   }
   const openOrders: TrackedOrder[] = [];
 
+  // ENTRY SHADOW MODE (2026-10-28, server/entryShadow.ts + entry_shadow.py):
+  // sleeve+ticker pairs shadow-entered today (emulates "already holding" and
+  // rate-limits the SHADOW-ENTRY audit line to one per ticker per day).
+  const shadowEntryBook = new ShadowEntryBook();
+  function noteShadowEntry(e: NodeShadowEntry, sink: NodeShadowEntry[] | null): void {
+    if (sink) sink.push(e);
+    if (shadowEntryBook.add(e.sleeve, e.ticker)) audit("SHADOW-ENTRY", shadowEntryAuditLine(e));
+  }
+  // One shadow-log write per loop for the would-be stock/ETF entries Node
+  // gated (options opens are recorded by the Python gate they pass through).
+  // Measurement only: no order is placed either way, and a failure is audited.
+  async function flushShadowEntries(entries: NodeShadowEntry[], where: string): Promise<void> {
+    if (entries.length === 0) return;
+    const shadowTmpPath = `/tmp/entry_shadow_${Date.now()}.json`;
+    try {
+      fs.writeFileSync(shadowTmpPath, JSON.stringify({ entries }));
+      const logged = await pythonCall(
+        "entry_shadow_record",
+        { entries },
+        `python3 -c "import json, sys; sys.path.insert(0, '.'); from entry_shadow import record_node_entries; d = json.load(open('${shadowTmpPath}')); print(json.dumps(record_node_entries(d['entries'])))"`,
+        { timeout: 20000 }
+      );
+      if (!logged.success || logged.result?.error) {
+        audit("SHADOW-ENTRY", `${where}: ${entries.length} would-be entr${entries.length === 1 ? "y" : "ies"} not recorded (no order placed either way): ${String(logged.result?.error || "failed").slice(0, 120)}`);
+      }
+    } catch (shadowErr) {
+      audit("SHADOW-ENTRY", `${where}: shadow record failed (no order placed either way): ${(shadowErr instanceof Error ? shadowErr.message : String(shadowErr)).slice(0, 120)}`);
+    } finally {
+      try { fs.unlinkSync(shadowTmpPath); } catch (unlinkErr) { console.warn(`[entry-shadow] temp file not removed: ${shadowTmpPath}`); }
+    }
+  }
+
   // ── Per-Ticker Order Attempt Counter (Fix 2026-04-10, relaxed 2026-04-13) ─
   // Originally set to 3 to prevent the ELAB retry-loop bug (10 canceled orders
   // per scan cycle). Raised to 10 because the hard cap of 3 was blocking
@@ -4709,6 +4746,7 @@ print(json.dumps(result[:20]))
     morningQueue.sort((a, b) => b.score - a.score);
 
     let slotsUsed = 0;
+    const mqShadowEntries: NodeShadowEntry[] = [];
 
     try {
       const positions = await alpaca("/v2/positions");
@@ -4800,6 +4838,18 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // ENTRY SHADOW MODE (2026-10-28): a queued stock entry is logged, not
+      // ordered, while the stocks sleeve is shadowed (gate before the POST).
+      if (isEntryShadowed("stocks")) {
+        noteShadowEntry({
+          sleeve: "stocks", ticker: trade.ticker, source: "executeMorningQueue", side: mqVerdict.side,
+          qty: _qtyToSubmit, price: trade.price || 0, notional: _qtyToSubmit * (trade.price || 0),
+          score: trade.score || 0, relabel: false,
+        }, mqShadowEntries);
+        slotsUsed++;
+        continue;
+      }
+
       try {
         const order = await alpaca("/v2/orders", {
           method: "POST",
@@ -4859,6 +4909,8 @@ print(json.dumps(result[:20]))
 
       await new Promise(r => setTimeout(r, 500));
     }
+
+    await flushShadowEntries(mqShadowEntries, "morning queue");
 
     // Clear the queue
     morningQueue.length = 0;
@@ -5323,6 +5375,15 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
         const g = result.shadow_gate_relabels;
         audit("SHADOW-GATES", `scan: ${g.received} gate rejection(s) ${JSON.stringify(g.by_decision || {})} → relabelled ${g.updated}, skipped ${g.skipped}${g.saved ? "" : " (not saved)"}`);
       }
+      // ENTRY SHADOW MODE (2026-10-28): would-be entries Python logged instead
+      // of ordering this scan (third leg SVXY, convexity puts, roll opens) —
+      // one audit line per NEW sleeve+ticker per day.
+      for (const e of (Array.isArray(result.entry_shadow?.entries) ? result.entry_shadow.entries : [])) {
+        if (!e || !e.new || !e.ticker || (e.sleeve !== "stocks" && e.sleeve !== "options")) continue;
+        if (shadowEntryBook.add(e.sleeve, String(e.ticker))) {
+          audit("SHADOW-ENTRY", `${e.sleeve}: ${e.ticker} via ${e.source || "bot_engine"} — logged, no order (VOLTRADE_SHADOW_ENTRIES)`);
+        }
+      }
       tier2LastDataSourceErrors = (result.data_source_errors && typeof result.data_source_errors === "object")
         ? result.data_source_errors : {};
 
@@ -5612,6 +5673,10 @@ print(json.dumps(check_weekly_loss(history)))
             cspGateRejections.push({ ticker: String(a.ticker), decision, reason: String(reason).slice(0, 200), metadata: a.metadata ?? {} });
           }
         };
+        // ENTRY SHADOW MODE (2026-10-28): Tier-3 BUYs the stocks gate logs
+        // instead of ordering (SELL_CSP / BUY_PUT are recorded by their
+        // Python gate); one shadow-log write after the loop.
+        const tierShadowEntries: NodeShadowEntry[] = [];
         for (const action of result.tier_actions) {
           if (state.killSwitch) {
             for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
@@ -5646,6 +5711,13 @@ print(json.dumps(check_weekly_loss(history)))
               noteCspGate(action, "rejected_csp_resubmit", String(cspGate.detail || "swept or resting order"));
               continue;
             }
+          }
+          // ENTRY SHADOW MODE (2026-10-28): an entry already shadow-logged
+          // today is not re-dispatched — emulates the open position.
+          const tierSleeve: EntrySleeve | null = action.action === "BUY" ? "stocks"
+            : (action.action === "SELL_CSP" || action.action === "BUY_PUT") ? "options" : null;
+          if (tierSleeve && isEntryShadowed(tierSleeve) && shadowEntryBook.has(tierSleeve, String(action.ticker))) {
+            continue;
           }
           try {
             // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
@@ -5702,7 +5774,12 @@ if contract.get('error'):
             pass
     print(json.dumps({'status': 'error', 'reason': _err}))
 else:
-    result = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.SELL_CSP', strategy=data['strategy'])
+    else:
+        result = submit_options_order(contract)
     result['cash_required'] = contract.get('cash_required', 0)
     # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): this branch never registered
     # the entry, so every later close of a tier CSP was an orphan_exit.
@@ -5718,7 +5795,18 @@ else:
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
-                if (r.status === "submitted" || r.status === "filled") {
+                if (r.status === SHADOW_ORDER_STATUS) {
+                  // Shadowed open: the slot and cash it WOULD have used are
+                  // consumed in this loop so the rest of the batch sees the
+                  // book live would have seen; nothing rests at the broker.
+                  noteShadowEntry({
+                    sleeve: "options", ticker: String(action.ticker), source: "tier_dispatcher.SELL_CSP", side: r.side || "sell",
+                    qty: Number(r.qty) || 1, price: 0, notional: parseFloat(r.cash_required) || 0, score: 0,
+                    instrument: r.occ_symbol || String(action.ticker),
+                  }, null);
+                  tierOptionsSlotsUsed++;
+                  tierCashAvailable -= (parseFloat(r.cash_required) || 0);
+                } else if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
                   tierCashAvailable -= (parseFloat(r.cash_required) || 0);
@@ -5764,7 +5852,13 @@ else:
               const currentPrice = parseFloat(snap?.latestTrade?.p || snap?.dailyBar?.c || 0);
               if (currentPrice > 0 && targetDollars <= buyingPower) {
                 const shares = Math.floor(targetDollars / currentPrice);
-                if (shares > 0) {
+                if (shares > 0 && isEntryShadowed("stocks")) {
+                  // ENTRY SHADOW MODE (2026-10-28): logged, not ordered.
+                  noteShadowEntry({
+                    sleeve: "stocks", ticker: String(action.ticker), source: "tier_dispatcher.T3_BUY", side: "buy",
+                    qty: shares, price: currentPrice, notional: shares * currentPrice, score: 0,
+                  }, tierShadowEntries);
+                } else if (shares > 0) {
                   const orderParams = getOrderParams(currentPrice);
                   try {
                     const t3OrderResult = await alpaca("/v2/orders", {
@@ -5827,7 +5921,12 @@ contract = select_contract(data['ticker'], data['strategy'], data['price'], data
 if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
-    result = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.BUY_PUT', strategy=data['strategy'])
+    else:
+        result = submit_options_order(contract)
     # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): see the SELL_CSP branch.
     if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
         try:
@@ -5840,7 +5939,12 @@ else:
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
-                if (r.status === "submitted" || r.status === "filled") {
+                if (r.status === SHADOW_ORDER_STATUS) {
+                  noteShadowEntry({
+                    sleeve: "options", ticker: String(action.ticker), source: "tier_dispatcher.BUY_PUT", side: r.side || "buy",
+                    qty: Number(r.qty) || 1, price: 0, notional: 0, score: 0, instrument: r.occ_symbol || String(action.ticker),
+                  }, null);
+                } else if (r.status === "submitted" || r.status === "filled") {
                   audit("T4", `BUY_PUT ${action.ticker} hedge | ${action.reason}`);
                   // STALE-ORDER-SWEEP FIX 2026-08-22: same gap as the SELL_CSP
                   // branch above — register the resting DAY limit order so
@@ -5867,6 +5971,7 @@ else:
             audit("TIER-DISPATCH-ERR", `T${action.tier} ${action.ticker}: ${e?.message?.slice(0,120)}`);
           }
         }
+        await flushShadowEntries(tierShadowEntries, "tier dispatcher");
         // One shadow-log call per dispatcher loop (see cspGateRejections above).
         if (cspGateRejections.length > 0) {
           const cspGateTmpPath = `/tmp/csp_gate_shadow_${Date.now()}.json`;
@@ -6183,6 +6288,10 @@ else:
         }, 0)
       : 0;
     const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
+    // ENTRY SHADOW MODE (2026-10-28): would-be stock/ETF entries gated below
+    // (one shadow-log write after the loop; options opens are recorded by the
+    // Python gate in select_contract's caller / evaluate_and_execute).
+    const shadowEntries: NodeShadowEntry[] = [];
 
     // [RULE-REVIEW] 2026-10-26: every gate below that drops a candidate
     // notes it here, and ONE RPC after the loop relabels the candidate's
@@ -6234,6 +6343,14 @@ else:
       }
       if (held.includes(trade.ticker)) { noteGate(trade, "rejected_held", "already holding"); continue; }
       if ((trade as any)._consumed) continue;
+      // ENTRY SHADOW MODE: a candidate already shadow-entered today is treated
+      // like a held one (no re-evaluation, no second record) — its deep_score
+      // record is relabelled shadow_mode_repeat instead of staying "taken".
+      const tradeSleeve: EntrySleeve = isOptionsTrade ? "options" : "stocks";
+      if (isEntryShadowed(tradeSleeve) && shadowEntryBook.has(tradeSleeve, trade.ticker)) {
+        noteGate(trade, SHADOW_REPEAT_DECISION, `shadow entry already logged today (${tradeSleeve}) — emulates an open position`);
+        continue;
+      }
       // Skip tickers blocked after 3 same-ticker stops today
       if (Array.isArray((state as any).dailyBlockedTickers) && (state as any).dailyBlockedTickers.includes(trade.ticker)) {
         audit("SKIP", `${trade.ticker}: blocked for today after repeated stop-losses`);
@@ -6350,6 +6467,17 @@ else:
           const etfTicker = etfPlan.symbol;
           const etfShares = etfPlan.qty;
           const etfPrice = etfPlan.price;
+          if (isEntryShadowed("stocks")) {
+            // ENTRY SHADOW MODE (2026-10-28): logged, not ordered (gate before the POST).
+            noteShadowEntry({
+              sleeve: "stocks", ticker: trade.ticker, source: "executeTrades.etf", side: "buy", qty: etfShares,
+              price: trade.price || 0, notional: etfPlan.value, score: trade.score || 0,
+              instrument: etfTicker, instrument_price: etfPrice, relabel: true,
+            }, shadowEntries);
+            slotsUsed++;
+            totalDeployed += etfPlan.value;
+            continue;
+          }
           try {
             const etfOrderParams = getOrderParams(etfPrice);
             const etfOrderResult = await alpaca("/v2/orders", {
@@ -6432,7 +6560,12 @@ contract = select_contract(data['ticker'], data['strategy'], data['price'], data
 if contract.get('error'):
     print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
 else:
-    order = submit_options_order(contract)
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
+    import entry_shadow
+    if entry_shadow.is_shadowed('options'):
+        order = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='executeTrades.options_scanner', strategy=data['strategy'], reason='scanner setup ' + str(data.get('setup','')))
+    else:
+        order = submit_options_order(contract)
     if order.get('status') in ('submitted','filled','pending_new','accepted'):
         # P0-9 FIX: previous call passed delta as the 4th positional arg,
         # but register_options_entry's signature is
@@ -6515,6 +6648,21 @@ else:
               }
             }
 
+            if (optExec.instrument === "options" && optExec.order?.status === SHADOW_ORDER_STATUS) {
+              // ENTRY SHADOW MODE (2026-10-28): the Python options gate logged
+              // the would-be open and placed nothing — never fall back to a
+              // stock buy for it. Slot/heat consumed as live would have.
+              noteShadowEntry({
+                sleeve: "options", ticker: trade.ticker,
+                source: trade.regime_at_entry === "OPTIONS_SCANNER" ? "executeTrades.options_scanner" : "executeTrades.evaluate_and_execute",
+                side: optExec.contract?.side || trade.side || "sell", qty: Number(optExec.order?.qty) || 1, price: trade.price || 0,
+                notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0,
+                score: trade.score || 0, instrument: optExec.order?.occ_symbol || trade.ticker,
+              }, null);
+              optionsSlotsUsed++;
+              totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              continue;
+            }
             if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
               audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
@@ -6557,6 +6705,18 @@ else:
           trade.action_label = "BUY";
         }
         const side = trade.side || "buy";
+
+        if (isEntryShadowed("stocks")) {
+          // ENTRY SHADOW MODE (2026-10-28): logged, not ordered (gate before the POST).
+          noteShadowEntry({
+            sleeve: "stocks", ticker: trade.ticker, source: "executeTrades.stock", side, qty,
+            price: trade.price || 0, notional: trade.position_value || qty * (trade.price || 0),
+            score: trade.score || 0, relabel: true,
+          }, shadowEntries);
+          slotsUsed++;
+          totalDeployed += trade.position_value;
+          continue;
+        }
 
         const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {
@@ -6608,6 +6768,8 @@ else:
 
       await new Promise(r => setTimeout(r, 500));
     }
+
+    await flushShadowEntries(shadowEntries, "executeTrades");
 
     // One relabel call per admission loop (see gateRejections above).
     if (gateRejections.length > 0) {

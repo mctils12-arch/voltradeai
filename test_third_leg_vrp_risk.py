@@ -59,6 +59,12 @@ class _Leg3Base(unittest.TestCase):
         p = patch.object(bot_engine, "DATA_DIR", self.tmp)
         p.start()
         self.addCleanup(p.stop)
+        # ENTRY SHADOW MODE (2026-10-28): these pin the LIVE SVXY buy/exit
+        # rules, so stock entries are explicitly live here (the shadowed buy
+        # is test_entry_shadow.py's TestThirdLeg).
+        e = patch.dict(os.environ, {"VOLTRADE_SHADOW_ENTRIES": "off"})
+        e.start()
+        self.addCleanup(e.stop)
         self.ts = 1_000_000
 
     def seed(self, **state):

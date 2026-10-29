@@ -4323,9 +4323,28 @@ def _scan_market_inner():
     # Step 8b: Options Position Manager (pro-grade exit management) ─────────
     # Runs every cycle: DTE exits, 50% profit targets, Greeks monitoring, rolling
     options_mgmt_result = {"actions": [], "positions_checked": 0}
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): while the options sleeve
+    # is shadowed a roll's sell-to-open half is a new entry — the manager takes
+    # its existing close-only path (the N15 halt mechanism, allow_rolls=False);
+    # every close/exit rule still runs live. The skipped re-opens are logged.
+    _scan_shadow_rows = []
     try:
-        from options_manager import manage_options_positions
-        options_mgmt_result = manage_options_positions(equity=portfolio_value)
+        import entry_shadow as _es
+        _es_options = _es.is_shadowed("options")
+    except Exception as _es_err:
+        _es, _es_options = None, False
+        import logging as _es_logging
+        _es_logging.getLogger("bot_engine").warning(f"[ENTRY-SHADOW] unavailable, options entries live: {_es_err}")
+    try:
+        from options_manager import manage_options_positions, ROLL_SKIPPED_SHADOW_DETAIL
+        if _es_options:
+            options_mgmt_result = manage_options_positions(equity=portfolio_value, allow_rolls=False,
+                                                           roll_skip_detail=ROLL_SKIPPED_SHADOW_DETAIL)
+            _roll_entries = _es.roll_skip_entries(options_mgmt_result.get("actions", []))
+            if _roll_entries:
+                _scan_shadow_rows.extend(_es.record_entries(_roll_entries).get("results", []))
+        else:
+            options_mgmt_result = manage_options_positions(equity=portfolio_value)
     except Exception as _ome:
         options_mgmt_result["error"] = str(_ome)[:200]
 
@@ -4579,6 +4598,12 @@ def _scan_market_inner():
         } for _rank_idx, s in enumerate(deep_scored[:10])],
         "third_leg": third_leg_result,
         "convexity_overlay": convexity_result,
+        # ENTRY SHADOW MODE (2026-10-28): the flag as the scan read it and the
+        # would-be entries Python logged instead of ordering (third leg,
+        # convexity overlay, roll opens). bot.ts audits each NEW one.
+        "entry_shadow": _scan_entry_shadow(
+            _scan_shadow_rows if '_scan_shadow_rows' in dir() else [],
+            third_leg_result, convexity_result),
         "intraday_shorts": intraday_short_result,
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
@@ -4888,6 +4913,22 @@ def _leg3_record_protective_exit() -> None:
     _leg3_save_state(state)
 
 
+def _scan_entry_shadow(roll_rows: list, *leg_results) -> dict:
+    """scan_market's `entry_shadow` field: the flag status + every shadow row
+    (entry_shadow.record_entries result rows) Python produced this scan."""
+    rows = list(roll_rows or [])
+    for res in leg_results:
+        for a in (res or {}).get("actions", []) if isinstance(res, dict) else []:
+            if isinstance(a, dict) and a.get("type") == "shadow_entry":
+                rows.append({k: a.get(k) for k in ("ticker", "sleeve", "source", "new")})
+    try:
+        import entry_shadow as _es
+        st = _es.status()
+    except Exception as e:
+        st = {"error": str(e)[:120]}
+    return {"status": st, "entries": rows}
+
+
 def _run_third_leg(macro: dict) -> dict:
     """
     Third leg: VRP harvest + Sector rotation.
@@ -4976,7 +5017,22 @@ def _run_third_leg(macro: dict) -> dict:
                 if svxy_price > 0:
                     alloc  = equity * vrp_pct
                     shares = int(alloc / svxy_price)
+                    _es_stocks = False
                     if shares > 0 and alloc > 100:
+                        try:
+                            import entry_shadow as _es
+                            _es_stocks = _es.is_shadowed("stocks")
+                        except Exception as _es_err:
+                            _log.warning(f"[LEG3-VRP] entry shadow flag unavailable, entry live: {_es_err}")
+                    if shares > 0 and alloc > 100 and _es_stocks:
+                        # ENTRY SHADOW MODE (2026-10-28): the SVXY buy is a new
+                        # stock/ETF entry (not the floor basket) — log, don't order.
+                        _row = _es.record_entry(
+                            sleeve="stocks", ticker="SVXY", source="bot_engine._run_third_leg",
+                            side="buy", qty=shares, price=svxy_price, notional=round(shares * svxy_price, 2),
+                            reason=f"VXX ratio {vxx_ratio:.3f} (elevated+declining) — VRP harvest (shadow)")
+                        actions.append({"type": "shadow_entry", **_row})
+                    elif shares > 0 and alloc > 100:
                         order = {
                             "symbol":       "SVXY",
                             "qty":          str(shares),
@@ -5356,7 +5412,27 @@ def _run_convexity_overlay(macro: dict) -> dict:
         num_contracts = max(1, int(budget_dollars / cost_per_contract))
 
         # ── Place limit order for puts ───────────────────────────────────────
-        if occ_symbol not in pending_syms:
+        # ENTRY SHADOW MODE (2026-10-28): buy-to-open is an options entry —
+        # logged instead of ordered while the options sleeve is shadowed (the
+        # roll's sell-to-close above stays live).
+        _es_cvx = False
+        try:
+            import entry_shadow as _es
+            _es_cvx = _es.is_shadowed("options")
+        except Exception as _es_err:
+            _log.warning(f"[CONVEXITY] entry shadow flag unavailable, entry live: {_es_err}")
+        if occ_symbol not in pending_syms and _es_cvx:
+            _row = _es.record_entry(
+                sleeve="options", ticker="QQQ", source="bot_engine._run_convexity_overlay",
+                side="buy", qty=num_contracts, price=qqq_price, notional=round(num_contracts * mid_price * 100, 2),
+                instrument=occ_symbol, instrument_price=mid_price, trade_type="options",
+                action_label="SHADOW CONVEXITY PUT",
+                contract={"occ_symbol": occ_symbol, "strike": contract_strike, "expiry": contract_exp,
+                          "option_type": "put", "side": "buy_to_open", "qty": num_contracts,
+                          "limit_price": mid_price, "strategy": "convexity_hedge"},
+                reason=f"convexity hedge (shadow): {num_contracts}x {occ_symbol}, regime={regime}")
+            actions.append({"type": "shadow_entry", **_row})
+        elif occ_symbol not in pending_syms:
             order = {
                 "symbol":        occ_symbol,
                 "qty":           str(num_contracts),

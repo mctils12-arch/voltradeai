@@ -293,6 +293,28 @@ def _sanitize_regime_snapshot(snap) -> dict | None:
     return json.loads(text)
 
 
+# ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the would-be order a
+# "shadow_mode_entry" record carries. Same JSON-safe + size-capped copy as the
+# regime snapshot; absent when there is none.
+SHADOW_ENTRY_MAX_BYTES = 2048
+SHADOW_ENTRY_DECISION = "shadow_mode_entry"     # a would-be entry, logged instead of ordered
+SHADOW_REPEAT_DECISION = "shadow_mode_repeat"   # same sleeve+ticker already shadow-entered today (live: "held")
+
+
+def _sanitize_shadow_entry(se) -> dict | None:
+    if not isinstance(se, dict) or not se:
+        return None
+    try:
+        text = json.dumps(se, default=str)
+    except (TypeError, ValueError) as e:
+        logger.debug(f"shadow entry not serializable: {e}")
+        return None
+    if len(text) > SHADOW_ENTRY_MAX_BYTES:
+        logger.debug(f"shadow entry dropped: {len(text)} bytes > {SHADOW_ENTRY_MAX_BYTES}")
+        return None
+    return json.loads(text)
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -308,6 +330,7 @@ def log_candidate(
     ml: dict = None,
     score_breakdown: dict = None,
     regime_snapshot: dict = None,
+    shadow_entry: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -334,43 +357,19 @@ def log_candidate(
                          and many high scorers are option SALES or overbought
                          SELLs, not stock buys — without this, outcome labels
                          (long-stock returns) mix decisions the bot never made.
+        shadow_entry:    ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the
+                         would-be order (sleeve, source, qty, notional,
+                         instrument, contract) when decision is
+                         "shadow_mode_entry"; ABSENT on every other record.
 
     Rate cost: ZERO API calls. Pure file I/O.
     """
     try:
         if not ticker:
             return
-
-        record = {
-            "ticker":          str(ticker).upper(),
-            "timestamp":       datetime.now(timezone.utc).isoformat(),
-            "score":           float(score),
-            "decision":        str(decision),
-            "decision_reason": str(decision_reason)[:200],  # truncate long reasons
-            "entry_price":     float(entry_price) if entry_price else 0.0,
-            "vxx_ratio":       float(vxx_ratio),
-            "regime_label":    str(regime_label),
-            "side":            str(side or ""),
-            "action_label":    str(action_label or ""),
-            "trade_type":      str(trade_type or ""),
-            "features":        {k: float(v) if isinstance(v, (int, float)) else 0.0
-                                for k, v in features.items()} if features else {},
-            "outcomes":        {f"+{h}d": None for h in FORWARD_HORIZONS_DAYS},
-            "code_version":    CODE_VERSION,
-            # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): what the model
-            # said about THIS candidate, which was returned by ml_score() and
-            # dropped on the floor until now. None when deep_score passed no
-            # trace (older callers); see sanitize_ml_trace().
-            "ml":              sanitize_ml_trace(ml),
-            "score_breakdown": _sanitize_score_breakdown(score_breakdown),
-        }
-        # REGIME ENGINE ML snapshot (2026-10-28 live flip; regime_engine.ml_snapshot):
-        # the regime state's inputs, both labels and the engine-vs-legacy gate
-        # decision for THIS candidate. Logging only; the key is ABSENT when the
-        # engine is off (no state) so pre-flip records keep their shape.
-        _rs = _sanitize_regime_snapshot(regime_snapshot)
-        if _rs is not None:
-            record["regime_snapshot"] = _rs
+        record = _build_record(ticker, features, score, decision, decision_reason, entry_price,
+                               vxx_ratio, regime_label, side, action_label, trade_type, ml,
+                               score_breakdown, regime_snapshot, shadow_entry)
 
         # Load, append, rotate, save
         records = _load_shadow_log()
@@ -380,6 +379,46 @@ def log_candidate(
         _save_shadow_log(records)
     except Exception as e:
         logger.debug(f"log_candidate failed for {ticker}: {e}")
+
+
+def _build_record(ticker, features, score, decision, decision_reason="", entry_price=0.0,
+                  vxx_ratio=1.0, regime_label="neutral", side="", action_label="", trade_type="",
+                  ml=None, score_breakdown=None, regime_snapshot=None, shadow_entry=None) -> dict:
+    """One shadow record (log_candidate's shape; raises on bad input — callers catch)."""
+    record = {
+        "ticker":          str(ticker).upper(),
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+        "score":           float(score),
+        "decision":        str(decision),
+        "decision_reason": str(decision_reason)[:200],  # truncate long reasons
+        "entry_price":     float(entry_price) if entry_price else 0.0,
+        "vxx_ratio":       float(vxx_ratio),
+        "regime_label":    str(regime_label),
+        "side":            str(side or ""),
+        "action_label":    str(action_label or ""),
+        "trade_type":      str(trade_type or ""),
+        "features":        {k: float(v) if isinstance(v, (int, float)) else 0.0
+                            for k, v in features.items()} if features else {},
+        "outcomes":        {f"+{h}d": None for h in FORWARD_HORIZONS_DAYS},
+        "code_version":    CODE_VERSION,
+        # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): what the model
+        # said about THIS candidate, which was returned by ml_score() and
+        # dropped on the floor until now. None when deep_score passed no
+        # trace (older callers); see sanitize_ml_trace().
+        "ml":              sanitize_ml_trace(ml),
+        "score_breakdown": _sanitize_score_breakdown(score_breakdown),
+    }
+    # REGIME ENGINE ML snapshot (2026-10-28 live flip; regime_engine.ml_snapshot):
+    # the regime state's inputs, both labels and the engine-vs-legacy gate
+    # decision for THIS candidate. Logging only; the key is ABSENT when the
+    # engine is off (no state) so pre-flip records keep their shape.
+    _rs = _sanitize_regime_snapshot(regime_snapshot)
+    if _rs is not None:
+        record["regime_snapshot"] = _rs
+    _se = _sanitize_shadow_entry(shadow_entry)
+    if _se is not None:
+        record["shadow_entry"] = _se
+    return record
 
 
 def update_last_decision(
@@ -422,26 +461,35 @@ def update_last_decision(
         return False
 
 
-def _relabel_latest_taken(records: List[dict], ticker: str, decision: str,
-                          decision_reason: str, now: datetime,
-                          max_age_seconds: float) -> bool:
-    """In-place relabel of the freshest "taken" record for ticker; no I/O."""
+def _freshest_taken(records: List[dict], ticker: str, now: datetime,
+                    max_age_seconds: float) -> Optional[dict]:
+    """The freshest record for ticker when it is "taken" and inside the window; no I/O."""
     ticker_u = str(ticker).upper()
     for record in reversed(records):
         if record.get("ticker") != ticker_u:
             continue
         if record.get("decision") != "taken":
-            return False  # most recent record already resolved elsewhere
+            return None  # most recent record already resolved elsewhere
         try:
             ts = datetime.fromisoformat(str(record["timestamp"]).replace("Z", "+00:00"))
         except Exception:
-            return False
+            return None
         if (now - ts).total_seconds() > max_age_seconds:
-            return False  # too old — not this scan's candidate
-        record["decision"] = str(decision)
-        record["decision_reason"] = str(decision_reason)[:200]
-        return True
-    return False
+            return None  # too old — not this scan's candidate
+        return record
+    return None
+
+
+def _relabel_latest_taken(records: List[dict], ticker: str, decision: str,
+                          decision_reason: str, now: datetime,
+                          max_age_seconds: float) -> bool:
+    """In-place relabel of the freshest "taken" record for ticker; no I/O."""
+    record = _freshest_taken(records, ticker, now, max_age_seconds)
+    if record is None:
+        return False
+    record["decision"] = str(decision)
+    record["decision_reason"] = str(decision_reason)[:200]
+    return True
 
 
 # [RULE-REVIEW] 2026-10-26: bot.ts's executeTrades admission loop applies
@@ -496,6 +544,94 @@ def update_decisions_batch(updates: list, max_age_seconds: float = NODE_GATE_REL
     except Exception as e:
         logger.debug(f"update_decisions_batch failed: {e}")
         out["error"] = str(e)[:200]
+        return out
+
+
+def _shadow_entered_today(records: List[dict], ticker: str, sleeve: str, day: str,
+                          now: datetime) -> bool:
+    """A "shadow_mode_entry" record for this sleeve+ticker on this ET day already exists."""
+    cutoff = now - timedelta(hours=40)  # records are appended in time order; a day is < 40h back
+    for rec in reversed(records):
+        se = rec.get("shadow_entry")
+        if (rec.get("decision") == SHADOW_ENTRY_DECISION and rec.get("ticker") == ticker
+                and isinstance(se, dict) and se.get("sleeve") == sleeve and se.get("day") == day):
+            return True
+        try:
+            if datetime.fromisoformat(str(rec.get("timestamp", "")).replace("Z", "+00:00")) < cutoff:
+                return False
+        except (TypeError, ValueError) as e:
+            logger.debug(f"shadow-entry dedupe: unreadable timestamp skipped ({e})")
+    return False
+
+
+def log_shadow_entries(entries: list, max_age_seconds: float = NODE_GATE_RELABEL_MAX_AGE_S) -> dict:
+    """
+    ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): record would-be entries the
+    bot computed but did not order, in ONE load/save. Per entry
+    (entry_shadow.build_entry shape):
+      - already shadow-entered today (same sleeve, ticker, ET day): no new
+        record; a fresh "taken" record for the ticker (relabel=True) becomes
+        "shadow_mode_repeat" — the live equivalent is "already holding";
+      - else relabel=True and a fresh "taken" deep_score record exists: it
+        becomes "shadow_mode_entry" and carries the would-be order
+        (shadow_entry), so one decision stays one record;
+      - else a new "shadow_mode_entry" record is appended (features {}: it
+        never enters load_shadow_data's ML blend).
+    The +5/+10/+20d and exit-aligned backfills then measure it like any
+    record. Never raises (logging must not break the loop).
+    """
+    out = {"received": 0, "results": [], "saved": False}
+    try:
+        if not isinstance(entries, list) or not entries:
+            return out
+        out["received"] = len(entries)
+        records = _load_shadow_log()
+        now = datetime.now(timezone.utc)
+        changed = False
+        for e in entries:
+            if not isinstance(e, dict) or not e.get("ticker"):
+                continue
+            ticker = str(e["ticker"]).upper()
+            sleeve = str(e.get("sleeve") or "")
+            details = dict(e.get("details") or {})
+            day = str(e.get("day") or details.get("day") or "")
+            details["day"] = day
+            reason = str(e.get("reason") or "")[:200]
+            row = {"ticker": ticker, "sleeve": sleeve, "source": details.get("source"), "new": False}
+            if _shadow_entered_today(records, ticker, sleeve, day, now):
+                if e.get("relabel") and _relabel_latest_taken(
+                        records, ticker, SHADOW_REPEAT_DECISION,
+                        f"shadow entry already logged today ({sleeve})", now, max_age_seconds):
+                    changed = True
+                    row["relabeled"] = True
+                out["results"].append(row)
+                continue
+            rec = _freshest_taken(records, ticker, now, max_age_seconds) if e.get("relabel") else None
+            if rec is not None:
+                rec["decision"] = SHADOW_ENTRY_DECISION
+                rec["decision_reason"] = reason
+                se = _sanitize_shadow_entry(details)
+                if se is not None:
+                    rec["shadow_entry"] = se
+                row["relabeled"] = True
+            else:
+                records.append(_build_record(
+                    ticker, {}, float(e.get("score") or 0.0), SHADOW_ENTRY_DECISION, reason,
+                    float(e.get("price") or 0.0), float(e.get("vxx_ratio") or 1.0),
+                    str(e.get("regime_label") or "unknown"), str(e.get("side") or ""),
+                    str(e.get("action_label") or ""), str(e.get("trade_type") or ""),
+                    shadow_entry=details))
+            changed = True
+            row["new"] = True
+            out["results"].append(row)
+        if changed:
+            if len(records) > MAX_SHADOW_RECORDS:
+                records = records[-MAX_SHADOW_RECORDS:]
+            out["saved"] = bool(_save_shadow_log(records))
+        return out
+    except Exception as ex:
+        logger.warning(f"log_shadow_entries failed: {ex}")
+        out["error"] = str(ex)[:200]
         return out
 
 

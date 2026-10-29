@@ -436,6 +436,18 @@ BASE_CONFIG = {
     "REGIME_OPTIONS_DEFAULT": "all",     # VOLTRADE_REGIME_OPTIONS (prior "": shadow labels only)
     "REGIME_SIZING_DEFAULT": "all",      # VOLTRADE_REGIME_SIZING (prior "": legacy scalars)
     "REGIME_LABELS_DEFAULT": True,       # VOLTRADE_REGIME_LABELS (prior False: Markov label)
+    # ENTRY SHADOW MODE (human directive 2026-10-28, paper account: "move the
+    # options sleeve and stock entries to shadow mode. Keep the floor basket
+    # and all exits live."). Sleeves named here compute and LOG every new
+    # entry (shadow_portfolio decision "shadow_mode_entry") but place no
+    # order; exits, rolls' closing legs, kill switches and the floor basket
+    # (_manage_spy_floor / _manage_defensive_floor) are untouched. Values:
+    # "stocks", "options", "stocks,options"; "off"/"0"/""/"none" = nothing
+    # shadowed. Env VOLTRADE_SHADOW_ENTRIES wins whenever it is PRESENT
+    # (entry_shadow.flag_raw; Node mirror server/entryShadow.ts).
+    # Prior behaviour: every entry live (no key). Expected effect: no new
+    # stock/ETF/option positions; buying power stays in cash + floor.
+    "SHADOW_ENTRY_SLEEVES": "stocks,options",
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

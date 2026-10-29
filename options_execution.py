@@ -2645,9 +2645,34 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
             "reasoning": f"Options fallback to stock: {contract['error']}",
         }
     
+    # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): while the options sleeve
+    # is shadowed the open is LOGGED (shadow_mode_entry, contract attached) and
+    # not submitted; the "shadowed" order status tells bot.ts not to fall back
+    # to a stock buy. Nothing is registered with the options manager.
+    try:
+        import entry_shadow as _es
+        _shadow_options = _es.is_shadowed("options")
+    except Exception as _es_err:
+        import logging
+        logging.getLogger("voltrade.options").warning(f"[ENTRY-SHADOW] flag unavailable, entry live: {_es_err}")
+        _shadow_options = False
+    if _shadow_options:
+        return {
+            "instrument": "options",
+            "strategy": decision["strategy"],
+            "edge_pct": decision["edge_pct"],
+            "contract": contract,
+            "order": _es.shadow_option_open(
+                contract, trade.get("ticker", ""), trade.get("price", 0),
+                source="options_execution.evaluate_and_execute", score=trade.get("deep_score", 0),
+                strategy=decision["strategy"], relabel=True,
+                reason=f"entry shadow mode (options): {decision['strategy']} — {str(decision.get('reason', ''))[:120]}"),
+            "reasoning": decision["reason"],
+        }
+
     # Step 3: Submit order
     order = submit_options_order(contract)
-    
+
     # Step 4: Register entry state for options manager.
     #
     # P0-7 FIX: Multi-leg structures (iron_condor, short_straddle,
