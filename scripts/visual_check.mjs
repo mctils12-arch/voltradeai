@@ -498,6 +498,18 @@ const PAGES = {
   // Weekly forecast screen (2026-10-27, SHADOW) — owner tab; one open week +
   // six resolved weeks (fixture above), so every section renders.
   forecast: { route: "/app#/forecast", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
+  // EXPIRED SESSION (field bug 2026-10-28): the owner's cached /api/auth/me
+  // still says signed in, but the 24h session is gone — /api/forecast answers
+  // 401 "Not authenticated" exactly as server/auth.ts does, and from then on
+  // /api/auth/me answers signed-out (the server deleted the session row; a
+  // per-context cookie models that). Must render the sign-in view with the
+  // expiry notice, never "Forecast service unavailable".
+  forecastexpired: { route: "/app#/forecast", map: false, fixtures: {
+    "/api/auth/me": (req) => (/vt_fx_expired=1/.test(req.headers.cookie || "")
+      ? { authenticated: false }
+      : { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }),
+    "/api/forecast": { __status: 401, __setCookie: "vt_fx_expired=1; Path=/", __body: { error: "Not authenticated" } },
+  } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -2568,8 +2580,20 @@ function startServer() {
       const pfx = Object.keys(PAGE_FIXTURES).find((k) => u === k) ||
                   Object.keys(PAGE_FIXTURES).find((k) => u.startsWith(k + "/"));
       if (pfx) {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify(PAGE_FIXTURES[pfx]));
+        // a fixture may be a function of the request, or carry its own
+        // status/cookie ({ __status, __setCookie, __body }) — the expired-
+        // session page answers 401 the way server/auth.ts does
+        let body = PAGE_FIXTURES[pfx];
+        if (typeof body === "function") body = body(req);
+        const head = { "content-type": "application/json" };
+        let status = 200;
+        if (body && typeof body === "object" && "__status" in body) {
+          status = body.__status;
+          if (body.__setCookie) head["set-cookie"] = body.__setCookie;
+          body = body.__body;
+        }
+        res.writeHead(status, head);
+        return res.end(JSON.stringify(body));
       }
       const fx = Object.keys(FIXTURES).find((k) => u === k) ||
                  Object.keys(FIXTURES).find((k) => u.startsWith(k + "/"));
@@ -2994,6 +3018,20 @@ async function main() {
       // the window, the chart paints there, a "?" opens its card inside THIS
       // window (the directive: "it should function even if it's detached"),
       // "Back to the page" is the one way-back control and pin is gone.
+      // ── EXPIRED SESSION (field bug 2026-10-28): a 401 from an app call
+      // opens the sign-in view with the expiry notice; the forecast page's
+      // outage banner (and the raw 401 text) must never show.
+      if (name === "forecastexpired") {
+        const fail = (m) => checks.failures.push("session-expired: " + m);
+        const notice = page.locator("[data-vt-session-expired]");
+        if (!(await notice.count()) || !(await notice.first().isVisible())) fail("sign-in view with the expiry notice did not render");
+        else if (!/session expired/i.test(await notice.first().innerText())) fail("expiry notice text missing");
+        if (!(await page.locator('input[type="password"]').count())) fail("no sign-in form");
+        const txt = await page.evaluate(() => document.body.innerText);
+        if (/service unavailable/i.test(txt)) fail("outage banner rendered for a 401");
+        if (/Not authenticated/.test(txt)) fail("raw 401 body shown to the user");
+        if (!/#\/forecast/.test(page.url())) fail(`hash left the forecast tab (${page.url()}) — sign-in would not return there`);
+      }
       if (name === "botpane") {
         const fail = (m) => checks.failures.push("bot-pane: " + m);
         const ids = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => e.getAttribute("data-panel")));

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
 import ScannerPage from "./scanner";
 import ResearchPage from "./research";
@@ -232,6 +233,23 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
+  // Expired session (field bug 2026-10-28): any app API call answering 401
+  // "Not authenticated"/"Session expired" (lib/authExpiry, reported from
+  // queryClient) while this shell still believes it is signed in opens the
+  // sign-in view with a notice and returns to the same tab after sign-in.
+  // Guarded on the signed-in belief so a signed-out visitor is never bounced.
+  const authRef = useRef(authenticated);
+  authRef.current = authenticated;
+  const tabRef = useRef(activeTab);
+  tabRef.current = activeTab;
+  useEffect(() => onSessionExpired(() => {
+    if (!authRef.current) return;
+    setPendingTab(tabRef.current);
+    setSessionNotice(SESSION_EXPIRED_NOTICE);
+    setShowLogin(true);
+  }), []);
 
   // Sync hash with active tab (Bug 1)
   // 2026-05-23: when on the analyze tab, also encode the active section so
@@ -297,6 +315,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
   const handleLoginSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    // after an expiry, every cached answer was a 401 — refetch the lot
+    if (sessionNotice) void queryClient.invalidateQueries();
+    setSessionNotice(null);
     setShowLogin(false);
     setActiveTab(pendingTab || "bot");
     setPendingTab(null);
@@ -314,7 +335,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       <div className={dark ? "dark" : "light"} style={{ minHeight: "100dvh", background: dark ? "#050a13" : "#e8ecf1" }}>
         <div style={{ position: "fixed", top: 16, left: 16, zIndex: 9990 }}>
           <button
-            onClick={() => setShowLogin(false)}
+            onClick={() => { setShowLogin(false); setSessionNotice(null); }}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 3,
@@ -329,7 +350,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             <X size={14} /> BACK
           </button>
         </div>
-        <LoginPage onLogin={handleLoginSuccess} />
+        <LoginPage onLogin={handleLoginSuccess} notice={sessionNotice} />
       </div>
     );
   }

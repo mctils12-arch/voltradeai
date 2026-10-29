@@ -7,8 +7,9 @@
 // Data: GET /api/forecast (forecast.py report(); owner only).
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownRight, ArrowUpRight, FlaskConical, RefreshCw, Target } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, FlaskConical, LogIn, RefreshCw, Target } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { authErrorKind, notifySessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import {
   type ForecastReport, type ForecastCall, type CalBin, type Accuracy,
   GROUP_LABEL, VOL_LABEL, pct, usd, bandPct, ageText, callState, skillText, calChart, dotRadius,
@@ -24,7 +25,13 @@ async function fetchForecast(): Promise<ForecastReport> {
 }
 
 export default function ForecastPage() {
-  const q = useQuery({ queryKey: ["/api/forecast"], queryFn: fetchForecast, refetchInterval: POLL_MS, staleTime: 60_000 });
+  // A 401/403 is an answer about the viewer, not an outage: stop polling on it
+  // (field bug 2026-10-28 — an expired session read as "service unavailable").
+  const q = useQuery({
+    queryKey: ["/api/forecast"], queryFn: fetchForecast, staleTime: 60_000,
+    refetchInterval: (query) => (authErrorKind(query.state.error) ? false : POLL_MS),
+  });
+  const authErr = q.isError && !q.data ? authErrorKind(q.error) : null;
   const [filter, setFilter] = useState<Filter>("all");
   const now = Date.now();
   const rep = q.data;
@@ -66,7 +73,18 @@ export default function ForecastPage() {
         </div>
       </header>
 
-      {q.isLoading ? <Skeleton /> : q.isError && !rep ? (
+      {q.isLoading ? <Skeleton /> : authErr === "unauthorized" ? (
+        <div className="vt-fc-state" data-vt-fc-auth="signin" role="status">
+          <b>{SESSION_EXPIRED_NOTICE}.</b> The weekly forecast needs a signed-in owner session; sessions last 24 hours.
+          <div><button type="button" className="vt-fc-btn" style={{ marginTop: 10 }} onClick={() => notifySessionExpired("/api/forecast")}>
+            <LogIn size={13} aria-hidden="true" /> Sign in
+          </button></div>
+        </div>
+      ) : authErr === "forbidden" ? (
+        <div className="vt-fc-state" data-vt-fc-auth="owner" role="status">
+          <b>Owner only.</b> The weekly forecast names the account's open positions, so it is restricted to the account owner.
+        </div>
+      ) : q.isError && !rep ? (
         <div className="vt-fc-state" data-tone="red" role="alert">
           <b>Forecast service unavailable.</b> {String(q.error instanceof Error ? q.error.message : q.error).slice(0, 160)} — the page retries every 5 minutes.
         </div>
