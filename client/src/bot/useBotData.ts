@@ -46,9 +46,27 @@ export interface BotPosition {
   asset_class?: string; isOption?: boolean; optionMeta?: OptionMeta | null; levels?: PositionLevels | null;
 }
 export interface AuditRowApi { time: string; type: string; message: string; action?: string; detail?: string }
+/** server/edgeLedger.ts: expectancy per CLOSED LOT from the broker's fills
+ *  (the sleeve ledger's average-cost walk), one row per sleeve and one for the
+ *  sleeves the bot trades ("active" = options + stocks). Percents are pnl /
+ *  basis (a credit lot's basis is the credit received); nulls = no lots. */
+export interface EdgeRow {
+  n: number; wins: number; losses: number; winRate: number | null; avgWinPct: number | null; avgLossPct: number | null;
+  expectancyPct: number | null; expectancyUsd: number | null; realizedUsd: number; profitFactor: number | null;
+  firstCloseAt: string | null; lastCloseAt: string | null; unpriced: number;
+}
+export interface BrokerEdge {
+  windowStart: string | null; active: EdgeRow; options: EdgeRow; stocks: EdgeRow; floor: EdgeRow;
+  asOf: string; source: string; cached_s: number; stale: boolean; lastError: string | null;
+}
 export interface Performance {
   totalTrades?: number; winRate?: number; avgGain?: number; avgLoss?: number; profitFactor?: number;
   equityCurve?: Array<{ date: string; value: number; pnl?: number }>; realisticPnlPct?: number; totalPnlPct?: number;
+  /** [RULE-REVIEW] 2026-10-29: the bot-log number's own caveats — when its last counted record closed, what
+   *  the filter excluded (orphan exits carry no P&L; open entries are not closed), and what its P&L is measured at */
+  lastClosedAt?: string | null; excluded?: { orphanExits: number; openEntries: number }; basis?: string;
+  /** the broker's expectancy per closed lot; null while the sleeve ledger has not loaded (brokerReason says) */
+  broker?: BrokerEdge | null; brokerReason?: string | null;
 }
 export interface MarketStatus { isOpen: boolean; nextOpen: string; nextClose: string; timestamp: string }
 export interface Calendar { earlyCloses?: Array<{ date: string; close: string }>; holidays?: Array<{ date: string; name: string }>; tomorrowStatus?: string }

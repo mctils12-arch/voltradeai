@@ -62,6 +62,19 @@ export function fmtClockET(iso: string | number | Date | null | undefined): stri
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/New_York" });
 }
 
+/** "Oct 14" — the ET calendar day of a timestamp, for a since / last-close caption. */
+export function fmtMonDay(iso: string | number | Date | null | undefined): string {
+  if (iso === null || iso === undefined || iso === "") return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+}
+
+/** "1,902" — a count with thousands separators; "?" when unknown. */
+export function fmtCount(n: number | null | undefined): string {
+  return n === null || n === undefined || !Number.isFinite(n) ? "?" : Math.round(n).toLocaleString("en-US");
+}
+
 export function fmtClockUTC(iso: string | number | Date | null | undefined): string {
   if (iso === null || iso === undefined) return "—";
   const d = new Date(iso);

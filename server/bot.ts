@@ -13,6 +13,7 @@ import {
 } from "./killSwitchAutoResume";
 import { sleeveLedger, realizedEvents, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS, type RealizedEvent } from "./sleeveLedger";
 import { taxLedger, ratesFromQuery, type TaxRates } from "./taxLedger";
+import { edgeLedger, brokerBlock, type EdgeLedger } from "./edgeLedger";
 import { parseNonTradeActivities, activityLedger, reconcile } from "./accountActivities";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
@@ -618,6 +619,56 @@ function posKillThresholdPct(isOption: boolean, side: "long" | "short", stockPct
                              optionShortPct: number, optionLongPct: number): number {
   if (!isOption) return stockPct;
   return side === "short" ? optionShortPct : optionLongPct;
+}
+
+// POS-KILL MARK GUARD 2026-10-29 — live near-miss at 13:30:09Z (paper
+// account, first seconds of the session): the kill branch in
+// syncMonitoredPositions read GOOGL261127P00300000 — a LONG put that was
+// actually UP +291% (~$3,680; positions-detail 40 min later: unrealized_plpc
+// 2.91) — as "position down -100.0%" and submitted a market SELL of the
+// hedge. Alpaca's /v2/positions row carried current_price 0 before the
+// contract's first print of the day, so unrealized_plpc read -1: a data
+// artifact, not a loss. Only Alpaca's rejection ("insufficient options
+// buying power for cash-secured put" — the short 310P leg's buy-back had
+// filled 6 s earlier and BP had not updated) stopped a $3.7k winning hedge
+// from being sold at the open for pennies. The same tick correctly killed
+// GOOGL261127C00355000 at -98.8% on a real $0.06 mark, so the guard below
+// must never block a genuine near-worthless kill — it only refuses to act
+// on a mark that does not exist, and asks for the breach twice.
+interface PosKillBreach { firstSeenMs: number; pnlPct: number }
+
+// A usable mark from an Alpaca /v2/positions row: a present, finite,
+// POSITIVE current_price AND a present, finite unrealized_plpc. "0", "",
+// null, undefined and NaN all fail — the near-miss row was current_price "0"
+// / unrealized_plpc "-1", and a missing plpc reads as 0.0% through the
+// loop's parseFloat(... || "0"), which is just as fictional.
+function posKillHasValidMark(currentPriceRaw: unknown, plpcRaw: unknown): boolean {
+  if (currentPriceRaw === undefined || currentPriceRaw === null || currentPriceRaw === "") return false;
+  const price = Number(currentPriceRaw);
+  if (!Number.isFinite(price) || price <= 0) return false;
+  if (plpcRaw === undefined || plpcRaw === null || plpcRaw === "") return false;
+  return Number.isFinite(Number(plpcRaw));
+}
+
+// Two-tick confirmation of a kill breach. The first valid-mark observation
+// of a breach sets the ticker PENDING; a breach already pending from an
+// earlier valid-mark tick is CONFIRMED; a valid-mark tick with no breach
+// clears it. Ticks WITHOUT a valid mark never reach this function: an
+// unknown mark is evidence of nothing, so it neither confirms nor clears.
+// The map is in-memory only — a restart forgets every pending breach and
+// the count starts again, so a real breach spanning a restart exits one
+// tick (~30-45 s in market hours) later than it otherwise would. That delay
+// is the whole price of this guard; the near-miss was the price of not
+// having it.
+function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: string,
+                              breached: boolean, pnlPct: number, nowMs: number): "clear" | "pending" | "confirmed" {
+  if (!breached) {
+    pending.delete(symbol);
+    return "clear";
+  }
+  if (pending.has(symbol)) return "confirmed";
+  pending.set(symbol, { firstSeenMs: nowMs, pnlPct });
+  return "pending";
 }
 
 // Shared by executeTrades() and the tier dispatcher's SELL_CSP gate so both
@@ -1950,6 +2001,19 @@ feedback = [t for t in feedback_raw if not t.get('_seed')]
 # showed THAT — whenever a position was open the history never got measured.
 # Same filter as diagnostics.py; pinned by test_performance_route_null_pnl.py.
 feedback = [t for t in feedback if t.get('ticker', '').strip() and t.get('pnl_pct') is not None and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
+# [RULE-REVIEW] 2026-10-29: what the number above is NOT. The filter drops every
+# live record without a numeric pnl_pct — open entries (track_fill) and orphan
+# exits (an exit fill no entry record matched) — and pnl_pct is the engine's
+# trigger-price P&L, not the broker fill. Reported beside the number so the
+# page can say so; the broker's own expectancy rides in this route's broker
+# block (server/edgeLedger.ts). lastClosedAt: when the last COUNTED record
+# closed (exit_time, else its fill time), compared on the yyyy-mm-ddThh:mm:ss
+# prefix so naive and offset timestamps order together.
+live_records = [t for t in feedback_raw if not t.get('_seed')]
+orphan_exits = sum(1 for t in live_records if t.get('outcome') == 'orphan_exit')
+open_entries = sum(1 for t in live_records if t.get('pnl_pct') is None and t.get('outcome') is None)
+closed_times = [str(t.get('exit_time') or t.get('time_filled') or '') for t in feedback]
+last_closed_at = max((s for s in closed_times if s), key=lambda s: s[:19], default=None)
 # Win rate
 wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
 losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]
@@ -2010,6 +2074,9 @@ print(json.dumps({
     'slippageGapPct': round(total_pnl - realistic_total_pnl, 2),
     'bestTrade': {'ticker': best_trade.get('ticker', ''), 'pnlPct': round(best_trade.get('pnl_pct', 0), 2)} if best_trade else None,
     'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
+    'lastClosedAt': last_closed_at,
+    'excluded': {'orphanExits': orphan_exits, 'openEntries': open_entries},
+    'basis': 'trigger price, not fill',
 }))
 "`, { timeout: 10000 });
 
@@ -2173,8 +2240,17 @@ print(json.dumps({
           t.side = getDisplaySide(ticker, rawSide);
         }
       }
+      // BROKER EXPECTANCY ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts):
+      // the same scorecard from Alpaca's fills — every priced close, all
+      // sleeves — out of the ONE sleeve cache /api/bot/sleeves and the
+      // sleeves diag probe share; never a second fetch here. A cold cache
+      // answers broker: null with the reason (the route does not wait) and
+      // asking warms it for the next poll, as the benchmark's after-tax leg does.
+      if (!sleeveCache) void sleevesBody().catch((warmErr) => console.warn("[perf] sleeve ledger warm-up:", warmErr instanceof Error ? warmErr.message : warmErr));
+      const brokerEdge = brokerBlock(sleeveCache ? { at: sleeveCache.at, edge: sleeveCache.edge } : null, Date.now(), sleeveError, SLEEVE_CACHE_MS);
       res.json({
         ...perf,
+        ...brokerEdge,
         equityCurve,
         equityPeak: state.equityPeak,
         currentDrawdown: state.equityPeak > 0 ? ((equityCurve[0]?.value || 0) - state.equityPeak) / state.equityPeak * 100 : 0,
@@ -2439,8 +2515,10 @@ print(json.dumps({
   // SLEEVE_CACHE_MS so a poll never waits on dozens of pages.
   // taxInputs ([RULE-REVIEW] 2026-10-21, server/taxLedger.ts): the realized
   // events and fills the sleeve ledger walked, kept so the TAXABLE-account
-  // view can be recomputed at the caller's rates without another fetch
-  let sleeveCache: { at: number; body: Record<string, unknown>; taxInputs: { events: RealizedEvent[]; fills: Parameters<typeof taxLedger>[1]; windowStartMs: number } } | null = null;
+  // view can be recomputed at the caller's rates without another fetch.
+  // edge ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts): expectancy per
+  // closed lot from the same walk — /api/bot/performance's `broker` block.
+  let sleeveCache: { at: number; body: Record<string, unknown>; taxInputs: { events: RealizedEvent[]; fills: Parameters<typeof taxLedger>[1]; windowStartMs: number }; edge: EdgeLedger } | null = null;
   let sleeveError: string | null = null;
   let sleeveInflight: Promise<void> | null = null;
   async function refreshSleeves(): Promise<void> {
@@ -2480,10 +2558,12 @@ print(json.dumps({
       if (!fills || !nta || !positions) throw new Error("fills, activities or positions unreadable");
       const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS, windowStartMs);
       const nonTrade = activityLedger(nta.rows.filter((r) => r.t >= windowStartMs));
-      const taxInputs = { events: realizedEvents(fills.rows, positions).events, fills: fills.rows, windowStartMs };
+      const walked = realizedEvents(fills.rows, positions);
+      const taxInputs = { events: walked.events, fills: fills.rows, windowStartMs };
       sleeveCache = {
         at: Date.now(),
         taxInputs,
+        edge: edgeLedger(walked.events, walked.unpriced, FLOOR_AND_LEG_TICKERS, windowStartMs),
         body: {
           ...ledger, since: afterIso, truncated, malformedFills: fills.malformed,
           nonTrade, malformedActivities: nta.malformed,
@@ -7735,6 +7815,12 @@ print(json.dumps({'files': count}))
   let positionMonitorInitialized = false;
   // Tracks tickers we've subscribed to for position monitoring (not in STREAM_TICKERS)
   const positionSubscribedTickers: Set<string> = new Set();
+  // POS-KILL MARK GUARD 2026-10-29 (see posKillHasValidMark / posKillObserveBreach):
+  // kill breaches awaiting their confirming tick, and the UTC day each ticker
+  // last got its POS-KILL-NOMARK line. Both in-memory only — nothing here
+  // survives a restart, by design (a restart simply restarts the count).
+  const posKillPendingBreach: Map<string, PosKillBreach> = new Map();
+  const posKillNoMarkAuditDay: Map<string, string> = new Map();
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -7771,6 +7857,12 @@ except: print('{}')
         const pnlPct = parseFloat(pos.unrealized_plpc || "0") * 100;
         const qty = Math.abs(parseInt(pos.qty || "0"));
         const side = pos.side === "short" ? "short" as const : "long" as const;
+        // POS-KILL MARK GUARD 2026-10-29: without a usable mark, `pnlPct` is
+        // fiction (-100% for a long whose contract has not printed yet, 0.0%
+        // for a missing plpc). Shared by the TIME-EXIT band test and the kill
+        // decision below — neither may close a position on a number Alpaca
+        // did not actually have.
+        const hasMark = posKillHasValidMark(pos.current_price, pos.unrealized_plpc);
 
         // ══════════════════════════════════════════════════════════════
         // TIME-EXIT 2026-04-22: close positions older than 14 days with
@@ -7788,7 +7880,7 @@ except: print('{}')
             const entryTime = pos.created_at || pos.submitted_at;
             if (entryTime) {
               const ageDays = (Date.now() - new Date(entryTime).getTime()) / (1000 * 60 * 60 * 24);
-              if (ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {
+              if (hasMark && ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {
                 audit("TIME-EXIT", `${ticker}: ${Math.round(ageDays)}d old, pnl ${pnlPct.toFixed(1)}% — closing stale`);
                 try {
                   const closeSide = side === "long" ? "sell" : "buy";
@@ -7836,6 +7928,17 @@ except: print('{}')
         // the side's option backstop for an option.
         const POSITION_KILL_LOSS_PCT = posKillThresholdPct(isOptionPos, side, STOCK_KILL_LOSS_PCT,
           OPTION_SHORT_KILL_LOSS_PCT, OPTION_LONG_KILL_LOSS_PCT);
+        // POS-KILL MARK GUARD 2026-10-29: the kill decision for this tick.
+        // "nomark" — Alpaca gave no usable mark, nothing is decided (and the
+        // pending map is left exactly as it was); otherwise the breach is
+        // observed against the previous valid-mark tick: "clear" (no breach,
+        // any pending breach forgotten), "pending" (first observation),
+        // "confirmed" (second consecutive valid-mark observation — the only
+        // value that may reach the liquidation POST below). Threshold
+        // unchanged; only WHEN the exit fires changes.
+        const breach: "nomark" | "clear" | "pending" | "confirmed" = hasMark
+          ? posKillObserveBreach(posKillPendingBreach, ticker, pnlPct <= POSITION_KILL_LOSS_PCT, pnlPct, Date.now())
+          : "nomark";
         if (isOptionPos && pnlPct <= STOCK_KILL_LOSS_PCT && pnlPct > POSITION_KILL_LOSS_PCT) {
           const skipDay = new Date().toISOString().split("T")[0];
           const skipLog: Record<string, string> = (state as any)._posKillOptionSkipDay || ((state as any)._posKillOptionSkipDay = {});
@@ -7847,6 +7950,31 @@ except: print('{}')
         }
         if (pnlPct <= POSITION_KILL_LOSS_PCT) {
           const closeSide = side === "long" ? "sell" : "buy";
+
+          // ── MARK GUARD + TWO-TICK CONFIRMATION (near-miss 2026-10-29) ───
+          // Runs BEFORE the duplicate guard and the POST: a breach read off a
+          // zero/missing mark is never acted on (one POS-KILL-NOMARK line per
+          // ticker per UTC day, this loop runs every ~45 s), and a breach on a
+          // valid mark is acted on only once the previous valid-mark tick saw
+          // it too. Both paths `continue` like every other exit from this
+          // branch — the position stays held, its monitor entry from the
+          // previous tick stays in place, and the next tick re-decides.
+          if (breach === "nomark") {
+            const noMarkDay = new Date().toISOString().split("T")[0];
+            if (posKillNoMarkAuditDay.get(ticker) !== noMarkDay) {
+              for (const k of Array.from(posKillNoMarkAuditDay.keys())) {
+                if (posKillNoMarkAuditDay.get(k) !== noMarkDay) posKillNoMarkAuditDay.delete(k);
+              }
+              posKillNoMarkAuditDay.set(ticker, noMarkDay);
+              audit("POS-KILL-NOMARK", `${ticker}: no valid mark from Alpaca (current_price=${pos.current_price ?? "missing"}, plpc=${pos.unrealized_plpc ?? "missing"}) — kill deferred`);
+            }
+            continue;
+          }
+          if (breach === "pending") {
+            audit("POS-KILL-PENDING", `${ticker}: position down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) — confirming on the next tick`);
+            continue;
+          }
+          // breach === "confirmed" from here on.
 
           // ── DUPLICATE LIQUIDATION GUARD (KNOWN BROKEN #35) ──────────────
           // syncMonitoredPositions() runs from three sites including
@@ -8022,6 +8150,12 @@ except: print('{}')
         if (!activeTickers.has(ticker)) {
           removePositionFromMonitor(ticker);
         }
+      }
+      // POS-KILL MARK GUARD 2026-10-29: a breach pending on a position that
+      // is gone (killed, stopped, closed externally) must not pre-confirm a
+      // kill on a later re-entry in the same symbol.
+      for (const ticker of Array.from(posKillPendingBreach.keys())) {
+        if (!activeTickers.has(ticker)) posKillPendingBreach.delete(ticker);
       }
 
       // Auto-subscribe to position tickers not already in STREAM_TICKERS

@@ -41,6 +41,19 @@ const WIDTHS = [
   { w: 768, h: 1024, label: "tablet", touch: true },
   { w: 1440, h: 900, label: "desktop", touch: false },
 ];
+// A page entry may add widths of its own (`widths`): the cockpit pages
+// (2026-10-29) also render at the human's 1920px monitor, where the ask was made.
+const WIDE = [{ w: 1920, h: 1080, label: "wide", touch: false }];
+// COCKPIT LAYOUT pages (2026-10-29) and what their strip and grid must show:
+// tiles in the KPI strip, grid panels sharing a row at 1440 / 1920.
+const COCKPIT_PAGES = new Map([
+  // (innerText carries the eyebrow's CSS uppercase, hence /i)
+  // cols = distinct panel left edges (a 2-wide + 1-wide row is 3 columns)
+  ["forecast", { tiles: 5, cols1440: 3, cols1920: 4, first: /^Calls this week 8 1 index · 3 positions · 4 candidates$/i }],
+  ["brain", { tiles: 6, cols1440: 2, cols1920: 3, first: /^All parts 11 /i, filter: { status: "shadow", cards: 8 } }],
+  ["dossier", { tiles: 6, cols1440: 3, cols1920: 4, first: /^Price · 5 sessions \$27\.42\+5\.2% 5d last close \$27\.09/i }],
+  ["dossierempty", { tiles: 0, cols1440: 0, cols1920: 0, empty: true }],
+]);
 
 // Pages under test: name -> app hash route
 // Pages under test: map pages get the full map/perf/self-see battery;
@@ -172,7 +185,21 @@ function botFixtures({ latched }) {
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
     "/api/bot/audit": audit,
-    "/api/bot/performance": { totalTrades: 36, totalFills: 55, winRate: 27.8, avgGain: 9.08, avgLoss: -5.16, totalPnlPct: -14.1, profitFactor: 0.68, byStrategy: {}, recentTrades: [], equityCurve: curve.slice().reverse(), realisticPnlPct: -15.2, avgSlippagePct: 0.12 },
+    // the bot-log number (36 trigger-price records, frozen since 2026-10-14, 351 orphan exits dropped) and, on the latched
+    // page, the BROKER's expectancy per closed lot ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts shape; realistic negative
+    // numbers — n 1,902 active lots, −3.1 % per lot, last close today); the idle page's sleeve ledger has not loaded (broker null)
+    "/api/bot/performance": { totalTrades: 36, totalFills: 55, winRate: 27.8, avgGain: 9.08, avgLoss: -5.16, totalPnlPct: -14.1, profitFactor: 0.68, byStrategy: {}, recentTrades: [], equityCurve: curve.slice().reverse(), realisticPnlPct: -15.2, avgSlippagePct: 0.12,
+      lastClosedAt: "2026-10-14T19:59:02.123456", excluded: { orphanExits: 351, openEntries: 20 }, basis: "trigger price, not fill",
+      broker: latched ? (() => {
+        const row = (n, wins, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, lastCloseAt, unpriced) => ({ n, wins, losses: n - wins, winRate: Math.round((wins / n) * 10000) / 100, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, firstCloseAt: "2026-05-07T14:31:04.000Z", lastCloseAt, unpriced });
+        return { windowStart: "2026-05-07T00:00:00.000Z",
+          active: row(1902, 760, 24.1, -21.2, -3.1, -6.76, -12863, 0.62, ago(31), 71),
+          options: row(1724, 690, 25.4, -22.6, -3.4, -7.17, -12364, 0.6, ago(31), 0),
+          stocks: row(178, 70, 6.2, -5.9, -1.1, -2.8, -499, 0.81, "2026-10-14T19:59:02.000Z", 71),
+          floor: row(96, 61, 3.1, -2.4, 1.1, 16.19, 1554, 2.1, ago(190), 0),
+          asOf: ago(4), source: "alpaca fills via sleeve ledger", cached_s: 240, stale: false, lastError: null };
+      })() : null,
+      brokerReason: latched ? null : "sleeve ledger not loaded yet; the next poll fills it" },
     "/api/bot/market-status": { isOpen: true, nextOpen: new Date(now + 20 * 3600_000).toISOString(), nextClose, timestamp: new Date(now).toISOString() },
     "/api/bot/calendar": { earlyCloses: [], holidays: [], tomorrowStatus: "open" },
     "/api/ml/status": { model_exists: true, enabled: true, model_age_hours: 9.7, last_accuracy: 58, last_samples: 10000, last_status: "trained" },
@@ -631,7 +658,7 @@ const PAGES = {
   botpane: { route: "/app#/bot/pane/chart", map: false, fixtures: botFixtures({ latched: true }) },
   // Weekly forecast screen (2026-10-27, SHADOW) — owner tab; one open week +
   // six resolved weeks (fixture above), so every section renders.
-  forecast: { route: "/app#/forecast", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
+  forecast: { route: "/app#/forecast", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/forecast": forecastFixture() } },
   // EXPIRED SESSION (field bug 2026-10-28): the owner's cached /api/auth/me
   // still says signed in, but the 24h session is gone — /api/forecast answers
   // 401 "Not authenticated" exactly as server/auth.ts does, and from then on
@@ -645,14 +672,14 @@ const PAGES = {
     "/api/forecast": { __status: 401, __setCookie: "vt_fx_expired=1; Path=/", __body: { error: "Not authenticated" } },
   } },
   // Brain page (2026-10-29) — owner tab; every status, panel kind and agreement flag (fixture above).
-  brain: { route: "/app#/brain", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
+  brain: { route: "/app#/brain", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
   // Ticker dossier (2026-10-29, human-asked) — owner tab opened from the AI
   // Engine's look-up box; an RKLB-like space name with every layer live, plus
   // the look-up card folded into its stock layer (fixtures above).
-  dossier: { route: "/app#/dossier/RKLB", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
+  dossier: { route: "/app#/dossier/RKLB", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/ticker-dossier": dossierFixture("RKLB", 27.42),
     "/api/bot/lookup": { ...botFixtures({ latched: true })["/api/bot/lookup"], symbol: "RKLB", quick: { price: 27.42, change_pct: 1.2, volume: 21_000_000, dollar_volume: 575_820_000, quick_score: 31.2, above_open: true }, deep: { score: 58.2, side: "buy", action_label: "BUY", sector: "Unknown", reasons: ["Momentum 1m +16%", "Volume 1.4× average"], factors: { momentum: 22, mean_reversion: -6, vrp: 3, squeeze: 4, volume: 1.4, sentiment: 2 } } } } },
   // the empty state (no symbol yet) and a name whose options feed is down
-  dossierempty: { route: "/app#/dossier", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
+  dossierempty: { route: "/app#/dossier", map: false, widths: WIDE, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } } } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
@@ -3057,7 +3084,7 @@ async function main() {
     const route = cfg.route;
     if (only && only !== name) continue;
     PAGE_FIXTURES = cfg.fixtures || {};
-    for (const vp of WIDTHS) {
+    for (const vp of (cfg.widths ? [...WIDTHS, ...cfg.widths] : WIDTHS)) {
       const ctx = await browser.newContext({
         viewport: { width: vp.w, height: vp.h },
         hasTouch: vp.touch,
@@ -3263,6 +3290,81 @@ async function main() {
           fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
+      // ── COCKPIT LAYOUT (2026-10-29, human-asked on a 1920 monitor: "fill
+      // the page … how the UI looks on the bot instead of the strip").
+      // Forecast, Brain and the dossier render as the AI Engine does: the page
+      // fills the content width (the shell's 920px reading column was 59% of
+      // 1440), a KPI strip across the top with every tile in one row, then
+      // columns of panels — at 1440 the grid runs 3 columns (2 for the Brain's
+      // wide evidence cards) and at least 3 panels share a row (the strip
+      // always), at 1920 one column more, at 768 two, at 390 a single column —
+      // nothing past the right edge. The first tile carries the page's own
+      // headline number from the fixture (every number is the page's), and
+      // the Brain's tiles still filter the cards. The dossier's empty state
+      // has no data: it proves the shell, the search and the state alone.
+      if (COCKPIT_PAGES.has(name)) {
+        const fail = (m) => checks.failures.push("cockpit: " + m);
+        const expect = COCKPIT_PAGES.get(name);
+        try {
+          for (let i = 0; i < 60; i++) { if (await page.locator(".vt-ck-grid > .vt-ck-panel, .vt-ck > .vt-ds-state, .vt-ck > .vt-fc-state").count()) break; await page.waitForTimeout(100); }
+          const read = () => page.evaluate(() => {
+            const shell = document.querySelector(".vt-ck");
+            if (!shell) return null;
+            const box = (el) => el.getBoundingClientRect();
+            const rowMax = (els) => { const m = new Map(); for (const el of els) { const r = box(el); if (r.width <= 0 || r.height <= 0) continue; const k = Math.round(r.top); m.set(k, (m.get(k) || 0) + 1); } return Math.max(0, ...m.values()); };
+            const panels = [...document.querySelectorAll(".vt-ck-grid > .vt-ck-panel, .vt-ck-grid > .vt-ds-side > .vt-ck-panel")];
+            const tiles = [...document.querySelectorAll(".vt-ck-kpi > .vt-ck-tile")];
+            const cols = new Set(panels.map((p) => Math.round(box(p).left))).size;
+            // a wide table inside an overflow-x: auto wrapper (the by-week / ablation tables) scrolls within it — only the wrapper must stay inside
+            const scroller = (el) => { for (let p = el.parentElement; p && p !== shell; p = p.parentElement) { const ox = getComputedStyle(p).overflowX; if (ox === "auto" || ox === "scroll" || ox === "hidden") return p; } return null; };
+            const over = [...shell.querySelectorAll("*")].filter((el) => { const r = box(el); if (r.width <= 0 || r.right <= innerWidth + 1 || getComputedStyle(el).position === "fixed") return false; const s = scroller(el); return !(s && box(s).right <= innerWidth + 1); }).map((el) => (el.className || el.tagName).toString().slice(0, 40)).slice(0, 3);
+            const cards = [...document.querySelectorAll(".vt-ck-grid > .vt-br-card")];
+            return { fill: box(shell).width / innerWidth, panels: panels.length, panelRow: rowMax(panels), cols, tiles: tiles.length, tileRow: rowMax(tiles), over,
+              tileText: tiles.map((t) => (t.innerText || "").replace(/\s+/g, " ").trim()), state: !!document.querySelector(".vt-ck > .vt-ds-state, .vt-ck > .vt-fc-state"),
+              cards: cards.length, cardStatus: [...new Set(cards.map((c) => c.getAttribute("data-status")))], h1: !!shell.querySelector("h1"), h2s: shell.querySelectorAll("h2").length };
+          });
+          const lay = await read();
+          if (!lay) fail("no .vt-ck cockpit shell rendered");
+          else {
+            if (lay.fill < 0.92) fail(`the page fills ${Math.round(lay.fill * 100)}% of the ${vp.w}px viewport (needs ≥ 92%; the old column was 59%)`);
+            if (lay.over.length) fail(`past the right edge of the viewport: ${lay.over.join(", ")}`);
+            if (!lay.h1) fail("no h1");
+            if (lay.tiles !== expect.tiles) fail(`KPI strip has ${lay.tiles} tiles (expected ${expect.tiles})`);
+            if (expect.first && !expect.first.test(lay.tileText[0] || "")) fail(`first KPI tile reads "${lay.tileText[0]}"`);
+            if (lay.tiles && lay.tileRow < Math.min(lay.tiles, vp.w >= 640 ? 3 : 2)) fail(`KPI strip: only ${lay.tileRow} of ${lay.tiles} tiles share a row at ${vp.w}`);
+            if (expect.empty) {
+              if (!lay.state || lay.panels) fail(`empty state: state ${lay.state}, ${lay.panels} panels`);
+            } else {
+              if (!lay.panels || lay.h2s < 3) fail(`${lay.panels} grid panels, ${lay.h2s} h2s`);
+              const need = vp.w >= 1920 ? expect.cols1920 : vp.w >= 1440 ? expect.cols1440 : vp.w >= 768 ? 2 : 1;
+              if (vp.w >= 768) {
+                if (lay.cols < need) fail(`the grid runs ${lay.cols} columns at ${vp.w} (expected ≥ ${need}: columns, not a strip)`);
+                if (lay.panelRow < 2) fail(`no two grid panels share a row at ${vp.w}`);
+                if (vp.w >= 1440 && Math.max(lay.panelRow, lay.tileRow) < 3) fail(`fewer than 3 panels share a row at ${vp.w}`);
+              } else if (lay.cols !== 1 || lay.panelRow !== 1) fail(`phone: ${lay.cols} columns, ${lay.panelRow} panels on one row (expected a single column)`);
+            }
+            // the Brain's status tiles are the filters: Shadow shows only shadow cards, All parts brings every card back
+            if (expect.filter) {
+              const tile = page.locator(`.vt-ck-kpi > button.vt-ck-tile[data-status="${expect.filter.status}"]`);
+              if (!(await tile.count())) fail(`no "${expect.filter.status}" filter tile`);
+              else {
+                if (vp.touch) await tile.tap(); else await tile.click();
+                await page.waitForTimeout(150);
+                const f = await read();
+                if (!f || f.cards !== expect.filter.cards || f.cardStatus.join() !== expect.filter.status) fail(`filter "${expect.filter.status}": ${f?.cards} cards, status ${f?.cardStatus.join(",")}`);
+                const all = page.locator('.vt-ck-kpi > button.vt-ck-tile[data-status="all"]');
+                if (vp.touch) await all.tap(); else await all.click();
+                await page.waitForTimeout(150);
+                const back = await read();
+                if (!back || back.cards !== lay.cards) fail(`"All parts" did not restore the ${lay.cards} cards (${back?.cards})`);
+              }
+            }
+          }
+          if (name === "forecast" || name === "brain") await page.screenshot({ path: path.join(OUT, `${name}-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
+      }
       if (name === "bot" || name === "botidle") {
         const fail = (m) => checks.failures.push("bot-ui: " + m);
         const winCount = () => page.locator(".vt-bot-win").count();
@@ -3303,6 +3405,55 @@ async function main() {
         // and its controls sit under the next panel)
         for (const [id, h] of await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => [e.getAttribute("data-panel"), Math.round(e.getBoundingClientRect().height)]))) {
           if (h < 40) fail(`${id}: panel is ${h}px tall`);
+        }
+        // ── KPI STRIP ([RULE-REVIEW] 2026-10-29, the Expectancy tile): the
+        // first tile's headline is the BROKER expectancy per closed lot (the
+        // sleeve ledger's fill walk, all sleeves the bot trades) and the bot-
+        // log number sits under it with its staleness and exclusions. The
+        // strip may not grow for it: its height is pinned per width to the
+        // pre-change readings (the fixed 86 px grid row at the desktop tier,
+        // content height in the stack) and no tile may clip its own content.
+        // Re-pin only with a deliberate layout change, never to pass.
+        {
+          // the pre-change readings (2026-10-29 baseline): the idle page's first row at 768 sits on the 72 px tile minimum;
+          // its 390 pair row read 319 before and 310 after — the win-rate tile's "—" (no broker ledger yet) takes one line
+          // where "27.8% / 36.2%" wrapped to two; nothing grew
+          const KPI_STRIP_PX = name === "bot" ? { 390: 319, 768: 166, 1440: 86 } : { 390: 310, 768: 156, 1440: 86 };
+          const kpi = await page.evaluate(() => {
+            const strip = document.querySelector(".vt-bot-kpi");
+            if (!strip) return null;
+            const tiles = [...strip.querySelectorAll(":scope > .vt-bot-panel")].map((t) => ({ h: Math.round(t.getBoundingClientRect().height), over: Math.max(0, t.scrollHeight - t.clientHeight) }));
+            const first = strip.querySelector(":scope > .vt-bot-panel");
+            const second = strip.querySelectorAll(":scope > .vt-bot-panel")[1];
+            const lines = first ? [...first.querySelectorAll(".vt-kpi-edge-cap > span, .vt-kpi-edge-log > span")].map((s) => ({ text: s.textContent || "", cut: s.scrollWidth - s.clientWidth > 1 })) : [];
+            const eb = first ? first.querySelector(".vt-bot-eb") : null;
+            return { h: Math.round(strip.getBoundingClientRect().height), tiles, first: first ? first.textContent || "" : "", second: second ? second.textContent || "" : "", eyebrow: eb ? eb.textContent || "" : "", eyebrowLines: eb ? Math.round(eb.getBoundingClientRect().height / 13.2) : 0, lines };
+          });
+          if (!kpi) fail("kpi: no strip rendered");
+          else {
+            console.log(`  kpi strip ${vp.w}px: ${kpi.h}px (tiles ${kpi.tiles.map((t) => t.h).join("/")}; eyebrow ${kpi.eyebrowLines} line(s))`);
+            const want = KPI_STRIP_PX[vp.w];
+            if (want && Math.abs(kpi.h - want) > 1) fail(`kpi: the strip is ${kpi.h}px tall at ${vp.w} (pinned ${want}px — the Expectancy tile may not grow the strip)`);
+            // the two tiles this change touches may not clip their own content (the vs-SPY tile's 768 overflow predates it)
+            kpi.tiles.slice(0, 2).forEach((t, i) => { if (t.over > 1) fail(`kpi: tile ${i + 1} clips ${t.over}px of its own content`); });
+            // the Expectancy tile: broker headline, its own n / last close, and the demoted bot-log number with its exclusions —
+            // every caption line whole (an ellipsis would hide a fact, and the title is no help on touch)
+            if (!/^Expectancy \/ closed lot · broker/.test(kpi.eyebrow)) fail(`kpi: the first tile's eyebrow reads "${kpi.eyebrow}"`);
+            for (const l of kpi.lines) if (l.cut) fail(`kpi: a caption line is cut short — "${l.text}"`);
+            if (kpi.lines.length !== 4) fail(`kpi: ${kpi.lines.length} caption lines (expected n / last close + the two bot-log lines)`);
+            if (!/bot log −1\.20% · n 36 · since Oct 14\s*excludes 351 unattributed exits/.test(kpi.first)) fail(`kpi: the bot-log line is missing or not from the fields — "${kpi.first.slice(0, 160)}"`);
+            if (name === "bot") {
+              if (!/−3\.10%/.test(kpi.first)) fail(`kpi: the broker expectancy (fixture −3.1 %) is not the headline — "${kpi.first.slice(0, 120)}"`);
+              if (!/n 1,902\s*last close [A-Z][a-z]{2} \d{1,2}/.test(kpi.first)) fail(`kpi: no "n · last close" caption for the broker number — "${kpi.first.slice(0, 160)}"`);
+              if (!/payoff \d+\.\d{2} · pf \d+\.\d{2}/.test(kpi.second)) fail(`kpi: the win-rate tile shows no payoff / pf from the broker figures — "${kpi.second.slice(0, 120)}"`);
+              if (!/40\.0% \/ 46\.8%/.test(kpi.second)) fail(`kpi: the win-rate tile is not the broker's 40.0 % against its 46.8 % breakeven — "${kpi.second.slice(0, 120)}"`);
+            } else {
+              // broker null (the ledger not loaded yet): a dash and the warming-up words, never the stale bot-log number as the headline
+              if (!/broker ledger\s*warming up/.test(kpi.first)) fail(`kpi: broker null shows no "warming up" state — "${kpi.first.slice(0, 160)}"`);
+              if (/[−+]\d+\.\d{2}%/.test(kpi.first.replace(/bot log −1\.20%[\s\S]*$/, ""))) fail(`kpi: broker null still shows a percent headline — "${kpi.first.slice(0, 120)}"`);
+              if (!/broker ledger warming up/.test(kpi.second)) fail(`kpi: the win-rate tile shows a number without the broker ledger — "${kpi.second.slice(0, 120)}"`);
+            }
+          }
         }
         // CHART (2026-10-21, our own canvas engine): the chart panel holds a
         // canvas with real size that has actually painted — the regression

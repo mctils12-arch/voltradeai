@@ -10,7 +10,7 @@ import { candidateKey, FACTOR_KEYS, FACTOR_SHORT, type WatchModel, type WatchCan
 import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
 import { flashAttr, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
-import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, MINUS } from "./format";
+import { fmtAge, fmtPct, fmtMoney, fmtCompact, fmtCountdown, fmtClockET, fmtOcc, fmtSigned, spyTodayPct, edgeStats, fmtMonDay, fmtCount, MINUS } from "./format";
 import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
@@ -93,8 +93,25 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
   onShadow?: () => void;
 }) {
   const latest = events?.[0];
-  const edge = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
+  // THE RULER ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts): the headline is the BROKER's expectancy per closed lot
+  // over the sleeves the bot trades (options + stocks) — every priced close in Alpaca's fills, the same average-cost
+  // walk as the kill switch's reconciliation. The bot log's own number (trade_feedback pnl_pct at the trigger price,
+  // only the records that carry one — 351 unattributed exits dropped live, frozen since its last counted exit) is
+  // demoted to the dim line beneath, rendered from its fields. Null broker = the sleeve ledger has not loaded yet.
+  const broker = perf?.broker ?? null;
+  const active = broker?.active ?? null;
+  const bEdge = active && active.n > 0 ? edgeStats(active.winRate, active.avgWinPct ?? 0, active.avgLossPct ?? 0) : null;
+  const bExp = num(active?.expectancyPct);
+  const botLog = edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss);
   const n = num(perf?.totalTrades);
+  const orphanExits = num(perf?.excluded?.orphanExits);
+  const botLogLine = botLog
+    ? `bot log ${fmtPct(botLog.expectancy)} · n ${fmtCount(n)} · since ${fmtMonDay(perf?.lastClosedAt)}${orphanExits !== null ? ` · excludes ${fmtCount(orphanExits)} unattributed exits` : ""}`
+    : "bot log — · no closed record carries a P&L";
+  const brokerTitle = broker
+    ? `broker: ${fmtCount(active?.n)} closed lots (options ${fmtCount(broker.options.n)} · stocks ${fmtCount(broker.stocks.n)}) since ${fmtMonDay(broker.windowStart)} · mean P&L ÷ cost per lot · ${fmtMoney(active?.realizedUsd)} realized · ${fmtCount(active?.unpriced)} closed against an unknown basis excluded · ${broker.source} · as of ${fmtClockET(broker.asOf)} ET${broker.lastError ? ` · last refresh failed: ${broker.lastError}` : ""}`
+    : perf?.brokerReason ?? "broker ledger not loaded yet";
+  const botLogTitle = `${botLogLine} · ${perf?.basis ?? "trigger price, not fill"} · ${fmtCount(perf?.excluded?.openEntries)} open entries not closed`;
   const equity = num(account?.equity);
   const peak = num(status?.equityPeak) ?? num(account?.equityPeak);
   const maxDd = num(status?.maxDrawdownPct);
@@ -126,19 +143,35 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
   return (
     <div className="vt-bot-kpi vt-bot-area-kpi">
       <div className="vt-bot-panel">
-        <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Expectancy / trade · net<Help k="expectancy" /></div>
-          {edge ? <div className={`vt-bot-hero ${edge.expectancy < 0 ? "vt-bot-r" : edge.expectancy > 0 ? "vt-bot-g" : ""}`} data-flash={flashAttr(flash?.expectancy, now)}>{fmtPct(edge.expectancy)}</div> : <div className="vt-bot-hero vt-bot-t3">—</div>}
+        <div className="vt-kpi-edge">
+          <div className="vt-bot-eb">Expectancy<span className="vt-kpi-desk"> / closed lot</span> <span style={{ whiteSpace: "nowrap" }}>· broker<Help k="expectancy" /></span></div>
+          <div className="vt-kpi-edge-row" title={brokerTitle}>
+            {bExp !== null ? <div className={`vt-bot-hero ${bExp < 0 ? "vt-bot-r" : bExp > 0 ? "vt-bot-g" : ""}`} data-flash={flashAttr(flash?.expectancy, now)}>{fmtPct(bExp)}</div> : <div className="vt-bot-hero vt-bot-t3">—</div>}
+            <div className="vt-kpi-edge-cap">
+              {broker && active ? (
+                // its own n and last close; a stale cache says how old it is (a refresh is running or failed)
+                <><span>n&nbsp;{fmtCount(active.n)}</span><span>{broker.stale ? <>{fmtMonDay(active.lastCloseAt)} · <span className="vt-bot-o">cache {fmtAge(broker.cached_s * 1000)}</span></> : <><span className="vt-kpi-wide">last close </span>{fmtMonDay(active.lastCloseAt)}</>}</span></>
+              ) : (
+                <><span>broker ledger</span><span>warming up</span></>
+              )}
+            </div>
+          </div>
+          <div className="vt-kpi-edge-log" title={botLogTitle}>
+            {botLog ? (
+              <><span>bot log {fmtPct(botLog.expectancy)} · n {fmtCount(n)} · <span className="vt-kpi-wide">since </span>{fmtMonDay(perf?.lastClosedAt)}</span>{orphanExits !== null ? <span>excludes {fmtCount(orphanExits)} <span className="vt-kpi-wide">unattributed </span>exits</span> : <span>{perf?.basis ?? "trigger price, not fill"}</span>}</>
+            ) : (
+              <><span>bot log —</span><span>no closed record carries a P&amp;L</span></>
+            )}
+          </div>
         </div>
-        <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>n {n ?? "?"}<br />{n !== null && n < 30 ? "wide band" : "trigger-price pnl"}</div>
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>
           <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Win rate · breakeven<Help k="winRate" /></div>
-          {edge ? <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.winRate, now)}><span className={edge.winRate < edge.breakevenWr ? "vt-bot-r" : "vt-bot-g"}>{(edge.winRate * 100).toFixed(1)}%</span> <span className="vt-bot-t3">/ {(edge.breakevenWr * 100).toFixed(1)}%</span></div> : <div className="vt-bot-kpiv vt-bot-t3">—</div>}
-          <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{edge?.payoff ? `payoff ${edge.payoff.toFixed(2)}` : "payoff —"}{num(perf?.profitFactor) !== null ? ` · pf ${Number(perf?.profitFactor).toFixed(2)}` : ""}</div>
+          {bEdge ? <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.winRate, now)} title={brokerTitle}><span className={bEdge.winRate < bEdge.breakevenWr ? "vt-bot-r" : "vt-bot-g"}>{(bEdge.winRate * 100).toFixed(1)}%</span> <span className="vt-bot-t3">/ {(bEdge.breakevenWr * 100).toFixed(1)}%</span></div> : <div className="vt-bot-kpiv vt-bot-t3">—</div>}
+          <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{bEdge ? `${bEdge.payoff !== null ? `payoff ${bEdge.payoff.toFixed(2)}` : "payoff —"}${active?.profitFactor !== null && active?.profitFactor !== undefined ? ` · pf ${active.profitFactor.toFixed(2)}` : ""}` : broker ? "no priced lots yet" : "broker ledger warming up"}</div>
         </div>
-        {edge ? <div className="vt-bot-wrbar"><div className="vt-bot-bar"><i style={{ width: `${Math.min(100, edge.winRate * 100)}%`, background: "var(--accent-red)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, edge.breakevenWr * 100)}%` }} /></div></div> : null}
+        {bEdge ? <div className="vt-bot-wrbar"><div className="vt-bot-bar"><i style={{ width: `${Math.min(100, bEdge.winRate * 100)}%`, background: "var(--accent-red)" }} /><span className="vt-bot-tick" style={{ left: `${Math.min(100, bEdge.breakevenWr * 100)}%` }} /></div></div> : null}
       </div>
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0 }}>

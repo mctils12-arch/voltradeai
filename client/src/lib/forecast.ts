@@ -112,3 +112,38 @@ export function dotRadius(n: number, maxN: number): number {
   if (n <= 0 || maxN <= 0) return 0;
   return 4 + 6 * Math.sqrt(n / maxN);
 }
+
+// ── cockpit KPI strip (2026-10-29, human-asked: the page fills the screen like
+// the AI Engine) ──────────────────────────────────────────────────────────────
+/** One tile of a cockpit KPI strip: eyebrow, hero value, one mono line. */
+export interface Kpi { label: string; value: string; line: string; tone?: "g" | "r" | "o" | "t3" }
+
+/** "Oct 30" from a YYYY-MM-DD; the raw date stays in the tile's line. */
+export function shortDate(ymd: string | null | undefined): string {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "—";
+  return new Date(`${ymd}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** The forecast strip: calls this week, direction hit rate, Brier skill vs a
+ *  coin flip, in-range rate and when the open calls are scored — "—" wherever
+ *  the payload has nothing yet. Tones only compare two numbers the page already
+ *  shows (hit rate vs the base rate, skill vs zero) and stay off while thin. */
+export function forecastKpis(rep: ForecastReport | null | undefined): Kpi[] {
+  const latest = rep?.latest ?? null;
+  const a = rep?.accuracy ?? null;
+  const g = { index: 0, position: 0, candidate: 0 };
+  for (const c of latest?.forecasts ?? []) if (c.group in g) g[c.group as keyof typeof g] += 1;
+  const thin = a?.thin ? " · thin" : "";
+  const resolved = !!a && a.n > 0;
+  const hitTone = resolved && !a.thin && typeof a.hit_rate === "number" && typeof a.up_rate === "number"
+    ? (a.hit_rate > a.up_rate ? "g" : a.hit_rate < a.up_rate ? "r" : undefined) : undefined;
+  const skill = a?.brier_skill_vs_coinflip;
+  const skillTone = resolved && !a.thin && typeof skill === "number" ? (skill > 0.005 ? "g" : skill < -0.005 ? "r" : undefined) : undefined;
+  return [
+    { label: "Calls this week", value: latest ? String(latest.n_forecasts) : "—", line: latest ? `${g.index} index · ${g.position} positions · ${g.candidate} candidates` : "no weekly batch yet" },
+    { label: "Direction hit rate", value: resolved ? pct(a.hit_rate, 1) : "—", line: resolved ? `${a.hits} of ${a.n} resolved · base rate ${pct(a.up_rate, 1)}${thin}` : "no resolved calls yet", tone: hitTone },
+    { label: "Brier skill vs coin flip", value: resolved && typeof skill === "number" ? `${skill >= 0 ? "+" : ""}${(skill * 100).toFixed(1)}%` : "—", line: resolved ? `Brier ${a.brier ?? "—"} · coin flip 0.25 · ${skillText(skill)}${thin}` : "lower Brier is better · coin flip 0.25", tone: skillTone },
+    { label: "Inside the 68% range", value: resolved ? pct(a.in_range_rate, 1) : "—", line: resolved ? `target ${pct(a.in_range_target, 0)} · ${a.in_range} of ${a.n}${thin}` : "no resolved calls yet" },
+    { label: "Next scoring", value: latest ? shortDate(latest.horizon_end) : "—", line: latest ? `after the ${latest.horizon_end} close · ${rep?.open ?? 0} open` : "scored after the horizon's last close" },
+  ];
+}

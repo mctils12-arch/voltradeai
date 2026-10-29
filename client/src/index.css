@@ -4642,6 +4642,19 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-kpiv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 500; line-height: 1.15; }
 @media (max-width: 1179px) { .vt-bot-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vt-bot-hero { font-size: 26px; } }
 @media (max-width: 639px) { .vt-bot-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .vt-bot-kpi .vt-bot-panel { padding: 10px 12px; } }
+/* Expectancy tile ([RULE-REVIEW] 2026-10-29): the broker's number per closed lot as the headline, its n / last close
+   beside it, and the bot-log number demoted to two dim lines beneath — a column that fits the strip's existing height
+   at every width (86 px desktop row, the vs-SPY tile's 82 px at 768, the win-rate tile's 96 px pair at 390: pinned by
+   the harness). On the phone the eyebrow's "/ closed lot" and the longer words step aside (.vt-kpi-wide) so no line wraps. */
+.vt-kpi-edge { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.vt-kpi-edge-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.vt-kpi-edge-row .vt-bot-hero { line-height: 1; flex: 0 0 auto; }
+.vt-kpi-edge-cap { font-size: 10.5px; line-height: 1.25; color: var(--text-tertiary); min-width: 0; flex: 1 1 auto; }
+.vt-kpi-edge-cap > span, .vt-kpi-edge-log > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-kpi-edge-log { font-size: 10px; line-height: 1.15; color: var(--text-tertiary); opacity: .85; min-width: 0; }
+/* the eyebrow's "/ closed lot" only at the desktop tier (one line keeps the idle page's 72 px tiles at 768); the long words only above the phone */
+@media (max-width: 1179px) { .vt-kpi-desk { display: none; } }
+@media (max-width: 639px) { .vt-kpi-wide { display: none; } }
 .vt-bot-chain { display: grid; grid-template-columns: 1fr 12px 1.1fr 12px 1.35fr 12px 1fr 12px 1.05fr; gap: 4px; padding: 0 12px 10px; align-items: stretch; }
 @media (max-width: 1179px) { .vt-bot-chain { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } .vt-bot-chain .vt-bot-arrow { display: none; } }
 .vt-bot-node { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 8px 10px; background: var(--surface); border-radius: var(--radius-sm); }
@@ -4907,14 +4920,8 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 @media (prefers-reduced-motion: reduce) { [data-flash], .vt-live-ev[data-fresh="true"], .vt-bot-panel[data-pulse] { animation: none; } }
 
 /* ── Weekly forecast screen (2026-10-27, SHADOW; pages/forecast.tsx). Tokens
-   only; cards reflow from one column at 390px; every control ≥44px on touch. ── */
-.vt-fc { display: flex; flex-direction: column; gap: 22px; max-width: 1240px; margin: 0 auto; width: 100%; min-width: 0; }
-.vt-fc-head { display: flex; flex-direction: column; gap: 8px; }
-.vt-fc-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-primary); }
-.vt-fc-title h1 { font-size: 18px; font-weight: 700; margin: 0; }
-.vt-fc-sub { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; margin: 0; max-width: 760px; }
-.vt-fc-fresh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--text-tertiary); font-size: 11.5px; }
-.vt-fc-fresh b { color: var(--text-secondary); font-weight: 600; }
+   only; every control ≥44px on touch. Page layout (strip + panel grid) is the
+   cockpit block at the end of this file (2026-10-29); these are the innards. ── */
 .vt-fc-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .vt-fc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border-color); border-radius: 999px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 .vt-fc-chip[data-tone="orange"] { color: var(--accent-orange); border-color: var(--accent-orange); }
@@ -4928,17 +4935,9 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 .vt-fc-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @keyframes vt-fc-rot { to { transform: rotate(360deg); } }
 .vt-fc-spin { animation: vt-fc-rot 1s linear infinite; }
-.vt-fc-sec { display: flex; flex-direction: column; gap: 12px; background: var(--bg-card); border: 1px solid var(--border-subtle-color); border-radius: var(--radius-lg); padding: 16px; min-width: 0; }
-.vt-fc-sechead { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
-.vt-fc-sechead h2 { font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin: 0; }
 .vt-fc-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .vt-fc-meta { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.45; }
 .vt-fc-note { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; margin: 0; }
-.vt-fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
-.vt-fc-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle-color); border-left: 3px solid var(--text-tertiary); border-radius: var(--radius-md); min-width: 0; transition: background .15s; }
-.vt-fc-card:hover { background: var(--bg-card-hover); }
-.vt-fc-card[data-dir="up"] { border-left-color: var(--accent-green); }
-.vt-fc-card[data-dir="down"] { border-left-color: var(--accent-red); }
 .vt-fc-cardtop { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vt-fc-sym { font-family: var(--font-mono); font-weight: 700; font-size: 15px; color: var(--text-primary); }
 .vt-fc-state-badge { margin-left: auto; font-size: 10.5px; color: var(--text-tertiary); white-space: nowrap; }
@@ -4979,45 +4978,24 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 .vt-fc-table th { text-align: left; font-weight: 500; color: var(--text-tertiary); padding: 6px 8px; border-bottom: 1px solid var(--border-subtle-color); white-space: nowrap; }
 .vt-fc-table td { padding: 6px 8px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle-color); white-space: nowrap; }
 .vt-fc-model { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border-subtle-color); }
-.vt-fc-foot { display: flex; flex-direction: column; gap: 4px; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; }
-.vt-fc-foot p { margin: 0; max-width: 900px; }
 @media (max-width: 639px) {
   .vt-fc-btn { min-height: 44px; min-width: 44px; }
-  .vt-fc-sec { padding: 12px; }
-  .vt-fc-grid { grid-template-columns: minmax(0, 1fr); }
   .vt-fc-details summary { padding: 12px 0; }
 }
 @media (prefers-reduced-motion: reduce) { .vt-fc-spin, .vt-fc-skel { animation: none; } }
 
 /* ── Brain page (2026-10-29; pages/brain.tsx). Builds on the .vt-fc primitives
-   (section, chip, button, table). Tokens only; the short/long panels sit side by
-   side from 900px and stack below it; every control ≥44px on touch. ── */
+   (chip, button, table) and the cockpit block at the end of this file. Tokens
+   only; the short/long panels sit side by side inside a card ≥520px wide (a
+   container query, in the cockpit block) and stack below it. ── */
 .vt-br-explainer { color: var(--text-primary); font-size: 13.5px; line-height: 1.5; margin: 0; max-width: 820px; font-weight: 500; }
 .vt-fc-state[data-tone="orange"] { border-color: var(--accent-orange); }
-.vt-br-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-.vt-br-count { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle-color); border-left: 3px solid var(--text-tertiary); border-radius: var(--radius-md); color: var(--text-secondary); text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
-.vt-br-count:hover { background: var(--bg-card-hover); }
-.vt-br-count:active { transform: translateY(1px); }
-.vt-br-count:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.vt-br-count[aria-pressed="true"] { border-color: var(--accent); background: var(--bg-card); }
-.vt-br-count[data-status="live"] { border-left-color: var(--accent-green); }
-.vt-br-count[data-status="shadow"] { border-left-color: var(--accent-orange); }
-.vt-br-count[data-status="disagree"] { border-left-color: var(--accent-red); }
-.vt-br-count-n { font-size: 20px; font-weight: 700; color: var(--text-primary); }
-.vt-br-count-l { font-size: 12px; font-weight: 600; }
-.vt-br-list { display: flex; flex-direction: column; gap: 10px; }
-.vt-br-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle-color); border-left: 3px solid var(--text-tertiary); border-radius: var(--radius-md); min-width: 0; }
-.vt-br-card[data-status="live"] { border-left-color: var(--accent-green); }
-.vt-br-card[data-status="shadow"] { border-left-color: var(--accent-orange); }
-.vt-br-cardtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.vt-br-name { font-weight: 700; font-size: 14px; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
 .vt-br-status { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--text-tertiary); color: var(--text-tertiary); }
 .vt-br-status[data-status="live"] { color: var(--accent-green); border-color: var(--accent-green); }
 .vt-br-status[data-status="shadow"] { color: var(--accent-orange); border-color: var(--accent-orange); }
 .vt-br-does { margin: 0; color: var(--text-secondary); font-size: 12.5px; line-height: 1.45; }
 .vt-br-src { font-family: var(--font-mono); }
 .vt-br-sides { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-@media (min-width: 900px) { .vt-br-sides { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .vt-br-side { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: var(--bg-card); border: 1px solid var(--border-subtle-color); border-radius: var(--radius-md); min-width: 0; }
 .vt-br-sidehead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-tertiary); }
 .vt-br-sign { font-size: 10.5px; font-weight: 600; text-transform: none; letter-spacing: 0; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-color); color: var(--text-tertiary); white-space: nowrap; }
@@ -5045,19 +5023,10 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 .vt-br-arm { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border-subtle-color); border-radius: var(--radius-md); min-width: 0; }
 .vt-br-sub { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .vt-br-sub h3 { margin: 4px 0 0; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
-.vt-br-foot b { color: var(--text-secondary); }
-@media (max-width: 639px) {
-  .vt-br-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vt-br-count[data-status="all"] { grid-column: 1 / -1; }
-  .vt-br-card { padding: 10px; }
-}
 /* ── Ticker dossier (2026-10-29, human-asked; client/src/pages/tickerDossier.tsx) ──
    The range band is the hero; every layer has a status pill and a provenance line.
-   Tokens only. Phone: one column, 44px targets, band labels stay inside the card. */
-.vt-ds { display: flex; flex-direction: column; gap: 16px; max-width: 1240px; margin: 0 auto; width: 100%; min-width: 0; }
-.vt-ds-head { display: flex; flex-direction: column; gap: 10px; }
-.vt-ds-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-primary); }
-.vt-ds-title h1 { font-size: 18px; font-weight: 700; margin: 0; }
+   Tokens only. Phone: one column, 44px targets, band labels stay inside the card.
+   Page layout (strip + panel grid) is the cockpit block at the end of this file. */
 .vt-ds-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .vt-ds-chip { display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid var(--accent-orange); color: var(--accent-orange); border-radius: 999px; font-size: 11px; white-space: nowrap; }
 .vt-ds-back { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--text-tertiary); font-size: 12px; text-decoration: none; min-height: 32px; }
@@ -5073,15 +5042,9 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 .vt-ds-btn:focus-visible, .vt-ds-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .vt-ds-btn[data-small="true"] { min-height: 28px; padding: 2px 10px; font-family: var(--font-mono); font-size: 11.5px; }
 .vt-ds-recent { display: flex; gap: 6px; flex-wrap: wrap; }
-.vt-ds-fresh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--text-tertiary); font-size: 11.5px; }
-.vt-ds-fresh b { color: var(--text-secondary); font-weight: 600; }
 @keyframes vt-ds-rot { to { transform: rotate(360deg); } }
 .vt-ds-spin { animation: vt-ds-rot 1s linear infinite; }
-.vt-ds-sec { display: flex; flex-direction: column; gap: 10px; background: var(--bg-card); border: 1px solid var(--border-subtle-color); border-radius: var(--radius-lg); padding: 16px; min-width: 0; }
-.vt-ds-hero { border-color: var(--accent); }
-.vt-ds-sechead { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
-.vt-ds-sechead h2 { font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin: 0; }
-.vt-ds-h3, .vt-ds-sub h3, .vt-ds-band h3 { font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 4px 0 0; }
+.vt-ds-h3, .vt-ds-band h3 { font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 4px 0 0; }
 .vt-ds-px { font-size: 18px; font-weight: 700; color: var(--text-primary); }
 .vt-ds-px em { font-style: normal; font-size: 12px; margin-left: 6px; color: var(--text-tertiary); }
 .vt-ds [data-tone="g"] { color: var(--accent-green); }
@@ -5117,7 +5080,6 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
 .vt-ds-bandlbl span:first-child { transform: translateX(-15%); }
 .vt-ds-bandlbl span:last-child { transform: translateX(-85%); }
 .vt-ds-dirword { font-weight: 700; font-size: 14px; color: var(--text-tertiary); }
-.vt-ds-sub { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border-subtle-color); }
 .vt-ds-plan { display: flex; flex-direction: column; gap: 12px; }
 .vt-ds-ladder { position: relative; height: 64px; margin: 4px 8px 0; }
 .vt-ds-lrisk, .vt-ds-lreward { position: absolute; top: 40px; height: 8px; border-radius: 4px; }
@@ -5159,9 +5121,7 @@ a.vt-ds-evt:hover { color: var(--accent-bright); text-decoration: underline; }
 .vt-ds-state b { color: var(--text-primary); }
 .vt-ds-gaps { padding: 10px 12px; border: 1px solid var(--accent-orange); border-radius: var(--radius-md); font-size: 12px; color: var(--text-secondary); }
 .vt-ds-gaps b { color: var(--accent-orange); }
-.vt-ds-foot { color: var(--text-tertiary); font-size: 11px; line-height: 1.5; padding-bottom: 8px; }
 @keyframes vt-ds-shimmer { 0% { opacity: .45; } 50% { opacity: .8; } 100% { opacity: .45; } }
-.vt-ds-skel-wrap { display: flex; flex-direction: column; gap: 12px; }
 .vt-ds-skel { background: var(--bg-card); border: 1px solid var(--border-subtle-color); border-radius: var(--radius-lg); animation: vt-ds-shimmer 1.4s ease-in-out infinite; }
 .vt-ds .vt-lookup-line { white-space: normal; }
 @media (max-width: 900px) { .vt-ds-plangrid, .vt-ds-touch { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -5174,7 +5134,6 @@ a.vt-ds-evt:hover { color: var(--accent-bright); text-decoration: underline; }
 }
 @media (max-width: 639px) {
   .vt-ds-bands { grid-template-columns: minmax(0, 1fr); }
-  .vt-ds-sec { padding: 12px; }
   .vt-ds-kvs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vt-ds-big { font-size: 22px; }
   .vt-ds-kv { flex-wrap: wrap; row-gap: 0; }
@@ -5182,3 +5141,95 @@ a.vt-ds-evt:hover { color: var(--accent-bright); text-decoration: underline; }
   .vt-ds-kv b { margin-left: auto; }
 }
 @media (prefers-reduced-motion: reduce) { .vt-ds-spin, .vt-ds-skel { animation: none; } }
+
+/* ── Cockpit layout (2026-10-29, human-asked on a 1920 monitor: "fill the page
+   … how the UI looks on the bot instead of the strip"; pages/cockpit.tsx).
+   Forecast, Brain and the dossier render as the AI Engine does: a KPI strip,
+   then columns of panels, 8px gutters, full content width — but with normal
+   page scroll (never the bot page's fixed viewport lock). The app shell's
+   920px reading column (.page-container, home.tsx) is released for these
+   pages here, since the shell is shared with the reading-column tabs. Tokens
+   only; the bot's own classes (.vt-bot-eb/.vt-bot-m/.vt-bot-hero/tones) are
+   reused unchanged — nothing below touches a .vt-bot-* rule. ── */
+.page-container:has(> .vt-ck) { max-width: none; padding: calc(56px + 8px) 8px 24px; }
+@media (max-width: 639px) { .page-container:has(> .vt-ck) { padding: calc(48px + 8px) 8px calc(64px + 16px) !important; } }
+.vt-ck { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; color: var(--text-primary); font-size: 13px; line-height: 1.35; }
+.vt-ck-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 2px 4px 0; min-width: 0; }
+.vt-ck-head h1 { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.vt-ck-sub { flex: 1 1 100%; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; max-width: 1100px; }
+.vt-ck-fresh { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--text-tertiary); font-size: 11px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 0; }
+.vt-ck-fresh b { color: var(--text-secondary); font-weight: 500; }
+.vt-ck-fresh .vt-fc-btn, .vt-ck-fresh .vt-ds-btn { font-family: var(--font-body); }
+.vt-ck-head .vt-ds-search { flex: 1 1 240px; max-width: 460px; }
+.vt-ck-head .vt-br-explainer { flex: 1 1 100%; }
+/* the strip: 4–6 tiles across; eyebrow over a hero number over one mono line */
+.vt-ck-kpi { display: grid; gap: 8px; grid-template-columns: repeat(var(--ck-n, 6), minmax(0, 1fr)); min-width: 0; }
+.vt-ck-kpi[data-n="4"] { --ck-n: 4; } .vt-ck-kpi[data-n="5"] { --ck-n: 5; } .vt-ck-kpi[data-n="6"] { --ck-n: 6; }
+.vt-ck-tile { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-height: 76px; padding: 10px 14px; background: var(--bg-card); border-radius: var(--radius-md); min-width: 0; text-align: left; }
+.vt-ck-tile > * { display: block; min-width: 0; }
+.vt-ck-tile .vt-bot-hero { overflow-wrap: anywhere; }
+.vt-ck-sub2 { display: inline-block; white-space: nowrap; font-family: var(--font-mono); font-size: 14px; font-weight: 500; margin-left: 6px; color: var(--text-secondary); }
+.vt-ck-line { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; line-height: 1.35; color: var(--text-tertiary); overflow-wrap: anywhere; }
+button.vt-ck-tile { font: inherit; color: inherit; border: 0; cursor: pointer; transition: background .15s, box-shadow .15s; }
+button.vt-ck-tile:hover { background: var(--bg-card-hover); }
+button.vt-ck-tile:active { transform: translateY(1px); }
+button.vt-ck-tile[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--accent); }
+button.vt-ck-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* the panel grid: 360px columns (440px from 1180px up), so 1440 → 3, 1920 → 4,
+   768 → 2, phone → 1; dense flow lets single panels fill beside a 2-wide one */
+.vt-ck-grid { display: grid; gap: 8px; grid-auto-flow: row dense; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); min-width: 0; }
+@media (min-width: 1180px) {
+  .vt-ck-grid { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
+  /* the Brain's component cards keep their short/long evidence side by side, so their columns are wider: 1440 → 2, 1920 → 3 */
+  .vt-ck-grid[data-basis="wide"] { grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+}
+.vt-ck-span2 { grid-column: span 2; }
+.vt-ck-full { grid-column: 1 / -1; }
+@media (max-width: 743px) { .vt-ck-span2 { grid-column: auto; } } /* below 744px the grid is one 360px column: a 2-wide panel would open an implicit column */
+.vt-ck-panel { display: flex; flex-direction: column; min-width: 0; background: var(--bg-card); border-radius: var(--radius-md); position: relative; }
+.vt-ck-ph { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 9px 12px 4px; min-width: 0; }
+.vt-ck-ti { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
+.vt-ck-ph .vt-bot-eb { flex: 1 1 100%; }
+.vt-ck-meta { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-tertiary); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.vt-ck-pb { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px; min-width: 0; flex: 1 1 auto; }
+.vt-ck-bar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 4px 0; min-width: 0; }
+.vt-ck-bar h2 { margin: 0; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: 500; line-height: 1.2; }
+.vt-ck-bar .vt-ck-meta { margin-left: 0; text-align: left; }
+.vt-ck-bar .vt-fc-note { flex: 1 1 100%; }
+.vt-ck-foot { display: flex; flex-direction: column; gap: 3px; padding: 4px 4px 0; color: var(--text-tertiary); font-size: 11px; line-height: 1.45; }
+.vt-ck-foot p { margin: 0; max-width: 1100px; }
+.vt-ck > .vt-fc-state, .vt-ck > .vt-ds-state { max-width: 920px; }
+/* inner tiles and sub-panels take the bot's node surface (no borders inside a panel) */
+.vt-ck .vt-fc-tile, .vt-ck .vt-ds-tile, .vt-ck .vt-ds-touch > div, .vt-ck .vt-ds-band, .vt-ck .vt-br-side, .vt-ck .vt-br-arm { background: var(--surface); border: 0; border-radius: var(--radius-sm); }
+.vt-ck .vt-fc-tl, .vt-ck .vt-ds-tile > span, .vt-ck .vt-ds-touch span { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: 500; }
+.vt-ck .vt-fc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vt-ck .vt-fc-chart svg { max-width: none; }
+/* forecast call panels and Brain component panels carry their direction / status as a left accent, like the old cards */
+.vt-fc-call[data-dir="up"] { box-shadow: inset 3px 0 0 var(--accent-green); }
+.vt-fc-call[data-dir="down"] { box-shadow: inset 3px 0 0 var(--accent-red); }
+.vt-ck .vt-br-card[data-status="live"] { box-shadow: inset 3px 0 0 var(--accent-green); }
+.vt-ck .vt-br-card[data-status="shadow"] { box-shadow: inset 3px 0 0 var(--accent-orange); }
+.vt-ck .vt-br-card { container-type: inline-size; }
+@container (min-width: 520px) { .vt-br-sides { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.vt-br-gaps { column-width: 440px; column-gap: 24px; }
+.vt-br-gaps p { margin: 0 0 6px; break-inside: avoid; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.vt-ds-hero { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+/* dossier rows stay full at every column count (440px basis: 3 columns from 1368px, 4 from 1800px): direction + the
+   bot's read become one column beside the range hero from 3 columns up; the stock layer is 2-wide at 3 columns and the
+   events list 3-wide at 4, so market → sector → stock → options → events keeps its order with no empty cell */
+.vt-ds-side { display: contents; }
+@media (min-width: 1368px) {
+  .vt-ds-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .vt-ds-side > .vt-ck-panel:last-child { flex: 1 1 auto; }
+}
+@media (min-width: 1368px) and (max-width: 1799px) { .vt-ck-grid > .vt-ds-stock { grid-column: span 2; } }
+@media (min-width: 1800px) { .vt-ck-grid > .vt-ds-events { grid-column: span 3; } }
+.vt-ck .vt-ds-skel { min-height: 120px; }
+/* tablet: 6 tiles become two rows of three; phone: two columns, an odd strip's first tile across both */
+@media (max-width: 1179px) { .vt-ck-kpi[data-n="6"] { --ck-n: 3; } .vt-ck-kpi[data-n="5"] .vt-bot-hero { font-size: 22px; } }
+@media (max-width: 639px) {
+  .vt-ck-kpi[data-n] { --ck-n: 2; } /* [data-n] so it outranks the per-count rules above */
+  .vt-ck-kpi[data-n="5"] > :first-child { grid-column: span 2; }
+  .vt-ck-tile { padding: 10px 12px; }
+  .vt-ck-head h1 { white-space: normal; }
+}

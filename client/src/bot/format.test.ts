@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtSigned, fmtPct, fmtMoney, fmtCompact, fmtAge, fmtCountdown, edgeStats, fmtOcc, spyTodayPct, MINUS } from "./format";
+import { fmtSigned, fmtPct, fmtMoney, fmtCompact, fmtAge, fmtCountdown, edgeStats, fmtOcc, spyTodayPct, fmtMonDay, fmtCount, MINUS } from "./format";
+
+test("captions: the ET calendar day of a close and a count with separators; unknown reads as a dash / a question mark", () => {
+  assert.equal(fmtMonDay("2026-10-14T19:59:02.123456"), "Oct 14");
+  assert.equal(fmtMonDay("2026-10-15T02:30:00Z"), "Oct 14", "22:30 ET is still the 14th in New York");
+  assert.equal(fmtMonDay(null), "—");
+  assert.equal(fmtMonDay("not a date"), "—");
+  assert.equal(fmtCount(1902), "1,902");
+  assert.equal(fmtCount(36), "36");
+  assert.equal(fmtCount(null), "?");
+});
 
 test("signed numbers print a true minus and never rely on colour", () => {
   assert.equal(fmtPct(-1.2), `${MINUS}1.20%`);

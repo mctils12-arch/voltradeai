@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pct, usd, bandPct, ageText, callState, skillText, calChart, dotRadius, type ForecastCall, type CalBin } from "./forecast";
+import { pct, usd, bandPct, ageText, callState, skillText, calChart, dotRadius, forecastKpis, shortDate, type ForecastCall, type CalBin } from "./forecast";
 
 const call = (over: Partial<ForecastCall> = {}): ForecastCall => ({
   id: "2026-W44:SPY", week_key: "2026-W44", symbol: "SPY", group: "index", made_at: "2026-10-23T21:00:00Z",
@@ -67,4 +67,28 @@ test("dotRadius: area grows with n, 4–10 px, 0 for an empty bin", () => {
   assert.equal(dotRadius(0, 10), 0);
   assert.equal(dotRadius(10, 10), 10);
   assert.ok(dotRadius(1, 100) >= 4 && dotRadius(1, 100) < 5);
+});
+
+test("forecastKpis: five tiles from the report; dashes with no batch; tones only off the numbers shown", () => {
+  const acc = { n: 42, thin: false, hits: 24, hit_rate: 0.5714, brier: 0.2412, brier_coinflip: 0.25, brier_skill_vs_coinflip: 0.0352, in_range: 29, in_range_rate: 0.6905, in_range_target: 0.6827, up_rate: 0.5476 };
+  const latest = { week_key: "2026-W44", made_at: "2026-10-23T20:21:00Z", base_date: "2026-10-23", horizon_end: "2026-10-30", on_time: true, model_version: "fc-logit-v1",
+    model: { coef: [], features: [], n_samples: 1, first_date: "", last_date: "", validation: { split_date: "", n_train: 1, n_test: 1, train_base_rate: 0.5, test_base_rate: 0.5, brier: 0.25, brier_climatology: 0.25, brier_skill: 0, log_loss: 0.69, hit_rate: 0.5, calibration: [] } },
+    train_tickers: [], n_forecasts: 3, skipped: [], candidates_available: true, candidates_scan_at: null, iv_day: null, iv_names: 0,
+    forecasts: [call({ group: "index" }), call({ symbol: "XLE", group: "position" }), call({ symbol: "NVDA", group: "candidate" })] };
+  const rep = { generated_at: "2026-10-27T12:00:00Z", model_version: "fc-logit-v1", experimental: true, shadow: true, horizon_days: 5, band_coverage: 0.6827, latest,
+    accuracy: { ...acc, on_time: acc, by_group: {}, by_vol_source: {} }, calibration: { edges: [], bins: [] }, weeks: [], open: 3, method: "", caveats: [] };
+  const k = forecastKpis(rep);
+  assert.equal(k.length, 5);
+  assert.deepEqual(k.map((t) => t.value), ["3", "57.1%", "+3.5%", "69.0%", "Oct 30"]);
+  assert.equal(k[0].line, "1 index · 1 positions · 1 candidates");
+  assert.equal(k[1].tone, "g"); // 57.1% hits above the 54.8% base rate
+  assert.equal(k[2].tone, "g");
+  assert.match(k[4].line, /after the 2026-10-30 close · 3 open/);
+  // thin samples carry no tone; no batch -> dashes everywhere
+  const thin = forecastKpis({ ...rep, accuracy: { ...rep.accuracy, thin: true } });
+  assert.equal(thin[1].tone, undefined); assert.match(thin[1].line, /thin$/);
+  const none = forecastKpis({ ...rep, latest: null, open: 0, accuracy: { ...rep.accuracy, n: 0 } });
+  assert.deepEqual(none.map((t) => t.value), ["—", "—", "—", "—", "—"]);
+  assert.deepEqual(forecastKpis(undefined).map((t) => t.value), ["—", "—", "—", "—", "—"]);
+  assert.equal(shortDate("2026-01-05"), "Jan 5"); assert.equal(shortDate("bad"), "—");
 });

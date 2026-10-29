@@ -20,7 +20,7 @@ import { Help } from "./help";
 import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
 import { parseLookupInput } from "./lookup";
-import { fmtAge, edgeStats } from "./format";
+import { fmtAge } from "./format";
 import { ScoreBody } from "./scoreboard";
 import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
@@ -156,7 +156,8 @@ export default function BotPage() {
     return out;
   }, [events, now]);
   // values that changed since the previous tick flash with their direction
-  const kpiVals = { expectancy: edgeStats(perf?.winRate, perf?.avgGain, perf?.avgLoss)?.expectancy ?? null, winRate: num(perf?.winRate), vsSpy: num(d.benchmark.data?.since?.gapPp), equity: num(account?.equity) };
+  // the Edge tiles show the BROKER's expectancy and win rate per closed lot ([RULE-REVIEW] 2026-10-29, panels.tsx KpiStrip)
+  const kpiVals = { expectancy: num(perf?.broker?.active?.expectancyPct), winRate: num(perf?.broker?.active?.winRate), vsSpy: num(d.benchmark.data?.since?.gapPp), equity: num(account?.equity) };
   const prevKpi = useRef<typeof kpiVals | null>(null);
   const kpiFlash = useRef<Partial<Record<keyof typeof kpiVals, Flash>>>({});
   kpiFlash.current = flashes(prevKpi.current, kpiVals, kpiFlash.current, now);
