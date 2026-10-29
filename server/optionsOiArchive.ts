@@ -43,7 +43,7 @@ interface ContractRow { symbol?: unknown; open_interest?: unknown; open_interest
 interface ContractsPage { option_contracts?: ContractRow[]; next_page_token?: string }
 type FetchFn = (url: string, init?: { headers: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
-export function oiDir(baseDir?: string): string { return path.join(baseDir || archiveBaseDir(), "optionchains", "oi"); }
+export function oiDir(baseDir?: string): string { return path.join(path.join(baseDir || archiveBaseDir(), "optionchains"), "oi"); }
 export function oiDayFile(day: string, baseDir?: string): string { return path.join(oiDir(baseDir), `${day}.jsonl`); }
 export function isOiCaptured(day: string, baseDir?: string): boolean {
   return fs.existsSync(oiDayFile(day, baseDir)) || fs.existsSync(`${oiDayFile(day, baseDir)}.gz`);
