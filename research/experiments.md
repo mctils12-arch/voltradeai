@@ -3,6 +3,11 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine voltrade-daily-midday, ~16:25Z Thu = 12:25 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1231)
+HEALTH: /api/health 200 ok; liveness not dark, drawdown -2.2%, jobs 8 ok / 0 late / 0 errored, feeds alive, scanner 0 failures, no unhandled rejections. Live server_version 1.0.1231 == main (no deploy lag). research_state_check: only WARN is the known overdue CONSTITUTIONAL AUDIT (awaiting human answers; audit never self-applies). thrash 3/10.
+WHY NO-ACTION: both open verifications are night-gated and cannot be judged at midday — (1) price_panel_build retry after the as_of repair (v1.0.1220) runs in the 20:15 ET window; next session checks /api/diag/price_panel progress.next_batch > 0 (diag is auth-gated, 401 from here); (2) first options_oi_archive night (v1.0.1231) — check heartbeat `withOi` > 0. Another build now would duplicate filed work or churn.
+STARVED: no.
+
 ## 2026-10-29 (scheduled routine, voltrade-product-am) [PIPELINE] — T-DATACORE — Edge P1 gate-1 enabler: daily REAL open-interest sidecar for SPY/QQQ/IWM (v1.0.1231)
 HEALTH: /api/health 200 ok (alarms none; regime CALM_BULL; shadow entries on); research_state_check all OK except the known overdue CONSTITUTIONAL AUDIT (unanswered proposals). thrash 3/10.
 PRIOR: ~85% Alpaca `/v2/options/contracts` returns populated `open_interest` for SPY/QQQ/IWM (master_status 2026-10-29 reports the entitlements probe saying so; I have no Alpaca keys in this session to re-verify). ~15% OI comes back null/stale, in which case the sidecar's `withOi` count in the heartbeat detail shows it on night one.
