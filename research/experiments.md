@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-29 (scheduled routine, [PRODUCT] session) [PIPELINE] — T-DATACORE (scripts/ only, no trading code) — Edge P1 GATE-1 CHECKER compiled ahead of its data (v1.0.1235)
+HEALTH: no trading-loop break blocks product work (see the 12:25 ET entry above); thrash ratio low.
+PRIOR: ~80% the pre-registered check passes when it can run (~2026-12-24), but the test is WEAK by construction — SqueezeMetrics GEX is positive on nearly every day, so sign agreement can pass while the series are unrelated. ~35% own SPY-only GEX changes correlate with Squeeze SPX changes at rank-corr > 0.5. ~15% a join/units defect (OI date vs chain day, gamma units) shows up on first real data.
+CHANGE: `scripts/edge_p1_gate1.py` (stdlib only, read-only). own GEX = sum(sign x gamma x OI x 100 x spot^2 x 0.01), calls +, puts -, SPY chain day file joined by OCC symbol to the `optionchains/oi/<day>` sidecar (#1547); archived Alpaca gamma, else BS gamma from iv (r=q=0); rows missing gamma/OI/spot are dropped and COUNTED, never zero-filled. Verdict exactly per edge_preregistration.md: PENDING under 40 overlapping days, KILL above 30% sign disagreement, else PASS. Rank correlation (levels and day-over-day changes) and the Squeeze positive-share are REPORTED ONLY — no threshold invented. Why now: OI history cannot be back-filled, and a checker written on the day the 40th row lands is untested code on the one day it matters (EDGE DOCTRINE #3: compile it).
+RUN (on the volume): `python3 scripts/edge_p1_gate1.py --json` (default archive dir = $DATA_DIR/datacore_archive).
+TESTS: test_edge_p1_gate1.py (8: OCC parse, call/put sign, drop-and-count, BS-gamma known value, PENDING at 39 days, PASS at exactly 30%, KILL at 32%, gz + missing-OI-day end-to-end); with test_edge_p1_dealer_gamma.py 20 pass.
+LIMITS: SPY-only vs SPX; OI date (`oid`) may lag the chain day by one session — the script pairs by file day as the pre-reg does and the first real run must print the oid distribution before the verdict is believed. Nothing served or traded.
+NEXT: (1) night 10-29/30 check heartbeat `options_oi_archive` withOi > 0; (2) ~2026-12-24 run the script; (3) only then T-BOT shadow fields. STARVED: no.
+MERGE: scripts + a test; no runtime path, safe any time.
+
 ## 2026-10-29 (scheduled routine voltrade-daily-midday, ~16:25Z Thu = 12:25 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1231)
 HEALTH: /api/health 200 ok; liveness not dark, drawdown -2.2%, jobs 8 ok / 0 late / 0 errored, feeds alive, scanner 0 failures, no unhandled rejections. Live server_version 1.0.1231 == main (no deploy lag). research_state_check: only WARN is the known overdue CONSTITUTIONAL AUDIT (awaiting human answers; audit never self-applies). thrash 3/10.
 WHY NO-ACTION: both open verifications are night-gated and cannot be judged at midday — (1) price_panel_build retry after the as_of repair (v1.0.1220) runs in the 20:15 ET window; next session checks /api/diag/price_panel progress.next_batch > 0 (diag is auth-gated, 401 from here); (2) first options_oi_archive night (v1.0.1231) — check heartbeat `withOi` > 0. Another build now would duplicate filed work or churn.
