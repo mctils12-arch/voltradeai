@@ -325,6 +325,15 @@ class RPCDispatcher:
             # BUY), ONE call per loop. args {"entries": [NodeShadowEntry]};
             # python3 -c fallback reads the same payload from a temp file.
             "entry_shadow_record": ("entry_shadow", "record_node_entries"),
+            # v3 CANDIDATE model (2026-10-27, SHADOW ONLY — ml_model_v3.py).
+            # Registered so an RPC caller resolves the same entry points
+            # (READ BEFORE WRITE #4). Like shadow_backfill_exit_aligned, bot.ts
+            # runs the job as a python3 -c subprocess under
+            # execPythonSerialized's 90s kill (checkMlV3CandidateJob), never
+            # through this dispatcher: an RPC thread cannot be killed, and
+            # training inside the daemon would raise its ru_maxrss peak.
+            "ml_v3_job": ("ml_model_v3", "run_job"),
+            "ml_v3_status": ("ml_model_v3", "status"),
 
             # Cache inventory (added 2026-04-20)
             "cache_inventory": (None, "_cache_inventory"),

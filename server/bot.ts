@@ -3423,6 +3423,24 @@ print(json.dumps(get_shadow_stats()))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "ml_v3": {
+          // ADDED 2026-10-27 — see the "ml_v3" entry in diag.ts's
+          // DIAG_PROBES. Read-only passthrough of the v3 CANDIDATE model's
+          // own files (ml_model_v3.py writes them; no Python is spawned):
+          // the honest OOS evaluation report and the job state. Aggregate
+          // metrics only — no ticker, no price.
+          const v3Dir = fs.existsSync("/data/voltrade") ? "/data/voltrade/ml_v3" : "/tmp/ml_v3";
+          const readJson = (name: string): unknown => {
+            const p = `${v3Dir}/${name}`;
+            return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+          };
+          try {
+            return res.json(sanitizeDiag({ probe: "ml_v3", role: "shadow_candidate", promoted: false,
+              job_state: readJson("job_state.json"), eval: readJson("ml_v3_eval.json") }));
+          } catch (e: unknown) {
+            return res.json({ probe: "ml_v3", error: sanitizeDiag(e instanceof Error ? e.message : String(e)) });
+          }
+        }
         case "shadow_bands": {
           // ADDED 2026-10-06 — see the "shadow_bands" entry in diag.ts's
           // DIAG_PROBES. Same execPythonSerialized pattern as "shadow";
@@ -5253,6 +5271,44 @@ print(json.dumps(result))
     if (nowHour === 0) {
       _shadowXaBackfilledToday = false;  // reset at midnight UTC
       _shadowXaAttemptsToday = 0;
+    }
+  }
+
+  // ── v3 CANDIDATE model job (SHADOW ONLY; 2026-10-27 human Phase 4) ───────
+  // ml_model_v3.run_job() refits and honestly re-evaluates the v3 candidate
+  // weekly (system_config ML_V3_RETRAIN_DAYS). It is STAGED and checkpointed
+  // (fetch -> build -> cv fold by fold -> final), each call doing at most
+  // time_budget_s=60 of work, because execPythonSerialized SIGKILLs at 90s.
+  // The command imports numpy, so isTrivialPython() is false: it holds the
+  // Python mutex and gets the 90s cap, not the 10s trivial cap. Runs 03-04
+  // UTC (23:00-00:59 ET; after the 22-23 UTC shadow backfills, market
+  // closed), at most ML_V3_MAX_ATTEMPTS_PER_NIGHT calls, until a call
+  // reports done. Nothing it writes is read by scoring: the live blend keeps
+  // ml_model_v2 until a promotion decision.
+  let _mlV3DoneToday = false;
+  let _mlV3AttemptsToday = 0;
+  const ML_V3_MAX_ATTEMPTS_PER_NIGHT = 20;
+  async function checkMlV3CandidateJob() {
+    const nowHour = new Date().getUTCHours();
+    if ((nowHour === 3 || nowHour === 4) && !_mlV3DoneToday
+        && _mlV3AttemptsToday < ML_V3_MAX_ATTEMPTS_PER_NIGHT) {
+      _mlV3AttemptsToday += 1;
+      try {
+        const result = await execPythonSerialized(
+          `python3 -c "import numpy, json; from ml_model_v3 import run_job; print(json.dumps(run_job(time_budget_s=60), default=str))"`,
+          { timeout: 90000 }
+        );
+        const out = JSON.parse(String(result.stdout).trim().split("\n").pop() || "{}");
+        if (out.done) _mlV3DoneToday = true;
+        audit(out.error ? "ML-V3-JOB-ERROR" : "ML-V3-JOB", JSON.stringify(out).slice(0, 500));
+      } catch (e: unknown) {
+        audit("ML-V3-JOB-ERROR", `attempt ${_mlV3AttemptsToday}/${ML_V3_MAX_ATTEMPTS_PER_NIGHT}: ` +
+          String(e instanceof Error ? e.message : e).slice(0, 500));
+      }
+    }
+    if (nowHour === 0) {
+      _mlV3DoneToday = false;  // reset at midnight UTC
+      _mlV3AttemptsToday = 0;
     }
   }
 
@@ -8582,6 +8638,8 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // check catches a process that starts inside the window.
   setInterval(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, DAILY_MAINTENANCE_CHECK_MS);
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
+  // v3 candidate model job (shadow only): same unconditional 5-minute poll.
+  setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;

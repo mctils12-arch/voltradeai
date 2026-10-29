@@ -1033,6 +1033,7 @@ except Exception as e:
     obv_signal = 0  # -1 = distribution, 0 = neutral, +1 = accumulation
     _deep_atr14 = None   # captured for ml_features atr_pct
     _deep_closes = []    # captured for ml_features above_ma10
+    _deep_bars = []      # raw daily bars, for the SHADOW v3 candidate score (ml_model_v3)
     try:
         end_d = datetime.now().strftime("%Y-%m-%d")
         # MOMENTUM FIX 2026-04-20: widened from 40d/limit=30 to 400d/limit=300
@@ -1049,6 +1050,7 @@ except Exception as e:
             lows = [b["l"] for b in bars_data]
             closes = [b["c"] for b in bars_data]
             _deep_closes = closes  # capture for ML features
+            _deep_bars = bars_data
             volumes = [b.get("v", 0) for b in bars_data]
 
             plus_dm_list = []
@@ -1883,6 +1885,16 @@ except Exception as e:
                 "ml_signal": ml_result.get("ml_signal"),
                 "vxx_source": _ri.get("vxx_source") if isinstance(_ri, dict) else None,
             })
+        # SHADOW v3 candidate (ml_model_v3, 2026-10-27 Phase 4): logged on the
+        # shadow record next to v2's probability, NEVER blended — nothing
+        # below reads these keys. No network call until a candidate exists.
+        try:
+            from ml_model_v3 import shadow_score as _v3_shadow_score
+            _v3 = _v3_shadow_score(ticker, _deep_bars)
+            if _v3:
+                _ml_trace.update(_v3)
+        except Exception as _v3_exc:
+            _ml_trace["v3_error"] = f"{type(_v3_exc).__name__}: {_v3_exc}"[:200]
 
         # Blend: dynamic ratio loaded from tracker, default 60/40
         # IMPORTANT: ML only adjusts score when it has CONVICTION (not near 50).

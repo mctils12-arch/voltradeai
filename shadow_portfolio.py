@@ -215,9 +215,13 @@ def _save_shadow_log(records: List[dict]) -> bool:
 # PIPELINE 2026-10-16: per-candidate model trace persisted on every shadow
 # record. Keys and types are fixed here so the page and the band reports can
 # rely on them; anything else deep_score hands over is dropped.
+# v3_* (2026-10-27): the SHADOW v3 candidate's probability (ml_model_v3),
+# logged beside v2's so the candidate is judged forward before any promotion.
 ML_TRACE_FLOAT_KEYS = ("win_probability", "ml_score", "ml_confidence", "rule_weight",
-                       "ml_weight", "rules_only_score", "ml_only_score", "final_score")
-ML_TRACE_STR_KEYS = ("model_type", "regime_used", "ml_signal", "vxx_source", "error")
+                       "ml_weight", "rules_only_score", "ml_only_score", "final_score",
+                       "v3_win_probability")
+ML_TRACE_STR_KEYS = ("model_type", "regime_used", "ml_signal", "vxx_source", "error",
+                     "v3_model", "v3_asof", "v3_error")
 ML_TRACE_BOOL_KEYS = ("gated", "blended")
 
 

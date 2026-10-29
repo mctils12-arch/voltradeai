@@ -320,6 +320,13 @@ BASE_CONFIG = {
     "ML_TARGET_RETURN":     2.0,   # Label = 1 if stock returns 2%+ in horizon
     "ML_CONFIDENCE_THRESH": 0.60,  # Minimum ML confidence to trade
     "ML_MAX_AGE_HOURS":     24,    # Retrain if model is older than 24 hours
+    # v3 CANDIDATE model (ml_model_v3.py) — SHADOW ONLY, never blended into the
+    # score. 2026-10-27, human Phase 4 "Fix the model". Expected effect: none on
+    # trading; a weekly honest OOS evaluation + a v3 probability on every shadow
+    # record so promotion can be judged forward.
+    "ML_V3_RETRAIN_DAYS":   7,     # refit/re-evaluate the candidate weekly
+    "ML_V3_LOOKBACK_DAYS":  1400,  # calendar days of daily bars (~3.8y; 1y is feature warm-up)
+    "ML_V3_CV_SPLITS":      5,     # date-block walk-forward folds (ml_cv)
 
     # ── MARKET REGIME ─────────────────────────────────────────────────────────
     # Regime detection uses VXX ratio + SPY MA + Markov state
