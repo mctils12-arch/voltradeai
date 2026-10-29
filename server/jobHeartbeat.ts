@@ -165,6 +165,13 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     graceMs: 60 * MIN, maxRunMs: 5 * MIN, tradingDaysOnly: false,
   },
   {
+    // bot.ts checkShadowBackfill's third slot (same hour, its own flag): the
+    // ticker dossier's calibration ledger scorer (dossier_ranges.score_ledger).
+    id: "dossier_ledger_score", label: "Ticker dossier range/plan ledger scorer (22:00 UTC)",
+    source: "server/bot.ts", kind: "daily", tz: "UTC", dueMin: 22 * 60,
+    graceMs: 60 * MIN, maxRunMs: 5 * MIN, tradingDaysOnly: false,
+  },
+  {
     // bot.ts checkShadowBackfillExitAligned: 5-min poll, UTC hour 22 (after
     // the old ruler succeeds) or 23, max 3 attempts a night.
     id: "shadow_backfill_exit_aligned", label: "Exit-aligned shadow backfill (22-23 UTC)",

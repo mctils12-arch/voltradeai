@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain, FileSearch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
@@ -14,10 +14,11 @@ import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
 import ForecastPage from "./forecast";
 import BrainPage from "./brain";
+import TickerDossierPage from "./tickerDossier";
 import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
-type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "forecast" | "brain" | "bot";
+type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "forecast" | "brain" | "dossier" | "bot";
 
 interface Tab {
   id: TabId;
@@ -42,6 +43,8 @@ const TABS: Tab[] = [
   { id: "forecast",  label: "Forecast",  icon: <Target size={14} />,    mobileIcon: <Target size={20} />,    requiresAuth: true, requiresOwner: true },
   // Brain page (2026-10-29): what the bot uses now (live/shadow/off) + short- vs long-term evidence — owner-only
   { id: "brain",     label: "Brain",     icon: <Brain size={14} />,     mobileIcon: <Brain size={20} />,     requiresAuth: true, requiresOwner: true },
+  // Ticker dossier (2026-10-29): owner-only — opened from the AI Engine's look-up box (#/dossier/<SYM>); it folds the look-up in
+  { id: "dossier",   label: "Dossier",   icon: <FileSearch size={14} />, mobileIcon: <FileSearch size={20} />, requiresAuth: true, requiresOwner: true },
   { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
 ];
 
@@ -602,6 +605,19 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               <Brain size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
               <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                 {authenticated ? "The Brain page is restricted to the account owner" : "Sign in to see what the bot is using"}
+              </p>
+              {!authenticated && (
+                <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>
+              )}
+            </div>
+          )
+        )}
+        {activeTab === "dossier" && (
+          authenticated && isOwner ? <TickerDossierPage /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <FileSearch size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "The ticker dossier is restricted to the account owner" : "Sign in to open the ticker dossier"}
               </p>
               {!authenticated && (
                 <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>

@@ -349,6 +349,14 @@ class RPCDispatcher:
             # /api/bot/lookup/:symbol with the python3 -c subprocess fallback.
             "lookup_ticker": ("lookup_ticker", "lookup"),
             "lookup_ledger_report": ("lookup_ledger", "report"),
+            # Ticker dossier (2026-10-29, human-asked; replaces the look-up's
+            # entry point): market -> sector -> stock -> options -> events,
+            # calibrated ranges + trade plan — ticker_dossier.py. args
+            # {"symbol": "RKLB"}; bot.ts serves it on /api/ticker-dossier/:symbol
+            # with the python3 -c fallback. The scorer runs nightly as a
+            # subprocess (it fetches bars); registered so an RPC caller resolves it.
+            "ticker_dossier": ("ticker_dossier", "build"),
+            "ticker_dossier_score": ("ticker_dossier", "score_ledger"),
 
             # REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md step 2): the
             # single owner of regime state. args {"gating": "SPY", "force": false,
