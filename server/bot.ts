@@ -33,6 +33,7 @@ import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry
 import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
+import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
@@ -2272,6 +2273,44 @@ print(json.dumps({
   }
   app.get("/api/bot/regime", requireOwner, (_req, res) => {
     res.json(regimeBody());
+  });
+
+  // ── BRAIN page (2026-10-29, human-asked: "what is being used at the moment
+  // and what combinations could have produced better results ... the short
+  // term is one thing but the long term is different"). server/brain.ts shapes
+  // it: every input/rule/model/sleeve with a status derived NOW from the env +
+  // system_config switches, short-term evidence (brain_evidence.py over the
+  // shadow log: decision buckets vs SPY, source_validation, forward selection +
+  // ablation), long-term evidence (the multi-year tests that exist, quoted
+  // from their files) and the agreement flag. The Python evidence is cached
+  // 10 min (it loads the shadow log and bootstraps); status is recomputed on
+  // every request. Owner only, read-only, daemon-first + python3 -c fallback
+  // (85 s: above the 10 s trivial cap, inside the 90 s mutex lane).
+  let brainCache: { at: number; ev: EvidencePayload | null; via: string | null; error: string | null } | null = null;
+  let brainInflight: Promise<void> | null = null;
+  async function refreshBrainEvidence(): Promise<void> {
+    const r = await pythonCall("brain_evidence", {}, BRAIN_EVIDENCE_CMD, { timeout: 85_000, maxBuffer: 8 * 1024 * 1024 }, 60_000);
+    const ok = r.success && r.result && typeof r.result === "object" && !(r.result as Record<string, unknown>).error;
+    if (ok) brainCache = { at: Date.now(), ev: r.result as EvidencePayload, via: r.via, error: null };
+    else {
+      const err = String((r.result as Record<string, unknown> | null)?.error ?? r.error ?? "brain_evidence failed").slice(0, 200);
+      console.warn(`[brain] evidence call failed via ${r.via}: ${err}`);
+      // keep the last good payload (stale beats empty); record the failure
+      brainCache = { at: Date.now(), ev: brainCache?.ev ?? null, via: brainCache?.via ?? r.via, error: err };
+    }
+  }
+  app.get("/api/bot/brain", requireOwner, async (_req, res) => {
+    try {
+      if (!brainCache || Date.now() - brainCache.at > BRAIN_CACHE_MS) {
+        if (!brainInflight) brainInflight = refreshBrainEvidence().finally(() => { brainInflight = null; });
+        await brainInflight;
+      }
+      const c = brainCache;
+      const body = brainBody(c?.ev ?? null, process.env, new Date(), c?.via ?? null, c?.error ?? null);
+      res.json({ ...body, evidence_cache_age_s: c ? Math.round((Date.now() - c.at) / 1000) : null });
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
   });
 
   // ── Look-up (2026-10-22, human-asked): what the bot thinks of ONE symbol

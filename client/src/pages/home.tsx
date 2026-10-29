@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target } from "lucide-react";
+import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
 import AnalyzePage, { AnalyzeSection } from "./analyze";
@@ -13,10 +13,11 @@ import DataMapPage from "./datamap";
 import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
 import ForecastPage from "./forecast";
+import BrainPage from "./brain";
 import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
-type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "forecast" | "bot";
+type TabId = "analyze" | "research" | "scanner" | "news" | "watchlist" | "data" | "planner" | "taxes" | "forecast" | "brain" | "bot";
 
 interface Tab {
   id: TabId;
@@ -39,6 +40,8 @@ const TABS: Tab[] = [
   { id: "taxes",     label: "Taxes",     icon: <Calculator size={14} />, mobileIcon: <Calculator size={20} />, requiresAuth: false },
   // Weekly forecast screen (2026-10-27, SHADOW): owner-only — its calls name the open positions
   { id: "forecast",  label: "Forecast",  icon: <Target size={14} />,    mobileIcon: <Target size={20} />,    requiresAuth: true, requiresOwner: true },
+  // Brain page (2026-10-29): what the bot uses now (live/shadow/off) + short- vs long-term evidence — owner-only
+  { id: "brain",     label: "Brain",     icon: <Brain size={14} />,     mobileIcon: <Brain size={20} />,     requiresAuth: true, requiresOwner: true },
   { id: "bot",       label: "AI Engine", icon: <Bot size={14} />,       mobileIcon: <Bot size={20} />,       requiresAuth: true, requiresOwner: true },
 ];
 
@@ -463,6 +466,18 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             </button>
           )}
 
+          {/* Brain — owner-only: what is live / shadow / off and the evidence behind each part */}
+          {isOwner && (
+            <button
+              className={`tab-btn ${activeTab === "brain" ? "active" : ""}`}
+              onClick={() => handleTabClick("brain")}
+              aria-current={activeTab === "brain" ? "page" : undefined}
+            >
+              <Brain size={14} />
+              Brain
+            </button>
+          )}
+
           {/* AI Engine — owner-only, direct button (not part of either world) */}
           {isOwner && (
             <button
@@ -574,6 +589,19 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
               <Target size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
               <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                 {authenticated ? "The weekly forecast is restricted to the account owner" : "Sign in to see the weekly forecast"}
+              </p>
+              {!authenticated && (
+                <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>
+              )}
+            </div>
+          )
+        )}
+        {activeTab === "brain" && (
+          authenticated && isOwner ? <BrainPage /> : (
+            <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
+              <Brain size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
+              <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                {authenticated ? "The Brain page is restricted to the account owner" : "Sign in to see what the bot is using"}
               </p>
               {!authenticated && (
                 <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>

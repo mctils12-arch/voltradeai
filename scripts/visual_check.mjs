@@ -297,6 +297,80 @@ function forecastFixture() {
   };
 }
 
+// Brain page (2026-10-29): GET /api/bot/brain in server/brain.ts brainBody()'s
+// real shape — components across every kind and status, each short-term kind
+// (bucket vs SPY, source IC with its BH verdict, not-measured), long-term doc
+// evidence and gaps, all three agreement flags, forward selection (nothing
+// selected + insufficient arm) and an ablation table. Fixture numbers only.
+function brainFixture() {
+  const now = Date.now();
+  const iso = (ms) => new Date(now - ms).toISOString();
+  const evAt = iso(4 * 60_000);
+  const noShort = (reason) => ({ measured: false, reason, what: "—", source: "brain_evidence.py over the shadow log", as_of: evAt, sign: "insufficient", sign_note: "not measured" });
+  const svShort = (name, n, ic, ci, q, verdict, reason, sign) => ({ measured: true, what: `rank IC of ${name} vs the +5d outcome`, metric: "ic", n, n_days: 74, ic, ci95: ci, q_bh: q, verdict, verdict_reason: reason, outcome: "+5d", window: { first: "2026-06-02", last: "2026-10-21" }, source: "source_validation.py (source_validation_v2 (2026-10-27)), primary outcome +5d, BH FDR 0.10", as_of: evAt, sign, sign_note: `${verdict}: ${reason}` });
+  const bucketShort = (label, bucket, n, mean, ci, ex, exci, sign, note) => ({ measured: true, what: label, metric: "mean_return", bucket, outcome: "xa (exit-aligned: the live exit ladder, long stock)", n, n_days: 61, mean_pct: mean, hit_rate: 0.44, ci95: ci, vs_spy: { n, mean_excess_pct: ex, ci95: exci, beat_rate: 0.41 }, horizons: { xa: { n, mean_pct: mean }, "+5d": { n: Math.round(n * 0.95), mean_pct: mean / 2 }, "+20d": { n: Math.round(n * 0.8), mean_pct: mean * 1.4 } }, window: { first: "2026-06-03", last: "2026-10-02" }, source: "brain_evidence.py over the shadow log", as_of: evAt, sign, sign_note: note });
+  const noLong = { measured: false, reason: "Not yet measured: no multi-year test of the stock score or its inputs exists — no point-in-time universe (docs/regime/FINDINGS.md); a 2016+ walk-forward panel harness is not built yet.", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" };
+  const c = (id, name, kind, group, does, status, status_source, detail, short_term, long_term, flag, note) => ({ id, name, kind, group, does, inventory_ref: null, status, status_source, detail, short_term, long_term, agreement: { flag, note } });
+  const components = [
+    c("stock_entries", "Stock entries", "sleeve", "Sleeves", "New stock/ETF positions from the scan (executeTrades, morning queue, Tier-3).", "shadow", "config", 'VOLTRADE_SHADOW_ENTRIES="stocks,options" (config): would-be entries are logged, no order',
+      bucketShort("would-be stock entries (shadow) — or taken, when live", "shadow_mode_entry:stocks", 18, 0.42, null, 0.1, null, "insufficient", "n=18 (< 30 or no clustered CI)"), noLong, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("floor_basket", "Floor basket (QQQ/SMH/KWEB/VXUS)", "sleeve", "Sleeves", "Regime-scheduled passive core: 70% BULL / 90% NEUTRAL / 35% CAUTION / 0% BEAR-PANIC.", "live", "config", "FLOOR_BASKET_ENABLED=true; never gated by entry shadow (entry_shadow.py)",
+      noShort("Not measured here: the sleeve ledger reports dollars, not a daily return series vs same-exposure SPY (research/floor_basket_decision.md)."),
+      { measured: true, items: [{ id: "floor_composition", title: "Floor basket vs same-exposure SPY (simulation)", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10, 2,990 days, 5 bp/side", finding: "Basket CAGR 7.82%, max DD -21.6%, Sharpe 0.733 ± 0.291; Sharpe minus same-exposure SPY -0.109 [95% -0.375, +0.156].", compared_to: "SPY held at the floor's own exposure", sign: "null", variants_tried: 4 }, { id: "floor_schedule", title: "The floor's regime exposure schedule (simulation)", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10", finding: "SPY at the floor's regime-driven exposure made 7.41%/yr vs 13.58% buy-and-hold at Sharpe 0.843 vs 0.816.", compared_to: "buy-and-hold SPY", sign: "negative" }], sign: "null", sign_note: "vs same-exposure SPY" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("convexity", "QQQ-put convexity overlay", "sleeve", "Sleeves", "Far-OTM QQQ puts, 60 DTE, rolled at 21 DTE, 2–4% of equity.", "shadow", "config", "runs every scan (CONVEXITY_OVERLAY.enabled=false is never read); buy-to-open is logged, not ordered (options sleeve shadowed)",
+      noShort("Not measured: option P&L (no options simulator)."), { measured: true, items: [{ id: "convexity_10yr", title: "QQQ-put convexity overlay, 10-year backtest", source_file: "system_config.py", date: "2026-04-17", horizon: "10 years", finding: "The overlay bled $307K-$508K in annual premium against 1-2 crash payoffs that did not recoup it.", compared_to: "no overlay", sign: "negative" }], sign: "negative", sign_note: "vs no overlay" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("ml_v2", "ML v2 (LightGBM) blend", "model", "Models", "Win probability blended into the score at ~0.28–0.40 weight.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      { ...svShort("ml_only_score", 912, 0.012, [-0.031, 0.054], undefined, undefined, "", "null"), verdict: undefined, sign_note: "IC 95% CI includes 0 (reference row, outside the BH family)" },
+      { measured: true, items: [{ id: "ml_v2_honest", title: "ML v2 procedure with the CV leak removed", source_file: "research/ml_v3_eval.md", date: "2026-10-27", horizon: "2023-02-02 → 2026-10-16, 97 tickers", finding: "Reported AUC 0.658 falls to 0.515 with date folds and an honest embargo — the reported skill is the leak.", compared_to: "a constant base-rate forecast", sign: "null" }], sign: "null", sign_note: "vs base rate" }, "agree", "both say no measurable effect"),
+    c("strategy_weights", "\"LEARN\" strategy-weight loop", "model", "Models", "Shifts momentum/VRP weights from recent win rate — written and audited, never read.", "off", "code", "server/bot.ts strategyWeights is write-only: the score uses hard-coded weights (bot_engine.py)",
+      noShort("Off (dead code): reads nothing, changes nothing."), { measured: false, reason: "Not measured (dead).", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "neither horizon has a usable test"),
+    c("min_score", "Minimum score gate", "rule", "Entry gates", "Adaptive MIN_SCORE 63/63/67/75 (Node floor 65): candidates below it are rejected.", "shadow", "config", 'VOLTRADE_SHADOW_ENTRIES="stocks,options" (config): would-be entries are logged, no order',
+      bucketShort("candidates it rejected", "rejected_score", 1240, -0.61, [-0.92, -0.33], -0.74, [-1.05, -0.44], "positive", "blocked names did worse (excess vs SPY CI < 0): the rule earns its keep"), noLong, "insufficient", "no long-horizon test exists"),
+    c("sel_knife", "Regime selection guard: knife", "rule", "Regime engine", "Blocks names below 75% of their 52-week high or at a new 20-day low.", "shadow", "config", "gate on, but stock entries are shadowed: it blocks would-be entries only",
+      bucketShort("candidates it blocked (or would have)", "rejected_regime_knife", 64, 0.88, [0.21, 1.6], 0.71, [0.08, 1.33], "negative", "blocked names did better (excess vs SPY CI > 0): the rule blocks winners"),
+      { measured: false, reason: "Not yet measured in our data: the guards cite published research, but the stock sleeve cannot be backtested here; first forward read is due 2026-11-16.", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "no long-horizon test exists"),
+    c("regime_sizing", "Regime exposure multiplier (sizing)", "rule", "Regime engine", "One exposure multiplier replaces the VIX scalar, the stress multiplier and the Tier-1 VXX ladder.", "shadow", "config", "sleeves stock, options, tier1 (VOLTRADE_REGIME_SIZING, config); nothing it touches is ordered while both entry sleeves are shadowed",
+      noShort("Not measured from the shadow log: outcomes are per-candidate returns, not position sizes."), { measured: true, items: [{ id: "regime_backtest", title: "Regime-layer backtest (index level, 12 arms)", source_file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28", horizon: "2007-08-28 → 2026-10-26, SPY", finding: "engine_quantized: CAGR 8.34%, max DD -20.5%, Sharpe 0.76 vs the old schedule 4.30% / -20.2% / 0.56; buy-and-hold 11.05% / -55.2% / 0.63.", compared_to: "the regime schedule it replaced (current_proxy)", sign: "positive", variants_tried: 12 }], sign: "positive", sign_note: "vs current_proxy" }, "insufficient", "short-term (live shadow) evidence is missing or too thin"),
+    c("news", "Headline sentiment", "input", "News & social", "Alpaca news keyword score: +10/+5/-6/-12 points on the stock score.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      svShort("adj.news", 912, -0.087, [-0.139, -0.035], 0.012, "FAIL_INVERTED", "BH-significant NEGATIVE IC: the + this adjustment adds predicts WORSE outcomes", "negative"), noLong, "insufficient", "no long-horizon test exists"),
+    c("alt", "Alt-data composite", "input", "Alternative data", "Wikipedia attention, short-volume proxy, FTD, GDELT, FRED flags: ±20 points.", "shadow", "config", "computed every scan and logged; nothing it touches is ordered while both entry sleeves are shadowed",
+      svShort("adj.alt", 912, 0.011, [-0.04, 0.063], 0.81, "FAIL", "no BH-significant positive IC above the floor", "null"), noLong, "insufficient", "no long-horizon test exists"),
+    c("google_trends", "Google Trends", "input", "News & social", "Would weight 35% of the social score; hard-coded to 0 (rate limits).", "off", "code", "disabled in social_data.py (signal fixed at 0); its 35% weight slot still exists",
+      noShort("Off: constant 0, nothing to measure."), { measured: false, reason: "Not measured (off).", items: [], sign: "insufficient", sign_note: "no long-horizon test exists" }, "insufficient", "neither horizon has a usable test"),
+  ];
+  const counts = { live: 0, shadow: 0, off: 0 };
+  for (const x of components) counts[x.status] += 1;
+  return {
+    generated_at: iso(3_000), evidence_generated_at: evAt, evidence_via: "daemon", evidence_error: null, evidence_cache_age_s: 240,
+    explainer: "Short-term = live shadow outcomes (what the bot's own candidates did after it scored them); long-term = multi-year tests. A component is promoted only when both agree.",
+    rule: "Live beats backtest when they disagree: a component is promoted only when short-term (live shadow) and long-term (multi-year) evidence agree; when they disagree, the live result wins and the gap is itself the next question.",
+    status_counts: counts,
+    switches: { config_source: "python", entry_shadow: { stocks: true, options: true, value: "stocks,options", source: "config" }, regime: { VOLTRADE_REGIME_ENGINE: { value: "1", source: "config" } } },
+    short_term: { window: { first: "2026-04-20", last: "2026-10-28" }, records: 19874, spy: { ok: true, first_day: "2026-04-13", last_day: "2026-10-28" }, primary_outcome: "xa = exit-aligned ruler (the live exit ladder) for buckets; +5d path ruler for source ICs (source_validation's pre-registered primary)", note: "One first-seen record per (ticker, ET entry day). Long-stock returns of the scored name — never option P&L. 95% CIs are day-clustered bootstraps." },
+    long_term: { sources: [{ file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28" }, { file: "research/ml_v3_eval.md", date: "2026-10-27" }, { file: "research/floor_basket_decision.md", date: "2026-10-27" }], gaps: ["No portfolio walk-forward harness on a 2016+ point-in-time panel exists yet: the stock score, its inputs and the stock sleeve have no multi-year test.", "No options simulator: options entries, CSP guards and the convexity overlay have no option-P&L test (KB #48).", "Kill-switch thresholds have no counterfactual logging."] },
+    components,
+    combinations: {
+      short_term: {
+        available: true, reason: null, as_of: evAt, source: "source_validation.py forward selection (day-split fit/select/holdout; each step's p-value Bonferroni-multiplied by the candidates tried) + ablation", family: "Benjamini-Hochberg across 52 sources at FDR 0.1",
+        summary: { PASS: [], FAIL_INVERTED: ["adj.news"], FAIL: ["adj.alt"], INSUFFICIENT: [], CONSTANT: [] },
+        arms: [
+          { arm: "features", label: "ML features only (all deduped rows)", status: "NOTHING_SELECTED", reason: "no source added significant out-of-sample IC on the SELECT block", n_rows: 884, candidates: 25, variants_tried: 25, selected: [], weights: null, steps: [{ candidate: "feat.price_vs_52w_high", select_ic: 0.061, gain: 0.061, se: 0.034, p_bonferroni: 0.906, tried: 25, accepted: false }], holdout_selected: null, holdout_live_score: { n: 221, n_days: 19, ic: -0.044, ci95: [-0.12, 0.03] }, holdout_vs_live_score: null, holdout_window: { first: "2026-09-12", last: "2026-10-21" } },
+          { arm: "breakdown", label: "score adjustments + features (rows with a logged breakdown)", status: "INSUFFICIENT", reason: "212 rows < MIN_SELECT_ROWS=300", n_rows: 212, candidates: 39, variants_tried: 0, selected: [], weights: null, steps: [], holdout_selected: null, holdout_live_score: null, holdout_vs_live_score: null, holdout_window: null },
+        ],
+        ablation: { status: "OK", reason: null, n_rows: 341, baseline_inverted: true, un_inverts: true, improvement_significant: false, rows: [
+          { name: "baseline", removed: [], n: 341, ic: -0.052, ci95: [-0.11, 0.004], ic_change_vs_baseline: null, ic_change_se: null, q5_minus_q1_pct: -0.67, status: null },
+          { name: "drop_unvalidated", removed: ["intel", "alt", "social", "news", "fundamental"], n: 341, ic: 0.018, ci95: [-0.04, 0.07], ic_change_vs_baseline: 0.07, ic_change_se: 0.041, q5_minus_q1_pct: 0.12, status: null },
+          { name: "drop_news", removed: ["news"], n: 341, ic: -0.021, ci95: [-0.08, 0.035], ic_change_vs_baseline: 0.031, ic_change_se: 0.02, q5_minus_q1_pct: -0.31, status: null },
+        ] },
+      },
+      long_term: [
+        { id: "regime_arms", title: "Regime-layer arms (SPY, full window)", source_file: "research/regime_backtest_2026-10-28.md", date: "2026-10-28", horizon: "2007-08-28 → 2026-10-26", variants_tried: 12, discount: "No deflated Sharpe in the source: 12 arms on one history, so the best arm's edge is optimistic.", columns: ["Arm", "CAGR", "Max DD", "Sharpe"], rows: [["vol_target_15", "10.13%", "-34.7%", "0.78"], ["engine_quantized (live)", "8.34%", "-20.5%", "0.76"], ["buy_and_hold", "11.05%", "-55.2%", "0.63"], ["current_proxy (old)", "4.30%", "-20.2%", "0.56"]] },
+        { id: "floor_arms", title: "Floor composition arms", source_file: "research/floor_basket_decision.md", date: "2026-10-27", horizon: "2014-11 → 2026-10", variants_tried: 4, discount: "Deflated-Sharpe bar for 4 arms is 0.08 — cleared only by qqq_only.", columns: ["Arm", "CAGR", "Max DD", "Sharpe ± SE"], rows: [["qqq_only", "9.76%", "-23.6%", "0.838 ± 0.291"], ["basket (live)", "7.82%", "-21.6%", "0.733 ± 0.291"]] },
+      ],
+    },
+  };
+}
+
 const PAGES = {
   data: { route: "/app#/data", map: true },
   // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
@@ -510,6 +584,8 @@ const PAGES = {
       : { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }),
     "/api/forecast": { __status: 401, __setCookie: "vt_fx_expired=1; Path=/", __body: { error: "Not authenticated" } },
   } },
+  // Brain page (2026-10-29) — owner tab; every status, panel kind and agreement flag (fixture above).
+  brain: { route: "/app#/brain", map: false, fixtures: { "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } }, "/api/bot/brain": brainFixture() } },
   landing: { route: "/", map: false },
   // MULTI-SEGMENT ROUTE REGRESSION (found 2026-07-11 PLATFORM P3 session,
   // fixed this PR): vite.config.ts's base:"./" baked a relative script src
