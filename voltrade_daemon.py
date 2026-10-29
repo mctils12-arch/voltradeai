@@ -364,6 +364,11 @@ class RPCDispatcher:
             "forecast_report": ("forecast", "report"),
             "forecast_generate": ("forecast", "generate_weekly"),
             "forecast_score": ("forecast", "score_matured"),
+            # Brain page (2026-10-29, read-only — brain_evidence.py): switches,
+            # shadow-log decision buckets vs SPY, source_validation, ML v3 and
+            # forecast summaries. bot.ts serves it on /api/bot/brain through
+            # pythonCall (daemon first, python3 -c fallback), cached 10 min.
+            "brain_evidence": ("brain_evidence", "brain_evidence"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:
