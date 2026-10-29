@@ -112384,3 +112384,7 @@ research/master_status.md updated: overnight PR table (#1502–#1545), in-flight
 ## 2026-10-29 [REPAIR] — server/pricePanel.ts (T-DATACORE) — v1.0.1232 PANEL DISK FLOOR 1.5 → 1.25 GiB (human-ordered)
 
 First 2016+ build paused at 62% (288/466 batches, ~208 MB, 12,514 symbols incl. 4,452 delisted) by its disk guard: 1.53 GiB free vs a 1.5 GiB floor. Human: "lower the panel disk floor so it finishes". 1.25 GiB keeps the archives' 1 GiB margin + 256 MiB; ~130 MB remains to write. Rollback trigger: free space under 1.25 GiB from other archives, or any archive write failure → revert / env override. The 30-day rebuild holds two builds briefly — grow the volume before ~2026-11-28. STARVED: no.
+
+## 2026-10-29 [PRODUCT] — T-CLIENT (client/src/pages/home.tsx) — v1.0.1233 TOP BAR: DOSSIER BUTTON
+
+Human opened the Forecast tab looking for the per-ticker dossier and could not find it: the tab existed (phone More sheet, AI Engine look-up box, URL) but the desktop bar rendered Forecast / Brain / AI Engine explicitly and skipped it. Added the button beside Brain, owner-only, same pattern. Visual harness dossier/dossierempty/forecast at 390/768/1440: 0 hard failures. STARVED: no.
