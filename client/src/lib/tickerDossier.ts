@@ -24,9 +24,12 @@ export interface OptionsLayer extends LayerMeta {
   skew_put_minus_call_pts?: number | null; skew_strikes?: string; model_move_5d_pct?: number; model_move_1d_pct?: number; implied_vs_model_5d?: number;
   earnings?: { status: string; date?: string; hour?: string; reason?: string; source?: string } | null;
 }
-export interface Reaction { base_date: string; sessions_since: number; move_since_pct: number; typical_move_pct: number; z: number | null; small_reaction: boolean; label: string }
-export interface EventItem { kind: "filing" | "news"; form?: string; title: string; time: string; date: string; source: string; tier: number; url?: string | null; material?: boolean; items?: Array<{ item: string; label: string }>; reaction?: Reaction | null }
-export interface EventsLayer extends LayerMeta { items?: EventItem[]; form4_count?: number; window_days?: number; reaction_note?: string }
+/** One measured event type (research/event_reaction_study.md): history, never a prediction. */
+export interface EventHistoryRow { label: string; n: number; car01_pct: number; t01: number; drift: string; conditional?: string }
+export interface EventHistory extends EventHistoryRow { key: string; study_path: string; study_date: string; study_window: string; study_caveat: string }
+export interface EventStudy { path: string; date: string; window: string; caveat: string }
+export interface EventItem { kind: "filing" | "news"; form?: string; title: string; time: string; date: string; source: string; tier: number; url?: string | null; material?: boolean; items?: Array<{ item: string; label: string }>; history?: EventHistory | null }
+export interface EventsLayer extends LayerMeta { items?: EventItem[]; form4_count?: number; window_days?: number; history_note?: string; event_history?: Record<string, EventHistoryRow>; event_study?: EventStudy }
 export interface Touch { p_target_first: number; p_stop_first: number; p_neither: number; paths: number }
 export interface Plan { entry_ref: number; horizon_sessions: number; stop: number; target: number; stretch_target: number; risk_per_share: number; reward_per_share: number; reward_risk: number | null; stretch_reward_risk: number | null; stop_pct: number; target_pct: number; stretch_pct: number; touch: Touch; touch_stretch: Touch; rules: Record<string, string> }
 export interface DecileStats { n: number; pos_rate: number | null; mean_pct: number | null; rule_win_rate: number | null }
@@ -170,4 +173,26 @@ export const DOSSIER_RECENT_KEY = "vt-dossier-recent";
 export const DOSSIER_RECENT_MAX = 8;
 export function pushRecent(list: string[], sym: string): string[] {
   return [sym, ...list.filter((s) => s !== sym)].slice(0, DOSSIER_RECENT_MAX);
+}
+
+// ── measured event-reaction history (2026-10-29, research/event_reaction_study.md) ──
+// No event type passed gate 2: every measured type was priced in on day 0–1.
+// The page therefore shows the measured day-0–1 average as HISTORY with its n
+// and t, and never a "not yet priced in" flag. Unmeasured types get no line.
+export function historyLine(h: EventHistoryRow | null | undefined, study: { window: string; path: string; date: string } | null | undefined): string | null {
+  if (!h || !study) return null;
+  const sign = h.car01_pct > 0 ? "+" : "";
+  const t = `t ${h.t01 > 0 ? "+" : ""}${h.t01.toFixed(1)}`;
+  return `Historically (${study.window}, n=${h.n.toLocaleString("en-US")}): after ${h.label}, stocks moved ${sign}${h.car01_pct.toFixed(2)}% vs SPY on average over the filing day and the next (${t}); ${h.drift}.${h.conditional ? ` This ${h.conditional}.` : ""} Source: ${study.path}, ${study.date}.`;
+}
+
+/** The study's insider-cluster definition on the archive rows: ≥2 distinct officers/directors (not 10%-only holders) with open-market buys within 10 days. */
+export function insiderCluster(rows: InsiderSummary["rows"] | null | undefined): boolean {
+  const buys = (rows ?? []).filter((r) => r.kind === "buy" && r.role !== "10% owner" && (r.date || r.filedAt));
+  for (const a of buys) {
+    const ta = Date.parse(String(a.date || a.filedAt).slice(0, 10));
+    const owners = new Set(buys.filter((b) => { const tb = Date.parse(String(b.date || b.filedAt).slice(0, 10)); return Number.isFinite(ta) && Number.isFinite(tb) && Math.abs(tb - ta) <= 10 * 86_400_000; }).map((b) => b.owner));
+    if (owners.size >= 2) return true;
+  }
+  return false;
 }

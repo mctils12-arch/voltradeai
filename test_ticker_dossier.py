@@ -54,19 +54,29 @@ def test_parse_submissions_and_8k_items():
     assert [f["form"] for f in fs] == ["4", "8-K"]     # newest first, window applied
     ev = TD.filing_event(fs[1])
     assert ev["material"] and ev["tier"] == 1 and "material definitive agreement" in ev["title"]
-    assert ev["after_close"] is True and ev["url"].startswith("https://www.sec.gov/Archives/edgar/data/1819994/")
+    assert ev["url"].startswith("https://www.sec.gov/Archives/edgar/data/1819994/")
     assert TD.filing_event(fs[0])["material"] is False
 
 
-def test_reaction_check_is_labelled_unvalidated():
-    bars = [{"t": f"2026-10-{d:02d}T04:00:00Z", "c": c} for d, c in ((20, 100.0), (21, 101.0), (22, 102.0))]
-    r = TD.reaction_check("2026-10-21", False, bars, 101.0, 0.03)
-    assert r["base_date"] == "2026-10-20" and r["sessions_since"] == 2
-    assert math.isclose(r["move_since_pct"], 1.0, abs_tol=0.01)
-    assert r["small_reaction"] is True and "UNVALIDATED" in r["label"]
-    # filed after the close on 10-21 -> the reaction starts 10-22
-    assert TD.reaction_check("2026-10-21", True, bars, 101.0, 0.03)["base_date"] == "2026-10-21"
-    assert TD.reaction_check("2026-10-21", False, bars, 101.0, None) is None
+def test_event_history_only_for_measured_types_and_never_a_flag():
+    def ev(form, items):
+        return {"kind": "filing", "form": form, "items": [{"item": i, "label": ""} for i in items]}
+    h = TD.event_history_for(ev("8-K", ["4.02", "9.01"]))
+    assert h["key"] == "8k_4.02" and h["n"] == 715 and h["car01_pct"] == -1.51 and "drift" in h
+    assert h["study_path"] == "research/event_reaction_study.md" and "not a prediction" in h["study_caveat"]
+    assert TD.event_history_for(ev("8-K", ["1.01"]))["n"] == 42956
+    # 5.02 covers routine appointments too; the study's number applies only to
+    # text-classified sudden exits, so no history line until that classifier exists
+    assert TD.event_history_for(ev("8-K", ["5.02"])) is None
+    # unmeasured: other items, amendments, lawsuits (8.01), news
+    assert TD.event_history_for(ev("8-K", ["8.01", "9.01"])) is None
+    assert TD.event_history_for(ev("8-K/A", ["4.02"])) is None
+    assert TD.event_history_for({"kind": "news", "title": "x"}) is None
+    # the table carries every number with its n and t; nothing claims drift or "priced in"
+    for row in TD.EVENT_HISTORY.values():
+        assert row["n"] > 0 and isinstance(row["t01"], float)
+        assert "priced in" not in row["drift"]
+    assert not hasattr(TD, "reaction_check")
 
 
 def test_score_deciles_against_base_rate():
@@ -157,6 +167,8 @@ def test_build_end_to_end_over_injected_io():
     assert st["ranges"]["5"]["backtest"]["n"] > 0
     assert o["options"]["status"] == "unavailable" and o["options"]["earnings"]["status"] == "unavailable"
     assert o["events"]["status"] == "partial" and o["events"]["items"][0]["tier"] == 2
+    assert all("reaction" not in e for e in o["events"]["items"])
+    assert "not yet priced in" in o["events"]["history_note"] and o["events"]["event_history"]["insider_cluster"]["n"] == 10090
     assert o["direction"]["status"] == "none"
     assert o["plan"]["stop"] < st["price"] < o["plan"]["target"]
     assert o["bot_guards"]["composite"] == "RISK_ON"

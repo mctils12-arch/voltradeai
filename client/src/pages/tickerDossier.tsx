@@ -14,7 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   type Dossier, type RangeH, type LayerMeta, type Plan, type Trend, type EventItem,
   fmtPx, fmtPct, fmtRate, parseSymbol, symbolFromHash, bandGeometry, ladderGeometry, positionSize, decileFor, decileLine,
-  coverageLine, ledgerRangeLine, ledgerPlanLine, directionHeadline, trackRecordLine, layerGaps, ageText, pushRecent,
+  coverageLine, ledgerRangeLine, ledgerPlanLine, directionHeadline, trackRecordLine, layerGaps, ageText, pushRecent, historyLine, insiderCluster,
   DOSSIER_RECENT_KEY, TIER_SHORT,
 } from "@/lib/tickerDossier";
 import { LookupCard } from "@/bot/panels";
@@ -144,7 +144,7 @@ function PlanCard({ p, ledgerLine, hasDirection }: { p: Plan; ledgerLine: string
 }
 
 function EventRow({ e }: { e: EventItem }) {
-  const r = e.reaction;
+  const hist = e.history ? historyLine(e.history, { window: e.history.study_window, path: e.history.study_path, date: e.history.study_date }) : null;
   return (
     <li className="vt-ds-ev" data-kind={e.kind}>
       <div className="vt-ds-evtop">
@@ -152,12 +152,7 @@ function EventRow({ e }: { e: EventItem }) {
         <span className="vt-ds-meta vt-ds-m">{e.date}{e.form ? ` · ${e.form}` : ""} · {e.source}</span>
       </div>
       {e.url ? <a href={e.url} target="_blank" rel="noopener noreferrer" className="vt-ds-evt">{e.title || "(untitled)"}</a> : <span className="vt-ds-evt">{e.title || "(untitled)"}</span>}
-      {r ? (
-        <span className="vt-ds-react" data-small={r.small_reaction ? "true" : undefined}>
-          moved {fmtPct(r.move_since_pct, 1, true)} since ({r.sessions_since} session{r.sessions_since === 1 ? "" : "s"}) vs a typical ±{r.typical_move_pct.toFixed(1)}%
-          {r.small_reaction ? " · small reaction — possibly not priced in" : ""} <i>UNVALIDATED</i>
-        </span>
-      ) : null}
+      {hist ? <span className="vt-ds-react" data-history="true"><i>history</i> {hist}</span> : null}
     </li>
   );
 }
@@ -361,7 +356,10 @@ export default function TickerDossierPage() {
             {d.insiders && d.insiders.filings ? (
               <p className="vt-ds-note"><b>insider trades (archive, {d.insiders.windowDays}d)</b> {d.insiders.buys} open-market buy{d.insiders.buys === 1 ? "" : "s"} ({d.insiders.buyShares.toLocaleString()} sh) · {d.insiders.sells} sale{d.insiders.sells === 1 ? "" : "s"} ({d.insiders.sellShares.toLocaleString()} sh) — {d.insiders.note}</p>
             ) : null}
-            <p className="vt-ds-meta">{d.events?.reaction_note}</p>
+            {d.insiders && insiderCluster(d.insiders.rows) && d.events?.event_history?.insider_cluster ? (
+              <p className="vt-ds-note vt-ds-react" data-history="true"><i>history</i> {historyLine(d.events.event_history.insider_cluster, d.events.event_study)}</p>
+            ) : null}
+            <p className="vt-ds-meta">{d.events?.history_note}</p>
             <details className="vt-ds-details">
               <summary>Source credibility tiers</summary>
               <ul>{Object.entries(d.credibility_tiers ?? {}).map(([k, v]) => <li key={k}><b>T{k}</b> — {v}</li>)}</ul>
