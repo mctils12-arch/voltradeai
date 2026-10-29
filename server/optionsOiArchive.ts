@@ -22,9 +22,10 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { archiveBaseDir } from "./datacoreArchive";
 import { beat } from "./jobHeartbeat";
 import {
-  chainDir, chainEnabled, etClock, shouldRunNow, chainQueryWindow, CHAIN_ALWAYS,
+  chainEnabled, etClock, shouldRunNow, chainQueryWindow, CHAIN_ALWAYS,
   CHAIN_MAX_PAGES, CHAIN_TICK_MS,
 } from "./optionsChainArchive";
 
@@ -42,7 +43,7 @@ interface ContractRow { symbol?: unknown; open_interest?: unknown; open_interest
 interface ContractsPage { option_contracts?: ContractRow[]; next_page_token?: string }
 type FetchFn = (url: string, init?: { headers: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
-export function oiDir(baseDir?: string): string { return path.join(chainDir(baseDir), "oi"); }
+export function oiDir(baseDir?: string): string { return path.join(baseDir || archiveBaseDir(), "optionchains", "oi"); }
 export function oiDayFile(day: string, baseDir?: string): string { return path.join(oiDir(baseDir), `${day}.jsonl`); }
 export function isOiCaptured(day: string, baseDir?: string): boolean {
   return fs.existsSync(oiDayFile(day, baseDir)) || fs.existsSync(`${oiDayFile(day, baseDir)}.gz`);
