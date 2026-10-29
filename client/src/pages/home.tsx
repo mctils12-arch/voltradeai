@@ -3,14 +3,13 @@ import { useLocation } from "wouter";
 import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain, FileSearch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
-import AnalyzePage, { AnalyzeSection } from "./analyze";
-import ScannerPage from "./scanner";
-import ResearchPage from "./research";
-import NewsPage from "./news";
-import WatchlistPage from "./watchlist";
-import PlannerPage from "./planner";
+import type { AnalyzeSection } from "./analyze";
+// The Trade world is one cockpit page (2026-10-29): Options & Volatility,
+// Smart Money, Structure, Research, Scanner, News, Watchlist, Planner, Taxes
+// and the ETF builder are its panels; the old page components stay as the
+// panel bodies' wrappers only.
+import TradePage from "@/trade/TradePage";
 import DataMapPage from "./datamap";
-import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
 import ForecastPage from "./forecast";
 import BrainPage from "./brain";
@@ -279,7 +278,6 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // and child components remains valid without rewriting it. localStorage
   // theme key is no longer read or written.
   const [dark] = useState(true);
-  const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
@@ -317,11 +315,6 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   }, [activeTab, analyzeSection, activeTicker]);
 
   // Dark-only 2026-05-03: theme persistence effect removed (always dark).
-
-  const handleSelectTicker = (ticker: string) => {
-    setAnalyzeTarget(ticker);
-    setActiveTab("analyze");
-  };
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   useEffect(() => {
@@ -382,34 +375,12 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     setActiveTab("analyze");
   };
 
-  // ── The Trade world (2026-10-29, human: "I want this moving map like this
-  // but more modern as well for some of the screens … if you look for a
-  // ticker symbol and then you might want the stock vs. options info on it,
-  // and trade information"). One backdrop (TradeBackdrop, mounted below for
-  // every Trade tab) and one active symbol (lib/activeTicker) with a context
-  // bar that jumps between the views of that symbol. Hooks stay above the
-  // early returns so their order never changes.
+  // ── The Trade world (2026-10-29, human: "it needs to look like the bot UI
+  // but have the functionality of what's there and no duplicates"): every
+  // Trade tab renders the one cockpit page (trade/TradePage) over one moving
+  // map (TradeBackdrop, mounted below) with one active symbol
+  // (lib/activeTicker). The tab only says which panel to open.
   const isTradeTab = MENU_TABS.trade.has(activeTab);
-  const goAnalyze = (section: AnalyzeSection) => { setAnalyzeSection(section); handleTabClick("analyze"); };
-  const viewActive = (tab: TabId, section?: AnalyzeSection) =>
-    activeTab === tab && (section ? analyzeSection === section : true);
-  const tickerBar = activeTicker ? (
-    <nav className="trade-ticker-bar" aria-label={`Views of ${activeTicker}`} data-testid="trade-ticker-bar">
-      <span className="trade-ticker-bar-sym">{activeTicker}</span>
-      <span className="trade-ticker-bar-hint">one symbol, every view</span>
-      <div className="trade-ticker-bar-views">
-        <button className={`trade-view-btn ${viewActive("analyze", "options") ? "active" : ""}`} onClick={() => goAnalyze("options")} aria-current={viewActive("analyze", "options") ? "page" : undefined}><BarChart2 size={13} />Options &amp; Vol</button>
-        <button className={`trade-view-btn ${viewActive("analyze", "smart-money") ? "active" : ""}`} onClick={() => goAnalyze("smart-money")} aria-current={viewActive("analyze", "smart-money") ? "page" : undefined}><Eye size={13} />Smart Money</button>
-        <button className={`trade-view-btn ${viewActive("analyze", "structure") ? "active" : ""}`} onClick={() => goAnalyze("structure")} aria-current={viewActive("analyze", "structure") ? "page" : undefined}><Layers size={13} />Structure</button>
-        <button className={`trade-view-btn ${viewActive("research") ? "active" : ""}`} onClick={() => handleTabClick("research")} aria-current={viewActive("research") ? "page" : undefined}><Scale size={13} />Stock</button>
-        <button className={`trade-view-btn ${viewActive("planner") ? "active" : ""}`} onClick={() => handleTabClick("planner")} aria-current={viewActive("planner") ? "page" : undefined}><Crosshair size={13} />Trade plan</button>
-        <button className={`trade-view-btn ${viewActive("news") ? "active" : ""}`} onClick={() => handleTabClick("news")} aria-current={viewActive("news") ? "page" : undefined}><Newspaper size={13} />News</button>
-        {isOwner && (
-          <button className="trade-view-btn" onClick={() => { window.location.hash = `#/dossier/${activeTicker}`; handleTabClick("dossier"); }}><FileSearch size={13} />Dossier</button>
-        )}
-      </div>
-    </nav>
-  ) : null;
 
   // Login overlay
   if (showLogin) {
@@ -611,31 +582,12 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
       {isTradeTab && <TradeBackdrop />}
 
       {/* ── Page content ── */}
-      <main className={`page-container tab-page${isTradeTab ? " page-container--trade" : ""}`}>
-        {isTradeTab && tickerBar}
-        {activeTab === "analyze" && (
-          <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} section={analyzeSection} />
-        )}
-        {activeTab === "research" && (
-          <ResearchPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "scanner" && (
-          <ScannerPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "news" && (
-          <NewsPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "watchlist" && (
-          <WatchlistPage onSelectTicker={handleSelectTicker} authenticated={authenticated} />
+      <main className="page-container tab-page">
+        {isTradeTab && (
+          <TradePage tab={activeTab as "analyze" | "research" | "scanner" | "news" | "watchlist" | "planner" | "taxes"} section={analyzeSection} authenticated={authenticated} isOwner={!!isOwner} />
         )}
         {activeTab === "data" && (
           <DataMapPage />
-        )}
-        {activeTab === "planner" && (
-          <PlannerPage />
-        )}
-        {activeTab === "taxes" && (
-          <TaxesPage />
         )}
         {activeTab === "forecast" && (
           authenticated && isOwner ? <ForecastPage /> : (

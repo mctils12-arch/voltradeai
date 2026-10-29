@@ -13,7 +13,7 @@ import ETFBuilderView from "./ETFBuilderView";
 import { spreadsEmptyMessage } from "@/lib/spreadsEmpty";
 import {
   Search, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown,
-  Activity, BarChart2, Zap, Moon, Sun, RefreshCw, Target, Volume2,
+  Activity, BarChart2, Zap, Moon, Sun, Volume2,
   DollarSign, AlertTriangle, CheckCircle, XCircle, Info, ArrowUp, ArrowDown,
   Building2, Users, Calendar, Layers, PieChart, Percent, Flame, Radio,
   TrendingUp as TrendUp, Cpu, Eye, ShieldAlert, Newspaper, Briefcase
@@ -38,20 +38,20 @@ export interface AnalyzePageProps {
 // Types
 // ────────────────────────────────────────────────────────────────────────────
 
-interface VolSurface { expiry: string; days: number; atm_iv: number; vrp: number; }
+export interface VolSurface { expiry: string; days: number; atm_iv: number; vrp: number; }
 
-interface Spread {
+export interface Spread {
   type: string; expiry: string; days_to_expiry: number;
   long_strike: number; short_strike: number;
   net_debit: number; max_profit: number | null; max_loss: number | null;
   prob_profit: number; iv: number; delta: number; score: number; description: string;
 }
 
-interface ValuationSignal {
+export interface ValuationSignal {
   factor: string; value: number; benchmark: number; verdict: string; detail: string;
 }
 
-interface Valuation {
+export interface Valuation {
   verdict: "Undervalued" | "Fairly Valued" | "Overvalued";
   color: "green" | "neutral" | "red";
   score: number;
@@ -60,7 +60,7 @@ interface Valuation {
   factors_count: number;
 }
 
-interface VolMetrics {
+export interface VolMetrics {
   avg_volume_90d?: number; volume_ratio_5d?: number;
   hv10?: number; hv20?: number; hv30?: number; hv60?: number;
   hv_percentile?: number; term_structure_slope?: number;
@@ -71,7 +71,7 @@ interface VolMetrics {
   rsi_14?: number; mfi?: number; insider_net?: number;
 }
 
-interface Sentiment {
+export interface Sentiment {
   score: number;
   signal: string;
   bull_pct: number;
@@ -80,7 +80,7 @@ interface Sentiment {
   contrarian_flag: string | null;
 }
 
-interface EarningsIntel {
+export interface EarningsIntel {
   timing: string;
   days_to_earnings: number;
   beat_count: number;
@@ -97,7 +97,7 @@ interface EarningsIntel {
   caution_flag: string | null;
 }
 
-interface Recommendation {
+export interface Recommendation {
   action: string;
   signal: string;
   reasoning: string;
@@ -107,7 +107,7 @@ interface Recommendation {
   leveraged_bear?: string;
 }
 
-interface EdgeFactors {
+export interface EdgeFactors {
   put_call_ratio?: number;
   put_call_signal?: string;
   put_call_interp?: string;
@@ -124,7 +124,7 @@ interface EdgeFactors {
   relative_strength_signal?: string;
 }
 
-interface Fundamentals {
+export interface Fundamentals {
   // Live price
   open?: number; day_high?: number; day_low?: number;
   day_volume?: number; avg_vol_10d?: number; avg_vol_3m?: number;
@@ -154,7 +154,7 @@ interface Fundamentals {
   earnings_date?: string;
 }
 
-interface AnalysisResult {
+export interface AnalyzeData {
   ticker: string; company_name: string;
   spot: number; price_change: number; price_change_pct: number;
   atm_iv: number | null; rv10: number; rv20: number; rv30: number;
@@ -169,29 +169,11 @@ interface AnalysisResult {
   earnings_intel?: EarningsIntel;
   recommendation?: Recommendation;
   edge_factors?: EdgeFactors;
+  // Which market-data chain served the report (analyze.py: alpaca | yfinance
+  // | unknown). The cockpit shows it as provenance; added to the type
+  // 2026-10-29, the payload always carried it.
+  data_source?: string;
   error?: string;
-}
-
-interface ScanResult {
-  ticker: string; spot: number; price_change_pct: number;
-  atm_iv: number; rv20: number; vrp: number;
-  hv_percentile?: number; volume_ratio?: number;
-  best_strategy?: string; top_spread_score: number; scan_score: number;
-  sentiment_score?: number; sentiment_signal?: string;
-  rec_action?: string; rec_signal?: string; freshness?: string;
-}
-
-interface ScanProgressResponse {
-  progress: number;
-  cached_count: number;
-}
-
-interface ScanResponse {
-  results: ScanResult[];
-  full_results?: ScanResult[];
-  cached: boolean;
-  age_seconds: number;
-  progress?: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -686,7 +668,7 @@ function MargRow({ label, tooltipKey, val, good = 20 }: {
 // Score bar
 // ────────────────────────────────────────────────────────────────────────────
 
-function ScoreBar({ score }: { score: number }) {
+export function ScoreBar({ score }: { score: number }) {
   const color = score >= 70 ? "bg-emerald-500" : score >= 45 ? "bg-amber-500" : "bg-rose-500";
   return (
     <div className="flex items-center gap-2">
@@ -705,7 +687,7 @@ function ScoreBar({ score }: { score: number }) {
 // Metric card
 // ────────────────────────────────────────────────────────────────────────────
 
-function MetricCard({ label, value, sub, highlight }: {
+export function MetricCard({ label, value, sub, highlight }: {
   label: string; value: string; sub?: string; highlight?: 'up' | 'down' | 'neutral'
 }) {
   const subColor = highlight === 'up' ? 'text-emerald-400' : highlight === 'down' ? 'text-rose-400' : 'text-slate-400';
@@ -722,7 +704,7 @@ function MetricCard({ label, value, sub, highlight }: {
 // Spread card
 // ────────────────────────────────────────────────────────────────────────────
 
-function SpreadCard({ spread, rank }: { spread: Spread; rank: number }) {
+export function SpreadCard({ spread, rank }: { spread: Spread; rank: number }) {
   const isCredit = spread.net_debit < 0;
   const typeColor = spread.type.includes("Bull") ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
     : spread.type.includes("Bear") ? "text-rose-400 bg-rose-400/10 border-rose-400/20"
@@ -770,7 +752,7 @@ function SpreadCard({ spread, rank }: { spread: Spread; rank: number }) {
 // Vol surface chart
 // ────────────────────────────────────────────────────────────────────────────
 
-function VolSurfaceChart({ data }: { data: VolSurface[] }) {
+export function VolSurfaceChart({ data }: { data: VolSurface[] }) {
   if (!data || data.length === 0) return null;
   const maxIv = Math.max(...data.map(d => d.atm_iv)) * 1.15;
   return (
@@ -808,7 +790,7 @@ function VolSurfaceChart({ data }: { data: VolSurface[] }) {
 // Valuation panel
 // ────────────────────────────────────────────────────────────────────────────
 
-function ValuationPanel({ valuation }: { valuation: Valuation }) {
+export function ValuationPanel({ valuation }: { valuation: Valuation }) {
   const verdictColor = valuation.color === "green"
     ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/30"
     : valuation.color === "red"
@@ -879,7 +861,7 @@ function ValuationPanel({ valuation }: { valuation: Valuation }) {
 // Volume & Bennett metrics panel
 // ────────────────────────────────────────────────────────────────────────────
 
-function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
+export function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
   metrics: VolMetrics; skew?: number | null; atm_iv: number | null; rv20: number;
 }) {
   const volRatio = metrics.volume_ratio_5d;
@@ -1132,7 +1114,7 @@ function VolMetricsPanel({ metrics, skew, atm_iv, rv20 }: {
 // Live price bar (open / high / low / volume / mkt cap / beta)
 // ────────────────────────────────────────────────────────────────────────────
 
-function LivePriceBar({ f, spot, high52, low52 }: {
+export function LivePriceBar({ f, spot, high52, low52 }: {
   f: Fundamentals; spot: number; high52: number | null; low52: number | null;
 }) {
   // Day range progress bar
@@ -1235,7 +1217,7 @@ function LivePriceBar({ f, spot, high52, low52 }: {
 // Fundamentals panel (valuation multiples, margins, growth, analyst)
 // ────────────────────────────────────────────────────────────────────────────
 
-function FundamentalsPanel({ f }: { f: Fundamentals }) {
+export function FundamentalsPanel({ f }: { f: Fundamentals }) {
   const hasMultiples = f.trailing_pe || f.forward_pe || f.peg_ratio || f.price_book || f.price_sales || f.ev_ebitda;
   const hasMargins   = f.gross_margin !== undefined || f.op_margin !== undefined || f.net_margin !== undefined;
   const hasGrowth    = f.rev_growth !== undefined || f.earn_growth !== undefined;
@@ -1412,7 +1394,7 @@ function FundamentalsPanel({ f }: { f: Fundamentals }) {
 // Recommendation card — the main action card
 // ────────────────────────────────────────────────────────────────────────────
 
-function RecommendationCard({ rec, ticker }: { rec: Recommendation; ticker: string }) {
+export function RecommendationCard({ rec, ticker }: { rec: Recommendation; ticker: string }) {
   // Determine primary color theme based on signal
   const isPositive = rec.signal.includes('\ud83d\ude80') || rec.signal.includes('\ud83d\udcc8') || rec.signal.includes('\u2705') || rec.action.toLowerCase().includes('buy');
   const isNegative = rec.signal.includes('\u26a0\ufe0f') || rec.signal.includes('\u2620\ufe0f') || rec.signal.includes('\ud83d\udcc9') || rec.action.toLowerCase().includes('sell');
@@ -1492,7 +1474,7 @@ function RecommendationCard({ rec, ticker }: { rec: Recommendation; ticker: stri
 // Sentiment panel
 // ────────────────────────────────────────────────────────────────────────────
 
-function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
+export function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
   const { score, signal, bull_pct, reddit_buzz, trend_spike, contrarian_flag } = sentiment;
 
   const scoreColor = score > 65 ? 'text-emerald-400' : score < 35 ? 'text-rose-400' : 'text-amber-400';
@@ -1580,7 +1562,7 @@ function SentimentPanel({ sentiment }: { sentiment: Sentiment }) {
 // Earnings intelligence panel
 // ────────────────────────────────────────────────────────────────────────────
 
-function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
+export function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
   const totalGames = intel.beat_count + intel.miss_count;
   const beatBarPct = totalGames > 0 ? (intel.beat_count / totalGames) * 100 : 50;
 
@@ -1705,48 +1687,10 @@ function EarningsIntelPanel({ intel }: { intel: EarningsIntel }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Scan progress bar — polls /api/scan/progress every 3s
-// ────────────────────────────────────────────────────────────────────────────
-
-function ScanProgressBar() {
-  const { data } = useQuery<ScanProgressResponse>({
-    queryKey: ["/api/scan/progress"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/scan/progress");
-      return res.json();
-    },
-    refetchInterval: 3000,
-    staleTime: 0,
-  });
-
-  const progress = Number(data?.progress ?? 0);
-  if (!data || progress >= 100) return null;
-
-  return (
-    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-blue-400/5 border border-blue-400/20 mb-2">
-      <RefreshCw size={12} className="text-blue-400 animate-spin flex-shrink-0" />
-      <div className="flex-1">
-        <div className="flex justify-between text-xs text-slate-400 mb-1">
-          <span>Scanning full market</span>
-          <span className="font-mono text-blue-400">{data.cached_count.toLocaleString()} / ~4,500 tickers</span>
-        </div>
-        <div className="h-1 rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full bg-blue-500 transition-all duration-500"
-            style={{ width: `${Math.min(progress, 100)}%` }}
-          />
-        </div>
-      </div>
-      <span className="text-xs text-blue-400 font-mono">{progress.toFixed(0)}%</span>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
 // Edge Factors Panel
 // ────────────────────────────────────────────────────────────────────────────
 
-function EdgeFactorsPanel({ ef, spot }: { ef: EdgeFactors; spot: number }) {
+export function EdgeFactorsPanel({ ef, spot }: { ef: EdgeFactors; spot: number }) {
   return (
     <div className="panel" data-testid="section-edge-factors">
       <div className="panel-title">
@@ -1842,171 +1786,6 @@ function EdgeFactorsPanel({ ef, spot }: { ef: EdgeFactors; spot: number }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Market scanner
-// ────────────────────────────────────────────────────────────────────────────
-
-function MarketScanner({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const { data, isLoading, isError, refetch, isFetching } = useQuery<ScanResponse>({
-    queryKey: ["/api/scan"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/scan?top_n=10");
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: (data: any) => {
-      // Keep polling every 15s until we have results
-      if (!data || !data.results || data.results.length === 0) return 15000;
-      return false;
-    },
-    retry: retryTransient, // deploy/restart blips retry; real errors don't
-    retryDelay: transientRetryDelay,
-  });
-
-  const results = data?.results ?? [];
-  const displayResults = expanded ? results : results.slice(0, 5);
-
-  if (isLoading || isFetching) {
-    return (
-      <div className="scanner-panel">
-        <div className="scanner-header">
-          <Target size={14} className="text-blue-400" />
-          <span>Market Scanner</span>
-          <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
-            <RefreshCw size={12} className="animate-spin" />
-            Loading scanner data… (may take 30s on first load)
-          </div>
-        </div>
-        <div className="scanner-loading">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="animate-pulse flex items-center gap-3 p-2 rounded bg-white/[0.03]">
-              <div className="w-12 h-4 bg-white/10 rounded" />
-              <div className="flex-1 h-3 bg-white/5 rounded" />
-              <div className="w-8 h-4 bg-white/10 rounded" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (isError || !data) {
-    return (
-      <div className="scanner-panel">
-        <div className="scanner-header">
-          <Target size={14} className="text-blue-400" />
-          <span>Market Scanner</span>
-          <button className="ml-auto text-xs text-blue-400 hover:text-blue-300" onClick={() => refetch()}>Retry</button>
-        </div>
-        <p className="text-xs text-slate-500 p-3">Scanner unavailable. Use the tickers below.</p>
-        <div className="chip-row">
-          {["SPY","QQQ","AAPL","TSLA","NVDA","AMZN"].map(t => (
-            <button key={t} className="chip" onClick={() => onSelectTicker(t)} data-testid={`chip-${t}`}>{t}</button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="scanner-panel">
-      <div className="scanner-header">
-        <Target size={14} className="text-blue-400" />
-        <span className="font-semibold">Top Opportunities</span>
-        <span className="text-slate-500 text-xs ml-1">— ranked by algorithm score</span>
-        <div className="ml-auto flex items-center gap-2">
-          {data.cached && (
-            <span className="text-xs text-slate-500">{Math.floor(data.age_seconds / 60)}m cached</span>
-          )}
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-            title="Refresh scan"
-            data-testid="button-refresh-scan"
-          >
-            <RefreshCw size={11} className={isFetching ? "animate-spin" : ""} />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Live market scan progress bar */}
-      <ScanProgressBar />
-
-      {/* Header row */}
-      <div className="scanner-row-header">
-        <span className="w-4">#</span>
-        <span className="w-14">Ticker</span>
-        <span className="flex-1">Action / Signal</span>
-        <span className="w-12 text-right">ATM IV</span>
-        <span className="w-10 text-right">VRP</span>
-        <span className="w-14 text-right">Sentiment</span>
-        <span className="w-14 text-right">Score</span>
-      </div>
-
-      {displayResults.map((r, i) => {
-        const vrpColor = (r.vrp ?? 0) > 5 ? "text-emerald-400" : (r.vrp ?? 0) > 0 ? "text-blue-400" : "text-rose-400";
-        const scoreColor = (r.scan_score ?? 0) >= 65 ? "text-emerald-400" : (r.scan_score ?? 0) >= 45 ? "text-amber-400" : "text-slate-400";
-        const hvPct = r.hv_percentile;
-        // Freshness dot
-        const freshDot = r.freshness === 'fresh' ? '🟢' : r.freshness === 'recent' ? '🟡' : r.freshness === 'stale' ? '🔴' : '';
-        // Sentiment score color
-        const sentColor = r.sentiment_score !== undefined
-          ? r.sentiment_score > 65 ? 'text-emerald-400' : r.sentiment_score < 35 ? 'text-rose-400' : 'text-amber-400'
-          : 'text-slate-500';
-        // Action display — prefer rec_signal, fall back to best_strategy
-        const actionDisplay = r.rec_signal ?? r.best_strategy ?? '—';
-
-        return (
-          <button
-            key={r.ticker}
-            className="scanner-row"
-            onClick={() => onSelectTicker(r.ticker)}
-            data-testid={`scanner-row-${r.ticker}`}
-          >
-            <span className="w-4 text-slate-500 font-mono text-xs">{i + 1}</span>
-            <span className="w-14 font-mono font-bold text-white text-sm">
-              {freshDot && <span className="mr-0.5" style={{ fontSize: '8px' }}>{freshDot}</span>}
-              {r.ticker}
-            </span>
-            <span className="flex-1 text-xs text-slate-300 truncate">
-              {actionDisplay}
-            </span>
-            <span className="w-12 text-right font-mono text-xs text-slate-300">{r.atm_iv != null ? r.atm_iv.toFixed(1) + '%' : '—'}</span>
-            <span className={`w-10 text-right font-mono text-xs ${vrpColor}`}>
-              {r.vrp != null ? (r.vrp > 0 ? '+' : '') + r.vrp.toFixed(1) : '—'}
-            </span>
-            <span className={`w-14 text-right font-mono text-xs ${sentColor}`}>
-              {r.sentiment_score !== undefined ? r.sentiment_score.toFixed(0) : '—'}
-            </span>
-            <span className={`w-14 text-right font-mono text-xs font-semibold ${scoreColor}`}>
-              {(r.scan_score ?? 0).toFixed(0)}
-            </span>
-          </button>
-        );
-      })}
-
-      {results.length > 5 && (
-        <button
-          className="w-full text-xs text-slate-400 hover:text-slate-200 py-2 mt-1 transition-colors"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? "Show less ▲" : `Show all ${results.length} results ▼`}
-        </button>
-      )}
-
-      <p className="text-xs text-slate-500 mt-2 px-0.5">
-        💡 How the scanner works: It scores every ticker on options edge (how much implied vol exceeds real vol), 
-        the quality of the best available spread, how elevated volatility is vs its own history, and recent volume spikes.
-        A score of 70+ = strong edge. 🟢 fresh &lt;5min · 🟡 recent &lt;20min · 🔴 stale. Click any row to deep-analyze.
-      </p>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
 // Loading skeleton
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2026,6 +1805,98 @@ function LoadingSkeleton() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-40" />)}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Section chrome
+// ────────────────────────────────────────────────────────────────────────────
+
+// SECTION CHROME 2026-05-23: pulled out of the data-loaded results block
+// so the section switcher and badge are ALWAYS visible — the canonical
+// way to navigate sections on mobile (where the desktop hover dropdown
+// doesn't work) and a useful "you are here" anchor on desktop too.
+// Color/label config matches home.tsx ANALYZE_SECTIONS so the dropdown
+// and in-page switcher stay in sync. 2026-10-29: module-level and exported
+// so the cockpit draws the same badges from the same table.
+export interface AnalyzeSectionMeta { badge: string; button: string; accent: string; icon: React.ReactNode }
+
+export const SECTION_META: Record<AnalyzeSection, AnalyzeSectionMeta> = {
+  "options":     { badge: "OPTIONS & VOLATILITY", button: "Options & Volatility", accent: "#4d9fff", icon: <BarChart2 size={14} /> },
+  "smart-money": { badge: "SMART MONEY",          button: "Smart Money",          accent: "#fbb24c", icon: <Eye size={14} /> },
+  "structure":   { badge: "STRUCTURE",            button: "Structure",            accent: "#c084fc", icon: <Layers size={14} /> },
+  "etf-builder": { badge: "ETF BUILDER",          button: "ETF Builder",          accent: "#4ade80", icon: <Briefcase size={14} /> },
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// Data hook — the one /api/analyze call, shared by this page and any host
+// (the cockpit) that places the panels above inside its own layout.
+// ────────────────────────────────────────────────────────────────────────────
+
+// 2026-10-29: `enabled` lets the page keep skipping the call on the ETF
+// Builder section (that view fetches /api/etf itself) without changing the
+// queryKey, so a report already in cache stays visible to the backdrop.
+export function useAnalyze(ticker: string | null, { enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery<AnalyzeData>({
+    queryKey: ["/api/analyze", ticker],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/analyze/${ticker}`);
+      return res.json();
+    },
+    enabled: !!ticker && enabled,
+    retry: retryTransient, // deploy/restart blips retry; real errors don't
+    retryDelay: transientRetryDelay,
+    staleTime: 30000,
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Empty state — the hero card shown before a symbol is entered
+// ────────────────────────────────────────────────────────────────────────────
+
+// 2026-10-29: a component so the cockpit can show it in the analysis panel.
+// The three stock sections keep the copy the page always had; ETF Builder
+// gets its own, naming only what ETFBuilderView actually renders.
+export function AnalyzeEmptyState({ section }: { section: AnalyzeSection }) {
+  if (section === "etf-builder") {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">
+          <Briefcase size={32} className="opacity-40" />
+        </div>
+        <h2 className="empty-title">Analyze any ETF</h2>
+        <p className="empty-sub">
+          Enter an ETF ticker above to see its holdings, weights, sector mix and expense ratio,
+          how each holding performed, and what it takes to replicate the fund yourself.
+        </p>
+        <div className="feature-list">
+          <div className="feature">Holdings and weights, biggest contributors and drags</div>
+          <div className="feature">Per-holding performance across six periods</div>
+          <div className="feature">Sector mix and expense ratio</div>
+          <div className="feature">Replication calculator: shares of each holding for a given amount</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="empty-state">
+      <div className="empty-icon">
+        <BarChart2 size={32} className="opacity-40" />
+      </div>
+      <h2 className="empty-title">Analyze any stock's options</h2>
+      <p className="empty-sub">
+        Enter a ticker above to see volatility metrics, fundamental valuation,
+        volume analytics, and the top-ranked options spreads — all scored by the VRP algorithm.
+      </p>
+      <div className="feature-list">
+        <div className="feature">🌟 Full recommendation: Buy stock, sell options, leveraged ETF</div>
+        <div className="feature">📊 Volatility Risk Premium signal &amp; vol cone</div>
+        <div className="feature">📱 Retail sentiment (Reddit · StockTwits · Google Trends)</div>
+        <div className="feature">📅 Earnings intelligence: beat/miss history, AMC/BMO timing</div>
+        <div className="feature">🧠 GEX regime, RSI, MFI, Options Flow, Insider Net</div>
+        <div className="feature">🎯 Top-ranked spreads with win probability</div>
       </div>
     </div>
   );
@@ -2057,20 +1928,10 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section]);
 
-  const { data, isLoading, isError, error } = useQuery<AnalysisResult>({
-    queryKey: ["/api/analyze", ticker],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/analyze/${ticker}`);
-      return res.json();
-    },
-    // SECTION 2026-05-23: don't hit /api/analyze when the user is on the
-    // ETF Builder section — that section uses /api/etf, not /api/analyze,
-    // and the result view is rendered inside ETFBuilderView.
-    enabled: !!ticker && subTab !== "etf-builder",
-    retry: retryTransient, // deploy/restart blips retry; real errors don't
-    retryDelay: transientRetryDelay,
-    staleTime: 30000,
-  });
+  // SECTION 2026-05-23: don't hit /api/analyze when the user is on the
+  // ETF Builder section — that section uses /api/etf, not /api/analyze,
+  // and the result view is rendered inside ETFBuilderView.
+  const { data, isLoading, isError, error } = useAnalyze(ticker, { enabled: subTab !== "etf-builder" });
 
   // Update when initialTicker changes
   useEffect(() => {
@@ -2117,18 +1978,6 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
 
   const priceUp = data && data.price_change >= 0;
 
-  // SECTION CHROME 2026-05-23: pulled out of the data-loaded results block
-  // so the section switcher and badge are ALWAYS visible — the canonical
-  // way to navigate sections on mobile (where the desktop hover dropdown
-  // doesn't work) and a useful "you are here" anchor on desktop too.
-  // Color/label config matches home.tsx ANALYZE_SECTIONS so the dropdown
-  // and in-page switcher stay in sync.
-  const SECTION_META: Record<AnalyzeSection, { badge: string; button: string; accent: string; icon: React.ReactNode }> = {
-    "options":     { badge: "OPTIONS & VOLATILITY", button: "Options & Volatility", accent: "#4d9fff", icon: <BarChart2 size={14} /> },
-    "smart-money": { badge: "SMART MONEY",          button: "Smart Money",          accent: "#fbb24c", icon: <Eye size={14} /> },
-    "structure":   { badge: "STRUCTURE",            button: "Structure",            accent: "#c084fc", icon: <Layers size={14} /> },
-    "etf-builder": { badge: "ETF BUILDER",          button: "ETF Builder",          accent: "#4ade80", icon: <Briefcase size={14} /> },
-  };
   const currentMeta = SECTION_META[subTab];
 
   // Reusable section switcher — rendered above the search/content. Always
@@ -2559,26 +2408,7 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
         )}
 
         {/* Empty state */}
-        {!ticker && !isLoading && (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <BarChart2 size={32} className="opacity-40" />
-            </div>
-            <h2 className="empty-title">Analyze any stock's options</h2>
-            <p className="empty-sub">
-              Enter a ticker above to see volatility metrics, fundamental valuation,
-              volume analytics, and the top-ranked options spreads — all scored by the VRP algorithm.
-            </p>
-            <div className="feature-list">
-              <div className="feature">🌟 Full recommendation: Buy stock, sell options, leveraged ETF</div>
-              <div className="feature">📊 Volatility Risk Premium signal &amp; vol cone</div>
-              <div className="feature">📱 Retail sentiment (Reddit · StockTwits · Google Trends)</div>
-              <div className="feature">📅 Earnings intelligence: beat/miss history, AMC/BMO timing</div>
-              <div className="feature">🧠 GEX regime, RSI, MFI, Options Flow, Insider Net</div>
-              <div className="feature">🎯 Top-ranked spreads with win probability</div>
-            </div>
-          </div>
-        )}
+        {!ticker && !isLoading && <AnalyzeEmptyState section={subTab} />}
         </>
         )}{/* end subTab !== "etf-builder" (stock-ticker flow) */}
       </div>

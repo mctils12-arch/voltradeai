@@ -55,18 +55,20 @@ test("the moving map is the Trade world's shared backdrop, mounted once by the s
   assert.match(analyze, /resetTradeBackdrop\(\)/, "analyze resets the backdrop on unmount");
 });
 
-test("the active symbol follows the user across the Trade views", () => {
-  assert.match(home, /useSyncExternalStore\(subscribeActiveTicker, getActiveTicker, getActiveTicker\)/);
-  assert.match(home, /data-testid="trade-ticker-bar"/);
-  assert.match(home, /\{isTradeTab && tickerBar\}/, "the bar renders only on Trade tabs");
-  for (const label of ["Options &amp; Vol", "Smart Money", "Structure", "Stock", "Trade plan", "News", "Dossier"]) {
-    assert.ok(home.includes(`/>${label}</button>`), `ticker bar has a ${label} view`);
+test("every Trade tab renders the one cockpit page; the old pages are no longer routed", () => {
+  assert.match(home, /import TradePage from "@\/trade\/TradePage"/);
+  assert.match(home, /\{isTradeTab && \(\s*<TradePage tab=\{activeTab as [^}]+\} section=\{analyzeSection\} authenticated=\{authenticated\} isOwner=\{!!isOwner\} \/>/);
+  for (const page of ["AnalyzePage", "ScannerPage", "ResearchPage", "NewsPage", "WatchlistPage", "PlannerPage", "TaxesPage"]) {
+    assert.doesNotMatch(home, new RegExp(`<${page}\\b`), `${page} is not rendered by the shell any more`);
   }
-  assert.match(analyze, /useState\(initialTicker \?\? getActiveTicker\(\) \?\? ""\)/, "analyze seeds its input from the active symbol");
-  assert.match(analyze, /if \(ticker\) setActiveTicker\(ticker\)/, "analyze writes the symbol back");
-  for (const page of ["research", "planner", "news"]) {
-    assert.match(read(`./${page}.tsx`), /getActiveTicker\(\) \?\? ""/, `${page}.tsx seeds from the active symbol`);
+  assert.match(home, /useSyncExternalStore\(subscribeActiveTicker, getActiveTicker, getActiveTicker\)/, "the shell still reads the active symbol for the URL");
+  const trade = read("../trade/TradePage.tsx");
+  assert.equal((trade.match(/<LookupBox\b/g) ?? []).length, 1, "one look-up box on the cockpit");
+  for (const body of ["ScannerBody", "NewsBody", "WatchlistBody", "ResearchBody", "PlannerBody", "TaxesBody", "InsightsView", "ETFBuilderView", "useAnalyze"]) {
+    assert.ok(trade.includes(body), `the cockpit uses ${body} (no second implementation)`);
   }
+  assert.match(trade, /className="vt-bot-page" data-world="trade"/, "same page root as the bot cockpit");
+  assert.match(trade, /useCockpitLayout</, "same layout engine as the bot cockpit");
 });
 
 test("#/analyze/<section>/<SYMBOL> is a shareable link to one symbol's view", () => {

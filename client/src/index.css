@@ -5246,39 +5246,15 @@ button.vt-ck-tile:focus-visible { outline: 2px solid var(--accent); outline-offs
    until this ships and the dead ones are removed in the cleanup.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* The Trade pages fill the viewport like the cockpit does (was 920 px). */
-.page-container--trade { max-width: 1320px; }
-
-/* One symbol, every view: the context bar under the nav. */
-.trade-ticker-bar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
-  margin: -6px 0 14px; padding: 6px 10px 6px 12px;
-  background: rgba(10, 22, 40, 0.72); border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-.trade-ticker-bar-sym {
-  font-family: var(--font-mono); font-weight: 600; font-size: 14px;
-  letter-spacing: 0.06em; color: var(--text-primary);
-}
-.trade-ticker-bar-hint { font-size: 11px; color: var(--text-tertiary); }
-.trade-ticker-bar-views { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
-.trade-view-btn {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 10px;
-  border-radius: 999px; border: 1px solid transparent; background: transparent;
-  color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
-}
-.trade-view-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
-.trade-view-btn.active { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
-
-/* Cards: the cockpit's .vt-bot-panel surface. */
-.panel, .scanner-panel, .error-card, .empty-state {
+/* Cards: the cockpit's .vt-bot-panel surface (the Trade bodies keep these
+   classes inside their cockpit panels). */
+.panel, .error-card, .empty-state {
   background: rgba(10, 22, 40, 0.78);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
 .panel { padding: 12px 14px 14px; }
-.scanner-panel { padding: 12px 14px 14px; margin-bottom: 12px; }
 .panel-title {
   font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
   color: var(--text-primary); margin-bottom: 10px; gap: 8px;
@@ -5333,9 +5309,30 @@ button.vt-ck-tile:focus-visible { outline: 2px solid var(--accent); outline-offs
 .analyze-section-btn.active svg { color: var(--section-accent, var(--accent)); }
 
 @media (max-width: 639px) {
-  .trade-ticker-bar { margin-top: 0; padding: 6px 8px; }
-  .trade-ticker-bar-hint { display: none; }
-  .trade-ticker-bar-views { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-  .trade-view-btn { min-height: 40px; }
   .chip { min-height: 36px; }
+}
+
+/* ── Trade cockpit (client/src/trade/, 2026-10-29): the bot page's engine and
+   vocabulary (.vt-bot-*) for the Trade world. The page is transparent so the
+   moving world map (TradeBackdrop, fixed behind it) shows through the
+   panels' translucent surface; in-panel tab rows and the owner's dossier
+   jump are the only additions to the vocabulary. ── */
+.vt-bot-page[data-world="trade"] { background: transparent; }
+.vt-bot-tabs { display: flex; flex-wrap: wrap; gap: 4px; flex: 0 0 auto; padding-bottom: 2px; }
+.vt-bot-tab {
+  font: inherit; font-size: 11.5px; color: var(--text-secondary); padding: 4px 10px; min-height: 28px;
+  border-radius: 999px; border: 1px solid transparent; background: none; cursor: pointer; white-space: nowrap;
+}
+.vt-bot-tab:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+.vt-bot-tab[data-active="true"] { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
+.vt-bot-page[data-touch="true"] .vt-bot-tab { min-height: 40px; }
+.vt-trade-dossier {
+  position: absolute; right: 12px; bottom: 10px; z-index: 5; text-decoration: none;
+  background: var(--bg-secondary); border: 1px solid var(--border); min-height: 32px; padding: 4px 10px;
+}
+@media (max-width: 639px) { .vt-trade-dossier { bottom: 10px; } }
+/* the Trade bodies keep their own cards; inside a cockpit panel they lose
+   their page-level breathing room and blur so they read as panel content */
+.vt-bot-page[data-world="trade"] .panel {
+  backdrop-filter: none; -webkit-backdrop-filter: none; margin-bottom: 8px; padding: 10px 12px;
 }

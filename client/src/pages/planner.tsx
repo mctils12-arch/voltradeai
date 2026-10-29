@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { Target, TrendingUp, ShieldAlert, Crosshair, ArrowRight } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -18,10 +18,15 @@ const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", curren
 const usd0 = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const pct = (n: number) => `${n >= 0 ? "" : ""}${(n * 100).toFixed(1)}%`;
 
-export default function PlannerPage() {
-  // One symbol across the Trade world (lib/activeTicker): the plan opens on
-  // the name the user was just analyzing, and a built plan writes it back.
-  const [ticker, setTicker] = useState(() => getActiveTicker() ?? "");
+// ── Body ────────────────────────────────────────────────────────────────────
+// 2026-10-29: the form is its own component so the cockpit can place it in a
+// panel. With a `ticker` from the host (the cockpit's one look-up box) the
+// form has no ticker field; with null it falls back to its own field, seeded
+// from the Trade world's active symbol (lib/activeTicker) as the page always
+// did. Either way a built plan writes the symbol back.
+export function PlannerBody({ ticker }: { ticker: string | null }) {
+  const [ownTicker, setOwnTicker] = useState(() => getActiveTicker() ?? "");
+  const symbol = ticker ?? ownTicker;
   const [account, setAccount] = useState("25000");
   const [riskPct, setRiskPct] = useState("1");
   const [entry, setEntry] = useState("");
@@ -34,13 +39,21 @@ export default function PlannerPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A new symbol from the host makes the plan and the per-share prices of the
+  // old one wrong; account-level settings (size, risk, direction) carry over.
+  useEffect(() => {
+    setPlan(null); setError(null);
+    setEntry(""); setStop(""); setTargetPrice("");
+  }, [ticker]);
+
   async function buildPlan() {
-    if (!ticker.trim()) { setError("Enter a ticker."); return; }
-    setActiveTicker(ticker);
+    const t = symbol.trim().toUpperCase();
+    if (!t) { setError("Enter a ticker."); return; }
+    setActiveTicker(t);
     setBusy(true); setError(null);
     try {
       const payload: any = {
-        ticker: ticker.trim().toUpperCase(),
+        ticker: t,
         account_value: parseFloat(account) || 0,
         risk_pct: (parseFloat(riskPct) || 0) / 100,
         direction,
@@ -69,26 +82,18 @@ export default function PlannerPage() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 1000 }}>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#eef3fb", fontSize: 18, fontWeight: 700 }}>
-          <Crosshair size={18} /> Trade Planner
-        </div>
-        <p style={{ color: "#7e8ca0", fontSize: 12.5, margin: "6px 0 0", maxWidth: 740, lineHeight: 1.5 }}>
-          Plan a trade before you buy: it suggests a volatility-based stop, sizes the position to your risk,
-          and lays out price targets. You place the trade yourself — this never executes anything.
-        </p>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {/* Inputs */}
       <section style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 18 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
-          <div>
-            <label style={label}>Ticker</label>
-            <input style={{ ...input, textTransform: "uppercase" }} placeholder="AAPL" value={ticker}
-              onChange={e => setTicker(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === "Enter" && buildPlan()} />
-          </div>
+          {ticker === null && (
+            <div>
+              <label style={label}>Ticker</label>
+              <input style={{ ...input, textTransform: "uppercase" }} placeholder="AAPL" value={ownTicker}
+                onChange={e => setOwnTicker(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === "Enter" && buildPlan()} />
+            </div>
+          )}
           <div>
             <label style={label}>Direction</label>
             <select style={input} value={direction} onChange={e => setDirection(e.target.value)}>
@@ -122,7 +127,7 @@ export default function PlannerPage() {
           </div>
         </div>
         <button onClick={buildPlan} disabled={busy} style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 7, background: "#4d9fff", color: "#050a13", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
-          <Crosshair size={16} /> {busy ? "Planning…" : "Build trade plan"}
+          <Crosshair size={16} /> {busy ? "Planning…" : ticker ? `Build ${ticker} trade plan` : "Build trade plan"}
         </button>
       </section>
 
@@ -213,6 +218,24 @@ export default function PlannerPage() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+// ── Page ────────────────────────────────────────────────────────────────────
+export default function PlannerPage() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 1000 }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#eef3fb", fontSize: 18, fontWeight: 700 }}>
+          <Crosshair size={18} /> Trade Planner
+        </div>
+        <p style={{ color: "#7e8ca0", fontSize: 12.5, margin: "6px 0 0", maxWidth: 740, lineHeight: 1.5 }}>
+          Plan a trade before you buy: it suggests a volatility-based stop, sizes the position to your risk,
+          and lays out price targets. You place the trade yourself — this never executes anything.
+        </p>
+      </div>
+      <PlannerBody ticker={null} />
     </div>
   );
 }

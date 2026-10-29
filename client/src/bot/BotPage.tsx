@@ -5,19 +5,23 @@
 // freezes, the bot never does. Layout motion runs on frameCore springs
 // (Law I: one rAF loop; transforms only during motion).
 // Brief: research/bot_cockpit_design_brief_v2.md.
-import { contentPos, type Box } from "./flipGeometry";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// 2026-10-29: the panel engine (tiers, flags, float windows, pop-outs and
+// their channel, hold snapshots, FLIP) is the shared client/src/cockpit/ —
+// the Trade page runs the same one. This file keeps what is the bot's: the
+// director, the derivations, live events, the focus symbol, the kill banner
+// and the actions.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { frameCore, PRIORITY, type Spring } from "@/render/frameCore";
+import { useCockpitLayout, useTier, useNow, useFlip, FloatWin, type ChannelMsg } from "@/cockpit";
 import { useBotData, num, type BotData } from "./useBotData";
 import { derivePageState, type AuditRow } from "./pageState";
 import { deriveStages, deriveIssues, deriveDayReview, rowsToday, type DeriveInput } from "./derive";
 import { Director } from "./director";
-import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, type LayoutFlags, type PanelId, type Rect, type Tier } from "./zoneModel";
-import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, LookupBox, ICONS, type Chrome, type ActionKind } from "./panels";
+import { gridStyle, TEMPLATES, PANEL_IDS, type PanelId } from "./zoneModel";
+import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, LookupBox, ICONS, type ActionKind } from "./panels";
 import { watchModel } from "./watch";
 import { Help } from "./help";
-import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
+import { paneIdFromHash, parsePaneMsg, PANE_CHANNEL, PANE_PREFIX, PANE_WINDOW_PREFIX } from "./popout";
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
 import { parseLookupInput } from "./lookup";
 import { fmtAge } from "./format";
@@ -25,91 +29,22 @@ import { ScoreBody } from "./scoreboard";
 import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
 
-function useNow(periodMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), periodMs); return () => clearInterval(id); }, [periodMs]);
-  return now;
-}
-function useTier(): { tier: Tier; w: number; h: number; touch: boolean } {
-  const read = () => ({ w: typeof window === "undefined" ? 1440 : window.innerWidth, h: typeof window === "undefined" ? 900 : window.innerHeight });
-  const [vp, setVp] = useState(read);
-  useEffect(() => { const on = () => setVp(read()); window.addEventListener("resize", on); window.addEventListener("orientationchange", on); return () => { window.removeEventListener("resize", on); window.removeEventListener("orientationchange", on); }; }, []);
-  const touch = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(pointer: coarse)").matches : false;
-  return { tier: tierFor(vp.w), w: vp.w, h: vp.h, touch };
-}
-function reducedMotion(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY" };
-/** this window on the pane channel (popout.ts): a sender ignores its own echoes */
-const WIN_ID = windowId();
-
-/** FLIP on frameCore springs: when the layout key changes, every slot that
- *  moved springs from its old box to its new one with a transform; on
- *  settle the transform is dropped and CSS grid owns the final box. */
-function useFlip(layoutKey: string, slots: React.MutableRefObject<Map<PanelId, HTMLElement>>) {
-  const prev = useRef<Map<PanelId, Box>>(new Map());
-  const anim = useRef<Map<PanelId, { x: Spring; y: Spring; detach: () => void }>>(new Map());
-  const loop = useMemo(() => frameCore(), []);
-  useEffect(() => {
-    loop.start();
-    const un = loop.register(() => {
-      for (const [id, a] of anim.current) {
-        const el = slots.current.get(id);
-        if (!el) continue;
-        if (a.x.asleep && a.y.asleep) { el.style.transform = ""; a.detach(); anim.current.delete(id); continue; }
-        el.style.transform = `translate(${a.x.value.toFixed(2)}px, ${a.y.value.toFixed(2)}px)`;
-      }
-    }, PRIORITY.RENDER, { label: "bot-page-flip" });
-    return () => { un(); for (const a of anim.current.values()) a.detach(); anim.current.clear(); };
-  }, [loop, slots]);
-  useLayoutEffect(() => {
-    const next = new Map<PanelId, Box>();
-    for (const [id, el] of slots.current) {
-      const g = el.closest<HTMLElement>(".vt-bot-grid");
-      const gr = g?.getBoundingClientRect();
-      next.set(id, contentPos(el.getBoundingClientRect(), g && gr ? { left: gr.left, top: gr.top, scrollLeft: g.scrollLeft, scrollTop: g.scrollTop } : null));
-    }
-    if (!reducedMotion()) {
-      for (const [id, rect] of next) {
-        const was = prev.current.get(id);
-        if (!was) continue;
-        const dx = was.left - rect.left, dy = was.top - rect.top;
-        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-        const cur = anim.current.get(id);
-        if (cur) { cur.x.snap(dx + cur.x.value); cur.y.snap(dy + cur.y.value); cur.x.setTarget(0); cur.y.setTarget(0); continue; }
-        const sx = loop.createSpring(dx, { stiffness: 170, damping: 26 }); const sy = loop.createSpring(dy, { stiffness: 170, damping: 26 });
-        sx.spring.setTarget(0); sy.spring.setTarget(0);
-        anim.current.set(id, { x: sx.spring, y: sy.spring, detach: () => { sx.detach(); sy.detach(); } });
-      }
-    }
-    prev.current = next;
-  }, [layoutKey, loop, slots]);
-}
 
 export default function BotPage() {
   const d = useBotData();
   const now = useNow(1000);
   const { tier, w: pageW, h: pageH, touch } = useTier();
-  const [flags, setFlags] = useState<LayoutFlags>(EMPTY_FLAGS);
-  const [rects, setRects] = useState<Partial<Record<PanelId, Rect>>>({});
   const [replayAt, setReplayAt] = useState<number | null>(null);
   // the focus context (brief §6): the position the chart shows; a Book row
   // or a chart chip sets it
   const [focusSym, setFocusSym] = useState<string | null>(null);
   // pop-out windows (popout.ts): `pane` when THIS window is one panel popped
-  // out of the page; `popped` the panels this page has sent to their own
-  // windows (their handles in popWins; the slot shows a ghost until they come back)
+  // out of the page; the panels this page has sent to their own windows are
+  // the engine's `popped` (their slots show a ghost until they come back)
   const pane = useMemo(() => paneIdFromHash(window.location.hash), []);
-  const [popped, setPopped] = useState<PanelId[]>([]);
-  const popWins = useRef<Map<PanelId, Window>>(new Map());
-  const [popNote, setPopNote] = useState<string | null>(null);
-  const chan = useRef<BroadcastChannel | null>(null);
   const [busy, setBusy] = useState(false);
   const [actErr, setActErr] = useState<string | null>(null);
-  const slots = useRef<Map<PanelId, HTMLElement>>(new Map());
-  const held = useRef<Map<PanelId, { since: number; body: ReactNode; ticks: number }>>(new Map());
   const director = useRef(new Director());
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -124,7 +59,6 @@ export default function BotPage() {
   // The director only sees states built from fetched data: before the
   // first audit page lands the page is provisional, never "idle".
   const ready = d.audit.isFetched && d.status.isFetched;
-  const shown = ready ? director.current.propose(derived.state, now, flags.hold) : "idle";
 
   const dIn: DeriveInput = useMemo(() => ({
     audit, nowMs: effNow, killSwitch: !!status?.killSwitch, active: !!status?.active, marketOpen: market ? market.isOpen : null,
@@ -207,88 +141,17 @@ export default function BotPage() {
     finally { setBusy(false); }
   }, [status?.killSwitch]);
 
-  const onHold = useCallback((id: PanelId) => setFlags((f) => ({ ...f, held: toggleIn(f.held, id) })), []);
-  const onPin = useCallback((id: PanelId) => setFlags((f) => ({ ...f, pinned: toggleIn(f.pinned, id) })), []);
-  const onFloat = useCallback((id: PanelId) => setFlags((f) => {
-    if (f.floating.includes(id)) return f;
-    const el = slots.current.get(id); const r = el ? el.getBoundingClientRect() : null;
-    const page = rootRef.current?.getBoundingClientRect();
-    const px = page?.left ?? 0, py = page?.top ?? 0;
-    const slot: Rect = r ? { x: r.left - px, y: r.top - py, w: r.width, h: r.height } : { x: 100, y: 100, w: 600, h: 400 };
-    setRects((rs) => ({ ...rs, [id]: initialFloatRect(slot, { w: page?.width ?? pageW, h: page?.height ?? pageH }) }));
-    return { ...f, floating: [...f.floating, id] };
-  }), [pageW, pageH]);
-  const onDock = useCallback((id: PanelId) => setFlags((f) => ({ ...f, floating: f.floating.filter((x) => x !== id), zoomed: f.zoomed === id ? null : f.zoomed })), []);
-  const onZoom = useCallback((id: PanelId) => setFlags((f) => ({ ...f, zoomed: f.zoomed === id ? null : id, floating: f.floating.filter((x) => x !== id) })), []);
+  // the layout engine (client/src/cockpit): flags, float rects, pop-out
+  // windows and their channel, slots, hold snapshots, the chrome handlers,
+  // Esc. The focus symbol is the bot's message on that channel — shared with
+  // every window of this page: a Book click in a pop-out charts the ticker on
+  // the page, and the other way round
+  const onPaneMsg = useCallback((m: ChannelMsg) => { const p = parsePaneMsg(m); if (p?.t === "focus") setFocusSym(p.sym); }, []);
+  const layout = useCockpitLayout<PanelId>({ ids: PANEL_IDS, titles: TITLES, tier, touch, page: { w: pageW, h: pageH }, rootRef, paneId: pane, tickCount: tickCount.current, paneTitleSuffix: " · VolTrade bot", channelName: PANE_CHANNEL, paneHashPrefix: PANE_PREFIX, paneWindowPrefix: PANE_WINDOW_PREFIX, onMessage: onPaneMsg });
+  const { flags, rects, popped, popNote, setPopNote, slotRef, onDock, onZoom, onPop, onRaise, onBringBack, onHoldAll, post } = layout;
+  const shown = ready ? director.current.propose(derived.state, now, flags.hold) : "idle";
   const onFocus = useCallback((id: PanelId) => { onZoom(id); }, [onZoom]);
-  // the focus symbol is shared with every window of this page: a Book click
-  // in a pop-out charts the ticker on the page, and the other way round
-  const focus = useCallback((sym: string | null) => { setFocusSym(sym); chan.current?.postMessage({ t: "focus", sym, from: WIN_ID }); }, []);
-  useEffect(() => {
-    if (typeof BroadcastChannel === "undefined") return;
-    const ch = new BroadcastChannel(PANE_CHANNEL);
-    chan.current = ch;
-    ch.onmessage = (e: MessageEvent) => {
-      const m = parsePaneMsg(e.data);
-      if (!m || m.from === WIN_ID) return;
-      if (m.t === "focus") setFocusSym(m.sym);
-      else if (m.t === "pane-closed") { popWins.current.delete(m.id); setPopped((p) => p.filter((x) => x !== m.id)); }
-    };
-    return () => { ch.close(); chan.current = null; };
-  }, []);
-  // a pane names itself in the tab title and says goodbye when it closes
-  useEffect(() => {
-    if (!pane) return;
-    const prev = document.title;
-    document.title = `${TITLES[pane]} · VolTrade bot`;
-    const bye = () => chan.current?.postMessage({ t: "pane-closed", id: pane, from: WIN_ID });
-    window.addEventListener("pagehide", bye);
-    return () => { window.removeEventListener("pagehide", bye); document.title = prev; };
-  }, [pane]);
-  const onPop = useCallback((id: PanelId) => {
-    const el = slots.current.get(id); const r = el ? el.getBoundingClientRect() : null;
-    // the slot in screen coordinates (the popup opens over it); the browser
-    // chrome above the viewport is outerHeight − innerHeight
-    const slot = r ? { x: r.left + window.screenX, y: r.top + window.screenY + Math.max(0, window.outerHeight - window.innerHeight), w: r.width, h: r.height } : null;
-    const w = window.open(paneUrl(id, window.location), paneName(id), paneFeatures(slot, { w: window.screen.availWidth, h: window.screen.availHeight }));
-    if (!w) { setPopNote(`${TITLES[id]}: the browser blocked the pop-up window — allow pop-ups for this site, then try again`); return; }
-    setPopNote(null);
-    popWins.current.set(id, w);
-    w.focus();
-    setFlags((f) => ({ ...f, floating: f.floating.filter((x) => x !== id), zoomed: f.zoomed === id ? null : f.zoomed }));
-    setPopped((p) => (p.includes(id) ? p : [...p, id]));
-  }, []);
-  const onRaise = useCallback((id: PanelId) => { const w = popWins.current.get(id); if (w && !w.closed) w.focus(); }, []);
-  const onBringBack = useCallback((id: PanelId) => {
-    const w = popWins.current.get(id);
-    if (w && !w.closed) w.close();
-    popWins.current.delete(id);
-    setPopped((p) => p.filter((x) => x !== id));
-  }, []);
-  // a pane closed from its own window: its goodbye on the channel is the
-  // fast path; this poll catches a window killed without a pagehide
-  useEffect(() => {
-    if (!popped.length) return;
-    const t = window.setInterval(() => {
-      for (const [id, w] of popWins.current) if (w.closed) { popWins.current.delete(id); setPopped((p) => p.filter((x) => x !== id)); }
-    }, 1000);
-    return () => window.clearInterval(t);
-  }, [popped.length]);
-  // Esc docks every window and leaves the zoom. Listened on the document
-  // while one is open: the page root only received keys while focus was
-  // inside it, and a click on the page body left focus outside (2026-10-20).
-  const windowsOpen = flags.floating.length > 0 || flags.zoomed !== null;
-  useEffect(() => {
-    if (!windowsOpen) return;
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setFlags((f) => ({ ...f, zoomed: null, floating: [] })); };
-    document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [windowsOpen]);
-
-  const chrome = useCallback((id: PanelId): Chrome => {
-    const h = held.current.get(id);
-    return { id, held: flags.held.includes(id), pinned: isPinned(flags, id), heldSince: h?.since ?? null, ticksSinceHold: h ? tickCount.current - h.ticks : 0, nowMs: now, onHold, onPin, onFloat, onPop, pane: pane !== null, canPop: !touch && tier !== "s" };
-  }, [flags, now, onHold, onPin, onFloat, onPop, pane, touch, tier]);
+  const focus = useCallback((sym: string | null) => { setFocusSym(sym); post({ t: "focus", sym }); }, [post]);
 
   // bodies (fresh), then hold snapshots
   const tpl = TEMPLATES[tier];
@@ -310,11 +173,10 @@ export default function BotPage() {
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
     score: <ScoreBody q={d.scoreboard} nowMs={now} />,
   };
-  for (const id of flags.held) { if (!held.current.has(id)) held.current.set(id, { since: now, body: freshBody[id], ticks: tickCount.current }); }
-  for (const id of [...held.current.keys()]) { if (!flags.held.includes(id)) held.current.delete(id); }
+  // the hold ledger (engine): a newly held panel keeps this render's body
+  const body = layout.heldBodies(freshBody, now);
   // a popped-out "Now" window between events: say so rather than show a bare frame
   if (pane === "state" && !freshBody.state) freshBody.state = <div className="vt-bot-empty"><span className="vt-bot-t3">idle · nothing in progress — this window shows the scan, the decision chain, a working order, an exit or an incident while one is running</span></div>;
-  const body = (id: PanelId): ReactNode => (held.current.get(id)?.body ?? freshBody[id]);
 
   const stateTitle = shown === "scanning" ? "Scan · tier 2" : shown === "candidate" ? `Decision · ${((lastScan?.new_trades?.[0] as { ticker?: string } | undefined)?.ticker ?? lastScan?.top_10?.[0]?.ticker ?? "").toUpperCase()}` : shown === "placed" ? "Order working" : shown === "exit" ? "Exit" : shown === "incident" ? `Halted · ${derived.incident?.kind ?? ""} · ${derived.since ? fmtAge(effNow - Date.parse(derived.since)) : ""}` : shown === "closed" ? "Day review" : "Now";
   const hasState = shown !== "idle";
@@ -329,7 +191,7 @@ export default function BotPage() {
   const ordersFlex = "0 0 auto";
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
-    const c = chrome(id);
+    const c = layout.chrome(id, now);
     const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" ? ages.score : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
@@ -352,7 +214,6 @@ export default function BotPage() {
       default: return null;
     }
   };
-  const slotRef = (id: PanelId) => (el: HTMLElement | null) => { if (el) slots.current.set(id, el); else slots.current.delete(id); };
   const slot = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => popped.includes(id)
     // in its own browser window: the ghost brings it forward, or back
     ? <div key={id} ref={slotRef(id)} className="vt-bot-ghost" data-popped="true" role="button" tabIndex={0} onClick={() => onRaise(id)} onKeyDown={(e) => { if (e.key === "Enter") onRaise(id); }} style={extraStyle}><span>{TITLES[id]} · in its own window · click to bring it forward</span><button type="button" className="vt-bot-wbtn" onClick={(e) => { e.stopPropagation(); onBringBack(id); }}>{ICONS.dock} bring back</button></div>
@@ -365,8 +226,8 @@ export default function BotPage() {
     : <div key={id} ref={slotRef(id)} style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, ...extraStyle }}>{panelEl(id, extraStyle)}</div>;
 
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
-  useFlip(layoutKey, slots);
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} />;
+  useFlip(layoutKey, layout.slots, { label: "bot-page-flip" });
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={onHoldAll} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped
@@ -416,7 +277,7 @@ export default function BotPage() {
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>
         </div>
       )}
-      {flags.floating.map((id) => <FloatWin key={id} id={id} rect={rects[id] ?? { x: 80, y: 80, w: 760, h: 480 }} page={{ w: pageW, h: pageH }} onRect={(r) => setRects((rs) => ({ ...rs, [id]: r }))} onDock={() => onDock(id)} onZoom={() => onZoom(id)} onPop={() => onPop(id)}>{panelEl(id, { flex: "1 1 auto" })}</FloatWin>)}
+      {flags.floating.map((id) => <FloatWin key={id} title={TITLES[id]} rect={rects[id] ?? { x: 80, y: 80, w: 760, h: 480 }} page={{ w: pageW, h: pageH }} onRect={(r) => layout.setRect(id, r)} onDock={() => onDock(id)} onZoom={() => onZoom(id)} onPop={() => onPop(id)}>{panelEl(id, { flex: "1 1 auto" })}</FloatWin>)}
       {flags.hold ? <div className="vt-bot-hold-outline" aria-hidden="true" /> : null}
     </div>
   );
@@ -445,39 +306,6 @@ function KillBanner({ days, onResume, busy, err }: { days: number | null; onResu
         </div>
       </div>
       {err ? <div className="vt-bot-killbanner-err">{err}</div> : null}
-    </div>
-  );
-}
-
-function FloatWin({ id, rect, page, onRect, onDock, onZoom, onPop, children }: { id: PanelId; rect: Rect; page: { w: number; h: number }; onRect: (r: Rect) => void; onDock: () => void; onZoom: () => void; onPop: () => void; children: ReactNode }) {
-  const drag = useRef<{ mode: "move" | "size"; sx: number; sy: number; start: Rect } | null>(null);
-  // A press on a title-bar BUTTON is not a drag: capturing the pointer to the
-  // bar sent the button's click to the bar instead, so dock / zoom / close
-  // never fired (field report 2026-10-20; bot-ui harness battery).
-  const onDown = (mode: "move" | "size") => (e: React.PointerEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { mode, sx: e.clientX, sy: e.clientY, start: rect };
-  };
-  const onMove = (e: React.PointerEvent) => {
-    const g = drag.current; if (!g) return;
-    const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
-    const next = g.mode === "move" ? { ...g.start, x: g.start.x + dx, y: g.start.y + dy } : { ...g.start, w: g.start.w + dx, h: g.start.h + dy };
-    onRect(snapEdges(clampRect(next, page), page));
-  };
-  const onUp = () => { drag.current = null; };
-  return (
-    <div className="vt-bot-win" role="dialog" aria-label={`${TITLES[id]} window`} style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}>
-      <div className="vt-bot-wh" onPointerDown={onDown("move")} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-        <span className="vt-bot-ti">{TITLES[id]}</span>
-        <span className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>floating · ghost slot kept · Esc docks</span>
-        <button type="button" className="vt-bot-wbtn" onClick={onDock}>{ICONS.dock} dock</button>
-        <button type="button" className="vt-bot-wbtn" onClick={onZoom}>{ICONS.zoom} zoom</button>
-        <button type="button" className="vt-bot-wbtn" onClick={onPop} title="Its own browser window — drag it to another monitor">{ICONS.pop} own window</button>
-        <button type="button" className="vt-bot-wbtn" aria-label="Close window" onClick={onDock}>{ICONS.close}</button>
-      </div>
-      <div className="vt-bot-wb">{children}</div>
-      <div className="vt-bot-resize" aria-hidden="true" onPointerDown={onDown("size")} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
     </div>
   );
 }
