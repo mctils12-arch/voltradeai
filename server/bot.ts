@@ -13,6 +13,7 @@ import {
 } from "./killSwitchAutoResume";
 import { sleeveLedger, realizedEvents, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_PAGES, SLEEVE_CACHE_MS, SLEEVE_COLD_WAIT_MS, type RealizedEvent } from "./sleeveLedger";
 import { taxLedger, ratesFromQuery, type TaxRates } from "./taxLedger";
+import { edgeLedger, brokerBlock, type EdgeLedger } from "./edgeLedger";
 import { parseNonTradeActivities, activityLedger, reconcile } from "./accountActivities";
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
@@ -2000,6 +2001,19 @@ feedback = [t for t in feedback_raw if not t.get('_seed')]
 # showed THAT — whenever a position was open the history never got measured.
 # Same filter as diagnostics.py; pinned by test_performance_route_null_pnl.py.
 feedback = [t for t in feedback if t.get('ticker', '').strip() and t.get('pnl_pct') is not None and not (t.get('pnl_pct', 0) == 0 and t.get('outcome') is None)]
+# [RULE-REVIEW] 2026-10-29: what the number above is NOT. The filter drops every
+# live record without a numeric pnl_pct — open entries (track_fill) and orphan
+# exits (an exit fill no entry record matched) — and pnl_pct is the engine's
+# trigger-price P&L, not the broker fill. Reported beside the number so the
+# page can say so; the broker's own expectancy rides in this route's broker
+# block (server/edgeLedger.ts). lastClosedAt: when the last COUNTED record
+# closed (exit_time, else its fill time), compared on the yyyy-mm-ddThh:mm:ss
+# prefix so naive and offset timestamps order together.
+live_records = [t for t in feedback_raw if not t.get('_seed')]
+orphan_exits = sum(1 for t in live_records if t.get('outcome') == 'orphan_exit')
+open_entries = sum(1 for t in live_records if t.get('pnl_pct') is None and t.get('outcome') is None)
+closed_times = [str(t.get('exit_time') or t.get('time_filled') or '') for t in feedback]
+last_closed_at = max((s for s in closed_times if s), key=lambda s: s[:19], default=None)
 # Win rate
 wins = [t for t in feedback if t.get('pnl_pct', 0) > 0]
 losses = [t for t in feedback if t.get('pnl_pct', 0) <= 0]
@@ -2060,6 +2074,9 @@ print(json.dumps({
     'slippageGapPct': round(total_pnl - realistic_total_pnl, 2),
     'bestTrade': {'ticker': best_trade.get('ticker', ''), 'pnlPct': round(best_trade.get('pnl_pct', 0), 2)} if best_trade else None,
     'worstTrade': {'ticker': worst_trade.get('ticker', ''), 'pnlPct': round(worst_trade.get('pnl_pct', 0), 2)} if worst_trade else None,
+    'lastClosedAt': last_closed_at,
+    'excluded': {'orphanExits': orphan_exits, 'openEntries': open_entries},
+    'basis': 'trigger price, not fill',
 }))
 "`, { timeout: 10000 });
 
@@ -2223,8 +2240,17 @@ print(json.dumps({
           t.side = getDisplaySide(ticker, rawSide);
         }
       }
+      // BROKER EXPECTANCY ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts):
+      // the same scorecard from Alpaca's fills — every priced close, all
+      // sleeves — out of the ONE sleeve cache /api/bot/sleeves and the
+      // sleeves diag probe share; never a second fetch here. A cold cache
+      // answers broker: null with the reason (the route does not wait) and
+      // asking warms it for the next poll, as the benchmark's after-tax leg does.
+      if (!sleeveCache) void sleevesBody().catch((warmErr) => console.warn("[perf] sleeve ledger warm-up:", warmErr instanceof Error ? warmErr.message : warmErr));
+      const brokerEdge = brokerBlock(sleeveCache ? { at: sleeveCache.at, edge: sleeveCache.edge } : null, Date.now(), sleeveError, SLEEVE_CACHE_MS);
       res.json({
         ...perf,
+        ...brokerEdge,
         equityCurve,
         equityPeak: state.equityPeak,
         currentDrawdown: state.equityPeak > 0 ? ((equityCurve[0]?.value || 0) - state.equityPeak) / state.equityPeak * 100 : 0,
@@ -2489,8 +2515,10 @@ print(json.dumps({
   // SLEEVE_CACHE_MS so a poll never waits on dozens of pages.
   // taxInputs ([RULE-REVIEW] 2026-10-21, server/taxLedger.ts): the realized
   // events and fills the sleeve ledger walked, kept so the TAXABLE-account
-  // view can be recomputed at the caller's rates without another fetch
-  let sleeveCache: { at: number; body: Record<string, unknown>; taxInputs: { events: RealizedEvent[]; fills: Parameters<typeof taxLedger>[1]; windowStartMs: number } } | null = null;
+  // view can be recomputed at the caller's rates without another fetch.
+  // edge ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts): expectancy per
+  // closed lot from the same walk — /api/bot/performance's `broker` block.
+  let sleeveCache: { at: number; body: Record<string, unknown>; taxInputs: { events: RealizedEvent[]; fills: Parameters<typeof taxLedger>[1]; windowStartMs: number }; edge: EdgeLedger } | null = null;
   let sleeveError: string | null = null;
   let sleeveInflight: Promise<void> | null = null;
   async function refreshSleeves(): Promise<void> {
@@ -2530,10 +2558,12 @@ print(json.dumps({
       if (!fills || !nta || !positions) throw new Error("fills, activities or positions unreadable");
       const ledger = sleeveLedger(fills.rows, positions, FLOOR_AND_LEG_TICKERS, windowStartMs);
       const nonTrade = activityLedger(nta.rows.filter((r) => r.t >= windowStartMs));
-      const taxInputs = { events: realizedEvents(fills.rows, positions).events, fills: fills.rows, windowStartMs };
+      const walked = realizedEvents(fills.rows, positions);
+      const taxInputs = { events: walked.events, fills: fills.rows, windowStartMs };
       sleeveCache = {
         at: Date.now(),
         taxInputs,
+        edge: edgeLedger(walked.events, walked.unpriced, FLOOR_AND_LEG_TICKERS, windowStartMs),
         body: {
           ...ledger, since: afterIso, truncated, malformedFills: fills.malformed,
           nonTrade, malformedActivities: nta.malformed,

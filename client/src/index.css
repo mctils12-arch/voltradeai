@@ -4642,6 +4642,19 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-kpiv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 500; line-height: 1.15; }
 @media (max-width: 1179px) { .vt-bot-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vt-bot-hero { font-size: 26px; } }
 @media (max-width: 639px) { .vt-bot-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .vt-bot-kpi .vt-bot-panel { padding: 10px 12px; } }
+/* Expectancy tile ([RULE-REVIEW] 2026-10-29): the broker's number per closed lot as the headline, its n / last close
+   beside it, and the bot-log number demoted to two dim lines beneath — a column that fits the strip's existing height
+   at every width (86 px desktop row, the vs-SPY tile's 82 px at 768, the win-rate tile's 96 px pair at 390: pinned by
+   the harness). On the phone the eyebrow's "/ closed lot" and the longer words step aside (.vt-kpi-wide) so no line wraps. */
+.vt-kpi-edge { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.vt-kpi-edge-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.vt-kpi-edge-row .vt-bot-hero { line-height: 1; flex: 0 0 auto; }
+.vt-kpi-edge-cap { font-size: 10.5px; line-height: 1.25; color: var(--text-tertiary); min-width: 0; flex: 1 1 auto; }
+.vt-kpi-edge-cap > span, .vt-kpi-edge-log > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-kpi-edge-log { font-size: 10px; line-height: 1.15; color: var(--text-tertiary); opacity: .85; min-width: 0; }
+/* the eyebrow's "/ closed lot" only at the desktop tier (one line keeps the idle page's 72 px tiles at 768); the long words only above the phone */
+@media (max-width: 1179px) { .vt-kpi-desk { display: none; } }
+@media (max-width: 639px) { .vt-kpi-wide { display: none; } }
 .vt-bot-chain { display: grid; grid-template-columns: 1fr 12px 1.1fr 12px 1.35fr 12px 1fr 12px 1.05fr; gap: 4px; padding: 0 12px 10px; align-items: stretch; }
 @media (max-width: 1179px) { .vt-bot-chain { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } .vt-bot-chain .vt-bot-arrow { display: none; } }
 .vt-bot-node { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 8px 10px; background: var(--surface); border-radius: var(--radius-sm); }

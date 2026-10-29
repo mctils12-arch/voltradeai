@@ -183,3 +183,32 @@ test("options by hold time: the condor's four-minute round trip is <1h; a CSP bo
   const { events } = realizedEvents(flip, []);
   assert.deepEqual(events.map((e) => [e.pnl, e.openedAt]), [[30, T("2026-09-01T14:00:00Z")], [10, T("2026-09-02T14:00:00Z")]]);
 });
+
+test("basis ([RULE-REVIEW] 2026-10-29, edgeLedger.ts): closing qty × avg cost × mult, so pnl / basis is the lot's return; a credit lot's basis is the credit received; a lot older than the fetched history stays unpriced", () => {
+  const { events, unpriced } = realizedEvents([...FILLS].sort((a, b) => a.t - b.t), POSITIONS);
+  const one = (sym: string) => { const e = events.filter((x) => x.symbol === sym); assert.equal(e.length, 1, sym); return e[0]; };
+  const pct = (e: { pnl: number; basis: number }) => Math.round((e.pnl / e.basis) * 10000) / 100;
+  assert.ok(events.every((e) => e.basis > 0), "every priced close has a positive basis");
+  // QQQ: 10 at 600 sold at 590 → basis 6,000, −100 → −1.67 %
+  assert.deepEqual([one("QQQ").basis, one("QQQ").pnl, pct(one("QQQ"))], [6000, -100, -1.67]);
+  // AMD: 20 at 150 sold at 140 → basis 3,000, −200 → −6.67 %
+  assert.deepEqual([one("AMD").basis, pct(one("AMD"))], [3000, -6.67]);
+  // the condor: a sold call (credit 6.10 × 100 = 610) bought back at 6.45 → −35 = −5.74 %; a bought put (debit 371) sold at 3.85 → +14 = +3.77 %
+  assert.deepEqual([one("TSLA261030C00470000").basis, Math.round(one("TSLA261030C00470000").pnl * 100) / 100, pct(one("TSLA261030C00470000"))], [610, -35, -5.74]);
+  assert.deepEqual([one("TSLA261030P00405000").basis, Math.round(one("TSLA261030P00405000").pnl * 100) / 100, pct(one("TSLA261030P00405000"))], [371, 14, 3.77]);
+  assert.equal(Math.round(events.reduce((s, e) => s + e.pnl, 0) * 100) / 100, -366, "totals untouched");
+  // a sold put bought back cheaper: a WIN, basis = credit × 100 × qty, return = the share of the credit kept
+  const csp = realizedEvents([fill("AMD261120P00120000", -1, 2, 2.00, "2026-09-01T14:00:00Z"), fill("AMD261120P00120000", 1, 2, 1.00, "2026-09-10T14:00:00Z")], []).events[0];
+  assert.deepEqual([csp.pnl, csp.basis, pct(csp)], [200, 400, 50]);
+  // bought back dearer: the loss exceeds the basis (−150 %)
+  const blown = realizedEvents([fill("XOM261120P00050000", -1, 1, 1.00, "2026-09-05T14:00:00Z"), fill("XOM261120P00050000", 1, 1, 2.50, "2026-09-06T14:00:00Z")], []).events[0];
+  assert.deepEqual([blown.pnl, blown.basis, pct(blown)], [-150, 100, -150]);
+  // a partial close prices only what closed: 20 held at 150, 5 sold → basis 750, the rest keeps its basis
+  const part = realizedEvents([fill("AMD", 1, 20, 150, "2026-08-05T14:00:00Z"), fill("AMD", -1, 5, 140, "2026-09-02T14:00:00Z"), fill("AMD", -1, 15, 135, "2026-09-03T14:00:00Z")], []).events;
+  assert.deepEqual(part.map((e) => [e.qty, e.basis, e.pnl]), [[5, 750, -50], [15, 2250, -225]]);
+  // a lot held before the first fetched fill (no avg): no event, counted in unpriced — never a guessed basis
+  assert.equal(events.some((e) => e.symbol === "TLT"), false);
+  const u = realizedEvents([fill("TLT", -1, 4, 90, "2026-09-05T14:00:00Z")], []);
+  assert.deepEqual([u.events.length, u.unpriced.get("TLT")], [0, 4]);
+  assert.equal(unpriced.size, 0, "the fixture's closes all have a basis");
+});
