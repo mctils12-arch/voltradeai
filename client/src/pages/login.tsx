@@ -4,6 +4,8 @@ import { surfacePixelRatio } from "@/lib/deviceTier";
 
 interface LoginProps {
   onLogin?: () => void;
+  /** Shown above the form, e.g. "Your session expired — sign in again". */
+  notice?: string | null;
 }
 
 // ── Matrix City Canvas ──────────────────────────────────────────────────────
@@ -639,7 +641,7 @@ function CityMatrixCanvas() {
 
 // ── Login Page ───────────────────────────────────────────────────────────────
 
-export default function LoginPage({ onLogin }: LoginProps) {
+export default function LoginPage({ onLogin, notice }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -881,6 +883,12 @@ export default function LoginPage({ onLogin }: LoginProps) {
             {mode === "login" ? "SIGN IN TO YOUR ACCOUNT" : mode === "signup" ? "CREATE AN ACCOUNT" : mode === "reset-confirm" ? "SET NEW PASSWORD" : "RESET YOUR PASSWORD"}
           </div>
         </div>
+
+        {notice && mode === "login" && (
+          <div role="status" data-vt-session-expired style={{ color: "var(--accent-orange)", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>
+            {notice}
+          </div>
+        )}
 
         {signupSuccess && mode === "login" && (
           <div style={{ color: "#30d158", fontSize: 12, marginBottom: 12, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>

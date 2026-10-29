@@ -1,10 +1,15 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { checkSessionExpiry } from "./authExpiry";
 
 const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
-async function throwIfResNotOk(res: Response) {
+/** Non-OK answer → "<status>: <body>" error. A session-shaped 401 from an
+ *  app endpoint is also reported to authExpiry (field bug 2026-10-28: an
+ *  expired 24h session read as a service outage) — the one central place. */
+async function throwIfResNotOk(res: Response, url: string) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
+    checkSessionExpiry(url, res.status, text);
     throw new Error(`${res.status}: ${text}`);
   }
 }
@@ -45,7 +50,7 @@ export async function apiRequest(
     if (timer) clearTimeout(timer);
   }
 
-  await throwIfResNotOk(res);
+  await throwIfResNotOk(res, url);
   return res;
 }
 
@@ -55,15 +60,17 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`, {
+    const url = queryKey.join("/");
+    const res = await fetch(`${API_BASE}${url}`, {
       credentials: "include",
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      checkSessionExpiry(url, res.status, await res.text().catch(() => ""));
       return null;
     }
 
-    await throwIfResNotOk(res);
+    await throwIfResNotOk(res, url);
     return await res.json();
   };
 

@@ -1,6 +1,7 @@
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Route, Switch, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { onSessionExpired } from "@/lib/authExpiry";
 import { Toaster } from "@/components/ui/toaster";
 import Home from "@/pages/home";
 import LoginPage from "@/pages/login";
@@ -174,6 +175,14 @@ function App() {
   useEffect(() => {
     sessionStorage.removeItem("__chunk_reloaded");
   }, []);
+
+  // Expired session (field bug 2026-10-28): an app API call answered 401
+  // "Not authenticated"/"Session expired" — drop the cached signed-in state
+  // so the header, tabs and gates re-read /api/auth/me instead of claiming a
+  // session the server no longer has. Home opens the sign-in view itself.
+  useEffect(() => onSessionExpired(() => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  }), []);
 
   return (
     <QueryClientProvider client={queryClient}>
