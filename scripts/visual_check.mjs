@@ -144,7 +144,9 @@ function botFixtures({ latched }) {
         { ticker: "XLE", score: 66.1, price: 91.3, change_pct: -0.6, side: "buy", action_label: "BUY", reasons: ["Mean reversion: RSI 28", "Sector momentum"], rank: 4, sector: "Energy", sector_clash: false, factors: { momentum: 38, mean_reversion: 82, vrp: 45, squeeze: 20, volume: 55 } },
         { ticker: "PFE", score: 58, price: 27.1, change_pct: 0.4, side: "buy", action_label: "WATCH", reasons: ["Dividend support"], rank: 5, sector: "Pharma", sector_clash: false, factors: { momentum: 22, mean_reversion: 61, vrp: 40, squeeze: 15, volume: 33 } },
       ], sizing_blocks: [{ ticker: "AMD", reason: "Negative expectancy for strategy 'stocks' (WR=28%); refusing to size", score: 74.3, strategy: "stocks" }], scan_phase_times: [{ phase: "universe_load", duration_sec: 0.93 }, { phase: "snapshot_fetch", duration_sec: 3.76 }, { phase: "quick_scan", duration_sec: 0.11 }, { phase: "deep_score", duration_sec: 41.44 }, { phase: "step6a_trade_loop_and_covered_calls", duration_sec: 0.39 }, { phase: "step7_manage_positions", duration_sec: 0.04 }, { phase: "step8b_options_manager", duration_sec: 0.3 }, { phase: "step9_third_leg", duration_sec: 0.12 }, { phase: "step9b_convexity_overlay", duration_sec: 0.31 }, { phase: "step10_spy_floor", duration_sec: 0.14 }] },
-    "/api/orders/open": [],
+    // the real server shape (routes.ts): { orders } — a bare [] here hid the
+    // Orders-panel shape bug (audit §8.2 D4) from this harness.
+    "/api/orders/open": { orders: [{ id: "ord-1", symbol: "NVDA", side: "buy", qty: "12", type: "limit", limit_price: "181.20", status: "new", submitted_at: ago(4) }] },
     "/api/bot/notifications": [],
     // look-up (2026-10-22): what the scan would do with NVDA right now — a name down big on bad news that scores on mean
     // reversion, stopped at admission (prefix fixture: /api/bot/lookup/<symbol>)

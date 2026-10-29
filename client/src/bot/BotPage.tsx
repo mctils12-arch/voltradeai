@@ -320,8 +320,13 @@ export default function BotPage() {
   const hasState = shown !== "idle";
   // chart room (2026-10-21, "I'd rather have a larger chart"): while nothing is
   // working the Orders panel is one line at its natural height and the chart
-  // takes the room; with real orders it grows back into a share of the column
-  const ordersFlex = d.orders.data && d.orders.data.length ? "0.65 1 0" : "0 0 auto";
+  // takes the room; with real orders it grows to its rows' natural height
+  // (OrdersBody shows at most 8). 2026-10-27 (audit D4): the old "0.65 1 0"
+  // share had a 0 basis against the chart's auto basis, so with orders the
+  // panel shrank to its header and clipped its rows (and, grow 0.65 inside its
+  // own slot, left a strip of the slot blank). Unseen until /api/orders/open
+  // was unwrapped and real orders reached this panel (harness bot @1440).
+  const ordersFlex = "0 0 auto";
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);

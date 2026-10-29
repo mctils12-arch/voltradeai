@@ -57,6 +57,7 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
+import { peakEquityFromRpc } from "./peakEquityRpc";
 import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
@@ -2800,7 +2801,10 @@ print(json.dumps(result, default=str))
       // Pro-level security controls from system_config.py
       maxPositionPct: 8,      // MAX_POSITION_PCT 0.08 — hard cap per position
       maxExposurePct: 95,     // MAX_TOTAL_EXPOSURE 0.95 — max portfolio invested (regime engine controls actual)
-      dailyLossLimitPct: 5,   // DAILY_LOSS_LIMIT_PCT 5.0 — halts trading
+      // 2026-10-27 (audit D7/N21): was a hardcoded 5 from system_config's
+      // DAILY_LOSS_LIMIT_PCT, a key nothing reads. The halts that actually
+      // fire are Node DAILY_LOSS_LIMIT (-3%) and risk_kill_switch -0.03.
+      dailyLossLimitPct: Math.abs(DAILY_LOSS_LIMIT),
     });
   });
 
@@ -4161,11 +4165,16 @@ print(json.dumps(result))
         `python3 -c "from risk_kill_switch import get_peak_equity; import json; print(json.dumps({'peak': get_peak_equity()}))"`,
         { timeout: 5000 }
       );
-      const peak = peakCall.success ? (peakCall.result.peak || equity) : equity;
+      // 2026-10-27 (audit D3): the daemon answers a bare float, the
+      // subprocess {peak}; reading only .peak fell back to equity whenever the
+      // daemon was up, so drawdown read ~0%. Unknown peak -> peak_known false.
+      const knownPeak = peakCall.success ? peakEquityFromRpc(peakCall.result) : null;
+      const peak = knownPeak ?? equity;
       const dd = peak > 0 ? ((equity - peak) / peak) : 0;
       res.json({
         equity,
         peak,
+        peak_known: knownPeak !== null,
         drawdown_pct: Math.round(dd * 10000) / 100,  // in basis points, 2 decimals
         kill_threshold_pct: -20,
         status: dd <= -0.20 ? "KILLED" :
