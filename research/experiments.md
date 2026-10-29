@@ -112315,3 +112315,7 @@ tuned in place).
 
 STARVED: no — master-plan queue in progress this session.
 Visual harness --page forecast at 390/768/1440: 0 hard failures (pre-existing nav touch-target warnings only). Kill-cap tests ported to server/pythonExec.ts planPythonExec (helper moved by the 2026-10-27 timeouts repair).
+
+## 2026-10-28 [PIPELINE] — scripts/ + ops/ (no trading code) — v1.0.1221 BRANCH CLEANUP PLAN + APPLY SCRIPT
+
+Human approved branch cleanup 2026-10-28. Classified 917 remote branches: 805 merged + data-backup → delete; 86 unique → tag archive/<name> then delete; 25 skipped (main, celestial-catalog-data, session branch, 2 open PRs, 7 tips <24h, 13 named in code). The agent proxy refuses pushes to other refs (403), so nothing was deleted; `scripts/branch_cleanup_apply.sh [--apply]` applies the plan from a human clone (tags verified before deletes; moved tips skipped). STARVED: no.
