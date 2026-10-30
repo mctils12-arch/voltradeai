@@ -82,6 +82,12 @@ export const DIAG_PROBES = [
   // server-side for the same reason as chain_iv30; same gate, read-only,
   // indicative-feed label carried.
   "chain_csp_entry",
+  // ADDED 2026-10-30 (Edge P3 shadow stream, [PIPELINE]): per underlying per
+  // archived day, the Cremers-Weinbaum call-minus-put IV spread plus the
+  // pre-registered gate-1 summary (server/chainVs.ts). One row per
+  // underlying-day; derived server-side for the same reason as chain_iv30;
+  // same gate, read-only, indicative-feed label carried.
+  "chain_vs",
   // ADDED 2026-08-03 (scheduled-routine session): shadow_portfolio.py's
   // get_shadow_stats() (win/loss counts by decision bucket, incl. the
   // rejected_masterkill and score-band buckets) has been queryable

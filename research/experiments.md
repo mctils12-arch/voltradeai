@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, voltrade-product-am, ~13:05Z = 09:05 ET, PRE-MARKET) [PIPELINE] — T-DATACORE — Edge P3 shadow stream: daily Cremers-Weinbaum IV spread derived from the chain archive + `chain_vs` diag probe with the pre-registered gate-1 kill check (v1.0.1237)
+HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.7%, feeds alive, jobs ok 7 / errored 0. KNOWN BROKEN: no critical item open. Thrash 3/10.
+PRIOR: ~55% the indicative feed carries a non-parity-imposed spread (edge_preregistration.md P3 gate-1 prior); this change does not test that, it makes it measurable on the data already archived (~100 days) the moment the probe is called.
+WHY: P3's shadow-logging spec names `server/chainVs.ts` + a `chain_vs` probe as the T-DATACORE half; nothing existed. The dataset-kill clause (cross-sectional sd of VS under 0.5 vol points on >= 80% of days) can be evaluated on history already on the volume, so gate 1 is unblocked today instead of after a year of forward accumulation.
+CHANGE: `server/chainVs.ts` (pure derivation + write-once derived cache under optionchains/derived/vs, same rules as chainIv/chainCspEntry): VS = mean(call iv - put iv) over same-strike same-expiry pairs, 14-60 DTE, call delta .25-.75, >= 3 pairs else null; descriptive atmIv + XZZ smirk (logged, never tested); `vsGate1Summary` = per-day cross-sectional sd, share under the kill bar, datasetKill flag. Probe `chain_vs` (?from=&to=&u=&max=, token-gated, aggregates only). Not read by any trading path; no /data or /api/v1 surface (no gate-2 claim).
+HONEST LIMITS: the real-quote rank-correlation clause of gate 1 (>= 0.3 vs Cboe-sourced chains or a Databento sample) is NOT covered and stays open; day label is the chain file's label (pre-2026-10-21 files carry the documented one-session shift, audit 2026-10-27 s2.4); the fixed-panel snapshot (300 liquid names) the pre-registration needs for a per-name time series is a separate [PIPELINE].
+TESTS: server/chainVs.test.ts (8: pair definition + band/DTE, no-guess on thin/bad/duplicate rows, parity-imposed = exactly 0, atmIv/smirk, ordering, gate-1 summary + kill share, cache write-once, probe wiring). chainIv/chainCspEntry/diag suites 53 pass; tsc errors 3 (baseline); counter_ratchet OK (improvements are pre-existing drift from other merges, not re-pinned here).
+NEXT: (1) a session with DIAG_TOKEN calls /api/diag/chain_vs and records `gate1` (datasetKill true -> P3 dies at gate 1, log the layer of death; false -> continue); (2) fixed-panel snapshot pipeline; (3) real-quote spot check.
+MERGE: new read-only probe, no trading path, no client change; safe any time.
+STARVED: no.
+
 ## 2026-10-30 (scheduled routine, EDGE-DOCTRINE axis pick, ~02:35Z = 22:35 ET Thu) [NO-ACTION] — no code_version change (1.0.1236)
 HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.0%, feeds alive, scanner 0 failures, 0 unhandled rejections. Live server_version == main (1.0.1236). jobs=degraded only for `overnight_research` (missing by design, human decision per 2026-10-2x entries). KNOWN BROKEN: no critical item open (#44/#48 lack a close marker but are advisory, owned by the 10-14 RCA entries). Thrash 3/10.
 PRIOR: ~70% the 10-29 night price_panel_build retry cleared (as_of repair v1.0.1220); ~30% batch-specific 403 persists.

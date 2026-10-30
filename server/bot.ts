@@ -31,6 +31,7 @@ let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW 
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
+import { vsForDays, vsGate1Summary, VS_MAX_COMPUTE_PER_CALL } from "./chainVs";
 import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
@@ -3980,6 +3981,28 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           return res.json({
             ...sanitizeDiag({ probe: "chain_csp_entry", from: days[0] || null, to: days[days.length - 1] || null, days: days.length,
               computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
+            rows: rows.map((x) => sanitizeDiag(x)),
+          });
+        }
+        case "chain_vs": {
+          // ADDED 2026-10-30 (Edge P3 shadow stream, [PIPELINE]): per
+          // underlying per archived day, the call-minus-put implied-vol spread
+          // (server/chainVs.ts; definition in its header and in
+          // research/edge_preregistration.md P3) plus the pre-registered
+          // gate-1 summary (cross-sectional sd per day vs the dataset-kill
+          // bar). Same query shape as chain_iv30: ?from=&to=&u=&max=. The
+          // summary is over ALL underlyings for the window, not the ?u= filter.
+          const fromQ = String(req.query.from || "").trim(), toQ = String(req.query.to || "").trim();
+          for (const q of [fromQ, toQ]) if (q && !/^\d{4}-\d{2}-\d{2}$/.test(q)) return res.status(400).json({ error: "invalid from/to (expected YYYY-MM-DD)" });
+          const uFilter = new Set(String(req.query.u || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+          const max = Math.min(Math.max(parseInt(String(req.query.max || ""), 10) || VS_MAX_COMPUTE_PER_CALL, 1), 60);
+          const days = listChainDays().filter((d) => (!fromQ || d >= fromQ) && (!toQ || d <= toQ));
+          const r = await vsForDays(days, undefined, Date.now(), max);
+          const rows = uFilter.size ? r.rows.filter((x) => uFilter.has(x.u)) : r.rows;
+          return res.json({
+            ...sanitizeDiag({ probe: "chain_vs", from: days[0] || null, to: days[days.length - 1] || null, days: days.length,
+              computed: r.computed.length, cached: r.cached.length, pending: r.pending, count: rows.length, feed: "indicative" }),
+            gate1: sanitizeDiag(vsGate1Summary(r.rows)),
             rows: rows.map((x) => sanitizeDiag(x)),
           });
         }
