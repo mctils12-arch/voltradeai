@@ -224,6 +224,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Surface Transportation Board (EP 724 rail service data)",
     resell: "ok",
   },
+  "data/spaceweather": {
+    license: "NOAA Space Weather Prediction Center (services.swpc.noaa.gov) — a US government work in the public domain. Mirrored as published: observed Kp (preliminary estimates), observed NOAA R/S/G scales, solar-wind speed/field, GOES X-ray flux (flare class via NOAA's own A-X formula), recent SWPC alerts, and NOAA's OWN OVATION aurora MODEL FORECAST (labeled forecast, never blended with observations). The storm-history block is our own scan of our 10-minute archive: storm days are listed twice, once by NOAA's declared G-scale and once by the Kp-implied G level from NOAA's published Kp table, never merged.",
+    attribution: "NOAA Space Weather Prediction Center",
+    resell: "ok",
+  },
   "data/dts": {
     license: "U.S. Treasury Fiscal Data — Daily Treasury Statement, Table II (deposits & withdrawals of operating cash) — a US Department of the Treasury government work in the public domain. Mirrored as published ($ millions); no derived fields.",
     attribution: "U.S. Treasury Fiscal Data — Daily Treasury Statement",
@@ -386,6 +391,7 @@ export function apiMeta() {
       { path: "/api/v1/data/border-waits", params: "-", desc: "CBP land-border wait times, latest hourly snapshot flattened per crossing and lane class (commercial standard, commercial FAST, passenger standard): delay minutes, lanes open, status as published (localized by CBP's serving region, verbatim), joinable on port_number. The road leg of physical-economy freight flow. RAW display + archive only: the freight-crossing-delay hypothesis is gate-locked and has NOT been gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/border-waits" },
       { path: "/api/v1/data/fmcsa-oos", params: "-", desc: "FMCSA motor-carrier out-of-service orders, trailing 45-day window, polled every 6h: per order the status (ACTIVE/INACTIVE/PENDING) and rescind_date as published. Hits mostly small non-public carriers (e.g. new entrants failing their first safety audit). RAW display + archive only: the aggregate-order-volume vs trucking-returns hypothesis is NOT gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/fmcsa-oos" },
       { path: "/api/v1/data/rail-traffic", params: "-", desc: "Class I railroad weekly carloads (BNSF, CN, CPKC, CSX, KCS, NS, UP; STB EP 724), newest archived week summed system-wide: per commodity category (22, intermodal split out) the latest week, prior week and week-over-week delta, and per railroad the latest-week total. GATE 1 (DATA) PASSED 2026-09-27 (reconciles to FRED/BTS-AAR national carload and intermodal series within a stable offset, cv ~0.10). GATE 2 REJECTED 2026-09-28: a pre-registered intermodal-growth-extreme vs IYT 5-day test found the wrong sign and no significance (p=0.43, 0 of 16 comparisons cleared Bonferroni). RAW self-reported levels only, no predictive claim. Per-railroad sums double-count interchange: an activity measure, not a national total. US government work product, public domain, freely resellable.", preview: "/api/data/rail-traffic" },
+      { path: "/api/v1/data/spaceweather", params: "-", desc: "NOAA SWPC space weather now: observed planetary Kp (last 24h), observed R/S/G scales plus NOAA's 3-day forecast probabilities (forecast rows labeled), solar-wind speed and field, GOES long-band X-ray flux with flare class, recent SWPC alerts, per-feed freshness, and NOAA's OVATION aurora grid as a MODEL FORECAST (not an observation). Plus storm_history from our own 10-minute conditions archive: days scanned, max observed Kp and G, and the storm days at G2+ listed twice, by NOAA's declared scale and by the Kp-implied G level (they can differ: 2026-08-02 hit Kp 5.67, G2 by NOAA's own Kp table, while NOAA's declared scale never left G0). RAW conditions, NOT a trading signal: gate 1 (storm-coincident outage excess vs DOE EAGLE-I) is PENDING on a ground-truth file DOE publishes annually, gate 2 not attempted. Public domain, freely resellable.", preview: "/api/data/spaceweather" },
       { path: "/api/v1/data/dts", params: "-", desc: "US Treasury Daily Statement, deposits and withdrawals of operating cash (Table II), newest business day: per transaction category (withheld income/employment taxes, corporate taxes, FUTA, Medicare, SNAP, etc.) the today / month-to-date / fiscal-year-to-date amount in $ millions as published, ~1-2 business-day lag. RAW display + archive only: the withheld-tax payroll-nowcast hypothesis is gate-locked and has NOT been gate-2 tested, so no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/dts" },
       { path: "/api/v1/data/tff", params: "-", desc: "CFTC Traders in Financial Futures, futures-only: weekly positioning by trader category (dealer/intermediary, asset manager, leveraged money, other reportable — long/short/spread, plus non-reportable) for every reported financial-futures market (equity index, rates, FX class), Tuesday as-of/Friday-publish, newest week only. GATE 1 (DATA) PASSED (each row reconciles to CFTC's own accounting identities: trader categories + spreads sum to total reportable, reportable + non-reportable to open interest). GATE 2 KILLED 2026-08-03: the pre-registered 'leveraged-money extremes mean-revert' hypothesis was REJECTED across 7 ETF/futures pairs (the Bonferroni survivors, e.g. TLT, are the wrong sign for mean-reversion). RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/tff" },
       { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
@@ -680,6 +686,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/rail-traffic",
       returns_provenance: ["data/rail-traffic"],
+    },
+    {
+      name: "voltrade_spaceweather",
+      description: "NOAA SWPC space weather: observed Kp (24h), observed R/S/G scales and NOAA's 3-day forecast probabilities, solar wind, GOES X-ray flare class, recent alerts, per-feed freshness, the OVATION aurora grid (a MODEL FORECAST, not an observation), and storm_history from our own 10-minute archive (max observed Kp/G; G2+ storm days by NOAA's declared scale AND by the Kp-implied G level, kept separate because they can disagree). RAW conditions, NOT a trading signal: gate 1 (storm-coincident outage excess) is PENDING on DOE's annual EAGLE-I file and gate 2 is not attempted; no predictive claim. Public-domain NOAA data, freely resellable with attribution.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/spaceweather",
+      returns_provenance: ["data/spaceweather"],
     },
     {
       name: "voltrade_dts",
@@ -993,6 +1006,10 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
     systemIntermodalLatestWeekCarloads: INT, systemNonIntermodalLatestWeekCarloads: INT, archiveBuiltAt: STR, note: STR,
     commodities: ARR, railroads: ARR,
   }, ["latestWeek", "weeksArchived", "commodities", "railroads"]),
+  voltrade_spaceweather: dataObj({
+    time: STR, note: STR, kp_recent: ARR, scales: ANY, wind: ANY, aurora: ANY, alerts_recent: ARR,
+    xray_latest: ANY, xray_flare: ANY, freshness: ANY, anyStale: { type: "boolean" }, storm_history: ANY,
+  }, ["time", "kp_recent", "scales", "storm_history"]),
   voltrade_dts: dataObj({ record_date: STR, count: INT, note: STR, lines: ARR }, ["record_date", "count", "lines"]),
   voltrade_tff: dataObj({ report_date: STR, count: INT, note: STR, markets: ARR }, ["report_date", "count", "markets"]),
   voltrade_treasury_auctions: dataObj({ count: INT, auctions: ARR }, ["count", "auctions"]),

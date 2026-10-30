@@ -88,7 +88,7 @@ import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory, type Form4Filing } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
-import { bootSpaceWeatherPoll, latestSpaceWeather } from "./spaceWeather";
+import { bootSpaceWeatherPoll, latestSpaceWeather, scanStormHistory } from "./spaceWeather";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
@@ -5393,6 +5393,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/rail-traffic", status: 500, tier: auth.tier });
+    }
+  });
+
+  // NOAA SWPC space-weather keyed mirror (same sweep). Reuses
+  // latestSpaceWeather() — the cache /api/data/spaceweather serves, no new
+  // poller — plus scanStormHistory() over our own conditions archive,
+  // memoised 10 min because it gunzips every archived day. Public-domain
+  // NOAA data, resell ok. RAW conditions: observed vs NOAA-forecast rows
+  // stay labeled, and storm days are reported by NOAA's declared G-scale
+  // AND by the Kp-implied G level, never merged. Gate 1 PENDING, no signal.
+  let stormScanMemo: { at: number; v: ReturnType<typeof scanStormHistory> } | null = null;
+  app.get("/api/v1/data/spaceweather", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestSpaceWeather();
+      if (!hit || !hit.everSucceeded) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — no successful NOAA SWPC poll yet" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/spaceweather", status: 503, tier: auth.tier });
+        return;
+      }
+      if (!stormScanMemo || Date.now() - stormScanMemo.at > 10 * 60_000) {
+        stormScanMemo = { at: Date.now(), v: scanStormHistory() };
+      }
+      res.json(v1Envelope("data/spaceweather", {
+        time: hit.at,
+        note: "kp_recent = observed 3-hourly planetary Kp (preliminary estimates); scales.current = observed now, scales.forecast = NOAA 3-day forecast probabilities; aurora = OVATION Prime MODEL FORECAST grid, not an observation; xray_flare = GOES long-band flux classified by NOAA's own A/B/C/M/X formula, observed. storm_history: stormDays = days NOAA's declared G-scale reached G2+, kpStormDays = days the Kp-implied G level (NOAA's published Kp table) reached G2+; they can differ and are never merged. Gate 1 pending, gate 2 not attempted: no predictive claim",
+        kp_recent: hit.kpRecent,
+        scales: hit.scales,
+        wind: hit.wind,
+        aurora: hit.aurora,
+        alerts_recent: hit.alertsRecent,
+        xray_latest: hit.xrayLatest,
+        xray_flare: hit.flare,
+        freshness: hit.freshness,
+        anyStale: hit.anyStale,
+        storm_history: stormScanMemo.v,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/spaceweather", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/spaceweather", status: 500, tier: auth.tier });
     }
   });
 

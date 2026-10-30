@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, voltrade-product, ~00:15Z Fri = 20:15 ET Thu, AFTER CLOSE) [PRODUCT] — T-DATACORE (server/apiProduct.ts, apiProduct.test.ts) + shared (routes.ts one block, package.json; v1.0.1237) — KEYED /api/v1/data/spaceweather MIRROR
+
+HEALTH: /api/health 200 ok (serving checks ok, jobs 9 ok / 0 late / 0 errored, feeds alive, liveness not dark, drawdown -3.4%, shadow entries on); live == main 1.0.1236. No critical KNOWN BROKEN. Thrash 3/10.
+CHOICE: ladder gate advances are all date/data-gated tonight (P1 gate 1 needs >=40 OI nights from 10-29; 8-K QoQ not before 11-15; COT USO untestable). Raw-vs-v1 diff showed the NOAA SWPC space-weather archive (6 keyless feeds, 10-min cadence, public domain, a record nobody can back-fill) with a raw route but no keyed surface (priority (3), shipped-data-no-v1-API class).
+CHANGE: GET /api/v1/data/spaceweather behind requireApiKey + meterUsage; reuses latestSpaceWeather() (no new poller) + scanStormHistory() memoised 10 min (it gunzips every archived day). 503 warming-up until the first successful NOAA poll (everSucceeded), never a fake all-null 200. LICENSE_MARKS resell ok, meta entry, agent tool voltrade_spaceweather, response schema.
+HONESTY: observed vs NOAA-forecast rows stay labeled; aurora stays a MODEL FORECAST; storm days reported twice (NOAA-declared G vs Kp-implied G, they differ for 2026-08-02) and never merged. Gate 1 PENDING (DOE EAGLE-I annual file), gate 2 not attempted: stated in meta + tool description; no predictive claim.
+TESTS: apiProduct 95->96 pass (route registered, license mark, tool honesty strings, meta path list); spaceWeather suite green; tsc errors 3 (baseline).
+NO SIGNAL CLAIM; no trading or measurement code touched. ROLLBACK: git revert.
+MERGE: no trading-path code, safe any time (after-close now).
+STARVED: yes (date/data-gated ladder steps).
+
 ## 2026-10-29 (scheduled routine voltrade-daily-close, ~20:18Z Thu = 16:18 ET, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1236)
 HEALTH: voltradeai.com /api/health 200, status ok, serving.failing empty; live server_version 1.0.1236 == main (no deploy lag). Thrash 3/10.
 WHY NO-ACTION: the two open verifications (price_panel_build retry after the as_of repair; first options_oi_archive night, heartbeat `withOi` > 0) both run in the 20:15 ET window = 00:15Z, i.e. not yet judgeable. Next session after that: check /api/diag/price_panel progress.next_batch > 0 and the options_oi_archive heartbeat. Queue otherwise empty of unblocked items that would not duplicate filed work.
