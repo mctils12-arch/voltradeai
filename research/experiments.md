@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, EDGE-DOCTRINE axis pick, ~02:35Z = 22:35 ET Thu) [NO-ACTION] — no code_version change (1.0.1236)
+HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.0%, feeds alive, scanner 0 failures, 0 unhandled rejections. Live server_version == main (1.0.1236). jobs=degraded only for `overnight_research` (missing by design, human decision per 2026-10-2x entries). KNOWN BROKEN: no critical item open (#44/#48 lack a close marker but are advisory, owned by the 10-14 RCA entries). Thrash 3/10.
+PRIOR: ~70% the 10-29 night price_panel_build retry cleared (as_of repair v1.0.1220); ~30% batch-specific 403 persists.
+OBSERVED: `price_panel_build` is NOT in the jobs `failing` list (errored=0, ok=9) after the 00:15Z window -> the 403 no longer surfaces as an errored heartbeat. NOT confirmed: /api/diag/price_panel `progress.next_batch` > 0 and the options_oi_archive heartbeat `withOi` > 0 (both auth-gated, 401 from this session, no DIAG_TOKEN). They stay open for the next session with the token.
+AXIS PICK: (a) every named free-data root already has a manifest (cftccot/cftctff, usaspending, fda, gtrends probe, edgar 8k/13f/ftd, sentinel2); (c) six foreign fields already filed (ecology CSD, epidemiology R_t, reliability hazard, seismology Omori, permutation entropy, Hurst/Kuramoto) with CSD/R_t killed - a seventh would be filing-for-filing's-sake; (b) blocked on the fill-realism fix; (d) nothing recurring found that is not already scripted (research_state_check.py covers the session-start reasoning). Anti-churn rule: no padding PR.
+STARVED: no.
+
 ## 2026-10-29 (scheduled routine voltrade-daily-close, ~20:18Z Thu = 16:18 ET, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1236)
 HEALTH: voltradeai.com /api/health 200, status ok, serving.failing empty; live server_version 1.0.1236 == main (no deploy lag). Thrash 3/10.
 WHY NO-ACTION: the two open verifications (price_panel_build retry after the as_of repair; first options_oi_archive night, heartbeat `withOi` > 0) both run in the 20:15 ET window = 00:15Z, i.e. not yet judgeable. Next session after that: check /api/diag/price_panel progress.next_batch > 0 and the options_oi_archive heartbeat. Queue otherwise empty of unblocked items that would not duplicate filed work.
