@@ -3,6 +3,11 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, ~20:17Z = 16:17 ET Fri, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1237)
+HEALTH: /api/health 200 ok, serving.failing empty, status ok, no alarms. Live server_version 1.0.1237 == main (no deploy lag). research_state_check: thrash 2/10 REPAIR, STARVED streak 0, archive freshness all OK, nasr_cycle OK; only WARN is the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). KNOWN BROKEN: no critical item open (#44/#48 advisory).
+ACTION: none. P3 gate-1 dataset-kill clause was finished earlier today (83/83 days, not killed); its remaining NEXT items (fixed-panel snapshot, real-quote spot check) are multi-session builds better started in a PRE-MARKET PRODUCT slot, not squeezed into a post-close health pass. CONSTITUTIONAL AUDIT deliberately not re-run: prior rounds' proposals in wishlist.md are still unanswered, so another round only grows the pile (same reasoning as the 10-23/10-25 entries). Anti-churn: no padding PR.
+STARVED: no.
+
 ## 2026-10-30 (scheduled routine, voltrade-product-pm, ~18:10Z = 14:10 ET, MID-MARKET) [PIPELINE] — T-DATACORE — Edge P3 gate 1 dataset-kill clause: ALL 83 chain days scored, not killed — no code_version change (1.0.1237)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.4%. KNOWN BROKEN: no critical item open. Thrash 2/10.
 PRIOR: ~85% the remaining 68 July-to-October days look like the first 15 (sd ~10 vol pts); ~15% later feed/format drift collapses dispersion on some stretch.
