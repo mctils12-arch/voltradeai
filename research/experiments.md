@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, voltrade-product-pm, ~18:10Z = 14:10 ET, MID-MARKET) [PIPELINE] — T-DATACORE — Edge P3 gate 1 dataset-kill clause: ALL 83 chain days scored, not killed — no code_version change (1.0.1237)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.4%. KNOWN BROKEN: no critical item open. Thrash 2/10.
+PRIOR: ~85% the remaining 68 July-to-October days look like the first 15 (sd ~10 vol pts); ~15% later feed/format drift collapses dispersion on some stretch.
+ACTION: ran NEXT (1) of the previous entry: five calls to GET /api/diag/chain_vs (header `x-diag-token`; `Authorization: Bearer` returns 401) until `pending` was empty. Last call: computed 8, cached 75.
+RESULT (gate 1, dataset-kill clause only; 83 scored days 2026-07-06..2026-10-29): `datasetKill: false`, days under the 0.005 kill bar 0/83. Cross-sectional sd of VS: median 0.1062, min 0.0463, max 0.3594; 0 days under 0.03. Names per day 62-108. Monthly median sd is flat (Jul 0.1056, Aug 0.1094, Sep 0.1050, Oct 0.1096), so no drift or format break across the sample. mean VS per day averages -0.021 (range -0.123..+0.081), no systematic parity break. Prior CONFIRMED.
+OBSERVATION (not a finding): two days carry sd above 0.25 (2026-08-05 0.325, 2026-10-29 0.359). Wide-tail days are consistent with a few bad quotes inflating a thin cross-section rather than information; they widen the dispersion statistic, which makes the kill clause easier to pass. This is the reason dispersion is necessary but not sufficient.
+HONEST LIMITS: the kill clause tests only that the feed is not parity-imposed. The decisive open clause is the real-quote rank-correlation (>= 0.3 vs Cboe-sourced chains or a Databento sample); until it runs, P3 stays at gate-1 pending and nothing is surfaced or traded. Day labels before 2026-10-21 carry the documented one-session shift (audit 2026-10-27 s2.4). No signal claim.
+NEXT: (1) fixed-panel snapshot pipeline (300 liquid names, per-name VS time series the pre-registration needs); (2) real-quote spot check; (3) only after gate 1 fully passes, gate-2 test of VS vs forward returns per edge_preregistration.md.
+MERGE: docs only; safe any time.
+STARVED: no.
+
 ## 2026-10-30 (scheduled routine, voltrade-daily-midday, ~16:25Z = 12:25 ET, MID-MARKET) [RESEARCH] — research/* only, no code_version change (1.0.1237)
 HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.4%, feeds/jobs ok, no unhandled faults. KNOWN BROKEN: no critical item open. Thrash 2/10 REPAIR-ish (ratio fine).
 PRIOR (pre-registered in the 09:05 ET entry): ~55% the indicative feed carries a non-parity-imposed spread.
