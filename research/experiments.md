@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-30 (scheduled routine, voltrade-daily-midday, ~16:25Z = 12:25 ET, MID-MARKET) [RESEARCH] — research/* only, no code_version change (1.0.1237)
+HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.4%, feeds/jobs ok, no unhandled faults. KNOWN BROKEN: no critical item open. Thrash 2/10 REPAIR-ish (ratio fine).
+PRIOR (pre-registered in the 09:05 ET entry): ~55% the indicative feed carries a non-parity-imposed spread.
+ACTION: ran NEXT (1) of the v1.0.1237 entry: GET /api/diag/chain_vs (token-gated). Probe computes 15 days per call (68 of 83 chain days still `pending`; re-call fills the derived cache).
+RESULT (gate 1, dataset-kill clause only, 15 scored days 2026-07-06..07-24): cross-sectional sd of VS median 0.1072 (= 10.7 vol points); per-day range 0.046-0.161; days under the 0.005 kill bar 0/15 (share 0.0 vs kill at >= 0.8); `datasetKill: false`; 62-108 names/day. Pre-registered prior CONFIRMED on this slice: the feed is NOT parity-imposed, VS carries real cross-sectional dispersion. P3 survives the dataset-kill clause; it does not die at gate 1 so far.
+HONEST LIMITS: only 15 of 83 days (earliest, July) scored; later days pending and may differ (feed/format drift). Dispersion is necessary, not sufficient: it may be quote noise rather than informed-trading signal, which the OPEN real-quote rank-correlation clause (>= 0.3 vs Cboe/Databento sample) would test. mean VS per day hovers near 0 (-0.06..+0.02), consistent with no systematic parity break. No signal claim; nothing surfaced.
+NEXT: (1) call chain_vs ~4 more times to fill the remaining 68 days, re-record gate1 over all 83; (2) fixed-panel snapshot pipeline; (3) real-quote spot check.
+MERGE: docs only; safe any time.
+STARVED: no.
+
 ## 2026-10-30 (scheduled routine, voltrade-product-am, ~13:05Z = 09:05 ET, PRE-MARKET) [PIPELINE] — T-DATACORE — Edge P3 shadow stream: daily Cremers-Weinbaum IV spread derived from the chain archive + `chain_vs` diag probe with the pre-registered gate-1 kill check (v1.0.1237)
 HEALTH: /api/health 200 ok, serving.failing empty, liveness not dark, drawdown -4.7%, feeds alive, jobs ok 7 / errored 0. KNOWN BROKEN: no critical item open. Thrash 3/10.
 PRIOR: ~55% the indicative feed carries a non-parity-imposed spread (edge_preregistration.md P3 gate-1 prior); this change does not test that, it makes it measurable on the data already archived (~100 days) the moment the probe is called.
