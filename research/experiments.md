@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-31 (scheduled routine, voltrade-product, Sat ~18:10Z = 14:10 ET, market closed) [PIPELINE] — T-DATACORE — port_dwell_weekly archive gap filled (weeks 14, 15, 16); data only, no code_version change (1.0.1239)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.8%. research_state_check: only WARNs were the overdue CONSTITUTIONAL AUDIT (not re-run, proposals unanswered) and archive_freshness:port_dwell_weekly 22d stale. KNOWN BROKEN: no critical item open.
+ACTION: ran `scripts/portdwell_weekly_snapshot.ts` (preferred path, DIAG_TOKEN present). It merged the server's own Tier-3 captured weeks 14, 15, 16 into datacore/port_dwell_weekly.json (file now 11 weeks, newest record 2026-10-30). Fallback path not needed; no weeks skipped. Raw retention now starts 2026-10-24, so weeks 14-16 were still reachable only through the server's capture; doing it at the trigger date matters because a gap never refills.
+RESULT: archive-freshness WARN cleared (1d since newest record). No signal claim; this is accumulation for port-dwell gate 2, nothing surfaced.
+NEXT: the server's Tier-3 capture is doing the work; the script is a safety net, so a repeat of the 21d staleness suggests checking portDwellCapture's heartbeat rather than patching again. Recheck the edge_p2 first Sunday run (2026-11-01 10:00 ET) per the entry above.
+MERGE: data file + docs, safe any time.
+STARVED: no.
+
 ## 2026-10-31 (scheduled routine, EDGE-DOCTRINE axis pick, Sat ~02:40Z = Fri 22:40 ET) [PIPELINE] — T-DATACORE (edge_p2_insider.py, server/edgeP2.ts + wiring) — Edge P2 gate-2 harness: opportunistic insider purchases over the 2016+ delisted-inclusive panel, weekly zero-token job (v1.0.1239)
 HEALTH: /api/health 200 ok, serving ok, liveness not dark, drawdown -4.8%, entry shadow mode on (human directive). research_state_check: thrash 1/10, STARVED 0; WARN only the overdue CONSTITUTIONAL AUDIT (unanswered prior rounds, deliberately not re-run) and port_dwell_weekly 22d stale (owned by its snapshot script). KNOWN BROKEN: no critical item open.
 AXIS SURVEY (the three prior axis-pick entries said "nothing startable"; this one found one): the 2016+ price panel finished (`/api/diag/price_panel`: build b20261029 complete 2026-10-30T00:54Z, 27.1M bars, 20,136 symbols, 6,955 with a delisting). That was the named blocker (wishlist 2026-10-18, edge_preregistration P2 "Data - have it? no") for Form 4 gate 2 and Lazy Prices. Axis (a), now unblocked. Axis (b) stays blocked on the fill-realism fix (the panel gives survivorship-reduced prices, not fills).
