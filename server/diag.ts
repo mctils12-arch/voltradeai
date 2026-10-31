@@ -372,6 +372,12 @@ export const DIAG_PROBES = [
   // DSR, universe counts) and last_run.json. Derived statistics only: no
   // ticker, price or URL; no network call; no Python; no query parameters.
   "walkforward",
+  // ADDED 2026-10-31 ([PIPELINE]): read-only status of the weekly gate-2 test of
+  // pre-registration P2 (server/edgeP2.ts edgeP2Status) — verdict, kill rule,
+  // headline cells (months, mean bp, NW t, sd, MDE) and last_run.json. Derived
+  // statistics only: no ticker, price, owner or URL; no network; no Python; no
+  // query parameters.
+  "edge_p2",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job
