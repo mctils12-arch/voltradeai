@@ -489,10 +489,27 @@ export function evaluate(
   };
 }
 
-/** The compact, unauthenticated-safe block for /api/health: names and
- *  counts only, no free-text detail (that stays behind the diag token). */
-export function healthJobsBlock(r: HeartbeatReport): { status: "ok" | "degraded"; failing: string[]; counts: Record<JobVerdict, number>; gates_top_level_status: false } {
-  return { status: r.verdict, failing: r.failing, counts: r.counts, gates_top_level_status: false };
+/** Closed-enum cause of an errored job — derived from the detail text but
+ *  never echoing it, so the public /api/health block can say WHY a job
+ *  errored without leaking free text (paths, stderr). */
+export type JobErrorClass = "timeout" | "memory_budget" | "unparseable_output" | "nonzero_exit" | "interrupted" | "other";
+export function classifyJobError(detail: string | null | undefined): JobErrorClass {
+  const d = String(detail ?? "").toLowerCase();
+  if (/exceeded the .*budget|timed? ?out|process group killed/.test(d)) return "timeout";
+  if (/\brss\b.*budget|memorybudget|out of memory|\boom\b/.test(d)) return "memory_budget";
+  if (/unparseable/.test(d)) return "unparseable_output";
+  if (/interrupted|no finish beat/.test(d)) return "interrupted";
+  if (/code=|signal=|exit/.test(d)) return "nonzero_exit";
+  return "other";
+}
+
+/** The compact, unauthenticated-safe block for /api/health: names, counts
+ *  and a closed-enum cause per errored job — no free-text detail (that
+ *  stays behind the diag token). */
+export function healthJobsBlock(r: HeartbeatReport): { status: "ok" | "degraded"; failing: string[]; counts: Record<JobVerdict, number>; error_class: Record<string, JobErrorClass>; gates_top_level_status: false } {
+  const error_class: Record<string, JobErrorClass> = {};
+  for (const j of r.jobs) if (j.status === "errored") error_class[j.job] = classifyJobError(j.lastDetail);
+  return { status: r.verdict, failing: r.failing, counts: r.counts, error_class, gates_top_level_status: false };
 }
 
 // ── pure transitions ────────────────────────────────────────────────────────
