@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   JOB_REGISTRY, evaluate, evaluateJob, applyBeat, applyNoteError, closeInterruptedRuns, parseHeartbeatFile,
-  createHeartbeatStore, readHeartbeatFile, withJobBeat, healthJobsBlock, windowState, zonedInstant,
+  createHeartbeatStore, readHeartbeatFile, withJobBeat, healthJobsBlock, classifyJobError, windowState, zonedInstant,
   MAX_RUNS_PER_JOB, MAX_DETAIL_CHARS, type JobRun, type JobSpec, type MarketCalendar, type HeartbeatFile,
 } from "./jobHeartbeat";
 import { parseMarketHolidays } from "./optionsChainArchive";
@@ -294,4 +294,19 @@ test("calendar: market_calendar.py half days parse through the existing helper (
   assert.ok(half.has("2026-11-27") && half.has("2026-12-24"));
   const hol = parseMarketHolidays(py);
   assert.ok(hol.has("2026-11-26") && !hol.has("2026-11-27"), "default still reads MARKET_HOLIDAYS only");
+});
+
+test("classifyJobError: closed enum, health block names the cause but never the text", () => {
+  assert.equal(classifyJobError("exceeded the 180-minute budget — process group killed"), "timeout");
+  assert.equal(classifyJobError("RSS 950 MB > budget 900 MB after 400 series"), "memory_budget");
+  assert.equal(classifyJobError("unparseable summary: Traceback (JSON)"), "unparseable_output");
+  assert.equal(classifyJobError("code=1 signal=none: boom"), "nonzero_exit");
+  assert.equal(classifyJobError("interrupted: the process exited before this run finished"), "interrupted");
+  assert.equal(classifyJobError(undefined), "other");
+  const file: HeartbeatFile = { version: 1, jobs: {
+    tier2_scan: [{ startedAt: TUE_10ET - 2 * MIN, finishedAt: TUE_10ET - MIN, status: "error", detail: "RSS 950 MB > budget 900 MB /secret/path" }],
+  } };
+  const h = healthJobsBlock(evaluate(TUE_10ET, file, JOB_REGISTRY, ctx));
+  assert.equal(h.error_class["tier2_scan"], "memory_budget");
+  assert.ok(!JSON.stringify(h).includes("/secret/path"));
 });
