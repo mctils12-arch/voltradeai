@@ -135,6 +135,7 @@ import { bootChainArchive } from "./optionsChainArchive";
 import { bootOiArchive } from "./optionsOiArchive";
 import { bootPricePanel } from "./pricePanel";
 import { bootWalkforward } from "./walkforward";
+import { bootEdgeP2 } from "./edgeP2";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -2062,6 +2063,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // 06:00-16:00 ET, once per ISO week, own long-job lane (never the Python
   // mutex or the daemon). VOLTRADE_WALKFORWARD=0 disables.
   bootWalkforward();
+
+  // Weekly gate-2 test of pre-registration P2 (opportunistic insider purchases)
+  // over the same panel (server/edgeP2.ts): Sunday 10:00-16:00 ET, after the
+  // Saturday walk-forward, once per ISO week, same long-job lane.
+  // VOLTRADE_EDGE_P2=0 disables.
+  bootEdgeP2();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side

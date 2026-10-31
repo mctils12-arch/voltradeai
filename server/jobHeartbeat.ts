@@ -248,6 +248,20 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     },
     disabledReason: "VOLTRADE_WALKFORWARD off",
   },
+  {
+    // edgeP2.ts bootEdgeP2: 30-min tick, acts Sunday 10:00-16:00 ET once per ISO
+    // week — a run (edge_p2_insider.py, up to 3 h) or one "skipped" beat (no
+    // panel / low disk / fresh result). A start lands every ~7 days.
+    id: "edge_p2_weekly", label: "Opportunistic-insider gate-2 test, pre-registration P2 (weekly, Sun 10:00-16:00 ET)",
+    source: "server/edgeP2.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 4 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_EDGE_P2;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_EDGE_P2 off",
+  },
 ];
 
 // ── calendar ────────────────────────────────────────────────────────────────

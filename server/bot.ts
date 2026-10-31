@@ -39,6 +39,7 @@ import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } f
 import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { walkforwardStatus } from "./walkforward";
+import { edgeP2Status } from "./edgeP2";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
@@ -4048,6 +4049,11 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // result files' headline fields only; no network, no Python, no
           // query parameters.
           return res.json(sanitizeDiag(walkforwardStatus()));
+        }
+        case "edge_p2": {
+          // ADDED 2026-10-31 ([PIPELINE]): read-only status of the weekly gate-2
+          // test of pre-registration P2 (server/edgeP2.ts) — headline fields only.
+          return res.json(sanitizeDiag(edgeP2Status()));
         }
         case "heartbeats": {
           // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled
