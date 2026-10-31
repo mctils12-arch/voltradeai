@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-10-31 (scheduled routine, voltrade-product, Saturday, market closed) [PIPELINE] — T-DATACORE — Edge P3 fixed chain panel: 300-name write-once panel archived daily ahead of the rotating candidates (v1.0.1238)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.7%. research_state_check: only WARNs are the known overdue CONSTITUTIONAL AUDIT (unanswered proposals, not re-run) and port_dwell_weekly 22d stale (pre-existing, owned by the scripts/portdwell_weekly_snapshot.ts path). KNOWN BROKEN: no critical item open. Thrash 1/10.
+PRIOR: ~90% the cache holds >= 250 candidates so the panel freezes on the first post-close window (Mon 2026-11-02); ~10% a thin cache defers freezing (code refuses to freeze short).
+WHY: P3 gate 2 needs a per-name VS time series; the archive rotates (1,717 names / 76 days). The pre-registration's NEXT (1) is the fixed panel.
+CHANGE: `server/chainPanel.ts` - rankPanel (top 300 by cache dollar volume, plain tickers, deduped), ensurePanel (exclusive-create write-once `optionchains/panel/p3_panel.json`, refuses to freeze from < 250 candidates, never re-ranks). `underlyingsFor` takes the panel after the index names and raises the cap by the panel size so CSP rotation keeps its 120 slots. Panel trouble is caught and never costs the day's archive. Not read by any trading path; no surface.
+HONEST LIMITS: liquidity rank is equity dollar volume of the CSP universe (a stand-in for the pre-registered 60-day median option quote count - no such history exists at formation; method recorded in the file). Daily run grows from ~120 to ~420 underlyings (cap-bounded, 350ms politeness sleep); the 16:30-18:30 ET window should hold it but the first run's duration must be checked. 'every name the bot sells a CSP on' is already covered by the positions slot. No signal claim.
+TESTS: chainPanel.test.ts (3: ranking, thin-cache no-freeze + write-once, ordering + cap) + optionsChainArchive.test.ts 28/28 pass; tsc errors 3 (baseline).
+NEXT: (1) after Mon 11-02's window verify p3_panel.json exists and the run finished inside the window (job heartbeat); (2) real-quote spot check (gate-1 open clause); (3) gate 2 only after 52 weeks of panel days.
+ROLLBACK TRIGGER: first run overruns the window or chain failures spike -> drop PANEL_SIZE.
+MERGE: affects the post-close chain job only; merge any time, preferably outside 16:30-18:30 ET.
+STARVED: no.
+
 ## 2026-10-30 (scheduled routine, ~20:17Z = 16:17 ET Fri, JUST AFTER CLOSE) [NO-ACTION] — no code_version change (1.0.1237)
 HEALTH: /api/health 200 ok, serving.failing empty, status ok, no alarms. Live server_version 1.0.1237 == main (no deploy lag). research_state_check: thrash 2/10 REPAIR, STARVED streak 0, archive freshness all OK, nasr_cycle OK; only WARN is the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). KNOWN BROKEN: no critical item open (#44/#48 advisory).
 ACTION: none. P3 gate-1 dataset-kill clause was finished earlier today (83/83 days, not killed); its remaining NEXT items (fixed-panel snapshot, real-quote spot check) are multi-session builds better started in a PRE-MARKET PRODUCT slot, not squeezed into a post-close health pass. CONSTITUTIONAL AUDIT deliberately not re-run: prior rounds' proposals in wishlist.md are still unanswered, so another round only grows the pile (same reasoning as the 10-23/10-25 entries). Anti-churn: no padding PR.
