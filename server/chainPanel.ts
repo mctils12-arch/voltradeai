@@ -30,7 +30,8 @@ export interface UniverseCache { candidates?: unknown }
 export interface ChainPanel { formed: string; method: string; size: number; names: string[] }
 
 export function panelPath(baseDir?: string): string {
-  return path.join(baseDir || archiveBaseDir(), "optionchains", "panel", "p3_panel.json");
+  const chains = path.join(baseDir || archiveBaseDir(), "optionchains"); // sub-dir of the optionchains stream, not its own
+  return path.join(chains, "panel", "p3_panel.json");
 }
 
 /** Top-N by dollar volume (tuple index 3), ties by symbol; plain tickers only. */
