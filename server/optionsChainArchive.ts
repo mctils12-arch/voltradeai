@@ -539,8 +539,8 @@ export async function runDailyChainArchive(
   fs.writeFileSync(staged, ""); // restart-safe: a leftover partial stage is discarded
   const sleepMs = opts.sleepMs ?? 350;
   let panelNames: string[] = [];
-  try { panelNames = ensurePanel(cache, day, opts.baseDir)?.names ?? []; } catch (e: any) {
-    console.error("[optionchains] panel:", e?.message || e); // panel trouble must never cost the day's archive
+  try { panelNames = ensurePanel(cache, day, opts.baseDir)?.names ?? []; } catch (e) {
+    console.error("[optionchains] panel:", e instanceof Error ? e.message : e); // panel trouble must never cost the day's archive
   }
   const unders = underlyingsFor(cache, positionSymbols, CHAIN_MAX_UNDERLYINGS, panelNames);
   let contracts = 0;

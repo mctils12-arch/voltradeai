@@ -24,6 +24,9 @@ export const PANEL_SIZE = 300;
  *  short panel for good. */
 export const PANEL_MIN_CANDIDATES = 250;
 
+/** The CSP universe cache: candidates are [symbol, price, volume, dollarVol] tuples. */
+export interface UniverseCache { candidates?: unknown }
+
 export interface ChainPanel { formed: string; method: string; size: number; names: string[] }
 
 export function panelPath(baseDir?: string): string {
@@ -31,8 +34,8 @@ export function panelPath(baseDir?: string): string {
 }
 
 /** Top-N by dollar volume (tuple index 3), ties by symbol; plain tickers only. */
-export function rankPanel(cacheJson: any, n = PANEL_SIZE): string[] {
-  const cands: any[] = Array.isArray(cacheJson?.candidates) ? cacheJson.candidates : [];
+export function rankPanel(cacheJson: UniverseCache | null | undefined, n = PANEL_SIZE): string[] {
+  const cands = Array.isArray(cacheJson?.candidates) ? (cacheJson.candidates as unknown[][]) : [];
   const rows = cands
     .map((c) => ({ s: String(c?.[0] || "").toUpperCase(), dv: Number(c?.[3]) }))
     .filter((r) => /^[A-Z]{1,5}$/.test(r.s) && Number.isFinite(r.dv) && r.dv > 0);
@@ -53,7 +56,7 @@ export function loadPanel(baseDir?: string): ChainPanel | null {
 
 /** Load the panel; if none exists and the cache can support one, freeze it
  *  (exclusive create, so two racing writers cannot disagree). */
-export function ensurePanel(cacheJson: any, day: string, baseDir?: string): ChainPanel | null {
+export function ensurePanel(cacheJson: UniverseCache | null | undefined, day: string, baseDir?: string): ChainPanel | null {
   const have = loadPanel(baseDir);
   if (have) return have;
   const names = rankPanel(cacheJson);
