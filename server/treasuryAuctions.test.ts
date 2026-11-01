@@ -169,3 +169,85 @@ test("refreshAuctionCache: a genuinely empty but successful poll on a cold cache
     if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
   }
 });
+
+// ── Schema drift regression (2026-11-01) ─────────────────────────────────
+// TreasuryDirect dropped `auctionDate` and renamed the bidder/yield fields
+// ~2026-10-16; parseAuctions silently dropped every row and the archive went
+// dark for 16 days (stream health "stale", /api/data/treasury-auctions
+// count 0). Fixtures below are rows copied from the LIVE 2026-10-29 payload
+// (fields trimmed to those the parser reads).
+const BILL_V2 = {
+  cusip: "912797VZ7", securityType: "Bill", securityTerm: "4-Week",
+  competitiveAuctionCloseDate: "2026-10-29T00:00:00", issueDate: "2026-11-03T00:00:00",
+  maturityDate: "2026-12-01T00:00:00", reopening: "Yes", bidToCoverRatio: "3.10",
+  highYield: "", highRate: "3.910", investmentRate: "3.976", medianYield: "", medianRate: "3.860",
+  totalParAwardedInsideOfOfferingAmount: "115000324600",
+  subtotalCompetitiveParRecognizedInsideOfOfferingAmount: "348759551000",
+  subtotalCompetitiveParAwardedInsideOfOfferingAmount: "107332678000",
+  primaryDealersCompetitiveParRecognized: "209755000000", primaryDealersCompetitiveParAwarded: "26232400000",
+  directBiddersCompetitiveParRecognized: "15850000000", directBiddersCompetitiveParAwarded: "6151760000",
+  indirectBiddersCompetitiveParRecognized: "123154551000", indirectBiddersCompetitiveParAwarded: "74948518000",
+};
+const NOTE_V2 = {
+  cusip: "91282CRV5", securityType: "Note", securityTerm: "7-Year",
+  competitiveAuctionCloseDate: "2026-10-29T00:00:00", issueDate: "2026-11-02T00:00:00",
+  maturityDate: "2033-10-31T00:00:00", reopening: "No", bidToCoverRatio: "2.46",
+  highYield: "4.894", highRate: "", investmentRate: "", medianYield: "4.840", medianRate: "",
+  totalParAwardedInsideOfOfferingAmount: "44000055600",
+  subtotalCompetitiveParRecognizedInsideOfOfferingAmount: "108083482000",
+  subtotalCompetitiveParAwardedInsideOfOfferingAmount: "43640334000",
+  primaryDealersCompetitiveParRecognized: "57297000000", primaryDealersCompetitiveParAwarded: "4107456000",
+  directBiddersCompetitiveParRecognized: "20055000000", directBiddersCompetitiveParAwarded: "14321000000",
+  indirectBiddersCompetitiveParRecognized: "30731482000", indirectBiddersCompetitiveParAwarded: "25211878000",
+};
+
+test("parseAuctions: current TA_WS schema (no auctionDate) parses bill + note", () => {
+  const recs = parseAuctions([BILL_V2, NOTE_V2], "2026-11-01");
+  assert.equal(recs.length, 2, "both live rows must parse — this was 0 before the fix");
+  const [b, n] = recs;
+  assert.equal(b.auction_date, "2026-10-29");
+  assert.equal(b.type, "Bill");
+  assert.equal(b.reopening, true);
+  assert.equal(b.bid_to_cover, 3.1);
+  assert.equal(b.high_discount_rate, 3.91);
+  assert.equal(b.high_investment_rate, 3.976);
+  assert.equal(b.high_yield, null, "bills carry no yield — null, never guessed");
+  assert.equal(b.avg_median_discount_rate, 3.86);
+  assert.equal(b.dealer_take, +(26232400000 / 107332678000).toFixed(4));
+  assert.equal(n.high_yield, 4.894);
+  assert.equal(n.avg_median_yield, 4.84);
+  assert.equal(n.high_discount_rate, null);
+  assert.equal(n.auction_date, "2026-10-29");
+});
+
+test("parseAuctions: v2 bidder splits reconcile (PD+direct+indirect == competitive; B2C == published)", () => {
+  for (const [raw, a] of [[BILL_V2, parseAuctions([BILL_V2], "x")[0]], [NOTE_V2, parseAuctions([NOTE_V2], "x")[0]]] as const) {
+    assert.equal(a.primary_dealer_accepted! + a.direct_accepted! + a.indirect_accepted!, a.competitive_accepted,
+      "bidder-class awards must sum to the competitive subtotal to the dollar");
+    assert.equal(a.primary_dealer_tendered! + a.direct_tendered! + a.indirect_tendered!, a.competitive_tendered);
+    assert.ok(a.total_accepted! >= a.competitive_accepted!);
+    assert.equal(a.bid_to_cover, Number(raw.bidToCoverRatio));
+  }
+});
+
+test("parseAuctions: v2 rows dedup against v1-era archive keys (same cusip|auction_date identity)", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tsy-v2-"));
+  const now = Date.parse("2026-11-01T12:00:00Z");
+  const v1 = parseAuctions([{ ...BILL, cusip: "912797VZ7", auctionDate: "2026-10-29T00:00:00" }], "2026-10-30");
+  const v2 = parseAuctions([BILL_V2], "2026-11-01");
+  assert.equal(archiveAuctions(v1, base, now), 1);
+  assert.equal(archiveAuctions(v2, base, now), 0, "schema change must not double-archive an auction");
+});
+
+test("fetchAuctions: rows with results but zero parsed logs SCHEMA DRIFT loudly", async () => {
+  const { fetchAuctions } = await import("./treasuryAuctions");
+  const errs: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
+  try {
+    const drifted = { ...BILL_V2, competitiveAuctionCloseDate: undefined, cusip: undefined };
+    const f = async () => ({ ok: true, status: 200, text: async () => JSON.stringify([drifted]) });
+    assert.deepEqual(await fetchAuctions(f as any), []);
+  } finally { console.error = orig; }
+  assert.ok(errs.some((e) => e.includes("SCHEMA DRIFT")), "silent degradation is how this went dark for 16 days");
+});
