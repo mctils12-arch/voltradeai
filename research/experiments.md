@@ -3,6 +3,13 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-01 (scheduled routine, voltrade-product, Sun ~13:10Z = 09:10 ET, market closed) [PIPELINE] — T-DATACORE (scripts tooling only) — sentinel2_refresh guard now covers tifffile (v1.0.1242)
+HEALTH: research_state_check: thrash 2/10, STARVED 0, all archive freshness OK; only WARN is the overdue CONSTITUTIONAL AUDIT (proposals unanswered, not re-run). KNOWN BROKEN: no critical item open. Edge P2's first run window (10:00 ET) had not opened yet at session time, so nothing to read.
+ACTION: the 2026-11-01 catch-up entry's NEXT (1). `REQUIRED_MODULES` in scripts/sentinel2_refresh.py gains `tifffile` (the v2 estimator imports it; its absence surfaced after v1 had already written). Regression test `test_required_modules_cover_every_third_party_import_in_the_plan` AST-scans every script in the refresh plan and requires each third-party import to be in REQUIRED_MODULES, so the next new dependency cannot repeat this. Verified it fails (names `tifffile`) with the fix reverted and passes with it. 5 tests pass.
+NEXT: Edge P2 first run read (/api/diag/edge_p2 + edge_p2_weekly heartbeat, plus corrupt_lines_skipped from v1.0.1241); sentinel2 collectors remain session-run (consider server-side scheduling if they stall again).
+MERGE: scripts + test only, no runtime path; safe any time.
+STARVED: no.
+
 ## 2026-11-01 (scheduled routine, EDGE-DOCTRINE axis pick, Sat 22:40 ET) [REPAIR] — T-DATACORE (price_panel.py + two additive report fields) — v1.0.1241 A CORRUPT PANEL LINE NO LONGER KILLS THE WALK-FORWARD (AND EDGE P2)
 
 HEALTH: /api/health 200 ok, serving ok, liveness not dark, drawdown -4.8%. Only advisories: jobs degraded (overnight_research missing by design; walkforward_weekly errored). KNOWN BROKEN: no critical item. This session had DIAG_TOKEN, so it read the cause the last two sessions could not: `/api/diag/heartbeats` -> walkforward_weekly: `OverflowError: Python int too large to convert to C long` at `np.asarray(line["c"], dtype=np.int64)` in `price_panel.decode_arrays` (3 recent errors; the new v1.0.1240 error_class said `nonzero_exit`, which is correct but not specific).
