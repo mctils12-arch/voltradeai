@@ -112527,3 +112527,9 @@ HEALTH (20:16Z): /api/health 200, status ok, serving.failing empty, liveness not
 GENERATOR FIXED: two sessions now cannot say WHY the job errored because the detail is owner-auth only, so every unauthenticated daily session ends [NO-ACTION]. Change: health jobs block gains `error_class` {job: timeout|memory_budget|unparseable_output|nonzero_exit|interrupted|other} — a closed enum derived from the detail, never the text (test asserts no free text leaks). No trading/measurement code touched; no gate semantics changed.
 PRIOR: next health read shows walkforward_weekly: memory_budget (the 900 MB RSS guard vs the larger 2016+ panel) with ~50% confidence, timeout ~20%. Regression test: jobHeartbeat.test.ts classifyJobError.
 NEXT: once deployed, read error_class; if memory_budget, raise/stream the walkforward RSS budget with its own test. STARVED: no.
+
+## 2026-11-01 [NO-ACTION] — daily-midday (Sunday, market closed) — prior walkforward_weekly alarm CLEARED; nothing broken
+
+HEALTH (16:12Z): /api/health 200, status ok, serving.failing empty, liveness not dark, Alpaca ACTIVE, feeds fresh (silent 0.2h), drawdown -4.8%, regime CALM_BULL. checks.jobs: failing=[], errored 0, error_class {} — the 10-31 `walkforward_weekly` advisory is gone (consistent with the v1.0.1241 corrupt-panel-line fix, #1568; the v1.0.1240 error_class field was never needed to diagnose it). Not asserting causation beyond that: no owner-auth read was available this session.
+LOOP HEALTH: last 10 tags mix PRODUCT/PIPELINE/RULE-REVIEW with 2-3 REPAIR — no thrash.
+No code changed (market closed Sunday, no live break; the queue's large items are multi-session builds that should not be started as a rushed midday add-on). STARVED: no. Merge of this docs-only PR has no timing constraint.
