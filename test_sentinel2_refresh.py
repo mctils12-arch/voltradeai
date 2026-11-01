@@ -35,3 +35,27 @@ def test_plan_order_rehydrate_before_s1_rebuild_and_all_scripts_exist():
 def test_pick_python_first_capable_else_none():
     assert sr.pick_python(("a", "b"), ok=lambda c: c == "b") == "b"
     assert sr.pick_python(("a",), ok=lambda c: False) is None
+
+
+def test_required_modules_cover_every_third_party_import_in_the_plan():
+    """Regression (2026-11-01): tifffile was imported by the v2 estimator but missing from
+    REQUIRED_MODULES, so the guard passed and the run failed after v1 had written."""
+    import ast
+    import sys
+    plan_scripts = {argv[1] for _, argv in sr.build_plan("py", "a", "b", "c")}
+    local = {os.path.splitext(f)[0] for f in os.listdir(os.path.join(sr.ROOT, "scripts"))}
+    local |= {os.path.splitext(f)[0] for f in os.listdir(sr.ROOT)}
+    needed = set()
+    for path in plan_scripts:
+        for node in ast.walk(ast.parse(open(path).read())):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            for n in names:
+                top = n.split(".")[0]
+                if top not in sys.stdlib_module_names and top not in local:
+                    needed.add(top)
+    missing = needed - set(sr.REQUIRED_MODULES)
+    assert not missing, "third-party imports not guarded by REQUIRED_MODULES: %s" % sorted(missing)
