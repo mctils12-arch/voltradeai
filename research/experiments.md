@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-01 (scheduled routine, voltrade-product, Sat 20:10 ET, market closed) [PIPELINE] — T-DATACORE — Sentinel-2/Sentinel-1 Cushing tank-fill archive catch-up (data only, no code_version change, 1.0.1240)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.8%. research_state_check: thrash 1/10, STARVED 0; WARNs = overdue CONSTITUTIONAL AUDIT (prior proposals unanswered, deliberately not re-run) and archive_freshness:sentinel2_tank_fill 22d stale (past the 21d trigger). KNOWN BROKEN: no critical item open.
+ACTION: ran `python3 scripts/sentinel2_refresh.py` (the one-command tool from 2026-10-11). Sandbox lacked numpy/xlrd/rasterio/tifffile; pip-installed them (the wrapper re-exec guard worked as designed, failing before any write the first time; a second missing dep, tifffile, surfaced only at the v2 estimator - not in the wrapper's REQUIRED_MODULES list).
+RESULT: v1 +6 keyless readings, v2 +3 CDSE chips/readings (2026-10-12, 10-20, 10-25), v3 +2 S1 scenes and whole-file rebuild (70 readings, 234 tanks; the rewrite of existing S1 lines is the documented per-tank-median renormalization, not a loss). sentinel2 freshness WARN cleared. No signal claim; accumulation toward the v3.1 composite-window gate.
+NEXT: (1) add `tifffile` to sentinel2_refresh REQUIRED_MODULES so the guard fails before writes (small own PR, test extension); (2) the collectors remain session-run: a 3rd stall suggests scheduling this server-side rather than another reminder.
+MERGE: data + docs; safe any time.
+STARVED: no.
+
 ## 2026-10-31 (scheduled routine, voltrade-product, Sat ~18:10Z = 14:10 ET, market closed) [PIPELINE] — T-DATACORE — port_dwell_weekly archive gap filled (weeks 14, 15, 16); data only, no code_version change (1.0.1239)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.8%. research_state_check: only WARNs were the overdue CONSTITUTIONAL AUDIT (not re-run, proposals unanswered) and archive_freshness:port_dwell_weekly 22d stale. KNOWN BROKEN: no critical item open.
 ACTION: ran `scripts/portdwell_weekly_snapshot.ts` (preferred path, DIAG_TOKEN present). It merged the server's own Tier-3 captured weeks 14, 15, 16 into datacore/port_dwell_weekly.json (file now 11 weeks, newest record 2026-10-30). Fallback path not needed; no weeks skipped. Raw retention now starts 2026-10-24, so weeks 14-16 were still reachable only through the server's capture; doing it at the trigger date matters because a gap never refills.
