@@ -519,7 +519,7 @@ def run(panel_root: Optional[str], out_dir: str, form4_dir: str, max_rss_mb: flo
         "threshold": {"t": T_THRESHOLD, "mde_bar_bp": MDE_BAR_BP, "variants": 9},
         "events": {**ev_counts, "classified_in_window": len(events), "with_entry_day": len(tickers), "matched_rows": len(ev_rows)},
         "universe": {"entry_days": int(len(need_days)), "rows": st["universe_rows"], "series": st["series"], "series_used": st["series_used"],
-                     "ended_early_exits": st["ended_early_exits"]},
+                     "ended_early_exits": st["ended_early_exits"], "corrupt_lines_skipped": pp.corrupt_lines()},
         "form4": {"quarters_cached": len(cached), "failed": failed},
         "results": out_runs, **v,
         "elapsed_s": round(time.time() - t0, 1), "peak_rss_mb": round(_rss_mb(), 1),

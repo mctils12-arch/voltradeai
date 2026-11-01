@@ -178,3 +178,26 @@ def test_cli_summary_and_no_panel(tmp_path, capsys):
     assert out["build_id"] == "b20261029"
     assert pp.main(["--root", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "no_panel"
+
+
+def _line(c0, **kw):
+    ln = {"s": "BAD", "mode": "raw", "seg": 0, "d0": "2020-01-02", "n": 2, "k": 4, "dd": [0, 1],
+          "c": [c0, 5], "o": [0, 0], "h": [1, 1], "l": [-1, -1], "v": [10, 20], "st": "active"}
+    ln.update(kw)
+    return ln
+
+
+def test_overflowing_line_is_corrupt_not_a_crash_and_is_counted():
+    """Regression: 2026-10-31 walkforward_weekly died with OverflowError (a panel
+    line whose scaled prices exceed int64) and would have taken edge_p2 down too."""
+    pp.CORRUPT_LINES.clear()
+    good = _line(1000000, s="OK")
+    for bad in (_line(10 ** 20), _line(2 ** 51), _line(1000000, v=[10 ** 25, 1])):
+        with pytest.raises(pp.CorruptLine):
+            pp.decode_arrays(bad)
+    out = pp.series_from_lines([_line(10 ** 20), good])
+    assert [s.symbol for s in out] == ["OK"]
+    assert pp.corrupt_lines()[0]["symbol"] == "BAD"
+    pp.series_from_lines([_line(10 ** 20)])           # second pass: same key, no double count
+    assert len(pp.corrupt_lines()) == 1
+    pp.CORRUPT_LINES.clear()

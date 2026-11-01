@@ -1091,7 +1091,7 @@ def run(panel_root: Optional[str] = None, out_dir: Optional[str] = None, max_rss
             "delisted_symbol_share": _round(len(st["delisted_symbols_used"]) / n_sym) if n_sym else None,
             "delisted_row_share": _round(float(rows["delisted"].mean())),
             "rows": n_rows, "names_per_date": {"mean": _round(float(per_date.mean()), 1), "min": int(per_date.min()), "max": int(per_date.max())},
-            "duplicates_removed": dups, "rows_without_raw_close": int(rows["no_raw"].sum()),
+            "corrupt_lines_skipped": pp.corrupt_lines(), "duplicates_removed": dups, "rows_without_raw_close": int(rows["no_raw"].sum()),
             "unenterable_rows": int(rows["unenterable"].sum()),
             "delisting_return_applied": {str(h): int(rows[f"dl{h}"].sum()) for h in HORIZONS},
             "filters": {"min_raw_close": MIN_PRICE, "min_day_raw_shares": MIN_VOLUME, "min_dollar_volume_20d": MIN_DOLLAR_VOLUME,
