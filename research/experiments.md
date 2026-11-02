@@ -112823,6 +112823,28 @@ defined-risk structure's legs (evidence above); the GOOGL 300P wing itself
 is the human's manual sale today (no session order path exists by design;
 /api/bot/close is owner-only and has no UI control yet). STARVED: no.
 
+## 2026-11-02 (interactive session, ~22:10Z) [RESEARCH] — options exit study: the account's own closed lots replayed under candidate profit-taking rules (research/options_exit_study_2026-11-02.md)
+
+Human: "for the other options, figure out what's best for taking profit".
+Data: /api/diag/lots (400 option lots since 05-07) + /api/diag/option_bars
+(96 contracts' daily bars); script compiled to scripts/options_exit_study.py
+(re-runnable with DIAG_TOKEN). PRIOR (open_questions.md candidate): a
+scale-out/trailing rule on bought options raises expectancy, small positive.
+RESULT: WRONG — no population. Of 91 bought lots, 7 lived past a day and all
+7 are legs of structures; none ever closed a day above +50 % of its premium
+(best path +$25). No target, trail or scale-out would have changed one
+result; the candidate is WITHDRAWN. Sold lots (309, 95 multi-day): the live
+50 % target holds; a 25 % target cuts the best lot $1,300 → $520 and the
+total by ≈ $1,200; 75 % ≈ 50 %. PROFIT_TARGET_PCT stays 0.50. WHERE THE MONEY
+GOES: 288 of 400 lots never saw a second session (<1 h −$4,812, <1 d
+−$5,011, 1–7 d −$3,784, 8–30 d +$845) — the single-leg loss limit on fresh
+sales, the per-leg backstop, and single-leg rules on legs that lost their
+grouping; the condor repair (v1.0.1251) and the POS-KILL structure hold
+address the last two. NEXT: the same-day churn on single sold legs needs
+intraday marks the archive does not keep yet — re-test after the options
+chain archive holds ~30 sessions. Multiple-comparison note: 10 rules tried,
+none won, nothing selected. STARVED: no.
+
 ## 2026-11-02 (interactive session, ~22:00Z) [RULE-REVIEW] — T-BOT server/bot.ts POS-KILL: a leg of a defined-risk structure is never killed on its own (v1.0.1252)
 
 Human: "fix the condor close … make sure it works so we don't have this issue
