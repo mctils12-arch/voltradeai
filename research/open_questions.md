@@ -23289,3 +23289,22 @@ or this candidate ships. The chart legend's "manager target: closes at 50%"
 line — which had claimed that target for bought legs too — was wrong and is
 fixed in the same PR (long leg → "none — a bought option has no profit-taking
 rule"). The candidate itself is unchanged: no rule changed, nothing traded.
+
+## KNOWN BROKEN #45 (2026-11-02) — multi-leg strategy closes were one-shot and orphaned their legs; the per-leg Tier-1 kill cannot judge a defined-risk structure
+
+Found from the human's "option up 300 %": the GOOGL Nov-27 iron condor was
+dismantled leg by leg (full chain in experiments.md 2026-11-02 ~21:45Z).
+(a) FIXED v1.0.1251: `_manage_strategy_group` pursues a requested close until
+the legs are gone, buys shorts back before selling wings, submits in regular
+hours only, adopts a leg that lost its label. (b) OPEN, own [RULE-REVIEW]
+PR: server/bot.ts POS-KILL judges each leg by its own premium P&L
+(−75 % long / −150 % short); on a defined-risk structure a wing at −99 % is
+the structure working and a short at −150 % is the group's loss to manage —
+the backstop should hold its hand on legs whose options state carries a
+defined-risk strategy (condors, verticals, long straddles), keep acting on
+single legs and undefined-risk groups. Evidence: the 10-28/29 audit (122
+pre-market retries on the 355C wing, the 310P bought back at 4× credit while
+its 300P wing was itself submitted for a sell on a zero mark). Rollback
+trigger for (b): a defined-risk structure's realized loss exceeding its
+max loss (wing width × qty × 100 − net credit) by > 10 % while the manager
+could not act.
