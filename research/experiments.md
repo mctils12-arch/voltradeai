@@ -112614,3 +112614,32 @@ source: config, since 2026-10-28): would-be entries are logged, not
 placed; exits, stops and the floor keep running. The switch is the
 human's (Railway env VOLTRADE_SHADOW_ENTRIES=off, or stocks / options to
 keep one sleeve shadowed). STARVED: no.
+
+## 2026-11-02 (interactive session, ~19:50Z) [PRODUCT] — Book tape legibility pass (v1.0.1248)
+
+Territory T-CLIENT. Human: "can we make the book on the bot ui easier to
+read." Scoped to the Book panel (`section.vt-bot-panel[data-panel="book"]`)
+so the Orders tape stays compact: 13 px rows, symbol and P&L at 600
+weight, last price in the primary color, one size up on qty / day / the
+dollar P&L, 26 px rows with a divider, hover and a focused-row accent
+bar; the `entry · cost · value` line (v1.0.1247) in the secondary color at
+11.5 px with dimmed labels; header 10.5 px, group labels 11 px. Room: the
+Issues cap drops 40 % → 30 % of the left column and the Book's floor rises
+120 → 160 px, so at least two positions show before the Book scrolls even
+on a 900 px screen with the kill banner up. The 2026-10-22 tape contract
+holds unchanged (header sym qty last day P&L, five cells, $ on last,
+units on qty, dollar P&L by Book width; a narrow Book's P&L cell is 60 px
+so the row never overflows). Evidence: tsc 6/6; counter ratchet OK, pins
+locked (tests 707, assertions 25606); harness `bot` at 390/768/1440: 0
+hard failures, tape-contract and dead-space blocks pass.
+
+Same session, read for the human — options EXIT logic for a BOUGHT
+option (options_manager.py): 60-min minimum hold; close at −50 % of the
+premium (Node backstop −75 %); close when |gamma| > 0.08 with ≤ 30 DTE;
+close at 21 DTE regardless of P&L; force close at 5 DTE. NO profit target
+and NO trailing exit — PROFIT_TARGET_PCT applies to sold premium only and
+`highest_value` is recorded but never acted on. A long call up 300 %
+therefore rides to 21 DTE or a 50 % give-back. Filed as a RULE-REVIEW
+candidate (scale out half at +100 %, trail the rest 35 % off the peak,
+keep the 21-DTE rule) pending counterfactual evidence from the options
+chain archive and the exit ledger; the human decides. STARVED: no.

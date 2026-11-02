@@ -23252,3 +23252,30 @@ STATUS: price_panel build b20261029 complete (27.1M bars, 6,955 delisted symbols
 P2 (opportunistic insiders): harness shipped v1.0.1239 (`edge_p2_insider.py`, weekly Sunday job, `/api/diag/edge_p2`); first result expected after Sun 2026-11-01 10:00 ET. Prior: ~60% INCONCLUSIVE because 2017+ (9 yrs) leaves MDE above the 35 bp bar; ladder path unchanged (gate 2 now, gates 3-5 only after a PASS_PROVISIONAL).
 LAZY PRICES gate 2 (next, own PR): same panel reader, same matched-benchmark machinery (`edge_p2_insider.DayGrid` / `abnormal_returns` are reusable; extract to a shared module only when the second consumer exists). Pre-register its exact variant list before running; count it against the shared multiple-testing ledger.
 CAVEAT carried forward: 2010-2015 is not in the panel, so any pre-2016 claim from these tests is out of scope; a PASS is provisional until the live shadow book reads (12 months).
+
+## RULE-REVIEW CANDIDATE 2026-11-02 — bought options have no profit-taking exit (filed from the human's question on a GOOGL call up ~300 %)
+
+Observed (options_manager.py `manage_options_positions`, v1.0.1247): for a BOUGHT
+option the only exits are the 50 % loss limit (Node backstop −75 %), gamma > 0.08
+with ≤ 30 DTE, 21 DTE (close), 5 DTE (force), after a 60-minute minimum hold.
+`PROFIT_TARGET_PCT` (50 % of max profit) applies to SOLD premium only;
+`highest_value` is recorded per position but never compared. A long call up 300 %
+is held to 21 DTE or a 50 % give-back from the premium — the winner is never
+harvested and the gain is exposed to theta and reversal.
+
+Hypothesis (stated before testing): a scale-out plus trailing rule on bought
+options raises expectancy per lot versus hold-to-21-DTE, because option P&L paths
+are convex and mean-revert after large moves. Prior: positive but small; the
+risk is cutting the few outsized winners that carry the sleeve.
+
+Testable form: candidates (a) scale out half at +100 %, trail the rest 35 % off
+the peak mark, keep 21 DTE; (b) trail-only 40 % off peak after +50 %; (c) status
+quo. Evaluate per closed lot and per regime on the options chain archive
+(server-captured post-close chains since 2026-10-28) plus the options exit
+ledger (`_record_options_exit_feedback`, trade_feedback since v1.0.34): replay
+each bought lot's daily marks, apply each rule, compare realized P&L
+distributions (mean, median, tails) and the count of winners cut early. Ladder:
+gate 3 (LOGIC) by ablation against the live rule; ships only via the RULE REVIEW
+path (one threshold at a time, prior value and rollback trigger logged).
+
+Decision owner: the human (asked 2026-11-02; a manual sell today is theirs).
