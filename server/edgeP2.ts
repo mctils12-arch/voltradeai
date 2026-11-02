@@ -14,11 +14,14 @@
  * HOW: same long-job lane as walkforward.ts (detached process group, explicit
  * budget, thread caps, niceness 19, peak-RSS budget enforced by the Python).
  * OUTPUT (DATA_DIR/edge_p2): latest.json (last success), last_run.json,
- * label_spotcheck.json, form4_cache/ (compact SEC rows, ~tens of MB). Derived
+ * label_spotcheck.json. The Form 4 cache (compact SEC rows) lives in the
+ * CONTAINER tmp dir, never the volume: the volume is the scarce resource (see
+ * EDGE_P2_MIN_FREE_BYTES) and the cache is re-fetchable public data. Derived
  * statistics only — no ticker or price in latest.json (Alpaca data licence).
  * FLAG: VOLTRADE_EDGE_P2, default ON; present env var wins.
  */
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { beat, zonedParts } from "./jobHeartbeat";
 import { execGroupKill } from "./pythonExec";
@@ -35,8 +38,14 @@ export const EDGE_P2_MAX_RSS_MB = 1500;
 export const EDGE_P2_STALE_DAYS = 27;
 export const EDGE_P2_WINDOW_START_MIN = 10 * 60;
 export const EDGE_P2_WINDOW_END_MIN = 16 * 60;
-/** Skip the run when the volume has less than this free: the Form 4 cache must never starve the price-panel build. */
-export const EDGE_P2_MIN_FREE_BYTES = 1_500_000_000;
+/**
+ * Skip the run when the volume has less than this free. The job writes only
+ * KB-sized result files to the volume (the Form 4 cache is in container tmp),
+ * so the floor is a sanity margin, not a capacity guard. It was 1.5 GB when the
+ * cache lived on the volume; the volume hovers ~1.1-1.4 GB free (wishlist: volume
+ * decision), so that floor skipped the first run (2026-11-01) and burned the week.
+ */
+export const EDGE_P2_MIN_FREE_BYTES = 64_000_000;
 const ET = "America/New_York";
 const DAY_MS = 86_400_000;
 
@@ -51,9 +60,17 @@ export function edgeP2Root(env: Record<string, string | undefined> = process.env
   return path.join(env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp"), EDGE_P2_SUBDIR);
 }
 
-export function edgeP2Cmd(codeVersion: string = pkgVersion): string {
+/** Container-local (non-volume) Form 4 cache dir; env override must be a plain path. */
+export function edgeP2Form4Dir(env: Record<string, string | undefined> = process.env): string {
+  const o = env.VOLTRADE_EDGE_P2_FORM4_DIR;
+  return o && /^[0-9A-Za-z_./-]{1,200}$/.test(o) ? o : path.join(os.tmpdir(), "voltrade_edge_p2_form4");
+}
+
+export function edgeP2Cmd(codeVersion: string = pkgVersion, env: Record<string, string | undefined> = process.env): string {
   const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
-  return `python3 edge_p2_insider.py --run --nice 19 --max-rss-mb ${EDGE_P2_MAX_RSS_MB} --code-version ${v}`;
+  const dir = edgeP2Form4Dir(env);
+  const d = /^[0-9A-Za-z_./-]{1,200}$/.test(dir) ? dir : "/tmp/voltrade_edge_p2_form4";
+  return `python3 edge_p2_insider.py --run --nice 19 --max-rss-mb ${EDGE_P2_MAX_RSS_MB} --code-version ${v} --form4-dir ${d}`;
 }
 
 /** Sunday, 10:00-16:00 ET. */
@@ -78,7 +95,7 @@ export function decideEdgeP2(nowMs: number, s: {
   if (s.lastAttemptWeek === week) return { action: "idle", reason: `already attempted ${week}` };
   if (!s.panelBuildId) return { action: "skip", week, reason: "no complete price-panel build yet (current.json absent)" };
   if (s.freeBytes !== null && s.freeBytes < EDGE_P2_MIN_FREE_BYTES) {
-    return { action: "skip", week, reason: `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${EDGE_P2_MIN_FREE_BYTES / 1e6} MB): the Form 4 cache must not starve the panel build` };
+    return { action: "skip", week, reason: `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${EDGE_P2_MIN_FREE_BYTES / 1e6} MB): the job's result files need at least that much` };
   }
   const l = s.latest;
   if (l && l.build_id === s.panelBuildId && l.code_version === s.codeVersion && l.generated_at) {
@@ -124,7 +141,7 @@ export function parseEdgeP2Summary(stdout: string): RunOutcome {
 /** Run edge_p2_insider.py once (process-group kill on timeout). Never throws. */
 export async function runEdgeP2(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill): Promise<RunOutcome> {
   try {
-    const { stdout } = await exec(edgeP2Cmd(), {
+    const { stdout } = await exec(edgeP2Cmd(pkgVersion, env), {
       timeout: EDGE_P2_TIMEOUT_MS, killSignal: "SIGKILL", env: { ...env, ...WALKFORWARD_ENV_CAPS }, maxBuffer: 1024 * 1024, encoding: "utf8",
     });
     return parseEdgeP2Summary(stdout);

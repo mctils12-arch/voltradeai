@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  edgeP2Flag, edgeP2Cmd, inEdgeP2Window, decideEdgeP2, parseEdgeP2Summary, runEdgeP2, edgeP2Status,
+  edgeP2Flag, edgeP2Cmd, edgeP2Form4Dir, inEdgeP2Window, decideEdgeP2, parseEdgeP2Summary, runEdgeP2, edgeP2Status,
   EDGE_P2_TIMEOUT_MS, EDGE_P2_STALE_DAYS, EDGE_P2_MIN_FREE_BYTES,
 } from "./edgeP2";
 import { WALKFORWARD_ENV_CAPS, type WalkforwardExec } from "./walkforward";
@@ -46,7 +46,9 @@ test("decide: idle outside/disabled/already-attempted; skip without panel or on 
   assert.equal(decideEdgeP2(SUN_11_ET, { ...base, panelBuildId: null }).action, "skip");
   const low = decideEdgeP2(SUN_11_ET, { ...base, freeBytes: EDGE_P2_MIN_FREE_BYTES - 1 });
   assert.equal(low.action, "skip");
-  assert.match(low.reason, /starve the panel build/);
+  assert.match(low.reason, /result files/);
+  // regression 2026-11-01: the live volume sat at ~1188 MB free and the old 1.5 GB floor skipped the first run
+  assert.equal(decideEdgeP2(SUN_11_ET, { ...base, freeBytes: 1_188_000_000 }).action, "run", "typical live free space must not block");
   assert.equal(decideEdgeP2(SUN_11_ET, { ...base, freeBytes: null }).action, "run", "unknown free space does not block");
   const fresh = { build_id: "b20261029", code_version: "1.0.1", generated_at: new Date(SUN_11_ET - 3 * DAY).toISOString() };
   assert.equal(decideEdgeP2(SUN_11_ET, { ...base, latest: fresh }).action, "skip");
@@ -113,4 +115,12 @@ test("wiring: whitelisted probe, read-only case in bot.ts, booted from routes.ts
   assert.ok(!/execPythonSerialized|pythonRunning|pythonRpc/.test(src));
   assert.ok(!src.includes("/orders") && !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(src));
   assert.ok(src.includes('beat("edge_p2_weekly", "start")') && src.includes('beat("edge_p2_weekly", "finish"'));
+});
+
+test("form4 cache dir: container tmp by default (never the volume), safe override only, passed to the job", () => {
+  const d = edgeP2Form4Dir({});
+  assert.ok(!d.startsWith("/data"), d);
+  assert.match(edgeP2Cmd("1.0.1", {}), new RegExp(`--form4-dir ${d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  assert.equal(edgeP2Form4Dir({ VOLTRADE_EDGE_P2_FORM4_DIR: "/scratch/f4" }), "/scratch/f4");
+  assert.equal(edgeP2Form4Dir({ VOLTRADE_EDGE_P2_FORM4_DIR: "/x; rm -rf /" }), d, "unsafe override ignored");
 });
