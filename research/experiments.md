@@ -112680,3 +112680,26 @@ HEALTH (17:21Z, market hours): /api/health 200, status ok, serving.failing empty
 STREAM TRIAGE (follow-up filed 11-01): of 4 "stale" streams, `fdicfailures` is a false alarm — the manifest cadence "event-driven source (failures as they occur); 12h poll…" matched `\d+\s*h\b` → 26h threshold, yet no bank has failed since 2026-08-25 (writer polls fine). FIX: `as they occur` → 400d threshold; raw age still reported. Regression test added (10/10 in streamsInventory.test.ts). flight_events (also "event-driven") deliberately unchanged. No trading/measurement code touched.
 REMAINING STALE (not code defects / human-gated): `airquality` = Google Air Quality API not enabled on the GCP project (awaiting_enable; already in wishlist.md ~L2971 — human console toggle; every day unrecorded is lost); `aircraftspine`/`uncomtrade` = bundled snapshots needing session refresh; `waitlist` = no signups.
 LOOP HEALTH: last 10 tags mix REPAIR/NO-ACTION/PIPELINE — no thrash. MERGE: market hours — merge after 4:00 PM ET; not a critical live break. STARVED: no.
+
+## 2026-11-02 (interactive session, ~18:10Z) [PRODUCT] — Book tape: entry · cost · value under every position (v1.0.1247)
+
+Territory T-CLIENT. Human: "we have an option up 300%, what is the buy
+price and the total in the position, I want to see that on the UI if not
+already there." It was not: the Book showed symbol, qty, last, day % and
+P&L (% and $), never the entry price or the position's value, though
+`/api/bot/positions` already carries `entryPrice` and `marketValue`
+(bot.ts, from Alpaca's avg_entry_price and market_value). Each row now
+carries a second mono line, `entry $x.xx/ct · cost $N · value $M` (cost =
+entry × |qty| × 100 for options, × 1 for shares); the row wraps so the
+tape's column widths hold at every tier. Test:
+client/src/bot/bookLine.test.ts. One change, its own PR, straight off
+main; the Trade-cockpit preview branch carries the same patch.
+
+Same session, the human's other question — "why is the bot down": it is
+not. /api/health at 17:57Z: status ok, bot active, liveness not dark,
+jobs 9 ok / 0 late / 0 missing, drawdown −5.0% from the 99,962 peak. What
+reads as "down" is entry SHADOW mode on both sleeves (stocks + options,
+source: config, since 2026-10-28): would-be entries are logged, not
+placed; exits, stops and the floor keep running. The switch is the
+human's (Railway env VOLTRADE_SHADOW_ENTRIES=off, or stocks / options to
+keep one sleeve shadowed). STARVED: no.
