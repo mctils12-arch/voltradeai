@@ -60,10 +60,7 @@ def parse_tap_failures(tap: str) -> set[str]:
     out = set()
     for m in _FILE_FAIL.finditer(tap):
         p = m.group(1).strip()
-        try:
-            p = os.path.relpath(p, ROOT) if os.path.isabs(p) else p
-        except ValueError:
-            pass
+        p = os.path.relpath(p, ROOT) if os.path.isabs(p) else p
         out.add(p)
     return out
 
@@ -75,11 +72,8 @@ def resolve_file(name: str, root: Path = ROOT) -> str | None:
         return name
     needle = name[:60]
     for f in sorted((root / "server").glob("*.test.ts")):
-        try:
-            if needle in f.read_text(errors="ignore"):
-                return str(f.relative_to(root))
-        except OSError:
-            continue
+        if needle in f.read_text(errors="ignore"):
+            return str(f.relative_to(root))
     return None
 
 
