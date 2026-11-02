@@ -3,7 +3,8 @@
 // /api/bot/positions (the engine's own formulas), never recomputed here.
 // Pure; pinned by levels.test.ts.
 import type { PositionLevels, OptionLegLevels } from "../../../../shared/positionLevels";
-import { optionLegLevels, pricePct } from "../../../../shared/positionLevels";
+import { optionLegLevels, optionExitPlan, pricePct } from "../../../../shared/positionLevels";
+import { optionExitSegments, joinSegments } from "../exitPlan";
 import type { DrawLevel, DrawZone, Theme } from "./draw";
 import { MINUS } from "../format";
 
@@ -129,7 +130,14 @@ export function optionOverlay(p: OverlaySubject, theme: Theme): Overlay {
   legend.push(["leg", `${lg.side} ${type.toLowerCase()} ${f2(lg.strike, Number.isInteger(lg.strike) ? 0 : 2)} × ${Math.abs(p.qty)}`]);
   legend.push(["expiry", `${m.expiry ?? "—"}${Number.isFinite(m.daysToExpiry ?? NaN) ? ` · ${m.daysToExpiry}d` : ""}`]);
   legend.push(["premium", `$${f2(p.entryPrice)} / share`]);
-  legend.push(["manager target", `closes at ${Math.round(lg.profitTargetFrac * 100)}% of max profit`]);
+  // 2026-11-02: the manager's profit target exists for SOLD premium only (and for a credit strategy's
+  // combined net credit); a bought leg rides to a DTE or loss rule — the legend said "closes at 50%"
+  // for both before, which was wrong for every long leg. The exits line is the Book's words, one source.
+  const plan = optionExitPlan({ qty: p.qty, entryPrice: p.entryPrice, currentPrice: p.currentPrice, daysToExpiry: m.daysToExpiry ?? null, strategy: m.strategy });
+  legend.push(["manager target", plan.profitTarget
+    ? (plan.management === "group" ? `closes the whole ${String(m.strategy).replace(/_/g, " ")} at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of its net credit` : `closes at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of max profit`)
+    : plan.management === "hedge" ? "none — insurance, rolled by the overlay" : "none — a bought option has no profit-taking rule; it rides to a DTE or loss rule"]);
+  legend.push(["manager exits", joinSegments(optionExitSegments(plan))]);
   legend.push(["strategy", m.strategy ? String(m.strategy) : "not recorded"]);
   legend.push(["underlying", m.underlyingTicker ?? "—"]);
   return { levels, zones, markers: [], legend, notes };

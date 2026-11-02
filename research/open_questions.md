@@ -23279,3 +23279,13 @@ gate 3 (LOGIC) by ablation against the live rule; ships only via the RULE REVIEW
 path (one threshold at a time, prior value and rollback trigger logged).
 
 Decision owner: the human (asked 2026-11-02; a manual sell today is theirs).
+
+ADDENDUM 2026-11-02 (same session, later): the absence is now VISIBLE, not just
+filed. The Book's exit line (client/src/bot/exitPlan.ts over the engine mirrors
+in shared/positionLevels.ts) prints "no profit target" on every bought leg and
+the prices the two remaining rules fire at (the −50 % stop, the −75 % floor), so
+the human sees from the tape that the GOOGL gain is unharvested until they sell
+or this candidate ships. The chart legend's "manager target: closes at 50%"
+line — which had claimed that target for bought legs too — was wrong and is
+fixed in the same PR (long leg → "none — a bought option has no profit-taking
+rule"). The candidate itself is unchanged: no rule changed, nothing traded.

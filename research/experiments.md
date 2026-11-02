@@ -112650,3 +112650,59 @@ HEALTH (~20:30Z): /api/health 200, status ok, serving.failing empty, liveness no
 ACTION: follow-up from the 11-02 stream triage. `python3 scripts/un_comtrade_ingest.py` (keyless, incremental) added 24 points (2026-07, 2026-08; 09-11 not yet published); archive 12 series, latest period 202606 -> 202608. Data file only, no code, no measurement, no strategy; RAW archive, gate-locked. Existing points untouched (incremental merge).
 NOT DONE: `aircraftspine` (~120d old) needs the FAA ReleasableAircraft.zip; registry.faa.gov returned HTTP 403 from this sandbox's proxy, so `scripts/build_entity_spine.py` could not run. Needs a session with FAA egress (or a human-supplied zip).
 LOOP HEALTH: last 10 tags 4 REPAIR / 3 PRODUCT / 2 NO-ACTION / 1 RULE-REVIEW — no thrash. STARVED: no.
+
+## 2026-11-02 (interactive session, ~21:30Z) [PRODUCT] — Book tape lines 3–4: what each option IS and when the engine SELLS (v1.0.1249)
+
+Territory T-CLIENT (+ shared/positionLevels.ts, the engine-mirror module the
+Bot page already reads). Human: "how do I know what type of option I have —
+did I sell a put or buy, and was it just a single option bought or a strategy"
+and "when would you sell the position or a portion, is that shown". Neither
+was: the Book showed the OCC code (strike/type/expiry), qty, last, day, P&L
+and, since v1.0.1247, entry · cost · value — nothing about side, setup,
+grouping or exits; the chart legend named a strategy only when the state had
+one. Shipped, every Book row:
+- line 3 (options): `sold put · 30d to expiry · cash-secured put · single
+  leg` / `bought call · 47d to expiry · setup not recorded · single leg` /
+  `… bull put credit spread · 2 legs held, closed as one` / `… QQQ tail
+  hedge · overlay rolls it`. Side from the broker qty sign, type from the OCC
+  code, setup from the options-state strategy (null and "unknown" — the Node
+  tier dispatcher's SELL_CSP/BUY_PUT legs never record one — read "setup not
+  recorded", never guessed), grouping exactly as options_manager groups
+  (MULTI_LEG_STRATEGIES by underlying + strategy; siblings counted in the
+  Book).
+- line 4 (all rows): the engine's exit rules in the manager's own order with
+  the prices they fire at, worked from the entry premium — bought: `whole lot
+  at once · no profit target · force close ≤5 DTE in 42d · close at 21 DTE in
+  26d · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at
+  $0.80`; sold: `… target: keep 50% at $1.24 · stop: 2× credit at $4.94 ·
+  roll/close at 21 DTE in 9d …`; groups on their combined-P&L rules; the
+  convexity hedge `insurance, not a trade · no target, no stop · rolled under
+  21 DTE`. A rule the current mark already satisfies is marked `hit`. Shares:
+  manage_positions' ladder from the levels the server already computes —
+  `stop $719.08 from entry · floor … · ⅓ at $763.56 (+1.0R) · ⅓ at $785.80
+  (+2.0R) · target $774.68 after ⅔ out · time stop d7 if ±2%`; "not recorded
+  yet" before the first manage tick.
+- the answer to "or a portion": an option position is never partially sold —
+  every manager exit is the whole lot (or the whole multi-leg strategy via one
+  mleg order); a share lot sells two thirds (+1R, the regime's 2R) and trails
+  the rest. Both now print on the tape.
+- CORRECTION (chart legend, measurement-display only): `optionOverlay` said
+  "manager target · closes at 50% of max profit" for BOUGHT legs too — the
+  manager has no profit-taking rule for a bought option (RULE-REVIEW candidate
+  filed earlier this session in open_questions.md, now with an addendum).
+  `optionLegLevels.profitTargetFrac` is null for a long leg; the legend prints
+  "none — a bought option has no profit-taking rule; it rides to a DTE or loss
+  rule", and a "manager exits" line shares the Book's words (one source).
+One source of truth: shared/positionLevels.ts now carries the options_manager
+thresholds under the engine's own names (DTE 21/5, 50 % target, 2× credit,
+−50 % bought, IC half-max-loss, gamma 0.08 ≤30 DTE, assignment |δ|>0.8 ≤10
+DTE, 60-min hold, the multi-leg / credit / debit sets, the overlay's roll_dte,
+the Tier-1 −75/−150 floors) and `optionExitPlan()`; server/positionLevels.test.ts
+reads options_manager.py, bot_engine.py and server/bot.ts and fails on drift.
+Tests: server/positionLevels.test.ts (+7), client/src/bot/exitPlan.test.ts
+(new, 6), chart/levels.test.ts (+1, the bought-leg legend), bookLine.test.ts
+(+1), help.test.ts covers the two new glossary entries. Harness: the Book
+contract now requires an exit line on every row, a bought/sold call/put line
+on every option row, and no clipped rule; fixture gains a bought GOOGL call
+(+300 %), an "unknown"-strategy CSP and a two-leg META credit spread. No
+trading or measurement code touched; no threshold changed. STARVED: no.

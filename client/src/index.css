@@ -5262,6 +5262,13 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-thead { min-height: 20px; }
 section.vt-bot-panel[data-panel="book"] .vt-bot-thead .sym, section.vt-bot-panel[data-panel="book"] .vt-bot-thead .q, section.vt-bot-panel[data-panel="book"] .vt-bot-thead .px, section.vt-bot-panel[data-panel="book"] .vt-bot-thead .dy, section.vt-bot-panel[data-panel="book"] .vt-bot-thead .pl { font-size: 10.5px; font-weight: 500; }
 section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub { font-size: 11.5px; color: var(--text-secondary); padding: 2px 0 0; }
 section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub i { font-style: normal; color: var(--text-tertiary); margin-right: 4px; }
+/* Book tape, lines 3–4 (2026-11-02, human: "how do I know what type of option I have …
+   and when would you sell the position or a portion, is that shown"): what the position
+   IS, then the engine's exit rules for it. These lines wrap — a rule is never clipped. */
+.vt-bot-trow .sub--plan { white-space: normal; overflow: visible; text-overflow: clip; }
+.vt-bot-trow .sub b.hit { font-weight: 600; color: var(--accent-orange); }
+section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--what { color: var(--text-secondary); }
+section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--text-tertiary); font-size: 11px; line-height: 1.35; padding-bottom: 2px; }
 /* below a 380 px Book the dollar P&L is hidden (rule above) and the P&L cell gives the room back */
 @container (max-width: 379px) { section.vt-bot-panel[data-panel="book"] .vt-bot-trow .pl { width: 60px; } }
 @media (max-width: 639px) { section.vt-bot-panel[data-panel="book"] .vt-bot-trow--book { min-height: 48px; } }
