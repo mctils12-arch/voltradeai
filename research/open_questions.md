@@ -23308,3 +23308,10 @@ its 300P wing was itself submitted for a sell on a zero mark). Rollback
 trigger for (b): a defined-risk structure's realized loss exceeding its
 max loss (wing width × qty × 100 − net credit) by > 10 % while the manager
 could not act.
+
+ADDENDUM 2026-11-02 (same session, later): (b) SHIPPED v1.0.1252 — server/bot.ts
+POS-KILL holds its hand on legs whose recorded strategy is in
+OPTIONS_DEFINED_RISK_STRATEGIES (one POS-KILL-STRUCTURE-HOLD line per ticker
+per UTC day, no order); single legs and short straddles keep the backstop.
+KNOWN BROKEN #45 is closed on both halves; the rollback triggers stay as
+written above and in experiments.md.
