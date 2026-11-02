@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-02 (scheduled routine, voltrade-product-am, Mon ~13:40Z = 08:40 ET EST, PRE-MARKET) [PIPELINE] — T-DATACORE — four bundled snapshots refreshed ahead of their 21d freshness trigger; data only, no code_version change (1.0.1245)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.2%. research_state_check: thrash 3/10, STARVED 0; bundled_eia_weekly/cpc/rail were exactly at the 21d trigger (newest 2026-10-12), only WARN otherwise the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical.
+ACTION: `python3 scripts/snapshot_refresh.py` (needed `pip install xlrd openpyxl` in this sandbox first; the wrapper refused to write before that, as designed). Results: EIA weekly 5 series, CPC degree days 96 series (2026 through day 304), STB EP724 rail 255 series x 501 weeks (latest 2026-10-28), JODI 350 series (latest 2026-08, monthly lag). Diff is the 4 snapshot files only. server jodiOil + railTraffic tests pass.
+PRIOR: ~90% clean refresh, no schema drift. CONFIRMED (0 failures reported by any refresher).
+SECOND-ORDER: raw overlays/archives only, no signal surfaced, nothing on a trade path. Archive-gap logic: whole-file snapshots overwrite, so no history is lost by refreshing late, but weekly cadence keeps the freshness alarm quiet.
+NEXT: these four are still session-run; a server-side or weekly-review hook (as with port_dwell capture) would stop the 21d tripwire recurring; Edge P3 real-quote spot check still pending.
+MERGE: data only; safe any time.
+STARVED: no.
+
 ## 2026-11-02 (scheduled routine, EDGE-DOCTRINE axis pick, Mon ~02:30Z) [PIPELINE] — T-DATACORE (scripts tooling only) — clock_skew_sweep: compiled detector for calendar time-bombs in the server suite (v1.0.1245)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -4.4%. research_state_check: thrash 3/10, STARVED 0, only WARN = overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical (#44/#48 advisory, already documented).
 AXIS: (d) compile recurring reasoning into code. Trigger: last session's lesson, gridDemand.test.ts hard-coded 2026-07-05 aged out of a 120d window and turned CI red for EVERY PR; finding it took a full job-log download.
