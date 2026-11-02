@@ -112764,3 +112764,61 @@ options sleeve's own hold-time ledger (sleeves probe, 376 closed lots since
 05-07): <1h 168 lots −$4,812 · <1d 143 lots −$5,011 · 1–7d 57 lots −$3,784 ·
 8–30d 7 lots +$845 · >30d 1 lot +$104. STARVED: no — the profit-taking study
 runs next on `lots` + `option_bars` once this deploys.
+
+## 2026-11-02 (interactive session, ~21:45Z) [REPAIR] — T-BOT options_manager.py: a multi-leg strategy is closed AS A UNIT and the close is PURSUED until its legs are gone (v1.0.1251)
+
+Human: "sell the GOOGL put now and fix the condor close" / "look into this
+issue and fix it, see what works best, and make sure it works so we don't
+have this issue again and the logic works". ROOT CAUSE, from the live
+audit (`OPTIONS-EXIT` + `POS-KILL` slices via /api/diag/audit) and the
+closed orders: `_manage_strategy_group` submitted ONE close per exit rule
+and `state.pop()`-ed every leg on the spot. For the GOOGL Nov-27 iron
+condor (short 310P / long 300P, short 345C / long 355C, ×2): the 10-22
+close's mleg was rejected (reason swallowed by `except: pass` and a silent
+non-2xx fall-through), the fallback placed per-leg DAY limits at
+`current_price` after the close (two canceled, the wings' after-hours
+mark 0 → "Invalid limit price"), and the pop turned four legs into
+"unknown" standalone options. From then on the SINGLE-LEG rules ran on a
+spread: 10-28 11:31Z "LOSS LIMIT: Bought option down 52 %" on BOTH wings →
+Alpaca refused ("account not eligible to trade uncovered option contracts"
+/ "insufficient options buying power for cash-secured put" — selling a
+wing would uncover its short); 10-29 11:31Z short 310P bought back at
+$27.60 "4.0× the credit $6.95", short 345C at the 66 % target; the Node
+per-leg POS-KILL fired on the same legs in the same minutes ("held_for_
+orders" duplicates, 122 pre-market retries on the 355C). The 300P wing
+survived only by the documented 10-29 near-miss. Net GOOGL −$3,932
+realized + $3,200 open ≈ −$730 — a defined-risk structure taken apart leg
+by leg into an earnings gap.
+
+FIX (options_manager.py; the mleg POST and `_submit_close_order` are
+byte-identical — only WHAT is sent and WHEN):
+1. Every group exit (7 rules) submits through `_request_group_close`,
+   which stamps `close_requested_at / close_rule / close_reason /
+   close_attempts / close_last_result` on each leg and NEVER pops state;
+   the end-of-run cleanup drops a leg only once the broker no longer holds
+   it. CLOSING MODE: a group with a request is pursued every tick by
+   `_pursue_group_close` — WAIT while a close order is working at the
+   broker (`GET /v2/orders?status=open&symbols=`) or for 180 s after a
+   submission, otherwise re-submit (retry #n in the audit line).
+2. `_close_strategy_mleg`: the broker's rejection travels in
+   `mleg_error`; the fallback buys back the SHORT legs first at the ASK and
+   defers the long wings until no short remains (then sells at the BID);
+   a leg with no usable quote is deferred, not errored.
+3. No submission outside regular hours (`/v2/clock`, cached 60 s; a
+   failed read counts as open): DAY orders placed after the close die at
+   the next restart (10-28/29 saw 25 deploys cancelling all open orders).
+4. ADOPTION: a leg with no multi-leg strategy whose root + expiry match a
+   group's legs is managed WITH the group (`group_adopted` warning) — the
+   single-leg rules never touch a spread wing again.
+Tests: test_options_group_close.py (9: the GOOGL regression, pursuit /
+wait / settle, market-closed deferral, wings-only sale at the bid,
+adoption, unchanged mleg POST, source pins: no `state.pop` in the group
+path, all 7 rules on the pursued close). All 233 manager-related Python
+tests pass; full gated suite run before merge. Counters: silent_py_handlers
+253→252 (the swallowed mleg exception), tests 709, assertions 25827.
+ROLLBACK TRIGGER: a group close that re-submits more than 3 times in one
+session without a fill (the audit's "retry #n" lines) — revert and file.
+NEXT (own PR, [RULE-REVIEW]): the Node per-leg POS-KILL must not act on a
+defined-risk structure's legs (evidence above); the GOOGL 300P wing itself
+is the human's manual sale today (no session order path exists by design;
+/api/bot/close is owner-only and has no UI control yet). STARVED: no.

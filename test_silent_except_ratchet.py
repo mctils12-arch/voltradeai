@@ -71,7 +71,7 @@ BASELINE = {
     "ml_status.py": 2,
     "ml_toggle.py": 1,
     "options_execution.py": 6,
-    "options_manager.py": 10,
+    "options_manager.py": 9,  # 2026-11-02: _close_strategy_mleg now records the mleg rejection instead of swallowing it
     "options_scanner.py": 13,
     "position_sizing.py": 3,
     "probability_engine.py": 1,

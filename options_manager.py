@@ -517,33 +517,41 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
     Close a multi-leg strategy using a single mleg order.
     Each leg is reversed: bought legs are sold_to_close, sold legs are bought_to_close.
     Falls back to individual leg closes if mleg fails.
+
+    REPAIR 2026-11-02 (GOOGL Nov-27 iron condor, research/experiments.md):
+    the fallback used to submit every leg at once at `current_price` and
+    swallow the mleg rejection. Live, Alpaca refused the wing sells while the
+    short legs were still open ("account not eligible to trade uncovered
+    option contracts" / "insufficient options buying power for cash-secured
+    put"), the after-hours marks were 0 ("Invalid limit price"), and nobody
+    ever learned why the mleg was rejected. Now: the rejection text travels
+    in `mleg_error`; the fallback buys back the SHORT legs first at the ask
+    and defers the long wings until no short leg remains (then sells them at
+    the bid); a leg without a usable quote is deferred, never errored. The
+    caller (_request_group_close) keeps the group's state so the deferred
+    legs are closed on a later tick. The mleg POST itself is unchanged.
     """
     mleg_legs = []
     qty = 0
-
     for pos in legs:
         occ = pos.get("symbol", "")
         pos_qty = abs(int(float(pos.get("qty", 0))))
         side = pos.get("side", "long")
-
         if pos_qty > qty:
             qty = pos_qty
-
         # Reverse the position
         close_side = "sell" if side == "long" else "buy"
         intent = "sell_to_close" if side == "long" else "buy_to_close"
-
         mleg_legs.append({
             "symbol": occ,
             "side": close_side,
             "ratio_qty": "1",
             "position_intent": intent,
         })
-
     if not mleg_legs:
         return {"status": "error", "detail": "No legs to close"}
-
     # Try mleg close first
+    mleg_error = ""
     try:
         payload = {
             "order_class": "mleg",
@@ -552,33 +560,162 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
             "time_in_force": "day",
             "legs": mleg_legs,
         }
-
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",
             headers={**_alpaca_headers(), "Content-Type": "application/json"},
             json=payload,
             timeout=15,
         )
-
         if resp.status_code in (200, 201):
             order = resp.json()
             return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg", "detail": f"mleg close: {len(mleg_legs)} legs"}
-    except Exception:
-        pass
-
-    # Fallback: close legs individually
+        mleg_error = f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
+    except Exception as e:
+        mleg_error = str(e)[:160]
+    # Fallback: close legs individually, in the order the broker accepts —
+    # short legs first (buy_to_close at the ask); long wings only once no
+    # short leg is left (sell_to_close at the bid).
+    shorts = [pos for pos in legs if pos.get("side", "long") == "short"]
+    longs = [pos for pos in legs if pos.get("side", "long") != "short"]
+    batch = shorts if shorts else longs
+    deferred = [pos.get("symbol", "") for pos in longs] if shorts else []
     results = []
-    for pos in legs:
+    for pos in batch:
         occ = pos.get("symbol", "")
         pos_qty = abs(int(float(pos.get("qty", 0))))
         side = pos.get("side", "long")
         close_side = "sell" if side == "long" else "buy"
-        current = abs(float(pos.get("current_price", 0)))
-
-        result = _submit_close_order(occ, pos_qty, close_side, current)
+        snap = _get_option_snapshot(occ) or {}
+        current = abs(float(pos.get("current_price", 0) or 0))
+        px = float(snap.get("ask") or 0) if close_side == "buy" else float(snap.get("bid") or 0)
+        if px <= 0:
+            px = current
+        if px <= 0:
+            deferred.append(occ)
+            results.append({"symbol": occ, "status": "deferred", "detail": "no usable quote this tick"})
+            continue
+        result = _submit_close_order(occ, pos_qty, close_side, px)
+        result["symbol"] = occ
         results.append(result)
+    submitted = sum(1 for r in results if r.get("status") == "submitted")
+    status = "submitted" if submitted and not deferred else ("partial" if submitted else "error")
+    return {
+        "status": status, "method": "individual_legs", "mleg_error": mleg_error,
+        "detail": (f"mleg rejected ({mleg_error}); {submitted}/{len(batch)} leg close(s) submitted"
+                   + (f", {len(deferred)} deferred (shorts first / no quote)" if deferred else "")),
+        "leg_results": results, "deferred": deferred,
+    }
 
-    return {"status": "submitted", "method": "individual_legs", "detail": f"Closed {len(results)} legs individually (mleg failed)", "leg_results": results}
+
+# ── REPAIR 2026-11-02: a requested strategy close is PURSUED until its legs are gone ──
+# Before, every group exit submitted one close and popped the legs' state on
+# the spot — a rejected/canceled close (the GOOGL condor: canceled day-limit
+# fallbacks on 10-22, a deploy's "cancel all open orders") left four
+# ungrouped legs that the single-leg rules then tried to close one at a
+# time, which the broker partly refuses for a spread. Now the legs keep
+# their strategy and carry a close request; each later tick re-submits when
+# nothing is working at the broker, waits while something is, and never
+# submits outside regular hours (DAY orders die at the next restart).
+CLOSE_RETRY_SECONDS = 180      # a submitted close with nothing working at the broker is re-submitted after this
+_CLOCK_CACHE = {"at": 0.0, "is_open": None}
+_CLOCK_TTL_SECONDS = 60
+
+
+def _market_is_open() -> bool:
+    """Alpaca /v2/clock, cached. A failed read counts as OPEN: a close is never
+    withheld by a clock outage (the broker rejects what cannot trade)."""
+    now = time.time()
+    if _CLOCK_CACHE["is_open"] is not None and now - _CLOCK_CACHE["at"] < _CLOCK_TTL_SECONDS:
+        return bool(_CLOCK_CACHE["is_open"])
+    is_open = True
+    try:
+        resp = requests.get(f"{ALPACA_BASE}/v2/clock", headers=_alpaca_headers(), timeout=8)
+        if resp.status_code == 200:
+            is_open = bool(resp.json().get("is_open", True))
+    except Exception as e:
+        logger.debug(f"clock read failed, assuming open: {e}")
+    _CLOCK_CACHE.update({"at": now, "is_open": is_open})
+    return is_open
+
+
+def _open_orders_for(symbols) -> list:
+    """Open orders at the broker for these contracts (a read; [] on failure so
+    a failed read never blocks a close — the broker's own qty hold rejects a
+    true duplicate, which the retry path then sees as 'working')."""
+    syms = [s for s in symbols if s]
+    if not syms:
+        return []
+    try:
+        resp = requests.get(
+            f"{ALPACA_BASE}/v2/orders",
+            params={"status": "open", "symbols": ",".join(syms), "limit": 100},
+            headers=_alpaca_headers(), timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.debug(f"open-orders read failed: {e}")
+    return []
+
+
+def _stamp_group_close(state: dict, occ_symbols: list, rule: str, reason: str, result: dict) -> None:
+    """Record the close request on every leg WITHOUT dropping the leg's
+    strategy/entry fields — the grouping must survive a failed close."""
+    now_iso = datetime.now().isoformat()
+    for occ in occ_symbols:
+        st = state.get(occ)
+        if not isinstance(st, dict):
+            st = {}
+            state[occ] = st
+        st.setdefault("close_requested_at", now_iso)
+        st["close_rule"] = rule
+        st["close_reason"] = str(reason)[:200]
+        st["close_attempts"] = int(st.get("close_attempts", 0) or 0) + (1 if result.get("status") != "deferred" else 0)
+        st["close_last_at"] = now_iso
+        st["close_last_result"] = {k: result.get(k) for k in ("status", "method", "order_id", "mleg_error", "detail", "deferred") if k in result}
+
+
+def _request_group_close(legs: list, ticker: str, state: dict, rule: str, reason: str) -> dict:
+    """The one path every strategy exit takes: submit the group close during
+    regular hours (deferred otherwise), and stamp the request on the legs —
+    the legs' state is never popped here; the end-of-run cleanup removes a
+    leg's state only once the broker no longer holds it."""
+    occs = [pos.get("symbol", "") for pos in legs]
+    if not _market_is_open():
+        result = {"status": "deferred", "method": "none", "detail": "market closed — close requested, submitted on the next regular-hours tick"}
+    else:
+        result = _close_strategy_mleg(legs, ticker)
+    _stamp_group_close(state, occs, rule, reason, result)
+    return result
+
+
+def _pursue_group_close(group: dict, state: dict) -> list:
+    """A group whose legs carry a close request: wait while a close order is
+    working at the broker (or one was just submitted), otherwise re-submit."""
+    legs = group["legs"]
+    ticker = group["ticker"]
+    strategy = group["strategy"]
+    occs = [pos.get("symbol", "") for pos in legs]
+    first = next((state.get(o, {}) for o in occs if isinstance(state.get(o), dict) and state[o].get("close_requested_at")), {})
+    rule = first.get("close_rule", "strategy_close")
+    reason = first.get("close_reason", "")
+    attempts = max(int((state.get(o) or {}).get("close_attempts", 0) or 0) for o in occs)
+    last_at = max((str((state.get(o) or {}).get("close_last_at", "")) for o in occs), default="")
+    working = _open_orders_for(occs)
+    if working:
+        return [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_close_working",
+                 "reason": f"{len(working)} close order(s) working at the broker for {strategy} — not resubmitting", "attempts": attempts}]
+    try:
+        since = (datetime.now() - datetime.fromisoformat(last_at)).total_seconds() if last_at else CLOSE_RETRY_SECONDS + 1
+    except Exception:
+        since = CLOSE_RETRY_SECONDS + 1
+    if since < CLOSE_RETRY_SECONDS and (first.get("close_last_result") or {}).get("status") in ("submitted", "partial"):
+        return [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_close_settling",
+                 "reason": f"close submitted {int(since)}s ago — giving it {CLOSE_RETRY_SECONDS}s before resubmitting", "attempts": attempts}]
+    result = _request_group_close(legs, ticker, state, rule, reason)
+    return [{"action": "CLOSE_STRATEGY", "ticker": ticker, "strategy": strategy, "legs": occs,
+             "reason": f"{rule}: retry #{attempts + 1} — {reason}"[:220], "type": rule, "retry": attempts + 1, "order": result}]
 
 
 def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
@@ -646,6 +783,12 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
     else:
         combined_pnl_pct = 0
 
+    # ── CLOSING MODE (REPAIR 2026-11-02): a close already requested for this
+    # group is pursued until the broker no longer holds the legs — no rule
+    # below is re-judged, and the legs are never handed to the single-leg path.
+    if any(isinstance(state.get(occ), dict) and state[occ].get("close_requested_at") for occ in all_occ_symbols):
+        return _pursue_group_close(group, state)
+
     # ── Exit Rule 0: MINIMUM HOLD TIME (except DTE critical) ──────
     # Don't close positions within the first hour — the trade thesis
     # needs time to play out. Every straddle in Apr 3-10 was closed
@@ -666,7 +809,7 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
 
     # ── Exit Rule 1: CRITICAL DTE — Force close (ignores hold time) ────
     if min_dte <= DTE_CRITICAL:
-        result = _close_strategy_mleg(legs, ticker)
+        result = _request_group_close(legs, ticker, state, "strategy_dte_critical", f"CRITICAL DTE: {min_dte} days — closing entire {strategy}")
         actions.append({
             "action": "CLOSE_STRATEGY",
             "ticker": ticker,
@@ -677,9 +820,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
             "combined_pnl": round(total_unrealized_pnl, 2),
             "order": result,
         })
-        # Clean state
-        for occ in all_occ_symbols:
-            state.pop(occ, None)
         return actions
 
     # If minimum hold time not met, skip all other exit rules
@@ -710,7 +850,7 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         # Now using net_credit as denominator, the gate fires at $80 = 50%.
         profit_pct = total_unrealized_pnl / net_credit
         if profit_pct >= PROFIT_TARGET_PCT:
-            result = _close_strategy_mleg(legs, ticker)
+            result = _request_group_close(legs, ticker, state, "strategy_profit_target", f"PROFIT TARGET: {profit_pct:.0%} of max profit (net credit ${net_credit:.0f}) — closing {strategy}")
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
@@ -722,8 +862,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 "net_credit": round(net_credit, 2),
                 "order": result,
             })
-            for occ in all_occ_symbols:
-                state.pop(occ, None)
             return actions
 
     # ── Exit Rule 2b: IRON CONDOR 50%-OF-MAX-LOSS EARLY EXIT (v1.0.34) ──
@@ -747,7 +885,11 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         if group_max_loss > 0:
             loss_pct_of_max = abs(total_unrealized_pnl) / group_max_loss
             if loss_pct_of_max >= IC_MAX_LOSS_EXIT_PCT:
-                result = _close_strategy_mleg(legs, ticker)
+                result = _request_group_close(legs, ticker, state, "strategy_ic_max_loss_exit", (
+                        f"IC MAX-LOSS EXIT: Unrealized loss ${abs(total_unrealized_pnl):.2f} is "
+                        f"{loss_pct_of_max:.0%} of max loss ${group_max_loss:.2f} — "
+                        f"closing before full max loss (threshold: {IC_MAX_LOSS_EXIT_PCT:.0%})"
+                    ))
                 actions.append({
                     "action": "CLOSE_STRATEGY",
                     "ticker": ticker,
@@ -764,14 +906,12 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                     "loss_pct_of_max": round(loss_pct_of_max * 100, 1),
                     "order": result,
                 })
-                for occ in all_occ_symbols:
-                    state.pop(occ, None)
                 return actions
 
     # ── Exit Rule 3: LOSS LIMIT ───────────────────────────────────
     if is_credit_strategy and total_entry_cost > 0:
         if combined_pnl_pct <= -LOSS_LIMIT_MULTIPLIER:  # Lost 2x credit
-            result = _close_strategy_mleg(legs, ticker)
+            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting")
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
@@ -782,13 +922,11 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 "combined_pnl": round(total_unrealized_pnl, 2),
                 "order": result,
             })
-            for occ in all_occ_symbols:
-                state.pop(occ, None)
             return actions
 
     if is_debit_strategy and total_entry_cost > 0:
         if combined_pnl_pct <= -0.50:  # Lost 50% of debit
-            result = _close_strategy_mleg(legs, ticker)
+            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting debit position")
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
@@ -799,13 +937,11 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 "combined_pnl": round(total_unrealized_pnl, 2),
                 "order": result,
             })
-            for occ in all_occ_symbols:
-                state.pop(occ, None)
             return actions
 
     # ── Exit Rule 4: 21 DTE Management ────────────────────────────
     if min_dte <= DTE_EXIT_THRESHOLD:
-        result = _close_strategy_mleg(legs, ticker)
+        result = _request_group_close(legs, ticker, state, "strategy_dte_exit", f"21 DTE MANAGEMENT: {min_dte} DTE — closing {strategy}")
         actions.append({
             "action": "CLOSE_STRATEGY",
             "ticker": ticker,
@@ -816,8 +952,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
             "combined_pnl": round(total_unrealized_pnl, 2),
             "order": result,
         })
-        for occ in all_occ_symbols:
-            state.pop(occ, None)
         return actions
 
     # ── Exit Rule 5: SABR Edge Evaporation ────────────────────────
@@ -828,7 +962,7 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
 
         # If we're selling premium but VRP flipped negative (options now cheap)
         if is_credit_strategy and vrp < -0.03:
-            result = _close_strategy_mleg(legs, ticker)
+            result = _request_group_close(legs, ticker, state, "sabr_edge_exit", f"EDGE EVAPORATED: VRP flipped to {vrp*100:.1f}% — premium selling edge gone")
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
@@ -840,8 +974,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 "vrp": round(vrp * 100, 1),
                 "order": result,
             })
-            for occ in all_occ_symbols:
-                state.pop(occ, None)
             return actions
 
         # If we're buying premium but VRP flipped positive (options now expensive)
@@ -999,6 +1131,35 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             strategy_groups[key]["legs"].append(pos)
         else:
             standalone_positions.append(pos)
+
+    # ── ADOPTION (REPAIR 2026-11-02): a leg whose state carries no multi-leg
+    # strategy but whose root + expiry match a group's legs is one of that
+    # group's legs (the GOOGL condor's wings after their state was popped) —
+    # it is managed WITH the group, never by the single-leg rules, which the
+    # broker refuses for a spread wing anyway ("uncovered option contracts").
+    if strategy_groups and standalone_positions:
+        by_root_exp = {}
+        for key, group in strategy_groups.items():
+            for leg in group["legs"]:
+                parsed_leg = _parse_occ_symbol(leg.get("symbol", ""))
+                if parsed_leg:
+                    by_root_exp.setdefault((parsed_leg["ticker"], parsed_leg["expiry_date"]), key)
+        kept = []
+        for pos in standalone_positions:
+            parsed_pos = _parse_occ_symbol(pos.get("symbol", ""))
+            key = by_root_exp.get((parsed_pos.get("ticker"), parsed_pos.get("expiry_date"))) if parsed_pos else None
+            if key is None:
+                kept.append(pos)
+                continue
+            group = strategy_groups[key]
+            group["legs"].append(pos)
+            occ = pos.get("symbol", "")
+            st = state.get(occ) if isinstance(state.get(occ), dict) else {}
+            st.update({"strategy": group["strategy"], "ticker": group["ticker"], "setup": st.get("setup") or group.get("setup", ""), "adopted_into_group": key})
+            state[occ] = st
+            actions.append({"action": "WARNING", "ticker": group["ticker"], "occ_symbol": occ, "type": "group_adopted",
+                            "reason": f"{occ} carried no strategy but matches the {group['strategy']} legs on {group['ticker']} {parsed_pos['expiry_date']} — managed with the group"})
+        standalone_positions = kept
 
     # ── Phase 1: Manage multi-leg strategy groups ─────────────────────
     for group_key, group in strategy_groups.items():
