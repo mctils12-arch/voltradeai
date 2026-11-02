@@ -112643,3 +112643,10 @@ therefore rides to 21 DTE or a 50 % give-back. Filed as a RULE-REVIEW
 candidate (scale out half at +100 %, trail the rest 35 % off the peak,
 keep the 21-DTE rule) pending counterfactual evidence from the options
 chain archive and the exit ledger; the human decides. STARVED: no.
+
+## 2026-11-02 [PIPELINE] — daily session — refresh bundled `uncomtrade` snapshot (data only)
+
+HEALTH (~20:30Z): /api/health 200, status ok, serving.failing empty, liveness not dark, Alpaca ACTIVE, jobs 9 ok/0 errored, feeds fresh, drawdown -5.3%. KNOWN BROKEN: nothing open that a session can act on.
+ACTION: follow-up from the 11-02 stream triage. `python3 scripts/un_comtrade_ingest.py` (keyless, incremental) added 24 points (2026-07, 2026-08; 09-11 not yet published); archive 12 series, latest period 202606 -> 202608. Data file only, no code, no measurement, no strategy; RAW archive, gate-locked. Existing points untouched (incremental merge).
+NOT DONE: `aircraftspine` (~120d old) needs the FAA ReleasableAircraft.zip; registry.faa.gov returned HTTP 403 from this sandbox's proxy, so `scripts/build_entity_spine.py` could not run. Needs a session with FAA egress (or a human-supplied zip).
+LOOP HEALTH: last 10 tags 4 REPAIR / 3 PRODUCT / 2 NO-ACTION / 1 RULE-REVIEW — no thrash. STARVED: no.
