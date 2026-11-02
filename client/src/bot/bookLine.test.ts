@@ -16,8 +16,14 @@ const book = panels.slice(panels.indexOf("export function BookBody"), panels.ind
 test("every Book row shows the entry price, the cost basis and the current value", () => {
   assert.match(book, /const entry = num\(p\.entryPrice\); const mv = num\(p\.marketValue\); const q = num\(p\.qty\);/);
   assert.match(book, /const basis = entry !== null && q !== null \? entry \* Math\.abs\(q\) \* \(isOpt\(p\) \? 100 : 1\) : null;/, "an option's cost is price x 100 x contracts");
-  assert.match(book, /<span className="sub">entry \{entry === null \? "·" : `\$\$\{entry\.toFixed\(2\)\}`\}\{isOpt\(p\) \? "\/ct" : ""\} · cost \{basis === null/, "entry per contract, then cost");
-  assert.match(book, /· value \{mv === null \? "·" : `\$\$\{Math\.round\(mv\)\.toLocaleString\("en-US"\)\}`\}<\/span>/, "then the position's market value");
+  assert.match(book, /<span className="sub"><i>entry<\/i>\{entry === null \? "·" : `\$\$\{entry\.toFixed\(2\)\}`\}\{isOpt\(p\) \? "\/ct" : ""\} · <i>cost<\/i>\{basis === null/, "entry per contract, then cost, labels dimmed");
+  assert.match(book, /· <i>value<\/i>\{mv === null \? "·" : `\$\$\{Math\.round\(mv\)\.toLocaleString\("en-US"\)\}`\}<\/span>/, "then the position's market value");
+});
+
+test("the Book panel gets the legibility pass without breaking the tape contract", () => {
+  assert.match(css, /section\.vt-bot-panel\[data-panel="book"\] \.vt-bot-trow \{ font-size: 13px;/, "13 px rows inside the Book only");
+  assert.match(css, /section\.vt-bot-panel\[data-panel="book"\] \.vt-bot-trow \.sub \{ font-size: 11\.5px; color: var\(--text-secondary\);/, "the second line reads in the secondary color");
+  assert.match(css, /@container \(max-width: 379px\) \{ section\.vt-bot-panel\[data-panel="book"\] \.vt-bot-trow \.pl \{ width: 60px; \} \}/, "narrow Books keep the row inside the panel");
 });
 
 test("the row wraps so the second line sits under the columns", () => {
