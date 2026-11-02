@@ -215,3 +215,17 @@ test("volume-resident keyed file (cot) ages by last successful write, not a no-d
   assert.equal(by.volmissing.health, "no-data"); // absent file stays honest
   assert.equal(by.volmissing.files, 0);
 });
+
+test("rare-event source with a fast poll is not stale after a quiet stretch (fdicfailures regression)", async () => {
+  const mdir = tmp(); const base = tmp();
+  writeManifest(mdir, "evt", "event-driven source (failures as they occur); 12h poll makes quiet stretches dedup no-ops");
+  const NOW = Date.parse("2026-11-02T12:00:00Z");
+  fs.mkdirSync(path.join(base, "evt"));
+  const f = path.join(base, "evt", "x.jsonl");
+  fs.writeFileSync(f, JSON.stringify({ ok: 1 }) + "\n");
+  const t = new Date(NOW - 68 * 24 * 3.6e6);
+  fs.utimesSync(f, t, t);
+  const inv = await buildStreamsInventory(base, mdir, NOW);
+  assert.equal(inv.streams[0].health, "recent");
+  assert.equal(inv.streams[0].age_hours, 68 * 24, "raw age still reported");
+});

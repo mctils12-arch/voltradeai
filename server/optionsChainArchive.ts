@@ -34,6 +34,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { beat } from "./jobHeartbeat";
+import { ensurePanel } from "./chainPanel";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
 
 export const CHAIN_MAX_UNDERLYINGS = 120;
@@ -71,9 +72,14 @@ export const CHAIN_ALWAYS: readonly string[] = ["SPY", "QQQ", "IWM"];
  *  rides along free). */
 export function underlyingsFor(
   cacheJson: any, positionSymbols: string[] = [], cap = CHAIN_MAX_UNDERLYINGS,
+  panel: readonly string[] = [],
 ): Array<{ sym: string; spot: number | null }> {
   const out = new Map<string, number | null>();
   for (const s of CHAIN_ALWAYS) out.set(s, null);
+  // Edge P3 fixed panel: archived every day, ahead of the rotating
+  // candidates; the cap grows by the panel so the rotation keeps its slots
+  for (const s of panel) out.set(s, null);
+  cap += panel.length;
   for (const s of positionSymbols) {
     const sym = String(s || "").toUpperCase();
     if (sym && sym.length <= 5) out.set(sym, null);
@@ -532,7 +538,11 @@ export async function runDailyChainArchive(
   fs.mkdirSync(path.dirname(staged), { recursive: true });
   fs.writeFileSync(staged, ""); // restart-safe: a leftover partial stage is discarded
   const sleepMs = opts.sleepMs ?? 350;
-  const unders = underlyingsFor(cache, positionSymbols);
+  let panelNames: string[] = [];
+  try { panelNames = ensurePanel(cache, day, opts.baseDir)?.names ?? []; } catch (e) {
+    console.error("[optionchains] panel:", e instanceof Error ? e.message : e); // panel trouble must never cost the day's archive
+  }
+  const unders = underlyingsFor(cache, positionSymbols, CHAIN_MAX_UNDERLYINGS, panelNames);
   let contracts = 0;
   let failures = 0;
   const truncated: string[] = [];

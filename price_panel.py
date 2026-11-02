@@ -168,22 +168,50 @@ def decode_rows(line: dict) -> List[dict]:
     return rows
 
 
+class CorruptLine(ValueError):
+    """A panel line whose integers cannot be a real price/volume series (they
+    overflow int64, or exceed 2**53 which the TS writer could not hold exactly)."""
+
+
+# (symbol, mode, seg) -> reason. Filled by series_from_lines when it skips a
+# corrupt line; keyed so a two-pass reader does not double count.
+CORRUPT_LINES: Dict[tuple, str] = {}
+_ELEM_LIMIT = 2 ** 50     # per-element; n * 2**50 stays inside int64 for any n < 8192
+_CUM_LIMIT = 2 ** 53      # the writer's Number-exact ceiling
+
+
+def _i64(line: dict, name: str) -> np.ndarray:
+    try:
+        a = np.asarray(line[name], dtype=np.int64)
+    except OverflowError as e:
+        raise CorruptLine(f"{line.get('s')}/{line.get('mode')}/{line.get('seg')}: '{name}' overflows int64 ({e})") from e
+    if name != "v" and a.size and int(np.abs(a).max()) > _ELEM_LIMIT:
+        raise CorruptLine(f"{line.get('s')}/{line.get('mode')}/{line.get('seg')}: '{name}' element beyond 2**50")
+    return a
+
+
+def corrupt_lines() -> List[dict]:
+    return [{"symbol": k[0], "mode": k[1], "seg": k[2], "reason": v} for k, v in sorted(CORRUPT_LINES.items())]
+
+
 def decode_arrays(line: dict) -> dict:
     """Vectorized decodeSegment. Integer cumulative sums are exact (int64), and
     each price is one IEEE division / multiplication — the same operations, so
     the same doubles, as the TS decoder."""
     n = int(line["n"])
     m = float(10 ** int(line["k"]))
-    days = day_num(line["d0"]) + np.cumsum(np.asarray(line["dd"], dtype=np.int64))
-    cint = np.cumsum(np.asarray(line["c"], dtype=np.int64))
+    days = day_num(line["d0"]) + np.cumsum(_i64(line, "dd"))
+    cint = np.cumsum(_i64(line, "c"))
+    if cint.size and int(np.abs(cint).max()) > _CUM_LIMIT:
+        raise CorruptLine(f"{line.get('s')}/{line.get('mode')}/{line.get('seg')}: cumulative price beyond 2**53")
     close = cint / m
     out = {
         "days": days,
-        "o": (cint + np.asarray(line["o"], dtype=np.int64)) / m,
-        "h": (cint + np.asarray(line["h"], dtype=np.int64)) / m,
-        "l": (cint + np.asarray(line["l"], dtype=np.int64)) / m,
+        "o": (cint + _i64(line, "o")) / m,
+        "h": (cint + _i64(line, "h")) / m,
+        "l": (cint + _i64(line, "l")) / m,
         "c": close,
-        "v": np.asarray(line["v"], dtype=np.int64),
+        "v": _i64(line, "v"),
     }
     ratio = np.full(n, np.nan)
     f = line.get("f") or []
@@ -295,7 +323,13 @@ def series_from_lines(lines: List[dict], prefer_raw: bool = True, split_at_event
         for ln in sorted(group, key=lambda x: (str(x.get("mode")), int(x.get("seg", 0)))):
             if int(ln.get("n", 0)) <= 0:
                 continue
-            arr = decode_arrays(ln)
+            try:
+                arr = decode_arrays(ln)
+            except CorruptLine as e:
+                # Skipped on data validity alone (never on outcome) and COUNTED:
+                # callers report corrupt_lines() so the omission is visible.
+                CORRUPT_LINES[(str(ln.get("s")), str(ln.get("mode")), int(ln.get("seg", 0)))] = str(e)
+                continue
             n = len(arr["c"])
             ev = ln.get("ev") if isinstance(ln.get("ev"), dict) else None
             ev_day = day_num(ev["date"]) if ev and re.match(r"^\d{4}-\d{2}-\d{2}$", str(ev.get("date", ""))) else None

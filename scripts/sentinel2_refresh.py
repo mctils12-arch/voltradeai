@@ -38,7 +38,9 @@ from datetime import date, timedelta
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 S2 = os.path.join(ROOT, "datacore", "sentinel2")
-REQUIRED_MODULES = ("numpy", "xlrd", "rasterio")
+# tifffile added 2026-11-01: the v2 estimator imports it, and its absence surfaced only
+# mid-run (after v1 had already written) on the 2026-11-01 catch-up.
+REQUIRED_MODULES = ("numpy", "xlrd", "rasterio", "tifffile")
 CANDIDATE_PYTHONS = ("/usr/bin/python3", "/usr/local/bin/python3", "python3")
 OVERLAP_DAYS = 5  # re-scan a few days back; every collector dedups by scene id
 

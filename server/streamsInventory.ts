@@ -93,6 +93,11 @@ function readManifests(manifestDir: string): Record<string, any> {
 // slow stream is noise, false "live" on a dead one is a lie.
 function staleThresholdHours(cadence: string): number {
   const c = (cadence || "").toLowerCase();
+  // 2026-11-02: rare-event sources ("failures as they occur") write a file
+  // only when an event happens; a quiet stretch is NOT a dead writer. The
+  // "12h poll" in the cadence text previously matched the hourly branch and
+  // flagged fdicfailures stale after 26h (no bank failed since 2026-08-25).
+  if (/as they occur/.test(c)) return 400 * 24;
   if (/annual|year/.test(c)) return 400 * 24;
   if (/quarter/.test(c)) return 110 * 24;
   if (/month/.test(c)) return 40 * 24;

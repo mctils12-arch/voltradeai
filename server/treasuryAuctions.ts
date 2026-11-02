@@ -63,23 +63,50 @@ const num = (v: any): number | null => {
 const day = (v: any): string | null =>
   typeof v === "string" && v.length >= 10 ? v.slice(0, 10) : null;
 
+/** First non-empty value among `names` — TreasuryDirect renamed most TA_WS
+ *  fields in Oct 2026 (see parseAuctions); the old names stay as fallbacks
+ *  so archived fixtures and any reverted upstream still parse. */
+const pick = (r: unknown, ...names: string[]): unknown => {
+  for (const n of names) {
+    const v = (r as Record<string, unknown> | null | undefined)?.[n];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return undefined;
+};
+
 /** TA_WS array -> normalized records. Rows without a cusip + auction date
  *  (announced-but-unauctioned entries appear in the window) are dropped;
  *  rows with a date but no RESULTS yet keep null metrics and re-archive
  *  is prevented by the dedup key, so results-day rows append as fresh
  *  vintages only when the numbers differ is NOT needed — TA_WS rows are
  *  results-complete once bidToCoverRatio is set, and pre-result rows are
- *  skipped below. */
+ *  skipped below.
+ *
+ *  SCHEMA DRIFT (found 2026-11-01, archive silent since ~2026-10-16):
+ *  TA_WS dropped `auctionDate` and renamed the bidder/yield fields. Mapping
+ *  verified against the live 2026-10-29 payload (35 results-complete rows):
+ *   auctionDate            -> competitiveAuctionCloseDate
+ *   highDiscountRate       -> highRate (bills; highYield stays for coupons)
+ *   highInvestmentRate     -> investmentRate
+ *   averageMedianYield     -> medianYield
+ *   averageMedianDiscountRate -> medianRate
+ *   totalAccepted          -> totalParAwardedInsideOfOfferingAmount
+ *   competitive{Tendered,Accepted} -> subtotalCompetitivePar{Recognized,Awarded}InsideOfOfferingAmount
+ *   {primaryDealer,direct,indirect}{Tendered,Accepted}
+ *                          -> {primaryDealers,directBidders,indirectBidders}CompetitivePar{Recognized,Awarded}
+ *  Cross-checks on the live bill: PD+direct+indirect awarded == competitive
+ *  subtotal to the dollar, and (competitive+noncompetitive recognized) /
+ *  total awarded == the published bidToCoverRatio (3.10). */
 export function parseAuctions(json: any, rt: string): AuctionRec[] {
   const out: AuctionRec[] = [];
   for (const r of Array.isArray(json) ? json : []) {
     const cusip = r?.cusip;
-    const ad = day(r?.auctionDate);
+    const ad = day(pick(r, "competitiveAuctionCloseDate", "auctionDate"));
     if (!cusip || !ad) continue;
     const b2c = num(r?.bidToCoverRatio);
     if (b2c == null) continue; // pre-results row — picked up on a later poll
-    const pdAcc = num(r?.primaryDealerAccepted);
-    const compAcc = num(r?.competitiveAccepted);
+    const pdAcc = num(pick(r, "primaryDealersCompetitiveParAwarded", "primaryDealerAccepted"));
+    const compAcc = num(pick(r, "subtotalCompetitiveParAwardedInsideOfOfferingAmount", "competitiveAccepted"));
     out.push({
       cusip,
       auction_date: ad,
@@ -90,19 +117,19 @@ export function parseAuctions(json: any, rt: string): AuctionRec[] {
       reopening: r?.reopening === "Yes" ? true : r?.reopening === "No" ? false : null,
       bid_to_cover: b2c,
       high_yield: num(r?.highYield),
-      high_discount_rate: num(r?.highDiscountRate),
-      high_investment_rate: num(r?.highInvestmentRate),
-      avg_median_yield: num(r?.averageMedianYield),
-      avg_median_discount_rate: num(r?.averageMedianDiscountRate),
-      total_accepted: num(r?.totalAccepted),
-      competitive_tendered: num(r?.competitiveTendered),
+      high_discount_rate: num(pick(r, "highRate", "highDiscountRate")),
+      high_investment_rate: num(pick(r, "investmentRate", "highInvestmentRate")),
+      avg_median_yield: num(pick(r, "medianYield", "averageMedianYield")),
+      avg_median_discount_rate: num(pick(r, "medianRate", "averageMedianDiscountRate")),
+      total_accepted: num(pick(r, "totalParAwardedInsideOfOfferingAmount", "totalAccepted")),
+      competitive_tendered: num(pick(r, "subtotalCompetitiveParRecognizedInsideOfOfferingAmount", "competitiveTendered")),
       competitive_accepted: compAcc,
-      primary_dealer_tendered: num(r?.primaryDealerTendered),
+      primary_dealer_tendered: num(pick(r, "primaryDealersCompetitiveParRecognized", "primaryDealerTendered")),
       primary_dealer_accepted: pdAcc,
-      direct_tendered: num(r?.directBidderTendered),
-      direct_accepted: num(r?.directBidderAccepted),
-      indirect_tendered: num(r?.indirectBidderTendered),
-      indirect_accepted: num(r?.indirectBidderAccepted),
+      direct_tendered: num(pick(r, "directBiddersCompetitiveParRecognized", "directBidderTendered")),
+      direct_accepted: num(pick(r, "directBiddersCompetitiveParAwarded", "directBidderAccepted")),
+      indirect_tendered: num(pick(r, "indirectBiddersCompetitiveParRecognized", "indirectBidderTendered")),
+      indirect_accepted: num(pick(r, "indirectBiddersCompetitiveParAwarded", "indirectBidderAccepted")),
       dealer_take: pdAcc != null && compAcc != null && compAcc > 0
         ? +(pdAcc / compAcc).toFixed(4) : null,
       rt,
@@ -122,7 +149,16 @@ export async function fetchAuctions(fetchImpl: FetchFn = fetch as any, nowMs?: n
     signal: AbortSignal.timeout(20000) as any,
   });
   if (!r.ok) throw new Error(`treasurydirect -> ${r.status}`);
-  return parseAuctions(JSON.parse(await r.text()), rt);
+  const json = JSON.parse(await r.text());
+  const parsed = parseAuctions(json, rt);
+  // Law V: silent degradation is how this stream went dark for 16 days.
+  // A healthy 30-day window always holds results-complete rows; rows in but
+  // none parsed means the upstream schema drifted again — say so loudly.
+  if (Array.isArray(json) && json.length > 0 && parsed.length === 0
+      && json.some((x: unknown) => num((x as Record<string, unknown> | null)?.bidToCoverRatio) != null)) {
+    console.error(`[datacore] treasuryauctions SCHEMA DRIFT: ${json.length} rows with results, 0 parsed (cusip/auction-date field renamed?)`);
+  }
+  return parsed;
 }
 
 // ── Archive (dedup cusip|auction_date — results are immutable) ─────────────
