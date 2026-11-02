@@ -307,7 +307,14 @@ export const OPTIONS_MULTI_LEG_STRATEGIES: readonly string[] = ["buy_straddle", 
 /** _manage_strategy_group's is_credit_strategy / is_debit_strategy sets */
 export const OPTIONS_CREDIT_STRATEGIES: readonly string[] = ["short_straddle", "iron_condor", "csp_normal_market", "bull_put_credit_spread", "sell_cash_secured_put", "covered_call", "qqq_iron_condor"];
 export const OPTIONS_DEBIT_STRATEGIES: readonly string[] = ["buy_straddle", "bull_call_spread", "bear_put_spread"];
-/** bot_engine._run_convexity_overlay owns these QQQ puts (the manager skips
+/** The multi-leg strategies whose worst case is bounded by their own legs
+   *  (wings cap a condor / vertical; a long straddle can lose only its debit).
+   *  server/bot.ts POS-KILL (2026-11-02) never judges such a leg on its own:
+   *  a wing at −99 % is the structure working, a short leg at −150 % of its
+   *  credit is the GROUP's loss, which options_manager manages as a unit. A
+   *  short straddle is undefined-risk and keeps the per-leg backstop. */
+  export const OPTIONS_DEFINED_RISK_STRATEGIES: readonly string[] = ["iron_condor", "qqq_iron_condor", "bull_put_credit_spread", "bull_call_spread", "bear_put_spread", "buy_straddle"];
+  /** bot_engine._run_convexity_overlay owns these QQQ puts (the manager skips
  *  them): held as insurance, sold to close and re-bought ~60 DTE out once
  *  under CONVEXITY_OVERLAY.roll_dte. No target, no stop. */
 export const CONVEXITY_HEDGE_STRATEGY = "convexity_hedge";

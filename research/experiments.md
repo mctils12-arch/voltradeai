@@ -112844,3 +112844,41 @@ address the last two. NEXT: the same-day churn on single sold legs needs
 intraday marks the archive does not keep yet — re-test after the options
 chain archive holds ~30 sessions. Multiple-comparison note: 10 rules tried,
 none won, nothing selected. STARVED: no.
+
+## 2026-11-02 (interactive session, ~22:00Z) [RULE-REVIEW] — T-BOT server/bot.ts POS-KILL: a leg of a defined-risk structure is never killed on its own (v1.0.1252)
+
+Human: "fix the condor close … make sure it works so we don't have this issue
+again and the logic works" (second half; the first half shipped as v1.0.1251).
+RULE CHANGED (scope, not threshold): the Tier-1 per-position kill in
+`syncMonitoredPositions` judged every option leg by its own premium P&L
+(−75 % long / −150 % short, the 2026-10-13 scope fix). It now holds its hand
+on a leg whose recorded strategy (voltrade_options_state.json, read once per
+sync, 60 s cache) is in `OPTIONS_DEFINED_RISK_STRATEGIES`
+(shared/positionLevels.ts: iron_condor, qqq_iron_condor,
+bull_put_credit_spread, bull_call_spread, bear_put_spread, buy_straddle) —
+one `POS-KILL-STRUCTURE-HOLD` audit line per ticker per UTC day, no order;
+options_manager closes the group as a unit. Single legs and undefined-risk
+groups (short straddles) keep the backstop byte-for-byte: the kill-branch
+opener, the mark guard, the two-tick confirmation, the duplicate guard and
+the POST are untouched (the structure hold is one more `continue` at the
+top of the branch, before the mark guard).
+EVIDENCE (RULE REVIEW): the 10-28/29 audit — this kill read the GOOGL
+Nov-27 condor's two LONG WINGS as "down −99.8 %" and retried their
+liquidation every minute pre-market (122 lines on the 355C), bought the
+short 310P back on a "−309 %" reading at $27.60 while its 300P wing was
+submitted for a sell on a zero mark, in the same minutes options_manager's
+own rules fired on the same legs (`held_for_orders` rejections). A
+defined-risk structure's worst case is bounded by its own wings; a per-leg
+percent kill cannot see that and made the loss worse than the structure's
+max loss by closing the legs at different times. PRIOR VALUE: every option
+leg judged alone. ROLLBACK TRIGGER: a defined-risk structure's realized
+loss exceeding its max loss (wing width × qty × 100 − net credit) by > 10 %
+while the manager could not act — revert the exemption and file.
+Tests: server/posKillStructureHold.test.ts (7: the defined-risk set ⊂
+multi-leg minus short_straddle; the pure filter; wiring pins; the real loop
+body run against stubs — wing at −99 % held with one line/day, short leg at
+−309 % held, a standalone short put and a straddle leg still killed on the
+second valid-mark tick, the informational OPTION-HOLD line unchanged). All
+117 kill-branch harness tests pass (the sibling harnesses slice the branch
+on its unchanged opener). Full server + client suites and the tsc ratchet
+run before merge. STARVED: no.
