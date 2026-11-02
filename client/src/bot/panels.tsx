@@ -15,6 +15,8 @@ import type { StageRow, Issue, DayReview } from "./derive";
 import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
+import { optionExitPlan, optionManagement } from "../../../shared/positionLevels";
+import { optionWhatLine, optionExitSegments, stockExitSegments, type PlanSegment } from "./exitPlan";
 import { ShadowChip } from "./shadow";
 import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, ledgerLine, type LookupResult, type LedgerReport } from "./lookup";
 import type { PanelId } from "./zoneModel";
@@ -676,6 +678,13 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
   if (!positions.length) return <div className="vt-bot-list"><SleeveSummary sleeves={sleeves} /><div className="vt-bot-empty"><St word="flat · no positions" /></div></div>;
   const isOpt = (p: BotPosition) => !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option");
   const groups: Array<[string, BotPosition[]]> = [["equities", positions.filter((p) => !isOpt(p))], ["options", positions.filter(isOpt)]];
+  // 2026-11-02 (human: "did I sell a put or buy, was it a single option or a strategy … when would you sell
+  // the position or a portion"): legs of one multi-leg strategy on one underlying are the unit the manager
+  // closes (options_manager groups by ticker + strategy), so each leg says how many siblings are held
+  const groupKey = (p: BotPosition) => `${p.optionMeta?.underlyingTicker ?? ""}_${p.optionMeta?.strategy ?? ""}`;
+  const legCount = new Map<string, number>();
+  for (const p of positions) if (isOpt(p) && optionManagement(p.optionMeta?.strategy) === "group") legCount.set(groupKey(p), (legCount.get(groupKey(p)) ?? 0) + 1);
+  const segs = (list: PlanSegment[]) => list.map((sg, i) => <span key={i}>{i ? " · " : ""}{sg.hit ? <b className="hit">{sg.text}</b> : sg.text}</span>);
   return (
     <div className="vt-bot-list">
       {/* the tape's header (2026-10-22, human-asked): every number carries its column and unit; the rows come
@@ -683,7 +692,7 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
       <div className="vt-bot-trow vt-bot-thead"><span className="sym">sym</span><span className="q">qty</span><span className="px">last</span><span className="dy">day<Help k="dayChange" /></span><span className="pl">P&L<Help k="bookPnl" /></span></div>
       {groups.filter(([, g]) => g.length).map(([name, g]) => (
         <div key={name} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div className="vt-bot-eb" style={{ padding: "8px 0 2px", fontSize: 11 }}>{name} · {g.length}</div>
+          <div className="vt-bot-eb" style={{ padding: "8px 0 2px", fontSize: 11 }}>{name} · {g.length}{name === "options" ? <Help k="bookOptionExit" /> : <Help k="bookStockExit" />}</div>
           {g.map((p) => { const pl = num(p.pnlPct); const dy = num(p.dayPct); const last = num(p.currentPrice); const usd = num(p.pnl); const entry = num(p.entryPrice); const mv = num(p.marketValue); const q = num(p.qty); const basis = entry !== null && q !== null ? entry * Math.abs(q) * (isOpt(p) ? 100 : 1) : null; return (
             <div key={p.ticker} className="vt-bot-trow vt-bot-trow--book" role="button" tabIndex={0} aria-pressed={focus === p.ticker} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
               <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span>
@@ -694,6 +703,11 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
               {/* 2026-11-02 (human-asked, an option up 300%): the buy price, what it cost and what it is worth now,
                   on a second line so the tape keeps its columns at every width */}
               <span className="sub"><i>entry</i>{entry === null ? "·" : `$${entry.toFixed(2)}`}{isOpt(p) ? "/ct" : ""} · <i>cost</i>{basis === null ? "·" : `$${Math.round(basis).toLocaleString("en-US")}`} · <i>value</i>{mv === null ? "·" : `$${Math.round(mv).toLocaleString("en-US")}`}</span>
+              {/* line 3 (options): WHAT it is — bought/sold, call/put, time left, the recorded setup, single leg or
+                  one unit with its siblings; line 4 (all): WHEN the engine exits, from shared/positionLevels (the
+                  manager's own thresholds for options, manage_positions' ladder for shares) — never a portion of an option */}
+              {isOpt(p) ? <span className="sub sub--plan sub--what">{segs(optionWhatLine({ qty: q ?? 0, optionType: p.optionMeta?.optionType, daysToExpiry: p.optionMeta?.daysToExpiry, strategy: p.optionMeta?.strategy, legsInGroup: legCount.get(groupKey(p)) ?? 1 }))}</span> : null}
+              <span className="sub sub--plan sub--exit"><i>exit</i>{segs(isOpt(p) ? optionExitSegments(optionExitPlan({ qty: q ?? 0, entryPrice: entry, currentPrice: last, daysToExpiry: p.optionMeta?.daysToExpiry ?? null, strategy: p.optionMeta?.strategy, legsInGroup: legCount.get(groupKey(p)) ?? 1 })) : stockExitSegments(p.levels))}</span>
             </div>); })}
         </div>
       ))}

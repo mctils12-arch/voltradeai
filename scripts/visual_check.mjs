@@ -97,13 +97,18 @@ function botFixtures({ latched }) {
   // with the breakeven stop on, KWEB inside the short-hold grace, VXUS/GLD
   // not yet recorded (the honest path), option legs with their metadata
   const lv = (o) => ({ recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 1.5, riskPct: 3, pnlPct: -2.42, rMultiple: -0.81, peakR: 0.2, highestPnl: 0.6, highestPrice: 745.8, stopPct: 3, stopPrice: 719.08, stopFrom: "entry", breakevenActive: false, stopSuppressed: null, hardFloorPct: 20, hardFloorPrice: 593.06, takeProfitPct: 4.5, takeProfitPrice: 774.68, takeProfitArmed: false, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: true }], trailAtrMult: 2, scaleOut2R: 2, originalQty: 61, remainingQty: 61, scalesCompleted: 0, daysHeld: 3, heldMinutes: 4320, timeStop: { day: 7, withinPct: 2, armed: false }, ...o });
-  const optMeta = (underlyingTicker, strike, expiry = "2026-11-20") => ({ optionMeta: { underlyingTicker, expiry, strike, optionType: "PUT", strategy: "csp", setup: null, daysToExpiry: 30 }, levels: null });
+  // option legs as /api/bot/positions labels them: the engine's own strategy names (options_manager state),
+  // "unknown" for a leg the Node tier dispatcher opened (its state never records one) — the honest path
+  const optMeta = (underlyingTicker, strike, strategy = "sell_cash_secured_put", optionType = "PUT", daysToExpiry = 30, expiry = "2026-11-20") => ({ optionMeta: { underlyingTicker, expiry, strike, optionType, strategy, setup: null, daysToExpiry }, levels: null });
   const positions = [
     pos("QQQ", 61, 741.32, 723.36, 44124.96, -1095.52, -2.42, 719.08, 774.68, false, { levels: lv({}), dayPct: -2.4 }),
     pos("SMH", 20, 551.43, 551.49, 11029.7, 1.15, 0.01, 551.43, 576.24, false, { phase: 2, rMultiple: 0.004, highestPnl: 3.4, daysHeld: 9, levels: lv({ phase: 2, atrPct: 1.6, riskPct: 3.2, pnlPct: 0.01, rMultiple: 0.004, peakR: 1.06, highestPnl: 3.4, highestPrice: 570.2, stopPct: 2.4, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPct: null, hardFloorPrice: null, takeProfitPct: 4.8, takeProfitPrice: 576.24, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], originalQty: 30, remainingQty: 20, scalesCompleted: 1, daysHeld: 9, heldMinutes: 12960, timeStop: { day: 7, withinPct: 2, armed: true } }) }),
     pos("KWEB", 388, 26.53, 24.54, 9521.52, -770.8, -7.49, 25.47, 27.59, false, { daysHeld: 2, levels: lv({ atrPct: 2, riskPct: 4, pnlPct: -7.49, rMultiple: -1.87, peakR: 0.1, highestPnl: 0.4, highestPrice: 26.64, stopPct: 4, stopPrice: 25.47, stopSuppressed: { until: "day4", reason: "short-hold grace", overridePct: 15, minutesLeft: null, daysLeft: 2 }, hardFloorPrice: 21.22, takeProfitPct: 6, takeProfitPrice: 28.12, scaleOuts: [{ n: 1, rMultiple: 1, pct: 4, price: 27.59, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 8, price: 28.65, done: false, applicable: true }], originalQty: 388, remainingQty: 388, daysHeld: 2, heldMinutes: 2880 }) }),
     pos("VXUS", 150, 71.2, 71.4, 10710, 30, 0.28, null, null, false, { levels: null, dayPct: 0.3 }), pos("GLD", 21, 381.05, 380.11, 7982.31, -19.69, -0.25, null, null, false, { levels: null, dayPct: -0.4 }),
-    pos("CRWV261120P00055000", -1, 2.47, 2.67, -267, -20, -8.1, null, null, true, optMeta("CRWV", 55)), pos("TEM261120P00070000", -1, 1.4, 1.96, -196, -56, -40.1, null, null, true, optMeta("TEM", 70)), pos("PFE261120P00027000", -1, 0.48, 0.21, -21, 27, 56.25, null, null, true, optMeta("PFE", 27)),
+    pos("CRWV261120P00055000", -1, 2.47, 2.67, -267, -20, -8.1, null, null, true, optMeta("CRWV", 55)), pos("TEM261120P00070000", -1, 1.4, 1.96, -196, -56, -40.1, null, null, true, optMeta("TEM", 70, "unknown")), pos("PFE261120P00027000", -1, 0.48, 0.21, -21, 27, 56.25, null, null, true, optMeta("PFE", 27, "csp_normal_market")),
+    // a bought call up 300 % (the 2026-11-02 question), and the two legs of one credit spread the manager closes as one unit
+    pos("GOOGL261219C00280000", 1, 3.2, 12.8, 1280, 960, 300, null, null, true, { ...optMeta("GOOGL", 280, null, "CALL", 47, "2026-12-19"), dayPct: 8.4 }),
+    pos("META261120P00600000", -1, 4.1, 3.2, -320, 90, 22, null, null, true, optMeta("META", 600, "bull_put_credit_spread", "PUT", 18)), pos("META261120P00580000", 1, 1.9, 1.3, 130, -60, -31.6, null, null, true, optMeta("META", 580, "bull_put_credit_spread", "PUT", 18)),
   ];
   // /api/bot/bars/<any symbol> (prefix fixture): 300 hourly bars, a
   // deterministic walk around QQQ's fixture price, ending now
@@ -3651,6 +3656,11 @@ async function main() {
               usdShown: rows.some((r) => { const u = r.querySelector('.pl .usd'); return !!u && getComputedStyle(u).display !== 'none'; }),
               panelW: panel.getBoundingClientRect().width,
               symW: rows.length ? rows[0].querySelector('.sym').getBoundingClientRect().width : null,
+              // 2026-11-02 (human: "what type of option … when would you sell, is that shown"): lines 3–4
+              optRows: rows.filter((r) => /ct$/.test((r.querySelector('.q')?.textContent || '').trim())).length,
+              whatLines: rows.filter((r) => /^(bought|sold) (call|put)/.test((r.querySelector('.sub--what')?.textContent || '').trim())).length,
+              exitLines: rows.filter((r) => /^exit/.test((r.querySelector('.sub--exit')?.textContent || '').trim())).length,
+              clipped: rows.filter((r) => { const e = r.querySelector('.sub--exit'); return !!e && e.scrollWidth > e.clientWidth + 1; }).length,
             };
           });
           if (bk === null) fail("book: no Book panel");
@@ -3665,6 +3675,9 @@ async function main() {
             if (bk.rows && bk.panelW >= 380 && !bk.usdShown) fail(`book: the dollar P&L is hidden in a ${Math.round(bk.panelW)} px Book`);
             if (bk.rows && bk.panelW < 380 && bk.usdShown) fail(`book: the dollar P&L shows in a ${Math.round(bk.panelW)} px Book and squeezes the symbol`);
             if (bk.symW !== null && bk.symW < 60) fail(`book: the symbol column is ${Math.round(bk.symW)} px — unreadable`);
+            if (bk.rows && bk.exitLines !== bk.rows) fail(`book: ${bk.rows - bk.exitLines} row(s) do not say when the engine exits`);
+            if (bk.rows && bk.whatLines !== bk.optRows) fail(`book: ${bk.optRows - bk.whatLines} option row(s) do not say bought/sold call/put`);
+            if (bk.clipped) fail(`book: ${bk.clipped} exit line(s) clipped — a rule is hidden`);
           }
         }
         // ── DEAD SPACE (2026-10-22, human-approved): at the desktop tiers no
