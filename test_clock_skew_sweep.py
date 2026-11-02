@@ -34,3 +34,7 @@ def test_preload_shifts_real_clock_not_explicit_dates():
         env={**os.environ, "SKEW_DAYS": "30", "NODE_OPTIONS": f"--require {c.PRELOAD}"},
         capture_output=True, text=True).stdout.split()
     assert out[0] == "30" and out[1] == "2020-01-01T00:00:00.000Z"
+
+def test_skew_incompatible_files_carry_a_reason():
+    assert "server/gatedTests.test.ts" in c.SKEW_INCOMPATIBLE
+    assert all(r.strip() for r in c.SKEW_INCOMPATIBLE.values())

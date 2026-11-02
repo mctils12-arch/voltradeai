@@ -21,6 +21,7 @@ Usage:
   python3 scripts/clock_skew_sweep.py --json out.json
 
 Exit 0 = no bombs (or advisory mode); 1 = bombs found with --strict.
+SKEW_INCOMPATIBLE lists files the tool cannot judge (subprocess real clock).
 Pure parsing helpers (parse_tap_failures, find_bombs) are unit-tested in
 test_clock_skew_sweep.py. Zero tokens, zero network.
 """
@@ -39,6 +40,16 @@ PRELOAD = ROOT / "scripts" / "clock_skew_preload.cjs"
 # node's tap reporter prints one top-level `not ok N - <file path>` per failing
 # test FILE (nested subtests are indented). Anchor at column 0 so only files count.
 _FILE_FAIL = re.compile(r"^not ok \d+ - (.+?\.test\.[cm]?[tj]sx?)\s*$", re.M)
+
+
+# Files whose subject shells out to a process using the REAL clock (the skew
+# only moves Node's Date), so JS-side "now" and subprocess "now" disagree under
+# skew. Found 2026-11-02: gatedTests builds dates from Date.now() but runs
+# scripts/gated_tests.sh, which calls `date`. A failure there is the tool's
+# blind spot, not a fixture bomb. Add entries only with a reason.
+SKEW_INCOMPATIBLE = {
+    "server/gatedTests.test.ts": "shells out to gated_tests.sh which uses the real `date`",
+}
 
 
 def parse_tap_failures(tap: str) -> set[str]:
@@ -92,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         tap, _ = run_suite(s, a.timeout)
         by_skew[s] = parse_tap_failures(tap)
     bombs = find_bombs(baseline, by_skew)
+    for f in SKEW_INCOMPATIBLE:
+        bombs.pop(f, None)
     # Whole-suite runs are concurrent; a loaded box makes timing tests flake.
     # Re-run each candidate ALONE at its skew and at skew 0; only a file that
     # passes alone today and fails alone under skew is a real time-bomb.
