@@ -23252,3 +23252,66 @@ STATUS: price_panel build b20261029 complete (27.1M bars, 6,955 delisted symbols
 P2 (opportunistic insiders): harness shipped v1.0.1239 (`edge_p2_insider.py`, weekly Sunday job, `/api/diag/edge_p2`); first result expected after Sun 2026-11-01 10:00 ET. Prior: ~60% INCONCLUSIVE because 2017+ (9 yrs) leaves MDE above the 35 bp bar; ladder path unchanged (gate 2 now, gates 3-5 only after a PASS_PROVISIONAL).
 LAZY PRICES gate 2 (next, own PR): same panel reader, same matched-benchmark machinery (`edge_p2_insider.DayGrid` / `abnormal_returns` are reusable; extract to a shared module only when the second consumer exists). Pre-register its exact variant list before running; count it against the shared multiple-testing ledger.
 CAVEAT carried forward: 2010-2015 is not in the panel, so any pre-2016 claim from these tests is out of scope; a PASS is provisional until the live shadow book reads (12 months).
+
+## RULE-REVIEW CANDIDATE 2026-11-02 — bought options have no profit-taking exit (filed from the human's question on a GOOGL call up ~300 %)
+
+Observed (options_manager.py `manage_options_positions`, v1.0.1247): for a BOUGHT
+option the only exits are the 50 % loss limit (Node backstop −75 %), gamma > 0.08
+with ≤ 30 DTE, 21 DTE (close), 5 DTE (force), after a 60-minute minimum hold.
+`PROFIT_TARGET_PCT` (50 % of max profit) applies to SOLD premium only;
+`highest_value` is recorded per position but never compared. A long call up 300 %
+is held to 21 DTE or a 50 % give-back from the premium — the winner is never
+harvested and the gain is exposed to theta and reversal.
+
+Hypothesis (stated before testing): a scale-out plus trailing rule on bought
+options raises expectancy per lot versus hold-to-21-DTE, because option P&L paths
+are convex and mean-revert after large moves. Prior: positive but small; the
+risk is cutting the few outsized winners that carry the sleeve.
+
+Testable form: candidates (a) scale out half at +100 %, trail the rest 35 % off
+the peak mark, keep 21 DTE; (b) trail-only 40 % off peak after +50 %; (c) status
+quo. Evaluate per closed lot and per regime on the options chain archive
+(server-captured post-close chains since 2026-10-28) plus the options exit
+ledger (`_record_options_exit_feedback`, trade_feedback since v1.0.34): replay
+each bought lot's daily marks, apply each rule, compare realized P&L
+distributions (mean, median, tails) and the count of winners cut early. Ladder:
+gate 3 (LOGIC) by ablation against the live rule; ships only via the RULE REVIEW
+path (one threshold at a time, prior value and rollback trigger logged).
+
+Decision owner: the human (asked 2026-11-02; a manual sell today is theirs).
+
+ADDENDUM 2026-11-02 (same session, later): the absence is now VISIBLE, not just
+filed. The Book's exit line (client/src/bot/exitPlan.ts over the engine mirrors
+in shared/positionLevels.ts) prints "no profit target" on every bought leg and
+the prices the two remaining rules fire at (the −50 % stop, the −75 % floor), so
+the human sees from the tape that the GOOGL gain is unharvested until they sell
+or this candidate ships. The chart legend's "manager target: closes at 50%"
+line — which had claimed that target for bought legs too — was wrong and is
+fixed in the same PR (long leg → "none — a bought option has no profit-taking
+rule"). The candidate itself is unchanged: no rule changed, nothing traded.
+
+## KNOWN BROKEN #45 (2026-11-02) — multi-leg strategy closes were one-shot and orphaned their legs; the per-leg Tier-1 kill cannot judge a defined-risk structure
+
+Found from the human's "option up 300 %": the GOOGL Nov-27 iron condor was
+dismantled leg by leg (full chain in experiments.md 2026-11-02 ~21:45Z).
+(a) FIXED v1.0.1251: `_manage_strategy_group` pursues a requested close until
+the legs are gone, buys shorts back before selling wings, submits in regular
+hours only, adopts a leg that lost its label. (b) OPEN, own [RULE-REVIEW]
+PR: server/bot.ts POS-KILL judges each leg by its own premium P&L
+(−75 % long / −150 % short); on a defined-risk structure a wing at −99 % is
+the structure working and a short at −150 % is the group's loss to manage —
+the backstop should hold its hand on legs whose options state carries a
+defined-risk strategy (condors, verticals, long straddles), keep acting on
+single legs and undefined-risk groups. Evidence: the 10-28/29 audit (122
+pre-market retries on the 355C wing, the 310P bought back at 4× credit while
+its 300P wing was itself submitted for a sell on a zero mark). Rollback
+trigger for (b): a defined-risk structure's realized loss exceeding its
+max loss (wing width × qty × 100 − net credit) by > 10 % while the manager
+could not act.
+
+ADDENDUM 2026-11-02 (same session, later): (b) SHIPPED v1.0.1252 — server/bot.ts
+POS-KILL holds its hand on legs whose recorded strategy is in
+OPTIONS_DEFINED_RISK_STRATEGIES (one POS-KILL-STRUCTURE-HOLD line per ticker
+per UTC day, no order); single legs and short straddles keep the backstop.
+KNOWN BROKEN #45 is closed on both halves; the rollback triggers stay as
+written above and in experiments.md.

@@ -73,6 +73,7 @@ test("an option leg draws its strike and expiry breakeven on the underlying with
   assert.ok(leg.zones.some((z) => z.label?.startsWith("keeps the whole premium") && z.lo === 55 && z.hi === Infinity));
   assert.ok(leg.zones.some((z) => z.label === "loses at expiry" && z.hi === 52.53));
   assert.ok(leg.legend.some(([k, v]) => k === "manager target" && v === "closes at 50% of max profit"));
+  assert.ok(leg.legend.some(([k, v]) => k === "manager exits" && v.startsWith("whole lot at once · force close ≤5 DTE in 25d · deep-ITM roll ≤10 DTE · roll/close at 21 DTE in 9d · target: keep 50% at $1.24 · stop: 2× credit at $4.94")), JSON.stringify(leg.legend));
   const bare = optionOverlay({ ticker: "X", qty: -1, entryPrice: 1, currentPrice: 1, isOption: true, optionMeta: null }, T);
   assert.equal(bare.levels.length, 0);
   assert.ok(bare.notes[0].startsWith("option leg details not recorded"));
@@ -98,4 +99,20 @@ test("the entry marker is anchored at the fill time from heldMinutes; a candidat
   assert.ok(c.legend.some(([k, v]) => k === "price" && v === "184.20"));
   assert.ok(c.notes[0].startsWith("a candidate has no stop or target yet"));
   assert.deepEqual(c.zones, []);
+});
+
+test("a BOUGHT leg's legend never claims the manager's 50% target (2026-11-02): it names the DTE and loss rules it actually rides to", () => {
+  const call = overlayFor({ ticker: "GOOGL261219C00280000", qty: 1, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: { underlyingTicker: "GOOGL", strike: 280, optionType: "CALL", expiry: "2026-12-19", daysToExpiry: 47, strategy: null } }, T);
+  assert.ok(call.levels.some((l) => l.label === "strike · long call" && l.price === 280));
+  assert.ok(call.levels.some((l) => l.label === "breakeven at expiry" && Math.abs(l.price - 283.2) < 1e-9));
+  assert.equal(call.zones.length, 0, "a long leg has no keep-the-premium zone");
+  const target = call.legend.find(([k]) => k === "manager target")!;
+  assert.ok(target[1].startsWith("none — a bought option has no profit-taking rule"), target[1]);
+  const exits = call.legend.find(([k]) => k === "manager exits")!;
+  assert.equal(exits[1], "whole lot at once · no profit target · force close ≤5 DTE in 42d · close at 21 DTE in 26d · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
+  assert.ok(call.legend.some(([k, v]) => k === "strategy" && v === "not recorded"));
+  // the long wing of a credit spread still shows the GROUP's target — the strategy, not the leg, has one
+  const wing = overlayFor({ ticker: "META261120P00580000", qty: 1, entryPrice: 1.9, currentPrice: 1.3, isOption: true, optionMeta: { underlyingTicker: "META", strike: 580, optionType: "PUT", expiry: "2026-11-20", daysToExpiry: 18, strategy: "bull_put_credit_spread" } }, T);
+  assert.equal(wing.legend.find(([k]) => k === "manager target")![1], "closes the whole bull put credit spread at 50% of its net credit");
+  assert.ok(wing.legend.find(([k]) => k === "manager exits")![1].startsWith("strategy closed as one unit · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× the premium · close all at 21 DTE · due now"));
 });

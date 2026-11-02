@@ -112703,3 +112703,271 @@ source: config, since 2026-10-28): would-be entries are logged, not
 placed; exits, stops and the floor keep running. The switch is the
 human's (Railway env VOLTRADE_SHADOW_ENTRIES=off, or stocks / options to
 keep one sleeve shadowed). STARVED: no.
+
+## 2026-11-02 (interactive session, ~19:50Z) [PRODUCT] — Book tape legibility pass (v1.0.1248)
+
+Territory T-CLIENT. Human: "can we make the book on the bot ui easier to
+read." Scoped to the Book panel (`section.vt-bot-panel[data-panel="book"]`)
+so the Orders tape stays compact: 13 px rows, symbol and P&L at 600
+weight, last price in the primary color, one size up on qty / day / the
+dollar P&L, 26 px rows with a divider, hover and a focused-row accent
+bar; the `entry · cost · value` line (v1.0.1247) in the secondary color at
+11.5 px with dimmed labels; header 10.5 px, group labels 11 px. Room: the
+Issues cap drops 40 % → 30 % of the left column and the Book's floor rises
+120 → 160 px, so at least two positions show before the Book scrolls even
+on a 900 px screen with the kill banner up. The 2026-10-22 tape contract
+holds unchanged (header sym qty last day P&L, five cells, $ on last,
+units on qty, dollar P&L by Book width; a narrow Book's P&L cell is 60 px
+so the row never overflows). Evidence: tsc 6/6; counter ratchet OK, pins
+locked (tests 707, assertions 25606); harness `bot` at 390/768/1440: 0
+hard failures, tape-contract and dead-space blocks pass.
+
+Same session, read for the human — options EXIT logic for a BOUGHT
+option (options_manager.py): 60-min minimum hold; close at −50 % of the
+premium (Node backstop −75 %); close when |gamma| > 0.08 with ≤ 30 DTE;
+close at 21 DTE regardless of P&L; force close at 5 DTE. NO profit target
+and NO trailing exit — PROFIT_TARGET_PCT applies to sold premium only and
+`highest_value` is recorded but never acted on. A long call up 300 %
+therefore rides to 21 DTE or a 50 % give-back. Filed as a RULE-REVIEW
+candidate (scale out half at +100 %, trail the rest 35 % off the peak,
+keep the 21-DTE rule) pending counterfactual evidence from the options
+chain archive and the exit ledger; the human decides. STARVED: no.
+
+## 2026-11-02 [PIPELINE] — daily session — refresh bundled `uncomtrade` snapshot (data only)
+
+HEALTH (~20:30Z): /api/health 200, status ok, serving.failing empty, liveness not dark, Alpaca ACTIVE, jobs 9 ok/0 errored, feeds fresh, drawdown -5.3%. KNOWN BROKEN: nothing open that a session can act on.
+ACTION: follow-up from the 11-02 stream triage. `python3 scripts/un_comtrade_ingest.py` (keyless, incremental) added 24 points (2026-07, 2026-08; 09-11 not yet published); archive 12 series, latest period 202606 -> 202608. Data file only, no code, no measurement, no strategy; RAW archive, gate-locked. Existing points untouched (incremental merge).
+NOT DONE: `aircraftspine` (~120d old) needs the FAA ReleasableAircraft.zip; registry.faa.gov returned HTTP 403 from this sandbox's proxy, so `scripts/build_entity_spine.py` could not run. Needs a session with FAA egress (or a human-supplied zip).
+LOOP HEALTH: last 10 tags 4 REPAIR / 3 PRODUCT / 2 NO-ACTION / 1 RULE-REVIEW — no thrash. STARVED: no.
+
+## 2026-11-02 (interactive session, ~21:30Z) [PRODUCT] — Book tape lines 3–4: what each option IS and when the engine SELLS (v1.0.1249)
+
+Territory T-CLIENT (+ shared/positionLevels.ts, the engine-mirror module the
+Bot page already reads). Human: "how do I know what type of option I have —
+did I sell a put or buy, and was it just a single option bought or a strategy"
+and "when would you sell the position or a portion, is that shown". Neither
+was: the Book showed the OCC code (strike/type/expiry), qty, last, day, P&L
+and, since v1.0.1247, entry · cost · value — nothing about side, setup,
+grouping or exits; the chart legend named a strategy only when the state had
+one. Shipped, every Book row:
+- line 3 (options): `sold put · 30d to expiry · cash-secured put · single
+  leg` / `bought call · 47d to expiry · setup not recorded · single leg` /
+  `… bull put credit spread · 2 legs held, closed as one` / `… QQQ tail
+  hedge · overlay rolls it`. Side from the broker qty sign, type from the OCC
+  code, setup from the options-state strategy (null and "unknown" — the Node
+  tier dispatcher's SELL_CSP/BUY_PUT legs never record one — read "setup not
+  recorded", never guessed), grouping exactly as options_manager groups
+  (MULTI_LEG_STRATEGIES by underlying + strategy; siblings counted in the
+  Book).
+- line 4 (all rows): the engine's exit rules in the manager's own order with
+  the prices they fire at, worked from the entry premium — bought: `whole lot
+  at once · no profit target · force close ≤5 DTE in 42d · close at 21 DTE in
+  26d · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at
+  $0.80`; sold: `… target: keep 50% at $1.24 · stop: 2× credit at $4.94 ·
+  roll/close at 21 DTE in 9d …`; groups on their combined-P&L rules; the
+  convexity hedge `insurance, not a trade · no target, no stop · rolled under
+  21 DTE`. A rule the current mark already satisfies is marked `hit`. Shares:
+  manage_positions' ladder from the levels the server already computes —
+  `stop $719.08 from entry · floor … · ⅓ at $763.56 (+1.0R) · ⅓ at $785.80
+  (+2.0R) · target $774.68 after ⅔ out · time stop d7 if ±2%`; "not recorded
+  yet" before the first manage tick.
+- the answer to "or a portion": an option position is never partially sold —
+  every manager exit is the whole lot (or the whole multi-leg strategy via one
+  mleg order); a share lot sells two thirds (+1R, the regime's 2R) and trails
+  the rest. Both now print on the tape.
+- CORRECTION (chart legend, measurement-display only): `optionOverlay` said
+  "manager target · closes at 50% of max profit" for BOUGHT legs too — the
+  manager has no profit-taking rule for a bought option (RULE-REVIEW candidate
+  filed earlier this session in open_questions.md, now with an addendum).
+  `optionLegLevels.profitTargetFrac` is null for a long leg; the legend prints
+  "none — a bought option has no profit-taking rule; it rides to a DTE or loss
+  rule", and a "manager exits" line shares the Book's words (one source).
+One source of truth: shared/positionLevels.ts now carries the options_manager
+thresholds under the engine's own names (DTE 21/5, 50 % target, 2× credit,
+−50 % bought, IC half-max-loss, gamma 0.08 ≤30 DTE, assignment |δ|>0.8 ≤10
+DTE, 60-min hold, the multi-leg / credit / debit sets, the overlay's roll_dte,
+the Tier-1 −75/−150 floors) and `optionExitPlan()`; server/positionLevels.test.ts
+reads options_manager.py, bot_engine.py and server/bot.ts and fails on drift.
+Tests: server/positionLevels.test.ts (+7), client/src/bot/exitPlan.test.ts
+(new, 6), chart/levels.test.ts (+1, the bought-leg legend), bookLine.test.ts
+(+1), help.test.ts covers the two new glossary entries. Harness: the Book
+contract now requires an exit line on every row, a bought/sold call/put line
+on every option row, and no clipped rule; fixture gains a bought GOOGL call
+(+300 %), an "unknown"-strategy CSP and a two-leg META credit spread. No
+trading or measurement code touched; no threshold changed. STARVED: no.
+
+## 2026-11-02 (interactive session, ~21:20Z) [PRODUCT] — diag probes `book` · `lots` · `option_bars`: sessions read the live Book and the closed-lot ledger (v1.0.1250)
+
+Human, same session: "I cannot read your live Book from this session, since
+that endpoint is owner-only. Fix this so you can." CORRECTION FIRST: the
+claim was half wrong — the token-gated `/api/diag/positions-detail` (widened
+by the human 2026-07-07) already served the broker's rows with symbols, and
+this session holds DIAG_TOKEN; what no probe served was the BOOK's own body
+(the engine's exit levels per share lot, each option's recorded strategy —
+what /api/bot/positions adds on top of the broker rows), nor the closed-lot
+history, nor a price path to replay an exit rule over. Shipped, all
+token-gated, read-only, sanitized, auth.ts untouched:
+- `book`: the SAME body as /api/bot/positions. The route body is now
+  `positionsBody()` (bot.ts) and both callers serve it — never a second
+  computation (the benchmark/sleeves precedent; diag.test.ts pins it).
+- `lots`: the sleeve ledger's closed-lot walk (sleeveLedger.realizedEvents,
+  the same cached list /api/bot/sleeves and the edge ledger are computed
+  from; refreshed only through sleevesBody's own path) — symbol, side,
+  open/close, qty, basis, P&L, return %, entry/exit per share (diag.ts
+  lotRow, whitelist-shaped like orderRow). Per-row sanitized with an
+  explicit `truncated` flag (archive-probe convention), ?limit ≤ 5000.
+- `option_bars`: bounded passthrough of Alpaca's historical daily OPTION
+  bars for ≤ 10 OCC contracts over ≤ 400 days (market data only; keys in
+  headers; no account/order/position field reachable) — the price path a
+  profit-taking counterfactual needs. Entitlement for this endpoint read
+  `rate_limited_inconclusive` on /api/diag/options_entitlements at 20:55Z
+  (the probe's own calls hit 429); the first live `option_bars` call is
+  the real test and is logged in the next entry.
+CLAUDE.md KNOWN STATE gains the fact line so no session claims the Book is
+unreadable again. Tests: diag.test.ts +3 (wiring/same-body pins, lotRow
+arithmetic incl. the short-lot mirror and garbage numerics, the query
+validator and key-free URL). Counter pins: assertions locked 25776. No
+trading or measurement code touched.
+
+LIVE READ (positions-detail, 20:52Z) while the PR was being written — the
+"option up 300 %" of the earlier question is `GOOGL261127P00300000`, 2
+contracts LONG, entry $4.70, mark $20.70 (+340 %, +$3,200), 24 DTE. It is
+NOT a directional winner: the audit log (POS-KILL slice since 10-27) and
+the closed orders show it is the surviving LONG WING of a GOOGL Nov-27 iron
+condor (300P/310P puts, 345C/355C calls) — the manager's 10-22 close
+attempt left two canceled per-leg limit orders (the mleg path had failed),
+the condor rode into earnings, and on 10-28/29 the Tier-1 per-leg POS-KILL
+handled the aftermath leg by leg: the 355C wing "down −99.8 %" liquidation
+retried every minute pre-market (122 lines), the short 310P bought back at
+$27.60 on a "−309 %" kill, the 345C short bought back at $0.95, and the
+300P wing was itself submitted for a market SELL on a zero mark at
+13:30:09Z (the documented 10-29 near-miss; Alpaca's rejection saved it,
+the mark guard shipped after). GOOGL root realized −$3,932 in October; with
+the wing's +$3,200 the structure sits near −$730. The 21-DTE rule closes
+the wing on 2026-11-05 (options_manager._days_to_expiry floors the day
+difference, so `dte <= 21` is first true on Nov 5). Filed in
+open_questions.md as the exit-rule finding it is: a per-leg percent kill
+cannot judge a defined-risk structure (a wing at −99 % is the condor
+working; a short leg at −150 % is the group's loss to manage), and the
+options sleeve's own hold-time ledger (sleeves probe, 376 closed lots since
+05-07): <1h 168 lots −$4,812 · <1d 143 lots −$5,011 · 1–7d 57 lots −$3,784 ·
+8–30d 7 lots +$845 · >30d 1 lot +$104. STARVED: no — the profit-taking study
+runs next on `lots` + `option_bars` once this deploys.
+
+## 2026-11-02 (interactive session, ~21:45Z) [REPAIR] — T-BOT options_manager.py: a multi-leg strategy is closed AS A UNIT and the close is PURSUED until its legs are gone (v1.0.1251)
+
+Human: "sell the GOOGL put now and fix the condor close" / "look into this
+issue and fix it, see what works best, and make sure it works so we don't
+have this issue again and the logic works". ROOT CAUSE, from the live
+audit (`OPTIONS-EXIT` + `POS-KILL` slices via /api/diag/audit) and the
+closed orders: `_manage_strategy_group` submitted ONE close per exit rule
+and `state.pop()`-ed every leg on the spot. For the GOOGL Nov-27 iron
+condor (short 310P / long 300P, short 345C / long 355C, ×2): the 10-22
+close's mleg was rejected (reason swallowed by `except: pass` and a silent
+non-2xx fall-through), the fallback placed per-leg DAY limits at
+`current_price` after the close (two canceled, the wings' after-hours
+mark 0 → "Invalid limit price"), and the pop turned four legs into
+"unknown" standalone options. From then on the SINGLE-LEG rules ran on a
+spread: 10-28 11:31Z "LOSS LIMIT: Bought option down 52 %" on BOTH wings →
+Alpaca refused ("account not eligible to trade uncovered option contracts"
+/ "insufficient options buying power for cash-secured put" — selling a
+wing would uncover its short); 10-29 11:31Z short 310P bought back at
+$27.60 "4.0× the credit $6.95", short 345C at the 66 % target; the Node
+per-leg POS-KILL fired on the same legs in the same minutes ("held_for_
+orders" duplicates, 122 pre-market retries on the 355C). The 300P wing
+survived only by the documented 10-29 near-miss. Net GOOGL −$3,932
+realized + $3,200 open ≈ −$730 — a defined-risk structure taken apart leg
+by leg into an earnings gap.
+
+FIX (options_manager.py; the mleg POST and `_submit_close_order` are
+byte-identical — only WHAT is sent and WHEN):
+1. Every group exit (7 rules) submits through `_request_group_close`,
+   which stamps `close_requested_at / close_rule / close_reason /
+   close_attempts / close_last_result` on each leg and NEVER pops state;
+   the end-of-run cleanup drops a leg only once the broker no longer holds
+   it. CLOSING MODE: a group with a request is pursued every tick by
+   `_pursue_group_close` — WAIT while a close order is working at the
+   broker (`GET /v2/orders?status=open&symbols=`) or for 180 s after a
+   submission, otherwise re-submit (retry #n in the audit line).
+2. `_close_strategy_mleg`: the broker's rejection travels in
+   `mleg_error`; the fallback buys back the SHORT legs first at the ASK and
+   defers the long wings until no short remains (then sells at the BID);
+   a leg with no usable quote is deferred, not errored.
+3. No submission outside regular hours (`/v2/clock`, cached 60 s; a
+   failed read counts as open): DAY orders placed after the close die at
+   the next restart (10-28/29 saw 25 deploys cancelling all open orders).
+4. ADOPTION: a leg with no multi-leg strategy whose root + expiry match a
+   group's legs is managed WITH the group (`group_adopted` warning) — the
+   single-leg rules never touch a spread wing again.
+Tests: test_options_group_close.py (9: the GOOGL regression, pursuit /
+wait / settle, market-closed deferral, wings-only sale at the bid,
+adoption, unchanged mleg POST, source pins: no `state.pop` in the group
+path, all 7 rules on the pursued close). All 233 manager-related Python
+tests pass; full gated suite run before merge. Counters: silent_py_handlers
+253→252 (the swallowed mleg exception), tests 709, assertions 25827.
+ROLLBACK TRIGGER: a group close that re-submits more than 3 times in one
+session without a fill (the audit's "retry #n" lines) — revert and file.
+NEXT (own PR, [RULE-REVIEW]): the Node per-leg POS-KILL must not act on a
+defined-risk structure's legs (evidence above); the GOOGL 300P wing itself
+is the human's manual sale today (no session order path exists by design;
+/api/bot/close is owner-only and has no UI control yet). STARVED: no.
+
+## 2026-11-02 (interactive session, ~22:10Z) [RESEARCH] — options exit study: the account's own closed lots replayed under candidate profit-taking rules (research/options_exit_study_2026-11-02.md)
+
+Human: "for the other options, figure out what's best for taking profit".
+Data: /api/diag/lots (400 option lots since 05-07) + /api/diag/option_bars
+(96 contracts' daily bars); script compiled to scripts/options_exit_study.py
+(re-runnable with DIAG_TOKEN). PRIOR (open_questions.md candidate): a
+scale-out/trailing rule on bought options raises expectancy, small positive.
+RESULT: WRONG — no population. Of 91 bought lots, 7 lived past a day and all
+7 are legs of structures; none ever closed a day above +50 % of its premium
+(best path +$25). No target, trail or scale-out would have changed one
+result; the candidate is WITHDRAWN. Sold lots (309, 95 multi-day): the live
+50 % target holds; a 25 % target cuts the best lot $1,300 → $520 and the
+total by ≈ $1,200; 75 % ≈ 50 %. PROFIT_TARGET_PCT stays 0.50. WHERE THE MONEY
+GOES: 288 of 400 lots never saw a second session (<1 h −$4,812, <1 d
+−$5,011, 1–7 d −$3,784, 8–30 d +$845) — the single-leg loss limit on fresh
+sales, the per-leg backstop, and single-leg rules on legs that lost their
+grouping; the condor repair (v1.0.1251) and the POS-KILL structure hold
+address the last two. NEXT: the same-day churn on single sold legs needs
+intraday marks the archive does not keep yet — re-test after the options
+chain archive holds ~30 sessions. Multiple-comparison note: 10 rules tried,
+none won, nothing selected. STARVED: no.
+
+## 2026-11-02 (interactive session, ~22:00Z) [RULE-REVIEW] — T-BOT server/bot.ts POS-KILL: a leg of a defined-risk structure is never killed on its own (v1.0.1252)
+
+Human: "fix the condor close … make sure it works so we don't have this issue
+again and the logic works" (second half; the first half shipped as v1.0.1251).
+RULE CHANGED (scope, not threshold): the Tier-1 per-position kill in
+`syncMonitoredPositions` judged every option leg by its own premium P&L
+(−75 % long / −150 % short, the 2026-10-13 scope fix). It now holds its hand
+on a leg whose recorded strategy (voltrade_options_state.json, read once per
+sync, 60 s cache) is in `OPTIONS_DEFINED_RISK_STRATEGIES`
+(shared/positionLevels.ts: iron_condor, qqq_iron_condor,
+bull_put_credit_spread, bull_call_spread, bear_put_spread, buy_straddle) —
+one `POS-KILL-STRUCTURE-HOLD` audit line per ticker per UTC day, no order;
+options_manager closes the group as a unit. Single legs and undefined-risk
+groups (short straddles) keep the backstop byte-for-byte: the kill-branch
+opener, the mark guard, the two-tick confirmation, the duplicate guard and
+the POST are untouched (the structure hold is one more `continue` at the
+top of the branch, before the mark guard).
+EVIDENCE (RULE REVIEW): the 10-28/29 audit — this kill read the GOOGL
+Nov-27 condor's two LONG WINGS as "down −99.8 %" and retried their
+liquidation every minute pre-market (122 lines on the 355C), bought the
+short 310P back on a "−309 %" reading at $27.60 while its 300P wing was
+submitted for a sell on a zero mark, in the same minutes options_manager's
+own rules fired on the same legs (`held_for_orders` rejections). A
+defined-risk structure's worst case is bounded by its own wings; a per-leg
+percent kill cannot see that and made the loss worse than the structure's
+max loss by closing the legs at different times. PRIOR VALUE: every option
+leg judged alone. ROLLBACK TRIGGER: a defined-risk structure's realized
+loss exceeding its max loss (wing width × qty × 100 − net credit) by > 10 %
+while the manager could not act — revert the exemption and file.
+Tests: server/posKillStructureHold.test.ts (7: the defined-risk set ⊂
+multi-leg minus short_straddle; the pure filter; wiring pins; the real loop
+body run against stubs — wing at −99 % held with one line/day, short leg at
+−309 % held, a standalone short put and a straddle leg still killed on the
+second valid-mark tick, the informational OPTION-HOLD line unchanged). All
+117 kill-branch harness tests pass (the sibling harnesses slice the branch
+on its unchanged opener). Full server + client suites and the tsc ratchet
+run before merge. STARVED: no.

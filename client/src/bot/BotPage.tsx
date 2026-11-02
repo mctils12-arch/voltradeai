@@ -271,7 +271,7 @@ export default function BotPage() {
           {/* DEAD SPACE (2026-10-22, human-approved): no column leaves a blank — Issues takes only its content
               (capped, scrolls when long), the Book takes the rest of the left column, the chart the whole right
               column; Orders is one line while nothing works and grows back with real orders */}
-          <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "0 1 auto", maxHeight: "40%", minHeight: 0 })}{slot("book", { flex: "1 1 auto", minHeight: 120 })}</div>
+          <div className="vt-bot-col vt-bot-area-left">{slot("stages", { flex: "0 0 auto" })}{slot("issues", { flex: "0 1 auto", maxHeight: "30%", minHeight: 0 })}{slot("book", { flex: "1 1 auto", minHeight: 160 })}</div>
           <div className="vt-bot-col vt-bot-area-centre">{hasState ? slot("state", { flex: "0 0 auto" }) : null}{slot("watch", { flex: "0 1 auto", maxHeight: hasState ? "36%" : "44%", minHeight: 136 })}{slot("model", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-right">{slot("chart", { flex: "1 1 auto" })}{slot("orders", { flex: ordersFlex })}</div>
           <div className="vt-bot-col vt-bot-area-timeline">{slot("timeline", { flex: "1 1 auto" })}</div>

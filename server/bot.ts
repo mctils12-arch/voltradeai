@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
-import { positionLevels, levelConfigFromBaseConfig } from "../shared/positionLevels";
+import { positionLevels, levelConfigFromBaseConfig, OPTIONS_DEFINED_RISK_STRATEGIES } from "../shared/positionLevels";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
@@ -24,7 +24,7 @@ import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonEx
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
@@ -671,6 +671,52 @@ function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: strin
   if (pending.has(symbol)) return "confirmed";
   pending.set(symbol, { firstSeenMs: nowMs, pnlPct });
   return "pending";
+}
+
+// POS-KILL STRUCTURE HOLD 2026-11-02 ([RULE-REVIEW], human-directed "fix the
+// condor close … make sure we don't have this issue again"). Live 10-28/29
+// (research/experiments.md 2026-11-02): this per-leg kill read the two LONG
+// WINGS of the GOOGL Nov-27 iron condor as "down −99.8 %" and retried their
+// liquidation every minute pre-market (122 audit lines), bought the short
+// 310P back on a "−309 %" reading at $27.60 while its 300P wing was itself
+// submitted for a sell on a zero mark — and options_manager's own group
+// rules were firing on the same legs in the same minutes (held_for_orders
+// rejections). A leg of a DEFINED-RISK structure (shared/positionLevels
+// OPTIONS_DEFINED_RISK_STRATEGIES, read from voltrade_options_state.json)
+// is never killed on its own: a wing at −99 % is the structure working and
+// a short at −150 % of its credit is the GROUP's loss, bounded by its wings
+// and closed as a unit by options_manager (v1.0.1251 pursues that close
+// until the legs are gone). Single legs and undefined-risk groups (short
+// straddles) keep the per-leg backstop unchanged. Prior behaviour: every
+// option leg judged alone (the 2026-10-13 scope fix). Rollback trigger: a
+// defined-risk structure's realized loss exceeding its max loss (wing width
+// × qty × 100 − net credit) by > 10 % while the manager could not act.
+// The map is read once per sync, before the per-position loop, into
+// posKillStructuresCurrent (so the loop body stays harness-runnable).
+const POS_KILL_STRUCTURES_TTL_MS = 60_000;
+let posKillStructuresCache: { at: number; legs: Map<string, string>; readError: string | null } | null = null;
+/** symbol → strategy for every leg whose recorded strategy is defined-risk; pure. */
+function posKillDefinedRiskLegs(raw: unknown, definedRisk: readonly string[] = OPTIONS_DEFINED_RISK_STRATEGIES): Map<string, string> {
+  const legs = new Map<string, string>();
+  if (!raw || typeof raw !== "object") return legs;
+  for (const [symbol, st] of Object.entries(raw as Record<string, unknown>)) {
+    const strategy = st && typeof st === "object" ? (st as Record<string, unknown>).strategy : undefined;
+    if (typeof strategy === "string" && definedRisk.includes(strategy)) legs.set(symbol, strategy);
+  }
+  return legs;
+}
+function posKillOptionsStructures(nowMs: number = Date.now()): Map<string, string> {
+  if (posKillStructuresCache && nowMs - posKillStructuresCache.at < POS_KILL_STRUCTURES_TTL_MS) return posKillStructuresCache.legs;
+  let legs = new Map<string, string>();
+  let readError: string | null = null;
+  try {
+    const dir = fs.existsSync("/data/voltrade") ? "/data/voltrade" : "/tmp";
+    legs = posKillDefinedRiskLegs(JSON.parse(fs.readFileSync(`${dir}/voltrade_options_state.json`, "utf8")));
+  } catch (err) {
+    readError = err instanceof Error ? err.message : String(err); // no state file yet: no leg is a structure's
+  }
+  posKillStructuresCache = { at: nowMs, legs, readError };
+  return legs;
 }
 
 // Shared by executeTrades() and the tier dispatcher's SELL_CSP gate so both
@@ -1522,12 +1568,16 @@ export function registerBotRoutes(app: Express) {
   });
 
   // Current positions from Alpaca
-  app.get("/api/bot/positions", requireOwner, async (_req, res) => {
-    try {
+  // One body for the owner route AND the "book" diag probe (2026-11-02,
+  // human-directed: sessions read the live Book): the broker's positions
+  // enriched with the engine's exit levels (shared/positionLevels) and each
+  // option's recorded strategy/setup. Throws on a broker failure; [] when
+  // the broker's answer is not a list.
+  async function positionsBody(): Promise<unknown[]> {
       const positions = await alpaca("/v2/positions");
       if (!Array.isArray(positions)) {
         console.error("[bot] /v2/positions returned non-array:", JSON.stringify(positions).slice(0, 200));
-        return res.json([]);
+        return [];
       }
 
       // Load stop state and options state in parallel — these are enrichment data,
@@ -1676,7 +1726,11 @@ print(json.dumps(data))
           levels: isOption ? null : levels,
         };
       });
-      res.json(mapped);
+      return mapped;
+  }
+  app.get("/api/bot/positions", requireOwner, async (_req, res) => {
+    try {
+      res.json(await positionsBody());
     } catch (e: any) {
       console.error("[bot] /api/bot/positions error:", e.message);
       res.status(500).json({ error: e.message });
@@ -3276,6 +3330,60 @@ print(json.dumps(s))
             ...positionsSummary(arr),
             positions: arr.map(positionRow),
           }));
+        }
+        case "book": {
+          // ADDED 2026-11-02 (human-directed — see diag.ts): the SAME body
+          // the owner's /api/bot/positions serves (positionsBody), so a
+          // session reads the live Book — rows, the engine's exit levels,
+          // each option's recorded strategy — with the diag token.
+          return res.json(sanitizeDiag({ probe: "book", positions: await positionsBody() }));
+        }
+        case "lots": {
+          // ADDED 2026-11-02 (human-directed — see diag.ts): the sleeve
+          // ledger's closed-lot walk — exactly the RealizedEvent list the
+          // sleeves / edge bodies are computed from, read from the same
+          // cache sleevesBody() refreshes (never a second fetch). Rows are
+          // sanitized one by one with an explicit `truncated` flag (the
+          // archive-probe convention) instead of the blanket 200-item cap;
+          // ?limit keeps the NEWEST rows, default and max 5000.
+          await sleevesBody();
+          const events = sleeveCache?.taxInputs.events ?? [];
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "5000"), 10) || 5000, 1), 5000);
+          const rows = events.slice(-limit).map((e) => sanitizeDiag(lotRow(e)));
+          return res.json({
+            probe: "lots", count: events.length, truncated: events.length > limit,
+            since: sleeveCache ? new Date(sleeveCache.taxInputs.windowStartMs).toISOString() : null,
+            fetchedAt: sleeveCache ? new Date(sleeveCache.at).toISOString() : null,
+            pending: !sleeveCache, lastError: sleeveError, rows,
+          });
+        }
+        case "option_bars": {
+          // ADDED 2026-11-02 (human-directed — see diag.ts): bounded
+          // passthrough of Alpaca's historical daily OPTION bars (market
+          // data only; keys in headers; no account, order or position
+          // field reachable from here) for the contracts a session studies.
+          const q = optionBarsQuery(req.query as Record<string, unknown>);
+          if (!q.ok) return res.status(400).json({ error: q.error });
+          const headers = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+          const bars: Record<string, Array<Record<string, unknown>>> = {};
+          let token: string | undefined; let pages = 0; let truncated = false;
+          for (;;) {
+            const r = await fetch(optionBarsUrl(q.symbols, q.start, q.end, token), { headers });
+            const raw: unknown = await r.json().catch(() => ({}));
+            const data: Record<string, unknown> = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+            if (!r.ok) return res.status(502).json({ error: `Alpaca option bars ${r.status}: ${typeof data.message === "string" ? data.message : "error"}` });
+            const page: Record<string, unknown> = data.bars && typeof data.bars === "object" ? (data.bars as Record<string, unknown>) : {};
+            for (const [sym, list] of Object.entries(page)) {
+              (bars[sym] ??= []).push(...(Array.isArray(list) ? list : []).map((b: unknown) => {
+                const bb: Record<string, unknown> = b && typeof b === "object" ? (b as Record<string, unknown>) : {};
+                return sanitizeDiag({ t: String(bb.t ?? ""), o: Number(bb.o), h: Number(bb.h), l: Number(bb.l), c: Number(bb.c), v: Number(bb.v) });
+              }));
+            }
+            token = typeof data.next_page_token === "string" && data.next_page_token ? data.next_page_token : undefined;
+            if (!token) break;
+            if (++pages >= OPTION_BARS_MAX_PAGES) { truncated = true; break; }
+          }
+          return res.json({ probe: "option_bars", symbols: q.symbols, start: q.start, end: q.end, truncated, bars });
         }
         case "benchmark": {
           // ADDED 2026-10-20: the account vs buy-and-hold SPY
@@ -7850,6 +7958,9 @@ print(json.dumps({'files': count}))
   // survives a restart, by design (a restart simply restarts the count).
   const posKillPendingBreach: Map<string, PosKillBreach> = new Map();
   const posKillNoMarkAuditDay: Map<string, string> = new Map();
+  // POS-KILL STRUCTURE HOLD 2026-11-02: once-per-day audit bookkeeping and the current sync's structure legs
+  const posKillStructureHoldDay: Map<string, string> = new Map();
+  let posKillStructuresCurrent: Map<string, string> = new Map();
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -7875,6 +7986,8 @@ except: print('{}')
       } catch (_) {}
 
       const activeTickers = new Set<string>();
+      // POS-KILL STRUCTURE HOLD 2026-11-02: legs of a defined-risk structure, read once per sync
+      posKillStructuresCurrent = posKillOptionsStructures();
 
       for (const pos of positions) {
         const ticker = pos.symbol || "";
@@ -7953,6 +8066,10 @@ except: print('{}')
         const OPTION_SHORT_KILL_LOSS_PCT = -150.0; // sold option: mark >= 2.5x the credit
         const OPTION_LONG_KILL_LOSS_PCT = -75.0;   // bought option: lost 75% of premium
         const isOptionPos = isPosKillExemptOption(ticker, pos.asset_class);
+        // POS-KILL STRUCTURE HOLD 2026-11-02: a leg of a defined-risk multi-leg
+        // strategy is the group's to manage — see the hold inside the kill
+        // branch. (typeof guard: the loop body runs standalone in the test harnesses.)
+        const structureStrategy: string | null = isOptionPos && typeof posKillStructuresCurrent !== "undefined" ? (posKillStructuresCurrent.get(ticker) ?? null) : null;
         // This position's kill threshold: STOCK_KILL_LOSS_PCT for a stock,
         // the side's option backstop for an option.
         const POSITION_KILL_LOSS_PCT = posKillThresholdPct(isOptionPos, side, STOCK_KILL_LOSS_PCT,
@@ -7979,6 +8096,23 @@ except: print('{}')
         }
         if (pnlPct <= POSITION_KILL_LOSS_PCT) {
           const closeSide = side === "long" ? "sell" : "buy";
+
+          // ── STRUCTURE HOLD (2026-11-02, see posKillOptionsStructures) ─────
+          // A leg of a defined-risk multi-leg strategy leaves the branch here:
+          // options_manager closes the group as a unit (v1.0.1251 pursues that
+          // close until the legs are gone). One POS-KILL-STRUCTURE-HOLD line
+          // per ticker per UTC day; the position stays held, next tick re-decides.
+          if (structureStrategy) {
+            const holdDay = new Date().toISOString().split("T")[0];
+            if (posKillStructureHoldDay.get(ticker) !== holdDay) {
+              for (const k of Array.from(posKillStructureHoldDay.keys())) {
+                if (posKillStructureHoldDay.get(k) !== holdDay) posKillStructureHoldDay.delete(k);
+              }
+              posKillStructureHoldDay.set(ticker, holdDay);
+              audit("POS-KILL-STRUCTURE-HOLD", `${ticker}: ${structureStrategy} leg down ${pnlPct.toFixed(1)}% vs its premium — a defined-risk structure's leg is never killed on its own; options_manager closes the group as a unit`);
+            }
+            continue;
+          }
 
           // ── MARK GUARD + TWO-TICK CONFIRMATION (near-miss 2026-10-29) ───
           // Runs BEFORE the duplicate guard and the POST: a breach read off a

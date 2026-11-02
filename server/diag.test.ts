@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow, accountRow } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow, accountRow, lotRow, optionBarsQuery, optionBarsUrl } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Dummy token for tests only — NEVER the real DIAG_TOKEN value (that
@@ -610,4 +610,57 @@ test("2026-10-27: source_validation probe is whitelisted, runs the root-level ha
   assert.ok(!block.includes("sys.path.insert(0, 'scripts')"), "must not depend on scripts/ at runtime");
   assert.ok(block.includes("sanitizeDiag"), "must pass the sanitizer like every other probe");
   assert.ok(fs.existsSync(path.join(here, "..", "source_validation.py")), "source_validation.py must live at the repo root");
+});
+
+test("2026-11-02 (human-directed: sessions read the live Book): book / lots / option_bars are whitelisted, wired, sanitized; book serves the owner route's own body", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  for (const probe of ["book", "lots", "option_bars"]) {
+    assert.ok((DIAG_PROBES as readonly string[]).includes(probe), `${probe} must be whitelisted`);
+    const i = bot.indexOf(`case "${probe}": {`);
+    assert.ok(i > 0, `case "${probe}" missing`);
+    assert.ok(bot.slice(i, i + 2600).includes("sanitizeDiag"), `${probe} probe must pass the sanitizer`);
+  }
+  const bi = bot.indexOf('case "book": {');
+  assert.ok(bot.slice(bi, bi + 600).includes("await positionsBody()"), "book serves positionsBody(), never a second computation");
+  assert.ok(bot.includes("res.json(await positionsBody())"), "the owner route serves positionsBody() too");
+  assert.ok(bot.includes("async function positionsBody(): Promise<unknown[]>"));
+  const li = bot.indexOf('case "lots": {');
+  const lots = bot.slice(li, li + 1500);
+  assert.ok(lots.includes("await sleevesBody()"), "lots refreshes through the sleeves body's own cache path");
+  assert.ok(lots.includes("sleeveCache?.taxInputs.events"), "lots serves the cached RealizedEvent walk");
+  assert.ok(lots.includes("truncated: events.length > limit"), "lots reports truncation explicitly (archive-probe convention)");
+  assert.ok(lots.includes("sanitizeDiag(lotRow(e))"), "lots sanitizes per row through lotRow's whitelist");
+  const oi = bot.indexOf('case "option_bars": {');
+  const ob = bot.slice(oi, oi + 2600);
+  assert.ok(ob.includes("optionBarsQuery(req.query"), "option_bars validates its query through the shared validator");
+  assert.ok(ob.includes("optionBarsUrl(q.symbols, q.start, q.end, token)"), "option_bars builds the URL through the shared helper (keys in headers only)");
+  assert.ok(!/\/v2\/orders|\/v2\/account|\/v2\/positions/.test(ob), "option_bars touches market data only");
+});
+
+test("lotRow: a closed lot's side, entry and exit are recovered from the ledger walk (long: pnl = qty × (exit − entry) × mult; short: the mirror)", () => {
+  const long = lotRow({ symbol: "GOOGL261127P00300000", t: Date.parse("2026-11-06T15:00:00Z"), pnl: 3200, openedAt: Date.parse("2026-10-20T14:00:00Z"), qty: 2, closeDir: -1, basis: 940 });
+  assert.equal(long.option, true); assert.equal(long.side, "long"); assert.equal(long.entryPrice, 4.7); assert.equal(long.exitPrice, 20.7); assert.equal(long.returnPct, 340.43);
+  assert.equal(long.openedAt, "2026-10-20T14:00:00.000Z"); assert.equal(long.closedAt, "2026-11-06T15:00:00.000Z");
+  const short = lotRow({ symbol: "CRWV261120P00055000", t: 1, pnl: 123, openedAt: null, qty: 1, closeDir: 1, basis: 247 });
+  assert.equal(short.side, "short"); assert.equal(short.entryPrice, 2.47); assert.equal(short.exitPrice, 1.24); assert.equal(short.openedAt, null); assert.equal(short.returnPct, 49.8);
+  const stock = lotRow({ symbol: "QQQ", t: 1, pnl: -50, openedAt: null, qty: 10, closeDir: -1, basis: 7000 });
+  assert.equal(stock.option, false); assert.equal(stock.entryPrice, 700); assert.equal(stock.exitPrice, 695); assert.equal(stock.returnPct, -0.71);
+  const garbage = lotRow({ symbol: "X", t: NaN, pnl: NaN, openedAt: null, qty: 0, closeDir: -1, basis: 0 });
+  assert.equal(garbage.entryPrice, null); assert.equal(garbage.exitPrice, null); assert.equal(garbage.returnPct, null); assert.equal(garbage.closedAt, null);
+});
+
+test("optionBarsQuery: OCC-only symbols (≤ 10), a YYYY-MM-DD window of at most 400 days, defaulting to the last 120 days; the URL carries no key", () => {
+  const now = Date.parse("2026-11-02T20:00:00Z");
+  const ok = optionBarsQuery({ symbols: "googl261127p00300000, CRWV261120P00055000, crwv261120p00055000" }, now);
+  assert.ok(ok.ok);
+  if (ok.ok) { assert.deepEqual(ok.symbols, ["GOOGL261127P00300000", "CRWV261120P00055000"]); assert.equal(ok.end, "2026-11-02"); assert.equal(ok.start, "2026-07-05"); }
+  assert.equal(optionBarsQuery({}, now).ok, false);
+  assert.equal(optionBarsQuery({ symbols: "QQQ" }, now).ok, false);
+  assert.equal(optionBarsQuery({ symbols: Array.from({ length: 11 }, (_, i) => `${String.fromCharCode(65 + i)}261127P00300000`).join(",") }, now).ok, false);
+  assert.equal(optionBarsQuery({ symbols: "QQQ261127P00600000", start: "2025-01-01", end: "2026-11-02" }, now).ok, false);
+  assert.equal(optionBarsQuery({ symbols: "QQQ261127P00600000", start: "2026-11-03", end: "2026-11-02" }, now).ok, false);
+  assert.equal(optionBarsQuery({ symbols: "QQQ261127P00600000", start: "bad" }, now).ok, false);
+  const url = optionBarsUrl(["QQQ261127P00600000"], "2026-10-01", "2026-11-02", "tok/en");
+  assert.ok(url.startsWith("https://data.alpaca.markets/v1beta1/options/bars?symbols=QQQ261127P00600000&timeframe=1Day&start=2026-10-01&end=2026-11-02&limit=10000&sort=asc&page_token=tok%2Fen"));
+  assert.ok(!/key|secret/i.test(url));
 });
