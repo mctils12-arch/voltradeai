@@ -399,6 +399,19 @@ export const DIAG_PROBES = [
   // Aggregate metrics only (AUC, log-loss, quintile returns) — no ticker,
   // no price. No query parameters.
   "ml_v3",
+  // ADDED 2026-11-02 (human instruction this day: "I cannot read your live
+  // Book from this session … fix this so you can"): three READ-ONLY probes
+  // for the RULE-REVIEW work on option exits. `book` serves the SAME body
+  // the owner's /api/bot/positions serves (bot.ts positionsBody: the Book's
+  // rows with the engine's exit levels and each option's recorded
+  // strategy); `lots` serves the sleeve ledger's closed-lot walk (the same
+  // RealizedEvent list /api/bot/sleeves and the edge ledger are computed
+  // from — symbol, open/close times, qty, basis, P&L; per the 2026-07-07
+  // widening, symbols are the authorized exposure); `option_bars` is a
+  // bounded passthrough of Alpaca's historical daily OPTION bars for up to
+  // 10 OCC contracts (market data only — no account, order or key fields),
+  // so a session can replay an exit rule over a closed lot's price path.
+  "book", "lots", "option_bars",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
@@ -537,4 +550,64 @@ export function sanitizeDiag<T>(v: T, depth = 0): T {
     return out;
   }
   return v;
+}
+
+// ── 2026-11-02: `lots` and `option_bars` helpers (see the DIAG_PROBES comment) ──
+
+const OCC_RE = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/;
+
+/** One closed lot of the sleeve ledger's walk (sleeveLedger.realizedEvents)
+ *  for the `lots` probe — whitelist shaping like orderRow / positionRow. The
+ *  walk records the closing fill's direction (−1 sold a long, +1 covered a
+ *  short), the quantity closed, its basis (qty × avg entry × multiplier) and
+ *  the P&L; entry and exit prices per share are recovered from those. */
+export function lotRow(e: { symbol: string; t: number; pnl: number; openedAt: number | null; qty: number; closeDir: 1 | -1; basis: number }): Record<string, unknown> {
+  const symbol = String(e?.symbol || "");
+  const option = OCC_RE.test(symbol);
+  const mult = option ? 100 : 1;
+  const qty = num(e?.qty), basis = num(e?.basis), pnl = num(e?.pnl), t = num(e?.t);
+  const side = e?.closeDir === 1 ? "short" : "long";
+  const entry = qty && basis !== null ? basis / (qty * mult) : null;
+  const exit = entry !== null && qty && pnl !== null ? entry + (pnl / (qty * mult)) * (side === "long" ? 1 : -1) : null;
+  const r4 = (v: number | null) => (v === null ? null : Math.round(v * 10000) / 10000);
+  return {
+    symbol, option, side, qty, closeDir: e?.closeDir === 1 ? 1 : -1,
+    openedAt: e?.openedAt ? new Date(e.openedAt).toISOString() : null,
+    closedAt: t !== null ? new Date(t).toISOString() : null,
+    basis, pnl,
+    returnPct: basis && pnl !== null ? Math.round((pnl / basis) * 10000) / 100 : null,
+    entryPrice: r4(entry), exitPrice: r4(exit),
+  };
+}
+
+export const OPTION_BARS_MAX_SYMBOLS = 10;
+export const OPTION_BARS_MAX_DAYS = 400;
+export const OPTION_BARS_DEFAULT_DAYS = 120;
+export const OPTION_BARS_MAX_PAGES = 5;
+
+/** The `option_bars` query: OCC contracts only (≤ OPTION_BARS_MAX_SYMBOLS),
+ *  a YYYY-MM-DD window of at most OPTION_BARS_MAX_DAYS, defaulting to the
+ *  last OPTION_BARS_DEFAULT_DAYS. Pure. */
+export function optionBarsQuery(q: Record<string, unknown>, nowMs = Date.now()):
+  { ok: true; symbols: string[]; start: string; end: string } | { ok: false; error: string } {
+  const raw = String(q.symbols ?? q.symbol ?? "").toUpperCase().split(",").map((x) => x.trim()).filter(Boolean);
+  if (!raw.length) return { ok: false, error: "symbols required (comma-separated OCC contracts)" };
+  if (raw.length > OPTION_BARS_MAX_SYMBOLS) return { ok: false, error: `at most ${OPTION_BARS_MAX_SYMBOLS} symbols` };
+  const bad = raw.find((x) => !OCC_RE.test(x));
+  if (bad) return { ok: false, error: `not an OCC contract symbol: ${bad}` };
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const end = String(q.end ?? "").trim() || new Date(nowMs).toISOString().slice(0, 10);
+  const start = String(q.start ?? "").trim() || new Date(nowMs - OPTION_BARS_DEFAULT_DAYS * 86_400_000).toISOString().slice(0, 10);
+  if (!ymd.test(start) || !ymd.test(end)) return { ok: false, error: "start/end must be YYYY-MM-DD" };
+  const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000;
+  if (!Number.isFinite(days) || days < 0) return { ok: false, error: "end precedes start" };
+  if (days > OPTION_BARS_MAX_DAYS) return { ok: false, error: `window above ${OPTION_BARS_MAX_DAYS} days` };
+  return { ok: true, symbols: [...new Set(raw)], start, end };
+}
+
+/** Alpaca market data: historical daily option bars (docs read 2026-10-27,
+ *  server/optionsEntitlements.ts). Keys travel in headers, never here. */
+export function optionBarsUrl(symbols: readonly string[], start: string, end: string, pageToken?: string): string {
+  const u = `https://data.alpaca.markets/v1beta1/options/bars?symbols=${encodeURIComponent(symbols.join(","))}&timeframe=1Day&start=${start}&end=${end}&limit=10000&sort=asc`;
+  return pageToken ? `${u}&page_token=${encodeURIComponent(pageToken)}` : u;
 }

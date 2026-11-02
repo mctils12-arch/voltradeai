@@ -112706,3 +112706,61 @@ contract now requires an exit line on every row, a bought/sold call/put line
 on every option row, and no clipped rule; fixture gains a bought GOOGL call
 (+300 %), an "unknown"-strategy CSP and a two-leg META credit spread. No
 trading or measurement code touched; no threshold changed. STARVED: no.
+
+## 2026-11-02 (interactive session, ~21:20Z) [PRODUCT] — diag probes `book` · `lots` · `option_bars`: sessions read the live Book and the closed-lot ledger (v1.0.1250)
+
+Human, same session: "I cannot read your live Book from this session, since
+that endpoint is owner-only. Fix this so you can." CORRECTION FIRST: the
+claim was half wrong — the token-gated `/api/diag/positions-detail` (widened
+by the human 2026-07-07) already served the broker's rows with symbols, and
+this session holds DIAG_TOKEN; what no probe served was the BOOK's own body
+(the engine's exit levels per share lot, each option's recorded strategy —
+what /api/bot/positions adds on top of the broker rows), nor the closed-lot
+history, nor a price path to replay an exit rule over. Shipped, all
+token-gated, read-only, sanitized, auth.ts untouched:
+- `book`: the SAME body as /api/bot/positions. The route body is now
+  `positionsBody()` (bot.ts) and both callers serve it — never a second
+  computation (the benchmark/sleeves precedent; diag.test.ts pins it).
+- `lots`: the sleeve ledger's closed-lot walk (sleeveLedger.realizedEvents,
+  the same cached list /api/bot/sleeves and the edge ledger are computed
+  from; refreshed only through sleevesBody's own path) — symbol, side,
+  open/close, qty, basis, P&L, return %, entry/exit per share (diag.ts
+  lotRow, whitelist-shaped like orderRow). Per-row sanitized with an
+  explicit `truncated` flag (archive-probe convention), ?limit ≤ 5000.
+- `option_bars`: bounded passthrough of Alpaca's historical daily OPTION
+  bars for ≤ 10 OCC contracts over ≤ 400 days (market data only; keys in
+  headers; no account/order/position field reachable) — the price path a
+  profit-taking counterfactual needs. Entitlement for this endpoint read
+  `rate_limited_inconclusive` on /api/diag/options_entitlements at 20:55Z
+  (the probe's own calls hit 429); the first live `option_bars` call is
+  the real test and is logged in the next entry.
+CLAUDE.md KNOWN STATE gains the fact line so no session claims the Book is
+unreadable again. Tests: diag.test.ts +3 (wiring/same-body pins, lotRow
+arithmetic incl. the short-lot mirror and garbage numerics, the query
+validator and key-free URL). Counter pins: assertions locked 25776. No
+trading or measurement code touched.
+
+LIVE READ (positions-detail, 20:52Z) while the PR was being written — the
+"option up 300 %" of the earlier question is `GOOGL261127P00300000`, 2
+contracts LONG, entry $4.70, mark $20.70 (+340 %, +$3,200), 24 DTE. It is
+NOT a directional winner: the audit log (POS-KILL slice since 10-27) and
+the closed orders show it is the surviving LONG WING of a GOOGL Nov-27 iron
+condor (300P/310P puts, 345C/355C calls) — the manager's 10-22 close
+attempt left two canceled per-leg limit orders (the mleg path had failed),
+the condor rode into earnings, and on 10-28/29 the Tier-1 per-leg POS-KILL
+handled the aftermath leg by leg: the 355C wing "down −99.8 %" liquidation
+retried every minute pre-market (122 lines), the short 310P bought back at
+$27.60 on a "−309 %" kill, the 345C short bought back at $0.95, and the
+300P wing was itself submitted for a market SELL on a zero mark at
+13:30:09Z (the documented 10-29 near-miss; Alpaca's rejection saved it,
+the mark guard shipped after). GOOGL root realized −$3,932 in October; with
+the wing's +$3,200 the structure sits near −$730. The 21-DTE rule closes
+the wing on 2026-11-05 (options_manager._days_to_expiry floors the day
+difference, so `dte <= 21` is first true on Nov 5). Filed in
+open_questions.md as the exit-rule finding it is: a per-leg percent kill
+cannot judge a defined-risk structure (a wing at −99 % is the condor
+working; a short leg at −150 % is the group's loss to manage), and the
+options sleeve's own hold-time ledger (sleeves probe, 376 closed lots since
+05-07): <1h 168 lots −$4,812 · <1d 143 lots −$5,011 · 1–7d 57 lots −$3,784 ·
+8–30d 7 lots +$845 · >30d 1 lot +$104. STARVED: no — the profit-taking study
+runs next on `lots` + `option_bars` once this deploys.

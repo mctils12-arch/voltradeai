@@ -982,3 +982,14 @@ guards, the same anisotropy/mip rules through raw GL calls
 (`EXT_texture_filter_anisotropic`, `WEBGL_compressed_texture_*`). Where a
 named three.js API appears in the article, read it as "the equivalent
 capability", not as an import.
+- SESSION READ ACCESS TO THE LIVE BOOK (2026-11-02, human-directed "I
+  cannot read your live Book from this session… fix this so you can"):
+  sessions hold DIAG_TOKEN; `GET /api/diag/book` (header x-diag-token)
+  serves the SAME body as the owner's /api/bot/positions (the Book's rows,
+  the engine's exit levels, each option's recorded strategy); `lots` the
+  sleeve ledger's closed-lot walk (symbol, open/close, qty, basis, P&L,
+  entry/exit); `option_bars` Alpaca daily option bars for ≤10 OCC
+  contracts over ≤400 days; `positions-detail` / `orders` / `sleeves` /
+  `benchmark` / `account` existed before (2026-07-07, 09-10, 10-20
+  widenings). A session never has to say the Book is unreadable again —
+  read it with the token before describing the account.
