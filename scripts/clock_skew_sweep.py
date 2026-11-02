@@ -39,7 +39,10 @@ ROOT = Path(__file__).resolve().parent.parent
 PRELOAD = ROOT / "scripts" / "clock_skew_preload.cjs"
 # node's tap reporter prints one top-level `not ok N - <file path>` per failing
 # test FILE (nested subtests are indented). Anchor at column 0 so only files count.
-_FILE_FAIL = re.compile(r"^not ok \d+ - (.+?\.test\.[cm]?[tj]sx?)\s*$", re.M)
+# Subtest-only failures (a file whose individual tests fail) print as a
+# column-0 `not ok N - <test name>` WITHOUT a file line, so key on every
+# column-0 failure and map names back to files with resolve_file().
+_FILE_FAIL = re.compile(r"^not ok \d+ - (.+?)\s*$", re.M)
 
 
 # Files whose subject shells out to a process using the REAL clock (the skew
@@ -63,6 +66,21 @@ def parse_tap_failures(tap: str) -> set[str]:
             pass
         out.add(p)
     return out
+
+
+def resolve_file(name: str, root: Path = ROOT) -> str | None:
+    """A failure key -> its test file: itself if it is a path, else the file
+    in server/ whose source contains the test name. None if not found."""
+    if re.search(r"\.test\.[cm]?[tj]sx?$", name):
+        return name
+    needle = name[:60]
+    for f in sorted((root / "server").glob("*.test.ts")):
+        try:
+            if needle in f.read_text(errors="ignore"):
+                return str(f.relative_to(root))
+        except OSError:
+            continue
+    return None
 
 
 def find_bombs(baseline: set[str], by_skew: dict[int, set[str]]) -> dict[str, int]:
@@ -103,16 +121,19 @@ def main(argv: list[str] | None = None) -> int:
         tap, _ = run_suite(s, a.timeout)
         by_skew[s] = parse_tap_failures(tap)
     bombs = find_bombs(baseline, by_skew)
-    for f in SKEW_INCOMPATIBLE:
-        bombs.pop(f, None)
     # Whole-suite runs are concurrent; a loaded box makes timing tests flake.
-    # Re-run each candidate ALONE at its skew and at skew 0; only a file that
-    # passes alone today and fails alone under skew is a real time-bomb.
-    for f in list(bombs):
-        if parse_tap_failures(run_suite(0, a.timeout, [f])[0]):
-            del bombs[f]  # fails alone today: environment/flake, not a bomb
-        elif not parse_tap_failures(run_suite(bombs[f], a.timeout, [f])[0]):
-            del bombs[f]  # passes alone under skew: concurrency flake
+    # Attribute each failure to its file, then re-run that file ALONE at skew 0
+    # and at its skew: a bomb is a failure that is NEW alone under skew.
+    confirmed: dict[str, int] = {}
+    for key, skew in bombs.items():
+        rf = resolve_file(key)
+        if rf is None or rf in SKEW_INCOMPATIBLE:
+            continue  # cannot attribute / tool blind spot: do not guess
+        base_alone = parse_tap_failures(run_suite(0, a.timeout, [rf])[0])
+        skew_alone = parse_tap_failures(run_suite(skew, a.timeout, [rf])[0])
+        if skew_alone - base_alone:
+            confirmed[rf] = min(skew, confirmed.get(rf, skew))
+    bombs = confirmed
 
     print(f"baseline (skew 0) failing files: {len(baseline)} (excluded from bomb list)")
     for s in skews:
