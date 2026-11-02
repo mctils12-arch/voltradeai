@@ -3,6 +3,11 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-02 (scheduled routine, voltrade-product-pm, Mon 18:19Z = 13:19 ET EST, MARKET OPEN) [NO-ACTION] — no code_version change (1.0.1246)
+HEALTH: /api/health 200 ok, serving ok, alpaca ACTIVE, liveness not dark, drawdown -5.0%. research_state_check: thrash 4/10, STARVED 0, every archive freshness OK (bundled snapshots refreshed this morning), only WARN = overdue CONSTITUTIONAL AUDIT (proposals unanswered, not re-run). KNOWN BROKEN: nothing critical.
+ACTION: none. Three product/edge sessions already shipped today (disk-floor repair, clock-skew sweep, snapshot refresh); remaining queue items wait on time (Edge P2 first run Sun 11-08; price_panel diag read after tonight's refresh; Edge P3 real-quote check). Mid-market, so no deploy-coupled work started. Anti-churn applies.
+STARVED: no.
+
 ## 2026-11-02 (scheduled routine, voltrade-product-am, Mon ~13:40Z = 08:40 ET EST, PRE-MARKET) [PIPELINE] — T-DATACORE — four bundled snapshots refreshed ahead of their 21d freshness trigger; data only, no code_version change (1.0.1245)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.2%. research_state_check: thrash 3/10, STARVED 0; bundled_eia_weekly/cpc/rail were exactly at the 21d trigger (newest 2026-10-12), only WARN otherwise the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical.
 ACTION: `python3 scripts/snapshot_refresh.py` (needed `pip install xlrd openpyxl` in this sandbox first; the wrapper refused to write before that, as designed). Results: EIA weekly 5 series, CPC degree days 96 series (2026 through day 304), STB EP724 rail 255 series x 501 weeks (latest 2026-10-28), JODI 350 series (latest 2026-08, monthly lag). Diff is the 4 snapshot files only. server jodiOil + railTraffic tests pass.
