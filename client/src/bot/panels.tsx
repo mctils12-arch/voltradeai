@@ -684,13 +684,16 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
       {groups.filter(([, g]) => g.length).map(([name, g]) => (
         <div key={name} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div className="vt-bot-eb" style={{ padding: "6px 0 2px", fontSize: 10 }}>{name} · {g.length}</div>
-          {g.map((p) => { const pl = num(p.pnlPct); const dy = num(p.dayPct); const last = num(p.currentPrice); const usd = num(p.pnl); return (
-            <div key={p.ticker} className="vt-bot-trow" role="button" tabIndex={0} aria-pressed={focus === p.ticker} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
+          {g.map((p) => { const pl = num(p.pnlPct); const dy = num(p.dayPct); const last = num(p.currentPrice); const usd = num(p.pnl); const entry = num(p.entryPrice); const mv = num(p.marketValue); const q = num(p.qty); const basis = entry !== null && q !== null ? entry * Math.abs(q) * (isOpt(p) ? 100 : 1) : null; return (
+            <div key={p.ticker} className="vt-bot-trow vt-bot-trow--book" role="button" tabIndex={0} aria-pressed={focus === p.ticker} onClick={() => onSelect(p.ticker)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(p.ticker); } }} style={{ cursor: "pointer", ...(focus === p.ticker ? { background: "var(--elevate-2, rgba(77,159,255,.08))", margin: "0 -6px", padding: "0 6px", borderRadius: 4 } : {}) }}>
               <span className="sym" title={p.ticker}>{fmtOcc(p.ticker)}</span>
               <span className="q">{num(p.qty) ?? "·"}<i>{isOpt(p) ? "ct" : "sh"}</i></span>
               <span className="px">{last === null ? "·" : `$${last.toFixed(2)}`}</span>
               <span className={`dy ${dy === null ? "vt-bot-t3" : dy < 0 ? "vt-bot-r" : dy > 0 ? "vt-bot-g" : "vt-bot-t3"}`}>{dy === null ? "·" : fmtSigned(dy, 1, "%")}</span>
               <span data-flash={flashAttr(rowFlash?.[p.ticker], nowMs ?? 0)} className={`pl ${pl === null ? "vt-bot-t3" : pl < 0 ? "vt-bot-r" : "vt-bot-g"}`}>{pl === null ? "·" : fmtPct(pl, 1)}{usd === null ? null : <span className="usd"> {fmtMoney(usd)}</span>}</span>
+              {/* 2026-11-02 (human-asked, an option up 300%): the buy price, what it cost and what it is worth now,
+                  on a second line so the tape keeps its columns at every width */}
+              <span className="sub">entry {entry === null ? "·" : `$${entry.toFixed(2)}`}{isOpt(p) ? "/ct" : ""} · cost {basis === null ? "·" : `$${Math.round(basis).toLocaleString("en-US")}`} · value {mv === null ? "·" : `$${Math.round(mv).toLocaleString("en-US")}`}</span>
             </div>); })}
         </div>
       ))}
