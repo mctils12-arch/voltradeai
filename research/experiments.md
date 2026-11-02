@@ -14,6 +14,7 @@ ROLLBACK TRIGGER: container tmp fills (job errors with ENOSPC) -> set VOLTRADE_E
 NEXT: Mon 11-02 evening read `/api/diag/price_panel` (`free_bytes` vs min_free_bytes 1342177280) and whether the nightly refresh was refused; Sun 11-08 read edge_p2 first run.
 MERGE: server-side scheduler only, nothing on a trade path; merge any time (post-close preferred).
 STARVED: no.
+ADDENDUM (same PR, deliberate bundling because main CI went red for EVERY PR today): server/gridDemand.test.ts "legacy typeless lines seed as D" hard-coded 2026-07-05, which aged out of gridDemand's 120-day SEED_WINDOW_DAYS at 2026-11-02 00:00Z, so CI failed on an unrelated test (found by downloading the full job log; the tool's tail view hid the server section). Fix = fixture dates relative to now, assertions unchanged and not weakened. Pins in ci/counter_baseline.txt raised for the new edge_p2 test. LESSON: calendar-relative fixtures are a time-bomb class; worth a grep for other hard-coded 2026-0x dates against windowed code.
 
 ## 2026-11-01 (scheduled routine, Sun ~20:16Z = 15:16 ET EST, market closed) [NO-ACTION] — no code_version change (1.0.1243)
 HEALTH: /api/health 200 ok, serving ok, liveness not dark, drawdown -4.8%, jobs ok (0 errored/late), feeds live. research_state_check: thrash 3/10, STARVED 0, archives fresh; only WARN = overdue CONSTITUTIONAL AUDIT (proposals unanswered). KNOWN BROKEN: nothing critical.

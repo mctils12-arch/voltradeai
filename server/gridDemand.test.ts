@@ -46,19 +46,25 @@ test("archive v2: legacy typeless lines seed as D; DF same hour is a distinct ev
   // seed pass fires once per process, and this test exercises it.
   // distinct respondent+period from every other test in this file — the
   // seen-set is process-global and spans baseDirs
+  // Dates are RELATIVE to now: the seed pass only reads the last SEED_WINDOW_DAYS
+  // (120) day-files, and this fixture was hard-coded to 2026-07-05, which aged
+  // out of the window on 2026-11-02 and turned CI red for every PR.
+  const dayMs = Date.now() - 2 * 86400_000;
+  const day = new Date(dayMs).toISOString().slice(0, 10);
+  const rt = new Date(dayMs + 86400_000).toISOString().slice(0, 10);
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "grid-"));
   const dir = path.join(base, "griddemand");
   fs.mkdirSync(dir, { recursive: true });
   // pre-v2 archived line: no type field (the facet forced D back then)
-  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl"),
-    JSON.stringify({ period: "2026-07-05T23", respondent: "ERCO", mwh: 1, rt: "2026-07-06" }) + "\n");
+  fs.writeFileSync(path.join(dir, `${day}.jsonl`),
+    JSON.stringify({ period: `${day}T23`, respondent: "ERCO", mwh: 1, rt }) + "\n");
   const obs = parseDemand(ENVELOPE([
-    ROW("2026-07-05T23", "ERCO", "1"),                       // dup of the legacy D line
-    { ...ROW("2026-07-05T23", "ERCO", "2"), type: "DF", "type-name": "Day-ahead demand forecast" },
-  ]), "2026-07-06");
+    ROW(`${day}T23`, "ERCO", "1"),                       // dup of the legacy D line
+    { ...ROW(`${day}T23`, "ERCO", "2"), type: "DF", "type-name": "Day-ahead demand forecast" },
+  ]), rt);
   assert.equal(obs.length, 2);
   assert.equal(archiveDemand(obs, base), 1, "legacy line blocks the D dup; DF is fresh");
-  const lines = fs.readFileSync(path.join(dir, "2026-07-05.jsonl"), "utf8").trim().split("\n");
+  const lines = fs.readFileSync(path.join(dir, `${day}.jsonl`), "utf8").trim().split("\n");
   assert.equal(lines.length, 2);
   assert.equal(JSON.parse(lines[1]).type, "DF");
 });
