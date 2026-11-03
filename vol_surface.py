@@ -55,6 +55,70 @@ _surface_cache: dict = {}  # {ticker: {"timestamp": float, "surface": dict}}
 _sabr_cache: dict = {}  # {(ticker, expiry): {"timestamp": float, "params": dict}}
 SABR_CACHE_TTL = 3600  # 60 min
 
+# [REPAIR 2026-11-03, memory audit A5 — docs/memory_audit_2026-11-03.md]
+# Both caches were unbounded dicts: every ticker the scanner ever scored kept
+# its full surface (every expiry's strikes/IVs) for the life of the daemon,
+# and expired entries were never removed — only overwritten on rebuild. The
+# TTL is unchanged (that governs freshness); the CAP governs memory: the
+# cache keeps the most-recently-USED tickers (LRU — a hit refreshes
+# recency) and evicts the least-recently-used past the cap. Rollback without
+# a code change: VOLTRADE_VOL_SURFACE_CACHE_CAP=0 (unbounded, pre-A5
+# behavior); same for VOLTRADE_SABR_CACHE_CAP. Unset = the defaults below.
+VOL_SURFACE_CACHE_CAP_DEFAULT = 200    # tickers (the human-approved figure)
+SABR_CACHE_CAP_DEFAULT = 2000          # (ticker, expiry) pairs ≈ 200 tickers × ~10 expiries
+VOL_SURFACE_CACHE_CAP_ENV = "VOLTRADE_VOL_SURFACE_CACHE_CAP"
+SABR_CACHE_CAP_ENV = "VOLTRADE_SABR_CACHE_CAP"
+_CACHE_STATS = {"surface_evictions": 0, "sabr_evictions": 0}
+
+
+def _cache_cap(env_name: str, default: int) -> int:
+    """Cap from the env at call time. Unset/empty -> default; '0' or a negative
+    -> 0 = unbounded (rollback); anything unparseable -> default."""
+    raw = os.environ.get(env_name, "").strip()
+    if raw == "":
+        return default
+    try:
+        n = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using default %d", env_name, raw, default)
+        return default
+    return max(0, n)
+
+
+def _cache_touch(cache: dict, key) -> None:
+    """LRU recency on a hit: move the key to the end (dicts keep insertion
+    order, so the front is always the least recently used). Miss = no-op."""
+    if key in cache:
+        cache[key] = cache.pop(key)
+
+
+def _cache_put(cache: dict, key, value, cap: int) -> int:
+    """Insert as most-recent, then evict least-recently-used entries while the
+    cache is over `cap`. cap <= 0 = unbounded. Returns how many were evicted."""
+    if key in cache:
+        cache.pop(key)
+    cache[key] = value
+    evicted = 0
+    if cap > 0:
+        while len(cache) > cap:
+            cache.pop(next(iter(cache)))
+            evicted += 1
+    return evicted
+
+
+def vol_surface_cache_stats() -> dict:
+    """For the health diagnostic: sizes, caps, evictions, TTLs."""
+    return {
+        "surface_entries": len(_surface_cache),
+        "surface_cap": _cache_cap(VOL_SURFACE_CACHE_CAP_ENV, VOL_SURFACE_CACHE_CAP_DEFAULT),
+        "sabr_entries": len(_sabr_cache),
+        "sabr_cap": _cache_cap(SABR_CACHE_CAP_ENV, SABR_CACHE_CAP_DEFAULT),
+        "surface_evictions": _CACHE_STATS["surface_evictions"],
+        "sabr_evictions": _CACHE_STATS["sabr_evictions"],
+        "surface_ttl_s": CACHE_TTL,
+        "sabr_ttl_s": SABR_CACHE_TTL,
+    }
+
 
 # ─── Standard Normal CDF (Abramowitz & Stegun) ──────────────────────────────
 
@@ -781,6 +845,7 @@ def _calibrate_expiry_sabr(ticker: str, expiry: str, strikes_data: dict,
     cache_key = (ticker, expiry)
     cached = _sabr_cache.get(cache_key)
     if cached and (time.time() - cached["timestamp"]) < SABR_CACHE_TTL:
+        _cache_touch(_sabr_cache, cache_key)  # A5: a hit is a use
         return cached["params"]
 
     T = dte / 365.0
@@ -813,7 +878,9 @@ def _calibrate_expiry_sabr(ticker: str, expiry: str, strikes_data: dict,
 
     params = calibrate_sabr(F, cal_strikes, cal_vols, T, beta=beta)
     if params.get("alpha", 0) > 0 and params.get("fit_error", 1.0) < 0.10:
-        _sabr_cache[cache_key] = {"timestamp": time.time(), "params": params}
+        _CACHE_STATS["sabr_evictions"] += _cache_put(
+            _sabr_cache, cache_key, {"timestamp": time.time(), "params": params},
+            _cache_cap(SABR_CACHE_CAP_ENV, SABR_CACHE_CAP_DEFAULT))
         return params
     return {}
 
@@ -847,6 +914,7 @@ def build_surface(ticker: str, time_budget_s: float = BUILD_SURFACE_TIME_BUDGET_
     cached = _surface_cache.get(ticker)
     if cached and (time.time() - cached["timestamp"]) < CACHE_TTL:
         logger.info("Returning cached surface for %s (%.0fs old)", ticker, time.time() - cached["timestamp"])
+        _cache_touch(_surface_cache, ticker)  # A5: a hit is a use
         return cached["surface"]
 
     logger.info("Building volatility surface for %s (budget=%.1fs)", ticker, time_budget_s)
@@ -976,8 +1044,10 @@ def build_surface(ticker: str, time_budget_s: float = BUILD_SURFACE_TIME_BUDGET_
         "vrp": round(vrp, 6),
     }
 
-    # Cache it
-    _surface_cache[ticker] = {"timestamp": time.time(), "surface": surface}
+    # Cache it (A5: LRU-capped; TTL unchanged)
+    _CACHE_STATS["surface_evictions"] += _cache_put(
+        _surface_cache, ticker, {"timestamp": time.time(), "surface": surface},
+        _cache_cap(VOL_SURFACE_CACHE_CAP_ENV, VOL_SURFACE_CACHE_CAP_DEFAULT))
     logger.info("Surface built for %s: %d expirations, ATM IV=%.2f%%, RV20=%.2f%%, VRP=%.2f%%",
                 ticker, len(expirations), atm_iv * 100, rv_20 * 100, vrp * 100)
     return surface
