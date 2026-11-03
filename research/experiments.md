@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~13:10 ET / 18:10Z, MARKET OPEN) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 post-close rerun compiled to one command (v1.0.1255)
+HEALTH: not independently probed (product slot; last logged 11-03 midday: health ok, nothing critical KNOWN BROKEN). Product work proceeds.
+WHY: the 11-03 and 11-04 P3 reruns need post-close data, so they cannot run in this mid-market session; the manual fetch of chain_vs (DIAG_TOKEN header, save JSON) is labor, not judgment (EDGE DOCTRINE 3).
+CHANGE: `scripts/p3_realquote_check.py --day <d> --fetch` pulls /api/diag/chain_vs itself (DIAG_TOKEN env) and REFUSES before 16:30 ET on that day (Cboe serves the last quote; archive runs 16:30-18:30) or when chain_vs has no rows for the day. +2 tests (guard boundaries; token/URL/empty-day). Measurement definition and pooling rule untouched.
+VERIFIED: 8/8 tests; live `--day 2026-11-03 --fetch` now correctly refuses ("too early").
+NEXT: after 18:30 ET tonight and tomorrow: `python3 scripts/p3_realquote_check.py --day <d> --fetch --out research/p3_realquote_gate1_<d>.json`, then `--pool` the three files and log the verdict (kill if pooled Spearman < 0.3).
+MERGE: scripts + test only; safe any time.
+STARVED: no.
+
 ## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~08:05 ET / 13:05Z, pre-market) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 pooling rule compiled into code (v1.0.1254)
 HEALTH: not independently probed this run (no site URL/token path available to this session; sandbox denied reading DIAG_TOKEN from env). Last logged state (2026-11-02): health ok, nothing critical KNOWN BROKEN. Product work proceeds.
 WHY NOW: the 11-02 entry's NEXT needs post-close reruns on 11-03 and 11-04 (Cboe serves the LAST quote, so a pre-market run would be refused/stale) — it is 13Z, so the measurement itself cannot be run this session. The decision rule, however, was fixed in prose only; a hand-pooled verdict is where a bar quietly moves.
