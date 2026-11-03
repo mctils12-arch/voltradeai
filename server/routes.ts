@@ -169,6 +169,7 @@ import { bootVolcanoesPoll, latestVolcanoAlerts } from "./usgsVolcanoes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
 import { mergeSiteImagery } from "./siteImagery";
+import { trackMap } from "./heapDiag";
 
 const execAsync = promisify(exec);
 
@@ -917,6 +918,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   complianceAuditTick();
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
+  trackMap("routes.aircraftCache", aircraftCache, 20); // memory audit 2026-11-03 A0
   const aircraftInflight: Map<string, InflightSlot<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
   // [SPEED WAVE 1 S-A1] fresh-serve window before a background refresh is
@@ -1245,6 +1247,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // already speaks it — zero client changes). Was: full 15k-vessel scan +
   // re-serialize per request per tab every poll. Pure logic in liveDelta.ts.
   const vesselSnapCache: Map<string, { at: number; data: VesselSnapshot }> = new Map();
+  trackMap("routes.vesselSnapCache", vesselSnapCache, 20); // memory audit 2026-11-03 A0
   app.get("/api/data/vessels", (req, res) => {
     if (!vesselStreamEnabled()) {
       return res.json({
@@ -1456,6 +1459,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // quantized params (kind included — a vessels request must never serve
   // an aircraft response from cache or vice versa).
   const windowCache = new Map<string, { at: number; data: any }>();
+  trackMap("routes.windowCache", windowCache, 32); // memory audit 2026-11-03 A0
   app.get("/api/data/aircraft/window", async (req, res) => {
     try {
       // T-4 vessels parity: readWindow already accepts kind="vessels" (same

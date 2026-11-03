@@ -21,6 +21,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const ALERTS_URL = "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update";
 
@@ -148,6 +149,7 @@ export async function fetchAlerts(fetchImpl: FetchFn = fetch as any, nowMs?: num
 // ── Archive (dedup by alert id — messages are immutable) ───────────────────
 
 const archivedIds = new Set<string>();
+trackSet("nwsAlerts.archivedIds", archivedIds, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function alertsDir(baseDir?: string): string {

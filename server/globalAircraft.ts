@@ -52,6 +52,7 @@ import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
 import { setPlanLiveLookup } from "./flightPlans";
 import { IntentStore } from "./aircraftIntent";
 import { foldIntentDays, intentDailyInventory } from "./aircraftIntentDaily";
+import { trackMap } from "./heapDiag";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -207,6 +208,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   unrefTimer(evictTimer);
 
   const bodyCache = new Map<string, { at: number; body: string }>();
+  trackMap("globalAircraft.bodyCache", bodyCache, 24); // memory audit 2026-11-03 A0
 
   app.get("/api/data/aircraft/global", (req, res) => {
     complianceAuditTick();
