@@ -35,3 +35,25 @@ def test_spearman_and_ties():
 def test_et_day_uses_eastern_date_not_utc():
     assert m.et_day("2026-11-03 00:10:31") == "2026-11-02"
     assert m.et_day("2026-11-03 06:00:00") == "2026-11-03"
+
+
+def _res(day, ours, theirs):
+    return {"day": day, "spearman": None,
+            "pairs": [["U%d" % i, o, t, 10, 10] for i, (o, t) in enumerate(zip(ours, theirs))]}
+
+
+def test_pool_applies_preregistered_kill_rule():
+    xs = list(range(40))
+    good = m.pool_results([_res("d1", xs[:20], xs[:20]), _res("d2", xs[20:], xs[20:])])
+    assert good["n"] == 40 and good["pooled_spearman"] == 1.0
+    assert good["verdict"] == "PASSES_GATE_1_CLAUSE" and good["datasetKill"] is False
+    bad = m.pool_results([_res("d1", xs, xs[::-1])])
+    assert bad["verdict"] == "KILLED_AT_GATE_1" and bad["datasetKill"] is True
+    assert m.pool_results([_res("d1", xs[:5], xs[:5])])["verdict"] == "insufficient_n"
+
+
+def test_pool_matches_recorded_first_day():
+    import json
+    d = json.load(open(os.path.join(os.path.dirname(__file__), "research", "p3_realquote_gate1_2026-11-02.json")))
+    r = m.pool_results([d])
+    assert abs(r["pooled_spearman"] - d["spearman"]) < 1e-3 and r["datasetKill"] is True

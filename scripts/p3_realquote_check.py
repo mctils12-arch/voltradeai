@@ -94,14 +94,48 @@ def fetch_cboe(sym):
         return json.load(r)
 
 
+def pool_results(results, boot=2000, seed=7):
+    """Apply the pre-registered pooling rule (experiments.md 2026-11-02): pool
+    every (day, name) pair from the per-day result files; pooled Spearman < 0.3
+    kills the Alpaca-indicative dataset at gate 1. The bar is not lowered.
+    Also reports the per-day values and a bootstrap 95% CI (disclosure only,
+    the verdict uses the point estimate exactly as the first day's did)."""
+    import random
+    ours, theirs, per_day = [], [], {}
+    for r in results:
+        pr = r.get("pairs") or []
+        per_day[r["day"]] = {"n": len(pr), "spearman": r.get("spearman")}
+        ours += [p[1] for p in pr]
+        theirs += [p[2] for p in pr]
+    if len(ours) < 30:
+        return {"days": per_day, "n": len(ours), "verdict": "insufficient_n"}
+    rho = spearman(ours, theirs)
+    rng, n, bs = random.Random(seed), len(ours), []
+    for _ in range(boot):
+        ix = [rng.randrange(n) for _ in range(n)]
+        bs.append(spearman([ours[i] for i in ix], [theirs[i] for i in ix]))
+    bs = sorted(x for x in bs if x == x)
+    return {"days": per_day, "n": n, "pooled_spearman": round(rho, 4),
+            "ci95": [round(bs[int(.025 * len(bs))], 4), round(bs[int(.975 * len(bs)) - 1], 4)],
+            "datasetKill": rho < 0.3,
+            "verdict": "KILLED_AT_GATE_1" if rho < 0.3 else "PASSES_GATE_1_CLAUSE"}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--day", required=True)
-    ap.add_argument("--vs-json", required=True)
+    ap.add_argument("--pool", nargs="+", metavar="RESULT_JSON",
+                    help="pool per-day result files and print the pre-registered verdict")
+    ap.add_argument("--day")
+    ap.add_argument("--vs-json")
     ap.add_argument("--n", type=int, default=40)
     ap.add_argument("--min-pairs-ours", type=int, default=10)
     ap.add_argument("--out")
     a = ap.parse_args()
+    if a.pool:
+        print(json.dumps(pool_results([json.load(open(f)) for f in a.pool]), indent=1))
+        return 0
+    if not (a.day and a.vs_json):
+        ap.error("--day and --vs-json are required unless --pool is given")
     rows = [r for r in json.load(open(a.vs_json))["rows"]
             if r["day"] == a.day and r["vs"] is not None and r["nPairs"] >= a.min_pairs_ours]
     rows.sort(key=lambda r: r["u"])

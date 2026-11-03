@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~08:05 ET / 13:05Z, pre-market) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 pooling rule compiled into code (v1.0.1254)
+HEALTH: not independently probed this run (no site URL/token path available to this session; sandbox denied reading DIAG_TOKEN from env). Last logged state (2026-11-02): health ok, nothing critical KNOWN BROKEN. Product work proceeds.
+WHY NOW: the 11-02 entry's NEXT needs post-close reruns on 11-03 and 11-04 (Cboe serves the LAST quote, so a pre-market run would be refused/stale) — it is 13Z, so the measurement itself cannot be run this session. The decision rule, however, was fixed in prose only; a hand-pooled verdict is where a bar quietly moves.
+CHANGE: `scripts/p3_realquote_check.py --pool <day.json ...>` applies the pre-registered rule mechanically: pool every (day, name) pair across the per-day result files, pooled Spearman < 0.3 => KILLED_AT_GATE_1 (point estimate decides; bootstrap CI is disclosure only; < 30 pairs => insufficient_n). +2 tests (kill/pass/insufficient; pooling the recorded 11-02 file reproduces its 0.1683 / datasetKill). No measurement definition changed; reads result files only.
+CHECK on identical input: --pool on research/p3_realquote_gate1_2026-11-02.json => 0.1683, CI [-0.009, 0.335], KILLED (bootstrap seed fixed). Bias direction: none, pure aggregation of already-recorded pairs.
+NEXT (unchanged): after the close tonight/tomorrow, fetch chain_vs?day=<day> with DIAG_TOKEN, run the check with --out research/p3_realquote_gate1_<day>.json, then `--pool` all three files and log the verdict. If KILLED: log P3-on-Alpaca-indicative dead at gate 1; fix candidates stay separate hypotheses (own IV from bid/ask mid; archive Cboe delayed chains forward after verifying Railway reachability).
+MERGE: scripts + test only; safe any time.
+STARVED: no.
+
 ## 2026-11-02 (scheduled routine, [PRODUCT] slot, Mon 19:10 ET / Tue 00:10Z, market closed) [PIPELINE] — T-DATACORE (scripts tooling + result file) — Edge P3 gate-1 REAL-QUOTE clause measured: Alpaca-indicative VS vs Cboe delayed quotes, Spearman 0.168 (v1.0.1253)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.0%; heartbeats verdict ok (0 errored/late). research_state_check: thrash 3/10, STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical. Prior NEXT closed: the first panel chain run (options_chain_archive 2026-11-02) finished in 3.4 min, 420 underlyings (120 rotating + 300 panel), 0 failed, well inside the 16:30-18:30 window, so the PANEL_SIZE rollback trigger did not fire. price_panel `free_bytes` 1,135,603,712 is below its 1,342,177280 floor, so the nightly refresh will keep refusing (build b20261029 is the live panel; volume decision remains the human's, wishlist).
 PRIOR (stated before running): ~65% Spearman >= 0.3 (both feeds derive IV from the same OPRA NBBO; VS is a difference of two IVs so noise doubles, which is why not higher).
