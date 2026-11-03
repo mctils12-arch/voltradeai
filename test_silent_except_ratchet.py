@@ -76,7 +76,7 @@ BASELINE = {
     "position_sizing.py": 3,
     "probability_engine.py": 1,
     "risk_kill_switch.py": 12,
-    "shadow_portfolio.py": 8,
+    "shadow_portfolio.py": 5,  # 2026-11-03 A4: the shadow-log loader logs its three read failures instead of returning [] silently
     "social_data.py": 7,
     "stress_index.py": 7,
     "system_config.py": 1,
