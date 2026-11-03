@@ -203,6 +203,15 @@ _model_cache_lock = _threading_ml.Lock()
 # DATA FETCHING
 # ══════════════════════════════════════════════════════════════════
 
+# The fixed half of the training universe (the other half is Alpaca's top-50
+# most-actives at fetch time). Module-level since 2026-11-03 ([REPAIR] B3,
+# serve_features.py) so the serve path can rank a candidate's move against
+# the same population _build_training_data ranks against (cross_sec_rank);
+# _fetch_training_bars reads it unchanged.
+TRAINING_CORE_TICKERS = ("AAPL","MSFT","NVDA","AMD","META","GOOGL","AMZN","TSLA","JPM","BAC",
+                         "V","MA","COIN","MSTR","PLTR","CRWD","HOOD","SOFI","AFRM","UPST",
+                         "SPY","QQQ","IWM","VXX","GLD","XLE","XLF","XLK","TLT","HYG")
+
 def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: bool = False) -> Tuple[dict, Optional[str]]:
     """Fetch daily bars for training universe.
 
@@ -246,9 +255,7 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
         tickers = [s["symbol"] for s in r.json().get("most_actives", []) if s.get("symbol")]
     except Exception: pass
 
-    core = ["AAPL","MSFT","NVDA","AMD","META","GOOGL","AMZN","TSLA","JPM","BAC",
-            "V","MA","COIN","MSTR","PLTR","CRWD","HOOD","SOFI","AFRM","UPST",
-            "SPY","QQQ","IWM","VXX","GLD","XLE","XLF","XLK","TLT","HYG"]
+    core = list(TRAINING_CORE_TICKERS)
     for t in core:
         if t not in tickers: tickers.append(t)
     tickers = list(dict.fromkeys(tickers))[:max_tickers]

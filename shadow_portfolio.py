@@ -683,6 +683,55 @@ def _sanitize_shadow_entry(se) -> dict | None:
     return json.loads(text)
 
 
+# SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, approved item B3,
+# serve_features.py): what the fix computed for one candidate, persisted so
+# the corrected model probability is measurable against the served one
+# BEFORE promotion (mode `shadow`), and so the served vector stays
+# reconstructible after it (mode `on`). `features` on the record is always
+# the vector the SERVED score saw; this block carries the other side.
+SERVE_FIX_FLOAT_KEYS = ("ml_prob_current", "ml_prob_fixed", "ml_score_current", "ml_score_fixed")
+SERVE_FIX_STR_KEYS = ("mode", "served", "model_type_current", "model_type_fixed", "error")
+SERVE_FIX_DIFF_KEYS = ("features_fixed_diff", "features_current_diff")
+SERVE_FIX_MAX_BYTES = 4096   # seven changed features are ~400 bytes; anything larger is not this block
+
+
+def _sanitize_serve_fix(sf) -> dict | None:
+    """Coerce deep_score's serve-fix block into the persisted shape (rounded
+    floats, short strings, {feature: float} diffs). None for a missing/invalid
+    block so `off` mode and older callers store absence, never zeros. An
+    oversized block keeps its scalars and drops the diffs (`truncated`)."""
+    if not isinstance(sf, dict) or not sf:
+        return None
+    out: dict = {}
+    for k in SERVE_FIX_FLOAT_KEYS:
+        v = sf.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
+            out[k] = round(float(v), 4)
+        else:
+            out[k] = None
+    for k in SERVE_FIX_STR_KEYS:
+        v = sf.get(k)
+        out[k] = str(v)[:200] if v not in (None, "") else None
+    n = sf.get("n_changed")
+    out["n_changed"] = int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) else None
+    for k in SERVE_FIX_DIFF_KEYS:
+        d = sf.get(k)
+        out[k] = {str(name)[:40]: round(float(v), 6)
+                  for name, v in d.items()
+                  if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v} if isinstance(d, dict) else {}
+    try:
+        text = json.dumps(out)
+    except (TypeError, ValueError) as e:
+        logger.debug(f"serve_fix block not serializable: {e}")
+        return None
+    if len(text) > SERVE_FIX_MAX_BYTES:
+        logger.debug(f"serve_fix diffs dropped: {len(text)} bytes > {SERVE_FIX_MAX_BYTES}")
+        for k in SERVE_FIX_DIFF_KEYS:
+            out[k] = {}
+        out["truncated"] = True
+    return out
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -699,6 +748,7 @@ def log_candidate(
     score_breakdown: dict = None,
     regime_snapshot: dict = None,
     shadow_entry: dict = None,
+    serve_fix: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -729,6 +779,12 @@ def log_candidate(
                          would-be order (sleeve, source, qty, notional,
                          instrument, contract) when decision is
                          "shadow_mode_entry"; ABSENT on every other record.
+        serve_fix:       SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, B3,
+                         serve_features.py): the mode, which vector was
+                         served, the corrected score next to the current
+                         one and the per-feature diff between the two
+                         vectors; ABSENT when the fix runs in `off` mode
+                         (today's exact behaviour) and on older records.
 
     Rate cost: ZERO API calls. Pure file I/O.
     """
@@ -737,7 +793,7 @@ def log_candidate(
             return
         record = _build_record(ticker, features, score, decision, decision_reason, entry_price,
                                vxx_ratio, regime_label, side, action_label, trade_type, ml,
-                               score_breakdown, regime_snapshot, shadow_entry)
+                               score_breakdown, regime_snapshot, shadow_entry, serve_fix)
 
         # Load, append, rotate, save
         records = _load_shadow_log()
@@ -753,7 +809,8 @@ def log_candidate(
 
 def _build_record(ticker, features, score, decision, decision_reason="", entry_price=0.0,
                   vxx_ratio=1.0, regime_label="neutral", side="", action_label="", trade_type="",
-                  ml=None, score_breakdown=None, regime_snapshot=None, shadow_entry=None) -> dict:
+                  ml=None, score_breakdown=None, regime_snapshot=None, shadow_entry=None,
+                  serve_fix=None) -> dict:
     """One shadow record (log_candidate's shape; raises on bad input — callers catch)."""
     record = {
         "ticker":          str(ticker).upper(),
@@ -788,6 +845,12 @@ def _build_record(ticker, features, score, decision, decision_reason="", entry_p
     _se = _sanitize_shadow_entry(shadow_entry)
     if _se is not None:
         record["shadow_entry"] = _se
+    # SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, B3): the counterfactual the
+    # fix computed for THIS candidate. Key ABSENT in `off` mode and on older
+    # records, so the pre-fix record shape is untouched.
+    _sf = _sanitize_serve_fix(serve_fix)
+    if _sf is not None:
+        record["serve_fix"] = _sf
     return record
 
 
