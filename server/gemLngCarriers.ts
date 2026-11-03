@@ -42,6 +42,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export type LngCarrierStatus = "active" | "on_order" | "proposed" | "other";
 
@@ -197,15 +198,16 @@ export function loadGemLngShipyards(
 }
 
 // In-memory cache — same rationale as gemChemicals.ts's `cached`: static
-// reference data, parse+aggregate once per process lifetime.
-let cached: LngShipyardsResult | null | undefined;
+// reference data, parsed+aggregated on first use and held while in use;
+// released after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3,
+// idleTtl.ts) and rebuilt through the same loader on the next call.
+const cached = lazyDataset<LngShipyardsResult | null>("gemLngShipyards", () => loadGemLngShipyards());
 
 export function cachedGemLngShipyards(): LngShipyardsResult | null {
-  if (cached === undefined) cached = loadGemLngShipyards();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemLngShipyardsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

@@ -32,6 +32,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export type IronOreMineStatus =
   | "operating" | "proposed" | "mothballed" | "retired" | "shelved" | "cancelled" | "unknown";
@@ -171,15 +172,16 @@ export function loadGemIronOreMines(
 }
 
 // In-memory cache — same rationale as gemCoalTerminals.ts's `cached`:
-// static reference data, parse once per process lifetime.
-let cached: IronOreMinesResult | null | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-parsed through the same loader on the next call.
+const cached = lazyDataset<IronOreMinesResult | null>("gemIronOreMines", () => loadGemIronOreMines());
 
 export function cachedGemIronOreMines(): IronOreMinesResult | null {
-  if (cached === undefined) cached = loadGemIronOreMines();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemIronOreMinesCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

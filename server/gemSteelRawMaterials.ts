@@ -54,6 +54,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 import admin0Json from "../datacore/boundaries/ne_110m_admin0.json";
 
 export interface CountryBalance {
@@ -135,17 +136,18 @@ export function loadGemSteelRawMaterials(
 }
 
 // In-memory cache — same rationale as every other gemXxx.ts `cached`:
-// static reference data, parse once per process lifetime.
-let cached: CountryBalanceResult | null | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-parsed through the same loader on the next call.
+const cached = lazyDataset<CountryBalanceResult | null>("gemSteelRawMaterials", () => loadGemSteelRawMaterials());
 
 export function cachedGemSteelRawMaterials(): CountryBalanceResult | null {
-  if (cached === undefined) cached = loadGemSteelRawMaterials();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemSteelRawMaterialsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }
 
 // ── country-choropleth geometry join ─────────────────────────────────────
@@ -228,7 +230,18 @@ export interface SteelRawMaterialsGeo {
   unmatched: number;
 }
 
-let cachedGeo: SteelRawMaterialsGeo | null | undefined;
+/** The join itself (the loader behind `cachedGeo`). */
+function joinCachedBalancesToAdmin0(): SteelRawMaterialsGeo | null {
+  const balances = cachedGemSteelRawMaterials();
+  if (!balances) return null;
+  const geo = joinCountryChoropleth(admin0Json as unknown as Admin0Collection, balances.balances);
+  const matched = geo.features.filter((f) => (f.properties as any)?.has_data).length;
+  return { geo, matched, unmatched: geo.features.length - matched };
+}
+
+// Held while in use; released after VOLTRADE_IDLE_TTL_MIN unused (memory
+// audit 2026-11-03 A3, idleTtl.ts) and re-joined on the next call.
+const cachedGeo = lazyDataset<SteelRawMaterialsGeo | null>("gemSteelRawMaterialsGeo", joinCachedBalancesToAdmin0);
 
 /** Cached join of the balance sheet onto admin0 geometry. Returns null
  *  only when the underlying balance-sheet artifact itself failed to load
@@ -236,19 +249,10 @@ let cachedGeo: SteelRawMaterialsGeo | null | undefined;
  *  admin0 boundary file is a static import, not a runtime read, so it
  *  cannot independently fail at serve time. */
 export function cachedSteelRawMaterialsGeoJSON(): SteelRawMaterialsGeo | null {
-  if (cachedGeo !== undefined) return cachedGeo;
-  const balances = cachedGemSteelRawMaterials();
-  if (!balances) {
-    cachedGeo = null;
-    return null;
-  }
-  const geo = joinCountryChoropleth(admin0Json as unknown as Admin0Collection, balances.balances);
-  const matched = geo.features.filter((f) => (f.properties as any)?.has_data).length;
-  cachedGeo = { geo, matched, unmatched: geo.features.length - matched };
-  return cachedGeo;
+  return cachedGeo.get();
 }
 
 /** Test-only: clears the geometry-join cache. */
 export function _resetSteelRawMaterialsGeoCacheForTests(): void {
-  cachedGeo = undefined;
+  cachedGeo.reset();
 }

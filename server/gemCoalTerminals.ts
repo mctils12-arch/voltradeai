@@ -30,6 +30,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export type CoalTerminalTypeClass = "exports" | "imports" | "domestic" | "mixed" | "unstated";
 
@@ -146,15 +147,16 @@ export function loadGemCoalTerminals(
 }
 
 // In-memory cache — same rationale as gemCoalMineFeatures.ts's `cached`:
-// static reference data, parse once per process lifetime.
-let cached: CoalTerminalsResult | null | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-parsed through the same loader on the next call.
+const cached = lazyDataset<CoalTerminalsResult | null>("gemCoalTerminals", () => loadGemCoalTerminals());
 
 export function cachedGemCoalTerminals(): CoalTerminalsResult | null {
-  if (cached === undefined) cached = loadGemCoalTerminals();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemCoalTerminalsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

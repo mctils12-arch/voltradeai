@@ -14,6 +14,7 @@ import {
   streamJsonlLines, RAW_RETENTION_DAYS,
 } from "./datacoreArchive";
 import { registerHeapGauge } from "./heapDiag";
+import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export const TRIP_GAP_SEC = 45 * 60;
 export const TRIP_GROUND_DWELL_SEC = 15 * 60;
@@ -163,7 +164,14 @@ export function splitTrips(
 // stream that completed cleanly, never for the still-growing current hour.
 const BLOOM_BITS = 1 << 18; // 32 KB per file
 const BLOOM_MAX_FILES = 2000; // ~64 MB hard cap; oldest evicted first
-const bloomCache = new Map<string, Uint8Array>();
+// memory audit 2026-11-03 A3: with RAW_RETENTION_DAYS=30 (~720 hour files per
+// kind) this cache sits AT its 64 MB cap and every filter is touched by every
+// trips scan, so the whole set goes idle together once nobody asks for trips
+// — filters unused for VOLTRADE_IDLE_TTL_MIN are dropped (idleTtl.ts) and
+// rebuilt by the next scan exactly as after a deploy (closed hours only, built
+// from a stream that completed cleanly — the rebuild path below is the only
+// build path there is). FIFO cap eviction unchanged.
+const bloomCache = idleTtlMap<string, Uint8Array>("aircraftTrips.bloomCache");
 // memory audit 2026-11-03 A0: bytes = files × 32 KB filter (arithmetic, no walk)
 registerHeapGauge("aircraftTrips.bloomCache", () => ({ entries: bloomCache.size, bytes: bloomCache.size * (BLOOM_BITS >> 3), cap: BLOOM_MAX_FILES }));
 

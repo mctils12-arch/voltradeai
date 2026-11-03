@@ -147,3 +147,20 @@ test("the audit this diagnostic baselines is checked in", () => {
   assert.match(txt, /DTCC/);
   assert.match(txt, /Proposed fixes/i);
 });
+
+// memory audit 2026-11-03 A3: a structure that knows more about itself than its
+// size (idleTtl.ts maps report ttl_s / last_used_s / drops) merges that into the
+// gauge registered by the UNCHANGED A0 trackMap/trackSet line.
+test("trackMap/trackSet: a structure exposing stats() has them merged into its reading; size and cap stay authoritative", () => {
+  _resetHeapGaugesForTests();
+  const plain = new Map<string, number>([["a", 1]]);
+  const rich = { size: 2, stats: () => ({ entries: 99, ttl_s: 720, last_used_s: 5, drops: 3 }) };
+  trackMap("t.plain", plain, 20);
+  trackMap("t.rich", rich, 24);
+  trackSet("t.richset", rich);
+  const r = readHeapGauges();
+  assert.deepEqual(r["t.plain"], { entries: 1, cap: 20 }, "a plain Map reads exactly as before");
+  assert.deepEqual(r["t.rich"], { entries: 2, cap: 24, ttl_s: 720, last_used_s: 5, drops: 3 }, "stats merged; entries from size, not from stats()");
+  assert.deepEqual(r["t.richset"], { entries: 2, ttl_s: 720, last_used_s: 5, drops: 3 });
+  _resetHeapGaugesForTests();
+});

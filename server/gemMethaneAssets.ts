@@ -26,6 +26,7 @@
 import fs from "fs";
 import zlib from "zlib";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 import type { GemProvenance } from "./gemMethane";
 
 export type GemAssetKind = "oil_gas_extraction" | "coal_mine";
@@ -136,15 +137,16 @@ export function loadGemAssets(
 }
 
 // In-memory cache — same rationale as gemMethane.ts's cachedGemMethane:
-// static reference data, parse once per process lifetime.
-let cached: GemAssetsResult | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-parsed through the same loader on the next call.
+const cached = lazyDataset<GemAssetsResult>("gemMethaneAssets", () => loadGemAssets());
 
 export function cachedGemAssets(): GemAssetsResult {
-  if (cached === undefined) cached = loadGemAssets();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject different fps. */
 export function _resetGemAssetsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

@@ -29,6 +29,7 @@
 import fs from "fs";
 import zlib from "zlib";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export interface MethanePlume {
   id: string;
@@ -123,16 +124,17 @@ export function loadGemMethane(
 
 // In-memory cache — the source file only changes on a manual re-ingest
 // (session-run script, not a running-process concern), so parsing the
-// 14.6MB JSON once per process lifetime (not once per HTTP request) is
-// the correct cost/freshness tradeoff for a static reference dataset.
-let cached: MethanePlumesResult | null | undefined;
+// 14.6MB JSON once per USE (not once per HTTP request) is the correct
+// cost/freshness tradeoff for a static reference dataset. Held while in use;
+// released after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3,
+// idleTtl.ts) and re-parsed through the same loader on the next call.
+const cached = lazyDataset<MethanePlumesResult | null>("gemMethane", () => loadGemMethane());
 
 export function cachedGemMethane(): MethanePlumesResult | null {
-  if (cached === undefined) cached = loadGemMethane();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemMethaneCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

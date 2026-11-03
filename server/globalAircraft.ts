@@ -53,6 +53,7 @@ import { setPlanLiveLookup } from "./flightPlans";
 import { IntentStore } from "./aircraftIntent";
 import { foldIntentDays, intentDailyInventory } from "./aircraftIntentDaily";
 import { registerHeapGauge, trackMap } from "./heapDiag";
+import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -208,7 +209,11 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   }, GLOBAL_EVICT_TICK_MS);
   unrefTimer(evictTimer);
 
-  const bodyCache = new Map<string, { at: number; body: string }>();
+  // memory audit 2026-11-03 A3: a 12k-row world body is ~1.1 MB and is never
+  // served once older than GLOBAL_RESPONSE_CACHE_MS, yet 24 of them sat here
+  // until the cap evicted them — entries unused for VOLTRADE_IDLE_TTL_MIN are
+  // dropped (idleTtl.ts); the 24-entry cap eviction below is unchanged.
+  const bodyCache = idleTtlMap<string, { at: number; body: string }>("globalAircraft.bodyCache");
   trackMap("globalAircraft.bodyCache", bodyCache, 24); // memory audit 2026-11-03 A0
 
   app.get("/api/data/aircraft/global", (req, res) => {
