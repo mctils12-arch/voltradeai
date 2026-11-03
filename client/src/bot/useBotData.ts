@@ -5,6 +5,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { unwrapOpenOrders } from "./orders";
 import type { PositionLevels } from "../../../shared/positionLevels";
+import type { SleeveExpectancy } from "../../../shared/expectancy";
 
 /** Every Bot page read is polled, so none may hang forever (a hung request
  *  blocks its query's polling until a manual reload — lib/queryClient.ts
@@ -71,6 +72,9 @@ export interface EdgeRow {
 export interface BrokerEdge {
   windowStart: string | null; active: EdgeRow; options: EdgeRow; stocks: EdgeRow; floor: EdgeRow;
   asOf: string; source: string; cached_s: number; stale: boolean; lastError: string | null;
+  /** B2 (2026-11-03, shared/expectancy.ts): the same lots split options / ETF floor / stocks / VRP leg with
+   *  payoff and breakeven, plus `active` (= the headline row above) and `all`; absent from a server that predates it */
+  bySleeve?: SleeveExpectancy;
 }
 export interface Performance {
   totalTrades?: number; winRate?: number; avgGain?: number; avgLoss?: number; profitFactor?: number;

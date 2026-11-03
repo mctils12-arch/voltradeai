@@ -5294,3 +5294,25 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
 /* below a 380 px Book the dollar P&L is hidden (rule above) and the P&L cell gives the room back */
 @container (max-width: 379px) { section.vt-bot-panel[data-panel="book"] .vt-bot-trow .pl { width: 60px; } }
 @media (max-width: 639px) { section.vt-bot-panel[data-panel="book"] .vt-bot-trow--book { min-height: 48px; } }
+/* EXPECTANCY BY SLEEVE (B2, [PRODUCT] 2026-11-03, client/src/bot/expectancyTable.tsx): the Expectancy tile's number
+   split by sleeve under the Book's P&L block — one mono table (brief §6: tables as monitors, tabular figures, signed
+   colour on the cell). Eight columns outgrow the phone and the 340 px desktop column, so the wrapper scrolls sideways
+   with the sleeve column pinned: no cell is ever cut and the page never overflows. The two totals (options + stocks =
+   the headline; all lots) carry a rule above them; a flagged sleeve (below zero over n ≥ 30) wears the issues' red dot. */
+.vt-exp { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 0 4px; border-top: 1px solid var(--border-subtle); }
+.vt-exp-eb { font-size: 10px; padding-bottom: 2px; }
+.vt-exp-wrap { overflow-x: auto; overflow-y: hidden; min-width: 0; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.vt-exp-t { border-collapse: collapse; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; min-width: 100%; }
+.vt-exp-t th { font-family: var(--font-body); font-size: 9.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); text-align: right; padding: 3px 5px; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.vt-exp-t td { text-align: right; padding: 0 5px; height: 22px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.vt-exp-t th.s, .vt-exp-t td.s { text-align: left; position: sticky; left: 0; z-index: 1; background: var(--bg-secondary); font-family: var(--font-body); padding-left: 4px; }
+.vt-exp-t td.s { color: var(--text-primary); font-weight: 500; font-size: 11.5px; }
+.vt-exp-t td.s i { font-style: normal; font-weight: 400; font-size: 10px; color: var(--text-tertiary); margin-left: 5px; }
+.vt-exp-t tr[data-total="true"] td { border-top: 1px solid var(--border); color: var(--text-primary); }
+.vt-exp-t tr[data-total="true"] td.s { background: var(--bg-secondary); }
+.vt-exp-t td.g { color: var(--accent-green); } .vt-exp-t td.r { color: var(--accent-red); } .vt-exp-t td.t3 { color: var(--text-tertiary); } .vt-exp-t td.t2 { color: var(--text-secondary); }
+.vt-exp-t tr[data-flag="neg"] td.s::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-red); margin-right: 5px; vertical-align: 1px; }
+.vt-exp-t tbody tr:hover td:not(.s) { background: var(--bg-card-hover); } /* the pinned cell stays opaque over the cells scrolled under it */
+.vt-exp-src { font-size: 10.5px; line-height: 1.4; color: var(--text-tertiary); }
+.vt-exp-src .vt-bot-o { color: var(--accent-orange); }
+@media (max-width: 639px) { .vt-exp-t td { height: 26px; } }
