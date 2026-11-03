@@ -38,6 +38,7 @@ import { lookupFix } from "./navFixes";
 import { expandRouteText, placeDirectFixes, placeDirectFixesWithRadials, placeFixesInCorridor, parseFiledRoute, classifyUnplacedRoute, unresolvedRouteTokens, fewFixesProfile, type UnplacedReason } from "./navAirways";
 import { airportByIdent } from "./airportsIndex";
 import { startSwimProduct, swimProductStatus, type SwimConnectorHandle, type SwimProductOptions } from "./swimConnector";
+import { trackMap } from "./heapDiag";
 
 // ── 1a. XML-lite ────────────────────────────────────────────────────────────
 export interface XNode {
@@ -290,6 +291,7 @@ export function xmlShape(n: XNode, depth = 0): string {
 
 export interface RouteShapeSample { where: string; shape: string; count: number; firstSeenAt: number }
 const routeShapes = new Map<string, RouteShapeSample>();
+trackMap("swimSfdps.routeShapes", routeShapes); // memory audit 2026-11-03 A0
 export const routeShapeCounters = { placed: 0, expandedNoPoints: 0, noExpanded: 0, airwayExpanded: 0, directFixPlaced: 0, radialPlaced: 0, corridorPlaced: 0 };
 
 /** REPORT-ONLY shadow of the full route parser (navAirways.parseFiledRoute,
@@ -309,6 +311,7 @@ export const UNRESOLVED_TEXT_MAX = 12;
 /** Report-only split of fewFixes plans (counters only, fixed keys — cannot grow). */
 export const fewFixesProfileCounters = { total: 0, resolved0: 0, resolved1: 0, resolved2: 0, withLatLon: 0, withRadial: 0, latlonReaches3: 0, latlonRadialReaches3: 0, radialShadowPlaced: 0, radialShadowTokens: 0 };
 const unresolvedTokenCounts = new Map<string, number>();
+trackMap("swimSfdps.unresolvedTokenCounts", unresolvedTokenCounts); // memory audit 2026-11-03 A0
 const unresolvedTexts: { reason: UnplacedReason; text: string }[] = [];
 function recordUnresolved(reason: UnplacedReason, routeText: string | null): void {
   if ((reason !== "fewFixes" && reason !== "noFixResolved") || !routeText) return;

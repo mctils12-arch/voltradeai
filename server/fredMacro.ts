@@ -36,6 +36,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackMap } from "./heapDiag";
 
 export interface FredSeriesDef {
   id: string;
@@ -144,6 +145,7 @@ async function fetchSeries(
 // (covering the fetch window), append only when the value CHANGES —
 // duplicates die, every transition (including reverts) is recorded.
 const latestVal = new Map<string, number>();
+trackMap("fredMacro.latestVal", latestVal, 500_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 /** test hook: simulate a process restart (state re-seeds from disk) */

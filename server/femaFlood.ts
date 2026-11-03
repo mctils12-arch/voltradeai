@@ -35,6 +35,7 @@
  * note, never fabricated as X/minimal-risk.
  */
 import { coordValid } from "./dataQuality";
+import { registerHeapGauge } from "./heapDiag";
 
 const SERVICE = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query";
 
@@ -152,6 +153,7 @@ export async function fetchFloodZone(lat: number, lon: number, fetchImpl: FetchF
 const CACHE_TTL_MS = 30 * 86400_000; // NFHL revises slowly (per-county FIRM updates, not daily)
 const CACHE_MAX = 2000;
 const cache = new Map<string, { at: number; result: FloodZoneResult }>();
+registerHeapGauge("femaFlood.cache", () => ({ entries: cache.size, cap: CACHE_MAX })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 
 function cacheKey(lat: number, lon: number): string {
   return `${lat.toFixed(3)},${lon.toFixed(3)}`;

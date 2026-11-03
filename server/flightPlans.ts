@@ -51,6 +51,7 @@ import {
 import { parseFiledRoute, type ParsedRoute, type ParsedProcedure, type RouteParseContext } from "./navAirways";
 import { matchProcedure, procedureRouteFixes, enrouteTransitions, type CifpIndex } from "./cifp";
 import { sharedCifpStore } from "./cifpShared";
+import { registerHeapGauge } from "./heapDiag";
 
 // ── contract types ──────────────────────────────────────────────────────────
 export type PlanSource = "FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
@@ -919,6 +920,7 @@ export function airportRefFromIdent(id: string | null): AirportRef | null {
  *  once, not per request */
 export const ROUTE_PARSE_CACHE_MAX = 2000;
 const routeParseCache = new Map<string, ParsedRoute>();
+registerHeapGauge("flightPlans.routeParseCache", () => ({ entries: routeParseCache.size, cap: ROUTE_PARSE_CACHE_MAX })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 export function _resetRouteParseCache(): void { routeParseCache.clear(); }
 
 /** SID/STAR expansion from a loaded CIFP index (null when none is loaded) */

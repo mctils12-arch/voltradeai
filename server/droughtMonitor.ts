@@ -22,6 +22,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export const DROUGHT_AOIS: Array<{ key: string; api: string; aoi: string }> = [
   { key: "CONUS", api: "USStatistics", aoi: "us" },
@@ -129,6 +130,7 @@ export async function fetchDrought(fetchImpl: FetchFn = fetch as any, nowMs?: nu
 // ── Archive (dedup aoi|map_date — maps are final on publish) ───────────────
 
 const archivedKeys = new Set<string>();
+trackSet("droughtMonitor.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function droughtDir(baseDir?: string): string {

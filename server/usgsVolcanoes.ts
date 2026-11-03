@@ -54,6 +54,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackMap, trackSet } from "./heapDiag";
 
 export const ELEVATED_FEED_URL = "https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes";
 export const GVP_WFS_URL = "https://webservices.volcano.si.edu/geoserver/GVP-VOTW/ows";
@@ -186,6 +187,7 @@ export async function fetchGvpCoords(vnums: string[], fetchImpl: FetchFn = fetch
  *  (a volcano number's coordinates never change between polls; USGS's own
  *  alert level/notice does). */
 const coordCache = new Map<string, GvpCoord>();
+trackMap("usgsVolcanoes.coordCache", coordCache); // memory audit 2026-11-03 A0
 
 export async function fetchVolcanoAlerts(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<VolcanoAlert[]> {
   const elevated = await fetchElevatedVolcanoes(fetchImpl, nowMs);
@@ -201,6 +203,7 @@ export async function fetchVolcanoAlerts(fetchImpl: FetchFn = fetch as any, nowM
 // notice_identifier means USGS published a new update for that volcano;
 // gzipped after 2 days — identical shape to usgsQuakes.ts) ─────────────────
 const archivedKeys = new Set<string>();
+trackSet("usgsVolcanoes.archivedKeys", archivedKeys, 50_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function volcanoesDir(baseDir?: string): string {

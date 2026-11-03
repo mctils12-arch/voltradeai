@@ -43,6 +43,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { validateRecord } from "./dataQuality";
+import { trackSet } from "./heapDiag";
 
 // DATA QUALITY GATE (research/location_context_engine.md): a single
 // respondent x fuel-type hourly reading is physically bounded well under
@@ -142,6 +143,7 @@ export async function fetchGeneration(fetchImpl: FetchFn = fetch as any,
 // ── Archive (event-identity dedup respondent|period|fueltype, day-file per UTC day) ──
 
 const seenObs = new Set<string>();
+trackSet("gridGeneration.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const obsKey = (o: GenerationObs) => `${o.respondent}|${o.period}|${o.fueltype}`;

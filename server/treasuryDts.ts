@@ -27,6 +27,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const DATASET_URL =
   "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/deposits_withdrawals_operating_cash";
@@ -153,6 +154,7 @@ export async function fetchLatestDts(fetchImpl: FetchFn = fetch as any, nowMs?: 
 // ── Archive (one JSONL file per statement date; day-level dedup) ────────────
 
 const archivedDays = new Set<string>();
+trackSet("treasuryDts.archivedDays", archivedDays); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function dtsDir(baseDir?: string): string {

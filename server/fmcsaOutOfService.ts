@@ -47,6 +47,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 export interface OosOrderObs {
   dot_number: string;
@@ -119,6 +120,7 @@ export async function fetchOosOrders(fetchImpl: FetchFn = fetch as any, nowMs?: 
 // ── Archive (observation-identity dedup — only CHANGES land on disk) ────────
 
 const archivedKeys = new Set<string>();
+trackSet("fmcsaOutOfService.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function oosDir(baseDir?: string): string {

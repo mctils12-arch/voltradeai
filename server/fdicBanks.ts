@@ -28,6 +28,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 const FAILURES_URL = "https://api.fdic.gov/banks/failures";
 const FIELDS = "NAME,CERT,FAILDATE,CITYST,PSTALP,CHCLASS,RESTYPE,QBFASSET,QBFDEP,COST,SAVR";
@@ -154,6 +155,7 @@ export async function fetchHistoricalFailures(
 // ── Archive (event-identity dedup, day-file per FETCH date — FAA/CBP pattern) ─
 
 const seenEvents = new Set<string>();   // cert|fail_date
+trackSet("fdicBanks.seenEvents", seenEvents); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const eventKey = (f: BankFailure) => `${f.cert ?? f.name}|${f.fail_date}`;

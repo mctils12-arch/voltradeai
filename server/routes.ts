@@ -169,7 +169,7 @@ import { bootVolcanoesPoll, latestVolcanoAlerts } from "./usgsVolcanoes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
 import { mergeSiteImagery } from "./siteImagery";
-import { trackMap } from "./heapDiag";
+import { registerHeapGauge, trackMap } from "./heapDiag";
 
 const execAsync = promisify(exec);
 
@@ -235,6 +235,7 @@ const TIER1_TICKERS: string[] = Array.from(new Set([...TIER1_BASE, ...EXTRA_TIER
 
 const FULL_UNIVERSE_CACHE_MAX = 500; // Cap to prevent unbounded memory growth
 let fullUniverseCache: Map<string, ScanResult> = new Map();
+registerHeapGauge("routes.fullUniverseCache", () => ({ entries: fullUniverseCache.size })); // memory audit 2026-11-03 A0 (reassigned `let` -> closure, not trackMap)
 let tier1Cache: ScanResult[] = [];
 let tier1LastUpdate = 0;
 let fullScanProgress = {

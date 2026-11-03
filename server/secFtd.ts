@@ -44,6 +44,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const SEC_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
 
@@ -214,6 +215,7 @@ export async function fetchFtdPeriod(
 // ── Archive (period-level dedup; one gz file per half-month) ────────────────
 
 const archivedPeriods = new Set<string>();
+trackSet("secFtd.archivedPeriods", archivedPeriods); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function ftdDir(baseDir?: string): string {

@@ -25,6 +25,7 @@ import { startSwimProduct, swimProductStatus, swimProductsEnvStatus, SWIM_PRODUC
 import { checkDiagToken, diagEnabled } from "./diag";
 import { TfmsStore } from "./swimTfms";
 import { NotamStore, TFR_TEXT_RE } from "./swimNotam";
+import { trackMap } from "./heapDiag";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
@@ -132,6 +133,7 @@ export class SwimCapture {
 }
 
 const captures = new Map<string, SwimCapture>();
+trackMap("swimCapture.captures", captures); // memory audit 2026-11-03 A0
 export function swimCapture(product: string): SwimCapture | null { return captures.get(product) ?? null; }
 
 /** Start the capture consumers (each a no-op unless its env is complete). */

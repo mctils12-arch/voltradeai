@@ -15,6 +15,7 @@
 import crypto from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import { recordDailyVisit } from "./visitHistory";
+import { registerHeapGauge, trackMap } from "./heapDiag";
 
 // Salt for IP hashing. A per-process random salt by default means hashes are
 // NOT stable across restarts (extra privacy); set REQUEST_LOG_IP_SALT to a
@@ -107,8 +108,11 @@ export function recentRequests(limit = 200): RequestRecord[] {
 // ── Page-view analytics ─────────────────────────────────────────────────────
 let totalPageViews = 0;
 const routeCounts = new Map<string, number>();
+trackMap("requestLog.routeCounts", routeCounts); // memory audit 2026-11-03 A0
 // day (YYYY-MM-DD) -> set of hashed IPs seen that day.
 const uniquesByDay = new Map<string, Set<string>>();
+// memory audit 2026-11-03 A0: entries = hashed uniques summed over the kept days (<= DAY_CAP days, O(days) read)
+registerHeapGauge("requestLog.uniquesByDay", () => { let n = 0; uniquesByDay.forEach((d) => { n += d.size; }); return { entries: n, days: uniquesByDay.size, cap: DAY_CAP * DAY_UNIQUES_CAP }; });
 // cap retained days so the map cannot grow unbounded.
 const DAY_CAP = 90;
 // Cardinality caps (parent-review fix 2026-07-18): the SPA catch-all serves

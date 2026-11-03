@@ -46,6 +46,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
+import { trackSet } from "./heapDiag";
 
 const BASE_URL = "https://www.nrc.gov/reading-rm/doc-collections/event-status/reactor-status";
 
@@ -330,6 +331,7 @@ export async function fetchReactorStatus(fetchImpl: FetchFn = fetch as any,
 // ── Archive (event-identity dedup date|unit, day-file per fetch) ────────────
 
 const seenRows = new Set<string>();
+trackSet("nrcReactorStatus.seenRows", seenRows); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const rowKey = (r: ReactorStatusRow) => `${r.date}|${r.unit}`;

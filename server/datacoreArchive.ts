@@ -28,6 +28,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { pipeline } from "stream/promises";
 import { intentOf, IntentArchiveEncoder } from "./aircraftIntent";
+import { registerHeapGauge } from "./heapDiag";
 
 // 7 -> 30 (human directive 2026-08-11: "store all the data some how for up
 // to a month for all planes... this should be for all thing track like
@@ -855,6 +856,7 @@ export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: strin
 // every 30s and users re-click the same entity — each was a full archive
 // scan. FIFO-capped; injectable clock for tests.
 const trackCache = new Map<string, { at: number; points: Array<{ t: number; la: number; lo: number; al?: number }> }>();
+registerHeapGauge("datacoreArchive.trackCache", () => ({ entries: trackCache.size, cap: TRACK_CACHE_MAX })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 const TRACK_CACHE_TTL_MS = 30_000;
 const TRACK_CACHE_MAX = 64;
 

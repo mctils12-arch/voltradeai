@@ -36,6 +36,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { assessStaleness, noaaUtcMs } from "./spaceweatherNormalizer";
+import { trackSet } from "./heapDiag";
 
 const BASE = "https://services.swpc.noaa.gov";
 const URLS = {
@@ -406,9 +407,13 @@ function swDir(baseDir?: string): string {
 }
 
 const seenKp = new Set<string>();
+trackSet("spaceWeather.seenKp", seenKp); // memory audit 2026-11-03 A0
 const seenAlerts = new Set<string>();
+trackSet("spaceWeather.seenAlerts", seenAlerts); // memory audit 2026-11-03 A0
 const seenCond = new Set<string>();
+trackSet("spaceWeather.seenCond", seenCond); // memory audit 2026-11-03 A0
 const seenXray = new Set<string>();
+trackSet("spaceWeather.seenXray", seenXray); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function seedPrefix(dir: string, prefix: string, set: Set<string>, idOf: (r: any) => string, nowMs: number): void {

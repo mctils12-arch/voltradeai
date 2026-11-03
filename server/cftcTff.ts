@@ -27,6 +27,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { partitionValid, type QualityIssue } from "./dataQuality";
+import { trackSet } from "./heapDiag";
 
 const DATASET_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json";
 /** ~44 markets/week live; headroom for growth without pagination. */
@@ -212,6 +213,7 @@ export async function fetchLatestTff(fetchImpl: FetchFn = fetch as any, nowMs?: 
 // ── Archive (one JSONL file per REPORT date; week-level dedup) ──────────────
 
 const archivedWeeks = new Set<string>();
+trackSet("cftcTff.archivedWeeks", archivedWeeks); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function tffDir(baseDir?: string): string {

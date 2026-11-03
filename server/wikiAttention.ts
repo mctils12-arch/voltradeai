@@ -34,6 +34,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import wikiArticles from "../datacore/wiki_articles.json";
+import { trackSet } from "./heapDiag";
 
 export const ARTICLES: Record<string, string> = (wikiArticles as any).articles;
 export const REQUEST_SPACING_MS = 600; // observed: bursts 429
@@ -139,6 +140,7 @@ export async function fetchAttention(fetchImpl: FetchFn = fetch as any, nowMs?: 
 // ── Archive (dedup date|ticker; day-files by VIEW date) ─────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("wikiAttention.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function attDir(baseDir?: string): string {

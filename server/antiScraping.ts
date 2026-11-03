@@ -21,6 +21,7 @@
 
 import type { Request, Response, NextFunction, Express } from "express";
 import { hashIp, classifyUa } from "./requestLog";
+import { registerHeapGauge } from "./heapDiag";
 
 // ── Honeypot trap routes ────────────────────────────────────────────────────
 // Disallowed in robots.txt and linked invisibly by the client (the client
@@ -138,6 +139,7 @@ interface IpRec {
 }
 
 const ipStore = new Map<string, IpRec>();
+registerHeapGauge("antiScraping.ipStore", () => ({ entries: ipStore.size, cap: IP_STORE_CAP })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 
 // ── Store hygiene (parent-review fix 2026-07-18) ────────────────────────────
 // Nothing ever removed records, so every distinct IP (or, under the

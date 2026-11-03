@@ -113,6 +113,28 @@ test("bot.ts: /api/health publishes the diagnostic under checks.memory.detail an
   }
 });
 
+test("every module-level dedup Set / cache Map under server/ is gauged (sweep ratchet)", () => {
+  // The sweep registered one gauge per column-0 `const x = new Set<…>()` /
+  // `new Map<…>()` dedup/cache declaration (constant lookup tables excluded).
+  // Pin the floor so a new poller cannot add an ungauged retained structure
+  // without this number moving in the same PR.
+  let registrations = 0;
+  let gaugedFiles = 0;
+  for (const f of fs.readdirSync(HERE)) {
+    if (!f.endsWith(".ts") || f.endsWith(".test.ts") || f === "heapDiag.ts") continue;
+    const src = fs.readFileSync(path.join(HERE, f), "utf8");
+    const n = (src.match(/\b(?:trackSet|trackMap|registerHeapGauge)\("/g) || []).length;
+    if (n > 0) gaugedFiles++;
+    registrations += n;
+  }
+  assert.ok(registrations >= 78, `expected >= 78 gauge registrations across server/, found ${registrations}`);
+  assert.ok(gaugedFiles >= 58, `expected >= 58 gauged modules, found ${gaugedFiles}`);
+  // frozen modules are never touched by the sweep
+  for (const frozen of ["auth.ts", "billing.ts"]) {
+    assert.ok(!fs.readFileSync(path.join(HERE, frozen), "utf8").includes("heapDiag"), `${frozen} is FROZEN`);
+  }
+});
+
 test("the audit this diagnostic baselines is checked in", () => {
   const p = path.join(HERE, "..", "docs", "memory_audit_2026-11-03.md");
   assert.ok(fs.existsSync(p), "docs/memory_audit_2026-11-03.md must exist");

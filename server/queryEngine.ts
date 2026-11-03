@@ -28,6 +28,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir, RAW_RETENTION_DAYS, streamJsonlLines } from "./datacoreArchive";
 import { parseBbox, filterByViewport } from "./viewport";
+import { registerHeapGauge } from "./heapDiag";
 
 // ── layers ───────────────────────────────────────────────────────────────────
 // Exactly the archives that exist on disk today (datacoreArchive position
@@ -298,6 +299,7 @@ export async function queryWindow(req: QueryRequest, base = archiveBaseDir(),
 const CACHE_TTL_MS = 5 * 60_000;
 const CACHE_MAX = 50;
 const cache = new Map<string, { at: number; result: QueryResult }>();
+registerHeapGauge("queryEngine.cache", () => ({ entries: cache.size, cap: CACHE_MAX })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 
 function cacheKey(q: ReturnType<typeof normalizeQuery>): string {
   // coords rounded to 0.05 deg — nearby repeat queries share a scan

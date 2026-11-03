@@ -58,6 +58,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { ZONES } from "./euLoad";
+import { trackSet } from "./heapDiag";
 
 export function euDayAheadPricesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ENTSOE_API_KEY || env.ENTSOE_TOKEN);
@@ -210,6 +211,7 @@ export async function fetchPrices(fetchImpl: FetchFn = fetch as any,
 // silently overwriting history.
 
 const seenObs = new Set<string>();
+trackSet("euDayAheadPrices.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const obsKey = (o: PriceObs) => `${o.zone}|${o.ts}|${o.res}|${o.price}`;
