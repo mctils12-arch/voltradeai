@@ -30,7 +30,13 @@
  * Pure module: fs reads only (via shadowFleet.readVesselTracks), baseDir-
  * injectable, no trading imports.
  */
+import path from "path";
 import { readVesselTracks, foldVesselArchiveAsync } from "./shadowFleet";
+import { archiveBaseDir } from "./datacoreArchive";
+import {
+  readFoldMode, runIncrementalFold, PartialCacheRegistry, FoldStatsTracker, StringInterner,
+  histAdd, histMergeInto, histMedian, type CachedPartial, type FoldStats, type SpeedHist, type VesselPt,
+} from "./vesselArchiveFold";
 
 export interface PortDef { id: string; name: string; lat: number; lon: number; radius_km: number }
 
@@ -145,46 +151,220 @@ const quantile = (sorted: number[], q: number): number | null => {
   return sorted[idx];
 };
 
+/** The visit filters detectVisits/VisitDetector share. */
+export interface VisitParams { minDwellHours: number; maxGapHours: number; minPoints: number; maxMedianKts: number }
+export const DEFAULT_VISIT_PARAMS: VisitParams = { minDwellHours: 2, maxGapHours: 6, minPoints: 3, maxMedianKts: 3 };
+
+/** [A2 2026-11-03] One maximal run of same-port in-fence points — the
+ *  detector's `cur` state — in a form that needs no per-point storage:
+ *  first/last pushed timestamps (span and the gap test use exactly these,
+ *  not min/max), the point count, the first and last names, and the speed
+ *  multiset as a histogram (vesselArchiveFold.histMedian yields precisely
+ *  `sorted[floor(n/2)]`). Two adjacent runs concatenate exactly, which is
+ *  what lets a visit spanning many hour files be carried across per-hour
+ *  partials. It also removes the old `pts: {t,v,c}[]` per moored vessel —
+ *  the fold's own retained-heap peak (a vessel moored a week at a
+ *  full-resolution site held ~10k triples). */
+interface Run { portId: string; firstT: number; lastT: number; n: number; firstC?: string; lastC?: string; hist: SpeedHist }
+const newRun = (portId: string, p: Pt): Run =>
+  ({ portId, firstT: p.t, lastT: p.t, n: 1, firstC: p.c, lastC: p.c, hist: new Map([[p.v ?? 0, 1]]) });
+const runAdd = (run: Run, p: Pt): void => { run.lastT = p.t; run.n++; run.lastC = p.c; histAdd(run.hist, p.v ?? 0); };
+const copyRun = (r: Run): Run => ({ ...r, hist: new Map(r.hist) });
+/** `a` then `b`, as if b's points had been pushed onto a's run. */
+const concatRuns = (a: Run, b: Run): Run => {
+  const hist = new Map(a.hist);
+  histMergeInto(hist, b.hist);
+  return { portId: a.portId, firstT: a.firstT, lastT: b.lastT, n: a.n + b.n, firstC: a.firstC, lastC: b.lastC, hist };
+};
+
+/** A visit minus the two things only the final fold knows: the vessel's
+ *  mmsi (the partial's map key) and `ongoing` (depends on the fold's `now`). */
+interface PreVisit { portId: string; name?: string; firstSeen: number; lastSeen: number; dwellHours: number; points: number }
+
+/** The visit filters, exactly as detectVisits applies them: >= minPoints,
+ *  span >= minDwellHours, median SOG <= maxMedianKts; name = last point's
+ *  name, else the first's. Null = this run is not a port call. */
+function runToPreVisit(run: Run, P: VisitParams): PreVisit | null {
+  if (run.n < P.minPoints) return null;
+  const spanH = (run.lastT - run.firstT) / 3600;
+  if (spanH < P.minDwellHours) return null;
+  if (histMedian(run.hist, run.n) > P.maxMedianKts) return null;
+  return { portId: run.portId, name: run.lastC || run.firstC, firstSeen: run.firstT, lastSeen: run.lastT,
+           dwellHours: Math.round(spanH * 10) / 10, points: run.n };
+}
+function preVisitToVisit(v: PreVisit, mmsi: string, nowSec: number, P: VisitParams): PortVisit {
+  return {
+    mmsi, name: v.name, portId: v.portId,
+    firstSeen: v.firstSeen, lastSeen: v.lastSeen,
+    dwellHours: v.dwellHours, points: v.points, ongoing: (nowSec - v.lastSeen) / 3600 <= P.maxGapHours,
+  };
+}
+
+/** [A2 2026-11-03] What one closed hour file contributes to one vessel's
+ *  visit detection, in a form that composes EXACTLY onto the detector state
+ *  carried in from earlier hours, for ANY point order:
+ *   - `head`: the hour's FIRST in-fence run, kept as an unfiltered RUN —
+ *     whether it is a port call depends on the run it may continue;
+ *   - `headAtStart`: the vessel's first point of the hour was in a fence
+ *     (otherwise that point ended any run carried in);
+ *   - `headOpen`: the head run never closed inside the hour (it is also the
+ *     tail, carried on to the next hour);
+ *   - `middle`: runs that both started and closed inside the hour after the
+ *     head — independent of anything outside, so already filtered;
+ *   - `tail`: the open run at the end of the hour (when it is not the head).
+ *  A vessel with points but no in-fence point in the hour is present in
+ *  `vesselIds` only: its carried-in run ends at its first point. */
+interface FileVesselState { head: Run; headAtStart: boolean; headOpen: boolean; middle: PreVisit[]; tail: Run | null }
+
+export interface PortDwellPartial extends CachedPartial {
+  stampSec: number;
+  points: number;
+  /** every vessel with a point in this hour, in first-appearance order (ids interned by the owning cache) */
+  vesselIds: Int32Array;
+  /** only vessels with at least one in-fence point this hour */
+  inPort: Map<number, FileVesselState>;
+}
+
+const PORT_PARTIAL_BYTES_FIXED = 128;
+const PORT_STATE_BYTES = 400;   // FileVesselState + head/tail Runs with small histograms
+const PORT_PREVISIT_BYTES = 120;
+
 /** [OOM REPAIR 2026-07-05, supersedes the R5 event-loop fix's memory
  *  profile] Online visit state machine — the exact detectVisits
  *  transitions, fed one point at a time. Retains ONLY the current in-port
- *  run per vessel ({t,v,c} triples — in-port points are a tiny, bounded
- *  subset); the previous async path materialized the ENTIRE 168h archive
+ *  run per vessel (as a Run — see above; before A2 2026-11-03 as {t,v,c}
+ *  triples); the previous async path materialized the ENTIRE 168h archive
  *  (~7M points) into a Map first, which OOM-crash-looped prod under the
- *  512MB heap cap. Output pinned identical by the async-vs-sync ratchet. */
+ *  512MB heap cap. Output pinned identical by the async-vs-sync ratchet.
+ *  [A2] It is also the per-hour partial's builder (`trackHour`) and its
+ *  consumer (`absorbHour`), so the transitions have exactly one home. */
 class VisitDetector {
-  private cur: { portId: string; pts: Array<{ t: number; v?: number; c?: string }> } | null = null;
+  private cur: Run | null = null;
   readonly visits: PortVisit[] = [];
+  // partial-builder bookkeeping (trackHour mode only)
+  private sawFirst = false;
+  private headAtStart = false;
+  private head: Run | null = null;
+  private headOpen = false;
+  private middle: PreVisit[] = [];
+  private runsStarted = 0;
   constructor(private mmsi: string, private ports: PortDef[], private nowSec: number,
-              private minDwellHours = 2, private maxGapHours = 6,
-              private minPoints = 3, private maxMedianKts = 3) {}
+              private P: VisitParams = DEFAULT_VISIT_PARAMS, private trackHour = false) {}
   private flush(): void {
     if (!this.cur) return;
-    const { portId, pts: run } = this.cur;
+    const run = this.cur;
     this.cur = null;
-    if (run.length < this.minPoints) return;
-    const spanH = (run[run.length - 1].t - run[0].t) / 3600;
-    if (spanH < this.minDwellHours) return;
-    const speeds = run.map((p) => p.v ?? 0).sort((a, b) => a - b);
-    if (speeds[Math.floor(speeds.length / 2)] > this.maxMedianKts) return;
-    const ongoing = (this.nowSec - run[run.length - 1].t) / 3600 <= this.maxGapHours;
-    this.visits.push({
-      mmsi: this.mmsi, name: run[run.length - 1].c || run[0].c, portId,
-      firstSeen: run[0].t, lastSeen: run[run.length - 1].t,
-      dwellHours: Math.round(spanH * 10) / 10, points: run.length, ongoing,
-    });
+    if (this.trackHour && this.runsStarted === 1) { this.head = run; return; } // the head stays a RUN
+    const v = runToPreVisit(run, this.P);
+    if (!v) return;
+    if (this.trackHour) this.middle.push(v);
+    else this.visits.push(preVisitToVisit(v, this.mmsi, this.nowSec, this.P));
   }
   push(p: Pt): void {
     const portId = assignPort(p.la, p.lo, this.ports);
+    if (!this.sawFirst) { this.sawFirst = true; this.headAtStart = portId != null; }
     if (!portId) { this.flush(); return; }
-    if (this.cur && (this.cur.portId !== portId ||
-        (p.t - this.cur.pts[this.cur.pts.length - 1].t) / 3600 > this.maxGapHours)) this.flush();
-    if (!this.cur) this.cur = { portId, pts: [] };
-    this.cur.pts.push({ t: p.t, v: p.v, c: p.c });
+    if (this.cur && (this.cur.portId !== portId || (p.t - this.cur.lastT) / 3600 > this.P.maxGapHours)) this.flush();
+    if (!this.cur) { this.cur = newRun(portId, p); this.runsStarted++; }
+    else runAdd(this.cur, p);
   }
   finish(): PortVisit[] {
     this.flush();
     return this.visits;
+  }
+  /** [A2] Builder mode: this vessel's contribution for the hour just fed, or
+   *  null when it never entered a fence. */
+  hourState(): FileVesselState | null {
+    if (!this.trackHour) throw new Error("hourState needs a detector built with trackHour");
+    if (this.cur) {
+      if (this.runsStarted === 1) { this.head = this.cur; this.headOpen = true; this.cur = null; }
+      // else: the open run is the tail, left in `cur` and read below
+    }
+    if (!this.head) return null;
+    const tail = this.cur;
+    this.cur = null;
+    return { head: this.head, headAtStart: this.headAtStart, headOpen: this.headOpen, middle: this.middle, tail };
+  }
+  /** [A2] Consumer mode: applies one closed hour's state for this vessel
+   *  EXACTLY as pushing that hour's points would have. `null` = the vessel
+   *  had points this hour but none in a fence. */
+  absorbHour(fs: FileVesselState | null): void {
+    if (!fs) { this.flush(); return; }
+    const carried = this.cur;
+    let head: Run;
+    if (carried && fs.headAtStart && carried.portId === fs.head.portId &&
+        (fs.head.firstT - carried.lastT) / 3600 <= this.P.maxGapHours) {
+      head = concatRuns(carried, fs.head);       // the hour's first run continues the carried one
+      this.cur = null;
+    } else {
+      this.flush();                              // the carried run ended (off-fence point, other port, or a gap)
+      head = copyRun(fs.head);
+    }
+    if (fs.headOpen) { this.cur = head; return; }  // still in port at the hour's end
+    this.cur = head;
+    this.flush();                                  // closed inside the hour: filtered now, with its true start
+    for (const v of fs.middle) this.visits.push(preVisitToVisit(v, this.mmsi, this.nowSec, this.P));
+    this.cur = fs.tail ? copyRun(fs.tail) : null;
+  }
+}
+
+/** [A2 2026-11-03] The whole fold's state (one VisitDetector per vessel, in
+ *  first-appearance order — aggregateVisits' tie-breaks depend on that
+ *  order, so the incremental fold keeps it) — fed either by points (push)
+ *  or by cached hour partials (absorbPartial). */
+class PortFoldState {
+  readonly detectors = new Map<string, VisitDetector>();
+  points = 0;
+  constructor(private ports: PortDef[], private nowSec: number, private P: VisitParams = DEFAULT_VISIT_PARAMS,
+              private trackHour = false) {}
+  private detector(mmsi: string): VisitDetector {
+    let d = this.detectors.get(mmsi);
+    if (!d) { d = new VisitDetector(mmsi, this.ports, this.nowSec, this.P, this.trackHour); this.detectors.set(mmsi, d); }
+    return d;
+  }
+  push(mmsi: string, p: Pt): void {
+    this.points++;
+    this.detector(mmsi).push(p);
+  }
+  /** Exact for any point order — no precondition, so this never fails. */
+  absorbPartial(partial: PortDwellPartial, interner: StringInterner): boolean {
+    const ids = partial.vesselIds;
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      this.detector(interner.str(id)).absorbHour(partial.inPort.get(id) ?? null);
+    }
+    this.points += partial.points;
+    return true;
+  }
+  /** Builder mode: the partial for the hour this state was fed. */
+  exportPartial(stampSec: number, interner: StringInterner): PortDwellPartial {
+    const vesselIds = new Int32Array(this.detectors.size);
+    const inPort = new Map<number, FileVesselState>();
+    let i = 0, preVisits = 0;
+    this.detectors.forEach((d, mmsi) => {
+      const id = interner.id(mmsi);
+      vesselIds[i++] = id;
+      const fs = d.hourState();
+      if (fs) { inPort.set(id, fs); preVisits += fs.middle.length; }
+    });
+    return {
+      stampSec, points: this.points, vesselIds, inPort,
+      bytes: PORT_PARTIAL_BYTES_FIXED + vesselIds.byteLength + inPort.size * PORT_STATE_BYTES + preVisits * PORT_PREVISIT_BYTES,
+      remapIds(map) {
+        for (let k = 0; k < this.vesselIds.length; k++) this.vesselIds[k] = map(this.vesselIds[k]);
+        const next = new Map<number, FileVesselState>();
+        this.inPort.forEach((v, k) => next.set(map(k), v));
+        this.inPort = next;
+      },
+    };
+  }
+  finish(): { visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number; pointsScanned: number } {
+    const visitsByPort = new Map<string, PortVisit[]>();
+    for (const p of this.ports) visitsByPort.set(p.id, []);
+    this.detectors.forEach((d) => {
+      for (const v of d.finish()) visitsByPort.get(v.portId)?.push(v);
+    });
+    return { visitsByPort, vesselsSeen: this.detectors.size, pointsScanned: this.points };
   }
 }
 
@@ -199,25 +379,59 @@ class VisitDetector {
  *  (computePortDwellAsync, entityGraph.ts's calls_at builder) destructure
  *  only the fields they already used, so this changes no existing
  *  behavior. */
+// ── [A2 2026-11-03] incremental fold wiring ─────────────────────────────────
+//
+// VOLTRADE_PORTDWELL_FOLD = full | shadow (default) | incremental — see
+// vesselArchiveFold.ts's header for the contract. Rollback = set `full`.
+// Switch to `incremental` only after 24h of zero `FOLD-MISMATCH portdwell`
+// lines (portDwellFoldStats().mismatches stays 0 on /api/health). Governs
+// every caller of foldPortVisitsAsync (computePortDwellAsync, the timed diag
+// variant, entityGraph's calls_at builder) — they share one partial cache
+// per (archive dir, ports) so the second caller's closed hours are free.
+export const PORTDWELL_FOLD_ENV = "VOLTRADE_PORTDWELL_FOLD";
+const portFoldRegistry = new PartialCacheRegistry<PortDwellPartial>();
+const portFoldStats = new FoldStatsTracker();
+
+/** Cheap snapshot for the /api/health diagnostic. */
+export function portDwellFoldStats(): FoldStats { return portFoldStats.snapshot(); }
+export function _resetPortDwellFoldForTests(): void { portFoldRegistry.clear(); portFoldStats.reset(); }
+/** Partials depend on the geofences and the visit filters, so they key the cache. */
+function portFoldCacheKey(baseDir: string | undefined, ports: PortDef[]): string {
+  return `${path.join(baseDir || archiveBaseDir(), "vessels")}|ports=${JSON.stringify(ports)}|params=${JSON.stringify(DEFAULT_VISIT_PARAMS)}`;
+}
+/** The live cache for one archive dir + port set — tests poison it to prove
+ *  the shadow compare catches a wrong incremental result. */
+export function _portDwellFoldCacheForTests(baseDir: string | undefined, ports: PortDef[]) {
+  return portFoldRegistry.forKey(portFoldCacheKey(baseDir, ports));
+}
+
 export async function foldPortVisitsAsync(ports: PortDef[], windowHours = 168,
                                           baseDir?: string, nowMs?: number):
     Promise<{ visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number; pointsScanned: number }> {
   const now = nowMs ?? Date.now();
   const nowSec = Math.floor(now / 1000);
-  const detectors = new Map<string, VisitDetector>();
-  let pointsScanned = 0;
-  await foldVesselArchiveAsync(windowHours, (mmsi, p) => {
-    pointsScanned++;
-    let d = detectors.get(mmsi);
-    if (!d) { d = new VisitDetector(mmsi, ports, nowSec); detectors.set(mmsi, d); }
-    d.push(p);
-  }, baseDir, now);
-  const visitsByPort = new Map<string, PortVisit[]>();
-  for (const p of ports) visitsByPort.set(p.id, []);
-  detectors.forEach((d) => {
-    for (const v of d.finish()) visitsByPort.get(v.portId)?.push(v);
+  const mode = readFoldMode(PORTDWELL_FOLD_ENV);
+  if (mode === "full") {
+    const t0 = performance.now();
+    const state = new PortFoldState(ports, nowSec);
+    await foldVesselArchiveAsync(windowHours, (mmsi, p) => state.push(mmsi, p), baseDir, now);
+    const r = state.finish();
+    portFoldStats.update({ mode, lastFullMs: Math.round(performance.now() - t0), lastRunAt: new Date().toISOString(), ...portFoldRegistry.totals() });
+    return r;
+  }
+  const cache = portFoldRegistry.forKey(portFoldCacheKey(baseDir, ports));
+  return runIncrementalFold<PortFoldState, PortDwellPartial, ReturnType<PortFoldState["finish"]>>({
+    stream: "portdwell", mode, windowHours, baseDir, nowMs: now, cache, stats: portFoldStats,
+    registryTotals: () => portFoldRegistry.totals(),
+    newState: () => new PortFoldState(ports, nowSec),
+    push: (state, mmsi, p: VesselPt) => state.push(mmsi, p),
+    newBuilder: (file, interner) => {
+      const b = new PortFoldState(ports, nowSec, DEFAULT_VISIT_PARAMS, true);
+      return { push: (mmsi, p) => b.push(mmsi, p), finish: () => b.exportPartial(file.stampSec, interner) };
+    },
+    absorb: (state, partial, interner) => state.absorbPartial(partial, interner),
+    finish: (state) => state.finish(),
   });
-  return { visitsByPort, vesselsSeen: detectors.size, pointsScanned };
 }
 
 /** Async variant — the only one routes may use. Online fold, bounded
