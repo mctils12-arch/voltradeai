@@ -77,6 +77,20 @@ SOCKET_PATH = os.environ.get("VOLTRADE_DAEMON_SOCKET", "/tmp/voltrade_daemon.soc
 MAX_RSS_MB = int(os.environ.get("VOLTRADE_DAEMON_MAX_RSS_MB", "1024"))  # 1 GB
 REQUEST_TIMEOUT_SEC = 300  # DAEMON-TIMEOUT 2026-04-23: was 60s, too tight for full scan. scan_market can legitimately take 90-180s on 11,400 tickers.
 
+
+def _effective_join_sec(timeout_sec):
+    """How long RPCHandler waits on a dispatch thread (A6, 2026-11-03): the
+    client's own positive numeric deadline when the request carries one
+    (`timeout_sec`, which server/bot.ts's pythonRpc now sends), capped at
+    REQUEST_TIMEOUT_SEC; REQUEST_TIMEOUT_SEC for a request without one (every
+    pre-A6 caller) or with a non-numeric, bool, NaN, zero or negative value.
+    Never raises."""
+    if isinstance(timeout_sec, bool) or not isinstance(timeout_sec, (int, float)):
+        return REQUEST_TIMEOUT_SEC
+    if not timeout_sec > 0:  # also False for NaN
+        return REQUEST_TIMEOUT_SEC
+    return min(float(timeout_sec), float(REQUEST_TIMEOUT_SEC))
+
 # Cap in-flight RPC dispatches. Each handler spawns its own worker thread for
 # timeout enforcement, and heavy methods (run_full_scan) internally spawn their
 # own thread pools. Without a cap the daemon can hit the container's thread
@@ -342,6 +356,20 @@ class RPCDispatcher:
             # previously pointed at non-existent "main_scan" which made
             # every daemon-routed scan return "Method main_scan not found"
             "run_full_scan": ("bot_engine", "scan_market"),
+            # A6 (2026-11-03, memory audit; server/daemonRouting.ts): Tier 1's
+            # 45 s stop-state sync. scan_market's step 7 already runs this very
+            # function in this process every Tier-2 cycle, so routing Tier 1
+            # here retires a full bot_engine import per cycle. bot.ts keeps its
+            # python3 -c one-liner as the fallback for when this daemon never
+            # ran the call (socket down / busy / route missing) — never after a
+            # timeout: a dispatch thread cannot be killed, and a second
+            # concurrent manage_positions() would race it on stop_state.json.
+            "manage_positions": ("bot_engine", "manage_positions"),
+            # A6: the per-candidate research call — exactly what
+            # `python3 analyze.py <SYMBOL> --mode=scan` prints (analyze_ticker ->
+            # _clean_nan) as a dict. args {"symbol": "AAPL"}; that CLI is the
+            # bot.ts fallback under the same never-after-a-timeout rule.
+            "analyze_ticker": ("analyze", "analyze_ticker_rpc"),
 
             # Look-up (2026-10-22, human-asked): what the bot thinks of ONE
             # symbol right now through the scan's own path — lookup_ticker.py.
@@ -671,10 +699,21 @@ class RPCHandler(socketserver.StreamRequestHandler):
                         result_holder["done"] = True
                         _dec_active_dispatch(dispatch_id)
 
+                # A6 (2026-11-03): wait no longer than the client itself will.
+                # server/bot.ts's pythonRpc sends its per-call deadline as
+                # timeout_sec; past it the client has already given up, so
+                # waiting on (and holding an _inflight_sem slot for) the full
+                # REQUEST_TIMEOUT_SEC only lets a run of abandoned 30 s research
+                # calls pin slots that a Tier-1 manage_positions call then
+                # queues behind. The dispatch thread still runs to completion
+                # either way (it cannot be killed) and _active_dispatch_* still
+                # counts it; only how long this handler waits changes. A
+                # request without timeout_sec waits REQUEST_TIMEOUT_SEC as before.
+                join_sec = _effective_join_sec(request.get("timeout_sec"))
                 try:
                     t = threading.Thread(target=_run, daemon=True)
                     t.start()
-                    t.join(REQUEST_TIMEOUT_SEC)  # DAEMON-TIMEOUT 2026-04-23
+                    t.join(join_sec)  # DAEMON-TIMEOUT 2026-04-23; A6: the client's deadline when it sent one
                 except RuntimeError as thread_err:
                     # "can't start new thread" — return a structured error so
                     # the client can back off rather than loop.
@@ -692,7 +731,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                 if not result_holder["done"]:
                     response = {
                         "status": "error",
-                        "error_message": f"Request timed out after {REQUEST_TIMEOUT_SEC}s",
+                        "error_message": f"Request timed out after {join_sec:g}s",
                     }
                 else:
                     response = result_holder["response"]
