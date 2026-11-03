@@ -6,7 +6,7 @@
  * (routes.ts caches, aircraftTrips bloom, airportsIndex, the dedup sets).
  */
 import { registerHeapGauge } from "./heapDiag";
-import { latestDtcc } from "./dtccSwaps";
+import { latestDtcc, dtccIdsStats } from "./dtccSwaps";
 import { cachedGraphSync } from "./entityGraph";
 import { analyticsSnapshot } from "./requestLog";
 
@@ -18,9 +18,25 @@ export function registerBuiltinHeapGauges(): void {
   // DTCC swaps: the in-memory dedup Set is the single largest retained
   // structure (A1 moves it to disk; this gauge is how A1's win is measured).
   registerHeapGauge("dtcc.seenIds", () => {
+    // A1 (2026-11-03): the Set may no longer exist (sqlite mode) — report the
+    // store's own view: mode, Set size (null = not built = the heap win),
+    // DB count, dual-run mismatches, backfill state, last lookup latency.
+    const st = dtccIdsStats();
     const d = latestDtcc();
-    const entries = d ? d.totalArchived : 0;
-    return { entries, bytes: entries * DTCC_SEEN_ID_BYTES_EST, estimate: "entries*72B" };
+    const entries = st.memoryCount ?? 0;
+    return {
+      entries,
+      bytes: entries * DTCC_SEEN_ID_BYTES_EST,
+      estimate: "memoryCount*72B",
+      mode: st.mode,
+      memoryCount: st.memoryCount,
+      dbCount: st.dbCount,
+      totalArchived: d ? d.totalArchived : null,
+      mismatches: st.mismatches,
+      lastLookupMs: st.lastLookupMs == null ? null : Math.round(st.lastLookupMs * 10) / 10,
+      backfill: st.backfill ? st.backfill.state : null,
+      dbBytes: st.dbBytes,
+    };
   });
   registerHeapGauge("entityGraph.graphCache", () => {
     const g = cachedGraphSync();
