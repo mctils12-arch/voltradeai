@@ -16,8 +16,16 @@
 // CPU: libvips via sharp, which runs on libuv's thread pool — the event loop
 // is never blocked (a pure-JS JPEG path measured ~200 ms per overview tile
 // ON the main thread, the exact stall class the 2026-10-02 audit flagged).
+//
+// LOADING (A7, 2026-11-03): sharp is required on FIRST USE through
+// lazyAssets.getSharp(), not at import — the static import loaded libvips
+// (~30–60MB RSS) into every boot although only these chart-tile helpers use
+// it. Outputs are byte-identical (same library, same calls); a missing or
+// broken native module surfaces as the loader's own error on the request
+// that needed it instead of at boot. VOLTRADE_LAZY_ASSETS=0 preloads it.
 
-import sharp from "sharp";
+import type SharpLib from "sharp";
+import { getSharp } from "./lazyAssets";
 
 export const TILE_PX = 256;
 const HALF = TILE_PX / 2;
@@ -47,6 +55,7 @@ export function childTiles(z: number, x: number, y: number): Array<{ z: number; 
  *  through). Null when nothing is visible at all — callers cache that as a
  *  cheap "no chart here" marker. */
 async function encodeRaw(raw: Buffer, w: number, h: number): Promise<EncodedTile | null> {
+  const sharp = await getSharp();
   const img = () => sharp(raw, { raw: { width: w, height: h, channels: 4 } });
   const st = await img().stats();
   const alpha = st.channels[3];
@@ -62,7 +71,8 @@ async function encodeRaw(raw: Buffer, w: number, h: number): Promise<EncodedTile
  *  darken the chart. A child that fails to decode is treated as absent. */
 export async function composeOverview(children: ReadonlyArray<Buffer | null>): Promise<EncodedTile | null> {
   if (children.length !== 4) throw new Error("composeOverview needs exactly 4 children");
-  const layers: sharp.OverlayOptions[] = [];
+  const sharp = await getSharp();
+  const layers: SharpLib.OverlayOptions[] = [];
   for (let q = 0; q < 4; q++) {
     const c = children[q];
     if (!c || c.length === 0) continue;
@@ -94,6 +104,7 @@ export function upscaleQuadrant(parent: Buffer, qx: 0 | 1, qy: 0 | 1): Promise<E
  *  Null when there is nothing to fill: the tile is already fully opaque, or
  *  the parent quarter is empty too. */
 export async function fillUnder(tile: Buffer | null, parent: Buffer, qx: 0 | 1, qy: 0 | 1): Promise<EncodedTile | null> {
+  const sharp = await getSharp();
   if (tile && tile.length) {
     try {
       if ((await sharp(tile).stats()).isOpaque) return null;

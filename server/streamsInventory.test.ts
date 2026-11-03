@@ -183,9 +183,9 @@ test("bundled git-versioned snapshot streams age from their embedded build time,
   assert.equal(by.nosnap.files, 0);
 });
 
-test("SNAPSHOT_STREAMS stamps are real ISO times for every registered stream", async () => {
-  const { SNAPSHOT_STREAMS } = await import("./snapshotStreams");
-  for (const [k, v] of Object.entries(SNAPSHOT_STREAMS)) {
+test("snapshotStreams() stamps are real ISO times for every registered stream", async () => {
+  const { snapshotStreams } = await import("./snapshotStreams");
+  for (const [k, v] of Object.entries(snapshotStreams())) {
     assert.ok(v.built && !Number.isNaN(Date.parse(v.built)), `${k} has no embedded build time`);
     assert.ok(fs.existsSync(path.resolve(process.cwd(), v.artifact)), `${k} artifact path ${v.artifact} missing`);
   }

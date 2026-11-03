@@ -25,7 +25,7 @@
  * country-level rank-correlation gate-1 test; NOT precise enough for a
  * parcel/facility-level claim.
  */
-import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
+import { LAZY_TABLES } from "./lazyAssets"; // ne_110m_admin0.json: 254KB, read on first use (A7)
 import { pointInAnyRing, ringsBbox, type Ring } from "./plantsUnderAlerts";
 
 interface CountryEntry {
@@ -54,7 +54,7 @@ let COUNTRIES: CountryEntry[] | null = null;
 
 function loadCountries(): CountryEntry[] {
   if (COUNTRIES) return COUNTRIES;
-  const fc = datacoreBoundaries as unknown as {
+  const fc = LAZY_TABLES.boundariesAdmin0.get() as {
     features: Array<{ properties: { name: string; iso3: string }; geometry: GeoJSONPolygon | GeoJSONMultiPolygon }>;
   };
   const out: CountryEntry[] = [];

@@ -29,7 +29,7 @@ import {
   validateRecord, coordValid, partitionValid, freshnessStatus, layerHealth,
   type LayerHealth, type QualityIssue,
 } from "./dataQuality";
-import pfasJson from "../datacore/pfas/ucmr5_detections.json";
+import { LAZY_TABLES } from "./lazyAssets"; // ucmr5_detections.json: 2.3MB, read on first use (A7)
 
 export interface PfasDetection {
   contaminant: string;
@@ -97,10 +97,18 @@ export function parsePfasArtifact(artifact: Pick<PfasArtifact, "systems">): { sy
   return { systems, suspect: part.suspect.length };
 }
 
-const raw = pfasJson as unknown as PfasArtifact;
 const FRESH_BUDGET_MS = 120 * 86400_000; // EPA republishes roughly quarterly; generous budget before "stale"
 
-const cached = (() => {
+// [A7 2026-11-03] The 2.3MB UCMR5 artifact is a LAZY table: read from the
+// staged dist/datacore copy and parsed on the first request that needs it
+// (/api/data/pfas, the dossier), not inlined into dist/index.cjs and held
+// from boot. Parsed + validated once per process, exactly as the former
+// module-scope IIFE did — only the moment moves from boot to first use.
+let cached: { raw: PfasArtifact; systems: PfasSystem[]; health: LayerHealth } | null = null;
+
+function pfasState(): { raw: PfasArtifact; systems: PfasSystem[]; health: LayerHealth } {
+  if (cached) return cached;
+  const raw = LAZY_TABLES.pfasUcmr5.get() as PfasArtifact;
   const part = partitionValid(raw.systems || [], (r) => systemFromRecord(r).issues);
   const systems = part.clean.map((r) => systemFromRecord(r).system!).filter(Boolean);
   const builtAtMs = Date.parse(raw.built_at);
@@ -110,9 +118,11 @@ const cached = (() => {
     freshnessStatus(Number.isFinite(builtAtMs) ? builtAtMs : null, FRESH_BUDGET_MS, Date.now()),
     raw.built_at,
   );
-  return { systems, health };
-})();
+  cached = { raw, systems, health };
+  return cached;
+}
 
 export function latestPfas(): { systems: PfasSystem[]; health: LayerHealth; meta: PfasArtifact } {
-  return { systems: cached.systems, health: cached.health, meta: raw };
+  const s = pfasState();
+  return { systems: s.systems, health: s.health, meta: s.raw };
 }

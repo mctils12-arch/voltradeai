@@ -45,8 +45,7 @@ import {
   coordValid, partitionValid, freshnessStatus, layerHealth,
   type LayerHealth, type QualityIssue,
 } from "./dataQuality";
-import countyRatesJson from "../datacore/cdc_cancer/county_rates.json";
-import countiesTopoJson from "../datacore/cdc_cancer/counties-10m.topo.json";
+import { LAZY_TABLES } from "./lazyAssets"; // county_rates.json (1.4MB) + counties-10m.topo.json (0.8MB): read on first use (A7)
 import { registerHeapGauge } from "./heapDiag";
 
 export interface CountyRate {
@@ -173,30 +172,48 @@ export function joinGeometryAndRates(geo: GeoJSON.FeatureCollection, counties: C
   };
 }
 
-const rawArtifact = countyRatesJson as unknown as CountyRatesArtifact;
 const FRESH_BUDGET_MS = 400 * 86400_000; // NCI publishes multi-year windows on an irregular, slow cadence
 
-const cached = (() => {
-  const { counties, suspect } = parseCountyRates(rawArtifact);
-  const geo = joinGeometryAndRates(countyGeometry(countiesTopoJson as any), counties);
-  const builtAtMs = Date.parse(rawArtifact.built_at);
+// [A7 2026-11-03] Both committed artifacts (county rates 1.4MB, county
+// TopoJSON 0.8MB) are LAZY tables: read from the staged dist/datacore copy
+// and parsed on the first request that needs them (/api/data/cancer-rates,
+// the dossier's county lookup), not inlined into dist/index.cjs and held
+// from boot. Parsed, validated and geometry-joined once per process, exactly
+// as the former module-scope IIFE did — only the moment moves to first use.
+interface CancerState {
+  raw: CountyRatesArtifact;
+  counties: CountyRate[];
+  byFips: Map<string, CountyRate>;
+  geo: GeoJSON.FeatureCollection;
+  health: LayerHealth;
+}
+let cached: CancerState | null = null;
+
+function cancerState(): CancerState {
+  if (cached) return cached;
+  const raw = LAZY_TABLES.cdcCountyRates.get() as CountyRatesArtifact;
+  const { counties, suspect } = parseCountyRates(raw);
+  const geo = joinGeometryAndRates(countyGeometry(LAZY_TABLES.cdcCountiesTopo.get() as any), counties);
+  const builtAtMs = Date.parse(raw.built_at);
   const health = layerHealth(
-    rawArtifact.attribution,
+    raw.attribution,
     { clean: counties, suspect: Array(suspect).fill(null) as any },
     freshnessStatus(Number.isFinite(builtAtMs) ? builtAtMs : null, FRESH_BUDGET_MS, Date.now()),
-    rawArtifact.built_at,
+    raw.built_at,
   );
   const byFips = new Map(counties.map((c) => [c.fips, c]));
-  return { counties, byFips, geo, health };
-})();
+  cached = { raw, counties, byFips, geo, health };
+  return cached;
+}
 
 export function latestCancerRates(): { counties: CountyRate[]; geo: GeoJSON.FeatureCollection; health: LayerHealth; meta: CountyRatesArtifact } {
-  return { counties: cached.counties, geo: cached.geo, health: cached.health, meta: rawArtifact };
+  const s = cancerState();
+  return { counties: s.counties, geo: s.geo, health: s.health, meta: s.raw };
 }
 
 export function cancerRateFor(fips: string | null): CountyRate | null {
   if (!fips) return null;
-  return cached.byFips.get(fips) ?? null;
+  return cancerState().byFips.get(fips) ?? null;
 }
 
 // ── point -> county FIPS lookup (FCC Census Block API, free, no key) ────

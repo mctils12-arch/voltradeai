@@ -40,7 +40,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
 import { gridDemandEnabled, RESPONDENTS } from "./gridDemand";
-import degreeDaysJson from "../datacore/cpc/degree_days.json";
+import { LAZY_TABLES } from "./lazyAssets"; // cpc/degree_days.json: 1.0MB, read on first use (A7)
 
 const RESPONDENT = "ERCO"; // the one region with a per-region weather join (TX CPC degree days)
 const MIN_SAMPLE_DAYS = 5; // below this, a same-month percentile is honestly withheld, not guessed
@@ -137,7 +137,7 @@ export async function foldErcoDailyAsync(baseDir?: string): Promise<Map<string, 
 }
 
 /** TX HDD+CDD per date from the committed CPC archive (2016-01-01+). */
-export function loadTxDegreeDays(json: any = degreeDaysJson): Map<string, number> {
+export function loadTxDegreeDays(json: any = LAZY_TABLES.cpcDegreeDays.get()): Map<string, number> {
   const out = new Map<string, number>();
   const axes = json?.axes || {};
   const series = json?.series || {};

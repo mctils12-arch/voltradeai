@@ -55,7 +55,7 @@
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
 import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
-import admin0Json from "../datacore/boundaries/ne_110m_admin0.json";
+import { LAZY_TABLES } from "./lazyAssets"; // ne_110m_admin0.json: 254KB, read on first use (A7)
 
 export interface CountryBalance {
   country: string;
@@ -234,7 +234,7 @@ export interface SteelRawMaterialsGeo {
 function joinCachedBalancesToAdmin0(): SteelRawMaterialsGeo | null {
   const balances = cachedGemSteelRawMaterials();
   if (!balances) return null;
-  const geo = joinCountryChoropleth(admin0Json as unknown as Admin0Collection, balances.balances);
+  const geo = joinCountryChoropleth(LAZY_TABLES.boundariesAdmin0.get() as Admin0Collection, balances.balances);
   const matched = geo.features.filter((f) => (f.properties as any)?.has_data).length;
   return { geo, matched, unmatched: geo.features.length - matched };
 }
@@ -245,9 +245,10 @@ const cachedGeo = lazyDataset<SteelRawMaterialsGeo | null>("gemSteelRawMaterials
 
 /** Cached join of the balance sheet onto admin0 geometry. Returns null
  *  only when the underlying balance-sheet artifact itself failed to load
- *  (matches cachedGemSteelRawMaterials's own degrade contract) — the
- *  admin0 boundary file is a static import, not a runtime read, so it
- *  cannot independently fail at serve time. */
+ *  (matches cachedGemSteelRawMaterials's own degrade contract). The admin0
+ *  boundary file is a lazy table (A7: staged into dist/datacore, read on
+ *  first use); a missing/corrupt copy THROWS here naming the path — a
+ *  packaging defect must surface, never degrade to an empty map. */
 export function cachedSteelRawMaterialsGeoJSON(): SteelRawMaterialsGeo | null {
   return cachedGeo.get();
 }

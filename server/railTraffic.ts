@@ -24,7 +24,7 @@
  * — this view is RAW, self-reported carload counts only, no predictive
  * claim.
  */
-import railArchive from "../datacore/rail/ep724_carloads.json";
+import { LAZY_TABLES } from "./lazyAssets"; // ep724_carloads.json: 0.9MB, read on first use (A7)
 
 export const RAIL_TRAFFIC_GATE_NOTE =
   "GATE 1 (data) PASSED 2026-09-27 — our 7-Class-I-railroad system sum " +
@@ -93,7 +93,7 @@ function parseKey(key: string): { railroad: string; measure: string; variable: s
  *  convention unComtradeView/jodiOilStocksView already use for a
  *  government source that reports on its own irregular schedule). */
 export function railTrafficView(
-  doc: RailArchiveFile = railArchive as unknown as RailArchiveFile,
+  doc: RailArchiveFile = LAZY_TABLES.railEp724.get() as RailArchiveFile,
 ): RailTrafficView {
   const weeks = doc.weeks;
   const latestIdx = weeks.length - 1;

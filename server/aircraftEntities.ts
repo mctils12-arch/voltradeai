@@ -27,11 +27,16 @@ import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir } from "./datacoreArchive";
 // [REPAIR 2026-07-05] The runtime Docker image copies dist/ but NOT
-// datacore/ (frozen Dockerfile) — a runtime disk read of the artifact
-// returned null on Railway forever while working locally. Static import
-// bundles it into dist like every other datacore JSON (layers, sites,
-// powerplants). The fp-based disk path below remains for tests only.
-import bundledSpine from "../datacore/aircraft/entity_spine.json";
+// datacore/ (frozen Dockerfile) — a bare cwd-relative disk read of the
+// artifact returned null on Railway forever while working locally, so the
+// artifact was bundled by static import. [A7 2026-11-03] At 3.9MB it was
+// the largest thing in dist/index.cjs, parsed and held from boot; it is now
+// a LAZY table (server/lazyAssets.ts): script/build.ts stages it into
+// dist/datacore/, lazyAssets resolves that copy (cwd-independent, via the
+// bundle's own directory) and parses it on first use. The chdir ratchet in
+// aircraftEntities.test.ts still pins "serves with no datacore/ under cwd".
+// The fp-based disk path below remains for tests only.
+import { LAZY_TABLES } from "./lazyAssets";
 
 export interface HexSummary {
   i: string;            // icao24 (lowercase hex)
@@ -134,9 +139,18 @@ let spine: Record<string, SpineRecord> | null | undefined;
 export function loadEntitySpine(fp?: string): Record<string, SpineRecord> | null {
   if (spine !== undefined) return spine;
   if (fp === undefined) {
-    // production path: the bundled artifact (see import note above)
-    const doc = bundledSpine as any;
-    spine = doc?.entities && typeof doc.entities === "object" ? doc.entities : null;
+    // production path: the staged artifact, read on first use (see import
+    // note above). A missing/corrupt staged file degrades to spine: null on
+    // every hex — the module's documented contract — but LOUDLY: lazyAssets
+    // names the path it failed on, and silence is how the 2026-07-05 break
+    // went unnoticed.
+    try {
+      const doc = LAZY_TABLES.entitySpine.get() as any;
+      spine = doc?.entities && typeof doc.entities === "object" ? doc.entities : null;
+    } catch (e: unknown) {
+      console.error(`[aircraftEntities] entity spine unavailable — every hex resolves to null: ${e instanceof Error ? e.message : String(e)}`);
+      spine = null;
+    }
     return spine ?? null;
   }
   try {

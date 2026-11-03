@@ -105,8 +105,11 @@ test("powerplantTable: a bare array passes through; an unusable shape yields []"
 
 test("neither cross-tie route casts the powerplant module straight to an array", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  assert.ok(!/datacorePowerplants as unknown as PlantTuple\[\]/.test(routes),
-    "the JSON module is a {plants:[...]} wrapper — cast it and the route 500s at runtime; use powerplantTable()");
-  assert.equal((routes.match(/powerplantTable\(datacorePowerplants\)/g) || []).length, 2,
+  // [A7 2026-11-03] the table is read through LAZY_TABLES.usPowerPlants.get()
+  // now (server/lazyAssets.ts) instead of the static import — same
+  // {plants:[...]} wrapper, same rule: never cast it to an array.
+  assert.ok(!/(datacorePowerplants|usPowerPlants\.get\(\)) as unknown as PlantTuple\[\]/.test(routes),
+    "the JSON table is a {plants:[...]} wrapper — cast it and the route 500s at runtime; use powerplantTable()");
+  assert.equal((routes.match(/powerplantTable\(LAZY_TABLES\.usPowerPlants\.get\(\)\)/g) || []).length, 2,
     "both plants-* cross-tie routes must read the table through powerplantTable()");
 });
